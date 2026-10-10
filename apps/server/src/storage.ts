@@ -32,6 +32,23 @@ export async function sourceOf(storage: Storage, key: string): Promise<string | 
   return storage.localPath?.(key) ?? (await storage.get(key));
 }
 
+/**
+ * A rename over a file. On Windows two at once onto the same name (the same frame asked twice, two tabs measuring one
+ * video), or one while the file is being read, can find the target held for a moment and fail with EPERM, EACCES or
+ * EBUSY: tried again a few times, shortly after, as the other is done by then.
+ */
+export async function renameOver(from: string, to: string): Promise<void> {
+  for (let tries = 0; ; tries++) {
+    try {
+      return await rename(from, to);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (tries >= 8 || (code !== "EPERM" && code !== "EACCES" && code !== "EBUSY")) throw err;
+      await new Promise((r) => setTimeout(r, 10 * 2 ** Math.min(tries, 5)));
+    }
+  }
+}
+
 export class LocalStorage implements Storage {
   private readonly root: string;
 
@@ -66,7 +83,7 @@ export class LocalStorage implements Storage {
     const tmp = `${p}.${randomBytes(4).toString("hex")}.part`;
     try {
       await write(tmp);
-      await rename(tmp, p);
+      await renameOver(tmp, p);
     } catch (err) {
       await rm(tmp, { force: true }).catch(() => {});
       throw err;

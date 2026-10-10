@@ -73,19 +73,23 @@ export class TimelinePlan {
   async planClips(timelineId: string, recipe: string, texts: Array<Record<string, string>>): Promise<string[]> {
     if (!this.core.registry.recipe(recipe)) throw httpError(`there is no model or operation called ${recipe}`);
     await this.core.row(timelineId);
-    const all = await this.core.placed(timelineId);
-    const made: NewClip[] = [];
-    for (const k of texts.keys()) made.push(await this.newClip(all, all.length + k, { recipe }));
-    await this.core.remember(timelineId, texts.length > 1 ? "the clips planned" : "the clip added");
-    const ids = await this.core.db.transaction().execute(async (tx) => {
-      const order: Array<Pick<Placed, "clip">> = [...all];
-      const out: string[] = [];
-      for (const [k, text] of texts.entries()) {
-        const id = await this.insertClip(timelineId, order, order.length, { ...made[k]!, inputs: { ...made[k]!.inputs, ...text } }, tx);
-        order.push({ clip: { id } as ClipRow });
-        out.push(id);
-      }
-      return out;
+    // in the timeline's turn, from the reading of its clips to the writing of the new ones: a clip added meanwhile took a
+    // place one of them was given too
+    const ids = await this.core.oneAtATime(timelineId, async () => {
+      const all = await this.core.placed(timelineId);
+      const made: NewClip[] = [];
+      for (const k of texts.keys()) made.push(await this.newClip(all, all.length + k, { recipe }));
+      await this.core.remember(timelineId, texts.length > 1 ? "the clips planned" : "the clip added");
+      return this.core.db.transaction().execute(async (tx) => {
+        const order: Array<Pick<Placed, "clip">> = [...all];
+        const out: string[] = [];
+        for (const [k, text] of texts.entries()) {
+          const id = await this.insertClip(timelineId, order, order.length, { ...made[k]!, inputs: { ...made[k]!.inputs, ...text } }, tx);
+          order.push({ clip: { id } as ClipRow });
+          out.push(id);
+        }
+        return out;
+      });
     });
     await this.core.touch(timelineId);
     return ids;

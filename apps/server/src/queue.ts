@@ -679,6 +679,9 @@ ${JSON.stringify(input)}`;
         this.events.emit("progress");
         saving.check();
       };
+      // steps ComfyUI reported before this was listening (the prompt is followed from before it is sent, and the writes
+      // since then let its first progress in) are saved now, not at the next step
+      saving.check();
       let outputs;
       try {
         outputs = await waitForOutputs(comfy.client, resume.promptId, { ...this.opts.wait, signal: abort.signal });
@@ -688,6 +691,9 @@ ${JSON.stringify(input)}`;
         // a save under way lands before the job is closed or queued again, never over what that writes
         await saving.settled();
       }
+      // ComfyUI is done with it: its model is no longer in use, and freeing the memory is no longer refused (this.running
+      // stays until the job is closed, for a cancel and the queue screen)
+      this.running.gpu = false;
       const tookMs = Date.now() - resume.startedAt;
       if (row.warm) {
         // the models are loaded, which is all that was asked
@@ -697,8 +703,9 @@ ${JSON.stringify(input)}`;
       const generationId = await storing.store(this.core, comfy, recipe, resume.input ?? input, resume, outputs, row);
       made = generationId;
       await this.place(row, generationId, resume);
-      await this.finish(row.id, "done", { generationId });
+      // on record before the job says done: a screen told it is done reads its time with it (the forecast, the stats)
       await this.note(row, recipe, resume, measured, "done", whole, tookMs, generationId);
+      await this.finish(row.id, "done", { generationId });
       this.events.emit("library", await addedBy(this.db, generationId));
     } catch (err) {
       await this.failed(err as Error, row, recipe, { resume, held, measured, made, whole, attempts, aborted: abort.signal.aborted });
@@ -756,8 +763,9 @@ ${JSON.stringify(input)}`;
     if (this.stopped) {
       // shutting down: leave the row as it is, the next start picks it up
     } else if (err instanceof ComfyCancelled || at.aborted) {
-      await this.finish(row.id, "cancelled", { error: "stopped by you" });
+      // on record before the job says how it ended, as a render that is done
       if (onRecord) await this.note(row, recipe, resume, measured, "cancelled", whole, Date.now() - resume.startedAt);
+      await this.finish(row.id, "cancelled", { error: "stopped by you" });
     } else if ((err instanceof ComfyLost || err instanceof ComfyUnreachable) && Math.max(at.attempts, row.attempts + 1) < this.opts.maxAttempts) {
       console.warn(`[queue] job ${row.id} lost (${err.message}), queued again`);
       // ComfyUI may have the prompt all the same: one sent without an answer (it did not answer in time), and one it finished
@@ -769,8 +777,8 @@ ${JSON.stringify(input)}`;
       await this.db.updateTable("jobs").set({ status: "queued", resume: unsent, attempts: Math.max(at.attempts, row.attempts + 1), warning: null, updated_at: now() }).where("id", "=", row.id).where("status", "=", "running").execute();
       this.events.emit("queue");
     } else {
-      await this.failure(row, resume?.promptId ?? at.held?.promptId, err);
       if (onRecord) await this.note(row, recipe, resume, measured, "failed", whole, Date.now() - resume.startedAt);
+      await this.failure(row, resume?.promptId ?? at.held?.promptId, err);
     }
   }
 

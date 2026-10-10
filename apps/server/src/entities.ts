@@ -2,6 +2,7 @@ import { LIMITS, type InputSpec, type LoraValue, type Recipe, type ReferenceRole
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { httpError } from "./errors";
+import { oneAtATime } from "./keyedLock";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { presetFileSchema, provenanceSchema, SHIPPED } from "./presetFiles";
 import type { Services } from "./services";
@@ -274,7 +275,8 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
 
 /**
  * A person, place, style or snippet deleted: taken out of every draft's, timeline's and clip's look, so it
- * neither lingers unseen nor counts toward the cast. Jobs keep theirs: that is what was sent.
+ * neither lingers unseen nor counts toward the cast. Jobs keep theirs: that is what was sent. Each look is written
+ * only as it was read: one changed in between (a save, another deletion) is read again, or the change was undone.
  */
 async function dropFromLooks(db: Db, id: string): Promise<{ drafts: number; timelines: number }> {
   let drafts = 0;
@@ -282,15 +284,22 @@ async function dropFromLooks(db: Db, id: string): Promise<{ drafts: number; time
   for (const table of ["drafts", "timelines", "clips"] as const) {
     // ids are quoted in the JSON: a rough match first, the look itself decides
     const rows = await db.selectFrom(table).select(["id", "look"]).where("look", "like", `%"${id}"%`).execute();
-    for (const r of rows) {
-      const look = lookSchema.safeParse(JSON.parse(r.look!));
-      if (!look.success) continue;
-      const l = look.data;
-      const next: Look = { ...l, cast: l.cast.filter((c) => c.id !== id), style: l.style === id ? null : l.style, snippets: l.snippets.filter((x) => x !== id) };
-      if (JSON.stringify(next) === JSON.stringify(l)) continue;
-      await db.updateTable(table).set({ look: JSON.stringify(next) }).where("id", "=", r.id).execute();
-      if (table === "drafts") drafts++;
-      else timelines++;
+    for (const row of rows) {
+      let r: { id: string; look: string | null } | undefined = row;
+      for (let tries = 0; r?.look && tries < 5; tries++) {
+        const look = lookSchema.safeParse(JSON.parse(r.look));
+        if (!look.success) break;
+        const l = look.data;
+        const next: Look = { ...l, cast: l.cast.filter((c) => c.id !== id), style: l.style === id ? null : l.style, snippets: l.snippets.filter((x) => x !== id) };
+        if (JSON.stringify(next) === JSON.stringify(l)) break;
+        const done = await db.updateTable(table).set({ look: JSON.stringify(next) }).where("id", "=", r.id).where("look", "=", r.look).executeTakeFirst();
+        if (Number(done.numUpdatedRows)) {
+          if (table === "drafts") drafts++;
+          else timelines++;
+          break;
+        }
+        r = await db.selectFrom(table).select(["id", "look"]).where("id", "=", r.id).executeTakeFirst();
+      }
     }
   }
   // the drafts not written yet (a tab's blank "New draft" with someone picked): held in memory only
@@ -315,7 +324,13 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
     return { items };
   });
 
-  app.post("/api/entities", async (req) => {
+  /**
+   * The kit is changed one change at a time: a person's pictures taken off go to the bin unless someone else names them,
+   * which is read across the whole kit, and a change saved from the row as read put back what another had changed meanwhile.
+   */
+  const inTurn = <T>(work: () => Promise<T>) => oneAtATime(s.db, "kit", work);
+
+  app.post("/api/entities", async (req) => inTurn(async () => {
     const b = body.parse(req.body);
     const def = defs[b.kind].parse(b.def ?? {});
     const at = now();
@@ -324,7 +339,7 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
     await keepTheirs(row.kind, row.def);
     changed();
     return view(row);
-  });
+  }));
 
   /** Their pictures and voices are wanted: they never go to the bin on their own. */
   const keepTheirs = async (kind: string, def: string) => {
@@ -336,7 +351,7 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
 
   const builtIn = () => httpError("a built-in preset cannot be changed: copy it to your presets first");
 
-  app.put<{ Params: { id: string } }>("/api/entities/:id", async (req) => {
+  app.put<{ Params: { id: string } }>("/api/entities/:id", async (req) => inTurn(async () => {
     if (req.params.id.startsWith(SHIPPED)) throw builtIn();
     const b = patch.parse(req.body);
     const row = await s.db.selectFrom("entities").selectAll().where("id", "=", req.params.id).executeTakeFirst();
@@ -348,9 +363,9 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
     if (b.def !== undefined) await keepTheirs(row.kind, next.def);
     changed();
     return view({ ...row, ...next });
-  });
+  }));
 
-  app.delete<{ Params: { id: string } }>("/api/entities/:id", async (req) => {
+  app.delete<{ Params: { id: string } }>("/api/entities/:id", async (req) => inTurn(async () => {
     if (req.params.id.startsWith(SHIPPED)) throw builtIn();
     const row = await s.db.selectFrom("entities").select("def").where("id", "=", req.params.id).executeTakeFirst();
     const r = await s.db.deleteFrom("entities").where("id", "=", req.params.id).executeTakeFirst();
@@ -361,7 +376,7 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
     changed();
     if (cut.timelines) s.queue.events.emit("timeline");
     return { ok: true };
-  });
+  }));
 
   /** What a form becomes once its cast and style are worked in: shown before it is sent. Nothing is queued. */
   app.post("/api/compose", async (req) => {

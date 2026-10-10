@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ComfyUnreachable } from "@afflatus/comfy";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { newId, now, OWNER } from "../src/db";
+import { FFMPEG_TIMEOUT } from "./clipKit";
 import { CHECKPOINT, complete, get, job, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
 /**
@@ -250,5 +251,7 @@ describe("what a video's measures are kept in", () => {
     const row = await t.db.selectFrom("assets").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
     const [a, b] = await Promise.all([t.services.timelines.media.frame(row, 500, true), t.services.timelines.media.frame(row, 500, true)]);
     expect(a.id).toBe(b.id);
-  });
+    // ffmpeg run a few times over: a few seconds alone, past the usual 30 s on a machine busy with other suites,
+    // as the other tests that run ffmpeg allow for
+  }, FFMPEG_TIMEOUT);
 });
