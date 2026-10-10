@@ -50,3 +50,7 @@ Without it the library and the designer work; trims, exports, joins, slow motion
 ## Running from the sources instead
 
 See [develop.md](develop.md). It needs Node 22.16 or newer and ffmpeg on the PATH.
+
+## Next
+
+[Configuration](configuration.md) for every setting and environment variable, [using Afflatus](guide.md) for a walk through the app, and [troubleshooting](troubleshooting.md) when something does not work.

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security problem
+    url: https://github.com/bardak971/afflatus/security/advisories/new
+    about: Report it privately, please.
+  - name: ComfyUI itself
+    url: https://github.com/Comfy-Org/ComfyUI/issues
+    about: A problem in ComfyUI, a node pack or a model, rather than in Afflatus.

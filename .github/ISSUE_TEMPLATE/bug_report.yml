@@ -1,0 +1,61 @@
+name: Bug report
+description: Something in Afflatus does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. A security problem goes through [private reporting](https://github.com/bardak971/afflatus/security/advisories/new), not here.
+        Before posting a screenshot or a log, check it for folder names, addresses and file names you would rather keep private.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Studio → Create → Krea 2 → …
+        2. …
+  - type: input
+    id: version
+    attributes:
+      label: Afflatus version
+      description: Settings → About.
+      placeholder: 0.3.0
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How it runs
+      options:
+        - Windows bundle
+        - Linux bundle
+        - macOS bundle
+        - Docker
+        - Kubernetes (Helm chart)
+        - From the sources
+    validations:
+      required: true
+  - type: input
+    id: comfy
+    attributes:
+      label: ComfyUI
+      description: Its version (Settings → ComfyUI → Test shows it), and whether it runs on the same machine.
+      placeholder: 0.3.x, same machine
+  - type: input
+    id: family
+    attributes:
+      label: Model family and form, if a render is involved
+      placeholder: MiniMax H3 · clip that carries on
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error messages or logs
+      description: The message on the form or in the queue (Queue → the failed job), and the console's last lines.
+      render: text

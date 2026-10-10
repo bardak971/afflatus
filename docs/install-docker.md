@@ -69,3 +69,7 @@ Settings → Storage → Back up now gives one zip of the database and every fil
 ## Health
 
 `GET /api/health` answers with the version, the database kind and the start-up checks; the image's own health check calls it.
+
+## Next
+
+[Configuration](configuration.md) for every setting and environment variable, [using Afflatus](guide.md) for a walk through the app, and [troubleshooting](troubleshooting.md) when something does not work.

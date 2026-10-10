@@ -90,3 +90,7 @@ A release is then a `targetRevision` bump: the chart at that tag runs the image 
 Everything is in the volume: `afflatus.db` and `files/`. Back it up as a volume, or from Settings → Storage → Back up now, one zip made while the app runs. Restoring is unpacking that zip into an empty volume with the pod stopped (`pnpm restore <zip> <folder>` does it and refuses a folder that is not empty). With Postgres, the zip holds `files/` only: back the database up with its own tools.
 
 No login: keep the service on your own network, or put your gateway's authentication in front of it.
+
+## Next
+
+[Configuration](configuration.md) for every setting and environment variable, [using Afflatus](guide.md) for a walk through the app, and [troubleshooting](troubleshooting.md) when something does not work.
