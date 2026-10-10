@@ -27,6 +27,11 @@ const rules = (selector: string, tokens: Tokens, extra = "") => `${selector}{${T
 
 /** The soft shadow under a card in a light theme, paper lifted off the page; a dark theme has none. */
 const CARD_SHADOW = "0 1px 2px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.05)";
+/**
+ * A loading placeholder in a light theme: a veil of the ink, which shows on the page and on a card alike. The
+ * `raised` it is in a dark theme is near white on the light themes' near white cards (1.05:1), so it vanished.
+ */
+const LIGHT_SKELETON = "color-mix(in srgb, var(--color-ink) 9%, transparent)";
 
 /**
  * Put a theme on the page: its tokens on the root, and on everything marked `data-stage` (where a
@@ -47,8 +52,8 @@ export function applyTheme(c: ThemeChoice): void {
     document.head.appendChild(style);
   }
   style.textContent = [
-    rules(":root", tokens, `--stage-pad:${theme.stage ? "12px" : "0px"};--shadow-card:${theme.light ? CARD_SHADOW : "none"};color-scheme:${theme.light ? "light" : "dark"};`),
-    rules("[data-stage]", onStage, `--shadow-card:none;color:${onStage.ink};color-scheme:dark;`),
+    rules(":root", tokens, `--stage-pad:${theme.stage ? "12px" : "0px"};--shadow-card:${theme.light ? CARD_SHADOW : "none"};--skeleton:${theme.light ? LIGHT_SKELETON : "var(--color-raised)"};--control-edge:var(--color-${theme.light ? "ink-3" : "line-strong"});color-scheme:${theme.light ? "light" : "dark"};`),
+    rules("[data-stage]", onStage, `--shadow-card:none;--skeleton:var(--color-raised);--control-edge:var(--color-line-strong);color:${onStage.ink};color-scheme:dark;`),
   ].join("\n");
   document.documentElement.dataset.theme = theme.id;
   document.querySelector('meta[name="color-scheme"]')?.setAttribute("content", theme.light ? "light" : "dark");

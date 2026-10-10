@@ -336,7 +336,9 @@ export function Checkbox({ checked, onChange, label, children, disabled, classNa
         aria-hidden
         className={cx(
           "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[6px] transition-colors",
-          on ? "bg-accent text-accent-ink" : "border-[1.5px] border-line-strong group-hover/check:border-ink-3",
+          // unticked, the edge is all there is of the box: it takes the theme's control edge (styles.css), which a light
+          // theme draws darker than its quiet lines
+          on ? "bg-accent text-accent-ink" : "border-[1.5px] border-(--control-edge) group-hover/check:border-ink-2",
         )}
       >
         {checked === true && <Check size={12} strokeWidth={3.5} />}
