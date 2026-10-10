@@ -7,6 +7,7 @@ import { compose, lookSchema, withMood } from "./entities";
 import { askedOf } from "./jobs-api";
 import { assetView } from "./media";
 import { rifeModelIn } from "./queue";
+import { inARow } from "./forecast";
 import { finishForecast } from "./queueTools";
 import { rootFolderOf } from "./projects";
 import { inUse } from "./sweep";
@@ -418,13 +419,16 @@ async function finishEstimate(s: Services, timeline: string, b: z.infer<typeof f
   const { plan } = await finishPlan(s, timeline, b);
   if (!plan.length) return null;
   const paces = new Map<string, Promise<number | null>>();
-  let ms = 0;
+  const parts: Array<{ ms: number; loadMs: number; model: string }> = [];
   for (const j of plan) {
-    const one = j.kind === "render" ? (await s.queue.forecast(j.recipe, j.input).catch(() => null))?.forecast.ms ?? null : await finishForecast(s.db, j.video, j.cut, paces);
+    // a render is forecast as its job will be built (on its draft, with what its clip joins onto); a finish on the GPU frees the model for the render after it
+    const got = j.kind === "render" ? await s.queue.forecast(j.recipe, j.input, { finishedFrom: j.opts?.finishedFrom, clip: j.opts?.clip }).catch(() => null) : null;
+    const one = j.kind === "render" ? got?.forecast.ms ?? null : await finishForecast(s.db, j.video, j.cut, paces);
     if (!one) return null;
-    ms += one;
+    parts.push({ ms: one, loadMs: got?.forecast.loadMs ?? 0, model: got?.model ?? "" });
   }
-  return ms;
+  // the model loads once for a run of renders with it, as the waiting list counts it: not once a clip
+  return inARow(parts);
 }
 
 /** The jobs a finish would queue, in order, and the clips skipped with why: nothing is queued here. */

@@ -105,7 +105,7 @@ async function rendersWaiting(core: QueueCore, rows: JobRow[]): Promise<Map<stri
     const model = modelOf(recipe.inputs, input);
     const cold = Boolean(model && held && !held.has(model));
     if (model) held = new Set([model]);
-    asked.push(core.expected(recipe, input, cold).then((ms) => [r.id, ms]));
+    asked.push(core.expected(recipe, input, cold, r).then((ms) => [r.id, ms]));
   }
   return new Map(await Promise.all(asked));
 }

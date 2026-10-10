@@ -164,17 +164,20 @@ export class TimelinePlan {
    * Just before a clip's job is sent: its inputs with its neighbours filled in. A clip that carries on
    * from the one before is given that clip's video and the moment it stops playing (after a still: the
    * picture, to open on); a take made to fit is given the next clip's video and the moment it starts playing.
+   * `quick`: for the forecast of a clip still waiting, nothing is measured or made (where the clip before stops
+   * moving, its last frame as a picture) and a clip before with no take yet is no error: what it joins onto, as
+   * far as it is known now, without the work.
    */
-  async plan(clipId: string, recipe: Recipe<any>, raw: Record<string, unknown>, fit: boolean, finishedFrom: string | null = null): Promise<ClipPlan> {
+  async plan(clipId: string, recipe: Recipe<any>, raw: Record<string, unknown>, fit: boolean, finishedFrom: string | null = null, quick = false): Promise<ClipPlan> {
     const clip = await this.core.clipRow(clipId);
     const t = await this.core.row(clip.timeline_id);
     const all = await this.core.placed(clip.timeline_id);
     const i = all.findIndex((p) => p.clip.id === clipId);
     const plan: ClipPlan = { input: ownInputs(recipe, raw), sources: [], links: {} };
     if (t.width && t.height) plan.canvas = { width: t.width, height: t.height };
-    if (clip.joined === "continue" && i > 0) await this.carryOn(plan, all[i - 1]!, recipe, raw, finishedFrom);
+    if (clip.joined === "continue" && i > 0) await this.carryOn(plan, all[i - 1]!, recipe, raw, finishedFrom, quick);
     const startSpec = recipe.inputs.find((s) => s.type === "image" && s.role === "start");
-    if (startSpec && plan.input[startSpec.id] === FROM_PREVIOUS) {
+    if (startSpec && plan.input[startSpec.id] === FROM_PREVIOUS && !quick) {
       throw httpError("This clip extends the previous clip from its last frame, and that clip has no take yet.");
     }
     const after = i < all.length - 1 ? all[i + 1]! : null;
@@ -195,7 +198,7 @@ export class TimelinePlan {
    * What a clip that carries on from `prior` is given: a still's picture to open on; else the video before and the moment it
    * stops playing (handed over before its frozen tail, on its latent's grid when that was kept), or its last frame to open on.
    */
-  private async carryOn(plan: ClipPlan, prior: Placed, recipe: Recipe<any>, raw: Record<string, unknown>, finishedFrom: string | null) {
+  private async carryOn(plan: ClipPlan, prior: Placed, recipe: Recipe<any>, raw: Record<string, unknown>, finishedFrom: string | null, quick: boolean) {
     const prevSpec = recipe.inputs.find((s) => s.type === "clip" && s.role === "previous");
     const startSpec = recipe.inputs.find((s) => s.type === "image" && s.role === "start");
     const before = prior.active;
@@ -214,7 +217,7 @@ export class TimelinePlan {
     if (sameBefore) at = carried!.at!;
     if (prevSpec) {
       // the clip before ends frozen: hand over where it still moved, unless the form says not to
-      if (raw.handover !== false && !sameBefore) {
+      if (raw.handover !== false && !sameBefore && !quick) {
         // ffmpeg missing is said, not taken for a clip that moves to its end
         const lively = await this.handoverAt(before).catch((err: Error) => {
           if (err instanceof FfmpegMissing) throw err;
@@ -235,7 +238,7 @@ export class TimelinePlan {
       if (!sameBefore) at = handoverOnGrid(at, { durationMs: before.asset.duration_ms ?? 0, latentFrames: before.asset.latent_frames }, Number(raw.context) || 22);
       plan.input[prevSpec.id] = { asset: before.asset.id, at };
       plan.links.prev = { take: before.take.id, at };
-    } else if (startSpec && recipe.traits?.continues === "frame") {
+    } else if (startSpec && recipe.traits?.continues === "frame" && !quick) {
       // a recipe that opens on a picture picks up from the last frame that plays
       plan.input[startSpec.id] = (await this.media.frame(before.asset, Math.max(0, at - FRAME_SLACK_MS), true)).id;
       plan.sources.push({ asset: before.asset.id, role: "previous" });
