@@ -8,8 +8,41 @@ export class ComfyCancelled extends Error {
     super("cancelled");
   }
 }
-/** The graph ran and ComfyUI reported an error. */
-export class ComfyFailed extends Error {}
+/** Where a graph that ran failed, as ComfyUI's execution_error says it: the node, the exception's class and the end of its traceback. */
+export interface ComfyFailure {
+  nodeId: string | null;
+  nodeType: string | null;
+  exceptionType: string | null;
+  /** The last lines of the Python traceback, the most telling ones; empty when ComfyUI sent none. */
+  traceback: string;
+}
+
+/** The graph ran and ComfyUI reported an error. `failure`: where, when ComfyUI said it (its log rolls over, and the cause with it). */
+export class ComfyFailed extends Error {
+  constructor(message: string, readonly failure: ComfyFailure | null = null) {
+    super(message);
+  }
+}
+
+/** How many characters of a traceback's end are kept: the frames nearest the error, where the cause is read. */
+const TRACEBACK_TAIL = 4000;
+
+/**
+ * ComfyUI's execution_error as one message, `${node_type} #${node_id}: ${exception_type}: ${message}` ("KSampler #3:
+ * torch.OutOfMemoryError: Allocation on device"), with its parts and its traceback's tail kept apart for the job's record.
+ */
+export function failureOf(error: Record<string, unknown> | undefined): ComfyFailed {
+  const text = (v: unknown) => (typeof v === "string" || typeof v === "number" ? String(v).trim() : "");
+  const message = text(error?.exception_message) || "ComfyUI reported an error";
+  const nodeType = text(error?.node_type) || null;
+  const nodeId = text(error?.node_id) || null;
+  const exceptionType = text(error?.exception_type) || null;
+  const lines = Array.isArray(error?.traceback) ? (error.traceback as unknown[]).map(String) : typeof error?.traceback === "string" ? [error.traceback] : [];
+  const traceback = lines.join("").trimEnd().slice(-TRACEBACK_TAIL);
+  const node = nodeType || nodeId ? `${nodeType ?? "node"}${nodeId ? ` #${nodeId}` : ""}: ` : "";
+  const full = `${node}${exceptionType ? `${exceptionType}: ` : ""}${message}`;
+  return new ComfyFailed(full.slice(0, 600), nodeId || nodeType || exceptionType || traceback ? { nodeId, nodeType, exceptionType, traceback } : null);
+}
 
 export interface WaitOptions {
   signal?: AbortSignal;
@@ -56,8 +89,7 @@ export async function waitForOutputs(
     if (!entry) continue;
     if (entry.status?.status_str === "error") {
       if (entry.status.messages?.some((m) => m[0] === "execution_interrupted")) throw new ComfyCancelled();
-      const error = entry.status.messages?.find((m) => m[0] === "execution_error")?.[1];
-      throw new ComfyFailed(String(error?.exception_message ?? "ComfyUI reported an error").trim().slice(0, 600));
+      throw failureOf(entry.status.messages?.find((m) => m[0] === "execution_error")?.[1]);
     }
     if (entry.status?.completed) return entry.outputs ?? {};
   }

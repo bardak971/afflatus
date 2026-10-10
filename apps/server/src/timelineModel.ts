@@ -262,12 +262,21 @@ export interface TimelineCore {
   row(id: string): Promise<TimelineRow>;
   clipRow(id: string): Promise<ClipRow>;
   assetRow(id: string | null): Promise<AssetRow | undefined>;
-  /** The clips of a timeline in order, each with its takes (those whose video still exists). */
-  placed(timelineId: string): Promise<Placed[]>;
+  /** The clips of a timeline in order, each with its takes (those whose video still exists). `db`: the transaction this is part of. */
+  placed(timelineId: string, db?: Db): Promise<Placed[]>;
   /** How much moves along a video and how loud it is, and where people speak in it (timelineMedia.motion). */
   motion(assetId: string): Promise<{ rate: number; values: number[]; sound: number[] | null; speech: number[] | null }>;
-  /** Keep what the timeline looks like now, before a change. `label` says what the change is, for the Undo button; `added`, a take the change adds. */
-  remember(timelineId: string, label: string, added?: string): Promise<number>;
+  /**
+   * Keep what the timeline looks like now, before a change. `label` says what the change is, for the Undo button; `added`, a take
+   * the change adds. `db`: the transaction the change is made in, only from inside the timeline's turn (oneAtATime).
+   */
+  remember(timelineId: string, label: string, added?: string, db?: Db): Promise<number>;
+  /**
+   * Work done in the timeline's turn (`key`: its id): Undo, Redo, a take landing and the edits of several statements never
+   * run into one another. A transaction is opened inside the turn, never the other way round (the turn waits on work that
+   * needs the database).
+   */
+  oneAtATime<T>(key: string, work: () => Promise<T>): Promise<T>;
   touch(timelineId: string): Promise<void>;
   /** What is on a timeline is wanted: it never goes to the bin on its own. `db`: the transaction this is part of. */
   keep(assetId: string, db?: Db): Promise<void>;

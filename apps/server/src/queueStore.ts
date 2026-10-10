@@ -260,7 +260,11 @@ async function writeRows(
       .execute();
     // the job names its generation from here on: found running again after a crash, it is not filed twice
     await tx.updateTable("jobs").set({ generation_id: g.id, updated_at: now() }).where("id", "=", row.id).execute();
-    for (const s of sources) {
+    // a source erased while the render ran (a neighbour video or an opening frame chosen at submit) is left out of the
+    // lineage: its row is gone, and naming it would fail the whole result on its foreign key, GPU time and files with it
+    const ids = [...new Set(sources.map((s) => s.asset))];
+    const there = ids.length ? new Set((await tx.selectFrom("assets").select("id").where("id", "in", ids).execute()).map((a) => a.id)) : new Set<string>();
+    for (const s of sources.filter((x) => there.has(x.asset))) {
       await tx
         .insertInto("generation_inputs")
         .values({ generation_id: g.id, asset_id: s.asset, role: s.role })

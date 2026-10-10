@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { ComfyCancelled, detect, waitForOutputs, type Measured, type OutputFile } from "@afflatus/comfy";
 import { choicesOf, GraphBuilder, type BuildContext, type Ref } from "@afflatus/core";
 import { pixelUpscale, saveVideo, UPSCALE } from "@afflatus/recipes";
@@ -11,6 +12,7 @@ import { folderForMade, timelineOfClip } from "./timelineFolder";
 import { recordTool, toolPace } from "./renders";
 import { CUT_JOB, type CutOptions, type ExportOptions, type Timelines } from "./timelines";
 import { readJson, type JobRow, type QueueCore, type Running } from "./queueModel";
+import { taken } from "./queueSubmit";
 
 /** The jobs that need no model of their own: a cut (a copy, a split, a slow-motion, a finish) and an export, done by ffmpeg, with ComfyUI only for RIFE and the upscale routes. */
 
@@ -64,18 +66,31 @@ async function noteTool(core: QueueCore, note: ToolNote, status: "done" | "faile
 /**
  * A tool's graph sent to ComfyUI and followed like a render's: the status strip then says which step runs (SeedVR2 restore,
  * frame interpolation, encoding) and how far it is, where it said "Queued on ComfyUI" and "working…" all along.
+ * Its prompt id is saved on the job before it is sent, as a render's is (Resume.unsent): the job run again after a restart
+ * follows the prompt ComfyUI still has (running, waiting or done) instead of running the finish on the GPU a second time.
  */
-async function followed(core: QueueCore, comfy: Comfy, run: Running, g: GraphBuilder, outNode: string, loads: string[] = [], note?: ToolNote) {
+async function followed(core: QueueCore, comfy: Comfy, run: Running, row: Pick<JobRow, "id" | "resume">, g: GraphBuilder, outNode: string, loads: string[] = [], note?: ToolNote) {
   const signal = run.abort.signal;
+  const sent = readJson<{ promptId?: unknown }>(row.resume, {}).promptId;
+  const again = typeof sent === "string" && (await taken(comfy, sent).catch(() => false)) ? sent : null;
   // its models alone in the GPU's memory: a render's model left loaded (H3 is 12 GB) made SeedVR2 spill into system memory and
   // crawl (a 6-minute clip past 20 minutes at a quarter of the card's power, 2026-10-08). Freed when something else is loaded,
-  // as a render does; the render after this is told the tool's files were last, so it frees them in turn
+  // as a render does; the render after this is told the tool's files were last, so it frees them in turn. Not under its
+  // own prompt, followed again: ComfyUI may be running it
   const wanted = `tool|${[...loads].sort().join("|")}`;
-  if (core.lastLoads !== wanted) {
+  if (!again && core.lastLoads !== wanted) {
     await comfy.client.free().catch(() => {});
     await core.loaded(wanted, null);
   }
-  const promptId = await comfy.client.submit(g.graph);
+  const keep = (promptId: string) => core.db.updateTable("jobs").set({ resume: JSON.stringify({ promptId }), updated_at: now() }).where("id", "=", row.id).execute();
+  let promptId = again;
+  if (!promptId) {
+    const chosen = randomUUID();
+    await keep(chosen);
+    // a ComfyUI from before prompt ids could be chosen gives one of its own: that one is kept and followed
+    promptId = await comfy.client.submit(g.graph, { promptId: chosen, outputs: [outNode] });
+    if (promptId !== chosen) await keep(promptId);
+  }
   run.promptId = promptId;
   // what it should take, for the "spilling" warning while it runs
   if (note) {
@@ -184,7 +199,7 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
     const routeKey = finishRoute(opts.route);
     const note = await toolNote(core, row, `tool.finish.${routeKey}`, routeKey === "seedvr" ? slots.seedvr ?? "SeedVR2" : routeKey === "model" ? upscaleModel : "RTX VSR",
       `route=${routeKey};by=${opts.by ?? 2};frames=${opts.seedvrFrames ?? 0}`, Math.round(source.width * by) * Math.round(source.height * by) * Math.max(1, outFrames));
-    const output = await followed(core, comfy, run, g, outNode, [...done.loads, ...(rife ? [`frame_interpolation/${rife}`] : [])], note);
+    const output = await followed(core, comfy, run, row, g, outNode, [...done.loads, ...(rife ? [`frame_interpolation/${rife}`] : [])], note);
     const bytes = await comfy.client.view(output);
     // named after the take it finishes ("Big Air · c2 · t5 · finished ×2"), worked out from its clip when that video has no name
     let kept = await clips.range.keepCut(video, bytes, finishedName(await nameOf(core.db, video), by), 0, video.duration_ms ?? 0, folder);
@@ -218,7 +233,7 @@ async function runSlowRife(core: QueueCore, row: JobRow, run: Running, clips: Ti
     g.phase("encoding");
     const outNode = g.add("VHS_VideoCombine", { images, frame_rate: part.fps, loop_count: 0, filename_prefix: "Afflatus/slow", format: "video/h264-mp4", pingpong: false, save_output: false, pix_fmt: "yuv420p", crf: 16, save_metadata: false, trim_to_audio: false });
     const note = await toolNote(core, row, "tool.slow", rife, `factor=${factor}`, (video.width ?? 0) * (video.height ?? 0) * Math.max(1, Math.round(((opts.endMs - opts.startMs) / 1000) * part.fps * factor)) || null);
-    const silent = await comfy.client.view(await followed(core, comfy, run, g, outNode, [`frame_interpolation/${rife}`], note));
+    const silent = await comfy.client.view(await followed(core, comfy, run, row, g, outNode, [`frame_interpolation/${rife}`], note));
     // RIFE hands the picture back without sound: the range's own sound goes on it, slowed to match
     const bytes = await slowSoundOnto(silent, part.bytes, factor);
     const kept = await clips.range.keepCut(video, bytes, await clips.range.slowName(video, opts.startMs, opts.endMs, factor), opts.startMs, opts.endMs, folder);

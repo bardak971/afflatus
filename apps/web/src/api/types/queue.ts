@@ -38,6 +38,8 @@ export interface Job {
 /** A finished job as the queue's history shows it: with what it made and how. */
 export interface HistoryJob extends Job {
   tookMs: number | null;
+  /** Of a job that failed in a ComfyUI node: the end of its Python traceback; null otherwise. */
+  trace?: string | null;
   /** The model file's name, when the form has a model picker. */
   model: string | null;
   prompt: string;

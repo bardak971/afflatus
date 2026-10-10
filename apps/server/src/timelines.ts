@@ -186,8 +186,8 @@ export class Timelines {
     // the door the modules reach the model through (timelineModel.ts); a frame of a video is the media module's, reached the same way
     const core: TimelineCore = {
       db, storage, registry, events,
-      row: (id) => this.row(id), clipRow: (id) => this.clipRow(id), assetRow: (id) => this.assetRow(id), placed: (id) => this.placed(id),
-      remember: (id, label, added) => this.remember(id, label, added), touch: (id) => this.touch(id), keep: (id, db) => this.keep(id, db), renumber: (id, order, db) => this.renumber(id, order, db),
+      row: (id) => this.row(id), clipRow: (id) => this.clipRow(id), assetRow: (id) => this.assetRow(id), placed: (id, db) => this.placed(id, db),
+      remember: (id, label, added, db) => this.remember(id, label, added, db), oneAtATime: (key, work) => this.history.oneAtATime(key, work), touch: (id) => this.touch(id), keep: (id, db) => this.keep(id, db), renumber: (id, order, db) => this.renumber(id, order, db),
       settingsOf, frame: (video, atMs, once, timeline) => this.media.frame(video, atMs, once, timeline), motion: (id) => this.media.motion(id),
     };
     this.range = new TimelineRange(core);
@@ -200,8 +200,8 @@ export class Timelines {
   }
 
   /** Keep what the timeline looks like now, before a change (see TimelineHistory.remember). */
-  private remember(timelineId: string, label: string, added?: string): Promise<number> {
-    return this.history.remember(timelineId, label, added);
+  private remember(timelineId: string, label: string, added?: string, db?: Db): Promise<number> {
+    return this.history.remember(timelineId, label, added, db);
   }
 
   private changed(): void {
@@ -230,22 +230,22 @@ export class Timelines {
   }
 
   /** The clips of a timeline in order, each with its takes (those whose video still exists). */
-  private async placed(timelineId: string): Promise<Placed[]> {
-    return (await this.placedOf([timelineId])).get(timelineId) ?? [];
+  private async placed(timelineId: string, db: Db = this.db): Promise<Placed[]> {
+    return (await this.placedOf([timelineId], db)).get(timelineId) ?? [];
   }
 
   /** The same for several timelines at once, by timeline: one query each for the clips, the takes and the files they show. */
-  private async placedOf(timelineIds: string[]): Promise<Map<string, Placed[]>> {
+  private async placedOf(timelineIds: string[], db: Db = this.db): Promise<Map<string, Placed[]>> {
     const out = new Map<string, Placed[]>(timelineIds.map((id) => [id, []]));
     if (!timelineIds.length) return out;
-    const clips = await this.db.selectFrom("clips").selectAll().where("timeline_id", "in", timelineIds).orderBy("position").orderBy("created_at").execute();
+    const clips = await db.selectFrom("clips").selectAll().where("timeline_id", "in", timelineIds).orderBy("position").orderBy("created_at").execute();
     if (!clips.length) return out;
-    const takes = await this.db.selectFrom("takes").selectAll().where("clip_id", "in", clips.map((c) => c.id)).orderBy("created_at").execute();
+    const takes = await db.selectFrom("takes").selectAll().where("clip_id", "in", clips.map((c) => c.id)).orderBy("created_at").execute();
     const wanted = [
       ...takes.map((t) => t.asset_id),
       ...clips.flatMap((c) => [c.still_asset_id, c.sound_asset_id, ...this.pinned(c).map((p) => p.id)]).filter((x): x is string => Boolean(x)),
     ];
-    const assets = wanted.length ? await this.db.selectFrom("assets").selectAll().where("id", "in", [...new Set(wanted)]).execute() : [];
+    const assets = wanted.length ? await db.selectFrom("assets").selectAll().where("id", "in", [...new Set(wanted)]).execute() : [];
     const byId = new Map(assets.map((a) => [a.id, a]));
     const takesOf = new Map<string, TakeRow[]>();
     for (const t of takes) takesOf.set(t.clip_id, [...(takesOf.get(t.clip_id) ?? []), t]);
@@ -493,8 +493,8 @@ export class Timelines {
   }
 
   /** Something on a timeline still plays or uses it: another take, a clip's sound or still, a timeline's music. */
-  private async stillUsed(assetId: string): Promise<boolean> {
-    if (await this.db.selectFrom("takes").select("id").where("asset_id", "=", assetId).executeTakeFirst()) return true;
+  private async stillUsed(assetId: string, except?: string): Promise<boolean> {
+    if (await this.db.selectFrom("takes").select("id").where("asset_id", "=", assetId).$if(Boolean(except), (q) => q.where("id", "!=", except!)).executeTakeFirst()) return true;
     if (await this.db.selectFrom("clips").select("id").where((eb) => eb.or([eb("sound_asset_id", "=", assetId), eb("still_asset_id", "=", assetId)])).executeTakeFirst()) return true;
     return Boolean(await this.db.selectFrom("timelines").select("id").where("music_asset_id", "=", assetId).executeTakeFirst());
   }
@@ -661,9 +661,12 @@ export class Timelines {
 
   async removeClip(id: string) {
     const clip = await this.clipRow(id);
-    await this.remember(clip.timeline_id, clip.kind === "still" ? "the image removed" : "the clip removed");
-    await this.db.deleteFrom("clips").where("id", "=", id).execute();
-    await this.renumber(clip.timeline_id, (await this.placed(clip.timeline_id)).map((p) => p.clip.id));
+    // in the timeline's turn and in one transaction: an Undo or a take landing never comes between the removal and the renumbering
+    await this.history.oneAtATime(clip.timeline_id, () => this.db.transaction().execute(async (tx) => {
+      await this.remember(clip.timeline_id, clip.kind === "still" ? "the image removed" : "the clip removed", undefined, tx);
+      await tx.deleteFrom("clips").where("id", "=", id).execute();
+      await this.renumber(clip.timeline_id, (await this.placed(clip.timeline_id, tx)).map((p) => p.clip.id), tx);
+    }));
     await this.touch(clip.timeline_id);
   }
 
@@ -673,20 +676,32 @@ export class Timelines {
    * does one that something else still uses. The newest of the other takes plays instead.
    */
   async removeTake(id: string) {
-    const take = await this.db.selectFrom("takes").selectAll().where("id", "=", id).executeTakeFirst();
-    if (!take) throw notFound("this take");
-    const clip = await this.clipRow(take.clip_id);
-    await this.remember(clip.timeline_id, "the take removed");
-    await this.db.deleteFrom("takes").where("id", "=", id).execute();
-    if ((await this.madeForATimeline(take.asset_id)) && !(await this.stillUsed(take.asset_id))) {
-      await this.db.updateTable("assets").set({ deleted_at: now() }).where("id", "=", take.asset_id).where("deleted_at", "is", null).execute();
-      this.events.emit("library");
-    }
-    if (clip.take_id === id) {
-      const left = await this.db.selectFrom("takes").select("id").where("clip_id", "=", clip.id).orderBy("created_at", "desc").executeTakeFirst();
-      await this.db.updateTable("clips").set({ take_id: left?.id ?? null }).where("id", "=", clip.id).execute();
-    }
-    await this.touch(clip.timeline_id);
+    const found = await this.db.selectFrom("takes").select("clip_id").where("id", "=", id).executeTakeFirst();
+    if (!found) throw notFound("this take");
+    const { timeline_id: timelineId } = await this.clipRow(found.clip_id);
+    // what is binned is worked out before the transaction: it asks the database outside it
+    const binned = await this.history.oneAtATime(timelineId, async () => {
+      const take = await this.db.selectFrom("takes").selectAll().where("id", "=", id).executeTakeFirst();
+      if (!take) throw notFound("this take");
+      // the draft of a finished take: the clip after continues from its latent (a SeedVR2 or RTX finish keeps none of its
+      // own), and its video is what a finish is redone from. Removed, the next renders would join on frames without a word
+      const finished = await this.db.selectFrom("takes").select("id").where("finished_from", "=", id).executeTakeFirst();
+      if (finished) throw httpError("This take is the draft of a finished take: the clip after continues from it, and a finish is redone from it. Remove the finished take first.", 409);
+      const clip = await this.clipRow(take.clip_id);
+      const bin = (await this.madeForATimeline(take.asset_id)) && !(await this.stillUsed(take.asset_id, id));
+      await this.db.transaction().execute(async (tx) => {
+        await this.remember(clip.timeline_id, "the take removed", undefined, tx);
+        await tx.deleteFrom("takes").where("id", "=", id).execute();
+        if (bin) await tx.updateTable("assets").set({ deleted_at: now() }).where("id", "=", take.asset_id).where("deleted_at", "is", null).execute();
+        if (clip.take_id === id) {
+          const left = await tx.selectFrom("takes").select("id").where("clip_id", "=", clip.id).orderBy("created_at", "desc").executeTakeFirst();
+          await tx.updateTable("clips").set({ take_id: left?.id ?? null }).where("id", "=", clip.id).execute();
+        }
+      });
+      return bin;
+    });
+    if (binned) this.events.emit("library");
+    await this.touch(timelineId);
   }
 
   /**
@@ -695,16 +710,21 @@ export class Timelines {
    */
   async binUnusedTakes(id: string): Promise<{ binned: number; bytes: number }> {
     await this.row(id);
-    const u = (await unusedTakes(this.db, id)).get(id);
-    if (!u?.takes.length) return { binned: 0, bytes: 0 };
-    await this.remember(id, "the unused takes binned");
-    const at = now();
-    await this.db.transaction().execute(async (tx) => {
-      const takes = u.takes;
+    const u = await this.history.oneAtATime(id, async () => {
+      const u = (await unusedTakes(this.db, id)).get(id);
+      if (!u?.takes.length) return null;
+      const at = now();
+      // the step and what it bins land together, in the timeline's turn
+      await this.db.transaction().execute(async (tx) => {
+        await this.remember(id, "the unused takes binned", undefined, tx);
+        const takes = u.takes;
       const assets = [...u.assets.keys()];
       for (let i = 0; i < takes.length; i += 500) await tx.deleteFrom("takes").where("id", "in", takes.slice(i, i + 500)).execute();
       for (let i = 0; i < assets.length; i += 500) await tx.updateTable("assets").set({ deleted_at: at }).where("id", "in", assets.slice(i, i + 500)).where("deleted_at", "is", null).execute();
+      });
+      return u;
     });
+    if (!u) return { binned: 0, bytes: 0 };
     this.events.emit("library");
     await this.touch(id);
     return { binned: u.takes.length, bytes: unusedSize(u).unusedBytes };

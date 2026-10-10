@@ -50,6 +50,22 @@ function errorSnippet(body: string): string {
   return (body.trim().split(/\r?\n/)[0] ?? "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
 }
 
+/** The nodes these come from, themselves included: every node whose output reaches them through the graph's links. */
+export function upstreamOf(graph: Graph, nodes: string[]): Set<string> {
+  const seen = new Set<string>();
+  const stack = [...nodes];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    for (const v of Object.values(graph[id]?.inputs ?? {})) {
+      // a link is [node id, output slot]
+      if (Array.isArray(v) && v.length === 2 && (typeof v[0] === "string" || typeof v[0] === "number") && typeof v[1] === "number") stack.push(String(v[0]));
+    }
+  }
+  return seen;
+}
+
 const MIME: Record<string, string> = {
   png: "image/png", jpg: "image/jpeg", webp: "image/webp", mp4: "video/mp4", webm: "video/webm",
   wav: "audio/wav", mp3: "audio/mpeg", flac: "audio/flac", ogg: "audio/ogg",
@@ -81,6 +97,21 @@ export class ComfyClient {
     return res;
   }
 
+  /**
+   * A request and its body, read under the same time limit: a body that stops coming half way (a slow /history) is ComfyUI
+   * not answering, as a request that never starts is (ComfyUnreachable, which a job waits through), not a bare TimeoutError.
+   */
+  private async read<T>(path: string, body: (res: Response) => Promise<T>, init?: RequestInit, timeoutMs = META_TIMEOUT): Promise<T> {
+    const res = await this.request(path, init, timeoutMs);
+    try {
+      return await body(res);
+    } catch (err) {
+      const name = (err as Error).name;
+      if (name === "TimeoutError" || name === "AbortError") throw new ComfyUnreachable(`ComfyUI stopped answering at ${this.baseUrl} (${path.split("?")[0]}): ${(err as Error).message}`);
+      throw err;
+    }
+  }
+
   private post(path: string, body: unknown, timeoutMs?: number) {
     return this.request(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, timeoutMs);
   }
@@ -88,7 +119,7 @@ export class ComfyClient {
   // ---------------------------------------------------------------- read-only
 
   async status(): Promise<ComfyStatus> {
-    const s = (await (await this.request("/system_stats", undefined, 5_000)).json()) as {
+    const s = (await this.read("/system_stats", (r) => r.json(), undefined, 5_000)) as {
       system?: { comfyui_version?: string };
       devices?: Array<{ name?: string; vram_total?: number; vram_free?: number }>;
     };
@@ -103,17 +134,17 @@ export class ComfyClient {
 
   /** Every node this ComfyUI has, with its inputs and outputs. A large response (tens of MB with many custom nodes). */
   async catalog(): Promise<NodeCatalog> {
-    return (await (await this.request("/object_info", undefined, 60_000)).json()) as NodeCatalog;
+    return (await this.read("/object_info", (r) => r.json(), undefined, 60_000)) as NodeCatalog;
   }
 
   /** The model folders this ComfyUI knows ("checkpoints", "loras", …). */
   async folders(): Promise<string[]> {
-    return (await (await this.request("/models")).json()) as string[];
+    return (await this.read("/models", (r) => r.json())) as string[];
   }
 
   /** Files in one model folder, as the paths ComfyUI's loaders expect. */
   async models(folder: string): Promise<string[]> {
-    return (await (await this.request(`/models/${encodeURIComponent(folder)}`)).json()) as string[];
+    return (await this.read(`/models/${encodeURIComponent(folder)}`, (r) => r.json())) as string[];
   }
 
   /**
@@ -146,19 +177,18 @@ export class ComfyClient {
 
   /** ComfyUI's own terminal log: the last few hundred lines it keeps, their colour codes stripped. Read-only. */
   async logs(): Promise<Array<{ t: string; m: string }>> {
-    const res = await this.request("/internal/logs/raw");
-    const d = (await res.json()) as { entries?: Array<{ t: string; m: string }> };
+    const d = (await this.read("/internal/logs/raw", (r) => r.json())) as { entries?: Array<{ t: string; m: string }> };
     return (d.entries ?? []).map((e) => ({ t: e.t, m: String(e.m).replace(/\u001b\[[0-9;]*[A-Za-z]/g, "").replace(/\r/g, "") }));
   }
 
   async history(promptId: string): Promise<HistoryEntry | undefined> {
-    const h = (await (await this.request(`/history/${encodeURIComponent(promptId)}`)).json()) as Record<string, HistoryEntry>;
+    const h = (await this.read(`/history/${encodeURIComponent(promptId)}`, (r) => r.json())) as Record<string, HistoryEntry>;
     return h[promptId];
   }
 
   /** Where ComfyUI has a prompt: running, waiting behind other work, or nowhere. */
   async queuePosition(promptId: string): Promise<"running" | "pending" | "absent"> {
-    const q = (await (await this.request("/queue")).json()) as { queue_running?: unknown[][]; queue_pending?: unknown[][] };
+    const q = (await this.read("/queue", (r) => r.json())) as { queue_running?: unknown[][]; queue_pending?: unknown[][] };
     if (q.queue_running?.some((e) => e[1] === promptId)) return "running";
     if (q.queue_pending?.some((e) => e[1] === promptId)) return "pending";
     return "absent";
@@ -169,8 +199,11 @@ export class ComfyClient {
   /**
    * Queue a graph. `preview`: stream cheap latent previews for this prompt only. `promptId`: the id to queue it under, chosen
    * (and saved) beforehand, so that one sent without an answer can be asked for; the id ComfyUI gave is returned all the same.
+   * `outputs`: the result nodes. ComfyUI queues a prompt when any of its outputs validates and skips the ones that do not,
+   * answering 200 with their node_errors: when one names a result node or a node it is made from, the prompt is taken back
+   * and refused with that error, which would otherwise be lost behind "ComfyUI finished but returned no output".
    */
-  async submit(graph: Graph, opts: { preview?: "latent2rgb" | "taesd"; promptId?: string } = {}): Promise<string> {
+  async submit(graph: Graph, opts: { preview?: "latent2rgb" | "taesd"; promptId?: string; outputs?: string[] } = {}): Promise<string> {
     const res = await this.fetcher(`${this.baseUrl}/prompt`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -186,12 +219,22 @@ export class ComfyClient {
     });
     const text = await res.text().catch(() => "");
     let id: string | undefined;
+    let failed: string[] = [];
     try {
-      id = (JSON.parse(text) as { prompt_id?: string }).prompt_id;
+      const answer = JSON.parse(text) as { prompt_id?: string; node_errors?: Record<string, unknown> };
+      id = answer.prompt_id;
+      failed = Object.keys(answer.node_errors ?? {});
     } catch {
       /* handled below */
     }
     if (!res.ok || !id) throw new ComfyError(`ComfyUI rejected the job: ${errorSnippet(text) || `status ${res.status}`}`);
+    if (failed.length && opts.outputs?.length) {
+      const feeding = upstreamOf(graph, opts.outputs);
+      if (failed.some((n) => feeding.has(n))) {
+        await this.interrupt(id);
+        throw new ComfyError(`ComfyUI rejected the job: ${errorSnippet(text)}`);
+      }
+    }
     return id;
   }
 
@@ -218,7 +261,7 @@ export class ComfyClient {
     form.append("type", opts.into === "input" ? "input" : "temp");
     if (opts.into === "input") form.append("subfolder", "afflatus");
     form.append("overwrite", "true");
-    const r = (await (await this.request("/upload/image", { method: "POST", body: form }, 60_000)).json()) as { name: string; subfolder?: string };
+    const r = (await this.read("/upload/image", (res) => res.json(), { method: "POST", body: form }, 60_000)) as { name: string; subfolder?: string };
     const name = `${r.subfolder ? `${r.subfolder}/` : ""}${r.name}`;
     return opts.into === "input" ? name : `${name} [temp]`;
   }
@@ -271,6 +314,6 @@ export class ComfyClient {
   /** Download one output file of a finished prompt. */
   async view(file: OutputFile): Promise<Uint8Array> {
     const q = new URLSearchParams({ filename: file.filename, subfolder: file.subfolder, type: file.type });
-    return new Uint8Array(await (await this.request(`/view?${q}`, undefined, 5 * 60_000)).arrayBuffer());
+    return new Uint8Array(await this.read(`/view?${q}`, (r) => r.arrayBuffer(), undefined, 5 * 60_000));
   }
 }

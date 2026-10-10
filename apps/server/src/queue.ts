@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { ComfyCancelled, ComfyLost, ComfyUnreachable, waitForOutputs, type Measured } from "@afflatus/comfy";
+import { ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, waitForOutputs, type Measured } from "@afflatus/comfy";
 import { expandWildcards, modelFileName, parseInput, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 import { newId, now, OWNER, type Db } from "./db";
@@ -45,6 +45,8 @@ export class Queue {
   /** "queue": jobs changed. "library": an asset was added. "progress": the running job moved. */
   readonly events = new EventEmitter();
   private busy = false;
+  /** pump() was called while a pass was under way: one more pass is made before stopping, so a job queued meanwhile is not left waiting. */
+  private dirty = false;
   private paused = false;
   private running: Running | null = null;
   /** ComfyUI holds a model this app had it load. Unknown after a restart: taken as not. */
@@ -94,8 +96,27 @@ export class Queue {
 
   // ---------------------------------------------------------------- start / stop
 
+  /** The state kept across restarts (paused, what ComfyUI was last asked to load), read once: before any request can reach the queue. */
+  private loading: Promise<void> | null = null;
+  load(): Promise<void> {
+    this.loading ??= this.readState();
+    return this.loading;
+  }
+
   /** After a restart: jobs that were mid-run without a prompt id start over; the others are waited on again. */
   async start(): Promise<void> {
+    await this.load();
+    // a tool job (an export, a cut, a finish) is run again from its start: what it already made is noted on it (queueTools.ts)
+    await this.db
+      .updateTable("jobs")
+      .set({ status: "queued", updated_at: now() })
+      .where("status", "=", "running")
+      .where((eb) => eb.or([eb("resume", "is", null), eb("recipe_id", "in", [EXPORT_JOB, CUT_JOB])]))
+      .execute();
+    void this.pump();
+  }
+
+  private async readState(): Promise<void> {
     const flag = await this.db.selectFrom("settings").select("value").where("key", "=", PAUSED_KEY).executeTakeFirst();
     this.paused = flag?.value === "true";
     const loaded = await this.db.selectFrom("settings").select("value").where("key", "=", LOADS_KEY).executeTakeFirst();
@@ -108,14 +129,6 @@ export class Queue {
       const files = readJson<{ loads?: string[] }>(last?.resolved, {}).loads;
       this.lastLoads = files ? files.map(modelFileName).sort().join("|") : null;
     }
-    // a tool job (an export, a cut, a finish) is run again from its start: what it already made is noted on it (queueTools.ts)
-    await this.db
-      .updateTable("jobs")
-      .set({ status: "queued", updated_at: now() })
-      .where("status", "=", "running")
-      .where((eb) => eb.or([eb("resume", "is", null), eb("recipe_id", "in", [EXPORT_JOB, CUT_JOB])]))
-      .execute();
-    void this.pump();
   }
 
   /** Stop taking jobs (tests, shutdown). The running job is left to ComfyUI and picked up again on the next start. */
@@ -193,16 +206,22 @@ export class Queue {
       .insertInto("jobs")
       .values({
         id, owner_id: OWNER, recipe_id: CUT_JOB, label, inputs: JSON.stringify(opts), status: "queued", warm: 0, look: null, priority: 20, depends_on: extra.dependsOn ?? null,
-        attempts: 0, resume: null, error: null, generation_id: null, clip_id: null, clip_fit: 0, timeline_id: timeline, draft_id: null, folder_id: null,
+        // a cut made for a clip (a finish, a slow motion) is that clip's job: the editor shows the clip busy with it, and a
+        // second Finish skips the clip while it waits or runs
+        attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip ?? null, clip_fit: 0, timeline_id: timeline, draft_id: null, folder_id: null,
         created_at: at, started_at: null, finished_at: null, updated_at: at,
       })
       .execute();
     this.events.emit("queue");
+    if (opts.clip) this.events.emit("timeline");
     void this.pump();
     return id;
   }
 
   async cancel(id: string): Promise<boolean> {
+    // a job queued again with the prompt ComfyUI may still have (lost from sight, or a finish stopped by a restart): that prompt
+    // is stopped in ComfyUI too, or it would go on rendering what nobody wants any more
+    const sent = readJson<Partial<Resume>>((await this.db.selectFrom("jobs").select("resume").where("id", "=", id).where("status", "=", "queued").executeTakeFirst())?.resume, {}).promptId;
     // a waiting job: claim it in one statement, so a pump that picks it at the same moment loses
     const queued = await this.db
       .updateTable("jobs")
@@ -211,6 +230,7 @@ export class Queue {
       .where("status", "=", "queued")
       .executeTakeFirst();
     if (Number(queued.numUpdatedRows) > 0) {
+      if (sent) void this.comfy().then((c) => c.client.interrupt(sent)).catch(() => {});
       // what continues from it can never run now, as when it is stopped while it runs
       await this.failDependents(id);
       this.events.emit("queue");
@@ -431,11 +451,16 @@ export class Queue {
   // ---------------------------------------------------------------- the worker
 
   private async pump(): Promise<void> {
-    if (this.busy || this.stopped) return;
+    if (this.stopped) return;
+    if (this.busy) {
+      this.dirty = true;
+      return;
+    }
     this.busy = true;
     try {
       for (;;) {
         if (this.stopped) break;
+        this.dirty = false;
         const active = await this.db.selectFrom("jobs").selectAll().where("status", "in", ["queued", "running"]).orderBy("priority").orderBy("created_at").execute();
         const waitingOn = new Set(active.map((r) => r.id));
         // a job ComfyUI already has goes first, paused or not: it is rendering anyway
@@ -464,7 +489,11 @@ export class Queue {
           this.offlineSince = null;
           this.events.emit("queue");
         }
-        if (!next) break;
+        if (!next) {
+          // a job queued while this pass was reading the line: the line is read again
+          if (this.dirty && !this.stopped && reachable !== false) continue;
+          break;
+        }
         if (next.recipe_id === EXPORT_JOB) await tools.runExport(this.core, next);
         else if (next.recipe_id === CUT_JOB) await tools.runCut(this.core, next);
         else await this.run(comfy!, next);
@@ -501,11 +530,11 @@ export class Queue {
   }
 
   /** A job ends. `from`: only when it is still in that state (a job that was cancelled meanwhile stays cancelled). */
-  private async finish(id: string, status: "done" | "failed" | "cancelled", extra: { error?: string; generationId?: string } = {}, from?: JobRow["status"]) {
+  private async finish(id: string, status: "done" | "failed" | "cancelled", extra: { error?: string; generationId?: string; trace?: string | null } = {}, from?: JobRow["status"]) {
     // a generation the job wrote before it ended badly stays named on it: what it made is in the library all the same
     let q = this.db
       .updateTable("jobs")
-      .set({ status, error: extra.error ?? null, ...(extra.generationId ? { generation_id: extra.generationId } : {}), finished_at: now(), updated_at: now() })
+      .set({ status, error: extra.error ?? null, error_trace: extra.trace ?? null, ...(extra.generationId ? { generation_id: extra.generationId } : {}), finished_at: now(), updated_at: now() })
       .where("id", "=", id);
     if (from) q = q.where("status", "=", from);
     await q.execute();
@@ -560,7 +589,7 @@ export class Queue {
     } catch (err) {
       if (this.stopped) await this.db.updateTable("jobs").set({ status: "queued", updated_at: now() }).where("id", "=", row.id).execute();
       else if (run.abort.signal.aborted) await this.finish(row.id, "cancelled", { error: "stopped by you" });
-      else await this.finish(row.id, "failed", { error: (err as Error).message.slice(0, 600) });
+      else await this.failure(row, run.promptId, err as Error);
     } finally {
       this.running = null;
       // a finish or a RIFE pass loaded models into ComfyUI: the idle unload counts from its end, as after a render
@@ -598,6 +627,8 @@ export class Queue {
     if (Number(claimed.numUpdatedRows) === 0) return;
 
     const abort = new AbortController();
+    /** The prompt followed from before it was sent (see the hold below): no longer followed once the job ends, however it ends. */
+    let early: string | null = null;
     this.running = { id: row.id, abort, promptId: resume?.promptId, gpu: true, expectedMs: resume?.timing?.expectedMs ?? null, startedAt: resume?.startedAt ?? Date.now() };
     if (this.unloadTimer) clearTimeout(this.unloadTimer);
     this.unloadTimer = null;
@@ -611,7 +642,13 @@ export class Queue {
         resume = await submitting.submit(this.core, comfy, recipe, input, row, async (r) => {
           held = r;
           await this.db.updateTable("jobs").set({ resume: JSON.stringify(r), updated_at: now() }).where("id", "=", row.id).execute();
+          // followed from before it is sent, under the id it is sent with: what ComfyUI says at once (the passes it still had
+          // cached, execution_cached) arrives before submit returns, and was lost when the prompt was tracked only after it
+          comfy.monitor.track({ promptId: r.promptId, totalSteps: r.totalSteps, phases: r.phases, passes: r.passes, clientId: r.clientId, expect: r.timing?.expect });
+          early = r.promptId;
         });
+        // a ComfyUI from before prompt ids could be chosen gave one of its own: that one is followed instead
+        if (early && early !== resume.promptId) comfy.monitor.untrack(early);
         await this.db.updateTable("jobs").set({ resume: JSON.stringify(resume), updated_at: now() }).where("id", "=", row.id).execute();
         if (resume.warnings?.length) await this.warn(row.id, resume.warnings.join(" "));
       }
@@ -658,6 +695,7 @@ export class Queue {
     } catch (err) {
       await this.failed(err as Error, row, recipe, { resume, held, measured, made, whole, attempts, aborted: abort.signal.aborted });
     } finally {
+      if (early) comfy.monitor.untrack(early);
       this.running = null;
       void this.armIdle();
     }
@@ -712,16 +750,32 @@ export class Queue {
     } else if (err instanceof ComfyCancelled || at.aborted) {
       await this.finish(row.id, "cancelled", { error: "stopped by you" });
       if (onRecord) await this.note(row, recipe, resume, measured, "cancelled", whole, Date.now() - resume.startedAt);
-    } else if ((err instanceof ComfyLost || err instanceof ComfyUnreachable) && at.attempts < this.opts.maxAttempts) {
+    } else if ((err instanceof ComfyLost || err instanceof ComfyUnreachable) && Math.max(at.attempts, row.attempts + 1) < this.opts.maxAttempts) {
       console.warn(`[queue] job ${row.id} lost (${err.message}), queued again`);
-      // a prompt sent without an answer (ComfyUI did not answer in time) may have been taken all the same: its id is kept to ask for it
-      const unsent = !resume && at.held ? JSON.stringify(at.held) : null;
-      await this.db.updateTable("jobs").set({ status: "queued", resume: unsent, warning: null, updated_at: now() }).where("id", "=", row.id).where("status", "=", "running").execute();
+      // ComfyUI may have the prompt all the same: one sent without an answer (it did not answer in time), and one it finished
+      // or still runs while this process lost sight of it (90 s of silence, its file not fetched). Its id is kept, so that the
+      // next attempt asks ComfyUI for it (taken) and follows it, instead of rendering again a video that would come out different
+      const kept = resume ?? at.held;
+      const unsent = kept && !made ? JSON.stringify({ ...kept, unsent: true }) : null;
+      // each loss counts as an attempt, a prompt followed again too: one that keeps getting lost is given up in the end
+      await this.db.updateTable("jobs").set({ status: "queued", resume: unsent, attempts: Math.max(at.attempts, row.attempts + 1), warning: null, updated_at: now() }).where("id", "=", row.id).where("status", "=", "running").execute();
       this.events.emit("queue");
     } else {
-      await this.finish(row.id, "failed", { error: err.message.slice(0, 600) });
+      await this.failure(row, resume?.promptId ?? at.held?.promptId, err);
       if (onRecord) await this.note(row, recipe, resume, measured, "failed", whole, Date.now() - resume.startedAt);
     }
+  }
+
+  /**
+   * A job failed: closed with its message and, when ComfyUI sent one, the end of its traceback (ComfyFailed), and said in
+   * the log with what finds it again (the job, its prompt, its recipe). An error that is none of ComfyUI's is a fault here:
+   * its stack goes to the log too, which is where it is read.
+   */
+  private async failure(row: JobRow, promptId: string | undefined, err: Error): Promise<void> {
+    const comfys = err instanceof ComfyFailed || err instanceof ComfyError || err instanceof ComfyUnreachable || err instanceof ComfyLost || err instanceof ComfyCancelled;
+    console.error(`[queue] job ${row.id} failed (prompt ${promptId ?? "not sent"}, ${row.recipe_id}): ${err.message}`);
+    if (!comfys && err.stack) console.error(err.stack);
+    await this.finish(row.id, "failed", { error: err.message.slice(0, 600), trace: err instanceof ComfyFailed ? err.failure?.traceback || null : null });
   }
 
   /** Put a render on the record of render times (renders.ts). Never in the way of the render itself: a failure here is only said. */

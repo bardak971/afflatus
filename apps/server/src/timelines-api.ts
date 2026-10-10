@@ -228,7 +228,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
    */
   app.post<{ Params: { id: string } }>("/api/timelines/:id/finish", async (req) => {
     const b = finishBody.parse(req.body);
-    const done = await finishClips(s, req.params.id, b);
+    // looked at and queued one request at a time, as an export is: two quick Finish clicks queued two finishes of each clip
+    const done = await t.history.oneAtATime(`finish:${req.params.id}`, () => finishClips(s, req.params.id, b));
     s.queue.events.emit("timeline");
     return done;
   });
@@ -437,7 +438,7 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
     if (b.clips && !b.clips.includes(clip.id)) continue;
     const take = clip.take;
     if (clip.kind !== "video" || !take) { skipped.push({ clip: i + 1, why: clip.kind === "still" ? "a still" : "no take yet" }); continue; }
-    if (clip.job) { skipped.push({ clip: i + 1, why: "a render is on its way" }); continue; }
+    if (clip.job) { skipped.push({ clip: i + 1, why: "a render or a finish is on its way" }); continue; }
     if (take.finishedFrom && !b.redo) { skipped.push({ clip: i + 1, why: "finished already" }); continue; }
     // a redo starts from the draft again, never from a finished take (an upscale of an upscale)
     const draft = (take.finishedFrom ? clip.takes.find((x) => x.id === take.finishedFrom) : undefined) ?? take;

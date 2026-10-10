@@ -2,6 +2,7 @@ import pg from "pg";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config";
 import { migrate, newId, openDb, OWNER } from "../src/db";
+import { migrations } from "../src/migrations";
 import type { QueueCore } from "../src/queueModel";
 import { history } from "../src/queueView";
 import { Registry } from "../src/registry";
@@ -24,7 +25,9 @@ describe.skipIf(!url)("on Postgres", () => {
       const { db, kind } = openDb({ ...loadConfig({}), databaseUrl: at.toString() });
       expect(kind).toBe("postgres");
       const ran = await migrate(db);
-      expect(ran.at(-1)).toBe("0039_wide_sizes");
+      // every migration there is, up to the last one: a literal here went stale at the next migration
+      expect(ran.at(-1)).toBe(Object.keys(migrations).at(-1));
+      expect(ran).toHaveLength(Object.keys(migrations).length);
       const now = new Date().toISOString();
       await db.insertInto("assets").values({
         id: "big", owner_id: OWNER, kind: "video", origin: "exported", name: "", file_key: "k", thumb_key: null, mime: "video/mp4", bytes: 3_000_000_000, width: null, height: null,

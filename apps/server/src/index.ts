@@ -17,12 +17,17 @@ export function webDir(): string | undefined {
 }
 
 const config = loadConfig();
+// what this computer has of what Afflatus needs: said once here, kept for the health route and Settings → About. First:
+// a data folder that cannot be written stops the start with its fix, where opening the database there threw a bare stack
+const checked = await preflight.run(config.dataDir);
+const data = checked.checks.find((c) => c.id === "data");
+if (data && !data.ok) {
+  console.error(`Afflatus cannot start: the data folder cannot be written (${data.detail}). ${data.fix}`);
+  process.exit(1);
+}
 const { db, kind } = openDb(config);
 const applied = await migrate(db);
 if (applied.length) console.log(`[db] migrated: ${applied.join(", ")}`);
-
-// what this computer has of what Afflatus needs: said once here, kept for the health route and Settings → About
-await preflight.run(config.dataDir);
 const services = await createServices(db, kind, new LocalStorage(join(config.dataDir, "files")), undefined, { dataDir: config.dataDir });
 const app = buildApp(services, { webDir: webDir(), backup: { dataDir: config.dataDir, filesDir: join(config.dataDir, "files") } });
 // the node pack kept up to date in ComfyUI's folder, when it is known
@@ -33,6 +38,9 @@ const app = buildApp(services, { webDir: webDir(), backup: { dataDir: config.dat
     if (put?.changed) console.log(`[node-pack] written to ${put.path}: restart ComfyUI to load it`);
   }
 }
+// the queue's state is read before the first request comes in: a job asked for at once must find a queue paused before the
+// restart paused. It starts taking jobs once this process has the port (another Afflatus on it may be running them)
+await services.queue.load();
 try {
   await app.listen({ host: config.host, port: config.port });
 } catch (err) {

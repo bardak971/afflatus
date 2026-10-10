@@ -48,6 +48,7 @@ import m0046 from "./0046-auto-names";
 import m0047 from "./0047-label-names";
 import m0048 from "./0048-music-place";
 import m0049 from "./0049-clip-fit";
+import m0050 from "./0050-job-error-trace";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -104,4 +105,5 @@ export const migrations: Record<string, Migration> = {
   "0047_label_names": m0047,
   "0048_music_place": m0048,
   "0049_clip_fit": m0049,
+  "0050_job_error_trace": m0050,
 };

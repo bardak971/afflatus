@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { newId, now, type Db } from "./db";
 import { httpError } from "./errors";
 import type { ClipRow, TakeRow, TimelineRow } from "./timelineModel";
@@ -34,13 +35,21 @@ export class TimelineHistory {
 
   /** What runs one at a time, by key: the work waiting last for each. */
   private readonly turns = new Map<string, Promise<unknown>>();
+  /** The keys whose turn the work running now holds: work it calls for under the same key runs inside that turn. */
+  private readonly holding = new AsyncLocalStorage<ReadonlySet<string>>();
 
   /**
    * Work done one at a time per key, in the order asked: Undo, Redo and the steps they keep, per timeline (two undos at once
-   * restored the same step; two steps kept at once could share a number), and a timeline's export check and queueing.
+   * restored the same step; two steps kept at once could share a number), a take landing on a clip and the edits of
+   * several statements (an Undo between them put back half of one), and a timeline's export check and queueing. Work
+   * asked for from inside a turn of the same key (a take landing keeps its own step) runs in that turn: waiting for
+   * the turn it is part of would wait forever.
    */
   oneAtATime<T>(key: string, work: () => Promise<T>): Promise<T> {
-    const mine = (this.turns.get(key) ?? Promise.resolve()).then(work);
+    const held = this.holding.getStore();
+    if (held?.has(key)) return work();
+    const inTurn = () => this.holding.run(new Set([...(held ?? []), key]), work);
+    const mine = (this.turns.get(key) ?? Promise.resolve()).then(inTurn);
     const settled = mine.then(() => {}, () => {});
     this.turns.set(key, settled);
     void settled.then(() => {
@@ -50,33 +59,35 @@ export class TimelineHistory {
   }
 
 
-  /** What the timeline looks like now, as one piece: the row, its clips, their takes. */
-  private async stateOf(timelineId: string): Promise<Kept> {
-    const timeline = await this.row(timelineId);
-    const clips = await this.db.selectFrom("clips").selectAll().where("timeline_id", "=", timelineId).execute();
-    const takes = clips.length ? await this.db.selectFrom("takes").selectAll().where("clip_id", "in", clips.map((c) => c.id)).execute() : [];
+  /** What the timeline looks like now, as one piece: the row, its clips, their takes. `db`: the transaction it is read in. */
+  private async stateOf(timelineId: string, db: Db): Promise<Kept> {
+    const timeline = db === this.db ? await this.row(timelineId) : await db.selectFrom("timelines").selectAll().where("id", "=", timelineId).executeTakeFirstOrThrow();
+    const clips = await db.selectFrom("clips").selectAll().where("timeline_id", "=", timelineId).execute();
+    const takes = clips.length ? await db.selectFrom("takes").selectAll().where("clip_id", "in", clips.map((c) => c.id)).execute() : [];
     return { timeline, clips, takes };
   }
 
   /** Keep the state in the history (before a change) or in the future (before an undo), with its label and the takes the change adds. */
-  private async snapshot(where: "timeline_history" | "timeline_future", timelineId: string, label: string, added?: string[]) {
-    const state = JSON.stringify({ ...(await this.stateOf(timelineId)), ...(added?.length ? { added } : {}) });
+  private async snapshot(where: "timeline_history" | "timeline_future", timelineId: string, label: string, added?: string[], db: Db = this.db) {
+    const state = JSON.stringify({ ...(await this.stateOf(timelineId, db)), ...(added?.length ? { added } : {}) });
     const row = { id: newId(), timeline_id: timelineId, label, snapshot: state, created_at: now() };
-    const last = await this.db.selectFrom(where).select("seq").where("timeline_id", "=", timelineId).orderBy("seq", "desc").executeTakeFirst();
+    const last = await db.selectFrom(where).select("seq").where("timeline_id", "=", timelineId).orderBy("seq", "desc").executeTakeFirst();
     const seq = (last?.seq ?? 0) + 1;
-    await this.db.insertInto(where).values({ ...row, seq }).execute();
-    await this.db.deleteFrom(where).where("timeline_id", "=", timelineId).where("seq", "<=", seq - HISTORY).execute();
+    await db.insertInto(where).values({ ...row, seq }).execute();
+    await db.deleteFrom(where).where("timeline_id", "=", timelineId).where("seq", "<=", seq - HISTORY).execute();
     return seq;
   }
 
   /**
    * Keep what the timeline looks like now, before a change. `label` says what the change is, for the Undo button; `added`
-   * names the take the change adds, which Undo takes back with it. A change forgets what could be redone.
+   * names the take the change adds, which Undo takes back with it. A change forgets what could be redone. `db`: the
+   * transaction the change is made in, so that the step and the change land together; given only from inside the
+   * timeline's turn (a transaction waiting for a turn would hold the database from the work that has the turn).
    */
-  remember(timelineId: string, label: string, added?: string): Promise<number> {
+  remember(timelineId: string, label: string, added?: string, db: Db = this.db): Promise<number> {
     return this.oneAtATime(timelineId, async () => {
-      const seq = await this.snapshot("timeline_history", timelineId, label, added ? [added] : undefined);
-      await this.db.deleteFrom("timeline_future").where("timeline_id", "=", timelineId).execute();
+      const seq = await this.snapshot("timeline_history", timelineId, label, added ? [added] : undefined, db);
+      await db.deleteFrom("timeline_future").where("timeline_id", "=", timelineId).execute();
       return seq;
     });
   }
@@ -86,26 +97,32 @@ export class TimelineHistory {
    * stays the one that plays if it was; not the take the change itself added (Undo of "the finished take" takes it back).
    */
   private async restore(timelineId: string, was: Kept) {
-    const nowClips = await this.db.selectFrom("clips").selectAll().where("timeline_id", "=", timelineId).execute();
-    const nowTakes = nowClips.length ? await this.db.selectFrom("takes").selectAll().where("clip_id", "in", nowClips.map((c) => c.id)).execute() : [];
-    const known = new Set(was.takes.map((t) => t.id));
-    const back = new Set(was.clips.map((c) => c.id));
-    const undone = new Set(was.added ?? []);
-    const newer = nowTakes.filter((t) => !known.has(t.id) && back.has(t.clip_id) && !undone.has(t.id));
-    const takes = [...was.takes, ...newer];
-    const present = takes.length ? new Set((await this.db.selectFrom("assets").select("id").where("id", "in", takes.map((t) => t.asset_id)).execute()).map((a) => a.id)) : new Set<string>();
-    const kept = takes.filter((t) => present.has(t.asset_id));
-    const w = was.timeline;
-    // its project and folder as they were, unless they have gone since (a project removed sends its timelines to the Inbox)
-    const project = w.project_id && (await this.db.selectFrom("projects").select("id").where("id", "=", w.project_id).executeTakeFirst()) ? w.project_id : null;
-    const folder = w.folder_id && (await this.db.selectFrom("folders").select("id").where("id", "=", w.folder_id).executeTakeFirst()) ? w.folder_id : null;
+    // what is there now is read in the same transaction that replaces it: a take landing between the reading and the
+    // writing was put back without playing, or deleted with its clip's row
     await this.db.transaction().execute(async (tx) => {
+      const nowClips = await tx.selectFrom("clips").selectAll().where("timeline_id", "=", timelineId).execute();
+      const nowTakes = nowClips.length ? await tx.selectFrom("takes").selectAll().where("clip_id", "in", nowClips.map((c) => c.id)).execute() : [];
+      const known = new Set(was.takes.map((t) => t.id));
+      const back = new Set(was.clips.map((c) => c.id));
+      const undone = new Set(was.added ?? []);
+      const newer = nowTakes.filter((t) => !known.has(t.id) && back.has(t.clip_id) && !undone.has(t.id));
+      const takes = [...was.takes, ...newer];
+      const present = takes.length ? new Set((await tx.selectFrom("assets").select("id").where("id", "in", takes.map((t) => t.asset_id)).execute()).map((a) => a.id)) : new Set<string>();
+      const kept = takes.filter((t) => present.has(t.asset_id));
+      const w = was.timeline;
+      // its project and folder as they were, unless they have gone since (a project removed sends its timelines to the Inbox)
+      const project = w.project_id && (await tx.selectFrom("projects").select("id").where("id", "=", w.project_id).executeTakeFirst()) ? w.project_id : null;
+      const folder = w.folder_id && (await tx.selectFrom("folders").select("id").where("id", "=", w.folder_id).executeTakeFirst()) ? w.folder_id : null;
       await tx.deleteFrom("clips").where("timeline_id", "=", timelineId).execute();
       for (const c of was.clips) {
+        const there = nowClips.find((x) => x.id === c.id);
         // a take made since the change keeps playing
-        const current = nowClips.find((x) => x.id === c.id)?.take_id;
+        const current = there?.take_id;
         const playing = current && newer.some((t) => t.id === current) ? current : c.take_id;
-        await tx.insertInto("clips").values({ ...c, take_id: playing && kept.some((t) => t.id === playing) ? playing : null }).execute();
+        // what was said to the designer, and with which model, is no step of the timeline (it is saved without one): a clip
+        // still there keeps its conversation as it is now, whatever the step put back
+        const talk = there ? { chat: there.chat, designer: there.designer } : {};
+        await tx.insertInto("clips").values({ ...c, ...talk, take_id: playing && kept.some((t) => t.id === playing) ? playing : null }).execute();
       }
       for (const t of kept) await tx.insertInto("takes").values(takeColumns(t)).execute();
       await tx

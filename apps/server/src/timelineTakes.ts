@@ -1,7 +1,7 @@
 import { joinKindOf } from "@afflatus/core";
 import { nameTake } from "./autoName";
 import { newId, now, type Db } from "./db";
-import { lengthOnGrid, type AssetRow, type TimelineCore } from "./timelineModel";
+import { lengthOnGrid, type AssetRow, type ClipRow, type TimelineCore } from "./timelineModel";
 import type { TakeLinks } from "./timelinePlan";
 
 /**
@@ -51,41 +51,59 @@ export class TimelineTakes {
     return id;
   }
 
+  /**
+   * Work on a clip's timeline in its turn, in one transaction: an Undo landing between a take's statements put it back not
+   * playing, or deleted it with its clip's row (and a failure half way left half a landing). False when the clip is gone.
+   */
+  private async onClip(clipId: string, work: (tx: Db, clip: ClipRow) => Promise<void>): Promise<boolean> {
+    const { db } = this.core;
+    const timeline = (await db.selectFrom("clips").select("timeline_id").where("id", "=", clipId).executeTakeFirst())?.timeline_id;
+    if (!timeline) return false;
+    return this.core.oneAtATime(timeline, () => db.transaction().execute(async (tx) => {
+      // read again in the turn: the clip may have gone while the turn was waited for
+      const clip = await tx.selectFrom("clips").selectAll().where("id", "=", clipId).executeTakeFirst();
+      if (!clip) return false;
+      await work(tx, clip);
+      return true;
+    }));
+  }
+
   /** A clip's job is done: its video becomes a take, and plays. The first take of a timeline decides its frame. */
   async finished(clipId: string, generationId: string, overlap: Overlap | undefined, links: TakeLinks, finishedFrom: string | null = null): Promise<void> {
-    const { db } = this.core;
-    const clip = await db.selectFrom("clips").selectAll().where("id", "=", clipId).executeTakeFirst();
+    let timeline: string | null = null;
     // the clip was removed while it rendered: the video is in the library all the same
-    if (!clip) return;
-    const asset = await db.selectFrom("assets").selectAll().where("generation_id", "=", generationId).where("kind", "=", "video").executeTakeFirst();
-    if (!asset) return;
-    // placed already: the queue found the job again after a crash between placing the take and closing the job
-    if (await db.selectFrom("takes").select("id").where("clip_id", "=", clipId).where("asset_id", "=", asset.id).executeTakeFirst()) return;
-    const id = newId();
-    // a finished take is a step of its own, which Undo takes back with the take (a render's new take is no step: Undo keeps it)
-    if (finishedFrom) await this.core.remember(clip.timeline_id, "the finished take", id);
-    await this.add(clipId, asset, overlap ?? { headMs: 0, tailMs: 0 }, links, finishedFrom, db, id);
-    // the take lands on the clip after a little further in than it played (on a chunk of its latent): that clip now starts there
-    if (links.next && !finishedFrom) {
-      const next = await db.selectFrom("takes").select(["id", "head_ms", "trim_start_ms"]).where("id", "=", links.next.take).executeTakeFirst();
-      if (next && links.next.at > next.head_ms + next.trim_start_ms + 20) {
-        await this.core.remember(clip.timeline_id, "the landing on the clip after");
-        await db.updateTable("takes").set({ trim_start_ms: Math.round(links.next.at - next.head_ms) }).where("id", "=", next.id).execute();
-      }
-    }
-    // the take carried on from before the clip before's frozen tail: that clip now stops where the take picks up
-    if (links.prev && !finishedFrom) {
-      const prev = await db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").select(["takes.id as id", "takes.tail_ms as tail_ms", "takes.trim_end_ms as trim_end_ms", "assets.duration_ms as duration_ms", "assets.latent_frames as latent_frames"]).where("takes.id", "=", links.prev.take).executeTakeFirst();
-      if (prev?.duration_ms) {
-        const length = lengthOnGrid(prev as unknown as AssetRow);
-        const end = length - prev.tail_ms - prev.trim_end_ms;
-        if (links.prev.at < end - 40) {
-          await this.core.remember(clip.timeline_id, "the hand-over before the frozen tail");
-          await db.updateTable("takes").set({ trim_end_ms: Math.round(length - prev.tail_ms - links.prev.at) }).where("id", "=", prev.id).execute();
+    await this.onClip(clipId, async (db, clip) => {
+      const asset = await db.selectFrom("assets").selectAll().where("generation_id", "=", generationId).where("kind", "=", "video").executeTakeFirst();
+      if (!asset) return;
+      // placed already: the queue found the job again after a crash between placing the take and closing the job
+      if (await db.selectFrom("takes").select("id").where("clip_id", "=", clipId).where("asset_id", "=", asset.id).executeTakeFirst()) return;
+      timeline = clip.timeline_id;
+      const id = newId();
+      // a finished take is a step of its own, which Undo takes back with the take (a render's new take is no step: Undo keeps it)
+      if (finishedFrom) await this.core.remember(clip.timeline_id, "the finished take", id, db);
+      await this.add(clipId, asset, overlap ?? { headMs: 0, tailMs: 0 }, links, finishedFrom, db, id);
+      // the take lands on the clip after a little further in than it played (on a chunk of its latent): that clip now starts there
+      if (links.next && !finishedFrom) {
+        const next = await db.selectFrom("takes").select(["id", "head_ms", "trim_start_ms"]).where("id", "=", links.next.take).executeTakeFirst();
+        if (next && links.next.at > next.head_ms + next.trim_start_ms + 20) {
+          await this.core.remember(clip.timeline_id, "the landing on the clip after", undefined, db);
+          await db.updateTable("takes").set({ trim_start_ms: Math.round(links.next.at - next.head_ms) }).where("id", "=", next.id).execute();
         }
       }
-    }
-    await this.core.touch(clip.timeline_id);
+      // the take carried on from before the clip before's frozen tail: that clip now stops where the take picks up
+      if (links.prev && !finishedFrom) {
+        const prev = await db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").select(["takes.id as id", "takes.tail_ms as tail_ms", "takes.trim_end_ms as trim_end_ms", "assets.duration_ms as duration_ms", "assets.latent_frames as latent_frames"]).where("takes.id", "=", links.prev.take).executeTakeFirst();
+        if (prev?.duration_ms) {
+          const length = lengthOnGrid(prev as unknown as AssetRow);
+          const end = length - prev.tail_ms - prev.trim_end_ms;
+          if (links.prev.at < end - 40) {
+            await this.core.remember(clip.timeline_id, "the hand-over before the frozen tail", undefined, db);
+            await db.updateTable("takes").set({ trim_end_ms: Math.round(length - prev.tail_ms - links.prev.at) }).where("id", "=", prev.id).execute();
+          }
+        }
+      }
+    });
+    if (timeline) await this.core.touch(timeline);
   }
 
   /**
@@ -93,14 +111,15 @@ export class TimelineTakes {
    * the take back. A video placed on the clip already is not placed again.
    */
   async takeFrom(clipId: string, asset: AssetRow, label = "the slow-motion take", finishedFrom: string | null = null): Promise<void> {
-    const { db } = this.core;
-    const clip = await db.selectFrom("clips").selectAll().where("id", "=", clipId).executeTakeFirst();
+    let timeline: string | null = null;
     // the clip was removed while the job ran: the video is in the library all the same
-    if (!clip) return;
-    if (await db.selectFrom("takes").select("id").where("clip_id", "=", clipId).where("asset_id", "=", asset.id).executeTakeFirst()) return;
-    const id = newId();
-    await this.core.remember(clip.timeline_id, label, id);
-    await this.add(clipId, asset, { headMs: 0, tailMs: 0 }, {}, finishedFrom, db, id);
-    await this.core.touch(clip.timeline_id);
+    await this.onClip(clipId, async (db, clip) => {
+      if (await db.selectFrom("takes").select("id").where("clip_id", "=", clipId).where("asset_id", "=", asset.id).executeTakeFirst()) return;
+      timeline = clip.timeline_id;
+      const id = newId();
+      await this.core.remember(clip.timeline_id, label, id, db);
+      await this.add(clipId, asset, { headMs: 0, tailMs: 0 }, {}, finishedFrom, db, id);
+    });
+    if (timeline) await this.core.touch(timeline);
   }
 }

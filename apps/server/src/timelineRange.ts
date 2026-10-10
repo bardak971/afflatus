@@ -1,7 +1,7 @@
 import { latentFrameAtOrBefore, MODEL_FPS, secondsInput, type Recipe } from "@afflatus/core";
 import { fromName, nameOf } from "./autoName";
 import { CutError, rangeKeep, slowMotion } from "./cut";
-import { newId, now, OWNER } from "./db";
+import { newId, now, OWNER, type Db } from "./db";
 import { httpError } from "./errors";
 import { extOf } from "./media";
 import { makeThumb, thumbKey } from "./thumbs";
@@ -126,32 +126,42 @@ export class TimelineRange {
    */
   async splitClip(clipId: string, atMs: number): Promise<string> {
     const clip = await this.core.clipRow(clipId);
-    const p = (await this.core.placed(clip.timeline_id)).find((x) => x.clip.id === clipId);
-    if (!p?.active) throw httpError("This clip has no take yet: render it first.");
-    const { start, end } = visible(p.active);
-    if (atMs < start + 40 || atMs > end - 40) throw httpError("Put the playhead inside the part that plays, at least a frame from its ends.");
-    await this.core.remember(clip.timeline_id, "the split");
-    const id = await this.splitAt(clip.timeline_id, p, atMs - start);
+    const id = await this.edit(clip.timeline_id, async (tx) => {
+      const p = (await this.core.placed(clip.timeline_id, tx)).find((x) => x.clip.id === clipId);
+      if (!p?.active) throw httpError("This clip has no take yet: render it first.");
+      const { start, end } = visible(p.active);
+      if (atMs < start + 40 || atMs > end - 40) throw httpError("Put the playhead inside the part that plays, at least a frame from its ends.");
+      await this.core.remember(clip.timeline_id, "the split", undefined, tx);
+      return this.splitAt(clip.timeline_id, p, atMs - start, tx);
+    });
     await this.core.touch(clip.timeline_id);
     return id;
   }
 
+  /**
+   * An edit of several statements as one: in the timeline's turn (an Undo or a take landing never comes between its
+   * statements) and in one transaction (a failure half way leaves none of it, and no step to undo for nothing).
+   */
+  private edit<T>(timelineId: string, work: (tx: Db) => Promise<T>): Promise<T> {
+    return this.core.oneAtATime(timelineId, () => this.core.db.transaction().execute(work));
+  }
+
   /** A copy of the clip right after it: the same form, look and sound, its takes again (the same videos), the same one playing. It starts as a cut. */
   async duplicateClip(clipId: string): Promise<string> {
-    const { db } = this.core;
-    const clip = await this.core.clipRow(clipId);
-    const all = await this.core.placed(clip.timeline_id);
-    const index = all.findIndex((p) => p.clip.id === clipId);
-    const takes = await db.selectFrom("takes").selectAll().where("clip_id", "=", clipId).orderBy("created_at").execute();
-    await this.core.remember(clip.timeline_id, "the duplicate");
+    const { timeline_id: timelineId } = await this.core.clipRow(clipId);
     const id = newId();
-    const at = now();
-    const ids = new Map(takes.map((t) => [t.id, newId()]));
-    const order = all.map((p) => p.clip.id);
-    order.splice(index + 1, 0, id);
     // the copy, its takes and its place land together, or not at all; a finished take stays the finished version of the copy's
     // own draft (not of the original's: a redo of its finish then starts from the draft again)
-    await db.transaction().execute(async (tx) => {
+    await this.edit(timelineId, async (tx) => {
+      const clip = await tx.selectFrom("clips").selectAll().where("id", "=", clipId).executeTakeFirstOrThrow();
+      const all = await this.core.placed(clip.timeline_id, tx);
+      const index = all.findIndex((p) => p.clip.id === clipId);
+      const takes = await tx.selectFrom("takes").selectAll().where("clip_id", "=", clipId).orderBy("created_at").execute();
+      await this.core.remember(clip.timeline_id, "the duplicate", undefined, tx);
+      const at = now();
+      const ids = new Map(takes.map((t) => [t.id, newId()]));
+      const order = all.map((p) => p.clip.id);
+      order.splice(index + 1, 0, id);
       await tx
         .insertInto("clips")
         .values({ ...clip, id, position: index + 1, take_id: clip.take_id ? ids.get(clip.take_id) ?? null : null, joined: "cut", chat: null, created_at: at, updated_at: at })
@@ -162,7 +172,7 @@ export class TimelineRange {
       }
       await this.core.renumber(clip.timeline_id, order, tx);
     });
-    await this.core.touch(clip.timeline_id);
+    await this.core.touch(timelineId);
     return id;
   }
 
@@ -170,9 +180,8 @@ export class TimelineRange {
    * The split itself: `localMs` after the moment the clip starts playing. A still becomes two stills.
    * The second clip takes the first's model, form, sound and look, and starts as a cut.
    */
-  private async splitAt(timelineId: string, p: Placed, localMs: number): Promise<string> {
-    const { db } = this.core;
-    const all = await this.core.placed(timelineId);
+  private async splitAt(timelineId: string, p: Placed, localMs: number, db: Db): Promise<string> {
+    const all = await this.core.placed(timelineId, db);
     const index = all.findIndex((x) => x.clip.id === p.clip.id);
     const clip = p.clip;
     const id = newId();
@@ -188,7 +197,7 @@ export class TimelineRange {
       .execute();
     const order = all.map((x) => x.clip.id);
     order.splice(index + 1, 0, id);
-    await this.core.renumber(timelineId, order);
+    await this.core.renumber(timelineId, order, db);
     if (still) {
       await db.updateTable("clips").set({ still_ms: Math.max(STILL_MS.least, Math.round(localMs)), updated_at: at }).where("id", "=", clip.id).execute();
       return id;
@@ -230,8 +239,7 @@ export class TimelineRange {
   private at(laid: Laid[], ms: number) { return laid.find((l) => l.atMs <= ms && ms < l.atMs + l.lengthMs); }
 
   /** A clip plays only its first `keepMs`. */
-  private async endAt(p: Placed, keepMs: number) {
-    const { db } = this.core;
+  private async endAt(p: Placed, keepMs: number, db: Db) {
     if (p.clip.kind === "still") return void (await db.updateTable("clips").set({ still_ms: Math.max(STILL_MS.least, Math.round(keepMs)), updated_at: now() }).where("id", "=", p.clip.id).execute());
     const x = p.active!;
     const total = lengthOnGrid(x.asset);
@@ -239,8 +247,7 @@ export class TimelineRange {
   }
 
   /** A clip plays from `fromMs` into what it played. It no longer starts where the clip before stopped: a cut. */
-  private async startAt(p: Placed, fromMs: number) {
-    const { db } = this.core;
+  private async startAt(p: Placed, fromMs: number, db: Db) {
     if (p.clip.kind === "still") return void (await db.updateTable("clips").set({ still_ms: Math.max(STILL_MS.least, Math.round(p.clip.still_ms - fromMs)), updated_at: now() }).where("id", "=", p.clip.id).execute());
     const x = p.active!;
     await db.updateTable("takes").set({ trim_start_ms: Math.max(0, Math.round(x.take.trim_start_ms + fromMs)) }).where("id", "=", x.take.id).execute();
@@ -251,15 +258,15 @@ export class TimelineRange {
    * What plays between In and Out goes: the clips inside, and the parts of the clips at the edges (a
    * clip with less than a tenth of a second left goes too). The clips after close the gap.
    */
-  private async cutOut(timelineId: string, a: number, b: number): Promise<void> {
+  private async cutOut(timelineId: string, a: number, b: number, db: Db): Promise<void> {
     const EDGE = 100;
-    let all = await this.core.placed(timelineId);
+    let all = await this.core.placed(timelineId, db);
     let laid = laidOut(all);
     // the range inside one clip: that clip is split at Out first, so that what is after the range stays a clip
     const both = laid.find((l) => l.atMs < a && l.atMs + l.lengthMs > b);
     if (both) {
-      await this.splitAt(timelineId, both.p, b - both.atMs);
-      all = await this.core.placed(timelineId);
+      await this.splitAt(timelineId, both.p, b - both.atMs, db);
+      all = await this.core.placed(timelineId, db);
       laid = laidOut(all);
     }
     // a clip with nothing to play yet (not laid out: it takes no time) goes with the range when it stands inside it
@@ -270,37 +277,45 @@ export class TimelineRange {
       if (start >= a - 1 && end <= b + 1) gone.push(l.p.clip.id);
       else if (start < a && end > a) {
         if (a - start < EDGE) gone.push(l.p.clip.id);
-        else await this.endAt(l.p, a - start);
+        else await this.endAt(l.p, a - start, db);
       } else if (start < b && end > b) {
         if (end - b < EDGE) gone.push(l.p.clip.id);
-        else await this.startAt(l.p, b - start);
+        else await this.startAt(l.p, b - start, db);
       }
     }
-    if (gone.length) await this.core.db.deleteFrom("clips").where("id", "in", gone).execute();
-    await this.core.renumber(timelineId, (await this.core.placed(timelineId)).map((p) => p.clip.id));
+    if (gone.length) await db.deleteFrom("clips").where("id", "in", gone).execute();
+    await this.core.renumber(timelineId, (await this.core.placed(timelineId, db)).map((p) => p.clip.id), db);
   }
 
   /** The clips under In and under Out each become two there. Both moments on cuts already: nothing to do. */
   async splitRange(timelineId: string, inMs: number, outMs: number): Promise<void> {
-    const { laid, a, b } = await this.window(timelineId, inMs, outMs);
-    const inside = (ms: number) => laid.find((l) => l.atMs + 40 <= ms && ms <= l.atMs + l.lengthMs - 40);
-    const marks = [...new Set([b, a])].filter((ms) => inside(ms));
-    if (!marks.length) throw httpError("In and Out are both on cuts already: there is nothing to split.");
-    await this.core.remember(timelineId, marks.length === 2 ? "the split at In and Out" : "the split");
-    // Out first: the clips before it keep their places
-    for (const ms of marks) {
-      const l = inside(ms);
-      if (l) await this.splitAt(timelineId, (await this.core.placed(timelineId)).find((p) => p.clip.id === l.p.clip.id)!, ms - l.atMs);
-    }
+    await this.core.oneAtATime(timelineId, async () => {
+      const { laid, a, b } = await this.window(timelineId, inMs, outMs);
+      const inside = (ms: number) => laid.find((l) => l.atMs + 40 <= ms && ms <= l.atMs + l.lengthMs - 40);
+      const marks = [...new Set([b, a])].filter((ms) => inside(ms));
+      if (!marks.length) throw httpError("In and Out are both on cuts already: there is nothing to split.");
+      await this.edit(timelineId, async (tx) => {
+        await this.core.remember(timelineId, marks.length === 2 ? "the split at In and Out" : "the split", undefined, tx);
+        // Out first: the clips before it keep their places
+        for (const ms of marks) {
+          const l = inside(ms);
+          if (l) await this.splitAt(timelineId, (await this.core.placed(timelineId, tx)).find((p) => p.clip.id === l.p.clip.id)!, ms - l.atMs, tx);
+        }
+      });
+    });
     await this.core.touch(timelineId);
   }
 
   /** What plays between In and Out goes; the clips after close the gap. Undo brings it back. */
   async removeRange(timelineId: string, inMs: number, outMs: number): Promise<void> {
-    const { a, b } = await this.window(timelineId, inMs, outMs);
-    if (b - a < 40) throw httpError("Set In and Out apart: there is nothing between them.");
-    await this.core.remember(timelineId, "the range removed");
-    await this.cutOut(timelineId, a, b);
+    await this.core.oneAtATime(timelineId, async () => {
+      const { a, b } = await this.window(timelineId, inMs, outMs);
+      if (b - a < 40) throw httpError("Set In and Out apart: there is nothing between them.");
+      await this.edit(timelineId, async (tx) => {
+        await this.core.remember(timelineId, "the range removed", undefined, tx);
+        await this.cutOut(timelineId, a, b, tx);
+      });
+    });
     await this.core.touch(timelineId);
   }
 
@@ -322,6 +337,13 @@ export class TimelineRange {
    * the two, nothing removed. The clip is not rendered here: it is selected, and its form is yours first.
    */
   async regenerateRange(timelineId: string, inMs: number, outMs: number): Promise<{ clip: string; context: RangeContext; widenedMs?: number; longerMs?: number }> {
+    const made = await this.core.oneAtATime(timelineId, () => this.regenerateInTurn(timelineId, inMs, outMs));
+    await this.core.touch(timelineId);
+    return made;
+  }
+
+  /** regenerateRange, in the timeline's turn: what plays is read, the frames at its ends are taken, and the change lands in one transaction. */
+  private async regenerateInTurn(timelineId: string, inMs: number, outMs: number): Promise<{ clip: string; context: RangeContext; widenedMs?: number; longerMs?: number }> {
     const { registry } = this.core;
     const w = await this.window(timelineId, inMs, outMs);
     const { laid, total } = w;
@@ -346,20 +368,21 @@ export class TimelineRange {
     const context = rangeContext(recipe, before, after)!;
     const first = context.start === "frame" ? await this.pictureAt(timelineId, before!, a - before!.atMs) : null;
     const last = context.end === "frame" ? await this.pictureAt(timelineId, after!, b - after!.atMs) : null;
-    await this.core.remember(timelineId, b - a >= 40 ? "the regenerated range" : "the clip added between");
-    if (b - a >= 40) await this.cutOut(timelineId, a, b);
-    // where it goes: after the last clip that stops by In
-    const all = await this.core.placed(timelineId);
-    const anchor = [...laidOut(all)].reverse().find((l) => l.atMs + l.lengthMs <= a + 50);
-    const index = anchor ? anchor.index + 1 : 0;
-    const id = await this.placeRangeClip(timelineId, all, index, source.p, recipe, {
-      // extending the clip before: the render is given that clip's video up to In
-      joined: context.start === "clip" ? "continue" : "cut",
-      // the clip after: it follows the new clip when the model can end where it begins (the render is given its video from Out), else it is a cut
-      nextJoined: context.end === "clip" ? "continue" : "cut",
-      first, last, seconds: b - a >= 40 ? (b - a) / 1000 : undefined,
+    const id = await this.core.db.transaction().execute(async (tx) => {
+      await this.core.remember(timelineId, b - a >= 40 ? "the regenerated range" : "the clip added between", undefined, tx);
+      if (b - a >= 40) await this.cutOut(timelineId, a, b, tx);
+      // where it goes: after the last clip that stops by In
+      const all = await this.core.placed(timelineId, tx);
+      const anchor = [...laidOut(all)].reverse().find((l) => l.atMs + l.lengthMs <= a + 50);
+      const index = anchor ? anchor.index + 1 : 0;
+      return this.placeRangeClip(timelineId, all, index, source.p, recipe, {
+        // extending the clip before: the render is given that clip's video up to In
+        joined: context.start === "clip" ? "continue" : "cut",
+        // the clip after: it follows the new clip when the model can end where it begins (the render is given its video from Out), else it is a cut
+        nextJoined: context.end === "clip" ? "continue" : "cut",
+        first, last, seconds: b - a >= 40 ? (b - a) / 1000 : undefined,
+      }, tx);
     });
-    await this.core.touch(timelineId);
     // still shorter than the model makes (the clips around it too short to take from): what follows moves by that much
     const longerMs = length && b - a >= 40 ? Math.max(0, Math.round(length.min * 1000 - (b - a))) : 0;
     return { clip: id, context, ...(widenedMs ? { widenedMs } : {}), ...(longerMs > 40 ? { longerMs } : {}) };
@@ -421,11 +444,11 @@ export class TimelineRange {
    * The clip a range operation adds, put at `index`: on `recipe`, with the source clip's own settings when
    * that is its model (else what a new clip there would get) and its words when both models have them,
    * opening on `first` and ending on `last` when given, `seconds` long when the model has a length. The
-   * clip at `index` before it follows it or starts as a cut, as `nextJoined` says. Within one transaction.
+   * clip at `index` before it follows it or starts as a cut, as `nextJoined` says. Within the caller's transaction `tx`.
    */
   private async placeRangeClip(
     timelineId: string, all: Placed[], index: number, source: Placed, recipe: Recipe<any>,
-    how: { joined: ClipRow["joined"]; nextJoined: ClipRow["joined"]; first: AssetRow | null; last: AssetRow | null; seconds?: number },
+    how: { joined: ClipRow["joined"]; nextJoined: ClipRow["joined"]; first: AssetRow | null; last: AssetRow | null; seconds?: number }, tx: Db,
   ): Promise<string> {
     const own = source.clip.recipe_id ? this.core.registry.recipe(source.clip.recipe_id) : undefined;
     const srcInputs = JSON.parse(source.clip.inputs) as Record<string, unknown>;
@@ -446,17 +469,15 @@ export class TimelineRange {
     const order = all.map((p) => p.clip.id);
     order.splice(index, 0, id);
     const next = all[index];
-    await this.core.db.transaction().execute(async (tx) => {
-      await tx
-        .insertInto("clips")
-        .values({
-          id, timeline_id: timelineId, position: index, take_id: null, joined: how.joined, recipe_id: recipe.id, inputs: JSON.stringify(inputs),
-          kind: "video", still_asset_id: null, still_ms: 3000, sound: "own", sound_asset_id: null, volume: 100, fill: 0, look: source.clip.look, chat: null, created_at: at, updated_at: at,
-        })
-        .execute();
-      await this.core.renumber(timelineId, order, tx);
-      if (next && next.clip.joined !== how.nextJoined) await tx.updateTable("clips").set({ joined: how.nextJoined, updated_at: at }).where("id", "=", next.clip.id).execute();
-    });
+    await tx
+      .insertInto("clips")
+      .values({
+        id, timeline_id: timelineId, position: index, take_id: null, joined: how.joined, recipe_id: recipe.id, inputs: JSON.stringify(inputs),
+        kind: "video", still_asset_id: null, still_ms: 3000, sound: "own", sound_asset_id: null, volume: 100, fill: 0, look: source.clip.look, chat: null, created_at: at, updated_at: at,
+      })
+      .execute();
+    await this.core.renumber(timelineId, order, tx);
+    if (next && next.clip.joined !== how.nextJoined) await tx.updateTable("clips").set({ joined: how.nextJoined, updated_at: at }).where("id", "=", next.clip.id).execute();
     return id;
   }
 
@@ -468,6 +489,13 @@ export class TimelineRange {
    * is selected, and its form is yours first. `arrive` is the clip under In, for the designer.
    */
   async loopRange(timelineId: string, inMs: number, outMs: number): Promise<{ clip: string; context: RangeContext; arrive: string }> {
+    const made = await this.core.oneAtATime(timelineId, () => this.loopInTurn(timelineId, inMs, outMs));
+    await this.core.touch(timelineId);
+    return made;
+  }
+
+  /** loopRange, in the timeline's turn: the frames are taken first, then the change lands in one transaction. */
+  private async loopInTurn(timelineId: string, inMs: number, outMs: number): Promise<{ clip: string; context: RangeContext; arrive: string }> {
     const { registry } = this.core;
     const { laid, a, b } = await this.window(timelineId, inMs, outMs);
     if (b - a < 40) throw httpError("Set In and Out apart: a loop needs something to play round.");
@@ -481,19 +509,20 @@ export class TimelineRange {
     const context: RangeContext = { start: startBy(recipe)!, end: "frame" };
     const first = context.start === "frame" ? await this.pictureAt(timelineId, source, b - source.atMs) : null;
     const last = await this.pictureAt(timelineId, target, a - target.atMs);
-    await this.core.remember(timelineId, "the loop clip");
-    // Out inside a clip: split there, so that the loop clip comes right after what plays in the range
-    if (b < source.atMs + source.lengthMs - 40) await this.splitAt(timelineId, source.p, b - source.atMs);
-    const all = await this.core.placed(timelineId);
-    const anchor = [...laidOut(all)].reverse().find((l) => l.atMs + l.lengthMs <= b + 50);
-    const index = anchor ? anchor.index + 1 : 0;
-    const id = await this.placeRangeClip(timelineId, all, index, source.p, recipe, {
-      joined: context.start === "clip" ? "continue" : "cut",
-      // what came after Out does not follow the loop clip: it ends on In's frame, not on that clip
-      nextJoined: "cut",
-      first, last, seconds: 1.5,
+    const id = await this.core.db.transaction().execute(async (tx) => {
+      await this.core.remember(timelineId, "the loop clip", undefined, tx);
+      // Out inside a clip: split there, so that the loop clip comes right after what plays in the range
+      if (b < source.atMs + source.lengthMs - 40) await this.splitAt(timelineId, source.p, b - source.atMs, tx);
+      const all = await this.core.placed(timelineId, tx);
+      const anchor = [...laidOut(all)].reverse().find((l) => l.atMs + l.lengthMs <= b + 50);
+      const index = anchor ? anchor.index + 1 : 0;
+      return this.placeRangeClip(timelineId, all, index, source.p, recipe, {
+        joined: context.start === "clip" ? "continue" : "cut",
+        // what came after Out does not follow the loop clip: it ends on In's frame, not on that clip
+        nextJoined: "cut",
+        first, last, seconds: 1.5,
+      }, tx);
     });
-    await this.core.touch(timelineId);
     return { clip: id, context, arrive: target.p.clip.id };
   }
 
@@ -538,17 +567,25 @@ export class TimelineRange {
    * takes that follow.
    */
   async slowRangeOf(timelineId: string, inMs: number, outMs: number, factor: 2 | 4): Promise<Array<{ clip: string; asset: AssetRow; startMs: number; endMs: number }>> {
-    const { db } = this.core;
-    const { laid, a, b } = await this.window(timelineId, inMs, outMs);
-    if (b - a < 40) throw httpError("Set In and Out apart: there is nothing to slow down.");
-    if (!laid.some((l) => l.p.clip.kind === "video" && l.p.active && l.atMs < b && l.atMs + l.lengthMs > a)) throw httpError("Nothing in the range plays a video: there is nothing to slow down.");
-    await this.core.remember(timelineId, "the split for slow motion");
+    const jobs = await this.core.oneAtATime(timelineId, async () => {
+      const { laid, a, b } = await this.window(timelineId, inMs, outMs);
+      if (b - a < 40) throw httpError("Set In and Out apart: there is nothing to slow down.");
+      if (!laid.some((l) => l.p.clip.kind === "video" && l.p.active && l.atMs < b && l.atMs + l.lengthMs > a)) throw httpError("Nothing in the range plays a video: there is nothing to slow down.");
+      return this.edit(timelineId, (tx) => this.slowSplit(timelineId, a, b, factor, tx));
+    });
+    await this.core.touch(timelineId);
+    return jobs;
+  }
+
+  /** slowRangeOf's change, in its transaction: the splits at Out and In, the stills held longer, the parts of video to slow. */
+  private async slowSplit(timelineId: string, a: number, b: number, factor: 2 | 4, db: Db): Promise<Array<{ clip: string; asset: AssetRow; startMs: number; endMs: number }>> {
+    await this.core.remember(timelineId, "the split for slow motion", undefined, db);
     // Out first, then In: the clips before keep their places
     for (const ms of [b, a]) {
-      const l = laidOut(await this.core.placed(timelineId)).find((x) => x.atMs + 40 <= ms && ms <= x.atMs + x.lengthMs - 40);
-      if (l) await this.splitAt(timelineId, (await this.core.placed(timelineId)).find((p) => p.clip.id === l.p.clip.id)!, ms - l.atMs);
+      const l = laidOut(await this.core.placed(timelineId, db)).find((x) => x.atMs + 40 <= ms && ms <= x.atMs + x.lengthMs - 40);
+      if (l) await this.splitAt(timelineId, (await this.core.placed(timelineId, db)).find((p) => p.clip.id === l.p.clip.id)!, ms - l.atMs, db);
     }
-    const all = await this.core.placed(timelineId);
+    const all = await this.core.placed(timelineId, db);
     const parts = laidOut(all).filter((l) => l.atMs >= a - 1 && l.atMs + l.lengthMs <= b + 1);
     const jobs: Array<{ clip: string; asset: AssetRow; startMs: number; endMs: number }> = [];
     const at = now();
@@ -565,7 +602,6 @@ export class TimelineRange {
     }
     const first = parts[0];
     if (first?.p.clip.joined === "continue") await db.updateTable("clips").set({ joined: "cut", updated_at: at }).where("id", "=", first.p.clip.id).execute();
-    await this.core.touch(timelineId);
     return jobs;
   }
 }
