@@ -528,7 +528,8 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
           </div>
         )}
 
-        <details className="group rounded-lg border border-line">
+        {/* Details (P) unfolds this for an item made here without parameters of its own (a cut, a frame, an export) */}
+        <details data-viewer-file className="group rounded-lg border border-line">
           <summary className="flex cursor-pointer items-center gap-1.5 px-3 py-2 text-xs font-semibold text-ink-2 hover:text-ink"><ChevronDown size={13} className="transition-transform group-open:rotate-180" /> File details</summary>
           <dl className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-4 gap-y-1.5 border-t border-line p-3">
             {a.name && <Row label="Name">{a.name}</Row>}

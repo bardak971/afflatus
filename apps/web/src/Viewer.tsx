@@ -21,6 +21,9 @@ import { useCompareResult } from "./store";
 // the parameters reader is a chunk of its own: fetched the first time Details opens
 const PngInfo = lazy(() => import("./PngInfo").then((m) => ({ default: m.PngInfo })));
 
+/** A file that came from outside (uploaded, a linked folder's, imported): what made it may be written in it. An extracted sound is made here. */
+const madeElsewhere = (a: Asset) => a.origin === "uploaded" || (a.origin === "imported" && a.kind !== "audio");
+
 /** One item, large, with how it was made and what can be done with it. */
 export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onDetails, into }: {
   asset: Asset;
@@ -92,8 +95,14 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     if (inline) {
       askViewer(a.id, "details");
       onDetails?.();
-    } else if (!g) setInfo(true);
-    else {
+    } else if (!g && madeElsewhere(a)) setInfo(true);
+    else if (!g) {
+      // made here from another item (a cut, a frame, an export, a mirrored copy): no parameters of its own, nothing written
+      // in its file; what it was made from and its facts are in the side
+      const el = root.current?.querySelector<HTMLElement>("[data-viewer-file]");
+      el?.setAttribute("open", "");
+      el?.scrollIntoView({ block: "start", behavior: "smooth" });
+    } else {
       const el = root.current?.querySelector<HTMLElement>("[data-viewer-params]");
       el?.querySelector("details")?.setAttribute("open", "");
       el?.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -244,7 +253,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
       {timeline.element}
       {compare ?? media(true)}
       <ViewerSidebar acts={acts} list={list} asset={asset} detail={detail} naming={naming} onNaming={setNaming} trail={trail} onTrail={setTrail} items={items} onClose={onClose} />
-      {info && <Suspense fallback={null}><PngInfo name={asset.name || "Untitled"} read={(recipe) => api.assetEmbedded(asset.id, recipe)} onClose={() => setInfo(false)} onSent={leave} /></Suspense>}
+      {info && <Suspense fallback={null}><PngInfo name={asset.name || "Untitled"} title={asset.kind === "image" ? "PNG info" : "Embedded info"} read={(recipe) => api.assetEmbedded(asset.id, recipe)} onClose={() => setInfo(false)} onSent={leave} /></Suspense>}
     </div>
   );
 }

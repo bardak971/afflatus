@@ -20,8 +20,10 @@ import { workflowFile } from "./dropZones";
  * are sent to. The same for a file being dropped on the app and for a picture already in the library:
  * `read` fetches it either way, for the form asked for.
  */
-export function PngInfo({ name, read, first, onClose, onSent }: {
+export function PngInfo({ name, title = "PNG info", read, first, onClose, onSent }: {
   name: string;
+  /** "PNG info" for a picture; a video or a sound says what it holds in its own tags. */
+  title?: string;
   read(recipe?: string): Promise<Embedded>;
   /** What was already read, when the caller had to read it to know whether to open this. */
   first?: Embedded;
@@ -60,9 +62,9 @@ export function PngInfo({ name, read, first, onClose, onSent }: {
 
   const s = data?.settings;
   return (
-    <Dialog label="PNG info" onClose={onClose} z="z-[80]" className="flex max-h-full w-full max-w-2xl flex-col rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-[peek-rise_120ms_ease-out]">
+    <Dialog label={title} onClose={onClose} z="z-[80]" className="flex max-h-full w-full max-w-2xl flex-col rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60 motion-safe:animate-[peek-rise_120ms_ease-out]">
         <header className="shrink-0 border-b border-line px-5 py-3.5">
-          <DialogHead icon={<ScanSearch size={16} />} title="PNG info" sub={<span data-tip={name}>{name} · how it was made</span>} onClose={onClose} />
+          <DialogHead icon={<ScanSearch size={16} />} title={title} sub={<span data-tip={name}>{name} · how it was made</span>} onClose={onClose} />
         </header>
         <div className="flex min-h-0 flex-col gap-3 overflow-y-auto p-5">
           {failed && <ErrorNote>{failed}</ErrorNote>}
