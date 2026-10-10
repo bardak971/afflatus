@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, X } from "lucide-react";
 import type { Job } from "./api";
 import { useQueue } from "./data";
-import { useDownloads } from "./GetFile";
+import { useDownloads } from "./useGetFile";
 import { moves } from "./leave";
 import { Kbd } from "./Keys";
 import { OUT_MS } from "./motion";

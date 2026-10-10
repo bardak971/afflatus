@@ -22,6 +22,8 @@ export interface Asset {
   countdownFrom?: string | null;
   /** Of a file of a linked folder: where it is on the disk (in the bin: where it was). */
   path: string | null;
+  /** Of a file of a linked folder: not on the disk any more, kept because something uses it (its file answers 404). */
+  missing?: true;
   /** Of a video that is a take of a timeline clip: which (only in listings). */
   clipOf?: ClipOf | null;
   /** Made in Create: the draft it came from (only in listings). */

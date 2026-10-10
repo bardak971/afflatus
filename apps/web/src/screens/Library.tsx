@@ -1,5 +1,5 @@
 import { memo, useState, type ReactNode } from "react";
-import { Check, Clock, Film, Play, VolumeX } from "lucide-react";
+import { Check, Clock, FileX2, Film, Play, VolumeX } from "lucide-react";
 import { HoverAudio, HoverVideo } from "../HoverVideo";
 import { TileTip, useTileTip } from "../TileTip";
 import type { Asset } from "../api";
@@ -34,6 +34,9 @@ export function tileFacts(a: Asset): string {
   ].filter(Boolean).join(" · ");
 }
 
+/** Why a linked file shows no picture, for its tile's tip. */
+const missingTip = (a: Asset) => `${a.path ?? a.name} is not in its folder on the disk any more: moved, renamed or deleted. It is kept because a timeline or the Prompt kit uses it. Put the file back, or press Look again on its folder.`;
+
 /**
  * One item of a grid. Drawn again only when what it is handed changes: a grid hands every tile the same callbacks, each
  * told which item it is for, so ticking one item, or a page arriving, does not draw the hundreds of others again.
@@ -65,7 +68,7 @@ export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onS
   const [at, setAt] = useState<number | null>(null);
   const [playing, setPlaying] = useState<null | { muted: boolean }>(null);
   const hoverVideo = useHoverPlay((s) => s.video);
-  const follows = asset.kind === "audio" || (asset.kind === "video" && !noFrame && hoverVideo);
+  const follows = !asset.missing && (asset.kind === "audio" || (asset.kind === "video" && !noFrame && hoverVideo));
   const track = (e: React.PointerEvent<HTMLElement>) => {
     if (!follows || e.pointerType !== "mouse") return;
     const r = e.currentTarget.getBoundingClientRect();
@@ -117,7 +120,15 @@ export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onS
         selected && "ring-2 ring-accent",
       )}
     >
-      {sound ? (
+      {asset.missing ? (
+        // a linked file gone from its folder but kept (a timeline or the Prompt kit uses it): said so, rather than a picture
+        // that never comes
+        <span className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-panel px-3 text-center text-ink-2" data-tip={missingTip(asset)}>
+          <FileX2 size={22} className="text-warn" />
+          <span className="text-[12.5px] font-bold text-ink">Missing on disk</span>
+          <span className="w-full truncate text-[11px]">{name}</span>
+        </span>
+      ) : sound ? (
         // a sound: its card, the waveform lit up to the pointer; it plays from there (Settings → Appearance allowing)
         <span className="absolute inset-0 flex flex-col gap-2 bg-gradient-to-br from-accent-wash to-panel px-3.5 py-3 text-left">
           <span className="flex min-w-0 items-center gap-2">

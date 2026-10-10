@@ -211,13 +211,19 @@ export class Timelines {
     return (await this.placedOf([timelineId], db)).get(timelineId) ?? [];
   }
 
-  /** The same for several timelines at once, by timeline: one query each for the clips, the takes and the files they show. */
-  private async placedOf(timelineIds: string[], db: Db = this.db): Promise<Map<string, Placed[]>> {
+  /**
+   * The same for several timelines at once, by timeline: one query each for the clips, the takes and the files they show.
+   * `playing`: each clip with the take that plays only (its length and joins are the same; the other takes are not read).
+   */
+  private async placedOf(timelineIds: string[], db: Db = this.db, playing = false): Promise<Map<string, Placed[]>> {
     const out = new Map<string, Placed[]>(timelineIds.map((id) => [id, []]));
     if (!timelineIds.length) return out;
     const clips = await db.selectFrom("clips").selectAll().where("timeline_id", "in", timelineIds).orderBy("position").orderBy("created_at").execute();
     if (!clips.length) return out;
-    const takes = await db.selectFrom("takes").selectAll().where("clip_id", "in", clips.map((c) => c.id)).orderBy("created_at").execute();
+    const shown = playing ? clips.flatMap((c) => (c.take_id ? [c.take_id] : [])) : [];
+    const takes = playing
+      ? shown.length ? await db.selectFrom("takes").selectAll().where("id", "in", shown).orderBy("created_at").execute() : []
+      : await db.selectFrom("takes").selectAll().where("clip_id", "in", clips.map((c) => c.id)).orderBy("created_at").execute();
     const wanted = [
       ...takes.map((t) => t.asset_id),
       ...clips.flatMap((c) => [c.still_asset_id, c.sound_asset_id, ...this.pinned(c).map((p) => p.id)]).filter((x): x is string => Boolean(x)),
@@ -273,11 +279,13 @@ export class Timelines {
 
   /**
    * Every timeline as the projects tree lists it, newest first: its clips, how long it plays, the size of its videos (its takes'
-   * and its export, each once, none in the bin) and whether it has an export. A few queries for all of them.
+   * and its export, each once, none in the bin) and whether it has an export. A few queries for all of them. `playingOnly`
+   * (the command bar's index, which says no size): only the takes that play are read, a third of the rows, and `bytes`
+   * counts those alone.
    */
-  async leaves() {
+  async leaves(opts: { playingOnly?: boolean } = {}) {
     const rows = await this.db.selectFrom("timelines").selectAll().where("owner_id", "=", OWNER).orderBy("updated_at", "desc").execute();
-    const placed = await this.placedOf(rows.map((t) => t.id));
+    const placed = await this.placedOf(rows.map((t) => t.id), this.db, opts.playingOnly);
     const exports = rows.flatMap((t) => (t.export_asset_id ? [t.export_asset_id] : []));
     const live = new Map(exports.length ? (await this.db.selectFrom("assets").select(["id", "bytes"]).where("id", "in", exports).where("deleted_at", "is", null).execute()).map((a) => [a.id, Number(a.bytes)]) : []);
     return rows.map((t) => {

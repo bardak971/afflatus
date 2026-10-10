@@ -17,7 +17,8 @@ import { useBanners, usePanelWidth } from "../../store";
 import { ErrorNote, ScrollColumn, PanelEdge } from "../../ui";
 import { useFormTarget } from "../../formTarget";
 import { DraftHeader } from "./DraftHeader";
-import { GenerateBar, maskMissing } from "./GenerateBar";
+import { GenerateBar } from "./GenerateBar";
+import { inputMissing } from "./missing";
 import { ModelPicker, useModelPick } from "./ModelPicker";
 import { PresetMenu, presetRefusal } from "./PresetMenu";
 import { useGenerate } from "./useGenerate";
@@ -66,13 +67,14 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
   const settings = useModelSettings();
   const defaults = useMemo(() => (recipe ? formDefaults(recipe, status?.options, settings.data?.items ?? [], formValues).defaults : {}), [recipe, status, settings.data, formValues]);
   const whole = useMemo(() => (recipe && draft ? { ...defaults, ...formValues } : {}), [recipe, draft, defaults, formValues]);
-  // an Inpaint with no mask yet waits like a model that is not ready: Ctrl+Enter and the command bar too
-  const unmasked = maskMissing(recipe, whole);
-  const send = useGenerate({ recipe, draft, defaults, folder: folder?.id, d, blocked: blocked ?? unmasked });
+  // a required input still empty (an img2img with no picture, an Inpaint with no mask) waits like a model that is not
+  // ready: Ctrl+Enter and the command bar too
+  const missing = inputMissing(recipe, whole);
+  const send = useGenerate({ recipe, draft, defaults, folder: folder?.id, d, blocked: blocked ?? missing });
   // Generate from elsewhere (the command bar), refused as the button is
   const makeNow = useRef(() => {});
   makeNow.current = () => {
-    if (recipe && draft && !blocked && !unmasked && !send.isPending) send.mutate();
+    if (recipe && draft && !blocked && !missing && !send.isPending) send.mutate();
   };
 
   const pick = useModelPick({ recipe, draft, onPick: d.setRecipe });

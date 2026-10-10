@@ -86,7 +86,8 @@ export async function commandIndex(s: Services, opts: { items?: string[] } = {})
     // a clip's own draft belongs to its timeline, not to the Studio's list
     db.selectFrom("drafts").select(["id", "name", "title", "recipe_id", "project_id", "created_at", "updated_at"]).where("owner_id", "=", OWNER).where("target", "not like", "clip:%").orderBy("updated_at", "desc").execute(),
     db.selectFrom("generations").select((eb) => ["draft_id", eb.fn.countAll().as("n")]).where("draft_id", "is not", null).groupBy("draft_id").execute(),
-    s.timelines.leaves(),
+    // its figures (clips, lengths, exported) need only the takes that play
+    s.timelines.leaves({ playingOnly: true }),
     unusedTakes(db),
     db.selectFrom("workflows").select(["id", "created_at", "updated_at"]).where("owner_id", "=", OWNER).execute(),
     db.selectFrom("entities").select(["id", "kind", "name", "created_at", "updated_at"]).where("owner_id", "=", OWNER).orderBy("name").execute(),

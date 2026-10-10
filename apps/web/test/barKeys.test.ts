@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { COMMAND_KEYS, commandKeys, keyItems, navItems, templateItems } from "../src/bar/items";
+import { COMMAND_KEYS, commandKeys, templateItems } from "../src/bar/commandRows";
+import { keyItems, navItems } from "../src/bar/items";
 import { MODE_KEYS, modeOf, type CommandId } from "../src/bar/parse";
 import { allRows, searchKeys } from "../src/keys/search";
 import { PLACES, rowKeys, type RowId } from "../src/keys/table";

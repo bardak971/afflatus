@@ -123,7 +123,8 @@ export const api = {
   nodePack: (o?: Asked) => call<{ pack: string; path: string; written: boolean; loaded: boolean; canWrite: boolean }>("GET", "/comfy/node-pack", undefined, o?.signal),
   getPresetFiles: (id: string, body: { accept?: boolean; optional?: boolean } = {}) => call<{ started: Download[]; failed: Array<{ file: string; error: string }>; skipped: number }>("POST", `/presets/${encodeURIComponent(id)}/get`, body),
   queue: (o?: Asked) => call<QueueStatus>("GET", "/queue", undefined, o?.signal),
-  jobs: (filter: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; offset?: number; limit?: number }, o?: Asked) =>
+  /** `after`: the page after the one whose `next` it is; the first page without it. */
+  jobs: (filter: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; after?: string; limit?: number }, o?: Asked) =>
     call<HistoryPage>("GET", `/jobs?${new URLSearchParams(Object.fromEntries(Object.entries(filter).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)])))}`, undefined, o?.signal),
   pause: () => call<QueueStatus>("POST", "/queue/pause"),
   resume: () => call<QueueStatus>("POST", "/queue/resume"),

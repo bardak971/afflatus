@@ -149,10 +149,14 @@ function cleanOutput(comfy: Comfy): void {
   void comfy.client.cleanOutput(24);
 }
 
-/** Whether ComfyUI has this prompt: done (in its history), running or waiting. */
+/**
+ * Whether ComfyUI has this prompt: running or waiting, or done (in its history). The queue is asked first: a prompt goes
+ * from the queue to the history and never back, so one that finishes between the two questions is found in the history.
+ * Asked the other way round, a prompt that finished in between was in neither answer, and was sent a second time.
+ */
 export async function taken(comfy: Comfy, promptId: string): Promise<boolean> {
-  if (await comfy.client.history(promptId)) return true;
-  return (await comfy.client.queuePosition(promptId)) !== "absent";
+  if ((await comfy.client.queuePosition(promptId)) !== "absent") return true;
+  return Boolean(await comfy.client.history(promptId));
 }
 
 /** A picture the recipe takes; a mask says where it was painted, which is all that is redone. */

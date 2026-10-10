@@ -1,3 +1,5 @@
+import { gridAtLeast, gridNearest, onGrid, type FrameGrid } from "@afflatus/core";
+
 /**
  * The bar's calculator (`=`): the figures video work needs, on the grid of the model in play (its frames on
  * `step·k + offset` at its frames a second, its sizes on a multiple of its grid), or plain arithmetic. Pure:
@@ -9,7 +11,7 @@ export interface Grid {
   name: string;
   fps: number;
   /** Valid frame counts: step·k + offset. */
-  frames: { step: number; offset: number };
+  frames: FrameGrid;
   /** Both edges of a frame are multiples of this. */
   size: number;
 }
@@ -22,11 +24,6 @@ export interface CalcCard {
   copy: string;
 }
 
-/** The frame count on the grid at or above `frames` (a clip asked for that long gets at least that long). */
-export const gridFramesAtLeast = (frames: number, g: Grid["frames"]) => Math.max(g.offset, Math.ceil((frames - g.offset) / g.step) * g.step + g.offset);
-/** The frame count on the grid nearest to `frames`. */
-export const gridFramesNearest = (frames: number, g: Grid["frames"]) => Math.max(g.offset, Math.round((frames - g.offset) / g.step) * g.step + g.offset);
-const onGrid = (frames: number, g: Grid["frames"]) => frames >= g.offset && (frames - g.offset) % g.step === 0;
 
 const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
 /** The proportions people say, for a frame that is near one of them. */
@@ -80,7 +77,7 @@ export function calc(text: string, grid: Grid): CalcCard[] | null {
     if (!f || !fps) return null;
     const cards: CalcCard[] = [{ label: "length", value: secs(f / fps), note: `${f} frames at ${fpsSaid} · Enter copies`, copy: (f / fps).toFixed(2) }];
     if (!onGrid(f, grid.frames)) {
-      const near = gridFramesNearest(f, grid.frames);
+      const near = gridNearest(f, grid.frames);
       cards.push({ label: `nearest on the ${grid.name} grid`, value: `${near} f`, note: `${grid.frames.step}k+${grid.frames.offset} · ${secs(near / fps)}`, copy: String(near) });
     } else cards.push({ label: `on the ${grid.name} grid`, value: "yes", note: `${grid.frames.step}k+${grid.frames.offset} · k = ${(f - grid.frames.offset) / grid.frames.step}`, copy: String(f) });
     return cards;
@@ -91,7 +88,7 @@ export function calc(text: string, grid: Grid): CalcCard[] | null {
     const s = n(duration[1]!);
     if (!(s > 0) || !fps) return null;
     const raw = Math.round(s * fps);
-    const g = gridFramesAtLeast(raw, grid.frames);
+    const g = gridAtLeast(raw, grid.frames);
     return [
       { label: "frames", value: String(g), note: `${grid.name} grid ${grid.frames.step}k+${grid.frames.offset} · ${secs(g / fps)} · Enter copies`, copy: String(g) },
       { label: "frames, plain", value: String(raw), note: `${secs(s)} × ${fpsSaid}`, copy: String(raw) },

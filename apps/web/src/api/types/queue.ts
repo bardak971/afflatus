@@ -51,6 +51,8 @@ export interface HistoryJob extends Job {
 export interface HistoryPage {
   items: HistoryJob[];
   more: boolean;
+  /** Where the next page starts (its `after`): the last job of this one. Null on the last page. */
+  next: string | null;
   counts: { done: number; failed: number; cancelled: number };
 }
 export interface RunningJob extends Job {

@@ -7,16 +7,8 @@ import { BATCH } from "../../draft";
 import { Keys } from "../../Keys";
 import { FormModel, ResultsPlace } from "../../ModelLoad";
 import { Button, ErrorNote, Help } from "../../ui";
+import { inputMissing } from "./missing";
 import type { useGenerate } from "./useGenerate";
-
-/**
- * Why Generate waits on a form that redoes a painted part (Inpaint): its mask is not painted yet. A mask the recipe
- * can do without (optional) never holds it back.
- */
-export function maskMissing(recipe: RecipeInfo | undefined, whole: Record<string, unknown>): string | null {
-  const mask = recipe?.inputs.find((i) => i.type === "image" && i.role === "mask" && !i.optional && !whole[i.id]);
-  return mask ? `Paint the ${mask.label.toLowerCase()} first (Inputs).` : null;
-}
 
 /** The foot of the Create panel: what stops the form, where its results go, the batch count, and Generate with what it will take. */
 export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCount }: {
@@ -33,7 +25,7 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCou
   const noun = recipe?.output === "image" ? "image" : recipe?.output === "video" ? "video" : "audio clip";
   // the form's own forecast, the one its Output line says (advice.ts): the button says it for the whole batch
   const about = batchAbout(useAdvice(recipe, whole).data?.estimate, count);
-  const unmasked = maskMissing(recipe, whole);
+  const missing = inputMissing(recipe, whole);
   return (
     <div className="flex shrink-0 flex-col gap-2 border-t border-line p-3">
       {send.isError && <ErrorNote>{send.error.message}</ErrorNote>}
@@ -58,7 +50,7 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCou
           <Button tone="quiet" size="sm" className="w-8 px-0!" aria-label="Batch count: one more" disabled={count >= BATCH.most} onClick={() => onCount(count + 1)}><Plus size={14} /></Button>
         </div>
         {/* the label gives way before the panel's edge does: the keys go first, then the estimate is cut, then the rest */}
-        <Button tone="primary" className="h-11 min-w-0 grow text-sm" disabled={!recipe || !draft || Boolean(blocked) || Boolean(unmasked) || send.isPending} data-tip={unmasked ?? "Generate"} data-tip-keys="Ctrl+Enter" onClick={() => send.mutate()}>
+        <Button tone="primary" className="h-11 min-w-0 grow text-sm" disabled={!recipe || !draft || Boolean(blocked) || Boolean(missing) || send.isPending} data-tip={missing ?? "Generate"} data-tip-keys="Ctrl+Enter" onClick={() => send.mutate()}>
           {send.isPending ? (
             <span className="truncate">Queuing…</span>
           ) : (

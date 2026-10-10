@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { castPlace, clipRefuses, withPerson, type ClipCast } from "../src/bar/castTo";
 import { atTop } from "../src/screens/queue/order";
-import { arithmetic, calc, gridFramesAtLeast, ratioOf, sizeFor, type Grid } from "../src/bar/calc";
+import { gridAtLeast } from "@afflatus/core";
+import { arithmetic, calc, ratioOf, sizeFor, type Grid } from "../src/bar/calc";
 import { indexItems, lowerFirst, navItems, timelineLength, usedItems, withItems } from "../src/bar/items";
 import { snapEdge } from "../src/fields/SizeField";
 import { useBanners, useNotify } from "../src/store";
@@ -202,7 +203,7 @@ describe("modes and commands", () => {
 
 describe("calculator", () => {
   it("gives the frames of a length on the model's grid", () => {
-    expect(gridFramesAtLeast(168, H3.frames)).toBe(175);
+    expect(gridAtLeast(168, H3.frames)).toBe(175);
     const c = calc("7s 24fps", H3)!;
     expect(c[0]!.value).toBe("175");
     expect(c[0]!.note).toContain("7.29 s");

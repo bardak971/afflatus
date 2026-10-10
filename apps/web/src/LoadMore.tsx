@@ -21,15 +21,19 @@ export function scrollBoxOf(el: HTMLElement): HTMLElement | null {
  */
 export function LoadMore({ more, busy, onMore, size = "md" }: { more: boolean; busy: boolean; onMore(): void; size?: "md" | "sm" }) {
   const ref = useRef<HTMLButtonElement>(null);
+  // the callers hand a new onMore at every draw: the observer calls the latest one, and is made again only when the list
+  // gains or loses a page to ask for, not at each draw (a new one says at once that the end is in view, and asked again)
+  const latest = useRef(onMore);
+  latest.current = onMore;
   useEffect(() => {
     const el = ref.current;
     if (!el || !more || busy) return;
     const io = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) onMore();
+      if (entries.some((e) => e.isIntersecting)) latest.current();
     }, { root: scrollBoxOf(el), rootMargin: "600px" });
     io.observe(el);
     return () => io.disconnect();
-  }, [more, busy, onMore]);
+  }, [more, busy]);
   if (!more) return null;
   return (
     <button type="button" ref={ref} onClick={onMore} disabled={busy} aria-label="More" className={cx("flex w-full justify-center text-ink-3 hover:text-ink-2", size === "sm" ? "py-2 text-[11px]" : "py-4 text-xs")}>

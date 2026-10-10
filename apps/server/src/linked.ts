@@ -9,6 +9,7 @@ import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { httpError } from "./errors";
 import { extOf, mimeOfDiskFile, newAssetRow } from "./media";
 import type { Storage } from "./storage";
+import { missingFiles } from "./missingFiles";
 import { inUse } from "./sweep";
 
 /**
@@ -107,8 +108,14 @@ export class RoutedStorage implements Storage {
    */
   private async statOf(key: string) {
     const p = this.file(key);
-    return stat(p).catch((err: NodeJS.ErrnoException) => {
-      if (err.code === "ENOENT" || err.code === "ENOTDIR") throw httpError(`This file is not on the disk any more (${p}): it was moved, renamed or deleted. Put it back, or press Look again on its folder.`, 404);
+    return stat(p).then((info) => {
+      missingFiles.found(key);
+      return info;
+    }, (err: NodeJS.ErrnoException) => {
+      if (err.code === "ENOENT" || err.code === "ENOTDIR") {
+        missingFiles.mark(key);
+        throw httpError(`This file is not on the disk any more (${p}): it was moved, renamed or deleted. Put it back, or press Look again on its folder.`, 404);
+      }
       throw err;
     });
   }
@@ -411,6 +418,7 @@ export class Linked {
         const info = await stat(full).catch(() => null);
         // listed but not readable for a moment: a file known by this name keeps its row, a new one waits for the next reading
         if (!info) continue;
+        missingFiles.found(key);
         const made = info.mtime.toISOString();
         files++;
         const had = byKey.get(key);
@@ -461,7 +469,10 @@ export class Linked {
     const staying = new Set<string>();
     for (const a of missing) {
       if (!used.has(a.id)) await this.forget(a);
-      else if (a.folder_id) staying.add(a.folder_id);
+      else {
+        missingFiles.mark(a.file_key);
+        if (a.folder_id) staying.add(a.folder_id);
+      }
     }
     // the folder of such a file stays too, and the folders around it, so that it is still found where it was
     const parentOf = new Map(knownFolders.map((f) => [f.id, f.parent_id]));
