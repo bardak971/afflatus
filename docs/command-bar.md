@@ -73,7 +73,7 @@ Plain words read by fixed rules, never an LLM. Each command shows what it will d
 - On the open draft: `generate`, `seed 1234`, `steps 30`, `cfg 4`, `size 576x1024`, `length 5s`, `preset <name>`, `save as preset <name>`.
 - Models: `load <model>`, `unload models` (as the Queue page's button: not while a render runs), `new draft <model>`, `import workflow`.
 - Making things: `new timeline [name]`, `new folder <name>` (at the top of the project you work in), `new project <name>`, `new person|place|style|preset|snippet <name>` (opened in the Prompt kit), `link folder [path]`.
-- The queue: `pause queue`, `resume queue`, `cancel waiting`, `retry failed`, `dismiss failed`, `group by model`, `empty bin`.
+- The queue: `pause queue`, `resume queue`, `cancel waiting`, `retry failed`, `dismiss failed`, `group by model`, `empty bin`, `put all back` (both as the bin's own buttons, off while it is empty).
 - Elsewhere: `view last render`, `reconnect` (ComfyUI asked again, as Settings' Test again), `undo` (the open editor's last change, as its Ctrl+Z; elsewhere the move or bin the newest banner offers to undo).
 
 A command that cannot be undone (empty bin, delete) asks first, as the app does elsewhere.

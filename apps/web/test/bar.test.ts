@@ -354,6 +354,9 @@ describe("places, the bin and the editor from the bar", () => {
     expect(parseCommand("go to clip 12")).toEqual({ cmd: "clip", number: 12 });
     expect(parseCommand("clip 0")).toBeNull();
     expect(parseCommand("undo")).toEqual({ cmd: "undo" });
+    expect(parseCommand("put all back")).toEqual({ cmd: "put-back-all" });
+    expect(parseCommand("restore the bin")).toEqual({ cmd: "put-back-all" });
+    expect(parseCommand("empty the bin")).toEqual({ cmd: "empty-bin" });
     expect(parseCommand("render clip 3")).toEqual({ cmd: "render-clips", clips: [3] });
   });
   it("lists the Inbox as a place, its items counted without the bin's", () => {

@@ -10,7 +10,9 @@ import { useOpenInComfy } from "../actions";
 import { api, type Asset, type CommandEntry, type Entity, type RecipeInfo } from "../api";
 import { ask, askText } from "../Confirm";
 import type { MenuItem } from "../ContextMenu";
-import { assetKey, DRAFT_LIST, useAsset, useEntities, useModelSettings, useProjects, useRecipes, useSetup } from "../data";
+import { assetKey, DRAFT_LIST, useAsset, useEntities, useModelSettings, useProjects, useRecipes, useSetup, useStorage } from "../data";
+import { itemsWord } from "../assetCache";
+import { emptyAll, restoreAll } from "../binActions";
 import { useOpenNewDraft } from "../draft";
 import { formDefaults, mainTextOf } from "../form";
 import { formPlaces, useFormTarget } from "../formTarget";
@@ -115,6 +117,10 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
   const bulk = useQueueBulk();
   const jobs = useJobActions();
   const setup = useSetup();
+  // what the bin holds, as its strip says it: "3 items · 12 MB"
+  const bin = useStorage().data?.bin;
+  const binEmpty = bin ? !bin.count : false;
+  const binSaid = bin ? `${itemsWord(bin.count)} · ${size(bin.bytes)}` : "";
   const recipes = useRecipes().data?.recipes ?? [];
   const entities = useEntities().data?.items ?? [];
   const modelSettings = useModelSettings();
@@ -427,13 +433,16 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
         return [{ label: "Pause queue", icon: <Pause size={14} />, disabled: queue.data?.paused, note: queue.data?.paused ? "already paused" : undefined, run: () => api.pause().then((q) => client.setQueryData(["queue"], q), failed("Could not pause the queue")) }];
       case "resume":
         return [{ label: "Resume queue", icon: <Play size={14} />, disabled: queue.data ? !queue.data.paused : false, note: queue.data && !queue.data.paused ? "it is running" : undefined, run: () => api.resume().then((q) => client.setQueryData(["queue"], q), failed("Could not resume the queue")) }];
+      // the bin's own Empty the bin and Put all back (binActions.ts, as its strip over the grid), off while it is empty
       case "empty-bin":
         return [{
-          label: "Empty the bin…", icon: <Trash2 size={14} />, danger: true, note: "asked first; cannot be undone",
-          run: async () => {
-            if (!(await ask({ title: "Empty the bin?", text: "Everything in the bin is erased now, files and all, instead of after its 7 days. This cannot be undone.", yes: "Erase" }))) return;
-            await api.emptyBin().then((r) => { void client.invalidateQueries({ queryKey: ["timelines"] }); good(`${r.erased} item${r.erased === 1 ? "" : "s"} erased`, r.inUse ? `${r.inUse} still in use stayed.` : undefined); }, failed("Could not empty the bin"));
-          },
+          label: "Empty the bin…", icon: <Trash2 size={14} />, danger: true, disabled: binEmpty, note: binEmpty ? "the bin is empty" : `${binSaid} · asked first; cannot be undone`,
+          run: () => emptyAll(client),
+        }];
+      case "put-back-all":
+        return [{
+          label: "Put all back", icon: <Undo2 size={14} />, disabled: binEmpty, note: binEmpty ? "the bin is empty" : `${binSaid} · each back where it was`,
+          run: () => restoreAll(client),
         }];
       case "link-folder": {
         const project = useProject.getState().id;

@@ -30,6 +30,7 @@ export type Command =
   | { cmd: "pause" }
   | { cmd: "resume" }
   | { cmd: "empty-bin" }
+  | { cmd: "put-back-all" }
   | { cmd: "bin-unused" }
   | { cmd: "link-folder"; path: string }
   | { cmd: "new-project"; name: string }
@@ -97,6 +98,7 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "pause", name: "Pause queue", typed: "pause queue", example: "pause queue", what: "What runs finishes; nothing new starts" },
   { id: "resume", name: "Resume queue", typed: "resume queue", example: "resume queue", what: "What waits starts again" },
   { id: "empty-bin", name: "Empty the bin…", typed: "empty the bin", example: "empty the bin", what: "Erases what is in the bin, asked first" },
+  { id: "put-back-all", name: "Put all back", typed: "put all back", example: "put all back", what: "Everything in the bin back where it was, as the bin's Put all back" },
   { id: "bin-unused", name: "Bin unused takes…", typed: "bin unused takes", example: "bin unused takes", what: "Of the open timeline, asked first" },
   { id: "clip", name: "Go to clip…", typed: "clip ", example: "clip 3", what: "In the open timeline: selected, the playhead on its start", needs: true },
   { id: "undo", name: "Undo", typed: "undo", example: "undo", what: "The open editor's last change, else the move or bin a banner offers to undo" },
@@ -175,6 +177,7 @@ export function parseCommand(input: string): Command | null {
   if (/^pause(?: (?:the )?queue)?$/.test(low)) return { cmd: "pause" };
   if (/^(?:resume|unpause)(?: (?:the )?queue)?$/.test(low)) return { cmd: "resume" };
   if (/^empty (?:the )?(?:bin|trash)$/.test(low)) return { cmd: "empty-bin" };
+  if (/^(?:put (?:all|everything) back|put back (?:all|everything)|restore (?:the )?(?:bin|trash|all))$/.test(low)) return { cmd: "put-back-all" };
   if (/^bin (?:the )?unused(?: takes)?$/.test(low)) return { cmd: "bin-unused" };
   if ((m = /^link (?:a )?folder(?: (.+))?$/i.exec(t))) return { cmd: "link-folder", path: (m[1] ?? "").trim() };
   if ((m = /^new project (.+)$/i.exec(t))) return { cmd: "new-project", name: m[1]!.trim().slice(0, 120) };
