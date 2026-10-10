@@ -401,6 +401,18 @@ export const api = {
 
 export const fileUrl = (id: string) => `/api/assets/${id}/file`;
 export const thumbUrl = (id: string) => `/api/assets/${id}/thumb`;
+/**
+ * The thumbnail's two sizes for a srcset, of a thumbUrl: the 256 px one for a tile that small on a screen of one pixel
+ * per point, the 512 px one for a larger tile or a denser screen. Undefined for any other address (a picture itself).
+ */
+export function thumbSrcSet(src: string): string | undefined {
+  return /^\/api\/assets\/[^/?]+\/thumb$/.test(src) ? `${src}?w=256 256w, ${src} 512w` : undefined;
+}
+/**
+ * The width a tile's thumbnail is picked for: the width it is laid out at ("auto", for a picture loaded lazily, in a
+ * browser that knows it), else 320 px, the widest tile, so that a browser without it gets the 512 px one as before.
+ */
+export const THUMB_SIZES = "auto, 320px";
 /** Twelve frames of a video side by side, spread over its length. */
 export const stripUrl = (id: string) => `/api/assets/${id}/strip`;
 export const STRIP_FRAMES = 12;

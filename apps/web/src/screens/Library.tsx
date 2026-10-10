@@ -147,6 +147,7 @@ export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onS
         <HoverVideo
           asset={asset.id}
           video={asset.kind === "video"}
+          shaped={fill}
           at={asset.kind === "video" ? at : undefined}
           onNoFrame={() => setNoFrame(true)}
           onPlaying={(on, muted) => setPlaying(on ? { muted } : null)}

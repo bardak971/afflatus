@@ -93,8 +93,10 @@ export function HoverAudio({ asset, at, delay = 250, onPlaying, onTime }: {
  * place along the tile, it scrubs: the video goes where the pointer is and plays on from there. Fills its
  * box: put it in a box with `relative` and a size (an aspect ratio).
  */
-export function HoverVideo({ asset, video, alt = "", delay = 250, at, onNoFrame, onPlaying }: {
+export function HoverVideo({ asset, video, alt = "", delay = 250, at, shaped, onNoFrame, onPlaying }: {
   asset: string;
+  /** Its box has the item's own shape (the library's justified grid): the smaller thumbnail may stand in (Thumb). */
+  shaped?: boolean;
   /** It is a video: it plays on hover. An image only shows. */
   video: boolean;
   alt?: string;
@@ -162,7 +164,7 @@ export function HoverVideo({ asset, video, alt = "", delay = 250, at, onNoFrame,
       }}
       onPointerLeave={scrubs ? undefined : stop}
     >
-      <Thumb src={thumbUrl(asset)} alt={alt} loading="lazy" decoding="async" draggable={false} onError={onNoFrame} className="h-full w-full object-cover" />
+      <Thumb src={thumbUrl(asset)} large={!shaped} alt={alt} loading="lazy" decoding="async" draggable={false} onError={onNoFrame} className="h-full w-full object-cover" />
       {playing && <video ref={el} src={fileUrl(asset)} loop playsInline preload="auto" aria-label="Playing on hover" onLoadedMetadata={seek} onSeeked={seek} className="absolute inset-0 h-full w-full object-cover" />}
     </span>
   );

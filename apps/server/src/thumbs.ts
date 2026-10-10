@@ -1,5 +1,10 @@
 /** Longest edge of a library thumbnail: enough for a grid tile on a dense screen. */
 const EDGE = 512;
+/**
+ * Longest edge of the small thumbnail, for a tile drawn at 256 px or less on a screen of one pixel per point (the grid's
+ * tiles are 105 to 320 px wide): a quarter of the pixels, and about a third of the bytes, of the 512 one.
+ */
+export const SMALL_EDGE = 256;
 
 type Sharp = typeof import("sharp").default;
 let loading: Promise<Sharp | null> | null = null;
@@ -19,12 +24,12 @@ function sharp(): Promise<Sharp | null> {
   return loading;
 }
 
-/** A small WebP of a picture, or null when it cannot be made (not a picture, a damaged file, no image library). */
-export async function makeThumb(bytes: Uint8Array): Promise<Uint8Array | null> {
+/** A small WebP of a picture, `edge` at most on its longest side, or null when it cannot be made (not a picture, a damaged file, no image library). */
+export async function makeThumb(bytes: Uint8Array, edge = EDGE): Promise<Uint8Array | null> {
   const lib = await sharp();
   if (!lib) return null;
   try {
-    return new Uint8Array(await lib(bytes).rotate().resize({ width: EDGE, height: EDGE, fit: "inside", withoutEnlargement: true }).webp({ quality: 80 }).toBuffer());
+    return new Uint8Array(await lib(bytes).rotate().resize({ width: edge, height: edge, fit: "inside", withoutEnlargement: true }).webp({ quality: 80 }).toBuffer());
   } catch {
     return null;
   }
@@ -92,3 +97,8 @@ export async function maskBox(bytes: Uint8Array): Promise<{ width: number; heigh
 }
 
 export const thumbKey = (assetId: string) => `thumbs/${assetId.slice(0, 2)}/${assetId}.webp`;
+/**
+ * The small thumbnail's key, beside the other: made from it on first ask (thumb route), never named in the item's row, so
+ * erased with the item (sweep.ts eraseAsset), and named after the item's id, so the sweep of files no item names finds it.
+ */
+export const smallThumbKey = (assetId: string) => `thumbs/${assetId.slice(0, 2)}/${assetId}-${SMALL_EDGE}.webp`;
