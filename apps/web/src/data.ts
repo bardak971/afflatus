@@ -216,7 +216,9 @@ export type AssetsPageParam = { after?: string; before?: string };
 /**
  * A list of the library, a page at a time. `capped`: it holds LIBRARY_PAGES pages at most, so a library
  * change reads those again rather than every page scrolled through; the list then pages both ways and
- * shows the pages above again (fetchPreviousPage) when scrolled back up. Uncapped for a list with no way up.
+ * shows the pages above again (fetchPreviousPage) when scrolled back up. Uncapped for a list with no way up, and for
+ * the Studio's grid, which keeps every page read and draws only the rows in view (MediaGrid.tsx): scrolled back up, the
+ * user finds the pages as they were, with no read and no jump.
  */
 export function useAssets(filter: { kind?: string; bin?: boolean; folder?: string; q?: string; family?: string; kept?: boolean; unkept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean }, enabled = true, capped = false) {
   const project = useProject((s) => s.id);

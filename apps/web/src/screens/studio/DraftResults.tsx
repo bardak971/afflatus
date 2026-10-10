@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Images, Square, X } from "lucide-react";
 import type { Asset } from "../../api";
 import { useAssets } from "../../data";
@@ -13,6 +13,7 @@ import { useTileMenu } from "../../TileMenu";
 import { Tile, tileName } from "../Library";
 import { LiveTile } from "./LiveTile";
 import { useQueueOf } from "./queueOf";
+import { drawnIndices, stackBands, useHeld, useSpan } from "./virtual";
 
 /**
  * What the draft in the form has made: the newest result large, with what can be done with it under
@@ -124,31 +125,89 @@ export function DraftResults({ draft, folder, list, title, empty }: {
         )}
         {/* the newer pages, let go past the cap (useAssets) */}
         {assets.hasPreviousPage && <Button size="sm" onClick={() => assets.fetchPreviousPage()} disabled={busy}>Newer</Button>}
-        {items.map((a) => {
-          const on = !live && shown?.id === a.id;
-          return (
-            // at its own shape (a portrait take stays portrait), with its name under it; the one shown large is marked
-            <div key={a.id} className={cx("flex flex-col gap-1.5 rounded-[12px] p-1.5", on ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : "hover:shadow-[inset_0_0_0_1px_var(--color-line-strong)]")}>
-              <div style={{ aspectRatio: shapeOf(a), width: `min(100%, ${Math.round(TILE_H * shapeOf(a))}px)` }} className="mx-auto">
-                <Tile fill plain asset={a} onOpen={() => setPicked(a.id)} onMenu={(e) => tileMenu.open(e, a)} />
-              </div>
-              {/* what it is, under the picture: its name, then its clip and its length (or size) */}
-              <span className="flex min-w-0 flex-col gap-1 px-0.5">
-                <span className="truncate text-[12.5px] font-bold" data-tip={tileName(a)}>{tileName(a)}</span>
-                <span className="flex min-w-0 items-center gap-1.5">
-                  {/* in the accent, flush with the name above it */}
-                  {a.clipOf && <span className="min-w-0 truncate text-[11px] font-semibold text-accent">Clip {a.clipOf.clip}{a.clipOf.takes > 1 ? ` · take ${a.clipOf.take}` : ""}</span>}
-                  <span className="grow" />
-                  <span className="shrink-0 font-mono text-[11px] text-ink-2">{a.durationMs !== null && a.kind !== "image" ? clock(a.durationMs, { decimals: 1 }) : a.width && a.height ? `${a.width}×${a.height}` : ""}</span>
-                </span>
-              </span>
-            </div>
-          );
-        })}
+        <StripItems items={items} shown={live ? undefined : shown?.id} onPick={(a) => setPicked(a.id)} onMenu={(e, a) => tileMenu.open(e, a)} />
         {assets.hasNextPage && <Button size="sm" onClick={() => assets.fetchNextPage()} disabled={busy}>More</Button>}
       </div>
       {details && <Viewer asset={items.find((a) => a.id === details.id) ?? details} items={items} more={more} onOpen={setDetails} onClose={() => setDetails(null)} into={{ draft, folder }} />}
       {tileMenu.element}
+    </div>
+  );
+}
+
+/** How far apart the results of the column are (its gap-2.5), and what one takes before it is measured. */
+const STRIP_GAP = 10;
+const STRIP_EXTRA = 52;
+const STRIP_WIDTH = 152;
+
+/**
+ * The column's results, drawn only where they are seen (virtual.ts): it may hold every page of the library read in
+ * the grid, thousands of items. Each one's height is known before it is drawn, from its shape and what the others
+ * drawn measured (the caption and the padding), and measured again once drawn, so the column keeps its height and
+ * nothing moves as results come and go.
+ */
+function StripItems({ items, shown, onPick, onMenu }: { items: Asset[]; shown: string | undefined; onPick(a: Asset): void; onMenu(e: React.MouseEvent, a: Asset): void }) {
+  const list = useRef<HTMLDivElement>(null);
+  // the heights measured, by item; the room around a tile and the column's width, from the first one measured
+  const measured = useRef(new Map<string, number>());
+  const room = useRef({ extra: STRIP_EXTRA, width: STRIP_WIDTH });
+  const [version, setVersion] = useState(0);
+  const watch = useRef<ResizeObserver | null>(null);
+  if (!watch.current && typeof ResizeObserver !== "undefined") {
+    watch.current = new ResizeObserver((entries) => {
+      let changed = false;
+      for (const e of entries) {
+        const el = e.target as HTMLElement;
+        const id = el.dataset.itemId;
+        if (!id) continue;
+        const h = el.getBoundingClientRect().height;
+        const tile = el.firstElementChild?.getBoundingClientRect();
+        if (tile && tile.height > 0) room.current = { extra: h - tile.height, width: el.clientWidth - 12 };
+        if (Math.abs((measured.current.get(id) ?? -1) - h) > 0.5) {
+          measured.current.set(id, h);
+          changed = true;
+        }
+      }
+      if (changed) setVersion((v) => v + 1);
+    });
+  }
+  useEffect(() => () => watch.current?.disconnect(), []);
+  const bands = useMemo(() => stackBands(items.map((a) => measured.current.get(a.id) ?? room.current.extra + Math.min(room.current.width, TILE_H * shapeOf(a)) / shapeOf(a)), STRIP_GAP), [items, version]); // eslint-disable-line react-hooks/exhaustive-deps -- the measures are read when they change (version)
+  const span = useSpan(list, bands);
+  const { held, handlers } = useHeld();
+  const drawn = drawnIndices(bands.map((_, i) => ({ start: i, end: i + 1 })), span, held.map((id) => items.findIndex((a) => a.id === id)));
+  const total = bands.length ? bands[bands.length - 1]!.bottom : 0;
+  const first = drawn.length ? bands[drawn[0]!]!.top : 0;
+  const last = drawn.length ? bands[drawn[drawn.length - 1]!]!.bottom : 0;
+  const observe = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    watch.current?.observe(el);
+    return () => watch.current?.unobserve(el);
+  }, []);
+  // the room of the results not drawn, above and below, as the list's padding; between those drawn, the column's gap
+  return (
+    <div ref={list} className="flex shrink-0 flex-col gap-2.5" style={{ paddingTop: first, paddingBottom: total - last }} {...handlers}>
+      {drawn.map((i) => {
+        const a = items[i]!;
+        const on = shown === a.id;
+        return (
+          // at its own shape (a portrait take stays portrait), with its name under it; the one shown large is marked
+          <div key={a.id} ref={observe} data-item-id={a.id} className={cx("flex flex-col gap-1.5 rounded-[12px] p-1.5", on ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : "hover:shadow-[inset_0_0_0_1px_var(--color-line-strong)]")}>
+            <div style={{ aspectRatio: shapeOf(a), width: `min(100%, ${Math.round(TILE_H * shapeOf(a))}px)` }} className="mx-auto">
+              <Tile fill plain asset={a} onOpen={() => onPick(a)} onMenu={(e) => onMenu(e, a)} />
+            </div>
+            {/* what it is, under the picture: its name, then its clip and its length (or size) */}
+            <span className="flex min-w-0 flex-col gap-1 px-0.5">
+              <span className="truncate text-[12.5px] font-bold" data-tip={tileName(a)}>{tileName(a)}</span>
+              <span className="flex min-w-0 items-center gap-1.5">
+                {/* in the accent, flush with the name above it */}
+                {a.clipOf && <span className="min-w-0 truncate text-[11px] font-semibold text-accent">Clip {a.clipOf.clip}{a.clipOf.takes > 1 ? ` · take ${a.clipOf.take}` : ""}</span>}
+                <span className="grow" />
+                <span className="shrink-0 font-mono text-[11px] text-ink-2">{a.durationMs !== null && a.kind !== "image" ? clock(a.durationMs, { decimals: 1 }) : a.width && a.height ? `${a.width}×${a.height}` : ""}</span>
+              </span>
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

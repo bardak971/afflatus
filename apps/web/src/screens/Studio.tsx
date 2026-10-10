@@ -18,7 +18,7 @@ import { groupItems } from "./studio/grouping";
 import { fuzzyScore } from "@afflatus/core";
 import { LibraryHeader } from "./studio/LibraryHeader";
 import { LiveTile } from "./studio/LiveTile";
-import { JustifiedRows, PlaceholderRows, rememberShapes, ROW_HEIGHT, useKeepPlace, type Placed } from "./studio/MediaGrid";
+import { GroupedRows, JustifiedRows, morePlaces, PlaceholderRows, rememberShapes, ROW_HEIGHT, type Placed } from "./studio/MediaGrid";
 import { aspectOf, FALLBACK_ASPECT } from "./library/justify";
 import { useQueueOf } from "./studio/queueOf";
 import { useLibraryFilters } from "./studio/useLibraryFilters";
@@ -274,13 +274,11 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   // the grid in justified rows (MediaGrid): each item at its own shape, rows as high as the display's size asks
   const rowHeight = ROW_HEIGHT[display === "Stage" ? view.size : display];
   const placesOf = (entries: ReturnType<typeof groupItems>[number]["entries"]): Placed[] => entries.map((e) => ({ key: e.asset.id, aspect: aspectOf(e.asset), render: () => tileOf(e) }));
+  // room for the next page after the last tile, while there is one (MediaGrid morePlaces): a page's worth of placeholders
+  const coming = assets.hasNextPage ? morePlaces(assets.data?.pages[0]?.items.length ?? 0, assets.data?.pages.length ?? 0) : [];
   const gridMenu = useTileMenu({ onOpen: setOpen, onSelect: (a) => tick(a, false), into: { draft: draftOnly ? draftId ?? undefined : undefined, folder: folder?.id } });
   latest.current = { tick, menu: gridMenu.open, visible };
   const selectAll = useCallback(() => setPicked(latest.current.visible.map((a) => a.id)), [setPicked]);
-  // past the cap a page is let go at one end as one is read at the other: the user's place is kept over it
-  const gridBox = useRef<HTMLDivElement>(null);
-  const pages = JSON.stringify(assets.data?.pageParams[0] ?? null);
-  useKeepPlace(gridBox, pages, visible);
 
   // what the Create panel is handed keeps its identity from one draw to the next: the panel is not drawn again for nothing
   const panelFolder = useMemo(() => (folder ? { id: folder.id, name: folder.name, path: folder.path } : null), [folder?.id, folder?.name, folder?.path]); // eslint-disable-line react-hooks/exhaustive-deps -- kept by its fields, so the panel is not drawn again for a new object with the same folder
@@ -296,8 +294,9 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
       <div className="flex min-w-0 grow flex-col">
         <LibraryHeader place={place} folderButton={folderButton} foldersOpen={foldersOpen} onFolders={setFoldersOpen} view={view} draftId={draftId} draftOnly={stageOfDraft} count={visible.length} onSelectAll={selectAll} filters={filters} selection={selection} />
 
-        {/* no scroll anchoring of the browser's own: useKeepPlace keeps the place, and the two would move it twice */}
-        <div ref={gridBox} className={cx("min-h-0 grow px-5 pt-1.5 [overflow-anchor:none]", draftOnly ? "overflow-hidden" : "overflow-y-auto pb-6")}>
+        {/* no scroll anchoring of the browser's own: the grid's rows are placed absolutely, and only those in view are
+            drawn (MediaGrid), so there is nothing above the view for it to follow */}
+        <div className={cx("min-h-0 grow px-5 pt-1.5 [overflow-anchor:none]", draftOnly ? "overflow-hidden" : "overflow-y-auto pb-6")}>
           {draftOnly ? (
             stageOfDraft
               ? <DraftResults draft={draftId!} folder={folder?.id} />
@@ -319,8 +318,6 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
                         : "Images and videos you generate appear here. Start with Create."}
                 />
               )}
-              {/* the pages above, let go past the cap (useAssets), read again when scrolled back up to */}
-              {!showTimelines && <LoadMore more={Boolean(assets.hasPreviousPage)} busy={assets.isFetchingPreviousPage || assets.isFetchingNextPage} onMore={() => void assets.fetchPreviousPage()} />}
               {!showTimelines && items.length > 0 && !sections.length && <Empty title={groupedEmpty.title} help={groupedEmpty.body} />}
               {/* the first page on its way: placeholder tiles where the rows will be, at the display's size */}
               {!showTimelines && !assets.data && !assets.isError && <PlaceholderRows rowHeight={rowHeight} list={listKey} />}
@@ -328,23 +325,29 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
               {!showTimelines && Boolean(assets.data) && (
                 <JustifiedRows
                   rowHeight={rowHeight}
-                  pages={pages}
                   places={[
                     ...(running && !("other" in running) && place.type !== "bin" && !filtered ? [{ key: "running", aspect: FALLBACK_ASPECT, render: () => <RunningTile onDraft={openRunningDraft} /> }] : []),
-                    ...(sections.length === 1 && !sections[0]!.key ? placesOf(sections[0]!.entries) : []),
+                    ...(sections.length === 1 && !sections[0]!.key ? [...placesOf(sections[0]!.entries), ...coming] : []),
                   ]}
                 />
               )}
-              {(sections.length > 1 || Boolean(sections[0]?.key)) && sections.map((sec) => (
-                <section key={sec.key} aria-label={sec.label} className="mt-4 flex flex-col gap-2 first:mt-1">
-                  <div className="flex items-baseline gap-2 border-b border-line pb-1">
-                    <span className="truncate text-sm font-semibold">{sec.label}</span>
-                    <span className="shrink-0 text-xs text-ink-2">{sec.note}</span>
-                    {sec.timeline && <button type="button" onClick={() => go(`/timelines/${sec.timeline}`)} className="shrink-0 text-xs font-semibold text-accent hover:underline">Open timeline</button>}
-                  </div>
-                  <JustifiedRows rowHeight={rowHeight} pages={pages} places={placesOf(sec.entries)} />
-                </section>
-              ))}
+              {(sections.length > 1 || Boolean(sections[0]?.key)) && (
+                <GroupedRows
+                  rowHeight={rowHeight}
+                  groups={sections.map((sec, n) => ({
+                    key: sec.key,
+                    label: sec.label,
+                    places: n === sections.length - 1 ? [...placesOf(sec.entries), ...coming] : placesOf(sec.entries),
+                    head: (
+                      <>
+                        <span className="truncate text-sm font-semibold">{sec.label}</span>
+                        <span className="shrink-0 text-xs text-ink-2">{sec.note}</span>
+                        {sec.timeline && <button type="button" onClick={() => go(`/timelines/${sec.timeline}`)} className="shrink-0 text-xs font-semibold text-accent hover:underline">Open timeline</button>}
+                      </>
+                    ),
+                  }))}
+                />
+              )}
               {!showTimelines && <LoadMore more={Boolean(assets.hasNextPage)} busy={assets.isFetchingNextPage || assets.isFetchingPreviousPage} onMore={() => void assets.fetchNextPage()} />}
             </>
           )}

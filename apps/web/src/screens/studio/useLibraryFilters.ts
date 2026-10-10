@@ -93,7 +93,8 @@ export function useLibraryFilters({ place, view, draftId, initialKind = "all", o
     kept: (place.type !== "bin" && kept) || undefined,
     unkept: (place.type !== "bin" && unkept) || undefined,
   };
-  const assets = useAssets(filter, true, true);
+  // every page kept: the grid draws only the rows in view (MediaGrid.tsx), so a long scroll costs no more to draw
+  const assets = useAssets(filter, true, false);
   const items = showTimelines ? [] : assets.data?.pages.flatMap((p) => p.items) ?? [];
   const filtered = Boolean(q || made || lora || filter.kept || filter.unkept);
   return { kind, setKind, typed, setTyped, q, made, setMade, lora, setLora, kept, setKept, unkept, setUnkept, showTimelines, reach, filter, assets, items, filtered };

@@ -6,7 +6,7 @@ import { cx } from "./ui";
  * lists of this app scroll in boxes of their own, which clip what is below them: watched against the window, the end
  * of a list only comes into view as the box's bottom edge reaches it, whatever margin is asked for.
  */
-function scrollBoxOf(el: HTMLElement): HTMLElement | null {
+export function scrollBoxOf(el: HTMLElement): HTMLElement | null {
   for (let up = el.parentElement; up; up = up.parentElement) {
     const y = getComputedStyle(up).overflowY;
     if (y === "auto" || y === "scroll") return up;
