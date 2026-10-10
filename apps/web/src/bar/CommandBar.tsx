@@ -6,11 +6,12 @@ import {
   Bookmark, Calculator, ChevronRight, Film, Folder, FolderKanban, Image as ImageIcon, Keyboard, ListOrdered, MapPin, Music, Navigation, PenLine, Puzzle, Quote, Search, SlidersHorizontal, Sparkles, User, Video, Workflow, Zap,
 } from "lucide-react";
 import { api, type AssetDetail, type Entity, type RecipeInfo, type Settings } from "../api";
-import { useAsset, useEntities, useFamilies, useRecipes, useSettings } from "../data";
+import { useAsset, useEntities, useFamilies, useRecipes, useSettings, useStorage } from "../data";
+import { itemsWord } from "../assetCache";
 import { groupingSaves } from "../screens/queue/bulk";
 import { stepRateSaid, useStepRate } from "../screens/queue/stepRate";
 import { useQueueOf } from "../screens/studio/queueOf";
-import { aboutMs, timeLeft, when } from "../format";
+import { aboutMs, size, timeLeft, when } from "../format";
 import { useProject } from "../project";
 import { useBanners, useExplain, useHoverPlay, useNotify } from "../store";
 import { useThemeChoice } from "../theme/store";
@@ -184,6 +185,10 @@ export function CommandBar() {
   const kept = [useHoverPlay(), useExplain(), useThemeChoice(), useNotify()];
   const bar = settings.data?.bar;
   const selectedClip = useSelectedClip((c) => c.clip);
+  // what the bin holds, for Empty the bin and Put all back
+  const binNow = useStorage().data?.bin;
+  const binEmpty = binNow ? !binNow.count : false;
+  const binSaid = binNow ? `${itemsWord(binNow.count)} · ${size(binNow.bytes)}` : "";
   const { mode, text } = modeOf(typed, { history: Boolean(bar?.history), cast: Boolean(bar?.cast) });
   // the queue only while open, and in full only in the queue mode (its jobs live): the bar does not draw again
   // at every sampler step for the counts it says elsewhere
@@ -255,7 +260,8 @@ export function CommandBar() {
       "new-draft": [`New draft on ${recipe?.title ?? (c.cmd === "new-draft" ? c.recipe : "")}`, recipe ? `${recipe.family.toUpperCase()} · opens in the Studio` : "No model by that name"],
       pause: ["Pause queue", queueNow ? `${queueNow.running ? "1 running" : "nothing running"}, ${queueNow.waiting} waiting · what runs finishes` : "What runs finishes; nothing new starts"],
       resume: ["Resume queue", `${queueNow?.waiting ?? 0} waiting`],
-      "empty-bin": ["Empty the bin…", "Asked first · cannot be undone"],
+      "empty-bin": ["Empty the bin…", binEmpty ? "The bin is empty" : `${binSaid} · asked first · cannot be undone`],
+      "put-back-all": ["Put all back", binEmpty ? "The bin is empty" : `${binSaid} · each back where it was`],
       "bin-unused": [`Bin unused takes of ${t}…`, aim?.entry ? (aim.entry.unusedTakes ? `${aim.entry.unusedTakes} take${aim.entry.unusedTakes === 1 ? "" : "s"} · asked first` : "It has none") : "Asked first"],
       "link-folder": [c.cmd === "link-folder" && c.path ? `Link ${c.path}` : "Link a folder of your disk", "Used in place, nothing copied"],
       "new-project": [`New project “${c.cmd === "new-project" ? c.name : ""}”`, "Made, and worked in"],
@@ -291,7 +297,7 @@ export function CommandBar() {
     if (LIVE.includes(id)) return liveRow(id).map((r) => ({ ...r, p: t.p }));
     const ready = t.complete ? null : parseCommand(COMMANDS.find((c) => c.id === id)?.typed ?? "");
     return [ready ? { ...commandRow(ready), p: t.p } : t];
-  }), [selectedClip, queueNow, aim, bannerUndo, editorUndo]);
+  }), [selectedClip, queueNow, aim, bannerUndo, editorUndo, binSaid, binEmpty]);
 
   // the render estimate of a render command, learned from this machine's renders (none said when nothing is learned)
   const parsed = mode === "command" ? parseCommand(text) : null;
@@ -331,7 +337,7 @@ export function CommandBar() {
         if (!q) {
           const recent: Item[] = [];
           // pausing a paused queue, resuming a running one, or undoing with nothing to undo does nothing: Recent leaves it out until it would
-          const idle = (k: string) => (k === "cmd:pause" && queueNow?.paused) || (k === "cmd:resume" && queueNow && !queueNow.paused) || (k === "cmd:undo" && !(aim?.open ? editorUndo : bannerUndo));
+          const idle = (k: string) => (k === "cmd:pause" && queueNow?.paused) || (k === "cmd:resume" && queueNow && !queueNow.paused) || (k === "cmd:undo" && !(aim?.open ? editorUndo : bannerUndo)) || ((k === "cmd:empty-bin" || k === "cmd:put-back-all") && binEmpty);
           if (learn) for (const k of recentKeys(ranks, 12)) {
             const it = byKey.get(k) ?? templates.find((t) => t.key === k) ?? settingRows.find((s) => s.key === k);
             if (it && !it.archived && !it.complete && !idle(k)) recent.push(it);
@@ -433,7 +439,7 @@ export function CommandBar() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, mode, text, base, ranks, learn, queueNow, queueFull, aim, settingRows, estimateSaid, history.data, entities.data, recipeItems, presetItems, navRows, selectedClip, keysHere, barKey, templates, bannerUndo, editorUndo]);
+  }, [open, mode, text, base, ranks, learn, queueNow, queueFull, aim, settingRows, estimateSaid, history.data, entities.data, recipeItems, presetItems, navRows, selectedClip, keysHere, barKey, templates, bannerUndo, editorUndo, binEmpty]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
   const at = Math.min(sel, Math.max(0, flat.length - 1));
