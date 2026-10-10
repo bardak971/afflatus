@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/media/mark.svg" alt="" width="88"></p>
+
 <h1 align="center">Afflatus</h1>
 
 <p align="center">
@@ -5,154 +7,138 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/bardak971/afflatus/releases"><img alt="Release" src="https://img.shields.io/github/v/release/bardak971/afflatus?include_prereleases&color=4c8bf5"></a>
-  <a href="LICENSE"><img alt="Licence: AGPL-3.0" src="https://img.shields.io/badge/licence-AGPL--3.0-4c8bf5"></a>
-  <a href="https://github.com/bardak971/afflatus/pkgs/container/afflatus"><img alt="Docker image" src="https://img.shields.io/badge/docker-ghcr.io%2Fbardak971%2Fafflatus-4c8bf5"></a>
+  <a href="https://github.com/bardak971/afflatus/releases"><img alt="Release" src="https://img.shields.io/github/v/release/bardak971/afflatus?include_prereleases&color=ff9a73"></a>
+  <a href="LICENSE"><img alt="Licence: AGPL-3.0" src="https://img.shields.io/badge/licence-AGPL--3.0-ff9a73"></a>
+  <a href="https://github.com/bardak971/afflatus/pkgs/container/afflatus"><img alt="Docker image" src="https://img.shields.io/badge/docker-ghcr.io%2Fbardak971%2Fafflatus-ff9a73"></a>
 </p>
 
 https://github.com/user-attachments/assets/9e85650c-22e3-4760-8702-def37fc205d6
 
-<p align="center"><sub>Everything in this video was made in Afflatus, the logo included. The snowboard film at the start: Krea 2 key frames, a MiniMax H3 chain, one Finish pass. <a href="https://github.com/user-attachments/assets/b6105eed-b0c0-4cbf-8c7b-d802b07bf342">Watch the film on its own</a>.</sub></p>
+<p align="center"><sub>Everything in this video was made in Afflatus, the logo included. The snowboard film at the start: Krea 2 key frames and a MiniMax H3 chain. <a href="https://github.com/user-attachments/assets/b6105eed-b0c0-4cbf-8c7b-d802b07bf342">Watch the film on its own</a>.</sub></p>
 
-ComfyUI keeps running where your GPU is. Afflatus is the place you work in: a library of everything you make, a form per model with the right settings already in it, and a timeline that turns clips into one video. One process and a folder of data, on your PC or in a container on a server, talking to ComfyUI over HTTP.
+**You love what ComfyUI can do, but you miss a real library, simple forms and an editor for video.** Afflatus is that app, built around the ComfyUI you already run. Your GPU, your models, your node packs: Afflatus just gives you a better place to work.
 
-## Why Afflatus
+It is one small server and a folder of data, on your PC or in a container, talking to ComfyUI over HTTP. Nothing runs in the cloud.
 
-- **Your ComfyUI, your models.** Nothing is bundled and nothing runs in the cloud. Afflatus drives the ComfyUI you already have, with its node packs and model folders.
-- **A library that remembers.** Every picture and clip keeps the exact settings it was made with: open any of them, change one thing, render again.
-- **Forms with sensible defaults.** One per model family (SDXL, FLUX.2 Klein, Krea 2, Qwen Image, MiniMax H3, Wan 2.2, LTX 2.3…), with defaults taken from ComfyUI's own templates and the models' authors, and the operations each family has: txt2img, img2img, inpaint, outpaint, upscale, face detailer, edit by instruction.
-- **Timelines with seamless joins.** MiniMax H3 clips carry on from the clip before's own latent and are decoded as one piece with it, so motion and sound carry on across the cut. Then one **Finish** pass brings the whole video to its final size.
-- **Anyone's workflow as a form.** Import a ComfyUI workflow file: Afflatus reads it, puts the author's own controls on a form, and names the node packs and models it is missing.
-- **It measures what it makes.** Every take is scored: how clean its join is, how its brightness, sharpness and pace compare with the clips around it. The timeline points out the joins that jump and the takes that would join more cleanly; which take makes the better clip stays your call.
-- **It learns your machine.** Render times are measured on your own renders, broken down by model and phase, so each form tells you how long the next one will take before you press Generate.
+## What you get
 
-## Quick start
+- **Every render remembered.** Each picture and clip keeps the exact settings it was made with. Open any of them, change one thing, render again.
+- **Forms instead of noodles.** A clean form per model, with good defaults already in it: prompt, size, steps, done. The graph is still there when you want it.
+- **Your own workflows, as forms.** Drop in a ComfyUI workflow file and Afflatus turns it into a form, keeps the controls its author put forward, and tells you which node packs and models are missing.
+- **Picture to video in one click.** Like a picture? Open it and press **M**. Pin a first frame, a last frame or a keyframe in the middle, and the model fills in the motion.
+- **A timeline for real videos.** Chain clips into one film, with several takes per clip, trims, music that ducks under voices, and one export. MiniMax H3 clips carry on from the previous clip's latent, so motion and sound flow across the cut.
+- **It measures what it makes.** Generation is only half the job. Every take is scored on how cleanly it joins the clip before and how its brightness, sharpness and pace compare. The timeline points out the joins that jump; which take makes the better clip stays your call.
+- **It learns your machine.** Before you press Generate, the form tells you how long it will take, learned from your own past renders. While it runs, you watch a live preview.
+- **Everything in reach.** Projects, a bin that cleans itself, a Prompt kit for people and styles, and **Ctrl+K** to find or do anything from the keyboard.
 
-1. **Download** the bundle for your system from the [releases page](https://github.com/bardak971/afflatus/releases), unpack it and start it (`Afflatus.bat` on Windows, `afflatus.sh` on Linux and macOS). Your browser opens on `http://127.0.0.1:8720`.
-2. **Settings → ComfyUI:** enter your ComfyUI's address (`http://127.0.0.1:8188` on the same machine) and press Test. Give it ComfyUI's folder too, so it can install its node pack.
-3. **Settings → Models** shows what is ready and what is missing for each model family. Then press **Create** in the Studio.
+## From download to your first render
 
-Full guides: [Windows, Linux and macOS](docs/install-desktop.md) · [Docker](docs/install-docker.md) · [Kubernetes](docs/install-cluster.md) · [ComfyUI setup](docs/comfyui-setup.md) · [from the sources](CONTRIBUTING.md)
+You need **ComfyUI** running somewhere (a clone, the portable build or the desktop app) and any card ComfyUI runs on. Afflatus does not install ComfyUI for you.
 
-Then: [using Afflatus](docs/guide.md) · [configuration](docs/configuration.md) · [troubleshooting](docs/troubleshooting.md)
+1. **Download and start.** Grab the bundle for your system from the [releases page](https://github.com/bardak971/afflatus/releases), unpack it and run `Afflatus.bat` (Windows) or `afflatus.sh` (Linux, macOS). Your browser opens on `http://127.0.0.1:8720`.
+2. **Connect ComfyUI.** In **Settings → ComfyUI**, enter its address (`http://127.0.0.1:8188` on the same machine) and press **Test**. Give it ComfyUI's folder too, so Afflatus can install its small node pack.
+3. **Get a model.** **Settings → Models** shows, for each model family, what is ready and what is missing, file by file. Turn on ComfyUI-Manager in ComfyUI ([how](docs/comfyui-setup.md#comfyui-manager-for-downloads)) and Afflatus downloads the missing files for you, or put them in place yourself.
+4. **Make a picture.** Open the **Studio**, press **N** for the form, pick a model, write a prompt and press **Ctrl+Enter**. It lands in your library with everything it was made with.
+5. **Make it move.** Open the picture, press **M** (image to video), describe the motion and render. Then drop clips on a **Timeline** to build a film.
+6. **Bring your own workflow.** Have a graph you love in ComfyUI? **Workflows → Import** the `.json` you saved from it, and use it like any other form.
+
+Other ways to run it:
+
+| Platform | How |
+|---|---|
+| Windows | Unzip `afflatus-<version>-win-x64.zip`, double-click `Afflatus.bat` |
+| Linux ¹ | `tar xzf afflatus-<version>-linux-x64.tar.gz`, run `afflatus.sh` |
+| macOS, Apple Silicon ¹ | `tar xzf afflatus-<version>-darwin-arm64.tar.gz`, run `afflatus.sh`; `brew install ffmpeg` once |
+| Docker | `docker run -p 127.0.0.1:8720:8720 -v afflatus-data:/data ghcr.io/bardak971/afflatus:latest`, or the [compose.yaml](compose.yaml) ([guide](docs/install-docker.md)) |
+| Kubernetes | the Helm chart in [chart/](chart) ([guide](docs/install-cluster.md)) |
+| From the sources | Node 22.16+ and ffmpeg: `corepack pnpm install && corepack pnpm build && corepack pnpm start` |
+
+¹ Built by the release workflow but not yet started on a real machine. Reports welcome.
+
+No GPU at hand? `corepack pnpm demo` runs the real app against a pretend ComfyUI, with its own data in `./data-demo`.
+
+More help: [installing on a PC](docs/install-desktop.md) · [setting up ComfyUI](docs/comfyui-setup.md) · [using Afflatus](docs/guide.md) · [configuration](docs/configuration.md) · [troubleshooting](docs/troubleshooting.md)
 
 > [!WARNING]
-> **There is no login.** Whoever can reach Afflatus's port can use your library, your settings and your GPU. It listens on localhost unless told otherwise. Never publish it to the internet as it is: put a reverse proxy with its own authentication in front. See [SECURITY.md](SECURITY.md).
+> **There is no login.** Anyone who can reach Afflatus's port can use your library, your settings and your GPU. It only listens on your own machine unless you tell it otherwise. Never put it on the internet as it is: put a reverse proxy with its own login in front. See [SECURITY.md](SECURITY.md).
 
 ## A tour
 
-### Studio
+### The Studio
 
-<img src="docs/media/studio.webp" alt="The Studio: a draft's form beside the project's library" width="100%">
+<p align="center"><img src="docs/media/studio.webp" alt="The Studio: a draft's form beside the project's library" width="820"></p>
 
-The library and the place things are made. Folders and projects, search over prompts and names, filters by kind, model and LoRA. The Create shelf holds a form per model family; results land beside it and keep their settings for good. Right-click any tile for everything that can be done with it, or open it large and compare two takes side by side.
+Where you make things and where they stay. The form on the left, your library on the right: search your prompts, filter by model or LoRA, compare two takes side by side. Right-click anything to see what you can do with it next: reuse its settings, upscale, fix a face, inpaint, mirror, turn it into a video.
 
-### Projects
+### Your workflows, as forms
 
-<img src="docs/media/projects.webp" alt="The Projects panel: projects, their folders and drafts, with what each holds, when it started and its size" width="100%">
+<p align="center"><img src="docs/media/import.webp" alt="Importing a ComfyUI workflow" width="820"></p>
 
-Work is grouped in projects, each with its folders, drafts and timelines, and an Inbox for what belongs nowhere yet. The panel shows what each one holds, when it was started and what it weighs on disk. Whatever a draft or a timeline makes lands in its folder. Renders you do not keep go to the bin after a day and the bin empties itself after a week, so the library holds what you chose and nothing piles up.
+Import the workflow file you saved from ComfyUI and Afflatus reads it for you. It keeps the controls the author put forward, turns their switches into toggles, finds where LoRAs go, and names every node pack and model file you are missing, with a button to install them through ComfyUI-Manager. From then on it is a form like any other, with its renders in your library.
 
-### Prompt kit
+### The timeline
 
-<img src="docs/media/kit.webp" alt="A person in the Prompt kit: reference pictures, tags and a sentence, a LoRA per model, outfits" width="100%">
+<p align="center"><img src="docs/media/timeline.webp" alt="The timeline editor with a MiniMax H3 chain" width="820"></p>
 
-People, places, styles and snippets, written once and used with every model. A person is a few reference pictures, how they look as tags and as a sentence, a LoRA per model when there is one, and outfits. Put them in a draft or a whole timeline and each model gets them the way it reads them: tags for SDXL, a sentence and reference pictures for Krea 2 or MiniMax H3. Presets keep a whole setup.
-
-### Command bar
-
-<img src="docs/media/bar.webp" alt="The Ctrl+K bar finding a draft and a render, with a preview" width="100%">
-
-**Ctrl+K** finds anything across projects (drafts, renders, timelines, people, settings) with a preview of each, and runs commands from the keyboard: queue and reorder jobs, flip a setting, bring back an earlier prompt, work out frames and seconds.
-
-### Timeline
-
-<img src="docs/media/timeline.webp" alt="The timeline editor with a seamless MiniMax H3 chain" width="100%">
-
-Videos made of clips that follow each other. A clip is a form of its own with several takes, and the next clip can carry on from the one before, so motion and sound continue across the cut. For MiniMax H3 the join is made in the model's own latent and decoded as one piece, and the editor measures how clean each join came out. Trims with scene detection, ranges, undo and redo, pictures held as stills, a music track that ducks under speech, and an export as one video with its colour matched across the cuts.
+Turn clips into a film. Each clip is a form of its own with as many takes as you like; pick the one that plays. A clip can carry on from the one before, so the motion and the sound keep going across the cut. Trim with scene detection, hold a picture as a still, add music that ducks under voices, then export one video with its colours matched across the cuts, or a small copy for the web.
 
 ### What it measures
 
-<img src="docs/media/insight.webp" alt="A clip's takes with their join figures, and its look against the clips before and along the run" width="100%">
+<p align="center"><img src="docs/media/insight.webp" alt="A clip's takes with their join figures, and its look against the clips before and along the run" width="820"></p>
 
-Generation is only half the job. Every take is measured: how clean its join with the clip before is, its run-up, and its brightness, sharpness and pace against the other clips. The timeline points out the joins that jump and which takes would join more cleanly; whether that take is the better clip is yours to judge. Nothing is guessed: the figures come from the frames.
+Hover a clip, or open its takes, and you see how clean each join is and how its brightness, sharpness and pace compare with the clips around it. Nothing is guessed: the figures come from the frames. When a join jumps, the timeline tells you which take would join more cleanly, and you decide.
 
-### Finish
+### And more
 
-<img src="docs/media/finish.webp" alt="The Finish dialog" width="100%">
+<table>
+<tr>
+<td width="50%"><img src="docs/media/projects.webp" alt="The Projects panel"><br><b>Projects.</b> Every project with its folders, drafts and timelines, what it holds and what it weighs. Renders you don't keep go to the bin after a day; the bin empties itself after a week.</td>
+<td width="50%"><img src="docs/media/kit.webp" alt="A person in the Prompt kit"><br><b>The Prompt kit.</b> People, places, styles and snippets, written once and used with every model: tags for SDXL, a sentence and reference pictures for the newer ones.</td>
+</tr>
+<tr>
+<td><img src="docs/media/bar.webp" alt="The Ctrl+K command bar"><br><b>Ctrl+K.</b> Find any draft, render, timeline or setting across your projects, with a preview. Queue, reuse, split, flip a setting or work out frames and seconds without leaving the keyboard.</td>
+<td><img src="docs/media/finish.webp" alt="The Finish dialog"><br><b>Finish.</b> Bring every clip to its final size in one go: SeedVR2, RTX Video Super Resolution or an upscale model. A finished take keeps its draft's timing.</td>
+</tr>
+<tr>
+<td><img src="docs/media/queue.webp" alt="Render times in the queue"><br><b>Render times.</b> Where your GPU's time went, by model and phase, with the jobs that ran slower than usual or out of video memory.</td>
+<td><img src="docs/media/models.webp" alt="Settings: what each model family has ready or missing"><br><b>Models.</b> What each model family has ready and what is missing, with the folder each file goes in and a Download button.</td>
+</tr>
+</table>
 
-Brings every clip of a timeline to its final size in one go: SeedVR2 (restore and enlarge), RTX Video Super Resolution, an upscale model, or for H3 a re-sample of the draft's own latent that keeps the motion and the seamless joins. A finished take stands in for its draft: same frames, same timing.
+<p align="center"><img src="docs/media/themes.webp" alt="The Studio in Studio Light, Catppuccin Mocha, Rosé Pine Dawn and Kanagawa Wave" width="820"><br><sub>Studio Dark by default, plus light and dark themes from Studio, Catppuccin, Rosé Pine, Tokyo Night and Kanagawa.</sub></p>
 
-### Workflows
+Also in the app: an optional **prompt designer** that writes prompts following each model's guide, through any OpenAI-style language model (LM Studio, Ollama, llama.cpp or a service).
 
-<img src="docs/media/import.webp" alt="Importing a ComfyUI workflow" width="100%">
+## Built-in model families
 
-Your own ComfyUI graphs, imported from the file the editor saves and used like any other form. The importer puts forward what the workflow's author put forward, turns their switches into toggles, finds where LoRAs go, and installs missing node packs through ComfyUI-Manager.
+These come with a ready-made form. Anything else, bring in as a workflow.
 
-### Queue
-
-<img src="docs/media/queue.webp" alt="Render times in the queue" width="100%">
-
-What is rendering, with a live preview; what waits, what finished, what failed and why. Render times break the GPU's time down by model and phase, chart upscale speeds, and flag jobs that ran out of video memory.
-
-### Settings → Models
-
-<img src="docs/media/models.webp" alt="Settings: what each model family has ready or missing" width="100%">
-
-What each family has ready and what is missing, file by file, with the folder each goes in and a Download button through ComfyUI-Manager. Model files are recognised by their weights, not only their names.
-
-Also in the app: an optional **prompt designer** that writes prompts by each family's guide through any OpenAI-style language model (LM Studio, Ollama, llama.cpp or a service).
-
-## What you need
-
-- **ComfyUI** 0.3.x or newer, reachable at an address: a clone, the portable build or the desktop app. Afflatus does not install it.
-- **ComfyUI-Manager**, if you want Afflatus to download missing models for you. It is built into recent ComfyUI and needs turning on: see [ComfyUI setup](docs/comfyui-setup.md#comfyui-manager-for-downloads).
-- **ffmpeg**: in the Windows and Linux bundles and the Docker image. On macOS, `brew install ffmpeg` once.
-- **Any card ComfyUI runs on.** Afflatus assumes nothing about it and learns speed and fit from your own renders.
-
-### Model families
-
-| Family | Models | Operations |
+| Family | Models | What you can do |
 |---|---|---|
 | SDXL | any SDXL checkpoint: Illustrious, NoobAI, Pony, Juggernaut XL… | txt2img, img2img, inpaint, outpaint, upscale, face detailer |
 | FLUX.2 Klein | 4B base and its fine-tunes | txt2img, edit by instruction, variation, inpaint, outpaint, upscale, face detailer |
 | Krea 2 | Turbo and its fine-tunes | txt2img, img2img, inpaint, upscale, face detailer |
-| FLUX.1 ¹ | dev, Kontext | txt2img, edit, img2img, inpaint, outpaint, upscale, face detailer |
-| Qwen Image ¹ | 2512, Qwen Image Edit | txt2img, edit, img2img, inpaint, outpaint, upscale, face detailer |
-| Qwen Image 2.1 | | txt2img, edit |
+| FLUX.1 ² | dev, Kontext | txt2img, edit, img2img, inpaint, outpaint, upscale, face detailer |
+| Qwen Image | 2512, Qwen Image Edit | txt2img, edit, img2img, inpaint, outpaint, upscale, face detailer |
+| Qwen Image 2.1 ² | | txt2img, edit |
 | MiniMax H3 | video with sound | text, first frame, first and last frames, references, continuation: the timeline's native model |
 | Wan 2.2 | | video |
 | LTX 2.3 | | video |
 | Image tools | SeedVR2, background removal | restore and upscale, remove the background |
 
-¹ Built from the model cards and not yet run against the models.
+² Built from the model cards and not yet run against the models.
 
-The default files of each family are ComfyUI's own repackaged releases on Hugging Face. Some forms and options need a custom node pack on top of ComfyUI's own nodes; when one is missing, Afflatus says which and how to install it. The [list of node packs](docs/comfyui-setup.md#node-packs) says what each one unlocks.
+The default files are ComfyUI's own releases on Hugging Face. Some options need a custom node pack; when one is missing, Afflatus tells you which and how to install it ([the list](docs/comfyui-setup.md#node-packs)).
 
-### Model licences
+**Model licences.** The models are other people's work under their own licences, which you accept when you download them. The shipped presets bundle nothing; each shows its licence and asks you to accept it once. Read them: several are community licences with limits on commercial use, and **MiniMax H3's licence does not grant its use in the European Union, the United Kingdom, South Korea or the United States** (its "Excluded Territories"). It also asks that machine-made content shown in public be disclosed as such.
 
-The models are other people's work under their own licences, which you accept when you download them, not Afflatus. The shipped presets name and link models and bundle nothing; each shows its licence and asks you to accept it once before the first download. Read them: several are community licences with a revenue ceiling for commercial use and an acceptable-use policy, and **MiniMax H3's licence does not grant its use in the European Union, the United Kingdom, South Korea or the United States** (its "Excluded Territories"). It also asks that machine-made content shown in public be disclosed as such.
+## Your data
 
-## Running it
-
-| Platform | How |
-|---|---|
-| Windows | Unzip `afflatus-<version>-win-x64.zip`, double-click `Afflatus.bat` |
-| Linux ² | `tar xzf afflatus-<version>-linux-x64.tar.gz`, run `afflatus.sh` |
-| macOS, Apple Silicon ² | `tar xzf afflatus-<version>-darwin-arm64.tar.gz`, run `afflatus.sh`; `brew install ffmpeg` once |
-| Docker | `docker run -p 127.0.0.1:8720:8720 -v afflatus-data:/data ghcr.io/bardak971/afflatus:latest`, or the [compose.yaml](compose.yaml) ([guide](docs/install-docker.md)) |
-| Kubernetes | the Helm chart in [chart/](chart) ([guide](docs/install-cluster.md)) |
-| From the sources | Node 22.16+ and ffmpeg: `corepack pnpm install && corepack pnpm build && corepack pnpm start` |
-
-² The Linux and macOS bundles are built by the release workflow but have not yet been started on a real machine. Reports welcome.
-
-Your data (library, settings, timelines) lives in the `data` folder next to the launcher, or in the `/data` volume. To update, unpack the next release over the old one or pull the next image; the database migrates itself at start. A backup is one zip from Settings → Storage. Environment variables (port, host, data folder, allowed host names, Postgres) are listed in [Configuration](docs/configuration.md).
-
-To try it without a GPU: `corepack pnpm demo` runs the real app against a pretend ComfyUI, with its own data in `./data-demo`.
+Everything (library, settings, timelines) lives in the `data` folder next to the launcher, or in the `/data` volume. To update, unpack the next release over the old one or pull the next image; the database updates itself when it starts. A backup is one zip from **Settings → Storage**.
 
 ## Status
 
-Afflatus is 0.x and made for one person at a time. It is used every day on one machine and has not yet run on many. Expect rough edges, and expect things to change between minor versions. What changed in each release is in the [changelog](CHANGELOG.md).
+Afflatus is 0.x and made for one person at a time. It is used every day on one machine and has not yet run on many, so expect rough edges and changes between minor versions. What changed in each release is in the [changelog](CHANGELOG.md).
 
 ## Contributing
 
