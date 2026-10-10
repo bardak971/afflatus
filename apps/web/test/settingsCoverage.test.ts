@@ -47,6 +47,7 @@ const SERVER: Record<string, string> = {
 /** What this browser keeps (localStorage keys and zustand `persist` names): the index key, or why it has none. */
 const BROWSER: Record<string, string> = {
   "afflatus.hover-play": "hover.video",
+  "afflatus.compare-result": "compare.result",
   "afflatus.explain": "explain",
   "afflatus.notify": "notify.each",
   "afflatus.theme": "interface.theme",
@@ -58,6 +59,7 @@ const BROWSER: Record<string, string> = {
   "afflatus.cut.crf": "internal: Trim's last quality, remembered where it is set",
   "afflatus.editor-column": "internal: the timeline editor's column width and fold",
   "afflatus.form.parts": "internal: which parts of a form are open",
+  "afflatus.grid-shapes": "internal: the shapes each library list had last time, for its loading placeholders",
   "afflatus.kit.categories": "internal: the Prompt kit's open snippet categories",
   "afflatus.kit.tab": "internal: the Prompt kit's tab",
   "afflatus.last-timeline": "internal: the timeline last open, per project",
@@ -75,6 +77,7 @@ const BROWSER: Record<string, string> = {
   "afflatus.seed-mode": "internal: the form's seed mode, set beside the seed",
   "afflatus.snippets.open": "internal: the snippet menu's open categories",
   "afflatus.studio": "internal: the Studio's view (form open, size, grouping, place)",
+  "afflatus.timeline-aspects": "internal: each timeline's frame shape last seen, for the editor's loading placeholder",
   "afflatus.timeline.snapQuiet": "internal: the editor's range snapping, switched where it acts",
   "afflatus.timeline.takes": "internal: how many takes a clip's panel shows",
   "afflatus.volume": "internal: the viewer's volume, set on it",
