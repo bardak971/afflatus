@@ -90,6 +90,12 @@ export interface Tables {
   /** Which assets a generation used, and as what: the lineage. */
   generation_inputs: { generation_id: string; asset_id: string; role: string };
   /**
+   * What a search by words reads of each asset (assetSearch.ts): its name and the texts of the form it was made with, one
+   * row per asset, kept by triggers and looked up through the FTS5 index `asset_words_index` (migration 0052). SQLite only:
+   * on Postgres there is no such table.
+   */
+  asset_words: { doc: number; asset_id: string; words: string };
+  /**
    * How long a render took, and where the time went: one row per render that ran on ComfyUI, finished
    * or not. Kept one by one for a while (a setting), then folded into `render_days`.
    */
