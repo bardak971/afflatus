@@ -44,8 +44,6 @@ function PanelShape() {
  * result large.
  */
 
-export { useStudio, displayOf, openFolderId, type Display, type Scope } from "../store";
-
 /** What is being made now, first in the grid where its result will land: the only part of the screen that follows its progress. */
 function RunningTile({ onDraft }: { onDraft(id: string): void }) {
   const running = useQueueOf((q) => (q.running?.kind === "render" ? q.running : null));
@@ -100,7 +98,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
     if (toggled) go(view.form ? "/create" : "/", { replace: true });
     else if (forced) view.set({ form: true });
     else go("/create", { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- follows the form and the address only; go and view are new at every render
   }, [view.form, forced, onTimelines]);
 
   const folders = useFolders();
@@ -112,7 +110,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
     const open = folders.data.items.find((f) => f.id === place.id);
     const elsewhere = open && (projectId === "none" ? open.projectId !== null : open.projectId !== projectId);
     if (!open || elsewhere) view.set({ place: { type: "all" } });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- view is new at every render; the check runs when the folders or the place change
   }, [place, folders.data, projectId]);
   // the folder what is made lands in: the one that is open, else the root of the project the app looks at
   const projectsList = useProjects();
@@ -152,7 +150,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   // one Studio for / and /timelines: the address changing (the rail's Timelines entry, Back) sets what the grid shows
   useEffect(() => {
     if (Boolean(onTimelines) !== (filters.kind === "timeline")) filters.setKind(onTimelines ? "timeline" : "all");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the address sets the filter, not the other way round
   }, [onTimelines]);
   const timelines = useTimelines();
   // the timelines of the place that is open: a folder lists those whose renders land in it, the Inbox those in none,
@@ -285,7 +283,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   useKeepPlace(gridBox, pages, visible);
 
   // what the Create panel is handed keeps its identity from one draw to the next: the panel is not drawn again for nothing
-  const panelFolder = useMemo(() => (folder ? { id: folder.id, name: folder.name, path: folder.path } : null), [folder?.id, folder?.name, folder?.path]); // eslint-disable-line react-hooks/exhaustive-deps
+  const panelFolder = useMemo(() => (folder ? { id: folder.id, name: folder.name, path: folder.path } : null), [folder?.id, folder?.name, folder?.path]); // eslint-disable-line react-hooks/exhaustive-deps -- kept by its fields, so the panel is not drawn again for a new object with the same folder
   const closePanel = useCallback(() => useStudio.getState().set({ form: false }), []);
   const openRunningDraft = (id: string) => {
     openDraft(id);

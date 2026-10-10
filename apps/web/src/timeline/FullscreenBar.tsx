@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
 import { Minimize, Pause, Play, Repeat, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { fileUrl, type Clip, type Timeline } from "../api";
@@ -120,12 +120,12 @@ export function FullscreenBar({ box, c, live, clips, timeline }: {
   }, [box, hidden]);
 
   // the preview that is forming: followed, as it is a new player at each step
-  const preview = () => box.current?.querySelector<HTMLVideoElement>("video[data-live]") ?? null;
+  const preview = useCallback(() => box.current?.querySelector<HTMLVideoElement>("video[data-live]") ?? null, [box]);
   useEffect(() => {
     if (!live) return;
     const t = window.setInterval(() => setLivePaused(Boolean(preview()?.paused)), 300);
     return () => window.clearInterval(t);
-  }, [live]);
+  }, [live, preview]);
 
   if (!full) return null;
   const toggle = () => {
@@ -336,7 +336,7 @@ function usePeek(part: Part | undefined, ms: number) {
     if (!part) return setArmed(false);
     const t = window.setTimeout(() => setArmed(true), SHOW_AFTER_MS);
     return () => window.clearTimeout(t);
-  }, [Boolean(part)]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [Boolean(part)]); // eslint-disable-line react-hooks/exhaustive-deps -- only whether a part is shown starts the wait, not which
 
   useEffect(() => {
     if (!want) return;

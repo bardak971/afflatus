@@ -10,12 +10,8 @@ import { frameFor, H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_LANDING, H3_SEAM, H3
 import { H3_LATENT_ENLARGE_NODES, H3_LATENT_UPSCALE_NODES, latentUpscalePass, latentUpscaleRounds } from "./latent-upscale";
 import { AUTO_SAMPLER, loadH3Model, modelOf, uses } from "./model";
 
-// the recipe's parts live beside it; every name this file used to export is still had from here
+// the recipe's parts live beside it (inputs, join, condition, latent-upscale, finish); its input type is still had from here
 export type { H3Video } from "./inputs";
-export { H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_JOIN_FRAMES, H3_LANDING, H3_LANDINGS, H3_SEAM, H3_TAIL_GUIDE } from "./join";
-export { H3_REFERENCES, H3_REFERENCE_VIDEOS } from "./condition";
-export { H3_LATENT_ENLARGE_NODES, H3_LATENT_UPSCALE_NODES } from "./latent-upscale";
-export { H3_SAVE_LATENT } from "./finish";
 
 export const h3Video = defineRecipe<H3Video>({
   id: "h3.video",

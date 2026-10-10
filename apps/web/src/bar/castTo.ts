@@ -21,7 +21,7 @@ export interface ClipCast {
 }
 
 /** Why a model takes no person (null: it does). A person goes in as reference pictures, a voice, or words of the prompt. */
-export function noPersonIn(inputs: readonly FormInput[]): string | null {
+function noPersonIn(inputs: readonly FormInput[]): string | null {
   const takes = inputs.some((i) =>
     (i.type === "references" && !i.media && (!i.roles || i.roles.includes("person")))
     || (i.type === "audio" && i.role === "voice")

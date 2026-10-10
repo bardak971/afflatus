@@ -10,7 +10,7 @@ import { clockOf } from "./timelineModel";
  */
 
 /** The longest name given here: a library tile shows far less, the rest is only read in full in a tooltip. */
-export const NAME_MAX = 80;
+const NAME_MAX = 80;
 
 /** Cut to `max` characters at a word when one ends late enough, marked by an ellipsis. */
 export function capName(text: string, max = NAME_MAX): string {
@@ -22,7 +22,7 @@ export function capName(text: string, max = NAME_MAX): string {
 }
 
 /** The first few words of a prompt, without the punctuation a cut leaves at its end: short enough to stand before a number. */
-export function firstWords(text: string, words = 5, max = 40): string {
+function firstWords(text: string, words = 5, max = 40): string {
   const all = text.trim().split(/\s+/).filter(Boolean);
   let out = "";
   for (const w of all.slice(0, words)) {
@@ -198,60 +198,6 @@ export function promptOf(inputs: Record<string, unknown>, promptIds: string[] = 
 }
 
 /**
- * Every nameless video, picture and sound that a timeline or a draft made, named as it would be named today: first the
- * takes (from the clips' places now: where they were when rendered is not kept), then what drafts made (numbered in the
- * order they were made), then the frames taken out of a named video. Names already given are left alone. Returns how many were named.
- */
-export async function backfillNames(db: AnyDb, recipeTitle: (id: string) => string = recipeWords): Promise<number> {
-  const names = new Map(((await db.selectFrom("assets").select(["id", "name"]).execute()) as Array<{ id: string; name: string | null }>).map((a) => [a.id, a.name ?? ""]));
-  const given = new Map<string, string>();
-  const give = (assetId: string, name: string) => {
-    if ((names.get(assetId) ?? "x").trim() || !name) return;
-    names.set(assetId, name);
-    given.set(assetId, name);
-  };
-
-  // the takes: a video on two clips (a clip copied) is named after the first it was placed on
-  const takes = (await db.selectFrom("takes").select(["id", "clip_id", "asset_id", "finished_from"]).orderBy("created_at").execute()) as TakeLine[];
-  const nameless = takes.filter((t) => !(names.get(t.asset_id) ?? "x").trim());
-  if (nameless.length) {
-    const { siblings, timelineOf, clipNo } = await contextOf(db, [...new Set(nameless.map((t) => t.clip_id))]);
-    // the drafts before their finishes: a finish is named after its draft's name
-    for (const pass of [false, true]) {
-      const these = nameless.filter((t) => Boolean(t.finished_from) === pass);
-      for (const [id, name] of namesOfTakes(these, siblings, clipNo, timelineOf, names)) give(these.find((t) => t.id === id)!.asset_id, name);
-    }
-  }
-
-  // what drafts made, numbered in the order it was made; a draft deleted since leaves its results as they are
-  const made = (await db.selectFrom("assets").innerJoin("generations", "generations.id", "assets.generation_id")
-    .innerJoin("drafts", "drafts.id", "generations.draft_id")
-    .select(["assets.id as id", "generations.draft_id as draft_id", "generations.inputs as inputs", "generations.recipe_id as recipe_id", "drafts.name as draft_name", "drafts.title as title"])
-    .orderBy("assets.created_at").orderBy("assets.id").execute()) as Array<{ id: string; draft_id: string; inputs: string; recipe_id: string; draft_name: string | null; title: string }>;
-  const counted = new Map<string, number>();
-  for (const m of made) {
-    const n = (counted.get(m.draft_id) ?? 0) + 1;
-    counted.set(m.draft_id, n);
-    if ((names.get(m.id) ?? "x").trim()) continue;
-    let inputs: Record<string, unknown> = {};
-    try {
-      inputs = JSON.parse(m.inputs) as Record<string, unknown>;
-    } catch { /* a record that cannot be read: named without its prompt */ }
-    give(m.id, numbered(draftLabel({ name: m.draft_name, title: m.title, prompt: promptOf(inputs), recipe: recipeTitle(m.recipe_id) }), n));
-  }
-
-  // a frame taken out of a video that has a name now: named as timelineMedia names a new one
-  const frames = (await db.selectFrom("assets").select(["id", "source_id"]).where("origin", "=", "frame").where("source_id", "is not", null).execute()) as Array<{ id: string; source_id: string }>;
-  for (const f of frames) {
-    const source = names.get(f.source_id)?.trim();
-    if (source) give(f.id, capName(`${source}, a frame`));
-  }
-
-  for (const [id, name] of given) await db.updateTable("assets").set({ name }).where("id", "=", id).where("name", "=", "").execute();
-  return given.size;
-}
-
-/**
  * The label a job was sent with, when someone gave it one: a job sent without one is labelled with its recipe's title
  * by the queue (queue.ts), which says nothing a name should. Empty when the label is that title, or the recipe id said in words.
  */
@@ -301,7 +247,7 @@ async function highestAfter(db: AnyDb, labels: string[]): Promise<Map<string, nu
  * What the results of a job sent from no draft and for no clip are called before their number: the label it was given,
  * else the first words of its prompt (as a draft with no title is labelled). Empty when it has neither.
  */
-export function jobLabel(label: string | null | undefined, recipe: { id: string; title?: string }, prompt?: string | null): string {
+function jobLabel(label: string | null | undefined, recipe: { id: string; title?: string }, prompt?: string | null): string {
   return givenLabel(label, recipe.id, recipe.title) || firstWords(prompt ?? "");
 }
 

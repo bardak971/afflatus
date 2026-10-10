@@ -4,7 +4,7 @@ import { pickedBy, selectorOf, valueAt } from "../src";
 /** Comparing a graph of Afflatus's with ComfyUI's own "Export (API)" of the same workflow (comfyExport.mjs). */
 
 export type Diff = { node: string; what: string };
-export const isRef = (v: unknown): v is [string | number, number] => Array.isArray(v) && v.length === 2 && typeof v[1] === "number";
+const isRef = (v: unknown): v is [string | number, number] => Array.isArray(v) && v.length === 2 && typeof v[1] === "number";
 // rgthree's LoRA entries: an empty second strength is left out by the editor
 const norm = (v: unknown): unknown => (isRef(v) ? [String(v[0]), v[1]] : v && typeof v === "object" && "lora" in v ? Object.fromEntries(Object.entries(v).filter(([k, x]) => !(k === "strengthTwo" && x === null))) : v);
 const same = (a: unknown, b: unknown) =>

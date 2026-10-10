@@ -5,7 +5,7 @@ import { Segmented } from "../ui";
 import { Part, useParts } from "./Part";
 
 /** Whether an input of the form has a place for what is being dragged from the library. */
-export function useTakes() {
+function useTakes() {
   const dragged = useDragged((s) => s.types);
   return (i: InputSpec) =>
     (i.type === "image" && i.role !== "mask" && dragged.includes(DRAG_PICTURE)) ||

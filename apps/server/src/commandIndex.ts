@@ -186,7 +186,7 @@ const letter = (c: string) => (/^[\x20-\x7e]$/.test(c) ? literal(c) : "_");
  * somewhere in it. Over the label as the bar has it: the name, or "Image", "Video", "Sound" for an item with none.
  * `inside`: the label holds what is typed as it is, the bar's best matches.
  */
-export function labelMatches(q: string): { test: Expression<SqlBool>; inside: Expression<SqlBool> } | null {
+function labelMatches(q: string): { test: Expression<SqlBool>; inside: Expression<SqlBool> } | null {
   const typed = q.trim().toLowerCase();
   if (!typed) return null;
   const label = sql<string>`(case when trim(name) = '' then (case kind when 'image' then 'image' when 'video' then 'video' else 'sound' end) else lower(name) end)`;
@@ -236,7 +236,7 @@ const estimateQuery = z.object({
  * forecast (queue.forecast, the one figure the form, its Generate button and the queue say too) added up. Nothing is assumed about the card: one
  * part with no learned figure makes the whole null rather than a sum that leaves it out.
  */
-export async function commandEstimate(s: Services, raw: unknown): Promise<CommandEstimate> {
+async function commandEstimate(s: Services, raw: unknown): Promise<CommandEstimate> {
   const q = estimateQuery.parse(raw);
   const forms: Array<{ recipe: string; input: Record<string, unknown>; times: number }> = [];
   if (q.timeline) {
@@ -296,7 +296,7 @@ const forecastsBody = z.strictObject({
  * left out): the same forecast as the command bar's and the timeline card's, per form. Null where nothing like it was
  * rendered here yet.
  */
-export async function forecasts(s: Services, raw: unknown): Promise<{ ms: Array<number | null> }> {
+async function forecasts(s: Services, raw: unknown): Promise<{ ms: Array<number | null> }> {
   const b = forecastsBody.parse(raw);
   const got = await forecastsOf(s, b.forms.map((f) => ({ ...f, times: 1 })));
   return { ms: got.map((g) => g?.ms ?? null) };

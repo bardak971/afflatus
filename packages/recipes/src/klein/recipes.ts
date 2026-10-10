@@ -4,7 +4,7 @@ import {
   type FaceSettings, type MaskSettings, type UpscaleSettings,
 } from "../sdxl/common";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
-import { redrawInTiles, tileInputs, TILE_NODES, tilesOf, useTiles, type TileSettings } from "../shared/tiles";
+import { redrawInTiles, tileInputs, TILE_NODES, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
 import {
   introduce, kleinCond, kleinInputs, kleinModel, kleinSample, kleinSampleLatent, kleinSize, LOAD_NODES, loadKlein, REFERENCE_NODES, SAMPLE_NODES, withIntro,
   type KleinBase,
@@ -313,7 +313,7 @@ export const kleinSharper = defineRecipe<KleinSharper>({
     const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.upscaler }), image: source });
     const sized = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
     const loads = [`upscale_models/${input.upscaler}`];
-    const tiled = input.refine && useTiles(input, size, REFINE_WHOLE_PIXELS / 4);
+    const tiled = input.refine && inTiles(input, size, REFINE_WHOLE_PIXELS / 4);
     if (!input.refine) {
       const out = g.add("PreviewImage", { images: sized });
       return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: 1, loads };

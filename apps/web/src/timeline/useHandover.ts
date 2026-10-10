@@ -3,7 +3,7 @@ import { FRAME_SLACK_MS, joinFade, MIN_FADE_MS } from "@afflatus/core";
 import type { Clip } from "../api";
 
 /** How long before a clip ends the clip after starts running hidden, so that it takes over with frames ready and in step. */
-export const PREROLL_MS = 800;
+const PREROLL_MS = 800;
 /** How early the cut to the clip after is made: a video frame at 48 a second plus the animation frame the check may be late by. */
 const CUT_EARLY_MS = 24;
 
@@ -204,7 +204,7 @@ export function useHandover(h: Handover) {
       clearInterval(slow);
       step.current = () => false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the frame loop starts again only on what changes what plays; the rest is read through refs
   }, [playing, at, seq, place, onPlaying, onTime, tuneMusic]);
   return step;
 }

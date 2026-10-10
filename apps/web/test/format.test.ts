@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RecipeStatus } from "../src/api";
-import { about, aboutMs, brief, clock, dayOf, elapsed, fileLabel, left, long, notReady, pace, phaseLabel, problemSaid, recipeLabel, seconds, siteName, size, slotsSaid, sourceOf, spell, took, when } from "../src/format";
+import { about, aboutMs, brief, clock, dateTime, dayMonth, dayOf, daysBack, elapsed, hourMinute, localDay, plural, shortDate, fileLabel, left, long, notReady, pace, phaseLabel, problemSaid, recipeLabel, seconds, siteName, size, slotsSaid, sourceOf, spell, took, when } from "../src/format";
 
 describe("minutes and seconds", () => {
   it("rounds a length to the second", () => {
@@ -150,5 +150,37 @@ describe("when something was made", () => {
   it("then the day in words, never 08/10/2026", () => {
     expect(when(new Date(2026, 9, 1, 12).toISOString(), now)).toBe("1 Oct");
     expect(dayOf(new Date(2025, 11, 24, 12).toISOString(), now)).toBe("24 Dec 2025");
+  });
+});
+
+describe("counts and dates, said one way everywhere", () => {
+  it("puts a count with its word", () => {
+    expect(plural(1, "take")).toBe("1 take");
+    expect(plural(3, "setting")).toBe("3 settings");
+    expect(plural(0, "clip")).toBe("0 clips");
+    expect(plural(2, "person", "people")).toBe("2 people");
+  });
+  it("keys a moment by its local day and counts days back from it", () => {
+    const now = new Date(2026, 9, 9, 18, 0);
+    expect(localDay(new Date(2026, 9, 9, 0, 30))).toBe("2026-10-09");
+    expect(daysBack("2026-10-09", now)).toBe(0);
+    expect(daysBack("2026-10-08", now)).toBe(1);
+    expect(daysBack(new Date(2026, 9, 8, 23, 59), now)).toBe(1);
+    expect(daysBack("2025-12-31", now)).toBe(282);
+  });
+  it("says the time, the full moment and the short day as the screens did with en-GB", () => {
+    const at = new Date(2026, 9, 6, 9, 5, 7);
+    expect(hourMinute(at)).toBe("09:05");
+    expect(hourMinute(new Date(2026, 9, 6, 0, 5).getTime())).toBe("00:05");
+    expect(dateTime(at)).toBe("06/10/2026, 09:05:07");
+    expect(dayMonth(at)).toBe("6 Oct");
+  });
+  it("gives a list's date as the Projects panel's Created column says it", () => {
+    const now = new Date(2026, 9, 8, 18, 0);
+    expect(shortDate(new Date(2026, 9, 8, 14, 32).toISOString(), now)).toBe("14:32");
+    expect(shortDate(new Date(2026, 9, 7, 23, 59).toISOString(), now)).toBe("yesterday");
+    expect(shortDate(new Date(2026, 9, 3, 9, 0).toISOString(), now)).toBe("3 Oct");
+    expect(shortDate(new Date(2025, 9, 3, 9, 0).toISOString(), now)).toBe("3 Oct 2025");
+    expect(shortDate("not a date", now)).toBe("");
   });
 });

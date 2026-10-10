@@ -55,7 +55,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
       applyPreset: (id) => presetNow.current(id), savePreset: (name) => savePreset.mutateAsync(name),
     });
     // the form is gone with the panel
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- published when the form's values change; the callbacks read the latest through refs
   }, [recipe, draft?.id, formValues, draft?.look]);
   useEffect(() => () => publish(null), [publish]);
 
@@ -94,7 +94,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
     const id = takePreset();
     const p = id ? presets.find((x) => x.id === id) : undefined;
     if (p) applyPreset(p);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per draft, when the presets are read: the preset is taken, not watched
   }, [draft?.id, entities.data]);
   // a preset applied from elsewhere (the command bar), by its id: as the preset menu does it, refused the same way
   const presetNow = useRef((_id: string): string | null => null);

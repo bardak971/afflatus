@@ -25,7 +25,7 @@ export function useFit(ref: RefObject<HTMLElement | null>, steps: number, resetK
       at.current[level] = el.clientWidth;
       setLevel(level + 1);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ref is stable; one step per render until it fits
   }, [level, steps, resetKey]);
   useEffect(() => {
     const el = ref.current;

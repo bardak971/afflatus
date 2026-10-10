@@ -179,7 +179,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, why, kn
     if (fix) onFix(fix);
     else if (one.length === 1) run(one[0]!.act!);
     else say({ id: `bar-fix:${Date.now()}`, tone: "good", title: `${t.name}: nothing to fix`, text: rows.length ? "What Needs attention lists has no action that mends it." : undefined, href: `/timelines/${t.id}`, go: "Open the timeline" });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per request: the rest is read as it stands then
   }, [asked, checking, rendering]);
   const landsIn = folder && folder.id !== project?.folderId ? folder.name : project?.name ?? "the Inbox";
   const shapeWords = aspect.value === "first" ? "Shape from the first clip" : aspect.options.find((o) => o.value === aspect.value)?.label;

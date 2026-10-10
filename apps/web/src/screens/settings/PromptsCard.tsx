@@ -14,7 +14,7 @@ function Guides({ own, onSave }: { own: Record<string, string>; onSave(id: strin
     <>
       {(guides.data?.items ?? []).map((g) => (
         // the guide of your workflows for a model shares its family's name: told apart as on the Models tab
-        <GuideEditor key={g.id} guide={g.id.startsWith("workflow-") ? { ...g, name: `${g.name} (your workflows)` } : g}own={own[g.id] ?? ""} open={open === g.id} onOpen={() => setOpen(open === g.id ? null : g.id)} onSave={(text) => onSave(g.id, text)} />
+        <GuideEditor key={g.id} guide={g.imported ? { ...g, name: `${g.name} (your workflows)` } : g}own={own[g.id] ?? ""} open={open === g.id} onOpen={() => setOpen(open === g.id ? null : g.id)} onSave={(text) => onSave(g.id, text)} />
       ))}
     </>
   );

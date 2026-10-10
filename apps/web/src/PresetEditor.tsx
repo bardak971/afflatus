@@ -28,7 +28,7 @@ export function PresetEditor({ id, def, onChange }: { id?: string; def: PresetDe
   const options = useMemo(() => [
     { value: "", label: "Any model", note: "only the prompt and the references are kept" },
     ...(recipes.data?.recipes ?? []).map((r) => ({ value: r.id, label: nameOf(r), group: families.find((f) => f.id === r.family)?.name })),
-  ], [recipes.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  ], [recipes.data]); // eslint-disable-line react-hooks/exhaustive-deps -- the options follow the recipes' read; nameOf and families come from it
   const held = Object.keys(def.inputs).length;
   const look = (def.look as Look | null | undefined) ?? null;
   // the values the form shows: the model's defaults under what the preset sets

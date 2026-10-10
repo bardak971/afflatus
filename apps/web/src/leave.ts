@@ -93,6 +93,6 @@ export function useLeave<T extends HTMLElement>(exit: string, own?: RefObject<T 
       if (own) own.current = null;
       leaveCopy(el, exit);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a stable callback ref: React calls it only when the element comes and goes
   }, []);
 }

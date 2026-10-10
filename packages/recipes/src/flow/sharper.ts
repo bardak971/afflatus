@@ -1,12 +1,12 @@
 import { defineRecipe, GraphBuilder, roundTo, type Recipe, type Ref } from "@afflatus/core";
 import { FACTOR_INPUT, UPSCALER_PREFER, type UpscaleSettings } from "../sdxl/common";
-import { redrawInTiles, tileInputs, tilesOf, useTiles, type TileSettings } from "../shared/tiles";
+import { redrawInTiles, tileInputs, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
 import { photo, SAME_PICTURE, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 
 export interface FlowSharper extends FlowBase, UpscaleSettings, TileSettings { source: string; prompt: string; upscaler: string; refine: boolean; strength: number }
 
 /** Past this many pixels, Auto makes the light pass in tiles: a picture that large is past what the model draws whole. */
-export const REFINE_WHOLE_PIXELS = 3.2e6;
+const REFINE_WHOLE_PIXELS = 3.2e6;
 
 /**
  * Upscale 2x: the picture enlarged by an upscale model, then a light img2img pass so it does not look smeared,
@@ -52,7 +52,7 @@ export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
         const out = g.add("PreviewImage", { images: sized });
         return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: 1, loads };
       }
-      const tiled = useTiles(input, size, REFINE_WHOLE_PIXELS / 4);
+      const tiled = inTiles(input, size, REFINE_WHOLE_PIXELS / 4);
       g.phase("loading");
       const k = load(g, input, ctx);
       const c = cond(g, k, input, input.prompt.trim() || SAME_PICTURE);

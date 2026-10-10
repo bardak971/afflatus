@@ -11,17 +11,20 @@ services:
     image: ghcr.io/bardak971/afflatus:latest
     container_name: afflatus
     restart: unless-stopped
-    # this computer only: there is no login. To open it to your network, write "8720:8720" instead, set
-    # ALLOWED_HOSTS below to the name or address the other machines use, and LINK_ROOTS to the folders that
-    # may be linked (see docs/install-docker.md)
+    # this computer only: there is no login. To open it to your network, write "8720:8720" instead and set
+    # ALLOWED_HOSTS below to the name or address the other machines use (see docs/install-docker.md)
     ports:
       - "127.0.0.1:8720:8720"
     volumes:
       - afflatus-data:/data
+      # a folder of your disk to link in the library: mounted here, and named in LINK_ROOTS below (nothing can be
+      # linked without it: the container listens beyond loopback)
+      # - /home/me/Videos:/media/videos
     environment:
       # SQLite in the data volume is the default. For Postgres, give its address instead:
       # DATABASE_URL: postgres://afflatus:password@db:5432/afflatus
       TZ: ${TZ:-UTC}
+      # LINK_ROOTS: /media
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

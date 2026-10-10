@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router } from "wouter";
 import { App } from "./App";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { aroundNav, guardedLocation } from "./leaveGuard";
+import { aroundNav, useGuardedLocation } from "./leaveGuard";
 import { reloadOnStaleChunks } from "./reload";
 import "./styles.css";
 import { applyTheme, useThemeChoice } from "./theme/store";
@@ -32,7 +32,7 @@ createRoot(document.getElementById("root")!).render(
     <ErrorBoundary whole>
       <QueryClientProvider client={client}>
         {/* every navigation passes the leave guard, and Back/Forward too (the location it reads): a screen with unsaved work asks first */}
-        <Router aroundNav={aroundNav} hook={guardedLocation}>
+        <Router aroundNav={aroundNav} hook={useGuardedLocation}>
           <App />
         </Router>
       </QueryClientProvider>

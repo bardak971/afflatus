@@ -12,15 +12,15 @@ import { itemsWord } from "../assetCache";
 import { groupingSaves } from "../screens/queue/bulk";
 import { stepRateSaid, useStepRate } from "../screens/queue/stepRate";
 import { useQueueOf } from "../screens/studio/queueOf";
-import { aboutMs, size, timeLeft, when } from "../format";
+import { aboutMs, size } from "../format";
 import { useProject } from "../project";
 import { useBanners, useExplain, useHoverPlay, useNotify } from "../store";
 import { useThemeChoice } from "../theme/store";
 import { cx } from "../ui";
 import { Keys } from "../Keys";
-import { allRows, opened, searchKeys } from "../keys/search";
+import { opened } from "../keys/search";
 import { BAR_DEFAULT } from "../keys/table";
-import { calc, type Grid } from "./calc";
+import { type Grid } from "./calc";
 import { commandTemplates, type CommandCtx } from "./commandRows";
 import { indexItems, lowerFirst, navItems, rowsFor, settingItems, usedItems, withItems, type Item, type Kind, type Section } from "./items";
 import { settingHref, TABS, tabHref } from "../screens/settings/settingsIndex";
@@ -79,6 +79,9 @@ const FOOTER_MODES: Array<[string, string]> = [[">", "commands"], ["#", "places"
  */
 const OFF_PARTS: Array<["history" | "cast" | "snippets", string, string]> = [["history", '"', "history"], ["cast", "@", "cast"], ["snippets", ";", "snippets"]];
 
+/** One empty list while the recipes load, so what is worked out from them is not redone at every render. */
+const NO_RECIPES: RecipeInfo[] = [];
+
 /**
  * The calculator's grid: the model in play's (the open draft's, else one on the grid of the latents the app keeps, else
  * the first one that makes video on a grid), that grid when none is known.
@@ -117,7 +120,7 @@ export function CommandBar() {
   const { open, seed, preview, learn, hide, setPreview } = useBar();
   const [path, go] = useLocation();
   const client = useQueryClient();
-  const recipes = useRecipes().data?.recipes ?? [];
+  const recipes = useRecipes().data?.recipes ?? NO_RECIPES;
   const families = useFamilies();
   const settings = useSettings();
   const entities = useEntities();
@@ -155,7 +158,7 @@ export function CommandBar() {
     input.current?.focus({ preventScroll: true });
     // marked old by a live event while closed: read now (the old one shows meanwhile)
     if (index.isStale && !index.isFetching) void index.refetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- on opening only: the bar is set up from what stands then
   }, [open]);
   const close = hide;
 
@@ -234,13 +237,12 @@ export function CommandBar() {
   const bannerUndo = useBanners((s) => [...s.items].reverse().find((x) => x.action?.undo)?.title ?? null);
   const editorUndo = aim?.open ? client.getQueryData<{ undo?: string | null }>(["timelines", aim.id])?.undo ?? null : null;
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the rows follow the kept settings' values, not the identity of their list
   const settingRows = useMemo(() => settingItems([...SETTINGS, ...PAGES], settingCtx), [settingCtx, ...kept]);
   const recipeItems = useMemo(() => recipes.map((r) => ({ r, p: prepare(`${r.family} ${r.title}`) })), [recipes]);
   const presetItems = useMemo(() => (entities.data?.items ?? []).filter((e): e is Extract<Entity, { kind: "preset" }> => e.kind === "preset").map((e) => ({ e, p: prepare(e.name) })), [entities.data]);
   const navRows = useMemo(() => navItems(TABS.map((t) => ({ id: t.id, label: t.label, href: tabHref(t.id) }))), []);
   // the places of the key table open under the bar, read as it opens: the `?` mode lists their rows first, as the sheet does
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const keysHere = useMemo(() => (open ? opened().here : []), [open]);
   const barKey = bar?.shortcut ?? BAR_DEFAULT;
 
@@ -276,7 +278,7 @@ export function CommandBar() {
       recipes, recipeItems, presetItems, familyOn: (f) => families.isOn(f), grid: gridOf(recipes, undefined), queue: queueFull ?? null,
       history: history.data?.items ?? [], keysHere, barKey, entities: entities.data?.items ?? [], castTo: castPlace(selectedClip).detail,
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the rows are worked out from what they show; the helpers read here are new at every render
   }, [open, mode, text, base, ranks, learn, queueFull, settingRows, estimateSaid, history.data, entities.data, recipeItems, presetItems, navRows, selectedClip, keysHere, barKey, templates, commandCtx]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
@@ -289,7 +291,7 @@ export function CommandBar() {
     if (!current) return setDwell(null);
     const t = setTimeout(() => setDwell(current), DWELL_MS);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the row by its key: a new object for the same row does not start the wait again
   }, [current?.key]);
   const shown = dwell && current && dwell.key === current.key ? current : null;
   const renderId = (acting?.item ?? shown)?.kind === "render" ? (acting?.item ?? shown)!.entry!.id : null;

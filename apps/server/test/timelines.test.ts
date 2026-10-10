@@ -19,8 +19,7 @@ let t: TestApp;
 let three: Uint8Array;
 let smooth: Uint8Array;
 let silent: Uint8Array;
-let tone: Uint8Array;
-beforeAll(() => void ({ three, smooth, silent, tone } = s.clips ?? {}));
+beforeAll(() => void ({ three, smooth, silent } = s.clips ?? {}));
 beforeEach(() => void ({ fake, t } = s));
 
 describe.skipIf(!ffmpegThere)("the frames a clip joins onto", { timeout: FFMPEG_TIMEOUT }, () => {

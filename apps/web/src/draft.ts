@@ -140,7 +140,7 @@ export function useDraft(firstRecipe: string | undefined) {
     },
     goesWhole: (d) => closingBody(d)?.chat !== undefined,
   });
-  const { pending: unsaved, flush, turn } = save;
+  const { pending: unsaved, flush, turn, schedule } = save;
 
   // what the server has replaces what is on screen only when another draft is opened
   useEffect(() => {
@@ -153,7 +153,7 @@ export function useDraft(firstRecipe: string | undefined) {
       setDraft((d) => (d && d.id === loaded.data!.id ? { ...d, name } : d));
       if (unsaved.current && unsaved.current.id === loaded.data.id) unsaved.current = { ...unsaved.current, name };
     }
-  }, [loaded.data, draft?.id, draft?.name]);
+  }, [loaded.data, draft?.id, draft?.name, unsaved]);
 
   // the project it is in is remembered as where it was last open; opened from another project, the app follows it there
   useEffect(() => {
@@ -194,9 +194,9 @@ export function useDraft(firstRecipe: string | undefined) {
         unsaved.current = next;
         return next;
       });
-      save.schedule();
+      schedule();
     },
-    [unsaved, save.schedule],
+    [unsaved, schedule],
   );
 
   /**
@@ -215,7 +215,7 @@ export function useDraft(firstRecipe: string | undefined) {
       client.setQueryData(["drafts", id], saved);
       void client.invalidateQueries({ queryKey: DRAFT_LIST });
     },
-    [change, client, turn],
+    [change, client, turn, unsaved],
   );
 
   return {

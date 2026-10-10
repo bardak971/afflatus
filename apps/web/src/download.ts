@@ -8,7 +8,7 @@ const FORMATS: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg
 export const downloadName = (asset: Pick<Asset, "id" | "name" | "mime">) => asset.name || `${asset.id}.${FORMATS[asset.mime] ?? "bin"}`;
 
 /** What is at `href`, saved as `name`. */
-export function saveAs(href: string, name: string): void {
+function saveAs(href: string, name: string): void {
   const a = document.createElement("a");
   a.href = href;
   a.download = name;
@@ -19,7 +19,7 @@ export function saveAs(href: string, name: string): void {
 export const saveAsset = (asset: Pick<Asset, "id" | "name" | "mime">) => saveAs(fileUrl(asset.id), downloadName(asset));
 
 /** Something made in the page (a JSON file), saved. Its address is let go a moment later: at once, some browsers save nothing. */
-export function saveBlob(blob: Blob, name: string): void {
+function saveBlob(blob: Blob, name: string): void {
   const href = URL.createObjectURL(blob);
   saveAs(href, name);
   setTimeout(() => URL.revokeObjectURL(href), 1000);

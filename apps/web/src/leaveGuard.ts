@@ -6,7 +6,7 @@ import { useBrowserLocation } from "wouter/use-browser-location";
  * Work that lives only on its screen (a workflow being mapped) asks before it is left. The app's own ways to
  * another screen go through the router's navigate (the rail, the command bar, a link, a redirect), and this
  * stands in front of it. The browser's Back and Forward move the address before anyone is asked, so while
- * the guard is up the router reads the screen's own address (`guardedLocation`), the guard puts it back in
+ * the guard is up the router reads the screen's own address (`useGuardedLocation`), the guard puts it back in
  * the bar and asks then. Closing or reloading the tab is asked by the browser.
  */
 
@@ -37,7 +37,7 @@ export const aroundNav: NonNullable<RouterProps["aroundNav"]> = (navigate, to, o
  * A render between Back moving the address and its popstate (any live update draws) would otherwise
  * read the new address and take the screen, and its work, away before the question.
  */
-export const guardedLocation: BaseLocationHook = (opts?: { ssrPath?: string }) => {
+export const useGuardedLocation: BaseLocationHook = (opts?: { ssrPath?: string }) => {
   const [path, navigate] = useBrowserLocation(opts);
   return [held?.path ?? path, navigate];
 };

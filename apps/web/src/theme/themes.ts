@@ -47,7 +47,7 @@ export function mix(from: string, to: string, t: number): string {
 }
 
 /** A colour's hue, 0 to 360 degrees. */
-export function hue(c: string): number {
+function hue(c: string): number {
   const [r, g, b] = hex(c).map((v) => v / 255) as [number, number, number];
   const hi = Math.max(r, g, b);
   const d = hi - Math.min(r, g, b);
@@ -313,7 +313,7 @@ export function legible(colour: string, on: string[], light: boolean, need = LEG
  * sound's name on its blue lane): it reads on each of `on` and on `share` of it laid over each of them. The tint
  * grows darker with the colour, so each step is tried against its own.
  */
-export function legibleOnTint(colour: string, on: string[], light: boolean, share: number): string {
+function legibleOnTint(colour: string, on: string[], light: boolean, share: number): string {
   for (let t = 0; t <= 1.0001; t += 0.02) {
     const c = t ? mix(colour, light ? "#000000" : "#ffffff", t) : colour;
     if (on.every((b) => contrast(c, b) >= LEGIBLE && contrast(c, mix(b, c, share)) >= LEGIBLE)) return c;

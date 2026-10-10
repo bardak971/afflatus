@@ -57,7 +57,7 @@ export function VideoPlayer({ asset, sound, lengthMs, video: outer, controls = t
     setNow(0);
     const d = el.current?.duration;
     setLength(d !== undefined && Number.isFinite(d) && d > 0 ? d : lengthMs ? lengthMs / 1000 : null);
-  }, [asset]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [asset]); // eslint-disable-line react-hooks/exhaustive-deps -- once per video: what the element knows then
 
   useEffect(() => {
     const v = el.current;

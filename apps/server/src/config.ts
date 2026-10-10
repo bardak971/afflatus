@@ -3,7 +3,8 @@ import { resolve } from "node:path";
 /**
  * Two ways to run, chosen by the environment alone:
  *  - on one PC: nothing set. SQLite and files under DATA_DIR.
- *  - on a cluster: DATABASE_URL (Postgres) and, later, S3_* for the files.
+ *  - on a cluster: DATABASE_URL (Postgres); the files stay under DATA_DIR, on the volume the chart mounts (storage.ts
+ *    is shaped for a bucket, but none is written).
  */
 export interface Config {
   host: string;

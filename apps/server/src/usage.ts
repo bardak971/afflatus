@@ -8,7 +8,7 @@ import { ERASED, eraseAsset, inUse } from "./sweep";
 import { unusedTakes } from "./timelineUnused";
 
 /** The unused takes of every timeline (see timelineUnused), as the storage card counts and bins them. */
-export async function idleTakes(db: Kysely<Tables>): Promise<Array<{ id: string; asset_id: string }>> {
+async function idleTakes(db: Kysely<Tables>): Promise<Array<{ id: string; asset_id: string }>> {
   return [...(await unusedTakes(db)).values()].flatMap((u) => [...u.videoOf].map(([id, asset_id]) => ({ id, asset_id })));
 }
 

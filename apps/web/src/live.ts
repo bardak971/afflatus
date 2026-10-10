@@ -7,7 +7,7 @@ import { useBanners, useLive, useNotify, useSystem } from "./store";
 import { BAR_INDEX, useBar } from "./bar/store";
 
 /** The version this page was built as (vite.config.ts), "dev" from the sources: what the server's hello is held against. */
-export const BUILD_VERSION = __AFFLATUS_VERSION__;
+const BUILD_VERSION = __AFFLATUS_VERSION__;
 
 const parse = (data: string): unknown => {
   try {

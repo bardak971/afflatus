@@ -11,7 +11,7 @@ export interface Clock {
   subscribe(onChange: () => void): () => void;
 }
 
-export function makeClock(): Clock {
+function makeClock(): Clock {
   let ms = 0;
   const listeners = new Set<() => void>();
   return {

@@ -100,7 +100,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
   const [hover, setHover] = useState<{ ms: number; x: number; bar: "whole" | "zoom" } | null>(null);
   const [peek, setPeek] = useState<number | null>(null);
   const dragging = useRef<"in" | "out" | "head" | null>(null);
-  useEffect(() => { onRange?.(range); }, [range]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { onRange?.(range); }, [range]); // eslint-disable-line react-hooks/exhaustive-deps -- the parent's callback is told when the range changes, not when it is passed anew
   const seek = useCallback((ms: number) => {
     const v = player.current;
     const to = Math.max(0, Math.min(duration, ms));
@@ -153,7 +153,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
     if (!hover) { setPeek(null); return; }
     const t = setTimeout(() => setPeek(Math.round(hover.ms)), 90);
     return () => clearTimeout(t);
-  }, [hover?.ms]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hover?.ms]); // eslint-disable-line react-hooks/exhaustive-deps -- the frame under the mouse by its time: a new object for the same time does not ask again
 
   const zoomTo = useCallback((win: Range | null) => {
     if (!win) return setZoom(null);
@@ -166,10 +166,10 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
   }, [duration, frameMs]);
 
   /** The range with room on both sides: zoomed to, its two handles show inside the strip, not on its edges. */
-  const roomy = (r: Range): Range => {
+  const roomy = useCallback((r: Range): Range => {
     const pad = Math.max((r.endMs - r.startMs) * 0.08, 4 * frameMs);
     return { startMs: r.startMs - pad, endMs: r.endMs + pad };
-  };
+  }, [frameMs]);
 
   /** Loop on: from the range's start when the playhead is outside it, and playing. Loop off: the video goes on. */
   const toggleLoop = () => {
@@ -217,7 +217,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [duration, fps, frameMs, player, seek, zoomTo]);
+  }, [duration, fps, frameMs, player, seek, zoomTo, roomy]);
   const length = range.endMs - range.startMs;
   const frames = Math.round(length / frameMs);
   const whole = range.startMs <= 0 && range.endMs >= duration;
@@ -268,7 +268,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
       return () => el.removeEventListener("wheel", onWheel);
     });
     return () => handlers.forEach((off) => off());
-  }, [duration, zoomTo, zoom === null]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [duration, zoomTo, zoom === null]); // eslint-disable-line react-hooks/exhaustive-deps -- put back when zooming in or out, not on every zoom move
 
   /** One strip: the whole video, or the part zoomed into. The handles and the playhead sit on it where they fall in its window. */
   const bar = (win: Range, kind: "whole" | "zoom", src: string, tall: boolean) => {

@@ -124,7 +124,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
   // opening starts on the current choice; typing starts again from the best match
   useEffect(() => {
     if (open) setActive(Math.max(0, query ? 0 : shown.findIndex((o) => o.value === value)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the choice is taken as the list opens or the query changes, not as it is moved through
   }, [open, query]);
   useEffect(() => {
     list.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });

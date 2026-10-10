@@ -4,7 +4,7 @@ import { useBanners } from "../store";
 import { useProjects, useSettings } from "../data";
 
 /** How many projects the rail holds under the one worked in. */
-export const PIN_LIMIT = 4;
+const PIN_LIMIT = 4;
 
 /** The pins that are still places to switch to: projects there and not archived, and the Inbox ("none"), each once, in order. */
 export function livePins(pins: readonly string[], projects: readonly Pick<Project, "id" | "archivedAt">[] | undefined): string[] {

@@ -62,7 +62,7 @@ export function JustifiedRows({ places, rowHeight, className, under = 0, rows: m
       top += r.height + under + GAP;
     }
     return { at, height: Math.max(0, top - GAP) };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- places is worked out from shapes, listed instead
   }, [shapes, width, rowHeight, under, most]);
   // the same tiles laid out again because the list changed (one binned or moved out, a new render first), at the same
   // width: each glides to its new place for a moment instead of every row jumping at once, so the eye can follow where
@@ -91,7 +91,7 @@ export function JustifiedRows({ places, rowHeight, className, under = 0, rows: m
 }
 
 /**
- * One tile's place. An item that leaves the list on purpose (moved, binned: assetChange.ts) fades out where it was rather
+ * One tile's place. An item that leaves the list on purpose (moved, binned: assetChange.tsx) fades out where it was rather
  * than vanish; a list changed for another reason (another folder, a search) is not played out. `data-item-id`: where a
  * refused change shakes the item back.
  */

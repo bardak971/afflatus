@@ -87,7 +87,6 @@ const eSubgraph = z.looseObject({
 /** The editor's file, as loosely as it can be taken: what this reader relies on is checked, the rest passes as it is. */
 export const editorFile = z.looseObject({ ...eGraph, nodes: z.array(eNode), definitions: z.looseObject({ subgraphs: z.array(eSubgraph).optional() }).optional().catch(undefined) });
 
-type ESocket = z.infer<typeof eSocket>;
 type ENode = z.infer<typeof eNode>;
 interface ELink { id: number; origin_id: number | string; origin_slot: number; target_id: number | string; target_slot: number }
 type ESubgraph = z.infer<typeof eSubgraph>;

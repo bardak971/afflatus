@@ -51,7 +51,7 @@ export function MusicLane({ timeline, slots, pps, width, selected, over, measure
 
   const base = music ? { ...music, durationMs: music.asset.durationMs ?? 0, ...held } : null;
   const planned = useMemo(() => clips.map((c) => ({ id: c.id, atMs: c.atMs, lengthMs: c.lengthMs, music: c.music })), [clips]);
-  const plan = useMemo(() => (base ? musicPlan(base, planned) : null), [JSON.stringify(base), planned]); // eslint-disable-line react-hooks/exhaustive-deps
+  const plan = useMemo(() => (base ? musicPlan(base, planned) : null), [JSON.stringify(base), planned]); // eslint-disable-line react-hooks/exhaustive-deps -- the plan follows the music's values, not a new object at every render
 
   if (!music || !plan || !base) {
     return (

@@ -11,9 +11,9 @@
  */
 
 /** Keys held together. */
-export type Chord = string[];
+type Chord = string[];
 /** One way to do it: a chord, a pair of chords side by side, or a mouse move (its chord ends in the move). */
-export interface Way {
+interface Way {
   pair: Chord[];
   mouse: boolean;
 }
@@ -46,7 +46,7 @@ const SIGNS = /^[\-=[\]\\;',./`<>?:"@#!*&%$^~←→↑↓+_(){}]$/;
  * A key's own name, or null when it is not one. Strict: a letter is written as a capital ("S", not "s"), as on
  * the keycap; lenient (a search typed by hand): any case, and "Cmd" is the same key as Ctrl, as the app's handlers treat it.
  */
-export function keyName(raw: string, lenient = false): string | null {
+function keyName(raw: string, lenient = false): string | null {
   const k = raw.trim();
   if (!k) return null;
   const alias = ALIASES[k.toLowerCase()];
@@ -59,8 +59,8 @@ export function keyName(raw: string, lenient = false): string | null {
   return null;
 }
 
-export const isMouse = (key: string) => MOUSE.has(key);
-export const isModifier = (key: string) => key === "Ctrl" || key === "Shift" || key === "Alt" || key === "Meta";
+const isMouse = (key: string) => MOUSE.has(key);
+const isModifier = (key: string) => key === "Ctrl" || key === "Shift" || key === "Alt" || key === "Meta";
 
 /** "Ctrl+Shift+Z" → Ctrl, Shift, Z; "Ctrl++" → Ctrl, +; "+" → +. Null when a part is not a key. */
 function chordOf(token: string, lenient: boolean): Chord | null {
@@ -124,13 +124,6 @@ export function parseKeys(text: string, opts: { lenient?: boolean } = {}): Parse
     ways.push(way);
   }
   return { ways };
-}
-
-/** Every key a string names (its caps and its mouse words): what a search for a key looks through. */
-export function keysOf(text: string): string[] {
-  const p = parseKeys(text);
-  if (!p || "code" in p) return [];
-  return p.ways.flatMap((w) => w.pair.flat());
 }
 
 /** The platform the keys are drawn for: a Mac writes Ctrl as ⌘ and Alt as ⌥. */

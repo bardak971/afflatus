@@ -5,14 +5,14 @@ import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { api, type HistoryJob } from "../../api";
 import { HoverVideo } from "../../HoverVideo";
 import { assetKey, useAsset, useJobs, useRecipes } from "../../data";
-import { fileLabel, took, when } from "../../format";
+import { fileLabel, hourMinute, took, when } from "../../format";
 import { Select } from "../../Select";
 import { useSettled } from "../../hooks";
 import { Button, cx, Empty, Help, Segmented } from "../../ui";
 import { useQueueBulk } from "./bulk";
 import { useCopyNote } from "./copyNote";
 import { FailedRow } from "./FailedRow";
-import { dayLabel, dayOf, failureKey, foldFailures, hourOf, pinnedFailures, reasonsOf } from "./failures";
+import { dayLabel, dayOf, failureKey, foldFailures, pinnedFailures, reasonsOf } from "./failures";
 import { rowFacts, rowName } from "./historyText";
 import { ROW, useJobActions } from "./jobActions";
 import { modelTip, useModelName } from "./modelName";
@@ -44,7 +44,7 @@ function PinnedFailures({ jobs, since }: { jobs: HistoryJob[]; since: number }) 
       <div className="flex min-w-0 items-center gap-2.5 rounded-xl bg-warn-wash py-1.5 pr-1.5 pl-3 inset-ring inset-ring-warn/30">
         <button type="button" aria-expanded={open} data-tip={open ? "Fold them" : "Each one with its error and its own retry"} onClick={() => setOpen(!open)} className="flex min-w-0 grow items-center gap-2.5 text-left">
           {open ? <ChevronDown size={14} className="shrink-0 text-warn-ink" /> : <ChevronRight size={14} className="shrink-0 text-warn-ink" />}
-          <span className="shrink-0 text-[13px] font-bold text-warn-ink">{jobs.length} failed since {hourOf(since)}</span>
+          <span className="shrink-0 text-[13px] font-bold text-warn-ink">{jobs.length} failed since {hourMinute(since)}</span>
           <span className="min-w-0 truncate text-xs text-ink-2">{reasonsOf(jobs)}</span>
         </button>
         <Button size="sm" disabled={busy} data-tip="The same jobs again, unchanged, oldest first" onClick={() => run(() => bulk.retryAllFailed(ids))}>{overAll("Retry", jobs.length)}</Button>
@@ -98,7 +98,7 @@ export const History = memo(function History() {
   // the model's name, worked out from the recipes: the same function until they are read again, so the rows keep theirs
   const modelName = useModelName();
   const recipes = useRecipes();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the same function until the recipes are read again, so the rows keep their names
   const modelOf = useMemo(() => modelName, [recipes.data]);
   // what each row would run for itself, run once here: a hook per row was three mutations, a menu and a copy note for
   // each of the thousands of rows a long history holds

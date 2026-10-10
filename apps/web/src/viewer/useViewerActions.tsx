@@ -78,7 +78,7 @@ export function useViewerActions({ asset, first, trailed, items, more, detail, i
       askedFor.current = items;
       more.load();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- more is a new object at every render; what it says is listed instead
   }, [awaiting, items, more?.busy, more?.has]);
   const toBin = async () => {
     // a file of a linked folder leaves its folder on the disk: asked first

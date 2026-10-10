@@ -1,7 +1,7 @@
 import { lazy, Suspense, useMemo, useState, type ComponentProps } from "react";
 import type { TimesSummary, TopRender } from "../../api";
 import { useAsset } from "../../data";
-import { brief, long, took } from "../../format";
+import { brief, long, took, UI_LOCALE } from "../../format";
 import { cx, Empty, ErrorNote, Segmented } from "../../ui";
 import { TimeChart, useChartColors } from "./Chart";
 import { flagsOf } from "./flagRules";
@@ -41,9 +41,8 @@ export function RenderTimes() {
   const anything = t.done + t.failed + t.cancelled > 0;
   const spanMs = d.to - d.from;
   const stretch = d.step < HOUR ? `${Math.round(d.step / 60_000)} min` : d.step === HOUR ? "hour" : d.step < DAY ? `${Math.round(d.step / HOUR)} h` : "day";
-  // en-GB: the UI is in English, and day before month, 24 h, whatever the browser's own locale
   const timeLabel = (time: number, full?: boolean) =>
-    new Date(time).toLocaleString("en-GB", full
+    new Date(time).toLocaleString(UI_LOCALE, full
       ? d.step < DAY ? { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" } : { weekday: "short", day: "numeric", month: "short", year: "numeric" }
       : d.step < DAY ? (spanMs > 36 * HOUR ? { weekday: "short", hour: "2-digit", minute: "2-digit" } : { hour: "2-digit", minute: "2-digit" }) : { day: "numeric", month: "short" });
   const chart: ChartBase = { times: d.times, timeLabel, step: d.step, onBrush: zoom, detail: (i: number) => <TopList bucket={d.buckets[i]} /> };
@@ -64,7 +63,7 @@ export function RenderTimes() {
         <span className="text-xs text-ink-2">
           {windowSaid} · per {stretch}{d.prior ? ` · Δ vs prior ${spanSaid(d.prior.to - d.prior.from)}` : ""}
         </span>
-        {d.since && <span className="text-xs text-ink-3" data-tip="First render on record">since {new Date(d.since).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>}
+        {d.since && <span className="text-xs text-ink-3" data-tip="First render on record">since {new Date(d.since).toLocaleDateString(UI_LOCALE, { day: "numeric", month: "short", year: "numeric" })}</span>}
         <span className="grow" />
         <span className="text-xs text-ink-3">drag a chart: zoom</span>
       </div>

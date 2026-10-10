@@ -56,9 +56,6 @@ export const useBar = create<{
 /** The index's query key: what the live events and a change of drafts mark as old. */
 export const BAR_INDEX = ["command-index"] as const;
 
-/** "Ctrl+K", "Ctrl+Shift+P", "Alt+Space": the parts of a shortcut, as they are drawn. */
-export const shortcutParts = (s: string) => s.split("+").map((p) => p.trim()).filter(Boolean);
-
 /** The shortcut a key press is, written as the settings keep it; null for a press of a modifier alone. */
 export function shortcutOf(e: Pick<KeyboardEvent, "key" | "code" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">): string | null {
   if (["Control", "Meta", "Alt", "Shift", "AltGraph", "OS"].includes(e.key)) return null;

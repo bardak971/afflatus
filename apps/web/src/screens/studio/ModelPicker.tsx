@@ -8,6 +8,8 @@ import { Select } from "../../Select";
 import { cx, Segmented } from "../../ui";
 
 type ModelGroup = ReturnType<typeof modelGroups>[number];
+/** One empty list while the recipes load, so what is worked out from them is not redone at every render. */
+const NO_RECIPES: RecipeInfo[] = [];
 
 /**
  * A model first, then what to do with it: the models that make the kind of thing the form makes, each with
@@ -23,7 +25,7 @@ export function useModelPick({ recipe, draft, onPick }: {
   const recipes = useRecipes();
   const setup = useSetup();
   const families = useFamilies();
-  const all = recipes.data?.recipes ?? [];
+  const all = recipes.data?.recipes ?? NO_RECIPES;
   const comfyOnline = setup.data?.comfy.online ?? false;
   // pictures or videos: the models of the other kind are out of the way; the last one used of each kind is remembered
   const kinds = [...new Set(all.map((r) => r.output))];

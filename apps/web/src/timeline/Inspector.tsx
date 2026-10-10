@@ -96,7 +96,6 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   const after = timeline.clips[index + 1];
   const still = clip.kind === "still";
   const carries = Boolean(before) && clip.joined === "continue" && !still;
-  const canCarry = Boolean(recipe?.traits?.continues) || (before?.kind === "still" && Boolean(pinInputs(recipe).start));
   const pins = pinInputs(recipe);
   const opens = !carries && pins.start && typeof stored[pins.start] === "string" ? (stored[pins.start] as string) : null;
   const ends = pins.end && typeof stored[pins.end] === "string" ? (stored[pins.end] as string) : null;
@@ -105,7 +104,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   // what the timeline fills in itself is not asked for in the form: the clips it joins onto, and its pinned pictures (shown above it)
   const form = useMemo(
     () => (recipe ? { ...recipe, inputs: recipe.inputs.filter((i) => i.type !== "clip" && !(i.type === "image" && (i.role === "start" || i.role === "end" || i.role === "mid")) && i.id !== pins.midAt) } : undefined),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pins come from the recipe
     [recipe],
   );
   const canFit = Boolean(recipe?.traits?.endAnchor && after?.take && after.joined === "continue");

@@ -112,12 +112,13 @@ export function ComfyLog({ online }: { online: boolean }) {
     const at = [0];
     for (const r of shown) at.push(at[at.length - 1]! + (heights.current.get(r.key) ?? ROW_GUESS));
     return at;
-  }, [shown, measured]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [shown, measured]); // eslint-disable-line react-hooks/exhaustive-deps -- measured is the signal that the heights in the ref changed
   const first = shown.length ? rowAt(offsets, view.top - OVERSCAN) : 0;
   const end = shown.length ? rowAt(offsets, view.top + view.height + OVERSCAN) + 1 : 0;
   const drawn = useMemo(() => shown.slice(first, end), [shown, first, end]);
 
   // the rows just drawn measured (a wrapped line, a traceback unfolded); then the end kept in view until the reader scrolls up
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- after every render on purpose: it sets state only when a height moved, so it settles
   useLayoutEffect(() => {
     let changed = false;
     for (const el of Array.from(body.current?.children ?? [])) {

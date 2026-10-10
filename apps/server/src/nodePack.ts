@@ -16,11 +16,11 @@ import { zipOf } from "./zip";
  * is set; ComfyUI loads it at its next start. Nothing is run: files are written, that is all.
  */
 
-export const NODE_PACK = "afflatus-nodes";
+const NODE_PACK = "afflatus-nodes";
 const exists = (p: string) => access(p).then(() => true, () => false);
 
 /** Where the pack's source is: the repository's folder, or NODE_PACK_DIR. */
-export function nodePackSource(): string {
+function nodePackSource(): string {
   return envSaid.nodePackDir()?.trim() || fileURLToPath(new URL("../../../comfy-nodes/afflatus-nodes", import.meta.url));
 }
 

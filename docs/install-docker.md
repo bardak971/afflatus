@@ -27,13 +27,27 @@ volumes:
 docker compose up -d
 ```
 
-Open `http://127.0.0.1:8720`. The port is published on this computer only. To reach Afflatus from other machines, publish it as `8720:8720`, and set `ALLOWED_HOSTS` and `LINK_ROOTS` (below). To update, `docker compose pull && docker compose up -d`. The data volume carries everything (database, library, settings) across updates.
+Open `http://127.0.0.1:8720`. The port is published on this computer only. To reach Afflatus from other machines, publish it as `8720:8720` and set `ALLOWED_HOSTS` (below). To link folders of your disk, see [Linked folders](#linked-folders). To update, `docker compose pull && docker compose up -d`. The data volume carries everything (database, library, settings) across updates.
 
 Or without compose:
 
 ```
 docker run -d --name afflatus -p 127.0.0.1:8720:8720 -v afflatus-data:/data ghcr.io/bardak971/afflatus:latest
 ```
+
+## Linked folders
+
+A linked folder is a directory shown in the library as it is on the disk, its files used where they are. In the container that means two steps: mount the directory into the container, and name it in `LINK_ROOTS`. The image listens on every address inside the container (`HOST=0.0.0.0`), and a server that listens beyond loopback links nothing until `LINK_ROOTS` says which directories may be linked: without it, every link is refused, whatever the port is published as.
+
+```yaml
+    volumes:
+      - afflatus-data:/data
+      - /home/me/Videos:/media/videos
+    environment:
+      LINK_ROOTS: /media
+```
+
+Then link `/media/videos` (or a folder under it) from the Projects panel. Several roots are `:`-separated (`LINK_ROOTS=/media:/shoots`).
 
 ## ComfyUI's address
 
@@ -56,7 +70,7 @@ The container cannot write into ComfyUI's folder, so install Afflatus's node pac
 | `DATA_DIR` | `/data` | The volume |
 | `ALLOWED_HOSTS` | empty | The names Afflatus answers to, comma-separated. `localhost` and `127.0.0.1` always are; a request with any other `Host` header gets a 403, which keeps a page from another site from driving the API by pointing one of its names at this machine. Name here whatever you open Afflatus as from other machines, and the name a reverse proxy or a scraper uses (`ALLOWED_HOSTS=afflatus.home,192.168.x.y`) |
 | `PUBLIC_URL` | empty | The address ComfyUI reaches Afflatus at, for model downloads; its host is answered to as well |
-| `LINK_ROOTS` | empty | The directories that may be linked as folders, `:`-separated (a mounted volume: `LINK_ROOTS=/media`). Set it whenever the port is published beyond this machine: without it anyone who can open the page can link any directory the container can read |
+| `LINK_ROOTS` | empty | The directories that may be linked as folders, `:`-separated (a mounted volume: `LINK_ROOTS=/media`). Needed to link anything: the image listens beyond loopback, so with it empty every link is refused ([Linked folders](#linked-folders)) |
 | `DATABASE_URL` | empty | A `postgres://` address instead of SQLite in the volume. SQLite is the supported one |
 | `TZ` | `UTC` | The time zone, for the times shown |
 

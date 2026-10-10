@@ -58,7 +58,7 @@ export const Player = forwardRef<PlayerHandle, {
   // the clips that play, kept while what plays of them is the same: a timeline read again (a render's progress, a form
   // saved) does not restart the frame loop below, which follows this list
   const signature = playSignature(clips);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the list follows what plays of the clips (the signature), not each new read of them
   const seq = useMemo(() => clips.filter((c) => c.lengthMs > 0 && (c.take || c.still)), [signature]);
   // each clip's colour nudge toward the clip before at their join, as the export applies it: shown here as a colour matrix on the video
   const matches = useQuery({
@@ -70,7 +70,6 @@ export const Player = forwardRef<PlayerHandle, {
   const nudges = useMemo(() => new Map((matches.data?.items ?? []).filter((m) => m.y || m.u || m.v).map((m) => [m.clip, m])), [matches.data]);
   /** The nudge as RGB offsets (0 to 1) for an SVG colour matrix: luma to all three, the chroma planes by BT.601. */
   const rgbOf = (m: { y: number; u: number; v: number }) => ({ r: (m.y + 1.402 * m.v) / 255, g: (m.y - 0.344 * m.u - 0.714 * m.v) / 255, b: (m.y + 1.772 * m.u) / 255 });
-  const total = seq.reduce((sum, c) => sum + c.lengthMs, 0);
   const [cur, setCur] = useState(0);
   const els = useRef(new Map<string, HTMLVideoElement>());
   const clipSound = useRef<HTMLAudioElement>(null);
@@ -204,7 +203,7 @@ export const Player = forwardRef<PlayerHandle, {
     if (clipSound.current) clipSound.current.volume = Math.max(0, Math.min(1, ((now?.volume ?? 100) / 100) * master));
     // the music too, at once (it is retuned as it plays)
     if (musicEl.current && music && !playing) musicEl.current.volume = Math.max(0, Math.min(1, (music.volume / 100) * master));
-  }, [now?.volume, nowKey, master]);
+  }, [now?.volume, nowKey, master, music, playing]);
 
   useEffect(() => {
     for (const [id, el] of els.current) if (id !== now?.take?.id || !playing) el.pause();
@@ -225,7 +224,7 @@ export const Player = forwardRef<PlayerHandle, {
     void clipSound.current?.play().catch(() => {});
     // the music plays from where the plan says, once it has started (tuned on every frame after)
     if (now) tuneMusic(now.atMs + pos.current.local);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- started on play and on a new clip; the rest is read as it stands then, and tuned on every frame after
   }, [playing, nowKey, onPlaying, Boolean(music)]);
 
   // the frame loop while it plays, and the hand-over from one clip to the next (useHandover.ts)

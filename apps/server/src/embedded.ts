@@ -52,8 +52,8 @@ export interface Embedded {
  * few kilobytes that unpack to gigabytes (a "decompression bomb"); a ComfyUI workflow is far smaller
  * than this, and a chunk past it is not read.
  */
-export const TEXT_CHUNK_MAX = 1 << 20;
-export const TEXT_TOTAL_MAX = 4 << 20;
+const TEXT_CHUNK_MAX = 1 << 20;
+const TEXT_TOTAL_MAX = 4 << 20;
 
 /** PNG tEXt / zTXt / iTXt chunks, by keyword. */
 function pngText(buf: Buffer): Record<string, string> {
@@ -340,7 +340,7 @@ const isGraph = (v: unknown): v is Graph =>
     Boolean((n as Node).inputs) && typeof (n as Node).inputs === "object" && !Array.isArray((n as Node).inputs));
 
 /** The settings of a graph built around a checkpoint and a KSampler. Null when it is another kind of workflow. */
-export function parseComfy(graph: Graph): FoundSettings | null {
+function parseComfy(graph: Graph): FoundSettings | null {
   try {
     return settingsOfGraph(graph);
   } catch {

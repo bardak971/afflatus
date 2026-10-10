@@ -14,7 +14,7 @@ import { useMediaExtract } from "./viewer/useMediaExtract";
 import { useNewDraftActions } from "./viewer/useNewDraftActions";
 
 /** How long a pass button says "Queued" after the server took the job. */
-export const QUEUED_MS = 1400;
+const QUEUED_MS = 1400;
 
 /** For a place whose menu is closed: the hooks are worked out for nothing. */
 export const NO_ASSET = { id: "", kind: "image" } as Asset;

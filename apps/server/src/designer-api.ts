@@ -123,7 +123,7 @@ export function registerDesigner(app: FastifyInstance, s: Services): void {
   app.get("/api/designer/guides", async () => {
     const settings = await readSettings(s.db);
     return {
-      items: s.registry.families().map((f) => ({ id: f.id, name: f.name, style: f.promptStyle, guide: builtInGuide(f), own: settings.designerGuides[f.id] ?? "" })),
+      items: s.registry.families().map((f) => ({ id: f.id, name: f.name, ...(f.imported ? { imported: true as const } : {}), style: f.promptStyle, guide: builtInGuide(f), own: settings.designerGuides[f.id] ?? "" })),
     };
   });
 

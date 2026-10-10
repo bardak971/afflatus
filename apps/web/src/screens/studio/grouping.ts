@@ -1,4 +1,5 @@
 import type { Asset } from "../../api";
+import { daysBack, localDay, plural, UI_LOCALE } from "../../format";
 
 /**
  * The library grid in sections: by the timeline an item is a take of, by the draft that made it, or by day.
@@ -7,7 +8,7 @@ import type { Asset } from "../../api";
  */
 export type GroupBy = "none" | "timeline" | "draft" | "day";
 
-export interface Entry {
+interface Entry {
   /** The tile shown: the playing take of a stack, else the item itself. */
   asset: Asset;
   /** Of a stack of takes: every take, the playing one first. */
@@ -25,20 +26,14 @@ export interface Section {
   entries: Entry[];
 }
 
-/** The local day (YYYY-MM-DD), not the UTC one: a render at 00:30 belongs to today. */
-const localDay = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const dayOf = (iso: string) => localDay(new Date(iso));
-const dayLabel = (day: string) => {
-  const today = localDay(new Date());
-  const y = new Date();
-  y.setDate(y.getDate() - 1);
-  const yesterday = localDay(y);
-  if (day === today) return "Today";
-  if (day === yesterday) return "Yesterday";
-  return new Date(`${day}T12:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
-};
-const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+/** A day's heading in the grid: "Today", "Yesterday", else "Monday 6 October". */
+export function dayLabel(day: string, now = new Date()): string {
+  const back = daysBack(day, now);
+  if (back === 0) return "Today";
+  if (back === 1) return "Yesterday";
+  return new Date(`${day}T12:00:00`).toLocaleDateString(UI_LOCALE, { weekday: "long", day: "numeric", month: "long" });
+}
 
 /** Takes of one clip as one entry, in clip order; the others as they come. `open` holds the stacks shown opened. */
 function stacked(items: Asset[], open: Set<string>): Entry[] {
@@ -88,7 +83,7 @@ export function groupItems(items: Asset[], by: GroupBy, open: Set<string>): Sect
     const list = by === "timeline" ? [...s.items].sort((a, b) => a.clipOf!.clip - b.clipOf!.clip) : s.items;
     const entries = by === "timeline" ? stacked(list, open) : list.map((asset) => ({ asset }));
     const clips = by === "timeline" ? new Set(s.items.map((a) => a.clipOf!.clip)).size : 0;
-    out.push({ key, label: s.label, timeline: s.timeline, note: by === "timeline" ? count(clips, "clip") : count(s.items.length, "item"), entries });
+    out.push({ key, label: s.label, timeline: s.timeline, note: by === "timeline" ? plural(clips, "clip") : plural(s.items.length, "item"), entries });
   }
   return out;
 }

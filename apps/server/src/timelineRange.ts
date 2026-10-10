@@ -607,7 +607,7 @@ export class TimelineRange {
 }
 
 /** The clips with nothing to play yet (they take no time on the clock) that stand strictly inside In and Out: they go with the range. */
-export function unplayedWithin(all: Placed[], a: number, b: number): string[] {
+function unplayedWithin(all: Placed[], a: number, b: number): string[] {
   const out: string[] = [];
   let at = 0;
   for (const p of all) {

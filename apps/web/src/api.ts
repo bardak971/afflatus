@@ -257,7 +257,7 @@ export const api = {
     call<DesignerReply>("POST", "/designer", body),
   /** A scene written as several clips: the text of each. */
   /** Every family's prompting guide: the built-in text and the user's own, when one is written. */
-  designerGuides: () => call<{ items: Array<{ id: string; name: string; style: "tags" | "sentences" | "sections"; guide: string; own: string }> }>("GET", "/designer/guides"),
+  designerGuides: () => call<{ items: Array<{ id: string; name: string; imported?: true; style: "tags" | "sentences" | "sections"; guide: string; own: string }> }>("GET", "/designer/guides"),
   /** The system prompt the designer would be given for this form, word for word. */
   designerSystem: (body: { recipe: string; values: Record<string, unknown>; mode?: "chat" | "enhance"; llm?: string; instruction?: string; previous?: string; story?: { clips: string[]; index: number }; look?: Look | null; mood?: string }) =>
     call<{ system: string; sees: boolean }>("POST", "/designer/system", body),

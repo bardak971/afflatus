@@ -42,7 +42,7 @@ function watch(el: Element, said: (near: boolean) => void) {
   };
 }
 /** The element has come within a screen's reach of the viewport (once: it is not forgotten when scrolled past). */
-export function useNear(ref: React.RefObject<Element | null>): boolean {
+function useNear(ref: React.RefObject<Element | null>): boolean {
   const [near, setNear] = useState(false);
   useEffect(() => {
     const el = ref.current;

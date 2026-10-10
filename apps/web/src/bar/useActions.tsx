@@ -18,6 +18,7 @@ import { useJobActions } from "../screens/queue/jobActions";
 import { atTop } from "../screens/queue/order";
 import { settingHref } from "../screens/settings/settingsIndex";
 import { useQueueOf } from "../screens/studio/queueOf";
+import { useSayFailed } from "../sayFailed";
 import { copyText } from "../secureContext";
 import { useBanners, useHandover, useOpenDraft, useStudio } from "../store";
 import { openKeys } from "../keys/search";
@@ -109,7 +110,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
   const picker = useRef<HTMLInputElement>(null);
   const importTo = useRef<Target | null>(null);
 
-  const failed = (title: string) => (err: unknown) => say({ id: `bar:${Date.now()}`, tone: "bad", title, text: err instanceof Error ? err.message : String(err), href: "/", go: "Open the Studio" });
+  const failed = useSayFailed({ id: "bar", go: "Open the Studio" });
   const good = (title: string, text?: string, href = "/", goTo = "Open the Studio") => say({ id: `bar:${Date.now()}`, tone: "good", title, text, href, go: goTo });
 
   const openDraft = (id: string) => {

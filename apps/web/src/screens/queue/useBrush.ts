@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 /** A drag shorter than this is a click, not a window to look at. */
-export const BRUSH_LEAST = 6;
+const BRUSH_LEAST = 6;
 
 /** Where a drag went, in pixels across the element: [left, right], or null when it is too short to mean a window. */
 export const brushSpan = (drag: { x0: number; x1: number } | null): [number, number] | null => {

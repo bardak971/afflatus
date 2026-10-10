@@ -23,7 +23,7 @@ export function useReveal({ reveal, folders, setOpen, rows, setFocused, setPicke
     setOpen(groupKey({ id: reveal.group }), true);
     const all = folders;
     for (let f = all.find((x) => x.id === reveal.folder); f; f = all.find((x) => x.id === f!.parentId)) setOpen(`f:${f.id}`, true);
-  }, [reveal, folders]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reveal, folders]); // eslint-disable-line react-hooks/exhaustive-deps -- once per reveal: setOpen is new at every render
   const shown = useRef(false);
   useEffect(() => {
     if (!reveal || shown.current || !revealed.current) return;
@@ -35,5 +35,5 @@ export function useReveal({ reveal, folders, setOpen, rows, setFocused, setPicke
     shown.current = true;
     setFocused(stand.key);
     setPicked(new Map([[stand.key, stand]]));
-  }, [rows, reveal]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [rows, reveal]); // eslint-disable-line react-hooks/exhaustive-deps -- the row picked once, when it is drawn: the setters are new at every render
 }

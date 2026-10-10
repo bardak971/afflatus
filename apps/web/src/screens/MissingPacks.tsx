@@ -4,6 +4,7 @@ import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 import { api, type PacksStarted } from "../api";
 import { useDownloads } from "../useGetFile";
 import { Button, cx } from "../ui";
+import { plural } from "../format";
 
 const link = "font-semibold text-accent underline underline-offset-2 hover:text-ink";
 /** The workflow read again: what was found, with the workflow in the form Afflatus keeps. */
@@ -62,7 +63,6 @@ export function MissingPacks({ missing, packs, graph, wiring, editor, onInspecte
   const states = started ? started.jobs.map((j) => stateOf(j.pack)!) : [];
   const allDone = started !== null && states.length > 0 && states.every((s) => s.state !== "pending");
   const failed = states.filter((s) => s.state === "failed").length;
-  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
   const client = useQueryClient();
   const [back, setBack] = useState<"waiting" | "back" | null>(null);
   // Manager's reboot route; then the workflow is read again every few seconds until ComfyUI answers, and the list is the new one

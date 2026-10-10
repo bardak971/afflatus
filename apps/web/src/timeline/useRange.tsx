@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { useMutation } from "@tanstack/react-query";
+import { FRAME_SLACK_MS } from "@afflatus/core";
 import { Copy, Gauge, Play, RefreshCw, Repeat, Scissors, Split, X } from "lucide-react";
 import { api, type Clip } from "../api";
 import type { MenuItem } from "../ContextMenu";
@@ -60,7 +61,7 @@ export function useRange({ id, clips, durationMs, clock, player, playing, setPla
   loopRef.current = loopRange;
   /** Playing the range: it stops at Out (or goes back to In). */
   const playingRange = useRef(false);
-  const emptyRange = Boolean(range && range.outMs - range.inMs < 40);
+  const emptyRange = Boolean(range && range.outMs - range.inMs < FRAME_SLACK_MS);
   // the range stays within what plays when the timeline changes under it
   useEffect(() => {
     setRange((r) => (r && r.outMs > durationMs ? (r.inMs >= durationMs ? null : { ...r, outMs: durationMs }) : r));
@@ -71,25 +72,25 @@ export function useRange({ id, clips, durationMs, clock, player, playing, setPla
     const r = rangeRef.current;
     const time = clock.get();
     if (playing) playingRange.current = false;
-    else if (r && r.outMs - r.inMs >= 40) {
+    else if (r && r.outMs - r.inMs >= FRAME_SLACK_MS) {
       // with a range, Play plays it: from the playhead when it stands inside, else from In; it stops at Out
       playingRange.current = true;
       if (time < r.inMs || time >= r.outMs - 15) player.current?.seek(r.inMs);
     } else if (totalRef.current && time >= totalRef.current - 30) player.current?.seek(0);
     setPlaying((p) => !p);
-  }, [playing, clock]);
+  }, [playing, clock, player, setPlaying]);
   /** Loop on or off; turning it on goes to In at once and plays the range round (playing or not, wherever the playhead was). */
   const toggleLoop = useCallback(() => {
     const r = rangeRef.current;
     const on = !loopRef.current;
     loopRef.current = on;
     setLoopRange(on);
-    if (on && r && r.outMs - r.inMs >= 40) {
+    if (on && r && r.outMs - r.inMs >= FRAME_SLACK_MS) {
       playingRange.current = true;
       player.current?.seek(r.inMs);
       if (!playing) setPlaying(true);
     }
-  }, [playing]);
+  }, [playing, player, setPlaying]);
   const toggleLoopNow = useRef(toggleLoop);
   toggleLoopNow.current = toggleLoop;
   /** Play from In; at Out it stops, or goes back to In when Loop is on. */

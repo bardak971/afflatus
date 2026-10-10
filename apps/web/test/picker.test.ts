@@ -66,8 +66,8 @@ describe("the models to choose from", () => {
   const families = [
     { id: "sdxl", name: "SDXL", summary: "Tags." },
     { id: "krea2", name: "Krea 2", summary: "Sentences." },
-    { id: "workflow-krea2", name: "Krea2", summary: "From your own workflow." },
-    { id: "workflow-wan-2-2", name: "Wan 2.2", summary: "From your own workflow." },
+    { id: "workflow-krea2", name: "Krea2", summary: "From your own workflow.", imported: true as const },
+    { id: "workflow-wan-2-2", name: "Wan 2.2", summary: "From your own workflow.", imported: true as const },
   ];
   const recipes = [
     recipe("sdxl.t", "sdxl", "txt2img"), recipe("krea2.t", "krea2", "txt2img"), recipe("krea2.i", "krea2", "img2img"),
@@ -90,6 +90,14 @@ describe("the models to choose from", () => {
   it("take the built-in model's name whichever comes first", () => {
     const groups = modelGroups(recipes, [families[2]!, families[1]!]);
     expect(groups.map((g) => [g.name, g.builtIn, g.recipes.map((r) => r.id)])[0]).toEqual(["Krea 2", true, ["krea2.t", "krea2.i", "workflow.mine"]]);
+  });
+
+  it("know an imported family by its flag, not by how its id is spelt", () => {
+    const groups = modelGroups([recipe("mine.t", "my-model", "Mine"), recipe("built.t", "workflow-like", "Built in")], [
+      { id: "my-model", name: "My model", summary: "From your own workflow.", imported: true },
+      { id: "workflow-like", name: "Workflow-like", summary: "Built in." },
+    ]);
+    expect(groups.map((g) => [g.name, g.builtIn])).toEqual([["My model", false], ["Workflow-like", true]]);
   });
 });
 

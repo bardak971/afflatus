@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { FRAME_SLACK_MS } from "@afflatus/core";
 import type { Clip } from "../api";
 import type { Clock } from "./clock";
 import type { PlayerHandle } from "./Player";
@@ -58,13 +59,13 @@ export function usePlayhead({ clock, clips, player, rangeRef, loopRef, playingRa
     if (cursorRef.current !== null) setCursor(null);
     const r = rangeRef.current;
     if (playingRange.current && r && ms >= r.outMs - 15) {
-      if (loopRef.current && r.outMs - r.inMs >= 40) player.current?.seek(r.inMs);
+      if (loopRef.current && r.outMs - r.inMs >= FRAME_SLACK_MS) player.current?.seek(r.inMs);
       else {
         playingRange.current = false;
         setPlaying(false);
       }
     }
-  }, [clock]);
+  }, [clock, rangeRef, playingRange, loopRef, player, setPlaying]);
   /** One frame of the clip under the playhead, in ms (24 a second when it is not known). */
   const frameMs = () => {
     const time = clock.get();

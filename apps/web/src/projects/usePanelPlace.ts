@@ -43,7 +43,7 @@ export function usePanelPlace({ panel, anchor, scoped, onClose }: {
     };
     window.addEventListener("pointerdown", outside, true);
     return () => window.removeEventListener("pointerdown", outside, true);
-  }, [anchor, onClose]);
+  }, [panel, anchor, onClose]);
 
   // a dialog opened from it that sits lower than it (Add to a timeline, the Viewer's): the panel steps aside until it closes
   const [covered, setCovered] = useState(false);

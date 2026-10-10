@@ -12,7 +12,7 @@ import { visible, type Laid } from "./timelineModel";
 /** Gains a second in the curve. */
 export const DUCK_RATE = 20;
 /** Speech-band level over which a clip is taken to speak, in dB (its volume taken into account). */
-export const SPEECH_DB = -32;
+const SPEECH_DB = -32;
 /** How long the music stays down after the last word, how fast it goes down, how slowly it comes back (ms). */
 const HOLD_MS = 300;
 const ATTACK_MS = 80;

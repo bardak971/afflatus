@@ -49,7 +49,7 @@ export function MissingFile({ f, m, hints, where }: { f: MissingFileOf; m: Mappi
     if (!done || reread.current === done) return;
     reread.current = done;
     api.inspectWorkflow(m.start.editor ?? { graph: m.graph, wiring: m.wiring }).then(m.reread, () => {});
-  }, [done]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [done]); // eslint-disable-line react-hooks/exhaustive-deps -- read again once per download done, not when the mapping changes
 
   const what = [
     `Your ComfyUI does not have ${fileLabel(f.file)} (${f.label}).`,

@@ -62,7 +62,7 @@ export function chatJson(chat: unknown[], most = 256 * 1024): string | null {
 export type Message = { role: "system" | "user" | "assistant"; content: string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }> };
 
 /** Roughly how many tokens a text is: enough to know what fits, with room to spare. */
-export const tokensOf = (content: Message["content"]): number =>
+const tokensOf = (content: Message["content"]): number =>
   typeof content === "string" ? Math.ceil(content.length / 3.5) : content.reduce((n, part) => n + (part.type === "text" ? Math.ceil(part.text.length / 3.5) : 1200), 0);
 
 /**

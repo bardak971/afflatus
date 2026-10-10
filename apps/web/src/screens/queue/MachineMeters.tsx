@@ -3,7 +3,7 @@ import { useSystem } from "../../store";
 import { Bar, cx, SectionTitle } from "../../ui";
 
 /** The numbers of the machine ComfyUI runs on. Shows what is known: a meter with no source is left out. */
-export function meters(load: SystemLoad | null): Array<{ label: string; value: string; percent: number; hot: boolean }> {
+function meters(load: SystemLoad | null): Array<{ label: string; value: string; percent: number; hot: boolean }> {
   if (!load) return [];
   const out: Array<{ label: string; value: string; percent: number; hot: boolean }> = [];
   const pct = (label: string, v: number | undefined) => v !== undefined && out.push({ label, value: `${Math.round(v)}%`, percent: v, hot: false });

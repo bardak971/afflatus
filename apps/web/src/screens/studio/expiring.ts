@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
 import { ask } from "../../Confirm";
 import { useProject } from "../../project";
-import { UNKEPT_MS } from "../library/justify";
+import { UNKEPT_MS } from "@afflatus/core";
 
 /**
  * The renders nobody kept, which go to the bin by themselves a day after they were made (or unkept): said once,
@@ -15,7 +15,7 @@ import { UNKEPT_MS } from "../library/justify";
 export const useExpiringOnly = create<{ on: boolean; set(on: boolean): void }>((set) => ({ on: false, set: (on) => set({ on }) }));
 
 /** Beyond this many, Keep all asks first. */
-export const ASK_OVER = 20;
+const ASK_OVER = 20;
 
 /** How long until an expiring item goes, in a few words: "40 min" under the hour, else whole hours ("3 h"), rounded down unless `up`. */
 export const leftWords = (ms: number, up = false) => (ms < 3_600_000 ? `${Math.max(1, Math.round(ms / 60_000))} min` : `${(up ? Math.ceil : Math.floor)(ms / 3_600_000)} h`);

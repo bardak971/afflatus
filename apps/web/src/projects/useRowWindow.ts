@@ -41,7 +41,7 @@ export function useRowWindow({ list, rows, focused, footHeight, opened }: {
     const watch = new ResizeObserver(measure);
     watch.observe(el);
     return () => watch.disconnect();
-  }, [opened]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [opened]); // eslint-disable-line react-hooks/exhaustive-deps -- watched once per opening: measure is new at every render and reads the latest rows
   // the row the keys are on brought into sight inside the list (never the page), clear of the column heads and of the Bin at its foot
   useLayoutEffect(() => {
     const el = list.current;
@@ -55,7 +55,7 @@ export function useRowWindow({ list, rows, focused, footHeight, opened }: {
     if (top < el.scrollTop + above) el.scrollTop = i === 0 ? 0 : top - above;
     else if (bottom > el.scrollTop + el.clientHeight - footHeight) el.scrollTop = bottom - el.clientHeight + footHeight;
     measure();
-  }, [focused]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [focused]); // eslint-disable-line react-hooks/exhaustive-deps -- only the row the keys moved to is brought into sight, not every row change
   /** The rows drawn: those in sight and a few more, and the rows to keep drawn whatever the scroll (by key); gaps for the rest. */
   const drawn = (keep: (string | null | undefined)[]) =>
     rowWindow(offsets, view.top, view.height, OVERSCAN, keep.map((k) => (k ? indexOf.get(k) ?? -1 : -1))).flatMap((p): ({ gap: number } | { r: Row; i: number })[] => ("gap" in p ? [p] : rows.slice(p.from, p.to).map((r, k) => ({ r, i: p.from + k }))));

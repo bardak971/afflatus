@@ -1,0 +1,8 @@
+{
+  "$schema": "https://unpkg.com/knip@6.39.0/schema.json",
+  "ignoreExportsUsedInFile": true,
+  "ignoreBinaries": ["ffmpeg", "ffprobe"],
+  "workspaces": {
+    "packages/workflows": { "entry": ["test/comfyExport.mjs"] }
+  }
+}

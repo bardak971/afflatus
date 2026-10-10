@@ -17,7 +17,7 @@ type Known = { name: string; filename: string; url: string; save_path?: string; 
 let known: { at: number; list: Promise<Map<string, Known>> } | null = null;
 
 /** Manager's list of standard model files, by lower-case file name; kept an hour. Empty where a pretend Civitai stands in (the tests, the demo), unless a list is given. */
-export async function knownFiles(): Promise<Map<string, Known>> {
+async function knownFiles(): Promise<Map<string, Known>> {
   const url = envSaid.modelListUrl() ?? (pretendSites() ? null : LIST_URL);
   if (!url) return new Map();
   if (!known || Date.now() - known.at > KEEP_MS) {

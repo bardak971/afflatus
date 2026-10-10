@@ -13,7 +13,7 @@ import type { Storage } from "./storage";
 import { TimelineExport } from "./timelineExport";
 import { TimelineMedia } from "./timelineMedia";
 import { TimelineHistory } from "./timelineHistory";
-import { TimelineRange, type RangeContext } from "./timelineRange";
+import { TimelineRange } from "./timelineRange";
 import { takeView, TimelineViews } from "./timelineViews";
 import { recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type TakeLinks } from "./timelinePlan";
 import { TimelineTakes } from "./timelineTakes";
@@ -29,9 +29,9 @@ import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, mar
  * arrive at, an opening picture) and fills them in.
  */
 
-// the parts of the model other modules name: the opening-picture placeholder and the clock (timelineModel.ts), how a regenerated clip meets its neighbours (timelineRange.ts), a clip's plan (timelinePlan.ts)
+// the parts of the model other modules name: the opening-picture placeholder and the clock (timelineModel.ts), a clip's plan (timelinePlan.ts)
 export { clockOf, FROM_PREVIOUS };
-export type { RangeContext, ClipPlan, TakeLinks };
+export type { ClipPlan, TakeLinks };
 
 export interface CutOptions {
   asset: string;

@@ -3,7 +3,7 @@ import { HIRES_PASS_INPUTS, hiresPass, isVPred, loadSdxl, PREDICTION_INPUTS, PRE
 import { DEFAULT_NEGATIVE, SDXL_UNION } from "./family";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, kSample, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { applyGuide, guideInputs, guideNodes, type GuideSettings } from "../shared/guide";
-import { redrawInTiles, tileInputs, tileNodes, TILES_ON, tilesOf, useTiles, type TileSettings } from "../shared/tiles";
+import { redrawInTiles, tileInputs, tileNodes, TILES_ON, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
 import { SDXL_AREA } from "./common";
 
 export interface SdxlTextToPicture extends DetailSettings, GuideSettings, TileSettings {
@@ -86,7 +86,7 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
   nodes(input) {
     const W2 = roundTo(roundTo(input.size.width, 8, 64) * input.hiresScale, 8, 64);
     const H2 = roundTo(roundTo(input.size.height, 8, 64) * input.hiresScale, 8, 64);
-    const tiled = input.hires && useTiles(input, { width: W2, height: H2 }, SDXL_AREA);
+    const tiled = input.hires && inTiles(input, { width: W2, height: H2 }, SDXL_AREA);
     return [
       ...detailNodes(input),
       ...guideNodes(input),
@@ -123,7 +123,7 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
     const W2 = roundTo(W * input.hiresScale, 8, 64);
     const H2 = roundTo(H * input.hiresScale, 8, 64);
     let image: Ref | null = null;
-    if (input.hires && useTiles(input, { width: W2, height: H2 }, SDXL_AREA)) {
+    if (input.hires && inTiles(input, { width: W2, height: H2 }, SDXL_AREA)) {
       g.phase("upscaling");
       const pixels = g.out("VAEDecode", { samples: latent, vae });
       const big = input.hiresUpscaler === LATENT_UPSCALE ? pixels : g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.hiresUpscaler }), image: pixels });

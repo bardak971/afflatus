@@ -57,7 +57,7 @@ export function useGetFile({ file, folder, url, civitai, pick, hints, auto, sour
       find.mutate();
     }
     // once, when it shows and lookups are on
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when it shows and lookups are on
   }, [auto, lookups]);
 
   return {

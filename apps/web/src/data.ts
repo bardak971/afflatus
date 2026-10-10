@@ -165,7 +165,7 @@ export const useAssetFamilies = () => useQuery({ queryKey: ["facets", "families"
 export const useAssetModels = () => useQuery({ queryKey: ["facets", "models"], queryFn: api.assetModels });
 
 /** How many pages of the library a capped list holds: past that, the pages at the far end are let go (and read again on the way back). */
-export const LIBRARY_PAGES = 8;
+const LIBRARY_PAGES = 8;
 /** Where a page of the library starts: below `after`, above `before`, or at the top. */
 export type AssetsPageParam = { after?: string; before?: string };
 

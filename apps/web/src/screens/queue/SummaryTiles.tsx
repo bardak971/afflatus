@@ -1,6 +1,6 @@
 import { useId, type ReactNode } from "react";
 import type { TimesSummary } from "../../api";
-import { long } from "../../format";
+import { long, plural } from "../../format";
 import { cx } from "../../ui";
 import { useChartColors } from "./Chart";
 import { bar, curve } from "./chartMath";
@@ -8,7 +8,6 @@ import { change, VRAM_FULL } from "./flagRules";
 
 const maybe = (ms: number | null | undefined) => (ms === null || ms === undefined ? "—" : long(ms));
 export const pct = (share: number) => `${Math.round(share * 100)} %`;
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** The window's length, short: "31 d", "24 h", "45 min". */
 export function spanSaid(ms: number): string {

@@ -54,7 +54,7 @@ export function FileSelect({ id, label, value, files, folder, placeholder, match
       const newer = newerOf(f);
       return { ...o, ...(newer ? { note: [o.note, `newer on Civitai: ${newer.name}`].filter(Boolean).join(" · ") } : {}), ...(made ? { group: groupOf(f) } : {}) };
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the updates' list, not newerOf, which is new at every render and reads it
   }, [files, info, match, folder, family, updates.data]);
   return <Select id={id} label={label} value={value} onChange={onChange} options={options} placeholder={placeholder} searchHint={info && files.length > 1 ? `Search ${files.length} by name or model` : undefined} />;
 }

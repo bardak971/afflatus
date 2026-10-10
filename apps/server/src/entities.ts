@@ -118,7 +118,7 @@ const join = (parts: Array<string | undefined | null>, by: string) => parts.map(
  * form that comes back with its cast's words already in it (a tool opened on a picture made with them)
  * gets them once, not twice. Tags count one by one; sentences as a whole.
  */
-export function withWords(own: string, before: string[], after: string[], tags: boolean): string {
+function withWords(own: string, before: string[], after: string[], tags: boolean): string {
   const key = (w: string) => w.trim().replace(/\s+/g, " ").toLowerCase();
   if (tags) {
     const seen = new Set(own.split(",").map(key).filter(Boolean));
@@ -276,7 +276,7 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
  * A person, place, style or snippet deleted: taken out of every draft's, timeline's and clip's look, so it
  * neither lingers unseen nor counts toward the cast. Jobs keep theirs: that is what was sent.
  */
-export async function dropFromLooks(db: Db, id: string): Promise<{ drafts: number; timelines: number }> {
+async function dropFromLooks(db: Db, id: string): Promise<{ drafts: number; timelines: number }> {
   let drafts = 0;
   let timelines = 0;
   for (const table of ["drafts", "timelines", "clips"] as const) {

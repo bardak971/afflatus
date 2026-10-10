@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
 import { useSetup } from "../../data";
-import { sourceOf } from "../../format";
+import { sourceOf, UI_LOCALE } from "../../format";
 import { Button, ErrorNote, Help } from "../../ui";
 import { Block, Card, Row, Status } from "./Rows";
 
@@ -13,7 +13,7 @@ export function AboutCard() {
   const setup = useSetup();
   const comfy = setup.data?.comfy;
   const checks = health.data?.checks ?? [];
-  const checked = health.data?.checkedAt ? new Date(health.data.checkedAt).toLocaleTimeString("en-GB") : null;
+  const checked = health.data?.checkedAt ? new Date(health.data.checkedAt).toLocaleTimeString(UI_LOCALE) : null;
   return (
     <div className="flex flex-col gap-4">
       <Card

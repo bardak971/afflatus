@@ -1,5 +1,5 @@
 import type { Asset, DraftLeaf, FolderNode, ProjectsTree, TreeGroup } from "../api/types/library";
-import { size } from "../format";
+import { plural, size } from "../format";
 
 /**
  * The Projects panel's tree as the rows it draws: what is unfolded, in order, each with its `tree`
@@ -10,7 +10,7 @@ import { size } from "../format";
  * `empty`: a group's unused drafts (no prompt, no name, nothing rendered) folded into one row. `loose`: the Inbox's items in
  * no folder, a row of the one-project tree only (an item in no folder is in no project).
  */
-export type RowKind = "inbox" | "project" | "archive" | "folder" | "item" | "timeline" | "drafts" | "draft" | "empty" | "more" | "bin" | "loose";
+type RowKind = "inbox" | "project" | "archive" | "folder" | "item" | "timeline" | "drafts" | "draft" | "empty" | "more" | "bin" | "loose";
 
 /** Something a row can be moved as: its place now, to tell a move from staying put. */
 export type Moving =
@@ -142,29 +142,17 @@ const sortFolders = (list: FolderNode[], s: Sort) =>
     return sign * byName(a, b);
   });
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-/** The Created column: "14:32" today, "yesterday", "3 Oct" this year, "3 Oct 2025" before. */
-export function shortDate(iso: string, now = new Date()): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const ago = Math.round((day(now) - day(d)) / 86_400_000);
-  if (ago === 0) return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  if (ago === 1) return "yesterday";
-  return `${d.getDate()} ${MONTHS[d.getMonth()]}${d.getFullYear() === now.getFullYear() ? "" : ` ${d.getFullYear()}`}`;
-}
 
 export const groupKey = (g: { id: string | null }) => `g:${g.id ?? "inbox"}`;
 export const draftsKey = (group: string | null) => `d:${group ?? "inbox"}`;
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const clock = (ms: number) => {
   const s = Math.round(ms / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
 /** A group's drafts: those worked on, and the unused ones (no prompt, no name, nothing rendered) apart. */
-export const draftCounts = (g: TreeGroup) => {
+const draftCounts = (g: TreeGroup) => {
   const empty = Math.min(g.counts.unusedDrafts ?? 0, g.counts.drafts);
   return { used: g.counts.drafts - empty, empty };
 };

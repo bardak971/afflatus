@@ -26,7 +26,7 @@ export interface TakeLinks {
 }
 
 /** A recipe's inputs without the ones a timeline fills in itself. */
-export function ownInputs(recipe: Recipe<any>, input: Record<string, unknown>): Record<string, unknown> {
+function ownInputs(recipe: Recipe<any>, input: Record<string, unknown>): Record<string, unknown> {
   const ids = new Set(recipe.inputs.filter((i) => i.type !== "clip").map((i) => i.id));
   return Object.fromEntries(Object.entries(input).filter(([id]) => ids.has(id)));
 }

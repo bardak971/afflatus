@@ -10,7 +10,7 @@ import { useOpenInComfy } from "../actions";
 import { api, ApiError, type RecipeStatus, type WorkflowBrief } from "../api";
 import { useRecipes, useSettings, useSetup, useWorkflows } from "../data";
 import { useOpenNewDraft } from "../draft";
-import { notReady, recipeLabel } from "../format";
+import { notReady, plural, recipeLabel } from "../format";
 import { saveJson } from "../download";
 import { useHandover } from "../store";
 import { useWorkflowsRequest, workflowEditHref } from "../bar/bridge";
@@ -122,7 +122,7 @@ export function WorkflowEdit({ params }: { params: { id: string } }) {
     if (!q.error) return;
     useWorkflowDraft.setState({ note: `Could not open it in the editor: ${q.error.message}` });
     navigate("/workflows", { replace: true });
-  }, [q.error]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [q.error]); // eslint-disable-line react-hooks/exhaustive-deps -- once per error: navigate is not a value to follow
   // the editor's shape while the saved workflow is read, the same as while its code loads: nothing jumps once it is there
   if (!q.data) return <WorkflowEditorSkeleton />;
   return <WorkflowEditor key={id} start={q.data} onDone={() => navigate("/workflows")} />;
@@ -144,7 +144,7 @@ export function WorkflowImport() {
     }
     useWorkflowDraft.setState({ note: "The import was not saved and the page was reloaded: drop its file again." });
     navigate("/workflows", { replace: true });
-  }, [lost]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [lost]); // eslint-disable-line react-hooks/exhaustive-deps -- once per lost import: navigate is not a value to follow
   if (!draft) return null;
   return (
     <WorkflowEditor
@@ -159,8 +159,6 @@ export function WorkflowImport() {
 }
 
 const KIND = { image: "Image", video: "Video", audio: "Audio" } as const;
-
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** What the readiness chip counts, from the setup check: the missing nodes first, as notReady says them first. */
 function missingCount(status: RecipeStatus | undefined): string {
@@ -265,14 +263,14 @@ export function Workflows() {
     if (!handed) return;
     hand({ workflow: null });
     open.mutate(handed);
-  }, [handed]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [handed]); // eslint-disable-line react-hooks/exhaustive-deps -- once per handed workflow: hand and open are not values to follow
   // what the command bar asked of this screen: the file picker of the Import button (its Edit goes to the editor's address)
   const asked = useWorkflowsRequest((r) => r.request);
   useEffect(() => {
     if (!asked) return;
     const r = useWorkflowsRequest.getState().take();
     if (r?.do === "import") input.current?.click();
-  }, [asked]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [asked]);
   const shareIt = useMutation({ mutationFn: share });
   // the workflow in ComfyUI's editor: written into its workflows folder, then ComfyUI opened in a new tab.
   // The tab is opened before the request, or the browser would block it as a pop-up.
@@ -306,7 +304,7 @@ export function Workflows() {
 
   const comfyOnline = setup.data?.comfy.online ?? false;
   const why = (recipeId: string) => (setup.isSuccess ? notReady(setup.data.recipes.find((r) => r.id === recipeId), comfyOnline) : null);
-  const builtIn = (recipes.data?.families ?? []).filter((f) => !f.id.startsWith("workflow-"));
+  const builtIn = (recipes.data?.families ?? []).filter((f) => !f.imported);
   // the error of the last action only: one that went through since clears an older one
   const last = [open, shareIt, tryIt, remove, openInComfy].reduce((a, m) => (m.submittedAt > a.submittedAt ? m : a));
   // the list's own error is said in its place, under "Your workflows". What an editor that could not open left to say

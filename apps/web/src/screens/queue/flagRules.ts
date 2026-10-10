@@ -12,7 +12,7 @@ type Model = TimesSummary["models"][number];
 /** How far over its own p50 a model's s/it has to run, in percent, to be flagged. */
 export const SLOW = 15;
 /** The share of the GPU time model loads have to take to be flagged. */
-export const SWAPS = 0.1;
+const SWAPS = 0.1;
 /** The VRAM peak, in percent, from which the card is at its ceiling. */
 export const VRAM_FULL = 95;
 

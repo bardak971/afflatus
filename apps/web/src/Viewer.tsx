@@ -121,21 +121,21 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     if (what === "trim" && first.kind === "video" && !first.inBin) setTrim(true);
     else if (what === "compare") setCompareAsked(true);
     else if (what === "details") setDetailsAsked(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per item: the ask is taken, not watched
   }, [first.id]);
   // Compare asked from outside waits for the item's details too: whether there is a result to put beside it is in them
   useEffect(() => {
     if (!compareAsked || detail.data?.id !== a.id) return;
     setCompareAsked(false);
     if (canCompare && !pinned) toggleCompare();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once the details come: the rest is read as it stands then
   }, [compareAsked, detail.data?.id]);
   // Details waits for the parameters to be read: whether it was made here decides what it shows
   useEffect(() => {
     if (!detailsAsked || detail.data?.id !== a.id) return;
     setDetailsAsked(false);
     details();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once the details come: details is new at every render
   }, [detailsAsked, detail.data?.id]);
 
   const act = useRef<(e: KeyboardEvent) => void>(() => {});

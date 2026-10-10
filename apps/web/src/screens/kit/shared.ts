@@ -5,7 +5,7 @@ import { fieldClass } from "../../ui";
 export const field = `w-full py-2 ${fieldClass}`;
 
 /** What one model can take of a person, read from its recipes: words (tags or a sentence), a LoRA, pictures, a voice. */
-export function takes(family: FamilyInfo, recipes: RecipeInfo[]) {
+function takes(family: FamilyInfo, recipes: RecipeInfo[]) {
   const mine = recipes.filter((r) => r.family === family.id);
   const has = (test: (i: InputSpec) => boolean) => mine.some((r) => r.inputs.some(test));
   return {

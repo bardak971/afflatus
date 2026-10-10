@@ -65,7 +65,6 @@ function checkBindings(graph: Graph, b: Bindings): void {
   for (const c of b.controls) if (isRef(graph[c.target.node]!.inputs[c.target.input])) throw httpError(`the control "${c.label}" points at an input that is linked, not typed in`);
   const ids = [...b.controls.map((c) => c.id), ...b.toggles.map((t) => t.id)];
   if (new Set(ids).size !== ids.length) throw httpError("two controls have the same id");
-  const known = new Set(ids);
   for (const sk of b.skip ?? []) {
     if (!graph[sk.node]) throw httpError(`a preview left out points at node ${sk.node}, which is not in the workflow`);
     if (sk.node === b.result.node) throw httpError("the output itself cannot be left out");
@@ -149,11 +148,6 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
 
   app.get("/api/workflows", async () => ({ items: s.registry.workflows().map((d) => brief(d, s.registry.problem(d.id))) }));
 
-  /**
-   * Install, through ComfyUI-Manager, the node packs the missing node types of a workflow come from.
-   * `packs` is what the workflow itself says (its author's ComfyUI wrote each node's pack); the rest is
-   * looked up in Manager's map. The answer names the queued installs; GET reads where they stand.
-   */
   // a video ComfyUI saved carries its workflow in the file's tags (a picture in its text): the file is sent as the body,
   // read as POST /api/embedded reads it (embedded.ts)
   app.post("/api/workflows/extract", async (req) => {
@@ -163,6 +157,11 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
     return { workflow };
   });
 
+  /**
+   * Install, through ComfyUI-Manager, the node packs the missing node types of a workflow come from.
+   * `packs` is what the workflow itself says (its author's ComfyUI wrote each node's pack); the rest is
+   * looked up in Manager's map. The answer names the queued installs; GET reads where they stand.
+   */
   app.post("/api/workflows/packs", async (req) => {
     const body = packsBody.parse(req.body);
     return installPacks(await s.comfy(), body.classes, body.packs);

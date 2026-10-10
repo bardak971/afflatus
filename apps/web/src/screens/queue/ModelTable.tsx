@@ -1,6 +1,6 @@
 import { X } from "lucide-react";
 import type { TimesSummary } from "../../api";
-import { pace, took, long, brief } from "../../format";
+import { pace, took, long, brief, dayMonth } from "../../format";
 import { cx, Help } from "../../ui";
 import { TimeChart } from "./Chart";
 import { paceDrift, SLOW } from "./flagRules";
@@ -52,7 +52,7 @@ export function ModelList({ d, model, onModel, palette }: { d: TimesSummary; mod
             <span className="text-right font-mono">{m.renders}</span>
             <span
               className={cx("text-right font-mono", drift && drift.pct >= SLOW && "text-warn-ink")}
-              data-tip={drift ? `${pace(m.stepMs)} s/it p50${drift.since === null ? "" : ` · slower since ${new Date(drift.since).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`}` : "no s/it measured"}
+              data-tip={drift ? `${pace(m.stepMs)} s/it p50${drift.since === null ? "" : ` · slower since ${dayMonth(drift.since)}`}` : "no s/it measured"}
             >
               {drift ? signed(drift.pct) : "—"}
             </span>

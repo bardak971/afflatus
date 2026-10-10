@@ -1,9 +1,11 @@
 import type { Kysely } from "kysely";
+import { UNKEPT_MS } from "@afflatus/core";
 import { now, type Db, type Tables } from "./db";
 import type { Storage } from "./storage";
 import { derivedKeys } from "./timelineModel";
 
-export const UNKEPT_MS = 24 * 60 * 60_000;
+// the day an unkept result has is core's (the library's tiles count down to it); the tests read it from here, beside BIN_MS
+export { UNKEPT_MS };
 export const BIN_MS = 7 * 24 * 60 * 60_000;
 
 /** An asset id as it is written inside a JSON document (a person's pictures, a preset's form, a job's inputs). */

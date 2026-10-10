@@ -38,7 +38,7 @@ export function PngInfo({ name, read, first, onClose, onSent }: {
   const load = (recipe?: string) => read(recipe).then(setData, (err: Error) => setFailed(err.message));
   useEffect(() => {
     if (!first) void load();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- read once, as it opens
 
   const nameOf = (id: string) => {
     const r = recipes.data?.recipes.find((x) => x.id === id);

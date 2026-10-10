@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Asset } from "../src/api";
-import { groupItems } from "../src/screens/studio/grouping";
+import { dayLabel, groupItems } from "../src/screens/studio/grouping";
 
 const asset = (id: string, over: Partial<Asset> = {}): Asset => ({
   id, kind: "video", origin: "generated", name: id, mime: "video/mp4", bytes: 1, width: 1, height: 1, durationMs: 1000, fps: 24, hasSound: false,
@@ -60,5 +60,14 @@ describe("the grid in sections", () => {
     expect(s[0]!.timeline).toBe("z");
     expect(s[0]!.entries[0]!.asset.id).toBe("t1");
     expect(s[0]!.entries[0]!.stack).toBe("z:1");
+  });
+});
+
+describe("a day's heading in the grid", () => {
+  const now = new Date(2026, 9, 9, 18, 0);
+  it("says today and yesterday, else the weekday and the date in words", () => {
+    expect(dayLabel("2026-10-09", now)).toBe("Today");
+    expect(dayLabel("2026-10-08", now)).toBe("Yesterday");
+    expect(dayLabel("2026-10-06", now)).toBe("Tuesday 6 October");
   });
 });

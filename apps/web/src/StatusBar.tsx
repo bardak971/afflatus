@@ -42,7 +42,7 @@ export function StatusBar() {
   useEffect(() => {
     const t = setInterval(() => tick((n) => n + 1), run ? 1000 : 30_000);
     return () => clearInterval(t);
-  }, [run?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [run?.id]); // eslint-disable-line react-hooks/exhaustive-deps -- a new clock per job, not per read of the queue
   // a model being fetched into ComfyUI goes on whatever screen is open: it is said here, with the way to it
   const fetching = (useDownloads().data?.items ?? []).filter((d) => d.status === "starting" || d.status === "downloading" || d.status === "saving");
   const waiting = q?.waiting.length ?? 0;

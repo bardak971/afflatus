@@ -10,7 +10,7 @@ export const PHASES: Array<{ id: keyof TimeParts; label: string; tip: string; to
   { id: "finishing", label: "VAE decode/encode", tip: "VAE decode, frame interpolation, video encoding, saving", tone: "bg-good", color: "var(--color-good)" },
 ];
 
-export const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
+const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
 
 /** One render's time, or a sum of them, as a bar split by phase. */
 export function PhaseBar({ phases, scale = 1, className }: { phases: TimeParts; scale?: number; className?: string }) {
