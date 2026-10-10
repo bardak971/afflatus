@@ -1,13 +1,14 @@
-import type { CommandEntry, Entity, Job, PromptHistoryItem, RecipeInfo, RunningJob } from "../api";
-import { clock, size, when } from "../format";
-import type { CalcCard } from "./calc";
-import { prepare, type Prepared } from "./match";
-import { COMMANDS, type Command, type CommandId } from "./parse";
+import type { CommandEntry, Entity, Job, PromptHistoryItem, QueueStatus, RecipeInfo, RunningJob } from "../api";
+import { aboutMs, clock, size, timeLeft, when } from "../format";
+import { calc, type CalcCard, type Grid } from "./calc";
+import { commandRow, liveRow, QUEUE_BULK, type CommandCtx } from "./commandRows";
+import { highlight, prepare, search, type Prepared } from "./match";
+import type { Command, CommandId, Mode } from "./parse";
 import type { KeyHit } from "../keys/grammar";
-import { keysOfRow, type Found, type KeysAsk } from "../keys/search";
-import { rowKeys, type RowId } from "../keys/table";
+import { allRows, keysOfRow, searchKeys, type Found, type KeysAsk } from "../keys/search";
+import { rowKeys, type PlaceId } from "../keys/table";
 import { pageLabel, type SettingCtx, type SettingEntry, valueSaid } from "./settingsRegistry";
-import { recentKeys, type Ranks } from "./rank";
+import { bonus, recentKeys, type Ranks } from "./rank";
 
 /** What one row of the bar is, the sections it falls in, and how each kind is said. */
 
@@ -182,25 +183,6 @@ export function navItems(tabs: ReadonlyArray<{ id: string; label: string; href: 
   ];
 }
 
-/**
- * The key table's row that does what a command does, when pressing it does that in the place the command acts on:
- * split and the takes in the timeline editor (a clip selected). Read from the table, never a second copy of a chord;
- * `half` is one chord of a pair (Alt+[ for the previous take, Alt+] for the next). Generate and rendering a clip have
- * none: their key is Ctrl+Enter, which inside the bar runs a row's second action, so the row would say a key that does
- * something else there.
- */
-export const COMMAND_KEYS: Partial<Record<CommandId, { row: RowId; half?: 0 | 1 }>> = {
-  split: { row: "split" },
-  "previous-take": { row: "take", half: 0 },
-  "next-take": { row: "take", half: 1 },
-};
-
-/** A command's key, said on its row. */
-export function commandKeys(c: Command | { cmd: CommandId }): string | undefined {
-  const at = COMMAND_KEYS[c.cmd];
-  return at ? rowKeys(at.row, at.half) : undefined;
-}
-
 /** The key table's rows as rows of the bar's `?` mode: what it does, its place, its keys. */
 export const keyItems = (found: readonly Found[], barKey: string): Item[] =>
   found.map((f) => {
@@ -211,10 +193,6 @@ export const keyItems = (found: readonly Found[], barKey: string): Item[] =>
       keys: keysOfRow(f.row, barKey), keyRow: { place: f.place.id, row: f.id, hits: f.hits },
     };
   });
-
-/** The commands as they are offered before their figures: their names found like anything else. */
-export const templateItems = (): Item[] =>
-  COMMANDS.map((c) => ({ key: `cmd:${c.id}`, kind: "command" as const, label: c.name, meta: `${c.what} · ${c.example}`, group: "Commands" as const, verb: c.needs ? "complete" : "run", p: prepare(`${c.name} ${c.typed}`), complete: c.needs ? `> ${c.typed}` : undefined, keys: commandKeys({ cmd: c.id }) }));
 
 /** The settings, each with its page and, for a switch or a choice, its value now. */
 export const settingItems = (list: readonly SettingEntry[], ctx: SettingCtx): Item[] =>
@@ -252,4 +230,169 @@ export function grouped(rows: readonly Item[], limit = 50): Array<{ group: Group
   }
   // drafts of one name found together are told apart, as in Recent
   return out.map((g) => ({ ...g, rows: tellApart(g.rows) }));
+}
+
+/** How many rows the bar shows at most. */
+export const LIMIT = 50;
+
+/** A row with the parts of its label that matched what is typed, lit. */
+export type Shown = Item & { ranges?: Array<[number, number]> };
+export type Section = { group: string; rows: Shown[] };
+
+/** What the rows of the bar are made of: the index read into rows, the commands and settings offered, and the moment. */
+export interface RowsData {
+  /** What is typed after the mode's character. */
+  text: string;
+  /** The index's entries as rows (indexItems), and by key. */
+  base: readonly Item[];
+  byKey: ReadonlyMap<string, Item>;
+  /** The commands as offered now (commandTemplates). */
+  templates: readonly Item[];
+  settingRows: readonly Item[];
+  navRows: readonly Item[];
+  command: CommandCtx;
+  /** Whether the bar learns from what is chosen (off: nothing ranks by it, Recent lists what changed last). */
+  learn: boolean;
+  ranks: Ranks;
+  now: number;
+  /** The command read from what is typed in the `>` mode, and its render estimate said. */
+  parsed: Command | null;
+  estimateSaid: string;
+  recipes: readonly RecipeInfo[];
+  recipeItems: ReadonlyArray<{ r: RecipeInfo; p: Prepared }>;
+  presetItems: ReadonlyArray<{ e: Extract<Entity, { kind: "preset" }>; p: Prepared }>;
+  /** Whether a model family is turned on: a new draft is offered only on those. */
+  familyOn(family: string): boolean;
+  /** The calculator's grid. */
+  grid: Grid;
+  /** The queue in full, in the `!` mode. */
+  queue: QueueStatus | null;
+  history: readonly PromptHistoryItem[];
+  keysHere: readonly PlaceId[];
+  barKey: string;
+  entities: readonly Entity[];
+  /** Where `@name` puts a person, said ("→ the open draft"). */
+  castTo: string;
+}
+
+// searching everything, a command or a setting comes after a timeline, a draft or a render that matches as well
+// (and a timeline, a draft or a project before the renders of the same name: "Harbor walk" the timeline before its takes)
+const KIND_NUDGE: Partial<Record<Kind, number>> = { timeline: 25, draft: 15, project: 15, folder: 10, command: -60, nav: -40 };
+
+/** The bar's rows in their sections for one mode: what it lists for what is typed. */
+export function rowsFor(mode: Mode, d: RowsData): Section[] {
+  const q = d.text;
+  const { base, byKey, templates, settingRows, navRows, learn, ranks, now, parsed } = d;
+  const { aim, queue: queueNow, editorUndo, bannerUndo, binEmpty } = d.command;
+  const cmd = (c: Command, recipe?: RecipeInfo, preset?: Extract<Entity, { kind: "preset" }>) => commandRow(d.command, c, recipe, preset);
+  const live = (id: CommandId) => liveRow(d.command, id);
+  const learned = (it: Item) => (learn ? bonus(ranks[it.key], now) : 0) - (it.archived ? 400 : 0);
+  const everything = (it: Item) => learned(it) + (it.kind === "setting" ? (it.setting?.kind === "page" ? -160 : -90) : KIND_NUDGE[it.kind] ?? 0);
+  // the accent on the label itself (a row may have been found by its other words: then nothing is lit)
+  const withRanges = (rows: Item[], typed: string): Shown[] => rows.map((r) => ({ ...r, ranges: highlight(prepare(r.label), typed.trim().toLowerCase()) }));
+  switch (mode) {
+    case "all": {
+      if (!q) {
+        const recent: Item[] = [];
+        // pausing a paused queue, resuming a running one, or undoing with nothing to undo does nothing: Recent leaves it out until it would
+        const idle = (k: string) => (k === "cmd:pause" && queueNow?.paused) || (k === "cmd:resume" && queueNow && !queueNow.paused) || (k === "cmd:undo" && !(aim?.open ? editorUndo : bannerUndo)) || ((k === "cmd:empty-bin" || k === "cmd:put-back-all") && binEmpty);
+        if (learn) for (const k of recentKeys(ranks, 12)) {
+          const it = byKey.get(k) ?? templates.find((t) => t.key === k) ?? settingRows.find((s) => s.key === k);
+          if (it && !it.archived && !it.complete && !idle(k)) recent.push(it);
+          if (recent.length >= 6) break;
+        }
+        // nothing learned yet: what was changed last
+        if (recent.length < 4) {
+          const latest = base.filter((i) => (i.kind === "timeline" || i.kind === "draft" || i.kind === "render") && !i.archived && !recent.includes(i)).sort((a, b) => (b.entry!.updatedAt > a.entry!.updatedAt ? 1 : -1));
+          recent.push(...latest.slice(0, 6 - recent.length));
+        }
+        const suggested: Item[] = [];
+        const qd = queueNow;
+        if (qd?.paused) suggested.push(cmd({ cmd: "resume" }));
+        else if (qd?.running || qd?.waiting) suggested.push(cmd({ cmd: "pause" }));
+        if (aim?.entry?.unusedTakes) suggested.push(cmd({ cmd: "bin-unused" }));
+        if (qd && !qd.online) suggested.push(cmd({ cmd: "reconnect" }));
+        // a clip selected in the open editor: what its keys do to it
+        suggested.push(...live("split"), ...live("previous-take"), ...live("next-take"), ...live("group-queue"));
+        const failed = qd?.failed ?? 0;
+        if (failed) {
+          const label = `${failed} failed in the queue`;
+          suggested.push({ key: "suggest:queue", kind: "job", label, meta: "Type ! to see them, Tab on one to retry", group: "Suggested", verb: "show", p: prepare(label), complete: "!" });
+        }
+        return [
+          // two drafts of one name: their detail lines say what tells them apart
+          { group: "Recent", rows: tellApart(recent.map((r) => ({ ...r, group: "Recent" as const }))) },
+          // a suggestion already in Recent is not said twice
+          ...(suggested.some((r) => !recent.some((x) => x.key === r.key)) ? [{ group: "Suggested", rows: suggested.filter((r) => !recent.some((x) => x.key === r.key)).map((r) => ({ ...r, group: "Suggested" as const })) }] : []),
+        ].filter((s) => s.rows.length);
+      }
+      const found = search([...base, ...templates, ...navRows, ...settingRows], q, LIMIT, everything).map((x) => x.item);
+      return grouped(withRanges(found, q), LIMIT);
+    }
+    case "command": {
+      const rows: Item[] = [];
+      if (parsed?.cmd === "load" || parsed?.cmd === "new-draft") {
+        const word = parsed.cmd === "load" ? parsed.model : parsed.recipe;
+        const pool = d.recipeItems.filter((x) => parsed.cmd === "load" || d.familyOn(x.r.family));
+        const hits = search(pool, word, 6).map((x) => x.item.r);
+        if (hits.length) for (const r of hits) rows.push(cmd(parsed, r));
+        else rows.push(cmd(parsed));
+      } else if (parsed?.cmd === "preset") {
+        // the presets the words name, as the models of `load`
+        const hits = search(d.presetItems, parsed.name, 6).map((x) => x.item.e);
+        if (hits.length) for (const p of hits) rows.push(cmd(parsed, undefined, p));
+        else rows.push(cmd(parsed));
+      } else if (parsed) rows.push({ ...cmd(parsed), meta: [cmd(parsed).meta, d.estimateSaid].filter(Boolean).join(" · ") });
+      const named = q ? search(templates, q.split(/\s+\d/)[0]!, LIMIT, learned).map((x) => x.item) : templates;
+      const rest = named.filter((t) => !parsed || t.key !== `cmd:${parsed.cmd}`);
+      // the places to go to, after the commands: `> settings` finds Settings too
+      const places = q && !parsed ? search(navRows, q, 12, learned).map((x) => x.item) : [];
+      return [{ group: "Commands", rows: withRanges([...rows, ...rest], parsed ? "" : q) }, { group: "Go to", rows: withRanges(places, q) }].filter((s) => s.rows.length);
+    }
+    case "place": {
+      const places = base.filter((i) => i.kind === "project" || i.kind === "folder");
+      const found = q ? search(places, q, LIMIT, learned).map((x) => x.item) : [...places].sort((a, b) => learned(b) - learned(a) || Number(a.kind === "folder") - Number(b.kind === "folder") || a.label.localeCompare(b.label)).slice(0, LIMIT);
+      return grouped(withRanges(found, q), LIMIT);
+    }
+    case "setting": {
+      const found = q ? search(settingRows, q, LIMIT, learned).map((x) => x.item) : settingRows.filter((s) => s.setting?.kind !== "page");
+      return [{ group: "Settings", rows: withRanges(found, q) }].filter((s) => s.rows.length);
+    }
+    case "calc": {
+      const cards = calc(q, d.grid) ?? [];
+      return [{ group: "Calculator", rows: cards.map((c, i) => ({ key: `calc:${i}`, kind: "calc" as const, label: c.value, meta: `${c.label} · ${c.note}`, group: "Calculator" as const, verb: "copy", p: prepare(c.value), card: c })) }].filter((s) => s.rows.length);
+    }
+    case "queue": {
+      const qd = d.queue;
+      const jobs: Item[] = [];
+      if (qd?.running) jobs.push({ key: `job:${qd.running.id}`, kind: "job", label: qd.running.label, group: "Queue", verb: "open", p: prepare(qd.running.label), job: { job: qd.running, state: "running" }, meta: `running · ${qd.running.steps ? `step ${qd.running.step} of ${qd.running.steps}` : `${Math.round(qd.running.progress * 100)} %`}${qd.running.eta ? ` · ${timeLeft(qd.running.eta)}` : ""}` });
+      qd?.waiting.forEach((w, i) => jobs.push({ key: `job:${w.id}`, kind: "job", label: w.label, group: "Queue", verb: "open", p: prepare(w.label), job: { job: w, state: "waiting", position: i + 1 }, meta: `waiting · ${i === 0 ? "next" : `${i + 1}${["st", "nd", "rd"][i] ?? "th"}`}${w.estimateMs ? ` · ${aboutMs(w.estimateMs)}` : ""} · Tab → to the top` }));
+      for (const f of qd?.recent.filter((j) => j.status === "failed") ?? []) jobs.push({ key: `job:${f.id}`, kind: "job", label: f.label, group: "Queue", verb: "open", p: prepare(f.label), job: { job: f, state: "failed" }, meta: `failed${f.finishedAt ? ` ${new Date(f.finishedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}${f.error ? ` · ${f.error.slice(0, 80)}` : ""} · Ctrl+Enter retries` });
+      const found = q ? search(jobs, q, LIMIT).map((x) => x.item) : jobs;
+      // what is done to the whole queue, after its jobs (Enter on the first row opens one, never cancels them all)
+      const bulk = QUEUE_BULK.flatMap(live);
+      const bulkFound = q ? search(bulk, q, LIMIT).map((x) => x.item) : bulk;
+      return [{ group: "Queue", rows: withRanges(found, q) }, { group: "Commands", rows: withRanges(bulkFound, q) }].filter((s) => s.rows.length);
+    }
+    case "history": {
+      const rows = d.history.map((h, i): Item => ({ key: `history:${i}:${h.createdAt}`, kind: "history", label: h.prompt.replace(/\s+/g, " ").slice(0, 140), meta: `${d.recipes.find((r) => r.id === h.recipe)?.title ?? h.recipe} · ${when(h.createdAt)}`, group: "Prompt history", verb: "use", p: prepare(h.prompt.slice(0, 140)), history: h }));
+      return [{ group: "Prompt history", rows: withRanges(rows, q) }].filter((s) => s.rows.length);
+    }
+    case "keys": {
+      // the sheet's own search over the key table: the same rows in the same order; with nothing typed, every row
+      const found = q ? searchKeys(q, d.keysHere, d.barKey) : null;
+      if (!found) return [{ group: "Keys", rows: keyItems(allRows(d.keysHere), d.barKey) }];
+      const kq = found.kq;
+      return [
+        { group: kq ? `The ${kq.exact.length > 1 ? "keys" : "key"} ${kq.exact.join("+")}` : "Keys", rows: keyItems(found.keys, d.barKey) },
+        { group: "Words", rows: keyItems(found.said, d.barKey) },
+      ].filter((s) => s.rows.length);
+    }
+    case "cast": {
+      // where `@name` puts the person: the clip selected in the timeline editor, else the open draft
+      const people = d.entities.filter((e): e is Extract<Entity, { kind: "person" }> => e.kind === "person").map((p): Item => ({ key: `person:${p.id}`, kind: "person", label: p.name, meta: `Prompt kit · ${p.def.pictures.length} picture${p.def.pictures.length === 1 ? "" : "s"} ${d.castTo}`, group: "Cast", verb: "add", p: prepare(p.name), person: p }));
+      const found = q ? search(people, q, LIMIT, learned).map((x) => x.item) : people.slice(0, LIMIT);
+      return [{ group: "Cast", rows: withRanges(found, q) }].filter((s) => s.rows.length);
+    }
+  }
 }

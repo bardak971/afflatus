@@ -20,20 +20,19 @@ import { Keys } from "../Keys";
 import { allRows, opened, searchKeys } from "../keys/search";
 import { BAR_DEFAULT } from "../keys/table";
 import { calc, type Grid } from "./calc";
-import { commandKeys, grouped, indexItems, keyItems, lowerFirst, navItems, settingItems, tellApart, templateItems, usedItems, withItems, type Item, type Kind } from "./items";
+import { commandTemplates, type CommandCtx } from "./commandRows";
+import { indexItems, lowerFirst, navItems, rowsFor, settingItems, usedItems, withItems, type Item, type Kind, type Section } from "./items";
 import { settingHref, TABS, tabHref } from "../screens/settings/settingsIndex";
-import { highlight, pieces, prepare, search } from "./match";
-import { COMMANDS, KIT_OF, modeOf, parseCommand, type Command, type CommandId, type KitNew, type Mode } from "./parse";
+import { pieces, prepare, search } from "./match";
+import { COMMANDS, modeOf, parseCommand, type Mode } from "./parse";
 import { Preview } from "./Preview";
-import { bonus, bumped, load, recentKeys, renamed, save, type Ranks } from "./rank";
+import { bumped, load, recentKeys, renamed, save, type Ranks } from "./rank";
 import { PAGES, SETTINGS, settingKeyNow, type SettingCtx } from "./settingsRegistry";
 import { useSelectedClip } from "./bridge";
 import { castPlace } from "./castTo";
 import { BAR_INDEX, useBar } from "./store";
 import { useBarActions, type Action, type TimelineAim } from "./useActions";
 
-/** How many rows the bar shows at most. */
-const LIMIT = 50;
 /** How long a row stays selected before its preview is drawn: arrowing fast loads nothing. */
 const DWELL_MS = 80;
 
@@ -98,17 +97,11 @@ const offSaid = (a: Action) => lowerFirst(a.note ?? a.label);
 /** What this browser learned, with the keys of results that were renamed since carried over. */
 const loadRanks = () => renamed(load(), settingKeyNow);
 
-/** The commands offered only where they apply: a clip selected in the open editor, jobs waiting, failures, loads to save. */
-const LIVE: CommandId[] = ["split", "previous-take", "next-take", "cancel-waiting", "retry-failed", "dismiss-failed", "group-queue", "unload"];
-const QUEUE_BULK: CommandId[] = ["cancel-waiting", "retry-failed", "dismiss-failed", "group-queue"];
-
 /** The running render's s/it, after its row's detail: its own subscription, so that only it draws again at each step. */
 function StepRateSaid({ id }: { id: string }) {
   const rate = useStepRate();
   return rate && rate.id === id ? <> · {stepRateSaid(rate.secondsPerStep)}</> : null;
 }
-
-const said = (c: Command): string => c.cmd === "render-clips" ? `${c.clips.length > 1 ? "Render clips" : "Render clip"} ${c.clips.length > 2 && c.clips.at(-1)! - c.clips[0]! === c.clips.length - 1 ? `${c.clips[0]}–${c.clips.at(-1)}` : c.clips.join(", ")}` : "";
 
 /**
  * The command bar: one box over whatever screen is open, that reaches everything Afflatus holds and does
@@ -246,79 +239,9 @@ export function CommandBar() {
   const keysHere = useMemo(() => (open ? opened().here : []), [open]);
   const barKey = bar?.shortcut ?? BAR_DEFAULT;
 
-  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-  /** A command read from what is typed, as a row: its words, what it touches and how many. */
-  const commandRow = (c: Command, recipe?: RecipeInfo, preset?: Extract<Entity, { kind: "preset" }>): Item => {
-    const t = aim?.name ?? "the open timeline";
-    const named = "name" in c ? c.name : "";
-    const kitNew = (cmd: KitNew): [string, string] => [`New ${KIT_OF[cmd]} “${named}”`, "In the Prompt kit, opened there"];
-    const words: Record<Command["cmd"], [string, string]> = {
-      "render-clips": [`${said(c)} of ${t}`, c.cmd === "render-clips" ? `${c.clips.length} clip${c.clips.length > 1 ? "s" : ""} · they go to the end of the queue · Ctrl+Enter: to the top` : ""],
-      "render-missing": [`Render missing clips of ${t}`, "Clips with no take yet, or whose join went stale · Ctrl+Enter: at the top of the queue"],
-      export: [`Export ${t}`, "The export dialog opens on it"],
-      finish: [`Finish ${t}…`, "The Finish dialog: every take upscaled to its final quality"],
-      "fix-all": [`Fix all in ${t}`, "What Needs attention lists, mended as its Fix all"],
-      generate: ["Generate", "The open draft, as its Generate button"],
-      preset: [`Apply ${preset?.name ?? named}`, preset ? `Preset${preset.source === "shipped" ? " · built in" : ""} · on the open draft` : "No preset by that name"],
-      "save-preset": [`Save as preset “${named}”`, "The open draft's model, form and cast"],
-      unload: ["Unload models", !queueNow?.online ? "ComfyUI is offline" : queueNow.rendering ? "Not while a render runs" : "ComfyUI's models out of memory · the next render loads them again"],
-      "new-timeline": [named ? `New timeline “${named}”` : "New timeline", "In the project you work in · opens in the editor"],
-      "new-folder": [`New folder “${named}”`, "At the top of the project you work in"],
-      "new-person": kitNew("new-person"),
-      "new-place": kitNew("new-place"),
-      "new-style": kitNew("new-style"),
-      "new-preset": kitNew("new-preset"),
-      "new-snippet": kitNew("new-snippet"),
-      "import-workflow": ["Import workflow…", "The Workflows screen's file picker: .json, PNG or MP4"],
-      "view-last": ["View last render", "What the last finished job made, in the viewer"],
-      reconnect: ["Reconnect to ComfyUI", queueNow && !queueNow.online ? "ComfyUI is offline · asked again now" : "ComfyUI asked again now: its address, its files, its nodes"],
-      seed: [`Seed ${c.cmd === "seed" ? c.value : ""}`, "In the open draft's form"],
-      steps: [`Steps ${c.cmd === "steps" ? c.value : ""}`, "In the open draft's form"],
-      cfg: [`CFG ${c.cmd === "cfg" ? c.value : ""}`, "In the open draft's form"],
-      size: [`Size ${c.cmd === "size" ? `${c.width}×${c.height}` : ""}`, "In the open draft's form"],
-      length: [`Length ${c.cmd === "length" ? `${c.seconds} s` : ""}`, "In the open draft's form"],
-      load: [`Load ${recipe?.title ?? (c.cmd === "load" ? c.model : "")}`, recipe ? `${recipe.family.toUpperCase()} · its models into ComfyUI, ahead of a render` : "No model by that name"],
-      "new-draft": [`New draft on ${recipe?.title ?? (c.cmd === "new-draft" ? c.recipe : "")}`, recipe ? `${recipe.family.toUpperCase()} · opens in the Studio` : "No model by that name"],
-      pause: ["Pause queue", queueNow ? `${queueNow.running ? "1 running" : "nothing running"}, ${queueNow.waiting} waiting · what runs finishes` : "What runs finishes; nothing new starts"],
-      resume: ["Resume queue", `${queueNow?.waiting ?? 0} waiting`],
-      "empty-bin": ["Empty the bin…", binEmpty ? "The bin is empty" : `${binSaid} · asked first · cannot be undone`],
-      "put-back-all": ["Put all back", binEmpty ? "The bin is empty" : `${binSaid} · each back where it was`],
-      "bin-unused": [`Bin unused takes of ${t}…`, aim?.entry ? (aim.entry.unusedTakes ? `${aim.entry.unusedTakes} take${aim.entry.unusedTakes === 1 ? "" : "s"} · asked first` : "It has none") : "Asked first"],
-      "link-folder": [c.cmd === "link-folder" && c.path ? `Link ${c.path}` : "Link a folder of your disk", "Used in place, nothing copied"],
-      "new-project": [`New project “${c.cmd === "new-project" ? c.name : ""}”`, "Made, and worked in"],
-      // the key that does the same in the editor is drawn on the row's right (from the key table), not said here
-      split: [selectedClip ? `Split clip ${selectedClip.number} at playhead` : "Split clip at playhead", selectedClip ? selectedClip.timelineName : "No clip selected in an open timeline"],
-      "previous-take": [selectedClip ? `Clip ${selectedClip.number}: previous take` : "Previous take", selectedClip ? selectedClip.timelineName : "No clip selected in an open timeline"],
-      "next-take": [selectedClip ? `Clip ${selectedClip.number}: next take` : "Next take", selectedClip ? selectedClip.timelineName : "No clip selected in an open timeline"],
-      "cancel-waiting": ["Cancel all waiting…", queueNow?.waiting ? `${queueNow.waiting} waiting · asked first · the running one goes on` : "Nothing waits"],
-      "retry-failed": ["Retry all failed", queueNow?.failed ? `${plural(queueNow.failed, "failed job")} · the same jobs, oldest first` : "None failed"],
-      "dismiss-failed": ["Dismiss all failed…", queueNow?.failed ? `${plural(queueNow.failed, "failed job")} · off the history, asked first` : "None failed"],
-      "group-queue": ["Group by model", queueNow?.saves ? `saves ${plural(queueNow.saves, "load")} · same model together` : "Grouping saves no load"],
-      // the editor's history while one is open (as its Ctrl+Z), else the newest banner's Undo (a move, a bin)
-      undo: aim?.open ? [editorUndo ? `Undo: ${editorUndo}` : "Undo", editorUndo ? `In ${t}, as its Ctrl+Z` : `Nothing to undo in ${t}`] : [bannerUndo ? `Undo: ${bannerUndo}` : "Undo", bannerUndo ? "What the banner says was done, put back" : "Nothing to undo"],
-      clip: [`Go to clip ${c.cmd === "clip" ? c.number : ""} of ${t}`, aim?.entry && c.cmd === "clip" && c.number > aim.entry.clips ? `${t} has ${plural(aim.entry.clips, "clip")}` : "Selected, the playhead on its start"],
-    };
-    const [label, meta] = words[c.cmd];
-    return { key: `cmd:${c.cmd}${recipe ? `:${recipe.id}` : ""}${preset ? `:${preset.id}` : ""}`, kind: "command", label, meta, group: "Commands", verb: "run", p: prepare(label), command: c, recipe, preset, keys: commandKeys(c) };
-  };
-  const applies = (id: CommandId): boolean =>
-    id === "split" || id === "previous-take" || id === "next-take" ? Boolean(selectedClip)
-    : id === "cancel-waiting" ? Boolean(queueNow?.waiting)
-    : id === "retry-failed" || id === "dismiss-failed" ? Boolean(queueNow?.failed)
-    : id === "group-queue" ? Boolean(queueNow?.saves)
-    : id === "unload" ? Boolean(queueNow?.online)
-    : true;
-  /** A command that needs no figures, as a row ready to run (its clip and counts said), when it applies. */
-  const liveRow = (id: CommandId): Item[] => (applies(id) ? [commandRow({ cmd: id } as Command)] : []);
-  // the commands that depend on the moment are offered with what they act on, and only when they apply; one that needs no
-  // figures is ready as it stands (Enter on "Pause queue" pauses it), one that does completes the bar
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const templates = useMemo(() => templateItems().flatMap((t) => {
-    const id = t.key.slice(4) as CommandId;
-    if (LIVE.includes(id)) return liveRow(id).map((r) => ({ ...r, p: t.p }));
-    const ready = t.complete ? null : parseCommand(COMMANDS.find((c) => c.id === id)?.typed ?? "");
-    return [ready ? { ...commandRow(ready), p: t.p } : t];
-  }), [selectedClip, queueNow, aim, bannerUndo, editorUndo, binSaid, binEmpty]);
+  // what the command rows say of the moment (commandRows.ts); the commands offered with it, those that apply now
+  const commandCtx: CommandCtx = useMemo(() => ({ aim, queue: queueNow ?? null, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid }), [aim, queueNow, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid]);
+  const templates = useMemo(() => commandTemplates(commandCtx), [commandCtx]);
 
   // the render estimate of a render command, learned from this machine's renders (none said when nothing is learned)
   const parsed = mode === "command" ? parseCommand(text) : null;
@@ -341,126 +264,15 @@ export function CommandBar() {
   }, [mode, text]);
   const history = useQuery({ queryKey: ["prompt-history", historyQ], queryFn: ({ signal }) => api.promptHistory(historyQ, 30, { signal }), enabled: open && mode === "history", placeholderData: keepPreviousData });
 
-  const now = Date.now();
-  const learned = (it: Item) => (learn ? bonus(ranks[it.key], now) : 0) - (it.archived ? 400 : 0);
-  // the accent on the label itself (a row may have been found by its other words: then nothing is lit)
-  const withRanges = (rows: Item[], q: string) => rows.map((r) => ({ ...r, ranges: highlight(prepare(r.label), q.trim().toLowerCase()) }));
-  // searching everything, a command or a setting comes after a timeline, a draft or a render that matches as well
-  // (and a timeline, a draft or a project before the renders of the same name: "Harbor walk" the timeline before its takes)
-  const KIND_NUDGE: Partial<Record<Kind, number>> = { timeline: 25, draft: 15, project: 15, folder: 10, command: -60, nav: -40 };
-  const everything = (it: Item) => learned(it) + (it.kind === "setting" ? (it.setting?.kind === "page" ? -160 : -90) : KIND_NUDGE[it.kind] ?? 0);
-
-  const sections: Array<{ group: string; rows: Array<Item & { ranges?: Array<[number, number]> }> }> = useMemo(() => {
+  const sections: Section[] = useMemo(() => {
     if (!open) return [];
-    const q = text;
-    switch (mode) {
-      case "all": {
-        if (!q) {
-          const recent: Item[] = [];
-          // pausing a paused queue, resuming a running one, or undoing with nothing to undo does nothing: Recent leaves it out until it would
-          const idle = (k: string) => (k === "cmd:pause" && queueNow?.paused) || (k === "cmd:resume" && queueNow && !queueNow.paused) || (k === "cmd:undo" && !(aim?.open ? editorUndo : bannerUndo)) || ((k === "cmd:empty-bin" || k === "cmd:put-back-all") && binEmpty);
-          if (learn) for (const k of recentKeys(ranks, 12)) {
-            const it = byKey.get(k) ?? templates.find((t) => t.key === k) ?? settingRows.find((s) => s.key === k);
-            if (it && !it.archived && !it.complete && !idle(k)) recent.push(it);
-            if (recent.length >= 6) break;
-          }
-          // nothing learned yet: what was changed last
-          if (recent.length < 4) {
-            const latest = base.filter((i) => (i.kind === "timeline" || i.kind === "draft" || i.kind === "render") && !i.archived && !recent.includes(i)).sort((a, b) => (b.entry!.updatedAt > a.entry!.updatedAt ? 1 : -1));
-            recent.push(...latest.slice(0, 6 - recent.length));
-          }
-          const suggested: Item[] = [];
-          const qd = queueNow;
-          if (qd?.paused) suggested.push(commandRow({ cmd: "resume" }));
-          else if (qd?.running || qd?.waiting) suggested.push(commandRow({ cmd: "pause" }));
-          if (aim?.entry?.unusedTakes) suggested.push(commandRow({ cmd: "bin-unused" }));
-          if (qd && !qd.online) suggested.push(commandRow({ cmd: "reconnect" }));
-          // a clip selected in the open editor: what its keys do to it
-          suggested.push(...liveRow("split"), ...liveRow("previous-take"), ...liveRow("next-take"), ...liveRow("group-queue"));
-          const failed = qd?.failed ?? 0;
-          if (failed) {
-            const label = `${failed} failed in the queue`;
-            suggested.push({ key: "suggest:queue", kind: "job", label, meta: "Type ! to see them, Tab on one to retry", group: "Suggested", verb: "show", p: prepare(label), complete: "!" });
-          }
-          return [
-            // two drafts of one name: their detail lines say what tells them apart
-            { group: "Recent", rows: tellApart(recent.map((r) => ({ ...r, group: "Recent" as const }))) },
-            // a suggestion already in Recent is not said twice
-            ...(suggested.some((r) => !recent.some((x) => x.key === r.key)) ? [{ group: "Suggested", rows: suggested.filter((r) => !recent.some((x) => x.key === r.key)).map((r) => ({ ...r, group: "Suggested" as const })) }] : []),
-          ].filter((s) => s.rows.length);
-        }
-        const found = search([...base, ...templates, ...navRows, ...settingRows], q, LIMIT, everything).map((x) => x.item);
-        return grouped(withRanges(found, q), LIMIT);
-      }
-      case "command": {
-        const rows: Item[] = [];
-        if (parsed?.cmd === "load" || parsed?.cmd === "new-draft") {
-          const word = parsed.cmd === "load" ? parsed.model : parsed.recipe;
-          const pool = recipeItems.filter((x) => parsed.cmd === "load" || families.isOn(x.r.family));
-          const hits = search(pool, word, 6).map((x) => x.item.r);
-          if (hits.length) for (const r of hits) rows.push(commandRow(parsed, r));
-          else rows.push(commandRow(parsed));
-        } else if (parsed?.cmd === "preset") {
-          // the presets the words name, as the models of `load`
-          const hits = search(presetItems, parsed.name, 6).map((x) => x.item.e);
-          if (hits.length) for (const p of hits) rows.push(commandRow(parsed, undefined, p));
-          else rows.push(commandRow(parsed));
-        } else if (parsed) rows.push({ ...commandRow(parsed), meta: [commandRow(parsed).meta, estimateSaid].filter(Boolean).join(" · ") });
-        const named = q ? search(templates, q.split(/\s+\d/)[0]!, LIMIT, learned).map((x) => x.item) : templates;
-        const rest = named.filter((t) => !parsed || t.key !== `cmd:${parsed.cmd}`);
-        // the places to go to, after the commands: `> settings` finds Settings too
-        const places = q && !parsed ? search(navRows, q, 12, learned).map((x) => x.item) : [];
-        return [{ group: "Commands", rows: withRanges([...rows, ...rest], parsed ? "" : q) }, { group: "Go to", rows: withRanges(places, q) }].filter((s) => s.rows.length);
-      }
-      case "place": {
-        const places = base.filter((i) => i.kind === "project" || i.kind === "folder");
-        const found = q ? search(places, q, LIMIT, learned).map((x) => x.item) : [...places].sort((a, b) => learned(b) - learned(a) || Number(a.kind === "folder") - Number(b.kind === "folder") || a.label.localeCompare(b.label)).slice(0, LIMIT);
-        return grouped(withRanges(found, q), LIMIT);
-      }
-      case "setting": {
-        const found = q ? search(settingRows, q, LIMIT, learned).map((x) => x.item) : settingRows.filter((s) => s.setting?.kind !== "page");
-        return [{ group: "Settings", rows: withRanges(found, q) }].filter((s) => s.rows.length);
-      }
-      case "calc": {
-        const cards = calc(q, gridOf(recipes, undefined)) ?? [];
-        return [{ group: "Calculator", rows: cards.map((c, i) => ({ key: `calc:${i}`, kind: "calc" as const, label: c.value, meta: `${c.label} · ${c.note}`, group: "Calculator" as const, verb: "copy", p: prepare(c.value), card: c })) }].filter((s) => s.rows.length);
-      }
-      case "queue": {
-        const qd = queueFull;
-        const jobs: Item[] = [];
-        if (qd?.running) jobs.push({ key: `job:${qd.running.id}`, kind: "job", label: qd.running.label, group: "Queue", verb: "open", p: prepare(qd.running.label), job: { job: qd.running, state: "running" }, meta: `running · ${qd.running.steps ? `step ${qd.running.step} of ${qd.running.steps}` : `${Math.round(qd.running.progress * 100)} %`}${qd.running.eta ? ` · ${timeLeft(qd.running.eta)}` : ""}` });
-        qd?.waiting.forEach((w, i) => jobs.push({ key: `job:${w.id}`, kind: "job", label: w.label, group: "Queue", verb: "open", p: prepare(w.label), job: { job: w, state: "waiting", position: i + 1 }, meta: `waiting · ${i === 0 ? "next" : `${i + 1}${["st", "nd", "rd"][i] ?? "th"}`}${w.estimateMs ? ` · ${aboutMs(w.estimateMs)}` : ""} · Tab → to the top` }));
-        for (const f of qd?.recent.filter((j) => j.status === "failed") ?? []) jobs.push({ key: `job:${f.id}`, kind: "job", label: f.label, group: "Queue", verb: "open", p: prepare(f.label), job: { job: f, state: "failed" }, meta: `failed${f.finishedAt ? ` ${new Date(f.finishedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}${f.error ? ` · ${f.error.slice(0, 80)}` : ""} · Ctrl+Enter retries` });
-        const found = q ? search(jobs, q, LIMIT).map((x) => x.item) : jobs;
-        // what is done to the whole queue, after its jobs (Enter on the first row opens one, never cancels them all)
-        const bulk = QUEUE_BULK.flatMap(liveRow);
-        const bulkFound = q ? search(bulk, q, LIMIT).map((x) => x.item) : bulk;
-        return [{ group: "Queue", rows: withRanges(found, q) }, { group: "Commands", rows: withRanges(bulkFound, q) }].filter((s) => s.rows.length);
-      }
-      case "history": {
-        const rows = (history.data?.items ?? []).map((h, i): Item => ({ key: `history:${i}:${h.createdAt}`, kind: "history", label: h.prompt.replace(/\s+/g, " ").slice(0, 140), meta: `${recipes.find((r) => r.id === h.recipe)?.title ?? h.recipe} · ${when(h.createdAt)}`, group: "Prompt history", verb: "use", p: prepare(h.prompt.slice(0, 140)), history: h }));
-        return [{ group: "Prompt history", rows: withRanges(rows, q) }].filter((s) => s.rows.length);
-      }
-      case "keys": {
-        // the sheet's own search over the key table: the same rows in the same order; with nothing typed, every row
-        const found = q ? searchKeys(q, keysHere, barKey) : null;
-        if (!found) return [{ group: "Keys", rows: keyItems(allRows(keysHere), barKey) }];
-        const kq = found.kq;
-        return [
-          { group: kq ? `The ${kq.exact.length > 1 ? "keys" : "key"} ${kq.exact.join("+")}` : "Keys", rows: keyItems(found.keys, barKey) },
-          { group: "Words", rows: keyItems(found.said, barKey) },
-        ].filter((s) => s.rows.length);
-      }
-      case "cast": {
-        // where `@name` puts the person: the clip selected in the timeline editor, else the open draft
-        const castTo = castPlace(selectedClip).detail;
-        const people = (entities.data?.items ?? []).filter((e): e is Extract<Entity, { kind: "person" }> => e.kind === "person").map((p): Item => ({ key: `person:${p.id}`, kind: "person", label: p.name, meta: `Prompt kit · ${p.def.pictures.length} picture${p.def.pictures.length === 1 ? "" : "s"} ${castTo}`, group: "Cast", verb: "add", p: prepare(p.name), person: p }));
-        const found = q ? search(people, q, LIMIT, learned).map((x) => x.item) : people.slice(0, LIMIT);
-        return [{ group: "Cast", rows: withRanges(found, q) }].filter((s) => s.rows.length);
-      }
-    }
+    return rowsFor(mode, {
+      text, base, byKey, templates, settingRows, navRows, command: commandCtx, learn, ranks, now: Date.now(), parsed, estimateSaid,
+      recipes, recipeItems, presetItems, familyOn: (f) => families.isOn(f), grid: gridOf(recipes, undefined), queue: queueFull ?? null,
+      history: history.data?.items ?? [], keysHere, barKey, entities: entities.data?.items ?? [], castTo: castPlace(selectedClip).detail,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, mode, text, base, ranks, learn, queueNow, queueFull, aim, settingRows, estimateSaid, history.data, entities.data, recipeItems, presetItems, navRows, selectedClip, keysHere, barKey, templates, bannerUndo, editorUndo, binEmpty]);
+  }, [open, mode, text, base, ranks, learn, queueFull, settingRows, estimateSaid, history.data, entities.data, recipeItems, presetItems, navRows, selectedClip, keysHere, barKey, templates, commandCtx]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
   const at = Math.min(sel, Math.max(0, flat.length - 1));
