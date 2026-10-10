@@ -9,7 +9,7 @@ import { cx } from "./ui";
  * closes on Escape, on a click anywhere else, and when the page behind it scrolls. It pops out of the side it opens
  * from and, taken away, fades for a moment as a still copy (leave.ts): every user gets both without doing anything.
  */
-export function Popover({ anchor, onClose, label, width = 360, height = 420, className, children }: {
+export function Popover({ anchor, onClose, label, width = 360, height = 420, beside, className, children }: {
   /** What it opens next to. */
   anchor: RefObject<HTMLElement | null>;
   onClose(): void;
@@ -17,6 +17,11 @@ export function Popover({ anchor, onClose, label, width = 360, height = 420, cla
   width?: number;
   /** About how tall it gets, to choose between under and above. */
   height?: number;
+  /**
+   * Opened beside this box around the anchor (a selector, e.g. the Create panel) rather than under the anchor: what it
+   * changes (the prompt) stays in sight. Under the anchor when there is no room beside it.
+   */
+  beside?: string;
   className?: string;
   children: ReactNode;
 }) {
@@ -26,11 +31,17 @@ export function Popover({ anchor, onClose, label, width = 360, height = 420, cla
   useLayoutEffect(() => {
     const r = anchor.current?.getBoundingClientRect();
     if (!r) return;
+    const box = beside ? anchor.current?.closest(beside)?.getBoundingClientRect() : undefined;
+    if (box && box.right + 8 + width <= window.innerWidth - 8) {
+      const top = Math.max(8, Math.min(r.top, window.innerHeight - height - 8));
+      setPlace({ left: box.right + 8, top, maxHeight: window.innerHeight - top - 8 });
+      return;
+    }
     const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
     const below = window.innerHeight - r.bottom - 12;
     const above = r.top - 12;
     setPlace(below >= Math.min(height, 260) || below >= above ? { left, top: r.bottom + 4, maxHeight: Math.max(160, below) } : { left, bottom: window.innerHeight - r.top + 4, maxHeight: Math.max(160, above) });
-  }, [anchor, width, height]);
+  }, [anchor, width, height, beside]);
   useEffect(() => {
     const outside = (e: PointerEvent) => {
       const t = e.target as Node;

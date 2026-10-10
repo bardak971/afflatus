@@ -1,7 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import type { Kysely } from "kysely";
+import { z } from "zod";
 import { now, type Tables } from "./db";
 import type { Services } from "./services";
+import { resetCountdown } from "./media";
 import { ERASED, eraseAsset, inUse } from "./sweep";
 import { unusedTakes } from "./timelineUnused";
 
@@ -50,14 +52,36 @@ export function registerUsage(app: FastifyInstance, s: Services): void {
     return { moved };
   });
 
-  /** Everything in the bin is erased now, files and all. This cannot be undone. What something still uses stays in the bin (`inUse`). */
-  app.post("/api/storage/empty-bin", async () => {
+  /**
+   * Everything in the bin is erased now, files and all, or only the items named (`ids`: the bin's Delete now). This
+   * cannot be undone. What something still uses stays in the bin (`inUse`); an item named that is not in the bin is
+   * left alone.
+   */
+  app.post("/api/storage/empty-bin", async (req) => {
+    const { ids } = z.strictObject({ ids: z.array(z.string().min(1)).min(1).max(500).optional() }).parse(req.body ?? {});
     const used = await inUse(s.db);
-    const old = await s.db.selectFrom("assets").select(ERASED).where("deleted_at", "is not", null).execute();
+    let query = s.db.selectFrom("assets").select(ERASED).where("deleted_at", "is not", null);
+    if (ids) query = query.where("id", "in", ids);
+    const old = await query.execute();
     const gone = old.filter((a) => !used.has(a.id));
     for (const a of gone) await eraseAsset(s.db, s.storage, a);
     s.queue.events.emit("library");
     s.queue.events.emit("timeline");
     return { erased: gone.length, inUse: old.length - gone.length };
+  });
+
+  /**
+   * Everything in the bin back where it was (the bin's Put all back): files of linked folders back into their
+   * directories, the rest back in the library, each unkept with its day starting now, as a single put back does.
+   */
+  app.post("/api/storage/restore-bin", async () => {
+    const binned = await s.db.selectFrom("assets").selectAll().where("deleted_at", "is not", null).where("origin", "!=", "mask").execute();
+    for (const a of binned.filter((x) => x.linked_path)) await s.linked.restore(a);
+    const rest = binned.filter((x) => !x.linked_path).map((a) => a.id);
+    // in slices: SQLite takes a limited number of values in one statement
+    for (let i = 0; i < rest.length; i += 500) await s.db.updateTable("assets").set({ deleted_at: null }).where("id", "in", rest.slice(i, i + 500)).execute();
+    for (let i = 0; i < binned.length; i += 500) await resetCountdown(s.db, binned.slice(i, i + 500).map((a) => a.id));
+    s.queue.events.emit("library");
+    return { restored: binned.length };
   });
 }

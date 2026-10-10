@@ -32,6 +32,15 @@ export const useHoverPlay = create<{ video: boolean; sound: boolean; set(patch: 
   persist((set) => ({ video: true, sound: true, set: (patch) => set(patch) }), { name: "afflatus.hover-play" }),
 );
 
+/**
+ * Whether Compare (X) opens on the original and what a pass made of it, when there is one: on a result, its source is
+ * pinned beside it; on a picture something was made from, the newest of those comes beside it. Off: Compare pins the item
+ * and the arrow keys bring the next one of the list, as before. Kept per browser.
+ */
+export const useCompareResult = create<{ on: boolean; set(on: boolean): void }>()(
+  persist((set) => ({ on: true, set: (on) => set({ on }) }), { name: "afflatus.compare-result" }),
+);
+
 /** Ask the browser for the right to show notifications. False when it was refused, or cannot. */
 export async function allowNotifications(): Promise<boolean> {
   if (typeof Notification === "undefined") return false;
@@ -166,6 +175,8 @@ export const useStudio = create<{
 // The address says whether the form is open when the app is loaded ("/create" open, "/" closed), over what was
 // remembered: a reload keeps what the address showed, and a link to either lands as it says.
 if (typeof window !== "undefined" && (window.location.pathname === "/" || window.location.pathname === "/create")) useStudio.setState({ form: window.location.pathname === "/create" });
+// the bin is visited, not worked in: the app opens on the project, not on the bin it was left in
+if (typeof window !== "undefined" && useStudio.getState().place.type === "bin") useStudio.setState({ place: { type: "all" } });
 /** What a scope shows: what it was left on, else the stage for "This draft" and the last grid size elsewhere. */
 export const displayOf = (v: { size: "S" | "M" | "L"; displays?: Partial<Record<Scope, Display>> }, scope: Scope): Display => v.displays?.[scope] ?? (scope === "draft" ? "Stage" : v.size);
 /** The folder open in the library, for what is brought in from outside (a drop, an upload): null when none is. */

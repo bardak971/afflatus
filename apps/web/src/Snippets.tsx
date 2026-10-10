@@ -124,7 +124,7 @@ export function Snippets({ style, look, onLook, text, onInsert }: {
         </button>
       )}
       {open && (
-        <Popover anchor={button} onClose={() => setOpen(false)} label="Snippets" width={440} height={520}>
+        <Popover anchor={button} onClose={() => setOpen(false)} label="Snippets" width={440} height={520} beside='aside[aria-label="Create"]'>
           <div className="flex shrink-0 items-center gap-1.5 border-b border-line p-2">
             <span className="flex h-8 min-w-0 grow items-center gap-2 rounded-md bg-raised px-2">
               <Search size={13} className="shrink-0 text-ink-3" />

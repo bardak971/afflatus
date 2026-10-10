@@ -124,6 +124,21 @@ describe("emptying the bin", () => {
   });
 });
 
+describe("the bin's Delete now and Put all back", () => {
+  it("erases only the items named, and only from the bin; puts everything back unkept", async () => {
+    const a = await add({ binnedAgo: HOUR });
+    const b = await add({ binnedAgo: HOUR });
+    const out = await add();
+    expect((await post(t.app, "/api/storage/empty-bin", { ids: [a, out] })).json()).toEqual({ erased: 1, inUse: 0 });
+    expect(await asset(a)).toBeUndefined();
+    expect(await asset(out)).toBeDefined();
+    expect((await asset(b))!.deleted_at).not.toBeNull();
+
+    expect((await post(t.app, "/api/storage/restore-bin")).json()).toEqual({ restored: 1 });
+    expect((await asset(b))!).toMatchObject({ deleted_at: null, kept_at: null });
+  });
+});
+
 describe("the library's keep and bin", () => {
   it("refuse to unkeep or bin what something still uses, and leave it out of a choice of several", async () => {
     const used = await add({ kept: true });

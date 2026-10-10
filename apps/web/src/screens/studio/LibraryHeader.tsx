@@ -66,9 +66,10 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
   // model, LoRA, Kept only and the grouping: set now and then, so in a panel; the button says how many are on
   const filtersButton = useRef<HTMLButtonElement>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const active = [made && "model", lora && "LoRA", kept && "Kept only", filters.unkept && "Expiring only", !showTimelines && (view.groupBy ?? "none") !== "none" && `grouped by ${view.groupBy}`].filter((x): x is string => Boolean(x));
+  const inBin = place.type === "bin";
+  const active = [made && "model", lora && "LoRA", !inBin && kept && "Kept only", !inBin && filters.unkept && "Expiring only", !showTimelines && (view.groupBy ?? "none") !== "none" && `grouped by ${view.groupBy}`].filter((x): x is string => Boolean(x));
   return (
-    <header ref={bar} className="flex h-[60px] shrink-0 flex-nowrap items-center gap-2 overflow-hidden px-5">
+    <header ref={bar} className="relative flex h-[60px] shrink-0 flex-nowrap items-center gap-2 overflow-hidden px-5">
       <h1 className="sr-only">Studio</h1>
       <PlaceCrumbs place={place} onPlace={(p) => view.set({ place: p })} anchor={folderButton} open={Boolean(foldersOpen)} onOpen={(o) => setFoldersOpen(o ? "click" : false)} className={fold >= 3 ? "w-[clamp(110px,9vw,140px)]!" : undefined} />
       {/* what the library shows: media, or the timelines (the rail's Timelines entry lands on the second) */}
@@ -123,6 +124,20 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
       ))}
       <span className="min-w-2 grow" />
       <div id="timeline-selection-slot" className="contents" />
+      {/* the draft's stage has no search of its own: the button opens the library's, on the folder's grid, where results show */}
+      {draftOnly && !showTimelines && (
+        <button
+          type="button" data-search-opener aria-label="Search the library" data-tip="Search the library (/): shows the folder's grid"
+          onClick={() => {
+            const grid = displayOf(view, "all") === "Stage" ? { displays: { ...view.displays, all: view.size } } : {};
+            view.set({ scope: "all", ...grid });
+            setSearching(true);
+          }}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-raised text-ink-2 hover:text-ink"
+        >
+          <Search size={15} />
+        </button>
+      )}
       {!draftOnly && (
         <>
           {fold >= 2 && !searching && !typed ? (
@@ -130,7 +145,12 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
               <Search size={15} />
             </button>
           ) : (
-            <label className={cx("flex h-9 shrink items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent", fold >= 2 ? "w-48 min-w-28" : "w-64 min-w-28")}>
+            // folded to an icon and opened: the box lies over the header's controls, just left of Filters, rather than push
+            // the row past its width (the header slid sideways and cut the breadcrumb); left with words in it, it is narrower
+            <label
+              style={fold >= 2 ? { right: (filtersButton.current?.offsetWidth ?? 80) + 28 } : undefined}
+              className={cx("flex h-9 items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent", fold >= 2 ? cx("absolute top-1/2 z-10 -translate-y-1/2 shadow-lg shadow-shade/40", searching ? "w-[min(320px,55%)]" : "w-40") : "w-64 min-w-28 shrink")}
+            >
               <Search size={14} className="shrink-0 text-ink-3" />
               <input data-search autoFocus={searching} onBlur={() => setSearching(false)} aria-label={showTimelines ? "Search timelines" : "Search the library"} placeholder={showTimelines ? "Search timelines by name" : "Search prompts and names"} value={typed} onChange={(e) => setTyped(e.target.value)} className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
               {typed && <button type="button" aria-label="Clear the search" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
@@ -152,7 +172,7 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
           </button>}
         </>
       )}
-      {filtersOpen && <FiltersPanel anchor={filtersButton} onClose={() => setFiltersOpen(false)} view={view} filters={filters} active={active.length > 0} />}
+      {filtersOpen && <FiltersPanel anchor={filtersButton} onClose={() => setFiltersOpen(false)} view={view} filters={filters} active={active.length > 0} inBin={place.type === "bin"} />}
     </header>
   );
 }
@@ -162,7 +182,7 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
  * `compact`: the header is short of room, the buttons are their icons (named by their tips).
  */
 function SelectionBar({ place, items, selection, compact }: { place: Place; items: Asset[]; selection: Selection; compact?: boolean }) {
-  const { picked, setPicked, bulk, moveTo, chosen, binChosen } = selection;
+  const { picked, setPicked, bulk, moveTo, chosen, binChosen, eraseChosen } = selection;
   const folders = useFolders();
   const projects = useProjects();
   // the ticked pictures and videos, in the order they were ticked: what a new timeline is made of
@@ -193,7 +213,10 @@ function SelectionBar({ place, items, selection, compact }: { place: Place; item
       <span className="font-semibold whitespace-nowrap">{picked.length} selected</span>
       {picked.length < items.length && <button type="button" data-tip={compact ? `Select all ${items.length}` : undefined} onClick={() => setPicked(items.map((a) => a.id))} className="text-xs whitespace-nowrap text-ink-2 underline hover:text-ink">{compact ? "all" : `select all ${items.length}`}</button>}
       {place.type === "bin" ? (
-        <Button size="sm" onClick={() => bulk("restore")}><Undo2 size={13} /> Restore</Button>
+        <>
+          <Button size="sm" onClick={() => bulk("restore")}><Undo2 size={13} /> Put back</Button>
+          <Button size="sm" data-tip="Erased now, files and all, instead of after the week in the bin. Asked first (Del)" onClick={() => void eraseChosen()}><Trash2 size={13} /> Delete now…</Button>
+        </>
       ) : (
         <>
           {ordered.length > 0 && <Button size="sm" aria-label={compact ? "Make a timeline of these" : undefined} disabled={make.isPending} data-tip="A new timeline of the ticked pictures and videos, in the order you ticked them: videos as clips, pictures as stills" onClick={() => make.mutate(ordered)}><Film size={13} />{!compact && (make.isPending ? " Making…" : " Make a timeline of these")}</Button>}
@@ -215,7 +238,7 @@ function SelectionBar({ place, items, selection, compact }: { place: Place; item
 }
 
 /** Model, LoRA, Kept only, Expiring only and the grouping: set now and then, so in a panel under the Filters button. */
-function FiltersPanel({ anchor, onClose, view, filters, active }: { anchor: RefObject<HTMLButtonElement | null>; onClose(): void; view: ReturnType<typeof useStudio.getState>; filters: LibraryFilters; /** Something is set: "Clear all" is offered. */ active: boolean }) {
+function FiltersPanel({ anchor, onClose, view, filters, active, inBin }: { anchor: RefObject<HTMLButtonElement | null>; onClose(): void; view: ReturnType<typeof useStudio.getState>; filters: LibraryFilters; /** Something is set: "Clear all" is offered. */ active: boolean; /** The bin is open: Kept and Expiring mean nothing there (nothing in it counts down to the bin). */ inBin?: boolean }) {
   const { made, setMade, lora, setLora, kept, setKept, unkept, setUnkept, showTimelines } = filters;
   const usedModels = useAssetModels();
   const families = useAssetFamilies();
@@ -256,6 +279,7 @@ function FiltersPanel({ anchor, onClose, view, filters, active }: { anchor: RefO
           />
         </div>
       )}
+          {!inBin && (<>
           <Checkbox checked={kept} onChange={setKept} className="h-8 text-xs font-semibold">
             <Star size={13} fill={kept ? "currentColor" : "none"} className={kept ? "text-accent" : "text-ink-2"} /> Kept only
           </Checkbox>
@@ -266,6 +290,7 @@ function FiltersPanel({ anchor, onClose, view, filters, active }: { anchor: RefO
             </Checkbox>
             <Help text="Renders nobody kept go to the bin by themselves a day after they were made. S keeps one." />
           </span>
+          </>)}
         </div>
         {active && (
           <button type="button" onClick={() => { setMade(""); setLora(""); setKept(false); setUnkept(false); view.set({ groupBy: "none" }); }} className="self-start text-xs text-ink-2 underline hover:text-ink">Clear all</button>

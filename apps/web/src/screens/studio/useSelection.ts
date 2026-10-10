@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { Asset } from "../../api";
 import { useAssetChange } from "../../assetChange";
+import { eraseNow } from "../../binActions";
 import { askAboutDisk } from "../../Confirm";
 import { plainKey } from "../../Keys";
 
@@ -9,7 +11,7 @@ export function useSelection({ items, listKey, binned, off }: {
   items: Asset[];
   /** What the list is of: when it changes (another folder, another search) nothing is ticked. */
   listKey: string;
-  /** The bin is open: Delete does nothing. */
+  /** The bin is open: Delete erases what is ticked, once asked. */
   binned: boolean;
   /** The keys are left alone: the draft's results are shown, or the viewer is open. */
   off: boolean;
@@ -42,11 +44,16 @@ export function useSelection({ items, listKey, binned, off }: {
     void change({ kind: "move", ids, folder: to });
   };
   const chosen = items.filter((a) => picked.includes(a.id));
+  const client = useQueryClient();
+  /** In the bin: the ticked items erased now, once asked; the ticks go once it is done. */
+  const eraseChosen = async () => {
+    if (await eraseNow(client, picked)) setPicked([]);
+  };
   /** The ticked items to the bin; files of a linked folder leave the disk, which is asked first. */
   const binChosen = async () => {
     if (await askAboutDisk(chosen)) bulk("bin");
   };
-  // Esc unticks, Ctrl + A ticks everything shown, Del sends what is ticked to the bin
+  // Esc unticks, Ctrl + A ticks everything shown, Del sends what is ticked to the bin (in the bin: erases it, asked first)
   const keys = useRef<(e: KeyboardEvent) => void>(() => {});
   keys.current = (e) => {
     if (off || document.querySelector("[role=dialog][aria-modal=true]")) return;
@@ -57,14 +64,14 @@ export function useSelection({ items, listKey, binned, off }: {
     }
     if (!picked.length || !plainKey(e)) return;
     if (e.key === "Escape") setPicked([]);
-    else if (e.key === "Delete" && !binned) void binChosen();
+    else if (e.key === "Delete") void (binned ? eraseChosen() : binChosen());
   };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => keys.current(e);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  return { picked, setPicked, tick, bulk, moveTo, chosen, binChosen };
+  return { picked, setPicked, tick, bulk, moveTo, chosen, binChosen, eraseChosen };
 }
 
 export type Selection = ReturnType<typeof useSelection>;

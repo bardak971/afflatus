@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
-import { backfillLabelNames, capName, draftLabel, finishedName, frameName, fromName, givenLabel, nameOf, numbered, saysNothing, shownNames, soundName, takeName, type NamedRow } from "../src/autoName";
+import { backfillLabelNames, capName, draftLabel, finishedName, frameName, fromName, givenLabel, nameOf, numbered, passName, saysNothing, shownNames, soundName, takeName, type NamedRow } from "../src/autoName";
 import { migrate, newId, openSqlite, OWNER, type Db } from "../src/db";
 import { newAssetRow } from "../src/media";
 import { CHECKPOINT, complete, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
@@ -300,5 +300,13 @@ describe("migration 0047, names for what was sent with a label before", () => {
     // run again, nothing is left to name
     expect(await backfillLabelNames(db, () => "txt2img")).toBe(0);
     await db.destroy();
+  });
+});
+
+describe("what a pass made of a named picture", () => {
+  it("is the picture's name and the pass, numbered when several", () => {
+    expect(passName("Terrace 10", "Upscale 2x")).toBe("Terrace 10 · Upscale 2x");
+    expect(passName("Terrace 10.png", "Face detailer", 2)).toBe("Terrace 10 · Face detailer 02");
+    expect(passName("x".repeat(100), "Upscale 2x").length).toBeLessThanOrEqual(80);
   });
 });

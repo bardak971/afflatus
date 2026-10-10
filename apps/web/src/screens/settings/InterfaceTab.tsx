@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { allowNotifications, useExplain, useHoverPlay, useNotify } from "../../store";
+import { allowNotifications, useCompareResult, useExplain, useHoverPlay, useNotify } from "../../store";
 import { ThemeMode, ThemePickers } from "../../theme/Appearance";
 import { Help, Toggle } from "../../ui";
 import { Block, Card, Row } from "./Rows";
@@ -10,6 +10,7 @@ const BROWSER = "Set per browser, while an Afflatus tab is open in it (one tab s
 export function InterfaceTab() {
   const explain = useExplain();
   const hover = useHoverPlay();
+  const compare = useCompareResult();
   const notify = useNotify();
   const [refused, setRefused] = useState(false);
   // turned on, a notification switch asks the browser for the right first (as NotifyToggle in the Queue does)
@@ -33,6 +34,9 @@ export function InterfaceTab() {
         </Row>
         <Row setting="hover.sound" label="Play sound on hover" help="The sound of a video playing on hover, and of a sound card. Off: videos play muted and sound cards stay silent until opened.">
           <Toggle bare on={hover.sound} onChange={(sound) => hover.set({ sound })} label="Play sound on hover" />
+        </Row>
+        <Row setting="compare.result" label="Compare opens on original vs result" help="On a pass's result (an upscale, a face detailer, a mirror), Compare (X) puts its source beside it; on a picture something was made from, the newest result. Off: Compare pins the item and the arrow keys bring the next one of the list.">
+          <Toggle bare on={compare.on} onChange={compare.set} label="Compare opens on original vs result" />
         </Row>
       </Card>
 

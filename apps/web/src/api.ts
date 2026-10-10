@@ -179,6 +179,10 @@ export const api = {
   backupPlan: (o?: Asked) => call<{ available: boolean; files: number; bytes: number; database: boolean }>("GET", "/backup", undefined, o?.signal),
   binIdleTakes: () => call<{ moved: number }>("POST", "/storage/bin-idle-takes"),
   emptyBin: () => call<{ erased: number; inUse?: number }>("POST", "/storage/empty-bin"),
+  /** Some items of the bin erased now, for good (the bin's Delete now). */
+  eraseBinned: (ids: string[]) => call<{ erased: number; inUse?: number }>("POST", "/storage/empty-bin", { ids }),
+  /** Everything in the bin back where it was. */
+  restoreBin: () => call<{ restored: number }>("POST", "/storage/restore-bin"),
   assetFamilies: (o?: Asked) => call<{ items: string[] }>("GET", "/assets/families", undefined, o?.signal),
   /** The model files and the LoRAs things in the library were made with, the most used first. */
   assetModels: (o?: Asked) => call<{ models: Array<{ file: string; count: number }>; loras: Array<{ file: string; count: number }> }>("GET", "/assets/models", undefined, o?.signal),

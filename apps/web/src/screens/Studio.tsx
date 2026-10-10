@@ -13,13 +13,14 @@ import { useTileMenu } from "../TileMenu";
 import { DRAG_TYPE, FolderPanel, Tile } from "./Library";
 import { TimelineCards } from "./studio/TimelineCards";
 import { LoadMore } from "../LoadMore";
+import { BinStrip } from "./studio/BinStrip";
 import { CreatePanel } from "./studio/CreatePanel";
 import { DraftResults } from "./studio/DraftResults";
 import { groupItems } from "./studio/grouping";
 import { fuzzyScore } from "@afflatus/core";
 import { LibraryHeader } from "./studio/LibraryHeader";
 import { LiveTile } from "./studio/LiveTile";
-import { JustifiedRows, PlaceholderRows, ROW_HEIGHT, type Placed } from "./studio/MediaGrid";
+import { JustifiedRows, PlaceholderRows, rememberShapes, ROW_HEIGHT, type Placed } from "./studio/MediaGrid";
 import { aspectOf, FALLBACK_ASPECT } from "./library/justify";
 import { useQueueOf } from "./studio/queueOf";
 import { useLibraryFilters } from "./studio/useLibraryFilters";
@@ -121,7 +122,11 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   useEffect(() => {
     if (!shown) return;
     hand({ show: null });
-    void api.asset(shown).then((a) => setOpen(a)).catch((err: Error) => say({ id: `shown:${Date.now()}`, tone: "bad", title: "The item that was dropped could not be opened", text: err.message, href: "/", go: "Open the library" }));
+    // the item already open is opened afresh: what it was handed with (a toast's Compare) is taken when it opens
+    void api.asset(shown).then((a) => setOpen((was) => {
+      if (was?.id === a.id) requestAnimationFrame(() => setOpen(a));
+      return was?.id === a.id ? null : a;
+    })).catch((err: Error) => say({ id: `shown:${Date.now()}`, tone: "bad", title: "The item that was dropped could not be opened", text: err.message, href: "/", go: "Open the library" }));
   }, [shown, hand, say]);
   // the address says which it is: the timelines live at /timelines, the media at /, so the rail's two entries always land somewhere
   const filters = useLibraryFilters({ place, view, draftId, initialKind: onTimelines ? "timeline" : "all", onKind: (k) => { if ((k === "timeline") !== Boolean(onTimelines)) go(k === "timeline" ? "/timelines" : "/", { replace: true }); } });
@@ -204,6 +209,10 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   const visible = useMemo(() => sections.flatMap((s) => s.entries.map((e) => e.asset)), [sections]);
   // what is ticked is of the list that is shown: another folder, another search, another grouping, and nothing is
   const listKey = JSON.stringify([place, kind, q, made, lora, kept, unkept, draftOnly, reach, view.groupBy ?? "none"]);
+  // the shapes of what is shown, for the placeholders of the next visit to this list (MediaGrid.tsx rememberShapes)
+  useEffect(() => {
+    if (visible.length) rememberShapes(listKey, visible.slice(0, 120).map(aspectOf));
+  }, [listKey, visible]);
   const selection = useSelection({ items: visible, listKey, binned: place.type === "bin", off: draftOnly || Boolean(open) });
   const { picked, setPicked, tick } = selection;
   const groupedEmpty = view.groupBy === "draft"
@@ -274,6 +283,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
           ) : (
             <>
               {assets.isError && <ErrorNote>{assets.error.message}</ErrorNote>}
+              {place.type === "bin" && <BinStrip />}
               {showTimelines && <TimelineCards timelines={shownTimelines} ready={timelines.isSuccess} place={place} size={view.timelineSize ?? "M"} searched={Boolean(q)} />}
               {!showTimelines && assets.isSuccess && !items.length && !running && (
                 <Empty
@@ -291,7 +301,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
               {!showTimelines && <LoadMore more={Boolean(assets.hasPreviousPage)} busy={assets.isFetchingPreviousPage || assets.isFetchingNextPage} onMore={() => void assets.fetchPreviousPage()} />}
               {!showTimelines && items.length > 0 && !sections.length && <Empty title={groupedEmpty.title} help={groupedEmpty.body} />}
               {/* the first page on its way: placeholder tiles where the rows will be, at the display's size */}
-              {!showTimelines && !assets.data && !assets.isError && <PlaceholderRows rowHeight={rowHeight} />}
+              {!showTimelines && !assets.data && !assets.isError && <PlaceholderRows rowHeight={rowHeight} list={listKey} />}
               {/* what is being made now comes first, where its result will land */}
               {!showTimelines && Boolean(assets.data) && (
                 <JustifiedRows

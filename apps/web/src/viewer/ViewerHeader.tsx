@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { ChevronDown, ChevronLeft, ChevronRight, Film, Folder, FolderPlus, FolderTree, X } from "lucide-react";
 import type { Asset } from "../api";
@@ -170,7 +170,8 @@ export function ViewerHeader({ acts, asset, detail, title, trail, crumbs = {}, o
 
       <span className="text-[12.5px] text-ink-2">
         {/* the seed is in its cell under the prompt, once */}
-        {factsOf(a, g, a.shownName || a.name ? title : "")}
+        {/* each fact whole on its line ("rendered in 5 s" never breaks before its unit): the line wraps between them */}
+        {factsOf(a, g, a.shownName || a.name ? title : "").split(" · ").map((f, i) => <Fragment key={i}>{i ? " · " : ""}<span className="whitespace-nowrap">{f}</span></Fragment>)}
       </span>
 
       <div className="mt-1 flex flex-wrap gap-1.5">

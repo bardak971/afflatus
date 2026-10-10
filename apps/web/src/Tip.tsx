@@ -142,15 +142,19 @@ export function Tips() {
       hide();
       warmUntil = 0;
     };
+    // the last key pressed moved the focus on purpose (Tab, the arrows): a focus given back by Esc, as a popover
+    // closes, is not one the person went to, and its tip would open by itself and stay until the mouse moved
+    let stepped = false;
     const onKey = (e: KeyboardEvent) => {
       // a modifier alone is not typing; every other key sends the tip away (a Tab then shows the next one's, on focus)
       if (e.key === "Shift" || e.key === "Control" || e.key === "Alt" || e.key === "Meta") return;
+      stepped = e.key === "Tab" || e.key.startsWith("Arrow") || e.key === "Home" || e.key === "End";
       press();
     };
     const onFocus = (e: FocusEvent) => {
       const el = tipped(e.target);
       // only a focus from the keyboard: a click focuses too, and was just pressed
-      if (el && el.matches(":focus-visible")) {
+      if (el && el.matches(":focus-visible") && stepped) {
         quiet = null;
         current = null;
         pointer.x = -1;

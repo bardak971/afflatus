@@ -56,6 +56,16 @@ export function fromName(source: string, suffix: string): string {
   return `${capName(stem(source) || "video", NAME_MAX - suffix.length)}${suffix}`;
 }
 
+/**
+ * What a pass made of a named picture (an upscale, a face detailer, a mirror sent as a job): the picture's name and the
+ * pass ("Terrace 10 · Upscale 2x"), numbered when it made several. A pass's prompt is the picture's, so naming it after
+ * the prompt gave it a name that matched nothing else on screen.
+ */
+export function passName(source: string, pass: string, n?: number): string {
+  const suffix = ` · ${pass.trim() || "pass"}${n === undefined ? "" : ` ${String(n).padStart(2, "0")}`}`;
+  return `${capName(stem(source) || "picture", NAME_MAX - suffix.length)}${suffix}`;
+}
+
 /** A frame of a video: "Big Air · c2 · t5 · frame 0:03.2" (without the moment when it is not known). */
 export const frameName = (source: string, atMs?: number) => fromName(source, ` · frame${atMs === undefined ? "" : ` ${clockOf(atMs)}`}`);
 
