@@ -14,6 +14,7 @@ import type { InfoLookup } from "@afflatus/comfy";
 import type { ModelInfo } from "@afflatus/core";
 import { readJson } from "./queueModel";
 import { Timelines } from "./timelines";
+import { sweepIdleDrafts } from "./drafts";
 import { Updates } from "./modelUpdates";
 
 /** Everything the routes need, built once at start (and once per test). */
@@ -83,10 +84,11 @@ export async function createServices(
   await linked.load();
   // what changed in the linked directories while Afflatus was not running: read in the background
   void linked.scanAll();
-  // unkept results to the bin after a day, the bin emptied after a week: checked at start and every hour
+  // unkept results to the bin after a day, the bin emptied after a week, drafts left empty thrown away: checked at start and every hour
   const runSweep = () =>
     sweep(db, storage)
       .then((r) => (r.binned || r.erased) && queue.events.emit("library"))
+      .then(() => sweepIdleDrafts(db, registry))
       // the times of renders older than they are kept one by one become figures per model and day
       .then(async () => fold(db, (await readSettings(db)).renderHistoryDays))
       .catch((err) => console.warn("[sweep]", (err as Error).message));

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { ComfyUnreachable } from "@afflatus/comfy";
 import type { Services } from "./services";
 import { httpError } from "./errors";
+import { isNetworkPath } from "./linked";
 import { readSettings } from "./settings";
 
 /**
@@ -38,7 +39,8 @@ export async function openInComfy(s: Services, name: string, title: string, file
     return path;
   };
   const { comfyDir } = await readSettings(s.db);
-  if (!comfyDir.trim()) return { url: comfy.url, direct: false, path: await toSidebar() };
+  // ComfyUI's folder on a network share is never reached for (see isNetworkPath): the file goes through ComfyUI itself
+  if (!comfyDir.trim() || isNetworkPath(comfyDir)) return { url: comfy.url, direct: false, path: await toSidebar() };
 
   const dir = comfyDir.trim();
   if (!(await exists(join(dir, "custom_nodes")))) throw httpError(`"${dir}" is not a ComfyUI folder: it has no custom_nodes folder. Check the ComfyUI folder in Settings.`);

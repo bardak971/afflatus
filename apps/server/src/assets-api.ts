@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { toEditor } from "@afflatus/workflows";
 import { nameOf, shownNames, soundName } from "./autoName";
@@ -14,7 +14,8 @@ import { assetView, extOf, newAssetRow } from "./media";
 import { castOf, madeIn } from "./provenance";
 import type { Services } from "./services";
 import { makeThumb, mirrorPicture, readPicture, thumbKey } from "./thumbs";
-import { readVideo } from "./video";
+import { sourceOf } from "./storage";
+import { readVideo, readVideoFile } from "./video";
 
 /**
  * The library: its items listed and searched (assetSearch.ts), uploaded (assetUpload.ts), kept or binned
@@ -146,10 +147,26 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     };
   });
 
+  /**
+   * How a file may be kept by the browser. Afflatus's own files never change under their id: kept for good. A file of a
+   * linked folder can be changed on the disk (retouched in another program) and keep its id: asked again each time, with
+   * a tag of its version, which answers 304 with nothing when it is the same. True: the browser has it already.
+   */
+  const cachedAs = (reply: FastifyReply, ifNoneMatch: string | undefined, version: string | null): boolean => {
+    if (!version) {
+      reply.header("Cache-Control", "private, max-age=31536000, immutable");
+      return false;
+    }
+    const tag = `"${version}"`;
+    reply.header("Cache-Control", "private, no-cache").header("ETag", tag);
+    return Boolean(ifNoneMatch?.split(",").some((t) => t.trim().replace(/^W\//, "") === tag));
+  };
+
   app.get<{ Params: { id: string } }>("/api/assets/:id/file", async (req, reply) => {
     const a = await asset(req.params.id);
     const size = await s.storage.size(a.file_key);
-    reply.header("Content-Type", a.mime).header("Accept-Ranges", "bytes").header("Cache-Control", "private, max-age=31536000, immutable");
+    reply.header("Content-Type", a.mime).header("Accept-Ranges", "bytes");
+    if (cachedAs(reply, req.headers["if-none-match"], (await s.storage.version?.(a.file_key)) ?? null)) return reply.status(304).send();
     // videos are played with range requests
     const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "");
     if (m && (m[1] || m[2])) {
@@ -167,9 +184,11 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     const a = await asset(req.params.id);
     let key = a.thumb_key;
     if (!key && a.kind !== "audio") {
-      const bytes = await s.storage.get(a.file_key);
+      // a video is read where it lies on the disk when it does: never the whole of it into memory for its first frame
+      const source = a.kind === "video" ? await sourceOf(s.storage, a.file_key) : await s.storage.get(a.file_key);
+      const bytes = typeof source === "string" ? null : source;
       // of a video: its first frame. A video stored before Afflatus read videos gets its size and length now too.
-      const video = a.kind === "video" ? await readVideo(bytes, extOf(a.mime)) : null;
+      const video = a.kind === "video" ? (typeof source === "string" ? await readVideoFile(source) : await readVideo(source, extOf(a.mime))) : null;
       if (video?.facts && a.duration_ms === null) {
         const f = video.facts;
         await s.db.updateTable("assets").set({ width: f.width, height: f.height, duration_ms: f.durationMs, fps: f.fps, has_sound: f.hasSound ? 1 : 0 }).where("id", "=", a.id).execute();
@@ -185,7 +204,9 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     }
     // no picture can stand for a sound, or for a video when ffmpeg is not installed
     if (!key && a.kind !== "image") throw notFound("a preview of this item");
-    reply.header("Cache-Control", "private, max-age=31536000, immutable");
+    // of a linked file: the version its row last read off the disk, which a reading changes when the file changed (and drops
+    // the thumbnail with it): the browser asks again rather than showing the old picture for a year
+    if (cachedAs(reply, req.headers["if-none-match"], isLinked(a.file_key) ? `${a.bytes}-${a.created_at}` : null)) return reply.status(304).send();
     // no thumbnail could be made: the picture itself is still a correct answer
     if (!key) return reply.header("Content-Type", a.mime).send((await s.storage.open(a.file_key)).stream);
     return reply.header("Content-Type", "image/webp").send((await s.storage.open(key)).stream);

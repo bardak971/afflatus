@@ -1,5 +1,5 @@
-import { constants, createReadStream } from "node:fs";
-import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { constants, createReadStream, type Dirent } from "node:fs";
+import { copyFile, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, delimiter, dirname, extname, join, parse, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
@@ -9,6 +9,7 @@ import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { httpError } from "./errors";
 import { extOf, mimeOfDiskFile, newAssetRow } from "./media";
 import type { Storage } from "./storage";
+import { inUse } from "./sweep";
 
 /**
  * Folders linked to a directory of the disk the server runs on (a mounted volume, in a container).
@@ -25,6 +26,28 @@ const LINKED = "linked:";
 export const isLinked = (key: string) => key.startsWith(LINKED);
 const diskPath = (key: string) => key.slice(LINKED.length);
 const under = (path: string, root: string) => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
+
+/**
+ * Whether a path names a network share (\\server\share, //server/share). On Windows even a stat of one makes the system
+ * reach for the share over SMB, sending the account's credentials there and taking many seconds to fail: such a path is
+ * refused before anything on the disk is asked about it.
+ */
+export const isNetworkPath = (path: string) => /^[\\/]{2}/.test(path.trim());
+const NETWORK_REFUSED = "A network path (\\\\server\\share) cannot be used here: mount the share as a folder of this computer first, then use that folder.";
+
+/**
+ * whyNotLinkable on what the paths really are on the disk: a short name (PROGRA~1), a junction or a symbolic link leads
+ * to a directory the text of the path does not show, so the directory, the home folder, the data folder, ComfyUI's
+ * folder and LINK_ROOTS are each followed to their real place first. The text is checked as well, for a path that cannot
+ * be followed. ComfyUI's folder on a network share is left as it is written (following it would reach for the share).
+ */
+export async function whyNotLinkableOnDisk(dir: string, comfyDir = "", env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
+  const real = (p: string) => realpath(resolve(p)).catch(() => resolve(p));
+  const roots = (env.LINK_ROOTS ?? "").split(delimiter).map((r) => r.trim()).filter(Boolean);
+  const onDisk: NodeJS.ProcessEnv = { ...env, DATA_DIR: await real(loadConfig(env).dataDir), ...(roots.length ? { LINK_ROOTS: (await Promise.all(roots.map((r) => (isNetworkPath(r) ? resolve(r) : real(r))))).join(delimiter) } : {}) };
+  const comfy = comfyDir.trim() && !isNetworkPath(comfyDir) ? await real(comfyDir.trim()) : comfyDir;
+  return whyNotLinkable(dir, env, process.platform, homedir(), comfyDir) ?? whyNotLinkable(await real(dir), onDisk, process.platform, await real(homedir()), comfy);
+}
 
 /**
  * Whether a directory may be linked at all, and why not when it may not. Linking serves everything under
@@ -78,33 +101,86 @@ export class RoutedStorage implements Storage {
     if (!this.roots.some((r) => under(p, r))) throw httpError("This file is in a folder that is not linked any more.");
     return p;
   }
+  /**
+   * The file's facts on the disk. A file a timeline still uses keeps its row when it leaves its directory (Linked.read):
+   * asked for then, it is a 404 that says so, not a server error.
+   */
+  private async statOf(key: string) {
+    const p = this.file(key);
+    return stat(p).catch((err: NodeJS.ErrnoException) => {
+      if (err.code === "ENOENT" || err.code === "ENOTDIR") throw httpError(`This file is not on the disk any more (${p}): it was moved, renamed or deleted. Put it back, or press Look again on its folder.`, 404);
+      throw err;
+    });
+  }
   // nothing is ever stored under a "linked:" key: a file goes into a linked directory by name, through Linked.into
   async put(key: string, bytes: Uint8Array): Promise<void> {
     if (isLinked(key)) throw httpError("A file is put into a linked folder by name, not by key.");
+    this.unheld.delete(key);
     return this.own.put(key, bytes);
   }
   async putFile(key: string, path: string): Promise<void> {
     if (isLinked(key)) throw httpError("A file is put into a linked folder by name, not by key.");
+    this.unheld.delete(key);
     return this.own.putFile(key, path);
   }
   async get(key: string): Promise<Uint8Array> {
-    return isLinked(key) ? new Uint8Array(await readFile(this.file(key))) : this.own.get(key);
+    if (!isLinked(key)) return this.own.get(key);
+    await this.statOf(key);
+    return new Uint8Array(await readFile(this.file(key)));
   }
   /** Where the file lies on disk, for ffmpeg to read it there rather than from memory. */
   localPath(key: string): string | null {
     return isLinked(key) ? this.file(key) : (this.own.localPath?.(key) ?? null);
   }
   async size(key: string): Promise<number> {
-    return isLinked(key) ? (await stat(this.file(key))).size : this.own.size(key);
+    return isLinked(key) ? (await this.statOf(key)).size : this.own.size(key);
+  }
+  /** Of a file of a linked folder, which can change on the disk under the same key: its size and when it was last written. */
+  async version(key: string): Promise<string | null> {
+    if (!isLinked(key)) return null;
+    const info = await this.statOf(key);
+    return `${info.size}-${Math.round(info.mtimeMs)}`;
   }
   async open(key: string, range?: { start: number; end: number }): Promise<{ size: number; stream: Readable }> {
     if (!isLinked(key)) return this.own.open(key, range);
     const p = this.file(key);
-    return { size: (await stat(p)).size, stream: createReadStream(p, range) as Readable };
+    return { size: (await this.statOf(key)).size, stream: createReadStream(p, range) as Readable };
   }
   async delete(key: string): Promise<void> {
-    if (!isLinked(key)) return this.own.delete(key);
-    await rm(this.file(key), { force: true });
+    if (isLinked(key)) {
+      await rm(this.file(key), { force: true });
+      return;
+    }
+    // a backup is being made: the file waits until it is done, so that the database it copied finds every file it names
+    if (this.holds > 0) {
+      this.unheld.add(key);
+      return;
+    }
+    return this.own.delete(key);
+  }
+  list(prefix: string) {
+    return this.own.list?.(prefix) ?? (async function* () {})();
+  }
+
+  private holds = 0;
+  /** The files of Afflatus's own storage deleted while a backup was being made, deleted once it is done (unless written again since). */
+  private readonly unheld = new Set<string>();
+  /**
+   * Hold every deletion of Afflatus's own files until the function answered is called: a backup copies the database, then
+   * zips the files for minutes, and a file erased meanwhile (the hourly sweep, Empty the bin, a file put back into its
+   * linked folder) would leave the copy naming a file the zip does not have.
+   */
+  hold(): () => Promise<void> {
+    this.holds++;
+    let done = false;
+    return async () => {
+      if (done) return;
+      done = true;
+      if (--this.holds > 0) return;
+      const keys = [...this.unheld];
+      this.unheld.clear();
+      for (const key of keys) await this.own.delete(key).catch(() => {});
+    };
   }
 }
 
@@ -141,8 +217,8 @@ function writeRefused(err: NodeJS.ErrnoException, folder: Folder, dir: string, n
   return httpError(`"${name}" could not be written into ${dir}: ${err.message}. It was not imported.`);
 }
 
-/** The start of a text as a part of a file name: lower case, words joined by dashes. */
-const slug = (text: string) => text.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "");
+/** The start of a text as a part of a file name: lower case, words joined by dashes, accents dropped ("Crème brûlée": "creme-brulee"). */
+export const slug = (text: string) => text.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "");
 
 export class Linked {
   private scanning = new Map<string, Promise<{ files: number; folders: number }>>();
@@ -176,10 +252,11 @@ export class Linked {
   /** Link a directory: it becomes a folder at the top of the tree (of a project, or of the Inbox), and is read at once. */
   async link(path: string, name?: string, comfyDir = "", project: string | null = null): Promise<Folder> {
     if (project && !(await this.db.selectFrom("projects").select("id").where("id", "=", project).executeTakeFirst())) throw httpError("this project was not found", 404);
+    if (isNetworkPath(path)) throw httpError(NETWORK_REFUSED);
     const dir = resolve(path.trim());
     const there = await stat(dir).catch(() => null);
     if (!there?.isDirectory()) throw httpError(`"${path}" is not a folder the computer Afflatus runs on can read.`);
-    const refused = whyNotLinkable(dir, process.env, process.platform, homedir(), comfyDir);
+    const refused = await whyNotLinkableOnDisk(dir, comfyDir);
     if (refused) throw httpError(refused);
     for (const f of await this.roots()) {
       const other = resolve(f.path!);
@@ -201,9 +278,10 @@ export class Linked {
     const root = await this.db.selectFrom("folders").selectAll().where("id", "=", rootId).executeTakeFirst();
     if (!root?.path || (await this.rootOf(root)).id !== root.id) throw httpError("Only a folder that was linked itself can be linked again.");
     const old = resolve(root.path);
+    if (isNetworkPath(path)) throw httpError(NETWORK_REFUSED);
     const dir = resolve(path.trim());
     if (!(await stat(dir).catch(() => null))?.isDirectory()) throw httpError(`"${path}" is not a folder the computer Afflatus runs on can read.`);
-    const refused = whyNotLinkable(dir, process.env, process.platform, homedir(), comfyDir);
+    const refused = await whyNotLinkableOnDisk(dir, comfyDir);
     if (refused) throw httpError(refused);
     for (const f of await this.roots()) {
       if (f.id === root.id) continue;
@@ -225,14 +303,25 @@ export class Linked {
     return (await this.db.selectFrom("folders").selectAll().where("id", "=", root.id).executeTakeFirstOrThrow());
   }
 
-  /** Stop showing a linked folder. Nothing on the disk is touched: only what Afflatus knew about it goes. */
+  /**
+   * Stop showing a linked folder. Nothing on the disk is touched: only what Afflatus knew about it goes. Refused while
+   * something still uses one of its files (a timeline's take, a person's picture, a job to run): forgetting the file would
+   * take that take off its timeline for good, and keeping it would leave a file in no linked folder, which cannot be read.
+   */
   async unlink(rootId: string): Promise<void> {
     const root = await this.db.selectFrom("folders").selectAll().where("id", "=", rootId).executeTakeFirst();
     if (!root?.path) throw httpError("This folder is not linked to the disk.");
     const dir = resolve(root.path);
     const folders = (await this.db.selectFrom("folders").selectAll().where("path", "is not", null).execute()).filter((f) => under(resolve(f.path!), dir));
     const ids = folders.map((f) => f.id);
-    const files = await this.db.selectFrom("assets").select(["id", "file_key", "thumb_key"]).where("folder_id", "in", ids).execute();
+    const files = await this.db.selectFrom("assets").select(["id", "name", "file_key", "thumb_key"]).where("folder_id", "in", ids).execute();
+    const used = await inUse(this.db);
+    const needed = files.filter((a) => isLinked(a.file_key) && used.has(a.id));
+    if (needed.length) {
+      const first = needed[0]!;
+      const more = needed.length > 1 ? ` and ${needed.length - 1} more of its files are` : " is";
+      throw httpError(`"${first.name || basename(diskPath(first.file_key))}"${more} still used by ${used.get(first.id)}: "${root.name}" stays linked until they are taken out of there. If its directory moved, link it again where it is now instead.`, 409);
+    }
     // all of it or none: a stop halfway would leave folders without their files, or files in folders that are gone
     await this.db.transaction().execute(async (tx) => {
       for (const a of files) {
@@ -275,14 +364,28 @@ export class Linked {
 
     const knownFolders = (await this.db.selectFrom("folders").selectAll().where("path", "is not", null).execute()).filter((f) => under(resolve(f.path!), dir));
     const byPath = new Map(knownFolders.map((f) => [resolve(f.path!), f]));
-    const knownFiles = await this.db.selectFrom("assets").select(["id", "file_key", "thumb_key", "bytes", "created_at"]).where("file_key", "like", `${LINKED}%`).execute();
+    const knownFiles = await this.db.selectFrom("assets").select(["id", "file_key", "thumb_key", "bytes", "created_at", "name", "folder_id"]).where("file_key", "like", `${LINKED}%`).execute();
     const byKey = new Map(knownFiles.filter((a) => under(resolve(diskPath(a.file_key)), dir)).map((a) => [a.file_key, a]));
     const seenFolders = new Set<string>([root.id]);
     const seenFiles = new Set<string>();
+    // the directories that could not be listed (no permission for a moment, a share that hiccuped, too many files open): what
+    // is under them is not known, which is not the same as gone, so nothing under them is forgotten
+    const unknown: string[] = [];
+    const inUnknown = (path: string) => unknown.some((u) => under(path, u));
+    // the files not known yet, registered once the whole directory was read: one may be a known file renamed or moved
+    const fresh: Array<{ full: string; name: string; folder: Folder; size: number; made: string; kind: "image" | "video" | "audio"; mime: string }> = [];
     let files = 0;
 
     const walk = async (at: string, folder: Folder): Promise<void> => {
-      const entries = await readdir(at, { withFileTypes: true }).catch(() => []);
+      let entries: Dirent[];
+      try {
+        entries = await readdir(at, { withFileTypes: true });
+      } catch (err) {
+        // gone since its parent was listed: it is gone; anything else, it is there but cannot be read now
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code !== "ENOENT" && code !== "ENOTDIR") unknown.push(at);
+        return;
+      }
       for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
         // hidden files and folders are not part of what is shown
         if (e.name.startsWith(".")) continue;
@@ -303,11 +406,12 @@ export class Linked {
         const mime = mimeOfDiskFile(e.name);
         const kind = mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : null;
         if (!kind) continue;
-        const info = await stat(full).catch(() => null);
-        if (!info) continue;
         const key = LINKED + full;
-        const made = info.mtime.toISOString();
         seenFiles.add(key);
+        const info = await stat(full).catch(() => null);
+        // listed but not readable for a moment: a file known by this name keeps its row, a new one waits for the next reading
+        if (!info) continue;
+        const made = info.mtime.toISOString();
         files++;
         const had = byKey.get(key);
         if (had) {
@@ -320,23 +424,50 @@ export class Linked {
           }
           continue;
         }
-        await this.db
-          .insertInto("assets")
-          .values(newAssetRow({
-            id: newId(), kind, origin: "uploaded", name: e.name.slice(0, 200), file_key: key, thumb_key: null, mime, bytes: info.size,
-            // what is measured of it (its size in pixels, its length) is read when it is first looked at
-            width: null, height: null, duration_ms: null, fps: null, has_sound: kind === "audio" ? 1 : 0,
-            folder_id: folder.id, generation_id: null, kept_at: now(), linked_path: null, created_at: made,
-          }))
-          .execute();
+        fresh.push({ full, name: e.name, folder, size: info.size, made, kind, mime });
       }
     };
     await walk(dir, root);
 
-    // gone from the disk: gone from the folder (nothing of it is in Afflatus's storage but its small picture)
-    for (const [key, a] of byKey) if (!seenFiles.has(key)) await this.forget(a);
+    // not where they were: the known files not seen, but for those under a directory that could not be read
+    const missing = [...byKey].filter(([key]) => !seenFiles.has(key) && !inUnknown(resolve(diskPath(key)))).map(([, a]) => a);
+    for (const f of fresh) {
+      // the same size and the same time of last writing as a file that went: that file, renamed or moved within the folder. Its
+      // row follows it, with its id, and so do its name, its tags and the timeline takes that play it
+      const same = missing.filter((a) => a.bytes === f.size && a.created_at === f.made);
+      const was = same.find((a) => basename(diskPath(a.file_key)) === f.name) ?? same[0];
+      if (was) {
+        missing.splice(missing.indexOf(was), 1);
+        // a name given in Afflatus stays; the file's own name follows the file
+        const name = was.name === basename(diskPath(was.file_key)) ? f.name.slice(0, 200) : was.name;
+        await this.db.updateTable("assets").set({ file_key: LINKED + f.full, name, folder_id: f.folder.id }).where("id", "=", was.id).execute();
+        continue;
+      }
+      await this.db
+        .insertInto("assets")
+        .values(newAssetRow({
+          id: newId(), kind: f.kind, origin: "uploaded", name: f.name.slice(0, 200), file_key: LINKED + f.full, thumb_key: null, mime: f.mime, bytes: f.size,
+          // what is measured of it (its size in pixels, its length) is read when it is first looked at
+          width: null, height: null, duration_ms: null, fps: null, has_sound: f.kind === "audio" ? 1 : 0,
+          folder_id: f.folder.id, generation_id: null, kept_at: now(), linked_path: null, created_at: f.made,
+        }))
+        .execute();
+    }
+
+    // gone from the disk: gone from the folder (nothing of it is in Afflatus's storage but its small picture). Unless something
+    // still uses it (a timeline's take, a person's picture, a job to run): that row stays as it is, its file answered as not on
+    // the disk, until the file comes back, a later reading finds it renamed, or the folder is linked again where it is now
+    const used = missing.length ? await inUse(this.db) : new Map<string, string>();
+    const staying = new Set<string>();
+    for (const a of missing) {
+      if (!used.has(a.id)) await this.forget(a);
+      else if (a.folder_id) staying.add(a.folder_id);
+    }
+    // the folder of such a file stays too, and the folders around it, so that it is still found where it was
+    const parentOf = new Map(knownFolders.map((f) => [f.id, f.parent_id]));
+    for (const id of [...staying]) for (let at = parentOf.get(id); at; at = parentOf.get(at)) staying.add(at);
     for (const f of knownFolders) {
-      if (seenFolders.has(f.id)) continue;
+      if (seenFolders.has(f.id) || staying.has(f.id) || inUnknown(resolve(f.path!))) continue;
       await this.db.updateTable("assets").set({ folder_id: null }).where("folder_id", "=", f.id).execute();
       await this.db.deleteFrom("folders").where("id", "=", f.id).execute();
     }
@@ -443,11 +574,7 @@ export class Linked {
 
   /** To the bin: the file leaves its directory and waits in Afflatus's storage, from where it can be put back. */
   async toBin(a: Asset): Promise<void> {
-    const from = resolve(diskPath(a.file_key));
-    const key = `assets/${a.id.slice(0, 2)}/${a.id}.${extOf(a.mime)}`;
-    await this.storage.put(key, await this.storage.get(a.file_key));
-    await this.db.updateTable("assets").set({ file_key: key, linked_path: from, deleted_at: now() }).where("id", "=", a.id).execute();
-    await rm(from, { force: true });
+    await linkedToBin(this.db, this.storage, a);
   }
 
   /** Back from the bin: into the directory it was in when that is still there, else it stays in the library as an item of its own. */
@@ -462,5 +589,35 @@ export class Linked {
     await writeFile(to, await this.storage.get(a.file_key));
     await this.db.updateTable("assets").set({ file_key: LINKED + to, name: basename(to), folder_id: folder.id, linked_path: null, deleted_at: null }).where("id", "=", a.id).execute();
     await this.storage.delete(a.file_key).catch(() => {});
+  }
+}
+
+/**
+ * A file of a linked folder to the bin: copied into Afflatus's storage, then removed from its directory, and only then is
+ * its row changed. A file another program holds open (Windows refuses to remove it) is left as it was, row and all, and
+ * the copy is dropped: the row never says "in the bin" while the file still sits in the folder, where the next reading
+ * would find it and register it a second time. Also for a video taken apart by a cut (timelineRange.ts).
+ */
+export async function linkedToBin(db: Db, storage: Storage, a: Pick<Asset, "id" | "mime" | "file_key">): Promise<void> {
+  const from = resolve(diskPath(a.file_key));
+  const key = `assets/${a.id.slice(0, 2)}/${a.id}.${extOf(a.mime)}`;
+  const path = storage.localPath?.(a.file_key);
+  if (path) await storage.putFile(key, path);
+  else await storage.put(key, await storage.get(a.file_key));
+  try {
+    await rm(from, { force: true });
+  } catch (err) {
+    await storage.delete(key).catch(() => {});
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EBUSY" || code === "EPERM" || code === "EACCES") throw httpError(`"${basename(from)}" is open in another program, or read-only: close it there, then try again. It stays in its folder.`, 409);
+    throw err;
+  }
+  try {
+    await db.updateTable("assets").set({ file_key: key, linked_path: from, deleted_at: now() }).where("id", "=", a.id).execute();
+  } catch (err) {
+    // the row still names the file in its folder: it goes back there
+    await writeFile(from, await storage.get(key)).catch(() => {});
+    await storage.delete(key).catch(() => {});
+    throw err;
   }
 }

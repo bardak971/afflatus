@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, type FakeComfy } from "@afflatus/comfy/testing";
 import { get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
-import { IDLE_DRAFT_MS } from "../src/drafts";
+import { IDLE_DRAFT_MS, sweepIdleDrafts } from "../src/drafts";
 
 let t: TestApp;
 beforeEach(async () => {
@@ -203,6 +203,9 @@ describe("drafts emptied, left alone", () => {
     const worked = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { prompt: "kept" } } })).json();
     const long = new Date(Date.now() - IDLE_DRAFT_MS - 60_000).toISOString();
     await t.db.updateTable("drafts").set({ updated_at: long }).where("id", "in", [old.id, worked.id]).execute();
+    // a listing only reads: the hourly sweep is what throws them away
+    expect((await get(t.app, "/api/drafts")).json().items.map((d: { id: string }) => d.id)).toContain(old.id);
+    expect(await sweepIdleDrafts(t.db, t.services.registry)).toBe(1);
     const ids = (await get(t.app, "/api/drafts")).json().items.map((d: { id: string }) => d.id);
     expect(ids).toContain(fresh.id);
     expect(ids).toContain(worked.id);
