@@ -4,7 +4,7 @@ import { z } from "zod";
 import { httpError } from "./errors";
 import { newId, now, OWNER, type Db } from "./db";
 import type { Services } from "./services";
-import { NOT_IN_LIBRARY } from "./assetSearch";
+import { NOT_IN_LIBRARY } from "./library";
 import { unusedSize, unusedTakes } from "./timelineUnused";
 import { unusedDrafts } from "./drafts";
 import { readSettings, writeSettings } from "./settings";
@@ -18,13 +18,6 @@ import type { LibraryChange } from "./events";
  */
 
 const name = z.string().trim().min(1).max(120);
-
-/** The ids of a project's folders, or of the folders in no project. */
-export async function folderIdsOf(db: Db, project: string | "none"): Promise<string[]> {
-  let q = db.selectFrom("folders").select("id");
-  q = project === "none" ? q.where("project_id", "is", null) : q.where("project_id", "=", project);
-  return (await q.execute()).map((f) => f.id);
-}
 
 /** A project's root folder id, when it has one that still exists. */
 export async function rootFolderOf(db: Db, project: string | null | undefined): Promise<string | null> {

@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 import { now, type Db, type Tables } from "./db";
 import type { Storage } from "./storage";
-import { derivedKeys } from "./timelines";
+import { derivedKeys } from "./timelineModel";
 
 export const UNKEPT_MS = 24 * 60 * 60_000;
 export const BIN_MS = 7 * 24 * 60 * 60_000;

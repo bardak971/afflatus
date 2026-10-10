@@ -1,5 +1,5 @@
 import { useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
-import { joinFade } from "@afflatus/core";
+import { FRAME_SLACK_MS, joinFade, MIN_FADE_MS } from "@afflatus/core";
 import type { Clip } from "../api";
 
 /** How long before a clip ends the clip after starts running hidden, so that it takes over with frames ready and in step. */
@@ -16,8 +16,8 @@ export function fadeIn(c: Clip | undefined, from: Clip | undefined): { ms: numbe
   if (!c?.take || !from) return null;
   const f = joinFade({ landedMs: c.take.landedMs, joined: c.joined === "continue" && Boolean(from.take), seamless: Boolean(c.take.seamless), sharedMs: c.take.headMs - c.take.trimStartMs });
   if (!f) return null;
-  const ms = Math.min(f.ms, c.lengthMs - 40, ...(f.mode === "overlap" ? [from.lengthMs - 40] : []));
-  return ms >= 80 ? { ms, mode: f.mode } : null;
+  const ms = Math.min(f.ms, c.lengthMs - FRAME_SLACK_MS, ...(f.mode === "overlap" ? [from.lengthMs - FRAME_SLACK_MS] : []));
+  return ms >= MIN_FADE_MS ? { ms, mode: f.mode } : null;
 }
 /** Over the moments both show: the take landed on. */
 export const blendOf = (c: Clip | undefined, from: Clip | undefined) => (fadeIn(c, from)?.mode === "overlap" ? fadeIn(c, from)!.ms : 0);

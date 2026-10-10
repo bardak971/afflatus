@@ -1,4 +1,4 @@
-import { RANDOM_SEED, typedSeed } from "@afflatus/core";
+import { RANDOM_SEED, REMOVE_BACKGROUND, typedSeed } from "@afflatus/core";
 import type { AssetDetail, RecipeInfo } from "../api";
 import { modelGroups } from "../picker";
 
@@ -10,7 +10,7 @@ export const FORMATS: Record<string, string> = { "image/png": "PNG", "image/jpeg
 export const OPS: Record<string, { ends: string[]; label: string }> = {
   u: { ends: [".sharper"], label: "Upscale 2x" },
   f: { ends: [".fix-face"], label: "Face detailer" },
-  b: { ends: ["tools.remove-background"], label: "Remove background" },
+  b: { ends: [REMOVE_BACKGROUND], label: "Remove background" },
   i: { ends: [".paint-over"], label: "Inpaint" },
   e: { ends: [".edit", ".redraw"], label: "Edit" },
   // Klein names its outpaint by what it does to the frame; the other image models (SDXL, Flux, Qwen) call theirs outpaint

@@ -1,4 +1,4 @@
-import { defineFamily } from "@afflatus/core";
+import { defineFamily, type PromptLine, QUALITY_WORDS, WEIGHT_SYNTAX, wordCount } from "@afflatus/core";
 
 const HF = "https://huggingface.co/Comfy-Org/Krea-2/resolve/main";
 
@@ -49,4 +49,14 @@ RULES
 - The "Negative prompt" part only acts above CFG 1 (Turbo runs at 1): leave it empty unless asked. A LoRA's trigger words stay.
 EXAMPLE, for the form only (its subject, place and words are not to be reused):
 A minimalist flat-colour illustration of a person wading through expansive shallow ocean waves beneath a pale peach sky. The figure is small against the water, placed low and to the right, the horizon a single clean line two thirds of the way up. Three flat tones only, sand, sea green and peach; no outlines and no texture, the shapes built from colour alone, in the manner of mid-century travel posters.`,
+  /** What the designer wrote, against Krea 2's guide: no weights, no quality words, 30 to 150 words. */
+  lint({ text, main }) {
+    if (!text?.trim()) return [];
+    const out: PromptLine[] = [];
+    if (WEIGHT_SYNTAX.test(text)) out.push({ part: main, text: "A (word:1.2) weight: this model does not read weights." });
+    if (QUALITY_WORDS.test(text)) out.push({ part: main, text: "Quality words (masterpiece, 8k…): this model ignores them." });
+    const n = wordCount(text);
+    if (n > 170) out.push({ part: main, text: `${n} words; 30 to 150 is the range that works.` });
+    return out;
+  },
 });

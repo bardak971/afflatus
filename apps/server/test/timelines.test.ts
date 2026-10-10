@@ -9,7 +9,7 @@ import { wan } from "../../../packages/workflows/test/fixtures";
 import { colourNudge, cutFrames, frameAt, MATCH, referenceClip } from "../src/cut";
 import { OWNER } from "../src/db";
 import { pngSize } from "../src/media";
-import { EXPORT_JOB } from "../src/timelines";
+import { EXPORT_JOB } from "../src/timelineModel";
 import { readVideo } from "../src/video";
 import { get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 import { makePng } from "@afflatus/comfy/testing";

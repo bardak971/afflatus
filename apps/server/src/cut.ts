@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { musicGainAt, type MusicPlan } from "@afflatus/core";
+import { JOIN_FADE_MS, musicGainAt, type MusicPlan } from "@afflatus/core";
 import { gainWav, type DuckCurve } from "./duck";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -69,25 +69,6 @@ export async function probeMedia(bytes: Uint8Array): Promise<ProbedMedia | null>
     await writeFile(file, bytes);
     return probeMediaFile(file);
   });
-}
-
-/**
- * The workflow a video carries: ComfyUI's video savers write it into the file's comment, as JSON (the editor's
- * form, sometimes beside the prompt). null when there is none.
- */
-export async function embeddedWorkflowOf(file: string): Promise<unknown | null> {
-  const out = await must(tools.ffprobe, ["-v", "error", "-show_entries", "format_tags", "-of", "json", file]).catch(() => null);
-  if (!out) return null;
-  const tags = (JSON.parse(out) as { format?: { tags?: Record<string, string> } }).format?.tags ?? {};
-  for (const key of ["workflow", "comment", "description"]) {
-    const text = tags[key] ?? tags[key.toUpperCase()];
-    if (!text) continue;
-    try {
-      const parsed = JSON.parse(text) as { workflow?: unknown; nodes?: unknown };
-      if (parsed && typeof parsed === "object") return "nodes" in parsed ? parsed : "workflow" in parsed ? parsed.workflow : null;
-    } catch { /* not JSON: a plain comment */ }
-  }
-  return null;
 }
 
 export interface ProbedMedia {
@@ -339,7 +320,7 @@ export interface ExportPart {
 }
 
 /** How long a continuation fades in over the clip before, which holds its last frame meanwhile: four frames at 24 a second. */
-export const BLEND_MS = 170;
+export const BLEND_MS = JOIN_FADE_MS;
 /**
  * How long a continuation made in the latent fades in over the clip before, which holds its last frame meanwhile. The clip
  * before plays to its very last frame and the continuation from its first own one: its guided frames are a loose copy of
@@ -349,7 +330,7 @@ export const BLEND_MS = 170;
  * over 170 ms, ×1.2 over 420 ms. 420 ms doubled a moving subject for a fifth of a second (a kite against the sky, the held
  * frame under the moving one, seen in a non-turbo export): 170 ms keeps that ghost to a couple of frames.
  */
-export const DISSOLVE_MS = 170;
+export const DISSOLVE_MS = JOIN_FADE_MS;
 
 /** How a video's own part looks, measured on its real frames when it was stored (see lookOf). */
 export interface Measure {

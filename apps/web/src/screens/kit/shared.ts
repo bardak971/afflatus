@@ -1,4 +1,4 @@
-import type { InputSpec } from "@afflatus/core";
+import { TOOLS_FAMILY, type InputSpec } from "@afflatus/core";
 import type { Entity, FamilyInfo, Outfit, RecipeInfo } from "../../api";
 import { fieldClass } from "../../ui";
 
@@ -27,7 +27,7 @@ export function modelRows(families: FamilyInfo[], recipes: RecipeInfo[]) {
   const rows: Array<{ family: FamilyInfo; ids: string[]; can: ReturnType<typeof takes> }> = [];
   const key = (name: string) => name.replace(/[^a-z0-9]/gi, "").toLowerCase();
   for (const f of families) {
-    if (f.id === "tools") continue;
+    if (f.id === TOOLS_FAMILY) continue;
     const can = takes(f, recipes);
     const row = rows.find((r) => key(r.family.name) === key(f.name));
     if (!row) {

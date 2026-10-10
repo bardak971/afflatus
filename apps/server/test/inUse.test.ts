@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { newId, OWNER } from "../src/db";
 import { BIN_MS, sweep, UNKEPT_MS } from "../src/sweep";
-import { derivedKeys } from "../src/timelines";
+import { derivedKeys } from "../src/timelineModel";
 import { makeApp, post, type TestApp } from "./helpers";
 
 let t: TestApp;

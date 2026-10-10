@@ -1,5 +1,6 @@
 import type { FastifyRequest } from "fastify";
 import { z } from "zod";
+import { envSaid } from "./config";
 import { civitaiSites, civitaiVersion, pretendSites } from "./civitai";
 import type { DownloadView } from "./downloads";
 import { httpError as bad } from "./errors";
@@ -27,7 +28,7 @@ export type DownloadBody = z.infer<typeof downloadBody>;
 
 /** The address ComfyUI will fetch from: the one this page was opened at, unless one is set. */
 function selfUrl(req: FastifyRequest): string {
-  return process.env.PUBLIC_URL?.trim() || `${req.protocol}://${req.headers.host}`;
+  return envSaid.publicUrl()?.trim() || `${req.protocol}://${req.headers.host}`;
 }
 
 export async function beginDownload(s: Services, req: FastifyRequest, b: DownloadBody): Promise<DownloadView> {
@@ -39,7 +40,7 @@ export async function beginDownload(s: Services, req: FastifyRequest, b: Downloa
   const comfy = await s.comfy();
   const self = selfUrl(req);
   const local = (host: string) => /^(localhost|127\.|\[::1\]|::1)/.test(host);
-  if (!process.env.PUBLIC_URL && local(new URL(self).hostname) && !local(new URL(comfy.url).hostname)) {
+  if (!envSaid.publicUrl() && local(new URL(self).hostname) && !local(new URL(comfy.url).hostname)) {
     throw bad("ComfyUI runs on another machine and cannot reach Afflatus at this URL. Open Afflatus by its network URL, or set PUBLIC_URL to it.");
   }
   const name = b.file.split(/[\\/]/).pop()!;

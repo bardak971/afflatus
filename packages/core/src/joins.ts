@@ -3,6 +3,7 @@
  * fades in, and H3's latent grid that joins are cut on. The same sums on the server (what plays, what the export
  * makes) and in the browser (what the player shows), so that the two agree.
  */
+import { chunkStartAtOrAfter, gridAtOrBefore, LATENT_GRID } from "./frameGrid";
 
 /** Two moments are the same when they are within about a frame of each other. */
 export const near = (a: number | null, b: number) => a !== null && Math.abs(a - b) <= 45;
@@ -30,6 +31,16 @@ export const follows = (b: { prevTakeId: string | null; prevAtMs: number | null;
 export const landsOn = (a: { nextTakeId: string | null; nextAtMs: number | null; trimEndMs: number }, b: JoinTake, bStartMs: number) =>
   sameTake(a.nextTakeId, b) && near(a.nextAtMs, bStartMs) && a.trimEndMs === 0;
 
+/** How long a join fades in: four frames at 24 a second (longer doubled a moving subject, see cut.ts DISSOLVE_MS). */
+export const JOIN_FADE_MS = 170;
+/** The shortest fade worth making: under it, the join is a cut. */
+export const MIN_FADE_MS = 80;
+/**
+ * About one frame (41.7 ms at 24 a second): what a moment may be off by and still be the same frame, how far from a
+ * clip's end a moment counts as its end, and the least a range must hold to hold anything.
+ */
+export const FRAME_SLACK_MS = 40;
+
 /**
  * How a take fades in over the clip before as it plays, in the export and the player alike: landed on (that clip's
  * guided tail shows the same moments) both moving, up to 170 ms; a continuation of a video clip, the clip before held
@@ -37,9 +48,9 @@ export const landsOn = (a: { nextTakeId: string | null; nextAtMs: number | null;
  * continuation with less than 80 ms of shared frames left (`sharedMs`: its head less what was trimmed off its start).
  */
 export function joinFade(x: { landedMs?: number; joined: boolean; seamless: boolean; sharedMs: number }): { ms: number; mode: "hold" | "overlap" } | null {
-  if (x.landedMs !== undefined) return x.landedMs >= 80 ? { ms: Math.min(170, x.landedMs), mode: "overlap" } : null;
-  if (!x.joined || x.seamless || x.sharedMs < 80) return null;
-  return { ms: 170, mode: "hold" };
+  if (x.landedMs !== undefined) return x.landedMs >= MIN_FADE_MS ? { ms: Math.min(JOIN_FADE_MS, x.landedMs), mode: "overlap" } : null;
+  if (!x.joined || x.seamless || x.sharedMs < MIN_FADE_MS) return null;
+  return { ms: JOIN_FADE_MS, mode: "hold" };
 }
 
 /** H3's frames a second, the grid its latent's frames are on. */
@@ -49,7 +60,7 @@ export const MODEL_FPS = 24;
  * The frame on H3's latent grid (17k + 5 frames) at or before `frame`: a clip handed over there continues in the
  * latent, cut on a whole chunk, rather than from frames.
  */
-export const latentFrameAtOrBefore = (frame: number) => Math.floor((frame - 5) / 17) * 17 + 5;
+export const latentFrameAtOrBefore = (frame: number) => gridAtOrBefore(frame, LATENT_GRID);
 
 /** The first frame of one of a latent's 17-frame chunks at or after `frame`: where a landing on it is made in the latent, on time. */
-export const chunkAtOrAfter = (frame: number) => Math.ceil(frame / 17) * 17;
+export const chunkAtOrAfter = (frame: number) => chunkStartAtOrAfter(frame, LATENT_GRID);

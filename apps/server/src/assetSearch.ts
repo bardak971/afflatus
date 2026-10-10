@@ -5,7 +5,7 @@ import { describeRecipe, fuzzyFilter } from "@afflatus/core";
 import { draftLabel, promptOf, recipeWords, shownNames } from "./autoName";
 import type { Tables } from "./db";
 import { assetView } from "./media";
-import { folderIdsOf } from "./projects";
+import { folderIdsOf, NOT_IN_LIBRARY } from "./library";
 import { readJson } from "./queueModel";
 import type { Services } from "./services";
 
@@ -68,8 +68,6 @@ async function filterAssets(s: Services, q: ListQuery) {
 }
 type Filtered = Awaited<ReturnType<typeof filterAssets>>;
 
-/** What is kept but not shown in the library: a painted mask, a picture uploaded for the Prompt kit. */
-export const NOT_IN_LIBRARY = ["mask", "kit"] as const;
 
 /**
  * How many items a search reads whole, at most: the most recent ones (as they are, accents and all), and as many again of the

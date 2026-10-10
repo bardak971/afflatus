@@ -1,4 +1,4 @@
-import { defineFamily } from "@afflatus/core";
+import { defineFamily, type PromptLine, QUALITY_WORDS, WEIGHT_SYNTAX, wordCount } from "@afflatus/core";
 
 /**
  * FLUX.2 Klein: pictures from plain sentences, and changes to a picture you have. It reads up to six
@@ -47,4 +47,14 @@ RULES FOR A CHANGE TO A PICTURE
 EXAMPLES, for the form only (their subjects, places and words are not to be reused):
 A new picture: A small terrier wrapped in a white towel after a bath, photographed with direct flash and high exposure, the wet fur sharply detailed, sitting on the edge of a tub in a tiled bathroom. An editorial raw portrait with harsh flash light, intimate and humorous, in a documentary style.
 A change: Place the pocket watch from image 1 on the oak desk from image 2, preserving its exact proportions and the desk's lighting; keep everything else in image 2 as it is.`,
+  /** What the designer wrote, against Klein's guide: no weights, no quality words, 30 to 100 words. */
+  lint({ text, main }) {
+    if (!text?.trim()) return [];
+    const out: PromptLine[] = [];
+    if (WEIGHT_SYNTAX.test(text)) out.push({ part: main, text: "A (word:1.2) weight: this model does not read weights." });
+    if (QUALITY_WORDS.test(text)) out.push({ part: main, text: "Quality words (masterpiece, 8k…): this model ignores them." });
+    const n = wordCount(text);
+    if (n > 170) out.push({ part: main, text: `${n} words; 30 to 100 is the range that works.` });
+    return out;
+  },
 });

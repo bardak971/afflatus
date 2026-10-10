@@ -6,6 +6,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
+import { VERSION } from "./config";
 import { httpError } from "./errors";
 import type { Services } from "./services";
 import { ZipStream } from "./zipStream";
@@ -98,7 +99,7 @@ export function registerBackup(app: FastifyInstance, s: Services, places: Backup
       let tmp: string | null = null;
       try {
         const readme = [
-          `Afflatus backup, made ${new Date().toISOString()} by Afflatus ${process.env.AFFLATUS_VERSION?.trim() || "dev"}.`,
+          `Afflatus backup, made ${new Date().toISOString()} by Afflatus ${VERSION}.`,
           "",
           "What is in it: afflatus.db (the database: library, settings, timelines, presets; a consistent copy made while the app ran)",
           "and files/ (every picture, video, sound, thumbnail and side file the library holds).",

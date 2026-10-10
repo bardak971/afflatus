@@ -1,9 +1,9 @@
 import type { EventEmitter } from "node:events";
 import type { WaitOptions } from "@afflatus/comfy";
-import type { BuiltGraph, Known, Phase, Recipe } from "@afflatus/core";
+import type { BuiltGraph, Phase, Recipe } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 import type { Db, Tables } from "./db";
-import type { Rate } from "./estimates";
+import type { Rate } from "./forecast";
 import type { Registry } from "./registry";
 import type { Storage } from "./storage";
 import type { TakeLinks, Timelines } from "./timelines";
@@ -93,10 +93,9 @@ export const DEFAULT_QUEUE_OPTIONS: QueueOptions = {
   wait: { timeoutMs: 90 * 60_000 },
 };
 
-/** How long things usually take: the rates from before there was a record, and the record itself. */
+/** What the forecast falls back on where it cannot place a form: per recipe, how long its renders usually took (forecast.ts). */
 export interface Usual {
   rates: Record<string, Rate>;
-  record: Record<string, Known>;
 }
 
 /**
@@ -121,8 +120,8 @@ export interface QueueCore {
   /** Note what ComfyUI was last asked to load, here and in the database. */
   loaded(loads: string | null, model?: string | null): Promise<void>;
   usual(): Promise<Usual>;
-  /** About how long a render will take. */
-  expected(usual: Usual, recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean): number | null;
+  /** About how long a waiting render will take, its model to load or not (the forecast, queueSubmit.forecastOf); null when nothing like it was rendered. */
+  expected(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean): Promise<number | null>;
   /** A job that needs no model, claimed and closed by the state machine; `work` is the job itself. */
   runTool(row: JobRow, work: (run: Running) => Promise<void>): Promise<void>;
 }

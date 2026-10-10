@@ -1,4 +1,4 @@
-import { latentFrameAtOrBefore, MODEL_FPS, type Recipe } from "@afflatus/core";
+import { FRAME_SLACK_MS, latentFrameAtOrBefore, MODEL_FPS, type Recipe } from "@afflatus/core";
 import { FfmpegMissing, frozenTailAt } from "./cut";
 import { newId, now, type Db } from "./db";
 import { httpError, notFound } from "./errors";
@@ -38,7 +38,7 @@ export function ownInputs(recipe: Recipe<any>, input: Record<string, unknown>): 
  * does a moment whose grid frame would leave fewer frames than the run-up the form asks for.
  */
 export function handoverOnGrid(atMs: number, before: { durationMs: number; latentFrames: number | null }, runUpFrames: number): number {
-  if (!before.latentFrames || atMs >= before.durationMs - 40) return atMs;
+  if (!before.latentFrames || atMs >= before.durationMs - FRAME_SLACK_MS) return atMs;
   const frame = Math.round((atMs * MODEL_FPS) / 1000);
   const grid = latentFrameAtOrBefore(frame);
   if (grid === frame || grid < Math.max(runUpFrames, 22)) return atMs;
@@ -221,7 +221,7 @@ export class TimelinePlan {
           return null;
         });
         // on the model's frame grid: the frames handed over are whole frames of it, and the clip before stops on one
-        if (lively !== null && lively < at - 40) {
+        if (lively !== null && lively < at - FRAME_SLACK_MS) {
           const frame = Math.round((lively * MODEL_FPS) / 1000);
           // a clip whose latent was kept hands over on its latent's grid (17k + 5 frames, at or before the frozen tail):
           // the join is then made in the latent, cut there, rather than from frames
@@ -237,7 +237,7 @@ export class TimelinePlan {
       plan.links.prev = { take: before.take.id, at };
     } else if (startSpec && recipe.traits?.continues === "frame") {
       // a recipe that opens on a picture picks up from the last frame that plays
-      plan.input[startSpec.id] = (await this.media.frame(before.asset, Math.max(0, at - 40), true)).id;
+      plan.input[startSpec.id] = (await this.media.frame(before.asset, Math.max(0, at - FRAME_SLACK_MS), true)).id;
       plan.sources.push({ asset: before.asset.id, role: "previous" });
       plan.links.prev = { take: before.take.id, at };
     }

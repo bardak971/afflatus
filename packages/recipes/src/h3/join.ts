@@ -1,5 +1,5 @@
-import type { BuildContext, MediaFacts } from "@afflatus/core";
-import { H3_FORM_PIXELS, H3_FPS, H3_MAX_FRAMES, h3Canvas, h3Frames } from "./family";
+import { isChunkStart, onGrid, type BuildContext, type MediaFacts } from "@afflatus/core";
+import { H3_FORM_PIXELS, H3_FPS, H3_GRID, H3_MAX_FRAMES, h3Canvas, h3Frames } from "./family";
 import type { H3Video } from "./inputs";
 import type { H3Uses } from "./model";
 
@@ -39,7 +39,7 @@ export const H3_LANDINGS = ["5", "22", "39"] as const;
 
 const guideFrames = (m: MediaFacts | undefined) => {
   const n = m?.frames ?? 0;
-  if (n % 17 !== 5 || n > 39) throw new Error(`a join takes 5, 22 or 39 frames of the other clip, not ${n}`);
+  if (!onGrid(n, H3_GRID) || n > 39) throw new Error(`a join takes 5, 22 or 39 frames of the other clip, not ${n}`);
   return n;
 };
 
@@ -92,7 +92,7 @@ export function resolveJoin(input: H3Video, ctx: BuildContext): H3Join {
   // where one of its chunks begins (frame 17j), with the aligned landing; its very first frame with the head guide of an older
   // pack. Anywhere else the tokens would be placed off their time (see H3_LANDING): its frames
   const room = nextLatent !== undefined && (media.next?.latentFrames ?? 0) >= nextAt + tail;
-  const landingAt = room && nextAt % 17 === 0 && ctx.has(H3_LANDING);
+  const landingAt = room && isChunkStart(nextAt, H3_GRID) && ctx.has(H3_LANDING);
   const latentLanding = landingAt || (room && nextAt === 0 && ctx.has(H3_HEAD_GUIDE));
   return { head, tail, frames, seconds, ownSeconds, latentJoin, latentLanding, nextAt, landingAt, prevLatent, nextLatent };
 }

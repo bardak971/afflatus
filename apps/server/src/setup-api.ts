@@ -82,14 +82,15 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
 
   /**
    * What a form will take, learned from this machine's own renders with the same model (see forecast.ts): a
-   * line for the form's Output part, and whether it is past where the card slowed down before (the part's
-   * header says so then). Nothing is assumed about the card; a model never rendered here says nothing.
+   * line for the form's Output part, whether it is past where the card slowed down before (the part's header
+   * says so then), and the figure the Generate button says. Nothing is assumed about the card; a model never rendered here says nothing.
    */
   app.post("/api/advice", async (req) => {
     const b = z.strictObject({ recipe: z.string().min(1), input: z.record(z.string(), z.unknown()) }).parse(req.body);
     const recipe = s.registry.recipe(b.recipe);
     const got = recipe ? await s.queue.forecast(b.recipe, b.input).catch(() => null) : null;
     if (!recipe || !got) return { estimate: null };
-    return { estimate: { text: said(got.forecast, got.shape).text, pace: got.forecast.pace } };
+    // the figure itself too, for the Generate button: its "about" is this one, times the batch (the load counted once)
+    return { estimate: { text: said(got.forecast, got.shape).text, pace: got.forecast.pace, ms: got.forecast.ms, loadMs: got.forecast.loadMs } };
   });
 }

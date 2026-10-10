@@ -2,7 +2,8 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
-import { chatJson, repeated } from "../src/designer";
+import { repeated } from "../src/designerPrompt";
+import { chatJson } from "../src/llm";
 import { CHECKPOINT, complete, get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
 /** A stand-in for a language model's address: it answers what the test tells it to, and keeps what it was asked. */

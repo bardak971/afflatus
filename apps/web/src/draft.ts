@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { api, ApiError, lookAdds, type Draft } from "./api";
+import { api, failure, lookAdds, raw, type Draft } from "./api";
+import { useAutosave } from "./autosave";
 import { DRAFT_LIST, useDrafts } from "./data";
 import { useProject, type ProjectChoice } from "./project";
 import { useBanners, useOpenDraft } from "./store";
@@ -34,30 +35,17 @@ export function closingBody(d: Draft): Partial<ReturnType<typeof saveBodyOf>> | 
   return size(rest) <= KEEPALIVE_MAX ? rest : null;
 }
 
-/**
- * Jobs run one after the other, each once the one before it is done (failed or not). Two saves of a draft sent at once
- * could be answered out of turn: the older one's answer, written last, put stale data in the cache that the next
- * keystroke then saved over the newer edit.
- */
-export function inTurn(): <T>(job: () => Promise<T>) => Promise<T> {
-  let last: Promise<unknown> = Promise.resolve();
-  return <T>(job: () => Promise<T>) => {
-    const run = last.then(job, job);
-    last = run.catch(() => {});
-    return run;
-  };
-}
+export { inTurn } from "./autosave";
 
 /**
- * A draft saved, through fetch itself rather than `api`: whether the draft is gone (404) is wanted, and a
- * save made as the page closes must outlive the page (`keepalive`). "gone": the server no longer has it.
+ * A draft saved, through `raw` rather than `api.saveDraft`: whether the draft is gone (404) is wanted, and a save made
+ * as the page closes must outlive the page (`keepalive`). "gone": the server no longer has it.
  */
 export async function putDraft(id: string, body: Partial<ReturnType<typeof saveBodyOf>>, keepalive = false): Promise<Draft | "gone"> {
-  const res = await fetch(`/api/drafts/${id}`, { method: "PUT", headers: { "Content-Type": "application/json", "X-Afflatus": "1" }, body: JSON.stringify(body), keepalive });
+  const res = await raw("PUT", `/drafts/${id}`, body, { keepalive });
   if (res.status === 404) return "gone";
-  const data = (await res.json().catch(() => ({}))) as Draft & { error?: string };
-  if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`);
-  return data;
+  if (!res.ok) throw await failure(res);
+  return (await res.json()) as Draft;
 }
 
 /**
@@ -119,23 +107,17 @@ export function useDraft(firstRecipe: string | undefined) {
   const loaded = useQuery({ queryKey: ["drafts", openId], queryFn: () => api.draft(openId!), enabled: Boolean(openId), retry: false, staleTime: Infinity });
 
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [saving, setSaving] = useState<"saved" | "saving" | "failed">("saved");
-  /** Why the last save failed, in the server's words (a cast too large for it, say). */
-  const [failure, setFailure] = useState<string | null>(null);
-  const unsaved = useRef<Draft | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // the draft on screen, for what arrives after a wait (a designer's reply, a seed moved after queuing)
   const shown = useRef<Draft | null>(null);
   shown.current = draft;
   // the open draft is of another project than the one looked at (the choice is global, the open draft too)
   const fate = loaded.data ? draftFate(loaded.data.projectId, under, project) : "keep";
 
-  // the saves of drafts, one at a time (see inTurn): the flushes and the edits of a draft that is not on screen
-  const [turn] = useState(inTurn);
-  const sendUnsaved = useCallback(async () => {
-    const d = unsaved.current;
-    if (!d) return;
-    try {
+  // the edits on screen, saved half a second after the last one (autosave.ts); the saves of drafts go one at a time (see
+  // inTurn), the edits of a draft that is not on screen too
+  const save = useAutosave<Draft>({
+    delayMs: SAVE_AFTER_MS,
+    save: async (d) => {
       let saved = await putDraft(d.id, saveBodyOf(d));
       if (saved === "gone") {
         // swept or deleted elsewhere: made again with what is unsaved, which goes on under the new id
@@ -147,26 +129,18 @@ export function useDraft(firstRecipe: string | undefined) {
         client.removeQueries({ queryKey: ["drafts", from] });
         if (useOpenDraft.getState().id === from) open(to);
       }
-      // what was sent is saved; an edit made meanwhile is still waiting
-      if (unsaved.current === d) unsaved.current = null;
       client.setQueryData(["drafts", saved.id], saved);
       void client.invalidateQueries({ queryKey: DRAFT_LIST });
-      if (!unsaved.current) {
-        setSaving("saved");
-        setFailure(null);
-      }
-    } catch (err) {
-      // the edit stays in `unsaved`: the next flush sends it again
-      setSaving("failed");
-      setFailure((err as Error).message);
-    }
-  }, [client, open]);
-  const flush = useCallback(async () => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-    // what is unsaved is read when its turn comes: an edit made while the save before it was out goes along
-    return turn(sendUnsaved);
-  }, [turn, sendUnsaved]);
+    },
+    // closing or reloading the tab: a request that outlives the page, without the conversation when the whole draft is
+    // too large for one; when even that cannot go, or the conversation is left out, the browser asks first
+    keepalive: (d) => {
+      const body = closingBody(d);
+      if (body) void putDraft(d.id, body, true).catch(() => {});
+    },
+    goesWhole: (d) => closingBody(d)?.chat !== undefined,
+  });
+  const { pending: unsaved, flush, turn } = save;
 
   // what the server has replaces what is on screen only when another draft is opened
   useEffect(() => {
@@ -212,35 +186,6 @@ export function useDraft(firstRecipe: string | undefined) {
     }
   }, [list.data, openId, loaded.isError, fate, flush, project, last, firstRecipe, open, client, say]);
 
-  // leaving the screen saves what is pending
-  useEffect(() => () => void flush(), [flush]);
-  // so does closing or reloading the tab: a request that outlives the page (without the conversation when the whole draft
-  // is too large for one). While a save has failed, or when what is unsaved cannot go whole that way, the browser asks
-  // first: staying lets the ordinary save, started then, finish.
-  useEffect(() => {
-    const hide = () => {
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = null;
-      const d = unsaved.current;
-      const body = d ? closingBody(d) : null;
-      if (d && body) void putDraft(d.id, body, true).catch(() => {});
-    };
-    const ask = (e: BeforeUnloadEvent) => {
-      const d = unsaved.current;
-      const cut = Boolean(d && closingBody(d)?.chat === undefined);
-      if (saving !== "failed" && !cut) return;
-      if (cut) void flush();
-      e.preventDefault();
-      e.returnValue = "";
-    };
-    window.addEventListener("pagehide", hide);
-    window.addEventListener("beforeunload", ask);
-    return () => {
-      window.removeEventListener("pagehide", hide);
-      window.removeEventListener("beforeunload", ask);
-    };
-  }, [saving, flush]);
-
   const change = useCallback(
     (edit: (d: Draft) => Draft) => {
       setDraft((d) => {
@@ -249,11 +194,9 @@ export function useDraft(firstRecipe: string | undefined) {
         unsaved.current = next;
         return next;
       });
-      setSaving("saving");
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => void flush(), SAVE_AFTER_MS);
+      save.schedule();
     },
-    [flush],
+    [unsaved, save.schedule],
   );
 
   /**
@@ -282,13 +225,11 @@ export function useDraft(firstRecipe: string | undefined) {
     drafts: (list.data?.items ?? []).filter((d) => !d.empty || d.id === openId),
     /** How many drafts hold settings and nothing else (no prompt, no name, nothing made). */
     unused: list.data?.unused ?? 0,
-    saving,
-    failure,
+    saving: save.state,
+    /** Why the last save failed, in the server's words (a cast too large for it, say). */
+    failure: save.failure,
     /** Send the edit that could not be saved again. */
-    retry: () => {
-      setSaving("saving");
-      void flush();
-    },
+    retry: save.retry,
     editDraft,
     setValue: (recipe: string, input: string, value: unknown) =>
       change((d) => ({ ...d, forms: { ...d.forms, [recipe]: { ...d.forms[recipe], [input]: value } } })),

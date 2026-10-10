@@ -1,6 +1,7 @@
 import { defineFamily, defineRecipe, GraphBuilder, REFERENCE_ROLES, type InputSpec, type LoraValue, type Ref, type ReferenceValue } from "@afflatus/core";
 import { flowKit, flowRecipes, type FlowSpec } from "../flow/recipes";
 import { loadUnet, unetNodes } from "../shared/unet";
+import { qwenLint } from "../shared/lint";
 
 const HF = "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files";
 const HF_EDIT = "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files";
@@ -69,6 +70,8 @@ RULES FOR AN INSTRUCTION (the part is called "Instruction": a change to a pictur
 EXAMPLES, for the form only (their subjects, places and words are not to be reused):
 A new picture: A coffee shop entrance at dusk with a chalkboard sign by the door that reads "Qwen Coffee $2 per cup" in white hand-lettered chalk, and a neon light beside it displaying "OPEN" in warm pink. Wet cobblestones in front reflect the glow; a bicycle leans against the wall on the left, Ultra HD, 4K, cinematic composition.
 An instruction: Replace the chalkboard's text "Qwen Coffee $2 per cup" with "CLOSED TODAY" in the same hand-lettered chalk style, and keep everything else unchanged.`,
+  /** What the designer wrote, against Qwen's own rewriter: under 200 words, no weights. */
+  lint: qwenLint,
 });
 
 /** What a model or a LoRA made for a few steps is called. */

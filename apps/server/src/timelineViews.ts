@@ -2,8 +2,7 @@ import type { Measure } from "./cut";
 import type { Db } from "./db";
 import type { Look } from "./entities";
 import { assetView } from "./media";
-import { EXPORT_JOB } from "./timelines";
-import { lengthOnGrid, seamless, visible, type Placed, type Taken, type TimelineRow } from "./timelineModel";
+import { EXPORT_JOB, lengthOnGrid, seamless, visible, type Placed, type Taken, type TimelineRow } from "./timelineModel";
 
 /** What a timeline's view is made of besides its clips' order and lengths: its takes as the browser gets them, its jobs, its header. */
 

@@ -1,15 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { rates } from "./estimates";
-import { clear, known, list, size, summary } from "./renders";
+import { clear, list, size, summary } from "./renders";
 import { readSettings } from "./settings";
 import type { Services } from "./services";
 
-/** The "Render times" tab, what the buttons guess from, and the figures as Prometheus reads them. */
+/** The "Render times" tab and the figures as Prometheus reads them. What a form will take is asked of POST /api/advice (forecast.ts). */
 export function registerRenders(app: FastifyInstance, s: Services): void {
-  /** How long things usually take on this machine: for "about 2 min" on buttons. `rates` is what was known before each render was put on record. */
-  app.get("/api/estimates", async () => ({ rates: await rates(s.db), known: await known(s.db) }));
-
   /** The figures over a named period, or over a window (`from` and `to`, ms since the epoch). */
   app.get("/api/renders/summary", async (req) => {
     const q = z.object({ period: z.enum(["day", "week", "month", "all"]).default("week"), from: z.coerce.number().int().optional(), to: z.coerce.number().int().optional() }).parse(req.query);

@@ -1,4 +1,4 @@
-import { chatJson } from "./designer";
+import { chatJson } from "./llm";
 import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
 import { musicPlan, type ClipMusic, type InputSpec } from "@afflatus/core";
@@ -18,7 +18,7 @@ import { takeView, TimelineViews } from "./timelineViews";
 import { recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type TakeLinks } from "./timelinePlan";
 import { TimelineTakes } from "./timelineTakes";
 import { unusedSize, unusedTakes } from "./timelineUnused";
-import { clockOf, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow } from "./timelineModel";
+import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow } from "./timelineModel";
 
 /**
  * Timelines: clips played one after the other. A clip is a place on the timeline with a form (what to
@@ -33,27 +33,6 @@ import { clockOf, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plann
 export { clockOf, FROM_PREVIOUS };
 export type { RangeContext, ClipPlan, TakeLinks };
 
-/** How many frames the trim bar asks for in a video's film strip: one a second, from sixteen up to a hundred and twenty (see Trim.tsx). */
-const TRIM_STRIP_FRAMES = (durationMs: number) => Math.min(120, Math.max(16, Math.round(durationMs / 1000)));
-
-/**
- * The keys of what the timeline works out of a video and keeps beside it: its film strip (the track's,
- * and the trim bar's when its length is known), its motion and loudness, its scene cuts, its colour along it. They go when
- * the video goes, or when the file behind it changes (a linked folder's file written again).
- */
-export function derivedKeys(asset: { id: string; duration_ms: number | null }): string[] {
-  const dir = asset.id.slice(0, 2);
-  return [
-    `strips/${dir}/${asset.id}.jpg`,
-    ...(asset.duration_ms ? [`strips/${dir}/${asset.id}-${TRIM_STRIP_FRAMES(asset.duration_ms)}x48.jpg`] : []),
-    `motion/${dir}/${asset.id}.json`,
-    `scenes/${dir}/${asset.id}.json`,
-    `means/${dir}/${asset.id}.json`,
-  ];
-}
-
-/** The recipe id of a job that keeps a range of a video as new videos, instead of rendering something. */
-export const CUT_JOB = "afflatus.cut";
 export interface CutOptions {
   asset: string;
   startMs: number;
@@ -83,8 +62,6 @@ export interface CutOptions {
   timeline?: string;
 }
 
-/** The recipe id of a job that exports a timeline instead of rendering something. */
-export const EXPORT_JOB = "afflatus.export";
 export interface ExportOptions {
   timeline: string;
   /** Enlarge every frame at the end: 1 (as rendered), 1.5 or 2. */

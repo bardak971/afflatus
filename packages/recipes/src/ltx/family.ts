@@ -1,4 +1,4 @@
-import { frameOf } from "@afflatus/core";
+import { frameOf, type PromptLine, LIST_LINE, wordCount } from "@afflatus/core";
 import { defineFamily } from "@afflatus/core";
 import { SEEDVR_SLOTS } from "../video/upscale";
 
@@ -88,6 +88,16 @@ RULES
 - The "Negative prompt" part only acts above CFG 1 (the distilled models run at 1): leave it alone unless asked. No weights, no quality words.
 EXAMPLE, for the form only (its subject, place and words are not to be reused):
 A saxophone player in a wrinkled suit plays a slow melody with his eyes closed, swaying gently, in a dimly lit 1950s New York jazz club. Smoke curls through amber spotlights behind him; a few patrons at small tables to the left cradle drinks in blue shadow. Medium shot from a slightly low angle, the camera pushing in slowly and settling on his face as he opens his eyes mid-phrase. Warm amber light on him, deep blue shadows, a film noir palette with soft grain. The audio is the slow saxophone line over the clink of glasses and low murmured conversation, no other music.`,
+  /** What the designer wrote, against LTX's guide: one flowing paragraph, an audio sentence, at most 200 words. */
+  lint({ text, main }) {
+    if (!text?.trim()) return [];
+    const out: PromptLine[] = [];
+    const n = wordCount(text);
+    if (!/\b(audio|sound|hear|heard|ambien|music|silen)/i.test(text)) out.push({ part: main, text: "No audio sentence: LTX makes the sound too, and what is not written is not reliably heard. End with \"The audio is …\"." });
+    if (n > 220) out.push({ part: main, text: `${n} words; the model's guide stops at 200.` });
+    if (LIST_LINE.test(text)) out.push({ part: main, text: "A list: LTX wants one flowing paragraph." });
+    return out;
+  },
 });
 
 export const LTX_FPS = 25;

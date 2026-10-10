@@ -1,4 +1,4 @@
-import { secondsOf } from "@afflatus/core";
+import { FRAME_SLACK_MS, secondsOf } from "@afflatus/core";
 import type { Asset, Clip, ClipPatch, RecipeInfo, Take } from "../api";
 import { clock } from "../format";
 
@@ -66,7 +66,7 @@ export function placeOf(slots: Slot[], playMs: number): { slot: Slot; x: number;
 export function splitPoint(c: Clip, assetMs: number): { at: number } | { why: string } {
   const take = c.take;
   if (!take) return { why: c.kind === "still" ? "a still has no take to split" : "nothing rendered to split yet" };
-  if (assetMs < take.startMs + 40 || assetMs > take.endMs - 40) return { why: "the playhead is on a cut" };
+  if (assetMs < take.startMs + FRAME_SLACK_MS || assetMs > take.endMs - FRAME_SLACK_MS) return { why: "the playhead is on a cut" };
   return { at: assetMs };
 }
 

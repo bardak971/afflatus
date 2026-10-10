@@ -1,5 +1,6 @@
 import { defineFamily, defineRecipe, GraphBuilder, REFERENCE_ROLES, roundTo, type InputSpec, type LoraValue, type Ref, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import { loadUnet, unetNodes } from "../shared/unet";
+import { qwenLint } from "../shared/lint";
 
 const HF = "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main";
 
@@ -47,6 +48,8 @@ RULES FOR AN INSTRUCTION (the part is called "Instruction": a change to a pictur
 EXAMPLES, for the form only (their subjects, places and words are not to be reused):
 A new picture: A neon shop sign that reads "QWEN IMAGE 2.1" in cyan tube letters over a shuttered storefront on a rainy night, its reflection broken across the wet pavement below, a lone umbrella passing on the left.
 An instruction: Keep the character and the pose in <image1> unchanged, put the light blue denim shirt from <image2> on the character, and preserve the original facial features, hair, body shape and background.`,
+  /** What the designer wrote, against Qwen's own rewriter: under 200 words, no weights. */
+  lint: qwenLint,
 });
 
 interface Qwen21Base {

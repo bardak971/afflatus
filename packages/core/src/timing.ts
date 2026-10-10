@@ -1,11 +1,10 @@
-import { secondsOf, type InputSpec } from "./inputs";
+import type { InputSpec } from "./inputs";
 import { modelFileName } from "./warm";
 
 /**
- * How long a render will take, guessed from the renders before it. The server keeps a record of each
- * render (its model, its settings, how long each part took); from those it makes, per recipe, what is
- * `Known`; and a guess for a form is read from that, here, by the server (the queue) and by the browser
- * (the button) alike: the two never say different things.
+ * What the record of render times files a render under (its time key, its model), and how an estimate is
+ * said. The estimate itself is the server's (forecast.ts): the queue, the form and the Generate button all
+ * ask it, so they never say different things.
  */
 
 /** Settings that change what is made, not how long it takes. */
@@ -57,42 +56,12 @@ export function modelOf(specs: InputSpec[], values: Record<string, unknown>): st
   return typeof value === "string" && value ? modelName(value) : null;
 }
 
-/** What past renders of one recipe say. */
-export interface Known {
-  /** Renders with exactly these settings on this model: the best there is to go on. */
-  settings: Array<{ key: string; model: string; ms: number; samples: number }>;
-  /** Everything rendered with one model file. */
-  models: Array<{ model: string; ms: number; perSecondMs: number | null; loadMs: number; samples: number }>;
-  /** Everything rendered with the recipe, whatever the model. */
-  ms: number;
-  perSecondMs: number | null;
-  /** What loading the model adds, when it is not loaded yet. */
-  loadMs: number;
-  samples: number;
-}
-
-export interface Guess {
-  /** With the model already loaded. */
-  ms: number;
-  /** What a model that has to load first adds. */
-  loadMs: number;
-  /** What it rests on: the same settings, the same model, or only the same recipe. */
-  from: "settings" | "model" | "recipe";
-  samples: number;
-}
-
-/** About how long one render of these values takes; null when nothing like it was rendered yet. */
-export function guess(known: Known | undefined, specs: InputSpec[], values: Record<string, unknown>): Guess | null {
-  if (!known || !known.samples) return null;
-  const model = modelOf(specs, values);
-  const seconds = secondsOf(specs, values);
-  const key = timeKey(specs, values);
-  const ofModel = model ? known.models.find((m) => m.model === model) : undefined;
-  const loadMs = ofModel?.loadMs ?? known.loadMs;
-  // the same settings, on the same model when the form names one
-  const same = known.settings.filter((s) => s.key === key && (!model || s.model === model)).sort((a, b) => b.samples - a.samples)[0];
-  if (same) return { ms: same.ms, loadMs, from: "settings", samples: same.samples };
-  const by = (per: number | null, flat: number) => Math.round(per && seconds ? per * seconds : flat);
-  if (ofModel) return { ms: by(ofModel.perSecondMs, ofModel.ms), loadMs, from: "model", samples: ofModel.samples };
-  return { ms: by(known.perSecondMs, known.ms), loadMs, from: "recipe", samples: known.samples };
+/**
+ * A time an estimate says, rounded as one: "40 s" (to five seconds, never under five), "2 min" from a minute
+ * and a half. The one rounding of every "about": the Generate button and the form's Output line say the same
+ * figure for the same forecast because both are written with it.
+ */
+export function roughly(ms: number): string {
+  const s = ms / 1000;
+  return s < 90 ? `${Math.max(5, Math.round(s / 5) * 5)} s` : `${Math.round(s / 60)} min`;
 }

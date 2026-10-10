@@ -1,3 +1,4 @@
+import { environment } from "./config";
 /**
  * Which names the server answers to. A page open in the browser on the same machine can point one of
  * its own names at 127.0.0.1 (DNS rebinding) and then drive the API from a script, since there is no
@@ -20,7 +21,7 @@ export function hostOnly(header: string): string {
 }
 
 /** The names that are allowed, from the environment. */
-export function allowedHosts(env: NodeJS.ProcessEnv = process.env): Set<string> {
+export function allowedHosts(env: NodeJS.ProcessEnv = environment()): Set<string> {
   const hosts = new Set(LOOPBACK);
   const bound = (env.HOST ?? "").trim().toLowerCase();
   if (!EVERY_ADDRESS.has(bound)) hosts.add(bound.includes(":") && !bound.startsWith("[") ? `[${bound}]` : bound);

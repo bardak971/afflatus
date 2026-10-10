@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { sql, type Expression, type SqlBool } from "kysely";
 import type { InputSpec } from "@afflatus/core";
 import { z } from "zod";
-import { NOT_IN_LIBRARY } from "./assetSearch";
+import { NOT_IN_LIBRARY } from "./library";
 import { OWNER, type Db, type Tables } from "./db";
 import { httpError } from "./errors";
 import { promptHistory } from "./promptHistory";
@@ -232,7 +232,7 @@ const estimateQuery = z.object({
 
 /**
  * What rendering some of a timeline's clips, or a draft's next render (its count of jobs), would take: each form's
- * forecast (queue.forecast, the same as the form's own estimate) added up. Nothing is assumed about the card: one
+ * forecast (queue.forecast, the one figure the form, its Generate button and the queue say too) added up. Nothing is assumed about the card: one
  * part with no learned figure makes the whole null rather than a sum that leaves it out.
  */
 export async function commandEstimate(s: Services, raw: unknown): Promise<CommandEstimate> {

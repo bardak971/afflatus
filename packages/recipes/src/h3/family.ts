@@ -1,4 +1,4 @@
-import { frameOf } from "@afflatus/core";
+import { frameOf, gridNearest, LATENT_GRID, type FrameGrid, type PromptLine, QUOTED_SPEECH, wordCount } from "@afflatus/core";
 import { defineFamily } from "@afflatus/core";
 import { SEEDVR_SLOTS } from "../video/upscale";
 
@@ -90,9 +90,31 @@ EXAMPLE, for the form only (its subject, place, lens and words are not to be reu
 Prompt: Live-action, cinematic. The young woman shown in the picture keeps her appearance, her clothing and her seat by the rain-covered train window. The camera trucks right with small amplitude at slow speed as she lifts her gaze from the folded letter toward the passing city lights. Her reflection slides across the glass while the quiet, breathy young woman (S1) says, almost to herself: <d>[English] I get off at the next station.</d> She folds the letter along its crease.
 Sound effects: The train wheels keep a steady metallic rhythm under a low ventilation hum. Rain ticks against the window; paper rustles softly in her hands.
 Music: Sustained cello notes at a slow tempo with widely spaced piano tones, slowly fading.`,
+  /** What the designer wrote, against H3's layout: Afflatus writes the labels and marks, speech goes in <d>[Language] …</d>, sounds and music in their own parts. */
+  lint({ text, main, changes }) {
+    const out: PromptLine[] = [];
+    const say = (part: string, line: string) => out.push({ part, text: line });
+    if (text?.trim()) {
+      const n = wordCount(text);
+      if (/integrated_multimodal_description:|overall_soundscape:|non_diegetic_music:/i.test(text)) say(main, "It wrote the layout's field labels into the prompt; Afflatus adds those itself.");
+      if (/<d>(?!\s*\[)/i.test(text)) say(main, "A spoken line without its language tag: it should read <d>[English] …</d>.");
+      if (!/<d>/i.test(text) && QUOTED_SPEECH.test(text)) say(main, "Speech in plain quotes: H3 only speaks what is inside <d>[Language] …</d>.");
+      if (/\[Shot 1\]/i.test(text) && !/\[Shot 2\]/i.test(text)) say(main, "It wrote [Shot 1] itself; that mark is added for it.");
+      if (n > 200) say(main, `${n} words for one shot; the model's guide wants 100 to 150.`);
+      if (/\b(no|not|never|without|don't)\b/i.test(text) && /\b(no|without) (other|extra|additional) (people|person|text|objects?)\b/i.test(text)) say(main, "A ban written as a negative: H3 has no negative branch, say the wanted state instead.");
+    }
+    // the other parts: dialogue or music where only sounds go
+    const sound = changes.soundscape;
+    if (sound && /<d>|\bmusic\b|\bsong\b|\bsoundtrack\b/i.test(sound)) say("soundscape", "Dialogue or music in Sound effects: that part is ambience and physical sound only.");
+    const music = changes.music;
+    if (music && /\bby\s+[A-Z][a-z]+(\s+[A-Z][a-z]+)?\b|\b(Hans Zimmer|Daft Punk|Beatles|Mozart|Beethoven|Taylor Swift)\b/.test(music)) say("music", "An artist or song name in Music: the model takes genre, tempo and instruments, never names.");
+    return out;
+  },
 });
 
 export const H3_FPS = 24;
+/** H3's frame counts, 17k + 5, and its latent's 17-frame chunks: the grid the app keeps latents on (core's LATENT_GRID). */
+export const H3_GRID: FrameGrid = LATENT_GRID;
 /** The longest clip the model was trained on: 362 frames (15 s at 24), joins included. */
 export const H3_MAX_FRAMES = 362;
 /** H3's largest canvas in one pass as it was trained: 768 × 1344 pixels. Both edges are multiples of 32. */
@@ -108,8 +130,8 @@ export const H3_FORM_PIXELS = 1088 * 1920;
  */
 export function h3Frames(seconds: number): number {
   const wanted = Math.max(5, Math.round(seconds * H3_FPS));
-  const nearest = Math.max(5, Math.round((wanted - 5) / 17) * 17 + 5);
-  return wanted - nearest > 4 ? nearest + 17 : nearest;
+  const nearest = gridNearest(wanted, H3_GRID);
+  return wanted - nearest > 4 ? nearest + H3_GRID.step : nearest;
 }
 
 /** The canvas for a shape: `short` pixels on the short edge, the shape's proportions, within `maxPixels` (what the model takes, unless a form asks for more). */

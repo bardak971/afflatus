@@ -1,5 +1,5 @@
 import type { RecipeStatus } from "./api";
-import { missingNodesSaid } from "@afflatus/core";
+import { missingNodesSaid, roughly } from "@afflatus/core";
 
 /** "42 s", "3 min 05 s". */
 /** A length to a tenth of a second: "4.5 s". */
@@ -77,8 +77,8 @@ export function left(ms: number, over = "going to the bin"): string {
 /** A time that is a guess, said as one: "about 40 s", "about 2 min". Empty when there is nothing to go on. */
 export function aboutMs(ms: number | null | undefined): string {
   if (!ms || ms <= 0) return "";
-  const s = ms / 1000;
-  return s < 90 ? `about ${Math.max(5, Math.round(s / 5) * 5)} s` : `about ${Math.round(s / 60)} min`;
+  // core's rounding, the one the server's forecast line is written with too
+  return `about ${roughly(ms)}`;
 }
 
 const REPO = "https://github.com/bardak971/afflatus";

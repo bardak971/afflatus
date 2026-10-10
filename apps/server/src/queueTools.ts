@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ComfyCancelled, detect, waitForOutputs, type Measured, type OutputFile } from "@afflatus/comfy";
-import { choicesOf, GraphBuilder, type BuildContext, type Ref } from "@afflatus/core";
+import { choicesOf, GraphBuilder, TOOLS_FAMILY, type BuildContext, type Ref } from "@afflatus/core";
 import { pixelUpscale, saveVideo, UPSCALE } from "@afflatus/recipes";
 import type { Comfy } from "./comfy";
 import { slowSoundOnto } from "./cut";
@@ -10,7 +10,8 @@ import { extOf } from "./media";
 import { readVideo } from "./video";
 import { folderForMade, timelineOfClip } from "./timelineFolder";
 import { recordTool, toolPace } from "./renders";
-import { CUT_JOB, type CutOptions, type ExportOptions, type Timelines } from "./timelines";
+import type { CutOptions, ExportOptions, Timelines } from "./timelines";
+import { CUT_JOB } from "./timelineModel";
 import { readJson, type JobRow, type QueueCore, type Running } from "./queueModel";
 import { taken } from "./queueSubmit";
 
@@ -150,7 +151,7 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
     const catalog = await comfy.catalog();
     // SeedVR2's two files, found by name as the setup page finds them (the full scan is not needed for that)
     const slots: Record<string, string> = {};
-    for (const slot of (core.registry.family("tools")?.slots ?? []).filter((x) => x.id === "seedvr" || x.id === "seedvrVae")) {
+    for (const slot of (core.registry.family(TOOLS_FAMILY)?.slots ?? []).filter((x) => x.id === "seedvr" || x.id === "seedvrVae")) {
       const hit = detect(await comfy.client.models(slot.folder).catch(() => [] as string[]), slot.detect);
       if (hit) slots[slot.id] = hit;
     }

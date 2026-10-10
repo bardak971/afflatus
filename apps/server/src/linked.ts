@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { basename, delimiter, dirname, extname, join, parse, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
 import type { EventEmitter } from "node:events";
-import { loadConfig } from "./config";
+import { loadConfig, environment } from "./config";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { httpError } from "./errors";
 import { extOf, mimeOfDiskFile, newAssetRow } from "./media";
@@ -41,7 +41,7 @@ const NETWORK_REFUSED = "A network path (\\\\server\\share) cannot be used here:
  * folder and LINK_ROOTS are each followed to their real place first. The text is checked as well, for a path that cannot
  * be followed. ComfyUI's folder on a network share is left as it is written (following it would reach for the share).
  */
-export async function whyNotLinkableOnDisk(dir: string, comfyDir = "", env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
+export async function whyNotLinkableOnDisk(dir: string, comfyDir = "", env: NodeJS.ProcessEnv = environment()): Promise<string | null> {
   const real = (p: string) => realpath(resolve(p)).catch(() => resolve(p));
   const roots = (env.LINK_ROOTS ?? "").split(delimiter).map((r) => r.trim()).filter(Boolean);
   const onDisk: NodeJS.ProcessEnv = { ...env, DATA_DIR: await real(loadConfig(env).dataDir), ...(roots.length ? { LINK_ROOTS: (await Promise.all(roots.map((r) => (isNetworkPath(r) ? resolve(r) : real(r))))).join(delimiter) } : {}) };
@@ -59,7 +59,7 @@ export async function whyNotLinkableOnDisk(dir: string, comfyDir = "", env: Node
  * as PATH is), narrows linking to those directories and what is under them; a server that listens on more
  * than loopback (HOST) links nothing until it is set.
  */
-export function whyNotLinkable(dir: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, home: string = homedir(), comfyDir = ""): string | null {
+export function whyNotLinkable(dir: string, env: NodeJS.ProcessEnv = environment(), platform: NodeJS.Platform = process.platform, home: string = homedir(), comfyDir = ""): string | null {
   const windows = platform === "win32";
   const norm = (p: string) => (windows ? p.toLowerCase() : p);
   const d = norm(resolve(dir));

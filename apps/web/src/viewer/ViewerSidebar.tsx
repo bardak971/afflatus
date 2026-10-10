@@ -338,7 +338,7 @@ function ReferencePicker({ asset, onDone }: { asset: Asset; onDone?(): void }) {
         onChange={(id) => start.mutate(id)}
         options={ways.map((r) => {
           const family = recipes.data?.families.find((f) => f.id === r.family);
-          return { value: r.id, label: r.title, detail: r.summary, group: r.id.startsWith("workflow.") ? "Your workflows" : family?.name, search: family?.name };
+          return { value: r.id, label: r.title, detail: r.summary, group: r.imported ? "Your workflows" : family?.name, search: family?.name };
         })}
       />
       {start.isError && <span className="text-warn-ink">{start.error.message}</span>}

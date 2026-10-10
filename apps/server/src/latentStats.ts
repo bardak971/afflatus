@@ -5,6 +5,7 @@
  * guided by a sampled latent reproduces that tail almost exactly but a few per cent wider in every channel,
  * at every hop, and nothing re-anchors it, so a chain slides softer and darker.
  */
+import { gridIndex, LATENT_GRID } from "@afflatus/core";
 
 /** The video stream of a saved latent: its float32 values and shape, or null when the file is not one. */
 function videoOf(bytes: Uint8Array): { data: Float32Array; shape: number[] } | null {
@@ -28,8 +29,8 @@ function videoOf(bytes: Uint8Array): { data: Float32Array; shape: number[] } | n
 
 /** The video latent length (tokens) of an aligned frame count on MiniMax H3's 17k + 5 grid, or 0 when off it. */
 export function videoTokensOf(frames: number): number {
-  if (frames < 5 || (frames - 5) % 17 !== 0) return 0;
-  return ((frames - 5) / 17) * 5 + 2;
+  const chunks = gridIndex(frames, LATENT_GRID);
+  return chunks < 0 ? 0 : chunks * 5 + 2;
 }
 
 /**

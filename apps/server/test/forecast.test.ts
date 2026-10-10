@@ -46,12 +46,12 @@ describe("what a render will take, learned from the renders before it", () => {
 
   it("is said as a line, with the setting's word only past the cliff", () => {
     const shape = { pixels: 768 * 1344, frames: 158 };
-    const over = said({ ms: 14 * 60_000, pace: "over", fitsUpTo: 768 * 1344 * 141, samples: 6 }, shape);
+    const over = said({ ms: 14 * 60_000, pace: "over", fitsUpTo: 768 * 1344 * 141, samples: 6, loadMs: 0 }, shape);
     expect(over.text).toContain("About 14 min");
     expect(over.text).toContain("up to 141 frames at this size");
     expect(over.hint).toContain("141 frames");
-    expect(said({ ms: 45_000, pace: "usual", fitsUpTo: 1e6, samples: 3 }, { pixels: 1e6, frames: 1 })).toEqual({ text: "About 45 s, from your renders with this model.", hint: null });
-    expect(said({ ms: 200_000, pace: "untested", fitsUpTo: 1e6, samples: 3 }, { pixels: 2e6, frames: 1 }).hint).toBeNull();
+    expect(said({ ms: 45_000, pace: "usual", fitsUpTo: 1e6, samples: 3, loadMs: 0 }, { pixels: 1e6, frames: 1 })).toEqual({ text: "About 45 s, from your renders with this model.", hint: null });
+    expect(said({ ms: 200_000, pace: "untested", fitsUpTo: 1e6, samples: 3, loadMs: 0 }, { pixels: 2e6, frames: 1 }).hint).toBeNull();
   });
 
   it("reads a graph's work off its nodes: the largest canvas, the frame count, the steps", () => {
