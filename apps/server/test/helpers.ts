@@ -46,7 +46,7 @@ export async function makeApp(opts: { db?: Db; dir?: string; comfyUrl?: string }
   await migrate(db);
   await writeSettings(db, { comfyUrl: opts.comfyUrl ?? NOWHERE });
   const dir = opts.dir ?? mkdtempSync(join(tmpdir(), "afflatus-test-"));
-  const services = await createServices(db, "sqlite", new LocalStorage(dir), FAST);
+  const services = await createServices(db, "sqlite", new LocalStorage(dir), FAST, { precompute: false });
   // the start's sweep runs in the background: done before the test sets up what it would sweep
   await services.started;
   const app = buildApp(services, { backup: { dataDir: dir, filesDir: dir } });

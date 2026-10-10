@@ -11,6 +11,7 @@ import { sourceOf } from "./storage";
 import { inUse } from "./sweep";
 import { readVideo, videoFacts } from "./video";
 import { clockOf, laidOut, landingOnGrid, lengthOf, lengthOnGrid, plays, STILL_MS, visible, type AssetRow, type ClipRow, type Laid, type Placed, type TimelineCore } from "./timelineModel";
+import { precomputeOf } from "./precompute";
 
 /**
  * Cuts, on the timeline's clock and in a video's own time: a clip split or duplicated, a range of the
@@ -83,6 +84,8 @@ export class TimelineRange {
       for (const row of rows) await tx.insertInto("assets").values(row).execute();
       if (binned && !linked) await tx.updateTable("assets").set({ deleted_at: now() }).where("id", "=", video.id).execute();
     });
+    // the new videos' motion, film strip and colour, measured in the background before a timeline asks for them
+    for (const row of rows) precomputeOf(db)?.video(row.id);
     // the new videos are made either way: a linked file another program holds open just stays where it is
     if (binned && linked) await linkedToBin(db, this.core.storage, video).catch((err: Error) => console.warn(`[cut] the source stays in its folder: ${err.message}`));
     events.emit("library", { change: "added", items: rows.map((r) => r.id), folders: foldersOf(rows) } satisfies LibraryChange);
@@ -137,6 +140,8 @@ export class TimelineRange {
       return this.splitAt(clip.timeline_id, p, atMs - start, tx);
     });
     await this.core.touch(clip.timeline_id);
+    // what the editor reads of the clips now there, measured again in the background once the edits settle
+    precomputeOf(this.core.db)?.timeline(clip.timeline_id);
     return id;
   }
 
@@ -175,6 +180,7 @@ export class TimelineRange {
       await this.core.renumber(clip.timeline_id, order, tx);
     });
     await this.core.touch(timelineId);
+    precomputeOf(this.core.db)?.timeline(timelineId);
     return id;
   }
 
@@ -306,6 +312,7 @@ export class TimelineRange {
       });
     });
     await this.core.touch(timelineId);
+    precomputeOf(this.core.db)?.timeline(timelineId);
   }
 
   /** What plays between In and Out goes; the clips after close the gap. Undo brings it back. */
@@ -319,6 +326,7 @@ export class TimelineRange {
       });
     });
     await this.core.touch(timelineId);
+    precomputeOf(this.core.db)?.timeline(timelineId);
   }
 
   /** The picture at a moment of a clip (`localMs` after it starts playing): a still itself, a frame of a take. */
@@ -341,6 +349,7 @@ export class TimelineRange {
   async regenerateRange(timelineId: string, inMs: number, outMs: number): Promise<{ clip: string; context: RangeContext; widenedMs?: number; longerMs?: number }> {
     const made = await this.core.oneAtATime(timelineId, () => this.regenerateInTurn(timelineId, inMs, outMs));
     await this.core.touch(timelineId);
+    precomputeOf(this.core.db)?.timeline(timelineId);
     return made;
   }
 
@@ -493,6 +502,7 @@ export class TimelineRange {
   async loopRange(timelineId: string, inMs: number, outMs: number): Promise<{ clip: string; context: RangeContext; arrive: string }> {
     const made = await this.core.oneAtATime(timelineId, () => this.loopInTurn(timelineId, inMs, outMs));
     await this.core.touch(timelineId);
+    precomputeOf(this.core.db)?.timeline(timelineId);
     return made;
   }
 
@@ -576,6 +586,7 @@ export class TimelineRange {
       return this.edit(timelineId, (tx) => this.slowSplit(timelineId, a, b, factor, tx));
     });
     await this.core.touch(timelineId);
+    precomputeOf(this.core.db)?.timeline(timelineId);
     return jobs;
   }
 

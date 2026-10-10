@@ -17,6 +17,7 @@ import { readJson } from "./queueModel";
 import { Timelines } from "./timelines";
 import { sweepIdleDrafts } from "./drafts";
 import { Updates } from "./modelUpdates";
+import { Precompute, type PrecomputeOptions } from "./precompute";
 
 /** Everything the routes need, built once at start (and once per test). */
 export interface Services {
@@ -39,13 +40,15 @@ export interface Services {
   updates: Updates;
   /** The first sweep done, which runs in the background from the start (the tests wait for it, so that it does not sweep what they set up). */
   started: Promise<void>;
+  /** What the timeline editor reads of its clips, measured in the background once stored (null: off, as in most tests). */
+  precompute: Precompute | null;
   close(): Promise<void>;
 }
 
 export async function createServices(
   db: Db, dbKind: DbKind, own: Storage, queueOptions: QueueOptions = DEFAULT_QUEUE_OPTIONS,
   /** Where the shipped presets are read from: the repository's folder (or PRESETS_DIR) unless said otherwise; null for none. And the data folder, where the downloads' state file is kept between runs. */
-  dirs: { shippedPresets?: string | null; dataDir?: string } = {},
+  dirs: { shippedPresets?: string | null; dataDir?: string; precompute?: PrecomputeOptions | false } = {},
 ): Promise<Services> {
   // Afflatus's own files and the files of linked folders are read through the same door
   const storage = new RoutedStorage(own);
@@ -82,6 +85,7 @@ export async function createServices(
   });
   const timelines = new Timelines(db, storage, registry, queue.events);
   queue.clips = timelines;
+  const precompute = dirs.precompute === false ? null : new Precompute(db, timelines.media, dirs.precompute);
   // a linked file that changed on the disk: what the timelines derived from it (strips, motion, scenes) goes too
   const linked = new Linked(db, storage, queue.events, timelines);
   await linked.load();
@@ -104,8 +108,10 @@ export async function createServices(
     shippedPresets: new ShippedPresets(dirs.shippedPresets === undefined ? shippedPresetsDir() : dirs.shippedPresets),
     updates: null as unknown as Updates,
     started: swept.then(() => undefined),
+    precompute,
     async close() {
       clearInterval(sweeper);
+      await precompute?.stop();
       queue.stop();
       await queue.idle();
       current?.close();
