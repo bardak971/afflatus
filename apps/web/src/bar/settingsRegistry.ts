@@ -1,6 +1,6 @@
 import type { Settings } from "../api";
-import { INDEX, TABS, type Tab } from "../screens/settings/settingsIndex";
-import { allowNotifications, useExplain, useHoverPlay, useNotify } from "../store";
+import { INDEX, settingHref, TABS, type Tab } from "../screens/settings/settingsIndex";
+import { allowNotifications, useBanners, useExplain, useHoverPlay, useNotify } from "../store";
 import { useThemeChoice } from "../theme/store";
 import { THEMES } from "../theme/themes";
 import { ask } from "../Confirm";
@@ -41,6 +41,18 @@ export interface SettingEntry {
   verb?: string;
 }
 
+/**
+ * A notification switch, as Settings › Interface turns it: on asks the browser for the right first, and a refusal is said
+ * (the page shows "Blocked by the browser"; the bar has no row for it, so a banner says it).
+ */
+async function notifySwitch(what: "eachRender" | "whenEmpty", on: boolean) {
+  if (on && !(await allowNotifications())) {
+    useBanners.getState().push({ id: "bar:notify", tone: "bad", title: "Notifications are blocked by the browser", text: "Allow them for this page next to the address, then switch it on again.", href: settingHref(`notify.${what === "eachRender" ? "each" : "empty"}`), go: "Open Settings › Interface" });
+    return;
+  }
+  useNotify.getState().set({ [what]: on });
+}
+
 export const pageLabel = (tab: Tab) => TABS.find((t) => t.id === tab)?.label ?? "Settings";
 
 const server = (key: "tagCheck" | "civitaiLookups" | "downloadModels" | "updateChecks", label: string, page: Tab, about: string, words?: string): SettingEntry => ({
@@ -77,12 +89,12 @@ export const SETTINGS: SettingEntry[] = [
     set: (_c, v) => { const s = useThemeChoice.getState(); s.set({ day: String(v), mode: s.mode === "dark" ? "light" : s.mode }); },
     options: () => THEMES.filter((t) => t.light).map((t) => ({ value: t.id, label: t.name })),
   },
-  { id: "notify.each", label: "Notify after each render", page: "interface", words: "browser notification done finished", scope: "this browser", kind: "switch", about: "A notification of this browser when a render finishes or fails.", get: () => useNotify.getState().eachRender, set: async (_c, v) => { if (!v || (await allowNotifications())) useNotify.getState().set({ eachRender: Boolean(v) }); } },
-  { id: "notify.empty", label: "Notify when the queue is empty", page: "interface", words: "browser notification done", scope: "this browser", kind: "switch", about: "A notification of this browser when everything that was waiting is done.", get: () => useNotify.getState().whenEmpty, set: async (_c, v) => { if (!v || (await allowNotifications())) useNotify.getState().set({ whenEmpty: Boolean(v) }); } },
+  { id: "notify.each", label: "Notify after each render", page: "interface", words: "browser notification done finished", scope: "this browser", kind: "switch", about: "A notification of this browser when a render finishes or fails.", get: () => useNotify.getState().eachRender, set: (_c, v) => notifySwitch("eachRender", Boolean(v)) },
+  { id: "notify.empty", label: "Notify when the queue is empty", page: "interface", words: "browser notification done", scope: "this browser", kind: "switch", about: "A notification of this browser when everything that was waiting is done.", get: () => useNotify.getState().whenEmpty, set: (_c, v) => notifySwitch("whenEmpty", Boolean(v)) },
   server("tagCheck", "Danbooru tag check", "prompts", "Tags written for an anime model are compared with danbooru's list: another name or a typo is pointed out under the prompt.", "typo tags anime"),
   server("civitaiLookups", "Search Hugging Face and Civitai", "models", "Missing model files, trigger words and model pages may be looked for on Hugging Face and Civitai (file hashes are sent).", "civitai lookups trigger words lora names"),
   server("downloadModels", "Download missing models", "models", "Missing model files may be fetched into ComfyUI, through ComfyUI-Manager.", "download missing files into comfyui manager fetch"),
-  server("updateChecks", "Check for newer model versions daily", "models", "Once a day, Civitai is asked for newer versions of the models here (with Search Hugging Face and Civitai on; hashes are sent).", "check for newer versions of your models update civitai version"),
+  server("updateChecks", "Newer versions on Civitai: check once a day", "models", "Once a day, Civitai is asked for newer versions of the models here (with Search Hugging Face and Civitai on; hashes are sent).", "check for newer versions of your models update civitai version"),
   { id: "bar.learn", label: "Learn what I use", page: "bar", words: "command bar ranking recent frequency", scope: "this browser", kind: "switch", about: "What you open often and lately comes first in the bar. Kept in this browser.", get: () => useBar.getState().learn, set: (_c, v) => useBar.getState().setLearn(Boolean(v)) },
   { id: "bar.preview", label: "Preview", page: "bar", words: "preview in the bar command bar shift", scope: "this browser", kind: "switch", about: "The selected result shown beside the list. Shift shows or hides it.", get: () => useBar.getState().preview, set: (_c, v) => useBar.getState().setPreview(Boolean(v)) },
   barPart("snippets", "Prompt snippets", "Type ; and a snippet's name in any prompt box: a space or Tab puts its text there.", "typed by name command bar ; expand kit"),

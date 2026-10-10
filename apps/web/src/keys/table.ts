@@ -56,6 +56,8 @@ export const PLACES: KeyPlace[] = [
           { keys: "?", does: "Keyboard shortcuts", id: "keys" },
           { keys: "Esc", does: "Close what is open on top" },
           { keys: "Menu | Shift+F10", does: "Menu of what has the focus" },
+          // Banners.tsx: the newest banner with an Undo (a move, a bin), off the timeline editor and outside dialogs
+          { keys: "Ctrl+Z", does: "Undo a move or a bin", note: "while its banner shows Undo; the timeline editor keeps its own" },
         ],
       },
     ],

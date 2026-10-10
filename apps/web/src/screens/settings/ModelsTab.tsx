@@ -114,7 +114,7 @@ function SlotChoices({ family }: { family: string }) {
   });
   if (!slots.length) return null;
   return (
-    <div className="flex flex-col gap-2 px-[18px] py-2.5">
+    <div data-setting="models.files" className="flex flex-col gap-2 px-[18px] py-2.5">
       <span className="flex items-center gap-1.5 text-xs font-semibold">Files in use <Help title="Files in use" text="More than one file fits here. Left to itself, Afflatus takes the first its patterns name; pick another to use it everywhere this family does." /></span>
       {slots.map((s) => (
         <div key={s.id} className="flex items-center justify-between gap-3">

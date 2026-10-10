@@ -234,6 +234,24 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       else takeNow.current(request.by);
       return;
     }
+    // the bar's `> undo`, as Ctrl+Z here: the header says what was undone, or that there is nothing to
+    if (request.do === "undo") {
+      asked?.reply(null);
+      if (!t.undo) return setNote("Nothing to undo");
+      if (!undo.isPending && !redo.isPending) undo.mutate();
+      return;
+    }
+    // the bar's `> clip 3`: the clip selected and the playhead on its start, as a click on it in the track
+    if (request.do === "select") {
+      asked?.reply(null);
+      const slot = slots[request.clip - 1];
+      if (!slot) return setNote(`${t.name} has no clip ${request.clip}`);
+      select(slot.clip.id);
+      player.current?.seek(slot.planned ? slot.startMs : slot.clip.atMs);
+      // a clip with nothing rendered: the playhead stands on its slot, as when it is clicked there
+      if (slot.planned) setCursor(slot.startMs);
+      return;
+    }
     const list = request.do === "render-missing" ? missing : clips.filter((c, i) => request.clips.includes(i + 1) && c.kind === "video" && !c.job && ready(c).input);
     if (!list.length) {
       asked?.reply(null);

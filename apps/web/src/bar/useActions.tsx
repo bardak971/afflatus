@@ -4,7 +4,7 @@ import { useLocation } from "wouter";
 import {
   Archive, ArchiveRestore, ArrowUpToLine, Clapperboard, Copy, Eye, FileOutput, Film, FolderInput, FolderKanban, FolderOpen, Pause, PenLine, Play,
   RotateCcw, Square, Trash2, UserPlus, X, Pencil, ListOrdered, Settings2, Sparkles, Link2, FolderPlus, MemoryStick, Layers, Split, ChevronLeft, ChevronRight,
-  RefreshCw, Upload, Download, ExternalLink, FileUp, Wand2, Bookmark, Plug, Navigation, Keyboard, Plus, Pin, PinOff,
+  RefreshCw, Upload, Download, ExternalLink, FileUp, Wand2, Bookmark, Plug, Navigation, Keyboard, Plus, Pin, PinOff, Undo2,
 } from "lucide-react";
 import { useOpenInComfy } from "../actions";
 import { api, type Asset, type CommandEntry, type Entity, type RecipeInfo } from "../api";
@@ -14,6 +14,7 @@ import { assetKey, DRAFT_LIST, useAsset, useEntities, useModelSettings, useProje
 import { useOpenNewDraft } from "../draft";
 import { formDefaults, mainTextOf } from "../form";
 import { formPlaces, useFormTarget } from "../formTarget";
+import { snapEdge } from "../fields/SizeField";
 import { size } from "../format";
 import { projectForNew, useProject } from "../project";
 import type { Moving, Row, Target } from "../projects/tree";
@@ -61,6 +62,8 @@ export interface TimelineAim {
   id: string;
   name: string;
   entry?: Extract<CommandEntry, { kind: "timeline" }>;
+  /** Open in the editor now (its keys and history are on screen). */
+  open?: true;
 }
 
 type TimelineEntry = Extract<CommandEntry, { kind: "timeline" }>;
@@ -167,7 +170,8 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
   const showInFolder = async (id: string, project: string | null) => {
     const a = await client.fetchQuery({ queryKey: assetKey(id), queryFn: ({ signal }) => api.asset(id, { signal }) });
     lookingAt(project);
-    useStudio.getState().set({ place: a.folderId ? { type: "folder", id: a.folderId } : { type: "unfiled" } });
+    // an item in the bin is shown there (every project's bin), where Put back is
+    useStudio.getState().set({ place: a.inBin ? { type: "bin" } : a.folderId ? { type: "folder", id: a.folderId } : { type: "unfiled" } });
     useHandover.getState().set({ show: a.id });
     go("/");
   };
@@ -297,10 +301,19 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
             : c.cmd === "steps" ? inputs.find((i) => i.type === "number" && (/^steps$/i.test(i.id) || /^steps$/i.test(i.label)))
             : inputs.find((i) => i.type === "number" && (/^(cfg|guidance)$/i.test(i.id) || /^(cfg|guidance)$/i.test(i.label)));
           if (!spec) return say({ id: "bar:form", tone: "bad", title: `${t.recipe.title} has no ${c.cmd === "cfg" ? "CFG" : c.cmd} to set`, text: c.cmd === "size" ? "Its frame is set by proportions and a resolution: choose them in the form." : undefined, href: "/", go: "Open the Studio" });
-          const value = c.cmd === "size" ? { width: c.width, height: c.height } : c.cmd === "length" ? c.seconds : c.value;
-          if (spec.type === "number" && typeof value === "number" && (value < spec.min || value > spec.max)) return say({ id: "bar:form", tone: "bad", title: `${spec.label} goes from ${spec.min} to ${spec.max}`, href: "/", go: "Open the Studio" });
+          // a size goes in as the size field keeps a typed one: each edge on the recipe's grid, within its least and most
+          const where = `In the open draft (${t.recipe.title}).`;
+          if (c.cmd === "size") {
+            if (spec.type !== "size") return;
+            const fit = { width: snapEdge(spec, c.width), height: snapEdge(spec, c.height) };
+            t.set(spec.id, fit);
+            const moved = fit.width !== c.width || fit.height !== c.height;
+            return good(`${spec.label || "Size"} set to ${fit.width}×${fit.height}`, moved ? `${c.width}×${c.height} put on its grid of ${spec.grid}, ${spec.min} to ${spec.max} px a side. ${where}` : where);
+          }
+          const value = c.cmd === "length" ? c.seconds : c.value;
+          if (spec.type === "number" && (value < spec.min || value > spec.max)) return say({ id: "bar:form", tone: "bad", title: `${spec.label} goes from ${spec.min} to ${spec.max}`, href: "/", go: "Open the Studio" });
           t.set(spec.id, value);
-          good(`${spec.label || c.cmd} set to ${c.cmd === "size" ? `${c.width}×${c.height}` : String(value)}`, `In the open draft (${t.recipe.title}).`);
+          good(`${spec.label || c.cmd} set to ${value}`, where);
         };
         const said = c.cmd === "size" ? `${c.width}×${c.height}` : c.cmd === "length" ? `${c.seconds} s` : String(c.value);
         return [{ label: `Set ${c.cmd === "cfg" ? "CFG" : c.cmd} to ${said}`, icon: <PenLine size={14} />, note: "in the open draft", run: set }];
@@ -474,6 +487,32 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
           label: "Group by model", icon: <Layers size={14} />, note: "same model together, the loaded one first",
           run: () => bulk.groupQueueByModel().then((done) => (done ? good("Queue grouped by model", "Same model together, the loaded one first.", "/queue", "Open queue") : done === false && good("Grouping saves no load", "The queue stays as it is.", "/queue", "Open queue"))),
         }];
+      case "undo": {
+        // the open editor's history first, as Ctrl+Z there; elsewhere the newest banner's Undo (a move, a bin), as Ctrl+Z off the editor
+        if (aim?.open) {
+          const what = client.getQueryData<{ undo?: string | null }>(["timelines", aim.id])?.undo ?? null;
+          return [{ label: what ? `Undo: ${what}` : `Nothing to undo in ${aim.name}`, icon: <Undo2 size={14} />, disabled: !what, note: what ? `in ${aim.name}, as its Ctrl+Z` : undefined, keys: what ? "Ctrl+Z" : undefined, run: () => useTimelineRequest.getState().ask({ timeline: aim.id, do: "undo" }) }];
+        }
+        const banner = [...useBanners.getState().items].reverse().find((x) => x.action?.undo);
+        return [{
+          label: banner ? `Undo: ${banner.title}` : "Nothing to undo", icon: <Undo2 size={14} />, disabled: !banner, note: banner ? "as the banner's Undo" : undefined, keys: banner ? "Ctrl+Z" : undefined,
+          run: () => {
+            if (!banner) return;
+            useBanners.getState().dismiss(banner.id);
+            banner.action!.run();
+          },
+        }];
+      }
+      case "clip": {
+        if (!aim) return [noTimeline];
+        const n = c.number;
+        const over = aim.entry && n > aim.entry.clips;
+        return [{
+          label: over ? `${aim.name} has ${aim.entry!.clips} clip${aim.entry!.clips === 1 ? "" : "s"}` : `Go to clip ${n} of ${aim.name}`, icon: <Film size={14} />, disabled: Boolean(over),
+          note: over ? undefined : "selected, the playhead on its start",
+          run: () => askTimeline(aim, { timeline: aim.id, do: "select", clip: n }),
+        }];
+      }
       case "new-project":
         return [{
           label: `New project “${c.name}”`, icon: <FolderPlus size={14} />, note: "and work in it",
@@ -500,11 +539,19 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
     }, { "save-frame": "the first frame" });
     const places = formPlaces(formTarget, a);
     const own: MenuItem[] = [
-      { label: "Show in its folder", icon: <FolderOpen size={14} />, note: "in the Studio", run: () => void showInFolder(a.id, project).catch(failed("Could not show it")) },
+      { label: a.inBin ? "Show in the bin" : "Show in its folder", icon: <FolderOpen size={14} />, note: "in the Studio", run: () => void showInFolder(a.id, project).catch(failed("Could not show it")) },
       ...(places.length ? [{ label: "Use in this draft", icon: <Plus size={14} />, note: formTarget?.recipe.title, items: places }] : []),
     ];
-    const [open, ...rest] = placeMenu([], list, "command");
-    const out = flatten([open!, ...own, ...rest]);
+    // Open first by name, not by place (the bin's own list leads with Put back); an item in the bin then has Put back on
+    // Ctrl + Enter, any other its folder
+    const rest = placeMenu([], list, "command");
+    const take = (label: string): MenuItem[] => {
+      const i = rest.findIndex((m) => m !== "—" && m.label === label);
+      return i < 0 ? [] : rest.splice(i, 1);
+    };
+    const open = take("Open");
+    const back = a.inBin ? take("Put back") : [];
+    const out = flatten([...open, ...back, ...own, ...rest]);
     // the seed copied, the bar stays (as a figure of the calculator)
     return out.map((x) => (x.label === "Copy the seed" ? { ...x, stay: true } : x));
   };
@@ -596,16 +643,23 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
         if (subject && subject.id === a.id) return renderActions(subject, a.project);
         return [
           { label: "Open", icon: <Eye size={14} />, keys: "Enter", run: () => view(a.id).catch(failed("Could not open it")) },
-          { label: "Show in its folder", icon: <FolderOpen size={14} />, note: "in the Studio", run: () => showInFolder(a.id, a.project).catch(failed("Could not show it")) },
+          { label: a.inBin ? "Show in the bin" : "Show in its folder", icon: <FolderOpen size={14} />, note: "in the Studio", run: () => showInFolder(a.id, a.project).catch(failed("Could not show it")) },
           { label: "Reading what was made with it…", disabled: true, run: () => {} },
         ];
       }
       case "project": {
+        // the Inbox: worked in like a project, as the Projects panel's row of it
+        if (it.inbox) return [
+          { label: "Work in it", icon: <FolderKanban size={14} />, note: "the library, drafts and timelines out of every project", run: () => useProject.getState().set("none") },
+          { label: "Show in Projects", icon: <FolderKanban size={14} />, run: () => openProjects("Inbox") },
+        ];
         const p = e as Extract<CommandEntry, { kind: "project" }>;
         const r = row(p, { archived: p.archived });
         const root = allProjects.find((x) => x.id === p.id)?.folderId ?? null;
+        // an archived project: Enter unarchives it (to work in it, it has to come back first)
+        const unarchive: Action = { label: "Unarchive", icon: <ArchiveRestore size={14} />, note: "back among the projects, to work in", run: () => tree.archive(r, false) };
         return [
-          { label: p.archived ? "Unarchive it to work in it" : "Work in it", icon: <FolderKanban size={14} />, disabled: p.archived, note: "the library, drafts and timelines show its own", run: () => useProject.getState().set(p.id) },
+          p.archived ? unarchive : { label: "Work in it", icon: <FolderKanban size={14} />, note: "the library, drafts and timelines show its own", run: () => useProject.getState().set(p.id) },
           { label: "Show in Projects", icon: <FolderKanban size={14} />, run: () => openProjects(p.label) },
           pins.has(p.id)
             ? { label: "Unpin from the rail", icon: <PinOff size={14} />, run: () => pins.unpin(p.id) }
@@ -614,9 +668,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
           { label: "New folder inside…", icon: <FolderPlus size={14} />, run: () => tree.newFolder({ name: p.label, parent: root, project: p.id }) },
           { label: "Import a folder here…", icon: <Upload size={14} />, note: root ? "copies it in" : "makes its root folder first", run: () => importInto({ kind: "group", group: p.id, root, name: p.label }) },
           { label: "Rename…", icon: <Pencil size={14} />, run: rename(p) },
-          p.archived
-            ? { label: "Unarchive", icon: <ArchiveRestore size={14} />, run: () => tree.archive(r, false) }
-            : { label: "Archive", icon: <Archive size={14} />, note: "hides it, keeps everything", run: () => tree.archive(r, true) },
+          ...(p.archived ? [] : [{ label: "Archive", icon: <Archive size={14} />, note: "hides it, keeps everything", run: () => tree.archive(r, true) }]),
           { label: "Delete…", icon: <Trash2 size={14} />, danger: true, note: "its things go to the Inbox", run: () => tree.removeProject(r) },
         ];
       }
@@ -669,7 +721,16 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
         const nav = it.nav!;
         return [{
           label: it.label, icon: <Navigation size={14} />,
-          run: () => ("href" in nav ? go(nav.href) : nav.event === "afflatus:projects" ? openProjects() : window.dispatchEvent(new Event(nav.event))),
+          run: () => {
+            if ("bin" in nav) {
+              // the Studio on the bin, every project's (as the Projects panel's Bin row)
+              useStudio.getState().set({ place: { type: "bin" } });
+              return go("/");
+            }
+            if ("href" in nav) return go(nav.href);
+            if (nav.event === "afflatus:projects") return openProjects();
+            window.dispatchEvent(new Event(nav.event));
+          },
         }];
       }
       case "command":

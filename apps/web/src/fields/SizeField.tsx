@@ -12,8 +12,11 @@ const RATIOS: Array<{ label: string; w: number; h: number }> = [
   { label: "Landscape 5:4", w: 5, h: 4 }, { label: "Landscape 4:3", w: 4, h: 3 }, { label: "Landscape 3:2", w: 3, h: 2 }, { label: "Widescreen 16:9", w: 16, h: 9 }, { label: "Ultrawide 21:9", w: 21, h: 9 },
 ];
 
+/** An edge typed in pixels, as the size field keeps it: on the recipe's grid, within its least and most. */
+export const snapEdge = (spec: { grid: number; min: number; max: number }, n: number) => Math.min(spec.max, Math.max(spec.min, Math.round(n / spec.grid) * spec.grid));
+
 /**
- * The shape and size of what is made: the recipe's own shapes as buttons, any other proportion from a
+ * The shape and size of what is made:the recipe's own shapes as buttons, any other proportion from a
  * list (at the same number of pixels, so the amount of detail and the time stay about the same), and the
  * width and height themselves, typed. A recipe that only takes the proportions gets no pixels to type.
  */
@@ -29,7 +32,7 @@ export function SizeField({ spec, value: size, values, onChange }: { spec: Extra
   // what decides the shape instead, when something is there: a start image, a clip joined
   const decidedBy = (spec.decidedBy ?? []).find((id) => { const v = values?.[id]; return Array.isArray(v) ? v.length > 0 : Boolean(v); });
   const deciderLabel = decidedBy ? (/previous|next|clip/i.test(decidedBy) ? "the clip it joins" : "the start image") : null;
-  const snap = (n: number) => Math.min(spec.max, Math.max(spec.min, Math.round(n / spec.grid) * spec.grid));
+  const snap = (n: number) => snapEdge(spec, n);
   // the pixels to keep when the proportions change: those of the size now, or of the recipe's own shape before one is set
   const first = spec.shapes.find((s) => s.id === spec.default) ?? spec.shapes[0]!;
   const area = size.width && size.height ? size.width * size.height : first.width * first.height;

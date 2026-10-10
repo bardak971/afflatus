@@ -59,7 +59,8 @@ export function sizeFor(rw: number, rh: number, pixels: number, grid: number): {
 const DURATION = /(\d+(?:[.,]\d+)?)\s*(?:s|sec|secs|seconds?)\b/i;
 const FRAMES = /(\d+)\s*(?:f|fr|frames?)\b/i;
 const FPS = /(\d+(?:[.,]\d+)?)\s*fps\b/i;
-const SIZE = /(\d{2,5})\s*[x×*]\s*(\d{2,5})/i;
+// a size is the whole of what is typed: "17*10+5" is a sum, not a frame of 17×10 with something after it
+const SIZE = /^\s*(\d{2,5})\s*[x×*]\s*(\d{2,5})\s*$/i;
 const RATIO = /(\d{1,2}(?:\.\d+)?)\s*:\s*(\d{1,2}(?:\.\d+)?)/;
 const MEGAPIXELS = /(\d+(?:[.,]\d+)?)\s*(?:mp|megapixels?)\b/i;
 const n = (s: string) => Number(s.replace(",", "."));

@@ -51,7 +51,9 @@ export type Command =
   | { cmd: "reconnect" }
   | { cmd: KitNew; name: string }
   | { cmd: "preset"; name: string }
-  | { cmd: "save-preset"; name: string };
+  | { cmd: "save-preset"; name: string }
+  | { cmd: "undo" }
+  | { cmd: "clip"; number: number };
 export type CommandId = Command["cmd"];
 
 /** A new entry of the Prompt kit, by its kind: `new person Ada`. */
@@ -96,6 +98,8 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "resume", name: "Resume queue", typed: "resume queue", example: "resume queue", what: "What waits starts again" },
   { id: "empty-bin", name: "Empty the bin…", typed: "empty the bin", example: "empty the bin", what: "Erases what is in the bin, asked first" },
   { id: "bin-unused", name: "Bin unused takes…", typed: "bin unused takes", example: "bin unused takes", what: "Of the open timeline, asked first" },
+  { id: "clip", name: "Go to clip…", typed: "clip ", example: "clip 3", what: "In the open timeline: selected, the playhead on its start", needs: true },
+  { id: "undo", name: "Undo", typed: "undo", example: "undo", what: "The open editor's last change, else the move or bin a banner offers to undo" },
   { id: "split", name: "Split clip at playhead", typed: "split", example: "split", what: "The clip selected in the open timeline, as its key in the editor" },
   { id: "previous-take", name: "Previous take", typed: "previous take", example: "prev take", what: "The selected clip plays its take before, as its key in the editor" },
   { id: "next-take", name: "Next take", typed: "next take", example: "next take", what: "The selected clip plays its take after, as its key in the editor" },
@@ -175,6 +179,8 @@ export function parseCommand(input: string): Command | null {
   if ((m = /^link (?:a )?folder(?: (.+))?$/i.exec(t))) return { cmd: "link-folder", path: (m[1] ?? "").trim() };
   if ((m = /^new project (.+)$/i.exec(t))) return { cmd: "new-project", name: m[1]!.trim().slice(0, 120) };
   if (/^split(?: (?:the )?clip)?(?: at (?:the )?playhead)?$/.test(low)) return { cmd: "split" };
+  if ((m = /^(?:(?:go to|select|jump to) )?clip (\d{1,4})$/.exec(low))) return Number(m[1]) >= 1 ? { cmd: "clip", number: Number(m[1]) } : null;
+  if (/^undo$/.test(low)) return { cmd: "undo" };
   if (/^(?:prev|previous) take$/.test(low)) return { cmd: "previous-take" };
   if (/^next take$/.test(low)) return { cmd: "next-take" };
   if (/^cancel (?:all )?(?:the )?waiting(?: jobs)?$/.test(low)) return { cmd: "cancel-waiting" };

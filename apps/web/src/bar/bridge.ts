@@ -17,6 +17,10 @@ export type TimelineRequest =
   | { timeline: string; do: "split" }
   /** The selected clip plays its take before (-1) or after (1): Alt+[ and Alt+]; at either end it stays. */
   | { timeline: string; do: "take"; by: -1 | 1 }
+  /** The editor's Undo (Ctrl+Z); said in its note when there is nothing to undo. */
+  | { timeline: string; do: "undo" }
+  /** Clip `clip` (counted from 1) selected and the playhead on its start, as a click on it in the track. */
+  | { timeline: string; do: "select"; clip: number }
   /** The Finish dialog opened, as the editor's Finish button. */
   | { timeline: string; do: "finish" }
   /** What Needs attention lists, mended as its Fix all does; taken by the overview once its joins are measured. */
