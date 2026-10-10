@@ -144,6 +144,12 @@ export interface Tables {
     /** JSON: the figures of the day (see Cell in renders.ts). */
     figures: string;
   };
+  /** A day over whose renders are still rows, digested for the summaries cut into days (see Digest in renders.ts); it goes when the day is folded. */
+  render_digests: {
+    day: string;
+    /** JSON: the digest. */
+    digest: string;
+  };
   jobs: {
     id: string;
     owner_id: string;
