@@ -1,4 +1,4 @@
-import { memo, type DragEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { memo, useEffect, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { Link2, Scissors, TriangleAlert, VolumeX, X } from "lucide-react";
 import { STRIP_FRAMES, stripUrl, thumbUrl, type Clip, type RecipeInfo } from "../../api";
 import { phaseLabel } from "../../format";
@@ -53,6 +53,9 @@ export interface TrackClipActs {
  * or its state, its edges to trim it by, the join before it, and its sound under it. Memoised: it draws again
  * only when what it shows changes (its render's progress is read by its own small parts).
  */
+/** How long a clip's film strip waits for its motion before it is asked for all the same. */
+const STRIP_WAIT_MS = 8000;
+
 export const TrackClip = memo(function TrackClip({ s, prev, recipe, misfit, on, picked, rendering, stretch, over, pinOn, ownSound, fileSound, renderMs, acts }: {
   s: Slot;
   /** The clip before it on the track. */
@@ -83,10 +86,19 @@ export const TrackClip = memo(function TrackClip({ s, prev, recipe, misfit, on, 
   const carries = s.index > 0 && c.joined === "continue";
   const opens = !carries && pins.start && typeof c.inputs[pins.start] === "string" ? (c.inputs[pins.start] as string) : null;
   const ends = pins.end && typeof c.inputs[pins.end] === "string" ? (c.inputs[pins.end] as string) : null;
+  // the film strip waits for the clip's motion (or a few seconds, when it cannot be had): a first opening asks for every
+  // clip's strip at once, and forty pictures took the browser's six connections, so the measures the tracks snap to and
+  // the editor's other reads waited behind them
+  const [waited, setWaited] = useState(false);
+  useEffect(() => {
+    if (ownSound || waited) return;
+    const t = setTimeout(() => setWaited(true), STRIP_WAIT_MS);
+    return () => clearTimeout(t);
+  }, [ownSound, waited]);
   // the frames along the clip: as many as fit, each from the moment it stands at
   const video = c.take?.asset;
   const cells: number[] = [];
-  if (video?.durationMs && video.width && video.height) {
+  if (video?.durationMs && video.width && video.height && (ownSound || waited)) {
     const count = Math.max(1, Math.round(s.width / Math.max(24, ROW.height * (video.width / video.height))));
     const from = stretch?.clip === c.id && stretch.side === "start" ? c.take!.endMs - s.lengthMs : c.take!.startMs;
     for (let k = 0; k < count; k++) cells.push(Math.min(STRIP_FRAMES - 1, Math.max(0, Math.floor(((from + ((k + 0.5) / count) * s.lengthMs) / video.durationMs) * STRIP_FRAMES))));

@@ -200,8 +200,7 @@ export async function filmStrip(source: Media, ext: string, durationMs: number, 
   const height = Math.max(24, Math.min(240, Math.round(opts.height ?? STRIP.height)));
   const from = Math.max(0, Math.min(opts.fromMs ?? 0, durationMs));
   const to = Math.max(from + FRAME_SLACK_MS, Math.min(opts.toMs ?? durationMs, durationMs));
-  // in the pool with the measures, after them: an editor opened for the first time asks for every clip's strip at once
-  return ffmpegPool(() => inTemp(async (dir) => {
+  return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "strip.jpg");
     const every = Math.max(0.01, (to - from) / 1000 / frames);
@@ -211,7 +210,7 @@ export async function filmStrip(source: Media, ext: string, durationMs: number, 
       "-frames:v", "1", "-q:v", "5", out,
     ]);
     return new Uint8Array(await readFile(out));
-  }));
+  });
 }
 
 /** One small picture of a moment, as a JPEG: what a hover over the trim bar shows. */
