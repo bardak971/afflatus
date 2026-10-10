@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type ImgHTMLAttributes } from "react";
+import { THUMB_SIZES, thumbSrcSet } from "./api";
 import { cx } from "./ui";
 
 /**
@@ -9,9 +10,15 @@ import { cx } from "./ui";
  *
  * The opacity is set on the element itself rather than through state: a grid draws hundreds of these, and a load is
  * then no draw of React at all.
+ *
+ * A thumbnail of the library (a thumbUrl) comes in two sizes, and the browser picks the one the tile needs by the width
+ * it is laid out at (thumbSrcSet): 256 px for a small tile on a screen of one pixel per point, else 512 px. The width
+ * alone says it only where the box has the picture's own shape, or is no taller than 128 px: `large` for any other box
+ * (a fixed 3:4 tile, which a landscape picture fills by its height), which then always has the 512 px one.
  */
-export function Thumb({ src, className, onLoad, onError, ...rest }: ImgHTMLAttributes<HTMLImageElement> & { src: string }) {
+export function Thumb({ src, large, className, onLoad, onError, ...rest }: ImgHTMLAttributes<HTMLImageElement> & { src: string; large?: boolean }) {
   const el = useRef<HTMLImageElement>(null);
+  const set = large ? undefined : thumbSrcSet(src);
   // before the first paint (and again for another picture): hidden only when it is not there yet
   useLayoutEffect(() => {
     const img = el.current;
@@ -26,6 +33,8 @@ export function Thumb({ src, className, onLoad, onError, ...rest }: ImgHTMLAttri
     <img
       ref={el}
       src={src}
+      srcSet={set}
+      sizes={set && THUMB_SIZES}
       {...rest}
       onLoad={(e) => {
         show();

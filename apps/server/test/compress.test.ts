@@ -5,7 +5,7 @@ import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app";
-import { encodingFor } from "../src/compress";
+import { encodingFor, tagMatches } from "../src/compress";
 import { makeApp, type TestApp } from "./helpers";
 
 let t: TestApp;
@@ -72,5 +72,59 @@ describe("compressed answers", () => {
     const page = await ask("/", { "accept-encoding": "gzip" });
     expect(page.headers["content-encoding"]).toBe("gzip");
     expect(gunzipSync(page.rawPayload).toString()).toMatch(/^<!doctype html>/);
+  });
+});
+
+describe("tagged JSON answers", () => {
+  it("carry a weak tag of their content, the same whatever the encoding, and ask the browser to check it each time", async () => {
+    const plain = await ask("/api/recipes");
+    const tag = String(plain.headers.etag);
+    expect(tag).toMatch(/^W\/"[\w-]+"$/);
+    expect(plain.headers["cache-control"]).toBe("private, no-cache");
+    const brotli = await ask("/api/recipes", { "accept-encoding": "br" });
+    expect(brotli.headers["content-encoding"]).toBe("br");
+    expect(brotli.headers.etag).toBe(tag);
+    expect(String(brotli.headers.vary)).toMatch(/Accept-Encoding/);
+    // the same content asked again: the same tag
+    expect((await ask("/api/recipes")).headers.etag).toBe(tag);
+  });
+
+  it("answer 304 with no body when the browser has the same, compressed or not, and the whole answer when it changed", async () => {
+    const first = await ask("/api/recipes", { "accept-encoding": "br" });
+    const tag = String(first.headers.etag);
+    for (const encoding of ["br", "gzip", "identity"]) {
+      const again = await ask("/api/recipes", { "accept-encoding": encoding, "if-none-match": tag });
+      expect(again.statusCode).toBe(304);
+      expect(again.rawPayload.length).toBe(0);
+      expect(again.headers["content-encoding"]).toBeUndefined();
+      expect(again.headers["content-length"]).toBeUndefined();
+      expect(again.headers.etag).toBe(tag);
+    }
+    // a small answer too, and a tag sent strong
+    const health = await ask("/api/health");
+    expect((await ask("/api/health", { "if-none-match": String(health.headers.etag).slice(2) })).statusCode).toBe(304);
+    // another content: the whole answer, with its own tag
+    const other = await ask("/api/recipes", { "if-none-match": 'W/"something-else"' });
+    expect(other.statusCode).toBe(200);
+    expect(other.body).toBe((await ask("/api/recipes")).body);
+  });
+
+  it("leave errors, files and changes untagged", async () => {
+    const missing = await ask("/api/assets/0123456789abcdef0123456789abcdef");
+    expect(missing.statusCode).toBe(404);
+    expect(missing.headers.etag).toBeUndefined();
+    expect((await ask("/assets/index-abc123.js")).headers.etag).not.toMatch(/^W\/"[\w-]{22}"$/);
+    const made = await app.inject({ method: "POST", url: "/api/projects", headers: { host: "127.0.0.1", "content-type": "application/json" }, payload: { name: "zz-test project" } });
+    expect(made.statusCode).toBeLessThan(300);
+    expect(made.headers.etag).toBeUndefined();
+  });
+
+  it("match a tag in a list, weak or not, or any with *", () => {
+    expect(tagMatches('"a", W/"b"', 'W/"b"')).toBe(true);
+    expect(tagMatches('W/"a"', 'W/"a"')).toBe(true);
+    expect(tagMatches('"a"', 'W/"a"')).toBe(true);
+    expect(tagMatches("*", 'W/"a"')).toBe(true);
+    expect(tagMatches('W/"a"', 'W/"ab"')).toBe(false);
+    expect(tagMatches(undefined, 'W/"a"')).toBe(false);
   });
 });

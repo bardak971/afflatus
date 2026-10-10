@@ -2,6 +2,7 @@ import type { Kysely } from "kysely";
 import { UNKEPT_MS } from "@afflatus/core";
 import { now, type Db, type Tables } from "./db";
 import type { Storage } from "./storage";
+import { smallThumbKey } from "./thumbs";
 import { derivedKeys } from "./timelineModel";
 
 // the day an unkept result has is core's (the library's tiles count down to it); the tests read it from here, beside BIN_MS
@@ -60,6 +61,8 @@ export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean; jobs?: 
 export async function eraseAsset(db: Db, storage: Storage, a: Pick<Tables["assets"], "id" | "file_key" | "thumb_key" | "raw_key" | "latent_key" | "fine_latent_key" | "duration_ms">): Promise<void> {
   await db.deleteFrom("assets").where("id", "=", a.id).execute();
   for (const key of [a.file_key, a.thumb_key, a.raw_key, a.latent_key, a.fine_latent_key]) if (key) await storage.delete(key).catch(() => {});
+  // the small thumbnail, made on first ask and named in no row
+  await storage.delete(smallThumbKey(a.id)).catch(() => {});
   // what the timeline worked out of it (its film strip, its motion, its scene cuts) goes with it
   for (const key of derivedKeys(a)) await storage.delete(key).catch(() => {});
 }

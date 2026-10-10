@@ -17,8 +17,8 @@ import { StatusBar } from "./StatusBar";
 import { Tips } from "./Tip";
 import { loadPeople, loadQueue, loadSetup, loadTimelineEditor, loadWorkflows, lazyPart, prefetchWhenIdle } from "./lazyParts";
 
-// every screen but the Studio is a chunk of its own, fetched once the page is idle (lazyParts.ts), or the first time
-// its address is opened before that
+// every screen but the Studio is a chunk of its own, fetched as a link to it is pointed at, once the first screen is in
+// (lazyParts.ts), or the first time its address is opened before that
 const People = lazyPart(loadPeople, (m) => m.People);
 const Queue = lazyPart(loadQueue, (m) => m.Queue);
 const Setup = lazyPart(loadSetup, (m) => m.Setup);

@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { promisify } from "node:util";
 import { brotliCompress, constants, gzip } from "node:zlib";
@@ -101,5 +102,46 @@ export function registerCompression(app: FastifyInstance): void {
     void reply.header("content-encoding", how);
     void reply.header("content-length", out.length);
     return out;
+  });
+}
+
+/** The tag of an answer's bytes as made, before any compression: weak, since the bytes sent differ by encoding. */
+export function etagOf(body: string | Buffer): string {
+  return `W/"${createHash("sha1").update(body).digest("base64url").slice(0, 22)}"`;
+}
+
+/** True when the browser's If-None-Match names this tag (weak or not, as a GET compares them), or is "*". */
+export function tagMatches(ifNoneMatch: string | undefined, tag: string): boolean {
+  if (!ifNoneMatch) return false;
+  const bare = tag.replace(/^W\//, "");
+  return ifNoneMatch.split(",").some((t) => {
+    const one = t.trim();
+    return one === "*" || one.replace(/^W\//, "") === bare;
+  });
+}
+
+/**
+ * The API's JSON answers carry a tag of their content, and the browser is told to ask again each time with it
+ * ("no-cache"): an answer that has not changed then comes back as a 304 with no body, which the browser turns into its
+ * kept copy for the page's fetch. Over a LAN or a tunnel, a reload or a refetch after an event that changed nothing
+ * costs a few hundred bytes a list instead of the list. Registered before the compression (compress.ts): the tag is of
+ * the bytes as made, so it is the same whatever encoding is sent. Only for a whole 200 answer of JSON to a GET: never an
+ * error, the live events, a file or a part of one (those keep their own caching), nor an answer that says not to keep it.
+ */
+export function registerEtags(app: FastifyInstance): void {
+  app.addHook("onSend", async (req: FastifyRequest, reply: FastifyReply, payload: unknown) => {
+    if (req.method !== "GET" || reply.statusCode !== 200 || !req.url.startsWith("/api/")) return payload;
+    if (typeof payload !== "string" && !Buffer.isBuffer(payload)) return payload;
+    if (!/^application\/json/i.test(String(reply.getHeader("content-type") ?? ""))) return payload;
+    if (reply.getHeader("etag") || reply.getHeader("content-encoding") || /no-store/i.test(String(reply.getHeader("cache-control") ?? ""))) return payload;
+    const tag = etagOf(payload);
+    void reply.header("etag", tag);
+    if (!reply.getHeader("cache-control")) void reply.header("cache-control", "private, no-cache");
+    if (!tagMatches(req.headers["if-none-match"], tag)) return payload;
+    // nothing changed: no body, and no length or type of one (the compression leaves a 304 alone)
+    reply.removeHeader("content-type");
+    reply.removeHeader("content-length");
+    void reply.code(304);
+    return null;
   });
 }

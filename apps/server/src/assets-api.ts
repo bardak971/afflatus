@@ -14,7 +14,7 @@ import { isLinked } from "./linked";
 import { assetView, extOf, newAssetRow } from "./media";
 import { castOf, madeIn } from "./provenance";
 import type { Services } from "./services";
-import { makeThumb, mirrorPicture, readPicture, thumbKey } from "./thumbs";
+import { makeThumb, mirrorPicture, readPicture, SMALL_EDGE, smallThumbKey, thumbKey } from "./thumbs";
 import { sourceOf } from "./storage";
 import { readVideo, readVideoFile } from "./video";
 
@@ -183,9 +183,14 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     return reply.header("Content-Length", size).send((await s.storage.open(a.file_key)).stream);
   });
 
-  /** A small version for grids. Made when the picture was stored; older pictures get theirs on first request. */
-  app.get<{ Params: { id: string } }>("/api/assets/:id/thumb", async (req, reply) => {
+  /**
+   * A small version for grids. Made when the picture was stored; older pictures get theirs on first request. With `w` of
+   * 256 or less (a tile that small on a screen of one pixel per point: the web's srcset), the 256 px one, made from the
+   * 512 one on its first ask and kept beside it.
+   */
+  app.get<{ Params: { id: string }; Querystring: { w?: string } }>("/api/assets/:id/thumb", async (req, reply) => {
     const a = await asset(req.params.id);
+    const small = Number(req.query.w) > 0 && Number(req.query.w) <= SMALL_EDGE;
     let key = a.thumb_key;
     if (!key && a.kind !== "audio") {
       // a video is read where it lies on the disk when it does: never the whole of it into memory for its first frame
@@ -204,6 +209,8 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
         key = thumbKey(a.id);
         await s.storage.put(key, thumb);
         await s.db.updateTable("assets").set({ thumb_key: key }).where("id", "=", a.id).execute();
+        // made again because the file changed (a linked folder's, written again on the disk): the small one of the old picture goes
+        await s.storage.delete(smallThumbKey(a.id)).catch(() => {});
       }
     }
     // no picture can stand for a sound, or for a video when ffmpeg is not installed
@@ -213,6 +220,16 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     if (cachedAs(reply, req.headers["if-none-match"], isLinked(a.file_key) ? `${a.bytes}-${a.created_at}` : null)) return reply.status(304).send();
     // no thumbnail could be made: the picture itself is still a correct answer
     if (!key) return reply.header("Content-Type", a.mime).send((await s.storage.open(a.file_key)).stream);
+    if (small) {
+      const kept = await s.storage.open(smallThumbKey(a.id)).catch(() => null);
+      if (kept) return reply.header("Content-Type", "image/webp").send(kept.stream);
+      const made = await makeThumb(await s.storage.get(key), SMALL_EDGE);
+      if (made) {
+        // two tiles asking at once both make it: the second write may meet the first being read (Windows), and it is the same picture
+        await s.storage.put(smallThumbKey(a.id), made).catch(() => {});
+        return reply.header("Content-Type", "image/webp").send(Buffer.from(made));
+      }
+    }
     return reply.header("Content-Type", "image/webp").send((await s.storage.open(key)).stream);
   });
 
