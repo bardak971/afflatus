@@ -13,7 +13,7 @@ import { bonus, recentKeys, type Ranks } from "./rank";
 /** What one row of the bar is, the sections it falls in, and how each kind is said. */
 
 export type Kind = "timeline" | "render" | "draft" | "project" | "folder" | "command" | "setting" | "job" | "calc" | "history" | "person" | "workflow" | "kit" | "nav" | "key";
-export type Group = "Recent" | "Suggested" | "Timelines" | "Renders" | "Drafts" | "Projects & folders" | "Workflows" | "Prompt kit" | "Go to" | "Commands" | "Settings" | "Queue" | "Calculator" | "Prompt history" | "Cast" | "Keys";
+type Group = "Recent" | "Suggested" | "Timelines" | "Renders" | "Drafts" | "Projects & folders" | "Workflows" | "Prompt kit" | "Go to" | "Commands" | "Settings" | "Queue" | "Calculator" | "Prompt history" | "Cast" | "Keys";
 
 export interface Item {
   /** Unique, and what the learned rank is kept under: "timeline:<id>", "cmd:pause", "set:hover.video". */
@@ -52,13 +52,8 @@ export interface Item {
 }
 
 /** Where a row of "Go to" leads: an address, an event the app listens for, or the Studio's bin (every project's). */
-export type Nav = { href: string } | { event: string } | { bin: true };
+type Nav = { href: string } | { event: string } | { bin: true };
 
-export const GROUP_OF: Record<Kind, Group> = {
-  timeline: "Timelines", render: "Renders", draft: "Drafts", project: "Projects & folders", folder: "Projects & folders",
-  command: "Commands", setting: "Settings", job: "Queue", calc: "Calculator", history: "Prompt history", person: "Cast",
-  workflow: "Workflows", kit: "Prompt kit", nav: "Go to", key: "Keys",
-};
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const KIND_WORD = { image: "Image", video: "Video", audio: "Sound" } as const;
@@ -150,7 +145,7 @@ export function withItems(entries: readonly CommandEntry[], ...more: ReadonlyArr
  * last changed; the rest of the line (its model, its renders) follows. Other rows, and drafts of a name of their own, are
  * left as they are.
  */
-export function tellApart<T extends Item>(rows: readonly T[]): T[] {
+function tellApart<T extends Item>(rows: readonly T[]): T[] {
   const seen = new Map<string, number>();
   const key = (r: Item) => r.label.trim().toLowerCase();
   for (const r of rows) if (r.entry?.kind === "draft") seen.set(key(r), (seen.get(key(r)) ?? 0) + 1);
@@ -214,14 +209,11 @@ export function lowerFirst(label: string): string {
   return /[A-Z]/.test(word.slice(1)) ? label : label.charAt(0).toLowerCase() + label.slice(1);
 }
 
-/** The order the sections come in when nothing ranks them (nothing typed). */
-export const GROUP_ORDER: Group[] = ["Recent", "Suggested", "Calculator", "Keys", "Commands", "Go to", "Timelines", "Renders", "Drafts", "Projects & folders", "Workflows", "Prompt kit", "Queue", "Settings", "Prompt history", "Cast"];
-
 /**
  * Rows in sections, as many as `limit`: the section of the best row first, then the others as their best
  * row ranks; within a section, the rank order.
  */
-export function grouped(rows: readonly Item[], limit = 50): Array<{ group: Group; rows: Item[] }> {
+function grouped(rows: readonly Item[], limit = 50): Array<{ group: Group; rows: Item[] }> {
   const out: Array<{ group: Group; rows: Item[] }> = [];
   for (const r of rows.slice(0, limit)) {
     let g = out.find((x) => x.group === r.group);
@@ -233,10 +225,10 @@ export function grouped(rows: readonly Item[], limit = 50): Array<{ group: Group
 }
 
 /** How many rows the bar shows at most. */
-export const LIMIT = 50;
+const LIMIT = 50;
 
 /** A row with the parts of its label that matched what is typed, lit. */
-export type Shown = Item & { ranges?: Array<[number, number]> };
+type Shown = Item & { ranges?: Array<[number, number]> };
 export type Section = { group: string; rows: Shown[] };
 
 /** What the rows of the bar are made of: the index read into rows, the commands and settings offered, and the moment. */

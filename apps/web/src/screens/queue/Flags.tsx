@@ -27,7 +27,7 @@ function Line({ warn, lead, rest, sub, action }: { warn: boolean; lead: string; 
 const actionClass = "text-xs font-bold text-accent hover:underline disabled:text-ink-3 disabled:no-underline";
 
 /**
- * What to act on, worked out from the period's figures (flags.ts): each line says what it is, and its action
+ * What to act on, worked out from the period's figures (flagRules.ts): each line says what it is, and its action
  * opens the renders it is about, or sorts the queue.
  */
 export function Flags({ flags, onJobs }: { flags: Flag[]; onJobs(model: string, only: "all" | "trouble"): void }) {

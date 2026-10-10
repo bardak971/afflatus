@@ -127,7 +127,7 @@ export function registerModelPages(app: FastifyInstance, s: Services): void {
 type Words = { own: string | null; found: string | null };
 
 /** The words that call a model up, beyond what its file says: the user's own, and those Civitai gave. */
-export function registerModelWords(app: FastifyInstance, s: Services): void {
+function registerModelWords(app: FastifyInstance, s: Services): void {
   const wordsOf = async (folder: string, names?: string[]): Promise<Record<string, Words>> => {
     let q = s.db.selectFrom("model_words").select(["name", "own", "found"]).where("folder", "=", folder);
     if (names) q = q.where("name", "in", names.length ? names : [""]);

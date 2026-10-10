@@ -92,7 +92,7 @@ export interface Laid {
  * joins: a cut at the first own frame steps ×3.3 the clip's own motion (the model steps away from its guide
  * there), a cut four or five frames earlier, still inside the shared frames, ×0.8: invisible.
  */
-export const LEAD_MS = 167;
+const LEAD_MS = 167;
 /**
  * A take's own take-over point at its start: none any more. The cut four frames early (inside the shared frames) still
  * stepped, ×2.9 the motion after its fade; the clip before now plays to its end and the continuation dissolves in from its

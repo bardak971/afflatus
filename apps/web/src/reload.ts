@@ -21,7 +21,7 @@ function lastReload(): number | null {
 }
 
 /** Reload the page, unless it was just reloaded for the same reason. True when it reloads. */
-export function reloadOnce(): boolean {
+function reloadOnce(): boolean {
   const now = Date.now();
   if (!mayReload(lastReload(), now)) return false;
   try {

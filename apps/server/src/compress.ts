@@ -40,7 +40,7 @@ export function encodingFor(accept: string | undefined): Encoding | null {
  * times as fast: 11 took half a second for the main script, holding zlib's threads, and the disk reads behind them, that long),
  * or gzip at its usual level.
  */
-export async function compress(bytes: Buffer, how: Encoding, quality = 4): Promise<Buffer> {
+async function compress(bytes: Buffer, how: Encoding, quality = 4): Promise<Buffer> {
   return how === "br"
     ? br(bytes, { params: { [constants.BROTLI_PARAM_QUALITY]: quality, [constants.BROTLI_PARAM_SIZE_HINT]: bytes.length, [constants.BROTLI_PARAM_MODE]: constants.BROTLI_MODE_TEXT } })
     : gz(bytes);

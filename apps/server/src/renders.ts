@@ -209,7 +209,7 @@ const OUT_OF_MEMORY = /out of memory|\boom\b|allocat|not enough memory/i;
  * The failed renders among `rows` that ran out of memory (OOM): their job's error says so. A job no longer kept is
  * not counted: a full memory alone does not say why a render failed. In slices: SQLite takes so many values in one `in`.
  */
-export async function outOfMemory(db: Db, rows: Array<Pick<RenderRow, "id" | "status" | "vram_peak">>): Promise<Set<string>> {
+async function outOfMemory(db: Db, rows: Array<Pick<RenderRow, "id" | "status" | "vram_peak">>): Promise<Set<string>> {
   const failed = rows.filter((r) => r.status === "failed");
   const errors = new Map<string, string | null>();
   for (let i = 0; i < failed.length; i += 400) {
@@ -280,13 +280,13 @@ export type Period = "day" | "week" | "month" | "all";
 /** A window of time, ms since the epoch. */
 export interface Window { from: number; to: number }
 /** How long a stretch of a chart is for a window: five minutes up to three hours, a quarter up to twelve, an hour up to two days, six hours up to a week, a day beyond. */
-export function stepFor(spanMs: number): number {
+function stepFor(spanMs: number): number {
   const H = 3_600_000;
   return spanMs <= 3 * H ? 5 * 60_000 : spanMs <= 12 * H ? 15 * 60_000 : spanMs <= 48 * H ? H : spanMs <= 7 * DAY + H ? 6 * H : DAY;
 }
 
 /** The tools that run on ComfyUI without a recipe of their own (a finish, a slow motion): their record's name. */
-export const TOOL_NAMES: Record<string, string> = {
+const TOOL_NAMES: Record<string, string> = {
   "tool.finish.seedvr": "Finish · SeedVR2", "tool.finish.rtx": "Finish · RTX", "tool.finish.model": "Finish · upscale model", "tool.slow": "Slow motion · RIFE",
 };
 const nameOf = (registry: Registry, recipeId: string) => {

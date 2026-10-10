@@ -47,7 +47,7 @@ const TREE_DRAFTS = 50;
  * handful of grouped queries for all of it. `q`: only what matches, folders with the ancestors of a match, and the drafts that match.
  * `only`: the items counted and sized are only of that kind (pictures, videos or sounds).
  */
-export async function projectsTree(s: Services, q?: string, only?: "image" | "video" | "audio") {
+async function projectsTree(s: Services, q?: string, only?: "image" | "video" | "audio") {
   const db = s.db;
   const needle = q ? q.toLowerCase() : "";
   const hit = (text: string | null | undefined) => Boolean(needle && text && text.toLowerCase().includes(needle));

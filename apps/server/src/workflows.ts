@@ -148,11 +148,6 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
 
   app.get("/api/workflows", async () => ({ items: s.registry.workflows().map((d) => brief(d, s.registry.problem(d.id))) }));
 
-  /**
-   * Install, through ComfyUI-Manager, the node packs the missing node types of a workflow come from.
-   * `packs` is what the workflow itself says (its author's ComfyUI wrote each node's pack); the rest is
-   * looked up in Manager's map. The answer names the queued installs; GET reads where they stand.
-   */
   // a video ComfyUI saved carries its workflow in the file's tags (a picture in its text): the file is sent as the body,
   // read as POST /api/embedded reads it (embedded.ts)
   app.post("/api/workflows/extract", async (req) => {
@@ -162,6 +157,11 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
     return { workflow };
   });
 
+  /**
+   * Install, through ComfyUI-Manager, the node packs the missing node types of a workflow come from.
+   * `packs` is what the workflow itself says (its author's ComfyUI wrote each node's pack); the rest is
+   * looked up in Manager's map. The answer names the queued installs; GET reads where they stand.
+   */
   app.post("/api/workflows/packs", async (req) => {
     const body = packsBody.parse(req.body);
     return installPacks(await s.comfy(), body.classes, body.packs);

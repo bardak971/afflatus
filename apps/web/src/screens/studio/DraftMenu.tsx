@@ -11,7 +11,7 @@ import { Popover } from "../../Popover";
 import { cx, TwoStep } from "../../ui";
 
 /** When a draft was last changed (or started): the app's one way of saying when (format.ts `when`). */
-export const changed = (iso: string, now = Date.now()): string => when(iso, now);
+const changed = (iso: string, now = Date.now()): string => when(iso, now);
 
 const OUTPUT_WORD = { image: ["picture", "pictures"], video: ["take", "takes"], audio: ["sound", "sounds"] } as const;
 

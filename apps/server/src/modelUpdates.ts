@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { ModelInfo } from "@afflatus/core";
 import { civitaiGet } from "./civitai";
-import { now, type Db } from "./db";
+import { now } from "./db";
 import { fileName } from "./media";
 import { modelDirs, readLocalHeader } from "./modelFiles";
 import type { Services } from "./services";
@@ -263,5 +263,3 @@ export function registerModelUpdates(app: FastifyInstance, s: Services, updates:
     return { ok: true };
   });
 }
-
-export type { Db };

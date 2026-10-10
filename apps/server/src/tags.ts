@@ -95,7 +95,7 @@ const balanced = (s: string) => {
 };
 
 /** The tag inside its weight: "((red eyes))", "(red eyes:1.2)", "[red eyes]" are "red eyes". A tag's own brackets stay: "artoria pendragon (fate)". */
-export function tagInner(raw: string): string {
+function tagInner(raw: string): string {
   let s = raw.trim();
   for (;;) {
     const i = OPEN.indexOf(s[0] ?? " ");
@@ -106,7 +106,7 @@ export function tagInner(raw: string): string {
 }
 
 /** A tag as the list spells it: no weight, lower case, underscores. */
-export const tagKey = (tag: string): string => tagInner(tag.replace(/\\([()])/g, "$1")).replace(/\s+/g, " ").toLowerCase().replace(/ /g, "_");
+const tagKey = (tag: string): string => tagInner(tag.replace(/\\([()])/g, "$1")).replace(/\s+/g, " ").toLowerCase().replace(/ /g, "_");
 
 /** How many letters apart two spellings are (a swap of two letters counts once), stopping early above `max`. */
 function distance(a: string, b: string, max: number): number {

@@ -24,6 +24,8 @@ jobs:
       - run: pnpm typecheck
       # the hooks rules and a few rules for outright mistakes (.oxlintrc.json); a disable comment says why
       - run: pnpm lint
+      # nothing exported that nothing uses (knip.json); run pinned, not a dependency of the app
+      - run: npx -y knip@6.39.0 --no-progress
       - run: pnpm test
       # the node pack: every file compiles, and its frame and token arithmetic holds (on stand-ins for torch and ComfyUI)
       - run: python3 -m py_compile comfy-nodes/afflatus-nodes/*.py

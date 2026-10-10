@@ -17,7 +17,7 @@ const TILES_AUTO = "Auto";
 const TILES_WHOLE = "Whole picture";
 export const TILES_ON = "Tiles";
 export const TILE_NODES = ["SplitImageToTileList", "ImageMergeTileList"];
-export const TILES_NEEDED = "Redrawing in tiles needs ComfyUI's SplitImageToTileList and ImageMergeTileList nodes, which came with a recent ComfyUI: update ComfyUI, or pick Whole picture.";
+const TILES_NEEDED = "Redrawing in tiles needs ComfyUI's SplitImageToTileList and ImageMergeTileList nodes, which came with a recent ComfyUI: update ComfyUI, or pick Whole picture.";
 
 /** The tile inputs, under a switch or a pass that shows them (`showWhen`). */
 export const tileInputs = (showWhen: string | undefined, tile = 1024): InputSpec[] => [

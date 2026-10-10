@@ -27,7 +27,7 @@ export function factsOf(t: TimelineBrief, leaf: TimelineLeaf | undefined): strin
   ].join(" · ");
 }
 
-export type ChipTone = "warn" | "neutral" | "good";
+type ChipTone = "warn" | "neutral" | "good";
 export interface Chip { label: string; tone: ChipTone; title: string }
 
 /**

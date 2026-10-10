@@ -11,7 +11,7 @@ export interface Use {
 }
 export type Ranks = Record<string, Use>;
 
-export const RANK_KEY = "afflatus.bar.rank";
+const RANK_KEY = "afflatus.bar.rank";
 /** A use counts half as much a week later. */
 export const HALF_LIFE_MS = 7 * 24 * 3_600_000;
 /** The most results remembered: past that, the least used are forgotten. */

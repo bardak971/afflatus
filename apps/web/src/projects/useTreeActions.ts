@@ -12,10 +12,10 @@ import { useBanners, useOpenDraft } from "../store";
 import { planBin, planDrop, type Moving, type Row, type Target } from "./tree";
 
 /** Before a folder of the disk is unlinked: the question both folder trees ask (the folder panel's and the Projects panel's). */
-export const askUnlink = (name: string) =>
+const askUnlink = (name: string) =>
   ask({ title: `Unlink ${name}?`, text: "Afflatus stops showing it and its sub-folders. Nothing on your disk is touched: its files stay where they are. It can be linked again later.", yes: "Unlink" });
 /** Before one folder is deleted, from either folder tree. */
-export const askDeleteFolder = (name: string) =>
+const askDeleteFolder = (name: string) =>
   ask({ title: `Delete ${name}?`, text: "Its items move to the folder above it. A deleted folder cannot be restored from the bin.", yes: "Delete" });
 
 /**

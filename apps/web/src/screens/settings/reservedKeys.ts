@@ -61,7 +61,7 @@ const OUTSIDE: Record<string, string> = {
 };
 
 /** Every refused shortcut and what it is used by: the app's first (at most two uses said), then the rest. */
-export const RESERVED: Record<string, string> = (() => {
+const RESERVED: Record<string, string> = (() => {
   const out: Record<string, string> = { ...OUTSIDE };
   for (const [key, uses] of Object.entries(fromTable())) {
     if (key === BAR_DEFAULT) continue;

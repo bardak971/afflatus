@@ -25,7 +25,7 @@ export function withTexts(recipe: Recipe<any>, raw: unknown): unknown {
 }
 
 /** A file choice left on its default, when this ComfyUI does not have that file: the best one it has. */
-export function settled(recipe: Recipe<any>, input: Record<string, unknown>, catalog: Awaited<ReturnType<Comfy["catalog"]>>): Record<string, unknown> {
+function settled(recipe: Recipe<any>, input: Record<string, unknown>, catalog: Awaited<ReturnType<Comfy["catalog"]>>): Record<string, unknown> {
   const chosen: Record<string, unknown> = { ...input };
   for (const spec of recipe.inputs as InputSpec[]) {
     if (spec.type !== "choice" || Array.isArray(spec.options)) continue;
@@ -353,7 +353,7 @@ async function promptOf(comfy: Comfy, built: BuiltGraph, warm: boolean): Promise
 }
 
 /** The files a family's recipes need, as this ComfyUI has them. */
-export async function slots(core: QueueCore, comfy: Comfy, recipe: Recipe<any>): Promise<Record<string, string>> {
+async function slots(core: QueueCore, comfy: Comfy, recipe: Recipe<any>): Promise<Record<string, string>> {
   const slots: Record<string, string> = {};
   const scanned = (await comfy.scan()).families.find((f) => f.id === recipe.family);
   for (const s of scanned?.slots ?? []) {
@@ -364,7 +364,7 @@ export async function slots(core: QueueCore, comfy: Comfy, recipe: Recipe<any>):
 }
 
 /** Every one of these base models is among the ones the last job loaded. */
-export function holding(core: QueueCore, base: string[]): boolean {
+function holding(core: QueueCore, base: string[]): boolean {
   if (core.lastLoads === null) return false;
   const held = new Set(core.lastLoads.split("|").map(modelFileName));
   return base.every((f) => held.has(f));

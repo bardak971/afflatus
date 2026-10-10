@@ -42,7 +42,7 @@ export function trailingKeys(text: string): { text: string; keys: string } | nul
 }
 
 /** What a tip says, read from the element: a bold head (or none), the text, the keys. */
-export function readTip(el: HTMLElement): { head?: string; text: string; keys: string } {
+function readTip(el: HTMLElement): { head?: string; text: string; keys: string } {
   let text = el.dataset.tip ?? "";
   let head = el.dataset.tipHead;
   let keys = el.dataset.tipKeys?.trim() ?? "";

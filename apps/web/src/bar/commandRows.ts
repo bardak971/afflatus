@@ -8,7 +8,7 @@ import type { TimelineAim } from "./useActions";
 /** A command read from what is typed, as a row of the bar: its words, what it touches and how many. */
 
 /** What the queue says to the command rows: counts, never its progress (which changes at every sampler step). */
-export interface QueueNow {
+interface QueueNow {
   paused: boolean;
   online: boolean;
   rendering: boolean;
@@ -50,14 +50,14 @@ export function commandKeys(c: Command | { cmd: CommandId }): string | undefined
 }
 
 /** The commands offered only where they apply: a clip selected in the open editor, jobs waiting, failures, loads to save. */
-export const LIVE: CommandId[] = ["split", "previous-take", "next-take", "cancel-waiting", "retry-failed", "dismiss-failed", "group-queue", "unload"];
+const LIVE: CommandId[] = ["split", "previous-take", "next-take", "cancel-waiting", "retry-failed", "dismiss-failed", "group-queue", "unload"];
 /** What is done to the whole queue, listed after its jobs in the `!` mode. */
 export const QUEUE_BULK: CommandId[] = ["cancel-waiting", "retry-failed", "dismiss-failed", "group-queue"];
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** "Render clips 3–5": a run of three or more clips said as a range. */
-export const said = (c: Command): string => c.cmd === "render-clips" ? `${c.clips.length > 1 ? "Render clips" : "Render clip"} ${c.clips.length > 2 && c.clips.at(-1)! - c.clips[0]! === c.clips.length - 1 ? `${c.clips[0]}–${c.clips.at(-1)}` : c.clips.join(", ")}` : "";
+const said = (c: Command): string => c.cmd === "render-clips" ? `${c.clips.length > 1 ? "Render clips" : "Render clip"} ${c.clips.length > 2 && c.clips.at(-1)! - c.clips[0]! === c.clips.length - 1 ? `${c.clips[0]}–${c.clips.at(-1)}` : c.clips.join(", ")}` : "";
 
 /** A command read from what is typed, as a row: its words, what it touches and how many. */
 export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, preset?: Extract<Entity, { kind: "preset" }>): Item {
@@ -116,7 +116,7 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
 }
 
 /** Whether a command offered only where it applies applies now. */
-export const applies = (x: CommandCtx, id: CommandId): boolean =>
+const applies = (x: CommandCtx, id: CommandId): boolean =>
   id === "split" || id === "previous-take" || id === "next-take" ? Boolean(x.selectedClip)
   : id === "cancel-waiting" ? Boolean(x.queue?.waiting)
   : id === "retry-failed" || id === "dismiss-failed" ? Boolean(x.queue?.failed)

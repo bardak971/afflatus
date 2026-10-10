@@ -26,11 +26,6 @@ export { rifeModelIn } from "./queueTools";
  * nothing. Queued jobs stay queued, and a job ComfyUI already has is waited on again by its prompt id.
  */
 
-/** @deprecated An error a person reads, as a 400: httpError (errors.ts) is the one to throw. Kept while timelines-api.ts still names it. */
-export class UserError extends Error {
-  statusCode = 400;
-}
-
 const PAUSED_KEY = "queue.paused";
 /** The name of the model among them that a person knows it by, to say which one is loaded. */
 const MODEL_KEY = "queue.model";

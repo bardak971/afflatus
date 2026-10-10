@@ -6,7 +6,7 @@ import { photo, SAME_PICTURE, type FlowBase, type FlowKit, type FlowSpec } from 
 export interface FlowSharper extends FlowBase, UpscaleSettings, TileSettings { source: string; prompt: string; upscaler: string; refine: boolean; strength: number }
 
 /** Past this many pixels, Auto makes the light pass in tiles: a picture that large is past what the model draws whole. */
-export const REFINE_WHOLE_PIXELS = 3.2e6;
+const REFINE_WHOLE_PIXELS = 3.2e6;
 
 /**
  * Upscale 2x: the picture enlarged by an upscale model, then a light img2img pass so it does not look smeared,

@@ -16,13 +16,6 @@ export const H3_JOIN_FRAMES = [22, 5];
 export const H3_CONTINUATION_NODES = ["AfflatusLoadH3Latent", "MiniMaxH3GuidedContinuationWindow", "MiniMaxH3LatentTailGuide"];
 /** Afflatus's node (pack 0.5.0) that cuts a latent to its first frames: a clip handed over before its end is continued from there. */
 export const H3_TRIM = "AfflatusTrimH3Latent";
-/**
- * The pack's hybrid tail guide (re-encoded frames for the picture, the latent for the sound): Auto until 2026-10-08,
- * now unused. Measured against DaSiWa's continuity that day on the full-step model: a chain guided by re-encoded
- * frames lost ~35 % of its fine detail at every clip (it copies a softened picture), while the exact latent kept all
- * of it over three clips, with no darkening. Kept in the pack for graphs that name it.
- */
-export const H3_TAIL_GUIDE = "AfflatusH3TailGuide";
 /** The pack's node (0.7.0) that puts the clip before's own last tokens in front of a window's new ones, to decode them as one piece. */
 export const H3_SEAM = "AfflatusH3SeamLatent";
 /** The clip after's first tokens anchored at the window's end: a clip put between two others lands exactly on the next (the same pack). */

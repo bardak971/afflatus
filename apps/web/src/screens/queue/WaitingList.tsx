@@ -9,7 +9,7 @@ import { useModelName } from "./modelName";
 import { betterPlace, dropped, groupingSaves, loadsAt, modelSwitches, moved } from "./order";
 
 /** How many waiting jobs show before the rest fold into "and N more". */
-export const SHOWN = 3;
+const SHOWN = 3;
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 

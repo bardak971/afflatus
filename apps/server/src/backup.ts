@@ -53,7 +53,7 @@ async function* walk(dir: string, base = dir): AsyncGenerator<{ path: string; re
 }
 
 /** How long the count of the files a backup would hold is reused: Settings asks again after every change to the library. */
-export const PLAN_FOR_MS = 60_000;
+const PLAN_FOR_MS = 60_000;
 
 export function registerBackup(app: FastifyInstance, s: Services, places: BackupPlaces | undefined): void {
   // the files counted once a minute at most, and by one walk at a time: a walk of a large library takes seconds

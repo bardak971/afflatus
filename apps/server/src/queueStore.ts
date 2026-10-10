@@ -16,7 +16,7 @@ type Outputs = Awaited<ReturnType<typeof waitForOutputs>>;
 type AssetRow = ReturnType<typeof newAssetRow>;
 
 /** The frame count written in the metadata of a latent saved by the Afflatus node pack (a safetensors file: 8 bytes of header length, then the header). */
-export function latentFramesOf(bytes: Uint8Array): number {
+function latentFramesOf(bytes: Uint8Array): number {
   try {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const n = Number(view.getBigUint64(0, true));

@@ -17,13 +17,13 @@ import { SoundWave } from "./library/SoundWave";
 export type { Place } from "../store";
 export { FolderPanel } from "./library/FolderPanel";
 
-export { DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, DRAG_VIDEO, dragKind } from "../dragging";
+export { DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, DRAG_VIDEO } from "../dragging";
 
 // what a tile is called, in a file of its own: the viewer and the menus name items without loading the library
 export { tileName } from "./library/tileName";
 
 /** The dim line under a tile's name: "picture · 1536×864 · 40 min ago · kept". */
-export function tileFacts(a: Asset): string {
+function tileFacts(a: Asset): string {
   return [
     KIND_WORD[a.kind],
     a.width && a.height ? `${a.width}×${a.height}` : "",

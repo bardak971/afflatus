@@ -58,7 +58,7 @@ const MANAGER_TYPE: Record<string, string> = {
   upscale_models: "upscale", controlnet: "controlnet", clip_vision: "clip_vision", embeddings: "embedding",
 };
 
-export const MODEL_FILE = /\.(safetensors|ckpt|gguf|sft|pt|pth|bin|onnx)$/i;
+const MODEL_FILE = /\.(safetensors|ckpt|gguf|sft|pt|pth|bin|onnx)$/i;
 const KEEP_MS = 60 * 60_000;
 const STARTS_WITHIN_MS = 90_000;
 

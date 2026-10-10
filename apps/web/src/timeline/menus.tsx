@@ -6,7 +6,7 @@ import { pinInputs, splitPoint } from "./model";
 import type { TimeRange } from "./Track";
 
 /** Where the playhead stands on a clip, as the player says it. */
-export type Place = { clip: Clip; localMs: number; assetMs: number };
+type Place = { clip: Clip; localMs: number; assetMs: number };
 
 /** What a clip's menu reaches in the editor: its mutations by name, and what it reads to say each line. */
 export interface ClipMenuActions {

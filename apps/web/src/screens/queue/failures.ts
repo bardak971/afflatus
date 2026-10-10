@@ -7,7 +7,7 @@ import type { HistoryJob } from "../../api";
  */
 
 /** When this page was opened: with no render done in what is loaded, failures since then are the ones pinned. */
-export const SESSION_START = Date.now();
+const SESSION_START = Date.now();
 
 const at = (j: Pick<HistoryJob, "finishedAt" | "createdAt">) => new Date(j.finishedAt ?? j.createdAt).getTime();
 

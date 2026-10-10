@@ -3,7 +3,7 @@ import type { ModelSettings, RecipeInfo } from "./api";
 import { fileLabel } from "./format";
 
 /** The value an input starts with, given what this ComfyUI offers for it. */
-export function defaultOf(spec: InputSpec, options: string[] | undefined): unknown {
+function defaultOf(spec: InputSpec, options: string[] | undefined): unknown {
   switch (spec.type) {
     // an example is shown, not filled in
     case "prompt": return spec.example ? "" : spec.default ?? "";

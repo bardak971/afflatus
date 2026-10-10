@@ -11,8 +11,3 @@ export const MARK_SMALL = {
   spark: "M50 4 L60 24 L50 34 L40 24 Z",
 };
 
-/** The mark on its tile as an SVG file: the favicon, redrawn when the theme or the accent changes, and the icons in public/. */
-export function markFile(colour: string, tile: string, small = false): string {
-  const m = small ? MARK_SMALL : MARK;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="22" fill="${tile}"/><g transform="translate(14 14) scale(.72)" fill="${colour}" stroke="${colour}" stroke-width="2" stroke-linejoin="round" fill-rule="evenodd"><path d="${m.body}"/><path d="${m.spark}"/></g></svg>`;
-}

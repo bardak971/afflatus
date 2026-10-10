@@ -6,7 +6,7 @@ import { httpError } from "./errors";
 const httpUrl = z.url({ protocol: /^https?$/ });
 
 /** One language model the designer can write with: any OpenAI-compatible endpoint. */
-export const llmSchema = z.object({
+const llmSchema = z.object({
   id: z.string().min(1).max(40),
   /** What the user calls it, for the list ("Local Qwen"). Empty: the model's own name is shown. */
   name: z.string().max(60).default(""),
@@ -27,7 +27,7 @@ export type Llm = z.infer<typeof llmSchema>;
 const instructionSchema = z.object({ id: z.string().min(1).max(40), name: z.string().trim().min(1).max(60), text: z.string().max(8000).default("") });
 
 /** Everything the setup page edits. Stored as one JSON value per key. */
-export const finishSchema = z.object({
+const finishSchema = z.object({
   /** SeedVR2 (restores + enlarges, any clip), H3's latent re-sample (H3 clips; others take SeedVR2), RTX VSR, a pixel upscale model. */
   route: z.enum(["seedvr", "latent", "rtx", "model"]).default("seedvr"),
   factor: z.number().min(1).max(4).default(2),
@@ -39,10 +39,9 @@ export const finishSchema = z.object({
   /** SeedVR2: frames restored together, 0 = by the frame's size. */
   seedvrFrames: z.number().int().min(0).max(49).default(0),
 });
-export type FinishSettings = z.infer<typeof finishSchema>;
 
 /** The command bar (docs/command-bar.md): its shortcut, and its optional parts, each off until turned on. */
-export const barSchema = z.object({
+const barSchema = z.object({
   /** Written as the keys are named: "Ctrl+K", "Ctrl+Shift+P", "Alt+Space". */
   shortcut: z.string().trim().regex(/^(?:(?:Ctrl|Alt|Shift|Meta)\+){0,4}(?:[A-Za-z0-9]{1,12}|[^\sA-Za-z0-9+])$/, "a shortcut is written like Ctrl+K or Alt+Space").default("Ctrl+K"),
   /** Prompt snippets: `;name` in a prompt field expands to the Prompt kit snippet of that name. */
@@ -54,7 +53,7 @@ export const barSchema = z.object({
 });
 
 
-export const settingsSchema = z.object({
+const settingsSchema = z.object({
   comfyUrl: httpUrl.default("http://127.0.0.1:8188"),
   /**
    * ComfyUI's own folder on the computer Afflatus runs on (the one with main.py), when they share a disk.

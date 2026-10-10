@@ -91,7 +91,7 @@ export function JustifiedRows({ places, rowHeight, className, under = 0, rows: m
 }
 
 /**
- * One tile's place. An item that leaves the list on purpose (moved, binned: assetChange.ts) fades out where it was rather
+ * One tile's place. An item that leaves the list on purpose (moved, binned: assetChange.tsx) fades out where it was rather
  * than vanish; a list changed for another reason (another folder, a search) is not played out. `data-item-id`: where a
  * refused change shakes the item back.
  */

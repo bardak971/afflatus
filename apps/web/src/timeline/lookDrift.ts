@@ -56,7 +56,7 @@ export interface Against {
   colour: number | null;
 }
 
-export function against(m: Measure, other: Measure | null | undefined): Against {
+function against(m: Measure, other: Measure | null | undefined): Against {
   return {
     luma: change(m.luma, other?.luma),
     sharp: change(m.sharp, other?.sharp, 0.01),

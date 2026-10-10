@@ -79,13 +79,13 @@ const FOOTER_MODES: Array<[string, string]> = [[">", "commands"], ["#", "places"
  */
 const OFF_PARTS: Array<["history" | "cast" | "snippets", string, string]> = [["history", '"', "history"], ["cast", "@", "cast"], ["snippets", ";", "snippets"]];
 
+/** One empty list while the recipes load, so what is worked out from them is not redone at every render. */
+const NO_RECIPES: RecipeInfo[] = [];
+
 /**
  * The calculator's grid: the model in play's (the open draft's, else one on the grid of the latents the app keeps, else
  * the first one that makes video on a grid), that grid when none is known.
  */
-/** One empty list while the recipes load, so what is worked out from them is not redone at every render. */
-const NO_RECIPES: RecipeInfo[] = [];
-
 function gridOf(recipes: RecipeInfo[], prefer: string | undefined): Grid {
   const video = recipes.filter((r) => r.traits?.frameGrid);
   const kept = (g: FrameGrid) => g.step === LATENT_GRID.step && g.offset === LATENT_GRID.offset;

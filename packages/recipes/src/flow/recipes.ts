@@ -7,7 +7,7 @@ import { flowPicture, type FlowPicture } from "./picture";
 import { flowRedraw, type FlowRedraw } from "./redraw";
 import { flowSharper, type FlowSharper } from "./sharper";
 
-export { flowKit, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
+export { flowKit, type FlowBase, type FlowSpec } from "./kit";
 
 /** The six operations of a picture model, from what is said about it once (see FlowSpec). */
 export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; redraw: Recipe<FlowRedraw>; paintOver: Recipe<FlowPaintOver>; outpaint: Recipe<FlowOutpaint>; sharper: Recipe<FlowSharper>; fixFace: Recipe<FlowFixFace> } {

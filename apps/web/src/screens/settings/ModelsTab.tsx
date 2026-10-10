@@ -201,7 +201,7 @@ function ReadyRow({ r }: { r: RecipeInfo }) {
  * The head of "What is ready": what it counts, said. A bare "15 of 15 ready" under a list of families that
  * are off with files missing read as "everything is fine"; the count is of the operations of the families on.
  */
-export function readySaid(families: number, ready: number, operations: number): string {
+function readySaid(families: number, ready: number, operations: number): string {
   const on = `${families} famil${families === 1 ? "y" : "ies"} on`;
   return ready === operations ? `${on} · all ready` : `${on} · ${ready} of ${operations} operations ready`;
 }

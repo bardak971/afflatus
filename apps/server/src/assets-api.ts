@@ -24,7 +24,7 @@ import { readVideo, readVideoFile } from "./video";
  */
 
 /** An item by its id (a 404 when there is none), and an item of Afflatus's own storage moved into the linked folder it sits in: for the library's route modules. */
-export function assetLookup(s: Services) {
+function assetLookup(s: Services) {
   const asset = async (id: string) => {
     const a = await s.db.selectFrom("assets").selectAll().where("id", "=", id).executeTakeFirst();
     if (!a) throw notFound("this item");

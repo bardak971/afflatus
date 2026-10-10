@@ -7,7 +7,7 @@ import type { Asset } from "../../api";
  */
 export type GroupBy = "none" | "timeline" | "draft" | "day";
 
-export interface Entry {
+interface Entry {
   /** The tile shown: the playing take of a stack, else the item itself. */
   asset: Asset;
   /** Of a stack of takes: every take, the playing one first. */

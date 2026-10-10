@@ -59,18 +59,6 @@ async function inTemp<T>(work: (dir: string) => Promise<T>): Promise<T> {
 const countFrames = async (file: string) =>
   Number((await must(tools.ffprobe, ["-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", file])).trim()) || 0;
 
-/**
- * What a file brought in from the computer is, read from its bytes: a video or a sound, in which
- * container, and how long. null when ffprobe is not installed or the file is neither.
- */
-export async function probeMedia(bytes: Uint8Array): Promise<ProbedMedia | null> {
-  return inTemp(async (dir) => {
-    const file = join(dir, "in.bin");
-    await writeFile(file, bytes);
-    return probeMediaFile(file);
-  });
-}
-
 export interface ProbedMedia {
   kind: "video" | "audio";
   mime: string;
@@ -82,7 +70,11 @@ export interface ProbedMedia {
 /** ffmpeg's formats that are lists of other files: HLS, DASH, its own concat list. */
 const LISTS = new Set(["hls", "applehttp", "dash", "concat"]);
 
-/** The same for a file already on the disk (an upload written as it arrived): one run of ffprobe says everything. */
+/**
+ * What a file brought in from the computer is, read from the disk (an upload written as it arrived): a video or a
+ * sound, in which container, and how long; null when ffprobe is not installed or the file is neither. One run of
+ * ffprobe says everything.
+ */
 export async function probeMediaFile(file: string): Promise<ProbedMedia | null> {
   const out = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height,avg_frame_rate:format=format_name,duration", "-of", "json", file]).catch(() => null);
   if (!out) return null;
@@ -493,8 +485,8 @@ export interface JoinOptions {
 }
 
 /** The long edge and the speed of a copy for the web: what a README, a post or a chat plays inline without waiting. */
-export const WEB_EDGE = 1280;
-export const WEB_FPS = 30;
+const WEB_EDGE = 1280;
+const WEB_FPS = 30;
 
 /**
  * A copy for the web: the frame brought down to WEB_EDGE on its long side (never up), and the bitrate that keeps the

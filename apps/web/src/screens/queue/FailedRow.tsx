@@ -14,7 +14,7 @@ import { modelTip, useModelName } from "./modelName";
 import { lighter, memoryThatRanOut, shorterStretch } from "./retry";
 
 /** A failed job's thumbnail: hatched in the bad colour, nothing having come out. */
-export const HATCHED: CSSProperties = {
+const HATCHED: CSSProperties = {
   background: "repeating-linear-gradient(45deg, color-mix(in oklab, var(--color-warn) 28%, var(--color-panel)) 0 6px, var(--color-warn-wash) 6px 12px)",
 };
 

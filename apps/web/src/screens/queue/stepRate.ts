@@ -7,7 +7,7 @@ import { useQueueOf } from "../studio/queueOf";
  */
 
 /** How many steps back the pace is measured over. */
-export const STEPS_MEASURED = 5;
+const STEPS_MEASURED = 5;
 
 interface Mark { step: number; at: number }
 

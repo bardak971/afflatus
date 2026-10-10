@@ -17,7 +17,7 @@ export async function applyPreset(x: BarCtx, p: { id: string; name: string }) {
 }
 
 /** Where `@name` and a person of the kit go: the clip selected in the open timeline editor first, else the open draft. */
-export function castActions(x: BarCtx, p: Person): Action[] {
+function castActions(x: BarCtx, p: Person): Action[] {
   const { good, failed, selectedClip } = x;
   const toDraft: Action = {
     label: "Add to the open draft", icon: <UserPlus size={14} />, note: "its cast",

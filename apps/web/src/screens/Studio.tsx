@@ -33,8 +33,6 @@ import { useSelection } from "./studio/useSelection";
  * result large.
  */
 
-export { useStudio, displayOf, openFolderId, type Display, type Scope } from "../store";
-
 /** What is being made now, first in the grid where its result will land: the only part of the screen that follows its progress. */
 function RunningTile({ onDraft }: { onDraft(id: string): void }) {
   const running = useQueueOf((q) => (q.running?.kind === "render" ? q.running : null));

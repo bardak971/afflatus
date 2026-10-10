@@ -28,7 +28,7 @@ export interface PackState { id: string; state: "pending" | "done" | "failed"; m
 type Mapping = Record<string, [string[], { title_aux?: string }]>;
 
 /** An id of ComfyUI's registry, as a workflow names one: the only thing a workflow may say about where a pack comes from. */
-export const REGISTRY_ID = /^[\w-]{1,100}$/;
+const REGISTRY_ID = /^[\w-]{1,100}$/;
 
 /** What Manager installs for a pack's name: a registry id at its latest version, or a GitHub repository's nightly. Null for what its queue has no way to install. */
 function target(pack: string) {

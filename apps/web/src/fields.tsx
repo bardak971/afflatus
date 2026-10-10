@@ -26,7 +26,7 @@ export { useLoraWordsOf } from "./fields/Loras";
 
 // where an input's value starts, and when two values are the same: in form.ts, which works with them without drawing a
 // field (imported from here, form.ts would load every field, and through them the viewer, with the app)
-export { defaultOf, sameValue } from "./form";
+export { sameValue } from "./form";
 
 export function Field({ spec, value, values, options, family, model, onChange, onValue, main, bare, standard }: {
   spec: InputSpec;

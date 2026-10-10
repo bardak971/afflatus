@@ -10,7 +10,7 @@ import { size } from "../format";
  * `empty`: a group's unused drafts (no prompt, no name, nothing rendered) folded into one row. `loose`: the Inbox's items in
  * no folder, a row of the one-project tree only (an item in no folder is in no project).
  */
-export type RowKind = "inbox" | "project" | "archive" | "folder" | "item" | "timeline" | "drafts" | "draft" | "empty" | "more" | "bin" | "loose";
+type RowKind = "inbox" | "project" | "archive" | "folder" | "item" | "timeline" | "drafts" | "draft" | "empty" | "more" | "bin" | "loose";
 
 /** Something a row can be moved as: its place now, to tell a move from staying put. */
 export type Moving =
@@ -164,7 +164,7 @@ const clock = (ms: number) => {
 };
 
 /** A group's drafts: those worked on, and the unused ones (no prompt, no name, nothing rendered) apart. */
-export const draftCounts = (g: TreeGroup) => {
+const draftCounts = (g: TreeGroup) => {
   const empty = Math.min(g.counts.unusedDrafts ?? 0, g.counts.drafts);
   return { used: g.counts.drafts - empty, empty };
 };

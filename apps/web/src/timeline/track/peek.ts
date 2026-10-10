@@ -125,7 +125,7 @@ export class Lru<K, V> {
 }
 
 /** A line of the clip's figures: plain, dim, a warning, or the accent (something happening now). */
-export interface FactLine {
+interface FactLine {
   text: string;
   tone?: "dim" | "warn" | "accent";
 }

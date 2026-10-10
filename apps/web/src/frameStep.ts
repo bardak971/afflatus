@@ -9,8 +9,8 @@
 export const frameAt = (ms: number, fps: number): number => Math.max(0, Math.floor((ms * fps) / 1000 + 1e-6));
 
 /** Where frame `k` starts, and its middle, in ms of the file. */
-export const frameStart = (k: number, fps: number): number => (k * 1000) / fps;
-export const frameMiddle = (k: number, fps: number): number => ((k + 0.5) * 1000) / fps;
+const frameStart = (k: number, fps: number): number => (k * 1000) / fps;
+const frameMiddle = (k: number, fps: number): number => ((k + 0.5) * 1000) / fps;
 
 /** The frames of a file `durationMs` long: the last one starts before its end. */
 export const lastFrame = (durationMs: number, fps: number): number => Math.max(0, Math.ceil((durationMs * fps) / 1000 - 1e-6) - 1);
