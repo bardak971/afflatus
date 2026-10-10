@@ -109,3 +109,41 @@ describe("ComfyClient, jobs", () => {
     expect(fake.uploads).toHaveLength(1);
   });
 });
+
+describe("ComfyClient, answers that hide a failure", () => {
+  /** A fetch that answers /prompt with `answer` and notes every other call. */
+  const answering = (answer: unknown) => {
+    const calls: string[] = [];
+    const fetcher = (async (url: string, init?: RequestInit) => {
+      const path = new URL(url).pathname;
+      calls.push(`${init?.method ?? "GET"} ${path}`);
+      return new Response(path === "/prompt" ? JSON.stringify(answer) : "{}", { status: 200 });
+    }) as typeof fetch;
+    return { calls, client: new ComfyClient("http://comfy.test", fetcher) };
+  };
+  const chain = {
+    "1": { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: "a.safetensors" } },
+    "3": { class_type: "KSampler", inputs: { model: ["1", 0], seed: 1 } },
+    "9": { class_type: "SaveImage", inputs: { images: ["3", 0] } },
+    "20": { class_type: "PreviewAny", inputs: { source: "text" } },
+  };
+  const invalid = (node: string) => ({ prompt_id: "p1", number: 1, node_errors: { [node]: { class_type: chain[node as keyof typeof chain].class_type, errors: [{ message: "Value not in list", details: "sampler_name: 'x'" }] } } });
+
+  it("takes back a prompt whose result node, or a node it comes from, failed validation, and says why", async () => {
+    const { calls, client } = answering(invalid("3"));
+    await expect(client.submit(chain, { outputs: ["9"] })).rejects.toThrow("ComfyUI rejected the job: KSampler: Value not in list sampler_name: 'x'");
+    expect(calls).toContain("POST /interrupt");
+  });
+
+  it("lets a prompt run when what failed validation is not on the result's way", async () => {
+    const { calls, client } = answering(invalid("20"));
+    expect(await client.submit(chain, { outputs: ["9"] })).toBe("p1");
+    expect(calls).not.toContain("POST /interrupt");
+  });
+
+  it("says ComfyUI stopped answering when a body times out half way, not a bare TimeoutError", async () => {
+    const fetcher = (async () =>
+      new Response(new ReadableStream({ start: (c) => c.error(new DOMException("The operation was aborted due to timeout", "TimeoutError")) }), { status: 200 })) as typeof fetch;
+    await expect(new ComfyClient("http://comfy.test", fetcher).history("p1")).rejects.toBeInstanceOf(ComfyUnreachable);
+  });
+});

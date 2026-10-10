@@ -132,6 +132,8 @@ export function FailedRow({ jobs, quiet = false }: { jobs: HistoryJob[]; quiet?:
       {open && (
         <div className="mr-3 mb-1 ml-[90px] flex flex-col gap-2 rounded-[10px] bg-raised px-3 py-2.5 text-[12.5px] leading-normal">
           <span className="whitespace-pre-wrap select-text">{error}</span>
+          {/* where in ComfyUI's code it failed, as it sent it: what its own log no longer has once it rolls over */}
+          {job.trace && <pre className="max-h-60 overflow-auto rounded-md bg-panel px-2 py-1.5 font-mono text-[11px] leading-snug whitespace-pre-wrap text-ink-2 select-text">{job.trace}</pre>}
           {job.prompt && <span className="truncate text-xs text-ink-2" data-tip={job.prompt}>{job.prompt}</span>}
         </div>
       )}

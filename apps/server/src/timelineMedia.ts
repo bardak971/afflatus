@@ -35,6 +35,15 @@ async function fewAtATime<T, R>(items: T[], most: number, work: (item: T) => Pro
   return out;
 }
 
+/** A measure kept as JSON in storage; null when it cannot be read (cut short, damaged): it is then worked out again. */
+function readKept<T>(bytes: Uint8Array): T | null {
+  try {
+    return JSON.parse(Buffer.from(bytes).toString("utf8")) as T;
+  } catch {
+    return null;
+  }
+}
+
 export class TimelineMedia {
   constructor(private readonly core: TimelineCore) {}
 
@@ -65,6 +74,7 @@ export class TimelineMedia {
     const at = now();
     // "Big Air · c2 · t5 · frame 0:03.2": after the name the video goes by (worked out from where it came from when it has none)
     const source = await nameOf(db, video);
+    // the same frame asked for twice at once (two clips rendered from it): the second finds the first's row, the same picture
     await db
       .insertInto("assets")
       .values(newAssetRow({
@@ -72,6 +82,7 @@ export class TimelineMedia {
         thumb_key: thumb ? thumbKey(id) : null, mime: "image/png", bytes: bytes.length, width: size?.width ?? video.width, height: size?.height ?? video.height,
         duration_ms: null, fps: null, has_sound: 0, folder_id: await folderForMade(db, video, timeline), generation_id: null, source_id: video.id, kept_at: at, created_at: at,
       }))
+      .onConflict((oc) => oc.column("id").doNothing())
       .execute();
     events.emit("library");
     return db.selectFrom("assets").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
@@ -103,11 +114,10 @@ export class TimelineMedia {
     if (!asset || (asset.kind !== "video" && asset.kind !== "audio")) throw notFound("this video");
     const key = `motion/${asset.id.slice(0, 2)}/${asset.id}.json`;
     const have = await storage.get(key).catch(() => null);
-    if (have) {
-      const kept = JSON.parse(Buffer.from(have).toString("utf8")) as { rate: number; values: number[]; sound?: number[] | null; speech?: number[] | null };
-      // measured before the speech band was: measured again, once
-      if (kept.sound !== undefined && kept.speech !== undefined) return { rate: kept.rate, values: kept.values, sound: kept.sound, speech: kept.speech };
-    }
+    // a file cut short (a crash while it was written) is measured again, not a video broken for good
+    const kept = have ? readKept<{ rate: number; values: number[]; sound?: number[] | null; speech?: number[] | null }>(have) : null;
+    // measured before the speech band was: measured again, once
+    if (kept && Array.isArray(kept.values) && kept.sound !== undefined && kept.speech !== undefined) return { rate: kept.rate, values: kept.values, sound: kept.sound, speech: kept.speech };
     const { motion, sound, speech } = await measureOf(await this.source(asset), extOf(asset.mime));
     const made = { rate: MOTION_RATE, values: motion.map((v) => Math.round(v * 10) / 10), sound, speech };
     await storage.put(key, new TextEncoder().encode(JSON.stringify(made)));
@@ -121,7 +131,8 @@ export class TimelineMedia {
     if (!asset || asset.kind !== "video") throw notFound("this video");
     const key = `scenes/${asset.id.slice(0, 2)}/${asset.id}.json`;
     const have = await storage.get(key).catch(() => null);
-    if (have) return JSON.parse(Buffer.from(have).toString("utf8")) as { cuts: number[] };
+    const kept = have ? readKept<{ cuts: number[] }>(have) : null;
+    if (kept && Array.isArray(kept.cuts)) return kept;
     const made = { cuts: await scenesOf(await this.source(asset), extOf(asset.mime)) };
     await storage.put(key, new TextEncoder().encode(JSON.stringify(made)));
     return made;
@@ -141,7 +152,8 @@ export class TimelineMedia {
       const key = `means/${asset.id.slice(0, 2)}/${asset.id}.json`;
       got = (async () => {
         const have = await storage.get(key).catch(() => null);
-        if (have) return JSON.parse(Buffer.from(have).toString("utf8")) as FrameMeans;
+        const kept = have ? readKept<FrameMeans>(have) : null;
+        if (kept) return kept;
         const made = await meansAlong(await this.source(asset), extOf(asset.mime));
         if (made.t.length) await storage.put(key, new TextEncoder().encode(JSON.stringify(made)));
         return made;

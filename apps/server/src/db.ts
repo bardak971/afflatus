@@ -162,6 +162,8 @@ export interface Tables {
     /** What is needed to wait on ComfyUI again after a restart (JSON), once the job was submitted. */
     resume: string | null;
     error: string | null;
+    /** Of a job that failed in a ComfyUI node: the end of its Python traceback, as ComfyUI sent it; null otherwise. */
+    error_trace?: string | null;
     generation_id: string | null;
     /** The timeline clip this renders a take of, when it is one. */
     clip_id: string | null;

@@ -87,7 +87,10 @@ describe.skipIf(!clip || !silent)("a video in the library", () => {
 describe("what is not a video", () => {
   it("gives no facts and no frame, and does not throw", async () => {
     const read = await readVideo(new Uint8Array([1, 2, 3, 4]), "mp4");
-    expect(read).toEqual({ facts: null, frame: null });
+    expect(read).toMatchObject({ facts: null, frame: null });
+    // why, as ffprobe said it, without the temporary file's path
+    expect(read.why).toMatch(/^"ffprobe" could not read this video \(exit code \d+\): .*Invalid data/);
+    expect(read.why).not.toMatch(/afflatus-video-/);
   });
 });
 

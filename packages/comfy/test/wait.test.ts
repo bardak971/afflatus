@@ -63,3 +63,28 @@ describe("waitForOutputs", () => {
     await expect(waitForOutputs(client, id, fast)).rejects.toBeInstanceOf(ComfyLost);
   });
 });
+
+describe("a failed render", () => {
+  it("says the node, its type and the exception's class, and keeps the traceback's end", async () => {
+    const id = await client.submit(graph);
+    fake.history[id] = { status: { status_str: "error", messages: [["execution_error", {
+      prompt_id: id, node_id: "3", node_type: "KSampler", exception_type: "torch.OutOfMemoryError", exception_message: "Allocation on device ",
+      traceback: ["Traceback (most recent call last):\n", "  File \"execution.py\", line 496, in execute\n", "torch.OutOfMemoryError: Allocation on device\n"],
+    }]] } };
+    const err = await waitForOutputs(client, id, fast).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ComfyFailed);
+    expect((err as ComfyFailed).message).toBe("KSampler #3: torch.OutOfMemoryError: Allocation on device");
+    expect((err as ComfyFailed).failure).toMatchObject({ nodeId: "3", nodeType: "KSampler", exceptionType: "torch.OutOfMemoryError" });
+    expect((err as ComfyFailed).failure?.traceback).toMatch(/^Traceback[\s\S]*Allocation on device$/);
+  });
+
+  it("is reported by the pretend ComfyUI with every field the real one sends", async () => {
+    const pretend = await startFakeComfy({ simulate: { stepMs: 1 } });
+    const client = new ComfyClient(pretend.url);
+    const id = await client.submit({ "5": { class_type: "VHS_VideoCombine", inputs: {} } });
+    const err = await waitForOutputs(client, id, fast).catch((e: unknown) => e);
+    expect((err as ComfyFailed).message).toBe("VHS_VideoCombine #5: RuntimeError: the pretend ComfyUI has no video to return");
+    expect((err as ComfyFailed).failure?.traceback).toContain("Traceback");
+    await pretend.close();
+  });
+});

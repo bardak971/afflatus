@@ -203,6 +203,8 @@ export async function history(core: QueueCore, opts: { status?: "done" | "failed
       upscaler: upscalerOf(r),
       input: r.status === "failed" && kind !== "export" && kind !== "cut" ? input : null,
       createdAt: r.created_at, startedAt: r.started_at, finishedAt: r.finished_at, tookMs,
+      // the end of ComfyUI's traceback of a job that failed in a node, for the row's whole error
+      trace: r.status === "failed" ? r.error_trace ?? null : null,
       model: recipe ? modelOf(recipe.inputs, input) : null,
       prompt,
       seed: typeof resolved.seed === "number" ? resolved.seed : null,

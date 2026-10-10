@@ -107,9 +107,16 @@ export function fakeSimulate(fake: FakeState, opts: NonNullable<FakeInit["simula
       const source = opts.video;
       const clip = typeof source === "function" ? source(graph, seed) : source;
       if (!clip) {
-        fake.history[id] = { status: { status_str: "error", completed: false, messages: [["execution_error", { exception_message: "the pretend ComfyUI has no video to return" }]] } };
+        // every field ComfyUI's own execution_error carries, so that what reads it is tested against the real shape
+        const error = {
+          prompt_id: id, node_id: videoOut, node_type: nodes.find(([n]) => n === videoOut)![1].class_type, executed: [],
+          exception_message: "the pretend ComfyUI has no video to return", exception_type: "RuntimeError",
+          traceback: ["Traceback (most recent call last):\n", '  File "execution.py", line 496, in execute\n', "RuntimeError: the pretend ComfyUI has no video to return\n"],
+          current_inputs: {}, current_outputs: {},
+        };
+        fake.history[id] = { status: { status_str: "error", completed: false, messages: [["execution_error", error]] } };
         cache = new Set();
-        send("execution_error", { prompt_id: id, exception_message: "the pretend ComfyUI has no video to return" });
+        send("execution_error", error);
         return ended(id);
       }
       fake.files[`${id}.mp4`] = clip;

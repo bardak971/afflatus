@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 
 /**
  * What Afflatus reads from a video when it files it: its size, length, speed, whether it has sound, and
@@ -19,15 +19,34 @@ export interface VideoFacts {
 }
 
 const warned = new Set<string>();
-/** Run a tool; null when it is not installed or fails. A missing tool is said once, not per video. */
-function run(tool: string, args: string[], encoding: "utf8" | "buffer"): Promise<string | Buffer | null> {
+/** How long a tool may take on one video. */
+const RUN_MS = 30_000;
+
+/** What a tool gave: its output, or why there is none, said so that a person can act on it. */
+export type Ran = { out: string | Buffer; why?: undefined } | { out: null; why: string };
+
+/**
+ * Run a tool: its output, or why it gave none. Not installed, out of time and a refusal of the file are three different
+ * fixes, so each is said as itself (a refusal with the end of what the tool wrote). A missing tool is logged once, not per video.
+ */
+function run(tool: string, args: string[], encoding: "utf8" | "buffer"): Promise<Ran> {
   return new Promise((done) => {
-    execFile(tool, args, { encoding, timeout: 30_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true } as never, (err, stdout) => {
-      if (err && (err as NodeJS.ErrnoException).code === "ENOENT" && !warned.has(tool)) {
-        warned.add(tool);
-        console.warn(`[video] "${tool}" was not found: videos get no preview frame and no length. Install ffmpeg, or set FFMPEG and FFPROBE.`);
+    execFile(tool, args, { encoding, timeout: RUN_MS, maxBuffer: 64 * 1024 * 1024, windowsHide: true } as never, (err, stdout, stderr) => {
+      if (!err) return done({ out: stdout as string | Buffer });
+      const e = err as NodeJS.ErrnoException & { killed?: boolean; signal?: string | null; code?: string | number };
+      if (e.code === "ENOENT") {
+        if (!warned.has(tool)) {
+          warned.add(tool);
+          console.warn(`[video] "${tool}" was not found: videos get no preview frame and no length. Install ffmpeg, or set FFMPEG and FFPROBE.`);
+        }
+        return done({ out: null, why: `"${tool}" was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE.` });
       }
-      done(err ? null : (stdout as string | Buffer));
+      if (e.killed || e.signal) return done({ out: null, why: `"${basename(tool)}" took more than ${RUN_MS / 1000} s on this video and was stopped.` });
+      // the last lines it wrote, without the temporary file's path and the demuxer's address ("[mov,mp4 @ 0x…]"): the reason
+      let said = String(stderr ?? "").trim().split(/\r?\n/).filter(Boolean).slice(-2).join(" ");
+      for (const a of args) if (isAbsolute(a)) said = said.split(a).join("the file");
+      said = said.replace(/\[[^\]]*@ (0x)?[0-9a-f]+\]\s*/gi, "").slice(0, 300);
+      done({ out: null, why: `"${basename(tool)}" could not read this video (exit code ${e.code ?? "?"})${said ? `: ${said}` : "."}` });
     });
   });
 }
@@ -38,8 +57,15 @@ function rate(text: unknown): number {
   return n && d ? Math.round((n / d) * 1000) / 1000 : 0;
 }
 
+/** What is read of a video: its facts and its first frame, either null when it could not be read; `why`: why the facts could not be. */
+export interface VideoRead {
+  facts: VideoFacts | null;
+  frame: Uint8Array | null;
+  why?: string;
+}
+
 /** The facts and the first frame (a PNG) of a video. Either is null when it could not be read. */
-export async function readVideo(bytes: Uint8Array, ext: string): Promise<{ facts: VideoFacts | null; frame: Uint8Array | null }> {
+export async function readVideo(bytes: Uint8Array, ext: string): Promise<VideoRead> {
   // both tools need a file they can seek in: an MP4 keeps its index at the end
   const dir = await mkdtemp(join(tmpdir(), "afflatus-video-"));
   const file = join(dir, `in.${ext}`);
@@ -52,19 +78,26 @@ export async function readVideo(bytes: Uint8Array, ext: string): Promise<{ facts
 }
 
 /** The same for a video that is a file on this machine already (an upload written as it arrived). */
-export async function readVideoFile(file: string): Promise<{ facts: VideoFacts | null; frame: Uint8Array | null }> {
-  return { facts: await videoFacts(file), frame: await firstFrame(file) };
+export async function readVideoFile(file: string): Promise<VideoRead> {
+  const probed = await probeVideo(file);
+  return { facts: probed.facts, frame: await firstFrame(file), ...(probed.why ? { why: probed.why } : {}) };
 }
 
 /** What ffprobe says of a video file: its size, length, speed and whether it has sound. Null when it could not be read. */
 export async function videoFacts(file: string): Promise<VideoFacts | null> {
+  return (await probeVideo(file)).facts;
+}
+
+/** The same, with why there are none when there are none (ffprobe missing, out of time, the file refused, no picture in it). */
+export async function probeVideo(file: string): Promise<{ facts: VideoFacts | null; why?: string }> {
   const probed = await run(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type,width,height,avg_frame_rate:format=duration", "-of", "json", file], "utf8");
-  if (typeof probed !== "string") return null;
+  if (probed.out === null) return { facts: null, why: probed.why };
   try {
-    return factsOf(JSON.parse(probed) as ProbeInfo);
+    const facts = factsOf(JSON.parse(String(probed.out)) as ProbeInfo);
+    return facts ? { facts } : { facts: null, why: "ffprobe found no picture in this file." };
   } catch {
     // an answer that is not JSON is no answer
-    return null;
+    return { facts: null, why: "ffprobe gave an answer that could not be read." };
   }
 }
 
@@ -91,7 +124,7 @@ export function factsOf(info: ProbeInfo): VideoFacts | null {
 export async function firstFrame(file: string): Promise<Uint8Array | null> {
   const out = join(dirname(file), `${basename(file)}.frame.png`);
   const made = await run(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", file, "-frames:v", "1", out], "utf8");
-  const frame = made === null ? null : await readFile(out).then((b) => new Uint8Array(b), () => null);
+  const frame = made.out === null ? null : await readFile(out).then((b) => new Uint8Array(b), () => null);
   await rm(out, { force: true }).catch(() => {});
   return frame;
 }

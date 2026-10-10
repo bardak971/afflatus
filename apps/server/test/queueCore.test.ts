@@ -89,14 +89,29 @@ describe("a render's result that cannot be filed", () => {
     const comfy = await t.services.comfy();
     const recipe = t.services.registry.recipe("sdxl.text-to-picture")!;
     fake.files["made.png"] = png(64, 64);
-    // made from a picture that is no longer there: the rows cannot be written (the lineage names it), after the file was stored
-    const resume = { promptId: "p", seed: 1, outputs: [{ node: "9", role: "result", kind: "image" }], totalSteps: 1, phases: {}, loads: [], startedAt: Date.now(), sources: [{ asset: "not-there", role: "init" }] } as unknown as Resume;
+    // a recipe the database refuses (no family, a column that cannot be empty): the rows cannot be written, after the file was stored
+    const resume = { promptId: "p", seed: 1, outputs: [{ node: "9", role: "result", kind: "image" }], totalSteps: 1, phases: {}, loads: [], startedAt: Date.now() } as unknown as Resume;
     const outputs = { "9": { images: [{ filename: "made.png", subfolder: "", type: "temp" }] } };
-    await expect(store(core, comfy, recipe, INPUT, resume, outputs as never, { id: "job", draft_id: null, folder_id: null, look: null })).rejects.toThrow();
+    await expect(store(core, comfy, { ...recipe, family: null } as never, INPUT, resume, outputs as never, { id: "job", draft_id: null, folder_id: null, look: null })).rejects.toThrow();
     const files = readdirSync(t.dir, { recursive: true, withFileTypes: true }).filter((e) => e.isFile());
     expect(files.map((f) => f.name)).toEqual([]);
     expect(await t.db.selectFrom("assets").select("id").execute()).toEqual([]);
     expect(await t.db.selectFrom("generations").select("id").execute()).toEqual([]);
+  });
+});
+
+describe("a render one of whose sources was erased while it rendered", () => {
+  it("is filed all the same, its lineage naming only the sources still there", async () => {
+    const core = (t.services.queue as unknown as { core: QueueCore }).core;
+    const comfy = await t.services.comfy();
+    const recipe = t.services.registry.recipe("sdxl.text-to-picture")!;
+    fake.files["made.png"] = png(64, 64);
+    // a neighbour video or an opening frame chosen at submit, erased since: its row is gone
+    const resume = { promptId: "p", seed: 1, outputs: [{ node: "9", role: "result", kind: "image" }], totalSteps: 1, phases: {}, loads: [], startedAt: Date.now(), sources: [{ asset: "not-there", role: "init" }] } as unknown as Resume;
+    const outputs = { "9": { images: [{ filename: "made.png", subfolder: "", type: "temp" }] } };
+    const generation = await store(core, comfy, recipe, INPUT, resume, outputs as never, { id: "job", draft_id: null, folder_id: null, look: null });
+    expect(await t.db.selectFrom("assets").select("id").where("generation_id", "=", generation).execute()).toHaveLength(1);
+    expect(await t.db.selectFrom("generation_inputs").selectAll().where("generation_id", "=", generation).execute()).toEqual([]);
   });
 });
 

@@ -105,13 +105,14 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
     });
   }
 
-  app.setErrorHandler((err, _req, reply) => {
+  app.setErrorHandler((err, req, reply) => {
     if (err instanceof ZodError) {
       return reply.status(400).send({ error: err.issues.map((i) => `${i.path.join(".") || "body"}: ${i.message}`).join("; ") });
     }
     // an error raised with a status was written to be read; anything else is a bug, logged and not shown
     const status = (err as { statusCode?: number }).statusCode;
-    if (!status) console.error(err);
+    // which request: a bug's stack alone does not say which screen or action met it
+    if (!status) console.error(`[http] ${req.method} ${req.url} failed:`, err);
     return reply.status(status ?? 500).send({ error: status ? (err as Error).message : "something went wrong on the server" });
   });
 

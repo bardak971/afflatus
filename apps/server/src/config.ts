@@ -15,7 +15,8 @@ export interface Config {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return {
-    // localhost only by default: listening on the network is a choice (it will require a password)
+    // localhost only by default: listening on the network is a choice. Afflatus has no login and none is planned: anyone
+    // who reaches the port can use it, so HOST is opened only to a network where everyone is trusted
     host: env.HOST?.trim() || "127.0.0.1",
     port: Number(env.PORT) || 8720,
     dataDir: resolve(env.DATA_DIR?.trim() || "data"),

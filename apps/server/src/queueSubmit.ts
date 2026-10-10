@@ -131,7 +131,9 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
     };
   await hold({ ...resume, unsent: true });
   // a ComfyUI from before prompt ids could be chosen gives one of its own: that one is followed
-  resume.promptId = await comfy.client.submit(prompt.graph, { preview: "latent2rgb", promptId: resume.promptId });
+  // its result nodes: a prompt ComfyUI takes with one of them (or what feeds it) invalid is refused with why (ComfyClient.submit)
+  const results = resume.outputs.filter((o) => o.role === "result").map((o) => o.node);
+  resume.promptId = await comfy.client.submit(prompt.graph, { preview: "latent2rgb", promptId: resume.promptId, outputs: results });
   // noted once ComfyUI took it: a prompt it refused loads nothing, and the next job must not think otherwise
   if (base.length) await core.loaded(base.join("|"), mainModel(built));
   return resume;
@@ -186,15 +188,18 @@ async function uploadWholeClip({ db, storage, comfy, sent }: Up, spec: InputSpec
   const asset = await db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
   if (!asset || asset.kind !== "video") throw new Error(`the ${spec.label.toLowerCase()} is no longer in your library`);
   const bytes = await storage.get(asset.file_key);
-  const facts = asset.width && asset.height && asset.duration_ms ? { width: asset.width, height: asset.height, durationMs: asset.duration_ms, hasSound: Boolean(asset.has_sound) } : (await readVideo(bytes, extOf(asset.mime)).catch(() => null))?.facts;
-  const length = facts?.durationMs ?? 0;
+  const read = asset.width && asset.height && asset.duration_ms ? null : await readVideo(bytes, extOf(asset.mime));
+  const facts = read ? read.facts : { width: asset.width!, height: asset.height!, durationMs: asset.duration_ms!, hasSound: Boolean(asset.has_sound) };
+  // a video that could not be read is refused with why: sent whole at 0×0, the workflow would fail on it with less to go on
+  if (!facts) throw new Error(`The ${spec.label.toLowerCase()} could not be read: ${read?.why ?? "ffprobe gave nothing."}`);
+  const length = facts.durationMs;
   // a source video is worked on whole: only a clip carried on from or arrived at has a moment
   const cut = spec.role !== "source" && at !== undefined && length > 0 && (spec.role === "previous" ? at < length - 40 : at > 40);
   const keep: [number, number] = spec.role === "previous" ? [0, at ?? length] : [at ?? 0, length];
   sent.uploads[spec.id] = cut
-    ? await comfy.client.upload(await rangeKeep(bytes, extOf(asset.mime), { durationMs: length, hasSound: facts?.hasSound ?? false }, [keep]), "mp4")
+    ? await comfy.client.upload(await rangeKeep(bytes, extOf(asset.mime), { durationMs: length, hasSound: facts.hasSound }, [keep]), "mp4")
     : await comfy.client.upload(bytes, extOf(asset.mime));
-  sent.media[spec.id] = { width: facts?.width ?? 0, height: facts?.height ?? 0, hasSound: facts?.hasSound ?? false };
+  sent.media[spec.id] = { width: facts.width, height: facts.height, hasSound: facts.hasSound };
 }
 
 /** Of the clip a clip joins onto, a few frames with their sound, cut at the chosen moment; and its latent, when it can be joined in it. */
@@ -213,12 +218,14 @@ async function uploadJoinClip(up: Up, spec: InputSpec, value: ClipValue): Promis
   const rawRead = rawBytes ? await readVideo(rawBytes, extOf(asset.mime)).catch(() => null) : null;
   if (asset.raw_key && !rawRead?.facts) sent.warnings.push(`The model's own frames of the ${spec.role === "previous" ? "clip before" : "clip after"} were not found: the join took its finished frames.`);
   const bytes = rawRead?.facts ? rawBytes! : await storage.get(asset.file_key);
+  const read = rawRead?.facts || (asset.duration_ms && asset.width && asset.height) ? null : await readVideo(bytes, extOf(asset.mime));
   const facts = rawRead?.facts
     ? rawRead.facts
-    : asset.duration_ms && asset.width && asset.height
-      ? { durationMs: asset.duration_ms, width: asset.width, height: asset.height, hasSound: Boolean(asset.has_sound) }
-      : (await readVideo(bytes, extOf(asset.mime))).facts;
-  if (!facts) throw new Error("Joining clips needs ffmpeg, which was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE.");
+    : read
+      ? read.facts
+      : { durationMs: asset.duration_ms!, width: asset.width!, height: asset.height!, hasSound: Boolean(asset.has_sound) };
+  // said as what went wrong: ffmpeg missing, out of time, or this file refused are three different fixes
+  if (!facts) throw new Error(`The ${spec.role === "previous" ? "clip before" : "clip after"} could not be read for the join: ${read?.why ?? "ffprobe gave nothing."}`);
   // the form may say how many frames the join takes first; shorter counts stay as fallbacks for a short clip
   const wanted = spec.framesFrom ? Number(input[spec.framesFrom]) : NaN;
   const counts = Number.isFinite(wanted) && wanted > 0 ? [wanted, ...spec.frames.filter((c) => c < wanted)] : spec.frames;
@@ -256,7 +263,10 @@ async function finishLatent(
   sent.uploads[`${spec.id}.latent`] = await comfy.client.upload(saved, "safetensors");
   sent.media[spec.id] = { ...sent.media[spec.id]!, latentFrames: cutAt || asset.latent_frames, ...(cutAt ? { latentCut: cutAt } : {}), ...(spec.role === "next" ? { latentAt: atFrames } : {}) };
   // a finish after a clip finished by the same latent re-sample: that clip's re-sampled latent, for decoding the join as one piece with it
-  const fine = finishedFrom && spec.role === "previous" && shown.fine_latent_key && shown.width && shown.height ? await storage.get(shown.fine_latent_key).catch(() => null) : null;
+  const wantsFine = Boolean(finishedFrom && spec.role === "previous" && shown.fine_latent_key && shown.width && shown.height);
+  const fine = wantsFine ? await storage.get(shown.fine_latent_key!).catch(() => null) : null;
+  // said on the job like the other fallbacks: the join is then decoded on its own, and may show where the two meet
+  if (wantsFine && !fine) sent.warnings.push("The re-sampled latent of the clip before was not found: the join was not decoded as one piece with it.");
   if (fine) {
     sent.uploads[`${spec.id}.fine`] = await comfy.client.upload(fine, "safetensors");
     sent.media[spec.id] = { ...sent.media[spec.id]!, fine: { width: shown.width!, height: shown.height! } };
