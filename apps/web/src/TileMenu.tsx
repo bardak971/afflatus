@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { Plus, SquareCheck } from "lucide-react";
 import type { Asset } from "./api";
 import { ContextMenu, useMenu, type MenuHead, type MenuItem } from "./ContextMenu";
@@ -38,9 +39,15 @@ export function useTileMenu({ onOpen, onSelect, into, first, subject, place = "g
   const { menu, open, close } = useMenu<Asset>();
   const formTarget = useFormTarget((st) => st.target);
   const subjectOf = menu?.subject ?? subject ?? null;
-  const detail = useAsset(subjectOf?.id ?? null);
+  // the item last shown stays the actions' subject once the menu closes: a choice closes the menu first, and the
+  // hooks that do it (Mirror, Inpaint, Edit, Outpaint, Image to video…) read their item when their request starts, a
+  // moment later (the command bar keeps its last render for the same reason)
+  const last = useRef<Asset | null>(null);
+  if (subjectOf) last.current = subjectOf;
+  const acting = subjectOf ?? last.current;
+  const detail = useAsset(acting?.id ?? null);
   const acts = useItemActions({
-    asset: subjectOf ?? NO_ASSET, detail, enabled: Boolean(subjectOf), into, sayErrors: true,
+    asset: acting ?? NO_ASSET, detail, enabled: Boolean(acting), into, sayErrors: true,
     // a frame, a sound, a mirrored copy made from here: shown in the viewer, as the place opens an item
     onOpened: onOpen,
     // A and N act in the viewer, on the item open in it: shown where the keys are named (the stage, the command bar)
