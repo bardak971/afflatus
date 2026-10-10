@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AssetLookup } from "./assets-api";
 import { now } from "./db";
+import { foldersOf, type LibraryChange } from "./events";
 import { httpError } from "./errors";
 import { isLinked } from "./linked";
 import { assetView, resetCountdown } from "./media";
@@ -32,6 +33,8 @@ export function registerAssetsBin(app: FastifyInstance, s: Services, { asset, fi
     if (kept) await fileInLinked(a.id);
     // unkept: its day starts now, not the day it was made
     else await resetCountdown(s.db, [a.id]);
+    // the other tabs: the flag is written in place there, the disk use's split and the expiring count read again
+    s.queue.events.emit("library", { change: "kept", items: [a.id], kept } satisfies LibraryChange);
     return assetView(await asset(req.params.id));
   });
 
@@ -42,7 +45,7 @@ export function registerAssetsBin(app: FastifyInstance, s: Services, { asset, fi
     // a file of a linked folder leaves its directory, and waits in the bin like the rest
     if (isLinked(a.file_key)) await s.linked.toBin(a);
     else await s.db.updateTable("assets").set({ deleted_at: now() }).where("id", "=", req.params.id).execute();
-    s.queue.events.emit("library");
+    s.queue.events.emit("library", { change: "binned", items: [a.id], folders: [a.folder_id] } satisfies LibraryChange);
     return { ok: true };
   });
 
@@ -60,6 +63,11 @@ export function registerAssetsBin(app: FastifyInstance, s: Services, { asset, fi
     const said = (changed: number) => ({ changed, ...(spared ? { inUse: spared } : {}) });
     // the files of linked folders among them: to the bin and back they move on the disk; they are never "not kept"
     const rows = b.ids.length ? await s.db.selectFrom("assets").selectAll().where("id", "in", b.ids).where("origin", "!=", "mask").execute() : [];
+    const change: LibraryChange = {
+      ...(b.action === "keep" || b.action === "unkeep" ? { change: "kept", kept: b.action === "keep" } : { change: "binned" }),
+      items: rows.map((a) => a.id),
+      folders: foldersOf(rows),
+    };
     const onDisk = rows.filter((a) => isLinked(a.file_key));
     const back = rows.filter((a) => a.linked_path && a.deleted_at);
     let special = 0;
@@ -68,7 +76,7 @@ export function registerAssetsBin(app: FastifyInstance, s: Services, { asset, fi
     const handled = new Set([...(b.action === "bin" || b.action === "unkeep" || b.action === "keep" ? onDisk : []), ...(b.action === "restore" ? back : [])].map((a) => a.id));
     b.ids = b.ids.filter((id) => !handled.has(id));
     if (!b.ids.length) {
-      s.queue.events.emit("library");
+      s.queue.events.emit("library", change);
       return said(special);
     }
     const set = b.action === "keep" ? { kept_at: now() } : b.action === "unkeep" ? { kept_at: null } : b.action === "bin" ? { deleted_at: now() } : { deleted_at: null };
@@ -79,7 +87,7 @@ export function registerAssetsBin(app: FastifyInstance, s: Services, { asset, fi
     if (b.action === "keep") for (const id of b.ids) await fileInLinked(id);
     // unkept, or back from the bin: the day before the bin starts now
     if (b.action === "unkeep" || b.action === "restore") await resetCountdown(s.db, b.ids);
-    s.queue.events.emit("library");
+    s.queue.events.emit("library", change);
     return said(Number(done.numUpdatedRows) + special);
   });
 
@@ -90,7 +98,7 @@ export function registerAssetsBin(app: FastifyInstance, s: Services, { asset, fi
     else await s.db.updateTable("assets").set({ deleted_at: null }).where("id", "=", req.params.id).execute();
     // back in the library unkept: its day starts now
     await resetCountdown(s.db, [a.id]);
-    s.queue.events.emit("library");
+    s.queue.events.emit("library", { change: "binned", items: [a.id], folders: [a.folder_id] } satisfies LibraryChange);
     return assetView(await asset(req.params.id));
   });
 }

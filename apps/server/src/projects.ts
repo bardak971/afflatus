@@ -243,6 +243,7 @@ export function registerProjects(app: FastifyInstance, s: Services): void {
       await tx.deleteFrom("projects").where("id", "=", p.id).execute();
     });
     await unpin(s.db, p.id);
+    // its folders go to the Inbox, and every item in them changes project: every list is read
     s.queue.events.emit("library");
     return { ok: true };
   });

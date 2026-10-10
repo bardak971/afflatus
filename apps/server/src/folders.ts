@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { httpError } from "./errors";
 import { newId, now, OWNER } from "./db";
+import { foldersOf, type LibraryChange } from "./events";
 import { isLinked } from "./linked";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
@@ -77,7 +78,7 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
     const path = parent?.path ? await s.linked.makeFolder(parent, body.name) : null;
     const row = { id: newId(), owner_id: OWNER, parent_id: body.parentId, name: path ? path.split(/[\\/]/).pop()! : body.name, path, project_id: parent ? parent.project_id : body.project ?? null, created_at: now() };
     await s.db.insertInto("folders").values(row).execute();
-    s.queue.events.emit("library");
+    s.queue.events.emit("library", { change: "places" } satisfies LibraryChange);
     return { id: row.id, parentId: row.parent_id, name: row.name, count: 0, path: row.path, root: false, projectId: row.project_id };
   });
 
@@ -114,7 +115,8 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
       await s.db.updateTable("timelines").set({ project_id: project }).where("folder_id", "in", [folder.id, ...ids]).execute();
       s.queue.events.emit("timeline");
     }
-    s.queue.events.emit("library");
+    // renamed or moved within its project: only the places; into another project, what it holds changes project too
+    s.queue.events.emit("library", project === folder.project_id ? ({ change: "places" } satisfies LibraryChange) : undefined);
     return { ok: true };
   });
 
@@ -134,7 +136,7 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
       await tx.updateTable("projects").set({ folder_id: null }).where("folder_id", "=", folder.id).execute();
       await tx.deleteFrom("folders").where("id", "=", folder.id).execute();
     });
-    s.queue.events.emit("library");
+    s.queue.events.emit("library", { change: "moved", folders: [folder.id, folder.parent_id] } satisfies LibraryChange);
     return { ok: true };
   });
 
@@ -146,7 +148,7 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
     if (target?.path) {
       // into a linked folder: each becomes a file in its directory (one that is a linked file already is moved on the disk)
       for (const a of items) await s.linked.into(a, target);
-      s.queue.events.emit("library");
+      s.queue.events.emit("library", { change: "moved", items: body.ids, folders: foldersOf(items, target.id), kept: true } satisfies LibraryChange);
       return { moved: items.length };
     }
     if (items.some((a) => isLinked(a.file_key))) {
@@ -156,7 +158,8 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
     // what someone took the trouble to file is not thrown away after a day
     if (body.folderId) await s.db.updateTable("assets").set({ kept_at: now() }).where("id", "in", body.ids).where("kept_at", "is", null).execute();
     const followed = await timelinesFollow(s, body.ids);
-    s.queue.events.emit("library");
+    // filed in a folder, they are kept too
+    s.queue.events.emit("library", { change: "moved", items: body.ids, folders: foldersOf(items, body.folderId ?? null), kept: Boolean(body.folderId) } satisfies LibraryChange);
     if (followed) s.queue.events.emit("timeline");
     return { moved: Number(moved.numUpdatedRows), timelines: followed };
   });

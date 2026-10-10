@@ -341,6 +341,7 @@ export class Linked {
     // the small pictures are Afflatus's own files: dropped once the rows are gone
     for (const a of files) if (isLinked(a.file_key) && a.thumb_key) await this.storage.delete(a.thumb_key).catch(() => {});
     await this.load();
+    // folders gone, their files with them, the results that waited there in no folder now: every list is read
     this.events.emit("library");
   }
 
@@ -483,6 +484,7 @@ export class Linked {
       await this.db.deleteFrom("folders").where("id", "=", f.id).execute();
     }
     await this.load();
+    // files came, went, moved or changed, folders were made or went: every list is read
     this.events.emit("library");
     return { files, folders: seenFolders.size - 1 };
   }

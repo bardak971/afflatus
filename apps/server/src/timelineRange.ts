@@ -2,6 +2,7 @@ import { FRAME_SLACK_MS, latentFrameAtOrBefore, MODEL_FPS, secondsInput, type Re
 import { fromName, nameOf } from "./autoName";
 import { CutError, rangeKeep, slowMotion } from "./cut";
 import { newId, now, OWNER, type Db } from "./db";
+import { foldersOf, type LibraryChange } from "./events";
 import { httpError } from "./errors";
 import { extOf } from "./media";
 import { makeThumb, thumbKey } from "./thumbs";
@@ -84,7 +85,8 @@ export class TimelineRange {
     });
     // the new videos are made either way: a linked file another program holds open just stays where it is
     if (binned && linked) await linkedToBin(db, this.core.storage, video).catch((err: Error) => console.warn(`[cut] the source stays in its folder: ${err.message}`));
-    events.emit("library");
+    events.emit("library", { change: "added", items: rows.map((r) => r.id), folders: foldersOf(rows) } satisfies LibraryChange);
+    if (binned) events.emit("library", { change: "binned", items: [video.id], folders: [video.folder_id] } satisfies LibraryChange);
     const made = await db.selectFrom("assets").selectAll().where("id", "in", rows.map((r) => r.id)).execute();
     return rows.map((r) => made.find((m) => m.id === r.id)!);
   }
@@ -542,7 +544,7 @@ export class TimelineRange {
     const { db, events } = this.core;
     const row = await this.cutRow(original, out, name, `${Math.round(startMs)}-${Math.round(endMs)}`, folder);
     await db.insertInto("assets").values(row).execute();
-    events.emit("library");
+    events.emit("library", { change: "added", items: [row.id], folders: [row.folder_id] } satisfies LibraryChange);
     return db.selectFrom("assets").selectAll().where("id", "=", row.id).executeTakeFirstOrThrow();
   }
 

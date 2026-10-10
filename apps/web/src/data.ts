@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import { keepPreviousData, useInfiniteQuery, useQuery, type InfiniteData, type QueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery, type InfiniteData, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { api, type HistoryPage, type Timeline, type TimesPeriod, type TimesWindow } from "./api";
+import type { AssetChange } from "./assetCache";
 import { withFreshHead } from "./screens/queue/historyHead";
 import { useProject } from "./project";
 
@@ -117,30 +118,73 @@ export const useModelSettings = () => useQuery({ queryKey: ["model-settings"], q
  * own, so that a change to one item does not read them all again through the "assets" prefix.
  */
 export const LIBRARY_KEYS = [["assets"], ["folders"], ["storage"], ["projects"], ["facets"]] as const;
-/** What a "library" event says changed, when its sender knows (the server's LibraryChange, events.ts); nothing said: anything may have. */
-export interface LibraryChange {
-  items?: string[];
-  change?: "fields" | "kept" | "places";
-}
 /**
- * The lists a "library" event reads again: only those the change can touch. An item renamed or its size read ("fields") is
- * in the lists of items alone; one kept or not ("kept") moves the disk use's split too; a project made or renamed ("places")
- * changes the folders and the projects, not an item. Anything else (items made, binned, moved): every list.
+ * What a "library" event says changed, when its sender knows (the server's LibraryChange, events.ts, says what each is);
+ * nothing said, or a change this page does not know (a newer server): anything may have.
  */
-export function libraryKeysOf(change: LibraryChange | null | undefined): ReadonlyArray<readonly string[]> {
-  switch (change?.change) {
-    case "fields": return [["assets"]];
-    case "kept": return [["assets"], ["storage"]];
-    case "places": return [["folders"], ["projects"]];
-    default: return LIBRARY_KEYS;
+export interface LibraryChange {
+  change?: "fields" | "kept" | "places" | "added" | "moved" | "binned" | "erased";
+  items?: string[];
+  folders?: Array<string | null>;
+  kept?: boolean;
+  name?: string;
+}
+const CHANGES = new Set(["fields", "kept", "places", "added", "moved", "binned", "erased"]);
+const LIBRARY_ROOTS = new Set<unknown>(LIBRARY_KEYS.map((k) => k[0]));
+
+/**
+ * The part of a change the event says in full, written into what the page holds rather than read again: a rename with its
+ * name, kept or not with which. An empty name is not: the name shown then is the server's to work out.
+ */
+export function libraryInPlace(c: LibraryChange | null | undefined): AssetChange | null {
+  if (!c?.items?.length) return null;
+  if (c.change === "fields" && c.name) return { kind: "rename", ids: c.items, name: c.name };
+  if (c.change === "kept" && typeof c.kept === "boolean") return { kind: "keep", ids: c.items, kept: c.kept };
+  return null;
+}
+
+/** Whether one change can touch what is under this key. */
+function touches(c: LibraryChange | null | undefined, key: QueryKey): boolean {
+  const [root, part] = key;
+  if (!c?.change || !CHANGES.has(c.change)) return LIBRARY_ROOTS.has(root);
+  const assets = root === "assets";
+  const inFolders = (f: unknown) => !c.folders || c.folders.includes(f as string | null);
+  // a list of one folder ("none": of no folder) only when the change touched that folder; the others whatever it touched
+  const filter = (assets && part === "list" ? (key[3] as { folder?: string; q?: string; kept?: boolean; unkept?: boolean; bin?: boolean } | undefined) : undefined) ?? {};
+  const list = assets && part === "list" && (!filter.folder || inFolders(filter.folder === "none" ? null : filter.folder));
+  // the Projects panel's items of one open folder (its id third)
+  const tree = assets && part === "tree" && inFolders(key[2]);
+  const one = assets && part === "one" && (!c.items || c.items.includes(key[2] as string));
+  const unkept = assets && part === "unkept";
+  // the folders' counts are of what is in a folder: a change to items in none leaves them
+  const counts = root === "folders" && (!c.folders || c.folders.some((f) => f !== null));
+  const storage = root === "storage";
+  const projects = root === "projects";
+  const facets = root === "facets";
+  switch (c.change) {
+    case "fields":
+      // written in place: only what is found or ordered by the name can change (a search, the panel sorted by name)
+      return libraryInPlace(c) ? (list && Boolean(filter.q)) || (tree && key[5] === "name") : list || tree || one;
+    case "kept":
+      // written in place: what comes into or leaves a list of the kept or the unkept, the expiring count, the disk use's split
+      return (libraryInPlace(c) ? list && Boolean(filter.kept || filter.unkept) : list || tree || one) || unkept || storage;
+    case "places": return root === "folders" || projects;
+    case "added": return list || tree || unkept || counts || storage || projects || facets;
+    // a move changes no size; filing in a folder keeps what was not (`kept` left out: it may have)
+    case "moved": return list || tree || one || unkept || counts || projects || (c.kept !== false && storage);
+    case "binned": return list || tree || one || unkept || counts || storage || projects || facets;
+    // out of the bin for good: it was in no count but the bin's and the disk use
+    case "erased": return (list && Boolean(filter.bin)) || one || storage;
   }
+  return false;
 }
-/** The keys of several events read in one go, each once. */
-export function unionKeys(a: ReadonlyArray<readonly string[]>, b: ReadonlyArray<readonly string[]>): Array<readonly string[]> {
-  const out = [...a];
-  for (const k of b) if (!out.some((x) => x.length === k.length && x.every((p, i) => p === k[i]))) out.push(k);
-  return out;
-}
+
+/**
+ * What the "library" events gathered until a read touch: whether the queries under a key are read again. Only what each
+ * change can touch: a rename reads no folder counts, a render no item's details, a move no disk use. An event with
+ * nothing said reads every list (LIBRARY_KEYS), as one from an older server does.
+ */
+export const libraryReads = (changes: ReadonlyArray<LibraryChange | null | undefined>) => (key: QueryKey): boolean => changes.some((c) => touches(c, key));
 /** What a render that ended changes: the record of render times, and what a form and the Finish dialog forecast from it (live.ts). */
 export const RENDER_KEYS = [["renders"], ["advice"], ["finishForecast"]] as const;
 

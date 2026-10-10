@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { Kysely } from "kysely";
 import { z } from "zod";
 import { now, type Tables } from "./db";
+import { foldersOf, type LibraryChange } from "./events";
 import type { Services } from "./services";
 import { resetCountdown } from "./media";
 import { ERASED, eraseAsset, inUse } from "./sweep";
@@ -47,7 +48,7 @@ export function registerUsage(app: FastifyInstance, s: Services): void {
       }
       return new Set(idle.map((t) => t.asset_id)).size;
     });
-    s.queue.events.emit("library");
+    s.queue.events.emit("library", { change: "binned" } satisfies LibraryChange);
     s.queue.events.emit("timeline");
     return { moved };
   });
@@ -65,7 +66,7 @@ export function registerUsage(app: FastifyInstance, s: Services): void {
     const old = await query.execute();
     const gone = old.filter((a) => !used.has(a.id));
     for (const a of gone) await eraseAsset(s.db, s.storage, a);
-    s.queue.events.emit("library");
+    s.queue.events.emit("library", { change: "erased", items: gone.map((a) => a.id) } satisfies LibraryChange);
     s.queue.events.emit("timeline");
     return { erased: gone.length, inUse: old.length - gone.length };
   });
@@ -81,7 +82,7 @@ export function registerUsage(app: FastifyInstance, s: Services): void {
     // in slices: SQLite takes a limited number of values in one statement
     for (let i = 0; i < rest.length; i += 500) await s.db.updateTable("assets").set({ deleted_at: null }).where("id", "in", rest.slice(i, i + 500)).execute();
     for (let i = 0; i < binned.length; i += 500) await resetCountdown(s.db, binned.slice(i, i + 500).map((a) => a.id));
-    s.queue.events.emit("library");
+    s.queue.events.emit("library", { change: "binned", items: binned.map((a) => a.id), folders: foldersOf(binned) } satisfies LibraryChange);
     return { restored: binned.length };
   });
 }

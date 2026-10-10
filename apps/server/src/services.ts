@@ -1,6 +1,7 @@
 import { Comfy } from "./comfy";
 import { join } from "node:path";
 import type { Db, DbKind } from "./db";
+import type { LibraryChange } from "./events";
 import { Downloads } from "./downloads";
 import { ShippedPresets, shippedPresetsDir } from "./presetFiles";
 import { DEFAULT_QUEUE_OPTIONS, Queue, type QueueOptions } from "./queue";
@@ -87,7 +88,8 @@ export async function createServices(
   // unkept results to the bin after a day, the bin emptied after a week, drafts left empty thrown away: checked at start and every hour
   const runSweep = () =>
     sweep(db, storage)
-      .then((r) => (r.binned || r.erased) && queue.events.emit("library"))
+      // what went to the bin, or only out of it for good
+      .then((r) => (r.binned || r.erased) && queue.events.emit("library", { change: r.binned ? "binned" : "erased" } satisfies LibraryChange))
       .then(() => sweepIdleDrafts(db, registry))
       // the times of renders older than they are kept one by one become figures per model and day
       .then(async () => fold(db, (await readSettings(db)).renderHistoryDays))

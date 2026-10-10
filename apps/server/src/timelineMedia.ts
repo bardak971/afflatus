@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { frameName, nameOf } from "./autoName";
 import { colourNudge, CutError, MATCH, type FrameMeans, type Means, filmStrip, frameAt, joinJump, measureOf, meansAlong, meansWithin, MOTION_RATE, peekAt, scenesOf } from "./cut";
 import { newId, now } from "./db";
+import type { LibraryChange } from "./events";
 import { notFound } from "./errors";
 import { extOf, newAssetRow, pngSize } from "./media";
 import { sourceOf } from "./storage";
@@ -74,17 +75,18 @@ export class TimelineMedia {
     const at = now();
     // "Big Air · c2 · t5 · frame 0:03.2": after the name the video goes by (worked out from where it came from when it has none)
     const source = await nameOf(db, video);
+    const folder = await folderForMade(db, video, timeline);
     // the same frame asked for twice at once (two clips rendered from it): the second finds the first's row, the same picture
     await db
       .insertInto("assets")
       .values(newAssetRow({
         id, kind: "image", origin: "frame", name: source ? frameName(source, atMs) : "", file_key: key,
         thumb_key: thumb ? thumbKey(id) : null, mime: "image/png", bytes: bytes.length, width: size?.width ?? video.width, height: size?.height ?? video.height,
-        duration_ms: null, fps: null, has_sound: 0, folder_id: await folderForMade(db, video, timeline), generation_id: null, source_id: video.id, kept_at: at, created_at: at,
+        duration_ms: null, fps: null, has_sound: 0, folder_id: folder, generation_id: null, source_id: video.id, kept_at: at, created_at: at,
       }))
       .onConflict((oc) => oc.column("id").doNothing())
       .execute();
-    events.emit("library");
+    events.emit("library", { change: "added", items: [id], folders: [folder] } satisfies LibraryChange);
     return db.selectFrom("assets").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
   }
 

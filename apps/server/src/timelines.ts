@@ -3,6 +3,7 @@ import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
 import { musicPlan, type ClipMusic, type InputSpec } from "@afflatus/core";
 import { newId, now, OWNER, type Db } from "./db";
+import type { LibraryChange } from "./events";
 import { httpError, notFound } from "./errors";
 import { rootFolderOf } from "./projects";
 import { timelineMediaFollows } from "./timelineFolder";
@@ -447,7 +448,8 @@ export class Timelines {
       // what it made follows it to its new folder
       if (moved) await timelineMediaFollows(tx, id);
     });
-    if (moved) this.events.emit("library");
+    // what it made followed it: which items, and from which folders, is not counted here
+    if (moved) this.events.emit("library", { change: "moved" } satisfies LibraryChange);
     if (m?.asset) await this.keep(m.asset);
     this.changed();
     return this.view(id);
@@ -685,7 +687,7 @@ export class Timelines {
       });
       return bin;
     });
-    if (binned) this.events.emit("library");
+    if (binned) this.events.emit("library", { change: "binned" } satisfies LibraryChange);
     await this.touch(timelineId);
   }
 
@@ -710,7 +712,7 @@ export class Timelines {
       return u;
     });
     if (!u) return { binned: 0, bytes: 0 };
-    this.events.emit("library");
+    this.events.emit("library", { change: "binned", items: [...u.assets.keys()] } satisfies LibraryChange);
     await this.touch(id);
     return { binned: u.takes.length, bytes: unusedSize(u).unusedBytes };
   }

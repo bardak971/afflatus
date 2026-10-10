@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { AssetLookup } from "./assets-api";
 import { probeMediaFile } from "./cut";
 import { newId, now } from "./db";
+import type { LibraryChange } from "./events";
 import { httpError } from "./errors";
 import { assetView, extOf, looksLikePicture, newAssetRow } from "./media";
 import { rootFolderOf } from "./projects";
@@ -79,7 +80,7 @@ export function registerAssetUpload(app: FastifyInstance, s: Services, { asset }
       await s.storage.delete(thumbKey(id)).catch(() => {});
       throw err;
     }
-    if (!mask && !kit) s.queue.events.emit("library");
+    if (!mask && !kit) s.queue.events.emit("library", { change: "added", items: [id], folders: [into?.id ?? null] } satisfies LibraryChange);
     return assetView(await asset(id));
   });
 }
