@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, useLayoutEffect, useState, type RefObject } from "react";
+import { Fragment, Suspense, useLayoutEffect, useState, type RefObject } from "react";
 import { ChevronDown, ChevronRight, Trash2 } from "lucide-react";
 import type { Asset, Folder } from "../../api";
 import { useFolders, useProjects } from "../../data";
@@ -7,11 +7,12 @@ import { useProject } from "../../project";
 import { Initial, projectTone } from "../../projects/tone";
 import type { Place } from "../../store";
 import { cx } from "../../ui";
+import { lazyPart, loadProjectsPanel, loadViewer } from "../../lazyParts";
 
 // the tree is the Projects panel's own, loaded the first time it opens: it is not needed to draw the library
-const ProjectsPanel = lazy(() => import("../../projects/ProjectsPanel").then((m) => ({ default: m.ProjectsPanel })));
+const ProjectsPanel = lazyPart(loadProjectsPanel, (m) => m.ProjectsPanel);
 // the Viewer too: fetched the first time an item is opened from the tree
-const Viewer = lazy(() => import("../../Viewer").then((m) => ({ default: m.Viewer })));
+const Viewer = lazyPart(loadViewer, (m) => m.Viewer);
 
 /** One step of the breadcrumb: what it says, and the place a click on it goes to. */
 interface Crumb {

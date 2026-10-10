@@ -8,7 +8,7 @@ import { handMask } from "../handoff";
 import { useReuse } from "../reuse";
 import { carryOver, followOn, usedLast } from "../picker";
 import { ownInputs, toolOf } from "./shared";
-import { useFormAim } from "../recipeForm/Part";
+import { useFormAim } from "../recipeForm/formAim";
 
 /** What a tool is handed along with a picture: what the picture was made with (its prompt, model, LoRAs…), where the tool has a place for it. `withLook`: its cast goes along. */
 function carried(g: AssetDetail["generation"] | null | undefined, from: RecipeInfo | undefined, to: RecipeInfo, withLook: boolean): Record<string, unknown> {
@@ -39,7 +39,7 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
     leave();
     openNew(d);
   };
-  /** The form of `recipe` opens on `input`, the slot this action fills (recipeForm/Part.tsx useFormAim). */
+  /** The form of `recipe` opens on `input`, the slot this action fills (recipeForm/formAim.ts). */
   const aim = (recipe: RecipeInfo, input: string | undefined) => {
     if (input) useFormAim.getState().set(recipe.id, input);
   };

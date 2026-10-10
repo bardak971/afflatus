@@ -15,15 +15,17 @@ import { useBanners } from "./store";
 import { BarHost } from "./bar/BarHost";
 import { StatusBar } from "./StatusBar";
 import { Tips } from "./Tip";
+import { loadPeople, loadQueue, loadSetup, loadTimelineEditor, loadWorkflows, lazyPart, prefetchWhenIdle } from "./lazyParts";
 
-// every screen but the Studio is a chunk of its own, fetched the first time its address is opened
-const People = lazy(() => import("./screens/People").then((m) => ({ default: m.People })));
-const Queue = lazy(() => import("./screens/Queue").then((m) => ({ default: m.Queue })));
-const Setup = lazy(() => import("./screens/Setup").then((m) => ({ default: m.Setup })));
-const TimelineEditor = lazy(() => import("./screens/TimelineEditor").then((m) => ({ default: m.TimelineEditor })));
-const Workflows = lazy(() => import("./screens/Workflows").then((m) => ({ default: m.Workflows })));
-const WorkflowEdit = lazy(() => import("./screens/Workflows").then((m) => ({ default: m.WorkflowEdit })));
-const WorkflowImport = lazy(() => import("./screens/Workflows").then((m) => ({ default: m.WorkflowImport })));
+// every screen but the Studio is a chunk of its own, fetched once the page is idle (lazyParts.ts), or the first time
+// its address is opened before that
+const People = lazyPart(loadPeople, (m) => m.People);
+const Queue = lazyPart(loadQueue, (m) => m.Queue);
+const Setup = lazyPart(loadSetup, (m) => m.Setup);
+const TimelineEditor = lazyPart(loadTimelineEditor, (m) => m.TimelineEditor);
+const Workflows = lazyPart(loadWorkflows, (m) => m.Workflows);
+const WorkflowEdit = lazyPart(loadWorkflows, (m) => m.WorkflowEdit);
+const WorkflowImport = lazyPart(loadWorkflows, (m) => m.WorkflowImport);
 // the list of keys too: it is fetched with the page, but not in its first chunk
 const KeysHelp = lazy(() => import("./KeysHelp").then((m) => ({ default: m.KeysHelp })));
 import { NavRail } from "./NavRail";
@@ -56,6 +58,7 @@ export function App() {
   useTheme();
   const [path] = useLocation();
   useMissingTools();
+  useEffect(prefetchWhenIdle, []);
   return (
     <div className="flex h-full flex-col">
       <div className="flex min-h-0 grow">

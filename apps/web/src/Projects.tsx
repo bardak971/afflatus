@@ -1,11 +1,11 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type DragEvent } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Reveal } from "./bar/bridge";
 import { FolderKanban, FolderPlus } from "lucide-react";
 import { api, type Asset, type Project } from "./api";
 import { useProjects } from "./data";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
-import { FieldRow } from "./fields";
+import { FieldRow } from "./fields/FieldRow";
 import { Keys } from "./Keys";
 import { useKeysHere } from "./keys/here";
 import { useProject } from "./project";
@@ -13,12 +13,13 @@ import { usePins } from "./projects/pins";
 import { Initial, projectTone } from "./projects/tone";
 import { Button, cx, ErrorNote, fieldClass } from "./ui";
 import { useFlip } from "./useFlip";
+import { lazyPart, loadProjectsPanel, loadViewer } from "./lazyParts";
 
 // the panel loads on its first opening: it is not needed to draw the app
-const ProjectsPanel = lazy(() => import("./projects/ProjectsPanel").then((m) => ({ default: m.ProjectsPanel })));
+const ProjectsPanel = lazyPart(loadProjectsPanel, (m) => m.ProjectsPanel);
 // the Viewer too: fetched the first time an item is opened from the panel (a lazy import is only that when no file
 // loaded with the app imports the Viewer itself: the screens take it through viewer/LazyViewer.tsx)
-const Viewer = lazy(() => import("./Viewer").then((m) => ({ default: m.Viewer })));
+const Viewer = lazyPart(loadViewer, (m) => m.Viewer);
 
 /** The type of a pin dragged along the rail: only the rail's own pins take it. */
 const DRAG_PIN = "application/x-afflatus-pin";
