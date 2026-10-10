@@ -3,17 +3,19 @@ import { availableParallelism } from "node:os";
 /**
  * At most `size` pieces of work at once; the rest wait their turn, first come first served. For the ffmpeg runs a page
  * asks for (a timeline opened for the first time measures every clip at once): forty processes at a time would only
- * share the cores out and finish all of them late.
+ * share the cores out and finish all of them late. `first`: work a screen waits on (the motion its tracks snap to) goes
+ * before what only decorates it (film strips), whichever was asked first.
  */
 export function pool(size: number) {
   let running = 0;
+  const urgent: Array<() => void> = [];
   const waiting: Array<() => void> = [];
   const next = () => {
     running--;
-    waiting.shift()?.();
+    (urgent.shift() ?? waiting.shift())?.();
   };
-  return async function run<T>(work: () => Promise<T>): Promise<T> {
-    if (running >= size) await new Promise<void>((go) => waiting.push(go));
+  return async function run<T>(work: () => Promise<T>, opts: { first?: boolean } = {}): Promise<T> {
+    if (running >= size) await new Promise<void>((go) => (opts.first ? urgent : waiting).push(go));
     running++;
     try {
       return await work();

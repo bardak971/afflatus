@@ -60,4 +60,16 @@ describe("a pool", () => {
     await expect(run(async () => { throw new Error("no"); })).rejects.toThrow("no");
     expect(await run(async () => 7)).toBe(7);
   });
+
+  it("starts what a screen waits on before what was asked earlier but only decorates it", async () => {
+    const run = pool(1);
+    const started: string[] = [];
+    const job = (name: string) => async () => {
+      started.push(name);
+      await new Promise((r) => setTimeout(r, 2));
+    };
+    // the strips are asked first; the measure asked after them still runs as soon as a place frees
+    await Promise.all([run(job("strip 1")), run(job("strip 2")), run(job("strip 3")), run(job("measure"), { first: true })]);
+    expect(started).toEqual(["strip 1", "measure", "strip 2", "strip 3"]);
+  });
 });
