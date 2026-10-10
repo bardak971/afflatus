@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { ProgressUpdate, QueueStatus, SystemLoad } from "./api";
-import { libraryKeysOf, readHistoryHead, RENDER_KEYS, unionKeys, type LibraryChange } from "./data";
+import { libraryInPlace, libraryReads, readHistoryHead, RENDER_KEYS, type LibraryChange } from "./data";
+import { applyChange } from "./assetCache";
 import { endedSince, mergeProgress, notifyTag, throttle } from "./liveState";
 import { useBanners, useLive, useNotify, useSystem } from "./store";
 import { BAR_INDEX, useBar } from "./bar/store";
@@ -84,15 +85,19 @@ export function useLiveEvents(): void {
     // the queue, and the library, are read again at most once a second, with one last read after the last
     // event: a render reporting every step, or a folder of a thousand files coming in, costs a read a second
     const readQueue = throttle(() => void client.invalidateQueries({ queryKey: ["queue"], exact: true }), 1000);
-    // each "library" event says what it changed: the lists it can touch are gathered until the read, and only they are read
-    let libraryWaiting: Array<readonly string[]> = [];
+    // each "library" event says what it changed: what it says in full (a new name, a keep) is written in at once, and the
+    // changes are gathered until the read, which reads only the queries one of them can touch (data.ts libraryReads)
+    let libraryWaiting: Array<LibraryChange | null> = [];
     const libraryRead = throttle(() => {
-      const keys = libraryWaiting;
+      const reads = libraryReads(libraryWaiting);
       libraryWaiting = [];
-      refetch(client, keys);
+      void client.invalidateQueries({ predicate: (q) => reads(q.queryKey), refetchType: "active" });
     }, 1000);
     const readLibrary = (data: string) => {
-      libraryWaiting = unionKeys(libraryWaiting, libraryKeysOf(parse(data) as LibraryChange | null));
+      const change = parse(data) as LibraryChange | null;
+      const inPlace = libraryInPlace(change);
+      if (inPlace) applyChange(client, inPlace);
+      libraryWaiting.push(change);
       libraryRead();
     };
 

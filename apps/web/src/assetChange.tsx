@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError, type Folder, type Project } from "./api";
 import { applyChange, itemsWord, placeName, placesBefore, rollback, type AssetChange, type Seats } from "./assetCache";
+import { libraryReads, type LibraryChange } from "./data";
 import { moves } from "./leave";
 import { useBanners } from "./store";
 
@@ -18,6 +19,15 @@ export const leavingNow = new Set<string>();
 
 /** The changes on their way: the lists are read again once the last one is done, so an earlier answer does not undo a later change on screen. */
 let inFlight = 0;
+/** The changes done while others were on their way: what they touched is read once the last is done. */
+let done: LibraryChange[] = [];
+/** A change made here, as the server's "library" event says it (data.ts libraryReads): what it can touch. */
+const asLibraryChange = (c: AssetChange): LibraryChange =>
+  c.kind === "rename" ? { change: "fields", items: c.ids, name: c.name }
+  : c.kind === "keep" ? { change: "kept", items: c.ids, kept: c.kept }
+  // filed in a folder keeps them; taken out of any, nothing is kept
+  : c.kind === "move" ? { change: "moved", items: c.ids, ...(c.folder === null ? { kept: false } : {}) }
+  : { change: "binned", items: c.ids };
 let said = 0;
 const bannerId = (what: string) => `${what}:${Date.now()}:${++said}`;
 /** The refusal banner said for each item: a later change to the item takes it away, its Retry would undo that change. */
@@ -112,13 +122,12 @@ export async function changeAssets(client: QueryClient, c: AssetChange, opts: Ch
     return true;
   } finally {
     inFlight--;
+    done.push(asLibraryChange(c));
     if (!inFlight) {
-      void client.invalidateQueries({ queryKey: ["assets"] });
-      if (c.kind !== "rename") {
-        void client.invalidateQueries({ queryKey: ["folders"] });
-        void client.invalidateQueries({ queryKey: ["projects"] });
-        void client.invalidateQueries({ queryKey: ["storage"] });
-      }
+      // only what the changes can touch, as their live events read it: a rename or a keep is already written on screen
+      const reads = libraryReads(done);
+      done = [];
+      void client.invalidateQueries({ predicate: (q) => reads(q.queryKey) });
     }
   }
 }

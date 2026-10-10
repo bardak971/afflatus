@@ -3,6 +3,7 @@ import { ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, w
 import { expandWildcards, modelFileName, parseInput, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 import { newId, now, OWNER, type Db } from "./db";
+import { addedBy } from "./events";
 import { httpError } from "./errors";
 import { rates } from "./forecast";
 import type { Registry } from "./registry";
@@ -698,7 +699,7 @@ ${JSON.stringify(input)}`;
       await this.place(row, generationId, resume);
       await this.finish(row.id, "done", { generationId });
       await this.note(row, recipe, resume, measured, "done", whole, tookMs, generationId);
-      this.events.emit("library");
+      this.events.emit("library", await addedBy(this.db, generationId));
     } catch (err) {
       await this.failed(err as Error, row, recipe, { resume, held, measured, made, whole, attempts, aborted: abort.signal.aborted });
     } finally {
@@ -744,7 +745,7 @@ ${JSON.stringify(input)}`;
   private async closeFiled(row: JobRow, generationId: string, resume: Resume | null): Promise<void> {
     await this.place(row, generationId, resume);
     await this.finish(row.id, "done", { generationId });
-    this.events.emit("library");
+    this.events.emit("library", await addedBy(this.db, generationId));
   }
 
   /** How a render ended that did not finish: stopped by hand, lost by ComfyUI (queued again while attempts remain), or failed; never while shutting down. */

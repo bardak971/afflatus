@@ -93,7 +93,7 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     const { name } = z.strictObject({ name: z.string().trim().max(200) }).parse(req.body ?? {});
     await asset(req.params.id);
     await s.db.updateTable("assets").set({ name }).where("id", "=", req.params.id).execute();
-    s.queue.events.emit("library", { items: [req.params.id], change: "fields" } satisfies LibraryChange);
+    s.queue.events.emit("library", { items: [req.params.id], change: "fields", name } satisfies LibraryChange);
     return assetView(await asset(req.params.id));
   });
 
@@ -125,7 +125,7 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
         duration_ms: null, fps: null, has_sound: 0, folder_id: a.folder_id, generation_id: null, source_id: a.id, kept_at: at, created_at: at,
       }))
       .execute();
-    s.queue.events.emit("library");
+    s.queue.events.emit("library", { change: "added", items: [id], folders: [a.folder_id] } satisfies LibraryChange);
     return assetView(await asset(id));
   });
 
@@ -235,7 +235,7 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
         folder_id: video.folder_id, generation_id: null, source_id: video.id, kept_at: at, created_at: at,
       }))
       .execute();
-    s.queue.events.emit("library");
+    s.queue.events.emit("library", { change: "added", items: [id], folders: [video.folder_id] } satisfies LibraryChange);
     return assetView(await asset(id));
   });
 }

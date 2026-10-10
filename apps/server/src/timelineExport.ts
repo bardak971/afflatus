@@ -1,5 +1,6 @@
 import { BLEND_MS, CutError, DISSOLVE_MS, type ExportMusic, type ExportPart, joinVideosInto } from "./cut";
 import { newId, now } from "./db";
+import type { LibraryChange } from "./events";
 import { FRAME_SLACK_MS, MIN_FADE_MS, musicPlan } from "@afflatus/core";
 import { duckCurve } from "./duck";
 import { assetView, extOf, newAssetRow } from "./media";
@@ -122,17 +123,18 @@ export class TimelineExport {
     if (thumb) await storage.put(thumbKey(assetId), thumb);
     const at = now();
     const bytes = await storage.size(key);
+    const folder = await folderOfTimeline(db, t);
     await db
       .insertInto("assets")
       .values(newAssetRow({
         id: assetId, kind: "video", origin: "exported", name: `${win ? `${t.name} · ${clockOf(win.a)}–${clockOf(win.b)}` : t.name}${web ? " · web" : ""}`, file_key: key, thumb_key: thumb ? thumbKey(assetId) : null,
         mime: "video/mp4", bytes, width: video.facts?.width ?? frame.width, height: video.facts?.height ?? frame.height,
-        duration_ms: video.facts?.durationMs ?? null, fps: video.facts?.fps ?? fps, has_sound: 1, folder_id: await folderOfTimeline(db, t), generation_id: null,
+        duration_ms: video.facts?.durationMs ?? null, fps: video.facts?.fps ?? fps, has_sound: 1, folder_id: folder, generation_id: null,
         kept_at: at, created_at: at,
       }))
       .execute();
     await db.updateTable("timelines").set({ export_asset_id: assetId }).where("id", "=", t.id).execute();
-    events.emit("library");
+    events.emit("library", { change: "added", items: [assetId], folders: [folder] } satisfies LibraryChange);
     // the timeline changed too: it now has an export
     events.emit("timeline");
     return assetView(await db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirstOrThrow());

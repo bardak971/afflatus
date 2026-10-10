@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
+import type { Db } from "./db";
 import type { Services } from "./services";
 
 /**
@@ -16,21 +17,54 @@ const PING_EVERY_MS = 10_000;
 const RELAYED = ["queue", "library", "models", "timeline", "entities", "downloads", "setup"] as const;
 
 /**
- * What a "library" event says changed, when its sender knows, so that a page reads again only the lists it touched (live.ts):
- * `items`, the items concerned; `change`, what of them: "fields" (a name, a size read: nothing came, went or moved, no
- * count changed), "kept" (kept or not: the disk use's split moves too), "places" (a project made or renamed: its folders
- * and the projects, no item). Sent with nothing (`emit("library")`): anything may have changed, and every list is read.
+ * What a "library" event says changed, when its sender knows, so that a page reads again only the lists it touched (live.ts,
+ * the web's data.ts libraryReads). `change`, what happened:
+ * - "fields": the items' own fields (a name, a size read): nothing came, went or moved, no count changed. `name`: the new
+ *   name of a rename, which a page writes in place.
+ * - "kept": kept or not (`kept` says which); the disk use's split and the expiring count move too.
+ * - "places": a project or a folder made or renamed: the folders and the projects, no item.
+ * - "added": new items (a finished render, an upload, a cut, a frame, a mirror, an export).
+ * - "moved": items filed in other folders; `kept` when filing kept them.
+ * - "binned": items to the bin or back from it.
+ * - "erased": items gone from the bin for good: the bin and the disk use only.
+ * `items`, the items concerned, and `folders`, the folders they came into, left or sit in (null: in no folder), when known:
+ * left out, any may have. Sent with nothing (`emit("library")`): anything may have changed, and every list is read.
  */
 export interface LibraryChange {
+  change?: "fields" | "kept" | "places" | "added" | "moved" | "binned" | "erased";
   items?: string[];
-  change?: "fields" | "kept" | "places";
+  folders?: Array<string | null>;
+  kept?: boolean;
+  name?: string;
 }
-const CHANGES = new Set(["fields", "kept", "places"]);
+const CHANGES = new Set(["fields", "kept", "places", "added", "moved", "binned", "erased"]);
+/** At most this many ids go out with an event: past it none are listed, which a page reads as "any of them". */
+const MAX_IDS = 200;
+/** The folders a change touched, each once: those of the rows, and any more named (null: in no folder; undefined: none). */
+export const foldersOf = (rows: ReadonlyArray<{ folder_id: string | null }>, ...more: Array<string | null | undefined>): Array<string | null> =>
+  [...new Set<string | null>([...rows.map((r) => r.folder_id), ...more.filter((f) => f !== undefined)])];
+/**
+ * What a finished render added: its items and their folders, read off its generation. A failed read says nothing, which
+ * reads every list: the render is done either way.
+ */
+export async function addedBy(db: Db, generationId: string): Promise<LibraryChange | undefined> {
+  const made = await db.selectFrom("assets").select(["id", "folder_id"]).where("generation_id", "=", generationId).execute().catch(() => null);
+  return made ? { change: "added", items: made.map((a) => a.id), folders: foldersOf(made) } : undefined;
+}
 /** What goes out with a "library" event: the change as said, or nothing (read everything) for anything else. */
 export function libraryFrame(said: unknown): LibraryChange {
   const c = said as LibraryChange | undefined;
   if (!c || typeof c !== "object" || !c.change || !CHANGES.has(c.change)) return {};
-  return { change: c.change, ...(Array.isArray(c.items) ? { items: c.items.filter((i) => typeof i === "string").slice(0, 200) } : {}) };
+  const items = Array.isArray(c.items) ? c.items.filter((i) => typeof i === "string") : undefined;
+  const folders = Array.isArray(c.folders) ? c.folders.filter((f) => f === null || typeof f === "string") : undefined;
+  return {
+    change: c.change,
+    // a list cut short would leave the page sure the rest did not change: too long, it goes out as "any"
+    ...(items && items.length <= MAX_IDS ? { items } : {}),
+    ...(folders && folders.length <= MAX_IDS ? { folders } : {}),
+    ...(typeof c.kept === "boolean" ? { kept: c.kept } : {}),
+    ...(typeof c.name === "string" ? { name: c.name } : {}),
+  };
 }
 
 export function registerEvents(app: FastifyInstance, s: Services, version: string): void {
