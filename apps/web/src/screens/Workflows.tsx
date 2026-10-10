@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, ExternalLink, FileUp, MoreHorizontal, Pencil, Play, Trash2 } from "lucide-react";
 import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { ask } from "../Confirm";
-import { guessModel, type Bindings } from "@afflatus/workflows";
+import { guessModel, readBindings, type Bindings } from "@afflatus/workflows";
 import { useOpenInComfy } from "../actions";
 import { api, ApiError, type RecipeStatus, type WorkflowBrief } from "../api";
 import { useRecipes, useSettings, useSetup, useWorkflows } from "../data";
@@ -18,6 +18,7 @@ import { settingHref } from "./settings/settingsIndex";
 import { Button, Chip, cx, ErrorNote, Help, SectionTitle } from "../ui";
 import { WorkflowEditor, type Editing } from "./WorkflowEditor";
 import { WorkflowEditorSkeleton } from "./workflowEditor/EditorSkeleton";
+import { queryKeys } from "../queryKeys";
 
 /**
  * Read a file the user chose: a workflow as ComfyUI saves it, one saved with "Export (API)", or one
@@ -49,12 +50,10 @@ async function readFile(file: File): Promise<Editing> {
   const inspection = await api.inspectWorkflow(shared ? { graph: shared.graph, wiring: shared.wiring } : json);
   let bindings: Bindings | null = inspection.suggested;
   if (shared) {
-    // the bindings' schema is read only here, for a file shared from Afflatus: with it comes zod, which the screen does not
-    // need otherwise
-    const { bindings: bindingsSchema } = await import("@afflatus/workflows/types");
-    const parsed = bindingsSchema.safeParse(shared.bindings);
-    if (!parsed.success) throw new ApiError("This looks like a workflow shared from Afflatus, but its bindings could not be read.");
-    bindings = parsed.data;
+    // read without zod, which would add some 90 kB for this one check: the server checks them again with the schema
+    const read = readBindings(shared.bindings);
+    if (!read) throw new ApiError("This looks like a workflow shared from Afflatus, but its bindings could not be read.");
+    bindings = read;
   }
   if (!bindings) {
     // a save node of a pack this ComfyUI lacks is not known to be an output: the missing nodes are the news, not the output
@@ -114,7 +113,7 @@ export const useWorkflowDraft = create<{ draft: Editing | null; note: string | n
 export function WorkflowEdit({ params }: { params: { id: string } }) {
   const id = params.id;
   const [, navigate] = useLocation();
-  const q = useQuery({ queryKey: ["workflow-edit", id], queryFn: () => reopen(id), staleTime: Infinity, gcTime: 0, retry: false, refetchOnWindowFocus: false });
+  const q = useQuery({ queryKey: queryKeys.workflowEdit(id), queryFn: () => reopen(id), staleTime: Infinity, gcTime: 0, retry: false, refetchOnWindowFocus: false });
   useEffect(() => {
     useWorkflowDraft.setState({ note: null });
   }, []);
@@ -299,7 +298,7 @@ export function Workflows() {
   ];
   const remove = useMutation({
     mutationFn: api.deleteWorkflow,
-    onSuccess: () => Promise.all(["recipes", "setup", "workflows"].map((key) => client.invalidateQueries({ queryKey: [key] }))),
+    onSuccess: () => Promise.all([queryKeys.recipes(), queryKeys.setup(), queryKeys.workflows()].map((queryKey) => client.invalidateQueries({ queryKey }))),
   });
 
   const comfyOnline = setup.data?.comfy.online ?? false;
