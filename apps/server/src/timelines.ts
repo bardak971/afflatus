@@ -384,16 +384,19 @@ export class Timelines {
   async create(name: string | undefined, project?: string | null, folder?: string | null) {
     const id = newId();
     const at = now();
-    // numbered within its project (or the Inbox): each is its own workspace
-    const count = Number((await this.db.selectFrom("timelines").select((eb) => eb.fn.countAll().as("n")).where("project_id", project ? "=" : "is", project ?? null).executeTakeFirst())?.n ?? 0);
-    await this.db
-      .insertInto("timelines")
-      .values({
-        id, owner_id: OWNER, name: name?.trim() || `Timeline ${count + 1}`, width: null, height: null, project_id: project ?? null, folder_id: folder ?? null, folder_chosen: 0,
-        music_asset_id: null, music_volume: 60, music_fade_in_ms: 1000, music_fade_out_ms: 3000, music_duck: 1, music_duck_db: 10, music_from_ms: 0, music_start_clip_id: null, export_asset_id: null, look: null, mood: null,
-        created_at: at, updated_at: at,
-      })
-      .execute();
+    // numbered within its project (or the Inbox): each is its own workspace. Counted and written in the project's turn:
+    // two made at once were given the same number
+    await this.history.oneAtATime(`new-timeline:${project ?? ""}`, async () => {
+      const count = Number((await this.db.selectFrom("timelines").select((eb) => eb.fn.countAll().as("n")).where("project_id", project ? "=" : "is", project ?? null).executeTakeFirst())?.n ?? 0);
+      await this.db
+        .insertInto("timelines")
+        .values({
+          id, owner_id: OWNER, name: name?.trim() || `Timeline ${count + 1}`, width: null, height: null, project_id: project ?? null, folder_id: folder ?? null, folder_chosen: 0,
+          music_asset_id: null, music_volume: 60, music_fade_in_ms: 1000, music_fade_out_ms: 3000, music_duck: 1, music_duck_db: 10, music_from_ms: 0, music_start_clip_id: null, export_asset_id: null, look: null, mood: null,
+          created_at: at, updated_at: at,
+        })
+        .execute();
+    });
     this.changed();
     return this.view(id);
   }
@@ -512,19 +515,24 @@ export class Timelines {
    * seen there (a moment of its video, as its take's `startMs` and `endMs` say), in the same step: "Extend from this frame".
    */
   async addClip(timelineId: string, opts: { after?: string | null; asset?: string; recipe?: string; as?: "still" | "clip"; stopAtMs?: number }) {
-    const t = await this.row(timelineId);
-    const all = await this.placed(timelineId);
-    const index = this.indexAfter(all, opts.after);
-    const made = await this.planner.newClip(all, index, opts);
-    const stopping = opts.stopAtMs !== undefined ? all[index - 1]?.active : undefined;
-    const trims = stopping ? trimsOf(stopping, { shownToMs: opts.stopAtMs }) : null;
-    await this.remember(timelineId, made.kind === "still" ? "the image added" : "the clip added");
-    // the clip, its place among the others and its take land together, or not at all
-    const id = await this.db.transaction().execute(async (tx) => {
-      if (stopping && trims) await tx.updateTable("takes").set({ trim_end_ms: trims.end }).where("id", "=", stopping.take.id).execute();
-      return this.planner.insertClip(timelineId, all, index, made, tx);
+    // in the timeline's turn, from the reading of its clips to the writing of the new one: two added at once were both
+    // put at the same place, each renumbering the clips without the other
+    const id = await this.history.oneAtATime(timelineId, async () => {
+      const t = await this.row(timelineId);
+      const all = await this.placed(timelineId);
+      const index = this.indexAfter(all, opts.after);
+      const made = await this.planner.newClip(all, index, opts);
+      const stopping = opts.stopAtMs !== undefined ? all[index - 1]?.active : undefined;
+      const trims = stopping ? trimsOf(stopping, { shownToMs: opts.stopAtMs }) : null;
+      await this.remember(timelineId, made.kind === "still" ? "the image added" : "the clip added");
+      // the clip, its place among the others and its take land together, or not at all
+      const added = await this.db.transaction().execute(async (tx) => {
+        if (stopping && trims) await tx.updateTable("takes").set({ trim_end_ms: trims.end }).where("id", "=", stopping.take.id).execute();
+        return this.planner.insertClip(timelineId, all, index, made, tx);
+      });
+      if (made.asset) await this.adoptFolder(t, made.asset, all);
+      return added;
     });
-    if (made.asset) await this.adoptFolder(t, made.asset, all);
     await this.touch(timelineId);
     return id;
   }
@@ -547,7 +555,7 @@ export class Timelines {
    * what Redo could do, and writes nothing. The clip and its take change together, or not at all.
    */
   async editClip(id: string, patch: ClipPatch) {
-    const clip = await this.clipRow(id);
+    const { timeline_id: timelineId } = await this.clipRow(id);
     const keys = Object.keys(patch).filter((k) => patch[k as keyof ClipPatch] !== undefined);
     if (keys.length && keys.every((k) => k === "chat" || k === "designer")) {
       // what was said to the designer, and with which language model, is not a change to the timeline: nothing to undo, nothing to redraw
@@ -557,6 +565,15 @@ export class Timelines {
       }).where("id", "=", id).execute();
       return;
     }
+    // in the timeline's turn, from the reading of the clips to the writing: a move worked out from the clips as read put
+    // a clip added meanwhile at the same place as another
+    await this.history.oneAtATime(timelineId, () => this.editClipInTurn(id, patch, keys));
+    await this.touch(timelineId);
+  }
+
+  private async editClipInTurn(id: string, patch: ClipPatch, keys: string[]) {
+    // read again in the turn: the clip may have changed while the turn was waited for
+    const clip = await this.clipRow(id);
     const all = await this.placed(clip.timeline_id);
     const checked = await this.checkClipPatch(clip, patch, all);
     if (keys.length === 1 && keys[0] === "inputs") await this.rememberWriting(clip, all);
@@ -594,7 +611,6 @@ export class Timelines {
       const picture = await this.assetRow(checked.pinnedNow);
       if (picture) await this.adoptFolder(await this.row(clip.timeline_id), picture, all);
     }
-    await this.touch(clip.timeline_id);
   }
 
   /** A clip's form is saved as it is typed: everything written in one go is one step to undo, not one per save. */

@@ -1,6 +1,6 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import { newId, now, type Db } from "./db";
 import { httpError } from "./errors";
+import { KeyedLock } from "./keyedLock";
 import type { ClipRow, TakeRow, TimelineRow } from "./timelineModel";
 
 /**
@@ -33,10 +33,8 @@ export class TimelineHistory {
     private readonly changed: () => void,
   ) {}
 
-  /** What runs one at a time, by key: the work waiting last for each. */
-  private readonly turns = new Map<string, Promise<unknown>>();
-  /** The keys whose turn the work running now holds: work it calls for under the same key runs inside that turn. */
-  private readonly holding = new AsyncLocalStorage<ReadonlySet<string>>();
+  /** What runs one at a time, by key (keyedLock.ts). */
+  private readonly turns = new KeyedLock();
 
   /**
    * Work done one at a time per key, in the order asked: Undo, Redo and the steps they keep, per timeline (two undos at once
@@ -46,16 +44,7 @@ export class TimelineHistory {
    * the turn it is part of would wait forever.
    */
   oneAtATime<T>(key: string, work: () => Promise<T>): Promise<T> {
-    const held = this.holding.getStore();
-    if (held?.has(key)) return work();
-    const inTurn = () => this.holding.run(new Set([...(held ?? []), key]), work);
-    const mine = (this.turns.get(key) ?? Promise.resolve()).then(inTurn);
-    const settled = mine.then(() => {}, () => {});
-    this.turns.set(key, settled);
-    void settled.then(() => {
-      if (this.turns.get(key) === settled) this.turns.delete(key);
-    });
-    return mine;
+    return this.turns.run(key, work);
   }
 
 

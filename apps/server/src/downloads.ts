@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { EventEmitter } from "node:events";
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { Readable, Transform } from "node:stream";
 import type { ReadableStream as WebStream } from "node:stream/web";
 import { civitaiSites } from "./civitai";
@@ -8,6 +8,7 @@ import type { Comfy } from "./comfy";
 import { httpError } from "./errors";
 import { fileName } from "./media";
 import { assertPublicUrl, fetchPublic, hostnameOf } from "./outbound";
+import { renameOver } from "./storage";
 
 /**
  * Model files fetched straight into ComfyUI's model folders, through ComfyUI-Manager.
@@ -109,7 +110,7 @@ export class Downloads {
     this.writing = this.writing
       .then(async () => {
         await writeFile(`${file}.tmp`, JSON.stringify(kept));
-        await rename(`${file}.tmp`, file);
+        await renameOver(`${file}.tmp`, file);
       })
       .catch((err) => console.warn(`[downloads] the list could not be saved: ${(err as Error).message}`));
   }

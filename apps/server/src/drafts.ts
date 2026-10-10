@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { NOT_IN_LIBRARY } from "./library";
 import { httpError } from "./errors";
+import { oneAtATime } from "./keyedLock";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { emptyLook, lookSchema, type Look } from "./entities";
 import type { Services } from "./services";
@@ -98,13 +99,18 @@ export async function findDraft(db: Db, id: string): Promise<Tables["drafts"] | 
   return (await db.selectFrom("drafts").selectAll().where("id", "=", id).executeTakeFirst()) ?? unwrittenOf(db).get(id);
 }
 
-/** A render is sent from a draft not written yet: it is written now, so that what comes out is filed under it. */
-export async function writeDraft(db: Db, id: string): Promise<void> {
-  const m = unwrittenOf(db);
-  const d = m.get(id);
-  if (!d) return;
-  m.delete(id);
-  await db.insertInto("drafts").values({ ...d, updated_at: now() }).execute();
+/**
+ * A render is sent from a draft not written yet: it is written now, so that what comes out is filed under it. In the
+ * draft's turn, as its saves are; a save that wrote it first is kept as it is.
+ */
+export function writeDraft(db: Db, id: string): Promise<void> {
+  return oneAtATime(db, `draft:${id}`, async () => {
+    const m = unwrittenOf(db);
+    const d = m.get(id);
+    if (!d) return;
+    m.delete(id);
+    await db.insertInto("drafts").values({ ...d, updated_at: now() }).onConflict((oc) => oc.column("id").doNothing()).execute();
+  });
 }
 
 /**
@@ -220,10 +226,19 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
 
   app.get<{ Params: { id: string } }>("/api/drafts/:id", async (req) => full(await get(req.params.id)));
 
-  /** Saved while typing: only what is sent changes. */
+  /**
+   * Saved while typing: only what is sent changes. One save of a draft at a time: each reads the draft and writes it
+   * whole, so two at once (the form and the name, two tabs) had the second put back what the first had changed, or,
+   * on a draft not written yet, answer 404 while the first was writing it. A look sent is also saved in the kit's turn
+   * (entities.ts): someone deleted between its check and its writing would stay in it.
+   */
   app.put<{ Params: { id: string } }>("/api/drafts/:id", async (req) => {
     const body = saveBody.parse(req.body);
-    const current = await get(req.params.id);
+    const save = () => oneAtATime(s.db, `draft:${req.params.id}`, () => saved(req.params.id, body));
+    return body.look === undefined ? save() : oneAtATime(s.db, "kit", save);
+  });
+  const saved = async (id: string, body: z.infer<typeof saveBody>) => {
+    const current = await get(id);
     // moved to another project (or the Inbox, null): it alone moves
     if (body.project && !(await s.db.selectFrom("projects").select("id").where("id", "=", body.project).executeTakeFirst())) throw httpError("this project was not found", 404);
     const recipe = body.recipe ?? current.recipe_id;
@@ -239,19 +254,19 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
       ...(body.designer !== undefined ? { designer: body.designer ? JSON.stringify(body.designer) : null } : {}),
       ...(body.name !== undefined ? { name: body.name.trim() || null } : {}),
     };
-    const saved = { ...current, ...next };
+    const after = { ...current, ...next };
     if (!pending.has(current.id)) await s.db.updateTable("drafts").set(next).where("id", "=", current.id).execute();
-    else if (holdsSomething(s.registry, saved)) {
+    else if (holdsSomething(s.registry, after)) {
       pending.delete(current.id);
-      await s.db.insertInto("drafts").values(saved).execute();
-    } else pending.set(current.id, saved);
-    return full(saved);
-  });
+      await s.db.insertInto("drafts").values(after).onConflict((oc) => oc.column("id").doUpdateSet(next)).execute();
+    } else pending.set(current.id, after);
+    return full(after);
+  };
 
-  app.delete<{ Params: { id: string } }>("/api/drafts/:id", async (req) => {
+  app.delete<{ Params: { id: string } }>("/api/drafts/:id", async (req) => oneAtATime(s.db, `draft:${req.params.id}`, async () => {
     await get(req.params.id);
     pending.delete(req.params.id);
     await s.db.deleteFrom("drafts").where("id", "=", req.params.id).execute();
     return { ok: true };
-  });
+  }));
 }

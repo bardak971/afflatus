@@ -3,6 +3,7 @@ import { z } from "zod";
 import { httpError } from "./errors";
 import { newId, now, OWNER } from "./db";
 import { foldersOf, type LibraryChange } from "./events";
+import { oneAtATime } from "./keyedLock";
 import { isLinked } from "./linked";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
@@ -82,7 +83,14 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
     return { id: row.id, parentId: row.parent_id, name: row.name, count: 0, path: row.path, root: false, projectId: row.project_id };
   });
 
-  app.patch<{ Params: { id: string } }>("/api/folders/:id", async (req) => {
+  /**
+   * The tree changes one change at a time: a move is checked against the whole tree (never into itself), and two moved
+   * into each other at once each passed the check and made a loop; a rename saved from the row as read put back the
+   * parent a move had just changed.
+   */
+  const inTurn = <T>(work: () => Promise<T>) => oneAtATime(s.db, "folders", work);
+
+  app.patch<{ Params: { id: string } }>("/api/folders/:id", async (req) => inTurn(async () => {
     const body = editBody.parse(req.body);
     const folder = await mustExist(req.params.id);
     const rootLinked = folder.path && !(folder.parent_id && (await mustExist(folder.parent_id)).path);
@@ -118,10 +126,10 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
     // renamed or moved within its project: only the places; into another project, what it holds changes project too
     s.queue.events.emit("library", project === folder.project_id ? ({ change: "places" } satisfies LibraryChange) : undefined);
     return { ok: true };
-  });
+  }));
 
   /** Deleting a folder never deletes what is in it: its items and subfolders move up one level. */
-  app.delete<{ Params: { id: string } }>("/api/folders/:id", async (req) => {
+  app.delete<{ Params: { id: string } }>("/api/folders/:id", async (req) => inTurn(async () => {
     const folder = await mustExist(req.params.id);
     if (folder.path) {
       // a linked folder is unlinked: nothing on the disk is touched. One of its sub-directories is not deleted from here.
@@ -138,7 +146,7 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
     });
     s.queue.events.emit("library", { change: "moved", folders: [folder.id, folder.parent_id] } satisfies LibraryChange);
     return { ok: true };
-  });
+  }));
 
   /** File items in a folder, or take them out of any (folderId null). Filing something keeps it. */
   app.post("/api/assets/move", async (req) => {

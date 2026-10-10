@@ -66,9 +66,16 @@ export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean; jobs?: 
   return used;
 }
 
+type Erased = Pick<Tables["assets"], "id" | "file_key" | "thumb_key" | "raw_key" | "latent_key" | "fine_latent_key" | "duration_ms">;
+
 /** Erase an asset for good: its row first (nothing can name a file that is about to go), then its files and what was derived from them. */
-export async function eraseAsset(db: Db, storage: Storage, a: Pick<Tables["assets"], "id" | "file_key" | "thumb_key" | "raw_key" | "latent_key" | "fine_latent_key" | "duration_ms">): Promise<void> {
+export async function eraseAsset(db: Db, storage: Storage, a: Erased): Promise<void> {
   await db.deleteFrom("assets").where("id", "=", a.id).execute();
+  await eraseFiles(storage, a);
+}
+
+/** The files of an asset whose row is gone, and what was derived from them. */
+async function eraseFiles(storage: Storage, a: Erased): Promise<void> {
   for (const key of [a.file_key, a.thumb_key, a.raw_key, a.latent_key, a.fine_latent_key]) if (key) await storage.delete(key).catch(() => {});
   // the small thumbnail, made on first ask and named in no row
   await storage.delete(smallThumbKey(a.id)).catch(() => {});
@@ -80,6 +87,30 @@ export async function eraseAsset(db: Db, storage: Storage, a: Pick<Tables["asset
 export const ERASED = ["id", "file_key", "thumb_key", "raw_key", "latent_key", "fine_latent_key", "duration_ms"] as const;
 
 /**
+ * Erase for good what `due` picks, but what something uses (inUse): the check, the picking and the rows' deletion in one
+ * transaction, then the files of the rows that went. Done item after item, an item put back from the bin or picked into
+ * a draft meanwhile was erased all the same. A row is only deleted while it is in the bin (or a painted part, which never
+ * is). Returns how many `due` picked and the rows erased.
+ */
+export async function eraseUnused(db: Db, storage: Storage, due: (tx: Db) => Promise<Erased[]>): Promise<{ picked: number; erased: Erased[] }> {
+  const { picked, erased } = await db.transaction().execute(async (tx) => {
+    const used = await inUse(tx);
+    const all = await due(tx);
+    const ids = all.filter((a) => !used.has(a.id)).map((a) => a.id);
+    const out: Erased[] = [];
+    // in slices: SQLite takes a limited number of values in one statement
+    for (let i = 0; i < ids.length; i += 500) {
+      out.push(...await tx.deleteFrom("assets").where("id", "in", ids.slice(i, i + 500))
+        .where((eb) => eb.or([eb("deleted_at", "is not", null), eb("origin", "=", "mask")]))
+        .returning(ERASED).execute());
+    }
+    return { picked: all.length, erased: out };
+  });
+  for (const a of erased) await eraseFiles(storage, a);
+  return { picked, erased };
+}
+
+/**
  * The one place the two expiry rules live, each waiting as long as the settings say (`keep`, a day and a week unless
  * told otherwise; null: the rule does not run):
  *  - a result nobody kept goes to the bin its time after it was made, or after its countdown was last started again
@@ -89,35 +120,41 @@ export const ERASED = ["id", "file_key", "thumb_key", "raw_key", "latent_key", "
  * whatever the bin keeps: it is no item of the library. Returns how many items each rule touched.
  */
 export async function sweep(db: Db, storage: Storage, at = Date.now(), keep: Keep = { unkeptMs: UNKEPT_MS, binMs: BIN_MS }): Promise<{ binned: number; erased: number }> {
-  const used = await inUse(db);
-  const due = keep.unkeptMs === null ? [] : await db
-    .selectFrom("assets")
-    .select("id")
-    .where("deleted_at", "is", null)
-    .where("kept_at", "is", null)
-    .where("origin", "=", "generated")
-    .where((eb) => eb(eb.fn.coalesce("countdown_from", "created_at"), "<", new Date(at - keep.unkeptMs!).toISOString()))
-    .execute();
-  const bin = due.map((a) => a.id).filter((id) => !used.has(id));
-  let binned = 0;
-  for (let i = 0; i < bin.length; i += 500) {
-    const r = await db.updateTable("assets").set({ deleted_at: now() }).where("id", "in", bin.slice(i, i + 500)).where("deleted_at", "is", null).executeTakeFirst();
-    binned += Number(r.numUpdatedRows);
-  }
+  // what is in use read in the same transaction as the binning: an item picked into a draft or kept in between stays out
+  const binned = keep.unkeptMs === null ? 0 : await db.transaction().execute(async (tx) => {
+    const unkeptBefore = new Date(at - keep.unkeptMs!).toISOString();
+    const used = await inUse(tx);
+    const due = await tx
+      .selectFrom("assets")
+      .select("id")
+      .where("deleted_at", "is", null)
+      .where("kept_at", "is", null)
+      .where("origin", "=", "generated")
+      .where((eb) => eb(eb.fn.coalesce("countdown_from", "created_at"), "<", unkeptBefore))
+      .execute();
+    const bin = due.map((a) => a.id).filter((id) => !used.has(id));
+    let n = 0;
+    for (let i = 0; i < bin.length; i += 500) {
+      const r = await tx.updateTable("assets").set({ deleted_at: now() }).where("id", "in", bin.slice(i, i + 500)).where("deleted_at", "is", null).where("kept_at", "is", null).executeTakeFirst();
+      n += Number(r.numUpdatedRows);
+    }
+    return n;
+  });
 
-  const old = keep.binMs === null ? [] : await db.selectFrom("assets").select(ERASED).where("deleted_at", "<", new Date(at - keep.binMs).toISOString()).execute();
-  // a painted part that nothing was made with is of no use to anyone after a week
-  const masks = await db
-    .selectFrom("assets")
-    .select(ERASED)
-    .where("origin", "=", "mask")
-    .where("created_at", "<", new Date(at - BIN_MS).toISOString())
-    .where("id", "not in", db.selectFrom("generation_inputs").select("asset_id"))
-    .execute();
-  const gone = [...old, ...masks].filter((a) => !used.has(a.id));
-  for (const a of gone) await eraseAsset(db, storage, a);
+  const maskBefore = new Date(at - BIN_MS).toISOString();
+  const { erased } = await eraseUnused(db, storage, async (tx) => [
+    ...(keep.binMs === null ? [] : await tx.selectFrom("assets").select(ERASED).where("deleted_at", "<", new Date(at - keep.binMs).toISOString()).execute()),
+    // a painted part that nothing was made with is of no use to anyone after a week, whatever the bin keeps
+    ...await tx
+      .selectFrom("assets")
+      .select(ERASED)
+      .where("origin", "=", "mask")
+      .where("created_at", "<", maskBefore)
+      .where("id", "not in", tx.selectFrom("generation_inputs").select("asset_id"))
+      .execute(),
+  ]);
   await sweepOrphans(db, storage, at).catch((err) => console.warn("[sweep] files with no item:", (err as Error).message));
-  return { binned, erased: gone.length };
+  return { binned, erased: erased.length };
 }
 
 /** Where a library item's files are kept, each named after the item's id ("assets/ab/<id>.png", "thumbs/ab/<id>.webp"). */

@@ -11,7 +11,7 @@ import { OWNER } from "./db";
 import type { DownloadView } from "./downloads";
 import { beginDownload } from "./fetchFile";
 import type { Services } from "./services";
-import { readSettings, writeSettings } from "./settings";
+import { readSettings, updateSettings } from "./settings";
 
 /**
  * The model files a preset is made for (see `PresetFile` in core), and the presets that ship with Afflatus.
@@ -165,7 +165,8 @@ export function registerPresetFiles(app: FastifyInstance, s: Services): void {
     const settings = await readSettings(s.db);
     if (settings.acceptedPresets.includes(p.id)) return;
     if (!accept) throw httpError(`${p.name} comes under the ${p.licence.name}: accept it first.`);
-    await writeSettings(s.db, { acceptedPresets: [...settings.acceptedPresets, p.id] });
+    // added to the list as it is when written: two licences accepted at once are both kept
+    await updateSettings(s.db, ({ acceptedPresets }) => (acceptedPresets.includes(p.id) ? null : { acceptedPresets: [...acceptedPresets, p.id] }));
   };
 
   app.get("/api/presets/files", async () => {

@@ -380,8 +380,10 @@ export function takeOver(dataDir: string): string {
 /**
  * ":memory:" for tests. `worker`: the statements run in a worker thread (sqliteWorker.ts), so that a long read does not
  * hold the server's other requests; `inline`: on this thread. Left out, AFFLATUS_SQLITE_WORKER=1 says which. The thread
- * stays the default for now: with the worker, other requests run between two statements of a route, and a few routes still
- * count on nothing coming in between (a read, then a write that depends on it, outside a transaction).
+ * stays the default for now: each statement then crosses to the worker and back, and with every core busy (an export, a
+ * cut: ffmpeg takes them all) each crossing waits for the scheduler, so a route of many statements took several times as
+ * long (measured at scale: 1.3 to 22 times, the most for the routes of many small statements). The routes no longer
+ * count on nothing coming in between two statements (keyedLock.ts, test/races.test.ts).
  */
 export function openSqlite(file: string, opts: { worker?: boolean; inline?: boolean } = {}): Db {
   if (opts.inline || !(opts.worker ?? envSaid.sqliteWorker())) {

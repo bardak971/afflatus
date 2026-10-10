@@ -7,7 +7,7 @@ import type { Services } from "./services";
 import { NOT_IN_LIBRARY } from "./library";
 import { unusedSize, unusedTakes } from "./timelineUnused";
 import { unusedDrafts } from "./drafts";
-import { readSettings, writeSettings } from "./settings";
+import { updateSettings } from "./settings";
 import type { LibraryChange } from "./events";
 
 /**
@@ -130,8 +130,8 @@ export async function projectsTree(s: Services, q?: string, only?: "image" | "vi
 
 /** A project that is gone or archived is no place to switch to: it leaves the rail's pins (the setting `pinnedProjects`). */
 async function unpin(db: Db, id: string): Promise<void> {
-  const pins = (await readSettings(db)).pinnedProjects;
-  if (pins.includes(id)) await writeSettings(db, { pinnedProjects: pins.filter((p) => p !== id) });
+  // read and written in the settings' turn: two projects archived at once each take their own pin off the list
+  await updateSettings(db, ({ pinnedProjects: pins }) => (pins.includes(id) ? { pinnedProjects: pins.filter((p) => p !== id) } : null));
 }
 
 /** A "library" event for a change of projects and folders alone: no item came, went or moved. */

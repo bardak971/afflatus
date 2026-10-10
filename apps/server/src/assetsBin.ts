@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AssetLookup } from "./assets-api";
-import { now } from "./db";
+import { now, type Db } from "./db";
 import { foldersOf, type LibraryChange } from "./events";
 import { httpError } from "./errors";
 import { isLinked } from "./linked";
@@ -15,11 +15,17 @@ import { inUse } from "./sweep";
  * binned: the sweep would erase it in the end and leave that pointing at nothing.
  */
 
-/** A 409 naming what still uses the item, when something does. */
-async function refuseUsed(s: Services, id: string, then: string): Promise<void> {
-  const what = (await inUse(s.db)).get(id);
+/** A 409 naming what still uses the item, when something does. `db`: the transaction the change it guards is made in. */
+async function refuseUsed(db: Db, id: string, then: string): Promise<void> {
+  const what = (await inUse(db)).get(id);
   if (what) throw httpError(`This is still used by ${what}: ${then}.`, 409);
 }
+
+/**
+ * A change to items that must not touch what something uses, made in the same transaction as the check: an item picked
+ * into a draft or put on a timeline between the two was unkept or binned all the same.
+ */
+const unlessUsed = <T>(s: Services, work: (tx: Db) => Promise<T>) => s.db.transaction().execute(work);
 
 export function registerAssetsBin(app: FastifyInstance, s: Services, { asset, fileInLinked }: AssetLookup): void {
   app.post<{ Params: { id: string } }>("/api/assets/:id/keep", async (req) => {
@@ -27,8 +33,10 @@ export function registerAssetsBin(app: FastifyInstance, s: Services, { asset, fi
     const a = await asset(req.params.id);
     // a file of a linked folder is the user's own file: it is kept, whatever is asked
     if (isLinked(a.file_key)) return assetView(a);
-    if (!kept) await refuseUsed(s, a.id, "it stays kept while it is");
-    await s.db.updateTable("assets").set({ kept_at: kept ? now() : null }).where("id", "=", req.params.id).execute();
+    await unlessUsed(s, async (tx) => {
+      if (!kept) await refuseUsed(tx, a.id, "it stays kept while it is");
+      await tx.updateTable("assets").set({ kept_at: kept ? now() : null }).where("id", "=", req.params.id).execute();
+    });
     // kept while it sits in a linked folder: it is written there as a file
     if (kept) await fileInLinked(a.id);
     // unkept: its day starts now, not the day it was made
@@ -41,10 +49,16 @@ export function registerAssetsBin(app: FastifyInstance, s: Services, { asset, fi
   /** To the bin. Nothing is erased here: the bin is emptied later. */
   app.delete<{ Params: { id: string } }>("/api/assets/:id", async (req) => {
     const a = await asset(req.params.id);
-    await refuseUsed(s, a.id, "take it out of there first");
-    // a file of a linked folder leaves its directory, and waits in the bin like the rest
-    if (isLinked(a.file_key)) await s.linked.toBin(a);
-    else await s.db.updateTable("assets").set({ deleted_at: now() }).where("id", "=", req.params.id).execute();
+    // a file of a linked folder leaves its directory, and waits in the bin like the rest (moved on the disk: checked first, not with the move)
+    if (isLinked(a.file_key)) {
+      await refuseUsed(s.db, a.id, "take it out of there first");
+      await s.linked.toBin(a);
+    } else {
+      await unlessUsed(s, async (tx) => {
+        await refuseUsed(tx, a.id, "take it out of there first");
+        await tx.updateTable("assets").set({ deleted_at: now() }).where("id", "=", req.params.id).execute();
+      });
+    }
     s.queue.events.emit("library", { change: "binned", items: [a.id], folders: [a.folder_id] } satisfies LibraryChange);
     return { ok: true };
   });
@@ -80,10 +94,20 @@ export function registerAssetsBin(app: FastifyInstance, s: Services, { asset, fi
       return said(special);
     }
     const set = b.action === "keep" ? { kept_at: now() } : b.action === "unkeep" ? { kept_at: null } : b.action === "bin" ? { deleted_at: now() } : { deleted_at: null };
-    let query = s.db.updateTable("assets").set(set).where("id", "in", b.ids).where("origin", "!=", "mask");
-    // what is kept already keeps the day it was kept
-    if (b.action === "keep") query = query.where("kept_at", "is", null);
-    const done = await query.executeTakeFirst();
+    const done = await unlessUsed(s, async (tx) => {
+      // what something took up since the first look (a linked file moved on the disk in between) is spared too
+      if (b.action === "unkeep" || b.action === "bin") {
+        const used = await inUse(tx);
+        const free = b.ids.filter((id) => !used.has(id));
+        spared += b.ids.length - free.length;
+        b.ids = free;
+        if (!free.length) return { numUpdatedRows: 0n };
+      }
+      let query = tx.updateTable("assets").set(set).where("id", "in", b.ids).where("origin", "!=", "mask");
+      // what is kept already keeps the day it was kept
+      if (b.action === "keep") query = query.where("kept_at", "is", null);
+      return query.executeTakeFirst();
+    });
     if (b.action === "keep") for (const id of b.ids) await fileInLinked(id);
     // unkept, or back from the bin: the day before the bin starts now
     if (b.action === "unkeep" || b.action === "restore") await resetCountdown(s.db, b.ids);

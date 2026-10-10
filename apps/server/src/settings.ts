@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Db } from "./db";
 import { httpError } from "./errors";
+import { oneAtATime } from "./keyedLock";
 
 /** An address the server will talk to: http or https, nothing else (no file:, no ftp:). */
 const httpUrl = z.url({ protocol: /^https?$/ });
@@ -178,8 +179,28 @@ function keptKey(stored: Llm | undefined, baseUrl: unknown): string {
   return stored.apiKey;
 }
 
-/** Merges a partial update, validates the whole, stores only the keys that were sent. */
-export async function writeSettings(db: Db, patch: unknown): Promise<Settings> {
+/**
+ * Merges a partial update, validates the whole, stores only the keys that were sent. One write at a time: a list sent
+ * the short way ("llm") or a key kept from before is worked out from the settings as they are, and a write landing
+ * between that reading and the writing was undone by it.
+ */
+export function writeSettings(db: Db, patch: unknown): Promise<Settings> {
+  return oneAtATime(db, "settings", () => written(db, patch));
+}
+
+/**
+ * A change worked out from the settings as they are (a pin taken off a list, a licence added to one): the reading and
+ * the writing in one turn, so that two at once each find the other's change there.
+ */
+export function updateSettings(db: Db, change: (current: Settings) => Record<string, unknown> | null): Promise<Settings> {
+  return oneAtATime(db, "settings", async () => {
+    const current = await readSettings(db);
+    const patch = change(current);
+    return patch ? written(db, patch) : current;
+  });
+}
+
+async function written(db: Db, patch: unknown): Promise<Settings> {
   // which keys were sent is read from the body itself: parsing it would fill in every default
   const sent = { ...z.record(z.string(), z.unknown()).parse(patch) };
   const unknown = Object.keys(sent).filter((k) => !KEYS.includes(k));

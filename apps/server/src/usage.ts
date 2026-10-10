@@ -5,7 +5,7 @@ import { now, type Tables } from "./db";
 import { foldersOf, type LibraryChange } from "./events";
 import type { Services } from "./services";
 import { resetCountdown } from "./media";
-import { ERASED, eraseAsset, inUse } from "./sweep";
+import { ERASED, eraseUnused } from "./sweep";
 import { unusedTakes } from "./timelineUnused";
 
 /** The unused takes of every timeline (see timelineUnused), as the storage card counts and bins them. */
@@ -60,15 +60,15 @@ export function registerUsage(app: FastifyInstance, s: Services): void {
    */
   app.post("/api/storage/empty-bin", async (req) => {
     const { ids } = z.strictObject({ ids: z.array(z.string().min(1)).min(1).max(500).optional() }).parse(req.body ?? {});
-    const used = await inUse(s.db);
-    let query = s.db.selectFrom("assets").select(ERASED).where("deleted_at", "is not", null);
-    if (ids) query = query.where("id", "in", ids);
-    const old = await query.execute();
-    const gone = old.filter((a) => !used.has(a.id));
-    for (const a of gone) await eraseAsset(s.db, s.storage, a);
+    // what is in use, what is in the bin and the erasing read and done at once: an item put back meanwhile stays
+    const { picked, erased: gone } = await eraseUnused(s.db, s.storage, (tx) => {
+      let query = tx.selectFrom("assets").select(ERASED).where("deleted_at", "is not", null);
+      if (ids) query = query.where("id", "in", ids);
+      return query.execute();
+    });
     s.queue.events.emit("library", { change: "erased", items: gone.map((a) => a.id) } satisfies LibraryChange);
     s.queue.events.emit("timeline");
-    return { erased: gone.length, inUse: old.length - gone.length };
+    return { erased: gone.length, inUse: picked - gone.length };
   });
 
   /**
