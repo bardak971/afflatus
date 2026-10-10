@@ -433,9 +433,18 @@ function buildWorkflow(def: WorkflowDef, form: Form, input: Record<string, unkno
   for (const [id, image] of [["startImage", b.startImage], ["endImage", b.endImage], ...(b.pictures ?? []).map((p) => [p.id, p] as const), ["previousVideo", b.previousVideo], ["nextVideo", b.nextVideo], ["sourceVideo", b.sourceVideo], ...(b.otherVideos ?? []).map((v) => [v.id, v] as const), ["sound", b.sound], ...(b.otherSounds ?? []).map((s) => [s.id, s] as const)] as const) {
     if (!image) continue;
     const uploaded = ctx.uploads[id];
-    // a loader that takes a path, not a name of the input folder: the uploaded file is in ComfyUI's temp folder
-    const loader = graph[image.target.node] ? MEDIA_LOADERS[graph[image.target.node]!.class_type] : undefined;
-    if (uploaded) write(graph, image.target, loader?.path ? `temp/${uploaded.replace(/ \[temp\]$/, "")}` : uploaded);
+    const node = graph[image.target.node];
+    const loader = node ? MEDIA_LOADERS[node.class_type] : undefined;
+    const twin = loader?.upload && (ctx.has?.(loader.upload.classType) ?? true) ? loader.upload : undefined;
+    if (uploaded && node && twin) {
+      // a loader that takes a path on disk: the file Afflatus uploaded is in ComfyUI's temp folder, which is wherever
+      // that ComfyUI was told (the portable build, --temp-directory, the desktop app), and a relative "temp/…" is
+      // read from ComfyUI's working directory. The pack's upload twin takes "<name> [temp]" and asks ComfyUI where
+      // that is, with the same settings: it stands in for the path loader.
+      const renamed = twin.renamed ?? {};
+      node.class_type = twin.classType;
+      node.inputs = Object.fromEntries(Object.entries(node.inputs).map(([k, v]) => [renamed[k] ?? k, k === image.target.input ? uploaded : v]));
+    } else if (uploaded) write(graph, image.target, loader?.path ? `temp/${uploaded.replace(/ \[temp\]$/, "")}` : uploaded);
     // no picture, video or sound: take the loader out, with every link that read it
     else remove(pruned, image.target.node);
   }

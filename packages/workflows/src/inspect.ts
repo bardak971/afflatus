@@ -3,7 +3,7 @@ import { hasKind, infoOf, isSamplingPass, MODEL_FILE, optsOf, own, specOf, typeO
 import { scaleAfterModel } from "./recipe";
 import { splitCaptions, type Bindings, type Control, type ImageBinding, type MediaBinding, type Mode, type Target, type Toggle, type Wiring } from "./types";
 import { isDirector } from "./director";
-import { ancestors, prune, readersOf, selectorOf, settle, cutFileNameChains, soleValue, standInLoaders, standInPrimitives, standInSavers, unbundleContexts } from "./wiring";
+import { ancestors, prune, readersOf, selectorOf, settle, cutFileNameChains, soleValue, standInLoaders, standInPrimitives, standInSavers, unbundleContexts, valueAt } from "./wiring";
 import { chapterName, frameNodes, PASS_WORK } from "./suggest";
 
 /**
@@ -98,17 +98,18 @@ type NodeMeta = { _meta?: { title?: string } };
 /**
  * The nodes that load a video or a sound from a file, by type: the input that names the file, and whether
  * that input is a path on disk (ComfyUI's own loaders and the Video Helper Suite's upload ones take a file
- * of the input or temp folder; its "path" ones take a path).
+ * of the input or temp folder; its "path" ones take a path). A path one names its upload twin, which takes the
+ * same settings (`renamed`: under other names), for when the file is one Afflatus uploads.
  */
-export const MEDIA_LOADERS: Record<string, { kind: "video" | "audio"; input: string; path?: true }> = {
+export const MEDIA_LOADERS: Record<string, { kind: "video" | "audio"; input: string; path?: true; upload?: { classType: string; renamed?: Record<string, string> } }> = {
   LoadVideo: { kind: "video", input: "file" },
   VHS_LoadVideo: { kind: "video", input: "video" },
   VHS_LoadVideoFFmpeg: { kind: "video", input: "video" },
-  VHS_LoadVideoPath: { kind: "video", input: "video", path: true },
-  VHS_LoadVideoFFmpegPath: { kind: "video", input: "video", path: true },
+  VHS_LoadVideoPath: { kind: "video", input: "video", path: true, upload: { classType: "VHS_LoadVideo" } },
+  VHS_LoadVideoFFmpegPath: { kind: "video", input: "video", path: true, upload: { classType: "VHS_LoadVideoFFmpeg" } },
   LoadAudio: { kind: "audio", input: "audio" },
   VHS_LoadAudioUpload: { kind: "audio", input: "audio" },
-  VHS_LoadAudio: { kind: "audio", input: "audio_file", path: true },
+  VHS_LoadAudio: { kind: "audio", input: "audio_file", path: true, upload: { classType: "VHS_LoadAudioUpload", renamed: { audio_file: "audio", seek_seconds: "start_time" } } },
 };
 const RESIZERS = /scale|resize|crop|pad|upscale/i;
 const POWER_LORAS = "Power Lora Loader (rgthree)";
@@ -370,8 +371,52 @@ function primitiveNamed(r: Reading, among: string[], re: RegExp): Target | undef
   const id = among.find((x) => isPrimitive(graph, catalog, x) && re.test(names.givenName(x) ?? "") && typeof soleValue(graph[x])?.value === "number");
   return id ? { node: id, input: soleValue(graph[id])!.input } : undefined;
 }
-/** The frames per second the node that assembles the video says. */
-const rateOf = (r: Reading) => Number(r.ids.map((id) => r.graph[id]!.inputs.frame_rate ?? r.graph[id]!.inputs.fps).find((v) => typeof v === "number")) || 16;
+/** Nodes that make frames between the frames they are given (RIFE, FILM and the like): the video plays more frames at its rate. */
+const INTERPOLATES = /VFI|interpolat/i;
+const rateIn = (node: Graph[string]) => node.inputs.frame_rate ?? node.inputs.fps;
+/** A number known before anything runs: typed in, read from a number node, or through nodes that only turn it into another type (an int to a float). */
+function numberAt(graph: Graph, value: unknown, depth = 3): number {
+  const known = valueAt(graph, value);
+  if (known !== undefined || !isRef(value)) return Number(known);
+  const linked = Object.values(graph[value[0]]?.inputs ?? {});
+  return depth > 0 && linked.length === 1 ? numberAt(graph, linked[0], depth - 1) : NaN;
+}
+/**
+ * The frames per second of the frames the latent is decoded into, which the length is counted in. The output the
+ * result is made from says the rate it plays at (typed in, or read from a number node), or the nearest node behind
+ * it that assembles the video does. Frame interpolation between the decode and that output plays "multiplier"
+ * frames for each one made at that rate, so the rate of the frames made is the output's divided by it: Wan with
+ * RIFE ×2 into a combine at 32 fps makes 16 frames a second. What cannot be read is told in the notes.
+ */
+function rateOf(r: Reading, result: Output | undefined, generator: string | undefined, notes: string[]): number {
+  const { graph } = r;
+  let rate: number | undefined;
+  let unread: string | undefined;
+  // nearest first from the output: the rate the result is played at, not that of a preview on another branch
+  for (const id of result ? nodesBehind(graph, [result.node, 0], 12) : []) {
+    const given = rateIn(graph[id]!);
+    if (given === undefined) continue;
+    const value = numberAt(graph, given);
+    if (Number.isFinite(value) && value > 0) rate = value;
+    else unread = r.names.titleOf(id);
+    break;
+  }
+  if (rate === undefined) {
+    // no output says it: the first rate typed in anywhere, as before, else Wan's usual 16
+    rate = Number(r.ids.map((id) => rateIn(graph[id]!)).find((v) => typeof v === "number")) || 16;
+    notes.push(unread ? `The frame rate of ${unread} is worked out by other nodes: Length is counted at ${rate} fps.` : `No frame rate was found on the output: Length is counted at ${rate} fps.`);
+  }
+  if (!result) return rate;
+  for (const id of r.behind(result.node)) {
+    const n = graph[id]!;
+    // only what stands between the frames made and the output: an interpolation the latent's frames go through
+    if (!INTERPOLATES.test(n.class_type) || (generator && !r.behind(id).has(generator))) continue;
+    const multiplier = numberAt(graph, n.inputs.multiplier);
+    if (Number.isFinite(multiplier) && multiplier >= 1) rate /= multiplier;
+    else notes.push(`The frame interpolation multiplier of ${r.names.titleOf(id)} could not be read: Length is counted at ${rate} fps.`);
+  }
+  return Math.round(rate * 1000) / 1000;
+}
 
 function findSeeds(r: Reading): Target[] {
   const { graph, ids, catalog, names } = r;
@@ -420,14 +465,14 @@ function findSize(r: Reading, reach: Set<string>): { generator: string | undefin
 }
 
 /** The length of a video: a frame count on the node that makes the latent, seconds typed there, or a number node named so. */
-function findLength(r: Reading, generator: string | undefined): { length: Bindings["length"]; duration: Target | undefined } {
+function findLength(r: Reading, generator: string | undefined, result: Output | undefined, notes: string[]): { length: Bindings["length"]; duration: Target | undefined } {
   const { graph, catalog } = r;
   if (!generator) return { length: undefined, duration: undefined };
   const inputs = graph[generator]!.inputs;
   const stepOf = (input: string) => Number(optsOf(specOf(catalog, graph[generator]!.class_type, input)).step) || 1;
   const lengthOf = (target: Target, input: string, frames: number): Bindings["length"] => {
     const step = stepOf(input);
-    return { target, fps: rateOf(r), step, offset: ((frames % step) + step) % step, min: 1, max: 30 };
+    return { target, fps: rateOf(r, result, generator, notes), step, offset: ((frames % step) + step) % step, min: 1, max: 30 };
   };
   const seconds = ["duration", "seconds", "duration_seconds"].find((k) => typeof inputs[k] === "number");
   const duration: Target | undefined = seconds ? { node: generator, input: seconds } : undefined;
@@ -447,16 +492,31 @@ function findLength(r: Reading, generator: string | undefined): { length: Bindin
 }
 
 // ---- pictures it loads: what they are named, then what they are wired to
+/** Inputs that take the first or the last frame: "start_image", "end_image", "first_frame" (not "start_at_step", not "blend"). */
+const FRAME_ROLES: Array<[RegExp, string]> = [[/^(?=.*(^|_)(end|last)(_|$)).*(image|frame|img)/i, "end"], [/^(?=.*(^|_)(start|first)(_|$)).*(image|frame|img)/i, "start"]];
 function findImages(r: Reading, reach: Set<string>): { images: Inspection["images"]; loaded: string[]; start: ImageBinding | undefined; end: ImageBinding | undefined; pictures: Bindings["pictures"] } {
   const { graph, ids, catalog, uses, names } = r;
   const loaded = ids.filter((id) => /^LoadImage/.test(graph[id]!.class_type) && typeof graph[id]!.inputs.image === "string");
   const imageRole = (id: string) => {
-    const name = names.givenName(id) ?? "";
-    if (/last|end|final/i.test(name)) return "end";
-    if (/first|start|open/i.test(name)) return "start";
+    // the wiring says it best: a picture that goes into a "start_image" or an "end_image" (straight, or through a
+    // node that takes no other picture, a resize or a crop) is that, whatever it is called. Further down the wiring is
+    // less sure than the name (a node given both pictures, a long video's segments handing their last frame on as the
+    // next one's start), so that is asked last.
+    const roleOf = (input: string) => (FRAME_ROLES.find(([re]) => re.test(input))?.[1] ?? null);
+    for (const u of uses.get(`${id}:0`) ?? []) {
+      const wired = roleOf(u.input);
+      if (wired) return wired;
+      const n = graph[u.node]!;
+      if (Object.entries(n.inputs).filter(([k, v]) => isRef(v) && /image|pixels|frame/i.test(k)).length !== 1) continue;
+      for (let o = 0; o < 6; o++) for (const next of uses.get(`${u.node}:${o}`) ?? []) if (roleOf(next.input)) return roleOf(next.input);
+    }
+    // then the name, in whole words ("Blend overlay" is no end, "OpenPose reference" no start; "FirstFrame" is two words)
+    const words = (names.givenName(id) ?? "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ");
+    if (/\b(last|end|ending|final)\b/i.test(words)) return "end";
+    if (/\b(first|start|starting|opening)\b/i.test(words)) return "start";
     // a mask picture is fed straight in (or through an image-to-mask): further down, a "mask" input is some other part's
     if ((uses.get(`${id}:0`) ?? []).some((u) => /mask/i.test(u.input) || /ToMask/i.test(graph[u.node]!.class_type))) return "mask";
-    return usedAs(graph, uses, [id, 0], [[/end|last/i, "end"], [/start|first/i, "start"]]);
+    return usedAs(graph, uses, [id, 0], FRAME_ROLES);
   };
   const binding = (id: string): ImageBinding => {
     const direct = uses.get(`${id}:0`) ?? [];
@@ -978,7 +1038,9 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
   const { texts, prompt, negative } = findTexts(r);
   const seeds = findSeeds(r);
   const { generator, size, resolution } = findSize(r, reach);
-  const { length, duration } = findLength(r, generator);
+  // what could not be read of the frame rate is told only of a video result, the one a length is shown for
+  const told: string[] = [];
+  const { length, duration } = findLength(r, generator, result, result?.kind === "video" ? told : []);
   const { images, loaded, start, end, pictures } = findImages(r, reach);
   const directorId = ids.find((id) => isDirector(graph, id));
   const { videos, sounds, previous, next, source: sourceVideo, otherVideos, sound, otherSounds, keys: mediaKeys } = findMedia(r, reach);
@@ -1026,5 +1088,5 @@ export function inspect(source: Graph, catalog: NodeCatalog, editor?: Wiring, no
     : null;
 
   const packs = Object.fromEntries([...missingNodes, ...missingUnneeded, ...missingWhenOn].flatMap((c) => { const p = own(editor?.packs, c); return p ? [[c, p]] : []; }));
-  return { nodeCount: Object.keys(source).length, missingNodes, missingUnneeded, replaced, missingWhenOn, missingFiles, missingChoices, relocated, stages, packs, links: editor?.links ?? [], outputs, texts, images, videos, sounds, loraPoints, toggles, suggested, candidates, notes: [...notes, ...hints], about };
+  return { nodeCount: Object.keys(source).length, missingNodes, missingUnneeded, replaced, missingWhenOn, missingFiles, missingChoices, relocated, stages, packs, links: editor?.links ?? [], outputs, texts, images, videos, sounds, loraPoints, toggles, suggested, candidates, notes: [...notes, ...told, ...hints], about };
 }

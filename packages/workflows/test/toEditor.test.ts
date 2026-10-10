@@ -58,3 +58,23 @@ describe("a graph Afflatus runs, as the editor's own file", () => {
     expect(plain(back.graph)).toEqual(plain(sdxl));
   });
 });
+
+describe("a graph with a node of a kind this ComfyUI lacks, as the editor's file", () => {
+  // an API workflow whose pack is not installed: an output used at slot 2 only, and typed-in values the node list cannot name
+  const graph = {
+    "1": { class_type: "SomePackLoader", inputs: { path: "x.safetensors", strength: 0.5, steps: 4, on: true } },
+    "2": { class_type: "VAEDecode", inputs: { samples: ["1", 2], vae: ["1", 0] } },
+  };
+  const file = toEditor(graph, catalog);
+  it("has a slot at every output place, none empty", () => {
+    const outs = file.nodes.find((n) => n.type === "SomePackLoader")!.outputs;
+    expect(outs).toHaveLength(3);
+    expect(outs.every((o) => o && typeof o.slot_index === "number")).toBe(true);
+    expect(outs[1]).toEqual({ name: "*", type: "*", links: [], slot_index: 1 });
+  });
+  it("keeps its typed-in values, and reads back as the same graph", () => {
+    const back = fromEditor(JSON.parse(JSON.stringify(file)), catalog);
+    expect(back.graph["1"]).toMatchObject({ class_type: "SomePackLoader", inputs: graph["1"].inputs });
+    expect(back.graph["2"]!.inputs).toEqual(graph["2"].inputs);
+  });
+});

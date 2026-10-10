@@ -6,6 +6,8 @@ import { looksLikeFiles } from "./inputs";
  * an array in the type position (older nodes) or the type "COMBO" with options.options (newer ones).
  */
 export type NodeCatalog = Record<string, NodeInfo>;
+/** A kind's entry in the catalog: its own only, so that a node typed "constructor" or "toString" is an unknown node, not a crash. */
+const infoIn = (catalog: NodeCatalog, classType: string): NodeInfo | undefined => (Object.hasOwn(catalog, classType) ? catalog[classType] : undefined);
 export interface NodeInfo {
   input: { required?: Record<string, unknown>; optional?: Record<string, unknown> };
   /** The type of each output ("MODEL", "IMAGE", …); a list of choices for an output that is one (a sampler name). */
@@ -48,7 +50,7 @@ export function sameFile(offered: string[], file: string): string | undefined {
 export function relocateFiles(graph: Record<string, { class_type: string; inputs: Record<string, unknown> }>, catalog: NodeCatalog): Array<{ node: string; input: string; from: string; to: string }> {
   const moved: Array<{ node: string; input: string; from: string; to: string }> = [];
   for (const [id, node] of Object.entries(graph)) {
-    const def = catalog[node.class_type];
+    const def = infoIn(catalog, node.class_type);
     if (!def) continue;
     for (const [input, value] of Object.entries(node.inputs)) {
       if (typeof value !== "string" || !/\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx)$/i.test(value)) continue;
@@ -102,7 +104,7 @@ export function checkGraph(
   };
   for (const out of built.outputs) need(out.node);
   for (const [id, node] of Object.entries(built.graph)) {
-    const def = catalog[node.class_type];
+    const def = infoIn(catalog, node.class_type);
     // a node ComfyUI does not have stops the whole graph, wherever it is
     if (!def) {
       problems.push(`${id} ${node.class_type}: unknown node`);
@@ -140,13 +142,13 @@ export function checkGraph(
       return false;
     };
     for (const [name, value] of Object.entries(node.inputs)) {
-      if (!opts.looseInputs && !(name in all) && !grows(name) && !takesAnyInput(node.class_type)) {
+      if (!opts.looseInputs && !Object.hasOwn(all, name) && !grows(name) && !takesAnyInput(node.class_type)) {
         problems.push(`${id} ${node.class_type}: unknown input "${name}"`);
       }
       if (isRef(value)) {
         const src = built.graph[value[0]];
         if (!src) problems.push(`${id}.${name}: links to missing node ${value[0]}`);
-        else if (value[1] >= (catalog[src.class_type]?.output.length ?? 0)) {
+        else if (value[1] >= (infoIn(catalog, src.class_type)?.output.length ?? 0)) {
           problems.push(`${id}.${name}: ${src.class_type} has no output ${value[1]}`);
         }
       } else if (typeof value === "string") {

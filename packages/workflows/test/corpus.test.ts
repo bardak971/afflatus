@@ -11,7 +11,8 @@ import { catalog } from "./fixtures";
  * "Better" is allowed and printed, so that expect.json can be refreshed. The corpus is not published: what
  * it guards that CI must see too has a hand-made fixture of its own (hostile.test.ts).
  */
-const dir = join(import.meta.dirname, "corpus");
+// AFFLATUS_CORPUS points at a corpus kept elsewhere (another checkout's), so that a worktree can be checked without copying it
+const dir = process.env.AFFLATUS_CORPUS || join(import.meta.dirname, "corpus");
 const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".json") && f !== "expect.json").sort() : [];
 const expectFile = join(dir, "expect.json");
 const expected: Record<string, ReturnType<typeof corpusFacts>> = existsSync(expectFile) ? JSON.parse(readFileSync(expectFile, "utf8")) : {};
