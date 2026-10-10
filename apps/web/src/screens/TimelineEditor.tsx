@@ -16,13 +16,13 @@ import { FinishDialog } from "../timeline/Finish";
 import { Viewer } from "../Viewer";
 import { ContextMenu, useMenu, type MenuHead } from "../ContextMenu";
 import { useBanners, useEditorColumn } from "../store";
-import { EditorSkeleton } from "../timeline/EditorSkeleton";
+import { EditorSkeleton, rememberAspect } from "../timeline/EditorSkeleton";
 import { CastDialog } from "../timeline/CastDialog";
 import { ClipDesigner } from "../timeline/ClipDesigner";
 import { TimelineHeader, Transport } from "../timeline/EditorBars";
 import { ExportDialog, type ExportAsk } from "../timeline/ExportDialog";
 import { clipMenuItems, musicMenuItems, placeItems, soundMenuItems, type ClipMenuActions } from "../timeline/menus";
-import { Overview, useAttention } from "../timeline/Overview";
+import { AttentionNote, Overview, useAttention } from "../timeline/Overview";
 import { ColumnEdge, FoldButton, FoldedStrip } from "../timeline/column";
 import { RangeBar } from "../timeline/RangeBar";
 import { StartPanel } from "../timeline/StartPanel";
@@ -90,6 +90,14 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
 
   const t = timeline.data;
   const clips = useMemo(() => t?.clips ?? [], [t]);
+  // the frame's shape as it is shown (the timeline's, or its first take's while the first clip decides), kept for the
+  // placeholder of the next visit: a 9:16 timeline loads into a tall frame, not a landscape one
+  const firstTake = clips.find((c) => c.take?.asset.width && c.take.asset.height)?.take?.asset;
+  const frameW = t?.width ?? firstTake?.width ?? null;
+  const frameH = t?.height ?? firstTake?.height ?? null;
+  useEffect(() => {
+    if (id && frameW && frameH) rememberAspect(id, frameW, frameH);
+  }, [id, frameW, frameH]);
   // the video models that are on, and the ones a clip of this timeline is already made with
   const families = useFamilies();
   const videoRecipes = useMemo(
@@ -204,6 +212,17 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   /** About how long a clip takes to render: the server's forecast of its whole form, learned from past renders (as the timeline card's). */
   const takes = useForecasts(clips, recipes.data?.recipes ?? NONE, formOf);
   const allMs = missing.reduce((sum, c) => sum + (takes(c) ?? 0), 0);
+  /**
+   * What Needs attention is worked out from, the same in the Overview, the folded column and the Export and Finish
+   * dialogs: which clips can render (known once the models, the setup and the settings have come) and why the others cannot.
+   */
+  const checks = {
+    renderable: (c: Clip) => c.kind === "video" && !c.job && Boolean(ready(c).input),
+    msOf: takes,
+    why: (c: Clip) => (c.kind === "video" ? ready(c).why : undefined),
+    // settled, not succeeded: a list that failed to come must not hold the checks back for ever
+    known: !recipes.isPending && !setup.isPending && !settings.isPending,
+  };
 
   // what the command bar asked of this timeline (render clips by number, render what is missing, export): done here, as
   // the buttons do it, once the timeline and its forms are read
@@ -439,7 +458,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
     );
   }
   // the editor's shape with the loading shine, the parts where they will land, rather than a line of words
-  if (!t || !shown) return <EditorSkeleton />;
+  if (!t || !shown) return <EditorSkeleton id={id} />;
 
   const why = current ? ready(current).why ?? null : null;
   const shape: Shape | "own" | "first" = !t.width || !t.height ? "first" : (Object.keys(SHAPES) as Shape[]).find((k) => SHAPES[k].width === t.width && SHAPES[k].height === t.height) ?? "own";
@@ -488,6 +507,13 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   // the designer stays open from clip to clip: it is for the clip selected, each with its own conversation
   // a still, or a clip with no model, has nothing to write: its form shows, and the designer comes back on the next clip it can write for
   const designed = designing && current && current.kind !== "still" && recipes.data?.recipes.some((r) => r.id === current.recipe) ? current : undefined;
+  /** "Fix all first" in the Export and Finish dialogs: the dialog closes onto the Overview, where Needs attention runs it. */
+  const fixFirst = (plan: Parameters<typeof fix.mutate>[0] | null, close: () => void) => {
+    close();
+    setSelected(null);
+    setMusicOpen(false);
+    if (plan && !fix.isPending && !render.isPending) fix.mutate(plan);
+  };
   const exportNow = () => setExp({ scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), blend: true, match: true, fit: finishedSize ? "largest" : "timeline", web: 0, before: t.exported?.id ?? null, asked: Boolean(t.exporting) });
   openExport.current = exportNow;
 
@@ -619,8 +645,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             timeline={t}
             clips={clips}
             label={musicOpen && t.music ? "Music" : current ? `${current.kind === "still" ? "Still" : "Clip"} ${clips.indexOf(current) + 1}` : "Overview"}
-            renderable={(c) => c.kind === "video" && !c.job && Boolean(ready(c).input)}
-            msOf={takes}
+            {...checks}
           />
         ) : musicOpen && t.music ? (
           <MusicPanel timeline={t} onEdit={(p) => edit.mutate(p)} onClose={() => setMusicOpen(false)} />
@@ -692,8 +717,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                   ],
                 }}
                 clips={clips}
-                renderable={(c) => c.kind === "video" && !c.job && Boolean(ready(c).input)}
-                msOf={takes}
+                {...checks}
                 onPick={(id) => select(id)}
                 onMusic={() => setMusicOpen(true)}
                 onCast={() => setCasting(true)}
@@ -730,6 +754,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           finishedSize={finishedSize}
           misfits={misfits}
           exporting={exportIt.isPending}
+          attention={<AttentionNote timeline={t} clips={clips} {...checks} onFixFirst={(plan) => fixFirst(plan, () => setExp(null))} />}
           onExport={(v) => exportIt.mutate(v)}
           onOpen={setOpened}
           onClose={() => setExp(null)}
@@ -741,6 +766,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           clips={clips}
           // ComfyUI's upscale_models, as any recipe with an upscale model to pick lists them
           upscaleModels={setup.data?.recipes.find((r) => r.options.upscaleModel?.length)?.options.upscaleModel ?? []}
+          attention={<AttentionNote timeline={t} clips={clips} {...checks} onFixFirst={(plan) => fixFirst(plan, () => setFin(false))} />}
           onClose={() => setFin(false)}
           onQueued={(r) => {
             after();
@@ -766,7 +792,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
 }
 
 /** The right column folded: its strip, with the count of what Needs attention lists (the Overview's rows, worked out the same way). */
-function FoldedColumn({ timeline, clips, label, renderable, msOf }: { timeline: Timeline; clips: Clip[]; label: string; renderable(c: Clip): boolean; msOf(c: Clip): number | null }) {
-  const { rows } = useAttention(timeline, clips, renderable, msOf);
-  return <FoldedStrip label={label} attention={rows.length} />;
+function FoldedColumn({ timeline, clips, label, renderable, msOf, why, known }: { timeline: Timeline; clips: Clip[]; label: string; renderable(c: Clip): boolean; msOf(c: Clip): number | null; why(c: Clip): string | undefined; known: boolean }) {
+  const { rows, checking } = useAttention(timeline, clips, renderable, msOf, { why, known });
+  // no count while the checks run: one that grows under the pointer reads as new trouble
+  return <FoldedStrip label={label} attention={checking ? 0 : rows.length} />;
 }

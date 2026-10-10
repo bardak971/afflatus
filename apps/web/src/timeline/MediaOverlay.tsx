@@ -68,9 +68,12 @@ export function MediaOverlay({ timeline, placeItems }: {
   const [typed, setTyped] = useState("");
   const q = useSettled(typed.trim());
   const folderButton = useRef<HTMLDivElement>(null);
-  // its bar stays on one line, as the Studio's: 1 the kinds fold into a menu, 2 the scopes too
+  // its bar stays on one line, as the Studio's (LibraryHeader): 1 the kinds fold into a menu, 2 the scopes too, 3 the
+  // "Esc close" hint goes (Esc still closes), 4 the search into an icon that opens it, 5 the breadcrumb narrower. At
+  // 1280 px the stage is about 800 px wide, and the search was cut and the star pushed off its edge.
   const bar = useRef<HTMLDivElement>(null);
-  const fold = useFit(bar, 2);
+  const fold = useFit(bar, 5);
+  const [searching, setSearching] = useState(false);
   const [folders, setFolders] = useState(false);
   // the item open large: the shelf's own viewer, so that ← → go through what the shelf shows
   const [viewing, setViewing] = useState<Asset | null>(null);
@@ -203,7 +206,7 @@ export function MediaOverlay({ timeline, placeItems }: {
         <div ref={bar} className="flex h-14 shrink-0 flex-nowrap items-center gap-2 overflow-hidden border-b border-line px-4">
           <span className="shrink-0 text-[11px] font-bold tracking-[0.08em] text-accent uppercase">Media</span>
           {/* the place, as the Studio's breadcrumb: inside the project worked in, its tree under it */}
-          <PlaceCrumbs place={place} onPlace={(p) => setStudio({ place: p })} anchor={folderButton} open={folders} onOpen={setFolders} />
+          <PlaceCrumbs place={place} onPlace={(p) => setStudio({ place: p })} anchor={folderButton} open={folders} onOpen={setFolders} className={fold >= 5 ? "w-[clamp(110px,9vw,140px)]!" : undefined} />
           {fold >= 2
             ? <div className="w-36 shrink-0"><Select size="sm" className="h-9" label="What is shown" value={scope} onChange={(v) => setScope(v as Scope)} options={scopes} /></div>
             : <Segmented<Scope> oneLine label="What is shown" value={scope} onChange={setScope} options={scopes} />}
@@ -211,15 +214,21 @@ export function MediaOverlay({ timeline, placeItems }: {
             ? <div className="w-32 shrink-0"><Select size="sm" className={cx("h-9", kind !== "all" && "border-accent")} label="Kind" value={kind} onChange={(v) => setKind(v as Kind)} options={kinds} /></div>
             : <Segmented<Kind> oneLine label="Kind" value={kind} onChange={setKind} options={kinds} />}
           <span className="min-w-2 grow" />
-          <label className="flex h-9 w-64 min-w-28 shrink items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
-            <Search size={14} className="shrink-0 text-ink-3" />
-            <input data-search="media" aria-label="Search the media" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search prompts and names" className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
-            {typed && <button type="button" aria-label="Clear the search" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
-          </label>
+          {fold >= 4 && !searching && !typed ? (
+            <button type="button" aria-label="Search the media" data-tip="Search prompts and names" onClick={() => setSearching(true)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-raised text-ink-2 hover:text-ink">
+              <Search size={15} />
+            </button>
+          ) : (
+            <label className={cx("flex h-9 min-w-28 shrink items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent", fold >= 4 ? "w-48" : "w-64")}>
+              <Search size={14} className="shrink-0 text-ink-3" />
+              <input data-search="media" aria-label="Search the media" autoFocus={searching} onBlur={() => setSearching(false)} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search prompts and names" className="min-w-0 grow bg-transparent placeholder:text-ink-3 focus:outline-none" />
+              {typed && <button type="button" aria-label="Clear the search" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
+            </label>
+          )}
           <button type="button" aria-pressed={kept} aria-label="Kept only" data-tip={kept ? "Kept only: on. Show everything again" : "Kept only"} onClick={() => setKept(!kept)} className={cx("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border", kept ? "border-accent text-accent" : "border-line text-ink-2 hover:text-ink")}>
             <Star size={14} fill={kept ? "currentColor" : "none"} />
           </button>
-          <span className="flex shrink-0 items-center gap-1.5 text-[11.5px] whitespace-nowrap text-ink-3"><Keys keys="Esc" size="sm" /> close</span>
+          {fold < 3 && <span className="flex shrink-0 items-center gap-1.5 text-[11.5px] whitespace-nowrap text-ink-3"><Keys keys="Esc" size="sm" /> close</span>}
         </div>
         <div className="min-h-0 grow overflow-y-auto px-4 py-3.5">
           {(fetched ? assets.isSuccess : true) && !items.length && (

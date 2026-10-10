@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Download, Film } from "lucide-react";
 import { fileUrl, type Asset, type Clip, type Timeline } from "../api";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
@@ -14,7 +15,7 @@ export type ExportAsk = { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; r
 export type ExportOptions = { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range?: { inMs: number; outMs: number }; blend: boolean; match: boolean; fit: "timeline" | "largest"; webMb?: 10 | 25 };
 
 /** Export video: its options, then where it stands (queued, exporting, done with its file to download). */
-export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, range, emptyRange, finishedSize, misfits, exporting, onExport, onOpen, onClose }: {
+export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, range, emptyRange, finishedSize, misfits, exporting, attention, onExport, onOpen, onClose }: {
   timeline: Timeline;
   clips: Clip[];
   ask: ExportAsk;
@@ -27,6 +28,8 @@ export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, r
   misfits: number;
   /** The export being asked for, before the timeline says it is exporting. */
   exporting: boolean;
+  /** What Needs attention lists, in one line with "Fix all first" (AttentionNote); shown while the export is still to ask. */
+  attention?: ReactNode;
   onExport(opts: ExportOptions): void;
   /** The exported video, in the viewer. */
   onOpen(asset: Asset): void;
@@ -64,6 +67,7 @@ export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, r
         ) : (
           <>
             {exp.asked && t.exportFailed && <ErrorNote>The export failed: {t.exportFailed}</ErrorNote>}
+            {attention}
             <div className="flex flex-col">
               <FieldRow label="For the web" note="A copy small enough to play inline where it is shared: the long edge brought down to 1280, 30 frames a second, and the bitrate worked out from the length so the file stays under the size. 10 MB: what GitHub plays inline on a free account. 25 MB: chats and most posts. The full-quality export is left as it is.">
                 <Segmented<"0" | "10" | "25"> label="For the web" value={String(exp.web) as "0" | "10" | "25"} onChange={(v) => setExp({ ...exp, web: Number(v) as 0 | 10 | 25 })} options={[{ value: "0", label: "Off" }, { value: "10", label: "≤ 10 MB" }, { value: "25", label: "≤ 25 MB" }]} oneLine className="w-fit" />

@@ -15,7 +15,7 @@ import { clock, spell } from "../format";
 import { PartHead } from "../recipeForm/Part";
 import { Select } from "../Select";
 import { Button, Chip, cx, Help, Segmented } from "../ui";
-import { attention, canDismiss, dismissKey, fixAll, SHOWS, type Act, type Fix, type JoinFigures, type Row } from "./attention";
+import { attention, attentionLine, canDismiss, dismissKey, fixAll, fixOf, fixWords, planFix, SHOWS, type Act, type Fix, type JoinFigures, type Row } from "./attention";
 
 /** The rows of Needs attention set aside, per timeline, in this browser (see dismissKey). */
 const useDismissed = create<{ by: Record<string, string[]>; set(timeline: string, keys: string[]): void }>()(
@@ -31,9 +31,10 @@ const quiet = "shrink-0 text-xs font-semibold text-accent hover:underline disabl
  * What Needs attention lists for a timeline, each row with the action that mends it, the rows set aside left out
  * (until their clips play another take); with the joins' figures it is worked out from, one request per clip that
  * flows on and has a take (cached a minute, as the tooltip's). Shared by the Overview and the folded column's
- * count: the same requests either way.
+ * count: the same requests either way. `checking` while what it is worked out from is not all known yet (the clips' forms,
+ * through `known`, and the joins' figures): a row listed then could be wrong, or missing.
  */
-export function useAttention(t: Timeline, clips: Clip[], renderable: (c: Clip) => boolean, msOf: (c: Clip) => number | null) {
+export function useAttention(t: Timeline, clips: Clip[], renderable: (c: Clip) => boolean, msOf: (c: Clip) => number | null, o: { why?(c: Clip): string | undefined; known?: boolean } = {}) {
   const joined = clips.filter((c, i) => i > 0 && c.joined === "continue" && c.take);
   const joinQueries = useQueries({
     queries: joined.map((c) => ({ queryKey: ["joins", c.id, c.take!.id, c.take!.startMs, c.take!.endMs], queryFn: () => api.joins(c.id), staleTime: 60_000 })),
@@ -43,11 +44,41 @@ export function useAttention(t: Timeline, clips: Clip[], renderable: (c: Clip) =
     const items = joinItems.get(c.id);
     return [c.id, items ? (items.find((j) => j.take === c.take!.id)?.in ?? null) : undefined];
   }));
-  const listed = attention(clips, { joins: joinItems, renderable, msOf, misfit: (c) => otherShape(c, t) && !c.fill });
+  const listed = attention(clips, { joins: joinItems, renderable, msOf, misfit: (c) => otherShape(c, t) && !c.fill, why: o.why });
+  // a join whose figures could not be read is not waited for: its row is left out, as before
+  const checking = o.known === false || joinQueries.some((q) => q.isPending);
   const dismissed = useDismissed();
   const kept = new Set(dismissed.by[t.id] ?? []);
   const rows = listed.filter((r) => !(canDismiss(r) && kept.has(dismissKey(r, clips))));
-  return { joined, joinsOf, listed, rows, kept, dismissed };
+  return { joined, joinsOf, listed, rows, kept, dismissed, checking };
+}
+
+/**
+ * Needs attention in one warn line, for the Export and Finish dialogs (the same rows as the Overview's, from
+ * useAttention), with a quiet "Fix all first" that closes the dialog and runs what Fix all would; "Show them" when
+ * nothing listed has an action, which closes the dialog onto the Overview. Nothing while the checks run, or when all is well.
+ */
+export function AttentionNote({ timeline, clips, renderable, msOf, why, known, onFixFirst }: {
+  timeline: Timeline;
+  clips: Clip[];
+  renderable(c: Clip): boolean;
+  msOf(c: Clip): number | null;
+  why?(c: Clip): string | undefined;
+  known?: boolean;
+  /** The plan to run (null: only show Needs attention). */
+  onFixFirst(plan: Omit<Fix, "ms"> | null): void;
+}) {
+  const { rows, checking } = useAttention(timeline, clips, renderable, msOf, { why, known });
+  if (checking || !rows.length) return null;
+  const plan = planFix(rows, clips, msOf);
+  return (
+    <div role="status" className="m-pop flex items-center gap-2 rounded-lg border border-warn/35 bg-warn-wash/60 px-3 py-1.5 text-sm text-warn-ink">
+      <span className="min-w-0 grow">{attentionLine(rows, clips)}</span>
+      <button type="button" onClick={() => onFixFirst(plan)} data-tip={plan ? fixWords(plan, clips) || undefined : "Closes this and shows Needs attention: what it lists has no action that mends it here."} className={quiet}>
+        {plan ? "Fix all first" : "Show them"}
+      </button>
+    </div>
+  );
 }
 
 /**
@@ -55,7 +86,7 @@ export function useAttention(t: Timeline, clips: Clip[], renderable: (c: Clip) =
  * with its clips, which select the clip, and the action that mends it; Fix all runs them all), its music,
  * its cast and look.
  */
-export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick, onMusic, onCast, onFolder, onFix, rendering, picked, onRenderPicked, fold }: {
+export function Overview({ timeline: t, aspect, clips, renderable, msOf, why, known, onPick, onMusic, onCast, onFolder, onFix, rendering, picked, onRenderPicked, fold }: {
   /** The video's aspect ratio: the shapes to pick from, or the first clip rendered deciding. */
   /** `short`: what its switch says ("16:9"), where four words would not fit on one row of the panel. */
   aspect: { value: string; options: Array<{ value: string; label: string; short?: string; note?: string; detail?: string }>; onChange(value: string): void };
@@ -65,6 +96,10 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
   renderable(c: Clip): boolean;
   /** About how long a clip takes to render; null when nothing was learned yet. */
   msOf(c: Clip): number | null;
+  /** Why a clip cannot be rendered yet, when its form is still to fill. */
+  why?(c: Clip): string | undefined;
+  /** The clips' forms are known (their models, the setup, the settings): until then what can render is not. */
+  known?: boolean;
   onPick(clip: string): void;
   onMusic(): void;
   onCast(): void;
@@ -101,7 +136,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
     // the library hears of the move from the server (its library event); the timeline shows where its takes now are
     onSuccess: () => void client.invalidateQueries({ queryKey: ["timelines", t.id] }),
   });
-  const { joined, joinsOf, listed, rows, kept, dismissed } = useAttention(t, clips, renderable, msOf);
+  const { joined, joinsOf, listed, rows, kept, dismissed, checking } = useAttention(t, clips, renderable, msOf, { why, known });
   const measured = clips.filter((c) => c.take?.renderMs);
   const renderMs = measured.reduce((sum, c) => sum + (c.take!.renderMs ?? 0), 0);
   const rendered = measured.length;
@@ -126,23 +161,31 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
   // only the keys of rows still listed are kept: a take changed, its old key goes
   const dismiss = (r: Row) => dismissed.set(t.id, [...listed.filter((x) => kept.has(dismissKey(x, clips))).map((x) => dismissKey(x, clips)), dismissKey(r, clips)]);
   const fix = fixAll(rows, clips, msOf);
-  const run = (a: Act) => onFix(a.do === "render" ? { patches: [], render: a.clips } : a.do === "take" ? { patches: [{ clip: a.clip, patch: { take: a.take } }], render: [] } : { patches: a.clips.map((clip) => ({ clip, patch: { fill: true } })), render: [] });
+  const run = (a: Act) => {
+    const f = fixOf(a);
+    if (f) onFix(f);
+    else if (a.do === "open") onPick(a.clip);
+  };
   // the command bar's Fix all, taken once the joins are measured: Fix all as its button, or the one row's own action when it is
   // the only one with an action (the button shows from two)
   const asked = useTimelineRequest((r) => r.request);
   const say = useBanners((b) => b.push);
   useEffect(() => {
-    if (asked?.do !== "fix-all" || asked.timeline !== t.id || loading || rendering) return;
+    if (asked?.do !== "fix-all" || asked.timeline !== t.id || checking || rendering) return;
     useTimelineRequest.getState().take()?.reply(null);
-    const one = rows.filter((r) => r.act);
+    const one = rows.filter((r) => r.act && fixOf(r.act));
     if (fix) onFix(fix);
     else if (one.length === 1) run(one[0]!.act!);
     else say({ id: `bar-fix:${Date.now()}`, tone: "good", title: `${t.name}: nothing to fix`, text: rows.length ? "What Needs attention lists has no action that mends it." : undefined, href: `/timelines/${t.id}`, go: "Open the timeline" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [asked, loading, rendering]);
+  }, [asked, checking, rendering]);
   const landsIn = folder && folder.id !== project?.folderId ? folder.name : project?.name ?? "the Inbox";
   const shapeWords = aspect.value === "first" ? "Shape from the first clip" : aspect.options.find((o) => o.value === aspect.value)?.label;
   const castWords = [cast, t.mood].filter(Boolean).join(" · ");
+  // each value waits for what it is read from: a look names people and a style the kit has not sent yet, a folder the
+  // folders' list; "nobody cast" (most timelines' real value) or "the Inbox" said before then would read as lost data
+  const castKnown = !(t.look && (t.look.cast.length || t.look.style)) || Boolean(entities.data);
+  const placeKnown = (!t.projectId || Boolean(projects.data)) && ((!t.folderId && !project?.folderId) || Boolean(folders.data));
 
   return (
     <>
@@ -158,12 +201,19 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
         {fold && <span className="ml-auto">{fold}</span>}
       </div>
 
-      {rows.length > 0 ? (
-        <section className="flex flex-col rounded-xl border border-warn/35 bg-warn-wash/60 pb-1.5">
+      {checking ? (
+        // the checks still running (the forms, the joins' figures): the card's shape, not a count that grows under the pointer
+        <section aria-busy="true" aria-label="Checking the clips and their joins" className="flex flex-col gap-2.5 rounded-xl border border-line px-3 py-2.5 shadow-card">
+          <PartHead>Needs attention</PartHead>
+          <span className="m-skeleton h-4 w-3/4" />
+          <span className="m-skeleton h-4 w-1/2" />
+        </section>
+      ) : rows.length > 0 ? (
+        <section className="m-pop flex flex-col rounded-xl border border-warn/35 bg-warn-wash/60 pb-1.5">
           <div className="flex items-center gap-2 px-3 pt-2 pb-1">
             <span className="grow text-[11px] font-bold tracking-[0.08em] text-warn-ink uppercase">Needs attention · {rows.length}</span>
             {fix && (
-              <Button size="sm" tone="primary" disabled={rendering} onClick={() => onFix(fix)} data-tip={[fix.patches.length && `${fix.patches.length} clip change${fix.patches.length === 1 ? "" : "s"} (each its own Undo step)`, fix.render.length && `then ${fix.render.length} clip${fix.render.length === 1 ? "" : "s"} rendered, in order`].filter(Boolean).join(", ")}>
+              <Button size="sm" tone="primary" disabled={rendering} onClick={() => onFix(fix)} data-tip={fixWords(fix, clips)}>
                 Fix all{fix.ms > 0 && <Estimate ms={fix.ms} />}
               </Button>
             )}
@@ -183,7 +233,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
                     </span>
                   ))}
                   {r.ids.length > 8 && ` and ${r.ids.length - 8} more`}
-                  {r.figure !== undefined && <span className="ml-1 font-mono text-[11px]">×{r.figure.toFixed(1)}</span>}
+                  {r.figure !== undefined && <span className="ml-1 font-mono text-[11px]" data-tip={`At the join the picture changes up to ×${r.figure.toFixed(1)} its own motion from frame to frame (the run-up's end counted too). Past ×${SHOWS} the join shows.`}>×{times(r.figure)} motion</span>}
                 </span>
                 {r.reasons && <Help title={r.reasons.length === 1 ? "Why it failed" : "Why they failed"} text={r.reasons.map((x) => (r.reasons!.length === 1 ? x.why : `Clip ${number(x.clip)}: ${x.why}`)).join("\n")} />}
               </span>
@@ -208,7 +258,11 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
       <section className="flex flex-col rounded-xl border border-line-strong shadow-card">
         <div className="flex flex-col gap-0.5 border-b border-line px-3 py-2.5">
           <PartHead>Timeline</PartHead>
-          <span className="truncate font-bold text-ink">{[shapeWords, cast || "nobody cast", `lands in ${landsIn}`].filter(Boolean).join(" · ")}</span>
+          {castKnown && placeKnown ? (
+            <span className="truncate font-bold text-ink">{[shapeWords, cast || "nobody cast", `lands in ${landsIn}`].filter(Boolean).join(" · ")}</span>
+          ) : (
+            <span aria-hidden className="m-skeleton my-0.5 h-[18px] w-3/5" />
+          )}
         </div>
         <div className="flex flex-col px-3 pt-1 pb-2.5 text-ink">
           <FieldRow label="Aspect" note={t.width && t.height ? `The video is ${t.width} × ${t.height}; every clip is made to fit it.` : "The first clip that is rendered decides; pick one to decide yourself."}>
@@ -218,8 +272,8 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
                 label="Aspect ratio"
                 value={aspect.value}
                 onChange={aspect.onChange}
-                // "Clip 1", not "First clip": four short labels hold one row in the column at its default width
-                options={aspect.options.map((o) => ({ value: o.value, label: o.value === "first" ? "Clip 1" : o.short ?? o.label, tip: o.value === "first" ? `As clip 1${o.detail ? ` · ${o.detail}` : ""}` : o.detail ?? (o.note ? `${o.label} · ${o.note}` : undefined) }))}
+                // "Auto", the long form in its tip: four short labels hold one row in the column at 1280 px too ("Clip 1" wrapped)
+                options={aspect.options.map((o) => ({ value: o.value, label: o.value === "first" ? "Auto" : o.short ?? o.label, tip: o.value === "first" ? `Auto: as clip 1${o.detail ? `. ${o.detail}` : ""}` : o.detail ?? (o.note ? `${o.label} · ${o.note}` : undefined) }))}
               />
             ) : (
               <Select size="sm" label="Aspect ratio" value={aspect.value} onChange={aspect.onChange} options={aspect.options} />
@@ -227,21 +281,25 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
           </FieldRow>
           <FieldRow label="Cast and look" note="Who is in the video, its style and a few mood words, set once for every clip: the people's reference pictures and LoRAs, and the words added to each clip's prompt. A clip given its own cast and look keeps it; changes apply from the next take.">
             <span className="flex min-w-0 items-center gap-1.5">
-              <span className="inline-flex h-[26px] min-w-0 items-center rounded-full bg-hover px-2.5 text-[12.5px] font-semibold text-ink" data-tip={castWords || undefined}>
-                <span className="truncate">{castWords || "Nobody cast, no mood"}</span>
-              </span>
+              {castKnown ? (
+                <span className="inline-flex h-[26px] min-w-0 items-center rounded-full bg-hover px-2.5 text-[12.5px] font-semibold text-ink" data-tip={castWords || undefined}>
+                  <span className="truncate">{castWords || "Nobody cast, no mood"}</span>
+                </span>
+              ) : (
+                <span aria-label="Loading the cast" className="m-skeleton h-[26px] w-28 rounded-full!" />
+              )}
               <span className="grow" />
               <button type="button" onClick={onCast} className={quiet}>Change</button>
             </span>
           </FieldRow>
           <FieldRow label="Renders land in" note={fromClips ? "Taken from the first picture or clip you put here. Pick another to decide yourself." : "Every take and export of this timeline goes there."}>
-            <Select
+            {!placeKnown ? <span aria-label="Loading the folders" className="m-skeleton block h-8 w-full" /> : <Select
               size="sm"
               label="Where the renders and exports of this timeline land"
               value={folder && folder.id !== project?.folderId ? folder.id : ""}
               onChange={(id) => onFolder(id || null)}
               options={[{ value: "", label: project ? `${project.name} (its root)` : "The Inbox" }, ...choices.map((f) => ({ value: f.id, label: pathOf(f.id), note: `${f.count}` }))]}
-            />
+            />}
           </FieldRow>
           {elsewhere.length > 0 && (
             <span className="flex flex-wrap items-center gap-2 pt-1 text-xs text-ink-2">
@@ -266,10 +324,20 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
 
       <section className="flex flex-col gap-2 rounded-xl border border-line bg-raised px-3 py-2.5 shadow-card">
         <PartHead>Joins and renders</PartHead>
-        {(figured.length > 0 || renderMs > 0) && (
+        {(loading || figured.length > 0 || renderMs > 0) && (
           <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-            {figured.length > 0 && <Fact label="Joins that hold" value={loading ? "…" : `${figured.filter((c) => !badJoin(c)).length} of ${figured.length}`} />}
-            {worst && <Fact label="Worst join" value={`clip ${number(worst.id)} · ×${joinsOf.get(worst.id)!.toFixed(1)}`} warn={joinsOf.get(worst.id)! > SHOWS} />}
+            {/* while the joins are measured their two facts keep their place as shapes: a count of some of them would be wrong */}
+            {loading ? (
+              <>
+                <Fact label="Joins that hold" />
+                <Fact label="Worst join" />
+              </>
+            ) : (
+              <>
+                {figured.length > 0 && <Fact label="Joins that hold" value={`${figured.filter((c) => !badJoin(c)).length} of ${figured.length}`} />}
+                {worst && <Fact label="Worst join" value={`clip ${number(worst.id)} · ×${joinsOf.get(worst.id)!.toFixed(1)}`} warn={joinsOf.get(worst.id)! > SHOWS} />}
+              </>
+            )}
             {renderMs > 0 && <Fact label="Rendered in" value={spell(renderMs)} />}
             {renderMs > 0 && <Fact label="Measured" value={`${rendered} of ${videos} clip${videos === 1 ? "" : "s"}`} />}
           </div>
@@ -287,7 +355,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
               const bad = jumped || broke;
               return (
                 <button key={c.id} type="button" onClick={() => onPick(c.id)} data-tip={`Clip ${i + 1}: as it comes in from clip ${i}, with its fade, the picture changes up to ×${figure?.toFixed(1) ?? "?"} its own motion from frame to frame${jumped ? `. Past ×${SHOWS} the join shows` : ""}${carry !== null ? `; where its own frames begin after the run-up, ×${carry.toFixed(1)}${broke ? ": a cut there, the model stepped away from its guide" : ""}` : ""}`} className={cx("rounded-md border px-1.5 py-px font-mono text-xs hover:border-accent", bad ? "border-warn text-warn-ink" : "border-line-strong text-ink-2 hover:text-ink")}>
-                  {i + 1}: {figure === undefined ? "…" : figure === null ? "–" : `×${figure.toFixed(1)}`}{broke && ` · end ×${carry.toFixed(1)}`}
+                  {i + 1}: {figure === undefined ? <span aria-label="measuring" className="m-skeleton inline-block h-3 w-7 align-[-1px] rounded-sm!" /> : figure === null ? "–" : `×${figure.toFixed(1)}`}{broke && ` · end ×${carry.toFixed(1)}`}
                 </button>
               );
             })}
@@ -301,15 +369,18 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, onPick,
   );
 }
 
-/** One figure of the facts grid: a dim label over its value. */
-function Fact({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
+/** One figure of the facts grid: a dim label over its value; a shape of the value's size while it is not known. */
+function Fact({ label, value, warn }: { label: string; value?: string; warn?: boolean }) {
   return (
     <span className="flex min-w-0 flex-col gap-px">
       <span className="text-[11.5px] text-ink-3">{label}</span>
-      <span className={cx("truncate font-mono", warn ? "text-warn-ink" : "text-ink")}>{value}</span>
+      {value === undefined ? <span className="m-skeleton my-[3px] h-[18px] w-20" /> : <span className={cx("truncate font-mono", warn ? "text-warn-ink" : "text-ink")}>{value}</span>}
     </span>
   );
 }
+
+/** A join's figure on its row: "×20" past ten, where the tenth says nothing, "×4.8" under. */
+const times = (v: number) => (v >= 10 ? v.toFixed(0) : v.toFixed(1));
 
 /** The rows hidden with their ×, said at the foot of Needs attention: a click lists them again. */
 function ShowAgain({ n, onClick }: { n: number; onClick(): void }) {
@@ -336,12 +407,14 @@ function ActButton({ act, kind, disabled, onClick }: { act: Act; kind: Row["kind
   const [words, tip] =
     act.do === "take" ? [`Use take ${act.number}`, `Take ${act.number} comes in at ×${act.figure.toFixed(1)}: it plays instead (Undo puts the other back)`]
     : act.do === "fill" ? ["Fill the frame", `Crop ${act.clips.length === 1 ? "the clip" : `the ${act.clips.length} clips`} to the video's aspect ratio instead of bars (one Undo step each)`]
-    : kind === "missing" ? [`Render ${n}`, `Renders the ${n} clip${n === 1 ? "" : "s"} with no take yet, in order`]
+    // what the form waits for, said on the button ("Write prompt"); "Open" when the reason is not one short step
+    : act.do === "open" ? [/^(Write|Choose) .{1,24} first\.$/.test(act.why) ? act.why.replace(/ first\.$/, "") : "Open", `${act.why} Opens the clip's form.`]
+    : kind === "missing" ? [n === 1 ? "Render" : `Render ${n}`, n === 1 ? "Renders the clip, its first take" : `Renders the ${n} clips with no take yet, in order`]
     : kind === "stale" ? ["New take", `A new take of ${n === 1 ? "the clip" : `the ${n} clips`}, from the clip before as it is now`]
     : kind === "failed" ? ["Retry", `Queues ${n === 1 ? "the clip" : `the ${n} clips`} again`]
     : ["New take", `No other take comes in at ×${SHOWS} or under: render another`];
   return (
-    <Button size="sm" tone={warn ? "danger" : "quiet"} disabled={disabled} onClick={onClick} data-tip={tip}>
+    <Button size="sm" tone={warn ? "danger" : "quiet"} disabled={disabled && act.do !== "open"} onClick={onClick} data-tip={tip}>
       {words}
       {act.do === "take" ? <span className="font-mono text-[11px] font-medium opacity-75">×{act.figure.toFixed(1)}</span> : act.do === "render" && act.ms > 0 && kind !== "failed" && <Estimate ms={act.ms} />}
     </Button>

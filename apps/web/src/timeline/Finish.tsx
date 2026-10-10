@@ -1,5 +1,5 @@
 import { resamplesLatent } from "@afflatus/core";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { api, type Clip, type FinishSettings } from "../api";
@@ -26,10 +26,12 @@ const FALLBACK: FinishSettings = { route: "seedvr", factor: 2, colour: "lab", up
  * new take each, marked as the finished version of the draft (which stays). The settings start on the
  * user's defaults (Settings), and can be saved back as them.
  */
-export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued }: {
+export function FinishDialog({ timeline, clips, upscaleModels, attention, onClose, onQueued }: {
   timeline: string;
   clips: Clip[];
   upscaleModels: string[];
+  /** What Needs attention lists, in one line with "Fix all first" (AttentionNote): a take with a broken join is finished as it is. */
+  attention?: ReactNode;
   onClose(): void;
   onQueued(r: { jobs: string[]; skipped: Array<{ clip: number; why: string }> }): void;
 }) {
@@ -71,6 +73,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, onClose, onQueued
           {v.route === "latent" && resampled < videos.length && <Chip tone="warn" tip="Only a model that offers the latent re-sample (H3) is re-sampled in the latent; the other clips take SeedVR2.">{videos.length - resampled} of {videos.length} not re-sampled: SeedVR2</Chip>}
           <Help title="Finish all clips" text={`Each finished take plays in place of its draft, with the same motion (the draft stays in the takes list); export "At the finished size" afterwards.`} className="ml-auto self-center" />
         </div>
+        {attention}
         <div className="flex flex-col">
           <FieldRow label="Route" note={ROUTES.find((r) => r.value === v.route)?.detail}>
             <Select label="Route" value={v.route} onChange={(route) => setV({ ...v, route: route as FinishSettings["route"] })} options={ROUTES.map((r) => ({ value: r.value, label: r.label, detail: r.detail }))} />

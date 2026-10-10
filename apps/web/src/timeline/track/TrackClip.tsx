@@ -208,7 +208,8 @@ export const TrackClip = memo(function TrackClip({ s, prev, recipe, misfit, on, 
               ) : (
                 // a length is never cut short ("3.0 s" read as "3", a count or a clip number): the tags beside it give way first
                 <span className={cx("rounded bg-ground/85 px-1.5 py-px text-[11px]", c.failed && s.planned ? "truncate text-warn-ink" : s.planned ? "truncate text-ink-2" : "shrink-0 font-semibold whitespace-nowrap")}>
-                  {s.planned ? (c.failed ? "The render failed" : s.width > 100 ? "Not rendered yet" : "…") : `${(s.lengthMs / 1000).toFixed(1)} s`}
+                  {/* said whole in the room there is, never cut mid-word ("Not rendere…") */}
+                  {s.planned ? (c.failed ? (s.width > 150 ? "The render failed" : "Failed") : s.width > 150 ? "Not rendered yet" : s.width > 96 ? "Not rendered" : "…") : `${(s.lengthMs / 1000).toFixed(1)} s`}
                 </span>
               )}
               {/* one row high: a tag that does not fit wraps out of sight whole ("St…" and "other…" said nothing), the warning

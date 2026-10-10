@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, MoreHorizontal, Music, Trash2, Wand2, X } from "lucide-react";
+import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, ImagePlus, MoreHorizontal, Music, Scissors, Trash2, Wand2, X } from "lucide-react";
 import { mostFromMs, musicPlan, secondsInput } from "@afflatus/core";
 import { api, thumbUrl, type Clip, type RecipeInfo, type Take, type Timeline, type TimelinePatch } from "../api";
 import { useEntities, useRecipes, useSetup } from "../data";
@@ -22,7 +22,7 @@ import { Keys } from "../Keys";
 import { ColumnEdge, FoldButton, useColumnWidth } from "./column";
 import { Slider } from "../Slider";
 import { Wave } from "./track/Wave";
-import { fileVersion, otherShape, pinInputs, roomOf, shapeOf, type ShownPatch } from "./model";
+import { fileVersion, otherShape, pinInputs, roomOf, shapeOf, takeTrouble, type ShownPatch } from "./model";
 import { change, DRIFT, driftOf, driftWords, past, pct, runSeries, runTicks, signed, type RunPoint } from "./lookDrift";
 import { DRAG_PICTURE, useDropZone } from "../dragging";
 import { projectForNew } from "../project";
@@ -814,9 +814,9 @@ function PinDrop({ className, onPick, children }: { className?: string; onPick(i
 }
 
 /** A state of a take, on its row: plays (filled), finished, smoothest. */
-function TakeChip({ tone, tip, children }: { tone: "accent" | "good" | "neutral"; tip?: string; children: ReactNode }) {
+function TakeChip({ tone, tip, children }: { tone: "accent" | "good" | "warn" | "neutral"; tip?: string; children: ReactNode }) {
   return (
-    <span data-tip={tip} className={cx("flex h-[18px] shrink-0 items-center rounded-full px-[7px] text-[11px] font-bold", tone === "accent" ? "bg-accent text-accent-ink" : tone === "good" ? "bg-good/15 text-good" : "bg-hover text-ink-2")}>
+    <span data-tip={tip} className={cx("flex h-[18px] shrink-0 items-center rounded-full px-[7px] text-[11px] font-bold", tone === "accent" ? "bg-accent text-accent-ink" : tone === "good" ? "bg-good/15 text-good" : tone === "warn" ? "bg-warn/15 text-warn-ink" : "bg-hover text-ink-2")}>
       {children}
     </span>
   );
@@ -840,6 +840,9 @@ function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, onRemoveT
       {clip.takes.map((t, i) => {
         const on = t.id === take?.id;
         const j = joinOf(t.id);
+        const trouble = takeTrouble(t, clip.takes);
+        const plays = t.endMs - t.startMs;
+        const file = t.asset.durationMs ?? 0;
         // the thumbnail at the take's own shape, 54 px on its long side
         const w = t.asset.width ?? 0;
         const h = t.asset.height ?? 0;
@@ -869,7 +872,8 @@ function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, onRemoveT
                 <span className="flex min-w-0 flex-wrap items-center gap-1.5">
                   <span className="font-bold">Take {i + 1}</span>
                   {on && <TakeChip tone="accent">plays</TakeChip>}
-                  {t.finishedFrom && <TakeChip tone="good" tip={`The finished version of take ${Math.max(1, clip.takes.findIndex((x) => x.id === t.finishedFrom) + 1)}: the same clip, brought to its final quality (${t.asset.width} × ${t.asset.height})`}>finished</TakeChip>}
+                  {trouble && <TakeChip tone="warn" tip={trouble}>broken</TakeChip>}
+                  {t.finishedFrom && !trouble && <TakeChip tone="good" tip={`The finished version of take ${Math.max(1, clip.takes.findIndex((x) => x.id === t.finishedFrom) + 1)}: the same clip, brought to its final quality (${t.asset.width} × ${t.asset.height})`}>finished</TakeChip>}
                   {smoothest === t.id && clip.takes.length > 1 && <TakeChip tone="neutral" tip="The smoothest joins of the takes">smoothest</TakeChip>}
                 </span>
                 {j && (j.in !== null || j.out !== null) && (
@@ -878,7 +882,11 @@ function TakeList({ clip, take, joinOf, smoothest, onPreview, onPatch, onRemoveT
                   </span>
                 )}
               </span>
-              <span className="shrink-0 font-mono text-[11.5px] text-ink-2">{((t.endMs - t.startMs) / 1000).toFixed(1)} s</span>
+              {/* how long it plays; a trimmed take says so, its file being longer than what plays */}
+              <span className={cx("flex shrink-0 items-center gap-1 font-mono text-[11.5px]", trouble ? "text-warn-ink" : "text-ink-2")} data-tip={!trouble && (t.trimStartMs > 0 || t.trimEndMs > 0) && file > plays ? `Trimmed: plays ${(plays / 1000).toFixed(1)} of its ${(file / 1000).toFixed(1)} s` : undefined}>
+                {!trouble && (t.trimStartMs > 0 || t.trimEndMs > 0) && <Scissors size={11} aria-label="trimmed" className="text-ink-3" />}
+                {(Math.max(0, plays) / 1000).toFixed(1)} s
+              </span>
             </button>
             <button type="button" aria-label={`Remove take ${i + 1}`} data-tip="Remove this take. Its video goes to the bin with it; Undo brings both back." onClick={() => onRemoveTake(t.id)} className="mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover/take:opacity-100 hover:bg-hover hover:text-ink focus-visible:opacity-100">
               <X size={13} />
