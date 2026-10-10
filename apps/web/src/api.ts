@@ -67,7 +67,15 @@ async function call<T>(method: string, path: string, body?: unknown, signal?: Ab
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
   });
-  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  const text = await res.text().catch(() => "");
+  let data: { error?: string } = {};
+  try {
+    if (text) data = JSON.parse(text) as { error?: string };
+  } catch {
+    // a success with a body that is not JSON is not Afflatus answering (a proxy's page, a login wall): said, never handed on
+    // as an empty answer the screen would take for real. An empty body (a plain "done") stays {}.
+    if (res.ok) throw new ApiError(`the server answered with something that is not Afflatus's (${res.headers.get("content-type") ?? "no type"})`, res.status);
+  }
   if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`, res.status);
   return data as T;
 }
