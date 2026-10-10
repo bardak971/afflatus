@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import { roughly, timeKey } from "@afflatus/core";
 import { forecast } from "../src/forecast";
-import { cellOf, fold, list, merge, summary, type RenderRow } from "../src/renders";
+import { cellOf, clear, digestDays, fold, list, merge, summary, type RenderRow } from "../src/renders";
 import { CHECKPOINT, complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 let fake: FakeComfy;
@@ -238,6 +238,94 @@ describe("what the tab shows", () => {
     expect((await get(t.app, "/api/renders/size")).json()).toMatchObject({ renders: 7, days: 0 });
     expect((await t.app.inject({ method: "DELETE", url: "/api/renders" })).statusCode).toBe(200);
     expect((await get(t.app, "/api/renders")).json().total).toBe(0);
+  });
+});
+
+describe("a summary cut into days reads the days over from their digests", () => {
+  /** Two months of renders of every sort, the same each run: recipes, model files, endings, loads, spills, upscales and hires passes. */
+  const history = (): RenderRow[] => {
+    let seed = 7;
+    const rand = () => ((seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648) / 2_147_483_648);
+    const pick = <T>(xs: T[]) => xs[Math.floor(rand() * xs.length)]!;
+    const kinds = [
+      { recipe_id: "sdxl.text-to-picture", family: "sdxl", kind: "image" as const, files: ["illustrious", "pony"], keys: ["steps=28", "steps=28;hires=true", "steps=40"] },
+      { recipe_id: "wan.video", family: "wan", kind: "video" as const, files: ["wan-high"], keys: ["seconds=5", "seconds=3"] },
+      { recipe_id: "tool.finish.rtx", family: "tools", kind: "video" as const, files: [""], keys: ["scale=2"] },
+      { recipe_id: "tools.upscale", family: "tools", kind: "image" as const, files: ["4x-ultra"], keys: ["scale=2"] },
+    ];
+    const rows: RenderRow[] = [];
+    for (let day = 0; day < 62; day++) {
+      for (let k = Math.floor(rand() * 9); k > 0; k--) {
+        const what = pick(kinds);
+        const status = pick(["done", "done", "done", "done", "failed", "cancelled"] as const);
+        const total = Math.round(5_000 + rand() * 300_000);
+        rows.push(row({
+          id: `zz-test-${rows.length}`, ago: day * DAY + Math.floor(rand() * DAY), recipe_id: what.recipe_id, family: what.family, kind: status === "done" ? what.kind : pick([what.kind, null]),
+          model: `zz ${pick(what.files)}`, model_file: pick(what.files), time_key: pick(what.keys), width: pick([512, 832, null]), height: pick([768, 1216]),
+          duration_ms: what.kind === "video" ? pick([3_000, 5_000]) : null, status, whole: rand() < 0.9 ? 1 : 0, cold: rand() < 0.2 ? 1 : 0, waited_ms: Math.round(rand() * 60_000),
+          total_ms: total, load_ms: Math.round(rand() * 20_000), sample_ms: Math.round(total * 0.6), refine_ms: pick([0, Math.round(total * 0.2)]), finish_ms: Math.round(total * 0.1),
+          step_ms: rand() < 0.2 ? null : rand() * 900, expected_ms: rand() < 0.2 ? null : Math.round(total * (0.3 + rand())), vram_peak: rand() < 0.2 ? null : 50 + rand() * 50, heat_peak: 60 + rand() * 20,
+        }));
+      }
+    }
+    return rows;
+  };
+  const periods: Array<Parameters<typeof summary>[2]> = ["day", "week", "month", "all", { from: NOW - 3 * DAY, to: NOW - DAY }, { from: NOW - 45 * DAY, to: NOW - 5 * DAY }];
+  const answers = async () => {
+    const all: string[] = [];
+    for (const p of periods) all.push(JSON.stringify(await summary(t.db, t.services.registry, p, 90, NOW)));
+    return all;
+  };
+  /** The same summaries worked out from the rows alone, the digests set aside and put back after. */
+  const fromRows = async () => {
+    const kept = await t.db.selectFrom("render_digests").selectAll().execute();
+    await t.db.deleteFrom("render_digests").execute();
+    const all = await answers();
+    if (kept.length) await t.db.insertInto("render_digests").values(kept).execute();
+    return all;
+  };
+  const digested = async () => (await t.db.selectFrom("render_digests").select("day").orderBy("day").execute()).map((d) => d.day);
+
+  it("to the same byte as from the rows, with folded days, a render late into a day digested, and a fold of digested days", async () => {
+    await put(history());
+    // the fold digests the days over, up to the day before NOW's
+    await fold(t.db, 90, NOW);
+    const days = await digested();
+    expect(days.length).toBeGreaterThan(40);
+    expect(days.at(-1)! < "2026-10-02").toBe(true);
+    // a day's digest is read, not worked out again: a digest changed by hand shows
+    const expected = await fromRows();
+    expect(await answers()).toEqual(expected);
+    // every part of the answer has something in it
+    const all = JSON.parse(expected[3]!) as Awaited<ReturnType<typeof summary>>;
+    expect(all.tiles.spills && all.tiles.tools && all.models.length === 4 && all.models.every((m) => m.setting && m.trend.length === 24)).toBeTruthy();
+    expect([...all.upscale.video, ...all.upscale.pictures].map((u) => u.key)).toEqual(["tool.finish.rtx", "tools.upscale", "hires"]);
+    const one = await t.db.selectFrom("render_digests").selectAll().where("day", "=", days.at(-1)!).executeTakeFirstOrThrow();
+    await t.db.updateTable("render_digests").set({ digest: JSON.stringify({ ...JSON.parse(one.digest), tools: 1000 }) }).where("day", "=", one.day).execute();
+    expect((await summary(t.db, t.services.registry, "all", 90, NOW)).tiles.tools).toBeGreaterThan(1000);
+    await t.db.updateTable("render_digests").set({ digest: one.digest }).where("day", "=", one.day).execute();
+
+    // a render written into a day digested already (the clock set back): that day is digested again
+    const late = row({ id: "zz-test-late", ago: 10 * DAY, recipe_id: "wan.video", family: "wan", kind: "video", model_file: "wan-high", duration_ms: 5_000, total_ms: 400_000 });
+    await put([late]);
+    await digestDays(t.db, NOW, late.created_at.slice(0, 10));
+    expect(await answers()).toEqual(await fromRows());
+
+    // older days fold: their digests go with their rows, and the charts read their figures instead
+    await fold(t.db, 30, NOW);
+    expect((await digested())[0]! >= new Date(NOW - 30 * DAY).toISOString().slice(0, 10)).toBe(true);
+    expect(await answers()).toEqual(await fromRows());
+
+    // forgetting every render time forgets the digests too
+    await clear(t.db);
+    expect(await digested()).toEqual([]);
+  });
+
+  it("a render on record digests the days over that were not yet", async () => {
+    await put([row({ id: "zz-test-before", ago: NOW - Date.now() + 2 * DAY })]);
+    expect(await digested()).toEqual([]);
+    await rendered();
+    expect(await digested()).toEqual([new Date(Date.now() - 2 * DAY).toISOString().slice(0, 10)]);
   });
 });
 
