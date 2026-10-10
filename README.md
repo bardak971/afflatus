@@ -12,9 +12,9 @@
   <a href="https://github.com/bardak971/afflatus/pkgs/container/afflatus"><img alt="Docker image" src="https://img.shields.io/badge/docker-ghcr.io%2Fbardak971%2Fafflatus-ff9a73"></a>
 </p>
 
-https://github.com/user-attachments/assets/9e85650c-22e3-4760-8702-def37fc205d6
+https://github.com/user-attachments/assets/e217e91c-bbf2-4642-8468-3176c35368ca
 
-<p align="center"><sub>Everything in this video was made in Afflatus, the logo included. The snowboard film at the start: Krea 2 key frames and a MiniMax H3 chain. <a href="https://github.com/user-attachments/assets/b6105eed-b0c0-4cbf-8c7b-d802b07bf342">Watch the film on its own</a>.</sub></p>
+<p align="center"><sub>Everything in this video was made in Afflatus, the logo included. The snowboard film at the start: Krea 2 key frames and a MiniMax H3 chain. <a href="https://github.com/user-attachments/assets/ad78668c-1474-4c78-9b75-f4b281f6347f">Watch the film on its own</a>.</sub></p>
 
 **You love what ComfyUI can do, but you miss a real library, simple forms and an editor for video.** Afflatus is that app, built around the ComfyUI you already run. Your GPU, your models, your node packs: Afflatus just gives you a better place to work.
 
