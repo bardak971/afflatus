@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inflateSync } from "node:zlib";
-import { tools } from "./video";
+import { localInputs, tools } from "./video";
 
 /**
  * What a picture or a video carries inside it about how it was made:
@@ -47,10 +47,25 @@ export interface Embedded {
 
 // ---------------------------------------------------------------- containers
 
+/**
+ * How much a PNG's compressed text may unpack to, per chunk and in all. A stranger's file can carry a
+ * few kilobytes that unpack to gigabytes (a "decompression bomb"); a ComfyUI workflow is far smaller
+ * than this, and a chunk past it is not read.
+ */
+export const TEXT_CHUNK_MAX = 1 << 20;
+export const TEXT_TOTAL_MAX = 4 << 20;
+
 /** PNG tEXt / zTXt / iTXt chunks, by keyword. */
 function pngText(buf: Buffer): Record<string, string> {
   const out: Record<string, string> = {};
   if (buf.length < 8 || buf.readUInt32BE(0) !== 0x89504e47) return out;
+  let left = TEXT_TOTAL_MAX;
+  const inflate = (raw: Buffer): Buffer => {
+    // past the limit inflateSync throws, and the chunk is skipped like a broken one
+    const text = inflateSync(raw, { maxOutputLength: Math.max(1, Math.min(TEXT_CHUNK_MAX, left)) });
+    left -= text.length;
+    return text;
+  };
   let pos = 8;
   while (pos + 12 <= buf.length) {
     const len = buf.readUInt32BE(pos);
@@ -63,14 +78,14 @@ function pngText(buf: Buffer): Record<string, string> {
     const key = data.toString("latin1", 0, nul);
     try {
       if (type === "tEXt") out[key] = data.toString("utf8", nul + 1);
-      else if (type === "zTXt") out[key] = inflateSync(data.subarray(nul + 2)).toString("utf8");
+      else if (type === "zTXt") out[key] = inflate(data.subarray(nul + 2)).toString("utf8");
       else if (type === "iTXt") {
         const compressed = data[nul + 1] === 1;
         let p = nul + 3;
         p = data.indexOf(0, p) + 1; // language tag
         p = data.indexOf(0, p) + 1; // translated keyword
         const raw = data.subarray(p);
-        out[key] = (compressed ? inflateSync(raw) : raw).toString("utf8");
+        out[key] = (compressed ? inflate(raw) : raw).toString("utf8");
       }
     } catch {
       /* a broken chunk just is not read */
@@ -144,7 +159,7 @@ async function mediaTags(bytes: Uint8Array): Promise<Record<string, string>> {
     const file = join(dir, "in.bin");
     await writeFile(file, bytes);
     const out = await new Promise<string>((done) => {
-      execFile(tools.ffprobe, ["-v", "error", "-show_entries", "format_tags", "-of", "json", file], { encoding: "utf8", timeout: 30_000, maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (err, stdout) => done(err ? "" : stdout));
+      execFile(tools.ffprobe, localInputs(["-v", "error", "-show_entries", "format_tags", "-of", "json", file]), { encoding: "utf8", timeout: 30_000, maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (err, stdout) => done(err ? "" : stdout));
     });
     const tags = (JSON.parse(out || "{}") as { format?: { tags?: Record<string, string> } }).format?.tags ?? {};
     return Object.fromEntries(Object.entries(tags).map(([k, v]) => [k.toLowerCase(), v]));
@@ -312,10 +327,20 @@ type Graph = Record<string, Node>;
 const isLink = (v: unknown): v is [string, number] => Array.isArray(v) && v.length === 2 && typeof v[0] === "string";
 const isGraph = (v: unknown): v is Graph =>
   Boolean(v) && typeof v === "object" && !Array.isArray(v) && Object.values(v as object).length > 0 &&
-  Object.values(v as object).every((n) => n && typeof n === "object" && typeof (n as Node).class_type === "string");
+  Object.values(v as object).every((n) => n && typeof n === "object" && typeof (n as Node).class_type === "string" &&
+    Boolean((n as Node).inputs) && typeof (n as Node).inputs === "object" && !Array.isArray((n as Node).inputs));
 
 /** The settings of a graph built around a checkpoint and a KSampler. Null when it is another kind of workflow. */
 export function parseComfy(graph: Graph): FoundSettings | null {
+  try {
+    return settingsOfGraph(graph);
+  } catch {
+    // a file's metadata is a stranger's: one shaped in a way this reading did not foresee gives no settings, not a server error
+    return null;
+  }
+}
+
+function settingsOfGraph(graph: Graph): FoundSettings | null {
   const node = (v: unknown) => (isLink(v) ? graph[v[0]] : undefined);
   const textOf = (v: unknown, depth = 0): string => {
     if (typeof v === "string") return v;

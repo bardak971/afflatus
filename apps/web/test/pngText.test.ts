@@ -22,4 +22,13 @@ describe("the workflow ComfyUI writes into a picture", () => {
     ]));
     expect(text).toEqual({ prompt: "{}", workflow: '{"nodes":[]}', extra: "packed", plain: "as is" });
   });
+
+  it("is not unpacked past a megabyte: a few kilobytes of a stranger's file can unpack to gigabytes", async () => {
+    // 64 MB of one letter packs into about 64 kB
+    const bomb = png([["zTXt", bytes("workflow", [0, 0], deflateSync(new Uint8Array(64 << 20).fill(97)))], ["tEXt", bytes("prompt", [0], "{}")]]);
+    expect(bomb.length).toBeLessThan(200_000);
+    const start = performance.now();
+    expect(await pngText(bomb)).toEqual({ workflow: "", prompt: "{}" });
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
 });

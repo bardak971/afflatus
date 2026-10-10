@@ -1,6 +1,7 @@
 import { httpError } from "./errors";
 import type { FastifyInstance } from "fastify";
 import { said } from "./forecast";
+import { allowedHosts, hostAllowed } from "./hostCheck";
 import { z } from "zod";
 import { describeRecipe } from "@afflatus/core";
 import { installNodePack } from "./nodePack";
@@ -13,7 +14,10 @@ import { publicSettings, readSettings, writeSettings } from "./settings";
 export function registerSetup(app: FastifyInstance, s: Services, version: string): void {
   /** Alive, the version, the database, and the start-up checks (the tools, the Node, the data folder) as they were last run. */
   const health = (checks: typeof preflight.last) => ({ ok: true, version, database: s.dbKind, checks: checks?.checks ?? [], checkedAt: checks?.at ?? null });
-  app.get("/api/health", async () => health(preflight.last));
+  // a probe asks by a name of its own (a pod's address) and is answered whatever the Host (hostCheck.ts ANY_HOST); so is a page
+  // that pointed a name of its own at this machine, which is told only that the server is alive, not what it found on the machine
+  const hosts = allowedHosts();
+  app.get("/api/health", async (req) => (hostAllowed(req.headers.host, hosts) ? health(preflight.last) : { ok: true, version }));
   /** The start-up checks run again, now (Settings → About → Check again). */
   app.post("/api/health/check", async () => health(await preflight.run()));
 

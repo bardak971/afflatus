@@ -185,7 +185,7 @@ export function registerAssetSearch(app: FastifyInstance, s: Services): void {
    */
   app.get("/api/assets/unkept", async (req) => {
     const q = { ...listQuery.parse(req.query), bin: undefined, kept: "0" };
-    const withIds = (req.query as { ids?: string }).ids === "1";
+    const withIds = z.object({ ids: z.string().optional() }).parse(req.query).ids === "1";
     const filtered = await filterAssets(s, q);
     if (searching(q)) {
       const rows = await searched(filtered, q);

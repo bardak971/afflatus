@@ -195,7 +195,7 @@ if (platform === "win-x64") {
     `set "AFFLATUS_VERSION=${batVersion}"`,
     "echo Afflatus %AFFLATUS_VERSION% - http://127.0.0.1:%PORT%  (close this window to stop it)",
     'start "" /b cmd /c "timeout /t 3 >nul & start "" http://127.0.0.1:%PORT%"',
-    '"%~dp0node\\node.exe" "%~dp0app\\apps\\server\\dist\\index.mjs"',
+    '"%~dp0node\\node.exe" --enable-source-maps "%~dp0app\\apps\\server\\dist\\index.mjs"',
     "if errorlevel 1 pause",
     "",
   ].join("\r\n"));
@@ -217,7 +217,7 @@ if (platform === "win-x64") {
     ] : []),
     'echo "Afflatus $AFFLATUS_VERSION - http://127.0.0.1:$PORT  (Ctrl+C stops it)"',
     `(sleep 3; ${mac ? "open" : "xdg-open"} "http://127.0.0.1:$PORT" >/dev/null 2>&1 || true) &`,
-    'exec "$PWD/node/bin/node" "$PWD/app/apps/server/dist/index.mjs"',
+    'exec "$PWD/node/bin/node" --enable-source-maps "$PWD/app/apps/server/dist/index.mjs"',
     "",
   ].join("\n"));
   chmodSync(join(bundle, "afflatus.sh"), 0o755);

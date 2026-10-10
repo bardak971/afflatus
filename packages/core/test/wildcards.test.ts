@@ -28,4 +28,14 @@ describe("choices written in a prompt", () => {
     const seen = new Set(Array.from({ length: 60 }, () => expandWildcards("{1|2|3|4}")));
     expect(seen.size).toBeGreaterThan(1);
   });
+
+  it("reads a long run of bars in linear time", () => {
+    // an open brace and 100 000 bars with no closing brace: the old pattern went back over every bar from every bar (seconds)
+    const long = `{${"a|".repeat(50_000)}`;
+    const start = performance.now();
+    expect(hasWildcards(long)).toBe(false);
+    expect(expandWildcards(long)).toBe(long);
+    expect(hasWildcards(`${long}}`)).toBe(true);
+    expect(performance.now() - start).toBeLessThan(100);
+  });
 });

@@ -125,6 +125,20 @@ describe("fetching a missing model file into ComfyUI", () => {
     expect((await list()).items[0]).toMatchObject({ status: "done", title: "high_noise.safetensors" });
   });
 
+  it("only over https outside the tests and the demo, wherever CIVITAI_URL points", async () => {
+    await start(true);
+    await on();
+    delete process.env.AFFLATUS_PRETEND_SITES;
+    try {
+      const res = await post(t.app, "/api/downloads", { file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/plain.safetensors` });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe("only https URLs are downloaded");
+      expect(asked).toEqual([]);
+    } finally {
+      process.env.AFFLATUS_PRETEND_SITES = "1";
+    }
+  });
+
   it("the one-time address works once, and only with its token", async () => {
     await start("refuses");
     await on();

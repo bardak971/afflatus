@@ -6,6 +6,15 @@ import { Block, Row } from "./Rows";
 
 const field = `h-10 min-w-0 font-mono text-xs placeholder:font-sans ${fieldClass}`;
 
+/** The scheme, host and port of an address, as the server compares them; the text itself when it is not an address. */
+const originOf = (url: string) => {
+  try {
+    return new URL(url.trim()).origin;
+  } catch {
+    return url.trim();
+  }
+};
+
 /** One language model: its address, name and key, how much it reads and writes, whether it reads pictures. */
 export function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: {
   llm: LlmInfo;
@@ -34,6 +43,8 @@ export function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: 
     },
   });
   const usable = Boolean(form.baseUrl.trim() && form.model.trim());
+  // the server keeps a saved key only for the server it was typed for (settings.ts keptKey): another base URL drops it on save
+  const keyDropped = llm.hasApiKey && !form.apiKey && originOf(form.baseUrl) !== originOf(llm.baseUrl);
   return (
     <div className={cx("flex flex-col", inUse && !only && "shadow-[inset_3px_0_0_var(--color-accent)]")}>
       <div className="flex min-h-[52px] items-center gap-2 px-[18px] py-2">
@@ -61,8 +72,9 @@ export function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: 
           <Row label="Model name">
             <input aria-label="Model name" value={form.model} placeholder="as /v1/models lists it" spellCheck={false} onChange={(e) => setForm({ ...form, model: e.target.value })} className={cx(field, "grow")} />
           </Row>
-          <Row label="API key" sub={llm.hasApiKey ? "one is saved" : "if it asks for one"}>
-            <input type="password" aria-label="API key" value={form.apiKey} placeholder={llm.hasApiKey ? "leave empty to keep it" : "none"} autoComplete="off" onChange={(e) => setForm({ ...form, apiKey: e.target.value })} className={cx(field, "grow")} />
+          <Row label="API key" tone={keyDropped ? "warn" : undefined} sub={keyDropped ? "enter it again" : llm.hasApiKey ? "one is saved" : "if it asks for one"}
+            help={keyDropped ? "The saved key is sent only to the server it was entered for. With another server in Base URL, saving drops it: enter the key again, or leave it empty if this server needs none." : undefined}>
+            <input type="password" aria-label="API key" value={form.apiKey} placeholder={keyDropped ? "new server: the saved key is dropped" : llm.hasApiKey ? "leave empty to keep it" : "none"} autoComplete="off" onChange={(e) => setForm({ ...form, apiKey: e.target.value })} className={cx(field, "grow")} />
           </Row>
           <Row setting="designer.context" label="Context size" help="How much the model can read at once. A long conversation is cut to what fits, oldest part first.">
             <NumberBox label="Context size, in tokens" value={form.contextSize} min={2048} max={2000000} unit="tokens" onCommit={(v) => setForm({ ...form, contextSize: v })} className="[&_input]:w-24" />

@@ -116,9 +116,10 @@ describe("a request from another site's page", () => {
     expect((await send("POST", { origin: "http://localhost:8720" })).statusCode).toBe(200);
   });
 
-  it("passes with neither header (curl, a script), and reading is never refused for it", async () => {
+  it("passes with neither header (curl, a script); a read is refused only as safety.test.ts says", async () => {
     expect((await send("POST", {})).statusCode).toBe(200);
-    expect((await send("GET", { origin: "https://evil.example", "sec-fetch-site": "cross-site" })).statusCode).toBe(200);
+    expect((await send("GET", { origin: "https://evil.example" })).statusCode).toBe(200);
+    expect((await send("GET", { origin: "https://evil.example", "sec-fetch-site": "cross-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document" })).statusCode).toBe(200);
   });
 });
 

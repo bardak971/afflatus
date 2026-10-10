@@ -1,6 +1,6 @@
 import type { FastifyRequest } from "fastify";
 import { z } from "zod";
-import { civitaiSites, civitaiVersion } from "./civitai";
+import { civitaiSites, civitaiVersion, pretendSites } from "./civitai";
 import type { DownloadView } from "./downloads";
 import { httpError as bad } from "./errors";
 import { fileName } from "./media";
@@ -51,7 +51,7 @@ export async function beginDownload(s: Services, req: FastifyRequest, b: Downloa
   };
   if (b.url) {
     if (!name) throw bad("no filename given");
-    if (!/^https:\/\//.test(b.url) && !process.env.CIVITAI_URL) throw bad("only https URLs are downloaded");
+    if (!/^https:\/\//.test(b.url) && !pretendSites()) throw bad("only https URLs are downloaded");
     // not an address inside this network (ComfyUI's own machine, and a pretend Civitai in the tests, are fine)
     assertPublicUrl(b.url, [hostnameOf(comfy.url), ...civitaiSites().map(hostnameOf)]);
     const started = await s.downloads.start(comfy, self, { file: b.file, folder: b.folder, title: name, source: b.url });

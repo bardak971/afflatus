@@ -1,4 +1,4 @@
-import { civitaiGet, civitaiSites } from "./civitai";
+import { civitaiGet, civitaiSites, pretendSites } from "./civitai";
 import { httpError } from "./errors";
 import { assertPublicUrl, fetchPublic, hostnameOf } from "./outbound";
 
@@ -113,7 +113,7 @@ async function fromHuggingFace(at: URL): Promise<LinkFound> {
 /** How large a file is, asked without fetching it. 0 when the site does not say. */
 async function sizeOf(url: string): Promise<number> {
   // where a pretend Civitai stands in (the tests, the demo), no other site is asked either
-  if (process.env.CIVITAI_URL) return 0;
+  if (pretendSites()) return 0;
   try {
     const res = await fetchPublic(url, { method: "HEAD", headers: { "User-Agent": "afflatus" }, signal: AbortSignal.timeout(15_000) });
     return Number(res.headers.get("x-linked-size") ?? res.headers.get("content-length") ?? 0) || 0;

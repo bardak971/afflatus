@@ -47,7 +47,7 @@ export function registerDownloads(app: FastifyInstance, s: Services): void {
 
   /** The one-time address ComfyUI-Manager fetches a file from. It works once, for the download it was made for. */
   app.get<{ Params: { id: string }; Querystring: { t?: string } }>("/api/downloads/fetch/:id", async (req, reply) => {
-    const got = await s.downloads.serve(req.params.id, String(req.query.t ?? ""));
+    const got = await s.downloads.serve(req.params.id, z.object({ t: z.string().default("") }).parse(req.query).t);
     if (!got) return reply.code(404).send({ error: "this address is no longer good" });
     if ("error" in got) return reply.code(502).send({ error: got.error });
     req.raw.on("close", () => {

@@ -4,7 +4,7 @@ import { musicGainAt, type MusicPlan } from "@afflatus/core";
 import { gainWav, type DuckCurve } from "./duck";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { factsOf, tools, type ProbeInfo, type VideoFacts } from "./video";
+import { factsOf, localInputs, tools, type ProbeInfo, type VideoFacts } from "./video";
 
 /**
  * Cutting videos: the few frames a new clip joins onto, one frame as a picture, a strip of frames for
@@ -34,7 +34,7 @@ async function onDisk(dir: string, name: string, source: Media): Promise<string>
 
 function must(tool: string, args: string[], opts: { timeout?: number; signal?: AbortSignal } = {}): Promise<string> {
   return new Promise((done, fail) => {
-    execFile(tool, args, { encoding: "utf8", timeout: opts.timeout ?? 120_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, signal: opts.signal }, (err, stdout, stderr) => {
+    execFile(tool, localInputs(args), { encoding: "utf8", timeout: opts.timeout ?? 120_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, signal: opts.signal }, (err, stdout, stderr) => {
       if (!err) return done(stdout);
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         return fail(new FfmpegMissing("This needs ffmpeg, which was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE."));
@@ -97,6 +97,9 @@ export interface ProbedMedia {
   facts: VideoFacts | null;
 }
 
+/** ffmpeg's formats that are lists of other files: HLS, DASH, its own concat list. */
+const LISTS = new Set(["hls", "applehttp", "dash", "concat"]);
+
 /** The same for a file already on the disk (an upload written as it arrived): one run of ffprobe says everything. */
 export async function probeMediaFile(file: string): Promise<ProbedMedia | null> {
   const out = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height,avg_frame_rate:format=format_name,duration", "-of", "json", file]).catch(() => null);
@@ -104,6 +107,8 @@ export async function probeMediaFile(file: string): Promise<ProbedMedia | null> 
   try {
     const info = JSON.parse(out) as { streams?: Array<{ codec_type?: string; codec_name?: string }>; format?: { format_name?: string; duration?: string } };
     const names = (info.format?.format_name ?? "").split(",");
+    // a playlist or a list of files is not a file of its own: what it names is read from elsewhere on the disk
+    if (names.some((n) => LISTS.has(n))) return null;
     // a picture is a "video" of one frame to ffprobe: only moving pictures count here
     const video = info.streams?.some((s) => s.codec_type === "video" && !["mjpeg", "png", "webp", "bmp", "gif"].includes(s.codec_name ?? ""));
     const audio = info.streams?.some((s) => s.codec_type === "audio");
@@ -141,7 +146,7 @@ export async function referenceClip(source: Media, ext: string, opts: { seconds:
     let hasSound = false;
     if (audio) {
       const report = await new Promise<string>((done) => {
-        execFile(tools.ffmpeg, ["-hide_banner", "-i", out, "-af", "volumedetect", "-f", "null", "-"], { encoding: "utf8", timeout: 60_000, windowsHide: true }, (_err, _stdout, stderr) => done(String(stderr)));
+        execFile(tools.ffmpeg, localInputs(["-hide_banner", "-i", out, "-af", "volumedetect", "-f", "null", "-"]), { encoding: "utf8", timeout: 60_000, windowsHide: true }, (_err, _stdout, stderr) => done(String(stderr)));
       });
       hasSound = Number(/max_volume:\s*(-?[\d.]+) dB/.exec(report)?.[1] ?? -99) > -45;
     }
@@ -828,7 +833,7 @@ export async function scenesOf(source: Media, ext: string, threshold = 0.3): Pro
     const log = await new Promise<string>((done) => {
       execFile(
         tools.ffmpeg,
-        ["-hide_banner", "-i", file, "-vf", `select='gt(scene,${threshold})',showinfo`, "-an", "-f", "null", "-"],
+        localInputs(["-hide_banner", "-i", file, "-vf", `select='gt(scene,${threshold})',showinfo`, "-an", "-f", "null", "-"]),
         { encoding: "utf8", timeout: 600_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true },
         (_err, _stdout, stderr) => done(String(stderr ?? "")),
       );
@@ -840,7 +845,7 @@ export async function scenesOf(source: Media, ext: string, threshold = 0.3): Pro
 /** ffmpeg's bytes, for a raw frame. */
 function rawOut(tool: string, args: string[]): Promise<Buffer> {
   return new Promise((done, fail) => {
-    execFile(tool, args, { encoding: "buffer", timeout: 120_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true }, (err, stdout) => (err ? fail(err) : done(stdout as Buffer)));
+    execFile(tool, localInputs(args), { encoding: "buffer", timeout: 120_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true }, (err, stdout) => (err ? fail(err) : done(stdout as Buffer)));
   });
 }
 

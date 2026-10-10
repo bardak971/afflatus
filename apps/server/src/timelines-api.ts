@@ -487,6 +487,6 @@ function notRenderedAgain(clips: Awaited<ReturnType<Timelines["view"]>>["clips"]
  * file is written again), else checked again each time: what is worked out of a video is made again when its file changes.
  */
 function cached(req: FastifyRequest, reply: FastifyReply): FastifyReply {
-  const versioned = typeof (req.query as { v?: unknown } | undefined)?.v === "string";
+  const versioned = z.object({ v: z.string().optional() }).parse(req.query ?? {}).v !== undefined;
   return reply.header("Cache-Control", versioned ? "private, max-age=31536000, immutable" : "private, no-cache");
 }

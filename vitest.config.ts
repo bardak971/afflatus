@@ -7,5 +7,7 @@ export default defineConfig({
     // takes 2 s alone can take 6; the default 5 s failed three of them now and then. A passing test is no slower for it
     testTimeout: 30_000,
     hookTimeout: 30_000,
+    // the tests ask pretend sites on this machine, over plain http, and never the real ones (civitai.ts pretendSites)
+    env: { AFFLATUS_PRETEND_SITES: "1" },
   },
 });
