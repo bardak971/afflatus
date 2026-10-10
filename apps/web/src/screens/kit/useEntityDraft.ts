@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, type Entity } from "../../api";
+import { outfitsOf } from "./shared";
 
-/** What a save of an item sends. */
-const bodyOf = (e: Entity) => ({ name: e.name.trim() || "Unnamed", def: e.def });
+/**
+ * What a save of an item sends. A person's outfit that holds nothing yet is left out: it stays on screen to be
+ * filled in, and is saved with the first name, word or picture it gets.
+ */
+export const bodyOf = (e: Entity) => ({
+  name: e.name.trim() || "Unnamed",
+  def: e.kind === "person" ? { ...e.def, outfits: outfitsOf(e.def.outfits) } : e.def,
+});
 
 /**
  * The item open for changes, as it is on screen: saved half a second after the last change, and at once

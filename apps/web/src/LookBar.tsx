@@ -9,6 +9,7 @@ import { fileLabel } from "./format";
 import { useSettled } from "./hooks";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { kitHref } from "./screens/kit/link";
+import { outfitsOf } from "./screens/kit/shared";
 import { Select } from "./Select";
 import { cx, Help } from "./ui";
 
@@ -92,7 +93,7 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
           const outfits: MenuItem[] = e.kind === "person"
             ? [
               { label: "As in the references", icon: !member?.outfit ? <Check size={14} /> : undefined, run: () => wear(null) },
-              ...e.def.outfits.map((o): MenuItem => ({ label: o.name || "Unnamed outfit", icon: member?.outfit === o.id ? <Check size={14} /> : undefined, run: () => wear(o.id) })),
+              ...outfitsOf(e.def.outfits).map((o): MenuItem => ({ label: o.name || "Unnamed outfit", icon: member?.outfit === o.id ? <Check size={14} /> : undefined, run: () => wear(o.id) })),
               "—",
             ]
             : [];

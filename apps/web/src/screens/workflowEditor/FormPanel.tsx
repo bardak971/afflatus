@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { placeablesFor, suggestSections } from "@afflatus/workflows";
 import { ask } from "../../Confirm";
 import { useRecipes } from "../../data";
@@ -45,7 +46,12 @@ export function FormPanel({ m, saveError }: { m: Mapping; saveError: Error | nul
             <Help title="Model" text="Which model it runs, as the families call them: workflows of one model share its LoRAs and saved settings." />
           </span>
           {/* empty, its border says so; the header's chip says why Save waits (said once, there) */}
-          <input id="wf-model" list="wf-models" value={model} onChange={(e) => setModel(e.target.value)} placeholder="SDXL, Wan 2.2, MiniMax H3…" aria-invalid={!model.trim()} className={cx(fieldClass, "h-10 w-full")} />
+          {/* a name of its own can be typed, so the field stays a text box with its list; the browser's filled arrow is
+              hidden but still opens the list where it sat, under the kit's chevron that every other select draws */}
+          <div className="relative">
+            <input id="wf-model" list="wf-models" value={model} onChange={(e) => setModel(e.target.value)} placeholder="SDXL, Wan 2.2, MiniMax H3…" aria-invalid={!model.trim()} className={cx(fieldClass, "h-10 w-full pr-9 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0")} />
+            <ChevronDown aria-hidden size={15} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-ink-2" />
+          </div>
           <datalist id="wf-models">{familyNames.map((n) => <option key={n} value={n} />)}</datalist>
         </div>
       </div>

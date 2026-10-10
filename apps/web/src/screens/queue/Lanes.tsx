@@ -64,9 +64,10 @@ export function Lanes({ items, from, to, models, names, only, timeLabel, onZoom,
           }}
           onMouseLeave={brush.cancel}
         >
+          {/* each label right of its line, the last one left of the chart's right edge: drawn past it, it was cut to a "0" */}
           {Array.from({ length: ticks }, (_x, k) => from + (k / (ticks - 1)) * span).map((time, k) => (
-            <span key={k} className="pointer-events-none absolute bottom-0 border-l border-line pl-1 font-mono text-[10px] text-ink-3" style={{ left: `${(k / (ticks - 1)) * 100}%`, height: "100%", ...(k === ticks - 1 ? { transform: "translateX(-100%)", borderLeft: 0, paddingLeft: 0, paddingRight: 4 } : {}) }}>
-              <span className="absolute bottom-0.5 whitespace-nowrap">{timeLabel(time)}</span>
+            <span key={k} className={cx("pointer-events-none absolute bottom-0 font-mono text-[10px] text-ink-3", k < ticks - 1 && "border-l border-line")} style={{ left: `${(k / (ticks - 1)) * 100}%`, height: "100%" }}>
+              <span className={cx("absolute bottom-0.5 whitespace-nowrap", k < ticks - 1 ? "left-1" : "right-1")}>{timeLabel(time)}</span>
             </span>
           ))}
           {items.map((r) => {

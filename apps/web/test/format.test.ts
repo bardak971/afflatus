@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RecipeStatus } from "../src/api";
-import { about, aboutMs, brief, clock, dayOf, elapsed, fileLabel, left, long, notReady, pace, phaseLabel, problemSaid, recipeLabel, seconds, size, sourceOf, spell, took, when } from "../src/format";
+import { about, aboutMs, brief, clock, dayOf, elapsed, fileLabel, left, long, notReady, pace, phaseLabel, problemSaid, recipeLabel, seconds, siteName, size, slotsSaid, sourceOf, spell, took, when } from "../src/format";
 
 describe("minutes and seconds", () => {
   it("rounds a length to the second", () => {
@@ -108,6 +108,23 @@ describe("why a recipe cannot run", () => {
     expect(notReady(status({ missingSlots: ["unet"] }), true)).toBe("A model file it needs was not found.");
     expect(notReady(status({ problems: ['49:43 KSampler: "beta57" is not a choice of "scheduler"'] }), true)).toBe('It asks for "beta57" as scheduler (KSampler), which your ComfyUI does not offer.');
     expect(problemSaid("odd")).toBe("ComfyUI would refuse it: odd.");
+  });
+  it("names a family's missing model file when its slots are given", () => {
+    const slots = [
+      { id: "unet", label: "Diffusion model", folder: "diffusion_models", get: { file: "krea2_turbo.safetensors" } },
+      { id: "vae", label: "VAE", folder: "vae" },
+    ];
+    expect(slotsSaid(["unet", "vae", "gone"], slots)).toEqual(["krea2_turbo.safetensors (Diffusion model)", "VAE in vae", "gone"]);
+    expect(notReady(status({ missingSlots: ["unet"] }), true, slots)).toBe("ComfyUI does not have krea2_turbo.safetensors (Diffusion model).");
+  });
+});
+
+describe("the Civitai site a find is on", () => {
+  it("is Civitai, or another of its sites by name, never a bare host and port", () => {
+    expect(siteName("civitai.com")).toBe("Civitai");
+    expect(siteName("civitai.red")).toBe("civitai.red");
+    expect(siteName("127.0.0.1:63283")).toBe("Civitai");
+    expect(siteName("localhost:9000")).toBe("Civitai");
   });
 });
 
