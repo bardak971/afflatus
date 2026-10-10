@@ -51,16 +51,34 @@ async function* walk(dir: string, base = dir): AsyncGenerator<{ path: string; re
   }
 }
 
+/** How long the count of the files a backup would hold is reused: Settings asks again after every change to the library. */
+export const PLAN_FOR_MS = 60_000;
+
 export function registerBackup(app: FastifyInstance, s: Services, places: BackupPlaces | undefined): void {
+  // the files counted once a minute at most, and by one walk at a time: a walk of a large library takes seconds
+  let counted: { at: number; files: number; bytes: number } | null = null;
+  let counting: Promise<{ files: number; bytes: number }> | null = null;
+  const count = async (dir: string) => {
+    if (counted && Date.now() - counted.at < PLAN_FOR_MS) return counted;
+    counting ??= (async () => {
+      let files = 0;
+      let bytes = 0;
+      for await (const f of walk(dir)) {
+        files++;
+        bytes += f.size;
+      }
+      counted = { at: Date.now(), files, bytes };
+      return counted;
+    })().finally(() => {
+      counting = null;
+    });
+    return counting;
+  };
+
   /** What a backup would hold: how many files, how many bytes, and whether the database comes with it. */
   app.get("/api/backup", async () => {
     if (!places) return { available: false, files: 0, bytes: 0, database: false };
-    let files = 0;
-    let bytes = 0;
-    for await (const f of walk(places.filesDir)) {
-      files++;
-      bytes += f.size;
-    }
+    const { files, bytes } = await count(places.filesDir);
     const db = s.dbKind === "sqlite" ? await stat(join(places.dataDir, "afflatus.db")).then((x) => x.size).catch(() => 0) : 0;
     return { available: true, files, bytes: bytes + db, database: s.dbKind === "sqlite" };
   });
@@ -73,6 +91,9 @@ export function registerBackup(app: FastifyInstance, s: Services, places: Backup
     reply.header("Content-Type", "application/zip").header("Content-Disposition", `attachment; filename="${name}"`).header("Cache-Control", "no-store");
     // what is written is a promise that runs beside the reply; the reply takes the stream now. A write
     // fails once the browser has gone (zipStream.ts), which ends the loop: the finally below always runs
+    // no file of Afflatus's storage is deleted from the copy of the database to the last file zipped: the copy names files
+    // the zip must hold. Those erased meanwhile (the hourly sweep, Empty the bin) are deleted once it is done
+    const release = s.storage.hold?.();
     void (async () => {
       let tmp: string | null = null;
       try {
@@ -110,6 +131,7 @@ export function registerBackup(app: FastifyInstance, s: Services, places: Backup
         if (!req.raw.destroyed) console.warn(`[backup] given up: ${(err as Error).message}`);
         zip.abort(err as Error);
       } finally {
+        await release?.();
         if (tmp) await rm(tmp, { recursive: true, force: true }).catch(() => {});
       }
     })();

@@ -5,7 +5,9 @@ import { newId, now, OWNER } from "./db";
 import { httpError } from "./errors";
 import { extOf } from "./media";
 import { makeThumb, thumbKey } from "./thumbs";
+import { isLinked, linkedToBin } from "./linked";
 import { sourceOf } from "./storage";
+import { inUse } from "./sweep";
 import { readVideo, videoFacts } from "./video";
 import { clockOf, laidOut, landingOnGrid, lengthOf, lengthOnGrid, plays, STILL_MS, visible, type AssetRow, type ClipRow, type Laid, type Placed, type TimelineCore } from "./timelineModel";
 
@@ -70,11 +72,18 @@ export class TimelineRange {
       const out = await rangeKeep(source, ext, facts, piece.keep, opts);
       rows.push(await this.cutRow(video, out, fromName(base, ` · ${piece.said}`), piece.range, opts.folder));
     }
+    // the source goes to the bin when it was taken apart: a day to change one's mind. Not when something still uses it (a
+    // timeline plays it, a draft or a person names it: the route refuses that, and this is for what came to use it since);
+    // a job is left out, this cut being one. A file of a linked folder goes the way of any linked file to the bin: copied
+    // into Afflatus's storage, then out of its directory, so that emptying the bin never deletes the user's own file
+    const binned = action !== "copy" && !(await inUse(db, { jobs: false })).has(video.id);
+    const linked = isLinked(video.file_key);
     await db.transaction().execute(async (tx) => {
       for (const row of rows) await tx.insertInto("assets").values(row).execute();
-      // the source goes to the bin when it was taken apart: a day to change one's mind
-      if (action !== "copy") await tx.updateTable("assets").set({ deleted_at: now() }).where("id", "=", video.id).execute();
+      if (binned && !linked) await tx.updateTable("assets").set({ deleted_at: now() }).where("id", "=", video.id).execute();
     });
+    // the new videos are made either way: a linked file another program holds open just stays where it is
+    if (binned && linked) await linkedToBin(db, this.core.storage, video).catch((err: Error) => console.warn(`[cut] the source stays in its folder: ${err.message}`));
     events.emit("library");
     const made = await db.selectFrom("assets").selectAll().where("id", "in", rows.map((r) => r.id)).execute();
     return rows.map((r) => made.find((m) => m.id === r.id)!);

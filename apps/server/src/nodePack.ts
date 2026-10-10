@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
 import { httpError } from "./errors";
+import { isNetworkPath } from "./linked";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
 import { zipOf } from "./zip";
@@ -40,7 +41,8 @@ const olderThan = (a: string, b: string): boolean => {
 export async function installNodePack(comfyDir: string): Promise<{ written: boolean; changed: boolean; path: string }> {
   const dir = comfyDir.trim();
   const path = join(dir, "custom_nodes", NODE_PACK);
-  if (!dir || !(await exists(join(dir, "custom_nodes")))) return { written: false, changed: false, path };
+  // a network share is never reached for (see isNetworkPath): the pack is unpacked there by hand, from the zip
+  if (!dir || isNetworkPath(dir) || !(await exists(join(dir, "custom_nodes")))) return { written: false, changed: false, path };
   const source = nodePackSource();
   if (!(await exists(source))) return { written: false, changed: false, path };
   await mkdir(path, { recursive: true });
@@ -65,7 +67,9 @@ export function registerNodePack(app: FastifyInstance, s: Services): void {
    * since, ComfyUI not restarted) lacks the newest nodes, and the joins that need them quietly fall back to plain ones.
    */
   app.get("/api/comfy/node-pack", async () => {
-    const { comfyDir } = await readSettings(s.db);
+    const { comfyDir: set } = await readSettings(s.db);
+    // ComfyUI's folder on a network share is not looked at (see isNetworkPath): Afflatus does not write the pack there
+    const comfyDir = isNetworkPath(set) ? "" : set;
     const path = comfyDir.trim() ? join(comfyDir.trim(), "custom_nodes", NODE_PACK) : "";
     const written = path ? await exists(join(path, "__init__.py")) : false;
     const comfy = await s.comfy();

@@ -9,6 +9,7 @@ import { assetView } from "./media";
 import { rifeModelIn } from "./queue";
 import { finishForecast } from "./queueTools";
 import { rootFolderOf } from "./projects";
+import { inUse } from "./sweep";
 import { folderOfTimeline } from "./timelineFolder";
 import type { Services } from "./services";
 import { clockOf, FROM_PREVIOUS, type CutOptions, type Timelines } from "./timelines";
@@ -324,6 +325,11 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     if (!video || video.kind !== "video") throw httpError("this video was not found", 404);
     if (body.endMs - body.startMs < 20) throw httpError("That range is too short: pick at least one frame.");
     if (body.action !== "slow" && video.duration_ms && body.startMs <= 0 && body.endMs >= video.duration_ms - 2) throw httpError("That is the whole video: there is nothing to cut.");
+    // split and remove take the source to the bin: not one that something still uses (see inUse), which the sweep would erase
+    if (body.action === "split" || body.action === "remove") {
+      const what = (await inUse(s.db)).get(video.id);
+      if (what) throw httpError(`This video is still used by ${what}: ${body.action === "split" ? "a split" : "a remove"} takes it to the bin. Use Copy to library instead, or take it out of there first.`, 409);
+    }
     // the job says what it is on by the name the video goes by (a nameless take: its timeline, clip and take)
     const name = (await nameOf(s.db, video)) || "video";
     if (body.action === "slow") {

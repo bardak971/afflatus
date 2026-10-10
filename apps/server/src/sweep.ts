@@ -12,12 +12,14 @@ const ID_IN_JSON = /"([0-9a-f]{32})"/g;
 /**
  * The assets something still needs, each with what needs it (for saying so): the take that plays in a clip,
  * a take another take was finished from or carries on from, a clip's still, its sound and the pictures its
- * form names, a timeline's music, the pictures and voices of people, places, styles and presets, and the
- * inputs of a job that is still to run. Unkept, binned or erased, any of these would leave a clip, a
- * person or a job pointing at nothing: the sweep, the bin and the library leave them alone. `takes: false`: all of
- * it but the takes, for what works out on its own which takes are needed (timelineUnused.ts).
+ * form names, a timeline's music, the pictures and voices of people, places, styles and presets, the pictures
+ * a draft's forms and look name and the item it edits, and the inputs of a job that is still to run (and what
+ * it was sent with: the neighbour video or the opening frame picked when it was submitted). Unkept, binned or
+ * erased, any of these would leave a clip, a person, a draft or a job pointing at nothing: the sweep, the bin
+ * and the library leave them alone. `takes: false`: all of it but the takes, for what works out on its own which
+ * takes are needed (timelineUnused.ts). `jobs: false`: all of it but the jobs, for a job asking about its own inputs.
  */
-export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean } = {}): Promise<Map<string, string>> {
+export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean; jobs?: boolean } = {}): Promise<Map<string, string>> {
   const used = new Map<string, string>();
   const add = (ids: Array<string | null>, what: string) => {
     for (const id of ids) if (id && !used.has(id)) used.set(id, what);
@@ -42,7 +44,13 @@ export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean } = {}):
   scan(clips.map((c) => c.inputs), "a timeline");
   add((await db.selectFrom("timelines").select("music_asset_id").execute()).map((t) => t.music_asset_id), "a timeline");
   scan((await db.selectFrom("entities").select("def").execute()).map((e) => e.def), "a person, a place, a style or a preset");
-  scan((await db.selectFrom("jobs").select("inputs").where("status", "in", ["queued", "running"]).execute()).map((j) => j.inputs), "a job still to run");
+  const drafts = await db.selectFrom("drafts").select(["forms", "look", "target"]).execute();
+  scan(drafts.flatMap((d) => [d.forms, d.look]), "a draft");
+  add(drafts.map((d) => /^asset:([0-9a-f]{32})$/.exec(d.target)?.[1] ?? null), "a draft");
+  if (opts.jobs !== false) {
+    const jobs = await db.selectFrom("jobs").select(["inputs", "resume"]).where("status", "in", ["queued", "running"]).execute();
+    scan(jobs.flatMap((j) => [j.inputs, j.resume]), "a job still to run");
+  }
   return used;
 }
 
@@ -92,5 +100,36 @@ export async function sweep(db: Db, storage: Storage, at = Date.now()): Promise<
     .execute();
   const gone = [...old, ...masks].filter((a) => !used.has(a.id));
   for (const a of gone) await eraseAsset(db, storage, a);
+  await sweepOrphans(db, storage, at).catch((err) => console.warn("[sweep] files with no item:", (err as Error).message));
   return { binned, erased: gone.length };
+}
+
+/** Where a library item's files are kept, each named after the item's id ("assets/ab/<id>.png", "thumbs/ab/<id>.webp"). */
+const ITEM_DIRS = ["assets/", "thumbs/"];
+const ITEM_FILE = /^([0-9a-f]{32})[.-]/;
+
+/**
+ * The files of the library that no item names any more, erased: what was left when a server stopped between writing a
+ * file and its row, or when a row went and its file could not be removed then, and the half-written ".part" files of a
+ * write that stopped (storage.ts). Careful by design: only in the folders where items' files are kept, only a file named
+ * after an item id that no row has and that no row names, or a ".part" file, and only a day after it was last written,
+ * so that a render or an upload writing its files now is never taken. Returns how many were erased.
+ */
+export async function sweepOrphans(db: Db, storage: Storage, at = Date.now()): Promise<number> {
+  if (!storage.list) return 0;
+  const rows = await db.selectFrom("assets").select(["id", "file_key", "thumb_key", "raw_key", "latent_key", "fine_latent_key"]).execute();
+  const ids = new Set(rows.map((r) => r.id));
+  const named = new Set(rows.flatMap((r) => [r.file_key, r.thumb_key, r.raw_key, r.latent_key, r.fine_latent_key]));
+  let erased = 0;
+  for (const dir of ITEM_DIRS) {
+    for await (const f of storage.list(dir)) {
+      if (at - f.mtimeMs < UNKEPT_MS || named.has(f.key)) continue;
+      const name = f.key.slice(f.key.lastIndexOf("/") + 1);
+      const id = ITEM_FILE.exec(name)?.[1];
+      if (!name.endsWith(".part") && (!id || ids.has(id))) continue;
+      await storage.delete(f.key).catch(() => {});
+      erased++;
+    }
+  }
+  return erased;
 }

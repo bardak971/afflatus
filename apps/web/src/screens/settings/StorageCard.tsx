@@ -70,7 +70,8 @@ export function StorageCard() {
 
 /** One zip of everything Afflatus keeps, made while it runs: the database and every file. */
 function Backup() {
-  const plan = useQuery({ queryKey: ["storage", "backup-plan"], queryFn: api.backupPlan, staleTime: 60_000 });
+  // a key of its own, outside "storage": the library's events refresh that one, and the plan is a walk of every file (the server counts them once a minute)
+  const plan = useQuery({ queryKey: ["backup-plan"], queryFn: api.backupPlan, staleTime: 60_000 });
   const p = plan.data;
   if (p && !p.available) return null;
   return (

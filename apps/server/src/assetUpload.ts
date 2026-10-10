@@ -67,8 +67,11 @@ export function registerAssetUpload(app: FastifyInstance, s: Services, { asset }
         }))
         .execute();
     } catch (err) {
-      // the file written into the folder is not left there for a reading to pick up as an item this upload did not make
+      // the file written into the folder is not left there for a reading to pick up as an item this upload did not make; nor
+      // are the files put into Afflatus's storage left there with no item to name them
       if (onDisk) await rm(onDisk.path, { force: true }).catch(() => {});
+      else await s.storage.delete(key).catch(() => {});
+      await s.storage.delete(thumbKey(id)).catch(() => {});
       throw err;
     }
     if (!mask && !kit) s.queue.events.emit("library");

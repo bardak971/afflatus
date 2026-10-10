@@ -114,7 +114,7 @@ export async function writeDraft(db: Db, id: string): Promise<void> {
  */
 export const IDLE_DRAFT_MS = 30 * 60_000;
 
-/** The drafts not worth keeping and nobody touched for `IDLE_DRAFT_MS`, deleted. */
+/** The drafts not worth keeping and nobody touched for `IDLE_DRAFT_MS`, deleted. Run by the hourly sweep (services.ts): a listing only reads. */
 export async function sweepIdleDrafts(db: Db, registry: Services["registry"], at = Date.now()): Promise<number> {
   const before = new Date(at - IDLE_DRAFT_MS).toISOString();
   const m = unwrittenOf(db);
@@ -166,7 +166,6 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
    */
   app.get("/api/drafts", async (req) => {
     const { project, limit } = z.object({ project: z.string().optional(), limit: z.coerce.number().int().min(1).max(1000).optional() }).parse(req.query);
-    await sweepIdleDrafts(s.db, s.registry);
     const rows = await inProject(s.db, project).orderBy("updated_at", "desc").limit(limit ?? LIST_LIMIT).execute();
     const outputs = rows.length
       ? await s.db.selectFrom("assets").innerJoin("generations", "generations.id", "assets.generation_id")
