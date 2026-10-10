@@ -55,6 +55,7 @@ export const INDEX: SettingSpot[] = [
   { tab: "interface", label: "Explain every setting in the forms", key: "explain", words: "help tooltips" },
   { tab: "interface", label: "Play videos on hover", key: "hover.video", words: "mouse card preview" },
   { tab: "interface", label: "Play sound on hover", key: "hover.sound", words: "audio mouse card" },
+  { tab: "interface", label: "Compare opens on original vs result", key: "compare.result", words: "compare pass upscale source wipe side by side" },
   { tab: "bar", label: "Shortcut", key: "bar.shortcut", words: "command bar shortcut ctrl k keyboard palette search" },
   { tab: "bar", label: "Learn what I use", key: "bar.learn", words: "command bar ranking recent" },
   { tab: "bar", label: "Preview", key: "bar.preview", words: "preview in the bar command bar shift side" },

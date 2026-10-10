@@ -16,6 +16,7 @@ import { assetHead } from "./TileMenu";
 import { Compare } from "./viewer/Compare";
 import { ViewerMedia } from "./viewer/ViewerMedia";
 import { ViewerSidebar } from "./viewer/ViewerSidebar";
+import { useCompareResult } from "./store";
 
 // the parameters reader is a chunk of its own: fetched the first time Details opens
 const PngInfo = lazy(() => import("./PngInfo").then((m) => ({ default: m.PngInfo })));
@@ -59,9 +60,29 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   const { a, g, leave, move, timeline } = acts;
   const formTarget = useFormTarget((st) => st.target);
 
-  const canCompare = Boolean(items && items.length > 1 && onOpen && a.kind !== "audio");
+  const compareResult = useCompareResult((s) => s.on);
+  const known = detail.data?.id === asset.id ? detail.data : null;
+  /**
+   * What Compare puts side by side when it opens on original vs result (the setting): on a pass's result, its source
+   * (pinned) and itself; on a picture something was made from, itself (pinned) and the newest of those. Only the same
+   * kind of thing: an i2v video is no result to wipe against its picture.
+   */
+  const pair = (() => {
+    if (!compareResult || !known) return null;
+    const source = known.sources.find((s) => s.role === "source" && s.asset.kind === asset.kind && !s.asset.inBin)?.asset;
+    if (source) return { pin: source, show: null };
+    const newest = known.usedIn.filter((x) => x.kind === asset.kind && !x.inBin).sort((x, y) => y.createdAt.localeCompare(x.createdAt))[0];
+    return newest ? { pin: asset, show: newest } : null;
+  })();
+  // with a result to compare against, Compare works even opened alone (a toast's Compare)
+  const canCompare = a.kind !== "audio" && (Boolean(items && items.length > 1 && onOpen) || Boolean(pair));
   const toggleCompare = () => {
     if (pinned) return setPinned(null);
+    if (pair) {
+      setPinned(pair.pin);
+      if (pair.show) setTrail((t) => [...t, pair.show!]);
+      return;
+    }
     setPinned(asset);
     if (!move(1)) move(-1);
   };
@@ -94,13 +115,21 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
 
   // the item opened from a list outside (a tile's menu, the command bar) with a tool: it opens with it
   const [detailsAsked, setDetailsAsked] = useState(false);
+  const [compareAsked, setCompareAsked] = useState(false);
   useEffect(() => {
     const what = takeViewerAsk(first.id);
     if (what === "trim" && first.kind === "video" && !first.inBin) setTrim(true);
-    else if (what === "compare" && canCompare) toggleCompare();
+    else if (what === "compare") setCompareAsked(true);
     else if (what === "details") setDetailsAsked(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [first.id]);
+  // Compare asked from outside waits for the item's details too: whether there is a result to put beside it is in them
+  useEffect(() => {
+    if (!compareAsked || detail.data?.id !== a.id) return;
+    setCompareAsked(false);
+    if (canCompare && !pinned) toggleCompare();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compareAsked, detail.data?.id]);
   // Details waits for the parameters to be read: whether it was made here decides what it shows
   useEffect(() => {
     if (!detailsAsked || detail.data?.id !== a.id) return;

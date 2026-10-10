@@ -25,6 +25,8 @@ describe("a history row's words", () => {
   it("is called after what it made, else the job's label", () => {
     expect(rowName([job({ made: [made({ name: "Harbour at dusk 01" })] })])).toBe("Harbour at dusk 01");
     expect(rowName([job({ made: [made({})] })])).toBe("Sample job");
+    expect(rowName([job({ made: [made({ name: "zz-test batch 01" }), made({ id: "a2", name: "zz-test batch 02" })] })])).toBe("zz-test batch");
+    expect(rowName([job({ made: [made({ name: "Harbour 01" }), made({ id: "a2", name: "Other 02" })] })])).toBe("Harbour 01");
   });
   it("says the kind and the size or length", () => {
     expect(rowFacts([job({ made: [made({})] })])).toBe("picture · 1536×864");

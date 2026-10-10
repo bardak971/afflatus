@@ -77,7 +77,8 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
   // another place, another list: nothing is picked
   useEffect(() => setPicked(new Set()), [place]);
 
-  const folderName = (id: string | null) => (id ? folderList.data?.items.find((f) => f.id === id)?.name ?? "Folder" : "Project root");
+  // the folder chip only for a timeline that sits in a folder: one at the project's root (most of them) says nothing by it
+  const folderName = (id: string | null) => (id && !projects.some((p) => p.folderId === id) ? folderList.data?.items.find((f) => f.id === id)?.name ?? "Folder" : null);
   const renameOne = async (t: TimelineBrief) => {
     const name = await askText({ title: "Rename the timeline", value: t.name, placeholder: "A name for it", yes: "Rename" });
     if (name && name !== t.name) rename.mutate({ id: t.id, name });

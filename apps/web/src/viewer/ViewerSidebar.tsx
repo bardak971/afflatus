@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { Check, ChevronDown, Copy, Film, Music, Plus, Star, Trash2, Undo2, Wand2, type LucideIcon } from "lucide-react";
@@ -121,7 +121,8 @@ function Act({ icon, label, k, pressed, done, onClick, disabled, title, wide }: 
       data-tip={title}
       aria-pressed={pressed}
       className={cx(
-        "flex min-h-[38px] min-w-0 items-center gap-2 rounded-[10px] border px-2.5 py-1 text-left text-[13px] font-semibold hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50",
+        // a neutral focus ring: on a button that can be on (Compare, Trim), the accent ring read as "still on" once left
+        "flex min-h-[38px] min-w-0 items-center gap-2 rounded-[10px] border px-2.5 py-1 text-left text-[13px] font-semibold hover:bg-hover focus-visible:outline-ink-3 disabled:cursor-not-allowed disabled:opacity-50",
         done ? "m-ok border-good/50 bg-good/15 text-good" : pressed ? "border-accent bg-accent-wash text-accent" : "border-line bg-raised text-ink hover:border-line-strong",
         wide && "col-span-2",
       )}
@@ -442,11 +443,16 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
   const keep = byId("keep");
   const bin = byId("bin");
   const passTools = new Set((["u", "f", "b", "i", "e", "r"] as const).flatMap((k) => (toolFor(k) ? [toolFor(k)!.id] : [])));
+  // each item starts at the top of the side: kept scrolled down from the last one (Details), the actions were out of sight
+  const scroller = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    scroller.current?.scrollTo({ top: 0 });
+  }, [a.id]);
   const failed = reuse.error ?? saveFrame.error ?? takeSound.error ?? animate.error ?? carryOn.error ?? cutRange.error ?? between.error ?? extendHere.error ?? mirror.error ?? follow.error ?? openTool.error;
   return (
     <aside className="flex w-[420px] shrink-0 flex-col border-l border-line bg-panel">
       <ViewerHeader acts={acts} asset={asset} detail={detail} title={title} trail={trail} crumbs={crumbs} onTrail={setTrail} items={items} naming={naming} onNaming={onNaming} onClose={onClose} />
-      <div className="flex min-h-0 grow flex-col gap-4 overflow-y-auto px-5 py-3.5">
+      <div ref={scroller} className="flex min-h-0 grow flex-col gap-4 overflow-y-auto px-5 py-3.5">
         {/* whether it stays: one line, always there (no jump when it is kept), with the one Keep of the side */}
         {a.inBin ? (
           <div className="flex items-center justify-between gap-3 rounded-xl bg-warn-wash px-3 py-2 text-warn-ink">

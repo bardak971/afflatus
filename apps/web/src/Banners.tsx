@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, X } from "lucide-react";
 import type { Job } from "./api";
 import { useQueue } from "./data";
@@ -7,8 +8,9 @@ import { useDownloads } from "./GetFile";
 import { moves } from "./leave";
 import { Kbd } from "./Keys";
 import { OUT_MS } from "./motion";
-import { useBanners, type Banner } from "./store";
+import { useBanners, useHandover, type Banner } from "./store";
 import { cx } from "./ui";
+import { askViewer, passFrom } from "./viewer/ask";
 
 /**
  * A finished render is only announced where its result does not show up by itself (the Queue lists it as it ends). The
@@ -59,6 +61,7 @@ export function Banners() {
   const { items, push, dismiss } = useBanners();
   const [path, go] = useLocation();
   const queue = useQueue();
+  const client = useQueryClient();
   const downloads = useDownloads();
   // what was already finished when the page opened is old news
   const seenJobs = useRef<Set<string> | null>(null);
@@ -90,18 +93,28 @@ export function Banners() {
         }
         // a model loaded ahead has nothing to show: the form says it is loaded
         else if (j.kind === "load") continue;
-        else if (!showsResults(path)) {
+        else {
+          // a pass of an item: the item's details are read again (what was made from it is in them, for Compare)
+          const from = passFrom.get(j.id);
+          if (from) void client.invalidateQueries({ queryKey: ["assets", "one", from] });
+          if (showsResults(path)) continue;
           const f = folds.current.done;
           add(f, j);
           const allExports = f.exports === f.count;
           // on the library itself what was made is already in sight: nowhere to send it
           const there = allExports ? path === "/timelines" : path === "/" || path === "/create";
-          push({ id: "jobs:done", tone: "good", title: foldTitle(f, "done"), text: foldText(f), ...(there ? {} : allExports ? { href: "/timelines", go: "Open timelines" } : { href: "/", go: "Open library" }) });
+          // one pass done: Compare puts the item and what it made side by side (the viewer opens on the item, Compare asked)
+          const compare = f.count === 1 && from ? { action: { label: "Compare", run: () => {
+            askViewer(from, "compare");
+            useHandover.getState().set({ show: from });
+            if (path !== "/" && path !== "/create") go("/");
+          } } } : {};
+          push({ id: "jobs:done", tone: "good", title: foldTitle(f, "done"), text: foldText(f), ...compare, ...(there || compare.action ? {} : allExports ? { href: "/timelines", go: "Open timelines" } : { href: "/", go: "Open library" }) });
         }
       }
     }
     seenJobs.current = new Set(over.map((j) => j.id));
-  }, [queue.data, push, path]);
+  }, [queue.data, push, path, client, go]);
 
   useEffect(() => {
     const list = downloads.data?.items;

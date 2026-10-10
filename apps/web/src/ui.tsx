@@ -51,7 +51,9 @@ export function AutoText({ value, className, rows = 2, ...rest }: Omit<TextareaH
     watch.observe(el);
     return () => watch.disconnect();
   }, [value]);
-  return <textarea ref={ref} rows={rows} value={value} {...rest} className={cx("resize-none overflow-hidden", className)} />;
+  // no spell check: what is written here is prompts (danbooru tags, model words, in English whatever the browser's
+  // language), which a spell checker underlines in red as if each were a mistake. A box can ask for it back.
+  return <textarea ref={ref} rows={rows} value={value} spellCheck={false} {...rest} className={cx("resize-none overflow-hidden", className)} />;
 }
 
 /**

@@ -93,7 +93,18 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   // its tab, the slot comes into view and is ringed once, so the picture is seen where it went
   useEffect(() => {
     const input = useFormAim.getState().take(recipe.id);
-    if (!input) return;
+    if (!input) {
+      // the Create panel opened on a short screen: a part left open above (the Model card) can push the prompt, the field
+      // worked in most, under the Generate bar; the panel scrolls to it then, and leaves it where it is otherwise
+      if (!card) return;
+      requestAnimationFrame(() => {
+        const el = document.querySelector<HTMLElement>('[data-part="prompt"]');
+        let box = el?.parentElement ?? null;
+        while (box && !/(auto|scroll)/.test(getComputedStyle(box).overflowY)) box = box.parentElement;
+        if (el && box && el.getBoundingClientRect().top + 120 > box.getBoundingClientRect().bottom) scrollInside(el, "start");
+      });
+      return;
+    }
     setPart("inputs:references", refs.some((i) => i.id === input));
     setPart("inputs", true, true);
     // once the opened part is drawn

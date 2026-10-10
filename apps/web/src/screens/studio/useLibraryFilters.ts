@@ -74,12 +74,13 @@ export function useLibraryFilters({ place, view, draftId, initialKind = "all", o
     family: family || undefined,
     model: model || undefined,
     lora: lora || undefined,
-    kept: kept || undefined,
-    unkept: unkept || undefined,
+    // nothing in the bin counts down to it: Kept only and Expiring only are left aside there, not cleared
+    kept: (place.type !== "bin" && kept) || undefined,
+    unkept: (place.type !== "bin" && unkept) || undefined,
   };
   const assets = useAssets(filter, true, true);
   const items = showTimelines ? [] : assets.data?.pages.flatMap((p) => p.items) ?? [];
-  const filtered = Boolean(q || made || lora || kept || unkept);
+  const filtered = Boolean(q || made || lora || filter.kept || filter.unkept);
   return { kind, setKind, typed, setTyped, q, made, setMade, lora, setLora, kept, setKept, unkept, setUnkept, showTimelines, reach, filter, assets, items, filtered };
 }
 

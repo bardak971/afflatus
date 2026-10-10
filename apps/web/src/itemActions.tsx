@@ -19,7 +19,7 @@ export type ActionId =
   | "trim" | "save-frame" | "extract-audio" | "voice"
   | "compare" | "details" | "copy-seed" | "comfy"
   | "timeline" | "move"
-  | "bin";
+  | "bin" | "erase";
 
 export type GroupId = "item" | "make" | "passes" | "tools" | "look" | "put" | "last";
 
@@ -67,10 +67,12 @@ export const ACTIONS: Record<ActionId, Spec> = {
   timeline: { group: "put", label: "Timeline", kinds: ALL, icon: Film, tip: "At the end of a timeline, or a new one from it; a sound as a timeline's music." },
   move: { group: "put", label: "Move to", kinds: ALL, icon: FolderKanban, tip: "Into a project and a folder, or back to the Inbox." },
   bin: { group: "last", label: "Move to the bin", key: "Del", kinds: ALL, icon: Trash2, tip: "Move to the bin." },
+  // only in the bin, after Put back (see itemActions)
+  erase: { group: "last", label: "Delete now…", kinds: ALL, icon: Trash2, tip: "Erased now, file and all, instead of after its week in the bin. Asked first; cannot be undone." },
 };
 
-/** The order of every list. */
-export const ORDER = Object.keys(ACTIONS) as ActionId[];
+/** The order of every list (Delete now is not in it: it is the bin's own, see itemActions). */
+export const ORDER = (Object.keys(ACTIONS) as ActionId[]).filter((id) => id !== "erase");
 
 /** What a media type's list holds, in order: what never applies to the type is not in it at all. */
 export const actionIds = (kind: Kind): ActionId[] => ORDER.filter((id) => ACTIONS[id].kinds.includes(kind));
@@ -147,7 +149,8 @@ const anyOn = (items: MenuItem[]): boolean => items.some((it) => it !== "—" &&
 
 /**
  * The item's list: every action its type has, in order; one that does not apply now stays in its place, off, with the
- * reason as its note. In the bin only Open, Download and Put back work (and Compare, a look that changes nothing).
+ * reason as its note. In the bin the list is the bin's own: Put back and Delete now first, then Open, Download and
+ * Compare (a look that changes nothing); nothing else, as nothing else can be done there.
  * `runs` is what each does in the place; an action with no run there is off. `notes` are the place's own words on one.
  */
 export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<ActionId, string>> = {}): ItemAction[] {
@@ -170,7 +173,7 @@ export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<Acti
       default: return undefined;
     }
   };
-  return actionIds(f.kind).map((id): ItemAction => {
+  const list = actionIds(f.kind).map((id): ItemAction => {
     const spec = ACTIONS[id];
     const off = why(id);
     const items = id === "timeline" ? f.timelines : id === "move" ? f.moves : undefined;
@@ -189,6 +192,11 @@ export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<Acti
       default: return base;
     }
   });
+  if (!f.inBin) return list;
+  const spec = ACTIONS.erase;
+  const erase: ItemAction = { id: "erase", group: spec.group, label: spec.label, icon: spec.icon, tip: spec.tip, danger: true, disabled: !runs.erase, run: runs.erase };
+  const pick = (id: ActionId) => list.filter((a) => a.id === id);
+  return [...pick("bin"), erase, ...pick("open"), ...pick("download"), ...pick("compare")];
 }
 
 /** Where a list is shown: each place's keys act or not. */

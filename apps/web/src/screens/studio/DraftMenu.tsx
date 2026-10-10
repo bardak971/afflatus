@@ -79,11 +79,17 @@ export function DraftMenu({ drafts, open: current, titleOf, unused, onPick, onNe
     return d.createdAt ? `${modelLine(d)} · started ${changed(d.createdAt)}` : modelLine(d);
   };
 
-  const list = useMemo(
+  const found = useMemo(
     () => fuzzyFilter(drafts, query, (d) => `${nameOf(d)} ${d.title} ${modelLine(d)}`),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [drafts, query, recipes.data],
   );
+  // the drafts that never made anything fold under one row at the foot (the open one stays in its place): a list of
+  // "Wan 2.2 draft · empty" three times hid the drafts that hold work. A search looks through them all.
+  const [emptyShown, setEmptyShown] = useState(false);
+  const holds = (d: DraftBrief) => (d.outputs ?? 0) > 0 || d.id === current?.id;
+  const list = query || emptyShown ? found : found.filter(holds);
+  const empties = query ? 0 : found.length - found.filter(holds).length;
   const close = () => {
     setShown(false);
     setQuery("");
@@ -187,7 +193,13 @@ export function DraftMenu({ drafts, open: current, titleOf, unused, onPick, onNe
                 );
               })}
             </div>
-            {!list.length && <div className="px-3 py-4 text-sm text-ink-3">No draft matches.</div>}
+            {!list.length && query && <div className="px-3 py-4 text-sm text-ink-3">No draft matches.</div>}
+            {empties > 0 && (
+              <button type="button" aria-expanded={emptyShown} onClick={() => setEmptyShown(!emptyShown)} className="flex h-9 w-full items-center gap-2 px-3 text-left text-xs text-ink-2 hover:bg-hover hover:text-ink">
+                <ChevronDown size={13} className={cx("shrink-0 transition-transform duration-(--t-pop)", emptyShown && "rotate-180")} />
+                {emptyShown ? `Hide the ${empties} empty draft${empties === 1 ? "" : "s"}` : `${empties} empty draft${empties === 1 ? "" : "s"}: nothing made from them yet`}
+              </button>
+            )}
           </div>
           {unused > 0 && !query && (
             <div className="flex h-10 shrink-0 items-center gap-2 border-t border-line px-3 text-xs text-ink-2">

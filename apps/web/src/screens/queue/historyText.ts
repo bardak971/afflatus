@@ -1,9 +1,17 @@
 import type { HistoryJob, Job } from "../../api";
 import { clock } from "../../format";
 
-/** What a row of the history is called: the name of what it made (renders are named as they are made), else the job's label. */
+/**
+ * What a row of the history is called: the name of what it made (renders are named as they are made), else the job's
+ * label. A row that made several is called by what they share ("Terrace 01", "Terrace 02": "Terrace"), not after one of them.
+ */
 export function rowName(jobs: Pick<HistoryJob, "label" | "made">[]): string {
-  return jobs[0]?.made.find((m) => m.name)?.name || jobs[0]?.label || "";
+  const named = jobs.flatMap((j) => j.made).map((m) => m.name).filter(Boolean);
+  if (named.length > 1) {
+    const label = named[0]!.replace(/ \d{2,}$/, "");
+    if (label && named.every((n) => n === label || n.startsWith(`${label} `))) return label;
+  }
+  return named[0] || jobs[0]?.label || "";
 }
 
 /** A cut that finishes a timeline's clip (an upscale: SeedVR2, RTX or a model) rather than keeping a range of it. */

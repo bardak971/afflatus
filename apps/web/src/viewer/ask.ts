@@ -7,6 +7,12 @@ export type ViewerAsk = "trim" | "compare" | "details";
 
 let pending: { id: string; what: ViewerAsk; at: number } | null = null;
 
+/**
+ * The passes queued from an item (job id → the item's id): when one is done, its banner offers Compare, the item and
+ * what the pass made of it side by side. Not kept: a page opened later has no such banner to give.
+ */
+export const passFrom = new Map<string, string>();
+
 export function askViewer(id: string, what: ViewerAsk): void {
   pending = { id, what, at: Date.now() };
 }

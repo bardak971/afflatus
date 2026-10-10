@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { RANDOM_SEED, typedSeed } from "@afflatus/core";
 import { useQueueVariation } from "./actions";
 import type { Asset } from "./api";
+import { useQueryClient } from "@tanstack/react-query";
+import { eraseNow } from "./binActions";
 import { askAboutDisk } from "./Confirm";
 import { useSetup, type useAsset } from "./data";
 import { saveAsset } from "./download";
@@ -49,6 +51,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
   const mutations = useItemMutations();
   const timeline = useTimelineSubmenu(timelineOpts);
   const setup = useSetup();
+  const client = useQueryClient();
   const { a, g, recipe, reuse, carrier, carryOn, opener, openerName, animate, follower, follow, toolFor, toolInput, openTool } = drafts;
   const said = (title: string) => (sayErrors ? { onError: mutations.failed(title) } : undefined);
 
@@ -70,7 +73,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
   const quick = (key: string) => {
     const tool = toolFor(key);
     const action = (Object.keys(PASS_KEYS) as ActionId[]).find((id) => PASS_KEYS[id] === key);
-    if (tool && action) queue(action, { recipe: tool, stored: toolInput(tool), label: OPS[key]!.label });
+    if (tool && action) queue(action, { recipe: tool, stored: toolInput(tool), label: OPS[key]!.label, from: a.id });
   };
   /** A pass that opens a form with the picture in place (Inpaint, Edit, Outpaint). */
   const openPass = (key: string) => {
@@ -131,6 +134,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     "copy-seed": () => seed !== null && mutations.copySeed(seed),
     comfy: () => mutations.openInComfy.mutate(a),
     bin: a.inBin ? () => mutations.restore([a.id]) : () => void toBin(),
+    erase: () => void eraseNow(client, [a.id]),
   };
 
   /** The item's list in a place: its facts and overrides on top of what is known and done everywhere. */

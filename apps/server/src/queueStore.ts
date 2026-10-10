@@ -1,6 +1,6 @@
 import type { OutputFile, waitForOutputs } from "@afflatus/comfy";
 import type { ClipValue, InputSpec, Recipe, ReferenceValue } from "@afflatus/core";
-import { draftNames, labelNames, promptOf } from "./autoName";
+import { draftNames, labelNames, passName, promptOf } from "./autoName";
 import type { Comfy } from "./comfy";
 import { frameAt, lookOf, repairJoinAudio, runUpBreak, type Measure } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
@@ -93,10 +93,17 @@ export async function store(
       const names = await draftNames(db, row.draft_id, rows.length, { prompt: promptOf(input, prompts), recipe: recipe.title });
       names?.forEach((name, i) => (rows[i]!.name ||= name));
     } else if (!row.draft_id && !row.clip_id) {
+      // a pass of a named picture (sent with it as its source): named after the picture and the pass
+      const sourceSpec = recipe.inputs.find((s) => s.type === "image" && s.role === "source");
+      const sourceId = sourceSpec ? input[sourceSpec.id] : undefined;
+      const source = typeof sourceId === "string" ? (await db.selectFrom("assets").select("name").where("id", "=", sourceId).executeTakeFirst())?.name?.trim() : "";
+      if (source) rows.forEach((r, i) => (r.name ||= passName(source, recipe.title, rows.length > 1 ? i + 1 : undefined)));
       // sent from no draft (by the API, a batch): named after the label it was given, numbered on; a label that is only
       // the recipe's title says nothing, so the first words of its prompt are used then (as for a draft with no title)
-      const names = await labelNames(db, row.label, rows.length, recipe, promptOf(input, prompts));
-      names.forEach((name, i) => (rows[i]!.name ||= name));
+      else {
+        const names = await labelNames(db, row.label, rows.length, recipe, promptOf(input, prompts));
+        names.forEach((name, i) => (rows[i]!.name ||= name));
+      }
     }
     await writeRows(db, { id: generationId, recipe, input, resolved, genMs: Date.now() - resume.startedAt, at }, row, sourcesOf(recipe, input, resume), rows);
   } catch (err) {

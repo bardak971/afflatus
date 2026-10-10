@@ -121,7 +121,7 @@ export const PLACES: KeyPlace[] = [
         name: "Selection",
         rows: [
           { keys: "Ctrl+A", does: "Select all shown" },
-          { keys: "Del", does: "Move the ticked items to the bin" },
+          { keys: "Del", does: "Move the ticked items to the bin", note: "in the bin: Delete now, asked first" },
           { keys: "Esc", does: "Clear the selection" },
           { keys: "Space | Enter", does: "Tick the item", note: "on its circle; with Shift: the range" },
         ],

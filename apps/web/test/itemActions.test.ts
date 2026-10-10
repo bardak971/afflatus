@@ -56,12 +56,14 @@ describe("the item's list", () => {
     expect(off).toEqual({ extend: "no video model carries a clip on", "extract-audio": "it has no sound", voice: "it has no sound", comfy: "ComfyUI is offline" });
   });
 
-  it("lets only Open, Download, Compare and Put back work in the bin", () => {
+  it("lists only the bin's own in the bin: Put back and Delete now first, then Open, Download and Compare", () => {
     for (const kind of ["image", "video", "audio"] as const) {
-      const list = itemActions(facts(kind, { inBin: true }), runs);
-      expect(list.filter((a) => !a.disabled).map((a) => a.id)).toEqual(["open", "download", ...(kind === "audio" ? [] : ["compare" as const]), "bin"]);
-      expect(list.at(-1)).toMatchObject({ label: "Put back", key: undefined });
-      expect(list.at(-1)!.danger).toBeFalsy();
+      const list = itemActions(facts(kind, { inBin: true }), { ...runs, erase: () => {} });
+      expect(list.map((a) => a.id)).toEqual(["bin", "erase", "open", "download", ...(kind === "audio" ? [] : ["compare" as const])]);
+      expect(list.filter((a) => a.disabled)).toEqual([]);
+      expect(list[0]).toMatchObject({ label: "Put back", key: undefined });
+      expect(list[0]!.danger).toBeFalsy();
+      expect(list[1]).toMatchObject({ label: "Delete now…", danger: true });
     }
   });
 
@@ -165,8 +167,7 @@ describe("a pass just queued", () => {
   });
 
   it("does not say it where the action is off now (the item went to the bin meanwhile)", () => {
-    const up = itemActions(facts("image", { inBin: true, queued: { upscale: true } }), runs).find((a) => a.id === "upscale")!;
-    expect(up.label).toBe("Upscale 2x");
-    expect(up.done).toBeUndefined();
+    // in the bin there is no Upscale button at all to say it on
+    expect(itemActions(facts("image", { inBin: true, queued: { upscale: true } }), runs).find((a) => a.id === "upscale")).toBeUndefined();
   });
 });
