@@ -5,21 +5,21 @@ import { useLocation } from "wouter";
 import {
   Bookmark, Calculator, ChevronRight, Film, Folder, FolderKanban, Image as ImageIcon, Keyboard, ListOrdered, MapPin, Music, Navigation, PenLine, Puzzle, Quote, Search, SlidersHorizontal, Sparkles, User, Video, Workflow, Zap,
 } from "lucide-react";
-import { api, type Entity, type RecipeInfo, type Settings } from "../api";
+import { api, type AssetDetail, type Entity, type RecipeInfo, type Settings } from "../api";
 import { useAsset, useEntities, useFamilies, useRecipes, useSettings } from "../data";
 import { groupingSaves } from "../screens/queue/bulk";
 import { stepRateSaid, useStepRate } from "../screens/queue/stepRate";
 import { useQueueOf } from "../screens/studio/queueOf";
 import { aboutMs, timeLeft, when } from "../format";
 import { useProject } from "../project";
-import { useExplain, useHoverPlay, useNotify } from "../store";
+import { useBanners, useExplain, useHoverPlay, useNotify } from "../store";
 import { useThemeChoice } from "../theme/store";
 import { cx } from "../ui";
 import { Keys } from "../Keys";
 import { allRows, opened, searchKeys } from "../keys/search";
 import { BAR_DEFAULT } from "../keys/table";
 import { calc, type Grid } from "./calc";
-import { commandKeys, grouped, indexItems, keyItems, navItems, settingItems, tellApart, templateItems, type Item, type Kind } from "./items";
+import { commandKeys, grouped, indexItems, keyItems, lowerFirst, navItems, settingItems, tellApart, templateItems, type Item, type Kind } from "./items";
 import { settingHref, TABS, tabHref } from "../screens/settings/settingsIndex";
 import { highlight, pieces, prepare, search } from "./match";
 import { COMMANDS, KIT_OF, modeOf, parseCommand, type Command, type CommandId, type KitNew, type Mode } from "./parse";
@@ -91,6 +91,9 @@ function gridOf(recipes: RecipeInfo[], prefer: string | undefined): Grid {
   };
 }
 
+/** Why an action cannot run, in a few words: its note ("ComfyUI is offline") or its label ("No model called “zzz”"). */
+const offSaid = (a: Action) => lowerFirst(a.note ?? a.label);
+
 /** What this browser learned, with the keys of results that were renamed since carried over. */
 const loadRanks = () => renamed(load(), settingKeyNow);
 
@@ -127,7 +130,8 @@ export function CommandBar() {
   /** Tab: the selected result's actions, filtered by what is typed in their place. */
   const [acting, setActing] = useState<{ item: Item; text: string; sel: number } | null>(null);
   const [ranks, setRanks] = useState<Ranks>(loadRanks);
-  const [flash, setFlash] = useState<string | null>(null);
+  /** A word in the footer for a moment: a figure copied, or why Enter did nothing (`bad`). */
+  const [flash, setFlash] = useState<{ text: string; bad?: boolean } | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const returnTo = useRef<HTMLElement | null>(null);
@@ -196,12 +200,15 @@ export function CommandBar() {
       const it = id ? byKey.get(`timeline:${id}`) : undefined;
       return it?.entry?.kind === "timeline" ? { id: it.entry.id, name: it.entry.label, entry: it.entry } : null;
     };
-    if (open) return pick(open) ?? { id: open, name: "the open timeline" };
+    if (open) return { ...(pick(open) ?? { id: open, name: "the open timeline" }), open: true };
     const used = recentKeys(ranks, 50).find((k) => k.startsWith("timeline:"));
     if (used && pick(used.slice(9))) return pick(used.slice(9));
     const last = base.filter((i) => i.kind === "timeline" && !i.archived).sort((a, b) => (b.entry!.updatedAt > a.entry!.updatedAt ? 1 : -1))[0];
     return last ? pick(last.entry!.id) : null;
   }, [path, byKey, ranks, base]);
+  // what `> undo` would undo: the open editor's last change (as its header's Undo says it), else the newest banner's
+  const bannerUndo = useBanners((s) => [...s.items].reverse().find((x) => x.action?.undo)?.title ?? null);
+  const editorUndo = aim?.open ? client.getQueryData<{ undo?: string | null }>(["timelines", aim.id])?.undo ?? null : null;
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const settingRows = useMemo(() => settingItems([...SETTINGS, ...PAGES], settingCtx), [settingCtx, ...kept]);
@@ -260,6 +267,9 @@ export function CommandBar() {
       "retry-failed": ["Retry all failed", queueNow?.failed ? `${plural(queueNow.failed, "failed job")} · the same jobs, oldest first` : "None failed"],
       "dismiss-failed": ["Dismiss all failed…", queueNow?.failed ? `${plural(queueNow.failed, "failed job")} · off the history, asked first` : "None failed"],
       "group-queue": ["Group by model", queueNow?.saves ? `saves ${plural(queueNow.saves, "load")} · same model together` : "Grouping saves no load"],
+      // the editor's history while one is open (as its Ctrl+Z), else the newest banner's Undo (a move, a bin)
+      undo: aim?.open ? [editorUndo ? `Undo: ${editorUndo}` : "Undo", editorUndo ? `In ${t}, as its Ctrl+Z` : `Nothing to undo in ${t}`] : [bannerUndo ? `Undo: ${bannerUndo}` : "Undo", bannerUndo ? "What the banner says was done, put back" : "Nothing to undo"],
+      clip: [`Go to clip ${c.cmd === "clip" ? c.number : ""} of ${t}`, aim?.entry && c.cmd === "clip" && c.number > aim.entry.clips ? `${t} has ${plural(aim.entry.clips, "clip")}` : "Selected, the playhead on its start"],
     };
     const [label, meta] = words[c.cmd];
     return { key: `cmd:${c.cmd}${recipe ? `:${recipe.id}` : ""}${preset ? `:${preset.id}` : ""}`, kind: "command", label, meta, group: "Commands", verb: "run", p: prepare(label), command: c, recipe, preset, keys: commandKeys(c) };
@@ -281,7 +291,7 @@ export function CommandBar() {
     if (LIVE.includes(id)) return liveRow(id).map((r) => ({ ...r, p: t.p }));
     const ready = t.complete ? null : parseCommand(COMMANDS.find((c) => c.id === id)?.typed ?? "");
     return [ready ? { ...commandRow(ready), p: t.p } : t];
-  }), [selectedClip, queueNow, aim]);
+  }), [selectedClip, queueNow, aim, bannerUndo, editorUndo]);
 
   // the render estimate of a render command, learned from this machine's renders (none said when nothing is learned)
   const parsed = mode === "command" ? parseCommand(text) : null;
@@ -320,9 +330,11 @@ export function CommandBar() {
       case "all": {
         if (!q) {
           const recent: Item[] = [];
+          // pausing a paused queue, resuming a running one, or undoing with nothing to undo does nothing: Recent leaves it out until it would
+          const idle = (k: string) => (k === "cmd:pause" && queueNow?.paused) || (k === "cmd:resume" && queueNow && !queueNow.paused) || (k === "cmd:undo" && !(aim?.open ? editorUndo : bannerUndo));
           if (learn) for (const k of recentKeys(ranks, 12)) {
             const it = byKey.get(k) ?? templates.find((t) => t.key === k) ?? settingRows.find((s) => s.key === k);
-            if (it && !it.archived && !it.complete) recent.push(it);
+            if (it && !it.archived && !it.complete && !idle(k)) recent.push(it);
             if (recent.length >= 6) break;
           }
           // nothing learned yet: what was changed last
@@ -346,7 +358,8 @@ export function CommandBar() {
           return [
             // two drafts of one name: their detail lines say what tells them apart
             { group: "Recent", rows: tellApart(recent.map((r) => ({ ...r, group: "Recent" as const }))) },
-            ...(suggested.length ? [{ group: "Suggested", rows: suggested.map((r) => ({ ...r, group: "Suggested" as const })) }] : []),
+            // a suggestion already in Recent is not said twice
+            ...(suggested.some((r) => !recent.some((x) => x.key === r.key)) ? [{ group: "Suggested", rows: suggested.filter((r) => !recent.some((x) => x.key === r.key)).map((r) => ({ ...r, group: "Suggested" as const })) }] : []),
           ].filter((s) => s.rows.length);
         }
         const found = search([...base, ...templates, ...navRows, ...settingRows], q, LIMIT, everything).map((x) => x.item);
@@ -420,7 +433,7 @@ export function CommandBar() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, mode, text, base, ranks, learn, queueNow, queueFull, aim, settingRows, estimateSaid, history.data, entities.data, recipeItems, presetItems, navRows, selectedClip, keysHere, barKey]);
+  }, [open, mode, text, base, ranks, learn, queueNow, queueFull, aim, settingRows, estimateSaid, history.data, entities.data, recipeItems, presetItems, navRows, selectedClip, keysHere, barKey, templates, bannerUndo, editorUndo]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
   const at = Math.min(sel, Math.max(0, flat.length - 1));
@@ -436,9 +449,14 @@ export function CommandBar() {
   }, [current?.key]);
   const shown = dwell && current && dwell.key === current.key ? current : null;
   const renderId = (acting?.item ?? shown)?.kind === "render" ? (acting?.item ?? shown)!.entry!.id : null;
-  const detail = useAsset(open ? renderId : null).data;
+  const read = useAsset(open ? renderId : null).data;
+  // the render last read stays the actions' subject once the bar closes: an action runs after the bar is gone, and the
+  // hooks that do it (Mirror, Image to video, Extend, a pass's form…) read their item when they run, not when chosen
+  const lastRead = useRef<AssetDetail | null>(null);
+  if (read) lastRead.current = read;
+  const detail = read ?? (open ? undefined : lastRead.current ?? undefined);
 
-  const onCopied = (what: string) => setFlash(what ? `Copied ${what}` : "Could not copy: the browser refused");
+  const onCopied = (what: string) => setFlash(what ? { text: `Copied ${what}` } : { text: "Could not copy: the browser refused", bad: true });
   useEffect(() => {
     if (!flash) return;
     const t = setTimeout(() => setFlash(null), 1600);
@@ -456,7 +474,9 @@ export function CommandBar() {
     save(next);
   };
   const run = (it: Item, a: Action | undefined) => {
-    if (!a || a.disabled) return;
+    if (!a) return;
+    // nothing to do: the footer says why for a moment, instead of an Enter that seems lost
+    if (a.disabled) return setFlash({ text: offSaid(a), bad: true });
     remember(it);
     if (!a.stay) close();
     void Promise.resolve().then(() => a.run());
@@ -539,8 +559,10 @@ export function CommandBar() {
 
   // a row of the key table has nothing to preview: the sheet is where it is shown
   const showPreview = preview && !acting && Boolean(current) && mode !== "calc" && mode !== "keys";
-  const second = current && !current.complete ? actionsOf(current)[1] : undefined;
-  const verb = acting ? "run" : current?.complete ? "complete" : current?.verb ?? "open";
+  const [first, second] = current && !current.complete ? actionsOf(current) : [];
+  // a row whose first action cannot run now ("No model by that name", ComfyUI offline): Enter says why rather than "run"
+  const off = !acting && first?.disabled ? offSaid(first) : null;
+  const verb = acting ? "run" : current?.complete ? "complete" : off ? "unavailable" : current?.verb ?? "open";
   const commandExtra = shown?.kind === "command" && shown.command ? {
     text: shown.meta,
     facts: [
@@ -612,7 +634,10 @@ export function CommandBar() {
                 {acting ? (
                   <>
                     <div className="px-3 pt-2.5 pb-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Actions</div>
-                    {shownActions.map((a, i) => (
+                    {shownActions.map((a, i) => {
+                      // Enter and Ctrl+Enter on the result run the list's first two actions, wherever a filter shows them
+                      const place = actions.indexOf(a);
+                      return (
                       <button
                         key={`${a.label}:${i}`}
                         id={optionId(i)}
@@ -629,12 +654,13 @@ export function CommandBar() {
                         <span className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-raised", a.danger ? "text-warn-ink" : "text-ink-2")}>{a.icon ?? <Zap size={15} />}</span>
                         <span className="flex min-w-0 grow flex-col">
                           <span className={cx("truncate text-[14.5px] font-semibold", a.danger ? "text-warn-ink" : "text-ink")}>{a.label}</span>
-                          {(a.note || i < 2) && <span className="truncate text-xs text-ink-2">{[a.note, i === 0 ? "Enter on the result" : i === 1 ? "Ctrl+Enter on the result" : ""].filter(Boolean).join(" · ")}</span>}
+                          {(a.note || place < 2) && <span className="truncate text-xs text-ink-2">{[a.note, place === 0 ? "Enter on the result" : place === 1 ? "Ctrl+Enter on the result" : ""].filter(Boolean).join(" · ")}</span>}
                         </span>
                         {a.keys && <Keys keys={a.keys} size="sm" className="text-ink-2" />}
                         {i === acting.sel && <span className="flex shrink-0 items-center gap-1 text-[11px] text-ink-2"><Keys keys="Enter" size="sm" /> run</span>}
                       </button>
-                    ))}
+                      );
+                    })}
                     {!shownActions.length && <div className="px-5 py-10 text-center text-sm text-ink-3">No action called that.</div>}
                   </>
                 ) : mode === "calc" ? (
@@ -708,7 +734,7 @@ export function CommandBar() {
                               )}
                               {/* the key that does the same in the app, from the key table (a row of the `?` mode: its own keys, a search's lit) */}
                               {it.keys && <Keys keys={it.keys} size="sm" hits={it.keyRow?.hits} className="text-ink-2" />}
-                              {on && <span className="flex shrink-0 items-center gap-1 text-[11px] whitespace-nowrap text-ink-2"><Keys keys="Enter" size="sm" /> {it.complete ? "complete" : it.verb}</span>}
+                              {on && <span className="flex shrink-0 items-center gap-1 text-[11px] whitespace-nowrap text-ink-2"><Keys keys="Enter" size="sm" /> {it.complete ? "complete" : off ? "unavailable" : it.verb}</span>}
                             </button>
                           );
                         })}
@@ -724,7 +750,7 @@ export function CommandBar() {
                       : mode === "history" ? (history.isFetching ? "Looking…" : "No rendered prompt holds that.")
                       : mode === "cast" ? "No person of the Prompt kit is called that."
                       : mode === "keys" ? <>No key does that. Try another word, or a key: <Keys keys="S" size="sm" />, <Keys keys="Ctrl+Z" size="sm" />.</>
-                      : <>Nothing called that. Try <Keys keys=">" size="sm" /> for commands.</>}
+                      : <>{text ? "Nothing called that." : "Nothing used or made yet."} Try <Keys keys=">" size="sm" /> for commands.</>}
                   </div>
                 )}
               </div>
@@ -734,13 +760,13 @@ export function CommandBar() {
             {/* the footer in the sheet's notation and names: keycaps for the keys, the mode characters as caps with their names */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line bg-ground/40 px-[18px] py-2.5 text-xs whitespace-nowrap text-ink-2">
               <span className="flex items-center gap-1.5"><Keys keys="↑ ↓" /> move</span>
-              <span className="flex items-center gap-1.5"><Keys keys="Enter" /> {verb}</span>
-              {!acting && current && !current.complete && second && <span className="flex min-w-0 items-center gap-1.5"><Keys keys="Ctrl+Enter" /> <span className="max-w-[170px] truncate">{second.label.toLowerCase()}</span></span>}
+              <span className="flex min-w-0 items-center gap-1.5"><Keys keys="Enter" /> <span className="max-w-[260px] truncate">{verb}{off && <span className="text-ink-3">: {off}</span>}</span></span>
+              {!acting && current && !current.complete && second && <span className="flex min-w-0 items-center gap-1.5"><Keys keys="Ctrl+Enter" /> <span className="max-w-[170px] truncate">{lowerFirst(second.label)}</span></span>}
               <span className="flex items-center gap-1.5"><Keys keys="Tab" /> {acting ? "back" : "actions"}</span>
               <span className="flex items-center gap-1.5"><Keys keys="Shift" /> preview{preview ? "" : " (off)"}</span>
               <span className="grow" />
               {flash ? (
-                <span role="status" className="font-semibold text-good">{flash}</span>
+                <span role="status" className={cx("font-semibold", flash.bad ? "text-warn-ink" : "text-good")}>{flash.text}</span>
               ) : (
                 <span className="flex min-w-0 flex-wrap justify-end gap-x-2.5 gap-y-1 text-ink-3">
                   {[...FOOTER_MODES, ...(bar?.history ? [['"', "history"]] : []), ...(bar?.cast ? [["@", "cast"]] : [])].map(([c, w]) => (

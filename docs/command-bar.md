@@ -12,12 +12,12 @@ Everything is in one index, searched together:
 | --- | --- | --- |
 | Timeline | open it in the editor | name · clips · length · exported · project |
 | Draft | open it in the Studio | name · recipe · renders · last used |
-| Render or item | open it in the viewer | its name (`Harbor walk · c2 · t3`, `Night market 04`) · kind · size · when |
-| Project | work in it | name · timelines · items · size |
+| Render or item | open it in the viewer | its name (`Harbor walk · c2 · t3`, `Night market 04`) · kind · size · when; an item in the bin is found too, listed after the rest and said "In the bin" |
+| Project | work in it (an archived one: unarchive it) | name · timelines · items · size; the Inbox is listed with them, worked in the same way |
 | Folder | open it in the library | name · project · items · size |
 | Workflow | Try it (a new draft on it) | name · output · whether it can be built |
 | Prompt kit entry | open it in the Prompt kit | name · person, place, style, preset or snippet · built in |
-| Place to go | go there | the screens, each tab of Settings, Queue › Render times, Queue › ComfyUI log, Open Projects, Keyboard shortcuts |
+| Place to go | go there | the screens, each tab of Settings, Queue › Render times, Queue › ComfyUI log, the Bin (every project's), Open Projects, Keyboard shortcuts |
 | Command | run it | what it does · what it touches · estimate |
 | Setting | flip it, run it, or open its page | name · Settings › page · its value |
 
@@ -29,7 +29,7 @@ With nothing typed, the bar shows **Recent** (the last timelines, drafts, render
 | --- | --- |
 | Ctrl+K | opens the bar from anywhere; again, or Esc, closes it (changeable in Settings) |
 | ↑ ↓ | move through the results |
-| Enter | the result's first action (open, run, flip) |
+| Enter | the result's first action (open, run, flip); when it cannot run now, the footer says why ("unavailable: ComfyUI is offline") |
 | Ctrl+Enter | its second action (run at the top of the queue, show in Projects, apply a preset in the Studio…) |
 | Tab | the result's whole list of actions; Tab or Esc goes back |
 | Shift | shows or hides the preview |
@@ -53,10 +53,10 @@ A row whose action has a key in the app shows it on its right, read from the key
 
 ## Actions behind a result (Tab)
 
-- **A render:** the viewer's own actions: view · show in its folder · use in this draft · keep · download · variation · reuse (same seed, new seed) · PNG info · i2v · the quick passes (Upscale 2x, Face detailer, Remove background) and the tools that open in a form (Inpaint, Edit, Outpaint) · mirror · Extend · save frame (the first frame) · extract audio · copy the seed · add to a timeline · open in ComfyUI · move to a project · rename · move to the bin. Trim and Compare need the viewer on screen and are left to it.
+- **A render:** the viewer's own actions: view · show in its folder · use in this draft · keep · download · variation · reuse (same seed, new seed) · PNG info · i2v · the quick passes (Upscale 2x, Face detailer, Remove background) and the tools that open in a form (Inpaint, Edit, Outpaint) · mirror · Extend · save frame (the first frame) · extract audio · copy the seed · add to a timeline · open in ComfyUI · move to a project · rename · move to the bin (in the bin: put back, and "show in the bin"). Trim and Compare need the viewer on screen and are left to it.
 - **A timeline:** open · show in Projects · render missing clips · export · finish · fix all · bin unused takes · rename · move to another project · delete.
 - **A draft:** open · show in Projects · generate again · duplicate · rename · move to another project · delete.
-- **A project:** work in it · show in Projects · new folder inside · import a folder here · rename · archive · delete.
+- **A project:** work in it · show in Projects · pin to the rail · new folder inside · import a folder here · rename · archive · delete. An archived one: unarchive first. The Inbox: work in it · show in Projects.
 - **A folder:** open · show in Projects · rescan (a folder of the disk) · new folder inside · import a folder here · rename · move · delete or unlink.
 - **A workflow:** Try it · Edit · Export · Open in ComfyUI · Remove.
 - **A Prompt kit entry:** open in the Prompt kit; a preset: apply in the Studio (Ctrl+Enter); a snippet: copy its text; a person: add to the selected clip or the open draft.
@@ -69,12 +69,12 @@ The actions are the ones the app already has (the viewer, the Projects panel, th
 Plain words read by fixed rules, never an LLM. Each command shows what it will do before Enter: what it touches, how many, and an estimate where one exists. A command still missing its figures (named with "…") completes the bar on Enter or Tab.
 
 - On the open timeline (else the one last opened from the bar): `render clips 3-5`, `render missing`, `export`, `finish`, `fix all`, `bin unused takes`. Ctrl+Enter on a render renders and moves its jobs to the top of the queue, in their order (the queue's "Run next").
-- On the clip selected in the editor: `split`, `previous take`, `next take`.
+- On the clip selected in the editor: `split`, `previous take`, `next take`. `clip 3` selects clip 3 of the open timeline and puts the playhead on its start (it opens the timeline the bar aims at first).
 - On the open draft: `generate`, `seed 1234`, `steps 30`, `cfg 4`, `size 576x1024`, `length 5s`, `preset <name>`, `save as preset <name>`.
 - Models: `load <model>`, `unload models` (as the Queue page's button: not while a render runs), `new draft <model>`, `import workflow`.
 - Making things: `new timeline [name]`, `new folder <name>` (at the top of the project you work in), `new project <name>`, `new person|place|style|preset|snippet <name>` (opened in the Prompt kit), `link folder [path]`.
 - The queue: `pause queue`, `resume queue`, `cancel waiting`, `retry failed`, `dismiss failed`, `group by model`, `empty bin`.
-- Elsewhere: `view last render`, `reconnect` (ComfyUI asked again, as Settings' Test again).
+- Elsewhere: `view last render`, `reconnect` (ComfyUI asked again, as Settings' Test again), `undo` (the open editor's last change, as its Ctrl+Z; elsewhere the move or bin the newest banner offers to undo).
 
 A command that cannot be undone (empty bin, delete) asks first, as the app does elsewhere.
 

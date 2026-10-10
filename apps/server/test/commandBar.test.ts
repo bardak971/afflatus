@@ -66,8 +66,10 @@ describe("the command bar's index", () => {
 
     const entries = await index();
     const of = (id: string) => entries.find((e) => e.id === id);
-    // the bin, masks and kit pictures are not the library's
-    for (const id of [binned, mask, kit]) expect(of(id!)).toBeUndefined();
+    // masks and kit pictures are not the library's; what is in the bin is found (to be put back), marked, and counted nowhere
+    for (const id of [mask, kit]) expect(of(id!)).toBeUndefined();
+    expect(of(binned!)).toMatchObject({ kind: "asset", label: "In the bin", project: harbor.id, folder: shots.id, inBin: true });
+    expect(of(inRoot!)!.inBin).toBeUndefined();
     expect(of(inRoot!)).toMatchObject({ kind: "asset", label: "Pier at dawn", project: harbor.id, folder: null, assetKind: "image", width: 64, height: 48, durationMs: null, bytes: 100, hasThumb: true });
     expect(of(inShots!)).toMatchObject({ label: "Gulls", project: harbor.id, folder: shots.id });
     expect(of(unnamedVideo!)).toMatchObject({ label: "Video", assetKind: "video", durationMs: 5000 });

@@ -89,7 +89,7 @@ export function WritingCard() {
       <Row setting="server.tagCheck" label="Danbooru tag check" help="For tag prompts (SDXL: Illustrious, NoobAI, Pony). Anime models learned danbooru's tags: another word does little, a typo nothing. One line under the prompt says how many tags are not on the list and opens the fixes; what the designer writes is put right the same way. The list is a file of Afflatus's: nothing is sent anywhere.">
         <Toggle bare on={settings.data?.tagCheck ?? true} onChange={(v) => save.mutate({ tagCheck: v })} label="Check tags against the danbooru tag list" />
       </Row>
-      <Row label="Wildcards and weights" help="In every prompt: {red|black|white} is a wildcard that picks one of the choices for each output, and Ctrl + ↑ or ↓ changes the weight of the tag the cursor is in (not for MiniMax H3, which has no prompt weights).">
+      <Row setting="prompts.wildcards" label="Wildcards and weights" help="In every prompt: {red|black|white} is a wildcard that picks one of the choices for each output, and Ctrl + ↑ or ↓ changes the weight of the tag the cursor is in (not for MiniMax H3, which has no prompt weights).">
         <Fact tip="A wildcard: one of the choices for each output">{"{red|black|white}"}</Fact>
         <Fact tip="Changes the weight of the tag the cursor is in">Ctrl + ↑ ↓</Fact>
       </Row>

@@ -108,7 +108,7 @@ function RenderRecord() {
       >
         <Segmented oneLine label="How long each render is kept one by one" value={String(days)} options={KEEP_FOR} onChange={(v) => keep.mutate(Number(v))} />
       </Row>
-      <Row label="Forget every render time" help="The estimates start again from nothing.">
+      <Row setting="storage.forgetTimes" label="Forget every render time" help="The estimates start again from nothing.">
         <TwoStep label="Forget every render time" tone="danger" title="Forget every render time" note="The estimates start again from nothing." yes="Forget them" busy={forget.isPending} disabled={!r || (!r.renders && !r.days)} onYes={() => forget.mutate()} />
       </Row>
       {(forget.isError || keep.isError) && <Block><ErrorNote>{(forget.error ?? keep.error)?.message}</ErrorNote></Block>}

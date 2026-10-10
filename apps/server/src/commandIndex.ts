@@ -20,7 +20,8 @@ export type CommandEntry =
   | { kind: "timeline"; id: string; label: string; project: string | null; folder: string | null; updatedAt: string; clips: number; durationMs: number; plannedMs: number; exported: boolean; unusedTakes: number; unusedBytes: number }
   /** `prompt`: the start of what was written, when a name of its own is the label (two drafts of one name are told apart by it). */
   | { kind: "draft"; id: string; label: string; project: string | null; updatedAt: string; createdAt: string; recipe: string; renders: number; prompt?: string }
-  | { kind: "asset"; id: string; label: string; project: string | null; folder: string | null; updatedAt: string; assetKind: "image" | "video" | "audio"; width: number | null; height: number | null; durationMs: number | null; bytes: number; hasThumb: boolean }
+  /** `inBin`: in the bin (found, to be put back), counted in no folder or project. */
+  | { kind: "asset"; id: string; label: string; project: string | null; folder: string | null; updatedAt: string; assetKind: "image" | "video" | "audio"; width: number | null; height: number | null; durationMs: number | null; bytes: number; hasThumb: boolean; inBin?: true }
   | { kind: "project"; id: string; label: string; updatedAt: string; archived: boolean; timelines: number; items: number; bytes: number }
   | { kind: "folder"; id: string; label: string; project: string | null; parent: string | null; updatedAt: string; items: number; linked: boolean }
   | { kind: "workflow"; id: string; label: string; updatedAt: string; output: "image" | "video" | "audio"; problem: boolean }
@@ -30,7 +31,7 @@ export type CommandEntry =
 const UNNAMED = { image: "Image", video: "Video", audio: "Sound" } as const;
 
 /**
- * Every timeline, draft, item of the library (not in the bin, no mask or kit picture), project, folder, imported workflow and
+ * Every timeline, draft, item of the library (the bin's too, marked; no mask or kit picture), project, folder, imported workflow and
  * entry of the Prompt kit (the presets that ship with Afflatus included), as small rows. A
  * handful of grouped queries for all of it, only the columns the bar shows: a library of 10 000 items answers in tens of ms.
  * A project's root folder is not a folder of its own here (the project stands for it, as in the projects tree): what is in
@@ -42,8 +43,8 @@ export async function commandIndex(s: Services): Promise<{ entries: CommandEntry
     db.selectFrom("projects").select(["id", "name", "folder_id", "archived_at", "created_at", "updated_at"]).where("owner_id", "=", OWNER).execute(),
     db.selectFrom("folders").select(["id", "parent_id", "name", "path", "project_id", "created_at"]).where("owner_id", "=", OWNER).execute(),
     db.selectFrom("assets")
-      .select(["id", "name", "kind", "folder_id", "width", "height", "duration_ms", "bytes", "thumb_key", "created_at"])
-      .where("deleted_at", "is", null).where("origin", "not in", NOT_IN_LIBRARY)
+      .select(["id", "name", "kind", "folder_id", "width", "height", "duration_ms", "bytes", "thumb_key", "created_at", "deleted_at"])
+      .where("origin", "not in", NOT_IN_LIBRARY)
       .orderBy("created_at", "desc").execute(),
     // a clip's own draft belongs to its timeline, not to the Studio's list
     db.selectFrom("drafts").select(["id", "name", "title", "recipe_id", "project_id", "created_at", "updated_at"]).where("owner_id", "=", OWNER).where("target", "not like", "clip:%").orderBy("updated_at", "desc").execute(),
@@ -75,6 +76,14 @@ export async function commandIndex(s: Services): Promise<{ entries: CommandEntry
   for (const a of assets) {
     const bytes = Number(a.bytes);
     const project = projectOfFolder(a.folder_id);
+    // an item in the bin is found, to be put back, but is in no folder's or project's count (as the library shows them)
+    if (a.deleted_at) {
+      entries.push({
+        kind: "asset", id: a.id, label: a.name.trim() || UNNAMED[a.kind], project, folder: folderOf(a.folder_id), updatedAt: a.deleted_at,
+        assetKind: a.kind, width: a.width, height: a.height, durationMs: a.duration_ms, bytes, hasThumb: a.thumb_key !== null, inBin: true,
+      });
+      continue;
+    }
     if (a.folder_id) {
       const f = byFolder.get(a.folder_id) ?? { n: 0, b: 0 };
       f.n += 1;

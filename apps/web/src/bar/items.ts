@@ -37,15 +37,20 @@ export interface Item {
   person?: Extract<Entity, { kind: "person" }>;
   /** A preset a command applies (`> preset night`). */
   preset?: Extract<Entity, { kind: "preset" }>;
-  /** A place of the app to go to: an address, or an event the app listens for (the Projects panel, the keys sheet). */
-  nav?: { href: string } | { event: string };
-  /** In an archived project: listed after the others. */
+  /** A place of the app to go to: an address, an event the app listens for (the Projects panel, the keys sheet), or the bin. */
+  nav?: Nav;
+  /** In an archived project, or in the bin: listed after the others. */
   archived?: boolean;
+  /** The Inbox, worked in like a project (what is in none): its row in `#`. */
+  inbox?: true;
   /** The key that does the same in the app (from the key table), drawn on the row's right. */
   keys?: string;
   /** A row of the key table (`?`): Enter opens the sheet on it; `hits` are the caps a key search lit. */
   keyRow?: KeysAsk & { hits?: KeyHit[] };
 }
+
+/** Where a row of "Go to" leads: an address, an event the app listens for, or the Studio's bin (every project's). */
+export type Nav = { href: string } | { event: string } | { bin: true };
 
 export const GROUP_OF: Record<Kind, Group> = {
   timeline: "Timelines", render: "Renders", draft: "Drafts", project: "Projects & folders", folder: "Projects & folders",
@@ -87,13 +92,14 @@ export function indexItems(entries: readonly CommandEntry[], recipes: readonly R
         out.push({ ...base, kind: "draft", group: "Drafts", verb: "open", archived: archived(e.project), meta: ["Draft", recipeTitle.get(e.recipe) ?? e.recipe, plural(e.renders, "render"), when(e.updatedAt), place(e.project)].join(" · ") });
         break;
       case "asset":
+        // in the bin: found by its name, after the rest, and said so first (its Tab list puts it back)
         out.push({
-          ...base, key: `render:${e.id}`, kind: "render", group: "Renders", verb: e.assetKind === "audio" ? "open" : "view", archived: archived(e.project),
-          meta: [KIND_WORD[e.assetKind], e.durationMs !== null && e.assetKind !== "image" ? clock(e.durationMs) : null, e.width && e.height ? `${e.width}×${e.height}` : null, when(e.updatedAt), e.folder ? folders.get(e.folder) : place(e.project)].filter(Boolean).join(" · "),
+          ...base, key: `render:${e.id}`, kind: "render", group: "Renders", verb: e.assetKind === "audio" ? "open" : "view", archived: archived(e.project) || Boolean(e.inBin),
+          meta: [e.inBin && "In the bin", KIND_WORD[e.assetKind], e.durationMs !== null && e.assetKind !== "image" ? clock(e.durationMs) : null, e.width && e.height ? `${e.width}×${e.height}` : null, when(e.updatedAt), e.folder ? folders.get(e.folder) : place(e.project)].filter(Boolean).join(" · "),
         });
         break;
       case "project":
-        out.push({ ...base, kind: "project", group: "Projects & folders", verb: "work in it", archived: e.archived, meta: ["Project", plural(e.timelines, "timeline"), plural(e.items, "item"), size(e.bytes), e.archived ? "archived" : e.id === current ? "working in it" : null].filter(Boolean).join(" · ") });
+        out.push({ ...base, kind: "project", group: "Projects & folders", verb: e.archived ? "unarchive" : "work in it", archived: e.archived, meta: ["Project", plural(e.timelines, "timeline"), plural(e.items, "item"), size(e.bytes), e.archived ? "archived" : e.id === current ? "working in it" : null].filter(Boolean).join(" · ") });
         break;
       case "folder":
         out.push({ ...base, kind: "folder", group: "Projects & folders", verb: "open", archived: archived(e.project), meta: ["Folder", place(e.project), plural(e.items, "item"), e.linked && "on your disk"].filter(Boolean).join(" · ") });
@@ -106,6 +112,12 @@ export function indexItems(entries: readonly CommandEntry[], recipes: readonly R
         break;
     }
   }
+  // the Inbox, as the Projects panel lists it beside the projects: worked in from `#` like one of them
+  const loose = (kind: CommandEntry["kind"]) => entries.filter((e) => e.kind === kind && "project" in e && e.project === null && !(e.kind === "asset" && e.inBin)).length;
+  out.push({
+    key: "project:inbox", kind: "project", inbox: true, label: "Inbox", group: "Projects & folders", verb: "work in it", p: prepare("Inbox"),
+    meta: ["Out of every project", plural(loose("timeline"), "timeline"), plural(loose("asset"), "item"), current === "none" ? "working in it" : null].filter(Boolean).join(" · "),
+  });
   return out;
 }
 
@@ -130,7 +142,7 @@ export function tellApart<T extends Item>(rows: readonly T[]): T[] {
 
 /** The places of the app the bar goes to: its screens, each tab of Settings, the Queue's views, the Projects panel and the keys sheet. */
 export function navItems(tabs: ReadonlyArray<{ id: string; label: string; href: string }>): Item[] {
-  const go = (key: string, label: string, meta: string, nav: { href: string } | { event: string }, words = ""): Item =>
+  const go = (key: string, label: string, meta: string, nav: Nav, words = ""): Item =>
     ({ key: `nav:${key}`, kind: "nav", label, meta, group: "Go to", verb: "go", p: prepare(`${label.replace(/^Go to /, "")} ${words} go to`), nav });
   return [
     go("studio", "Go to Studio", "The library and the form", { href: "/" }, "library create home"),
@@ -142,6 +154,7 @@ export function navItems(tabs: ReadonlyArray<{ id: string; label: string; href: 
     ...tabs.map((t) => go(`settings.${t.id}`, `Settings › ${t.label}`, "A tab of Settings", { href: t.href }, "settings preferences")),
     go("queue.times", "Queue › Render times", "How long renders took, by model and by day", { href: "/queue?view=times" }, "stats speed history"),
     go("queue.log", "Queue › ComfyUI log", "ComfyUI's terminal, live", { href: "/queue?view=log" }, "console terminal errors"),
+    go("bin", "Go to Bin", "What was moved to the bin, every project's: each is erased a week after it was binned", { bin: true }, "trash deleted put back restore"),
     go("projects", "Open Projects", "The Projects panel: projects, folders, timelines, drafts", { event: "afflatus:projects" }, "tree panel"),
     { ...go("keys", "Keyboard shortcuts", "Every key, by screen", { event: "afflatus:keys" }, "keys hotkeys help ?"), keys: rowKeys("keys") },
   ];
@@ -191,6 +204,15 @@ export const settingItems = (list: readonly SettingEntry[], ctx: SettingCtx): It
       verb: s.kind === "switch" ? "switch" : s.kind === "choice" ? "next" : s.kind === "action" ? s.verb ?? "run" : "open",
     };
   });
+
+/**
+ * An action's label inside a sentence of the footer ("Ctrl+Enter show in Projects"): its first letter lowered, the rest
+ * as it is written, and left whole when its first word is a name with capitals of its own (ComfyUI, CFG, PNG).
+ */
+export function lowerFirst(label: string): string {
+  const word = /^\S+/.exec(label)?.[0] ?? "";
+  return /[A-Z]/.test(word.slice(1)) ? label : label.charAt(0).toLowerCase() + label.slice(1);
+}
 
 /** The order the sections come in when nothing ranks them (nothing typed). */
 export const GROUP_ORDER: Group[] = ["Recent", "Suggested", "Calculator", "Keys", "Commands", "Go to", "Timelines", "Renders", "Drafts", "Projects & folders", "Workflows", "Prompt kit", "Queue", "Settings", "Prompt history", "Cast"];

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { castPlace, clipRefuses, withPerson, type ClipCast } from "../src/bar/castTo";
 import { atTop } from "../src/screens/queue/order";
 import { arithmetic, calc, gridFramesAtLeast, ratioOf, sizeFor, type Grid } from "../src/bar/calc";
-import { indexItems, timelineLength } from "../src/bar/items";
+import { indexItems, lowerFirst, navItems, timelineLength } from "../src/bar/items";
+import { snapEdge } from "../src/fields/SizeField";
+import { useBanners, useNotify } from "../src/store";
 import { highlight, pieces, prepare, QUALITY, score, search } from "../src/bar/match";
 import { clipList, COMMANDS, modeOf, parseCommand, sizeOf } from "../src/bar/parse";
 import { bonus, bumped, frecency, HALF_LIFE_MS, KEPT, recentKeys, renamed } from "../src/bar/rank";
@@ -100,6 +102,19 @@ describe("a setting picked in the bar", () => {
     for (const s of [...SETTINGS, ...PAGES]) expect(settingHref(s.id, s.page), s.id).toMatch(/\?find=/);
     expect(settingHref("theme.night")).toBe("/settings/interface?find=interface.theme");
     expect(settingHref("comfy.url")).toBe("/settings?find=comfy.url");
+  });
+  // the page says "Blocked by the browser" under the switch; the bar has no row for it, and once stayed silent
+  it("says so when the browser refuses notifications, and leaves the switch off", async () => {
+    const was = (globalThis as { Notification?: unknown }).Notification;
+    (globalThis as { Notification?: unknown }).Notification = { permission: "denied" };
+    try {
+      const each = SETTINGS.find((s) => s.id === "notify.each")!;
+      await each.set!({ server: undefined, save: async () => {} }, true);
+      expect(useNotify.getState().eachRender).toBe(false);
+      expect(useBanners.getState().items.find((b) => b.id === "bar:notify")).toMatchObject({ tone: "bad", href: "/settings/interface?find=notify.each" });
+    } finally {
+      (globalThis as { Notification?: unknown }).Notification = was;
+    }
   });
 });
 
@@ -222,6 +237,34 @@ describe("calculator", () => {
     expect(calc("hello", H3)).toBeNull();
     expect(calc("", H3)).toBeNull();
   });
+  // the calculator's own example chip: a sum with a ×, not a frame of 17×10 with "+5" left over
+  it("reads a sum with * as a sum, and a size only when it is all that is typed", () => {
+    expect(calc("17*10+5", H3)![0]).toMatchObject({ label: "result", value: "175" });
+    expect(calc("2*3", H3)![0]!.label).toBe("result");
+    expect(calc("1152*2048", H3)![0]!.value).toBe("2.4 MP");
+    expect(calc(" 832 x 1216 ", H3)![0]!.value).toBe("1.0 MP");
+  });
+});
+
+describe("the footer's words for an action", () => {
+  it("lowers the first letter and keeps names written with capitals", () => {
+    expect(lowerFirst("Show in Projects")).toBe("show in Projects");
+    expect(lowerFirst("Render, at the top of the queue")).toBe("render, at the top of the queue");
+    expect(lowerFirst("ComfyUI log")).toBe("ComfyUI log");
+    expect(lowerFirst("CFG 4")).toBe("CFG 4");
+    expect(lowerFirst("")).toBe("");
+  });
+});
+
+describe("a size set from the bar", () => {
+  // as the size field keeps a typed edge: on the grid, within the least and most (`> size 12x12` once wrote 12×12)
+  const spec = { grid: 8, min: 256, max: 2048 };
+  it("puts each edge on the recipe's grid, within its least and most", () => {
+    expect(snapEdge(spec, 12)).toBe(256);
+    expect(snapEdge(spec, 9999)).toBe(2048);
+    expect(snapEdge(spec, 835)).toBe(832);
+    expect(snapEdge(spec, 1216)).toBe(1216);
+  });
 });
 
 describe("snippets", () => {
@@ -297,5 +340,38 @@ describe("a timeline's length in the bar", () => {
       clips: 3, durationMs: 12_000, plannedMs: 42_200, exported: false, unusedTakes: 0, unusedBytes: 0,
     }], [], null);
     expect(row!.meta).toBe("Timeline · 3 clips · 0:12 rendered of 0:42 · Inbox");
+  });
+});
+
+describe("places, the bin and the editor from the bar", () => {
+  const asset = (id: string, project: string | null, inBin?: true) => ({
+    kind: "asset" as const, id, label: `Item ${id}`, project, folder: null, updatedAt: "2026-10-10T00:00:00.000Z", assetKind: "image" as const, width: 64, height: 48, durationMs: null, bytes: 10, hasThumb: true, ...(inBin ? { inBin } : {}),
+  });
+  const project = (archived: boolean) => ({ kind: "project" as const, id: "p1", label: "Harbor", updatedAt: "", archived, timelines: 0, items: 0, bytes: 0 });
+
+  it("reads `clip 3` and `undo`, and leaves `render clip 3` a render", () => {
+    expect(parseCommand("clip 3")).toEqual({ cmd: "clip", number: 3 });
+    expect(parseCommand("go to clip 12")).toEqual({ cmd: "clip", number: 12 });
+    expect(parseCommand("clip 0")).toBeNull();
+    expect(parseCommand("undo")).toEqual({ cmd: "undo" });
+    expect(parseCommand("render clip 3")).toEqual({ cmd: "render-clips", clips: [3] });
+  });
+  it("lists the Inbox as a place, its items counted without the bin's", () => {
+    const rows = indexItems([asset("a", null), asset("b", null, true), asset("c", "p1"), project(false)], [], "none");
+    const inbox = rows.find((r) => r.inbox)!;
+    expect(inbox).toMatchObject({ key: "project:inbox", kind: "project", label: "Inbox", verb: "work in it" });
+    expect(inbox.meta).toBe("Out of every project · 0 timelines · 1 item · working in it");
+  });
+  it("finds what is in the bin after the rest, said so", () => {
+    const [row] = indexItems([asset("b", null, true)], [], null);
+    expect(row).toMatchObject({ archived: true });
+    expect(row!.meta.startsWith("In the bin · Image")).toBe(true);
+  });
+  it("unarchives an archived project on Enter", () => {
+    expect(indexItems([project(true)], [], null)[0]!.verb).toBe("unarchive");
+    expect(indexItems([project(false)], [], null)[0]!.verb).toBe("work in it");
+  });
+  it("goes to the bin", () => {
+    expect(navItems([]).find((n) => n.key === "nav:bin")!.nav).toEqual({ bin: true });
   });
 });
