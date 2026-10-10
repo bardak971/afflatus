@@ -1,4 +1,4 @@
-import { defineFamily } from "@afflatus/core";
+import { defineFamily, type PromptLine, tagList, wordCount } from "@afflatus/core";
 
 /** The ControlNet a guide picture starts on: xinsir's union one, which follows edges, depth and pose alike. */
 export const SDXL_UNION = "controlnet-union-sdxl-1.0-promax.safetensors";
@@ -50,6 +50,20 @@ RULES
 EXAMPLES, for the form only (their subjects, places and words are not to be reused):
 Tags: 1girl, solo, long hair, silver hair, single braid, red eyes, white shirt, pleated skirt, black thighhighs, light smile, looking at viewer, sitting, holding cup, upper body, from above, indoors, cafe, wooden table, window, rain, soft lighting
 Phrases: an elderly fisherman in a grey wool sweater and a flat cap, mending a net on a stone quay at dawn, weathered hands pulling the twine tight, gulls over grey water behind him, overcast light, close shot, sharp focus, high resolution image`,
+  /** What the designer wrote, against a tag prompt: tags with spaces, quality tags in their own field, no repeats, CLIP's 75 tokens. */
+  lint({ text, main }) {
+    if (!text?.trim()) return [];
+    const out: PromptLine[] = [];
+    const n = wordCount(text);
+    const list = tagList(text);
+    if (list.some((t) => /_/.test(t) && !/^\(/.test(t))) out.push({ part: main, text: "Underscores in tags: danbooru tags are written with spaces (long hair, not long_hair)." });
+    if (list.some((t) => /^(score_\d|masterpiece|best quality|source_|rating_|safe$|newest$|absurdres|highres)/i.test(t))) out.push({ part: main, text: "Quality, score or rating tags in the prompt: those belong in Quality tags, set per checkpoint." });
+    const dup = list.map((t) => t.toLowerCase().replace(/[()]|:\d+(\.\d+)?/g, "").trim()).filter((t, i, a) => t && a.indexOf(t) !== i);
+    if (dup.length) out.push({ part: main, text: `Repeated tags: ${[...new Set(dup)].slice(0, 4).join(", ")}.` });
+    // CLIP reads 75 tokens a chunk; a tag is one to three tokens, so count words with a margin
+    if (n > 75) out.push({ part: main, text: `About ${n} words: over 75 tokens, ComfyUI splits the prompt and the later tags weigh less.` });
+    return out;
+  },
 });
 
 export const DEFAULT_NEGATIVE =

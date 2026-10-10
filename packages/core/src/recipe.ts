@@ -1,3 +1,5 @@
+import type { FrameGrid } from "./frameGrid";
+import type { LintInput, PromptLine } from "./promptLint";
 import type { BuiltGraph } from "./graph";
 import { schemaFor, type InputSpec } from "./inputs";
 import { folderOfFileInput } from "./models";
@@ -34,6 +36,11 @@ export interface Family {
   loraMatch: string[];
   /** How this family's prompts are written, in words for the prompt designer's language model. */
   guide?: string;
+  /**
+   * What the designer wrote, held against this family's own rules, after the fact (the server's outputChecks.ts):
+   * one plain line per miss, by part. The text is never changed; the user decides.
+   */
+  lint?(written: LintInput): PromptLine[];
 }
 
 /** What a video recipe can do for a timeline. The timeline never asks which model it is. */
@@ -48,8 +55,13 @@ export interface VideoTraits {
   endAnchor: boolean;
   sound: boolean;
   fps: number;
-  /** Valid frame counts: frames = step * k + offset. */
-  frameGrid: { step: number; offset: number };
+  /** Valid frame counts: frames = step * k + offset; the grid its kept latents are cut and landed on too (frameGrid.ts). */
+  frameGrid: FrameGrid;
+  /**
+   * Of a recipe that continues in a kept latent: the node class that cuts that latent short, so that a clip handed
+   * over before its end is continued from there (on the grid), in the latent. Left out, it is continued only from its end.
+   */
+  latentTrim?: string;
 }
 
 /** What is known about a picture or a clip that was handed to a recipe. */
@@ -113,6 +125,8 @@ export interface Recipe<In = Record<string, unknown>> {
   /** "<family>.<what it does>", stable: stored with every generation. */
   id: string;
   family: string;
+  /** Made from a workflow the user imported (Workflows), not built in: what is wrong with it is put right there, with Edit. */
+  imported?: true;
   /** Bumped when the graph changes in a way that changes results for the same inputs. */
   version: number;
   title: string;
@@ -137,6 +151,12 @@ export interface Recipe<In = Record<string, unknown>> {
   /** Node classes build() uses only when this ComfyUI has them (ctx.has): speed-ups and finishing touches. */
   optionalNodes?: string[];
   build(input: In, ctx: BuildContext): BuiltGraph;
+  /**
+   * What a finish made with this form (a timeline clip's draft rendered again, larger) needs of the draft it
+   * finishes: `latent: "own"` is the draft's own kept latent, handed over as the upload "self.latent" (H3's latent
+   * re-sample samples it again as it is). Null, or left out: nothing beyond the form.
+   */
+  finishing?(input: In): { latent: "own" } | null;
   /** Sample inputs the graph checker builds without a GPU. Cover every branch of build(). */
   variants: Variant<In>[];
   /**
@@ -171,13 +191,18 @@ export function dryContext(over: Partial<BuildContext> = {}): BuildContext {
 /** What the browser needs to render a recipe's form. */
 export function describeRecipe(r: Recipe<any>) {
   return {
-    id: r.id, family: r.family, version: r.version, title: r.title, summary: r.summary, output: r.output,
+    id: r.id, family: r.family, ...(r.imported ? { imported: true as const } : {}), version: r.version, title: r.title, summary: r.summary, output: r.output,
     inputs: r.inputs, traits: r.traits ?? null, presets: r.presets ?? [],
     ...(r.chapters?.length ? { chapters: r.chapters } : {}),
     // the model files it names itself (an imported workflow's): what its LoRAs are sorted for
     models: (r.files ?? []).filter((f) => ["checkpoints", "diffusion_models"].includes(folderOfFileInput(f.classType, f.input) ?? "")).map((f) => f.file),
   };
 }
+
+/** The Image tools' family (an upscale, a background removal): no model of its own, no prompt. Named here for the screens that leave it out. */
+export const TOOLS_FAMILY = "tools";
+/** The background remover: a tool, where every other operation on a picture is a model's own recipe. */
+export const REMOVE_BACKGROUND = "tools.remove-background";
 
 /** The upscale route that samples a video's own latent again, larger (H3's): kept in the recipe, not run as a tool. */
 export const LATENT_RESAMPLE = "Latent: re-sampled";

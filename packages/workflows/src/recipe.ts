@@ -574,6 +574,7 @@ export function recipeFromWorkflow(def: WorkflowDef): Recipe<Record<string, unkn
   return {
     id: def.id,
     family: familyOf(def).id,
+    imported: true,
     version: 1,
     title: def.title,
     summary: def.source ? `From ${def.source}.` : "From your own workflow.",

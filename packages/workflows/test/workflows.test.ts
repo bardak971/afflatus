@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { baseModels, checkGraph, dryContext, parseInput, schemaFor, warmGraph, type Graph, type NodeCatalog } from "@afflatus/core";
+import { baseModels, checkGraph, describeRecipe, dryContext, parseInput, schemaFor, warmGraph, type Graph, type NodeCatalog } from "@afflatus/core";
 import { ancestors, factorOfUpscaler, inspect, legendOf, recipeFromWorkflow, slug, workflowDef, type WorkflowDef } from "../src";
 import { catalog, flux, panel, sdxl, wan } from "./fixtures";
 
@@ -44,6 +44,9 @@ describe("inspect: the default text-to-picture workflow", () => {
     // the word follows the control into the form input
     const recipe = recipeFromWorkflow(defOf(sdxl, "SDXL", "SDXL"));
     expect(recipe.inputs.find((i) => i.id === "ctl_3_steps")?.note).toBe("The number of steps used in the denoising process.");
+    // said as imported, rather than read off its id ("workflow.…"), wherever the screens treat it as the user's own
+    expect(recipe.imported).toBe(true);
+    expect(describeRecipe(recipe)).toMatchObject({ imported: true });
   });
 });
 

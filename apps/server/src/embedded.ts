@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inflateSync } from "node:zlib";
@@ -152,17 +152,26 @@ function exifUserComment(exif: Buffer): string | null {
   return body.toString("utf8").replace(/\0+$/, "");
 }
 
-/** The tags of a video or sound file, read with ffprobe. Empty when ffprobe is not installed. */
-async function mediaTags(bytes: Uint8Array): Promise<Record<string, string>> {
-  const dir = await mkdtemp(join(tmpdir(), "afflatus-tags-"));
+/** The tags of a video or sound file on disk, read with ffprobe, their names in lower case. Empty when ffprobe is not installed. */
+async function tagsOfFile(file: string): Promise<Record<string, string>> {
   try {
-    const file = join(dir, "in.bin");
-    await writeFile(file, bytes);
     const out = await new Promise<string>((done) => {
       execFile(tools.ffprobe, localInputs(["-v", "error", "-show_entries", "format_tags", "-of", "json", file]), { encoding: "utf8", timeout: 30_000, maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (err, stdout) => done(err ? "" : stdout));
     });
     const tags = (JSON.parse(out || "{}") as { format?: { tags?: Record<string, string> } }).format?.tags ?? {};
     return Object.fromEntries(Object.entries(tags).map(([k, v]) => [k.toLowerCase(), v]));
+  } catch {
+    return {};
+  }
+}
+
+/** The same for a file in memory, written to a temporary folder for ffprobe. */
+async function mediaTags(bytes: Uint8Array): Promise<Record<string, string>> {
+  const dir = await mkdtemp(join(tmpdir(), "afflatus-tags-"));
+  try {
+    const file = join(dir, "in.bin");
+    await writeFile(file, bytes);
+    return await tagsOfFile(file);
   } catch {
     return {};
   } finally {
@@ -425,26 +434,68 @@ const json = (text: string | undefined): unknown => {
   }
 };
 
+const asText = (v: unknown) => (typeof v === "string" ? v : v ? JSON.stringify(v) : undefined);
+
+/**
+ * The graph that ran and the workflow, from a video's tags (their names in lower case). ComfyUI's video savers write
+ * them as they are ("prompt", "workflow"), or together as JSON under "comment" (or "description", where some savers
+ * put it), or the editor's workflow alone under one of those; a tag that is not JSON is a plain comment.
+ */
+export function videoTexts(tags: Record<string, string>): { prompt: string; workflow: string } {
+  let prompt: string | undefined;
+  let workflow: string | undefined;
+  for (const key of ["comment", "description", "workflow"]) {
+    const v = json(tags[key]);
+    if (!v || typeof v !== "object") continue;
+    if ("nodes" in v) workflow ??= JSON.stringify(v);
+    else {
+      const both = v as { prompt?: unknown; workflow?: unknown };
+      prompt ??= asText(both.prompt);
+      workflow ??= asText(both.workflow);
+    }
+  }
+  return { prompt: prompt ?? tags.prompt ?? "", workflow: workflow ?? tags.workflow ?? "" };
+}
+
+/** The workflow of a file's texts: the editor's own form when it has it, else the graph that ran. */
+function workflowOf(texts: Record<string, string>): unknown | null {
+  const graph = json(texts.prompt);
+  const editor = json(texts.workflow);
+  return editor && typeof editor === "object" ? editor : isGraph(graph) ? graph : null;
+}
+
+const isPictureBytes = (buf: Buffer) => buf.length > 12 && (buf.readUInt32BE(0) === 0x89504e47 || (buf[0] === 0xff && buf[1] === 0xd8) || buf.toString("latin1", 8, 12) === "WEBP");
+
+/**
+ * The workflow a file on disk carries (POST /api/workflows/extract): read as readEmbedded reads it, a video's tags
+ * straight from the file rather than through memory. Null when it carries none.
+ */
+export async function embeddedWorkflowOf(file: string): Promise<unknown | null> {
+  const handle = await open(file, "r");
+  const head = Buffer.alloc(16);
+  try {
+    await handle.read(head, 0, 16, 0);
+  } finally {
+    await handle.close();
+  }
+  if (isPictureBytes(head)) return (await readEmbedded(new Uint8Array(await readFile(file)))).workflow;
+  return workflowOf(videoTexts(await tagsOfFile(file)));
+}
+
 /** Everything a dropped file says about how it was made. Never throws: a file that says nothing gives nothing. */
 export async function readEmbedded(bytes: Uint8Array): Promise<Embedded> {
   const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let texts = pngText(buf);
-  const isPicture = buf.length > 12 && (buf.readUInt32BE(0) === 0x89504e47 || (buf[0] === 0xff && buf[1] === 0xd8) || buf.toString("latin1", 8, 12) === "WEBP");
+  const isPicture = isPictureBytes(buf);
   let comment: string | null = null;
   if (!Object.keys(texts).length && isPicture) {
     const exif = exifOf(buf);
     comment = exif ? exifUserComment(exif) : null;
   }
-  if (!isPicture) {
-    // a video ComfyUI saved: the graph and the workflow are in its tags, as they are or together under "comment"
-    const tags = await mediaTags(bytes);
-    const both = json(tags.comment) as { prompt?: unknown; workflow?: unknown } | null;
-    const asText = (v: unknown) => (typeof v === "string" ? v : v ? JSON.stringify(v) : undefined);
-    texts = { prompt: asText(both?.prompt) ?? tags.prompt ?? "", workflow: asText(both?.workflow) ?? tags.workflow ?? "" };
-  }
+  // a video ComfyUI saved: the graph and the workflow are in its tags (videoTexts)
+  if (!isPicture) texts = videoTexts(await mediaTags(bytes));
   const graph = json(texts.prompt);
-  const editor = json(texts.workflow);
-  const workflow = editor && typeof editor === "object" ? editor : isGraph(graph) ? graph : null;
+  const workflow = workflowOf(texts);
   const infotext = texts.parameters ?? (comment && /Steps:\s*\d+/.test(comment) ? comment : null);
   if (infotext) return { settings: parseA1111(infotext), workflow };
   if (isGraph(graph)) {

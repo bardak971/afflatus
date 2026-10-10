@@ -1,4 +1,4 @@
-import { defineFamily, defineRecipe, GraphBuilder, type InputSpec } from "@afflatus/core";
+import { defineFamily, defineRecipe, GraphBuilder, type InputSpec, type PromptLine, QUALITY_WORDS, WEIGHT_SYNTAX, wordCount } from "@afflatus/core";
 import { flowKit, flowRecipes, type FlowBase, type FlowSpec } from "../flow/recipes";
 
 /**
@@ -71,6 +71,16 @@ RULES FOR AN INSTRUCTION (the part is called "Instruction": a change to a pictur
 EXAMPLES, for the form only (their subjects, places, lenses and words are not to be reused):
 A new picture: A photograph of a matte black ceramic mug on a light oak table, steam rising from fresh coffee, morning sunlight streaming in from the right and pooling on the wood, a clean, nearly empty background. Shot on a medium-format camera with a 120 mm macro lens at f/8.
 An instruction: Change the mug to a white enamel one with a chipped rim, keeping the table, the steam, the light and the exact same framing.`,
+  /** What the designer wrote, against FLUX.1's guide: under 75 words, no weights, no quality words. */
+  lint({ text, main }) {
+    if (!text?.trim()) return [];
+    const out: PromptLine[] = [];
+    const n = wordCount(text);
+    if (n > 90) out.push({ part: main, text: `${n} words; FLUX.1 keeps detail best under 75.` });
+    if (WEIGHT_SYNTAX.test(text)) out.push({ part: main, text: "A (word:1.2) weight: FLUX ignores weights." });
+    if (QUALITY_WORDS.test(text)) out.push({ part: main, text: "Quality words (masterpiece, 8k…): FLUX ignores them." });
+    return out;
+  },
 });
 
 const spec: FlowSpec = {

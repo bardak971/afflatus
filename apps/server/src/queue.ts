@@ -4,12 +4,13 @@ import { expandWildcards, modelFileName, parseInput, type BuiltGraph, type Input
 import type { Comfy } from "./comfy";
 import { newId, now, OWNER, type Db } from "./db";
 import { httpError } from "./errors";
-import { estimateMs, rates } from "./estimates";
+import { rates } from "./forecast";
 import type { Registry } from "./registry";
-import { guessFor, known, record } from "./renders";
+import { record } from "./renders";
 import { readSettings } from "./settings";
 import type { Storage } from "./storage";
-import { CUT_JOB, EXPORT_JOB, type CutOptions, type ExportOptions, type Timelines } from "./timelines";
+import type { CutOptions, ExportOptions, Timelines } from "./timelines";
+import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
 import { DEFAULT_QUEUE_OPTIONS, readJson, type JobRow, type QueueCore, type QueueOptions, type Resume, type Running, type Usual } from "./queueModel";
 import * as submitting from "./queueSubmit";
 import * as storing from "./queueStore";
@@ -89,7 +90,7 @@ export class Queue {
       get offlineSince() { return self.offlineSince; },
       loaded: (loads, model) => this.loaded(loads, model),
       usual: () => this.usual(),
-      expected: (usual, recipe, input, cold) => this.expected(usual, recipe, input, cold),
+      expected: (recipe, input, cold) => this.expected(recipe, input, cold),
       runTool: (row, work) => this.runTool(row, work),
     };
   }
@@ -413,19 +414,26 @@ export class Queue {
   }
 
   private known: (Usual & { at: number }) | null = null;
-  /** How long things usually take, worked out at most twice a minute. */
+  /** What the forecast falls back on, worked out at most twice a minute. */
   private async usual() {
-    if (!this.known || Date.now() - this.known.at > 30_000) this.known = { at: Date.now(), rates: await rates(this.db), record: await known(this.db) };
+    if (!this.known || Date.now() - this.known.at > 30_000) this.known = { at: Date.now(), rates: await rates(this.db) };
     return this.known;
   }
 
-  /**
-   * About how long a render will take: from the record of renders like it (and then with what loading
-   * its model adds, when it is not the one loaded), else from the totals of before there was a record.
-   */
-  private expected(usual: Usual, recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean): number | null {
-    const g = guessFor(usual.record, recipe, input);
-    return g ? g.ms + (cold ? g.loadMs : 0) : estimateMs(usual.rates, recipe, input);
+  /** The waiting jobs' forecasts, by form: a job waits unchanged, so it is worked out once, and again after half a minute (renders end, the record grows). */
+  private expectedAt: { at: number; by: Map<string, Promise<number | null>> } = { at: 0, by: new Map() };
+  /** About how long a render will take: the forecast of its form, with what loading its model adds when it is not the one loaded before it. */
+  private expected(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean): Promise<number | null> {
+    if (Date.now() - this.expectedAt.at > 30_000) this.expectedAt = { at: Date.now(), by: new Map() };
+    const key = `${recipe.id}
+${cold}
+${JSON.stringify(input)}`;
+    let got = this.expectedAt.by.get(key);
+    if (!got) {
+      got = submitting.forecastOf(this.core, recipe.id, input, { cold }).then((f) => f?.forecast.ms ?? null, () => null);
+      this.expectedAt.by.set(key, got);
+    }
+    return got;
   }
 
   async setPaused(paused: boolean): Promise<void> {

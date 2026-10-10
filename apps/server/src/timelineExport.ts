@@ -1,6 +1,6 @@
 import { BLEND_MS, CutError, DISSOLVE_MS, type ExportMusic, type ExportPart, joinVideosInto } from "./cut";
 import { newId, now } from "./db";
-import { musicPlan } from "@afflatus/core";
+import { FRAME_SLACK_MS, MIN_FADE_MS, musicPlan } from "@afflatus/core";
 import { duckCurve } from "./duck";
 import { assetView, extOf, newAssetRow } from "./media";
 import { sourceOf } from "./storage";
@@ -36,7 +36,7 @@ export class TimelineExport {
     const laid = laidOut(await this.core.placed(id));
     const total = laid.length ? laid.at(-1)!.atMs + laid.at(-1)!.lengthMs : 0;
     const win = opts.range ? { a: Math.max(0, Math.min(opts.range.inMs, opts.range.outMs)), b: Math.min(total, Math.max(opts.range.inMs, opts.range.outMs)) } : null;
-    if (win && win.b - win.a < 40) throw new CutError("Set In and Out apart: there is nothing between them.");
+    if (win && win.b - win.a < FRAME_SLACK_MS) throw new CutError("Set In and Out apart: there is nothing between them.");
     const shown = win ? laid.filter((l) => l.atMs < win.b && l.atMs + l.lengthMs > win.a) : laid;
     const all = shown.map((l) => l.p);
     if (!all.length) throw new CutError("There is nothing to export yet: no clip of this timeline has a take.");
@@ -89,12 +89,12 @@ export class TimelineExport {
     // sound straight on ("hybrid": takes made before 2026-10-08 joined in the latent too; none are made now)
     const dissolve = !landed && (x.take.join_kind === "latent" || x.take.join_kind === "hybrid");
     const blend = blendJoins && fade && before
-      ? Math.min(landed ? fade.ms : dissolve ? DISSOLVE_MS : BLEND_MS, to - 40, ...(landed ? [x.landed!, before.endMs - before.startMs - 40] : []))
+      ? Math.min(landed ? fade.ms : dissolve ? DISSOLVE_MS : BLEND_MS, to - FRAME_SLACK_MS, ...(landed ? [x.landed!, before.endMs - before.startMs - FRAME_SLACK_MS] : []))
       : 0;
     // dissolved in over the clip before held on its last frame: the hold starts where that clip's file really ends. A
     // render interpolated ×2 is up to a model frame shorter than its length on the grid, and the fade began that much
     // after its last frame, a still of 3 frames then a step (measured 2026-10-08); this part takes up the difference
-    const short = blend >= 80 && !landed && afterVideo && beforeAsset?.duration_ms ? Math.max(0, Math.round(before!.endMs - beforeAsset.duration_ms)) : 0;
+    const short = blend >= MIN_FADE_MS && !landed && afterVideo && beforeAsset?.duration_ms ? Math.max(0, Math.round(before!.endMs - beforeAsset.duration_ms)) : 0;
     if (short > 0 && before) before.endMs -= short;
     const seam = from === 0 && p.clip.joined === "continue" && seamless(x) && afterVideo;
     return {

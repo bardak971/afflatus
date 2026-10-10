@@ -1,4 +1,4 @@
-import type { BuiltGraph } from "@afflatus/core";
+import { roughly, secondsOf, type BuiltGraph, type Recipe } from "@afflatus/core";
 import type { Db } from "./db";
 
 /**
@@ -39,6 +39,8 @@ export interface Forecast {
   /** The largest work that rendered at the usual pace. */
   fitsUpTo: number;
   samples: number;
+  /** What loading the model adds, included in `ms`: 0 when it is the one in memory. A batch of renders loads it once. */
+  loadMs: number;
 }
 
 const median = (xs: number[]): number => {
@@ -76,7 +78,7 @@ export function forecastFrom(points: Point[], work: number, steps: number, extra
     stepMs = work * c;
     pace = work > fitsUpTo * 1.1 ? "untested" : "usual";
   }
-  return { ms: Math.round(steps * stepMs + extraMs), pace, fitsUpTo, samples: pts.length };
+  return { ms: Math.round(steps * stepMs + extraMs), pace, fitsUpTo, samples: pts.length, loadMs: 0 };
 }
 
 /** What this model's past renders say about a render of `work` sampled over `steps`, with its model to load or already in memory. */
@@ -98,14 +100,70 @@ export async function forecast(db: Db, modelFile: string, work: number, steps: n
   // what surrounds the sampling: the finishing and any pass after it, and the load when the model is not the one in memory
   const finish = median(rows.map((r) => r.finish_ms + r.refine_ms));
   const loads = rows.filter((r) => Boolean(r.cold) === cold).map((r) => r.load_ms);
-  return forecastFrom(points, work, steps, finish + (loads.length ? median(loads) : 0));
+  const f = forecastFrom(points, work, steps, finish + (loads.length ? median(loads) : 0));
+  if (!f || !cold || !loads.length) return f;
+  // what the load adds over what a model in memory still spends before its first step (the text, the pictures)
+  const warm = rows.filter((r) => !r.cold).map((r) => r.load_ms);
+  return { ...f, loadMs: Math.round(Math.max(0, median(loads) - (warm.length ? median(warm) : 0))) };
+}
+
+// ---------------------------------------------------------------- where no render of the model was measured yet
+
+/**
+ * Per recipe, the usual time of one job and, for videos, of one second of video, from what was rendered
+ * before (the generations, kept since before render times were recorded). Only what `forecast` falls back on
+ * for a form it cannot place (a tool with no steps, a model not measured yet): never a figure of its own.
+ */
+export interface Rate {
+  /** The usual time of one job, in milliseconds. */
+  perJobMs: number;
+  /** Of a video recipe: the usual time for one second of video. */
+  perSecondMs: number | null;
+  /** How many past renders this rests on. */
+  samples: number;
+}
+
+/** How many past renders the fallback looks at: the recent ones say more about the machine as it is now. */
+const LOOK_BACK = 400;
+
+export async function rates(db: Db): Promise<Record<string, Rate>> {
+  const rows = await db
+    .selectFrom("generations")
+    .innerJoin("assets", "assets.generation_id", "generations.id")
+    .select(["generations.id", "generations.recipe_id", "generations.gen_ms", "assets.kind", "assets.duration_ms"])
+    .orderBy("generations.created_at", "desc")
+    .limit(LOOK_BACK)
+    .execute();
+  const seen = new Set<string>();
+  const byRecipe = new Map<string, { jobs: number[]; perSecond: number[] }>();
+  for (const r of rows) {
+    // a job that gave several results is one render
+    if (seen.has(r.id) || r.gen_ms <= 0) continue;
+    seen.add(r.id);
+    const at = byRecipe.get(r.recipe_id) ?? { jobs: [], perSecond: [] };
+    at.jobs.push(r.gen_ms);
+    if (r.kind === "video" && r.duration_ms && r.duration_ms > 0) at.perSecond.push(r.gen_ms / (r.duration_ms / 1000));
+    byRecipe.set(r.recipe_id, at);
+  }
+  return Object.fromEntries([...byRecipe].map(([id, v]) => [id, { perJobMs: Math.round(median(v.jobs)), perSecondMs: v.perSecond.length ? Math.round(median(v.perSecond)) : null, samples: v.jobs.length }]));
+}
+
+/** The fallback as a forecast: the recipe's usual job, or its usual pace times the video's seconds; null when it never rendered. */
+export function fromRates(all: Record<string, Rate>, recipe: Recipe<any>, input: Record<string, unknown>): Forecast | null {
+  const rate = all[recipe.id];
+  if (!rate) return null;
+  const seconds = secondsOf(recipe.inputs, input);
+  const ms = rate.perSecondMs && seconds ? Math.round(rate.perSecondMs * seconds) : rate.perJobMs;
+  return { ms, pace: "usual", fitsUpTo: 0, samples: rate.samples, loadMs: 0 };
 }
 
 /** The forecast as the form says it: a line, and, past the cliff, the words that go next to the setting that drives the size. */
 export function said(f: Forecast, shape: { pixels: number; frames: number }): { text: string; hint: string | null } {
-  const dur = f.ms < 90_000 ? `${Math.max(1, Math.round(f.ms / 1000))} s` : `${Math.round(f.ms / 60_000)} min`;
+  // rounded as the Generate button rounds it (core's roughly): the two say one figure
+  const dur = roughly(f.ms);
   const fits = shape.frames > 1 ? `${Math.floor(f.fitsUpTo / Math.max(1, shape.pixels))} frames at this size` : `about ${(f.fitsUpTo / 1e6).toFixed(1)} MP`;
   if (f.pace === "over") return { text: `About ${dur}: past where this model slowed down on your card before (up to ${fits} kept the usual pace).`, hint: `past where this model slowed down on your card: up to ${fits} kept the usual pace` };
   if (f.pace === "untested") return { text: `About ${dur}, if it keeps the pace of your renders with this model: none was this large yet.`, hint: null };
+  if (!f.fitsUpTo) return { text: `About ${dur}, from your renders of this kind.`, hint: null };
   return { text: `About ${dur}, from your renders with this model.`, hint: null };
 }

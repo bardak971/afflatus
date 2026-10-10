@@ -2,6 +2,7 @@ import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
+import { envSaid } from "./config";
 import { httpError } from "./errors";
 import { isNetworkPath } from "./linked";
 import type { Services } from "./services";
@@ -20,7 +21,7 @@ const exists = (p: string) => access(p).then(() => true, () => false);
 
 /** Where the pack's source is: the repository's folder, or NODE_PACK_DIR. */
 export function nodePackSource(): string {
-  return process.env.NODE_PACK_DIR?.trim() || fileURLToPath(new URL("../../../comfy-nodes/afflatus-nodes", import.meta.url));
+  return envSaid.nodePackDir()?.trim() || fileURLToPath(new URL("../../../comfy-nodes/afflatus-nodes", import.meta.url));
 }
 
 /** The pack's version, written once in its pyproject.toml: the pack reads it there too, and says it on GET /afflatus/version. */

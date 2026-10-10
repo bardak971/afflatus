@@ -7,11 +7,12 @@ import { join } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { ZodError } from "zod";
+import { VERSION } from "./config";
 import { registerAssets } from "./assets-api";
 import { registerBackup, type BackupPlaces } from "./backup";
 import { registerCommandBar } from "./commandIndex";
 import { registerCompression } from "./compress";
-import { registerDesigner } from "./designer";
+import { registerDesigner } from "./designer-api";
 import { registerDrafts } from "./drafts";
 import { registerEntities } from "./entities";
 import { httpError } from "./errors";
@@ -40,7 +41,7 @@ import { registerUsage } from "./usage";
 import { registerWorkflows } from "./workflows";
 
 /** The release this is: set by the build (AFFLATUS_VERSION, from the git tag); "dev" when run from the sources. */
-export const VERSION = process.env.AFFLATUS_VERSION?.trim() || "dev";
+export { VERSION };
 
 export function buildApp(s: Services, opts: { webDir?: string; /** Where the data is, for the backup; without it there is no backup. */ backup?: BackupPlaces } = {}): FastifyInstance {
   // a workflow with many nodes is a large body

@@ -1,4 +1,4 @@
-import { frameOf } from "@afflatus/core";
+import { frameOf, type PromptLine, QUOTED_SPEECH, WEIGHT_SYNTAX, wordCount } from "@afflatus/core";
 import { defineFamily } from "@afflatus/core";
 import { SEEDVR_SLOTS } from "../video/upscale";
 
@@ -96,6 +96,16 @@ RULES
 - No weights, no quality words. More detail is not more actions.
 EXAMPLE, for the form only (its subject, place and words are not to be reused):
 An elderly fisherman in a grey wool sweater and a flat cap mends a net on a stone quay at dawn. He pulls the twine tight with slow, deliberate movements, pauses to shake out a tangle, then bends back to the knot, while gulls wheel over the grey water behind him. Tracking shot, slowly circling from his hands up to his weathered face. Overcast light, soft light, close shot, low saturation, cool tones.`,
+  /** What the designer wrote, against Wan's guide: no sound, so no dialogue; 40 to 120 words; no weights. */
+  lint({ text, main }) {
+    if (!text?.trim()) return [];
+    const out: PromptLine[] = [];
+    const n = wordCount(text);
+    if (/<d>|["“][^"”]{3,}["”]/.test(text) && QUOTED_SPEECH.test(text)) out.push({ part: main, text: "Dialogue in a Wan prompt: Wan makes no sound, nobody is heard." });
+    if (n > 140) out.push({ part: main, text: `${n} words; the formula prompt works best at 40 to 120.` });
+    if (WEIGHT_SYNTAX.test(text)) out.push({ part: main, text: "A (word:1.2) weight: Wan does not read weights." });
+    return out;
+  },
 });
 
 export const WAN_FPS = 16;

@@ -1,11 +1,10 @@
 import { useContext, useEffect, useMemo, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { isShown, type InputSpec } from "@afflatus/core";
-import { api, thumbUrl, type RecipeInfo, type RecipeStatus } from "./api";
+import { useAdvice } from "./advice";
+import { thumbUrl, type RecipeInfo, type RecipeStatus } from "./api";
 import { useModelSettings, useRecipes } from "./data";
 import { Field, sameValue } from "./fields";
-import { changedIn, countOf, formDefaults, layoutOf, matchesText, settingsOnly, summariesOf } from "./form";
-import { useSettled } from "./hooks";
+import { changedIn, countOf, formDefaults, layoutOf, matchesText, summariesOf } from "./form";
 import { MissingModel } from "./PresetFiles";
 import { InputsPart } from "./recipeForm/InputsPart";
 import { ModelDefaults } from "./recipeForm/ModelDefaults";
@@ -63,14 +62,8 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   const values = useMemo(() => ({ ...defaults, ...stored }), [defaults, stored]);
   // what decides which settings show: the values, plus what the screen will fill in itself
   const seen = given ? { ...values, ...given } : values;
-  // what it will take, asked again only when a setting changes (not while text is typed), once the settings
-  // have settled: a slider dragged across the form is one question, not one per pixel
-  const adviceKey = useSettled(useMemo(() => JSON.stringify(settingsOnly(recipe, values)), [recipe, values]), 500);
-  const advice = useQuery({
-    queryKey: ["advice", recipe.id, adviceKey],
-    queryFn: () => api.advice(recipe.id, { ...Object.fromEntries(recipe.inputs.filter((i) => i.type === "prompt" && !i.optional).map((i) => [i.id, "x"])), ...(JSON.parse(adviceKey) as Record<string, unknown>) }),
-    staleTime: 60_000,
-  });
+  // what it will take: the same query as the Generate button's (advice.ts)
+  const advice = useAdvice(recipe, values);
   // the model in use: the one picked in the form, else the one an imported workflow loads. LoRAs made for it come first.
   const picker = recipe.inputs.find((i) => i.type === "model");
   const inUse = (picker ? String(values[picker.id] ?? "") : recipe.models?.[0]) || undefined;

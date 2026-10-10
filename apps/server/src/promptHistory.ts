@@ -1,7 +1,7 @@
 import { sql } from "kysely";
 import type { InputSpec, Recipe } from "@afflatus/core";
 import { z } from "zod";
-import { NOT_IN_LIBRARY } from "./assetSearch";
+import { NOT_IN_LIBRARY } from "./library";
 import type { Services } from "./services";
 
 /**

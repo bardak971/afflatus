@@ -1,3 +1,4 @@
+import { envSaid } from "./config";
 import { pretendSites, wordsOf } from "./civitai";
 import { fetchPublic, hostnameOf } from "./outbound";
 
@@ -25,7 +26,7 @@ export interface HuggingFaceFound {
 
 type Repo = { id: string; downloads?: number; gated?: boolean | string; siblings?: Array<{ rfilename: string }> };
 
-const site = () => (process.env.HUGGINGFACE_URL ?? "https://huggingface.co").replace(/\/+$/, "");
+const site = () => (envSaid.huggingfaceUrl() ?? "https://huggingface.co").replace(/\/+$/, "");
 const KEEP_MS = 60 * 60_000;
 let official: { at: number; repos: Promise<Repo[]> } | null = null;
 
@@ -50,7 +51,7 @@ export function forgetHuggingFace(): void {
 export async function findOnHuggingFace(file: string, hints: string[] = []): Promise<{ items: HuggingFaceFound[]; answered: boolean }> {
   const name = (file.split(/[\\/]/).pop() ?? file).toLowerCase();
   // where a pretend Civitai stands in (the tests, the demo), the real Hugging Face is not asked either
-  if (pretendSites() && !process.env.HUGGINGFACE_URL) return { items: [], answered: false };
+  if (pretendSites() && !envSaid.huggingfaceUrl()) return { items: [], answered: false };
   if (!official || Date.now() - official.at > KEEP_MS) {
     official = { at: Date.now(), repos: list({ author: "Comfy-Org", limit: "500" }) };
     official.repos.catch(() => (official = null));

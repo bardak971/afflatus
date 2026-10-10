@@ -1,8 +1,8 @@
 import { projectForNew, projectParam } from "./project";
-import type { ModelInfo, Known } from "@afflatus/core";
+import type { ModelInfo } from "@afflatus/core";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
-import type { HistoryPage, QueueStatus, Rate, TimesPeriod, TimesWindow, TimesSummary, RenderItem } from "./api/types/queue";
+import type { Advice, HistoryPage, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem } from "./api/types/queue";
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DesignerSession, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView } from "./api/types/designer";
@@ -37,6 +37,26 @@ async function send(input: string, init: RequestInit): Promise<Response> {
     if (err instanceof TypeError) throw new ApiError(NOT_ANSWERING);
     throw err;
   }
+}
+
+/**
+ * A request whose answer the caller reads itself (a draft's 404 says it is gone), or that must outlive the page
+ * (`keepalive`: a save made as the tab closes; the browser takes at most 64 KiB of body that way). Through `send`, so
+ * the server being away reads NOT_ANSWERING; an answer that is not a success is the caller's (`failure` says it).
+ */
+export function raw(method: string, path: string, body?: unknown, opts: { keepalive?: boolean } = {}): Promise<Response> {
+  return send(`/api${path}`, {
+    method,
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    keepalive: opts.keepalive,
+  });
+}
+
+/** What a request that did not succeed says, as `call` throws it: the server's own words, and its status. */
+export async function failure(res: Response): Promise<ApiError> {
+  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  return new ApiError(data.error ?? `the server answered ${res.status}`, res.status);
 }
 
 /** `signal`: a query's, so that a query that is cancelled (refetched, left) also stops its request. */
@@ -131,7 +151,6 @@ export const api = {
   dismissJobs: (ids: string[]) => call<{ dismissed: number }>("POST", "/jobs/dismiss", { ids }),
   /** Finished jobs again, several in one request ("Retry all"), in the order given; with `dismiss`, the ones queued again leave the history. */
   retryJobs: (ids: string[], dismiss = false) => call<{ ids: string[]; failed: number }>("POST", "/jobs/retry", { ids, dismiss }),
-  estimates: (o?: Asked) => call<{ rates: Record<string, Rate>; known: Record<string, Known> }>("GET", "/estimates", undefined, o?.signal),
   renderTimes: (range: TimesPeriod | TimesWindow, o?: Asked) => call<TimesSummary>("GET", typeof range === "string" ? `/renders/summary?period=${range}` : `/renders/summary?from=${Math.round(range.from)}&to=${Math.round(range.to)}`, undefined, o?.signal),
   renders: (opts: { recipe?: string; trouble?: boolean; before?: string; limit?: number; from?: number; to?: number }, o?: Asked) =>
     call<{ total: number; more: boolean; items: RenderItem[] }>("GET", `/renders?${new URLSearchParams({ ...(opts.recipe ? { recipe: opts.recipe } : {}), ...(opts.trouble ? { only: "trouble" } : {}), ...(opts.before ? { before: opts.before } : {}), ...(opts.from ? { from: String(Math.round(opts.from)) } : {}), ...(opts.to ? { to: String(Math.round(opts.to)) } : {}), limit: String(opts.limit ?? 50) })}`, undefined, o?.signal),
@@ -158,7 +177,7 @@ export const api = {
     const qs = params.toString();
     return call<{ items: PromptHistoryItem[] }>("GET", `/prompt-history${qs ? `?${qs}` : ""}`, undefined, o?.signal);
   },
-  advice: (recipe: string, input: Record<string, unknown>) => call<{ estimate: { text: string; pace: "usual" | "untested" | "over" } | null }>("POST", "/advice", { recipe, input }),
+  advice: (recipe: string, input: Record<string, unknown>) => call<{ estimate: Advice | null }>("POST", "/advice", { recipe, input }),
   civitaiFind: (file: string, folder: string | null, hints: string[] = []) =>
     call<{ items: CivitaiFind[]; exact: HuggingFaceFind[]; asked: string[]; silent: string[] }>(
       "GET", `/civitai/find?${new URLSearchParams({ file, ...(folder ? { folder } : {}), ...(hints.length ? { hints: hints.join("|") } : {}) })}`,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { dryContext, parseInput, type BuiltGraph } from "@afflatus/core";
-import { fluxPicture, h3Video, recipeById, sdxlTextToPicture, wanVideo } from "../src";
+import { dryContext, LATENT_GRID, LATENT_RESAMPLE, parseInput, type BuiltGraph } from "@afflatus/core";
+import { familyById, fluxPicture, h3Video, recipeById, sdxlTextToPicture, wanVideo } from "../src";
 import { DAEMON_NEEDED, LYING_SIGMA } from "../src/shared/detail";
 import { AUX_NODE } from "../src/shared/guide";
 import { SAGE_NEEDED, SAGE_NODE } from "../src/shared/speed";
@@ -145,5 +145,24 @@ describe("a continuation handed over before the clip before's frozen tail", () =
     const b = build((n) => n !== "AfflatusTrimH3Latent");
     expect(of(b, "MiniMaxH3GuidedContinuationWindow")).toHaveLength(0);
     expect(of(b, "AfflatusTrimH3Latent")).toHaveLength(0);
+  });
+});
+
+describe("what a recipe says of itself, for the generic runner", () => {
+  it("H3 asks for its draft's own latent only for a latent re-sample finish, and names the node that cuts a kept latent", () => {
+    expect(h3Video.finishing?.(parseInput(h3Video, { description: "a", upscale: LATENT_RESAMPLE }))).toEqual({ latent: "own" });
+    expect(h3Video.finishing?.(parseInput(h3Video, { description: "a", upscale: "Video: SeedVR2 (restores)" }))).toBeNull();
+    expect(h3Video.traits).toMatchObject({ frameGrid: LATENT_GRID, latentTrim: "AfflatusTrimH3Latent" });
+    // a recipe that keeps no latent asks nothing of the draft it finishes
+    expect(wanVideo.finishing).toBeUndefined();
+    expect(wanVideo.traits?.latentTrim).toBeUndefined();
+  });
+
+  it("each family's own prompt rules travel with it (Family.lint): the server holds a reply to them", () => {
+    const lint = (family: string, text: string) => familyById(family)?.lint?.({ text, main: "prompt", changes: { prompt: text } }).map((l) => l.text) ?? [];
+    expect(lint("flux", "(a cat:1.3), masterpiece")).toEqual([expect.stringMatching(/weight/), expect.stringMatching(/Quality words/)]);
+    expect(lint("qwen21", "(a cat:1.3)")).toEqual([expect.stringMatching(/Qwen does not read weights/)]);
+    expect(lint("sdxl", "long_hair, long_hair")).toEqual([expect.stringMatching(/Underscores/), expect.stringMatching(/Repeated tags/)]);
+    expect(familyById("tools")?.lint).toBeUndefined();
   });
 });

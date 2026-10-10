@@ -5,6 +5,8 @@ import type { Bindings, Wiring, WorkflowDef } from "@afflatus/workflows";
 export interface RecipeInfo {
   id: string;
   family: string;
+  /** Made from a workflow the user imported (Workflows), not built in. */
+  imported?: true;
   version: number;
   title: string;
   summary: string;

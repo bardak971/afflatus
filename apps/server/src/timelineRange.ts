@@ -1,4 +1,4 @@
-import { latentFrameAtOrBefore, MODEL_FPS, secondsInput, type Recipe } from "@afflatus/core";
+import { FRAME_SLACK_MS, latentFrameAtOrBefore, MODEL_FPS, secondsInput, type Recipe } from "@afflatus/core";
 import { fromName, nameOf } from "./autoName";
 import { CutError, rangeKeep, slowMotion } from "./cut";
 import { newId, now, OWNER, type Db } from "./db";
@@ -130,7 +130,7 @@ export class TimelineRange {
       const p = (await this.core.placed(clip.timeline_id, tx)).find((x) => x.clip.id === clipId);
       if (!p?.active) throw httpError("This clip has no take yet: render it first.");
       const { start, end } = visible(p.active);
-      if (atMs < start + 40 || atMs > end - 40) throw httpError("Put the playhead inside the part that plays, at least a frame from its ends.");
+      if (atMs < start + FRAME_SLACK_MS || atMs > end - FRAME_SLACK_MS) throw httpError("Put the playhead inside the part that plays, at least a frame from its ends.");
       await this.core.remember(clip.timeline_id, "the split", undefined, tx);
       return this.splitAt(clip.timeline_id, p, atMs - start, tx);
     });
@@ -291,7 +291,7 @@ export class TimelineRange {
   async splitRange(timelineId: string, inMs: number, outMs: number): Promise<void> {
     await this.core.oneAtATime(timelineId, async () => {
       const { laid, a, b } = await this.window(timelineId, inMs, outMs);
-      const inside = (ms: number) => laid.find((l) => l.atMs + 40 <= ms && ms <= l.atMs + l.lengthMs - 40);
+      const inside = (ms: number) => laid.find((l) => l.atMs + FRAME_SLACK_MS <= ms && ms <= l.atMs + l.lengthMs - FRAME_SLACK_MS);
       const marks = [...new Set([b, a])].filter((ms) => inside(ms));
       if (!marks.length) throw httpError("In and Out are both on cuts already: there is nothing to split.");
       await this.edit(timelineId, async (tx) => {
@@ -310,7 +310,7 @@ export class TimelineRange {
   async removeRange(timelineId: string, inMs: number, outMs: number): Promise<void> {
     await this.core.oneAtATime(timelineId, async () => {
       const { a, b } = await this.window(timelineId, inMs, outMs);
-      if (b - a < 40) throw httpError("Set In and Out apart: there is nothing between them.");
+      if (b - a < FRAME_SLACK_MS) throw httpError("Set In and Out apart: there is nothing between them.");
       await this.edit(timelineId, async (tx) => {
         await this.core.remember(timelineId, "the range removed", undefined, tx);
         await this.cutOut(timelineId, a, b, tx);
@@ -369,8 +369,8 @@ export class TimelineRange {
     const first = context.start === "frame" ? await this.pictureAt(timelineId, before!, a - before!.atMs) : null;
     const last = context.end === "frame" ? await this.pictureAt(timelineId, after!, b - after!.atMs) : null;
     const id = await this.core.db.transaction().execute(async (tx) => {
-      await this.core.remember(timelineId, b - a >= 40 ? "the regenerated range" : "the clip added between", undefined, tx);
-      if (b - a >= 40) await this.cutOut(timelineId, a, b, tx);
+      await this.core.remember(timelineId, b - a >= FRAME_SLACK_MS ? "the regenerated range" : "the clip added between", undefined, tx);
+      if (b - a >= FRAME_SLACK_MS) await this.cutOut(timelineId, a, b, tx);
       // where it goes: after the last clip that stops by In
       const all = await this.core.placed(timelineId, tx);
       const anchor = [...laidOut(all)].reverse().find((l) => l.atMs + l.lengthMs <= a + 50);
@@ -380,12 +380,12 @@ export class TimelineRange {
         joined: context.start === "clip" ? "continue" : "cut",
         // the clip after: it follows the new clip when the model can end where it begins (the render is given its video from Out), else it is a cut
         nextJoined: context.end === "clip" ? "continue" : "cut",
-        first, last, seconds: b - a >= 40 ? (b - a) / 1000 : undefined,
+        first, last, seconds: b - a >= FRAME_SLACK_MS ? (b - a) / 1000 : undefined,
       }, tx);
     });
     // still shorter than the model makes (the clips around it too short to take from): what follows moves by that much
-    const longerMs = length && b - a >= 40 ? Math.max(0, Math.round(length.min * 1000 - (b - a))) : 0;
-    return { clip: id, context, ...(widenedMs ? { widenedMs } : {}), ...(longerMs > 40 ? { longerMs } : {}) };
+    const longerMs = length && b - a >= FRAME_SLACK_MS ? Math.max(0, Math.round(length.min * 1000 - (b - a))) : 0;
+    return { clip: id, context, ...(widenedMs ? { widenedMs } : {}), ...(longerMs > FRAME_SLACK_MS ? { longerMs } : {}) };
   }
 
   /**
@@ -399,7 +399,7 @@ export class TimelineRange {
     const frame = Math.round((assetMs * MODEL_FPS) / 1000);
     const grid = latentFrameAtOrBefore(frame);
     const back = ((frame - grid) * 1000) / MODEL_FPS;
-    return grid >= 22 && back > 0 && x - back > under.atMs + 40 ? Math.round(x - back) : x;
+    return grid >= 22 && back > 0 && x - back > under.atMs + FRAME_SLACK_MS ? Math.round(x - back) : x;
   }
 
   /**
@@ -413,7 +413,7 @@ export class TimelineRange {
     const { a, b, before, after } = r;
     const length = secondsInput(recipe.inputs);
     const same = { ...r, widenedMs: 0 };
-    if (!length || b - a < 40) return same;
+    if (!length || b - a < FRAME_SLACK_MS) return same;
     const ROOM = 1000;
     const want = (x: number) => Math.min(length.max * 1000, Math.max(length.min * 1000, x));
     const deficit = want(b - a) - (b - a);
@@ -498,7 +498,7 @@ export class TimelineRange {
   private async loopInTurn(timelineId: string, inMs: number, outMs: number): Promise<{ clip: string; context: RangeContext; arrive: string }> {
     const { registry } = this.core;
     const { laid, a, b } = await this.window(timelineId, inMs, outMs);
-    if (b - a < 40) throw httpError("Set In and Out apart: a loop needs something to play round.");
+    if (b - a < FRAME_SLACK_MS) throw httpError("Set In and Out apart: a loop needs something to play round.");
     const source = this.before(laid, b)!;
     const target = this.at(laid, a) ?? this.before(laid, a)!;
     const startBy = (r: Recipe<any>): "clip" | "frame" | null => (source.p.clip.kind === "video" && carriesClip(r, "previous") ? "clip" : takesFrame(r, "start") ? "frame" : null);

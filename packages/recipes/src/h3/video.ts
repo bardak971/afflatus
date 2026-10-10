@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, latentUpscaleSize, type Ref, type Variant } from "@afflatus/core";
-import { H3_FPS } from "./family";
+import { H3_FPS, H3_GRID } from "./family";
 import { UPSCALE, UPSCALE_OPTIONAL, upscaleNodes } from "../video/upscale";
 import { unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
@@ -26,7 +26,7 @@ export const h3Video = defineRecipe<H3Video>({
   output: "video",
   traits: {
     startFrame: true, endFrame: true, midFrames: true, continues: "clip", endAnchor: true, sound: true,
-    fps: H3_FPS, frameGrid: { step: 17, offset: 5 },
+    fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM,
   },
   inputs: h3Inputs,
 
@@ -56,6 +56,9 @@ export const h3Video = defineRecipe<H3Video>({
     // one of the two enlargers is used, by whether the latent upscaler's file is there: neither can be required by nodes()
     ...H3_LATENT_ENLARGE_NODES,
   ],
+
+  // a finish by the latent re-sample samples the draft's own kept latent again (rendered again, the frames would differ)
+  finishing: (input) => (input.upscale === UPSCALE.latent ? { latent: "own" } : null),
 
   build(input, ctx) {
     const { slots, media } = ctx;

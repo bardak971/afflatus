@@ -76,7 +76,7 @@ function Operations({ group, recipe, why, pick }: { group: ModelGroup; recipe: R
     <div ref={self} role="radiogroup" aria-label="Operation" className="flex flex-wrap gap-1 rounded-[9px] bg-raised p-[3px]">
       {group.recipes.map((r, i) => {
         const on = r.id === recipe.id;
-        const own = r.id.startsWith("workflow.");
+        const own = r.imported;
         return (
           <button
             key={r.id}
@@ -135,7 +135,7 @@ export function ModelPicker({ pick, recipe, presets }: { pick: ReturnType<typeof
           label="Operation"
           value={recipe.id}
           onChange={pick.pick}
-          options={group.recipes.map((r) => ({ value: r.id, label: r.title, detail: r.summary, note: why(r) ? "not ready" : undefined, group: r.id.startsWith("workflow.") ? "Your workflows" : "Built in" }))}
+          options={group.recipes.map((r) => ({ value: r.id, label: r.title, detail: r.summary, note: why(r) ? "not ready" : undefined, group: r.imported ? "Your workflows" : "Built in" }))}
         />
       )}
       {/* only what stops it: the description lives in the picker's list and on the operations' hover */}

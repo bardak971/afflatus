@@ -2,7 +2,8 @@ import { SqliteAdapter, sql, type Expression } from "kysely";
 import { modelName, modelOf, type JoinKind, joinKindOf } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 import { finishForecast, usesGpu } from "./queueTools";
-import { CUT_JOB, EXPORT_JOB, type CutOptions } from "./timelines";
+import type { CutOptions } from "./timelines";
+import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
 import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel";
 import type { Db } from "./db";
 
@@ -53,21 +54,9 @@ export async function status(core: QueueCore) {
     .orderBy("finished_at", "desc")
     .limit(20)
     .execute();
-  const usual = await core.usual();
-  // down the line, a job whose model is not the one before it has to load it first
-  let held = core.lastLoads === null ? null : new Set(core.lastLoads.split("|").map(modelName));
   const finishes = await finishesWaiting(core, rows);
-  const brief = (r: JobRow) => {
-    const recipe = core.registry.recipe(r.recipe_id);
-    // a tool on the GPU frees the model before it: the render after it loads its own again
-    if (r.status === "queued" && held && usesGpu(r)) held = new Set();
-    if (r.status !== "queued" || !recipe || r.warm) return { ...plain(r), estimateMs: (r.status === "queued" && finishes.get(r.id)) || null };
-    const input = inputsOf(r);
-    const model = modelOf(recipe.inputs, input);
-    const cold = Boolean(model && held && !held.has(model));
-    if (model) held = new Set([model]);
-    return { ...plain(r), estimateMs: core.expected(usual, recipe, input, cold) };
-  };
+  const renders = await rendersWaiting(core, rows);
+  const brief = (r: JobRow) => ({ ...plain(r), estimateMs: (r.status === "queued" && (finishes.get(r.id) ?? renders.get(r.id))) || null });
   /** How a clip render joins the clip before, once its graph is built: in the latent, or on pinned frames; null when it starts on its own or is not a clip. */
   const joinOf = (r: JobRow): JoinKind | null => {
     if (!r.clip_id || !r.resume) return null;
@@ -100,6 +89,25 @@ export async function status(core: QueueCore) {
     waiting: rows.filter((r) => r.status === "queued").map(brief),
     recent: recent.map(brief),
   };
+}
+
+/** What each waiting render should take (the forecast, queue.expected), by job, in the line's order: down the line, a job whose model is not the one before it has to load it first. */
+async function rendersWaiting(core: QueueCore, rows: JobRow[]): Promise<Map<string, number | null>> {
+  let held = core.lastLoads === null ? null : new Set(core.lastLoads.split("|").map(modelName));
+  const asked: Array<Promise<[string, number | null]>> = [];
+  for (const r of rows) {
+    if (r.status !== "queued") continue;
+    // a tool on the GPU frees the model before it: the render after it loads its own again
+    if (held && usesGpu(r)) held = new Set();
+    const recipe = core.registry.recipe(r.recipe_id);
+    if (!recipe || r.warm) continue;
+    const input = inputsOf(r);
+    const model = modelOf(recipe.inputs, input);
+    const cold = Boolean(model && held && !held.has(model));
+    if (model) held = new Set([model]);
+    asked.push(core.expected(recipe, input, cold).then((ms) => [r.id, ms]));
+  }
+  return new Map(await Promise.all(asked));
 }
 
 /** What each waiting finish should take (finishForecast), by job; a finish whose video is gone is left out. */

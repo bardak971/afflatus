@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
-import { guess, timeKey } from "@afflatus/core";
-import { cellOf, fold, known, list, merge, summary, type RenderRow } from "../src/renders";
+import { roughly, timeKey } from "@afflatus/core";
+import { cellOf, fold, list, merge, summary, type RenderRow } from "../src/renders";
 import { CHECKPOINT, complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 let fake: FakeComfy;
@@ -240,31 +240,7 @@ describe("what the tab shows", () => {
   });
 });
 
-describe("the next render's time is guessed from the record", () => {
-  it("from the same settings on the same model first, then from the model, then from the recipe", async () => {
-    const recipe = t.services.registry.recipe("sdxl.text-to-picture")!;
-    const form = (over: Record<string, unknown> = {}) => ({ prompt: "a", checkpoint: `folder/${CHECKPOINT}`, ...over });
-    const key = timeKey(recipe.inputs, form());
-    await put([
-      row({ time_key: key, total_ms: 20_000 }), row({ time_key: key, total_ms: 22_000 }), row({ time_key: key, total_ms: 21_000 }),
-      // the same settings, the model loaded first: the load is told apart
-      row({ time_key: key, total_ms: 51_000, load_ms: 31_000, cold: 1 }),
-      row({ time_key: "steps=60", total_ms: 44_000 }),
-      row({ time_key: key, model: "other", model_file: "other", total_ms: 90_000 }),
-    ]);
-    const all = await known(t.db);
-    const sdxl = all["sdxl.text-to-picture"]!;
-    expect(sdxl.samples).toBe(6);
-    // 51 s with 31 s of loading, of which a loaded model spends 1 s anyway: 21 s with the model loaded
-    expect(guess(sdxl, recipe.inputs, form())).toMatchObject({ ms: 21_000, loadMs: 30_000, from: "settings", samples: 4 });
-    // settings nothing was rendered with: what this model usually takes
-    expect(guess(sdxl, recipe.inputs, form({ steps: 12 }))).toMatchObject({ from: "model", samples: 5 });
-    // a model nothing was rendered with: what the recipe usually takes
-    expect(guess(sdxl, recipe.inputs, form({ steps: 12, checkpoint: "new.safetensors" }))).toMatchObject({ from: "recipe", samples: 6 });
-    expect(guess(all["wan.video"], recipe.inputs, form())).toBeNull();
-    expect((await get(t.app, "/api/estimates")).json().known["sdxl.text-to-picture"].samples).toBe(6);
-  });
-
+describe("the next render's time is forecast from the record", () => {
   it("the words, the seed and the files do not change the key; the steps, the size and what it is handed do", () => {
     const recipe = t.services.registry.recipe("sdxl.text-to-picture")!;
     const base = { prompt: "a", checkpoint: CHECKPOINT };
@@ -293,6 +269,23 @@ describe("the next render's time is guessed from the record", () => {
     expect(waiting[0]).toBeLessThan(25_000);
     expect(waiting[1]).toBeGreaterThan(waiting[2]);
     expect(waiting[1] - waiting[2]).toBeGreaterThan(25_000);
+  });
+
+  it("is the one figure the form's Output line and its Generate button say, the load counted once for a batch", async () => {
+    const recipe = t.services.registry.recipe("sdxl.text-to-picture")!;
+    const key = timeKey(recipe.inputs, { prompt: "a", checkpoint: CHECKPOINT });
+    await put([row({ time_key: key, total_ms: 20_000 }), row({ time_key: key, model: "other", model_file: "other", total_ms: 60_000, load_ms: 41_000, cold: 1 })]);
+    await rendered();
+    const advice = async (over: Record<string, unknown>) => (await post(t.app, "/api/advice", job(over))).json().estimate as { text: string; ms: number; loadMs: number };
+    // the model in memory: nothing to load; the line says the figure the button rounds the same way
+    const held = await advice({});
+    expect(held.loadMs).toBe(0);
+    expect(held.text).toContain(`About ${roughly(held.ms)},`);
+    // another model: its load is in the figure, and said apart so that a batch loads it once
+    const other = await advice({ checkpoint: "other.safetensors" });
+    expect(other.loadMs).toBe(41_000);
+    expect(other.ms).toBeGreaterThan(other.loadMs);
+    expect(other.text).toContain(`About ${roughly(other.ms)},`);
   });
 });
 

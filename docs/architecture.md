@@ -23,12 +23,12 @@ chart/, Dockerfile    the Helm chart and the image
 
 Everything Afflatus makes is a **recipe** of a **family**.
 
-- A **family** is one model architecture: its model slots and how to find their files, which LoRAs fit, its size and frame grid (H3: multiples of 32, frames on `17k + 5` at 24 fps), and how its prompts are written.
-- A **recipe** is one operation of a family: text to picture, inpaint, upscale, image to video, a clip that carries on. It declares its inputs, its output, the nodes and model slots it needs, its timeline traits, and a `build(input, ctx)` that returns a ComfyUI graph. It also ships `variants`, sample inputs the graph checker builds.
+- A **family** is one model architecture: its model slots and how to find their files, which LoRAs fit, its size and frame grid (H3: multiples of 32, frames on `17k + 5` at 24 fps), how its prompts are written, and the rules a written prompt is held to (`lint`).
+- A **recipe** is one operation of a family: text to picture, inpaint, upscale, image to video, a clip that carries on. It declares its inputs, its output, the nodes and model slots it needs, its timeline traits, what a finish made with it needs of its draft (`finishing`), and a `build(input, ctx)` that returns a ComfyUI graph. It also ships `variants`, sample inputs the graph checker builds. Frame counts are rounded onto a recipe's `traits.frameGrid` by one set of helpers (`packages/core/src/frameGrid.ts`).
 
-The web app never names a family. It renders a recipe's `inputs`, each one of a closed set of types (`prompt`, `model`, `loras`, `size`, `number`, `toggle`, `choice`, `seed`, `image`, `clip`, `references`, `audio`). A new recipe picks from that list; a new input type is the only change that touches the web app.
+The web app never names a model family (the command bar's calculator falls back to H3's grid when no video draft is open; the Image tools are left out of the per-model lists by core's `TOOLS_FAMILY`). It renders a recipe's `inputs`, each one of a closed set of types (`prompt`, `model`, `loras`, `size`, `number`, `toggle`, `choice`, `seed`, `image`, `clip`, `references`, `audio`). A new recipe picks from that list; a new input type is the only change that touches the web app.
 
-The **registry** (`apps/server/src/registry.ts`) holds the built-in recipes and one recipe per imported workflow. The rest of the server asks it and never knows which kind a recipe is.
+The **registry** (`apps/server/src/registry.ts`) holds the built-in recipes and one recipe per imported workflow. A recipe made from a workflow says so (`imported`), for the screens that send its problems to Workflows; nothing reads its kind off its id.
 
 **Imported workflows** (`packages/workflows`) are the no-code way to add a model. The importer reads the file ComfyUI's editor saves the way ComfyUI's front end does when it queues: group nodes and subgraphs opened, reroutes followed, values matched to inputs, notes left out. It guesses the form (prompts, seed, size, pictures, the output), turns the author's switches into toggles, finds where LoRAs go, and says in notes what it could not read. The result is a workflow and its mapping, stored in the `workflows` table and exportable.
 
@@ -39,12 +39,12 @@ The **registry** (`apps/server/src/registry.ts`) holds the built-in recipes and 
 One ComfyUI, so one job at a time, in order (`apps/server/src/queue*.ts`). Jobs live in the database: a restart loses nothing.
 
 - A job is claimed with a conditional update, so a cancel that landed first wins.
-- The runner is generic: it resolves the input assets, uploads them to ComfyUI, calls `recipe.build`, checks the graph, submits, waits, and stores the outputs the recipe names. It has no per-family branches.
+- The runner is generic: it resolves the input assets, uploads them to ComfyUI, calls `recipe.build`, checks the graph, submits, waits, and stores the outputs the recipe names. It has no per-family branches: what it does for one recipe and not another, the recipe declares (a finish's draft latent, `finishing`; the node that cuts a kept latent and the grid it is cut on, `traits.latentTrim` and `traits.frameGrid`).
 - After a restart, a job ComfyUI already has is waited on again by its prompt id. Queued jobs wait while ComfyUI is away and expire by how long it has been away, not by their age.
 - ComfyUI's memory is freed only when the next job needs another base model.
 - Jobs can wait on others (`depends_on`): "render clips 2-5" renders each clip after the one it continues.
 - Tool jobs share the same queue: trims, copies and exports (ffmpeg), slow motion and the finishing passes (RIFE, SeedVR2 and the like, on ComfyUI).
-- Every render's times are kept (`render_stats`, folded by day into `render_days`); the forms' "how long" forecast and `/metrics` read them.
+- Every render's times are kept (`render_stats`, folded by day into `render_days`); the "how long" forecast (`forecast.ts`, one figure for the form's Output line, its Generate button, the command bar, the editor and the queue's rows) and `/metrics` read them.
 
 ## Storage and the database
 

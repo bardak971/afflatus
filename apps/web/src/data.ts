@@ -139,11 +139,10 @@ export function unionKeys(a: ReadonlyArray<readonly string[]>, b: ReadonlyArray<
   for (const k of b) if (!out.some((x) => x.length === k.length && x.every((p, i) => p === k[i]))) out.push(k);
   return out;
 }
-/** What a render that ended changes: the record of render times, the estimates and the Finish dialog's forecast made from it (live.ts). */
-export const RENDER_KEYS = [["renders"], ["estimates"], ["finishForecast"]] as const;
+/** What a render that ended changes: the record of render times, and what a form and the Finish dialog forecast from it (live.ts). */
+export const RENDER_KEYS = [["renders"], ["advice"], ["finishForecast"]] as const;
 
 export const useFolders = () => useQuery({ queryKey: ["folders"], queryFn: api.folders });
-export const useEstimates = () => useQuery({ queryKey: ["estimates"], queryFn: api.estimates, staleTime: 60_000 });
 /**
  * The record of render times for a period: one ending now (a preset, "all") or a window of its own. A
  * preset's window is worked out when it is read, so that it still ends now when it is read again.

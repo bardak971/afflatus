@@ -2,13 +2,14 @@ import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
+import { envSaid } from "./config";
 
 /**
  * What Afflatus reads from a video when it files it: its size, length, speed, whether it has sound, and
  * one frame to show in grids. This needs ffmpeg and ffprobe (on PATH, or named by FFMPEG and FFPROBE).
  * Without them everything still works: videos are stored and played, their tiles just have no picture.
  */
-export const tools = { ffmpeg: process.env.FFMPEG?.trim() || "ffmpeg", ffprobe: process.env.FFPROBE?.trim() || "ffprobe" };
+export const tools = { ffmpeg: envSaid.ffmpeg()?.trim() || "ffmpeg", ffprobe: envSaid.ffprobe()?.trim() || "ffprobe" };
 
 /**
  * A run's arguments with every input it reads limited to files and pipes. A file from a stranger can be a

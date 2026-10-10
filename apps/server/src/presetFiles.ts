@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { envSaid } from "./config";
 import { httpError } from "./errors";
 import { fileName } from "./media";
 import type { PresetFile, ShippedPreset } from "@afflatus/core";
@@ -52,7 +53,7 @@ export const SHIPPED = "shipped:";
 
 /** Where the presets that ship with Afflatus are: the repository's `presets/` folder, or PRESETS_DIR. */
 export function shippedPresetsDir(): string {
-  return process.env.PRESETS_DIR?.trim() || fileURLToPath(new URL("../../../presets", import.meta.url));
+  return envSaid.presetsDir()?.trim() || fileURLToPath(new URL("../../../presets", import.meta.url));
 }
 
 /**

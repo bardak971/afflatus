@@ -1,7 +1,11 @@
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { crc32, deflateSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
-import { parseA1111, readEmbedded } from "../src/embedded";
+import { parseA1111, readEmbedded, videoTexts } from "../src/embedded";
 import { sameModel } from "../src/fromPicture";
 import { sdxl } from "../../../packages/workflows/test/fixtures";
 import { CHECKPOINT, makeApp, post, referenceCatalog, type TestApp } from "./helpers";
@@ -211,5 +215,52 @@ describe("a stranger's picture", () => {
       const res = await t.app.inject({ method: "POST", url: "/api/embedded", headers: { "content-type": "image/png" }, payload: Buffer.from(pngWith({ prompt: JSON.stringify(graph) })) });
       expect(res.statusCode).toBe(200);
     }
+  });
+});
+
+/** A short video with the given tags, made with ffmpeg; null without ffmpeg. */
+function videoWith(tags: Record<string, string>): Uint8Array | null {
+  const dir = mkdtempSync(join(tmpdir(), "afflatus-tags-"));
+  const file = join(dir, "v.mp4");
+  const made = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=8:duration=0.5", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+    ...Object.entries(tags).flatMap(([k, v]) => ["-metadata", `${k}=${v}`]), file]);
+  const bytes = made.status === 0 ? new Uint8Array(readFileSync(file)) : null;
+  rmSync(dir, { recursive: true, force: true });
+  return bytes;
+}
+const EDITOR = { nodes: [{ id: 1, type: "KSampler" }], links: [] };
+const described = videoWith({ description: JSON.stringify({ prompt: GRAPH, workflow: EDITOR }) });
+
+describe("the workflow a file carries", () => {
+  it("is read from a video's tags the one way: as they are, together under comment or description, or the editor's alone", () => {
+    expect(videoTexts({ prompt: JSON.stringify(GRAPH), workflow: JSON.stringify(EDITOR) })).toEqual({ prompt: JSON.stringify(GRAPH), workflow: JSON.stringify(EDITOR) });
+    expect(JSON.parse(videoTexts({ comment: JSON.stringify({ prompt: GRAPH, workflow: EDITOR }) }).workflow)).toEqual(EDITOR);
+    expect(JSON.parse(videoTexts({ description: JSON.stringify({ prompt: GRAPH, workflow: EDITOR }) }).prompt)).toEqual(GRAPH);
+    expect(JSON.parse(videoTexts({ comment: JSON.stringify(EDITOR) }).workflow)).toEqual(EDITOR);
+    // a plain comment is no workflow
+    expect(videoTexts({ comment: "made on a Sunday" })).toEqual({ prompt: "", workflow: "" });
+  });
+
+  describe.skipIf(!described)("the same from both screens", () => {
+    let t: TestApp;
+    beforeEach(async () => {
+      t = await makeApp();
+    });
+    afterEach(() => t.close());
+
+    it("is found in a video's description by the drop and by the Workflows import alike", async () => {
+      const send = (url: string) => t.app.inject({ method: "POST", url, headers: { "content-type": "video/mp4" }, payload: Buffer.from(described!) });
+      const dropped = (await send("/api/embedded")).json();
+      const imported = (await send("/api/workflows/extract")).json();
+      expect(dropped.workflow).toEqual(EDITOR);
+      expect(imported.workflow).toEqual(EDITOR);
+      // its graph fills the form as a picture's would
+      expect(dropped.settings).toMatchObject({ source: "comfyui" });
+    });
+
+    it("a picture's too, through the import route", async () => {
+      const res = await t.app.inject({ method: "POST", url: "/api/workflows/extract", headers: { "content-type": "image/png" }, payload: Buffer.from(pngWith({ prompt: JSON.stringify(GRAPH), workflow: JSON.stringify(EDITOR) })) });
+      expect(res.json().workflow).toEqual(EDITOR);
+    });
   });
 });

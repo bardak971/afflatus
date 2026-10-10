@@ -9,6 +9,31 @@ import type { Storage } from "./storage";
  * what a take plays and shows, and the door the range, media and export modules reach the model through.
  */
 
+/** How many frames the trim bar asks for in a video's film strip: one a second, from sixteen up to a hundred and twenty (see Trim.tsx). */
+const TRIM_STRIP_FRAMES = (durationMs: number) => Math.min(120, Math.max(16, Math.round(durationMs / 1000)));
+
+/**
+ * The keys of what the timeline works out of a video and keeps beside it: its film strip (the track's,
+ * and the trim bar's when its length is known), its motion and loudness, its scene cuts, its colour along it. They go when
+ * the video goes, or when the file behind it changes (a linked folder's file written again).
+ */
+export function derivedKeys(asset: { id: string; duration_ms: number | null }): string[] {
+  const dir = asset.id.slice(0, 2);
+  return [
+    `strips/${dir}/${asset.id}.jpg`,
+    ...(asset.duration_ms ? [`strips/${dir}/${asset.id}-${TRIM_STRIP_FRAMES(asset.duration_ms)}x48.jpg`] : []),
+    `motion/${dir}/${asset.id}.json`,
+    `scenes/${dir}/${asset.id}.json`,
+    `means/${dir}/${asset.id}.json`,
+  ];
+}
+
+/** The recipe id of a job that keeps a range of a video as new videos, instead of rendering something. */
+export const CUT_JOB = "afflatus.cut";
+
+/** The recipe id of a job that exports a timeline instead of rendering something. */
+export const EXPORT_JOB = "afflatus.export";
+
 export type TimelineRow = Tables["timelines"];
 export type ClipRow = Tables["clips"];
 export type TakeRow = Tables["takes"];

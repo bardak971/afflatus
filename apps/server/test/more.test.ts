@@ -77,9 +77,8 @@ describe("how long things take", () => {
   it("is learned from past renders and said for what waits", async () => {
     await picture("a cat");
     await t.db.updateTable("generations").set({ gen_ms: 40_000 }).execute();
-    // what was rendered before each render was put on record still answers, where there is no record
+    // what was rendered before each render was put on record still answers, where there is no record (the forecast's fallback)
     await t.db.deleteFrom("render_stats").execute();
-    expect((await get(t.app, "/api/estimates")).json().rates["sdxl.text-to-picture"]).toMatchObject({ perJobMs: 40_000, perSecondMs: null, samples: 1 });
     await post(t.app, "/api/queue/pause");
     await post(t.app, "/api/jobs", job({ prompt: "a dog" }));
     // the queue keeps what it learned for half a minute: a fresh one reads it now

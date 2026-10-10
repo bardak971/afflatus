@@ -1,6 +1,6 @@
 import type { Kysely, Selectable } from "kysely";
 import type { Measured } from "@afflatus/comfy";
-import { guess, modelOf, timeKey, type Guess, type Known, type Recipe } from "@afflatus/core";
+import { modelOf, timeKey, TOOLS_FAMILY, type Recipe } from "@afflatus/core";
 import { now, OWNER, type Db, type Tables } from "./db";
 import type { Registry } from "./registry";
 import type { JobRow, Resume } from "./queueModel";
@@ -12,7 +12,8 @@ import type { JobRow, Resume } from "./queueModel";
  *  - `fold` turns the rows older than the days they are kept into one line of figures per model and
  *    day, which stay for good: the charts go on reaching back, the list of renders does not;
  *  - `summary` and `list` are what the "Render times" tab shows;
- *  - `known` is what the next render's time is guessed from.
+ *  - `usualParts` is what a running render is expected to do after its first pass. The next render's time is
+ *    forecast from the same rows (forecast.ts).
  */
 
 export type RenderRow = Selectable<Tables["render_stats"]>;
@@ -178,7 +179,7 @@ export async function recordTool(
   await db
     .insertInto("render_stats")
     .values({
-      id: row.id, owner_id: OWNER, recipe_id: what.recipe, family: "tools", model: what.model, model_file: "", time_key: what.timeKey,
+      id: row.id, owner_id: OWNER, recipe_id: what.recipe, family: TOOLS_FAMILY, model: what.model, model_file: "", time_key: what.timeKey,
       kind: "video", width: made.width, height: made.height, duration_ms: made.durationMs, steps: 0, status, whole: measured ? 1 : 0, cold: 0,
       waited_ms: Math.max(0, row.startedAt - new Date(row.created_at).getTime()),
       total_ms: Math.round(totalMs), load_ms: load, sample_ms: 0, refine_ms: refine, finish_ms: finish, step_ms: null, expected_ms: expectedMs, work,
@@ -256,46 +257,10 @@ async function foldBefore(db: Kysely<Tables>, before: string): Promise<number> {
   return old.length;
 }
 
-// ---------------------------------------------------------------- what the next render is guessed from
-
-/** How many past renders are looked at: the recent ones say more about the machine as it is now. */
-const LOOK_BACK = 600;
+// ---------------------------------------------------------------- what the running render is expected to do next
 
 /** What a render would have taken with its model already loaded: what loading added, beyond what even a loaded model spends before its first step, taken off. */
 const warmMs = (r: RenderRow, usualStart: number) => (r.cold ? r.total_ms - Math.max(0, r.load_ms - usualStart) : r.total_ms);
-
-/** Per recipe, what its past renders say. Only renders that finished and were measured from their first moment. */
-export async function known(db: Db): Promise<Record<string, Known>> {
-  const rows = await db.selectFrom("render_stats").selectAll().where("status", "=", "done").where("whole", "=", 1).orderBy("created_at", "desc").limit(LOOK_BACK).execute();
-  const byRecipe = new Map<string, RenderRow[]>();
-  for (const r of rows) byRecipe.set(r.recipe_id, [...(byRecipe.get(r.recipe_id) ?? []), r]);
-  const out: Record<string, Known> = {};
-  for (const [recipe, own] of byRecipe) {
-    // what a loaded model still spends before its first step: the text, the pictures
-    const start = median(own.filter((r) => !r.cold).map((r) => r.load_ms)) ?? 0;
-    const figures = (list: RenderRow[]) => {
-      const perSecond = list.filter((r) => r.kind === "video" && (r.duration_ms ?? 0) > 0).map((r) => warmMs(r, start) / (r.duration_ms! / 1000));
-      const loads = list.filter((r) => r.cold).map((r) => Math.max(0, r.load_ms - start));
-      return { ms: Math.round(median(list.map((r) => warmMs(r, start))) ?? 0), perSecondMs: perSecond.length ? Math.round(median(perSecond)!) : null, loadMs: Math.round(median(loads) ?? 0), samples: list.length };
-    };
-    const group = <K extends string>(key: (r: RenderRow) => K) => {
-      const groups = new Map<K, RenderRow[]>();
-      for (const r of own) groups.set(key(r), [...(groups.get(key(r)) ?? []), r]);
-      return [...groups.values()];
-    };
-    const whole = figures(own);
-    // a recipe with no model that ever loaded knows no load time: the one of all its models then
-    const models = group((r) => r.model_file).filter((g) => g[0]!.model_file).map((g) => ({ model: g[0]!.model_file, ...figures(g) })).map((m) => ({ ...m, loadMs: m.loadMs || whole.loadMs }));
-    const settings = group((r) => `${r.time_key}\n${r.model_file}`).map((g) => ({ key: g[0]!.time_key, model: g[0]!.model_file, ms: figures(g).ms, samples: g.length }));
-    out[recipe] = { settings, models, ...whole };
-  }
-  return out;
-}
-
-/** About how long this render will take with its model loaded, and what a model to load adds. */
-export function guessFor(all: Record<string, Known>, recipe: Recipe<any>, input: Record<string, unknown>): Guess | null {
-  return guess(all[recipe.id], recipe.inputs, input);
-}
 
 /** What usually follows the first sampling pass in renders like this one: the passes after it, and the finishing. For the time left while it renders. */
 export async function usualParts(db: Db, recipe: Recipe<any>, input: Record<string, unknown>): Promise<{ laterMs?: number; finishMs?: number }> {

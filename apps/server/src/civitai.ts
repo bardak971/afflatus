@@ -1,3 +1,4 @@
+import { envSaid } from "./config";
 import { httpError } from "./errors";
 import { fetchPublic, hostnameOf } from "./outbound";
 
@@ -13,10 +14,10 @@ import { fetchPublic, hostnameOf } from "./outbound";
  * switch for it, set by the test config and the demo: CIVITAI_URL only says where Civitai is, and a mirror named there
  * lifts no rule.
  */
-export const pretendSites = () => process.env.AFFLATUS_PRETEND_SITES === "1";
+export const pretendSites = envSaid.pretendSites;
 
 /** The sites to ask, in order. CIVITAI_URL replaces them (the tests and the demo point it at a pretend one). */
-export const civitaiSites = () => (process.env.CIVITAI_URL ? [process.env.CIVITAI_URL.replace(/\/+$/, "")] : ["https://civitai.com", "https://civitai.red"]);
+export const civitaiSites = () => { const own = envSaid.civitaiUrl(); return own ? [own.replace(/\/+$/, "")] : ["https://civitai.com", "https://civitai.red"]; };
 const hostOf = (site: string) => {
   try {
     return new URL(site).host.replace(/^www\./, "");
@@ -132,7 +133,7 @@ export async function findOnCivitai(file: string, folder: string | null, key: st
       items.push({
         name: m.name, kind: m.type ?? "", site: hostOf(site),
         // links go to the real sites even when a pretend one answered
-        url: `${process.env.CIVITAI_URL ? "https://civitai.com" : site}/models/${m.id}`,
+        url: `${envSaid.civitaiUrl() ? "https://civitai.com" : site}/models/${m.id}`,
         version: version?.name ?? "", base: version?.baseModel ?? "", words: (version?.trainedWords ?? []).slice(0, 12),
         versionId: version?.id ?? null, file: picked?.name ?? "", bytes: Math.round((picked?.sizeKB ?? 0) * 1024),
         exact: Boolean(exactIn), fits: fitsOf(m), hits: version ? hitsOf(version) : [], of: words.length,

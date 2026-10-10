@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { probeMediaFile } from "../src/cut";
-import { refusal } from "../src/designer";
+import { refusal } from "../src/llm";
 import { readSettings } from "../src/settings";
 import { get, makeApp, png, post, type TestApp } from "./helpers";
 

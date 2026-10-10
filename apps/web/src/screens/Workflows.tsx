@@ -18,26 +18,22 @@ import { settingHref } from "./settings/settingsIndex";
 import { Button, Chip, cx, ErrorNote, Help, SectionTitle } from "../ui";
 import { WorkflowEditor, type Editing } from "./WorkflowEditor";
 import { WorkflowEditorSkeleton } from "./workflowEditor/EditorSkeleton";
-import { pngText } from "./pngText";
 
 /**
  * Read a file the user chose: a workflow as ComfyUI saves it, one saved with "Export (API)", or one
  * shared from another Afflatus (the same workflow with its mapping already made).
  */
-/** The workflow in a file: a .json, or a picture or video ComfyUI saved with its workflow inside. */
+/** The workflow in a file: a .json, or a picture or video ComfyUI saved with its workflow inside (read by the server, as a dropped file is). */
 async function workflowIn(file: File): Promise<unknown> {
-  if (file.type === "image/png" || /\.png$/i.test(file.name)) {
-    const text = await pngText(new Uint8Array(await file.arrayBuffer()));
-    const raw = text.workflow ?? text.prompt;
-    if (!raw) throw new ApiError("This picture carries no workflow. ComfyUI writes one into the pictures it saves; a picture from elsewhere has none.");
-    return JSON.parse(raw);
-  }
-  if (file.type.startsWith("video/") || /\.(mp4|webm|mov|m4v|mkv)$/i.test(file.name)) {
-    const r = await fetch("/api/workflows/extract", { method: "POST", body: file, headers: { "content-type": file.type || "application/octet-stream", "X-Afflatus": "1" } });
-    // the server says what went wrong as { error }, like every route
-    const body = (await r.json().catch(() => ({}))) as { workflow?: unknown; error?: string };
-    if (!r.ok) throw new ApiError(body.error ?? "This video could not be read.");
-    return body.workflow;
+  const picture = file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(file.name);
+  if (picture || file.type.startsWith("video/") || /\.(mp4|webm|mov|m4v|mkv)$/i.test(file.name)) {
+    const { workflow } = await api.embedded(file);
+    if (!workflow) {
+      throw new ApiError(picture
+        ? "This picture carries no workflow. ComfyUI writes one into the pictures it saves; a picture from elsewhere has none."
+        : "This video carries no workflow. ComfyUI's video savers write one into the videos they make; a video from elsewhere has none.");
+    }
+    return workflow;
   }
   try {
     return JSON.parse(await file.text());

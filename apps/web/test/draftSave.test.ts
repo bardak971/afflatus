@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Draft, Entity, RecipeInfo } from "../src/api";
+import { NOT_ANSWERING, type Draft, type Entity, type RecipeInfo } from "../src/api";
 import { closingBody, draftFate, inTurn, KEEPALIVE_MAX, pickFor, putDraft, remade, saveBodyOf } from "../src/draft";
 import { presetRefusal } from "../src/screens/studio/PresetMenu";
 import { copyText, localId } from "../src/secureContext";
@@ -30,10 +30,19 @@ describe("a draft saved", () => {
     answers({ status: 400, body: { error: "too many people" } });
     await expect(putDraft("d1", saveBodyOf(draft))).rejects.toThrow("too many people");
   });
+  it("goes through the app's one way of asking: a server away reads as such, a refusal keeps its status", async () => {
+    vi.stubGlobal("fetch", async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    await expect(putDraft("d1", saveBodyOf(draft))).rejects.toThrow(NOT_ANSWERING);
+    answers({ status: 413, body: { error: "too large" } });
+    await expect(putDraft("d1", saveBodyOf(draft))).rejects.toMatchObject({ message: "too large", status: 413 });
+  });
   it("outlives the page when asked to (a save as the tab closes)", async () => {
     const asked = answers({ status: 200, body: draft });
     await putDraft("d1", saveBodyOf(draft), true);
     expect(asked[0]!.init.keepalive).toBe(true);
+    expect((asked[0]!.init.headers as Record<string, string>)["X-Afflatus"]).toBe("1");
     expect(JSON.parse(String(asked[0]!.init.body))).toEqual({ recipe: "sdxl.text", forms: draft.forms, count: 2, look: null, chat: draft.chat, designer: null });
   });
   it("that is gone is made again with all the page holds of it, its conversation and its name included", async () => {

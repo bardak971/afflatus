@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { baseModels, mainModel, missingNodesSaid, modelOf, timeKey, checkGraph, choicesOf, modelFileName, parseInput, pickChoice, RANDOM_SEED, relocateFiles, warmGraph, WARM_SINK, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
-import { forecast, workOf, type Forecast } from "./forecast";
+import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, mainModel, missingNodesSaid, modelFileName, modelOf, onGrid, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
+import { forecast, fromRates, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
 import { cutFrames, rangeKeep, referenceClip, soundPart } from "./cut";
 import type { Db, Tables } from "./db";
@@ -45,8 +45,9 @@ interface Sent {
   media: Record<string, MediaFacts>;
   warnings: string[];
 }
-/** What each uploader works with. `finishedFrom`: the take a finish job finishes; `cleanedInput`: ComfyUI's input folder was cleared already. */
+/** What each uploader works with. `recipe`: the one the job runs; `finishedFrom`: the take a finish job finishes; `cleanedInput`: ComfyUI's input folder was cleared already. */
 interface Up {
+  recipe: Recipe<any>;
   db: Db;
   storage: Storage;
   comfy: Comfy;
@@ -73,7 +74,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const slotFiles = await slots(core, comfy, recipe);
 
   // pictures, videos and sounds the recipe takes are uploaded to ComfyUI's temp folder under fresh names
-  const up: Up = { db, storage, comfy, input, catalog, finishedFrom: row.finished_from, cleanedInput: false, sent: { uploads: {}, media: {}, warnings: [] } };
+  const up: Up = { recipe, db, storage, comfy, input, catalog, finishedFrom: row.finished_from, cleanedInput: false, sent: { uploads: {}, media: {}, warnings: [] } };
   for (const spec of recipe.inputs as InputSpec[]) {
     const value = input[spec.id];
     if (spec.type === "image" && typeof value === "string") await uploadImage(up, spec, value);
@@ -82,11 +83,11 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
     else if (spec.type === "references" && Array.isArray(value)) await uploadReferences(up, spec, value as ReferenceValue[]);
     else if (spec.type === "audio" && typeof value === "string") await uploadSound(up, spec, value);
   }
-  // a finish by the latent re-sample: the draft's own sampled latent, re-sampled as it is (rendered again, the frames would differ)
-  if (row.finished_from && input.upscale === "Latent: re-sampled") {
+  // a finish that needs the draft's own sampled latent (H3's latent re-sample, which samples it again as it is): the recipe says so
+  if (row.finished_from && recipe.finishing?.(input)?.latent === "own") {
     const draft = await db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").select(["assets.latent_key as latent_key"]).where("takes.id", "=", row.finished_from).executeTakeFirst();
     const saved = draft?.latent_key ? await storage.get(draft.latent_key).catch(() => null) : null;
-    if (!saved) throw new Error("This draft's latent was not kept, so H3 cannot re-sample it: finish it with SeedVR2, RTX or a model.");
+    if (!saved) throw new Error(`This draft's latent was not kept, so ${core.registry.family(recipe.family)?.name ?? recipe.family} cannot re-sample it: finish it with SeedVR2, RTX or a model.`);
     up.sent.uploads["self.latent"] = await comfy.client.upload(saved, "safetensors");
   }
   const { uploads, media, warnings } = up.sent;
@@ -96,7 +97,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const built = recipe.build(chosen, { seed, slots: slotFiles, uploads, media, canvas: plan?.canvas, has: (cls) => cls in catalog });
   // a model kept in another sub-folder than the one the graph names is used from where it is
   relocateFiles(built.graph, catalog);
-  const imported = recipe.id.startsWith("workflow.");
+  const imported = Boolean(recipe.imported);
   const problems = checkGraph(built, catalog, { files: true, uploaded: Object.values(uploads), looseInputs: imported });
   if (problems.length) {
     const fix = imported ? " To fix it: Workflows, then Edit on this workflow." : "";
@@ -194,7 +195,7 @@ async function uploadWholeClip({ db, storage, comfy, sent }: Up, spec: InputSpec
   if (!facts) throw new Error(`The ${spec.label.toLowerCase()} could not be read: ${read?.why ?? "ffprobe gave nothing."}`);
   const length = facts.durationMs;
   // a source video is worked on whole: only a clip carried on from or arrived at has a moment
-  const cut = spec.role !== "source" && at !== undefined && length > 0 && (spec.role === "previous" ? at < length - 40 : at > 40);
+  const cut = spec.role !== "source" && at !== undefined && length > 0 && (spec.role === "previous" ? at < length - FRAME_SLACK_MS : at > FRAME_SLACK_MS);
   const keep: [number, number] = spec.role === "previous" ? [0, at ?? length] : [at ?? 0, length];
   sent.uploads[spec.id] = cut
     ? await comfy.client.upload(await rangeKeep(bytes, extOf(asset.mime), { durationMs: length, hasSound: facts.hasSound }, [keep]), "mp4")
@@ -242,18 +243,20 @@ async function uploadJoinClip(up: Up, spec: InputSpec, value: ClipValue): Promis
  * fits but cannot be read makes the join one on frames, which the job says.
  */
 async function finishLatent(
-  { storage, comfy, catalog, finishedFrom, sent }: Up, spec: InputSpec & { type: "clip" },
+  { recipe, storage, comfy, catalog, finishedFrom, sent }: Up, spec: InputSpec & { type: "clip" },
   asset: Pick<Tables["assets"], "latent_key" | "latent_frames">, shown: Pick<Tables["assets"], "fine_latent_key" | "width" | "height">,
   cut: { at: number | undefined; counts: number[]; durationMs: number },
 ): Promise<void> {
   if (!asset.latent_key || !asset.latent_frames) return;
   const { at, counts } = cut;
   const atFrames = at === undefined ? 0 : Math.round((at / 1000) * spec.fps);
-  const whole = spec.role === "previous" && (at === undefined || at >= cut.durationMs - 40);
+  const whole = spec.role === "previous" && (at === undefined || at >= cut.durationMs - FRAME_SLACK_MS);
   // handed over before its end, on a frame of the latent's grid: continued from there, its latent cut to it (Afflatus's pack 0.5.0)
-  const cutAt = spec.role === "previous" && !whole && atFrames % 17 === 5 && atFrames >= Math.max(...counts) && atFrames <= asset.latent_frames && "AfflatusTrimH3Latent" in catalog ? atFrames : 0;
-  // the clip after: landed on where one of its 17-frame chunks begins (its tokens keep their time spans there, see H3_LANDING)
-  const fits = spec.role === "previous" ? whole || cutAt > 0 : atFrames % 17 === 0 && atFrames + Math.min(...counts) <= asset.latent_frames;
+  // (the recipe names the node that cuts it, traits.latentTrim, and its grid, traits.frameGrid)
+  const { frameGrid: grid, latentTrim: trim } = recipe.traits ?? {};
+  const cutAt = spec.role === "previous" && !whole && grid && trim && onGrid(atFrames, grid) && atFrames >= Math.max(...counts) && atFrames <= asset.latent_frames && trim in catalog ? atFrames : 0;
+  // the clip after: landed on where one of its latent's chunks begins (its tokens keep their time spans there, see H3_LANDING)
+  const fits = spec.role === "previous" ? whole || cutAt > 0 : Boolean(grid) && isChunkStart(atFrames, grid!) && atFrames + Math.min(...counts) <= asset.latent_frames;
   if (!fits) return;
   const saved = await storage.get(asset.latent_key).catch(() => null);
   if (!saved) {
@@ -325,7 +328,7 @@ async function timingOf(core: QueueCore, recipe: Recipe<any>, chosen: Record<str
   const work = workOf(built);
   return {
     model: mainModel(built) ?? "", modelFile: modelOf(recipe.inputs, chosen) ?? (mainModel(built) ?? "").split(" + ")[0]!.toLowerCase(),
-    timeKey: timeKey(recipe.inputs, chosen), cold, expectedMs: core.expected(await core.usual(), recipe, chosen, cold),
+    timeKey: timeKey(recipe.inputs, chosen), cold, expectedMs: ((await forecastFrom(core, recipe, chosen, built, cold)) ?? fromRates((await core.usual()).rates, recipe, chosen))?.ms ?? null,
     expect: await usualParts(core.db, recipe, chosen).catch(() => ({})),
     // what it samples per step, kept with its figures: the next form like it is forecast from them
     work: work.pixels * work.frames,
@@ -391,27 +394,37 @@ export async function builtOf(core: QueueCore, recipeId: string, rawInput: unkno
 }
 
 /**
- * What this model's past renders say a form will take: its sampled work against theirs. Null for a form not
- * complete enough to build, one whose model has no measured render yet, or one that samples nothing.
+ * What a form will take: its sampled work against its model's past renders (forecast.ts), else, for a form that
+ * cannot be placed (a tool with no steps, a model never measured, ComfyUI away so nothing is built), what its
+ * recipe's renders usually took. The one figure every place says: the form's Output line, the Generate button, the
+ * command bar, the editor, the queue's rows and the running job's time left. Null for a form not complete enough
+ * to read, or one like nothing rendered here yet. `cold` says whether its model has to load (the queue knows it
+ * for a job further down the line); left out, it is whether its base models are the ones ComfyUI holds now.
  */
-export async function forecastOf(core: QueueCore, recipeId: string, rawInput: unknown): Promise<{ forecast: Forecast; shape: { pixels: number; frames: number } } | null> {
+export async function forecastOf(core: QueueCore, recipeId: string, rawInput: unknown, opts: { cold?: boolean } = {}): Promise<{ forecast: Forecast; shape: { pixels: number; frames: number } } | null> {
   const recipe = core.registry.recipe(recipeId);
   if (!recipe) return null;
-  let built: BuiltGraph | null;
   let chosen: Record<string, unknown>;
   try {
     chosen = parseInput(recipe, withTexts(recipe, rawInput)) as Record<string, unknown>;
-    built = await builtOf(core, recipeId, rawInput);
   } catch {
     return null;
   }
-  if (!built) return null;
+  const built = await builtOf(core, recipeId, rawInput).catch(() => null);
+  const shape = built ? workOf(built) : null;
+  const f = built && shape?.pixels ? await forecastFrom(core, recipe, chosen, built, opts.cold ?? null) : null;
+  if (f) return { forecast: f, shape: shape! };
+  const fallback = fromRates((await core.usual()).rates, recipe, chosen);
+  return fallback ? { forecast: fallback, shape: { pixels: shape?.pixels ?? 0, frames: shape?.frames ?? 1 } } : null;
+}
+
+/** The forecast of a built graph from its model's past renders; `cold` null: whether its base models are not the ones held now. */
+async function forecastFrom(core: QueueCore, recipe: Recipe<any>, chosen: Record<string, unknown>, built: BuiltGraph, cold: boolean | null): Promise<Forecast | null> {
   const shape = workOf(built);
   if (!shape.pixels) return null;
   const modelFile = modelOf(recipe.inputs, chosen) ?? (mainModel(built) ?? "").split(" + ")[0]!.toLowerCase();
   const base = baseModels(built);
-  const f = await forecast(core.db, modelFile, shape.pixels * shape.frames, shape.steps, base.length > 0 && !holding(core, base));
-  return f ? { forecast: f, shape } : null;
+  return forecast(core.db, modelFile, shape.pixels * shape.frames, shape.steps, cold ?? (base.length > 0 && !holding(core, base)));
 }
 
 /**

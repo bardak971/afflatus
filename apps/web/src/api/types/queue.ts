@@ -85,11 +85,17 @@ export interface QueueStatus {
   waiting: Job[];
   recent: Job[];
 }
-/** How long a recipe usually takes on this machine, from what was rendered before each render was put on record. */
-export interface Rate {
-  perJobMs: number;
-  perSecondMs: number | null;
-  samples: number;
+/**
+ * What a form will take, as the server forecasts it from this machine's renders (POST /api/advice): the form's
+ * Output line (`text`, `pace`) and the Generate button (`ms`, `loadMs`) are both read from it.
+ */
+export interface Advice {
+  text: string;
+  pace: "usual" | "untested" | "over";
+  /** One render, its model's load included when the model is not the one in memory. */
+  ms: number;
+  /** The load in `ms`: a batch loads its model once. */
+  loadMs: number;
 }
 export type TimesPeriod = "day" | "week" | "month" | "all";
 /** A window of time to look at, ms since the epoch. */

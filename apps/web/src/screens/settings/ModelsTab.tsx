@@ -143,7 +143,7 @@ function ReadyRow({ r }: { r: RecipeInfo }) {
   const family = recipes.data?.families.find((f) => f.id === r.family);
   const problems = [
     ...(s?.missingNodes.length ? [`Missing custom nodes: ${s.missingNodes.join(", ")}`] : []),
-    ...(s?.problems ?? []).map((p) => `${problemSaid(p)}${r.id.startsWith("workflow.") ? " Fix it in Workflows, with Edit." : ""}`),
+    ...(s?.problems ?? []).map((p) => `${problemSaid(p)}${r.imported ? " Fix it in Workflows, with Edit." : ""}`),
     ...(s?.emptyInputs ?? []).map((id) => {
       const input = r.inputs.find((i) => i.id === id);
       return `ComfyUI has no model file for "${input?.label ?? id}"${input?.note ? ` (${input.note})` : ""}`;
@@ -181,8 +181,8 @@ function ReadyRow({ r }: { r: RecipeInfo }) {
             <span className="text-ink-3">·</span>
             <a className="font-semibold underline" href={`https://civitai.com/search/models?query=${find(file)}`} target="_blank" rel="noreferrer">Civitai</a>
             <a className="font-semibold underline" href={`https://huggingface.co/models?search=${find(file)}`} target="_blank" rel="noreferrer">Hugging Face</a>
-            {r.id.startsWith("workflow.") && <Link href="/workflows" className="font-semibold underline">Workflows</Link>}
-            <Help text={`Your ComfyUI does not have this file. Search for it on Civitai or Hugging Face, or download it here${r.id.startsWith("workflow.") ? "; or pick another file for it in Workflows, with Edit" : ""}.`} />
+            {r.imported && <Link href="/workflows" className="font-semibold underline">Workflows</Link>}
+            <Help text={`Your ComfyUI does not have this file. Search for it on Civitai or Hugging Face, or download it here${r.imported ? "; or pick another file for it in Workflows, with Edit" : ""}.`} />
           </span>
           <GetFile file={file} folder={folder} url={url} hints={family?.name ? [family.name] : []} />
         </div>

@@ -1,9 +1,9 @@
-import { defineFamily, defineRecipe, GraphBuilder } from "@afflatus/core";
+import { defineFamily, defineRecipe, GraphBuilder, REMOVE_BACKGROUND, TOOLS_FAMILY } from "@afflatus/core";
 import { SEEDVR_COLOURS, SEEDVR_NODES, SEEDVR_SLOTS, seedvrUpscale } from "../video/upscale";
 
 /** Things done to a picture that need no picture model: nothing is drawn, so there is no prompt. */
 export const tools = defineFamily({
-  id: "tools",
+  id: TOOLS_FAMILY,
   name: "Image tools",
   summary: "Small operations on an existing image, done without a diffusion model.",
   promptStyle: "sentences",
@@ -28,7 +28,7 @@ interface SeedvrPicture {
 /** SeedVR2 on one picture: restored and enlarged in one step, the way its video route does a clip. */
 export const seedvrPicture = defineRecipe<SeedvrPicture>({
   id: "tools.seedvr-upscale",
-  family: "tools",
+  family: TOOLS_FAMILY,
   version: 1,
   title: "Upscale (SeedVR2)",
   summary: "Restores and enlarges an image with SeedVR2 in one step: compression, noise and softness come out too. Needs SeedVR2's two files.",
@@ -60,8 +60,8 @@ export interface RemoveBackground {
  * keep; JoinImageWithAlpha wants the part to drop, hence the inversion.
  */
 export const removeBackground = defineRecipe<RemoveBackground>({
-  id: "tools.remove-background",
-  family: "tools",
+  id: REMOVE_BACKGROUND,
+  family: TOOLS_FAMILY,
   version: 1,
   title: "Remove background",
   summary: "Keeps the foreground and makes the rest transparent. The output is a PNG.",

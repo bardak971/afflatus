@@ -2,7 +2,44 @@ import { modelOf, secondsOf, type InputSpec, type LoraValue, type Recipe } from 
 import { emptyLook, type Look } from "./entities";
 import { madeIn } from "./provenance";
 import type { Services } from "./services";
-import { boxesOf, type DesignerContext } from "./designer";
+
+/** The text boxes of a recipe: what the designer may write in. */
+export const boxesOf = (recipe: Recipe<any>) => (recipe.inputs as InputSpec[]).filter((i): i is Extract<InputSpec, { type: "prompt" }> => i.type === "prompt");
+
+export interface DesignerContext {
+  /** What each text box holds now (input id → text). */
+  values: Record<string, string>;
+  seconds?: number | null;
+  /** What the clip before it says happens, when this clip carries on from it. */
+  previous?: string;
+  /** What the clip after it says happens, when this clip has to end where that one begins. */
+  next?: string;
+  /** The clip is put between two others, in place of a stretch that was cut out. */
+  between?: boolean;
+  /** The whole video this clip is part of: what every clip says happens, in the order they play, and which one is being written. */
+  story?: { clips: string[]; index: number };
+  opensOnPicture?: boolean;
+  endsOnPicture?: boolean;
+  /**
+   * How the pictures of the form were made, when Afflatus made them: every step back to the first prompt
+   * (a picture that was upscaled, edited, or saved out of a video has its story behind it). It is what a
+   * picture shows, in words, for a language model that cannot look at it, and a help for one that can.
+   */
+  madeFrom?: Array<{ what: string; steps: Array<{ title: string; with?: string; text: string; more: Array<{ label: string; text: string }>; loras: Array<{ name: string; trigger?: string }> }> }>;
+  /** Who is in it, as names with their words: they are added on their own, the designer must not repeat them. */
+  cast?: Array<{ name: string; words: string }>;
+  /** The look and mood of the whole video. */
+  mood?: string;
+  loras?: Array<{ name: string; weight: number; trigger?: string }>;
+  /** Bits of text the user ticked: they are added after the main text on their own. */
+  snippets?: Array<{ name: string; text: string }>;
+  /** The model makes the sound too: people can speak in the clip. */
+  speaks?: boolean;
+  /** The model file picked in the form, by name, when the form has a model picker: a guide can speak by lineage. */
+  model?: string | null;
+  /** Whether the picture is given to the language model with the request. */
+  seesPicture?: boolean;
+}
 
 /** A LoRA file's name as its words are filed under: lower case, without its sub-folder. */
 const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();

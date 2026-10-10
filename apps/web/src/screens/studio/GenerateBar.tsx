@@ -2,14 +2,11 @@ import { Link } from "wouter";
 import { Minus, Plus } from "lucide-react";
 import { hasWildcards } from "@afflatus/core";
 import type { Draft, RecipeInfo } from "../../api";
-import { useEstimates } from "../../data";
+import { batchAbout, useAdvice } from "../../advice";
 import { BATCH } from "../../draft";
-import { estimateFor } from "../../estimate";
-import { aboutMs } from "../../format";
 import { Keys } from "../../Keys";
 import { FormModel, ResultsPlace } from "../../ModelLoad";
 import { Button, ErrorNote, Help } from "../../ui";
-import { useQueueOf } from "./queueOf";
 import type { useGenerate } from "./useGenerate";
 
 /**
@@ -34,10 +31,8 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCou
 }) {
   const count = draft?.count ?? 1;
   const noun = recipe?.output === "image" ? "image" : recipe?.output === "video" ? "video" : "audio clip";
-  const estimates = useEstimates();
-  // the model ComfyUI holds, alone: the panel is not drawn again at every sampler step
-  const loadedNow = useQueueOf((q) => q.model) ?? null;
-  const each = estimateFor(estimates.data, recipe, whole, loadedNow);
+  // the form's own forecast, the one its Output line says (advice.ts): the button says it for the whole batch
+  const about = batchAbout(useAdvice(recipe, whole).data?.estimate, count);
   const unmasked = maskMissing(recipe, whole);
   return (
     <div className="flex shrink-0 flex-col gap-2 border-t border-line p-3">
@@ -69,7 +64,7 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCou
           ) : (
             <span className="flex min-w-0">
               <span className="truncate">{`Generate ${count} ${noun}${count > 1 ? "s" : ""}`}</span>
-              {each && <span className="min-w-0 shrink-[100] truncate">&nbsp;· {aboutMs(each.ms * count + each.loadMs)}</span>}
+              {about && <span className="min-w-0 shrink-[100] truncate">&nbsp;· {about}</span>}
             </span>
           )}
           <Keys keys="Ctrl+Enter" size="sm" className="@max-[30rem]:hidden" />
