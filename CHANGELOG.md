@@ -2,7 +2,9 @@
 
 Every release of Afflatus, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/) (0.x: anything may still change between minor versions). The bundles and the image of each version are on the [releases page](https://github.com/bardak971/afflatus/releases).
 
-## [Unreleased] - 0.3.0
+## [Unreleased]
+
+## [0.3.0] - 2026-10-10
 
 ### Added
 - **Seamless MiniMax H3 chains.** A continuation starts from the clip before's own latent, and the whole chain is decoded as one piece at the joins, so a join plays as a plain cut. Grid-length joins, latent cuts, fades and a smooth hand-over in the player. Needs node pack 0.10.0.
@@ -48,7 +50,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - Uploads are marked, linked folders and outbound fetches hardened, hostile workflow files refused.
 - A stored LLM key stays on the server; frame and cross-site read protection; PNG text and ffmpeg inputs are bounded.
 
-## [0.2.1] - 2026-10-06
+## 0.2.1 - 2026-10-06
 
 ### Added
 - The workflow import screen as three steps, a model guess from the loaders' files, and a form strip that folds.
@@ -64,7 +66,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - Helm chart: the probes call the pod as `localhost`, so the host check no longer keeps the pod from getting ready.
 - A seed fed by a link no longer shifts the values after it in an imported workflow.
 
-## [0.2.0] - 2026-10-05
+## 0.2.0 - 2026-10-05
 
 ### Added
 - Timelines in the Studio, and the library over the timeline editor's stage.
@@ -73,11 +75,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - Timeline joins: take-over point, sound hand-over, player pre-roll and colour matching across the cuts.
 - Continuity figures per take (run-up end, look).
 
-## [0.1.0] - 2026-10-05
+## 0.1.0 - 2026-10-05
 
 The first release: the Studio and its library, a form per model family, timelines, the prompt kit, imported workflows, the queue, the node pack, the Docker image, the Helm chart and the desktop bundles.
 
-[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.2.1...HEAD
-[0.2.1]: https://github.com/bardak971/afflatus/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/bardak971/afflatus/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/bardak971/afflatus/releases/tag/v0.1.0
+[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/bardak971/afflatus/releases/tag/v0.3.0
