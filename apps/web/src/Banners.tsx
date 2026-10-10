@@ -8,7 +8,7 @@ import { useDownloads } from "./useGetFile";
 import { moves } from "./leave";
 import { Kbd } from "./Keys";
 import { OUT_MS } from "./motion";
-import { useBanners, useHandover, type Banner } from "./store";
+import { useBanners, useHandover, useNotify, type Banner } from "./store";
 import { cx } from "./ui";
 import { askViewer, passFrom } from "./viewer/ask";
 
@@ -98,6 +98,8 @@ export function Banners() {
           const from = passFrom.get(j.id);
           if (from) void client.invalidateQueries({ queryKey: ["assets", "one", from] });
           if (showsResults(path)) continue;
+          // switched off in Settings › Interface: what finished is not announced (a failure still is, below)
+          if (!useNotify.getState().banner) continue;
           const f = folds.current.done;
           add(f, j);
           const allExports = f.exports === f.count;

@@ -8,6 +8,7 @@ import { DRAG_HAS_SOUND, DRAG_TYPE, dragKind } from "../dragging";
 import { useHoverPlay } from "../store";
 import { cx } from "../ui";
 import { leftOf, SOON_MS } from "./library/justify";
+import { unkeptMs, useKeepFor } from "../keepFor";
 import { KIND_WORD, tileName } from "./library/tileName";
 import { leftWords } from "./studio/expiring";
 import { SoundWave } from "./library/SoundWave";
@@ -80,7 +81,9 @@ export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onS
   const facts = asset.kind === "video" && at !== null && asset.durationMs ? `${((at * asset.durationMs) / 1000).toFixed(1)} s of ${length} · ${tileFacts(asset)}` : tileFacts(asset);
   // expiring (nobody kept it): a small clock in the corner, in the warning colour in its last hours, the exact time in
   // its tip; the status bar's expiring chip says the rest
-  const ms = !asset.kept && !asset.inBin ? leftOf(asset) : null;
+  // (read here so that a change of the days in Settings › Storage draws the clocks again)
+  const unkeptDays = useKeepFor((s) => s.unkeptDays);
+  const ms = !asset.kept && !asset.inBin ? leftOf(asset, Date.now(), unkeptMs(unkeptDays)) : null;
   const clockMark = ms !== null && (
     <span data-tip={`Expires in ${leftWords(ms)} · S keeps it`} aria-label={`Expires in ${leftWords(ms)}`} className={cx("flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-ground/60", ms < SOON_MS ? "text-warn" : "text-ink-2")}>
       <Clock size={11} strokeWidth={2.6} />

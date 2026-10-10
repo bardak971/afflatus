@@ -17,11 +17,12 @@ export const useLive = create<{ down: boolean; set(down: boolean): void }>((set)
 }));
 
 /**
- * What this browser should tell you about, with a notification of its own (nothing leaves the computer).
+ * What this browser should tell you about, with a notification of its own (nothing leaves the computer), and whether
+ * the app's own banner says when renders finish while another screen is open (`banner`; failures are always said).
  * Kept per browser: a notification is shown by the browser that asked for it.
  */
-export const useNotify = create<{ whenEmpty: boolean; eachRender: boolean; set(patch: { whenEmpty?: boolean; eachRender?: boolean }): void }>()(
-  persist((set) => ({ whenEmpty: false, eachRender: false, set: (patch) => set(patch) }), { name: "afflatus.notify" }),
+export const useNotify = create<{ whenEmpty: boolean; eachRender: boolean; banner: boolean; set(patch: { whenEmpty?: boolean; eachRender?: boolean; banner?: boolean }): void }>()(
+  persist((set) => ({ whenEmpty: false, eachRender: false, banner: true, set: (patch) => set(patch) }), { name: "afflatus.notify" }),
 );
 
 /**

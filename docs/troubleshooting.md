@@ -30,7 +30,7 @@ Start with **Settings → About**: it runs the start-up checks (ffmpeg, ffprobe,
 
 **Something renders on a model you did not pick.** Look at the waiting job in the Queue: each one says which model it loads. A preset or a person from the Prompt kit can bring their own model or LoRA.
 
-**The library fills up.** Renders that are not kept go to the bin after a day, and the bin empties itself after a week. Settings → Storage shows what takes the space, including takes that never play in a timeline.
+**The library fills up.** Renders that are not kept go to the bin after a day, and the bin empties itself after a week (both set in Settings → Storage: check they are not on "Never" and "Until emptied"). Settings → Storage shows what takes the space, including takes that never play in a timeline.
 
 ## Still stuck
 

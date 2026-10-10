@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { newId, OWNER } from "../src/db";
-import { BIN_MS, sweep, UNKEPT_MS } from "../src/sweep";
+import { BIN_MS, keepOf, sweep, UNKEPT_MS } from "../src/sweep";
 import { derivedKeys } from "../src/timelineModel";
-import { makeApp, type TestApp } from "./helpers";
+import { get, makeApp, type TestApp } from "./helpers";
 
 let t: TestApp;
 beforeEach(async () => {
@@ -71,5 +71,40 @@ describe("sweep", () => {
     expect(await row(old)).toBeUndefined();
     await expect(t.services.storage.get(key)).rejects.toThrow();
     expect(await row(recent)).toBeDefined();
+  });
+});
+
+describe("sweep, as long as the settings say", () => {
+  const DAY = 24 * HOUR;
+  it("reads the days from the settings: 0 is never", () => {
+    expect(keepOf({ unkeptDays: 1, binDays: 7 })).toEqual({ unkeptMs: UNKEPT_MS, binMs: BIN_MS });
+    expect(keepOf({ unkeptDays: 3, binDays: 30 })).toEqual({ unkeptMs: 3 * DAY, binMs: 30 * DAY });
+    expect(keepOf({ unkeptDays: 0, binDays: 0 })).toEqual({ unkeptMs: null, binMs: null });
+  });
+
+  it("gives an unkept result its days, and bins nothing on its own when told never", async () => {
+    const two = await add({ madeAgo: 2 * DAY });
+    const four = await add({ madeAgo: 4 * DAY });
+    expect(await sweep(t.db, t.services.storage, Date.now(), keepOf({ unkeptDays: 3, binDays: 7 }))).toEqual({ binned: 1, erased: 0 });
+    expect((await row(four))!.deleted_at).not.toBeNull();
+    expect((await row(two))!.deleted_at).toBeNull();
+    expect(await sweep(t.db, t.services.storage, Date.now() + 365 * DAY, keepOf({ unkeptDays: 0, binDays: 0 }))).toEqual({ binned: 0, erased: 0 });
+    expect((await row(two))!.deleted_at).toBeNull();
+  });
+
+  it("keeps the bin its days, and until emptied when told so", async () => {
+    const ten = await add({ madeAgo: 0, kept: true, binnedAgo: 10 * DAY });
+    expect(await sweep(t.db, t.services.storage, Date.now(), keepOf({ unkeptDays: 1, binDays: 30 }))).toEqual({ binned: 0, erased: 0 });
+    expect(await sweep(t.db, t.services.storage, Date.now() + 365 * DAY, keepOf({ unkeptDays: 1, binDays: 0 }))).toEqual({ binned: 0, erased: 0 });
+    expect(await row(ten)).toBeDefined();
+    expect(await sweep(t.db, t.services.storage, Date.now() + 25 * DAY, keepOf({ unkeptDays: 1, binDays: 30 }))).toEqual({ binned: 0, erased: 1 });
+  });
+
+  it("are settings of their own, a day and a week at first, and only the choices offered", async () => {
+    const s = (await get(t.app, "/api/settings")).json();
+    expect([s.unkeptDays, s.binDays]).toEqual([1, 7]);
+    const put = (body: object) => t.app.inject({ method: "PUT", url: "/api/settings", payload: body });
+    expect((await put({ unkeptDays: 0, binDays: 30 })).json()).toMatchObject({ unkeptDays: 0, binDays: 30 });
+    expect((await put({ unkeptDays: 2 })).statusCode).toBe(400);
   });
 });

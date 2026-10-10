@@ -39,6 +39,8 @@ const SERVER: Record<string, string> = {
   civitaiLookups: "server.civitaiLookups",
   downloadModels: "server.downloadModels",
   renderHistoryDays: "storage.renderTimes",
+  unkeptDays: "storage.unkeptDays",
+  binDays: "storage.binDays",
   updateChecks: "server.updateChecks",
   bar: "bar.shortcut",
   pinnedProjects: "internal: the rail's pins, set on the rail and in the Projects panel",

@@ -92,7 +92,7 @@ Hover a clip, or open its takes, and you see how clean each join is and how its 
 
 <table>
 <tr>
-<td width="50%"><img src="docs/media/projects.webp" alt="The Projects panel"><br><b>Projects.</b> Every project with its folders, drafts and timelines, what it holds and what it weighs. Renders you don't keep go to the bin after a day; the bin empties itself after a week.</td>
+<td width="50%"><img src="docs/media/projects.webp" alt="The Projects panel"><br><b>Projects.</b> Every project with its folders, drafts and timelines, what it holds and what it weighs. Renders you don't keep go to the bin after a day and the bin empties itself after a week, or as long as you set.</td>
 <td width="50%"><img src="docs/media/kit.webp" alt="A person in the Prompt kit"><br><b>The Prompt kit.</b> People, places, styles and snippets, written once and used with every model: tags for SDXL, a sentence and reference pictures for the newer ones.</td>
 </tr>
 <tr>

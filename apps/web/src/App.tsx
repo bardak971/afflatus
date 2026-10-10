@@ -32,6 +32,7 @@ import { NavRail } from "./NavRail";
 import { EditorSkeleton } from "./timeline/EditorSkeleton";
 import { WorkflowEditorSkeleton } from "./screens/workflowEditor/EditorSkeleton";
 import { useTheme } from "./theme/store";
+import { useKeepForSync } from "./keepFor";
 
 /** A tool Afflatus needs is missing on the computer it runs on: said once per browser session, with the way to Settings → About. */
 function useMissingTools() {
@@ -56,6 +57,7 @@ export function App() {
   useLiveEvents();
   useSearchKey();
   useTheme();
+  useKeepForSync();
   const [path] = useLocation();
   useMissingTools();
   useEffect(prefetchWhenIdle, []);

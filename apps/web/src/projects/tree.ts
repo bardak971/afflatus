@@ -1,5 +1,6 @@
 import type { Asset, DraftLeaf, FolderNode, ProjectsTree, TreeGroup } from "../api/types/library";
 import { plural, size } from "../format";
+import { binFor } from "../keepFor";
 
 /**
  * The Projects panel's tree as the rows it draws: what is unfolded, in order, each with its `tree`
@@ -304,7 +305,7 @@ export function flatten(tree: ProjectsTree, s: {
 
   const active = tree.groups.filter((g) => !g.archived);
   const archived = tree.groups.filter((g) => g.archived);
-  const bin: Node[] = s.bin ? [{ row: { key: "bin", kind: "bin" as const, id: null, label: "Bin", meta: s.bin.count ? `${plural(s.bin.count, "item")} · kept a week` : "empty", bytes: s.bin.bytes, group: null }, count: 0, kids: () => [] }] : [];
+  const bin: Node[] = s.bin ? [{ row: { key: "bin", kind: "bin" as const, id: null, label: "Bin", meta: s.bin.count ? `${plural(s.bin.count, "item")} · ${binFor() ? `kept ${binFor()}` : "kept until emptied"}` : "empty", bytes: s.bin.bytes, group: null }, count: 0, kids: () => [] }] : [];
   const one = s.only ? tree.groups.find((g) => g.id === s.only!.group) : undefined;
   // the one-project tree: its row is the whole of it (a place, never folded), what it holds is the top level
   const scoped = (g: TreeGroup): Node[] => {

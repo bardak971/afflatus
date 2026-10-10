@@ -91,6 +91,10 @@ const settingsSchema = z.object({
    * model and day, which stay for good. 0: each one is kept for good.
    */
   renderHistoryDays: z.number().int().min(0).max(3650).default(90),
+  /** How many days a result nobody kept has before it goes to the bin by itself (sweep.ts); 0: it never goes on its own. */
+  unkeptDays: z.union([z.literal(0), z.literal(1), z.literal(3), z.literal(7)]).default(1),
+  /** How many days what is in the bin is kept before it is erased, file and all (sweep.ts); 0: until the bin is emptied by hand. */
+  binDays: z.union([z.literal(0), z.literal(7), z.literal(30)]).default(7),
   /** How "Finish all clips" brings a timeline to its final quality: the user's defaults, each run can differ. */
   finish: finishSchema.prefault({}),
   /** A family's file chosen by hand where several fit (family id → slot id → file name); a slot not named follows its patterns. */
@@ -237,6 +241,8 @@ export function publicSettings(s: Settings) {
     updateChecks: s.updateChecks,
     downloadModels: s.downloadModels,
     renderHistoryDays: s.renderHistoryDays,
+    unkeptDays: s.unkeptDays,
+    binDays: s.binDays,
     bar: s.bar,
     pinnedProjects: s.pinnedProjects,
   };

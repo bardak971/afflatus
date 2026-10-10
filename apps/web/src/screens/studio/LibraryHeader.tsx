@@ -14,6 +14,7 @@ import { displayOf, type Scope, type useStudio } from "../../store";
 import { PlaceCrumbs } from "../library/FolderPanel";
 import { KINDS, type LibraryFilters } from "./useLibraryFilters";
 import type { Selection } from "./useSelection";
+import { binFor, daysSaid, insteadOfWaiting, unkeptMs, useKeepFor } from "../../keepFor";
 
 // "Kept" is not a scope any more: Kept only, in Filters, does it. "All recent": the last two days of every folder, whatever folder is open
 // short, so the three stay a segmented control at any width
@@ -219,7 +220,7 @@ function SelectionBar({ place, count, onSelectAll, selection, compact }: { place
       {place.type === "bin" ? (
         <>
           <Button size="sm" onClick={() => bulk("restore")}><Undo2 size={13} /> Put back</Button>
-          <Button size="sm" data-tip="Erased now, files and all, instead of after the week in the bin. Asked first (Del)" onClick={() => void eraseChosen()}><Trash2 size={13} /> Delete now…</Button>
+          <Button size="sm" data-tip={`Erased now, files and all, instead of ${insteadOfWaiting()}. Asked first (Del)`} onClick={() => void eraseChosen()}><Trash2 size={13} /> Delete now…</Button>
         </>
       ) : (
         <>
@@ -233,7 +234,7 @@ function SelectionBar({ place, count, onSelectAll, selection, compact }: { place
           </div>
           {chosen.some((a) => !a.kept) && <Button size="sm" aria-label={compact ? "Keep" : undefined} data-tip={compact ? "Keep them" : undefined} onClick={() => bulk("keep")}><Star size={13} />{!compact && " Keep"}</Button>}
           {chosen.length > 0 && chosen.every((a) => a.kept) && <Button size="sm" data-tip="They go back on the one-day countdown" onClick={() => bulk("unkeep")}>Unkeep</Button>}
-          <Button size="sm" aria-label={compact ? "Bin" : undefined} data-tip="To the bin, where they wait a week (Del)" onClick={() => void binChosen()}><Trash2 size={13} />{!compact && " Bin"}</Button>
+          <Button size="sm" aria-label={compact ? "Bin" : undefined} data-tip={`To the bin, where they wait ${binFor() ?? "until it is emptied"} (Del)`} onClick={() => void binChosen()}><Trash2 size={13} />{!compact && " Bin"}</Button>
         </>
       )}
       <button type="button" aria-label="Clear selection" data-tip="Clear selection (Esc)" onClick={() => setPicked([])} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>
@@ -292,7 +293,7 @@ function FiltersPanel({ anchor, onClose, view, filters, active, inBin }: { ancho
             <Checkbox checked={unkept} onChange={setUnkept} className="h-8 text-xs font-semibold">
               <Clock size={13} className={unkept ? "text-accent" : "text-ink-2"} /> Expiring only
             </Checkbox>
-            <Help text="Renders nobody kept go to the bin by themselves a day after they were made. S keeps one." />
+            <Help text={unkeptMs() === null ? "Renders nobody kept stay until you bin them (Settings › Storage). S keeps one." : `Renders nobody kept go to the bin by themselves ${daysSaid(useKeepFor.getState().unkeptDays)} after they were made (Settings › Storage). S keeps one.`} />
           </span>
           </>)}
         </div>

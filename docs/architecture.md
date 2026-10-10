@@ -51,7 +51,7 @@ One ComfyUI, so one job at a time, in order (`apps/server/src/queue*.ts`). Jobs 
 - **Database:** Kysely over Node's built-in `node:sqlite` (one file, `afflatus.db`, in `DATA_DIR`), or Postgres when `DATABASE_URL` is set. One schema, one migration set (`db.ts`), applied at start.
 - **Files:** `DATA_DIR/files`, behind one `Storage` interface with keys made by the server (a key never leaves the folder). **Linked folders** are directories of the disk shown as library folders, read and written through the same interface.
 - **Assets** are one table for pictures, videos and sounds. `generations` says how each was made (recipe, inputs, what was resolved at render time), `generation_inputs` which assets it used and in which role: the lineage.
-- **Expiry** has one place, the hourly sweep (started in `services.ts`): a result nobody kept goes to the bin after a day, the bin is erased after a week (`sweep.ts`), a draft that holds nothing and nobody touched for half an hour is deleted (`sweepIdleDrafts`, `drafts.ts`). Listing the drafts only reads.
+- **Expiry** has one place, the hourly sweep (started in `services.ts`): a result nobody kept goes to the bin after a day, the bin is erased after a week (`sweep.ts`; both are settings, `unkeptDays` and `binDays`, 0 for never), a draft that holds nothing and nobody touched for half an hour is deleted (`sweepIdleDrafts`, `drafts.ts`). Listing the drafts only reads.
 - **Drafts** are saved on the server as they are typed: the recipe, the inputs, the designer's conversation.
 - **Backups** are one zip of the database and every file, streamed while the app runs.
 

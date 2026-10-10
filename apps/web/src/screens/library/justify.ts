@@ -1,4 +1,4 @@
-import { UNKEPT_MS } from "@afflatus/core";
+import { unkeptMs } from "../../keepFor";
 import type { Asset } from "../../api";
 
 /**
@@ -79,7 +79,8 @@ export function justify(aspects: number[], width: number, target: number, gap: n
 
 /** The last hours of that day: the tile's clock mark turns to the warning colour. */
 export const SOON_MS = 3 * 60 * 60_000;
-export const leftOf = (a: Pick<Asset, "countdownFrom" | "createdAt">, now = Date.now()) => new Date(a.countdownFrom ?? a.createdAt).getTime() + UNKEPT_MS - now;
+/** How long an item nobody kept has before it goes to the bin by itself (Settings › Storage); null when nothing goes on its own. */
+export const leftOf = (a: Pick<Asset, "countdownFrom" | "createdAt">, now = Date.now(), ms = unkeptMs()): number | null => (ms === null ? null : new Date(a.countdownFrom ?? a.createdAt).getTime() + ms - now);
 
 /** When the items not kept go to the bin, said once for all of them: "23–24 h", "5 h", "40 min–3 h". */
 export function binRange(lefts: number[]): string {

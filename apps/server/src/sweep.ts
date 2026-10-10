@@ -8,6 +8,15 @@ import { derivedKeys } from "./timelineModel";
 // the day an unkept result has is core's (the library's tiles count down to it); the tests read it from here, beside BIN_MS
 export { UNKEPT_MS };
 export const BIN_MS = 7 * 24 * 60 * 60_000;
+const DAY_MS = 24 * 60 * 60_000;
+
+/** How long the two rules wait, from the settings (unkeptDays, binDays); null: that rule does not run. */
+export interface Keep {
+  unkeptMs: number | null;
+  binMs: number | null;
+}
+/** What the settings say, as the sweep takes it: 0 days is never. */
+export const keepOf = (s: { unkeptDays: number; binDays: number }): Keep => ({ unkeptMs: s.unkeptDays ? s.unkeptDays * DAY_MS : null, binMs: s.binDays ? s.binDays * DAY_MS : null });
 
 /** An asset id as it is written inside a JSON document (a person's pictures, a preset's form, a job's inputs). */
 const ID_IN_JSON = /"([0-9a-f]{32})"/g;
@@ -71,21 +80,23 @@ export async function eraseAsset(db: Db, storage: Storage, a: Pick<Tables["asset
 export const ERASED = ["id", "file_key", "thumb_key", "raw_key", "latent_key", "fine_latent_key", "duration_ms"] as const;
 
 /**
- * The one place the two expiry rules live:
- *  - a result nobody kept goes to the bin a day after it was made, or a day after its countdown was last
- *    started again (unkept after being kept, taken back from the bin: see assets.countdown_from);
- *  - what has been in the bin for a week is erased, file and all.
- * What is still in use (see inUse) is neither binned nor erased. Returns how many items each rule touched.
+ * The one place the two expiry rules live, each waiting as long as the settings say (`keep`, a day and a week unless
+ * told otherwise; null: the rule does not run):
+ *  - a result nobody kept goes to the bin its time after it was made, or after its countdown was last started again
+ *    (unkept after being kept, taken back from the bin: see assets.countdown_from);
+ *  - what has been in the bin its time is erased, file and all.
+ * What is still in use (see inUse) is neither binned nor erased. A painted part nothing was made with goes after a week
+ * whatever the bin keeps: it is no item of the library. Returns how many items each rule touched.
  */
-export async function sweep(db: Db, storage: Storage, at = Date.now()): Promise<{ binned: number; erased: number }> {
+export async function sweep(db: Db, storage: Storage, at = Date.now(), keep: Keep = { unkeptMs: UNKEPT_MS, binMs: BIN_MS }): Promise<{ binned: number; erased: number }> {
   const used = await inUse(db);
-  const due = await db
+  const due = keep.unkeptMs === null ? [] : await db
     .selectFrom("assets")
     .select("id")
     .where("deleted_at", "is", null)
     .where("kept_at", "is", null)
     .where("origin", "=", "generated")
-    .where((eb) => eb(eb.fn.coalesce("countdown_from", "created_at"), "<", new Date(at - UNKEPT_MS).toISOString()))
+    .where((eb) => eb(eb.fn.coalesce("countdown_from", "created_at"), "<", new Date(at - keep.unkeptMs!).toISOString()))
     .execute();
   const bin = due.map((a) => a.id).filter((id) => !used.has(id));
   let binned = 0;
@@ -94,7 +105,7 @@ export async function sweep(db: Db, storage: Storage, at = Date.now()): Promise<
     binned += Number(r.numUpdatedRows);
   }
 
-  const old = await db.selectFrom("assets").select(ERASED).where("deleted_at", "<", new Date(at - BIN_MS).toISOString()).execute();
+  const old = keep.binMs === null ? [] : await db.selectFrom("assets").select(ERASED).where("deleted_at", "<", new Date(at - keep.binMs).toISOString()).execute();
   // a painted part that nothing was made with is of no use to anyone after a week
   const masks = await db
     .selectFrom("assets")
