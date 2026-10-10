@@ -204,7 +204,7 @@ export function useHandover(h: Handover) {
       clearInterval(slow);
       step.current = () => false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the frame loop starts again only on what changes what plays; the rest is read through refs
   }, [playing, at, seq, place, onPlaying, onTime, tuneMusic]);
   return step;
 }

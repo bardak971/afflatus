@@ -14,7 +14,7 @@ import { MaskField } from "./MaskField";
 import { Slider } from "./Slider";
 import { ClipField, PictureField, ReferencesField, SoundField } from "./PictureField";
 import { useExplain } from "./store";
-import { cx, NumberBox, Segmented, Toggle, Help, Note } from "./ui";
+import { cx, Segmented, Toggle, Help } from "./ui";
 
 export { useLoraWordsOf } from "./fields/Loras";
 
@@ -51,7 +51,6 @@ export function Field({ spec, value, values, options, family, model, onChange, o
   // a setting its recipe says nothing about takes the list's words (the ones every model shares, an imported workflow's)
   spec = withNote(spec);
   const id = useId();
-  const explain = useExplain((st) => st.on);
   // the pictures the form's cast adds to this reference input when it is sent
   const cast = useCastPictures(spec.id);
   switch (spec.type) {

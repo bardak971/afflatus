@@ -86,7 +86,7 @@ export function useMotionMarks({ slots, clips, timeline, playEnd, pps, clock, sn
       }
       return { slot: s, curve, quiet, pauses };
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- measures is the read measureOf looks into, listed instead
   }, [played, measures]);
   const snapRange = (ms: number) => {
     const marks = [...slots.filter((s) => !s.planned).flatMap((s) => [s.clip.atMs, s.clip.atMs + s.clip.lengthMs]), clock.get()];

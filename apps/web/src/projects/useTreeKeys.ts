@@ -180,12 +180,12 @@ export function useTreeKeys({ panel, list, search, anchor, opened, hidden, rows,
   // opened: the keys are on the tree, on the row worked in
   useEffect(() => {
     list.current?.focus({ preventScroll: true });
-  }, [opened]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [opened]); // eslint-disable-line react-hooks/exhaustive-deps -- focused when the panel opens, not on every render the ref is passed in
   // back from the Viewer: the keys are on the tree again
   useEffect(() => {
     if (!hidden) list.current?.focus({ preventScroll: true });
-  }, [hidden]);
+  }, [hidden, list]);
   useEffect(() => {
     if (!focused && rows.length && hereKey) setFocused(hereKey);
-  }, [rows.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [rows.length]); // eslint-disable-line react-hooks/exhaustive-deps -- the first row standing for the place is taken once the rows come, not after the user moved
 }

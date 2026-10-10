@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, roundTo, type Ref } from "@afflatus/core";
-import { redrawInTiles, tileInputs, TILE_NODES, tilesOf, useTiles, type TileSettings } from "../shared/tiles";
+import { redrawInTiles, tileInputs, TILE_NODES, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
 import {
   boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, loadSdxl, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, samplerOf, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
   type FaceSettings, type MaskSettings, type OutpaintSettings, type UpscaleSettings,
@@ -224,7 +224,7 @@ export const sdxlSharper = defineRecipe<SdxlSharper>({
     // upscale models enlarge by their own factor (usually 4×): scaled to exactly twice the picture
     const sized = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: W, height: H, crop: "disabled" });
     const loads = [`upscale_models/${input.upscaler}`];
-    const tiled = input.refine && useTiles(input, { width: W, height: H }, REFINE_WHOLE_PIXELS / 4);
+    const tiled = input.refine && inTiles(input, { width: W, height: H }, REFINE_WHOLE_PIXELS / 4);
     if (!input.refine) {
       const out = g.add("PreviewImage", { images: sized });
       return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: 1, loads };

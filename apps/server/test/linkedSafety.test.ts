@@ -51,7 +51,6 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-type Item = { id: string; name: string; path: string | null; folderId: string | null };
 const link = async () => (await post(t.app, "/api/folders/link", { path: dir, name: "Shoots" })).json() as { id: string };
 const scan = (id: string) => post(t.app, `/api/folders/${id}/scan`, {});
 const all = async () => (await t.db.selectFrom("assets").select(["id", "name", "file_key", "folder_id"]).execute()).map((a) => ({ id: a.id, name: a.name, key: a.file_key, folder: a.folder_id }));

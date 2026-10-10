@@ -65,7 +65,6 @@ function checkBindings(graph: Graph, b: Bindings): void {
   for (const c of b.controls) if (isRef(graph[c.target.node]!.inputs[c.target.input])) throw httpError(`the control "${c.label}" points at an input that is linked, not typed in`);
   const ids = [...b.controls.map((c) => c.id), ...b.toggles.map((t) => t.id)];
   if (new Set(ids).size !== ids.length) throw httpError("two controls have the same id");
-  const known = new Set(ids);
   for (const sk of b.skip ?? []) {
     if (!graph[sk.node]) throw httpError(`a preview left out points at node ${sk.node}, which is not in the workflow`);
     if (sk.node === b.result.node) throw httpError("the output itself cannot be left out");

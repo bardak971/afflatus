@@ -1,7 +1,7 @@
 import { defineRecipe, GraphBuilder, roundTo, type InputSpec, type Recipe, type Ref, type SizeValue } from "@afflatus/core";
 import { HIRES_PASS_INPUTS, hiresPass, UPSCALER_PREFER, type HiresPass } from "../sdxl/common";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
-import { redrawInTiles, tileInputs, tileNodes, tilesOf, useTiles, type TileSettings } from "../shared/tiles";
+import { redrawInTiles, tileInputs, tileNodes, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
 import type { FlowBase, FlowKit, FlowSpec } from "./kit";
 
 export interface FlowPicture extends FlowBase, HiresPass, DetailSettings, TileSettings {
@@ -63,7 +63,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       ...fullPassNodes(input, spec.turbo && input.fast ? input.turboSteps ?? input.steps : input.steps), ...(input.hires ? ["KSampler"] : []),
       ...(spec.look && input.look ? LOOK_NODES : []),
       ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"] : []),
-      ...tileNodes(input.hires && useTiles(input, largeOf(input), AREA)),
+      ...tileNodes(input.hires && inTiles(input, largeOf(input), AREA)),
     ],
     optionalNodes: [...SOMETIMES, ...DETAIL_OPTIONAL],
     build(input, ctx) {
@@ -93,7 +93,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
         const scaled = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: large.width, height: large.height, crop: "disabled" });
         g.phase("refining");
         const pass = { steps: input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input) };
-        if (useTiles(input, large, AREA)) {
+        if (inTiles(input, large, AREA)) {
           // each tile is a picture the model's size to it: the shift for that size
           const tile = Math.min(input.tileSize, Math.max(large.width, large.height));
           const tiled = shifted(g, k.model, input, { width: tile, height: tile });

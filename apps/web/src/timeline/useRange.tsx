@@ -77,7 +77,7 @@ export function useRange({ id, clips, durationMs, clock, player, playing, setPla
       if (time < r.inMs || time >= r.outMs - 15) player.current?.seek(r.inMs);
     } else if (totalRef.current && time >= totalRef.current - 30) player.current?.seek(0);
     setPlaying((p) => !p);
-  }, [playing, clock]);
+  }, [playing, clock, player, setPlaying]);
   /** Loop on or off; turning it on goes to In at once and plays the range round (playing or not, wherever the playhead was). */
   const toggleLoop = useCallback(() => {
     const r = rangeRef.current;
@@ -89,7 +89,7 @@ export function useRange({ id, clips, durationMs, clock, player, playing, setPla
       player.current?.seek(r.inMs);
       if (!playing) setPlaying(true);
     }
-  }, [playing]);
+  }, [playing, player, setPlaying]);
   const toggleLoopNow = useRef(toggleLoop);
   toggleLoopNow.current = toggleLoop;
   /** Play from In; at Out it stops, or goes back to In when Loop is on. */

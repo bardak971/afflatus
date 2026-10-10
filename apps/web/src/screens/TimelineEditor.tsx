@@ -239,7 +239,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       select(c.id);
     }
     go(`/timelines/${id}`, { replace: true });
-  }, [askedClip, t, shown]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [askedClip, t, shown]); // eslint-disable-line react-hooks/exhaustive-deps -- once per clip asked for: clips, go and id are read as they stand then
 
   /**
    * Cut the clip at this moment of it and add a clip that continues from there: one step to undo (the server stops the clip

@@ -259,7 +259,7 @@ export function Segmented<T extends string>({ value, options, onChange, label, o
   }, [value]);
   // the options change size (the room, the labels, a font loading): the pill follows at once, without travel; a box
   // that has not moved (the one just measured for a new choice) is left alone, so its stretch is not cut short
-  const keys = options.map((o) => o.value).join(" ");
+  const keys = options.map((o) => o.value).join("\u0000");
   useLayoutEffect(() => {
     const g = group.current;
     if (!g) return;
@@ -478,7 +478,7 @@ export function TwoStep({ label, icon, title, note, yes, cancel = "Cancel", onYe
     if (!asking || stay) return;
     const back = setTimeout(() => setAsking(false), 6000);
     return () => clearTimeout(back);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setAsking is new at every render; the wait starts when asking does
   }, [asking, stay]);
   if (asking) {
     return (

@@ -32,7 +32,7 @@ function useScrub(el: React.RefObject<HTMLMediaElement | null>, at: number | nul
   useEffect(() => {
     want.current = at ?? null;
     if (on) go();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- go reads the latest values through refs; it is new at every render
   }, [at, on]);
   useEffect(() => () => {
     if (timer.current !== null) window.clearTimeout(timer.current);
@@ -67,7 +67,7 @@ export function HoverAudio({ asset, at, delay = 250, onPlaying, onTime }: {
       setPlaying(false);
     };
   }, [allowed, hovering, delay]);
-  useEffect(() => onPlaying?.(playing), [playing]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => onPlaying?.(playing), [playing]); // eslint-disable-line react-hooks/exhaustive-deps -- the parent's callback is told when playing changes, not when it is passed anew
   const seek = useScrub(el, at, playing);
   if (!playing) return null;
   return (
@@ -128,7 +128,7 @@ export function HoverVideo({ asset, video, alt = "", delay = 250, at, onNoFrame,
     return () => {
       if (timer.current !== null) window.clearTimeout(timer.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- scrubs is part of over; stop and setPlaying are new at every render and read refs
   }, [over, video, hover.video, delay]);
   const report = useRef(onPlaying);
   report.current = onPlaying;

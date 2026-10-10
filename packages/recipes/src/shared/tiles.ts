@@ -30,7 +30,7 @@ export const tileInputs = (showWhen: string | undefined, tile = 1024): InputSpec
 ];
 
 /** Whether a pass at this size is redrawn in tiles: asked, or (Auto) the picture is past four times `area` (2× each side). */
-export function useTiles(input: TileSettings, size: { width: number; height: number }, area: number): boolean {
+export function inTiles(input: TileSettings, size: { width: number; height: number }, area: number): boolean {
   if (input.tiles === TILES_ON) return true;
   if (input.tiles === TILES_WHOLE) return false;
   return size.width * size.height > 4 * area;

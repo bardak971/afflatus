@@ -121,7 +121,7 @@ export function MediaOverlay({ timeline, placeItems }: {
     return { items: [...out.values()], roles, pinned };
   }, [timeline]);
 
-  const since = useMemo(() => new Date(Date.now() - 2 * DAY).toISOString(), [scope]); // eslint-disable-line react-hooks/exhaustive-deps
+  const since = useMemo(() => new Date(Date.now() - 2 * DAY).toISOString(), [scope]); // eslint-disable-line react-hooks/exhaustive-deps -- the cutoff is taken again when the scope changes, not at every render
   const fetched = scope !== "timeline";
   const assets = useAssets(
     {
@@ -134,9 +134,13 @@ export function MediaOverlay({ timeline, placeItems }: {
     },
     open && fetched,
   );
-  const items = fetched
-    ? (assets.data?.pages.flatMap((p) => p.items) ?? [])
-    : used.items.filter((a) => (kind === "all" || a.kind === kind) && (!kept || a.kept) && (!q || (a.name ?? "").toLowerCase().includes(q.toLowerCase())));
+  const items = useMemo(
+    () =>
+      fetched
+        ? (assets.data?.pages.flatMap((p) => p.items) ?? [])
+        : used.items.filter((a) => (kind === "all" || a.kind === kind) && (!kept || a.kept) && (!q || (a.name ?? "").toLowerCase().includes(q.toLowerCase()))),
+    [fetched, assets.data, used.items, kind, kept, q],
+  );
   // on this timeline first, in clip order; then the rest, as listed (a pinned picture is not on the track: it is in the rest, tagged)
   const [on, off] = useMemo(() => {
     const mine = items.filter((a) => used.roles.has(a.id)).sort((a, b) => used.roles.get(a.id)!.order - used.roles.get(b.id)!.order);

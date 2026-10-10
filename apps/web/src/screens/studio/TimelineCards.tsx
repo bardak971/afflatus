@@ -104,7 +104,7 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the handlers read the latest list; the listener is put back only when the pick or the list changes
   }, [picked, timelines]);
 
   /** A click with Ctrl or Shift picks instead of opening; so does the tick on the card. */

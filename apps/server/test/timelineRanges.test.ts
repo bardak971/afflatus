@@ -7,7 +7,7 @@ import { readVideo } from "../src/video";
 import { patternClip } from "./clipKit";
 import { FFMPEG_TIMEOUT, ffmpegThere } from "./clipKit";
 import { get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
-import { frames, H3_FILES, nodes, timelineSteps, timelineSuite } from "./timelineKit";
+import { H3_FILES, nodes, timelineSteps, timelineSuite } from "./timelineKit";
 
 /** A clip outside a timeline, a reference video, a take trimmed on the timeline (its ranges), and how long a finish takes. */
 
@@ -17,10 +17,8 @@ const { call, view, finish, render, twoClips } = timelineSteps(s);
 let fake: FakeComfy;
 let t: TestApp;
 let three: Uint8Array;
-let smooth: Uint8Array;
 let silent: Uint8Array;
-let tone: Uint8Array;
-beforeAll(() => void ({ three, smooth, silent, tone } = s.clips ?? {}));
+beforeAll(() => void ({ three, silent } = s.clips ?? {}));
 beforeEach(() => void ({ fake, t } = s));
 
 describe.skipIf(!ffmpegThere)("a clip made outside a timeline", { timeout: FFMPEG_TIMEOUT }, () => {

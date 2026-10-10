@@ -49,6 +49,8 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
   selectedNow.current = selected;
   const musicOpenNow = useRef(false);
   musicOpenNow.current = Boolean(musicOpen);
+  const closeMusicNow = useRef(closeMusic);
+  closeMusicNow.current = closeMusic;
   // set by the editor once what they call exists (some of it only once the timeline is read)
   /** Render the selected clip (a new take), as Generate does in the Studio's form: Ctrl+Enter, even from its prompt. */
   const renderNow = useRef(() => {});
@@ -169,7 +171,7 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
       // the same from the music's panel
       if (e.key === "Escape" && !typing && !held && musicOpenNow.current) {
         e.preventDefault();
-        closeMusic?.();
+        closeMusicNow.current?.();
         return;
       }
       // Alt + an arrow: the selected clip one place earlier or later
@@ -204,6 +206,6 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggle, undo, canUndo, redo, canRedo, remove, move, removePicked, clock]);
+  }, [toggle, undo, canUndo, redo, canRedo, remove, move, removePicked, clock, player, rangeRef, setRange, totalRef, toggleLoopNow, setSelected, setPicked]);
   return { selectedNow, renderNow, jumpNow, splitNow, takeNow, trackKeys };
 }

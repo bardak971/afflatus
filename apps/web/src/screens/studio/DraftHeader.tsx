@@ -88,8 +88,6 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
             drafts={d.drafts}
             open={draft}
             titleOf={titleOf}
-            // the open one is never cleared: not counted when it is one of them
-            unused={Math.max(0, d.unused - (draft && !draft.name && !titleOf(draft) && !d.drafts.find((x) => x.id === draft.id)?.outputs ? 1 : 0))}
             onPick={(id) => void d.switchTo(id).catch(failed("opened"))}
             onNew={() => void d.startNew().catch(failed("started"))}
             onClearUnused={() => api.clearUnusedDrafts(draft?.id).then(() => client.invalidateQueries({ queryKey: DRAFT_LIST }), failed("cleared"))}

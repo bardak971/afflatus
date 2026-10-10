@@ -245,7 +245,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
     });
     return () => cancelAnimationFrame(id);
     // once per timeline, when its length is known
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per timeline, when its length is known
   }, [timeline.id, totalMs]);
   // a clip added (New clip, a drop, a continuation): the whole timeline in view again, the new clip with it
   // (kept asked for until it has run: the new clip's length may settle a render later)
@@ -263,7 +263,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
     });
     seen.observe(el);
     return () => seen.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- watched again only when the length changes; fitAll reads the latest through refs
   }, [totalMs]);
   const counted = useRef(clips.length);
   const fitAsked = useRef(false);
@@ -277,7 +277,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
       fittedAt.current = performance.now();
     });
     return () => cancelAnimationFrame(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fitted when clips come or go or the length changes, not when fitAll is made anew
   }, [clips.length, totalMs]);
 
   // what the clips do when pressed: read when it happens, so that a clip draws again only when what it shows changes

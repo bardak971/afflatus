@@ -89,7 +89,9 @@ function FoldBody({ open, now, className, children }: { open: boolean; /** Opene
       return;
     }
     const opening = play.kind === "open";
-    if (clip.current) clip.current.style.overflow = "hidden";
+    // the cleanup puts back the element changed here, whatever the ref holds by then
+    const box = clip.current;
+    if (box) box.style.overflow = "hidden";
     const run = opening
       ? el.animate([{ gridTemplateRows: "0fr", opacity: 0 }, { gridTemplateRows: "1fr", opacity: 1 }], { duration: motionMs("--t-panel", 140), easing: motionEase() })
       // the content is gone a little before the height: what is left of it is not seen squeezed
@@ -98,7 +100,7 @@ function FoldBody({ open, now, className, children }: { open: boolean; /** Opene
     return () => {
       run.onfinish = null;
       run.cancel();
-      if (clip.current) clip.current.style.overflow = "";
+      if (box) box.style.overflow = "";
     };
   }, [play]);
   if (!open && play?.kind !== "fold") return null;

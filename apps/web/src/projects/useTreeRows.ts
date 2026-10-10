@@ -55,7 +55,7 @@ export function useTreeRows({ data, q, kind, sort, only, current, isOpen, folds,
   const [itemPages, setItemPages] = useState<Record<string, number>>({});
   const openFolders = useMemo(
     () => (data && !q ? flatten(data, { isOpen, drafts: () => undefined, only }).filter((r) => r.kind === "folder" && r.open && r.id) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- isOpen and only are read from folds, current and only.group, listed instead
     [data, folds, q, current, only?.group],
   );
   const itemReads = useQueries({
@@ -84,7 +84,7 @@ export function useTreeRows({ data, q, kind, sort, only, current, isOpen, folds,
   const itemsRead = openFolders.map((f, i) => `${f.key}:${itemReads[i]?.dataUpdatedAt ?? 0}:${itemReads[i]?.isPlaceholderData ? 1 : 0}`).join("|");
   const rows = useMemo(
     () => (data ? flatten(data, { isOpen, drafts: (k) => drafts.get(k), items: (k) => items.get(k), bin: bin ?? null, q, kind, draftMeta, sort, only }) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the reads are compared by when they were made (draftsRead, itemsRead), not by the lists themselves
     [data, folds, searchFolded, q, kind, sort, draftsRead, itemsRead, recipes.data, current, bin?.count, bin?.bytes, only?.group],
   );
   const byKey = useMemo(() => new Map(rows.map((r) => [r.key, r])), [rows]);

@@ -98,7 +98,7 @@ export const History = memo(function History() {
   // the model's name, worked out from the recipes: the same function until they are read again, so the rows keep theirs
   const modelName = useModelName();
   const recipes = useRecipes();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the same function until the recipes are read again, so the rows keep their names
   const modelOf = useMemo(() => modelName, [recipes.data]);
   // what each row would run for itself, run once here: a hook per row was three mutations, a menu and a copy note for
   // each of the thousands of rows a long history holds

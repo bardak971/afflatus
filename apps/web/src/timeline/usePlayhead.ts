@@ -64,7 +64,7 @@ export function usePlayhead({ clock, clips, player, rangeRef, loopRef, playingRa
         setPlaying(false);
       }
     }
-  }, [clock]);
+  }, [clock, rangeRef, playingRange, loopRef, player, setPlaying]);
   /** One frame of the clip under the playhead, in ms (24 a second when it is not known). */
   const frameMs = () => {
     const time = clock.get();

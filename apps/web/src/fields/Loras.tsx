@@ -183,7 +183,7 @@ export function Loras({ spec, value, options, family, model, onChange, main }: {
       ...(more[nameOf(m.file)] ? { search: [fileOption(m.file, m.about).search, more[nameOf(m.file)]!.own, more[nameOf(m.file)]!.found].filter(Boolean).join(" ") } : {}),
       ...(sorted ? { group: titles[rank(m)] } : {}),
     }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the reads the options come from; the helpers that read them are new at every render
   }, [free.join("|"), known.data, extra.data, family?.id, spec.label, model]);
   return (
     <div className="flex flex-col gap-1.5">

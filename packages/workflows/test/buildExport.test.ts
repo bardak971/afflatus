@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { checkGraph, choicesOf, dryContext, parseInput, pickChoice, relocateFiles, type Graph, type InputSpec, type NodeCatalog } from "@afflatus/core";
-import { ancestors, cutFileNameChains, fromEditor, inspect, prune, recipeFromWorkflow, type WorkflowDef } from "../src";
+import { cutFileNameChains, fromEditor, inspect, prune, recipeFromWorkflow, type WorkflowDef } from "../src";
 import { compare, withFileIds, withoutPassThroughs, type Diff } from "./exportCompare";
 
 /**

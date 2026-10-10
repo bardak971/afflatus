@@ -116,7 +116,7 @@ export function MaskPainter({ picture, mask, onDone, onClose }: { picture: strin
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
   // a window made smaller must not leave the picture out of sight
-  useEffect(() => setView((v) => held(v)), [fit]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => setView((v) => held(v)), [fit]); // eslint-disable-line react-hooks/exhaustive-deps -- held only bounds the view; it is new at every render
 
   const down = (e: ReactPointerEvent) => {
     // moving: with the Move tool, the space bar held, or the middle button

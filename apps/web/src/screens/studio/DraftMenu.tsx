@@ -27,13 +27,11 @@ function Cover({ d, size }: { d: DraftBrief; size: number }) {
  * many outputs it has and when it was last changed. Opens from the head of the Create panel; typing narrows
  * the list, the arrow keys move in it, Enter opens. A draft with no prompt is named after its model.
  */
-export function DraftMenu({ drafts, open: current, titleOf, unused, onPick, onNew, onClearUnused, onRename, onDelete }: {
+export function DraftMenu({ drafts, open: current, titleOf, onPick, onNew, onClearUnused, onRename, onDelete }: {
   drafts: DraftBrief[];
   open: DraftBrief | null;
   /** What a draft is called: its name, else the start of its prompt, else "" (named after its model here). */
   titleOf(d: DraftBrief): string;
-  /** How many drafts hold settings and nothing else. */
-  unused: number;
   onPick(id: string): void;
   onNew(): void;
   onClearUnused(): Promise<unknown>;
@@ -75,7 +73,7 @@ export function DraftMenu({ drafts, open: current, titleOf, unused, onPick, onNe
     const seen = new Map<string, number>();
     for (const d of drafts) seen.set(nameOf(d), (seen.get(nameOf(d)) ?? 0) + 1);
     return seen;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- nameOf is new at every render and reads the recipes, listed instead
   }, [drafts, recipes.data]);
   const subLine = (d: DraftBrief) => {
     if ((repeats.get(nameOf(d)) ?? 0) < 2) return modelLine(d);
@@ -86,7 +84,7 @@ export function DraftMenu({ drafts, open: current, titleOf, unused, onPick, onNe
 
   const found = useMemo(
     () => fuzzyFilter(drafts, query, (d) => `${nameOf(d)} ${d.title} ${modelLine(d)}`),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- nameOf and modelLine are new at every render and read the recipes, listed instead
     [drafts, query, recipes.data],
   );
   // the unused drafts (no prompt, no name, nothing made: the ones Clear deletes) fold under one row at the foot, with
@@ -105,7 +103,7 @@ export function DraftMenu({ drafts, open: current, titleOf, unused, onPick, onNe
   // the row the arrows are on stays in sight in a long list
   useEffect(() => {
     if (active) document.getElementById(optionId(active))?.scrollIntoView({ block: "nearest" });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the row the arrows are on changes
   }, [active?.id]);
   const pick = (id: string) => {
     close();

@@ -6,7 +6,7 @@ import { flowPaintOver } from "../flow/paint-over";
 import { flowRedraw } from "../flow/redraw";
 import { flowSharper } from "../flow/sharper";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
-import { redrawInTiles, tileInputs, tileNodes, tilesOf, useTiles, type TileSettings } from "../shared/tiles";
+import { redrawInTiles, tileInputs, tileNodes, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
 import { krea2Kit, krea2Spec } from "./common";
 
 const files = krea2Spec.files;
@@ -72,7 +72,7 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
   nodes: (input) => [
     ...detailNodes(input),
     ...fullPassNodes(input, input.steps), ...(input.hires ? ["KSampler"] : []),
-    ...tileNodes(input.hires && useTiles(input, krea2Large(input), KREA2_AREA)),
+    ...tileNodes(input.hires && inTiles(input, krea2Large(input), KREA2_AREA)),
     ...krea2Kit.loadNodes(input).filter((n) => n !== "KSampler" && (n !== "CLIPTextEncode" || !input.references.length || input.negative.trim())), "EmptyLatentImage",
     ...(input.references.length ? ["LoadImage", "TextEncodeQwenImageEditPlus", "FluxKontextMultiReferenceLatentMethod", "LoraLoaderModelOnly", ...(input.shift > 0 ? [] : ["ModelSamplingFlux"])] : []),
     ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode", ...(input.shift > 0 ? [] : ["ModelSamplingFlux"])] : []),
@@ -119,7 +119,7 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
       const scaled = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: W2, height: H2, crop: "disabled" });
       g.phase("refining");
       const pass = { steps: input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input) };
-      if (useTiles(input, { width: W2, height: H2 }, KREA2_AREA)) {
+      if (inTiles(input, { width: W2, height: H2 }, KREA2_AREA)) {
         image = redrawInTiles(g, ctx, scaled, k.vae, { width: W2, height: H2 }, input, (l, _tiles, tile) => {
           const second = sample(g, k, input, sized(model, tile, tile), cond, l, ctx.seed, pass, detail);
           passes.push({ ...second.pass, steps: second.pass.steps * tilesOf({ width: W2, height: H2 }, input).count });

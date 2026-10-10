@@ -122,7 +122,7 @@ export function WorkflowEdit({ params }: { params: { id: string } }) {
     if (!q.error) return;
     useWorkflowDraft.setState({ note: `Could not open it in the editor: ${q.error.message}` });
     navigate("/workflows", { replace: true });
-  }, [q.error]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [q.error]); // eslint-disable-line react-hooks/exhaustive-deps -- once per error: navigate is not a value to follow
   // the editor's shape while the saved workflow is read, the same as while its code loads: nothing jumps once it is there
   if (!q.data) return <WorkflowEditorSkeleton />;
   return <WorkflowEditor key={id} start={q.data} onDone={() => navigate("/workflows")} />;
@@ -144,7 +144,7 @@ export function WorkflowImport() {
     }
     useWorkflowDraft.setState({ note: "The import was not saved and the page was reloaded: drop its file again." });
     navigate("/workflows", { replace: true });
-  }, [lost]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [lost]); // eslint-disable-line react-hooks/exhaustive-deps -- once per lost import: navigate is not a value to follow
   if (!draft) return null;
   return (
     <WorkflowEditor
@@ -265,14 +265,14 @@ export function Workflows() {
     if (!handed) return;
     hand({ workflow: null });
     open.mutate(handed);
-  }, [handed]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [handed]); // eslint-disable-line react-hooks/exhaustive-deps -- once per handed workflow: hand and open are not values to follow
   // what the command bar asked of this screen: the file picker of the Import button (its Edit goes to the editor's address)
   const asked = useWorkflowsRequest((r) => r.request);
   useEffect(() => {
     if (!asked) return;
     const r = useWorkflowsRequest.getState().take();
     if (r?.do === "import") input.current?.click();
-  }, [asked]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [asked]);
   const shareIt = useMutation({ mutationFn: share });
   // the workflow in ComfyUI's editor: written into its workflows folder, then ComfyUI opened in a new tab.
   // The tab is opened before the request, or the browser would block it as a pop-up.

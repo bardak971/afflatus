@@ -101,7 +101,7 @@ export function useBarRequests({ id, t, shown, clips, slots, missing, ready, ren
         say({ id: `bar-render:${Date.now()}`, tone: "bad", title: `Clips of ${t.name} could not be rendered`, text: err.message, href: `/timelines/${id}`, go: "Open the timeline" });
       },
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per request: the rest is read as it stands then
   }, [request, id, t, shown]);
   return openExport;
 }
