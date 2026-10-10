@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { GripVertical, Plus, X } from "lucide-react";
-import type { Section, SwitchGroup, Toggle } from "@afflatus/workflows";
-import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
+import type { Section, Toggle } from "@afflatus/workflows";
 import { Button, cx, Help, Toggle as Switch } from "../ui";
 import { useFlip } from "../useFlip";
+import { ADVANCED, isGroup, isMark, placedIn, PROMPT, reordered, withNew, type Spot } from "./workflowEditor/sections";
+import { useCardMoves } from "./workflowEditor/useCardMoves";
+import { useItemMoves, type Refocus } from "./workflowEditor/useItemMoves";
 
 /**
  * The form of an imported workflow, arranged: named sections holding the form's inputs in the order
@@ -26,8 +28,6 @@ export interface Placeable {
 }
 
 type Drag = { item: string } | { section: string };
-/** Where a drop would land: in a section (under one of its switches, or not), before the item at `index`. */
-type Spot = { section: string; group: string | null; index: number };
 type Over = Spot | { before: string } | { tray: true } | null;
 
 const read = (e: DragEvent): Drag | null => {
@@ -38,7 +38,6 @@ const read = (e: DragEvent): Drag | null => {
   }
 };
 const carries = (e: DragEvent) => e.dataTransfer.types.includes(KIND);
-const isGroup = (item: Section["items"][number]): item is SwitchGroup => typeof item !== "string";
 const sameSpot = (a: Over, b: Spot) => a !== null && "section" in a && a.section === b.section && a.group === b.group && a.index === b.index;
 
 export function FormSections({ sections, onChange, items, toggles, onMakeSwitch, onDropSwitch, onSwitchDefault, cuts, onSuggest, canSuggest }: {
@@ -70,69 +69,14 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
   const loose = items.filter((i) => !placed.has(i.id));
 
   const update = (id: string, patch: Partial<Section>) => onChange(sections.map((s) => (s.id === id ? { ...s, ...patch } : s)));
-  const ADVANCED = "advanced";
-  const PROMPT = "prompt";
-  const isMark = (s: Section) => s.id === ADVANCED || s.id === PROMPT;
   const real = sections.filter((s) => !isMark(s));
-  /** The sections with a new one in them: last among the sections; when Advanced was moved up, it stays where it was put. */
-  const withNew = () => {
-    const made = { id: `sec_${Date.now().toString(36)}`, label: `Section ${real.length + 1}`, items: [] };
-    const at = sections.findIndex(isMark);
-    const next = [...sections];
-    next.splice(at < 0 ? next.length : at, 0, made);
-    return { next, made };
-  };
-  const add = () => onChange(withNew().next);
+  const add = () => onChange(withNew(sections).next);
   /** The section goes, and its switches with it (one made here is forgotten by onChange, in the same change). */
   const remove = (s: Section) => onChange(sections.filter((x) => x.id !== s.id));
-  /** Every section without `item` anywhere in it. */
-  const without = (list: Section[], item: string): Section[] => list.map((s) => ({ ...s, items: s.items.flatMap((it): Section["items"] => (isGroup(it) ? (it.toggle === item ? [] : [{ ...it, items: it.items.filter((x) => x !== item) }]) : it === item ? [] : [it])) }));
-  /**
-   * The sections with an item put at a spot (or out of every section when `to` is null); null when it cannot go there.
-   * A switch moves with its settings; it cannot go under another switch.
-   */
-  const placedIn = (list: Section[], item: string, to: Spot | null): Section[] | null => {
-    const group = list.flatMap((s) => s.items).find((it): it is SwitchGroup => isGroup(it) && it.toggle === item);
-    const rest = without(list, item);
-    if (!to) return rest;
-    if (group && to.group) return null;
-    return rest.map((s) => {
-      if (s.id !== to.section) return s;
-      if (!to.group) {
-        const list: Section["items"] = [...s.items];
-        list.splice(Math.min(to.index, list.length), 0, group ?? item);
-        return { ...s, items: list };
-      }
-      return { ...s, items: s.items.map((it): Section["items"][number] => {
-        if (!isGroup(it) || it.toggle !== to.group) return it;
-        const list = [...it.items];
-        list.splice(Math.min(to.index, list.length), 0, item);
-        return { ...it, items: list };
-      }) };
-    });
-  };
   /** Put an item at a spot, in one change: the drag, the menu and the Alt + arrow keys all come here. */
   const move = (item: string, to: Spot | null) => {
     const next = placedIn(sections, item, to);
     if (next) onChange(next);
-  };
-  /** The sections with one (or the Prompt or Advanced card) put just before another; null when it cannot go there. */
-  const reordered = (list: Section[], section: string, before: string): Section[] | null => {
-    if (section === before) return null;
-    // Advanced is placed for the first time: its mark joins the list
-    const mark = (id: string): Section | undefined => (id === ADVANCED ? { id: ADVANCED, label: "Advanced", items: [] } : id === PROMPT ? { id: PROMPT, label: "Prompt", items: [] } : undefined);
-    const moving = list.find((s) => s.id === section) ?? mark(section);
-    if (!moving) return null;
-    let rest = list.filter((s) => s.id !== section);
-    // a drop on the Prompt or Advanced card while it has no mark yet: the mark joins the list where the card stood (first, last)
-    if (!rest.some((s) => s.id === before)) {
-      const m = mark(before);
-      if (!m) return null;
-      rest = before === PROMPT ? [m, ...rest] : [...rest, m];
-    }
-    const at = rest.findIndex((s) => s.id === before);
-    rest.splice(at, 0, moving);
-    return rest;
   };
   /** A section dropped on another card, in one change: the drag and the section keys both come here. */
   const reorder = (section: string, before: string) => {
@@ -140,10 +84,10 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
     if (next) onChange(next);
   };
 
-  // ---- from the keyboard: the same moves, through the same `move` ----
+  // ---- from the keyboard: the same moves, through the same `move` (useItemMoves) and `reordered` (useCardMoves) ----
   const root = useRef<HTMLDivElement>(null);
   /** What takes the focus once the change is drawn: the setting or section moved (in its new place), or a section's name. */
-  const refocus = useRef<{ chip: string } | { head: string } | { name: string } | null>(null);
+  const refocus = useRef<Refocus>(null);
   useEffect(() => {
     const want = refocus.current;
     if (!want || !root.current) return;
@@ -156,199 +100,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
       name?.select();
     }
   });
-  /** Where an item is: its section, the switch it is under, its place in that list. Null: in no section (Advanced). */
-  const locate = (id: string) => {
-    for (const s of sections) {
-      for (const [i, it] of s.items.entries()) {
-        if (!isGroup(it)) { if (it === id) return { section: s, group: null, index: i, size: s.items.length }; continue; }
-        if (it.toggle === id) return { section: s, group: null, index: i, size: s.items.length };
-        const j = it.items.indexOf(id);
-        if (j >= 0) return { section: s, group: it, index: j, size: it.items.length };
-      }
-    }
-    return null;
-  };
-  const switchOf = (id: string) => sections.flatMap((s) => s.items).find((it): it is SwitchGroup => isGroup(it) && it.toggle === id);
-  const nameOfSwitch = (id: string) => toggles.find((t) => t.id === id)?.label ?? byId.get(id)?.label ?? id;
-  /** A switch made here is forgotten when it leaves every section (as on a drop in the tray). */
-  const forgets = (id: string) => Boolean(switchOf(id) && toggles.find((t) => t.id === id)?.made);
-  /** The sections in the order they are drawn, Advanced among them: where Alt + ↑ ↓ go. */
-  const stops = [...sections.filter((s) => s.id !== PROMPT).map((s) => s.id), ...(sections.some((s) => s.id === ADVANCED) ? [] : [ADVANCED])];
-  const put = (id: string, to: Spot | null) => {
-    refocus.current = { chip: id };
-    move(id, to);
-  };
-  /** Alt + ← →: one place earlier or later in its list (its section, or the switch it is under). */
-  const shift = (id: string, by: -1 | 1) => {
-    const at = locate(id);
-    if (!at || at.index + by < 0 || at.index + by >= at.size) return;
-    put(id, { section: at.section.id, group: at.group?.toggle ?? null, index: at.index + by });
-  };
-  /** Alt + ↑ ↓: to the end of the section before, or the start of the one after; Advanced is one of them. */
-  const hop = (id: string, by: -1 | 1) => {
-    const here = locate(id)?.section.id ?? ADVANCED;
-    const next = stops[stops.indexOf(here) + by];
-    if (!next || (next === ADVANCED && forgets(id))) return;
-    if (next === ADVANCED) return put(id, null);
-    put(id, { section: next, group: null, index: by < 0 ? (sections.find((s) => s.id === next)?.items.length ?? 0) : 0 });
-  };
-  /** "A new section…": the item goes into a section made for it, in one change, and its name is ready to be typed. */
-  const intoNew = (id: string) => {
-    const { next, made } = withNew();
-    const placed = placedIn(next, id, { section: made.id, group: null, index: 0 });
-    if (!placed) return;
-    refocus.current = { name: made.id };
-    onChange(placed);
-  };
-  const keys = (id: string) => (e: KeyboardEvent) => {
-    if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-    const act = { ArrowLeft: () => shift(id, -1), ArrowRight: () => shift(id, 1), ArrowUp: () => hop(id, -1), ArrowDown: () => hop(id, 1) }[e.key];
-    if (!act) return;
-    // Alt + ← is also the browser's Back
-    e.preventDefault();
-    e.stopPropagation();
-    act();
-  };
-  const menu = useMenu<string>();
-  /** Enter or a click on a setting, the menu key, a right-click: its "move to" menu. */
-  const openMenu = (id: string) => (e: MouseEvent) => {
-    e.stopPropagation();
-    menu.open(e, id);
-  };
-  const closeMenu = () => {
-    if (menu.menu) refocus.current = { chip: menu.menu.subject };
-    menu.close();
-  };
-  const sectionName = (s: Section) => s.label.trim() || "Untitled section";
-  const menuItems = (id: string): MenuItem[] => {
-    const at = locate(id);
-    const isSwitch = Boolean(switchOf(id));
-    const where = at?.group ? nameOfSwitch(at.group.toggle) : at ? sectionName(at.section) : "";
-    const places: MenuItem[] = stops.map((stop): MenuItem => {
-      if (stop === ADVANCED) {
-        const here = !at;
-        return { label: "Advanced", note: here ? "here" : forgets(id) ? "the switch is forgotten" : undefined, disabled: here, run: () => put(id, null) };
-      }
-      const sec = sections.find((s) => s.id === stop)!;
-      const here = at?.section.id === stop;
-      return {
-        label: sectionName(sec),
-        note: here && !at.group ? "here" : here && at.group ? `out of ${nameOfSwitch(at.group.toggle)}` : undefined,
-        disabled: here && !at.group,
-        run: () => put(id, { section: stop, group: null, index: sec.items.length }),
-      };
-    });
-    const groups = sections.flatMap((s) => s.items.filter(isGroup).map((g) => ({ section: s, group: g })));
-    const under: MenuItem[] = groups.map(({ section, group }) => {
-      const here = at?.group?.toggle === group.toggle;
-      return { label: nameOfSwitch(group.toggle), note: here ? "here" : sectionName(section), disabled: here, run: () => put(id, { section: section.id, group: group.toggle, index: group.items.length }) };
-    });
-    return [
-      ...places,
-      "—",
-      ...(isSwitch ? [] : [under.length ? { label: "Under a switch", items: under } : { label: "Under a switch", note: "none yet", disabled: true }]),
-      { label: "A new section…", run: () => intoNew(id) },
-      "—",
-      ...(at ? [
-        { label: `Earlier in ${where}`, key: "Alt+←", disabled: at.index === 0, run: () => shift(id, -1) },
-        { label: `Later in ${where}`, key: "Alt+→", disabled: at.index >= at.size - 1, run: () => shift(id, 1) },
-      ] : []),
-      { label: "Section up", key: "Alt+↑", disabled: stops.indexOf(at?.section.id ?? ADVANCED) <= 0, run: () => hop(id, -1) },
-      { label: "Section down", key: "Alt+↓", disabled: (() => { const next = stops[stops.indexOf(at?.section.id ?? ADVANCED) + 1]; return !next || (next === ADVANCED && forgets(id)); })(), run: () => hop(id, 1) },
-    ];
-  };
-  /** What a setting (or a switch) is pressed and walked by: its name, as a button that opens "move to". */
-  const chip = (id: string, label: string, className: string) => (
-    <button
-      type="button"
-      data-place={id}
-      aria-haspopup="menu"
-      aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight Alt+ArrowUp Alt+ArrowDown"
-      onClick={openMenu(id)}
-      onContextMenu={openMenu(id)}
-      onKeyDown={keys(id)}
-      className={className}
-    >
-      {label}
-    </button>
-  );
-
-  // ---- whole sections from the keyboard: the cards in the order they are drawn, moved through `reordered` as a drop does ----
-  const cards = [
-    ...(!sections.some((s) => s.id === PROMPT) && real.length > 0 ? [PROMPT] : []),
-    ...sections.map((s) => s.id),
-    ...(!sections.some((s) => s.id === ADVANCED) && real.length > 0 ? [ADVANCED] : []),
-  ];
-  const cardName = (id: string) => (id === PROMPT ? "Prompt" : id === ADVANCED ? "Advanced" : sectionName(sections.find((s) => s.id === id)!));
-  /** Up, down, to the top or to the bottom, in one change; the focus stays on the card's head. */
-  const moveCard = (id: string, to: "up" | "down" | "top" | "bottom") => {
-    const i = cards.indexOf(id);
-    const first = cards[0]!;
-    const last = cards[cards.length - 1]!;
-    if (i < 0 || ((to === "up" || to === "top") && i === 0) || ((to === "down" || to === "bottom") && i === cards.length - 1)) return;
-    const next =
-      to === "up" ? reordered(sections, id, cards[i - 1]!)
-      : to === "down" ? reordered(sections, cards[i + 1]!, id)
-      : to === "top" ? reordered(sections, id, first)
-      // there is no drop after the last card: before it, then it before this one
-      : (() => { const before = reordered(sections, id, last); return before && reordered(before, last, id); })();
-    if (!next) return;
-    refocus.current = { head: id };
-    onChange(next);
-  };
-  const cardKeys = (id: string) => (e: KeyboardEvent) => {
-    if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-    const act = { ArrowUp: () => moveCard(id, "up"), ArrowDown: () => moveCard(id, "down") }[e.key];
-    if (!act) return;
-    e.preventDefault();
-    e.stopPropagation();
-    act();
-  };
-  const cardMenu = useMenu<string>();
-  const openCardMenu = (id: string) => (e: MouseEvent) => {
-    e.stopPropagation();
-    cardMenu.open(e, id);
-  };
-  const closeCardMenu = () => {
-    if (cardMenu.menu) refocus.current = { head: cardMenu.menu.subject };
-    cardMenu.close();
-  };
-  const cardItems = (id: string): MenuItem[] => {
-    const i = cards.indexOf(id);
-    const top = i <= 0;
-    const bottom = i >= cards.length - 1;
-    const sec = id === PROMPT || id === ADVANCED ? undefined : sections.find((s) => s.id === id);
-    return [
-      { label: "Move up", key: "Alt+↑", disabled: top, run: () => moveCard(id, "up") },
-      { label: "Move down", key: "Alt+↓", disabled: bottom, run: () => moveCard(id, "down") },
-      { label: "To the top", disabled: top, run: () => moveCard(id, "top") },
-      { label: "To the bottom", disabled: bottom, run: () => moveCard(id, "bottom") },
-      // the head's own buttons, as menu items (its name is the box beside the handle)
-      ...(sec ? [
-        "—" as const,
-        { label: "Rename", run: () => { refocus.current = { name: sec.id }; } },
-        { label: "Remove the section", danger: true, run: () => remove(sec) },
-      ] : []),
-    ];
-  };
-  /** A card's handle: dragged to move the card, pressed (Enter, the menu key, a right-click) for its menu. */
-  const handle = (id: string, tip: string) => (
-    <span draggable onDragStart={startSection(id)} data-tip={tip} className="inline-flex cursor-grab">
-      <button
-        type="button"
-        data-head={id}
-        aria-label={`Move ${id === PROMPT || id === ADVANCED ? `the ${cardName(id)} card` : `the section ${cardName(id)}`}`}
-        aria-haspopup="menu"
-        aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-        onClick={openCardMenu(id)}
-        onContextMenu={openCardMenu(id)}
-        onKeyDown={cardKeys(id)}
-        className="cursor-grab rounded text-ink-3 hover:text-ink"
-      >
-        <GripVertical size={14} />
-      </button>
-    </span>
-  );
+  const { chip, element: itemMenu } = useItemMoves({ sections, onChange, byId, toggles, move, refocus });
 
   const startItem = (id: string) => (e: DragEvent) => {
     e.stopPropagation();
@@ -382,6 +134,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
     e.preventDefault();
     move(d.item, null);
   };
+  const { handle, element: cardMenu } = useCardMoves({ sections, onChange, remove, startSection, refocus });
 
   const row = "flex h-8 items-center gap-2 rounded-md px-1.5 text-xs";
   const line = (spot: Spot) => (sameSpot(over, spot) ? "border-accent" : "border-transparent");
@@ -545,24 +298,8 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
         <Button size="sm" onClick={add}><Plus size={14} /> Section</Button>
         <Button size="sm" onClick={onSuggest} disabled={!canSuggest} data-tip={canSuggest ? "Sections from the frames the author drew, in their order; a switch for each pass the output can do without. A proposal: edit it as you like." : "This workflow has no frames to go by."}>Suggest from the author's frames</Button>
       </div>
-      {menu.menu && (
-        <ContextMenu
-          at={menu.menu.at}
-          label={`Move ${byId.get(menu.menu.subject)?.label ?? nameOfSwitch(menu.menu.subject)}`}
-          head={{ title: byId.get(menu.menu.subject)?.label ?? nameOfSwitch(menu.menu.subject), sub: "move to" }}
-          items={menuItems(menu.menu.subject)}
-          onClose={closeMenu}
-        />
-      )}
-      {cardMenu.menu && (
-        <ContextMenu
-          at={cardMenu.menu.at}
-          label={`Move ${cardName(cardMenu.menu.subject)}`}
-          head={{ title: cardName(cardMenu.menu.subject), sub: "section" }}
-          items={cardItems(cardMenu.menu.subject)}
-          onClose={closeCardMenu}
-        />
-      )}
+      {itemMenu}
+      {cardMenu}
     </div>
   );
 }
