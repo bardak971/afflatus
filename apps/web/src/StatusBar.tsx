@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Clock, Download } from "lucide-react";
+import { Clock, Download, Eye, Star } from "lucide-react";
+import { ContextMenu, useMenu } from "./ContextMenu";
 import { Link, useLocation } from "wouter";
 import { api, type Job, type QueueStatus, type RunningJob } from "./api";
 import { useAsset, useProjects, useQueue, useSettings } from "./data";
@@ -266,6 +267,8 @@ function Expiring() {
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const { keep, keepAll } = useKeepAllExpiring(() => setOpen(false));
+  // its right-click menu: the panel's two actions without the panel
+  const menu = useMenu<true>();
   const [, go] = useLocation();
   const count = sum?.count ?? 0;
   const said = sum ? expiringSaid(sum, Date.now(), unkeptMs(keepFor.unkeptDays)) : null;
@@ -287,6 +290,7 @@ function Expiring() {
         aria-expanded={open}
         data-tip={`${count} renders nobody kept go to the bin by themselves, the next in ${said.next}`}
         onClick={() => setOpen(!open)}
+        onContextMenu={(e) => { setOpen(false); menu.open(e, true); }}
         // it comes after the rest of the strip (its count is a query of its own): it fades in rather than pops
         className={cx(
           "m-fade inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs whitespace-nowrap transition-colors hover:brightness-125",
@@ -313,6 +317,18 @@ function Expiring() {
             </div>
           </div>
         </Popover>
+      )}
+      {menu.menu && (
+        <ContextMenu
+          at={menu.menu.at}
+          label="Expiring renders"
+          head={{ title: `${count} expiring`, sub: `the next in ${said.next}` }}
+          items={[
+            { label: "Show them", icon: <Eye size={14} />, note: "Expiring only", run: show },
+            { label: `Keep all ${count}`, icon: <Star size={14} />, disabled: keep.isPending, run: () => void keepAll(count) },
+          ]}
+          onClose={menu.close}
+        />
       )}
     </>
   );

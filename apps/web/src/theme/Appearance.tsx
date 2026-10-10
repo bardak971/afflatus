@@ -1,4 +1,6 @@
-import { Check, Moon, Sun } from "lucide-react";
+import { Check, Moon, Palette, Settings2, Sun } from "lucide-react";
+import { useLocation } from "wouter";
+import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { cx, Segmented } from "../ui";
 import { themeInUse, useThemeChoice } from "./store";
 import { contrast, FAMILIES, THEMES, tokensOf, VISIBLE, type Theme } from "./themes";
@@ -103,20 +105,51 @@ export function ThemeMode() {
   return <Segmented label="Theme mode" value={choice.mode} onChange={(mode) => choice.set({ mode })} options={[{ value: "dark", label: "Dark" }, { value: "light", label: "Light" }, { value: "system", label: "System" }]} />;
 }
 
-/** In the rail: from the night theme to the day theme and back. */
+/**
+ * In the rail: from the night theme to the day theme and back. Its right-click menu picks another theme of the mode in
+ * use and the accent of the theme in use, without going to Settings, and leads there for the rest.
+ */
 export function ThemeFlip() {
   const choice = useThemeChoice();
-  const light = themeInUse(choice).light;
+  const inUse = themeInUse(choice);
+  const light = inUse.light;
+  const menu = useMenu<true>();
+  const [, go] = useLocation();
+  const accents = Object.keys(inUse.accents);
+  const accentNow = choice.accents[inUse.family] && accents.includes(choice.accents[inUse.family]!) ? choice.accents[inUse.family] : accents[0];
+  const items: MenuItem[] = [
+    ...THEMES.filter((t) => t.light === light).map((t): MenuItem => ({
+      label: t.name,
+      icon: t.id === inUse.id ? <Check size={14} /> : <span className="h-3.5 w-3.5" />,
+      run: () => choice.set(light ? { day: t.id } : { night: t.id }),
+    })),
+    "—",
+    {
+      label: "Accent", icon: <Palette size={14} />, note: accentNow,
+      items: accents.map((name): MenuItem => ({
+        label: name,
+        icon: <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full" style={{ background: inUse.accents[name] }}>{name === accentNow && <Check size={10} strokeWidth={3} style={{ color: tickOn(inUse, name) }} />}</span>,
+        run: () => choice.set({ accents: { ...choice.accents, [inUse.family]: name } }),
+      })),
+    },
+    "—",
+    { label: "Appearance settings…", icon: <Settings2 size={14} />, run: () => go("/settings/interface") },
+  ];
   return (
+    <>
     <button
       type="button"
       aria-label={light ? "Switch to the dark theme" : "Switch to the light theme"}
-      data-tip={light ? "Dark theme" : "Light theme"}
+      aria-haspopup="menu"
+      data-tip={light ? "Dark theme · right-click: themes and accent" : "Light theme · right-click: themes and accent"}
       onClick={() => choice.set({ mode: light ? "dark" : "light" })}
+      onContextMenu={(e) => menu.open(e, true)}
       // small and quiet at the foot of the rail, a pill like the screens above it
       className="my-1 flex h-[26px] w-12 shrink-0 items-center justify-center rounded-full text-ink-3 hover:bg-hover hover:text-ink"
     >
       {light ? <Moon size={17} /> : <Sun size={17} />}
     </button>
+    {menu.menu && <ContextMenu at={menu.menu.at} label="Themes" head={{ title: inUse.name, sub: light ? "light themes" : "dark themes" }} items={items} onClose={menu.close} />}
+    </>
   );
 }

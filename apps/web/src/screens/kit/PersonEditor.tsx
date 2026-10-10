@@ -98,7 +98,8 @@ function Pictures({ value, onChange, what, sent, face }: { value: string[]; onCh
         {first > 0 && (
           // the pictures a model is handed: a bar over them, as wide as they are
           <span aria-hidden className="pointer-events-none absolute -top-[19px] left-1 flex flex-col gap-1" style={{ width: first * 84 + (first - 1) * 8 }}>
-            <span className="text-[10.5px] leading-none font-bold text-accent">sent to the models</span>
+            {/* on one line whatever the bar's width: over a single picture it wrapped, and the second line ran into it */}
+            <span className="text-[10.5px] leading-none font-bold whitespace-nowrap text-accent">sent to the models</span>
             <span className="h-[3px] rounded-full bg-accent" />
           </span>
         )}

@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Folder } from "lucide-react";
+import { Folder, ListOrdered, MemoryStick, Play } from "lucide-react";
+import { useLocation } from "wouter";
+import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
 import { create } from "zustand";
 import { api, type RecipeInfo } from "./api";
-import { useQueue } from "./data";
+import { useDrafts, useQueue, useRecipes } from "./data";
+import { useBanners } from "./store";
 import { cx } from "./ui";
 import { queryKeys } from "./queryKeys";
 
@@ -104,8 +107,71 @@ export function StripModel() {
   const queue = useQueue();
   if (queue.data?.online === false) return null;
   // a render still bringing its model in: the model is named as it will be held, but it is not in yet
-  if (queue.data?.running?.phase === "loading" && queue.data.model) return <Loading name={queue.data.model} />;
-  return form ? <OfForm {...form} /> : <Held name={queue.data?.model ?? null} />;
+  if (queue.data?.running?.phase === "loading" && queue.data.model) return <ModelMenu><Loading name={queue.data.model} /></ModelMenu>;
+  return <ModelMenu>{form ? <OfForm {...form} /> : <Held name={queue.data?.model ?? null} />}</ModelMenu>;
+}
+
+/**
+ * The model's menu, on a click of its name or a right-click anywhere on it: free the VRAM now, load the model of a
+ * recent draft ahead (a load job: one step, nothing saved; the render with it then starts at once), the Queue. The
+ * strip was the one place that says what is loaded, and the only way to change it was through the Queue or a form.
+ */
+function ModelMenu({ children }: { children: React.ReactNode }) {
+  const menu = useMenu<true>();
+  const queue = useQueue();
+  const drafts = useDrafts(Boolean(menu.menu));
+  const recipes = useRecipes();
+  const client = useQueryClient();
+  const say = useBanners((b) => b.push);
+  const [, go] = useLocation();
+  const busy = Boolean(queue.data?.running);
+  // the last drafts' models, once each: a draft is what holds a model choice whole (its form, its cast)
+  const recent = (drafts.data?.items ?? []).filter((d, i, all) => all.findIndex((x) => x.recipe === d.recipe) === i).slice(0, 6);
+  const titleOf = (id: string) => {
+    const r = recipes.data?.recipes.find((x) => x.id === id);
+    const family = recipes.data?.families.find((f) => f.id === r?.family)?.name;
+    return r ? (family && !r.title.startsWith(family) ? `${family} · ${r.title}` : r.title) : id;
+  };
+  const loadFrom = async (draftId: string, label: string) => {
+    try {
+      const d = await api.draft(draftId);
+      await api.warm(d.recipe, d.forms[d.recipe] ?? {}, d.look);
+      say({ id: `load:${Date.now()}`, tone: "good", title: `Loading ${label}`, text: "Queued: the next render with it starts at once.", href: "/queue", go: "Open queue" });
+    } catch (err) {
+      say({ id: `load:${Date.now()}`, tone: "bad", title: `Could not load ${label}`, text: err instanceof Error ? err.message : String(err) });
+    } finally {
+      void client.invalidateQueries({ queryKey: queryKeys.queue() });
+    }
+  };
+  const items: MenuItem[] = [
+    {
+      label: "Unload models", icon: <MemoryStick size={14} />, disabled: busy, note: busy ? "not while a job runs" : "free VRAM",
+      run: () => void api.freeMemory().then(
+        () => { say({ id: `free:${Date.now()}`, tone: "good", title: "Models unloaded", text: "The next render loads what it needs again." }); void client.invalidateQueries({ queryKey: queryKeys.queue() }); },
+        (err: Error) => say({ id: `free:${Date.now()}`, tone: "bad", title: "Could not unload the models", text: err.message }),
+      ),
+    },
+    {
+      label: "Load", icon: <Play size={14} />, note: "a recent draft's model",
+      disabled: !recent.length && drafts.isSuccess,
+      items: recent.length
+        ? recent.map((d): MenuItem => ({ label: titleOf(d.recipe), note: d.name || d.title || undefined, run: () => void loadFrom(d.id, titleOf(d.recipe)) }))
+        : [{ label: drafts.isSuccess ? "No draft yet" : "Reading…", disabled: true }],
+    },
+    "—",
+    { label: "Open the Queue", icon: <ListOrdered size={14} />, run: () => go("/queue") },
+  ];
+  return (
+    <span
+      className="inline-flex min-w-0 cursor-pointer"
+      onContextMenu={(e) => menu.open(e, true)}
+      // a click on the name opens it too (the form's Load and Cancel stay theirs)
+      onClick={(e) => { if (!(e.target as Element).closest("button")) menu.open(e, true); }}
+    >
+      {children}
+      {menu.menu && <ContextMenu at={menu.menu.at} label="Model" head={{ title: queue.data?.model ?? "No model loaded", sub: "what ComfyUI holds" }} items={items} onClose={menu.close} />}
+    </span>
+  );
 }
 
 /** The model the running render is loading into ComfyUI: grey until it is in. */
@@ -120,8 +186,22 @@ function Loading({ name }: { name: string }) {
   );
 }
 
+/**
+ * The family of the model ComfyUI holds ("Krea 2"), from the job that loaded it (the running one, else the last that
+ * rendered or loaded): a file name alone ("gonzalomoKrea2_v40_3128457") does not always say what it is. Null when no
+ * job says.
+ */
+function useHeldFamily(): string | null {
+  const queue = useQueue();
+  const recipes = useRecipes();
+  const job = queue.data?.running ?? queue.data?.recent.find((j) => (j.kind === "render" || j.kind === "load") && j.status === "done");
+  const recipe = job ? recipes.data?.recipes.find((r) => r.id === job.recipe) : undefined;
+  return recipe ? recipes.data?.families.find((f) => f.id === recipe.family)?.name ?? null : null;
+}
+
 /** The model that is loaded, by its name. Nothing when none is. Not `sure`: whether the open form renders with it cannot be told yet, and the icon does not say it does. */
 function Held({ name, sure = true }: { name: string | null; sure?: boolean }) {
+  const family = useHeldFamily();
   if (!name) return null;
   if (!sure) {
     return (
@@ -132,8 +212,10 @@ function Held({ name, sure = true }: { name: string | null; sure?: boolean }) {
     );
   }
   return (
-    <span className={cx(stripGhost, "min-w-0 hover:bg-transparent")} data-tip={`${name}: the model Afflatus last had ComfyUI load. A render with it starts at once. "Unload models (free VRAM)" in the Queue unloads it. A ComfyUI restarted since is not seen.`}>
+    <span className={cx(stripGhost, "min-w-0 hover:bg-transparent")} data-tip={`${name}: the model Afflatus last had ComfyUI load. A render with it starts at once. Click it to unload it or load another. A ComfyUI restarted since is not seen.`}>
       <Light on />
+      {family && <span className="shrink-0 font-semibold text-ink">{family}</span>}
+      {family && <span className="shrink-0 text-ink-3 max-xl:hidden">·</span>}
       <span className={cx("max-w-60", nameClass)}>{name}</span>
     </span>
   );

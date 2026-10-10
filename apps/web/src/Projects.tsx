@@ -1,9 +1,10 @@
 import { Suspense, useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Reveal } from "./bar/bridge";
-import { FolderKanban, FolderPlus } from "lucide-react";
+import { ArrowDown, ArrowUp, FolderKanban, FolderPlus, LogIn, PinOff } from "lucide-react";
 import { api, type Asset, type Project } from "./api";
 import { useProjects } from "./data";
+import { ContextMenu, useMenu } from "./ContextMenu";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
 import { FieldRow } from "./fields/FieldRow";
 import { Keys } from "./Keys";
@@ -27,7 +28,8 @@ const DRAG_PIN = "application/x-afflatus-pin";
 
 /**
  * The projects pinned to the rail, under the one worked in: one click works in each, the active one outlined. Dragged
- * along the rail they change places; they are pinned and unpinned from the Projects panel's row menu.
+ * along the rail they change places; they are pinned from the Projects panel's row menu, and a pin's own right-click
+ * menu works in it, moves it and unpins it.
  */
 function Pins({ current }: { current: string }) {
   const pins = usePins();
@@ -39,6 +41,7 @@ function Pins({ current }: { current: string }) {
   // a pin moved (dropped, Alt + arrow) slides to its place and the others step aside; the order changes only on the
   // drop, so nothing moves under the browser's drag picture
   const flip = useFlip(pins.ids);
+  const menu = useMenu<{ id: string; i: number }>();
   if (!pins.ids.length) return null;
   const nameOf = (id: string) => (id === "none" ? "Inbox" : projects.data?.items.find((p) => p.id === id)?.name ?? "…");
   const dragOver = (i: number, e: DragEvent) => {
@@ -69,8 +72,9 @@ function Pins({ current }: { current: string }) {
             aria-current={on ? "true" : undefined}
             aria-label={`${name} (pinned)`}
             data-tip-head={name}
-            data-tip={on ? "Working in it. Drag, or Alt + ↑ ↓, to reorder the pins." : "Click to work in it. Drag, or Alt + ↑ ↓, to reorder the pins."}
+            data-tip={on ? "Working in it. Drag, or Alt + ↑ ↓, to reorder the pins; right-click to unpin." : "Click to work in it. Drag, or Alt + ↑ ↓, to reorder the pins; right-click to unpin."}
             onClick={() => set(id)}
+            onContextMenu={(e) => menu.open(e, { id, i })}
             // the keyboard's way to reorder, as form sections and a person's pictures: the pin keeps the focus as it moves
             onKeyDown={(e) => {
               if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
@@ -106,6 +110,25 @@ function Pins({ current }: { current: string }) {
           </div>
         );
       })}
+      {menu.menu && (() => {
+        const { id, i } = menu.menu.subject;
+        return (
+          <ContextMenu
+            at={menu.menu.at}
+            label={`${nameOf(id)}, pinned`}
+            head={{ title: nameOf(id), sub: "pinned to the rail" }}
+            items={[
+              { label: "Work in it", icon: <LogIn size={14} />, disabled: id === current, note: id === current ? "working in it" : undefined, run: () => set(id) },
+              "—",
+              { label: "Move up", key: "Alt+↑", icon: <ArrowUp size={14} />, disabled: i === 0, run: () => pins.move(id, i - 1) },
+              { label: "Move down", key: "Alt+↓", icon: <ArrowDown size={14} />, disabled: i === pins.ids.length - 1, run: () => pins.move(id, i + 2) },
+              "—",
+              { label: "Unpin", icon: <PinOff size={14} />, run: () => pins.unpin(id) },
+            ]}
+            onClose={menu.close}
+          />
+        );
+      })()}
     </div>
   );
 }
