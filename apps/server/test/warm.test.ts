@@ -26,6 +26,8 @@ const render = async (over: Record<string, unknown>) => {
   await until(() => submitted().length === n + 1);
   complete(fake, submitted().at(-1)!);
   await until(async () => (await statusOf(id)) === "done");
+  // what the queue notes of the render (the model it left loaded) is written after the job is said done
+  await t.services.queue.idle();
 };
 /** A prompt that saves nothing is done: what a warm-up leaves in ComfyUI's history. */
 const done = (promptId: string) => {

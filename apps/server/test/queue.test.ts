@@ -74,6 +74,8 @@ describe("a job from start to finish", () => {
       await until(() => submitted().length === n + 1);
       complete(fake, submitted().at(-1)!);
       await until(async () => (await statusOf(id)).status === "done");
+      // the queue lets go of the render only after the job is said done
+      await app.services.queue.idle();
     };
     await run(t, {});
     expect(frees()).toBe(1);
@@ -121,6 +123,7 @@ describe("a job from start to finish", () => {
     expect(frees()).toBe(before);
     complete(fake, submitted()[0]!);
     await until(async () => (await statusOf(id)).status === "done");
+    await t.services.queue.idle();
 
     expect((await post(t.app, "/api/comfy/free")).json()).toEqual({ ok: true });
     expect(frees()).toBe(before + 1);

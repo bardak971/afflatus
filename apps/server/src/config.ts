@@ -54,4 +54,6 @@ export const envSaid = {
   /** ffmpeg and ffprobe, when they are not on the PATH. */
   ffmpeg: () => process.env.FFMPEG,
   ffprobe: () => process.env.FFPROBE,
+  /** "1": SQLite's statements run in a worker thread, not on the server's own (db.ts openSqlite). */
+  sqliteWorker: () => process.env.AFFLATUS_SQLITE_WORKER === "1",
 };
