@@ -215,7 +215,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
       )}
       {!promptMoved && promptBlock}
       <InputsPart
-        frames={frames} refs={refs} framesChosen={said.framesChosen.length} refsCount={said.refsCount} summary={inputsSummary} missing={said.missing}
+        frames={frames} refs={refs} framesChosen={said.framesChosen.length} refsCount={said.refsCount} chosen={JSON.stringify([...frames, ...refs].map((i) => values[i.id] ?? null))} summary={inputsSummary} missing={said.missing}
         look={look} lookHit={lookHit} frameExtra={frameExtra} q={q} render={render}
       />
       {chapters.map((ch) => {

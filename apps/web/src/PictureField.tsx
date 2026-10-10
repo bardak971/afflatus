@@ -20,16 +20,21 @@ import { LoadMore } from "./LoadMore";
 import { AudioPlayer } from "./AudioPlayer";
 import { VideoPlayer } from "./VideoPlayer";
 
-/** Send a picture from this computer to the library, then hand it over. */
+/**
+ * Send a picture from this computer to the library, then hand it over: to the `onDone` of the moment it was sent, not of
+ * the moment it arrives. A form switched to another draft meanwhile hands its new `onDone` over, and the picture landed
+ * in that other draft.
+ */
 function useUpload(onDone: (asset: Asset) => void, kit = false) {
   const client = useQueryClient();
-  return useMutation({
-    mutationFn: (file: File) => (kit ? api.upload(file, { kit: true }) : api.upload(file, { project: projectForNew() })),
-    onSuccess: (asset) => {
+  const m = useMutation({
+    mutationFn: (v: { file: File; done(asset: Asset): void }) => (kit ? api.upload(v.file, { kit: true }) : api.upload(v.file, { project: projectForNew() })),
+    onSuccess: (asset, v) => {
       void client.invalidateQueries({ queryKey: ["assets"] });
-      onDone(asset);
+      v.done(asset);
     },
   });
+  return { isPending: m.isPending, error: m.error, mutate: (file: File) => m.mutate({ file, done: onDone }) };
 }
 
 const WORD = { image: "image", video: "video", audio: "audio file" } as const;
@@ -98,7 +103,7 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
           <button type="button" aria-label="Close" data-tip="Close" data-tip-keys="Esc" onClick={onClose} className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
         </header>
         <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto p-5">
-          {upload.isError && <ErrorNote>{upload.error.message}</ErrorNote>}
+          {upload.error && <ErrorNote>{upload.error.message}</ErrorNote>}
           {assets.isError && <ErrorNote>{assets.error.message}</ErrorNote>}
           <LoadMore more={Boolean(assets.hasPreviousPage)} busy={assets.isFetchingPreviousPage || assets.isFetchingNextPage} onMore={() => void assets.fetchPreviousPage()} />
           {assets.isSuccess && !items.length && !sounding.length && (
@@ -194,7 +199,8 @@ export function PictureField({ label, optional, kit, value, onChange }: {
           </button>
           <div className="flex flex-wrap gap-1.5">
             <Button size="sm" onClick={() => setPicking(true)}>Change</Button>
-            {optional && <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>}
+            {/* a slot the form must have can be emptied too: the form then says what is missing, as it does before one is chosen */}
+            <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>
           </div>
           {drop.over && <DropSays>{says}</DropSays>}
         </div>
@@ -209,7 +215,7 @@ export function PictureField({ label, optional, kit, value, onChange }: {
           <span>{upload.isPending ? "Adding…" : drop.over ? says : "Choose an image, or drop one here"}</span>
         </button>
       )}
-      {upload.isError && <ErrorNote>{upload.error.message}</ErrorNote>}
+      {upload.error && <ErrorNote>{upload.error.message}</ErrorNote>}
       {picking && (
         <Picker
           title={label}

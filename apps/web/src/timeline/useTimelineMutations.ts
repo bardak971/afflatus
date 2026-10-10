@@ -19,7 +19,7 @@ export function useTimelineMutations(id: string, o: {
   /** The clips as they are on screen now (read when a designer's reply comes back). */
   clipsNow: RefObject<Clip[]>;
   recipes: RecipeInfo[];
-  edits: Pick<ReturnType<typeof useClipEdits>, "save" | "ready" | "inputsOf" | "editInputs" | "dropEdits">;
+  edits: Pick<ReturnType<typeof useClipEdits>, "save" | "ready" | "inputsOf" | "editInputs" | "dropEdits" | "savedElsewhere">;
   /** The model a first clip is given. */
   firstRecipe(): string | undefined;
   on: {
@@ -35,7 +35,7 @@ export function useTimelineMutations(id: string, o: {
     open(asset: Asset): void;
   };
 }) {
-  const { save, ready, inputsOf, editInputs, dropEdits } = o.edits;
+  const { save, ready, inputsOf, editInputs, dropEdits, savedElsewhere } = o.edits;
   const client = useQueryClient();
   const refresh = useCallback(() => client.invalidateQueries({ queryKey: ["timelines"] }), [client]);
   const after = () => {
@@ -49,7 +49,13 @@ export function useTimelineMutations(id: string, o: {
       const mode = useSeedMode.getState().mode;
       const sent = v.clips.map((c) => ({ clip: c, input: ready(c).input ?? {} })).map((x) => ({ ...x, seedMode: movingSeed(x.input.seed, mode) }));
       const made = await api.renderClips(id, sent.map(({ clip, input, seedMode }) => ({ id: clip.id, input, ...(v.takes && v.takes > 1 ? { takes: v.takes } : {}), ...(seedMode ? { seedMode } : {}) })));
-      for (const x of sent) if (x.seedMode) await api.editClip(x.clip.id, { inputs: { ...inputsOf(x.clip), seed: seedAfter(x.input.seed as number, mode, v.takes ?? 1) } });
+      for (const x of sent) {
+        if (!x.seedMode) continue;
+        const inputs = { ...inputsOf(x.clip), seed: seedAfter(x.input.seed as number, mode, v.takes ?? 1) };
+        await api.editClip(x.clip.id, { inputs });
+        // the form's own edit of the clip, if it has one, is this now: the read back that carries it drops it
+        savedElsewhere(x.clip.id, inputs);
+      }
       return made;
     },
     onSuccess: after,

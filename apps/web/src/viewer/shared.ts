@@ -1,5 +1,6 @@
 import { RANDOM_SEED, typedSeed } from "@afflatus/core";
 import type { AssetDetail, RecipeInfo } from "../api";
+import { modelGroups } from "../picker";
 
 /** A file's size as a person reads it. */
 export const mb = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`);
@@ -12,8 +13,20 @@ export const OPS: Record<string, { ends: string[]; label: string }> = {
   b: { ends: ["tools.remove-background"], label: "Remove background" },
   i: { ends: [".paint-over"], label: "Inpaint" },
   e: { ends: [".edit", ".redraw"], label: "Edit" },
-  r: { ends: [".change-shape"], label: "Outpaint" },
+  // Klein names its outpaint by what it does to the frame; the other image models (SDXL, Flux, Qwen) call theirs outpaint
+  r: { ends: [".outpaint", ".change-shape"], label: "Outpaint" },
 };
+
+/**
+ * The recipe for an operation on a picture: the one of the model the picture was made with (`made`, its recipe id) when
+ * that model has it, else one that is ready, else any. `all` is the recipes of the families turned on.
+ */
+export function toolOf(key: string, all: RecipeInfo[], families: Array<{ id: string; name: string; summary: string }>, made: string | undefined, ready: (r: RecipeInfo) => boolean): RecipeInfo | undefined {
+  const ends = OPS[key]?.ends ?? [];
+  const fits = (r: RecipeInfo) => r.output === "image" && ends.some((e) => r.id.endsWith(e));
+  const mine = modelGroups(all.filter((r) => r.output === "image"), families).find((group) => group.recipes.some((r) => r.id === made));
+  return mine?.recipes.find(fits) ?? all.find((r) => fits(r) && ready(r)) ?? all.find(fits);
+}
 
 /**
  * What a new draft made from a result starts from. Handed its cast again (`withLook`): the person's own form, from before the

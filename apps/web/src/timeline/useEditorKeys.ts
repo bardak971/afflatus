@@ -1,4 +1,5 @@
 import { useEffect, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { stepFrames } from "../frameStep";
 import type { Clock } from "./clock";
 import type { PlayerHandle } from "./Player";
 import type { TimeRange, TrackKeys } from "./Track";
@@ -171,8 +172,15 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
       const step = e.key === "ArrowLeft" || e.key === "," ? -1 : e.key === "ArrowRight" || e.key === "." ? 1 : 0;
       if (step && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && !open && !el.closest("[role=listbox], [role=slider][aria-label=In], [role=slider][aria-label=Out]")) {
         e.preventDefault();
-        const by = step * frameRef.current() * (e.shiftKey && e.key.startsWith("Arrow") ? 10 : 1);
-        player.current?.seek(Math.max(0, Math.min(totalRef.current, clock.get() + by)));
+        const frames = step * (e.shiftKey && e.key.startsWith("Arrow") ? 10 : 1);
+        const frameMs = frameRef.current();
+        const now = clock.get();
+        // by the index of the frame shown in the clip's own file, to the middle of the one wanted: a frame's length added
+        // to the time landed on frame edges, where the browser often shows the frame before (steps repeated or skipped)
+        const where = player.current?.where();
+        const file = where ? where.assetMs - where.localMs + (now - where.clip.atMs) : null;
+        const to = file === null ? now + frames * frameMs : now + stepFrames(file, frames, 1000 / frameMs, Number.POSITIVE_INFINITY) - file;
+        player.current?.seek(Math.max(0, Math.min(totalRef.current, to)));
         return;
       }
       // Delete takes the picked clips, else the selected clip, off the timeline; Undo brings them back one by one

@@ -150,8 +150,10 @@ export const Player = forwardRef<PlayerHandle, {
       // (set only when it differs: even an unchanged speed set on a playing video can stall its picture)
       if (el && el.playbackRate !== 1) el.playbackRate = 1;
       // a seek on a video already there (it was started early, see step) would stall it for a frame
-      // (handing over to the clip after as it plays: it runs where it should within a few frames; only a stray one is moved)
-      if (el && Math.abs(el.currentTime * 1000 - (startOf(c) + local)) > (onward ? 120 : 40)) el.currentTime = (startOf(c) + local) / 1000;
+      // (handing over to the clip after as it plays: it runs where it should within a few frames; only a stray one is moved).
+      // A seek asked for moves it once it is half a frame off: a step of one frame at 30 fps and more is under 40 ms
+      const half = 500 / Math.max(1, c.take?.asset.fps ?? 24);
+      if (el && Math.abs(el.currentTime * 1000 - (startOf(c) + local)) > (onward ? 120 : Math.min(40, half))) el.currentTime = (startOf(c) + local) / 1000;
       if (clipSound.current) clipSound.current.currentTime = local / 1000;
       // the music goes on as it plays when the clips hand over; a jump is only for a seek
       tuneMusic(c.atMs + local, !onward);

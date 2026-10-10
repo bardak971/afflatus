@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAssets } from "../../data";
 import { useSettled } from "../../hooks";
 import type { Place } from "../Library";
@@ -16,6 +16,13 @@ export const KINDS = [
   { id: "timeline", label: "Timelines", kind: undefined },
 ] as const;
 export type LibraryKind = (typeof KINDS)[number]["id"];
+
+const HOUR = 3_600_000;
+/**
+ * Where "Recent" starts: two days before the hour it is now. By the hour, so that the list is asked again once an hour
+ * (the cutoff is part of what is asked), not at every drawing.
+ */
+export const recentSince = (now: number) => new Date(Math.floor(now / HOUR) * HOUR - 48 * HOUR).toISOString();
 
 /** What the library's grid is narrowed to: the kind, the search, the model and LoRA it was made with, Kept only (or Expiring only); and the items that match. */
 export function useLibraryFilters({ place, view, draftId, initialKind = "all", onKind }: {
@@ -62,7 +69,15 @@ export function useLibraryFilters({ place, view, draftId, initialKind = "all", o
   // with the form open, "Recent" and "Kept" look across the project, not the folder: what is there to drag into the form
   // "Kept" was a scope: a store kept from then still says it, and shows the folder (Kept only is in Filters now)
   const reach: Scope = view.form && draftId && SCOPES.includes(view.scope) ? view.scope : "all";
-  const since48 = useMemo(() => new Date(Date.now() - 2 * 86_400_000).toISOString(), [reach]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the cutoff moves on while "Recent" is shown: taken once when it was picked, a tab left open for a day went on showing
+  // three days, and then four
+  const [since48, setSince48] = useState(() => recentSince(Date.now()));
+  useEffect(() => {
+    if (reach !== "recent") return;
+    setSince48(recentSince(Date.now()));
+    const t = setInterval(() => setSince48(recentSince(Date.now())), 60_000);
+    return () => clearInterval(t);
+  }, [reach]);
   const filter = {
     kind: KINDS.find((k) => k.id === kind)!.kind,
     bin: place.type === "bin" || undefined,

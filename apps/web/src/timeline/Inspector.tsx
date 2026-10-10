@@ -674,27 +674,34 @@ function LookTable({ timeline, index, take, onSelectClip }: { timeline: Timeline
   const note = d
     ? `Measured on this take's own frames when it was rendered. "vs clip" is the change against that clip's take: the one before, and the first of this run (clip ${d.start + 1}); a few per cent is the model's own variation. Warned past ${pct(DRIFT.luma)} brightness, ${pct(DRIFT.sharp)} sharpness, ${pct(DRIFT.pace)} pace, a colour shift of ${DRIFT.colour}. Hover a row for what it means.`
     : "Measured on this take's own frames when it was rendered. Hover a row for what it means.";
-  const grid = { gridTemplateColumns: `88px repeat(${cols.length + 1}, minmax(0, 1fr))` };
+  // In the column at its usual width or narrower (and inside the form's Takes card, narrower still), three figures beside
+  // the label did not fit: the second comparison, against the run's start, steps aside. The chart under the table draws
+  // the same thing (each clip against the run's start), and the warning in the head still names it.
+  const twoVs = cols.length === 2;
+  const grid = cols.length === 0 ? "grid-cols-[88px_minmax(0,1fr)]" : cols.length === 1 ? "grid-cols-[88px_repeat(2,minmax(0,1fr))]" : "grid-cols-[88px_repeat(3,minmax(0,1fr))] @max-[24rem]/column:grid-cols-[88px_repeat(2,minmax(0,1fr))]";
+  const aside = (i: number) => twoVs && i === 1 && "@max-[24rem]/column:hidden";
   const line = (r: Row) => (
     <div key={r.label} data-tip={r.why} className="contents">
       <span className="truncate py-1 text-ink-2">{r.label}</span>
       <span className={cx("truncate py-1 text-right font-mono tabular-nums", r.bad ? "text-warn" : "text-ink")}>{r.value}</span>
-      {r.vs.map((c, i) => <span key={i} className={cx("truncate py-1 text-right font-mono tabular-nums", c.text == null ? "text-ink-3" : c.bad ? "text-warn" : "text-ink-2")}>{c.text ?? "—"}</span>)}
+      {r.vs.map((c, i) => <span key={i} className={cx("truncate py-1 text-right font-mono tabular-nums", c.text == null ? "text-ink-3" : c.bad ? "text-warn" : "text-ink-2", aside(i))}>{c.text ?? "—"}</span>)}
     </div>
   );
   return (
-    <div className="overflow-hidden rounded-lg border border-line">
-      <div className="flex items-center gap-2 border-b border-line px-3 py-2">
-        <span className="grow truncate text-[11px] font-bold tracking-[.08em] text-ink-3 uppercase">Look · take {n} of clip {index + 1}</span>
-        {warning && <Chip tone="warn" className="font-mono">{warning}</Chip>}
+    <div className="min-w-0 overflow-hidden rounded-lg border border-line">
+      {/* the warnings go under the title when the column is too narrow for them beside it */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-line px-3 py-2">
+        <span className="min-w-0 grow truncate text-[11px] font-bold tracking-[.08em] text-ink-3 uppercase">Look · take {n} of clip {index + 1}</span>
+        {/* at most the head's width, the words cut short there: the full warning is its tip */}
+        {warning && <Chip tone="warn" className="max-w-full font-mono" tip={warning}><span className="min-w-0 truncate">{warning}</span></Chip>}
         {m.handover != null && m.handover > DRIFT.handover && <Chip tone="warn" className="font-mono" tip="The model stepped away from its guide where the run-up ends: the join shows. Render a new take.">run-up end ×{m.handover.toFixed(1)}</Chip>}
         <Help title="Look" text={note} />
       </div>
       <div className="px-3 pt-1.5 pb-1 text-xs">
-        <div className="grid items-center gap-x-2.5" style={grid}>
+        <div className={cx("grid items-center gap-x-2.5", grid)}>
           <span className="border-b border-line pb-1" />
           <span className="border-b border-line pb-1 text-right text-[11px] font-semibold text-ink-3">this take</span>
-          {cols.map((c) => <span key={c.head} data-tip={c.tip} className="truncate border-b border-line pb-1 text-right text-[11px] font-semibold text-ink-3">{c.head}</span>)}
+          {cols.map((c, i) => <span key={c.head} data-tip={c.tip} className={cx("truncate border-b border-line pb-1 text-right text-[11px] font-semibold text-ink-3", aside(i))}>{c.head}</span>)}
           {rows.map(line)}
           {open && more.map(line)}
         </div>
@@ -761,9 +768,9 @@ function RunChart({ clips, index, onSelectClip }: { clips: Clip[]; index: number
   const anchor = (i: number) => (points.length > 2 && i === 0 ? "start" : points.length > 2 && i === points.length - 1 ? "end" : "middle");
   return (
     <div className="flex flex-col gap-1.5 border-t border-line bg-raised/50 px-3 pt-2.5 pb-2">
-      <span className="flex items-center gap-3.5 text-[11px] text-ink-3">
-        <span>Along the run · {points.length} clips</span>
-        <span className="grow" />
+      {/* the legend goes under the title when they do not fit on one line */}
+      <span className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[11px] text-ink-3">
+        <span className="grow">Along the run · {points.length} clips</span>
         <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-accent" />sharpness</span>
         <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-picture" />brightness</span>
       </span>
@@ -925,9 +932,9 @@ function Duration({ clip, take, room, rendered, onPatch }: { clip: Clip; take: T
     if (startMoved || endMoved) onPatch({ ...(startMoved ? { trimStartMs } : {}), ...(endMoved ? { shownToMs: base + Math.round(t * 1000) } : {}) });
   };
   return (
-    <FieldRow label="Plays" note={`Drag either end, or the clip's edges on the timeline. This trims what plays${rendered ? "; to make the clip itself longer, change Duration in Output and render a new take" : ""}.`}>
+    <FieldRow stack label="Plays" note={`Drag either end, or the clip's edges on the timeline. This trims what plays${rendered ? "; to make the clip itself longer, change Duration in Output and render a new take" : ""}.`}>
       <RangeSlider label="Plays" from={shown.from} to={shown.to} min={0} max={max} step={0.1} gap={0.3} format={(v) => `${v.toFixed(1)} s`} onChange={(f, t) => setMoving({ from: f, to: t })} onCommit={commit} />
-      <span className="flex items-center justify-between gap-2 font-mono text-[11.5px] text-ink-2">
+      <span className="flex flex-wrap items-center justify-between gap-2 font-mono text-[11.5px] text-ink-2">
         <span>from {shown.from.toFixed(1)} s</span>
         {(take.trimStartMs > 0 || take.trimEndMs > 0) && <Button size="sm" className="font-sans" onClick={() => onPatch({ trimStartMs: 0, trimEndMs: 0 })}>Reset trim</Button>}
         <span>{(shown.to - shown.from).toFixed(1)} of {(room / 1000).toFixed(1)} s</span>

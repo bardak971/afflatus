@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Draft, Entity, RecipeInfo } from "../src/api";
-import { draftFate, pickFor, putDraft, remade, saveBodyOf } from "../src/draft";
+import { closingBody, draftFate, inTurn, KEEPALIVE_MAX, pickFor, putDraft, remade, saveBodyOf } from "../src/draft";
 import { presetRefusal } from "../src/screens/studio/PresetMenu";
 import { copyText, localId } from "../src/secureContext";
 
@@ -94,5 +94,39 @@ describe("the open draft when the project looked at changes", () => {
     expect(pickFor(items, "elsewhere", "x")).toEqual({ id: "new" });
     expect(pickFor(items, undefined, "new")).toEqual({ id: "old" });
     expect(pickFor([], "old", null)).toBeUndefined();
+  });
+});
+
+describe("the saves of a draft", () => {
+  it("go one after the other: a later one is sent once the one before is answered, failed or not", async () => {
+    const turn = inTurn();
+    const log: string[] = [];
+    let release!: () => void;
+    const first = turn(async () => {
+      log.push("first sent");
+      await new Promise<void>((r) => (release = r));
+      log.push("first answered");
+      throw new Error("refused");
+    });
+    const second = turn(async () => {
+      log.push("second sent");
+      return "saved";
+    });
+    await Promise.resolve();
+    expect(log).toEqual(["first sent"]);
+    release();
+    await expect(first).rejects.toThrow("refused");
+    expect(await second).toBe("saved");
+    expect(log).toEqual(["first sent", "first answered", "second sent"]);
+  });
+
+  it("made as the page closes fits a request that outlives the page: without the conversation when it is too long", () => {
+    expect(closingBody(draft)).toEqual(saveBodyOf(draft));
+    const talky: Draft = { ...draft, chat: [{ role: "user", content: "x".repeat(KEEPALIVE_MAX) }] };
+    const body = closingBody(talky)!;
+    expect(body.chat).toBeUndefined();
+    expect(body.forms).toEqual(talky.forms);
+    // nothing fits: nothing is sent that way (the browser would refuse it whole)
+    expect(closingBody({ ...talky, forms: { "sdxl.text": { prompt: "y".repeat(KEEPALIVE_MAX) } } })).toBeNull();
   });
 });
