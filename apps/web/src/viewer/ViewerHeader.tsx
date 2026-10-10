@@ -7,7 +7,7 @@ import { useFolders, useProjects, type useAsset } from "../data";
 import { ContextMenu, useMenu, type MenuItem } from "../ContextMenu";
 import { Keys } from "../Keys";
 import { cx } from "../ui";
-import { tileName } from "../screens/Library";
+import { tileName } from "../screens/library/tileName";
 import { factsOf, placesOf } from "./facts";
 import type { ViewerActions } from "./useViewerActions";
 

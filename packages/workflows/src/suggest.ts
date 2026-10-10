@@ -1,6 +1,7 @@
 import { isRef, type Graph, type InputSpec } from "@afflatus/core";
 import { isSamplingPass } from "./catalog";
-import { slug, type Bindings, type Section, type SwitchGroup, type Toggle, type Wiring } from "./types";
+import { slug } from "./text";
+import type { Bindings, Section, SwitchGroup, Toggle, Wiring } from "./types";
 import { ancestors, prune, readersOf } from "./wiring";
 
 /**

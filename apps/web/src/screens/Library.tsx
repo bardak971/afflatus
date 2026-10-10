@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import { Check, Clock, Film, Play, VolumeX } from "lucide-react";
 import { HoverAudio, HoverVideo } from "../HoverVideo";
 import { TileTip, useTileTip } from "../TileTip";
@@ -8,6 +8,7 @@ import { DRAG_HAS_SOUND, DRAG_TYPE, dragKind } from "../dragging";
 import { useHoverPlay } from "../store";
 import { cx } from "../ui";
 import { leftOf, SOON_MS } from "./library/justify";
+import { KIND_WORD, tileName } from "./library/tileName";
 import { leftWords } from "./studio/expiring";
 import { SoundWave } from "./library/SoundWave";
 
@@ -18,11 +19,8 @@ export { FolderPanel } from "./library/FolderPanel";
 
 export { DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, DRAG_VIDEO, dragKind } from "../dragging";
 
-const KIND_WORD = { image: "picture", video: "video", audio: "sound" } as const;
-
-/** What a tile is called: the name it is shown under when its own says nothing, else its name (renders are named), else the draft it came from, else what it is. */
-export const tileName = (a: Asset) =>
-  a.shownName || a.name || a.draftOf?.name || (a.clipOf ? `${a.clipOf.timelineName} · clip ${a.clipOf.clip}` : KIND_WORD[a.kind][0]!.toUpperCase() + KIND_WORD[a.kind].slice(1));
+// what a tile is called, in a file of its own: the viewer and the menus name items without loading the library
+export { tileName } from "./library/tileName";
 
 /** The dim line under a tile's name: "picture · 1536×864 · 40 min ago · kept". */
 export function tileFacts(a: Asset): string {
@@ -36,18 +34,22 @@ export function tileFacts(a: Asset): string {
   ].filter(Boolean).join(" · ");
 }
 
-export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, onMenu, fill, corner, plain }: {
+/**
+ * One item of a grid. Drawn again only when what it is handed changes: a grid hands every tile the same callbacks, each
+ * told which item it is for, so ticking one item, or a page arriving, does not draw the hundreds of others again.
+ */
+export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, onMenu, fill, corner, plain }: {
   asset: Asset;
-  onOpen(): void;
+  onOpen(asset: Asset): void;
   /** It is one of the items ticked; and whether any is: a click then ticks instead of opening. */
   selected?: boolean;
   selecting?: boolean;
   /** Tick or untick it. With the Shift key held: everything from the last one ticked to this one. */
-  onSelect?(range: boolean): void;
+  onSelect?(range: boolean, asset: Asset): void;
   /** What a drag of it carries: every ticked item when it is one of them. */
   dragIds?: string[];
   /** A right-click: the menu of what can be done with it. */
-  onMenu?(e: React.MouseEvent): void;
+  onMenu?(e: React.MouseEvent, asset: Asset): void;
   /** It fills the box it is put in (the library's justified rows size it at the item's own shape); else it is a 3:4 card. */
   fill?: boolean;
   /** A control for its top-right corner, beside the not-kept clock (a stack's "3 takes" button). */
@@ -102,11 +104,11 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
       }}
       onClick={(e) => {
         // with something ticked, or with Ctrl or Shift held, a click ticks; otherwise it opens
-        if (onSelect && (selecting || e.ctrlKey || e.metaKey || e.shiftKey)) onSelect(e.shiftKey);
-        else onOpen();
+        if (onSelect && (selecting || e.ctrlKey || e.metaKey || e.shiftKey)) onSelect(e.shiftKey, asset);
+        else onOpen(asset);
       }}
       aria-label={`Open ${name}`}
-      onContextMenu={onMenu}
+      onContextMenu={onMenu && ((e) => onMenu(e, asset))}
       data-stage
       className={cx(
         // a container: what sits on the tile (its clip and take) says less on a narrow one
@@ -180,11 +182,11 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
         aria-checked={Boolean(selected)}
         aria-label="Select, to move, keep or delete several at once"
         data-tip="Select (also Ctrl + click; Shift + click selects the range)"
-        onClick={(e) => onSelect(e.shiftKey)}
+        onClick={(e) => onSelect(e.shiftKey, asset)}
         onKeyDown={(e) => {
           if (e.key !== " " && e.key !== "Enter") return;
           e.preventDefault();
-          onSelect(e.shiftKey);
+          onSelect(e.shiftKey, asset);
         }}
         className={cx(
           // a sound's card has its play dot top-left: its tick sits bottom-right
@@ -199,7 +201,7 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
     )}
     </div>
   );
-}
+});
 
 /** On a video that is a take of a timeline clip: the clip's number ("c1 · t12" on a narrow tile, cut to nothing otherwise), the rest in its tip. */
 function ClipMark({ of, className }: { of: NonNullable<Asset["clipOf"]>; className?: string }) {

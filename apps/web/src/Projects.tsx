@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Reveal } from "./bar/bridge";
-import { FolderKanban, FolderPlus, Inbox } from "lucide-react";
+import { FolderKanban, FolderPlus } from "lucide-react";
 import { api, type Asset, type Project } from "./api";
 import { useProjects } from "./data";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
@@ -10,27 +10,15 @@ import { Keys } from "./Keys";
 import { useKeysHere } from "./keys/here";
 import { useProject } from "./project";
 import { usePins } from "./projects/pins";
+import { Initial, projectTone } from "./projects/tone";
 import { Button, cx, ErrorNote, fieldClass } from "./ui";
 import { useFlip } from "./useFlip";
 
 // the panel loads on its first opening: it is not needed to draw the app
 const ProjectsPanel = lazy(() => import("./projects/ProjectsPanel").then((m) => ({ default: m.ProjectsPanel })));
-// the Viewer too: fetched the first time an item is opened from the panel
+// the Viewer too: fetched the first time an item is opened from the panel (a lazy import is only that when no file
+// loaded with the app imports the Viewer itself: the screens take it through viewer/LazyViewer.tsx)
 const Viewer = lazy(() => import("./Viewer").then((m) => ({ default: m.Viewer })));
-
-/** The theme's colours a project can wear in the rail: tokens, so that it follows the theme. */
-const TONES = ["--color-picture", "--color-good", "--color-warn-ink", "--color-accent", "--color-warn"];
-/** A project's colour, the same every time: picked from its id. */
-export function projectTone(id: string): string {
-  let h = 0;
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return `var(${TONES[h % TONES.length]})`;
-}
-
-/** What a project's square shows: its initial (the name beside or in the tip says it), the Inbox its icon. */
-export function Initial({ name, inbox, size = 15 }: { name: string; inbox?: boolean; size?: number }) {
-  return inbox ? <Inbox size={size} /> : <>{(Array.from(name.trim())[0] ?? "…").toUpperCase()}</>;
-}
 
 /** The type of a pin dragged along the rail: only the rail's own pins take it. */
 const DRAG_PIN = "application/x-afflatus-pin";

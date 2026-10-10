@@ -1,7 +1,31 @@
-import { frameOf, fuzzyScore, isShown, latentUpscaleSize, megapixels, RANDOM_SEED, secondsInput, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
+import { frameOf, fuzzyScore, isShown, latentUpscaleSize, megapixels, pickChoice, RANDOM_SEED, secondsInput, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import type { ModelSettings, RecipeInfo } from "./api";
-import { defaultOf, sameValue } from "./fields";
 import { fileLabel } from "./format";
+
+/** The value an input starts with, given what this ComfyUI offers for it. */
+export function defaultOf(spec: InputSpec, options: string[] | undefined): unknown {
+  switch (spec.type) {
+    // an example is shown, not filled in
+    case "prompt": return spec.example ? "" : spec.default ?? "";
+    case "model": return spec.default ?? options?.[0] ?? "";
+    case "loras": return spec.default ?? [];
+    case "size": {
+      const s = spec.shapes.find((x) => x.id === spec.default) ?? spec.shapes[0]!;
+      return { width: s.width, height: s.height };
+    }
+    case "number":
+    case "toggle": return spec.default;
+    // a file choice starts on a file this ComfyUI has
+    case "choice": return pickChoice(spec, options);
+    case "seed": return RANDOM_SEED;
+    case "image": return undefined;
+    case "clip": return undefined;
+    case "references": return [];
+    case "audio": return undefined;
+  }
+}
+
+export const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 const baseName = (f: string) => (f.split(/[\\/]/).pop() ?? f).toLowerCase();
 

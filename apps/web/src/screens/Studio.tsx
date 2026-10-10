@@ -8,7 +8,7 @@ import { plainKey } from "../Keys";
 import { useKeysHere } from "../keys/here";
 import { displayOf, useBanners, useHandover, useOpenDraft, useStudio, type Scope } from "../store";
 import { cx, Empty, ErrorNote } from "../ui";
-import { Viewer } from "../Viewer";
+import { Viewer } from "../viewer/LazyViewer";
 import { useTileMenu } from "../TileMenu";
 import { DRAG_TYPE, FolderPanel, Tile } from "./Library";
 import { TimelineCards } from "./studio/TimelineCards";
@@ -20,7 +20,7 @@ import { groupItems } from "./studio/grouping";
 import { fuzzyScore } from "@afflatus/core";
 import { LibraryHeader } from "./studio/LibraryHeader";
 import { LiveTile } from "./studio/LiveTile";
-import { JustifiedRows, PlaceholderRows, rememberShapes, ROW_HEIGHT, type Placed } from "./studio/MediaGrid";
+import { JustifiedRows, PlaceholderRows, rememberShapes, ROW_HEIGHT, useKeepPlace, type Placed } from "./studio/MediaGrid";
 import { aspectOf, FALLBACK_ASPECT } from "./library/justify";
 import { useQueueOf } from "./studio/queueOf";
 import { useLibraryFilters } from "./studio/useLibraryFilters";
@@ -215,6 +215,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   }, [listKey, visible]);
   const selection = useSelection({ items: visible, listKey, binned: place.type === "bin", off: draftOnly || Boolean(open) });
   const { picked, setPicked, tick } = selection;
+  const pickedSet = useMemo(() => new Set(picked), [picked]);
   const groupedEmpty = view.groupBy === "draft"
     ? { title: "Nothing here came from a draft", body: "Grouped by draft, only what a draft made shows. Imports and older renders have no draft. Choose No groups to see everything." }
     : { title: "Nothing here is on a timeline", body: "Grouped by timeline, only takes of a timeline's clips show. Choose No groups to see everything." };
@@ -226,6 +227,11 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
     }
     setOpenStacks((old) => { const n = new Set(old); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   };
+  // the tiles' callbacks, the same at every draw (Tile is memoised): each is told its item, and what it calls is read
+  // when it is called, so a tick or a page redraws only the tiles whose own props changed
+  const latest = useRef({ tick, menu: (_e: React.MouseEvent, _a: Asset) => {}, visible });
+  const onTileSelect = useCallback((range: boolean, a: Asset) => latest.current.tick(a, range), []);
+  const onTileMenu = useCallback((ev: React.MouseEvent, a: Asset) => latest.current.menu(ev, a), []);
   const tileOf = (e: ReturnType<typeof groupItems>[number]["entries"][number]) => {
     const a = e.asset;
     const opened = e.stack ? openStacks.has(e.stack) : false;
@@ -234,12 +240,12 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
         <Tile
           fill
           asset={a}
-          onOpen={() => setOpen(a)}
-          selected={picked.includes(a.id)}
+          onOpen={setOpen}
+          selected={pickedSet.has(a.id)}
           selecting={picked.length > 0}
-          onSelect={(range) => tick(a, range)}
-          dragIds={picked.includes(a.id) ? picked : undefined}
-          onMenu={(ev) => gridMenu.open(ev, a)}
+          onSelect={onTileSelect}
+          dragIds={pickedSet.has(a.id) ? picked : undefined}
+          onMenu={onTileMenu}
           // a stack of takes: how many, and a way in; opened, the first take folds them back
           corner={e.takes && e.stack && (!opened || e.takes[0]!.id === a.id) && (
             <button
@@ -260,6 +266,12 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
   const rowHeight = ROW_HEIGHT[display === "Stage" ? view.size : display];
   const placesOf = (entries: ReturnType<typeof groupItems>[number]["entries"]): Placed[] => entries.map((e) => ({ key: e.asset.id, aspect: aspectOf(e.asset), render: () => tileOf(e) }));
   const gridMenu = useTileMenu({ onOpen: setOpen, onSelect: (a) => tick(a, false), into: { draft: draftOnly ? draftId ?? undefined : undefined, folder: folder?.id } });
+  latest.current = { tick, menu: gridMenu.open, visible };
+  const selectAll = useCallback(() => setPicked(latest.current.visible.map((a) => a.id)), [setPicked]);
+  // past the cap a page is let go at one end as one is read at the other: the user's place is kept over it
+  const gridBox = useRef<HTMLDivElement>(null);
+  const pages = JSON.stringify(assets.data?.pageParams[0] ?? null);
+  useKeepPlace(gridBox, pages, visible);
 
   // what the Create panel is handed keeps its identity from one draw to the next: the panel is not drawn again for nothing
   const panelFolder = useMemo(() => (folder ? { id: folder.id, name: folder.name, path: folder.path } : null), [folder?.id, folder?.name, folder?.path]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -273,9 +285,10 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
     <div className="flex min-h-0 min-w-0 grow">
       {view.form ? <CreatePanel folder={panelFolder} onClose={closePanel} /> : <FormRail onOpen={() => view.set({ form: true })} />}
       <div className="flex min-w-0 grow flex-col">
-        <LibraryHeader place={place} folderButton={folderButton} foldersOpen={foldersOpen} onFolders={setFoldersOpen} view={view} draftId={draftId} draftOnly={stageOfDraft} items={visible} filters={filters} selection={selection} />
+        <LibraryHeader place={place} folderButton={folderButton} foldersOpen={foldersOpen} onFolders={setFoldersOpen} view={view} draftId={draftId} draftOnly={stageOfDraft} count={visible.length} onSelectAll={selectAll} filters={filters} selection={selection} />
 
-        <div className={cx("min-h-0 grow px-5 pt-1.5", draftOnly ? "overflow-hidden" : "overflow-y-auto pb-6")}>
+        {/* no scroll anchoring of the browser's own: useKeepPlace keeps the place, and the two would move it twice */}
+        <div ref={gridBox} className={cx("min-h-0 grow px-5 pt-1.5 [overflow-anchor:none]", draftOnly ? "overflow-hidden" : "overflow-y-auto pb-6")}>
           {draftOnly ? (
             stageOfDraft
               ? <DraftResults draft={draftId!} folder={folder?.id} />
@@ -306,6 +319,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
               {!showTimelines && Boolean(assets.data) && (
                 <JustifiedRows
                   rowHeight={rowHeight}
+                  pages={pages}
                   places={[
                     ...(running && !("other" in running) && place.type !== "bin" && !filtered ? [{ key: "running", aspect: FALLBACK_ASPECT, render: () => <RunningTile onDraft={openRunningDraft} /> }] : []),
                     ...(sections.length === 1 && !sections[0]!.key ? placesOf(sections[0]!.entries) : []),
@@ -319,7 +333,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
                     <span className="shrink-0 text-xs text-ink-2">{sec.note}</span>
                     {sec.timeline && <button type="button" onClick={() => go(`/timelines/${sec.timeline}`)} className="shrink-0 text-xs font-semibold text-accent hover:underline">Open timeline</button>}
                   </div>
-                  <JustifiedRows rowHeight={rowHeight} places={placesOf(sec.entries)} />
+                  <JustifiedRows rowHeight={rowHeight} pages={pages} places={placesOf(sec.entries)} />
                 </section>
               ))}
               {!showTimelines && <LoadMore more={Boolean(assets.hasNextPage)} busy={assets.isFetchingNextPage || assets.isFetchingPreviousPage} onMore={() => void assets.fetchNextPage()} />}

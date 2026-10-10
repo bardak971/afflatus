@@ -3,7 +3,8 @@ import {
 } from "@afflatus/core";
 import type { Chapter } from "@afflatus/core";
 import { MODEL_FILE, own } from "./catalog";
-import { slug, type Control, type Target, type Toggle, type WorkflowDef } from "./types";
+import { slug } from "./text";
+import type { Control, Target, Toggle, WorkflowDef } from "./types";
 import { ancestors, cutFileNameChains, modesFor, prune, readersOf, remove, selectorOf, settle, skipsFor, trim } from "./wiring";
 import { MEDIA_LOADERS } from "./inspect";
 import { offLine, sectionSummary } from "./explain";

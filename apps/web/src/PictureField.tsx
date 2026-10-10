@@ -9,7 +9,7 @@ import { Dialog, DialogHead } from "./Dialog";
 import { Keys } from "./Keys";
 import { HoverVideo } from "./HoverVideo";
 import { useAsset, useAssets } from "./data";
-import { Viewer } from "./Viewer";
+import { Viewer } from "./viewer/LazyViewer";
 import type { CastPicture } from "./castPictures";
 import { useSettled } from "./hooks";
 import { projectForNew, useProject } from "./project";

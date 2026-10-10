@@ -20,7 +20,7 @@ import type { MenuItem } from "../ContextMenu";
 import { cx, Segmented } from "../ui";
 import { Select } from "../Select";
 import { useFit } from "../useFit";
-import { Viewer } from "../Viewer";
+import { Viewer } from "../viewer/LazyViewer";
 
 /** Whether the library is open over the editor's stage: kept from one visit to the next. */
 const useMediaOpen = create<{ open: boolean; set(open: boolean): void }>()(

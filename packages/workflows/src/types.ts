@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { UNSAFE_KEYS } from "./catalog";
+// the plain helpers, in a file without zod: the web takes them without the schemas (see text.ts)
+export { slug, splitCaptions } from "./text";
 
 /**
  * A workflow recipe: a ComfyUI workflow in API format, plus a mapping that says which of its node
@@ -13,22 +15,6 @@ export type Target = z.infer<typeof target>;
 /** What the two positions of a switch are called, when it chooses between two things ("I2V" or "FLF2V"). */
 export const captions = z.object({ on: z.string(), off: z.string() });
 
-/**
- * Workflow authors name such a switch "X: True = A | False = B". That reads badly on a form: the name
- * and the two captions are taken apart.
- */
-export function splitCaptions(label: string): { label: string; captions?: { on: string; off: string } } {
-  // found piece by piece, not by one pattern: a long run of spaces or dashes would make that one backtrack
-  const yes = /\btrue\s*=/i.exec(label);
-  const rest = yes ? label.slice(yes.index + yes[0].length) : "";
-  const no = /\|\s*false\s*=/i.exec(rest);
-  const on = no ? rest.slice(0, no.index).trim() : "";
-  const off = no ? rest.slice(no.index + no[0].length).trim() : "";
-  if (!yes || !on || !off || /[\r\n]/.test(off)) return { label };
-  let end = yes.index;
-  while (end > 0 && /[\s:–-]/.test(label[end - 1]!)) end--;
-  return { label: label.slice(0, end).trim() || "Mode", captions: { on, off } };
-}
 
 /** A key a file names (a node's id, an input): never one that reaches an object's prototype. */
 const key = z.string().refine((k) => !UNSAFE_KEYS.has(k), { message: "is a name Afflatus does not take" });
@@ -255,5 +241,3 @@ export const workflowDef = z.object({
   bindings,
 });
 export type WorkflowDef = z.infer<typeof workflowDef>;
-
-export const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "workflow";

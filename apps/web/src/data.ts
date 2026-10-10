@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { api, type Timeline, type TimesPeriod, type TimesWindow } from "./api";
+import { keepPreviousData, useInfiniteQuery, useQuery, type InfiniteData, type QueryClient } from "@tanstack/react-query";
+import { api, type HistoryPage, type Timeline, type TimesPeriod, type TimesWindow } from "./api";
+import { withFreshHead } from "./screens/queue/historyHead";
 import { useProject } from "./project";
 
 /**
@@ -14,17 +15,43 @@ export const useSetup = () => useQuery({ queryKey: ["setup"], queryFn: api.setup
 export const useQueue = () => useQuery({ queryKey: ["queue"], queryFn: api.queue });
 /**
  * The queue's history, a page at a time. Not under "queue": every queue event would read each loaded page
- * again. It is read again when a job ends (live.ts), and after a change made to it here.
+ * again. Its first page is read again when a job ends (live.ts, readHistoryHead), and every page after a change made to it here.
  */
 export const HISTORY = ["history"] as const;
-export function useJobs(filter: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string }) {
+type JobsFilter = { status?: "done" | "failed" | "cancelled"; q?: string; model?: string };
+const HISTORY_PAGE = 60;
+export function useJobs(filter: JobsFilter) {
   return useInfiniteQuery({
     queryKey: [...HISTORY, filter],
-    queryFn: ({ pageParam, signal }) => api.jobs({ ...filter, offset: pageParam, limit: 60 }, { signal }),
+    queryFn: ({ pageParam, signal }) => api.jobs({ ...filter, offset: pageParam, limit: HISTORY_PAGE }, { signal }),
     initialPageParam: 0,
     getNextPageParam: (last, pages) => (last.more ? pages.reduce((n, p) => n + p.items.length, 0) : undefined),
     placeholderData: keepPreviousData,
   });
+}
+/**
+ * The history after a job ended: a list on screen reads its first page only, and the jobs that ended are put in front
+ * of it (historyHead.ts); read again in full, a list scrolled far down read its forty pages one after another, seconds
+ * of reads at each end of a render. A list not on screen is only marked old (read again when it is shown).
+ */
+export async function readHistoryHead(client: QueryClient): Promise<void> {
+  for (const q of client.getQueryCache().findAll({ queryKey: HISTORY })) {
+    const key = q.queryKey as [string, JobsFilter];
+    const was = q.state.data as InfiniteData<HistoryPage, number> | undefined;
+    if (!q.isActive() || !was || was.pages.length < 2) {
+      void client.invalidateQueries({ queryKey: key, exact: true, refetchType: "active" });
+      continue;
+    }
+    try {
+      const head = await api.jobs({ ...key[1], offset: 0, limit: HISTORY_PAGE });
+      const now = client.getQueryData<InfiniteData<HistoryPage, number>>(key);
+      const pages = now && withFreshHead(now.pages, head);
+      if (now && pages) client.setQueryData<InfiniteData<HistoryPage, number>>(key, { pages, pageParams: now.pageParams });
+      else void client.invalidateQueries({ queryKey: key, exact: true, refetchType: "active" });
+    } catch {
+      void client.invalidateQueries({ queryKey: key, exact: true, refetchType: "active" });
+    }
+  }
 }
 export const useSettings = () => useQuery({ queryKey: ["settings"], queryFn: api.settings });
 

@@ -6,7 +6,7 @@ import { api, thumbUrl, type Outfit, type PersonDef, type PlaceDef } from "../..
 import { AudioPlayer } from "../../AudioPlayer";
 import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, useDropZone } from "../../dragging";
 import { useAsset, useRecipes, useSetup } from "../../data";
-import { Viewer } from "../../Viewer";
+import { Viewer } from "../../viewer/LazyViewer";
 import { useLoraWordsOf } from "../../fields";
 import { fileLabel } from "../../format";
 import { Picker } from "../../PictureField";
