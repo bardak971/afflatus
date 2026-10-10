@@ -213,7 +213,9 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
       data-takes-escape={inline || undefined}
       aria-label="Designer"
       style={floor !== null ? { bottom: floor } : undefined}
-      className={inline ? "flex min-h-0 grow flex-col" : cx("fixed bottom-10 z-30 flex w-[420px] flex-col border-line-strong bg-panel shadow-2xl shadow-shade/60", overlay && "m-panel", side === "left" ? "top-0 left-[76px] border-r" : "top-[60px] right-0 rounded-tl-xl border-t border-l")}
+      // a side panel of the app on either side: the full height down to the status bar, square, one edge against what it
+      // lies over (a rounded card under the header read as something floating, not part of the screen)
+      className={inline ? "flex min-h-0 grow flex-col" : cx("fixed top-0 bottom-10 z-30 flex w-[420px] flex-col border-line-strong bg-panel shadow-2xl shadow-shade/60", overlay && "m-panel", side === "left" ? "left-[76px] border-r" : "right-0 border-l")}
     >
       {inline ? (
         <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">

@@ -1,7 +1,7 @@
 import { Check, Moon, Sun } from "lucide-react";
 import { cx, Segmented } from "../ui";
 import { themeInUse, useThemeChoice } from "./store";
-import { FAMILIES, THEMES, tokensOf, type Theme } from "./themes";
+import { contrast, FAMILIES, THEMES, tokensOf, VISIBLE, type Theme } from "./themes";
 
 /** A theme as a small picture of itself: its page, a panel on it, two lines of text and its accent. */
 function ThemeTile({ theme, accent, on, onPick }: { theme: Theme; accent: string | undefined; on: boolean; onPick(): void }) {
@@ -30,6 +30,18 @@ function ThemeTile({ theme, accent, on, onPick }: { theme: Theme; accent: string
   );
 }
 
+/**
+ * The tick on an accent's dot. The dot is the palette's own colour, not the accent as the page uses it (taken
+ * darker to read as text on a light theme), so what is written on the accent can be lost on it: white on Dawn's
+ * gold read at 2.2:1. Then the one of the theme's ink and its usual ink on the accent that reads best.
+ */
+function tickOn(theme: Theme, name: string): string {
+  const dot = theme.accents[name]!;
+  const written = tokensOf(theme, name)["accent-ink"];
+  if (contrast(dot, written) >= VISIBLE) return written;
+  return [theme.base.ink, theme.onAccent].reduce((best, c) => (contrast(dot, c) > contrast(dot, best) ? c : best));
+}
+
 /** The accents of one family of themes, as dots to pick from. */
 function Accents({ theme, picked, onPick }: { theme: Theme; picked: string | undefined; onPick(name: string): void }) {
   const names = Object.keys(theme.accents);
@@ -49,7 +61,7 @@ function Accents({ theme, picked, onPick }: { theme: Theme; picked: string | und
             className={cx("flex h-7 w-7 items-center justify-center rounded-full border-2", name === current ? "border-ink-strong" : "border-transparent")}
             style={{ background: theme.accents[name] }}
           >
-            {name === current && <Check size={13} strokeWidth={3} style={{ color: tokensOf(theme, name)["accent-ink"] }} />}
+            {name === current && <Check size={13} strokeWidth={3} style={{ color: tickOn(theme, name) }} />}
           </button>
         ))}
       </div>

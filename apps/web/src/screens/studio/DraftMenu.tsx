@@ -1,10 +1,11 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { ChevronDown, Film, Image as ImageIcon, Music, Plus, Search } from "lucide-react";
+import { ChevronDown, Film, FolderOpen, Image as ImageIcon, Music, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { Thumb } from "../../Thumb";
 import { fuzzyFilter } from "@afflatus/core";
 import { thumbUrl, type DraftBrief } from "../../api";
 import { useRecipes } from "../../data";
 import { when } from "../../format";
+import { ContextMenu, useMenu } from "../../ContextMenu";
 import { Keys } from "../../Keys";
 import { Popover } from "../../Popover";
 import { cx, TwoStep } from "../../ui";
@@ -26,7 +27,7 @@ function Cover({ d, size }: { d: DraftBrief; size: number }) {
  * many outputs it has and when it was last changed. Opens from the head of the Create panel; typing narrows
  * the list, the arrow keys move in it, Enter opens. A draft with no prompt is named after its model.
  */
-export function DraftMenu({ drafts, open: current, titleOf, unused, onPick, onNew, onClearUnused }: {
+export function DraftMenu({ drafts, open: current, titleOf, unused, onPick, onNew, onClearUnused, onRename, onDelete }: {
   drafts: DraftBrief[];
   open: DraftBrief | null;
   /** What a draft is called: its name, else the start of its prompt, else "" (named after its model here). */
@@ -36,7 +37,11 @@ export function DraftMenu({ drafts, open: current, titleOf, unused, onPick, onNe
   onPick(id: string): void;
   onNew(): void;
   onClearUnused(): Promise<unknown>;
+  /** A draft of the list renamed (asked for its name) or deleted (asked first), from its right-click menu. */
+  onRename(d: DraftBrief): void;
+  onDelete(d: DraftBrief): void;
 }) {
+  const rowMenu = useMenu<DraftBrief>();
   const recipes = useRecipes();
   const [shown, setShown] = useState(false);
   const [query, setQuery] = useState("");
@@ -84,10 +89,12 @@ export function DraftMenu({ drafts, open: current, titleOf, unused, onPick, onNe
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [drafts, query, recipes.data],
   );
-  // the drafts that never made anything fold under one row at the foot (the open one stays in its place): a list of
-  // "Wan 2.2 draft · empty" three times hid the drafts that hold work. A search looks through them all.
+  // the unused drafts (no prompt, no name, nothing made: the ones Clear deletes) fold under one row at the foot, with
+  // Clear on it, the open one staying in its place: a list of "Wan 2.2 draft · empty" three times hid the drafts that
+  // hold work. One idea of "unused" for both, so the row's count and what Clear deletes are the same. A search looks
+  // through them all.
   const [emptyShown, setEmptyShown] = useState(false);
-  const holds = (d: DraftBrief) => (d.outputs ?? 0) > 0 || d.id === current?.id;
+  const holds = (d: DraftBrief) => !d.unused || d.id === current?.id;
   const list = query || emptyShown ? found : found.filter(holds);
   const empties = query ? 0 : found.length - found.filter(holds).length;
   const close = () => {
@@ -174,6 +181,7 @@ export function DraftMenu({ drafts, open: current, titleOf, unused, onPick, onNe
                     aria-selected={i === at}
                     tabIndex={-1}
                     onClick={() => pick(d.id)}
+                    onContextMenu={(e) => rowMenu.open(e, d)}
                     onMouseMove={() => setAt(i)}
                     className={cx(
                       "flex w-full items-center gap-2.5 px-3 py-[7px] text-left",
@@ -195,29 +203,39 @@ export function DraftMenu({ drafts, open: current, titleOf, unused, onPick, onNe
             </div>
             {!list.length && query && <div className="px-3 py-4 text-sm text-ink-3">No draft matches.</div>}
             {empties > 0 && (
-              <button type="button" aria-expanded={emptyShown} onClick={() => setEmptyShown(!emptyShown)} className="flex h-9 w-full items-center gap-2 px-3 text-left text-xs text-ink-2 hover:bg-hover hover:text-ink">
-                <ChevronDown size={13} className={cx("shrink-0 transition-transform duration-(--t-pop)", emptyShown && "rotate-180")} />
-                {emptyShown ? `Hide the ${empties} empty draft${empties === 1 ? "" : "s"}` : `${empties} empty draft${empties === 1 ? "" : "s"}: nothing made from them yet`}
-              </button>
+              <div className="flex h-10 items-center gap-2 pr-3">
+                <button type="button" aria-expanded={emptyShown} data-tip="No prompt, no name and nothing made from them: settings picked and left" onClick={() => setEmptyShown(!emptyShown)} className="flex h-full min-w-0 grow items-center gap-2 px-3 text-left text-xs text-ink-2 hover:text-ink">
+                  <ChevronDown size={13} className={cx("shrink-0 transition-transform duration-(--t-pop)", emptyShown && "rotate-180")} />
+                  <span className="truncate">{emptyShown ? `Hide the ${empties} unused draft${empties === 1 ? "" : "s"}` : `${empties} unused draft${empties === 1 ? "" : "s"}`}</span>
+                </button>
+                <TwoStep
+                  label={clearing ? "Clearing…" : "Clear them"}
+                  title={`Delete the ${empties} unused draft${empties === 1 ? "" : "s"} (the open one stays)`}
+                  note="Delete? The open one stays."
+                  yes="Delete"
+                  cancel="Keep"
+                  stay
+                  disabled={clearing}
+                  onYes={() => {
+                    setClearing(true);
+                    void onClearUnused().finally(() => setClearing(false));
+                  }}
+                />
+              </div>
             )}
           </div>
-          {unused > 0 && !query && (
-            <div className="flex h-10 shrink-0 items-center gap-2 border-t border-line px-3 text-xs text-ink-2">
-              <span className="grow" data-tip="No prompt, no name and nothing made from them: settings picked and left">{unused} unused draft{unused === 1 ? "" : "s"}</span>
-              <TwoStep
-                label={clearing ? "Clearing…" : "Clear them"}
-                title={`Delete the ${unused} unused draft${unused === 1 ? "" : "s"} (the open one stays)`}
-                note="Delete? The open one stays."
-                yes="Delete"
-                cancel="Keep"
-                stay
-                disabled={clearing}
-                onYes={() => {
-                  setClearing(true);
-                  void onClearUnused().finally(() => setClearing(false));
-                }}
-              />
-            </div>
+          {rowMenu.menu && (
+            <ContextMenu
+              at={rowMenu.menu.at}
+              label="Actions on this draft"
+              items={[
+                ...(rowMenu.menu.subject.id === current?.id ? [] : [{ label: "Open", icon: <FolderOpen size={14} />, run: () => pick(rowMenu.menu!.subject.id) }]),
+                { label: "Rename…", icon: <Pencil size={14} />, run: () => { const d = rowMenu.menu!.subject; close(); onRename(d); } },
+                "—",
+                { label: "Delete…", icon: <Trash2 size={14} />, danger: true, note: "its outputs stay", run: () => { const d = rowMenu.menu!.subject; close(); onDelete(d); } },
+              ]}
+              onClose={rowMenu.close}
+            />
           )}
         </Popover>
       )}

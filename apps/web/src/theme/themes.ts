@@ -159,8 +159,10 @@ function ofRosePine(id: string, name: string, c: Variant, stage?: Theme): Theme 
     accents: { gold: c.gold, rose: c.rose, love: c.love, iris: c.iris, foam: c.foam, pine: c.pine },
     base: stage
       ? {
+          // the lines as strong as the other light themes' (1.35:1 and 1.65:1 on a card): at a tenth and a quarter of
+          // muted they all but vanished on Dawn's cream, the edges of fields and buttons with them
           ground: c.overlay, panel, raised: c.base, hover: mix(c.base, c.muted, 0.15),
-          line: mix(c.overlay, c.muted, 0.08), "line-strong": mix(c.overlay, c.muted, 0.25),
+          line: mix(c.overlay, c.muted, 0.18), "line-strong": mix(c.overlay, c.muted, 0.42),
           ink: text, "ink-2": mix(c.subtle, "#000000", 0.22), "ink-3": mix(c.subtle, "#000000", 0.1), "ink-strong": mix(c.text, "#000000", 0.4),
           good: c.pine, ...warningOf(c.love), "warn-on": c.surface,
           picture: c.iris, shade: c.muted, stage: stage.base.panel,
@@ -290,18 +292,50 @@ export const contrast = (a: string, b: string) => {
 
 /** What text needs against what it sits on (WCAG AA, body text). */
 export const LEGIBLE = 4.5;
+/** The most of a status colour laid behind its own text in a chip or a lane (bg-good/15, bg-picture/20). */
+export const TINT = 0.2;
 
 /**
  * A colour of text taken just far enough toward black (a light theme) or white (a dark one) to read on
  * each of `on`: a colour that already reads is left as it is. The palettes' quiet greys and their pale
  * accents fall short on the light themes' panels.
  */
-export function legible(colour: string, on: string[], light: boolean): string {
+export function legible(colour: string, on: string[], light: boolean, need = LEGIBLE): string {
   for (let t = 0; t <= 1.0001; t += 0.02) {
     const c = t ? mix(colour, light ? "#000000" : "#ffffff", t) : colour;
-    if (on.every((b) => contrast(c, b) >= LEGIBLE)) return c;
+    if (on.every((b) => contrast(c, b) >= need)) return c;
   }
   return light ? "#000000" : "#ffffff";
+}
+
+/**
+ * The same, for a colour that is also written on a tint of itself (a chip: "Saved" in green on a pale green, a
+ * sound's name on its blue lane): it reads on each of `on` and on `share` of it laid over each of them. The tint
+ * grows darker with the colour, so each step is tried against its own.
+ */
+export function legibleOnTint(colour: string, on: string[], light: boolean, share: number): string {
+  for (let t = 0; t <= 1.0001; t += 0.02) {
+    const c = t ? mix(colour, light ? "#000000" : "#ffffff", t) : colour;
+    if (on.every((b) => contrast(c, b) >= LEGIBLE && contrast(c, mix(b, c, share)) >= LEGIBLE)) return c;
+  }
+  return light ? "#000000" : "#ffffff";
+}
+
+/** What a line, a bar or an icon that carries meaning needs against what it is drawn on (WCAG AA, graphics). */
+export const VISIBLE = 3;
+
+/**
+ * The colours a chart draws its series in: the theme's accents, the one in use first. On a light theme each is
+ * taken just dark enough to be seen on the cards and the page (Latte's yellow and sky, Dawn's gold and rose
+ * were a faint 2:1 line on cream); a dark theme's accents are drawn as they are.
+ */
+export function chartColours(theme: Theme, accent: string | undefined): string[] {
+  const all = Object.entries(theme.accents);
+  const first = all.find(([name]) => name === accent) ?? all[0];
+  const raw = [...new Set([first?.[1], ...all.map(([, c]) => c)].filter((c): c is string => Boolean(c)))];
+  if (!theme.light) return raw;
+  const on = [theme.base.panel, theme.base.raised, theme.base.ground];
+  return [...new Set(raw.map((c) => legible(c, on, true, VISIBLE)))];
 }
 
 /** Below this many degrees of hue apart, an accent and the warning read as one colour. */
@@ -335,9 +369,19 @@ export function tokensOf(theme: Theme, accent: string | undefined): Tokens {
     "ink-2": legible(base["ink-2"], grounds, theme.light),
     "ink-3": legible(base["ink-3"], grounds, theme.light),
     // "OK", "Ready", "Connected": green text that reads on the light themes' panels too
-    good: legible(base.good, [base.panel, base.raised, base.ground], theme.light),
-    // a notice's text reads on its wash
-    "warn-ink": legible(base["warn-ink"], [base["warn-wash"], base.panel], theme.light),
+    // on a light theme it is also written on a tint of itself (a "Saved" chip, a sound's lane), up to a fifth of it
+    good: theme.light ? legibleOnTint(base.good, [base.panel, base.raised, base.ground], true, TINT) : legible(base.good, [base.panel, base.raised, base.ground], false),
+    // what marks a picture or a sound (its lane, its chip) is written too: the light palettes' blues and iris read at
+    // 3:1 to 4:1 on their pages, less on their own tint. A dark theme's is left as its palette has it
+    picture: theme.light ? legibleOnTint(base.picture, [base.panel, base.raised, base.ground], true, TINT) : base.picture,
+    // a notice's text reads on its wash; on a light theme also on the page and a faint tint of the warning over it
+    // (a failed day's line, a box marked bg-warn/5), where Dawn's gold ink fell to 3.9:1
+    "warn-ink": legible(base["warn-ink"], theme.light ? [base["warn-wash"], base.panel, base.raised, base.ground, mix(base.ground, base.warn, 0.1)] : [base["warn-wash"], base.panel], theme.light),
+    // the warning itself is written too ("Failed", a missing file, a red icon), not only filled: the light palettes'
+    // oranges and pinks (Latte's peach, Dawn's love and gold) read at 2:1 to 3:1 on their panels, so they are taken
+    // darker until they read on everything a warning sits on. The dark themes keep their palettes' own: they read
+    // as text there, and only fall short as small print on their deeper washes, where warn-ink is used
+    warn: theme.light ? legible(base.warn, [base.panel, base.raised, base.ground, base["warn-wash"]], true) : base.warn,
     accent: colour,
     "accent-ink": written,
     "accent-wash": wash,

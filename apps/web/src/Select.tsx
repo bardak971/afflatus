@@ -246,7 +246,9 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
                 <span className="flex h-4 w-4 shrink-0 items-center justify-center text-accent">{o.value === value && <Check size={14} strokeWidth={3} />}</span>
                 <span className="flex min-w-0 grow flex-col">
                   <span className={cx("break-words", o.marked && "font-medium")}>{o.label}</span>
-                  {o.detail && <span className="break-words text-xs text-ink-3">{o.detail}</span>}
+                  {/* two lines at most: a LoRA's trigger words can run to a hundred tags, which made each row a page; all of it
+                      in the tip, and the search still reads all of it */}
+                  {o.detail && <span data-tip={o.detail.length > 90 ? o.detail : undefined} className="line-clamp-2 break-words text-xs text-ink-3">{o.detail}</span>}
                 </span>
                 {o.note && <span className="max-w-[45%] shrink-0 truncate text-xs text-ink-3">{o.note}</span>}
               </button>

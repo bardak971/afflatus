@@ -5,6 +5,7 @@ import { api, type Draft, type DraftBrief } from "../../api";
 import { DRAFT_LIST } from "../../data";
 import type { useDraft } from "../../draft";
 import { DraftMenu } from "./DraftMenu";
+import { ask, askText } from "../../Confirm";
 import { useBanners } from "../../store";
 import { cx, fieldClass, TwoStep } from "../../ui";
 
@@ -92,6 +93,23 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
             onPick={(id) => void d.switchTo(id).catch(failed("opened"))}
             onNew={() => void d.startNew().catch(failed("started"))}
             onClearUnused={() => api.clearUnusedDrafts(draft?.id).then(() => client.invalidateQueries({ queryKey: DRAFT_LIST }), failed("cleared"))}
+            // the open one is renamed and deleted as from the header's own buttons; another, asked in a dialog
+            onRename={(x) => {
+              if (x.id === draft?.id) {
+                cancelledNaming.current = false;
+                setNaming(draft.name ?? "");
+                return;
+              }
+              void askText({ title: "Rename the draft", value: x.name ?? "", placeholder: "Draft name (empty: the start of the prompt)", yes: "Rename" }).then((name) => {
+                if (name !== null && name !== (x.name ?? "")) rename.mutate({ id: x.id, name });
+              });
+            }}
+            onDelete={(x) => {
+              if (x.id === draft?.id) return setDeleting(true);
+              void ask({ title: "Delete this draft?", text: `${titleOf(x) || "This draft"} is deleted with its conversation with the designer. Its outputs stay in your library.`, yes: "Delete" }).then((ok) => {
+                if (ok) void api.deleteDraft(x.id).then(() => client.invalidateQueries({ queryKey: DRAFT_LIST }), failed("deleted"));
+              });
+            }}
           />
         </div>
       )}

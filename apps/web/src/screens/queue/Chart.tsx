@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { cx } from "../../ui";
 import { themeInUse, useThemeChoice } from "../../theme/store";
+import { chartColours } from "../../theme/themes";
 import { axisLabels, bar, brushWindow, curve, statOf } from "./chartMath";
 import { useBrush } from "./useBrush";
 import { PLOT, useChartScale, type Series } from "./useChartScale";
@@ -16,10 +17,7 @@ export function useChartColors(): string[] {
   const choice = useThemeChoice();
   return useMemo(() => {
     const theme = themeInUse(choice);
-    const mine = choice.accents[theme.family];
-    const all = Object.entries(theme.accents);
-    const first = all.find(([name]) => name === mine) ?? all[0];
-    return [...new Set([first?.[1], ...all.map(([, c]) => c)].filter((c): c is string => Boolean(c)))];
+    return chartColours(theme, choice.accents[theme.family]);
   }, [choice]);
 }
 

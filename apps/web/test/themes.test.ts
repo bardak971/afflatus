@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contrast, FAMILIES, hueGap, LEGIBLE, legible, themeById, THEMES, tokensOf, WARN_GAP } from "../src/theme/themes";
+import { chartColours, contrast, FAMILIES, hueGap, LEGIBLE, legible, mix, themeById, THEMES, TINT, tokensOf, VISIBLE, WARN_GAP, warnFor } from "../src/theme/themes";
 
 describe("the themes' text", () => {
   // every theme, with every accent it offers: the inks and the accent (links, picked items) read on the panels and on the page
@@ -30,6 +30,38 @@ describe("the themes' text", () => {
     expect(tokensOf(THEMES[0]!, undefined).accent).toBe("#ff9a73");
     expect(themeById("afflatus").id).toBe("studio");
   });
+  it("keeps the warning readable as text on every light theme, with every accent", () => {
+    // the dark themes keep their palettes' own warning; on the light ones it is written on panels, fields and the page
+    for (const theme of THEMES.filter((t) => t.light)) {
+      for (const accent of Object.keys(theme.accents)) {
+        const t = tokensOf(theme, accent);
+        for (const on of ["panel", "raised", "ground", "warn-wash"] as const) {
+          expect(contrast(t.warn, t[on]), `${theme.id} ${accent}: warn on ${on}`).toBeGreaterThanOrEqual(LEGIBLE);
+        }
+      }
+    }
+  });
+  it("keeps a light theme's green and picture blue readable on a chip of their own tint, and its notice ink on the page", () => {
+    for (const theme of THEMES.filter((t) => t.light)) {
+      for (const accent of Object.keys(theme.accents)) {
+        const t = tokensOf(theme, accent);
+        for (const on of [t.panel, t.raised, t.ground]) {
+          for (const ink of ["good", "picture"] as const) {
+            expect(contrast(t[ink], on), `${theme.id} ${accent}: ${ink}`).toBeGreaterThanOrEqual(LEGIBLE);
+            expect(contrast(t[ink], mix(on, t[ink], TINT)), `${theme.id} ${accent}: ${ink} on its tint`).toBeGreaterThanOrEqual(LEGIBLE);
+          }
+          expect(contrast(t["warn-ink"], on), `${theme.id} ${accent}: warn-ink`).toBeGreaterThanOrEqual(LEGIBLE);
+        }
+      }
+    }
+  });
+  it("leaves every dark theme's status colours as its palette has them", () => {
+    for (const theme of THEMES.filter((t) => !t.light)) {
+      const t = tokensOf(theme, undefined);
+      expect(t.picture, theme.id).toBe(theme.base.picture);
+      expect(t.warn, theme.id).toBe(warnFor(theme, Object.values(theme.accents)[0]!));
+    }
+  });
   it("keeps green status text readable on every theme", () => {
     for (const theme of THEMES) {
       const t = tokensOf(theme, undefined);
@@ -38,8 +70,30 @@ describe("the themes' text", () => {
   });
 });
 
+describe("the charts' colours", () => {
+  it("draws every series where it can be seen on a light theme, and leaves a dark theme's accents as they are", () => {
+    for (const theme of THEMES) {
+      for (const accent of Object.keys(theme.accents)) {
+        const colours = chartColours(theme, accent);
+        if (!theme.light) {
+          expect(colours[0], `${theme.id} ${accent}`).toBe(theme.accents[accent]);
+          continue;
+        }
+        for (const c of colours) {
+          for (const on of [theme.base.panel, theme.base.raised, theme.base.ground]) expect(contrast(c, on), `${theme.id} ${accent}: ${c}`).toBeGreaterThanOrEqual(VISIBLE);
+        }
+      }
+    }
+  });
+  it("starts with the accent in use", () => {
+    expect(chartColours(themeById("mocha"), "teal")[0]).toBe("#94e2d5");
+    expect(hueGap(chartColours(themeById("latte"), "yellow")[0]!, "#df8e1d")).toBeLessThan(3);
+  });
+});
+
 describe("the warning beside a warm accent", () => {
-  const warnOf = (id: string, accent: string) => tokensOf(themeById(id), accent).warn;
+  // which of the family's colours the warning is in (a light theme then takes it darker, to read as text)
+  const warnOf = (id: string, accent: string) => warnFor(themeById(id), themeById(id).accents[accent]!);
   it("measures hues round the wheel", () => {
     expect(hueGap("#ff0000", "#ff0000")).toBe(0);
     expect(hueGap("#ff0000", "#00ffff")).toBe(180);
@@ -70,7 +124,7 @@ describe("the warning beside a warm accent", () => {
   it("never leaves a warning nearer the accent than another of the family could be", () => {
     for (const theme of THEMES) {
       for (const [name, colour] of Object.entries(theme.accents)) {
-        const warn = tokensOf(theme, name).warn;
+        const warn = warnFor(theme, colour);
         if (hueGap(colour, warn) >= WARN_GAP) continue;
         for (const alert of theme.alerts) expect(hueGap(colour, warn), `${theme.id} ${name}`).toBeGreaterThanOrEqual(hueGap(colour, alert));
       }

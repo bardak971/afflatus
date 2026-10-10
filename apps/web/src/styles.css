@@ -42,6 +42,9 @@ html {
   --stage-pad: 0px;
   /* under a card: a soft shadow in the light themes (set with the theme), none in the dark */
   --shadow-card: none;
+  /* the edge of a control that is nothing but its edge (an unticked box): the strong line in a dark theme; a light
+     theme's strong line is near white on white (1.3 to 1.8:1), so there it is the quietest ink (set with the theme) */
+  --control-edge: var(--color-line-strong);
 }
 /* a card standing on the page: Card, a form's parts, the timeline's sections */
 @utility shadow-card {
@@ -269,7 +272,8 @@ input[type="range"] {
   .m-skeleton {
     position: relative;
     overflow: hidden;
-    background: var(--color-raised);
+    /* the light themes' cards are near white on near white, so there the placeholder is a veil of ink (set with the theme) */
+    background: var(--skeleton, var(--color-raised));
     border-radius: 8px;
   }
   @media (prefers-reduced-motion: no-preference) {
