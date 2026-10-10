@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { MapPin, Play, Plus, Sparkles, Trash2, User, X, FileDown, Upload, Pencil } from "lucide-react";
+import { CopyPlus, Eye, Link2, MapPin, Play, Plus, Sparkles, Trash2, User, X, FileDown, Upload, Pencil } from "lucide-react";
 import { fuzzyFilter } from "@afflatus/core";
 import { useLocation } from "wouter";
 import { api, thumbUrl, type Entity, type RecipeInfo } from "../api";
@@ -13,10 +13,11 @@ import { handPreset } from "../handoff";
 import { useStudio } from "../store";
 import { Thumb } from "../Thumb";
 import { Button, cx, ErrorNote, Help } from "../ui";
-import { ask } from "../Confirm";
+import { ask, askText } from "../Confirm";
+import { copyText } from "../secureContext";
 import { CopyLink, ItemHeader, noteOfDelete } from "./kit/ItemHeader";
 import { KitHeader, TABS, type Tab } from "./kit/KitHeader";
-import { kitHash, readKitHash } from "./kit/link";
+import { kitHash, kitHref, readKitHash } from "./kit/link";
 import { PersonEditor, PlaceEditor } from "./kit/PersonEditor";
 import { authorOf, presetGroups, PresetList } from "./kit/PresetList";
 import { Badge, Mark, Row } from "./kit/Row";
@@ -126,10 +127,35 @@ export function People() {
   const askRemove = async (e: Entity) => {
     if (await ask({ title: `Delete ${e.name}?`, text: noteOfDelete(e), yes: "Delete" })) remove.mutate(e.id);
   };
+  /** A copy of an item, as it is now on screen (with what is not saved yet), named "… copy" and opened. */
+  const duplicate = useMutation({
+    mutationFn: async (e: Entity) => {
+      await flush();
+      const now = edit && edit.id === e.id ? edit : e;
+      return api.createEntity(now.kind, `${now.name} copy`, now.def);
+    },
+    onSuccess: async (made) => {
+      await client.invalidateQueries({ queryKey: queryKeys.entities() });
+      setOpen(made.id);
+    },
+  });
+  /** A new name, asked for: the open item's goes through its draft (as its header's name does), another's straight to the server. */
+  const renameIt = async (e: Entity) => {
+    const name = await askText({ title: "Rename", value: e.name, placeholder: "A name for it", yes: "Rename" });
+    if (name === null || !name.trim() || name === e.name) return;
+    if (editing && editing.id === e.id) change({ ...editing, name });
+    else void api.saveEntity(e.id, { name }).then(() => client.invalidateQueries({ queryKey: queryKeys.entities() }));
+  };
   /** The right-click menu of a row, also the open item's ··· menu: what its header offers, and Delete…. */
   const rowMenu = useMenu<Entity>();
   const rowItems = (e: Entity): MenuItem[] => [
-    { label: open === e.id ? "Close" : "Open", icon: <Pencil size={14} />, run: () => select(open === e.id ? null : e.id) },
+    open === e.id
+      ? { label: "Close", icon: <X size={14} />, run: () => select(null) }
+      : { label: "Open", icon: <Eye size={14} />, run: () => select(e.id) },
+    // a preset that ships with Afflatus keeps its name; its copy can be renamed
+    ...(e.kind === "preset" && e.source === "shipped" ? [] : [{ label: "Rename…", icon: <Pencil size={14} />, run: () => void renameIt(e) }]),
+    { label: "Duplicate", icon: <CopyPlus size={14} />, note: "opened as a copy", disabled: duplicate.isPending, run: () => duplicate.mutate(e) },
+    { label: "Copy link", icon: <Link2 size={14} />, run: () => void copyText(`${window.location.origin}${kitHref(e.kind, e.id)}`).catch(() => {}) },
     ...(e.kind === "preset" ? [
       { label: "Apply in Studio", icon: <Play size={14} />, run: () => applyInStudio(e.id) },
       { label: "Save as a file", icon: <FileDown size={14} />, run: () => savePresetFile(e) },

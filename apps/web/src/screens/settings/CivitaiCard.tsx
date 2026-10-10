@@ -57,9 +57,10 @@ export function CivitaiCard() {
       >
         <Toggle bare on={on} onChange={(v) => save.mutate({ civitaiLookups: v })} label="Search Hugging Face and Civitai for missing models" />
       </Row>
+      {/* a saved key says so in the ok colour, and the box shows it as dots (never the key: it is not sent back) */}
       {on && (
-        <Row setting="models.civitaiKey" label="Civitai API key" sub={settings.data?.hasCivitaiKey ? "one is saved" : undefined} help="Only needed for models Civitai hides from visitors without an account. Kept by Afflatus, never shown again.">
-          <input type="password" aria-label="Civitai API key" value={key} autoComplete="off" placeholder={settings.data?.hasCivitaiKey ? "leave empty to keep it" : "none"} onChange={(e) => setKey(e.target.value)} className={cx("h-10 min-w-0 grow font-mono text-xs placeholder:font-sans", fieldClass)} />
+        <Row setting="models.civitaiKey" label="Civitai API key" sub={settings.data?.hasCivitaiKey ? <span className="text-good">✓ saved</span> : undefined} help="Only needed for models Civitai hides from visitors without an account. Kept by Afflatus, never shown again.">
+          <input type="password" aria-label="Civitai API key" value={key} autoComplete="off" placeholder={settings.data?.hasCivitaiKey ? "•••••••••••••••• · type a new one to replace it" : "none"} onChange={(e) => setKey(e.target.value)} className={cx("h-10 min-w-0 grow font-mono text-xs placeholder:font-sans", fieldClass)} />
           <Button onClick={() => save.mutate({ civitaiKey: key })} disabled={!key || save.isPending}>Save</Button>
           {settings.data?.hasCivitaiKey && <Button onClick={() => save.mutate({ civitaiKey: "" })} disabled={save.isPending}>Remove key</Button>}
         </Row>

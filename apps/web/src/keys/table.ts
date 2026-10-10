@@ -61,6 +61,17 @@ export const PLACES: KeyPlace[] = [
           { keys: "Ctrl+Z", does: "Undo a move or a bin", note: "while its banner shows Undo; the timeline editor keeps its own" },
         ],
       },
+      {
+        name: "With the mouse",
+        rows: [
+          { keys: "right-click", does: "The rail's theme button: themes and accent", note: "click: dark or light", mouse: true },
+          { keys: "right-click", does: "A pinned project: work in it, move it, unpin it", mouse: true },
+          { keys: "click | right-click", does: "The model in the status bar: unload, load another", mouse: true },
+          { keys: "right-click", does: "The expiring chip: show them, keep all", mouse: true },
+          { keys: "right-click", does: "A draft in the drafts list: open, rename, delete", mouse: true },
+          { keys: "right-click", does: "A Prompt kit entry: rename, duplicate, copy link, delete", mouse: true },
+        ],
+      },
     ],
   },
   {

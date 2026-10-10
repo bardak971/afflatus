@@ -72,9 +72,9 @@ export function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: 
           <Row label="Model name">
             <input aria-label="Model name" value={form.model} placeholder="as /v1/models lists it" spellCheck={false} onChange={(e) => setForm({ ...form, model: e.target.value })} className={cx(field, "grow")} />
           </Row>
-          <Row label="API key" tone={keyDropped ? "warn" : undefined} sub={keyDropped ? "enter it again" : llm.hasApiKey ? "one is saved" : "if it asks for one"}
+          <Row label="API key" tone={keyDropped ? "warn" : undefined} sub={keyDropped ? "enter it again" : llm.hasApiKey ? <span className="text-good">✓ saved</span> : "if it asks for one"}
             help={keyDropped ? "The saved key is sent only to the server it was entered for. With another server in Base URL, saving drops it: enter the key again, or leave it empty if this server needs none." : undefined}>
-            <input type="password" aria-label="API key" value={form.apiKey} placeholder={keyDropped ? "new server: the saved key is dropped" : llm.hasApiKey ? "leave empty to keep it" : "none"} autoComplete="off" onChange={(e) => setForm({ ...form, apiKey: e.target.value })} className={cx(field, "grow")} />
+            <input type="password" aria-label="API key" value={form.apiKey} placeholder={keyDropped ? "new server: the saved key is dropped" : llm.hasApiKey ? "•••••••••••••••• · type a new one to replace it" : "none"} autoComplete="off" onChange={(e) => setForm({ ...form, apiKey: e.target.value })} className={cx(field, "grow")} />
           </Row>
           <Row setting="designer.context" label="Context size" help="How much the model can read at once. A long conversation is cut to what fits, oldest part first.">
             <NumberBox label="Context size, in tokens" value={form.contextSize} min={2048} max={2000000} unit="tokens" onCommit={(v) => setForm({ ...form, contextSize: v })} className="[&_input]:w-24" />

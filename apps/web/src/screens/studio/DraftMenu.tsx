@@ -181,8 +181,10 @@ export function DraftMenu({ drafts, open: current, titleOf, onPick, onNew, onCle
                     onClick={() => pick(d.id)}
                     onContextMenu={(e) => rowMenu.open(e, d)}
                     onMouseMove={() => setAt(i)}
+                    // rounded and inset from the panel's edges, as every list's rows are (a dropdown's, the Projects
+                    // panel's): the open one was a square box across the whole panel
                     className={cx(
-                      "flex w-full items-center gap-2.5 px-3 py-[7px] text-left",
+                      "mx-1.5 flex w-[calc(100%-0.75rem)] items-center gap-2.5 rounded-lg px-1.5 py-[7px] text-left",
                       isOpen ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : i === at ? "bg-hover" : "",
                     )}
                   >
