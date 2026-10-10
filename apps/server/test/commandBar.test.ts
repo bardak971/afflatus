@@ -185,6 +185,8 @@ describe("the command bar's estimate", () => {
     await until(() => fake.prompts.size === 1);
     complete(fake, [...fake.prompts.keys()][0]!);
     await until(async () => (await t.db.selectFrom("jobs").select("status").where("id", "=", done).executeTakeFirstOrThrow()).status === "done");
+    // its record is written after the job is said done
+    await t.services.queue.idle();
     const kept = await t.db.selectFrom("render_stats").select(["model_file", "work"]).executeTakeFirstOrThrow();
     const work = kept.work ?? 832 * 1216;
     const rows: RenderRow[] = Array.from({ length: 4 }, (_, i) => ({

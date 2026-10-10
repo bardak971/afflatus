@@ -38,6 +38,8 @@ const rendered = async (over: Record<string, unknown> = {}) => {
   await until(() => fake.prompts.size === before + 1);
   complete(fake, [...fake.prompts.keys()].at(-1)!);
   await until(async () => (await t.db.selectFrom("jobs").select("status").where("id", "=", id).executeTakeFirstOrThrow()).status === "done");
+  // its record is written after the job is said done
+  await t.services.queue.idle();
   return id;
 };
 const recordOf = (id: string) => t.db.selectFrom("render_stats").selectAll().where("id", "=", id).executeTakeFirst();

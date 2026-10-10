@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Kysely, PostgresDialect, SqliteAdapter, SqliteDialect, sql, type DialectAdapter, type SqliteDatabase } from "kysely";
+import { Kysely, PostgresDialect, SqliteAdapter, SqliteDialect, sql, type DialectAdapter, type Driver, type SqliteDatabase } from "kysely";
 import { Migrator } from "kysely/migration";
 import pg from "pg";
-import type { Config } from "./config";
+import { envSaid, type Config } from "./config";
 import { migrations } from "./migrations";
+import { WorkerSqliteDriver } from "./sqliteWorker";
 
 /**
  * One schema for both databases. To keep it that way: ids and timestamps are text (ISO 8601),
@@ -376,12 +377,20 @@ export function takeOver(dataDir: string): string {
   return file;
 }
 
-/** ":memory:" for tests. */
-export function openSqlite(file: string): Db {
-  const sqlite = new DatabaseSync(file);
-  sqlite.exec("PRAGMA journal_mode = WAL");
-  sqlite.exec("PRAGMA foreign_keys = ON");
-  return new Kysely<Tables>({ dialect: new TransactionalSqlite({ database: forKysely(sqlite) }) });
+/**
+ * ":memory:" for tests. `worker`: the statements run in a worker thread (sqliteWorker.ts), so that a long read does not
+ * hold the server's other requests; `inline`: on this thread. Left out, AFFLATUS_SQLITE_WORKER=1 says which. The thread
+ * stays the default for now: with the worker, other requests run between two statements of a route, and a few routes still
+ * count on nothing coming in between (a read, then a write that depends on it, outside a transaction).
+ */
+export function openSqlite(file: string, opts: { worker?: boolean; inline?: boolean } = {}): Db {
+  if (opts.inline || !(opts.worker ?? envSaid.sqliteWorker())) {
+    const sqlite = new DatabaseSync(file);
+    sqlite.exec("PRAGMA journal_mode = WAL");
+    sqlite.exec("PRAGMA foreign_keys = ON");
+    return new Kysely<Tables>({ dialect: new TransactionalSqlite({ database: forKysely(sqlite) }) });
+  }
+  return new Kysely<Tables>({ dialect: new WorkerSqlite(file) });
 }
 
 /**
@@ -397,6 +406,18 @@ class TransactionalSqlite extends SqliteDialect {
         return true;
       }
     })();
+  }
+}
+
+/** The same dialect, with the database in a worker thread. */
+class WorkerSqlite extends TransactionalSqlite {
+  constructor(private readonly file: string) {
+    // The database given to the base class is never opened: the driver below has its own, in the worker.
+    super({ database: {} as SqliteDatabase });
+  }
+
+  override createDriver(): Driver {
+    return new WorkerSqliteDriver(this.file);
   }
 }
 

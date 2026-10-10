@@ -37,6 +37,8 @@ export interface Services {
   shippedPresets: ShippedPresets;
   /** Newer versions of the model files on Civitai. */
   updates: Updates;
+  /** The first sweep done, which runs in the background from the start (the tests wait for it, so that it does not sweep what they set up). */
+  started: Promise<void>;
   close(): Promise<void>;
 }
 
@@ -96,11 +98,12 @@ export async function createServices(
       .catch((err) => console.warn("[sweep]", (err as Error).message));
   const sweeper = setInterval(runSweep, 60 * 60_000);
   sweeper.unref();
-  void runSweep();
+  const swept = runSweep();
   const services: Services = {
     db, dbKind, storage, linked, registry, comfy, queue, timelines, downloads: new Downloads(queue.events, dirs.dataDir ? join(dirs.dataDir, "downloads.json") : undefined),
     shippedPresets: new ShippedPresets(dirs.shippedPresets === undefined ? shippedPresetsDir() : dirs.shippedPresets),
     updates: null as unknown as Updates,
+    started: swept.then(() => undefined),
     async close() {
       clearInterval(sweeper);
       queue.stop();
