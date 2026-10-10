@@ -1,13 +1,13 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { makePng } from "@afflatus/comfy/testing";
 import { newId, now, OWNER } from "../src/db";
 import { isNetworkPath, slug, whyNotLinkableOnDisk } from "../src/linked";
 import { installNodePack } from "../src/nodePack";
 import { eraseAsset, ERASED, inUse, sweep, sweepOrphans, UNKEPT_MS } from "../src/sweep";
+import { FFMPEG_TIMEOUT, ffmpegMade, ffmpegThere } from "./clipKit";
 import { get, makeApp, post, type TestApp } from "./helpers";
 
 /**
@@ -163,20 +163,15 @@ describe("a linked folder read when the disk misbehaves", () => {
   });
 });
 
-/** A short video, made with ffmpeg. */
-function makeVideo(): Buffer | null {
-  const at = mkdtempSync(join(tmpdir(), "afflatus-clip-"));
-  const file = join(at, "clip.mp4");
-  const made = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=64x48:rate=12:duration=2", "-c:v", "libx264", "-pix_fmt", "yuv420p", file]);
-  const bytes = made.status === 0 ? readFileSync(file) : null;
-  rmSync(at, { recursive: true, force: true });
-  return bytes;
-}
-const video = makeVideo();
+/** A short video, made once for the file with ffmpeg (these tests are skipped without it). */
+let video: Buffer;
+beforeAll(async () => {
+  if (ffmpegThere) video = Buffer.from(await ffmpegMade(["-f", "lavfi", "-i", "testsrc2=size=64x48:rate=12:duration=2", "-c:v", "libx264", "-pix_fmt", "yuv420p"]));
+}, FFMPEG_TIMEOUT);
 
-describe.skipIf(!video)("a range of a linked video split out", () => {
+describe.skipIf(!ffmpegThere)("a range of a linked video split out", () => {
   it("takes the source to the bin as a linked file goes there (a copy kept, put back into its folder), never erasing the user's file", async () => {
-    writeFileSync(join(dir, "clip.mp4"), video!);
+    writeFileSync(join(dir, "clip.mp4"), video);
     const root = await link();
     const row = (await t.db.selectFrom("assets").selectAll().where("name", "=", "clip.mp4").executeTakeFirstOrThrow());
     const made = await t.services.timelines.range.cutRange(row, 500, 1500, "split");
@@ -187,12 +182,12 @@ describe.skipIf(!video)("a range of a linked video split out", () => {
     expect(source.file_key.startsWith("assets/")).toBe(true);
     // emptying the bin erases Afflatus's copy; the user's folder is as the split left it
     await post(t.app, `/api/assets/${row.id}/restore`, {});
-    expect(readFileSync(join(dir, "clip.mp4")).equals(video!)).toBe(true);
+    expect(readFileSync(join(dir, "clip.mp4")).equals(video)).toBe(true);
     expect((await t.db.selectFrom("assets").select(["file_key", "folder_id"]).where("id", "=", row.id).executeTakeFirstOrThrow())).toEqual({ file_key: `linked:${join(dir, "clip.mp4")}`, folder_id: root.id });
   });
 
   it("is refused while a timeline plays the source; Copy to library still works", async () => {
-    writeFileSync(join(dir, "clip.mp4"), video!);
+    writeFileSync(join(dir, "clip.mp4"), video);
     await link();
     const row = (await byName("clip.mp4"))!;
     await t.db.updateTable("assets").set({ duration_ms: 2000 }).where("id", "=", row.id).execute();

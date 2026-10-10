@@ -8,6 +8,8 @@ import { get, makeApp, post, referenceCatalog, until, type TestApp } from "./hel
 /** A pretend Civitai (and file host): one model version with one file, 300 000 bytes long. */
 const FILE = Buffer.alloc(300_000, 7);
 let asked: Array<{ url: string; auth?: string }>;
+/** The slow file's request was given up on by Afflatus (its connection closed). */
+let slowDropped: boolean;
 let site: Server;
 let siteUrl: string;
 let fake: FakeComfy;
@@ -27,6 +29,7 @@ async function start(manager: boolean | "refuses") {
 
 beforeEach(async () => {
   asked = [];
+  slowDropped = false;
   site = createServer((req, res) => {
     asked.push({ url: req.url ?? "", auth: req.headers.authorization });
     if (req.url === "/api/v1/model-versions/42") {
@@ -63,6 +66,7 @@ beforeEach(async () => {
       // a first part, then nothing more for a long while: a download to stop
       res.writeHead(200, { "content-type": "application/octet-stream", "content-length": FILE.length });
       res.write(FILE.subarray(0, 50_000));
+      res.on("close", () => (slowDropped = true));
       return;
     }
     if (req.url === "/files/login") {
@@ -174,7 +178,8 @@ describe("fetching a missing model file into ComfyUI", () => {
     await until(async () => (await list()).items[0].bytes > 0);
     expect((await t.app.inject({ method: "DELETE", url: `/api/downloads/${d.id}` })).statusCode).toBe(200);
     expect((await list()).items[0]).toMatchObject({ status: "stopped" });
-    await new Promise((r) => setTimeout(r, 150));
+    // stopped all the way: Afflatus has let go of the file's request, and nothing of it went to ComfyUI
+    await until(() => slowDropped);
     expect(fake.installed).toEqual([]);
     // the same file can be asked for again, and a finished line can be taken off the list
     const again = (await post(t.app, "/api/downloads", { file: "slow.safetensors", folder: "loras", url: `${siteUrl}/files/plain.safetensors` })).json();

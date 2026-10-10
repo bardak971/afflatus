@@ -35,8 +35,8 @@ export interface Job {
   startedAt: string | null;
   finishedAt: string | null;
 }
-/** A finished job as the queue's history shows it: with what it made and how. */
-export interface HistoryJob extends Job {
+/** A finished job as the queue's history shows it: with what it made and how. (Not how long it would take, nor how a clip joined: GET /api/jobs leaves those out.) */
+export interface HistoryJob extends Omit<Job, "estimateMs" | "join"> {
   tookMs: number | null;
   /** Of a job that failed in a ComfyUI node: the end of its Python traceback; null otherwise. */
   trace?: string | null;

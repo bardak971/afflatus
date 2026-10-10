@@ -1,24 +1,13 @@
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eachAtMost } from "../src/measures-api";
+import { FFMPEG_TIMEOUT, ffmpegThere, patternClip } from "./clipKit";
 import { get, makeApp, post, type TestApp } from "./helpers";
 
-/** A two-second test clip with a tone, made with ffmpeg. These tests are skipped where ffmpeg is not installed. */
-function makeClip(): Uint8Array | null {
-  const dir = mkdtempSync(join(tmpdir(), "afflatus-clip-"));
-  const file = join(dir, "clip.mp4");
-  const made = spawnSync("ffmpeg", [
-    "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=192x320:rate=16:duration=2",
-    "-f", "lavfi", "-i", "sine=frequency=330:duration=2", "-c:a", "aac", "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p", file,
-  ]);
-  const bytes = made.status === 0 ? new Uint8Array(readFileSync(file)) : null;
-  rmSync(dir, { recursive: true, force: true });
-  return bytes;
-}
-const clip = makeClip();
+/** A two-second test clip with a tone, made once for the file. These tests are skipped where ffmpeg is not installed. */
+let clip: Uint8Array;
+beforeAll(async () => {
+  if (ffmpegThere) clip = await patternClip(2, { fps: 16 });
+}, FFMPEG_TIMEOUT);
 
 let t: TestApp;
 beforeEach(async () => {
@@ -29,7 +18,7 @@ afterEach(async () => {
 });
 
 const upload = async (name: string) =>
-  (await t.app.inject({ method: "POST", url: `/api/assets?name=${name}`, headers: { "content-type": "video/mp4" }, payload: Buffer.from(clip!) })).json() as { id: string };
+  (await t.app.inject({ method: "POST", url: `/api/assets?name=${name}`, headers: { "content-type": "video/mp4" }, payload: Buffer.from(clip) })).json() as { id: string };
 
 describe("several at once, a few at a time", () => {
   it("answers every id once, the failed ones null, never more at once than asked", async () => {
@@ -47,7 +36,7 @@ describe("several at once, a few at a time", () => {
   });
 });
 
-describe.skipIf(!clip)("the timeline editor's measures, asked for together", () => {
+describe.skipIf(!ffmpegThere)("the timeline editor's measures, asked for together", () => {
   it("gives the motion of several videos in one request, as each one's own route does", async () => {
     const one = await upload("one.mp4");
     const two = await upload("two.mp4");
