@@ -1,5 +1,6 @@
 import type { Insertable } from "kysely";
 import { now, OWNER, type Db, type Tables } from "./db";
+import { missingFiles } from "./missingFiles";
 
 /** A library item as the browser gets it. */
 export const assetView = (a: Tables["assets"]) => ({
@@ -10,6 +11,8 @@ export const assetView = (a: Tables["assets"]) => ({
   countdownFrom: a.countdown_from ?? null,
   // a file of a linked folder: where it is on the disk (in the bin: where it was)
   path: a.file_key.startsWith("linked:") ? a.file_key.slice("linked:".length) : a.linked_path,
+  // one gone from its directory, kept because something uses it: its file answers 404
+  ...(missingFiles.has(a.file_key) ? { missing: true as const } : {}),
 });
 
 type AssetInsert = Insertable<Tables["assets"]>;

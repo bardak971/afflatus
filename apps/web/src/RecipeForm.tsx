@@ -1,11 +1,10 @@
-import { useContext, useEffect, useMemo, type ReactNode } from "react";
+import { lazy, Suspense, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { isShown, type InputSpec } from "@afflatus/core";
 import { useAdvice } from "./advice";
 import { thumbUrl, type RecipeInfo, type RecipeStatus } from "./api";
 import { useModelSettings, useRecipes } from "./data";
 import { Field, sameValue } from "./fields";
 import { changedIn, countOf, formDefaults, layoutOf, matchesText, summariesOf } from "./form";
-import { MissingModel } from "./PresetFiles";
 import { InputsPart } from "./recipeForm/InputsPart";
 import { ModelDefaults } from "./recipeForm/ModelDefaults";
 import { OutputPart } from "./recipeForm/OutputPart";
@@ -13,6 +12,10 @@ import { CardPrompt, FormSearching, Part, TextFold, useFormAim, useParts } from 
 import { Strip } from "./recipeForm/Strip";
 import { useFormSearch } from "./recipeForm/useFormSearch";
 import { scrollInside } from "./scrollInside";
+
+// what is said under a model ComfyUI does not have (with where a preset gets it): fetched the first time one is missing, not
+// with the form on every first paint
+const MissingModel = lazy(() => import("./PresetFiles").then((m) => ({ default: m.MissingModel })));
 
 /** The words the form's search knows the screen's own tools by: the prompt's helpers, the model picker, the cast. */
 const HELPER_WORDS = "snippets snippet designer llm roll random wildcards prompt helpers";
@@ -139,7 +142,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
         onValue={onChange}
         main={mainText?.type === "prompt" ? { text: String(values[mainText.id] ?? ""), style: mainText.style, set: (text) => onChange(mainText.id, text) } : undefined}
       />
-      {i.type === "model" && isMissingModel(i.id) && <MissingModel folder={i.folder} file={String(values[i.id])} />}
+      {i.type === "model" && isMissingModel(i.id) && <Suspense fallback={null}><MissingModel folder={i.folder} file={String(values[i.id])} /></Suspense>}
     </div>
   );
   /** A setting, with a mark and a way back when it differs from what the model starts with. */

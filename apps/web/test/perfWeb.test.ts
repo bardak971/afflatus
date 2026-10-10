@@ -1,19 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HistoryJob, HistoryPage } from "../src/api";
-import { withFreshHead } from "../src/screens/queue/historyHead";
+import { withFreshHead, withoutJobs } from "../src/screens/queue/historyHead";
 import { batched } from "../src/timeline/measures";
 
 const job = (id: string): HistoryJob => ({
   id, recipe: "r", label: id, status: "done", error: null, generationId: null, clipId: null, draftId: null, join: null, kind: "render", estimateMs: null, input: null,
   createdAt: "", startedAt: null, finishedAt: null, tookMs: 1000, model: null, prompt: "", seed: null, batch: id, made: [],
 } as HistoryJob);
-const page = (ids: string[], more = true, done = 0): HistoryPage => ({ items: ids.map(job), more, counts: { done, failed: 0, cancelled: 0 } });
+const page = (ids: string[], more = true, done = 0): HistoryPage => ({ items: ids.map(job), more, next: more ? ids.at(-1)! : null, counts: { done, failed: 0, cancelled: 0 } });
 const ids = (pages: HistoryPage[]) => pages.flatMap((p) => p.items.map((j) => j.id));
 
 describe("the history after a job ended", () => {
   const loaded = [page(["e", "d"], true, 5), page(["c", "b"], true, 5), page(["a"], false, 5)];
 
-  it("puts the jobs that ended in front, keeps every page loaded, and asks the next page from where the list ends", () => {
+  it("puts the jobs that ended in front, keeps every page loaded, and asks the next page after the job the list ends on", () => {
     const pages = withFreshHead(loaded, page(["g", "f", "e"], true, 7))!;
     expect(ids(pages)).toEqual(["g", "f", "e", "d", "c", "b", "a"]);
     expect(pages).toHaveLength(3);
@@ -21,7 +21,8 @@ describe("the history after a job ended", () => {
     expect(pages[0]!.counts.done).toBe(7);
     expect(pages[1]).toBe(loaded[1]);
     expect(pages[2]).toBe(loaded[2]);
-    // the server's list moved by the two new jobs: the next offset (what is loaded) moved by as many
+    // the next page is asked after the last job loaded, wherever the new ones moved it in the server's list
+    expect(pages.at(-1)!.next).toBe(loaded.at(-1)!.next);
     expect(ids(pages).length - ids(loaded).length).toBe(2);
   });
 
@@ -36,6 +37,20 @@ describe("the history after a job ended", () => {
 
   it("gives up when more ended than a page holds: nothing known to join the fresh page to", () => {
     expect(withFreshHead(loaded, page(["x", "y"], true, 9))).toBeNull();
+  });
+});
+
+describe("the history after jobs were dismissed", () => {
+  const loaded = [page(["e", "d"], true, 5), page(["c", "b"], true, 5), page(["a"], false, 5)];
+
+  it("takes them out of the pages loaded and lowers the counts, without reading a page again", () => {
+    const pages = withoutJobs(loaded, ["d", "c"]);
+    expect(ids(pages)).toEqual(["e", "b", "a"]);
+    expect(pages[0]!.counts.done).toBe(3);
+    // the pages keep where the next one starts; one none of them was on is the same object
+    expect(pages.map((p) => p.next)).toEqual(loaded.map((p) => p.next));
+    expect(pages[2]).toBe(loaded[2]);
+    expect(withoutJobs(loaded, ["zz"])).toBe(loaded);
   });
 });
 

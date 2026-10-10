@@ -1,5 +1,6 @@
 import { open, stat, readFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
+import { isNetworkPath } from "./linked";
 
 /**
  * ComfyUI's model files on this computer, when Afflatus knows ComfyUI's folder: where a model folder's
@@ -18,11 +19,12 @@ const HEADER_MOST = 64 * 1024 * 1024;
 
 /**
  * The directories ComfyUI reads a model folder from: `<comfyDir>/models/<folder>` (and its older
- * name), then what `extra_model_paths.yaml` adds. Empty when ComfyUI's folder is not known or not here.
+ * name), then what `extra_model_paths.yaml` adds. Empty when ComfyUI's folder is not known or not here. A folder on a
+ * network share is never looked at (see isNetworkPath): a stat of it reaches for the share, the files come through ComfyUI.
  */
 export async function modelDirs(comfyDir: string, folder: string): Promise<string[]> {
   const base = comfyDir.trim();
-  if (!base || !(await isDir(base))) return [];
+  if (!base || isNetworkPath(base) || !(await isDir(base))) return [];
   const dirs = [join(base, "models", folder), ...(LEGACY[folder] ?? []).map((f) => join(base, "models", f))];
   try {
     dirs.push(...extraDirs(await readFile(join(base, "extra_model_paths.yaml"), "utf8"), base, folder));
@@ -30,7 +32,7 @@ export async function modelDirs(comfyDir: string, folder: string): Promise<strin
     // no extra paths file: the default folders are all there is
   }
   const out: string[] = [];
-  for (const d of dirs) if (!out.includes(d) && (await isDir(d))) out.push(d);
+  for (const d of dirs) if (!out.includes(d) && !isNetworkPath(d) && (await isDir(d))) out.push(d);
   return out;
 }
 

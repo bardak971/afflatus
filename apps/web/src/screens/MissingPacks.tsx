@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 import { api, type PacksStarted } from "../api";
-import { useDownloads } from "../GetFile";
+import { useDownloads } from "../useGetFile";
 import { Button, cx } from "../ui";
 
 const link = "font-semibold text-accent underline underline-offset-2 hover:text-ink";

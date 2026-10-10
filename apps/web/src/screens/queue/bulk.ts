@@ -66,7 +66,7 @@ export async function recentFailures() {
 /** Every failure in the history (up to 500), newest first. */
 async function allFailures() {
   const first = await api.jobs({ status: "failed", limit: 200 });
-  const rest = first.more ? await api.jobs({ status: "failed", offset: 200, limit: 200 }) : null;
+  const rest = first.more && first.next ? await api.jobs({ status: "failed", after: first.next, limit: 200 }) : null;
   return [...first.items, ...(rest?.items ?? [])].slice(0, 500);
 }
 

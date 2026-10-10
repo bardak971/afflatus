@@ -6,7 +6,7 @@ Status: built (`apps/web/src/bar/`, the index in `apps/server/src/commandIndex.t
 
 ## What it finds
 
-Everything is in one index, searched together:
+Everything is searched together: an index of the timelines, drafts, projects, folders, workflows and Prompt kit (all of them), with the library's items asked of the server as you type (all of them, the bin too):
 
 | Kind | Enter does | Shown as |
 | --- | --- | --- |
@@ -102,10 +102,11 @@ Left out on purpose: dropping files on the bar. The app already takes drops for 
 
 ## Performance
 
-The bar has to open and answer within one frame. Budgets: **open < 50 ms**, **a keystroke to its results < 16 ms**, no network request per keystroke.
+The bar has to open and answer within one frame. Budgets: **open < 50 ms**, **a keystroke to its results < 16 ms**, no network request per keystroke (the library's items are asked for once the typing stops, below).
 
 - **The code** is its own chunk, loaded lazily (as the Projects panel is) and fetched once the app is idle, so the first Ctrl+K never waits for a download.
-- **The index** comes from one small route, `GET /api/command-index`: per entry only `id`, `kind`, `label`, `sub` (project or folder), `updatedAt` and a few figures. No thumbnails or full rows. It is a React Query entry, refreshed by the live events the app already gets (`library`, `timeline`, `queue`, `entities`, `models`) and by a change of the drafts or workflows lists, not on a timer. A library of 10 000 items is about 1 MB of JSON, gzipped about 150 KB, read once.
+- **The index** comes from one small route, `GET /api/command-index`: per entry only `id`, `kind`, `label`, `sub` (project or folder), `updatedAt` and a few figures. No thumbnails or full rows. It holds every timeline, draft, project, folder, workflow and Prompt kit entry, but not the whole library: of its items only the 30 newest (what Recent falls back on) and up to 100 the bar used lately (named in `?items=`, from the learned ranks). Its size follows the projects and timelines, not the library: a few tens of KB, gzipped. It is a React Query entry, refreshed by the live events the app already gets (`library`, `timeline`, `queue`, `entities`, `models`) and by a change of the drafts or workflows lists, not on a timer.
+- **The library's items** are asked for as you type, 80 ms after the typing stops: `GET /api/command-items?q=` looks through every item and the bin by name and answers with at most 200 (those that hold the words as typed first, the shorter names first, then the newest). The ones found are ranked with the index; those found before stay while the next answer comes. An item opened from the bar is kept in the list until the index is read again.
 - **Matching** happens in memory over labels lower-cased once, when the index arrives: substring first, then word initials (`hw` → Harbor walk), then the letters in order. Score = match quality + the learned rank. 10 000 entries take well under 5 ms; past 30 000 the match moves into a Web Worker, with the same API.
 - **Rendering**: at most 50 rows, grouped; a longer list scrolls virtually. A row is text and an icon; there are no thumbnails in the list.
 - **Preview**: only the selected row's, after it has stayed selected 80 ms (arrowing fast loads nothing). Video plays muted from the existing thumbnail or proxy, never the full file.

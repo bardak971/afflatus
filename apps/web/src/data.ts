@@ -23,9 +23,11 @@ const HISTORY_PAGE = 60;
 export function useJobs(filter: JobsFilter) {
   return useInfiniteQuery({
     queryKey: [...HISTORY, filter],
-    queryFn: ({ pageParam, signal }) => api.jobs({ ...filter, offset: pageParam, limit: HISTORY_PAGE }, { signal }),
-    initialPageParam: 0,
-    getNextPageParam: (last, pages) => (last.more ? pages.reduce((n, p) => n + p.items.length, 0) : undefined),
+    // by the cursor the page before ends on, not by a count: jobs that end meanwhile (put in front by readHistoryHead) or
+    // that are dismissed do not move the pages after, so none is skipped or read twice
+    queryFn: ({ pageParam, signal }) => api.jobs({ ...filter, after: pageParam ?? undefined, limit: HISTORY_PAGE }, { signal }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => (last.more && last.next ? last.next : undefined),
     placeholderData: keepPreviousData,
   });
 }
@@ -37,16 +39,16 @@ export function useJobs(filter: JobsFilter) {
 export async function readHistoryHead(client: QueryClient): Promise<void> {
   for (const q of client.getQueryCache().findAll({ queryKey: HISTORY })) {
     const key = q.queryKey as [string, JobsFilter];
-    const was = q.state.data as InfiniteData<HistoryPage, number> | undefined;
+    const was = q.state.data as InfiniteData<HistoryPage, string | null> | undefined;
     if (!q.isActive() || !was || was.pages.length < 2) {
       void client.invalidateQueries({ queryKey: key, exact: true, refetchType: "active" });
       continue;
     }
     try {
-      const head = await api.jobs({ ...key[1], offset: 0, limit: HISTORY_PAGE });
-      const now = client.getQueryData<InfiniteData<HistoryPage, number>>(key);
+      const head = await api.jobs({ ...key[1], limit: HISTORY_PAGE });
+      const now = client.getQueryData<InfiniteData<HistoryPage, string | null>>(key);
       const pages = now && withFreshHead(now.pages, head);
-      if (now && pages) client.setQueryData<InfiniteData<HistoryPage, number>>(key, { pages, pageParams: now.pageParams });
+      if (now && pages) client.setQueryData<InfiniteData<HistoryPage, string | null>>(key, { pages, pageParams: now.pageParams });
       else void client.invalidateQueries({ queryKey: key, exact: true, refetchType: "active" });
     } catch {
       void client.invalidateQueries({ queryKey: key, exact: true, refetchType: "active" });
