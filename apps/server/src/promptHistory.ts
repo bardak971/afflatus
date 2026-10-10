@@ -10,13 +10,16 @@ import type { Services } from "./services";
  * form kept as JSON (the form as it was typed, `asked`, before the cast was worked into it, else the form as sent).
  *
  * A JSON column cannot be searched as a column on both databases, so this is a bounded scan: the newest SCAN renders,
- * narrowed in SQL first by the text searched for (a case-folded LIKE over the JSON), then read in JS. A prompt last
+ * narrowed in SQL first by the text searched for (a case-folded LIKE over the JSON), then read in JS a page at a time,
+ * newest first, until the prompts asked for are found and each has its picture (most often in the first page). A prompt last
  * rendered before that many renders ago (that many renders matching the text, when searching) is not offered. SQLite
  * folds only ASCII letters in that LIKE: a search with an accented capital may miss a prompt written in lower case.
  */
 
 /** How many of the newest renders are read, at most. */
 const SCAN = 5000;
+/** The renders read at a time: enough for the prompts of most libraries in one page. */
+const PAGE = 500;
 /** The renders of one prompt looked at for a picture of it still in the library. */
 const GENS_PER_PROMPT = 50;
 
@@ -56,41 +59,62 @@ export async function promptHistory(s: Services, raw: unknown): Promise<{ items:
     const pattern = `%${likeEscaped(JSON.stringify(needle).slice(1, -1))}%`;
     rows = rows.where(sql<boolean>`lower(coalesce(asked, inputs)) like ${pattern} escape '\\'`);
   }
-  const found = await rows.orderBy("created_at", "desc").orderBy("id", "desc").limit(SCAN).execute();
-
-  const byText = new Map<string, PromptHistoryItem & { gens: string[] }>();
+  const byText = new Map<string, PromptHistoryItem & { gens: string[]; checked: number }>();
   const ids = new Map<string, string[]>();
-  for (const g of found) {
-    let form: Record<string, unknown>;
-    try {
-      form = JSON.parse(g.asked ?? g.inputs) as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-    const recipe = s.registry.recipe(g.recipe_id);
-    let ofRecipe = ids.get(g.recipe_id);
-    if (!ofRecipe) ids.set(g.recipe_id, (ofRecipe = promptIds(recipe)));
-    const prompt = ofRecipe.map((id) => form[id]).find((v): v is string => typeof v === "string" && v.trim() !== "")?.trim();
-    if (!prompt || (needle && !prompt.toLowerCase().includes(needle))) continue;
-    const seen = byText.get(prompt);
-    if (seen) {
-      if (seen.gens.length < GENS_PER_PROMPT) seen.gens.push(g.id);
-      continue;
-    }
-    // the newest render of a prompt is read first: its recipe, draft and time are the item's
-    if (byText.size >= limit) continue;
-    byText.set(prompt, { prompt, recipe: g.recipe_id, draftId: g.draft_id, assetId: null, createdAt: g.created_at, gens: [g.id] });
-  }
-
-  const items = [...byText.values()];
-  const gens = items.flatMap((i) => i.gens);
-  if (gens.length) {
+  /** The generations of the items not looked at yet: their first output still in the library, each newest render first. */
+  const resolve = async () => {
+    const open = [...byText.values()].filter((i) => i.assetId === null && i.checked < i.gens.length);
+    const gens = open.flatMap((i) => i.gens.slice(i.checked));
+    if (!gens.length) return;
     const outputs = await s.db.selectFrom("assets").select(["id", "generation_id"])
       .where("generation_id", "in", gens).where("deleted_at", "is", null).where("origin", "not in", NOT_IN_LIBRARY)
       .orderBy("created_at").orderBy("id").execute();
     const first = new Map<string, string>();
     for (const a of outputs) if (a.generation_id && !first.has(a.generation_id)) first.set(a.generation_id, a.id);
-    for (const i of items) i.assetId = i.gens.map((g) => first.get(g)).find((a) => a !== undefined) ?? null;
+    for (const i of open) {
+      i.assetId = i.gens.slice(i.checked).map((g) => first.get(g)).find((a) => a !== undefined) ?? null;
+      i.checked = i.gens.length;
+    }
+  };
+  // a page at a time, from where the one before stopped (created_at, then id, newest first: the generations_by_time index)
+  let after: { created_at: string; id: string } | null = null;
+  for (let read = 0; read < SCAN; ) {
+    const from: { created_at: string; id: string } | null = after;
+    const found = await rows
+      .$if(from !== null, (qb) => qb.where((eb) => eb.or([eb("created_at", "<", from!.created_at), eb.and([eb("created_at", "=", from!.created_at), eb("id", "<", from!.id)])])))
+      .orderBy("created_at", "desc").orderBy("id", "desc").limit(Math.min(PAGE, SCAN - read)).execute();
+    read += found.length;
+    for (const g of found) {
+      let form: Record<string, unknown>;
+      try {
+        form = JSON.parse(g.asked ?? g.inputs) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      const recipe = s.registry.recipe(g.recipe_id);
+      let ofRecipe = ids.get(g.recipe_id);
+      if (!ofRecipe) ids.set(g.recipe_id, (ofRecipe = promptIds(recipe)));
+      const prompt = ofRecipe.map((id) => form[id]).find((v): v is string => typeof v === "string" && v.trim() !== "")?.trim();
+      if (!prompt || (needle && !prompt.toLowerCase().includes(needle))) continue;
+      const seen = byText.get(prompt);
+      if (seen) {
+        if (seen.gens.length < GENS_PER_PROMPT) seen.gens.push(g.id);
+        continue;
+      }
+      // the newest render of a prompt is read first: its recipe, draft and time are the item's
+      if (byText.size >= limit) continue;
+      byText.set(prompt, { prompt, recipe: g.recipe_id, draftId: g.draft_id, assetId: null, createdAt: g.created_at, gens: [g.id], checked: 0 });
+    }
+    const last = found.at(-1);
+    if (!last || found.length < PAGE) break;
+    after = { created_at: last.created_at, id: last.id };
+    // the prompts are all there: read on only for one whose renders so far have nothing left in the library (an older one may)
+    if (byText.size >= limit) {
+      await resolve();
+      if ([...byText.values()].every((i) => i.assetId !== null || i.gens.length >= GENS_PER_PROMPT)) break;
+    }
   }
-  return { items: items.map(({ gens: _, ...i }) => i) };
+  await resolve();
+  const items = [...byText.values()].map(({ gens: _, checked: __, ...i }) => i);
+  return { items };
 }

@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DatabaseSync } from "node:sqlite";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { get, makeApp, type TestApp } from "./helpers";
 import { makePng } from "@afflatus/comfy/testing";
 
@@ -139,5 +140,33 @@ describe("projects", () => {
     expect(await pinned()).toEqual([c.id, b.id]);
     await call("DELETE", `/api/projects/${c.id}`);
     expect(await pinned()).toEqual([b.id]);
+  });
+  it("counts every project's drafts, timelines and items in a few statements, however many projects there are", async () => {
+    const png = (name: string, project?: string, folder?: string) =>
+      t.app.inject({ method: "POST", url: `/api/assets?name=${name}${project ? `&project=${project}` : ""}${folder ? `&folder=${folder}` : ""}`, headers: { "content-type": "image/png" }, payload: Buffer.from(makePng(16, 16, [1, 2, 3], [4, 5, 6])) });
+    const projects = [];
+    for (let i = 0; i < 8; i++) projects.push(await call("POST", "/api/projects", { name: `P${i}` }));
+    const [a, b] = projects;
+    const sub = await call("POST", "/api/folders", { name: "sub", parentId: a.folderId });
+    const loose = await call("POST", "/api/folders", { name: "misc", parentId: null });
+    await png("a1.png", a.id);
+    await png("a2.png", a.id, sub.id);
+    await png("b1.png", b.id);
+    await png("in1.png");
+    await png("in2.png", undefined, loose.id);
+    const binned = (await png("b2.png", b.id)).json();
+    await call("DELETE", `/api/assets/${binned.id}`);
+    await call("POST", "/api/drafts", { recipe: "sdxl.txt2img", project: b.id, forms: { "sdxl.txt2img": { prompt: "x" } } });
+    await call("POST", "/api/timelines", { name: "In A", project: a.id });
+    const prepare = vi.spyOn(DatabaseSync.prototype, "prepare");
+    const list = (await get(t.app, "/api/projects")).json();
+    const statements = prepare.mock.calls.length;
+    prepare.mockRestore();
+    expect(statements).toBeLessThanOrEqual(5);
+    const of = (id: string) => list.items.find((x: { id: string }) => x.id === id);
+    expect(of(a.id)).toMatchObject({ assets: 2, drafts: 0, timelines: 1 });
+    expect(of(b.id)).toMatchObject({ assets: 1, drafts: 1, timelines: 0 });
+    expect(of(projects[5].id)).toMatchObject({ assets: 0, drafts: 0, timelines: 0 });
+    expect(list.inbox).toMatchObject({ assets: 2 });
   });
 });

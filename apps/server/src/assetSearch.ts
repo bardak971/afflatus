@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { sql } from "kysely";
+import { sql, type SqlBool } from "kysely";
 import { z } from "zod";
 import { describeRecipe, fuzzyFilter } from "@afflatus/core";
 import { draftLabel, promptOf, recipeWords, shownNames } from "./autoName";
@@ -71,8 +71,36 @@ type Filtered = Awaited<ReturnType<typeof filterAssets>>;
 /** What is kept but not shown in the library: a painted mask, a picture uploaded for the Prompt kit. */
 export const NOT_IN_LIBRARY = ["mask", "kit"] as const;
 
-/** How many items a search looks through at most: the most recent ones. */
+/**
+ * How many items a search reads whole, at most: the most recent ones (as they are, accents and all), and as many again of the
+ * older ones its words could match (wordsSieve), so that an old item is found by its name too.
+ */
 const SEARCHED = 4000;
+/** What a search reads of each item: enough to match it and say when its countdown started; a page's items are read whole after. */
+const SEARCH_COLUMNS = ["id", "name", "generation_id", "created_at", "countdown_from"] as const;
+
+/**
+ * The letters a word's accented forms are written with (é, ç, ñ, ř…): in a LIKE pattern they stand for any one letter, since
+ * the search ignores accents and SQL's lower() does not (SQLite's leaves "É" as it is).
+ */
+const ACCENTED = new Set([..."acegilnorsuyz"]);
+/** `%`, `_` and the escape itself taken as themselves in a LIKE pattern. */
+const likeLiteral = (c: string) => (c === "%" || c === "_" || c === "\\" ? `\\${c}` : c);
+
+/**
+ * The SQL sieve of a search by words: what lets through every item `fuzzyScore` could take for them (each word's letters
+ * in order, somewhere in the name or in the form it was made with), so that the forgiving match runs over those alone, from
+ * the whole library rather than only its newest items. A letter that may carry an accent, or is not plain ASCII, is any one
+ * letter here: the sieve lets more through than matches, never less (the form's JSON holds its texts in order, as the
+ * words fuzzyFilter reads).
+ */
+function wordsSieve(q: string) {
+  const words = q.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return null;
+  const text = sql<string>`(lower(name) || ' ' || lower(coalesce((select g.inputs from generations g where g.id = assets.generation_id), '')))`;
+  const pattern = (w: string) => `%${[...w].map((c) => (ACCENTED.has(c) || !/^[\x21-\x7e]$/.test(c) ? "_" : likeLiteral(c))).join("%")}%`;
+  return sql<SqlBool>`(${sql.join(words.map((w) => sql`${text} like ${pattern(w)} escape '\\'`), sql` and `)})`;
+}
 /** How many generations' readings are kept: the most recent ones. A generation never changes, so neither does what is read off it. */
 const KEPT = 20_000;
 
@@ -111,12 +139,24 @@ export function registerAssetSearch(app: FastifyInstance, s: Services): void {
     return { models: [...models], loras: [...new Set(loras)], words };
   };
 
-  /** What a search by words or files finds among the rows the filters let through: the most recent SEARCHED, best match first. */
+  /**
+   * What a search by words or files finds among the rows the filters let through, best match first: among the most recent
+   * SEARCHED, and the older ones the words' sieve lets through (as many more at most).
+   */
   const searched = async (filtered: Filtered, q: ListQuery) => {
     // found by its name and by every text of the form it was made with; and by the files it was made with
-    let query = filtered.selectAll();
+    let query = filtered.select(SEARCH_COLUMNS);
     if (q.model || q.lora) query = query.where("generation_id", "is not", null);
     let rows = await query.orderBy("created_at", "desc").orderBy("id", "desc").limit(SEARCHED).execute();
+    const sieve = q.q ? wordsSieve(q.q) : null;
+    const last = rows.at(-1);
+    if (sieve && last && rows.length === SEARCHED) {
+      const older = await query
+        .where(sieve)
+        .where((eb) => eb.or([eb("created_at", "<", last.created_at), eb.and([eb("created_at", "=", last.created_at), eb("id", "<", last.id)])]))
+        .orderBy("created_at", "desc").orderBy("id", "desc").limit(SEARCHED).execute();
+      rows = [...rows, ...older];
+    }
     const ids = [...new Set(rows.map((r) => r.generation_id).filter((x): x is string => Boolean(x)))];
     // only the generations not read before are fetched
     const unread = ids.filter((id) => !readings.has(id));
@@ -142,7 +182,7 @@ export function registerAssetSearch(app: FastifyInstance, s: Services): void {
       const end = q.before !== undefined ? Math.min(Number(q.before) || 0, found.length) : undefined;
       const from = end !== undefined ? Math.max(0, end - q.limit) : Number(q.after) || 0;
       const to = end ?? from + q.limit;
-      return { items: await placedViews(found.slice(from, to)), next: to < found.length ? String(to) : null, prev: from > 0 ? String(from) : null };
+      return { items: await placedViews(await whole(found.slice(from, to))), next: to < found.length ? String(to) : null, prev: from > 0 ? String(from) : null };
     }
     if (q.sort === "name" || q.sort === "size") {
       // by name or size: by offset, the id settling ties
@@ -197,6 +237,13 @@ export function registerAssetSearch(app: FastifyInstance, s: Services): void {
     const ids = withIds ? (await filtered.select("id").orderBy("created_at", "desc").execute()).map((r) => r.id) : undefined;
     return { count: Number(sum?.count ?? 0), from: sum?.from ?? null, to: sum?.to ?? null, ...(ids ? { ids } : {}) };
   });
+
+  /** A page of found items read whole, in the order found. */
+  async function whole(found: ReadonlyArray<{ id: string }>): Promise<Tables["assets"][]> {
+    if (!found.length) return [];
+    const rows = new Map((await s.db.selectFrom("assets").selectAll().where("id", "in", found.map((f) => f.id)).execute()).map((r) => [r.id, r]));
+    return found.flatMap((f) => rows.get(f.id) ?? []);
+  }
 
   /** The listed items; a video that is a take of a timeline clip says which (`clipOf`). */
   async function placedViews(rows: Tables["assets"][]) {

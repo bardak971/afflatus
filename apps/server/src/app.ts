@@ -10,6 +10,7 @@ import { ZodError } from "zod";
 import { registerAssets } from "./assets-api";
 import { registerBackup, type BackupPlaces } from "./backup";
 import { registerCommandBar } from "./commandIndex";
+import { registerCompression } from "./compress";
 import { registerDesigner } from "./designer";
 import { registerDrafts } from "./drafts";
 import { registerEntities } from "./entities";
@@ -44,6 +45,8 @@ export const VERSION = process.env.AFFLATUS_VERSION?.trim() || "dev";
 export function buildApp(s: Services, opts: { webDir?: string; /** Where the data is, for the backup; without it there is no backup. */ backup?: BackupPlaces } = {}): FastifyInstance {
   // a workflow with many nodes is a large body
   const app = Fastify({ logger: false, bodyLimit: 8 * 1024 * 1024 });
+  // JSON and the web app's files compressed for a browser that takes it (compress.ts): first, so that every route has it
+  registerCompression(app);
 
   // only the server's own names are answered to (hostCheck.ts): a page from elsewhere cannot drive the API by pointing a name of its own at this machine
   const hosts = allowedHosts();

@@ -4,6 +4,7 @@ import { newId, now } from "../src/db";
 import { newAssetRow } from "../src/media";
 import type { RenderRow } from "../src/renders";
 import { sdxl } from "../../../packages/workflows/test/fixtures";
+import { prepare, score } from "../../web/src/bar/match";
 import { CHECKPOINT, complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 let fake: FakeComfy;
@@ -38,10 +39,12 @@ const put = async (...rows: Array<ReturnType<typeof asset>>) => {
 };
 
 type Entry = { kind: string; id: string } & Record<string, unknown>;
-const index = async (): Promise<Entry[]> => (await get(t.app, "/api/command-index")).json().entries;
+const index = async (qs = ""): Promise<Entry[]> => (await get(t.app, `/api/command-index${qs}`)).json().entries;
+/** The library's items the bar's search finds for what is typed. */
+const items = async (q: string): Promise<Entry[]> => (await get(t.app, `/api/command-items?q=${encodeURIComponent(q)}`)).json().entries;
 
 describe("the command bar's index", () => {
-  it("holds every timeline, draft, item, project and folder, with labels, and the project of an item is its folder's", async () => {
+  it("holds every timeline, draft, project and folder and the newest items, with labels, and the project of an item is its folder's", async () => {
     const harbor = await call("POST", "/api/projects", { name: "Harbor walk" });
     const shots = await call("POST", "/api/folders", { name: "shots", parentId: harbor.folderId });
     const loose = await call("POST", "/api/folders", { name: "loose", parentId: null });
@@ -64,11 +67,18 @@ describe("the command bar's index", () => {
       await t.db.insertInto("generations").values({ id, owner_id: "local", recipe_id: "sdxl.text-to-picture", recipe_version: 1, family: "sdxl", inputs: "{}", resolved: "{}", gen_ms: 1, draft_id: named.id, created_at: now() }).execute();
     }
 
-    const entries = await index();
+    const answer = (await get(t.app, "/api/command-index")).json() as { entries: Entry[]; inboxItems: number };
+    const entries = answer.entries;
     const of = (id: string) => entries.find((e) => e.id === id);
-    // masks and kit pictures are not the library's; what is in the bin is found (to be put back), marked, and counted nowhere
+    // masks and kit pictures are not the library's, even when named; what is in the bin is found by the search (to be put back),
+    // marked, and counted nowhere
     for (const id of [mask, kit]) expect(of(id!)).toBeUndefined();
-    expect(of(binned!)).toMatchObject({ kind: "asset", label: "In the bin", project: harbor.id, folder: shots.id, inBin: true });
+    expect((await index(`?items=${mask},${kit}`)).find((e) => e.id === mask || e.id === kit)).toBeUndefined();
+    expect(of(binned!)).toBeUndefined();
+    expect((await items("in the bin")).find((e) => e.id === binned)).toMatchObject({ kind: "asset", label: "In the bin", project: harbor.id, folder: shots.id, inBin: true });
+    expect((await index(`?items=${binned}`)).find((e) => e.id === binned)).toMatchObject({ inBin: true });
+    // the loose sound (a folder of no project) and the loose picture: the Inbox's
+    expect(answer.inboxItems).toBe(2);
     expect(of(inRoot!)!.inBin).toBeUndefined();
     expect(of(inRoot!)).toMatchObject({ kind: "asset", label: "Pier at dawn", project: harbor.id, folder: null, assetKind: "image", width: 64, height: 48, durationMs: null, bytes: 100, hasThumb: true });
     expect(of(inShots!)).toMatchObject({ label: "Gulls", project: harbor.id, folder: shots.id });
@@ -119,7 +129,7 @@ describe("the command bar's index", () => {
     expect((await index()).find((e) => e.id === ada.id)).toBeUndefined();
   });
 
-  it("answers for 10 000 items in well under a second", async () => {
+  it("answers for 10 000 items in well under a second, small, and finds any of them by name", async () => {
     const projects = [];
     for (let p = 0; p < 5; p++) projects.push(await call("POST", "/api/projects", { name: `Project ${p}` }));
     const folders: string[] = [];
@@ -137,10 +147,19 @@ describe("the command bar's index", () => {
     const res = await get(t.app, "/api/command-index");
     const took = performance.now() - started;
     const entries = res.json().entries as Entry[];
-    expect(entries.filter((e) => e.kind === "asset")).toHaveLength(10_000);
+    // the newest items only (the bar's Recent falls back on them), and every folder with its count
+    expect(entries.filter((e) => e.kind === "asset").map((e) => e.label).slice(0, 2)).toEqual(["Harbor walk 9999", "Harbor walk 9998"]);
+    expect(entries.filter((e) => e.kind === "asset").length).toBeLessThanOrEqual(30);
     expect(entries.filter((e) => e.kind === "folder")).toHaveLength(50);
-    console.info(`[command-index] 10 000 items: ${took.toFixed(0)} ms, ${(res.body.length / 1e6).toFixed(2)} MB`);
+    expect(entries.filter((e) => e.kind === "project").reduce((n, e) => n + (e.items as number), 0) + res.json().inboxItems).toBe(10_000);
+    console.info(`[command-index] 10 000 items: ${took.toFixed(0)} ms, ${(res.body.length / 1e3).toFixed(1)} kB`);
     expect(took).toBeLessThan(600);
+    expect(res.body.length).toBeLessThan(50_000);
+    // the oldest item, found by its name as typed, first; and by its letters ("hw 12" is no name, "hrbrwlk12" its letters)
+    const t0 = performance.now();
+    expect((await items("Harbor walk 12"))[0]).toMatchObject({ label: "Harbor walk 12" });
+    console.info(`[command-items] 10 000 items: ${(performance.now() - t0).toFixed(0)} ms`);
+    expect((await items("hrbrwlk12")).map((e) => e.label)).toContain("Harbor walk 12");
   });
 });
 
@@ -250,5 +269,22 @@ describe("the command bar's settings", () => {
     expect((await call("PUT", "/api/settings", { bar: { shortcut: "Alt+Space" } })).bar).toEqual({ shortcut: "Alt+Space", snippets: false, history: false, cast: false });
     const refused = async (patch: unknown) => (await t.app.inject({ method: "PUT", url: "/api/settings", payload: patch as object })).statusCode;
     expect(await refused({ bar: { shortcut: "Ctrl+ K" } })).toBe(400);
+  });
+});
+
+describe("the command bar's search of the library", () => {
+  it("lets through every item whose label the bar's own matching takes, unnamed ones by their kind", async () => {
+    const labels = ["Harbor walk", "harbor_walk-04", "Night market · c2", "Pier at dawn", "Café crème", "ÉTÉ 2026", "100% real", "a_b", "Gulls (take 3)", "Über alles"];
+    await put(...labels.map((name) => asset(null, { name })), asset(null, { kind: "video" }), asset(null, { kind: "audio" }), asset(null, { name: "binned walk", binned: true }));
+    const all = [...labels, "Video", "Sound", "binned walk"];
+    const typed = ["har", "walk harbor", "hw", "nm", "pier", "crème", "été", "café", "%", "_", "a_b", "100%", "gulls 3", "vid", "snd", "über", "BINNED", "hrbr", "c2", "x", "e e"];
+    for (const q of typed) {
+      const want = all.filter((l) => score(prepare(l), q.trim().toLowerCase()) > 0).sort();
+      const got = (await items(q)).map((e) => e.label);
+      // every label the bar would match comes back (a few more may: the bar sieves them again)
+      expect({ q, missing: want.filter((l) => !got.includes(l)) }).toEqual({ q, missing: [] });
+    }
+    // what is typed as it is comes first, before a match of its letters
+    expect((await items("walk"))[0]!.label).toMatch(/walk/i);
   });
 });

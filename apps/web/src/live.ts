@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { ProgressUpdate, QueueStatus, SystemLoad } from "./api";
-import { LIBRARY_KEYS, readHistoryHead, RENDER_KEYS } from "./data";
+import { libraryKeysOf, readHistoryHead, RENDER_KEYS, unionKeys, type LibraryChange } from "./data";
 import { endedSince, mergeProgress, notifyTag, throttle } from "./liveState";
 import { useBanners, useLive, useNotify, useSystem } from "./store";
 import { BAR_INDEX, useBar } from "./bar/store";
@@ -84,7 +84,17 @@ export function useLiveEvents(): void {
     // the queue, and the library, are read again at most once a second, with one last read after the last
     // event: a render reporting every step, or a folder of a thousand files coming in, costs a read a second
     const readQueue = throttle(() => void client.invalidateQueries({ queryKey: ["queue"], exact: true }), 1000);
-    const readLibrary = throttle(() => refetch(client, LIBRARY_KEYS), 1000);
+    // each "library" event says what it changed: the lists it can touch are gathered until the read, and only they are read
+    let libraryWaiting: Array<readonly string[]> = [];
+    const libraryRead = throttle(() => {
+      const keys = libraryWaiting;
+      libraryWaiting = [];
+      refetch(client, keys);
+    }, 1000);
+    const readLibrary = (data: string) => {
+      libraryWaiting = unionKeys(libraryWaiting, libraryKeysOf(parse(data) as LibraryChange | null));
+      libraryRead();
+    };
 
     // a job that ended, seen in the queue as it is read: the history and the render times are read again,
     // and what was asked to be told is told (a render that finished, the queue running empty)
@@ -155,7 +165,12 @@ export function useLiveEvents(): void {
             href: "/", go: "Reload", act: () => location.reload(),
           });
         }
-        if (greeted) void client.invalidateQueries();
+        // everything read again, but the command bar's index, which is only marked old: the bar reads it when it opens
+        // next (its search of the library's items is under the same key)
+        if (greeted) {
+          void client.invalidateQueries({ predicate: (q) => q.queryKey[0] !== BAR_INDEX[0] });
+          void client.invalidateQueries({ queryKey: BAR_INDEX, refetchType: useBar.getState().open ? "active" : "none" });
+        }
         greeted = true;
       },
     };
@@ -254,7 +269,7 @@ export function useLiveEvents(): void {
     return () => {
       stop.abort();
       readQueue.cancel();
-      readLibrary.cancel();
+      libraryRead.cancel();
       if (indexWait) clearTimeout(indexWait);
       if (retry) clearTimeout(retry);
       if (downWait) clearTimeout(downWait);

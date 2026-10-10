@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { castPlace, clipRefuses, withPerson, type ClipCast } from "../src/bar/castTo";
 import { atTop } from "../src/screens/queue/order";
 import { arithmetic, calc, gridFramesAtLeast, ratioOf, sizeFor, type Grid } from "../src/bar/calc";
-import { indexItems, lowerFirst, navItems, timelineLength } from "../src/bar/items";
+import { indexItems, lowerFirst, navItems, timelineLength, usedItems, withItems } from "../src/bar/items";
 import { snapEdge } from "../src/fields/SizeField";
 import { useBanners, useNotify } from "../src/store";
 import { highlight, pieces, prepare, QUALITY, score, search } from "../src/bar/match";
@@ -364,6 +364,24 @@ describe("places, the bin and the editor from the bar", () => {
     const inbox = rows.find((r) => r.inbox)!;
     expect(inbox).toMatchObject({ key: "project:inbox", kind: "project", label: "Inbox", verb: "work in it" });
     expect(inbox.meta).toBe("Out of every project · 0 timelines · 1 item · working in it");
+  });
+  it("counts the Inbox's items as the server says, when the index holds only some of them", () => {
+    const rows = indexItems([asset("a", null), project(false)], [], null, 1234);
+    expect(rows.find((r) => r.inbox)!.meta).toBe("Out of every project · 0 timelines · 1234 items");
+  });
+  it("adds the items found as typed, and those picked, each once and as last read", () => {
+    const index = [asset("a", null), project(false)];
+    const renamed = { ...asset("a", null), label: "Pier" };
+    const merged = withItems(index, [asset("b", null, true)], [renamed, asset("c", "p1")]);
+    expect(merged.map((e) => `${e.kind}:${e.id}`)).toEqual(["asset:a", "project:p1", "asset:b", "asset:c"]);
+    expect(merged[0]).toMatchObject({ label: "Pier" });
+    // nothing more: the index as it is (the same rows, nothing worked out again)
+    expect(withItems(index, [], [])).toBe(index);
+  });
+  it("asks the index for the items used lately, newest first", () => {
+    const ranks = { "render:old": { n: 5, t: 1 }, "timeline:t": { n: 1, t: 3 }, "render:new": { n: 1, t: 2 } };
+    expect(usedItems(ranks)).toEqual(["new", "old"]);
+    expect(usedItems(ranks, 1)).toEqual(["new"]);
   });
   it("finds what is in the bin after the rest, said so", () => {
     const [row] = indexItems([asset("b", null, true)], [], null);

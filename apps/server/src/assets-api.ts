@@ -9,6 +9,7 @@ import { openInComfy } from "./comfyOpen";
 import { soundOf } from "./cut";
 import { newId, now } from "./db";
 import { httpError, notFound } from "./errors";
+import type { LibraryChange } from "./events";
 import { isLinked } from "./linked";
 import { assetView, extOf, newAssetRow } from "./media";
 import { castOf, madeIn } from "./provenance";
@@ -53,7 +54,7 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     const { name } = z.strictObject({ name: z.string().trim().max(200) }).parse(req.body ?? {});
     await asset(req.params.id);
     await s.db.updateTable("assets").set({ name }).where("id", "=", req.params.id).execute();
-    s.queue.events.emit("library");
+    s.queue.events.emit("library", { items: [req.params.id], change: "fields" } satisfies LibraryChange);
     return assetView(await asset(req.params.id));
   });
 
@@ -192,7 +193,7 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
       if (video?.facts && a.duration_ms === null) {
         const f = video.facts;
         await s.db.updateTable("assets").set({ width: f.width, height: f.height, duration_ms: f.durationMs, fps: f.fps, has_sound: f.hasSound ? 1 : 0 }).where("id", "=", a.id).execute();
-        s.queue.events.emit("library");
+        s.queue.events.emit("library", { items: [a.id], change: "fields" } satisfies LibraryChange);
       }
       const frame = video ? video.frame : bytes;
       const thumb = frame && (await makeThumb(frame));

@@ -7,7 +7,7 @@ import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from 
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DesignerSession, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView } from "./api/types/designer";
 import type { Health, FinishSettings, Settings } from "./api/types/settings";
-import type { CommandEstimate, CommandIndex, PromptHistoryItem } from "./api/types/bar";
+import type { CommandEntry, CommandEstimate, CommandIndex, PromptHistoryItem } from "./api/types/bar";
 import type { RecipeInfo, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, HuggingFaceFind, CivitaiFind } from "./api/types/models";
 
 /** Shapes of the server's answers. Kept next to the calls so a change on one side is noticed on the other. */
@@ -141,7 +141,10 @@ export const api = {
   comfyLogs: (since?: string, o?: Asked) => call<{ lines: Array<{ t: string; m: string }> }>("GET", `/comfy/logs${since ? `?since=${encodeURIComponent(since)}` : ""}`, undefined, o?.signal),
   clearRenderRecord: () => call<{ ok: true }>("DELETE", "/renders"),
   /** Everything the command bar can find, in one answer. */
-  commandIndex: (o?: Asked) => call<CommandIndex>("GET", "/command-index", undefined, o?.signal),
+  /** `items`: the library's items to hold beside the newest few (those the bar used lately). */
+  commandIndex: (items: readonly string[] = [], o?: Asked) => call<CommandIndex>("GET", `/command-index${items.length ? `?items=${items.map(encodeURIComponent).join(",")}` : ""}`, undefined, o?.signal),
+  /** The library's items, the bin's too, whose name could match what is typed in the bar: the bar ranks them with its index. */
+  commandItems: (q: string, o?: Asked) => call<{ entries: CommandEntry[] }>("GET", `/command-items?q=${encodeURIComponent(q)}`, undefined, o?.signal),
   /** What rendering would take: a timeline's clips (by number, 1 = the first; left out, those with nothing rendered yet) or a draft's next render. */
   commandEstimate: (of: { timeline: string; clips?: number[] } | { draft: string }, o?: Asked) =>
     call<CommandEstimate>("GET", `/command-estimate?${"draft" in of ? `draft=${encodeURIComponent(of.draft)}` : `timeline=${encodeURIComponent(of.timeline)}${of.clips?.length ? `&clips=${of.clips.join(",")}` : ""}`}`, undefined, o?.signal),
