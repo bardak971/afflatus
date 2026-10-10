@@ -46,7 +46,7 @@ export async function makeApp(opts: { db?: Db; dir?: string; comfyUrl?: string }
   await migrate(db);
   await writeSettings(db, { comfyUrl: opts.comfyUrl ?? NOWHERE });
   const dir = opts.dir ?? mkdtempSync(join(tmpdir(), "afflatus-test-"));
-  const services = await createServices(db, "sqlite", new LocalStorage(dir), FAST);
+  const services = await createServices(db, "sqlite", new LocalStorage(dir), FAST, { precompute: false });
   const app = buildApp(services, { backup: { dataDir: dir, filesDir: dir } });
   // every request carries the web app's own header (app.ts refuses a change without it, JSON or a file); a test that wants it gone sets it to undefined
   const inject = app.inject.bind(app) as (o: unknown) => unknown;

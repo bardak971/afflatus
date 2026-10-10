@@ -5,6 +5,7 @@ import type { Comfy } from "./comfy";
 import { frameAt, lookOf, repairJoinAudio, runUpBreak, type Measure } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { latentDriftOf } from "./latentStats";
+import { precomputeOf } from "./precompute";
 import { extOf, mimeOfFile, newAssetRow, pngSize } from "./media";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideo } from "./video";
@@ -79,6 +80,8 @@ export async function store(
   // then written together, so that a failure halfway leaves no generation without its files or the other way round.
   // What was put in storage before a failure is taken out again: no file is left that no row names
   const written: string[] = [];
+  // the background measure waits while the result comes down and is filed: the GPU's work is never held up by it
+  const filed = precomputeOf(db)?.hold();
   try {
     const rows: AssetRow[] = [];
     for (const { file, kind } of files) {
@@ -109,6 +112,8 @@ export async function store(
   } catch (err) {
     for (const key of written) await storage.delete(key).catch(() => {});
     throw err;
+  } finally {
+    filed?.();
   }
   return generationId;
 }

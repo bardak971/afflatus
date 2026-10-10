@@ -89,7 +89,25 @@ export class TimelineMedia {
   }
 
   /** Frames of a video side by side in one picture, for the timeline (and, at a size asked for, the trim bar). Made once per video and size, then kept. */
-  async strip(assetId: string, opts: { frames?: number; height?: number; fromMs?: number; toMs?: number } = {}): Promise<Uint8Array> {
+  strip(assetId: string, opts: { frames?: number; height?: number; fromMs?: number; toMs?: number } = {}): Promise<Uint8Array> {
+    // the track's strip asked for twice at once (the editor, and the same video measured in the background): made once
+    const whole = !opts.frames && !opts.height && opts.fromMs === undefined && opts.toMs === undefined;
+    return whole ? this.once(`strip:${assetId}`, () => this.stripOf(assetId, opts)) : this.stripOf(assetId, opts);
+  }
+
+  /** Work under way by what it makes: what is asked for again before it is done waits for the same run. */
+  private readonly underWay = new Map<string, Promise<unknown>>();
+
+  private once<T>(key: string, work: () => Promise<T>): Promise<T> {
+    let got = this.underWay.get(key) as Promise<T> | undefined;
+    if (!got) {
+      got = work().finally(() => this.underWay.delete(key));
+      this.underWay.set(key, got);
+    }
+    return got;
+  }
+
+  private async stripOf(assetId: string, opts: { frames?: number; height?: number; fromMs?: number; toMs?: number }): Promise<Uint8Array> {
     const { storage } = this.core;
     const video = await this.core.assetRow(assetId);
     if (!video || video.kind !== "video") throw notFound("this video");
@@ -108,7 +126,11 @@ export class TimelineMedia {
   }
 
   /** How much moves along a video and how loud it is, ten samples a second (see measureOf). Measured once, then kept. A sound file gives loudness only. */
-  async motion(assetId: string): Promise<{ rate: number; values: number[]; sound: number[] | null; speech: number[] | null }> {
+  motion(assetId: string): Promise<{ rate: number; values: number[]; sound: number[] | null; speech: number[] | null }> {
+    return this.once(`motion:${assetId}`, () => this.motionOf(assetId));
+  }
+
+  private async motionOf(assetId: string): Promise<{ rate: number; values: number[]; sound: number[] | null; speech: number[] | null }> {
     const { storage } = this.core;
     const asset = await this.core.assetRow(assetId);
     if (!asset || (asset.kind !== "video" && asset.kind !== "audio")) throw notFound("this video");
@@ -216,9 +238,9 @@ export class TimelineMedia {
   /**
    * How smoothly each take of a clip meets its neighbours: at In, the clip before's last frame against
    * the take's first frame that plays; at Out, the take's last frame against the clip after's first.
-   * ×1 = the join moves like the clip itself, higher = a catch. For picking among takes. A few takes at a time.
+   * ×1 = the join moves like the clip itself, higher = a catch. For picking among takes. `most` takes at a time.
    */
-  async joins(clipId: string): Promise<Array<{ take: string; in: number | null; out: number | null }>> {
+  async joins(clipId: string, most = 3): Promise<Array<{ take: string; in: number | null; out: number | null }>> {
     const clip = await this.core.clipRow(clipId);
     const all = await this.core.placed(clip.timeline_id);
     const i = all.findIndex((p) => p.clip.id === clipId);
@@ -236,7 +258,7 @@ export class TimelineMedia {
       if (!sources.has(a.id)) sources.set(a.id, this.source(a));
       return sources.get(a.id)!;
     };
-    return fewAtATime(me.takes, 3, async (taken) => {
+    return fewAtATime(me.takes, most, async (taken) => {
       // each take as it would play: where the clip before ends, and where it starts itself, move with the take that
       // plays (a continuation's take-over point, a landing, a seamless take). Measured against the playing take's
       // points, the others' figures changed with every take picked, and "smoothest" with them
@@ -245,9 +267,11 @@ export class TimelineMedia {
       const prev = edge(as[i - 1], "end");
       const next = edge(as[i + 1], "start");
       const { start, end } = visible(t);
-      const key = `${t.take.id}:${start}:${end}:${prev?.key ?? "-"}:${next?.key ?? "-"}`;
-      let score = this.joinScores.get(key);
-      if (!score) {
+      // the files' sizes too: a score kept on the disk outlives the process, and a linked file written again is another video
+      const key = `${t.take.id}:${start}:${end}:${prev?.key ?? "-"}:${next?.key ?? "-"}:${t.asset.bytes}:${prev?.asset.bytes ?? "-"}:${next?.asset.bytes ?? "-"}`;
+      let score = this.joinScores.get(key) ?? (await this.keptJoin(t.asset, key));
+      if (score) this.joinScores.set(key, score);
+      else {
         const fps = t.asset.fps ?? 24;
         score = {
           // as the join plays: with the fade the export and the player put there
@@ -255,10 +279,43 @@ export class TimelineMedia {
           out: next ? await joinJump({ source: await load(t.asset), ext: extOf(t.asset.mime), atMs: Math.max(start, end - 20) }, { source: await load(next.asset), ext: extOf(next.asset.mime), atMs: next.atMs, fps: next.asset.fps ?? fps }, next.fade) : null,
         };
         this.joinScores.set(key, score);
-        capped(this.joinScores);
+        await this.keepJoin(t.asset, key, score);
       }
+      capped(this.joinScores);
       return { take: t.take.id, ...score };
     });
+  }
+
+  /** The join scores kept beside a take's video, by what each was measured as (see joins): the last few dozen. */
+  private joinsKey = (asset: AssetRow) => `joins/${asset.id.slice(0, 2)}/${asset.id}.json`;
+
+  private async keptJoin(asset: AssetRow, key: string): Promise<{ in: number | null; out: number | null } | undefined> {
+    const have = await this.core.storage.get(this.joinsKey(asset)).catch(() => null);
+    return (have ? readKept<Record<string, { in: number | null; out: number | null }>>(have) : null)?.[key];
+  }
+
+  private async keepJoin(asset: AssetRow, key: string, score: { in: number | null; out: number | null }): Promise<void> {
+    const { storage } = this.core;
+    const have = await storage.get(this.joinsKey(asset)).catch(() => null);
+    const kept = (have ? readKept<Record<string, { in: number | null; out: number | null }>>(have) : null) ?? {};
+    delete kept[key];
+    kept[key] = score;
+    // a take trimmed again and again leaves a score per trim: the newest are kept
+    const keys = Object.keys(kept);
+    for (const old of keys.slice(0, Math.max(0, keys.length - 48))) delete kept[old];
+    await storage.put(this.joinsKey(asset), new TextEncoder().encode(JSON.stringify(kept))).catch(() => {});
+  }
+
+  /** What is not kept yet of a video: its motion, its track's film strip, its colour along it (what the background measure makes, precompute.ts). */
+  async missing(asset: AssetRow): Promise<Array<"motion" | "strip" | "means">> {
+    const { storage } = this.core;
+    const dir = asset.id.slice(0, 2);
+    const there = (key: string) => storage.size(key).then((n) => n > 0, () => false);
+    const out: Array<"motion" | "strip" | "means"> = [];
+    if (!(await there(`motion/${dir}/${asset.id}.json`))) out.push("motion");
+    if (asset.kind === "video" && !(await there(`strips/${dir}/${asset.id}.jpg`))) out.push("strip");
+    if (asset.kind === "video" && !(await there(`means/${dir}/${asset.id}.json`))) out.push("means");
+    return out;
   }
 
   /** One small picture of a moment of a video, for a hover over the trim bar. Not kept. */
