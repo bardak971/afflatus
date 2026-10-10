@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, Clipboard, FileOutput, Loader2, Music, Penci
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { api, type HistoryJob } from "../../api";
 import { HoverVideo } from "../../HoverVideo";
-import { assetKey, useAsset, useJobs, useRecipes } from "../../data";
+import { useAsset, useJobs, useRecipes } from "../../data";
 import { fileLabel, hourMinute, took, when } from "../../format";
 import { Select } from "../../Select";
 import { useSettled } from "../../hooks";
@@ -17,6 +17,7 @@ import { rowFacts, rowName } from "./historyText";
 import { ROW, useJobActions } from "./jobActions";
 import { modelTip, useModelName } from "./modelName";
 import { useTileMenu } from "../../TileMenu";
+import { queryKeys } from "../../queryKeys";
 
 // the viewer is fetched the first time a result is opened here
 const Viewer = lazy(() => import("../../Viewer").then((m) => ({ default: m.Viewer })));
@@ -117,7 +118,7 @@ export const History = memo(function History() {
     e.preventDefault();
     const at = { clientX: e.clientX, clientY: e.clientY, currentTarget: e.currentTarget, preventDefault() {} };
     // the result read in full first (its file, its folder): the list acts on the item as it is
-    void client.fetchQuery({ queryKey: assetKey(first.id), queryFn: ({ signal }) => api.asset(first.id, { signal }) }).then((a) => {
+    void client.fetchQuery({ queryKey: queryKeys.assets.one(first.id), queryFn: ({ signal }) => api.asset(first.id, { signal }) }).then((a) => {
       setMenuJobs(rowJobs);
       resultMenu.open(at, a);
     }, () => {});

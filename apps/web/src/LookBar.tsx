@@ -12,6 +12,7 @@ import { kitHref } from "./screens/kit/link";
 import { outfitsOf } from "./screens/kit/shared";
 import { Select } from "./Select";
 import { cx, Help } from "./ui";
+import { queryKeys } from "./queryKeys";
 
 const none: Look = { cast: [], style: null, snippets: [] };
 
@@ -42,7 +43,7 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
   // asked once the typing has settled, not once per keystroke
   const settled = useSettled(input, 500);
   const sent = useQuery({
-    queryKey: ["compose", recipe?.id, settled, now],
+    queryKey: queryKeys.compose.form(recipe?.id, settled, now),
     queryFn: () => api.compose(recipe!.id, settled ?? {}, now),
     enabled: showing && active && Boolean(recipe),
   });

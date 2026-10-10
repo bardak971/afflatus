@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Range } from "../Trim";
 import { api, type Asset } from "../api";
 import { useBanners } from "../store";
+import { queryKeys } from "../queryKeys";
 
 /**
  * What a video gives besides itself: the frame it is paused on, its sound, its shots,
@@ -13,7 +14,7 @@ export function useMediaExtract({ asset, trim, player, onOpened }: { asset: Asse
   const client = useQueryClient();
   const say = useBanners((b) => b.push);
   // where the video cuts between shots: read when Trim opens, kept
-  const scenes = useQuery({ queryKey: ["scenes", asset.id], queryFn: () => api.scenes(asset.id), enabled: trim && asset.kind === "video", staleTime: Infinity });
+  const scenes = useQuery({ queryKey: queryKeys.scenes(asset.id), queryFn: () => api.scenes(asset.id), enabled: trim && asset.kind === "video", staleTime: Infinity });
   const everyScene = useMutation({
     mutationFn: async (v: { cuts: number[]; crf: number }) => {
       const edges = [0, ...v.cuts, asset.durationMs ?? 0];
@@ -32,7 +33,7 @@ export function useMediaExtract({ asset, trim, player, onOpened }: { asset: Asse
   const cutRange = useMutation({
     mutationFn: (v: { range: Range; action: "copy" | "split" | "remove" | "slow"; crf: number; factor?: 2 | 4 }) => api.range(asset.id, { startMs: Math.round(v.range.startMs), endMs: Math.round(v.range.endMs), action: v.action, crf: v.crf, factor: v.factor }),
     onSuccess: (r, v) => {
-      void client.invalidateQueries({ queryKey: ["queue"] });
+      void client.invalidateQueries({ queryKey: queryKeys.queue() });
       // Trim stays open: the next action may follow on the same range
       if (v.action === "slow") {
         say({ id: `cut:${Date.now()}`, tone: "good", title: `Slowing the range ×${v.factor ?? 2}`, text: `${r.engine === "rife" ? "RIFE on the GPU, through the queue." : "ffmpeg's motion interpolation on the processor: slow, minutes for a few seconds. For RIFE on the GPU, put a RIFE model in ComfyUI's models/frame_interpolation folder with the frame interpolation nodes."} The new video, its sound slowed with it, shows in the library when it is done.`, href: "/queue", go: "Open queue" });

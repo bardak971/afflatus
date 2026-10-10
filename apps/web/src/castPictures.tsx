@@ -4,6 +4,7 @@ import type { ReferenceRole, ReferenceValue } from "@afflatus/core";
 import { api } from "./api";
 import { lookAdds, type Look } from "./api/types/designer";
 import type { RecipeInfo } from "./api/types/models";
+import { queryKeys } from "./queryKeys";
 
 /** A reference picture the cast adds when the form is sent: whose it is. */
 export interface CastPicture { asset: string; role: ReferenceRole; from: string }
@@ -22,7 +23,7 @@ export function CastPictures({ recipe, input, look, children }: { recipe: Recipe
   const own = (spec ? (input[spec.id] as ReferenceValue[] | undefined) : undefined) ?? [];
   const asked = Boolean(spec && look?.cast.length && lookAdds(look));
   const composed = useQuery({
-    queryKey: ["compose", "pictures", recipe.id, look?.cast, own],
+    queryKey: queryKeys.compose.pictures(recipe.id, look?.cast, own),
     queryFn: () => api.compose(recipe.id, { [spec!.id]: own }, { cast: look!.cast }),
     enabled: asked,
   });

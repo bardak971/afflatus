@@ -6,6 +6,7 @@ import { copyText } from "../../secureContext";
 import type { Item } from "../items";
 import type { Action } from "../useActions";
 import type { BarCtx } from "./ctx";
+import { queryKeys } from "../../queryKeys";
 
 /** A job of the queue: what its row and menu on the Queue page do. */
 export function jobActions(x: BarCtx, it: Item): Action[] {
@@ -17,7 +18,7 @@ export function jobActions(x: BarCtx, it: Item): Action[] {
     const seed = (job as { seed?: number | null }).seed ?? null;
     return [
       toQueue,
-      { label: "Stop this render", icon: <X size={14} />, danger: true, note: "nothing is added", run: () => api.cancel(job.id).then(() => client.invalidateQueries({ queryKey: ["queue"] }), failed("Could not stop it")) },
+      { label: "Stop this render", icon: <X size={14} />, danger: true, note: "nothing is added", run: () => api.cancel(job.id).then(() => client.invalidateQueries({ queryKey: queryKeys.queue() }), failed("Could not stop it")) },
       ...(seed !== null ? [{ label: "Copy the seed", icon: <Copy size={14} />, note: String(seed), stay: true, run: () => copyText(String(seed)).then(() => x.onCopied(`the seed ${seed}`), () => x.onCopied("")) }] : []),
       ...toDraft,
     ];
@@ -26,8 +27,8 @@ export function jobActions(x: BarCtx, it: Item): Action[] {
     const ids = x.queue?.waiting.map((w) => w.id) ?? [];
     return [
       toQueue,
-      { label: "Run next", icon: <ArrowUpToLine size={14} />, disabled: ids[0] === job.id, run: () => api.queueOrder(moved(ids, job.id, 0)).then((q) => client.setQueryData(["queue"], q), failed("Could not move it")) },
-      { label: "Cancel this one", icon: <X size={14} />, danger: true, run: () => api.cancel(job.id).then(() => client.invalidateQueries({ queryKey: ["queue"] }), failed("Could not cancel it")) },
+      { label: "Run next", icon: <ArrowUpToLine size={14} />, disabled: ids[0] === job.id, run: () => api.queueOrder(moved(ids, job.id, 0)).then((q) => client.setQueryData(queryKeys.queue(), q), failed("Could not move it")) },
+      { label: "Cancel this one", icon: <X size={14} />, danger: true, run: () => api.cancel(job.id).then(() => client.invalidateQueries({ queryKey: queryKeys.queue() }), failed("Could not cancel it")) },
       ...toDraft,
     ];
   }

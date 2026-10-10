@@ -9,6 +9,7 @@ import { GetFile } from "../../GetFile";
 import { Select } from "../../Select";
 import { Chip, cx, ErrorNote, Help, Toggle } from "../../ui";
 import { Block, Card } from "./Rows";
+import { queryKeys } from "../../queryKeys";
 
 /**
  * One switch per model: whether it is offered in the lists to choose from (the model list in Studio, a
@@ -24,7 +25,7 @@ export function ModelSwitches() {
   const client = useQueryClient();
   const save = useMutation({
     mutationFn: (next: Record<string, boolean>) => api.saveSettings({ families: next }),
-    onSuccess: (saved) => client.setQueryData(["settings"], saved),
+    onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved),
   });
   if (!recipes.data || !settings.data) return null;
   const said = settings.data.families;
@@ -110,7 +111,7 @@ function SlotChoices({ family }: { family: string }) {
       else delete all[family];
       return api.saveSettings({ slotFiles: all });
     },
-    onSuccess: () => Promise.all([client.invalidateQueries({ queryKey: ["settings"] }), client.invalidateQueries({ queryKey: ["setup"] })]),
+    onSuccess: () => Promise.all([client.invalidateQueries({ queryKey: queryKeys.settings() }), client.invalidateQueries({ queryKey: queryKeys.setup() })]),
   });
   if (!slots.length) return null;
   return (

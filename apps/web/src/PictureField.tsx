@@ -19,6 +19,7 @@ import { Button, cx, Empty, ErrorNote, fieldClass, NumberBox, Help, Note, Segmen
 import { LoadMore } from "./LoadMore";
 import { AudioPlayer } from "./AudioPlayer";
 import { VideoPlayer } from "./VideoPlayer";
+import { queryKeys } from "./queryKeys";
 
 /**
  * Send a picture from this computer to the library, then hand it over: to the `onDone` of the moment it was sent, not of
@@ -30,7 +31,7 @@ function useUpload(onDone: (asset: Asset) => void, kit = false) {
   const m = useMutation({
     mutationFn: (v: { file: File; done(asset: Asset): void }) => (kit ? api.upload(v.file, { kit: true }) : api.upload(v.file, { project: projectForNew() })),
     onSuccess: (asset, v) => {
-      void client.invalidateQueries({ queryKey: ["assets"] });
+      void client.invalidateQueries({ queryKey: queryKeys.assets.all() });
       v.done(asset);
     },
   });

@@ -1,11 +1,11 @@
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api, type QueueStatus } from "../../api";
 import { ask } from "../../Confirm";
-import { HISTORY } from "../../data";
 import { useBanners } from "../../store";
 import { pinnedFailures } from "./failures";
 import { byModel, groupingSaves } from "./order";
 import { plural } from "../../format";
+import { queryKeys } from "../../queryKeys";
 
 // what the command bar shows next to "Group the queue by model"
 export { groupingSaves };
@@ -17,7 +17,7 @@ export { groupingSaves };
  * what fails said in a banner.
  */
 
-const queueOf = (client: QueryClient) => client.getQueryData<QueueStatus>(["queue"]);
+const queueOf = (client: QueryClient) => client.getQueryData<QueueStatus>(queryKeys.queue());
 
 /** Every waiting job cancelled, after asking; `ids`: only those (what the screen showed when it was asked). How many were; null when the question was declined or nothing waits. */
 async function cancelAllWaiting(client: QueryClient, opts: { ids?: string[]; ask?: boolean } = {}): Promise<number | null> {
@@ -25,8 +25,8 @@ async function cancelAllWaiting(client: QueryClient, opts: { ids?: string[]; ask
   if (!n) return null;
   if (opts.ask !== false && !(await ask({ title: `Cancel ${plural(n, "waiting job")}?`, text: "The running render goes on. They go to the history as cancelled, where Requeue brings one back.", yes: n === 1 ? "Cancel it" : `Cancel all ${n}` }))) return null;
   const { cancelled } = await api.cancelWaiting(opts.ids);
-  void client.invalidateQueries({ queryKey: ["queue"] });
-  void client.invalidateQueries({ queryKey: HISTORY });
+  void client.invalidateQueries({ queryKey: queryKeys.queue() });
+  void client.invalidateQueries({ queryKey: queryKeys.history.all() });
   return cancelled;
 }
 
@@ -35,8 +35,8 @@ async function retryAllFailed(client: QueryClient, ids?: string[]): Promise<{ id
   const which = ids ?? (await recentFailures()).map((j) => j.id);
   if (!which.length) return { ids: [], failed: 0 };
   const r = await api.retryJobs([...which].reverse(), true);
-  void client.invalidateQueries({ queryKey: ["queue"] });
-  void client.invalidateQueries({ queryKey: HISTORY });
+  void client.invalidateQueries({ queryKey: queryKeys.queue() });
+  void client.invalidateQueries({ queryKey: queryKeys.history.all() });
   return r;
 }
 
@@ -46,7 +46,7 @@ async function dismissAllFailed(client: QueryClient, opts: { ids?: string[]; ask
   if (!which.length) return null;
   if (opts.ask && !(await ask({ title: `Dismiss ${plural(which.length, "failed job")}?`, text: "They leave the history. Nothing is deleted from the library.", yes: "Dismiss them" }))) return null;
   const { dismissed } = await api.dismissJobs(which);
-  void client.invalidateQueries({ queryKey: HISTORY });
+  void client.invalidateQueries({ queryKey: queryKeys.history.all() });
   return dismissed;
 }
 
@@ -54,7 +54,7 @@ async function dismissAllFailed(client: QueryClient, opts: { ids?: string[]; ask
 async function groupQueueByModel(client: QueryClient): Promise<boolean> {
   const q: QueueStatus = queueOf(client) ?? (await api.queue());
   if (!groupingSaves(q.waiting, q.running)) return false;
-  client.setQueryData(["queue"], await api.queueOrder(byModel(q.waiting, q.running)));
+  client.setQueryData(queryKeys.queue(), await api.queueOrder(byModel(q.waiting, q.running)));
   return true;
 }
 

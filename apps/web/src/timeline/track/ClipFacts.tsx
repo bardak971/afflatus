@@ -3,6 +3,7 @@ import { api, type Clip } from "../../api";
 import { cx } from "../../ui";
 import { past, pct, type Against } from "../lookDrift";
 import { clipFacts, PEEK } from "./peek";
+import { queryKeys } from "../../queryKeys";
 
 /** The rows of the drift table: what each says, and how it is read. */
 const ROWS: Array<{ key: Exclude<keyof Against, "colour">; label: string }> = [
@@ -20,7 +21,7 @@ export function ClipFacts({ clip, index, clips }: { clip: Clip; index: number; c
   const take = clip.kind === "video" ? clip.take : null;
   // how much the picture jumps where this clip meets the one before: measured once the takes are there
   const joins = useQuery({
-    queryKey: ["joins", clip.id, clip.takes.map((t) => `${t.id}:${t.startMs}:${t.endMs}`).join(","), clips[index - 1]?.take?.id ?? clips[index - 1]?.still?.id ?? "-", clips[index + 1]?.take?.id ?? clips[index + 1]?.still?.id ?? "-"],
+    queryKey: queryKeys.joins.around(clip, clips[index - 1], clips[index + 1]),
     queryFn: () => api.joins(clip.id),
     enabled: Boolean(take) && index > 0 && clip.joined === "continue",
     staleTime: 60_000,

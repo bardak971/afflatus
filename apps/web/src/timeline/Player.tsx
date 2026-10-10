@@ -11,6 +11,7 @@ import { playSignature } from "./model";
 import { useHandover } from "./useHandover";
 import { useRunningOf } from "./useRunning";
 import { useQueueOf } from "../screens/studio/queueOf";
+import { queryKeys } from "../queryKeys";
 
 export interface PlayerHandle {
   /** Go to a moment of what plays. */
@@ -62,7 +63,7 @@ export const Player = forwardRef<PlayerHandle, {
   const seq = useMemo(() => clips.filter((c) => c.lengthMs > 0 && (c.take || c.still)), [signature]);
   // each clip's colour nudge toward the clip before at their join, as the export applies it: shown here as a colour matrix on the video
   const matches = useQuery({
-    queryKey: ["match", timeline, clips.map((c) => `${c.take?.id ?? c.still?.id ?? "-"}:${c.take?.startMs ?? 0}:${c.take?.endMs ?? 0}`).join(",")],
+    queryKey: queryKeys.match(timeline, clips),
     queryFn: () => api.matches(timeline!),
     enabled: Boolean(timeline) && clips.some((c) => c.take),
     staleTime: 5 * 60_000,
@@ -105,7 +106,7 @@ export const Player = forwardRef<PlayerHandle, {
   const ducks = Boolean(plan?.spans.some((s) => s.duckDb > 0));
   // the music ducked under speech, the curve the export applies too (asked again when what plays or the music changes)
   const duck = useQuery({
-    queryKey: ["duck", timeline, music?.asset.id, music?.duck, music?.duckDb, music?.startClip, clips.map((c) => `${c.id}:${c.take?.id}:${c.atMs}:${c.lengthMs}:${c.volume}:${c.sound}:${c.music?.duck ?? ""}`).join(",")],
+    queryKey: queryKeys.duck(timeline, music, clips),
     queryFn: () => api.duck(timeline!),
     enabled: Boolean(timeline && ducks),
   });

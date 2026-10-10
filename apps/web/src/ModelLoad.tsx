@@ -5,6 +5,7 @@ import { create } from "zustand";
 import { api, type RecipeInfo } from "./api";
 import { useQueue } from "./data";
 import { cx } from "./ui";
+import { queryKeys } from "./queryKeys";
 
 /** The same keys holding the same values (a value that is an object counts by itself, not by what it holds). */
 const sameEntries = (a: Record<string, unknown>, b: Record<string, unknown>) => {
@@ -19,7 +20,7 @@ export function useStop() {
     mutationFn: async (ids: string[]) => {
       for (const id of ids) await api.cancel(id);
     },
-    onSettled: () => void client.invalidateQueries({ queryKey: ["queue"] }),
+    onSettled: () => void client.invalidateQueries({ queryKey: queryKeys.queue() }),
   });
 }
 
@@ -156,13 +157,13 @@ function OfForm({ recipe, input, look }: OpenForm) {
   // asked again when a job starts or ends, or the memory is freed: what is loaded may have changed
   const jobs = `${queue.data?.running?.id ?? ""}:${queue.data?.recent[0]?.id ?? ""}:${queue.data?.model ?? ""}`;
   const loaded = useQuery({
-    queryKey: ["loaded", asked, jobs],
+    queryKey: queryKeys.loaded(asked, jobs),
     queryFn: () => { const [id, values, cast] = JSON.parse(asked) as [string, Record<string, unknown>, Look]; return api.loaded(id, values, cast); },
     placeholderData: keepPreviousData,
     // asked again each time the form is come back to: the memory may have been freed from the Queue
     staleTime: 0,
   });
-  const load = useMutation({ mutationFn: () => api.warm(recipe.id, whole, look), onSettled: () => void client.invalidateQueries({ queryKey: ["queue"] }) });
+  const load = useMutation({ mutationFn: () => api.warm(recipe.id, whole, look), onSettled: () => void client.invalidateQueries({ queryKey: queryKeys.queue() }) });
   const stop = useStop();
   const running = queue.data?.running?.kind === "load" ? queue.data.running : null;
   const waiting = (queue.data?.waiting ?? []).find((j) => j.kind === "load");

@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api, raw, type Entity } from "../../api";
 import { useAutosave } from "../../autosave";
 import { outfitsOf } from "./shared";
+import { queryKeys } from "../../queryKeys";
 
 /**
  * What a save of an item sends. A person's outfit that holds nothing yet is left out: it stays on screen to be
@@ -30,7 +31,7 @@ export function useEntityDraft({ stored, loading }: {
   const save = useAutosave<Entity>({
     save: async (e) => {
       await api.saveEntity(e.id, bodyOf(e));
-      await client.invalidateQueries({ queryKey: ["entities"] });
+      await client.invalidateQueries({ queryKey: queryKeys.entities() });
     },
     // the tab closed or reloaded: a request that outlives the page
     keepalive: (e) => void raw("PUT", `/entities/${e.id}`, bodyOf(e), { keepalive: true }).catch(() => {}),

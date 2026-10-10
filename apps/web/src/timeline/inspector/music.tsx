@@ -11,6 +11,7 @@ import { FieldRow } from "../../fields";
 import { ColumnEdge, FoldButton, useColumnWidth } from "../column";
 import { Wave } from "../track/Wave";
 import { CloseButton, Slide } from "./parts";
+import { queryKeys } from "../../queryKeys";
 
 /**
  * The whole song, the stretch the video plays lit: dragged (or clicked), it chooses which part plays. On tenths of a
@@ -22,7 +23,7 @@ function SongStrip({ timeline, onFrom }: { timeline: Timeline; onFrom(fromMs: nu
   const strip = useRef<HTMLDivElement>(null);
   const [held, setHeld] = useState<number | null>(null);
   const drag = useRef<{ x: number; from: number; moved: boolean } | null>(null);
-  const measure = useQuery({ queryKey: ["motion", m.asset.id], queryFn: () => api.motion(m.asset.id), staleTime: Infinity, retry: 0 });
+  const measure = useQuery({ queryKey: queryKeys.motion(m.asset.id), queryFn: () => api.motion(m.asset.id), staleTime: Infinity, retry: 0 });
   const clips = timeline.clips.map((c) => ({ id: c.id, atMs: c.atMs, lengthMs: c.lengthMs, music: c.music }));
   const plan = musicPlan({ ...m, durationMs: songMs, fromMs: held ?? m.fromMs }, clips);
   const usedMs = plan.endMs - plan.startMs;

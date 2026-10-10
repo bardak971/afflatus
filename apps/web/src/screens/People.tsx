@@ -25,6 +25,7 @@ import { SnippetTable, type Snippet } from "./kit/SnippetTable";
 import { StyleEditor } from "./kit/StyleEditor";
 import { useEntityDraft } from "./kit/useEntityDraft";
 import { plural } from "../format";
+import { queryKeys } from "../queryKeys";
 
 const TAB_KEY = "afflatus.kit.tab";
 
@@ -101,14 +102,14 @@ export function People() {
   const create = useMutation({
     mutationFn: (kind: "person" | "place" | "style" | "preset") => api.createEntity(kind, TABS.find((t) => t.id === kind)!.add),
     onSuccess: async (e) => {
-      await client.invalidateQueries({ queryKey: ["entities"] });
+      await client.invalidateQueries({ queryKey: queryKeys.entities() });
       setOpen(e.id);
     },
   });
   const createSnippet = useMutation({
     mutationFn: () => api.createEntity("snippet", "New snippet", { text: "", category: snippetOnly ?? "", style: null }),
     onSuccess: async (made) => {
-      await client.invalidateQueries({ queryKey: ["entities"] });
+      await client.invalidateQueries({ queryKey: queryKeys.entities() });
       setFreshSnippet(made.id);
     },
   });
@@ -118,7 +119,7 @@ export function People() {
       // the change waiting for this item goes with it; another item's still goes out
       dropPending(id);
       setOpen((o) => (o === id ? null : o));
-      return client.invalidateQueries({ queryKey: ["entities"] });
+      return client.invalidateQueries({ queryKey: queryKeys.entities() });
     },
   });
   /** Deleting is asked first, from the row's menu as from the item's header. */
@@ -139,7 +140,7 @@ export function People() {
   const doImport = useMutation({
     mutationFn: async (file: File) => importPresetFile(file),
     onSuccess: async (made) => {
-      await client.invalidateQueries({ queryKey: ["entities"] });
+      await client.invalidateQueries({ queryKey: queryKeys.entities() });
       setOpen(made.id);
     },
   });

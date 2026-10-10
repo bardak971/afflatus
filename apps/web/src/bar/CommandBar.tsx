@@ -31,8 +31,9 @@ import { bumped, load, recentKeys, renamed, save, type Ranks } from "./rank";
 import { PAGES, SETTINGS, settingKeyNow, type SettingCtx } from "./settingsRegistry";
 import { useSelectedClip } from "./bridge";
 import { castPlace } from "./castTo";
-import { BAR_INDEX, useBar } from "./store";
+import { useBar } from "./store";
 import { useBarActions, type Action, type TimelineAim } from "./useActions";
+import { isUnder, queryKeys } from "../queryKeys";
 
 /** How long a row stays selected before its preview is drawn: arrowing fast loads nothing. */
 const DWELL_MS = 80;
@@ -126,7 +127,7 @@ export function CommandBar() {
   const entities = useEntities();
   const currentProject = useProject((s) => s.id);
   // the index holds the newest of the library's items and those used here lately (for Recent); the others are asked for as typed
-  const index = useQuery({ queryKey: BAR_INDEX, queryFn: ({ signal }) => api.commandIndex(usedItems(loadRanks()), { signal }), staleTime: Infinity });
+  const index = useQuery({ queryKey: queryKeys.commandIndex.all(), queryFn: ({ signal }) => api.commandIndex(usedItems(loadRanks()), { signal }), staleTime: Infinity });
   /** The library's items opened from the bar since the index was read: Recent finds them before the index is read again. */
   const [picked, setPicked] = useState<CommandEntry[]>([]);
 
@@ -168,9 +169,9 @@ export function CommandBar() {
     const stop = client.getQueryCache().subscribe((e) => {
       // (the workflows likewise: their import and removal send no live event)
       const key = e.query.queryKey;
-      if (e.type !== "updated" || e.action.type !== "success" || !((key[0] === "drafts" && key[1] === "list") || key[0] === "workflows")) return;
+      if (e.type !== "updated" || e.action.type !== "success" || !(isUnder(key, queryKeys.drafts.lists()) || isUnder(key, queryKeys.workflows()))) return;
       if (t) clearTimeout(t);
-      t = setTimeout(() => void client.invalidateQueries({ queryKey: BAR_INDEX, refetchType: useBar.getState().open ? "active" : "none" }), 300);
+      t = setTimeout(() => void client.invalidateQueries({ queryKey: queryKeys.commandIndex.all(), refetchType: useBar.getState().open ? "active" : "none" }), 300);
     });
     return () => {
       stop();
@@ -182,7 +183,7 @@ export function CommandBar() {
     server: settings.data,
     save: async (patch: Partial<Settings>) => {
       const saved = await api.saveSettings(patch as Record<string, unknown>);
-      client.setQueryData(["settings"], saved);
+      client.setQueryData(queryKeys.settings(), saved);
     },
   }), [settings.data, client]);
   // the switches kept in this browser: the bar is drawn again when one changes, so that a switch flipped here shows it
@@ -209,7 +210,7 @@ export function CommandBar() {
     return () => clearTimeout(t);
   }, [mode, text]);
   const found = useQuery({
-    queryKey: [...BAR_INDEX, "items", itemsQ],
+    queryKey: queryKeys.commandIndex.items(itemsQ),
     queryFn: ({ signal }) => api.commandItems(itemsQ, { signal }),
     enabled: open && Boolean(itemsQ),
     staleTime: Infinity,
@@ -235,7 +236,7 @@ export function CommandBar() {
   }, [path, byKey, ranks, base]);
   // what `> undo` would undo: the open editor's last change (as its header's Undo says it), else the newest banner's
   const bannerUndo = useBanners((s) => [...s.items].reverse().find((x) => x.action?.undo)?.title ?? null);
-  const editorUndo = aim?.open ? client.getQueryData<{ undo?: string | null }>(["timelines", aim.id])?.undo ?? null : null;
+  const editorUndo = aim?.open ? client.getQueryData<{ undo?: string | null }>(queryKeys.timelines.one(aim.id))?.undo ?? null : null;
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the rows follow the kept settings' values, not the identity of their list
   const settingRows = useMemo(() => settingItems([...SETTINGS, ...PAGES], settingCtx), [settingCtx, ...kept]);
@@ -254,7 +255,7 @@ export function CommandBar() {
   const parsed = mode === "command" ? parseCommand(text) : null;
   const estimateOf = parsed && aim && (parsed.cmd === "render-clips" || parsed.cmd === "render-missing") ? { timeline: aim.id, clips: parsed.cmd === "render-clips" ? parsed.clips : undefined } : null;
   const estimate = useQuery({
-    queryKey: ["bar-estimate", estimateOf],
+    queryKey: queryKeys.barEstimate(estimateOf),
     queryFn: ({ signal }) => api.commandEstimate(estimateOf!, { signal }),
     enabled: Boolean(estimateOf) && open,
     staleTime: 30_000,
@@ -269,7 +270,7 @@ export function CommandBar() {
     const t = setTimeout(() => setHistoryQ(text), 150);
     return () => clearTimeout(t);
   }, [mode, text]);
-  const history = useQuery({ queryKey: ["prompt-history", historyQ], queryFn: ({ signal }) => api.promptHistory(historyQ, 30, { signal }), enabled: open && mode === "history", placeholderData: keepPreviousData });
+  const history = useQuery({ queryKey: queryKeys.promptHistory.search(historyQ), queryFn: ({ signal }) => api.promptHistory(historyQ, 30, { signal }), enabled: open && mode === "history", placeholderData: keepPreviousData });
 
   const sections: Section[] = useMemo(() => {
     if (!open) return [];

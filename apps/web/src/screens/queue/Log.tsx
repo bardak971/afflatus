@@ -6,6 +6,7 @@ import { useQueueOf } from "../studio/queueOf";
 import { logRows, type JobAt, type LogLine, type LogRow } from "./logRows";
 import { copyText } from "../../secureContext";
 import { Button, Chip, cx, ErrorNote, fieldClass, Toggle } from "../../ui";
+import { queryKeys } from "../../queryKeys";
 
 /**
  * ComfyUI's terminal, live: what it printed since the last read is fetched every two seconds and kept here as
@@ -59,7 +60,7 @@ export function ComfyLog({ online }: { online: boolean }) {
   // the stamp of the last line read: the next read asks only for what came from then on
   const cursor = useRef<string | undefined>(undefined);
   // a read is appended once: not kept once the tab is left, or coming back would start with an old read's tail
-  const log = useQuery({ queryKey: ["comfy-log"], queryFn: () => api.comfyLogs(cursor.current), refetchInterval: paused ? false : 2000, enabled: online, retry: 0, gcTime: 0 });
+  const log = useQuery({ queryKey: queryKeys.comfyLog(), queryFn: () => api.comfyLogs(cursor.current), refetchInterval: paused ? false : 2000, enabled: online, retry: 0, gcTime: 0 });
   // the jobs a prompt may have run for: the one running and the recent ones; drawn again when they change, not at each progress event
   const jobs = useQueueOf((q) => [...(q.running ? [q.running] : []), ...q.recent].map((j) => ({ id: j.id, label: j.label, startedAt: j.startedAt ?? null }))) ?? NO_JOBS;
   const [onlyJob, setOnlyJob] = useState<{ id: string; label: string } | null>(null);

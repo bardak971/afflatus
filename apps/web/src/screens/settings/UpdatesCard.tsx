@@ -7,6 +7,7 @@ import { dateTime, dayOf, fileLabel } from "../../format";
 import { Dialog, DialogHead, DIALOG } from "../../Dialog";
 import { Button, cx, ErrorNote, Segmented, Toggle } from "../../ui";
 import { Block, Card, Row } from "./Rows";
+import { queryKeys } from "../../queryKeys";
 
 /** Newer versions of the models here, on Civitai: a check on request, and once a day when asked for. Its own card, wide: the list can be long. */
 export function UpdatesCard() {
@@ -16,8 +17,8 @@ export function UpdatesCard() {
   const [q, setQ] = useState("");
   // the list in a dialog of its own: few update their models, and with many it would make the tab endless
   const [open, setOpen] = useState(false);
-  const save = useMutation({ mutationFn: (patch: Record<string, unknown>) => api.saveSettings(patch), onSuccess: () => client.invalidateQueries({ queryKey: ["settings"] }) });
-  const check = useMutation({ mutationFn: api.checkModelUpdates, onSuccess: (r) => client.setQueryData(["model-updates"], r) });
+  const save = useMutation({ mutationFn: (patch: Record<string, unknown>) => api.saveSettings(patch), onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.settings() }) });
+  const check = useMutation({ mutationFn: api.checkModelUpdates, onSuccess: (r) => client.setQueryData(queryKeys.modelUpdates(), r) });
   // "Get it" per row: each row its own state, one error line for the list
   const rowKey = (u: UpdateRow) => `${u.folder}/${u.file}`;
   const [got, setGot] = useState<Record<string, "pending" | "started">>({});
@@ -29,7 +30,7 @@ export function UpdatesCard() {
   const get = useMutation({
     mutationFn: (u: UpdateRow) => api.startDownload({ file: u.newer!.file ?? u.file, folder: u.folder, civitai: u.newer!.id, pick: u.newer!.file ?? undefined, page: { url: u.newer!.page, title: `${u.modelName} · ${u.newer!.name}` } }),
     onMutate: (u) => { setGetError(null); mark(rowKey(u), "pending"); },
-    onSuccess: (_d, u) => { mark(rowKey(u), "started"); void client.invalidateQueries({ queryKey: ["downloads"] }); },
+    onSuccess: (_d, u) => { mark(rowKey(u), "started"); void client.invalidateQueries({ queryKey: queryKeys.downloads() }); },
     onError: (err, u) => { mark(rowKey(u)); setGetError(`${u.modelName || fileLabel(u.file)}: ${err.message}`); },
   });
   const on = Boolean(settings.data?.civitaiLookups);

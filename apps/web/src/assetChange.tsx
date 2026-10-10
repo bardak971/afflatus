@@ -2,9 +2,9 @@ import { useCallback } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError, type Folder, type Project } from "./api";
 import { applyChange, itemsWord, placeName, placesBefore, rollback, type AssetChange, type Seats } from "./assetCache";
-import { libraryReads, type LibraryChange } from "./data";
 import { moves } from "./leave";
 import { useBanners } from "./store";
+import { libraryReads, queryKeys, type LibraryChange } from "./queryKeys";
 
 /**
  * Keep, unkeep, bin, put back, move and rename, as every place of the app does them: the screen changes first (every
@@ -21,7 +21,7 @@ export const leavingNow = new Set<string>();
 let inFlight = 0;
 /** The changes done while others were on their way: what they touched is read once the last is done. */
 let done: LibraryChange[] = [];
-/** A change made here, as the server's "library" event says it (data.ts libraryReads): what it can touch. */
+/** A change made here, as the server's "library" event says it (queryKeys.ts libraryReads): what it can touch. */
 const asLibraryChange = (c: AssetChange): LibraryChange =>
   c.kind === "rename" ? { change: "fields", items: c.ids, name: c.name }
   : c.kind === "keep" ? { change: "kept", items: c.ids, kept: c.kept }
@@ -101,7 +101,7 @@ export async function changeAssets(client: QueryClient, c: AssetChange, opts: Ch
   }
   try {
     // a read on its way would land over the change with what was true before it
-    await Promise.all([client.cancelQueries({ queryKey: ["assets"] }), client.cancelQueries({ queryKey: ["folders"] })]);
+    await Promise.all([client.cancelQueries({ queryKey: queryKeys.assets.all() }), client.cancelQueries({ queryKey: queryKeys.folders() })]);
     const left: Seats = [];
     const snap = applyChange(client, c, undefined, { left, back: opts.back });
     // said at once with the change, not when the server answers: on a slow line the item left and nothing said so for
@@ -138,8 +138,8 @@ function sayDone(client: QueryClient, c: AssetChange, before: Array<{ folder: st
   const id = bannerId(c.kind === "move" ? "moved" : c.kind === "bin" ? "binned" : "restored");
   const undo = (run: () => Promise<unknown>) => ({ label: "Undo", key: "Ctrl+Z", undo: true, run: () => void run() });
   if (c.kind === "move") {
-    const folders = client.getQueryData<{ items: Folder[] }>(["folders"])?.items;
-    const projects = client.getQueryData<{ items: Project[] }>(["projects"])?.items;
+    const folders = client.getQueryData<{ items: Folder[] }>(queryKeys.folders())?.items;
+    const projects = client.getQueryData<{ items: Project[] }>(queryKeys.projects.all())?.items;
     const back = before.filter((g) => g.folder !== c.folder);
     useBanners.getState().push({
       id, tone: "good", title: `Moved to ${placeName(c.folder, folders, projects)} · ${n}`,

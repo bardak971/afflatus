@@ -8,6 +8,7 @@ import { aroundNav, useGuardedLocation } from "./leaveGuard";
 import { reloadOnStaleChunks } from "./reload";
 import "./styles.css";
 import { applyTheme, useThemeChoice } from "./theme/store";
+import { queryKeys } from "./queryKeys";
 
 // before anything is drawn: the page is never seen in another theme than the one that was chosen
 applyTheme(useThemeChoice.getState());
@@ -20,12 +21,12 @@ const client = new QueryClient({ defaultOptions: { queries: { refetchOnWindowFoc
 // on a send, swept by it, and by other tabs), the disk figures (other programs fill the disk), settings and workflows
 // changed in another tab, the render-time windows that end "now"; and what is read fresh each time it is opened:
 // ComfyUI's log, the node packs being installed, a form's cast worked in, the prompt history
-client.setQueryDefaults(["drafts"], { staleTime: 30_000 });
-client.setQueryDefaults(["storage"], { staleTime: 30_000 });
-client.setQueryDefaults(["settings"], { staleTime: 60_000 });
-client.setQueryDefaults(["workflows"], { staleTime: 60_000 });
-client.setQueryDefaults(["renders"], { staleTime: 60_000 });
-for (const fresh of [["comfy-log"], ["packs"], ["compose"], ["prompt-history"]]) client.setQueryDefaults(fresh, { staleTime: 0 });
+client.setQueryDefaults(queryKeys.drafts.all(), { staleTime: 30_000 });
+client.setQueryDefaults(queryKeys.storage(), { staleTime: 30_000 });
+client.setQueryDefaults(queryKeys.settings(), { staleTime: 60_000 });
+client.setQueryDefaults(queryKeys.workflows(), { staleTime: 60_000 });
+client.setQueryDefaults(queryKeys.renders.all(), { staleTime: 60_000 });
+for (const fresh of [queryKeys.comfyLog(), queryKeys.packs.all(), queryKeys.compose.all(), queryKeys.promptHistory.all()]) client.setQueryDefaults(fresh, { staleTime: 0 });
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

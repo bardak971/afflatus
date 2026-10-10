@@ -4,12 +4,13 @@ import { useSetup } from "../../data";
 import { sourceOf, UI_LOCALE } from "../../format";
 import { Button, ErrorNote, Help } from "../../ui";
 import { Block, Card, Row, Status } from "./Rows";
+import { queryKeys } from "../../queryKeys";
 
 /** The app itself: its version, where it runs, what it talks to. */
 export function AboutCard() {
   const client = useQueryClient();
-  const health = useQuery({ queryKey: ["health"], queryFn: () => api.health(), staleTime: Infinity });
-  const recheck = useMutation({ mutationFn: () => api.checkHealth(), onSuccess: (h) => client.setQueryData(["health"], h) });
+  const health = useQuery({ queryKey: queryKeys.health(), queryFn: () => api.health(), staleTime: Infinity });
+  const recheck = useMutation({ mutationFn: () => api.checkHealth(), onSuccess: (h) => client.setQueryData(queryKeys.health(), h) });
   const setup = useSetup();
   const comfy = setup.data?.comfy;
   const checks = health.data?.checks ?? [];

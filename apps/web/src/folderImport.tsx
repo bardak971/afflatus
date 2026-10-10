@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { api, type Folder } from "./api";
 import { projectForNew } from "./project";
 import { Bar } from "./ui";
+import { queryKeys } from "./queryKeys";
 
 /**
  * Bringing a whole folder in from the computer: every picture, video and sound in it is uploaded, and
@@ -83,7 +84,7 @@ export const useFolderImport = create<{ run: Run | null; start(files: File[], in
     } finally {
       // over whatever happened: the note can be closed, and the next import is not refused
       step({ over: true });
-      void client.invalidateQueries({ queryKey: ["folders"] });
+      void client.invalidateQueries({ queryKey: queryKeys.folders() });
     }
   },
 }));

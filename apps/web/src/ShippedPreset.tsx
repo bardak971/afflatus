@@ -5,6 +5,7 @@ import { useRecipes } from "./data";
 import { fileLabel, recipeLabel } from "./format";
 import { PresetFiles } from "./PresetFiles";
 import { Button, ErrorNote } from "./ui";
+import { queryKeys } from "./queryKeys";
 
 /**
  * A preset that ships with Afflatus, opened in the Prompt kit: who made it, what it is, the model and
@@ -19,7 +20,7 @@ export function ShippedPreset({ e, onCopied }: { e: Extract<Entity, { kind: "pre
   const copy = useMutation({
     mutationFn: () => api.createEntity("preset", e.name, def),
     onSuccess: async (made) => {
-      await client.invalidateQueries({ queryKey: ["entities"] });
+      await client.invalidateQueries({ queryKey: queryKeys.entities() });
       onCopied(made);
     },
   });

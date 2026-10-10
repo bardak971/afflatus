@@ -4,11 +4,12 @@ import { Copy, X } from "lucide-react";
 import { api } from "../api";
 import { copyText } from "../secureContext";
 import { Button, ErrorNote } from "../ui";
+import { queryKeys } from "../queryKeys";
 
 /** The system prompt as the designer would be given it now, read-only, with a copy. It is fetched fresh each time it opens: it follows the form. */
 export function SystemView({ body, onClose }: { body: Parameters<typeof api.designerSystem>[0]; onClose(): void }) {
   const key = JSON.stringify(body);
-  const q = useQuery({ queryKey: ["designer-system", key], queryFn: () => api.designerSystem(body), staleTime: 0 });
+  const q = useQuery({ queryKey: queryKeys.designerSystem(key), queryFn: () => api.designerSystem(body), staleTime: 0 });
   const [copied, setCopied] = useState(false);
   return (
     <div className="flex min-h-0 grow flex-col border-b border-line">

@@ -4,13 +4,14 @@ import { useSettings, useStorage } from "../../data";
 import { size } from "../../format";
 import { Button, ButtonLink, cx, ErrorNote, Segmented, TwoStep } from "../../ui";
 import { Block, Card, Row } from "./Rows";
+import { queryKeys } from "../../queryKeys";
 
 /** Where the space goes, and the two ways to get some back. */
 export function StorageCard() {
   const storage = useStorage();
   const client = useQueryClient();
   // the library, the folders and the disk use follow the server's "library" event; the timelines may have played what went
-  const done = () => void client.invalidateQueries({ queryKey: ["timelines"] });
+  const done = () => void client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
   const idle = useMutation({ mutationFn: api.binIdleTakes, onSuccess: done });
   const empty = useMutation({ mutationFn: api.emptyBin, onSuccess: done });
   const s = storage.data;
@@ -71,7 +72,7 @@ export function StorageCard() {
 /** One zip of everything Afflatus keeps, made while it runs: the database and every file. */
 function Backup() {
   // a key of its own, outside "storage": the library's events refresh that one, and the plan is a walk of every file (the server counts them once a minute)
-  const plan = useQuery({ queryKey: ["backup-plan"], queryFn: api.backupPlan, staleTime: 60_000 });
+  const plan = useQuery({ queryKey: queryKeys.backupPlan(), queryFn: api.backupPlan, staleTime: 60_000 });
   const p = plan.data;
   if (p && !p.available) return null;
   return (
@@ -94,9 +95,9 @@ const KEEP_FOR = [{ value: "30", label: "30 days" }, { value: "90", label: "90 d
 function RenderRecord() {
   const client = useQueryClient();
   const settings = useSettings();
-  const record = useQuery({ queryKey: ["renders", "size"], queryFn: api.renderRecordSize });
-  const forget = useMutation({ mutationFn: api.clearRenderRecord, onSuccess: () => client.invalidateQueries({ queryKey: ["renders"] }) });
-  const keep = useMutation({ mutationFn: (days: number) => api.saveSettings({ renderHistoryDays: days }), onSuccess: (saved) => client.setQueryData(["settings"], saved) });
+  const record = useQuery({ queryKey: queryKeys.renders.size(), queryFn: api.renderRecordSize });
+  const forget = useMutation({ mutationFn: api.clearRenderRecord, onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.renders.all() }) });
+  const keep = useMutation({ mutationFn: (days: number) => api.saveSettings({ renderHistoryDays: days }), onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved) });
   const r = record.data;
   const days = settings.data?.renderHistoryDays ?? 90;
   return (

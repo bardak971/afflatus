@@ -1,13 +1,13 @@
 import { Archive, ArchiveRestore, Download, ExternalLink, FileOutput, Film, FolderInput, FolderKanban, FolderOpen, FolderPlus, Layers, Pencil, PenLine, Pin, PinOff, Play, RefreshCw, Sparkles, Trash2, Upload, Wand2 } from "lucide-react";
 import { api, type CommandEntry } from "../../api";
 import { ask, askText } from "../../Confirm";
-import { DRAFT_LIST } from "../../data";
 import { size } from "../../format";
 import { useProject } from "../../project";
 import type { Moving, Row, Target } from "../../projects/tree";
 import { formWhenOpen, openProjects, workflowEditHref } from "../bridge";
 import type { Action, TimelineAim } from "../useActions";
 import type { BarCtx, FolderEntry, TimelineEntry } from "./ctx";
+import { queryKeys } from "../../queryKeys";
 
 /** The Projects panel's row of an entry, as its actions take them. */
 export const row = (e: CommandEntry, over: Partial<Row> = {}): Row => ({
@@ -56,7 +56,7 @@ export function draftActions(x: BarCtx, d: Extract<CommandEntry, { kind: "draft"
     { label: "Generate again", icon: <Play size={14} />, note: "as its Generate button", run: () => formWhenOpen(d.id, () => openDraft(d.id)).then((t) => (t?.generate ? t.generate() : x.say({ id: "bar:gen", tone: "bad", title: "The draft could not be opened", href: "/", go: "Open the Studio" }))) },
     {
       label: "Duplicate", icon: <Layers size={14} />, note: "a new draft with its form",
-      run: () => api.draft(d.id).then((y) => api.createDraft({ recipe: y.recipe, forms: y.forms, count: y.count, look: y.look, project: d.project })).then((made) => { void client.invalidateQueries({ queryKey: DRAFT_LIST }); x.openNew(made); }, failed("Could not duplicate the draft")),
+      run: () => api.draft(d.id).then((y) => api.createDraft({ recipe: y.recipe, forms: y.forms, count: y.count, look: y.look, project: d.project })).then((made) => { void client.invalidateQueries({ queryKey: queryKeys.drafts.lists() }); x.openNew(made); }, failed("Could not duplicate the draft")),
     },
     {
       // as the draft header's pencil: the name it is listed by, instead of the start of its prompt
@@ -64,7 +64,7 @@ export function draftActions(x: BarCtx, d: Extract<CommandEntry, { kind: "draft"
       run: async () => {
         const name = await askText({ title: `Rename ${d.label}`, value: d.label, placeholder: "A name", yes: "Rename" });
         if (!name || name === d.label) return;
-        await api.saveDraft(d.id, { name }).then(() => { for (const queryKey of [DRAFT_LIST, ["drafts", d.id]]) void client.invalidateQueries({ queryKey }); }, failed(`${d.label} could not be renamed`));
+        await api.saveDraft(d.id, { name }).then(() => { for (const queryKey of [queryKeys.drafts.lists(), queryKeys.drafts.one(d.id)]) void client.invalidateQueries({ queryKey }); }, failed(`${d.label} could not be renamed`));
       },
     },
     ...moveTo(x, { kind: "draft", id: d.id, group: d.project, name: d.label }, d.project),
@@ -130,7 +130,7 @@ export function workflowActions(x: BarCtx, w: Extract<CommandEntry, { kind: "wor
       label: "Remove…", icon: <Trash2 size={14} />, danger: true, note: "what it made stays in the library",
       run: async () => {
         if (!(await ask({ title: `Remove ${w.label}?`, text: "What you generated with it stays in your library.", yes: "Remove" }))) return;
-        await api.deleteWorkflow(w.id).then(() => { for (const key of ["recipes", "setup", "workflows"]) void x.client.invalidateQueries({ queryKey: [key] }); x.reindex(); }, failed(`${w.label} could not be removed`));
+        await api.deleteWorkflow(w.id).then(() => { for (const queryKey of [queryKeys.recipes(), queryKeys.setup(), queryKeys.workflows()]) void x.client.invalidateQueries({ queryKey }); x.reindex(); }, failed(`${w.label} could not be removed`));
       },
     },
   ];

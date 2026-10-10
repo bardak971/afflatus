@@ -24,6 +24,7 @@ const useDismissed = create<{ by: Record<string, string[]>; set(timeline: string
 import { otherShape } from "./model";
 import { Estimate } from "./estimate";
 import { joinsOf as askJoins } from "./measures";
+import { queryKeys } from "../queryKeys";
 
 /** A quiet action in a card's head or row: accent words, no box. */
 const quiet = "shrink-0 text-xs font-semibold text-accent hover:underline disabled:opacity-40";
@@ -39,7 +40,7 @@ export function useAttention(t: Timeline, clips: Clip[], renderable: (c: Clip) =
   const joined = clips.filter((c, i) => i > 0 && c.joined === "continue" && c.take);
   const joinQueries = useQueries({
     // asked for together (timeline/measures.ts): one request for the timeline's joins, not one per clip
-    queries: joined.map((c) => ({ queryKey: ["joins", c.id, c.take!.id, c.take!.startMs, c.take!.endMs], queryFn: () => askJoins(c.id).then((items) => ({ items })), staleTime: 60_000 })),
+    queries: joined.map((c) => ({ queryKey: queryKeys.joins.ofTake(c.id, c.take!.id, c.take!.startMs, c.take!.endMs), queryFn: () => askJoins(c.id).then((items) => ({ items })), staleTime: 60_000 })),
   });
   const joinItems = new Map<string, JoinFigures | undefined>(joined.map((c, k) => [c.id, joinQueries[k]?.data?.items]));
   const joinsOf = new Map<string, number | null | undefined>(joined.map((c) => {
@@ -136,7 +137,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, why, kn
   const gather = useMutation({
     mutationFn: () => api.moveAssets(elsewhere.map((a) => a.id), landing),
     // the library hears of the move from the server (its library event); the timeline shows where its takes now are
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["timelines", t.id] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.timelines.one(t.id) }),
   });
   const { joined, joinsOf, listed, rows, kept, dismissed, checking } = useAttention(t, clips, renderable, msOf, { why, known });
   const measured = clips.filter((c) => c.take?.renderMs);

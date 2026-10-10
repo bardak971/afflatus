@@ -32,10 +32,11 @@ import { NavRail } from "./NavRail";
 import { EditorSkeleton } from "./timeline/EditorSkeleton";
 import { WorkflowEditorSkeleton } from "./screens/workflowEditor/EditorSkeleton";
 import { useTheme } from "./theme/store";
+import { queryKeys } from "./queryKeys";
 
 /** A tool Afflatus needs is missing on the computer it runs on: said once per browser session, with the way to Settings → About. */
 function useMissingTools() {
-  const health = useQuery({ queryKey: ["health"], queryFn: () => api.health(), staleTime: Infinity });
+  const health = useQuery({ queryKey: queryKeys.health(), queryFn: () => api.health(), staleTime: Infinity });
   const push = useBanners((s) => s.push);
   useEffect(() => {
     for (const c of health.data?.checks ?? []) {

@@ -5,6 +5,7 @@ import { api, type PacksStarted } from "../api";
 import { useDownloads } from "../useGetFile";
 import { Button, cx } from "../ui";
 import { plural } from "../format";
+import { queryKeys } from "../queryKeys";
 
 const link = "font-semibold text-accent underline underline-offset-2 hover:text-ink";
 /** The workflow read again: what was found, with the workflow in the form Afflatus keeps. */
@@ -48,7 +49,7 @@ export function MissingPacks({ missing, packs, graph, wiring, editor, onInspecte
   // Watched while something is pending, for a while: a refusal (no Manager) is not asked again
   const watching = () => started !== null && Date.now() - started.at < WATCH_MS;
   const status = useQuery({
-    queryKey: ["packs", ids],
+    queryKey: queryKeys.packs.status(ids),
     queryFn: () => api.packsStatus(ids),
     retry: false,
     refetchInterval: (q) => (ids.length && !q.state.error && watching() && (!q.state.data || q.state.data.items.some((i) => i.state === "pending")) ? 2000 : false),

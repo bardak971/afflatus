@@ -4,6 +4,7 @@ import { api, type RecipeInfo } from "../api";
 import { sameValue } from "../fields";
 import { fileLabel } from "../format";
 import { Button, ErrorNote } from "../ui";
+import { queryKeys } from "../queryKeys";
 
 /**
  * What belongs to the model, whatever part of the form it is in: how the per-model settings stand against
@@ -22,7 +23,7 @@ export function ModelDefaults({ recipe, file, hasSaved, values, defaults, onClea
   const client = useQueryClient();
   const perModel = recipe.inputs.filter((i: InputSpec) => i.perModel);
   const differs = perModel.filter((i) => !sameValue(values[i.id], defaults[i.id]));
-  const refetch = () => client.invalidateQueries({ queryKey: ["model-settings"] });
+  const refetch = () => client.invalidateQueries({ queryKey: queryKeys.modelSettings() });
   const save = useMutation({
     mutationFn: () => api.saveModelSettings({ family: recipe.family, file, values: Object.fromEntries(perModel.map((i) => [i.id, values[i.id]])) }),
     onSuccess: async () => {

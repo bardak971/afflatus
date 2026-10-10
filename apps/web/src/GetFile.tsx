@@ -5,6 +5,7 @@ import { api, type Download } from "./api";
 import { about, fileLabel, siteName, size } from "./format";
 import { Bar, cx } from "./ui";
 import { count, useDownloads, useGetFile, type Find } from "./useGetFile";
+import { queryKeys } from "./queryKeys";
 
 export { useDownloads };
 
@@ -33,7 +34,7 @@ export function DownloadRow({ d, named }: { d: Download; named?: boolean }) {
   }, [d.bytes]);
   const left = speed > 0 && d.total > d.bytes ? about((d.total - d.bytes) / speed) : "";
   const client = useQueryClient();
-  const stop = useMutation({ mutationFn: () => api.stopDownload(d.id), onSettled: () => client.invalidateQueries({ queryKey: ["downloads"] }) });
+  const stop = useMutation({ mutationFn: () => api.stopDownload(d.id), onSettled: () => client.invalidateQueries({ queryKey: queryKeys.downloads() }) });
   const running = d.status === "starting" || d.status === "downloading";
   return (
     <div className="relative flex flex-col gap-1 rounded-md border border-line bg-raised py-1.5 pr-9 pl-2.5 text-ink">

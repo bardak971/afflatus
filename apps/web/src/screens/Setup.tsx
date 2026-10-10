@@ -20,6 +20,7 @@ import { StorageCard } from "./settings/StorageCard";
 import { UpdatesCard } from "./settings/UpdatesCard";
 import { BarCard } from "./settings/BarCard";
 import { INDEX, MOVED, settingHref, spotOf, tabHref, TABS, type Tab } from "./settings/settingsIndex";
+import { queryKeys } from "../queryKeys";
 
 /** What each tab says at a glance, beside its name: ComfyUI answering, operations not ready, the disk used, the version. */
 function useTabMarks(): Partial<Record<Tab, ReactNode>> {
@@ -28,7 +29,7 @@ function useTabMarks(): Partial<Record<Tab, ReactNode>> {
   const families = useFamilies();
   const storage = useStorage();
   // the same query as About's: read once, kept
-  const health = useQuery({ queryKey: ["health"], queryFn: () => api.health(), staleTime: Infinity });
+  const health = useQuery({ queryKey: queryKeys.health(), queryFn: () => api.health(), staleTime: Infinity });
   const comfy = setup.data?.comfy;
   // operations of the families that are on that cannot run: a family turned off is a choice, not a problem
   const notReady = setup.data ? (recipes.data?.recipes ?? []).filter((r) => families.isOn(r.family) && !setup.data!.recipes.find((x) => x.id === r.id)?.ready).length : 0;

@@ -11,6 +11,7 @@ import { Keys } from "../Keys";
 import { Select } from "../Select";
 import { Button, Chip, cx, ErrorNote, Help, NumberBox, Segmented, Toggle } from "../ui";
 import { est } from "./estimate";
+import { queryKeys } from "../queryKeys";
 
 const ROUTES: Array<{ value: FinishSettings["route"]; label: string; detail: string }> = [
   { value: "seedvr", label: "SeedVR2 (restores + enlarges)", detail: "any clip; the whole clip in view, so no flicker; compression and softness repaired too. Minutes per clip" },
@@ -48,7 +49,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
     }
   }, [settings.data, loaded]);
   const go = useMutation({ mutationFn: () => api.finishTimeline(timeline, { ...v, redo }), onSuccess: onQueued });
-  const save = useMutation({ mutationFn: () => api.saveSettings({ finish: v }), onSuccess: () => client.invalidateQueries({ queryKey: ["settings"] }) });
+  const save = useMutation({ mutationFn: () => api.saveSettings({ finish: v }), onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.settings() }) });
 
   const videos = clips.filter((c) => c.kind === "video" && c.take && !c.job);
   const finished = videos.filter((c) => c.take?.finishedFrom);
@@ -58,7 +59,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
   const resampled = videos.filter((c) => resamplesLatent(recipes.data?.recipes.find((r) => r.id === c.recipe))).length;
   // what it should take, worked out by the server as the waiting list will show it job by job (finishForecast)
   const forecast = useQuery({
-    queryKey: ["finishForecast", timeline, v, redo, todo.map((c) => c.take?.id).join()],
+    queryKey: queryKeys.finishForecast.of(timeline, v, redo, todo.map((c) => c.take?.id).join()),
     queryFn: () => api.finishForecast(timeline, { ...v, redo }),
     enabled: loaded && todo.length > 0,
   });

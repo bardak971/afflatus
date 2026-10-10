@@ -16,6 +16,7 @@ import type { Action } from "../useActions";
 import type { BarCtx, Preset } from "./ctx";
 import { applyPreset } from "./kit";
 import { row } from "./tree";
+import { queryKeys } from "../../queryKeys";
 
 const KIT_WORD = { person: "person", place: "place", style: "style", preset: "preset", snippet: "snippet" } as const;
 
@@ -116,7 +117,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
         const stored = open?.recipe.id === recipe.id ? open.values : {};
         const input = { ...formDefaults(recipe, status?.options, x.modelSettings.data?.items ?? [], stored).defaults, ...stored };
         await api.warm(recipe.id, input, open?.recipe.id === recipe.id ? open.look ?? null : null);
-        void client.invalidateQueries({ queryKey: ["queue"] });
+        void client.invalidateQueries({ queryKey: queryKeys.queue() });
         good(`${recipe.title}: loading its models`, "A job in the queue that renders nothing.", "/queue", "Open queue");
       };
       return [{ label: `Load ${recipe.title}`, icon: <MemoryStick size={14} />, note: "into ComfyUI, ahead of a render", run: () => run().catch(failed(`${recipe.title} could not be loaded`)) }];
@@ -135,7 +136,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
     case "new-timeline":
       return [{
         label: c.name ? `New timeline “${c.name}”` : "New timeline", icon: <Film size={14} />, note: "in the project you work in; opens in the editor",
-        run: () => api.createTimeline(c.name || undefined, projectForNew()).then((t) => { void client.invalidateQueries({ queryKey: ["timelines"] }); x.reindex(); go(`/timelines/${t.id}`); }, failed("Could not make the timeline")),
+        run: () => api.createTimeline(c.name || undefined, projectForNew()).then((t) => { void client.invalidateQueries({ queryKey: queryKeys.timelines.all() }); x.reindex(); go(`/timelines/${t.id}`); }, failed("Could not make the timeline")),
       }];
     case "new-folder": {
       // at the top of the project worked in (in its root folder), as the Projects panel's "New folder inside…" on it
@@ -146,7 +147,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       return [{
         label: `New folder “${c.name}” in ${p?.name ?? "the Inbox"}`, icon: <FolderPlus size={14} />,
         run: () => api.createFolder(c.name, root, root ? undefined : group).then((f) => {
-          for (const queryKey of [["folders"], ["projects"]]) void client.invalidateQueries({ queryKey });
+          for (const queryKey of [queryKeys.folders(), queryKeys.projects.all()]) void client.invalidateQueries({ queryKey });
           x.reindex();
           good(`${f.name} made`, `In ${p?.name ?? "the Inbox"}.`);
         }, failed(`${c.name} could not be made`)),
@@ -161,7 +162,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       return [{
         label: `New ${KIT_WORD[kind]} “${c.name}”`, icon: <Clapperboard size={14} />, note: "opens in the Prompt kit",
         run: () => api.createEntity(kind, c.name, kind === "snippet" ? { text: "", category: "", style: null } : undefined)
-          .then((e) => { void client.invalidateQueries({ queryKey: ["entities"] }); go(kitHref(kind, e.id)); }, failed(`${c.name} could not be made`)),
+          .then((e) => { void client.invalidateQueries({ queryKey: queryKeys.entities() }); go(kitHref(kind, e.id)); }, failed(`${c.name} could not be made`)),
       }];
     }
     case "import-workflow":
@@ -187,16 +188,16 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       return [{
         label: "Reconnect to ComfyUI", icon: <Plug size={14} />, note: "as Settings' Test again",
         run: () => api.rescanSetup().then((scan) => {
-          client.setQueryData(["setup"], scan);
-          for (const queryKey of [["settings"], ["queue"]]) void client.invalidateQueries({ queryKey });
+          client.setQueryData(queryKeys.setup(), scan);
+          for (const queryKey of [queryKeys.settings(), queryKeys.queue()]) void client.invalidateQueries({ queryKey });
           if (scan.comfy.online) good("ComfyUI answers", scan.comfy.url, "/queue", "Open queue");
           else say({ id: "bar:comfy", tone: "bad", title: "ComfyUI does not answer", text: scan.comfy.error, href: "/settings", go: "Open settings" });
         }, failed("Could not reach ComfyUI")),
       }];
     case "pause":
-      return [{ label: "Pause queue", icon: <Pause size={14} />, disabled: queue?.paused, note: queue?.paused ? "already paused" : undefined, run: () => api.pause().then((q) => client.setQueryData(["queue"], q), failed("Could not pause the queue")) }];
+      return [{ label: "Pause queue", icon: <Pause size={14} />, disabled: queue?.paused, note: queue?.paused ? "already paused" : undefined, run: () => api.pause().then((q) => client.setQueryData(queryKeys.queue(), q), failed("Could not pause the queue")) }];
     case "resume":
-      return [{ label: "Resume queue", icon: <Play size={14} />, disabled: queue ? !queue.paused : false, note: queue && !queue.paused ? "it is running" : undefined, run: () => api.resume().then((q) => client.setQueryData(["queue"], q), failed("Could not resume the queue")) }];
+      return [{ label: "Resume queue", icon: <Play size={14} />, disabled: queue ? !queue.paused : false, note: queue && !queue.paused ? "it is running" : undefined, run: () => api.resume().then((q) => client.setQueryData(queryKeys.queue(), q), failed("Could not resume the queue")) }];
     // the bin's own Empty the bin and Put all back (binActions.ts, as its strip over the grid), off while it is empty
     case "empty-bin":
       return [{
@@ -216,7 +217,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       return [{
         label: c.path ? `Link ${c.path} to ${name}` : `Link a folder of your disk to ${name}…`, icon: <Link2 size={14} />, note: "used in place, nothing copied",
         run: () => (c.path
-          ? api.linkFolder(c.path, undefined, group).then((m) => { void client.invalidateQueries({ queryKey: ["projects"] }); good(`${m.name} linked: ${m.files ?? 0} ${(m.files ?? 0) === 1 ? "file" : "files"}`, "Its files are used where they are; nothing was copied."); }, failed(`${c.path} could not be linked`))
+          ? api.linkFolder(c.path, undefined, group).then((m) => { void client.invalidateQueries({ queryKey: queryKeys.projects.all() }); good(`${m.name} linked: ${m.files ?? 0} ${(m.files ?? 0) === 1 ? "file" : "files"}`, "Its files are used where they are; nothing was copied."); }, failed(`${c.path} could not be linked`))
           : tree.link(t)),
       }];
     }
@@ -263,7 +264,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
     case "undo": {
       // the open editor's history first, as Ctrl+Z there; elsewhere the newest banner's Undo (a move, a bin), as Ctrl+Z off the editor
       if (aim?.open) {
-        const what = client.getQueryData<{ undo?: string | null }>(["timelines", aim.id])?.undo ?? null;
+        const what = client.getQueryData<{ undo?: string | null }>(queryKeys.timelines.one(aim.id))?.undo ?? null;
         return [{ label: what ? `Undo: ${what}` : `Nothing to undo in ${aim.name}`, icon: <Undo2 size={14} />, disabled: !what, note: what ? `in ${aim.name}, as its Ctrl+Z` : undefined, keys: what ? "Ctrl+Z" : undefined, run: () => useTimelineRequest.getState().ask({ timeline: aim.id, do: "undo" }) }];
       }
       const banner = [...useBanners.getState().items].reverse().find((b) => b.action?.undo);
@@ -289,7 +290,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
     case "new-project":
       return [{
         label: `New project “${c.name}”`, icon: <FolderPlus size={14} />, note: "and work in it",
-        run: () => api.createProject(c.name).then((p) => { void client.invalidateQueries({ queryKey: ["projects"] }); useProject.getState().set(p.id); good(`${p.name} made`, "You work in it now: what you make lands in its root folder."); }, failed("Could not make the project")),
+        run: () => api.createProject(c.name).then((p) => { void client.invalidateQueries({ queryKey: queryKeys.projects.all() }); useProject.getState().set(p.id); good(`${p.name} made`, "You work in it now: what you make lands in its root folder."); }, failed("Could not make the project")),
       }];
   }
 }

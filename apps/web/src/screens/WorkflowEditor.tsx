@@ -9,6 +9,7 @@ import { FormPanel } from "./workflowEditor/FormPanel";
 import { ReadPanel } from "./workflowEditor/ReadPanel";
 import { ShowPanel } from "./workflowEditor/ShowPanel";
 import { useMapping, type Editing } from "./workflowEditor/useMapping";
+import { queryKeys } from "../queryKeys";
 
 export type { Editing };
 
@@ -27,7 +28,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
       return start.id ? api.saveWorkflow(start.id, body) : api.createWorkflow(body);
     },
     onSuccess: async () => {
-      await Promise.all(["recipes", "setup", "workflows"].map((key) => client.invalidateQueries({ queryKey: [key] })));
+      await Promise.all([queryKeys.recipes(), queryKeys.setup(), queryKeys.workflows()].map((queryKey) => client.invalidateQueries({ queryKey })));
       onDone(true);
     },
   });
