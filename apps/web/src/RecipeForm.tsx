@@ -4,7 +4,7 @@ import { useAdvice } from "./advice";
 import { thumbUrl, type RecipeInfo, type RecipeStatus } from "./api";
 import { useModelSettings, useRecipes } from "./data";
 import { Field, sameValue } from "./fields";
-import { changedIn, countOf, formDefaults, layoutOf, matchesText, summariesOf } from "./form";
+import { changedIn, formDefaults, layoutOf, matchesText, summariesOf } from "./form";
 import { InputsPart } from "./recipeForm/InputsPart";
 import { ModelDefaults } from "./recipeForm/ModelDefaults";
 import { OutputPart } from "./recipeForm/OutputPart";
@@ -12,6 +12,7 @@ import { CardPrompt, FormSearching, Part, TextFold, useFormAim, useParts } from 
 import { Strip } from "./recipeForm/Strip";
 import { useFormSearch } from "./recipeForm/useFormSearch";
 import { scrollInside } from "./scrollInside";
+import { plural } from "./format";
 
 // what is said under a model ComfyUI does not have (with where a preset gets it): fetched the first time one is missing, not
 // with the form on every first paint
@@ -191,7 +192,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
     </div>
   );
   const advancedPart = rare.length > 0 && (
-    <Part id="advanced" title="Advanced" summary={<>{countOf(rare.length, "setting")}{changedMark(rare)}</>} needs={Boolean(q)}>
+    <Part id="advanced" title="Advanced" summary={<>{plural(rare.length, "setting")}{changedMark(rare)}</>} needs={Boolean(q)}>
       {rare.map(setting)}
     </Part>
   );
@@ -222,7 +223,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
         // what the chapter's switches say, for the folded line: "Hires fix on"
         const switches = items.filter((i) => i.type === "toggle").map((i) => `${i.label} ${values[i.id] ? "on" : "off"}`);
         return (
-          <Part key={ch.id} id={ch.id} title={ch.label} help={ch.help} needs={Boolean(q)} summary={<>{!ch.items.length ? "empty: drag settings into it" : switches.length ? switches.join(" · ") : countOf(items.length, "setting")}{changedMark(items)}</>}>
+          <Part key={ch.id} id={ch.id} title={ch.label} help={ch.help} needs={Boolean(q)} summary={<>{!ch.items.length ? "empty: drag settings into it" : switches.length ? switches.join(" · ") : plural(items.length, "setting")}{changedMark(items)}</>}>
             {items.map(setting)}
             {!ch.items.length && <span className="text-xs text-ink-2">Nothing in this section yet. Drag settings into it under Sections; an empty section is left out of the form.</span>}
           </Part>

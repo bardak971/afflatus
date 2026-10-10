@@ -91,6 +91,9 @@ export const size = (bytes: number) =>
 
 export const gb = (bytes: number) => `${(bytes / 2 ** 30).toFixed(1)} GB`;
 
+/** A count with its word: "1 take", "3 settings", "2 people" (`many` for a word that does not just take an s). */
+export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
 const PHASES: Record<string, string> = {
   waiting: "Queued on ComfyUI", loading: "Loading model", sampling: "Sampling", upscaling: "Upscale",
   refining: "Refine pass", restoring: "SeedVR2 restore", detailing: "Detailer", processing: "Processing", decoding: "VAE decode", interpolating: "Frame interpolation", encoding: "Encoding",
@@ -111,6 +114,39 @@ export function dayOf(iso: string, now = Date.now()): string {
   const d = new Date(iso);
   const day = `${d.getDate()} ${MONTHS[d.getMonth()]}`;
   return d.getFullYear() === new Date(now).getFullYear() ? day : `${day} ${d.getFullYear()}`;
+}
+
+/** The UI is in English, with the day before the month and a 24 h clock, whatever the browser's own locale. */
+export const UI_LOCALE = "en-GB";
+
+/** A local day as a key, "2026-10-09": not the UTC one, so a render at 00:30 belongs to today. */
+export const localDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** How many calendar days a local day ("2026-10-09", or a moment's own day) is before `now`'s: 0 today, 1 yesterday. */
+export function daysBack(day: string | Date, now = new Date()): number {
+  const [y, m, d] = typeof day === "string" ? day.split("-").map(Number) : [day.getFullYear(), day.getMonth() + 1, day.getDate()];
+  // midnight to midnight, rounded: a day the clocks change on is still one day
+  const midnight = (year: number, month: number, date: number) => new Date(year, month, date).getTime();
+  return Math.round((midnight(now.getFullYear(), now.getMonth(), now.getDate()) - midnight(y!, m! - 1, d!)) / 86_400_000);
+}
+
+/** The hour and minute of a moment: "14:32", "09:05". */
+export const hourMinute = (at: string | number | Date) => new Date(at).toLocaleTimeString(UI_LOCALE, { hour: "2-digit", minute: "2-digit" });
+
+/** A moment in full, as a tooltip or a "checked" line says it: "09/10/2026, 14:32:05". */
+export const dateTime = (at: string | number | Date) => new Date(at).toLocaleString(UI_LOCALE);
+
+/** A day of the month and the month, short, for a chart's or a table's figures: "6 Oct". */
+export const dayMonth = (at: string | number | Date) => new Date(at).toLocaleDateString(UI_LOCALE, { day: "numeric", month: "short" });
+
+/** A list's or a column's date, short: "14:32" today, "yesterday", "3 Oct" this year, "3 Oct 2025" before. */
+export function shortDate(iso: string, now = new Date()): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const ago = daysBack(d, now);
+  if (ago === 0) return hourMinute(d);
+  if (ago === 1) return "yesterday";
+  return dayOf(iso, now.getTime());
 }
 
 /** How long ago, short: "just now", "12 min ago", "4 h ago", "3 d ago" within the week, then the day ("3 Oct"). */

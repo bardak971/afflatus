@@ -24,10 +24,10 @@ import { outfitsOf, remember, remembered, textOf } from "./kit/shared";
 import { SnippetTable, type Snippet } from "./kit/SnippetTable";
 import { StyleEditor } from "./kit/StyleEditor";
 import { useEntityDraft } from "./kit/useEntityDraft";
+import { plural } from "../format";
 
 const TAB_KEY = "afflatus.kit.tab";
 
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 /** What an item is, at the head of its menu. */
 const KIND_WORD = { person: "Person", place: "Place", style: "Style", preset: "Preset", snippet: "Snippet" } as const;
 /** One line about an item, under its name: terse, the list is read at a glance. */

@@ -1,5 +1,5 @@
 import type { Asset, DraftLeaf, FolderNode, ProjectsTree, TreeGroup } from "../api/types/library";
-import { size } from "../format";
+import { plural, size } from "../format";
 
 /**
  * The Projects panel's tree as the rows it draws: what is unfolded, in order, each with its `tree`
@@ -142,22 +142,10 @@ const sortFolders = (list: FolderNode[], s: Sort) =>
     return sign * byName(a, b);
   });
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-/** The Created column: "14:32" today, "yesterday", "3 Oct" this year, "3 Oct 2025" before. */
-export function shortDate(iso: string, now = new Date()): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const ago = Math.round((day(now) - day(d)) / 86_400_000);
-  if (ago === 0) return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  if (ago === 1) return "yesterday";
-  return `${d.getDate()} ${MONTHS[d.getMonth()]}${d.getFullYear() === now.getFullYear() ? "" : ` ${d.getFullYear()}`}`;
-}
 
 export const groupKey = (g: { id: string | null }) => `g:${g.id ?? "inbox"}`;
 export const draftsKey = (group: string | null) => `d:${group ?? "inbox"}`;
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const clock = (ms: number) => {
   const s = Math.round(ms / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;

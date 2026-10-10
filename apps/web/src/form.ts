@@ -1,6 +1,6 @@
 import { frameOf, fuzzyScore, isShown, latentUpscaleSize, megapixels, pickChoice, RANDOM_SEED, secondsInput, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import type { ModelSettings, RecipeInfo } from "./api";
-import { fileLabel } from "./format";
+import { fileLabel, plural } from "./format";
 
 /** The value an input starts with, given what this ComfyUI offers for it. */
 function defaultOf(spec: InputSpec, options: string[] | undefined): unknown {
@@ -218,8 +218,6 @@ export function layoutOf(recipe: RecipeInfo, seen: Record<string, unknown>, q: s
 }
 export type FormLayout = ReturnType<typeof layoutOf>;
 
-/** "3 settings", "1 LoRA". */
-export const countOf = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 const holds = (x: unknown) => (Array.isArray(x) ? x.length > 0 : Boolean(x));
 
 /**
@@ -243,7 +241,7 @@ export function summariesOf(recipe: RecipeInfo, layout: FormLayout, values: Reco
     extra.lookSummary,
     ...refs.map((i) => {
       const v = values[i.id];
-      if (i.type === "references") return Array.isArray(v) && v.length ? countOf((v as ReferenceValue[]).length, i.media === "video" ? "reference video" : "reference image") : "";
+      if (i.type === "references") return Array.isArray(v) && v.length ? plural((v as ReferenceValue[]).length, i.media === "video" ? "reference video" : "reference image") : "";
       return v ? i.label.toLowerCase() : "";
     }),
   ].filter(Boolean);
@@ -285,9 +283,9 @@ export function summariesOf(recipe: RecipeInfo, layout: FormLayout, values: Reco
     key("cfg") ? `CFG ${values.cfg}` : "",
     // a sampler left to the recipe says so: "Auto" alone would say nothing
     key("sampler") ? (values.sampler === "Auto" ? "sampler: auto" : fileLabel(String(values.sampler ?? ""))) : "",
-  ].filter(Boolean).join(" · ") || countOf(sampling.length, "setting");
+  ].filter(Boolean).join(" · ") || plural(sampling.length, "setting");
   return {
-    modelSaid: [extra.madeSummary, ...knobs.map(said), loraCount ? countOf(loraCount, "LoRA") : ""].filter(Boolean).join(" · "),
+    modelSaid: [extra.madeSummary, ...knobs.map(said), loraCount ? plural(loraCount, "LoRA") : ""].filter(Boolean).join(" · "),
     framesChosen,
     missing,
     refsCount: refsSaid.length,

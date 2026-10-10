@@ -10,7 +10,7 @@ import { useOpenInComfy } from "../actions";
 import { api, ApiError, type RecipeStatus, type WorkflowBrief } from "../api";
 import { useRecipes, useSettings, useSetup, useWorkflows } from "../data";
 import { useOpenNewDraft } from "../draft";
-import { notReady, recipeLabel } from "../format";
+import { notReady, plural, recipeLabel } from "../format";
 import { saveJson } from "../download";
 import { useHandover } from "../store";
 import { useWorkflowsRequest, workflowEditHref } from "../bar/bridge";
@@ -160,8 +160,6 @@ export function WorkflowImport() {
 
 const KIND = { image: "Image", video: "Video", audio: "Audio" } as const;
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-
 /** What the readiness chip counts, from the setup check: the missing nodes first, as notReady says them first. */
 function missingCount(status: RecipeStatus | undefined): string {
   if (!status || status.ready) return "";
@@ -306,7 +304,7 @@ export function Workflows() {
 
   const comfyOnline = setup.data?.comfy.online ?? false;
   const why = (recipeId: string) => (setup.isSuccess ? notReady(setup.data.recipes.find((r) => r.id === recipeId), comfyOnline) : null);
-  const builtIn = (recipes.data?.families ?? []).filter((f) => !f.id.startsWith("workflow-"));
+  const builtIn = (recipes.data?.families ?? []).filter((f) => !f.imported);
   // the error of the last action only: one that went through since clears an older one
   const last = [open, shareIt, tryIt, remove, openInComfy].reduce((a, m) => (m.submittedAt > a.submittedAt ? m : a));
   // the list's own error is said in its place, under "Your workflows". What an editor that could not open left to say

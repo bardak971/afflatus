@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
 import { ask } from "../../Confirm";
 import { useProject } from "../../project";
-import { UNKEPT_MS } from "../library/justify";
+import { UNKEPT_MS } from "@afflatus/core";
 
 /**
  * The renders nobody kept, which go to the bin by themselves a day after they were made (or unkept): said once,

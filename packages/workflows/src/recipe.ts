@@ -17,6 +17,7 @@ export function familyOf(def: WorkflowDef): Family {
     id: `workflow-${slug(def.model)}`,
     name: def.model,
     summary: "From your own workflow.",
+    imported: true,
     promptStyle: "sentences",
     slots: [],
     // "Krea2", "Krea 2" and "krea_2" are the same name

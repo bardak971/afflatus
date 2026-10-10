@@ -30,6 +30,8 @@ export interface Family {
   name: string;
   summary: string;
   promptStyle: "tags" | "sentences" | "sections";
+  /** The family of workflows the user imported (Workflows) under one model name, not a built-in one. */
+  imported?: true;
   /** Files every recipe of this family loads (a model the user picks per generation is an input instead). */
   slots: ModelSlot[];
   /** Regex sources matched against a LoRA's architecture metadata and path: which LoRAs fit this family. */

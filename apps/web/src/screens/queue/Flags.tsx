@@ -1,15 +1,13 @@
 import { useMutation } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { long } from "../../format";
+import { dayMonth, long, plural } from "../../format";
 import { useQueueOf } from "../studio/queueOf";
 import { useQueueBulk } from "./bulk";
 import type { Flag } from "./flagRules";
 import { groupingSaves, modelSwitches } from "./order";
 import { pct } from "./SummaryTiles";
 
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 const head = "text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase";
-const day = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
 function Line({ warn, lead, rest, sub, action }: { warn: boolean; lead: string; rest?: string; sub: string; action?: ReactNode }) {
   return (
@@ -46,7 +44,7 @@ export function Flags({ flags, onJobs }: { flags: Flag[]; onJobs(model: string, 
           if (f.kind === "slow") {
             return (
               <Line
-                key={`slow-${f.model}`} warn lead={`${f.name} · s/it +${f.pct} %`} rest={`vs its p50 since ${day(f.since)}`}
+                key={`slow-${f.model}`} warn lead={`${f.name} · s/it +${f.pct} %`} rest={`vs its p50 since ${dayMonth(f.since)}`}
                 sub="s/it is per step · resolution, LoRA stack or VRAM spill"
                 action={<button type="button" className={actionClass} data-tip="Its jobs in the list below" onClick={() => onJobs(f.model, "all")}>jobs</button>}
               />

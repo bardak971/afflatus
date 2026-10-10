@@ -5,6 +5,7 @@ import { HISTORY } from "../../data";
 import { useBanners } from "../../store";
 import { pinnedFailures } from "./failures";
 import { byModel, groupingSaves } from "./order";
+import { plural } from "../../format";
 
 // what the command bar shows next to "Group the queue by model"
 export { groupingSaves };
@@ -17,7 +18,6 @@ export { groupingSaves };
  */
 
 const queueOf = (client: QueryClient) => client.getQueryData<QueueStatus>(["queue"]);
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
 /** Every waiting job cancelled, after asking; `ids`: only those (what the screen showed when it was asked). How many were; null when the question was declined or nothing waits. */
 async function cancelAllWaiting(client: QueryClient, opts: { ids?: string[]; ask?: boolean } = {}): Promise<number | null> {

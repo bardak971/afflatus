@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { JOIN_FADE_MS, musicGainAt, type MusicPlan } from "@afflatus/core";
+import { FRAME_SLACK_MS, JOIN_FADE_MS, musicGainAt, type MusicPlan } from "@afflatus/core";
 import { gainWav, type DuckCurve } from "./duck";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -199,7 +199,7 @@ export async function filmStrip(source: Media, ext: string, durationMs: number, 
   const frames = Math.max(2, Math.min(120, Math.round(opts.frames ?? STRIP.frames)));
   const height = Math.max(24, Math.min(240, Math.round(opts.height ?? STRIP.height)));
   const from = Math.max(0, Math.min(opts.fromMs ?? 0, durationMs));
-  const to = Math.max(from + 40, Math.min(opts.toMs ?? durationMs, durationMs));
+  const to = Math.max(from + FRAME_SLACK_MS, Math.min(opts.toMs ?? durationMs, durationMs));
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "strip.jpg");
@@ -602,7 +602,7 @@ async function partChains(parts: ExportPart[], inputs: Inputs, size: { W: number
     prevPart = p;
     // the part after fades in over this one's end with a hold: this one holds its last frame (and silence) for as long
     const next = parts[i + 1];
-    const padMs = next?.blendMs && next.kind === "video" && next.blendMode !== "overlap" ? Math.min(next.blendMs, (next.endMs - next.startMs) - 40) : 0;
+    const padMs = next?.blendMs && next.kind === "video" && next.blendMode !== "overlap" ? Math.min(next.blendMs, (next.endMs - next.startMs) - FRAME_SLACK_MS) : 0;
     const pad = padMs > 0 ? `,tpad=stop_mode=clone:stop_duration=${sec(padMs)}` : "";
     const padded = sec(p.endMs - p.startMs + padMs);
     // the sound is not held with the picture when the part after carries it on (see "freeze")
@@ -654,7 +654,7 @@ function fadeRuns(parts: ExportPart[], fps: number, chains: string[]): { outs: s
     let a = `a${run[0]}`;
     let len = lenOf(parts[run[0]!]!);
     for (const j of run.slice(1)) {
-      const x = Math.min(parts[j]!.blendMs!, lenOf(parts[j]!) - 40);
+      const x = Math.min(parts[j]!.blendMs!, lenOf(parts[j]!) - FRAME_SLACK_MS);
       if (parts[j]!.blendMode === "overlap") {
         // the part starts x early, over the part before's last x: the fade is between the same moments, both moving
         chains.push(`[${v}][v${j}]xfade=transition=fade:duration=${sec(x)}:offset=${sec(len - x)}[vx${j}]`);
@@ -924,7 +924,7 @@ export async function joinJump(
     const fb = await onDisk(dir, `b.${b.ext}`, b.source);
     // the last frame a length promises is not always there: a little earlier then
     const last = (await grayAt(fa, a.atMs)) ?? (await grayAt(fa, a.atMs - 100)) ?? (await grayAt(fa, a.atMs - 250));
-    const first = (await grayAt(fb, b.atMs)) ?? (await grayAt(fb, b.atMs + 40));
+    const first = (await grayAt(fb, b.atMs)) ?? (await grayAt(fb, b.atMs + FRAME_SLACK_MS));
     if (!last || !first) return null;
     const step = 1000 / Math.max(1, b.fps);
     const own: number[] = [];
@@ -1002,7 +1002,7 @@ export async function slowMotion(source: Media, ext: string, facts: { durationMs
   const fps = Math.max(1, Math.round(facts.fps ?? 24));
   const a = Math.max(0, Math.min(startMs, endMs));
   const b = Math.min(facts.durationMs, Math.max(startMs, endMs));
-  if (b - a < 40) throw new CutError("That range is too short: pick at least one frame.");
+  if (b - a < FRAME_SLACK_MS) throw new CutError("That range is too short: pick at least one frame.");
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "slow.mp4");

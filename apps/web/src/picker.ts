@@ -71,12 +71,12 @@ const squash = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "");
  * The models, each with its operations. A workflow imported under the name of a built-in model
  * ("Krea2" and "Krea 2" are one name) is listed with that model, next to its built-in operations.
  */
-export function modelGroups(recipes: RecipeInfo[], families: Array<{ id: string; name: string; summary: string }>): ModelGroup[] {
+export function modelGroups(recipes: RecipeInfo[], families: Array<{ id: string; name: string; summary: string; imported?: true }>): ModelGroup[] {
   const groups: ModelGroup[] = [];
   for (const family of families) {
     const own = recipes.filter((r) => r.family === family.id);
     if (!own.length) continue;
-    const builtIn = !family.id.startsWith("workflow-");
+    const builtIn = !family.imported;
     const same = groups.find((g) => g.key === squash(family.name));
     if (same) {
       same.recipes.push(...own);

@@ -11,7 +11,7 @@ import { useOpenNewDraft } from "../draft";
 import { groupTitle, keysShown, sideGroups, type ActionId, type ItemAction } from "../itemActions";
 import { Kbd } from "../Keys";
 import { modelGroups } from "../picker";
-import { clock, fileLabel, notReady, recipeLabel, took, when } from "../format";
+import { clock, fileLabel, hourMinute, notReady, recipeLabel, took, UI_LOCALE, when } from "../format";
 import { Select } from "../Select";
 import { Button, cx, Help, SectionTitle } from "../ui";
 import { leftOf } from "../screens/library/justify";
@@ -539,7 +539,7 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
             {g?.resolved.overlap?.tailMs ? <Row label="Tail overlap"><span className="inline-flex items-center gap-1.5">{(g.resolved.overlap.tailMs / 1000).toFixed(1)} s <Help text="The last seconds repeat the start of the next clip. A timeline skips them." /></span></Row> : null}
             <Row label="File">{FORMATS[a.mime] ?? a.mime}, {mb(a.bytes)}</Row>
             {a.path && <Row label={a.inBin ? "Was at" : "Path"}><span className="font-mono text-xs break-all">{a.path}</span></Row>}
-            <Row label="Created">{made.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })} at {made.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} ({when(a.createdAt)})</Row>
+            <Row label="Created">{made.toLocaleDateString(UI_LOCALE, { day: "numeric", month: "long", year: "numeric" })} at {hourMinute(made)} ({when(a.createdAt)})</Row>
             {g && <Row label="Render time">{took(g.tookMs)}</Row>}
           </dl>
         </details>

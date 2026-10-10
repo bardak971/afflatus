@@ -1,5 +1,5 @@
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { api, ApiError } from "../api";
+import { api } from "../api";
 import { findAsset } from "../assetCache";
 import { changeAssets } from "../assetChange";
 import { bringFiles } from "../bringFiles";
@@ -8,6 +8,7 @@ import { DRAFT_LIST } from "../data";
 import { size } from "../format";
 import { pathOf, useFolderImport } from "../folderImport";
 import { useProject } from "../project";
+import { useSayFailed } from "../sayFailed";
 import { useBanners, useOpenDraft } from "../store";
 import { planBin, planDrop, type Moving, type Row, type Target } from "./tree";
 
@@ -30,8 +31,7 @@ export function useTreeActions() {
     for (const queryKey of [["projects"], ["timelines"], DRAFT_LIST, ["folders"], ["assets"]]) void client.invalidateQueries({ queryKey });
   };
   // a 409 is the server saying what still uses it (a timeline's clip, a person of the Prompt kit): said as such
-  const failed = (title: string) => (err: unknown) =>
-    say({ id: `tree:${Date.now()}`, tone: "bad", title: err instanceof ApiError && err.status === 409 ? "Still in use" : title, text: err instanceof Error ? err.message : String(err), href: "/", go: "Open the Studio" });
+  const failed = useSayFailed({ id: "tree", go: "Open the Studio", inUse: true });
   /** Runs one change; false when it failed (said in a banner). */
   const run = async (title: string, work: () => Promise<unknown>) => {
     try {

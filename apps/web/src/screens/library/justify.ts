@@ -1,3 +1,4 @@
+import { UNKEPT_MS } from "@afflatus/core";
 import type { Asset } from "../../api";
 
 /**
@@ -76,8 +77,6 @@ export function justify(aspects: number[], width: number, target: number, gap: n
   return rows;
 }
 
-/** How long an item nobody kept has before it goes to the bin: a day from when its countdown started. */
-export const UNKEPT_MS = 24 * 60 * 60_000;
 /** The last hours of that day: the tile's clock mark turns to the warning colour. */
 export const SOON_MS = 3 * 60 * 60_000;
 export const leftOf = (a: Pick<Asset, "countdownFrom" | "createdAt">, now = Date.now()) => new Date(a.countdownFrom ?? a.createdAt).getTime() + UNKEPT_MS - now;

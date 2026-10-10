@@ -60,8 +60,8 @@ export function placeOf(slots: Slot[], playMs: number): { slot: Slot; x: number;
 }
 
 /**
- * Where a split at the playhead cuts a clip, in its video's own time: only inside what plays of it, never on a cut (40 ms
- * from either end); else why not, for the note.
+ * Where a split at the playhead cuts a clip, in its video's own time: only inside what plays of it, never on a cut (a frame,
+ * FRAME_SLACK_MS, from either end); else why not, for the note.
  */
 export function splitPoint(c: Clip, assetMs: number): { at: number } | { why: string } {
   const take = c.take;

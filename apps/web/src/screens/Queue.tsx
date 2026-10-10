@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type QueueStatus } from "../api";
 import { useQueue } from "../data";
 import { NOTIFY_HELP, NOTIFY_REFUSED, NotifyToggle } from "../NotifyToggle";
-import { useBanners } from "../store";
+import { useSayFailed } from "../sayFailed";
 import { Button, cx, ErrorNote, Help, SectionTitle, Segmented } from "../ui";
 import { History } from "./queue/History";
 import { RenderTimes } from "./queue/Times";
@@ -46,8 +46,7 @@ export function Queue() {
   const client = useQueryClient();
   const refresh = () => client.invalidateQueries({ queryKey: ["queue"] });
   // what fails is said in a banner, as the history's actions do: it goes away, and does not stay on the screen
-  const say = useBanners((b) => b.push);
-  const failed = (title: string) => (err: Error) => say({ id: `queue:${Date.now()}`, tone: "bad", title, text: err.message, href: "/queue", go: "Open queue" });
+  const failed = useSayFailed({ id: "queue", href: "/queue", go: "Open queue" });
   const pause = useMutation({ mutationFn: (paused: boolean) => (paused ? api.pause() : api.resume()), onSuccess: refresh, onError: failed("Could not pause or resume the queue") });
   const free = useMutation({ mutationFn: api.freeMemory, onError: failed("Could not unload the models") });
   const cancel = useMutation({ mutationFn: api.cancel, onSuccess: refresh, onError: failed("Could not cancel it") });

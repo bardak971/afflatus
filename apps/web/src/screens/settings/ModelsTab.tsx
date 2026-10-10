@@ -44,7 +44,7 @@ export function ModelSwitches() {
           const found = families.found(f.id);
           const on = families.isOn(f.id);
           const byHand = f.id in said;
-          const imported = f.id.startsWith("workflow-");
+          const imported = Boolean(f.imported);
           const name = `${f.name}${imported && twice.has(f.name) ? " (your workflows)" : ""}`;
           // its files are not there: what it needs is said here, once, with the way to get each file
           const slots = found || imported ? [] : (setup.data?.families.find((x) => x.id === f.id)?.slots ?? []).filter((x) => !x.optional && !x.file);

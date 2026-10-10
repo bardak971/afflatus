@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ArrowDownToLine, ArrowUpToLine, Layers, Trash2, X } from "lucide-react";
 import type { Job, RunningJob } from "../../api";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
-import { aboutMs, when } from "../../format";
+import { aboutMs, plural, when } from "../../format";
 import { Button, Chip, cx, SectionTitle } from "../../ui";
 import { useQueueBulk } from "./bulk";
 import { useModelName } from "./modelName";
@@ -10,8 +10,6 @@ import { betterPlace, dropped, groupingSaves, loadsAt, modelSwitches, moved } fr
 
 /** How many waiting jobs show before the rest fold into "and N more". */
 const SHOWN = 3;
-
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /**
  * What the waiting jobs come to, over them: how many, about how long in all (with what the running job has left),

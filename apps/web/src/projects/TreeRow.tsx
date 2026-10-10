@@ -3,7 +3,8 @@ import { Archive, Check, ChevronRight, CircleDashed, Eraser, Film, Folder, Folde
 import { thumbUrl } from "../api";
 import { size } from "../format";
 import { cx, TwoStep } from "../ui";
-import { shortDate, type Row } from "./tree";
+import { type Row } from "./tree";
+import { dateTime, shortDate } from "../format";
 import type { useTreeDrag } from "./useTreeDrag";
 
 const ICONS: Record<Row["kind"], { icon: ReactNode; tone: string }> = {
@@ -219,7 +220,7 @@ export function TreeRow({ r, setSize, posInSet, columns, scoped, q, isPicked, he
       ) : (
         <span data-tip={r.path} className={cx("min-w-0 truncate text-xs", drag.refused?.key === r.key || r.missing ? "text-warn-ink" : r.dim ? "text-ink-3" : "text-ink-2")}>{drag.refused?.key === r.key ? drag.refused.why : r.meta}</span>
       )}
-      {!scoped && <span data-tip={r.created ? new Date(r.created).toLocaleString("en-GB") : undefined} className="text-right text-xs whitespace-nowrap text-ink-2 tabular-nums">{r.created ? shortDate(r.created) : ""}</span>}
+      {!scoped && <span data-tip={r.created ? dateTime(r.created) : undefined} className="text-right text-xs whitespace-nowrap text-ink-2 tabular-nums">{r.created ? shortDate(r.created) : ""}</span>}
       <span className="text-right font-mono text-xs whitespace-nowrap text-ink-2">{r.bytes !== null ? size(r.bytes) : ""}</span>
     </div>
   );

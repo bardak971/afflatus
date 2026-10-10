@@ -12,13 +12,8 @@ import { useFolders, useProjects, useTimelines } from "./data";
 import { when } from "./format";
 import { tree } from "./screens/library/tree";
 import { copyText } from "./secureContext";
+import { useSayFailed } from "./sayFailed";
 import { useBanners } from "./store";
-
-/** A banner for an action of a menu that failed: said, with the way to the library. */
-export function useSayFailed() {
-  const say = useBanners((b) => b.push);
-  return (title: string) => (err: Error) => say({ id: `failed:${Date.now()}`, tone: "bad", title, text: err.message, href: "/", go: "Open the library" });
-}
 
 /**
  * What the menus of an item change on it (a tile's, the viewer's, the stage's), the one body each. Keep, rename,

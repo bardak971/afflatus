@@ -1,4 +1,5 @@
 import type { HistoryJob } from "../../api";
+import { daysBack, localDay } from "../../format";
 
 /**
  * Which failures the history pins on top, worked out apart from the screen: only the ones since the last render
@@ -34,23 +35,18 @@ export function reasonsOf(jobs: Array<Pick<HistoryJob, "error">>, max = 3): stri
 
 /** The local day a job finished on, as a key ("2026-10-09"). */
 export function dayOf(j: Pick<HistoryJob, "finishedAt" | "createdAt">): string {
-  const d = new Date(at(j));
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return localDay(new Date(at(j)));
 }
 
 /** A day's heading: "Today", "Yesterday", else "01/10" (and the year when it is not this one). */
 export function dayLabel(key: string, now = new Date()): string {
   const [y, m, d] = key.split("-").map(Number) as [number, number, number];
-  const day = new Date(y, m - 1, d);
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const back = Math.round((today.getTime() - day.getTime()) / 86_400_000);
+  const back = daysBack(key, now);
   if (back === 0) return "Today";
   if (back === 1) return "Yesterday";
   return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}${y === now.getFullYear() ? "" : `/${y}`}`;
 }
 
-/** "14:02": the hour a strip counts from. */
-export const hourOf = (ms: number) => new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
 /** A model file's name, as ComfyUI's loaders take them: what tells a missing file from any other value not offered. */
 const MODEL_FILE = /\.(safetensors|sft|ckpt|pt|pth|bin|gguf|onnx)$/i;

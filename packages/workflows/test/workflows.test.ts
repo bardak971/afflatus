@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { baseModels, checkGraph, describeRecipe, dryContext, parseInput, schemaFor, warmGraph, type Graph, type NodeCatalog } from "@afflatus/core";
-import { ancestors, factorOfUpscaler, inspect, legendOf, recipeFromWorkflow, slug, workflowDef, type WorkflowDef } from "../src";
+import { ancestors, factorOfUpscaler, familyOf, inspect, legendOf, recipeFromWorkflow, slug, workflowDef, type WorkflowDef } from "../src";
 import { catalog, flux, panel, sdxl, wan } from "./fixtures";
 
 const defOf = (graph: Graph, title: string, model: string): WorkflowDef =>
@@ -274,6 +274,8 @@ describe("a recipe made from a workflow", () => {
 
   it("has a form made from the mapping", () => {
     expect(recipe).toMatchObject({ id: "workflow.wan-2-2-picture-to-video", family: "workflow-wan-2-2", output: "video" });
+    // its family says it is the user's own: the screens go by that, not by the id's spelling
+    expect(familyOf(def)).toMatchObject({ id: "workflow-wan-2-2", name: "Wan 2.2", imported: true });
     expect(recipe.inputs.map((i) => i.id)).toEqual([
       "model", "prompt", "negative", "startImage", "endImage", "loras", "size", "seconds", "ctl_57_steps", "ctl_57_cfg", "seed",
     ]);

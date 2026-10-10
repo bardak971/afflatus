@@ -1,5 +1,5 @@
 import type { CommandEntry, Entity, Job, PromptHistoryItem, QueueStatus, RecipeInfo, RunningJob } from "../api";
-import { aboutMs, clock, size, timeLeft, when } from "../format";
+import { aboutMs, clock, plural, size, timeLeft, when } from "../format";
 import { calc, type CalcCard, type Grid } from "./calc";
 import { commandRow, liveRow, QUEUE_BULK, type CommandCtx } from "./commandRows";
 import { highlight, prepare, search, type Prepared } from "./match";
@@ -55,7 +55,6 @@ export interface Item {
 type Nav = { href: string } | { event: string } | { bin: true };
 
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const KIND_WORD = { image: "Image", video: "Video", audio: "Sound" } as const;
 const KIT_WORD = { person: "Person", place: "Place", style: "Style", preset: "Preset", snippet: "Snippet" } as const;
 
