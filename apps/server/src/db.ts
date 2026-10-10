@@ -29,7 +29,7 @@ export interface Tables {
     owner_id: string;
     kind: "image" | "video" | "audio";
     /** "mask": the part of a picture that was painted over to redo it. Not shown in the library. */
-    /** "kit": a picture uploaded for a person or a place of the Prompt kit, kept there and not shown in the library (like "mask"). */
+    /** "kit": a picture or a voice sample uploaded for a person or a place of the Prompt kit, kept there and not shown in the library (like "mask"). */
     origin: "generated" | "uploaded" | "imported" | "frame" | "exported" | "mask" | "cut" | "kit" | "edited";
     name: string;
     file_key: string;

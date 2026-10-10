@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Send, Sparkles, WandSparkles, X } from "lucide-react";
+import { ChevronDown, RotateCcw, Send, Sparkles, X } from "lucide-react";
 import { api, type DesignerReply, type DesignerSession, type Look, type RecipeInfo } from "./api";
 import { useSettings } from "./data";
 import { Reply } from "./designer/Reply";
@@ -32,8 +32,10 @@ const asText = (r: DesignerReply) =>
  * demand, over the right side of the screen. It can be asked something and just answer; what it
  * proposes is shown with what changed marked, and goes in the form only when "Use it" is pressed.
  * A reply that claims a change and carries no text, or only a fragment, is said to be so.
+ * One look wherever it opens: a slim header with the LLM and the system prompt as one line that opens, and Start over; the
+ * prompt as it is shown until something is proposed; the earlier exchanges folded.
  * `inline`: in a column of its own place (a timeline clip's inspector), where the text it writes is; the clips around
- * are said in a line each, the prompt as it is shown until something is proposed, the earlier exchanges folded.
+ * are said in a line each.
  */
 export function Designer({ recipe, values, onApply, turns, onTurns, session, onSession, previous, story, look, mood, onClose, side = "right", draftKey }: {
   recipe: RecipeInfo;
@@ -67,7 +69,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
   /** The system prompt shown in place of the conversation. */
   const [showingSystem, setShowingSystem] = useState(false);
   const inline = side === "inline";
-  /** Inline, the LLM and the system prompt are one line until opened. */
+  /** The LLM and the system prompt are one line until opened. */
   const [sessionOpen, setSessionOpen] = useState(false);
   const say = useMutation({
     mutationFn: async (v: { words: string; mode: "chat" | "enhance"; from?: DesignerTurn[] }) => {
@@ -180,13 +182,15 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
   const howTo = `Say what you want in your own words ("a woman has coffee on a terrace at sunset", "make the light warmer", "longer and more detailed"), or ask ("what would make this more dramatic?", "three ideas for what she says"). It writes it the way ${video ? "this video model" : "this model"} reads best. Nothing changes in your form until you press Apply.`;
   const llmName = (() => { const l = llms.find((x) => x.id === using.llm); return l ? l.name || l.model : "no LLM"; })();
   const instructionName = using.instruction ? instructions.find((i) => i.id === using.instruction)?.name ?? "system prompt" : "no system prompt";
-  // inline: the clips around, what each says happens; and the prompt as it is, until something is proposed
+  // inline: the clips around, what each says happens; and everywhere, the prompt as it is, until something is proposed
   const near = inline && story ? [story.index - 1, story.index + 1].filter((n) => n >= 0 && n < story.clips.length).map((n) => ({ n: n + 1, says: story.clips[n] ?? "" })) : [];
   const main = boxes.find((b) => !b.optional) ?? boxes[0];
   const now = main && typeof values[main.id] === "string" ? (values[main.id] as string) : "";
   const proposing = turns.some((t) => t.reply && Object.keys(t.reply.changes).length > 0 && !t.used);
-  // inline: the exchanges before the last question are folded under one line
-  const cut = inline ? Math.max(0, turns.map((t) => t.role).lastIndexOf("user")) : 0;
+  // the exchanges before the last question are folded under one line
+  const cut = Math.max(0, turns.map((t) => t.role).lastIndexOf("user"));
+  // whether it saw the form's picture, said under the prompt as it is
+  const seen = sees === true ? "It has looked at your image" : sees === false && recipe.inputs.some((i) => i.type === "image" && typeof values[i.id] === "string") ? "It works from your text only" : "";
   const turnView = (t: DesignerTurn, i: number) =>
     t.role === "user" ? (
       <div key={i} className="max-w-[85%] self-end rounded-xl bg-hover px-3 py-2 whitespace-pre-wrap">{t.content}</div>
@@ -218,36 +222,26 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
       // lies over (a rounded card under the header read as something floating, not part of the screen)
       className={inline ? "flex min-h-0 grow flex-col" : cx("fixed top-0 bottom-10 z-30 flex w-[420px] flex-col border-line-strong bg-panel shadow-2xl shadow-shade/60", overlay && "m-panel", side === "left" ? "left-[76px] border-r" : "right-0 border-l")}
     >
-      {inline ? (
-        <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
-          <span className="text-[11px] font-bold tracking-[.08em] text-ink-3 uppercase">Designer</span>
-          <Help title="Designer" text={howTo} />
-          <span className="grow" />
-          {ready && (
-            <button type="button" aria-expanded={sessionOpen} onClick={() => setSessionOpen((v) => !v)} data-tip="The LLM and the system prompt this clip's conversation is held with" className="flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-hover hover:text-ink">
-              <span className="min-w-0 truncate">{llmName} · {instructionName}</span>
-              <ChevronDown size={12} className={cx("shrink-0 transition-transform", sessionOpen && "rotate-180")} />
-            </button>
-          )}
-          <button type="button" aria-label="Close the designer" data-tip="Close (Esc)" onClick={onClose} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
-        </div>
-      ) : (
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
-        <WandSparkles size={15} className="text-accent" />
-        <span className="font-semibold">Designer</span>
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
+        <span className="text-[11px] font-bold tracking-[.08em] text-ink-3 uppercase">Designer</span>
         <Help title="Designer" text={howTo} />
-        <span className="min-w-0 truncate text-xs text-ink-2">{story && story.clips.length > 1 ? `clip ${story.index + 1} of ${story.clips.length}: it knows the whole video · ` : ""}{sees === true ? "it has looked at your image" : sees === false && values && recipe.inputs.some((i) => i.type === "image" && typeof values[i.id] === "string") ? "it works from your text only" : ""}</span>
         <span className="grow" />
-        <button type="button" aria-label="Close the designer" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
+        {ready && (
+          <button type="button" aria-expanded={sessionOpen} onClick={() => setSessionOpen((v) => !v)} data-tip="The LLM and the system prompt this conversation is held with" className="flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-ink-2 hover:bg-hover hover:text-ink">
+            <span className="min-w-0 truncate">{llmName} · {instructionName}</span>
+            <ChevronDown size={12} className={cx("shrink-0 transition-transform", sessionOpen && "rotate-180")} />
+          </button>
+        )}
+        {ready && (
+          <button type="button" aria-label="Start over" data-tip="Start over: clear this conversation. What is in your form stays." disabled={!turns.length || say.isPending} onClick={() => { onTurns([]); say.reset(); }} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-ink-2"><RotateCcw size={14} /></button>
+        )}
+        <button type="button" aria-label="Close the designer" data-tip="Close (Esc)" onClick={onClose} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
       </div>
-      )}
-      {ready && (!inline || sessionOpen) && (
+      {ready && sessionOpen && (
         <SessionBar
           settings={settings.data}
           using={using}
           choose={choose}
-          canRestart={turns.length > 0 && !say.isPending}
-          onRestart={() => { onTurns([]); say.reset(); }}
           showingSystem={showingSystem}
           onShowSystem={() => setShowingSystem((v) => !v)}
         />
@@ -273,10 +267,11 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
             ))}
           </div>
         )}
-        {inline && main && !proposing && !say.isPending && (
+        {main && !proposing && !say.isPending && (
           <div className="flex flex-col gap-1.5 rounded-xl border border-line bg-raised px-3 py-2.5">
             <span className="text-[11px] font-bold tracking-[.08em] text-ink-3 uppercase">{main.label} · now</span>
             {now.trim() ? <span className="line-clamp-6 leading-normal break-words whitespace-pre-wrap">{now}</span> : <span className="text-ink-3 italic">empty</span>}
+            {seen && <span className="text-xs text-ink-3">{seen}</span>}
           </div>
         )}
         {/* how to talk to it is behind the ? by the title: the panel opens on room for the conversation */}

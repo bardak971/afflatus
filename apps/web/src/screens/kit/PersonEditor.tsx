@@ -11,7 +11,6 @@ import { useLoraWordsOf } from "../../fields";
 import { fileLabel } from "../../format";
 import { Picker } from "../../PictureField";
 import { ModelLink } from "../../ModelLink";
-import { projectForNew } from "../../project";
 import { Card, Row } from "../../Rows";
 import { Select } from "../../Select";
 import { localId } from "../../secureContext";
@@ -163,16 +162,12 @@ function Pictures({ value, onChange, what, sent, face }: { value: string[]; onCh
 
 /** The voice sample, as one row: its player with Change and Remove, or a slot to choose or drop one in. */
 function Voice({ value, onChange }: { value: string | null; onChange(value: string | null): void }) {
-  const client = useQueryClient();
   const [picking, setPicking] = useState(false);
   const asset = useAsset(value);
-  // a sound file from the computer goes into the library and lands here, as in the Studio's sound slots
+  // a sound file from the computer is kept with the person, as their pictures are: not put in the library
   const upload = useMutation({
-    mutationFn: (file: File) => api.upload(file, { project: projectForNew() }),
-    onSuccess: (a) => {
-      void client.invalidateQueries({ queryKey: queryKeys.assets.all() });
-      onChange(a.id);
-    },
+    mutationFn: (file: File) => api.upload(file, { kit: true }),
+    onSuccess: (a) => onChange(a.id),
   });
   // a sound of the library, or a video that has sound
   const drop = useDropZone([DRAG_SOUND, DRAG_HAS_SOUND], onChange, (file) => file.type.startsWith("audio/") && upload.mutate(file));

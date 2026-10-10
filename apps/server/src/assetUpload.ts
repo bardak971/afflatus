@@ -40,10 +40,10 @@ export function registerAssetUpload(app: FastifyInstance, s: Services, { asset }
     const media = picture ? null : await probeMediaFile(up.path);
     if (!picture && !media) throw unreadable();
     // the part of a picture painted over to redo it: kept, but it is not something to look at in the library. A picture
-    // uploaded for a person or a place of the Prompt kit: kept with them, not in the library either
+    // or a voice sample uploaded for a person or a place of the Prompt kit: kept with them, not in the library either
     const mask = req.query.as === "mask";
     const kit = req.query.as === "kit";
-    if (kit && !picture) throw httpError("a picture of the Prompt kit has to be an image");
+    if (kit && !picture && media?.kind !== "audio") throw httpError("a file of the Prompt kit has to be a picture or a sound");
     if (mask && !picture) throw httpError("the mask has to be an image");
     const id = newId();
     const mime = picture?.mime ?? media!.mime;

@@ -1,16 +1,14 @@
 import { Link } from "wouter";
-import { Eye, RotateCcw } from "lucide-react";
+import { Eye } from "lucide-react";
 import type { DesignerSession, Settings } from "../api";
 import { Select } from "../Select";
-import { Button, cx } from "../ui";
+import { cx } from "../ui";
 
-/** The bar under the designer's title: the LLM and the system prompt this conversation is held with, Start over, and the system prompt shown. */
-export function SessionBar({ settings, using, choose, canRestart, onRestart, showingSystem, onShowSystem }: {
+/** The bar under the designer's title, once opened: the LLM and the system prompt this conversation is held with, and the system prompt shown. */
+export function SessionBar({ settings, using, choose, showingSystem, onShowSystem }: {
   settings: Settings | undefined;
   using: DesignerSession;
   choose(change: DesignerSession): void;
-  canRestart: boolean;
-  onRestart(): void;
   showingSystem: boolean;
   onShowSystem(): void;
 }) {
@@ -38,16 +36,6 @@ export function SessionBar({ settings, using, choose, canRestart, onRestart, sho
         options={[{ value: "none", label: "No system prompt", detail: "The designer writes its usual way." }, ...instructions.map((i) => ({ value: i.id, label: i.name, detail: i.text.replace(/\s+/g, " ").slice(0, 160) }))]}
         footer={() => <Link href="/settings/designer" className="text-xs text-ink-2 underline">Write your own system prompts in Settings</Link>}
       />
-      <Button
-        size="sm"
-        tone="quiet"
-        className="shrink-0"
-        disabled={!canRestart}
-        data-tip="Clear this conversation and start again. What is in your form stays."
-        onClick={onRestart}
-      >
-        <RotateCcw size={13} /> Start over
-      </Button>
       <button
         type="button"
         aria-pressed={showingSystem}
