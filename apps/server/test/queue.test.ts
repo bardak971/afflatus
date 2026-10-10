@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import { openSqlite, OWNER } from "../src/db";
+import type { Comfy } from "../src/comfy";
+import { taken } from "../src/queueSubmit";
 import { CHECKPOINT, complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 let fake: FakeComfy;
@@ -131,8 +133,9 @@ describe("a job from start to finish", () => {
     complete(fake, submitted()[1]!);
     await until(async () => (await statusOf(again)).status === "done");
     await until(() => frees() === loaded + 1);
-    // once is enough: nothing is loaded any more
-    await new Promise((r) => setTimeout(r, 300));
+    // once is enough: nothing is loaded any more, so no unload is armed to come after it
+    const idle = t.services.queue as unknown as { holds: boolean; unloadTimer: unknown };
+    await until(() => !idle.holds && idle.unloadTimer === null);
     expect(frees()).toBe(loaded + 1);
   });
 
@@ -212,8 +215,14 @@ describe("while a job renders", () => {
     // five in a row: the first goes at once, the last after the wait, the ones between are folded
     for (let i = 0; i < 5; i++) t.services.queue.events.emit("progress");
     await until(() => count() === 2);
-    await new Promise((r) => setTimeout(r, 400));
+    const second = Date.now();
+    // one more right after: held for the rest of the window, and nothing of the burst comes before it
+    t.services.queue.events.emit("progress");
     expect(count()).toBe(2);
+    await until(() => count() === 3);
+    // sent at once it would come within a few milliseconds; held, it comes at the end of the 250 ms window
+    expect(Date.now() - second).toBeGreaterThanOrEqual(100);
+    expect(count()).toBe(3);
     abort.abort();
   });
 });
@@ -261,7 +270,8 @@ describe("pause", () => {
   it("holds waiting jobs until resumed, and survives a restart", async () => {
     expect((await post(t.app, "/api/queue/pause")).json().paused).toBe(true);
     const id = await enqueue();
-    await new Promise((r) => setTimeout(r, 60));
+    // the queue has looked at it and left it waiting
+    await t.services.queue.idle();
     expect(submitted()).toEqual([]);
     expect((await queue()).waiting.map((w: { id: string }) => w.id)).toEqual([id]);
 
@@ -364,7 +374,6 @@ describe("when ComfyUI goes away", () => {
     expect(samplers).toHaveLength(2);
     await until(async () => (await get(second.app, "/api/queue")).json().running?.steps === 20);
     // joined during the second pass: the first one (12 steps) is known to be done
-    await new Promise((r) => setTimeout(r, 30));
     fake.send("progress", { prompt_id: promptId, node: samplers[1], value: 3, max: 8 });
     await until(async () => (await get(second.app, "/api/queue")).json().running?.step === 15);
     expect((await get(second.app, "/api/queue")).json().running).toMatchObject({ phase: "refining", step: 15, steps: 20 });
@@ -395,7 +404,8 @@ describe("when ComfyUI goes away", () => {
     // the saved count shows from the pick-up, where the pass running (the first) would have said 0
     await until(async () => (await get(second.app, "/api/queue")).json().running?.steps === 20);
     expect((await get(second.app, "/api/queue")).json().running).toMatchObject({ step: 7, steps: 20 });
-    await new Promise((r) => setTimeout(r, 30));
+    // ComfyUI sends the progress only to the client that queued it: the new process listens under that id
+    await until(() => fake.sockets.filter((s) => s === fake.sockets[0]).length === 2);
     fake.send("progress", { prompt_id: promptId, node: samplers[0], value: 8, max: 12 });
     await until(async () => (await get(second.app, "/api/queue")).json().running?.step === 8);
     await until(async () => (await saved()) === 8);
@@ -445,12 +455,25 @@ describe("a prompt sent just before the process died", () => {
     const { db, dir, id, promptId } = await diedWhileSending();
     const second = await makeApp({ db, dir, comfyUrl: fake.url });
     await second.services.queue.start();
-    await until(() => fake.calls.filter((c) => c === "GET /queue").length > 0);
+    // followed: the second process found it in ComfyUI and cleared the mark (the first one's own calls say nothing of that)
+    await until(async () => !JSON.parse((await db.selectFrom("jobs").select("resume").where("id", "=", id).executeTakeFirstOrThrow()).resume!).unsent);
     complete(fake, promptId);
     await until(async () => (await db.selectFrom("jobs").select("status").where("id", "=", id).executeTakeFirstOrThrow()).status === "done");
     expect(submitted()).toEqual([promptId]);
     expect(JSON.parse((await db.selectFrom("jobs").select("resume").where("id", "=", id).executeTakeFirstOrThrow()).resume!).unsent).toBeUndefined();
     await second.close();
+  });
+
+  it("is taken as had when it finishes between the two questions to ComfyUI", async () => {
+    // a prompt goes from ComfyUI's queue to its history: whichever is asked first sees it before, the other after
+    let done = false;
+    const answer = <T>(before: T, after: T) => {
+      const said = done ? after : before;
+      done = true;
+      return Promise.resolve(said);
+    };
+    const comfy = { client: { queuePosition: () => answer("pending", "absent"), history: () => answer(undefined, { status: { completed: true } }) } } as unknown as Comfy;
+    expect(await taken(comfy, "p")).toBe(true);
   });
 
   it("is sent again after a restart when ComfyUI never had it", async () => {

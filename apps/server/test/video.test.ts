@@ -1,30 +1,18 @@
 import { frozenTailAt } from "../src/cut";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import { wan } from "../../../packages/workflows/test/fixtures";
 import { readVideo, tools } from "../src/video";
 import { rifeModelIn } from "../src/queue";
+import { FFMPEG_TIMEOUT, ffmpegThere, patternClip } from "./clipKit";
 import { get, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
-/** A two-second test clip with a tone, made with ffmpeg. These tests are skipped where ffmpeg is not installed. */
-function makeClip(sound: boolean): Uint8Array | null {
-  const dir = mkdtempSync(join(tmpdir(), "afflatus-clip-"));
-  const file = join(dir, "clip.mp4");
-  const made = spawnSync("ffmpeg", [
-    "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x192:rate=16:duration=2",
-    ...(sound ? ["-f", "lavfi", "-i", "sine=frequency=330:duration=2", "-c:a", "aac", "-shortest"] : []),
-    "-c:v", "libx264", "-pix_fmt", "yuv420p", file,
-  ]);
-  const bytes = made.status === 0 ? new Uint8Array(readFileSync(file)) : null;
-  rmSync(dir, { recursive: true, force: true });
-  return bytes;
-}
-const clip = makeClip(true);
-const silent = makeClip(false);
+/** Two-second test clips, with a tone and silent, made once with ffmpeg. These tests are skipped where ffmpeg is not installed. */
+let clip: Uint8Array;
+let silent: Uint8Array;
+beforeAll(async () => {
+  if (ffmpegThere) [clip, silent] = await Promise.all([patternClip(2, { size: "320x192", fps: 16 }), patternClip(2, { size: "320x192", fps: 16, sound: false })]);
+}, FFMPEG_TIMEOUT);
 const real = { ...tools };
 
 let fake: FakeComfy;
@@ -54,7 +42,7 @@ async function render(bytes: Uint8Array) {
   return (await get(t.app, "/api/assets")).json().items[0];
 }
 
-describe.skipIf(!clip || !silent)("a video in the library", () => {
+describe.skipIf(!ffmpegThere)("a video in the library", { timeout: FFMPEG_TIMEOUT }, () => {
   it("is read for its size, its length, its speed and its sound", async () => {
     expect((await readVideo(clip!, "mp4")).facts).toMatchObject({ width: 320, height: 192, fps: 16, hasSound: true });
     expect((await readVideo(silent!, "mp4")).facts).toMatchObject({ durationMs: 2000, hasSound: false });
@@ -94,7 +82,7 @@ describe("what is not a video", () => {
   });
 });
 
-describe.skipIf(!clip)("a range of a video", () => {
+describe.skipIf(!ffmpegThere)("a range of a video", { timeout: FFMPEG_TIMEOUT }, () => {
   const settled = async (id: string) => {
     await until(async () => ["done", "failed"].includes((await get(t.app, "/api/jobs")).json().items.find((j: { id: string }) => j.id === id)?.status));
     return (await get(t.app, "/api/jobs")).json().items.find((j: { id: string }) => j.id === id);
@@ -207,7 +195,7 @@ describe("the frozen tail of a clip", () => {
   });
 });
 
-describe.skipIf(!clip)("a video an imported workflow's own loader reads", () => {
+describe.skipIf(!ffmpegThere)("a video an imported workflow's own loader reads", { timeout: FFMPEG_TIMEOUT }, () => {
   // a workflow that carries a clip on (its loader named so): the loader's frames straight into the saver
   const v2v = {
     "1": { class_type: "VHS_LoadVideo", inputs: { video: "author.mp4", force_rate: 0, custom_width: 0, custom_height: 0, frame_load_cap: 0, skip_first_frames: 0, select_every_nth: 1 }, _meta: { title: "Clip before" } },

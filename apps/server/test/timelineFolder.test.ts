@@ -1,25 +1,14 @@
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
+import { FFMPEG_TIMEOUT, ffmpegThere, patternClip } from "./clipKit";
 import { get, makeApp, referenceCatalog, until, type TestApp } from "./helpers";
 
 /** What is made inside a timeline lands in its folder, and follows it when it moves. Skipped where ffmpeg is not installed. */
 
-function makeClip(seconds: number): Uint8Array | null {
-  const dir = mkdtempSync(join(tmpdir(), "afflatus-clip-"));
-  const file = join(dir, "clip.mp4");
-  const made = spawnSync("ffmpeg", [
-    "-y", "-loglevel", "error", "-f", "lavfi", "-i", `testsrc2=size=192x320:rate=24:duration=${seconds}`,
-    "-f", "lavfi", "-i", `sine=frequency=330:duration=${seconds}`, "-c:a", "aac", "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p", file,
-  ]);
-  const bytes = made.status === 0 ? new Uint8Array(readFileSync(file)) : null;
-  rmSync(dir, { recursive: true, force: true });
-  return bytes;
-}
-const three = makeClip(3);
+let three: Uint8Array;
+beforeAll(async () => {
+  if (ffmpegThere) three = await patternClip(3);
+}, FFMPEG_TIMEOUT);
 
 const H3_FILES = {
   diffusion_models: ["minimax_h3_fl2va_fp8.safetensors"],
@@ -77,7 +66,7 @@ async function rendered(tl: string, count: number) {
   return { clip, asset: c.take.asset.id as string };
 }
 
-describe.skipIf(!three)("the timeline folder rule", () => {
+describe.skipIf(!ffmpegThere)("the timeline folder rule", { timeout: FFMPEG_TIMEOUT }, () => {
   it("files what is made in a timeline in its folder, else its project's root: frames, cuts, slow motion, finishes, the export", async () => {
     const p = await call("POST", "/api/projects", { name: "Film" });
     const tl = (await call("POST", "/api/timelines", { name: "Evening", project: p.id })).id as string;

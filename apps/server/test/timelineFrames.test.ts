@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { newId, now } from "../src/db";
-import { clicks, ffmpegThere, firstMiss, H, readFrames, runs, synth, W } from "./framesKit";
+import { FFMPEG_TIMEOUT } from "./clipKit";
+import { clicks, ffmpegThere, firstMiss, H, readFrames, runs, synth, synthMade, W } from "./framesKit";
 import { get, makeApp, until, type TestApp } from "./helpers";
 
 /**
@@ -60,10 +61,13 @@ async function chain(videos: Uint8Array[], latentFrames: number) {
   return { id: tl.id as string, clips };
 }
 
-describe.skipIf(!ffmpegThere)("the timeline, frame by frame", () => {
+describe.skipIf(!ffmpegThere)("the timeline, frame by frame", { timeout: FFMPEG_TIMEOUT }, () => {
   // an H3 render interpolated to 48 a second: 124 frames of the model, 2 × 124 − 1 in the file
   const N = 124;
   const FILE = 2 * N - 1;
+  /** Three such renders in a row, made once for the tests that chain them. */
+  let three: Uint8Array[] = [];
+  beforeAll(async () => void (three = await Promise.all([1, 2, 3].map((c) => synthMade(c, FILE, 48)))), FFMPEG_TIMEOUT);
 
   it("reads its own barcodes back", () => {
     const got = readFrames(synth(5, 30, 48));
@@ -71,7 +75,7 @@ describe.skipIf(!ffmpegThere)("the timeline, frame by frame", () => {
   });
 
   it("exports a seamless chain as every frame that plays, once, in order, with the sound in step", async () => {
-    const { id } = await chain([synth(1, FILE, 48), synth(2, FILE, 48), synth(3, FILE, 48)], N);
+    const { id } = await chain(three, N);
     const v = await view(id);
     expect(v.clips.slice(1).map((c: { take: { seamless: boolean } }) => c.take.seamless)).toEqual([true, true]);
     const out = await exportOf(id);
@@ -84,10 +88,10 @@ describe.skipIf(!ffmpegThere)("the timeline, frame by frame", () => {
     const heard = clicks(out, 48);
     for (const at of tenths) expect(heard.some((h) => Math.abs(h - at) <= 1), `a click near frame ${at}`).toBe(true);
     expect(heard.length).toBe(tenths.length);
-  }, 120_000);
+  });
 
   it("plays a finished take as its draft: the same frames, larger, its join still seamless", async () => {
-    const { id, clips } = await chain([synth(1, FILE, 48), synth(2, FILE, 48), synth(3, FILE, 48)], N);
+    const { id, clips } = await chain(three, N);
     // clip 2 finished (twice the size, the same frames): a take marked as the finished version of its draft
     const big = await upload(synth(2, FILE, 48, { w: W * 2, h: H * 2 }), "c2-finished.mp4");
     await t.db.updateTable("assets").set({ latent_frames: N }).where("id", "=", big.id).execute();
@@ -99,7 +103,7 @@ describe.skipIf(!ffmpegThere)("the timeline, frame by frame", () => {
     expect(v.clips[1].take.finishedFrom).toBe(draft.id);
     expect(v.clips.slice(1).map((c: { take: { seamless: boolean } }) => c.take.seamless)).toEqual([true, true]);
     expect(firstMiss(readFrames(await exportOf(id)), runs([1, 0, FILE - 1], [2, 43, FILE - 1], [3, 43, FILE - 1]))).toBeNull();
-  }, 120_000);
+  });
 
   it("cuts and trims to the frame", async () => {
     const tl = await call("POST", "/api/timelines", { name: "cuts" });
@@ -108,5 +112,5 @@ describe.skipIf(!ffmpegThere)("the timeline, frame by frame", () => {
     // the first clip seen from 0.5 s to 2.75 s of its 3 s: frames 12 to 65
     await call("PATCH", `/api/clips/${clips[0]!.id}`, { trimStartMs: 500, trimEndMs: 250 });
     expect(firstMiss(readFrames(await exportOf(tl.id)), runs([7, 12, 65], [8, 0, 71]))).toBeNull();
-  }, 120_000);
+  });
 });

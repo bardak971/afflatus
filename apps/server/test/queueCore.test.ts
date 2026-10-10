@@ -66,7 +66,8 @@ describe("what waits for ComfyUI and what does not", () => {
     const cut = await t.services.queue.enqueueCut({ asset: "nope", startMs: 0, endMs: 1000, action: "copy" }, "a cut");
     // the cut ran (its video is not there: it fails) while the finish ahead of it waits for the end of the pause
     await until(async () => (await statusOf(cut)).status === "failed");
-    await new Promise((r) => setTimeout(r, 50));
+    // the queue has gone through its line again since, and left the finish waiting
+    await t.services.queue.idle();
     expect((await statusOf(finish)).status).toBe("queued");
     await post(t.app, "/api/queue/resume");
     await until(async () => (await statusOf(finish)).status === "failed");

@@ -1,7 +1,11 @@
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
 
 /**
  * Synthetic clips for checking the timeline frame by frame (timelineFrames.test.ts, scripts/check-player.ts): each frame
@@ -13,24 +17,41 @@ export const H = 128;
 export const BITS = 12;
 export const ffmpegThere = spawnSync("ffmpeg", ["-version"]).status === 0;
 
-/** A clip whose every frame shows its number (second band) and its own index (first band), 16-pixel blocks, one per bit. */
-export function synth(clip: number, frames: number, fps: number, size = { w: W, h: H }): Uint8Array {
-  const dir = mkdtempSync(join(tmpdir(), "afflatus-frames-"));
-  const file = join(dir, "c.mp4");
+/** ffmpeg's arguments for synth(), but the output file. */
+function synthArgs(clip: number, frames: number, fps: number, size: { w: number; h: number }): string[] {
   const bit = (v: string) => `255*mod(floor(${v}/pow(2,floor(X*${W}/W/16))),2)`;
   const lum = `if(lt(Y*${H}/H,32),${bit("N")},if(lt(Y*${H}/H,64),${bit(String(clip))},128))`;
   const seconds = frames / fps;
-  const made = spawnSync("ffmpeg", [
+  return [
     "-y", "-loglevel", "error",
     "-f", "lavfi", "-i", `color=c=gray:s=${size.w}x${size.h}:r=${fps}:d=${seconds + 1}`,
     "-f", "lavfi", "-i", `aevalsrc='if(lt(mod(t*${fps},10),0.5),0.8*sin(2*PI*1000*t),0)':s=48000:d=${seconds}`,
     "-filter_complex", `[0:v]format=yuv420p,geq=lum='${lum}':cb=128:cr=128[v]`,
-    "-map", "[v]", "-map", "1:a", "-frames:v", String(frames), "-c:v", "libx264", "-crf", "8", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", file,
-  ]);
+    "-map", "[v]", "-map", "1:a", "-frames:v", String(frames), "-c:v", "libx264", "-crf", "8", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+  ];
+}
+
+/** A clip whose every frame shows its number (second band) and its own index (first band), 16-pixel blocks, one per bit. */
+export function synth(clip: number, frames: number, fps: number, size = { w: W, h: H }): Uint8Array {
+  const dir = mkdtempSync(join(tmpdir(), "afflatus-frames-"));
+  const file = join(dir, "c.mp4");
+  const made = spawnSync("ffmpeg", [...synthArgs(clip, frames, fps, size), file]);
   if (made.status !== 0) throw new Error(String(made.stderr));
   const bytes = new Uint8Array(readFileSync(file));
   rmSync(dir, { recursive: true, force: true });
   return bytes;
+}
+
+/** synth() without blocking: several made side by side. */
+export async function synthMade(clip: number, frames: number, fps: number, size = { w: W, h: H }): Promise<Uint8Array> {
+  const dir = await mkdtemp(join(tmpdir(), "afflatus-frames-"));
+  try {
+    const file = join(dir, "c.mp4");
+    await run("ffmpeg", [...synthArgs(clip, frames, fps, size), file]);
+    return new Uint8Array(await readFile(file));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 /** Each frame of a video read back: its clip's number and its index (blocks read at their centres, brought back to W × H). */

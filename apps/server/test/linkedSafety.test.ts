@@ -116,6 +116,11 @@ describe("a linked folder read when the disk misbehaves", () => {
     const ids = (await all()).map((a) => a.id);
     expect(ids).toContain(two.id);
     expect(ids).not.toContain(three.id);
+    // the library says it is missing (its tile says so, rather than wait for a picture), the other items not
+    const listed = (await get(t.app, "/api/assets")).json().items as Array<{ id: string; missing?: true }>;
+    expect(listed.find((a) => a.id === two.id)?.missing).toBe(true);
+    expect(listed.filter((a) => a.missing).map((a) => a.id)).toEqual([two.id]);
+    expect((await get(t.app, `/api/assets/${two.id}`)).json().missing).toBe(true);
     // its folder stays, so that it is found where it was
     expect((await folders()).map((f) => f.name).sort()).toEqual(["Shoots", "day 1"]);
     const res = await t.app.inject({ method: "GET", url: `/api/assets/${two.id}/file` });
@@ -126,6 +131,7 @@ describe("a linked folder read when the disk misbehaves", () => {
     writeFileSync(join(dir, "day 1", "two.png"), kept);
     await scan(root.id);
     expect((await t.app.inject({ method: "GET", url: `/api/assets/${two.id}/file` })).statusCode).toBe(200);
+    expect((await get(t.app, `/api/assets/${two.id}`)).json().missing).toBeUndefined();
   });
 
   it("is not unlinked while a timeline uses one of its files, and says which", async () => {
