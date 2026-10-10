@@ -5,6 +5,7 @@ import { useSettings } from "../../data";
 import { AutoText, Button, Chip, cx, ErrorNote, fieldClass, Help, TwoStep } from "../../ui";
 import { LlmEditor } from "./LlmEditor";
 import { Block, Card, Row } from "./Rows";
+import { queryKeys } from "../../queryKeys";
 
 const shortId = () => Math.random().toString(36).slice(2, 10);
 
@@ -74,7 +75,7 @@ export function DesignerCard() {
   const [newNotes, setNewNotes] = useState<Settings["designerInstructions"]>([]);
   /** The system prompt open for reading or changing; the rest are folded to a line. */
   const [openNote, setOpenNote] = useState<string | null>(null);
-  const put = async (patch: Record<string, unknown>) => client.setQueryData(["settings"], await api.saveSettings(patch));
+  const put = async (patch: Record<string, unknown>) => client.setQueryData(queryKeys.settings(), await api.saveSettings(patch));
   // one per card: an error shows under the card it came from
   const changeLlms = useMutation({ mutationFn: put });
   const changeNotes = useMutation({ mutationFn: put });
@@ -82,8 +83,8 @@ export function DesignerCard() {
     mutationFn: api.forgetConversations,
     onSuccess: () => {
       // every draft and timeline read before this still holds its conversation
-      client.removeQueries({ queryKey: ["drafts"] });
-      void client.invalidateQueries({ queryKey: ["timelines"] });
+      client.removeQueries({ queryKey: queryKeys.drafts.all() });
+      void client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
     },
   });
   const s = settings.data;

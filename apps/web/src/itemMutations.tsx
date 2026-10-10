@@ -14,6 +14,7 @@ import { tree } from "./screens/library/tree";
 import { copyText } from "./secureContext";
 import { useSayFailed } from "./sayFailed";
 import { useBanners } from "./store";
+import { queryKeys } from "./queryKeys";
 
 /**
  * What the menus of an item change on it (a tile's, the viewer's, the stage's), the one body each. Keep, rename,
@@ -43,7 +44,7 @@ export function useItemMutations() {
       const folder = await api.createFolder(v.name, v.parent, v.project);
       await api.moveAssets(v.ids, folder.id);
     },
-    onSuccess: () => client.invalidateQueries({ queryKey: ["projects"] }),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.projects.all() }),
     onError: failed("Could not make the folder"),
   });
   /**
@@ -115,7 +116,7 @@ export function useTimelineSubmenu(opts: {
   const music = useMutation({
     mutationFn: (v: { asset: Asset; timeline: TimelineBrief }) => api.editTimeline(v.timeline.id, { music: { asset: v.asset.id } }),
     onSuccess: (_t, v) => {
-      void client.invalidateQueries({ queryKey: ["timelines"] });
+      void client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
       say({ id: `music:${Date.now()}`, tone: "good", title: `${v.asset.name || "The sound"} is the music of ${v.timeline.name}`, href: `/timelines/${v.timeline.id}`, go: "Open the timeline" });
     },
     onError: (err) => say({ id: `music:${Date.now()}`, tone: "bad", title: "Could not set the music", text: err.message, href: "/timelines", go: "Open timelines" }),

@@ -2,6 +2,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { api, type Clip, type RecipeInfo } from "../api";
 import { settingsOnly } from "../form";
+import { queryKeys } from "../queryKeys";
 
 /**
  * About how long each clip takes to render, in ms: the server's forecast (learned from this machine's past renders, the
@@ -21,7 +22,7 @@ export function useForecasts(clips: Clip[], recipes: RecipeInfo[], formOf: (c: C
   // each form asked once, however many clips share it
   const asked = useMemo(() => [...new Map([...forms.values()].map((f) => [keyOf(f), f])).values()], [forms]);
   const got = useQuery({
-    queryKey: ["forecasts", asked],
+    queryKey: queryKeys.forecasts(asked),
     // the answer keeps the forms it is for: while a changed form is asked, the others keep their figure
     queryFn: async ({ signal }) => {
       const { ms } = await api.forecasts(asked, { signal });

@@ -15,6 +15,7 @@ import { expiringSaid, useExpiring, useExpiringOnly, useKeepAllExpiring } from "
 import { daysSaid, unkeptMs, useKeepFor } from "./keepFor";
 import { useLive, useStudio, useSystem } from "./store";
 import { Button, Chip, cx, ErrorNote, Help } from "./ui";
+import { queryKeys } from "./queryKeys";
 
 // the viewer is fetched the first time the last result is opened from here
 const Viewer = lazy(() => import("./Viewer").then((m) => ({ default: m.Viewer })));
@@ -182,10 +183,10 @@ function Offline({ q }: { q: QueueStatus }) {
     // the Settings test (it reads ComfyUI again), then the queue asked to look now rather than at its next try (a paused queue stays paused)
     mutationFn: async () => {
       const scan = await api.rescanSetup();
-      client.setQueryData(["setup"], scan);
+      client.setQueryData(queryKeys.setup(), scan);
       if (!q.paused) await api.resume();
     },
-    onSettled: () => void client.invalidateQueries({ queryKey: ["queue"] }),
+    onSettled: () => void client.invalidateQueries({ queryKey: queryKeys.queue() }),
   });
   return (
     <span className={cx(pill, "shrink-0 bg-warn-wash text-warn-ink")} data-tip={`ComfyUI has not answered for ${elapsed(q.offlineForMs)}: queued jobs wait for it. Its address is in Settings › ComfyUI.`}>
@@ -202,7 +203,7 @@ function Offline({ q }: { q: QueueStatus }) {
 /** The queue is paused: what waits, and the Queue screen's Resume. */
 function Paused({ waiting }: { waiting: number }) {
   const client = useQueryClient();
-  const resume = useMutation({ mutationFn: api.resume, onSuccess: () => void client.invalidateQueries({ queryKey: ["queue"] }) });
+  const resume = useMutation({ mutationFn: api.resume, onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.queue() }) });
   return (
     <span className={cx(pill, "shrink-0")} data-tip="Paused. The running render finishes, then nothing new goes to ComfyUI until you resume.">
       <span className={cx(dot, "bg-warn")} />

@@ -9,6 +9,7 @@ import { fileLabel, gb } from "./format";
 import { DownloadRow, GetFile, useDownloads } from "./GetFile";
 import { Keys } from "./Keys";
 import { Button, cx, ErrorNote } from "./ui";
+import { queryKeys } from "./queryKeys";
 
 /**
  * The model files a preset is made for: which ComfyUI has, a Download under each missing one, one button
@@ -16,7 +17,7 @@ import { Button, cx, ErrorNote } from "./ui";
  * Prompt kit; the same facts give Studio's form its "this file is missing" line.
  */
 
-export const usePresetFiles = () => useQuery({ queryKey: ["preset-files"], queryFn: api.presetFiles, staleTime: 30_000 });
+export const usePresetFiles = () => useQuery({ queryKey: queryKeys.presetFiles(), queryFn: api.presetFiles, staleTime: 30_000 });
 
 /** Every file any preset names, by folder and name: where a missing file can be had. */
 function presetFileIndex(data: { items: PresetFilesView[] } | undefined): Map<string, PresetFileView> {
@@ -26,7 +27,7 @@ function presetFileIndex(data: { items: PresetFilesView[] } | undefined): Map<st
 }
 const fileKey = (folder: string, file: string) => `${folder}:${(file.split(/[\\/]/).pop() ?? file).toLowerCase()}`;
 
-const KEYS = [["preset-files"], ["setup"], ["downloads"], ["settings"]];
+const KEYS = [queryKeys.presetFiles(), queryKeys.setup(), queryKeys.downloads(), queryKeys.settings()];
 
 export function PresetFiles({ id, def }: { id: string; def: PresetDef }) {
   const all = usePresetFiles();

@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { keepPreviousData, useQueries } from "@tanstack/react-query";
 import { api, type Asset, type DraftLeaf, type ProjectsTree } from "../api";
-import { DRAFT_LIST, useRecipes } from "../data";
+import { useRecipes } from "../data";
 import { recipeLabel } from "../format";
 import { draftsKey, flatten, groupKey, itemsOrder, rowHeight, siblings, type DraftsRead, type ItemKind, type ItemsRead, type Sort } from "./tree";
+import { queryKeys } from "../queryKeys";
 
 const DRAFTS_PAGE = 50;
 /** A folder's items are read 50 at a time. */
@@ -36,7 +37,7 @@ export function useTreeRows({ data, q, kind, sort, only, current, isOpen, folds,
   // one project's tree shows that group's rows without its own row being unfolded
   const draftGroups = q ? [] : groups.filter((g) => g.counts.drafts > 0 && isOpen(draftsKey(g.id)) && (only ? g.id === only.group : isOpen(groupKey(g)) && (!g.archived || isOpen("archived"))));
   const draftReads = useQueries({
-    queries: draftGroups.map((g) => ({ queryKey: [...DRAFT_LIST, "tree", g.id ?? "none"], queryFn: ({ signal }: { signal: AbortSignal }) => api.draftsOf(g.id, { signal }) })),
+    queries: draftGroups.map((g) => ({ queryKey: queryKeys.drafts.tree(g.id ?? "none"), queryFn: ({ signal }: { signal: AbortSignal }) => api.draftsOf(g.id, { signal }) })),
   });
   const [limits, setLimits] = useState<Record<string, number>>({});
   const drafts = new Map<string, DraftsRead>(
@@ -62,7 +63,7 @@ export function useTreeRows({ data, q, kind, sort, only, current, isOpen, folds,
     queries: openFolders.map((f) => {
       const pages = itemPages[f.key] ?? 1;
       return {
-        queryKey: ["assets", "tree", f.id, kind, pages, sort.by, sort.desc],
+        queryKey: queryKeys.assets.tree(f.id, kind, pages, sort.by, sort.desc),
         queryFn: async ({ signal }: { signal: AbortSignal }) => {
           const items: Asset[] = [];
           let after: string | undefined;

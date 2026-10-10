@@ -5,6 +5,7 @@ import { aboutMs } from "./format";
 import { settingsOnly } from "./form";
 import { useSettled } from "./hooks";
 import { useQueueOf } from "./screens/studio/queueOf";
+import { queryKeys } from "./queryKeys";
 
 /**
  * What a form will take, the server's forecast from this machine's renders (POST /api/advice). The form's Output
@@ -17,7 +18,7 @@ export function useAdvice(recipe: RecipeInfo | undefined, values: Record<string,
   // the model ComfyUI holds, alone: the form is not drawn again at every sampler step
   const held = useQueueOf((q) => q.model) ?? null;
   return useQuery({
-    queryKey: ["advice", recipe?.id, key, held],
+    queryKey: queryKeys.advice.form(recipe?.id, key, held),
     // a prompt the form must have is written as "x": what it says changes nothing of the time
     queryFn: () => api.advice(recipe!.id, { ...Object.fromEntries(recipe!.inputs.filter((i) => i.type === "prompt" && !i.optional).map((i) => [i.id, "x"])), ...(JSON.parse(key) as Record<string, unknown>) }),
     enabled: Boolean(recipe && key),

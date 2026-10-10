@@ -4,6 +4,7 @@ import { api, ApiError, type Draft, type RecipeInfo } from "../../api";
 import type { useDraft } from "../../draft";
 import { notFilled, sentForm } from "../../form";
 import { movingSeed, seedAfter, useSeedMode } from "../../seedMode";
+import { queryKeys } from "../../queryKeys";
 
 /**
  * What Generate does: the whole form, checked, sent to the queue as many times as the batch says, filed in
@@ -37,7 +38,7 @@ export function useGenerate({ recipe, draft, defaults, folder, d, blocked }: {
         await d.editDraft(id, (x) => ({ ...x, forms: { ...x.forms, [recipe.id]: { ...x.forms[recipe.id], seed: next } } }));
       }
     },
-    onSuccess: () => client.invalidateQueries({ queryKey: ["queue"] }),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.queue() }),
   });
 
   const make = useRef(() => {});

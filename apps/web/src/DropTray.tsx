@@ -8,6 +8,7 @@ import { useLeave } from "./leave";
 import { openFolderId, useHandover } from "./store";
 import { projectForNew } from "./project";
 import { cx } from "./ui";
+import { queryKeys } from "./queryKeys";
 
 // PNG info opens the first time a file is dropped on it
 const PngInfo = lazy(() => import("./PngInfo").then((m) => ({ default: m.PngInfo })));
@@ -142,7 +143,7 @@ export function DropTray() {
             failed.push(`${a.name || a.id}: ${(err as Error).message}`);
           }
         }
-        await client.invalidateQueries({ queryKey: ["timelines"] });
+        await client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
         outcome(good.length, ok, failed, "added", "Added to the timeline.");
       }
     } catch (err) {

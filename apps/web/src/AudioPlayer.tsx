@@ -4,6 +4,7 @@ import { api, fileUrl } from "./api";
 import { claimPlayback, PlayButton, releasePlayback, savedVolume, SeekStrip, storeVolume, TimeReadout, VolumeControl } from "./mediaControls";
 import { barsOf, BARS } from "./screens/library/SoundWave";
 import { cx } from "./ui";
+import { queryKeys } from "./queryKeys";
 
 /**
  * The app's audio player, in place of the browser's: a play button, the name and the time, the sound's
@@ -39,7 +40,7 @@ export function AudioPlayer({ asset, src, name, range, bare, className, onClick,
   const [muted, setMuted] = useState(false);
 
   // the same key as the library's waveform and the timelines' curves: measured once for all of them
-  const motion = useQuery({ queryKey: ["motion", asset], queryFn: () => api.motion(asset!), enabled: Boolean(asset), staleTime: Infinity, retry: 0 });
+  const motion = useQuery({ queryKey: queryKeys.motion(asset), queryFn: () => api.motion(asset!), enabled: Boolean(asset), staleTime: Infinity, retry: 0 });
 
   const from = range ? range.from : 0;
   const to = range ? (length === null ? range.to : Math.min(range.to, length)) : length;

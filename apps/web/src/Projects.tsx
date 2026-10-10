@@ -14,6 +14,7 @@ import { Initial, projectTone } from "./projects/tone";
 import { Button, cx, ErrorNote, fieldClass } from "./ui";
 import { useFlip } from "./useFlip";
 import { lazyPart, loadProjectsPanel, loadViewer } from "./lazyParts";
+import { queryKeys } from "./queryKeys";
 
 // the panel loads on its first opening: it is not needed to draw the app
 const ProjectsPanel = lazyPart(loadProjectsPanel, (m) => m.ProjectsPanel);
@@ -192,7 +193,7 @@ function NewProject({ onClose, onMade }: { onClose(): void; onMade(p: Project): 
     mutationFn: (n: string) => api.createProject(n),
     onSuccess: (p) => {
       // its root folder: the server says it with a "library" event, which reads the folders again
-      void client.invalidateQueries({ queryKey: ["projects"] });
+      void client.invalidateQueries({ queryKey: queryKeys.projects.all() });
       onMade(p);
     },
   });

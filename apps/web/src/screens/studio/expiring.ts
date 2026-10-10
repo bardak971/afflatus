@@ -4,6 +4,7 @@ import { api } from "../../api";
 import { ask } from "../../Confirm";
 import { useProject } from "../../project";
 import { unkeptMs } from "../../keepFor";
+import { queryKeys } from "../../queryKeys";
 
 /**
  * The renders nobody kept, which go to the bin by themselves a day after they were made (or unkept): said once,
@@ -39,7 +40,7 @@ export function expiringSaid(sum: { from: string | null; to: string | null }, no
 export function useExpiring() {
   const project = useProject((s) => s.id);
   return useQuery({
-    queryKey: ["assets", "unkept", "all", project],
+    queryKey: queryKeys.assets.unkept(project),
     queryFn: ({ signal }) => api.unkept({}, false, { signal }),
     refetchInterval: 5 * 60_000,
   });
@@ -57,7 +58,7 @@ export function useKeepAllExpiring(onDone?: () => void) {
       // nothing is left to show only: the whole view comes back
       useExpiringOnly.getState().set(false);
       onDone?.();
-      return client.invalidateQueries({ queryKey: ["assets"] });
+      return client.invalidateQueries({ queryKey: queryKeys.assets.all() });
     },
   });
   const keepAll = async (count: number) => {

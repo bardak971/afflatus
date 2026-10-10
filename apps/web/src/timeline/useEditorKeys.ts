@@ -1,6 +1,6 @@
 import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
-import { stepFrames } from "../frameStep";
 import type { Clock } from "./clock";
+import { editKey, keyPlace, playbackKey, selectionKey, type KeyActions } from "./editorKeys";
 import type { PlayerHandle } from "./Player";
 import type { TimeRange, TrackKeys } from "./Track";
 
@@ -10,7 +10,8 @@ import type { TimeRange, TrackKeys } from "./Track";
  * clip, Ctrl+Enter renders it (a new take), [ and ] go to the clip before and after, Alt+[ and Alt+] play its take before and after,
  * S or Ctrl+B splits the clip under the playhead, Home and End go to the start and end, - and = zoom the track, Shift+Z fits it.
  * What changes often is read through refs, so the listener is only put back when an action it calls changes. The editor
- * fills the refs it returns for the keys whose actions it holds (render, jump, split, take, the track's zoom).
+ * fills the refs it returns for the keys whose actions it holds (render, jump, split, take, the track's zoom). What each
+ * key does is editorKeys.ts's, by concern.
  */
 export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canRedo, remove, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameMs, selected, setSelected, setPicked, musicOpen, closeMusic }: {
   clock: Clock;
@@ -63,146 +64,13 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
   /** The track's zoom around the playhead and Fit all: - and =, Shift+Z (filled by the track). */
   const trackKeys = useRef<TrackKeys | null>(null);
   useEffect(() => {
+    const acts: KeyActions = {
+      clock, player, toggle, undo, canUndo, redo, canRedo, remove, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow,
+      frameRef, selectedNow, musicOpenNow, closeMusicNow, renderNow, jumpNow, splitNow, takeNow, trackKeys, setSelected, setPicked,
+    };
     const onKey = (e: KeyboardEvent) => {
-      // a key sent to the window itself (not to an element) reads as sent to the page
-      const el = e.target instanceof Element ? (e.target as HTMLElement) : document.body;
-      // writing in a field (a slider, a switch or a box to tick is not: the keys still drive the editor there)
-      const typing = Boolean(el.closest("textarea, select, [contenteditable]")) || (el instanceof HTMLInputElement && !["range", "checkbox", "radio", "button"].includes(el.type));
-      if (e.code === "Space" && !typing && !el.closest("button, [role=listbox], [role=dialog]")) {
-        e.preventDefault();
-        toggle();
-      }
-      // a dialog, a list or a menu open over the editor (the keyboard shortcuts) keeps the keys: nothing is undone behind it
-      const open = Boolean(document.querySelector("[role=dialog], [role=listbox], [role=menu]"));
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey && !typing && !open && canUndo) {
-        e.preventDefault();
-        undo();
-      }
-      // Ctrl+Shift+Z or Ctrl+Y does again what Undo took back
-      if ((e.ctrlKey || e.metaKey) && !typing && !open && canRedo && ((e.key.toLowerCase() === "z" && e.shiftKey) || e.key.toLowerCase() === "y")) {
-        e.preventDefault();
-        redo();
-      }
-      // Escape belongs to what is open, and to a panel that takes it (the designer in the inspector closes on it)
-      const held = open || Boolean(document.querySelector("[data-takes-escape]"));
-      // not from the designer's box (Enter there sends the message), nor once something else took the key
-      const designing = typing && Boolean(el.closest("[data-takes-escape]"));
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !e.repeat && !open && !designing && !e.defaultPrevented) {
-        e.preventDefault();
-        renderNow.current();
-      }
-      const plain = !typing && !e.ctrlKey && !e.metaKey && !e.altKey && !open;
-      if (plain && (e.key === "[" || e.key === "]")) {
-        e.preventDefault();
-        jumpNow.current(e.key === "[" ? -1 : 1);
-      }
-      // Alt+[ and Alt+]: the selected clip's take before or after (by the key's place too: Alt changes what some keyboards type there)
-      const bracket = e.key === "[" || e.code === "BracketLeft" ? -1 : e.key === "]" || e.code === "BracketRight" ? 1 : 0;
-      if (bracket && e.altKey && !e.ctrlKey && !e.metaKey && !typing && !held) {
-        e.preventDefault();
-        if (!e.repeat) takeNow.current(bracket);
-        return;
-      }
-      // S or Ctrl+B: split the clip under the playhead (not held down: one split a press)
-      const split = (plain && !e.shiftKey && e.key.toLowerCase() === "s") || ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "b" && !typing && !open);
-      if (split && !held) {
-        e.preventDefault();
-        if (!e.repeat) splitNow.current();
-        return;
-      }
-      // Home and End: the start and the end of the video (a slider keeps them for itself)
-      if (plain && !held && (e.key === "Home" || e.key === "End") && !el.closest("input[type=range], [role=slider], [role=listbox]")) {
-        e.preventDefault();
-        player.current?.seek(e.key === "Home" ? 0 : totalRef.current);
-        return;
-      }
-      // - and = zoom the track out and in around the playhead (+ as =, Shift on most keyboards); Shift+Z: the whole video
-      if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey && !open && !held) {
-        const zoom = e.key === "-" ? -1 : e.key === "=" || e.key === "+" ? 1 : 0;
-        if (zoom) {
-          e.preventDefault();
-          trackKeys.current?.zoom(zoom);
-          return;
-        }
-        if (e.shiftKey && e.key.toLowerCase() === "z") {
-          e.preventDefault();
-          trackKeys.current?.fit();
-          return;
-        }
-      }
-      // I and O: In and Out at the playhead (one alone reaches to the end, or from the start); with Shift: go to In / Out
-      if (plain && (e.key === "i" || e.key === "I")) {
-        e.preventDefault();
-        if (e.shiftKey) {
-          if (rangeRef.current) player.current?.seek(rangeRef.current.inMs);
-          return;
-        }
-        const at = clock.get();
-        setRange((r) => (r ? { inMs: at, outMs: Math.max(at, r.outMs) } : { inMs: at, outMs: totalRef.current }));
-        return;
-      }
-      if (plain && (e.key === "o" || e.key === "O")) {
-        e.preventDefault();
-        if (e.shiftKey) {
-          if (rangeRef.current) player.current?.seek(rangeRef.current.outMs);
-          return;
-        }
-        const at = clock.get();
-        setRange((r) => (r ? { inMs: Math.min(at, r.inMs), outMs: at } : { inMs: 0, outMs: at }));
-        return;
-      }
-      if (plain && (e.key === "l" || e.key === "L") && rangeRef.current) {
-        e.preventDefault();
-        toggleLoopNow.current();
-        return;
-      }
-      if (e.key === "Escape" && !typing && !held) setPicked(new Set());
-      if (e.key === "Escape" && !typing && !held && rangeRef.current) {
-        e.preventDefault();
-        setRange(null);
-        return;
-      }
-      // Escape with a clip open and no range: back to the timeline's own panel
-      if (e.key === "Escape" && !typing && !held && selectedNow.current) {
-        e.preventDefault();
-        setSelected(null);
-        return;
-      }
-      // the same from the music's panel
-      if (e.key === "Escape" && !typing && !held && musicOpenNow.current) {
-        e.preventDefault();
-        closeMusicNow.current?.();
-        return;
-      }
-      // Alt + an arrow: the selected clip one place earlier or later
-      if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && e.altKey && !typing && !e.ctrlKey && !e.metaKey && !open && selectedNow.current) {
-        e.preventDefault();
-        move(selectedNow.current, e.key === "ArrowLeft" ? -1 : 1);
-        return;
-      }
-      // one frame back or forward (Shift: ten); , and . do the same
-      const step = e.key === "ArrowLeft" || e.key === "," ? -1 : e.key === "ArrowRight" || e.key === "." ? 1 : 0;
-      if (step && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && !open && !el.closest("[role=listbox], [role=slider][aria-label=In], [role=slider][aria-label=Out]")) {
-        e.preventDefault();
-        const frames = step * (e.shiftKey && e.key.startsWith("Arrow") ? 10 : 1);
-        const frameMs = frameRef.current();
-        const now = clock.get();
-        // by the index of the frame shown in the clip's own file, to the middle of the one wanted: a frame's length added
-        // to the time landed on frame edges, where the browser often shows the frame before (steps repeated or skipped)
-        const where = player.current?.where();
-        const file = where ? where.assetMs - where.localMs + (now - where.clip.atMs) : null;
-        const to = file === null ? now + frames * frameMs : now + stepFrames(file, frames, 1000 / frameMs, Number.POSITIVE_INFINITY) - file;
-        player.current?.seek(Math.max(0, Math.min(totalRef.current, to)));
-        return;
-      }
-      // Delete takes the picked clips, else the selected clip, off the timeline; Undo brings them back one by one
-      if (e.key === "Delete" && !typing && !open) {
-        if (removePicked()) e.preventDefault();
-        else if (selectedNow.current) {
-          e.preventDefault();
-          remove(selectedNow.current);
-        }
-      }
+      const place = keyPlace(e);
+      void (playbackKey(e, place, acts) || editKey(e, place, acts) || selectionKey(e, place, acts));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

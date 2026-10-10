@@ -6,6 +6,7 @@ import { size } from "../../format";
 import { Select } from "../../Select";
 import { Button, cx, ErrorNote, fieldClass, Help } from "../../ui";
 import { Block, Card, Row } from "./Rows";
+import { queryKeys } from "../../queryKeys";
 
 /**
  * A model from a link: the address of a model's page on Civitai or of a file on Hugging Face is pasted,
@@ -43,7 +44,7 @@ export function LinkCard() {
         ? api.startDownload({ file: name, folder, civitai: found!.version!, pick: file, page })
         : api.startDownload({ file: name, folder, url: found!.url!, page });
     },
-    onSuccess: () => client.invalidateQueries({ queryKey: ["downloads"] }),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.downloads() }),
   });
   if (!settings.data?.downloadModels) return null;
   const chosen = found?.files.find((f) => f.name === file);

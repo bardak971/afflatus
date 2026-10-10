@@ -9,6 +9,7 @@ import { Slider } from "../Slider";
 import { useClock, type Clock } from "./clock";
 import { fitFrame, frameUrl, placeCard } from "./track/peek";
 import { PeekEmpty, PeekFrame, preload } from "./track/PeekCard";
+import { queryKeys } from "../queryKeys";
 
 /** What the editor's own transport does, handed to the player for when it fills the screen. */
 export interface ScreenControls {
@@ -74,7 +75,7 @@ export function FullscreenBar({ box, c, live, clips, timeline }: {
   const running = useRef(false);
   const now = useClock(c.clock);
   // read from the editor's own copy (redrawn with the clock): entering full screen asks for nothing
-  const name = useQueryClient().getQueryData<Timeline>(["timelines", timeline])?.name;
+  const name = useQueryClient().getQueryData<Timeline>(queryKeys.timelines.one(timeline))?.name;
 
   useEffect(() => {
     const on = () => setFull(document.fullscreenElement === box.current);

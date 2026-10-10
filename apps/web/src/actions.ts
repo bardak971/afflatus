@@ -8,6 +8,7 @@ import { formDefaults } from "./form";
 import { notReady } from "./format";
 import { useBanners } from "./store";
 import { passFrom } from "./viewer/ask";
+import { queryKeys } from "./queryKeys";
 
 /** What the viewer, a tile's menu and the workflows list do alike with an item: the one body each, the words their own. */
 
@@ -90,7 +91,7 @@ export function useAddToTimeline(asset: Asset, opts: { onSuccess?(target: { id: 
     },
     onSuccess: (target) => {
       remember(target);
-      void client.invalidateQueries({ queryKey: ["timelines"] });
+      void client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
       opts.onSuccess?.(target);
     },
   });
@@ -111,7 +112,7 @@ export function useStartTimeline(opts: { onSuccess?(target: { id: string; name: 
     },
     onSuccess: (target) => {
       remember(target);
-      void client.invalidateQueries({ queryKey: ["timelines"] });
+      void client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
       opts.onSuccess?.(target);
     },
     onError: (err) => say({ id: `timeline:${Date.now()}`, tone: "bad", title: "Could not start the timeline", text: err.message, href: "/", go: "Open the library" }),
@@ -129,7 +130,7 @@ export function useAddTo() {
     },
     onSuccess: ({ asset, timeline }) => {
       remember({ id: timeline.id, name: timeline.name });
-      void client.invalidateQueries({ queryKey: ["timelines"] });
+      void client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
       say({ id: `add:${Date.now()}`, tone: "good", title: `Added to ${timeline.name}`, text: asset.kind === "image" ? "At the end, as a still." : "At the end.", href: `/timelines/${timeline.id}`, go: "Open the timeline" });
     },
     onError: (err) => say({ id: `add:${Date.now()}`, tone: "bad", title: "Could not add it", text: err.message, href: "/", go: "Open the library" }),
@@ -148,7 +149,7 @@ export function useMakeTimelineOf(opts: { onSuccess?(target: { id: string; name:
     },
     onSuccess: (target) => {
       remember(target);
-      void client.invalidateQueries({ queryKey: ["timelines"] });
+      void client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
       opts.onSuccess?.(target);
     },
     onError: (err) => say({ id: `timeline:${Date.now()}`, tone: "bad", title: "Could not start the timeline", text: err.message, href: "/", go: "Open the library" }),
@@ -178,7 +179,7 @@ export function useQueueVariation(into?: { draft?: string; folder?: string }) {
       return job.label;
     },
     onSuccess: (label) => {
-      void client.invalidateQueries({ queryKey: ["queue"] });
+      void client.invalidateQueries({ queryKey: queryKeys.queue() });
       say({ id: `queued:${Date.now()}`, tone: "good", title: `${label} queued`, href: "/queue", go: "Open queue" });
     },
     onError: (err, job) => say({ id: `queued:${Date.now()}`, tone: "bad", title: `${job.label} could not be queued`, text: err.message, href: "/settings", go: "Open settings" }),

@@ -20,6 +20,7 @@ import { Slider } from "../../Slider";
 import { dropped, moved } from "../queue/order";
 import { useFlip } from "../../useFlip";
 import { entryOf, field, modelRows, outfitsOf, withEntry } from "./shared";
+import { queryKeys } from "../../queryKeys";
 
 /** A small fact of a row: what a model takes of the person. */
 function Takes({ children, tip }: { children: string; tip: string }) {
@@ -168,7 +169,7 @@ function Voice({ value, onChange }: { value: string | null; onChange(value: stri
   const upload = useMutation({
     mutationFn: (file: File) => api.upload(file, { project: projectForNew() }),
     onSuccess: (a) => {
-      void client.invalidateQueries({ queryKey: ["assets"] });
+      void client.invalidateQueries({ queryKey: queryKeys.assets.all() });
       onChange(a.id);
     },
   });
@@ -221,7 +222,7 @@ function OutfitPicture({ value, onChange, what }: { value: string | null; onChan
   const upload = useMutation({
     mutationFn: (file: File) => api.upload(file, { kit: true }),
     onSuccess: (a) => {
-      void client.invalidateQueries({ queryKey: ["assets"] });
+      void client.invalidateQueries({ queryKey: queryKeys.assets.all() });
       onChange(a.id);
     },
   });

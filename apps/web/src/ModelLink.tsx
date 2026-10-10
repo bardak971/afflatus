@@ -7,6 +7,7 @@ import { api, type ModelPage } from "./api";
 import { useModelPages } from "./data";
 import { fileLabel } from "./format";
 import { cx, fieldClass, Help } from "./ui";
+import { queryKeys } from "./queryKeys";
 
 const CIVITAI = /^https?:\/\/(www\.)?civitai\.(com|red)(?=\/|$)/i;
 /** The same page on Civitai's two sites: what one hides the other shows, and a model has the same number on both. */
@@ -31,7 +32,7 @@ export function ModelLink({ folder, file, className }: { folder: string; file: s
   const label = fileLabel(file);
   const page = pages.data?.items[name];
   const keep = (found: ModelPage | null) =>
-    client.setQueryData<{ items: Record<string, ModelPage> }>(["model-pages", folder], (old) => {
+    client.setQueryData<{ items: Record<string, ModelPage> }>(queryKeys.modelPages(folder), (old) => {
       const items = { ...(old?.items ?? {}) };
       if (found) items[name] = found;
       else delete items[name];

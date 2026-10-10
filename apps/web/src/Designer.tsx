@@ -10,6 +10,7 @@ import { SystemView } from "./designer/SystemView";
 import { keep, recall } from "./designer/typed";
 import { useLeave } from "./leave";
 import { AutoText, Button, cx, ErrorNote, Help } from "./ui";
+import { queryKeys } from "./queryKeys";
 
 /** One thing said in the conversation. What the designer said keeps what it proposed, to use or not. */
 export interface DesignerTurn {
@@ -150,7 +151,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
   /** A choice belongs to this conversation; it is also what the next new conversation starts with. */
   const remember = useMutation({
     mutationFn: (patch: Record<string, unknown>) => api.saveSettings(patch),
-    onSuccess: (saved) => client.setQueryData(["settings"], saved),
+    onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved),
   });
   const choose = (change: DesignerSession) => {
     onSession({ ...using, ...change });
@@ -162,7 +163,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
   // when those change, not as the texts are typed.
   const media = JSON.stringify(recipe.inputs.filter((i) => i.type === "image" || i.type === "clip").map((i) => [i.id, values[i.id] ?? null]));
   const knows = useQuery({
-    queryKey: ["designer-knows", recipe.id, media],
+    queryKey: queryKeys.designerKnows(recipe.id, media),
     queryFn: () => api.designerKnows(recipe.id, Object.fromEntries(JSON.parse(media) as Array<[string, unknown]>)),
     enabled: ready,
     staleTime: 60_000,

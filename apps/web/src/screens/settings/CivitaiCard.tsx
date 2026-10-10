@@ -6,6 +6,7 @@ import { useSettings } from "../../data";
 import { DownloadRow, useDownloads } from "../../GetFile";
 import { Button, buttonClass, cx, ErrorNote, fieldClass, Toggle } from "../../ui";
 import { Block, Card, Row, Status } from "./Rows";
+import { queryKeys } from "../../queryKeys";
 
 const MANAGER_HOWTO = "ComfyUI has ComfyUI-Manager built in since 0.3.7x, off until asked for: in ComfyUI's folder run pip install -r manager_requirements.txt with its own Python (the venv's, or python_embeded in the portable build), then start ComfyUI with --enable-manager. On an older ComfyUI, clone https://github.com/Comfy-Org/ComfyUI-Manager into its custom_nodes folder instead. Either way, restart ComfyUI, then Test again in the ComfyUI tab. The desktop build has it on already. A ComfyUI that listens on the network (--listen) also needs network_mode = personal_cloud in Manager's config.ini, or it refuses the download.";
 
@@ -19,8 +20,8 @@ export function CivitaiCard() {
     onSuccess: () => {
       setKey("");
       // whether ComfyUI-Manager is there is only asked once downloading is turned on
-      void client.invalidateQueries({ queryKey: ["downloads"] });
-      return client.invalidateQueries({ queryKey: ["settings"] });
+      void client.invalidateQueries({ queryKey: queryKeys.downloads() });
+      return client.invalidateQueries({ queryKey: queryKeys.settings() });
     },
   });
   const on = Boolean(settings.data?.civitaiLookups);

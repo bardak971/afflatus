@@ -19,6 +19,7 @@ import { ClipHead } from "./inspector/head";
 import { LookTable } from "./inspector/look";
 import { Slide } from "./inspector/parts";
 import { Duration, PinnedFrames, TakeList } from "./inspector/takes";
+import { queryKeys } from "../queryKeys";
 
 /** The selected clip: how it starts, its takes, its sound, its pictures and its form. */
 /** Where how many takes a render makes is remembered, per browser. */
@@ -120,7 +121,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   const hasOwn = Boolean(take?.asset.hasSound);
   // how smoothly each take meets the clips around: worked out once there is a choice to make
   const joins = useQuery({
-    queryKey: ["joins", clip.id, clip.takes.map((t) => `${t.id}:${t.startMs}:${t.endMs}`).join(","), before?.take?.id ?? before?.still?.id ?? "-", after?.take?.id ?? after?.still?.id ?? "-"],
+    queryKey: queryKeys.joins.around(clip, before, after),
     queryFn: () => api.joins(clip.id),
     enabled: clip.takes.length > 1 && Boolean(before || after),
     staleTime: Infinity,

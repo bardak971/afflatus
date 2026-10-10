@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { QueryKey } from "@tanstack/react-query";
-import { libraryInPlace, libraryReads, type LibraryChange } from "../src/data";
+import { libraryInPlace, libraryReads, type LibraryChange } from "../src/queryKeys";
 
 /** The queries a page can have under the library's keys, by name, as data.ts and the screens key them. */
 const KEYS: Record<string, QueryKey> = {

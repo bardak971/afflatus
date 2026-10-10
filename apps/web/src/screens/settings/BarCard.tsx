@@ -14,6 +14,7 @@ import { useOpenDraft } from "../../store";
 import { Button, buttonClass, cx, ErrorNote, Toggle } from "../../ui";
 import { refusal } from "./reservedKeys";
 import { Block, Card, Fact, Row } from "./Rows";
+import { queryKeys } from "../../queryKeys";
 
 const DEFAULT: BarSettings = { shortcut: "Ctrl+K", snippets: false, history: false, cast: false };
 
@@ -76,12 +77,12 @@ export function BarCard() {
   // the server keeps `bar` whole: every change sends all of it
   const saveBar = (patch: Partial<BarSettings>) => {
     setError(null);
-    api.saveSettings({ bar: { ...bar, ...patch } }).then((s) => client.setQueryData(["settings"], s), (err: Error) => setError(err.message));
+    api.saveSettings({ bar: { ...bar, ...patch } }).then((s) => client.setQueryData(queryKeys.settings(), s), (err: Error) => setError(err.message));
   };
 
   // "Snippet from the open prompt": the draft open in the Studio, its main prompt
   const draftId = useOpenDraft((s) => s.id);
-  const draft = useQuery({ queryKey: ["drafts", draftId], queryFn: ({ signal }) => api.draft(draftId!, { signal }), enabled: Boolean(draftId) && bar.snippets });
+  const draft = useQuery({ queryKey: queryKeys.drafts.one(draftId), queryFn: ({ signal }) => api.draft(draftId!, { signal }), enabled: Boolean(draftId) && bar.snippets });
   const recipes = useRecipes().data?.recipes ?? [];
   const recipe = recipes.find((r) => r.id === draft.data?.recipe);
   const main = recipe ? mainTextOf(recipe) : undefined;

@@ -4,7 +4,7 @@ import { useLocation } from "wouter";
 import { ArrowUpToLine, Copy, Keyboard, Navigation, RotateCcw, Settings2, Square } from "lucide-react";
 import { useOpenInComfy } from "../actions";
 import { api, type Asset, type CommandEntry } from "../api";
-import { assetKey, useAsset, useEntities, useModelSettings, useProjects, useRecipes, useSetup, useStorage } from "../data";
+import { useAsset, useEntities, useModelSettings, useProjects, useRecipes, useSetup, useStorage } from "../data";
 import { itemsWord } from "../assetCache";
 import { useOpenNewDraft } from "../draft";
 import { useFormTarget } from "../formTarget";
@@ -26,13 +26,13 @@ import { NO_ASSET, useItemActions } from "../useItemActions";
 import { formWhenOpen, openProjects, useSelectedClip, useTimelineRequest, type TimelineRequest } from "./bridge";
 import type { Item } from "./items";
 import { pageLabel, type SettingCtx } from "./settingsRegistry";
-import { BAR_INDEX } from "./store";
 import { commandActions } from "./actions/commands";
 import type { BarCtx, FolderEntry, RenderTimeline, TimelineEntry } from "./actions/ctx";
 import { historyActions, kitActions, personActions } from "./actions/kit";
 import { jobActions } from "./actions/queue";
 import { renderActions } from "./actions/renders";
 import { draftActions, folderActions, projectActions, timelineActions, workflowActions } from "./actions/tree";
+import { queryKeys } from "../queryKeys";
 
 const Viewer = lazy(() => import("../Viewer").then((m) => ({ default: m.Viewer })));
 
@@ -135,7 +135,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
     if (!jobs?.length) return;
     const waiting = (await api.queue()).waiting.map((w) => w.id);
     const up = jobs.filter((j) => waiting.includes(j));
-    if (up.length) client.setQueryData(["queue"], await api.queueOrder(atTop(waiting, up)));
+    if (up.length) client.setQueryData(queryKeys.queue(), await api.queueOrder(atTop(waiting, up)));
     const n = jobs.length;
     good(`${n} clip${n > 1 ? "s" : ""} of ${t.name} queued at the top`, up.length < n ? `${n - up.length === 1 ? "One is" : `${n - up.length} are`} rendering already.` : "Ahead of everything else that waits.", "/queue", "Open queue");
   };
@@ -151,7 +151,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
     failed,
     good,
     noDraft: (what = "No draft is open") => say({ id: "bar:form", tone: "bad", title: what, text: "Open a draft in the Studio first.", href: "/", go: "Open the Studio" }),
-    reindex: () => void client.invalidateQueries({ queryKey: BAR_INDEX }),
+    reindex: () => void client.invalidateQueries({ queryKey: queryKeys.commandIndex.all() }),
     openDraft,
     form: () => formWhenOpen(useOpenDraft.getState().id, () => {
       useStudio.getState().set({ form: true });
@@ -162,10 +162,10 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
       useStudio.getState().set({ place: { type: "folder", id } });
       go("/");
     },
-    view: async (id) => setViewing(await client.fetchQuery({ queryKey: assetKey(id), queryFn: ({ signal }) => api.asset(id, { signal }) })),
+    view: async (id) => setViewing(await client.fetchQuery({ queryKey: queryKeys.assets.one(id), queryFn: ({ signal }) => api.asset(id, { signal }) })),
     /** An item shown in the Studio: its folder open, the item large (as the Projects panel's "Show in the Studio"). */
     showInFolder: async (id, project) => {
-      const a = await client.fetchQuery({ queryKey: assetKey(id), queryFn: ({ signal }) => api.asset(id, { signal }) });
+      const a = await client.fetchQuery({ queryKey: queryKeys.assets.one(id), queryFn: ({ signal }) => api.asset(id, { signal }) });
       lookingAt(project);
       // an item in the bin is shown there (every project's bin), where Put back is
       useStudio.getState().set({ place: a.inBin ? { type: "bin" } : a.folderId ? { type: "folder", id: a.folderId } : { type: "unfiled" } });

@@ -1,5 +1,6 @@
 import { hashKey, type InfiniteData, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import type { Asset, Folder } from "./api";
+import { isAssets, queryKeys } from "./queryKeys";
 
 /**
  * A change to items of the library made on screen before the server says it is done (keep, unkeep, bin, put back,
@@ -79,13 +80,11 @@ export function fits(f: ListFilter, project: string | undefined, a: Asset, proje
   return true;
 }
 
-const isAssets = (key: QueryKey, second: string) => key[0] === "assets" && key[1] === second;
-
 /** The item as some copy on screen has it now: its details, else a list that holds it. */
 export function findAsset(client: QueryClient, id: string): Asset | undefined {
-  const one = client.getQueryData<Asset>(["assets", "one", id]);
+  const one = client.getQueryData<Asset>(queryKeys.assets.one(id));
   if (one) return one;
-  for (const [key, data] of client.getQueriesData<unknown>({ queryKey: ["assets"] })) {
+  for (const [key, data] of client.getQueriesData<unknown>({ queryKey: queryKeys.assets.all() })) {
     if (isAssets(key, "list")) {
       for (const p of (data as InfiniteData<Page> | undefined)?.pages ?? []) {
         const hit = p.items.find((a) => a.id === id);
@@ -117,14 +116,14 @@ export function applyChange(client: QueryClient, c: AssetChange, now = new Date(
     // what the cache holds after it (structural sharing may keep parts of the old copy): told apart from a later change
     snap.push([key, was, client.setQueryData(key, next), ids]);
   };
-  const folders = client.getQueryData<{ items: Folder[] }>(["folders"])?.items;
+  const folders = client.getQueryData<{ items: Folder[] }>(queryKeys.folders())?.items;
   const projectOf = (folder: string) => {
     if (!folders) return undefined;
     const f = folders.find((x) => x.id === folder);
     return f ? f.projectId : undefined;
   };
 
-  for (const [key, data] of client.getQueriesData<unknown>({ queryKey: ["assets"] })) {
+  for (const [key, data] of client.getQueriesData<unknown>({ queryKey: queryKeys.assets.all() })) {
     if (!data) continue;
     if (isAssets(key, "list")) {
       const list = data as InfiniteData<Page>;
@@ -204,8 +203,8 @@ export function applyChange(client: QueryClient, c: AssetChange, now = new Date(
       else if (c.kind === "restore" && a.inBin) add(a.folderId, 1);
     }
     if (by.size) {
-      const was = client.getQueryData(["folders"]);
-      set(["folders"], was, { items: folders.map((f) => (by.has(f.id) ? { ...f, count: Math.max(0, f.count + by.get(f.id)!) } : f)) });
+      const was = client.getQueryData(queryKeys.folders());
+      set(queryKeys.folders(), was, { items: folders.map((f) => (by.has(f.id) ? { ...f, count: Math.max(0, f.count + by.get(f.id)!) } : f)) });
     }
   }
   return snap;

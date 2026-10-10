@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { Timeline, TimelineBrief } from "../api";
 import { useEditorColumn } from "../store";
 import { HEIGHT, ROW } from "./track/rows";
+import { queryKeys } from "../queryKeys";
 
 /** Where the frame's shape of each timeline opened lately is kept, for its placeholder on the next visit. */
 const ASPECTS = "afflatus.timeline-aspects";
@@ -36,9 +37,9 @@ function useKnownAspect(id: string | undefined): number | null {
   const client = useQueryClient();
   if (!id) return null;
   const sized = (w?: number | null, h?: number | null) => (w && h ? w / h : null);
-  const own = client.getQueryData<Timeline>(["timelines", id]);
+  const own = client.getQueryData<Timeline>(queryKeys.timelines.one(id));
   if (own && sized(own.width, own.height)) return sized(own.width, own.height);
-  for (const [, data] of client.getQueriesData<{ items: TimelineBrief[] }>({ queryKey: ["timelines", "list"] })) {
+  for (const [, data] of client.getQueriesData<{ items: TimelineBrief[] }>({ queryKey: queryKeys.timelines.lists() })) {
     const brief = data?.items.find((t) => t.id === id);
     if (brief && sized(brief.width, brief.height)) return sized(brief.width, brief.height);
   }

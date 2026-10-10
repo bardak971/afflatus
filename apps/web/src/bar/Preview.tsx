@@ -8,6 +8,7 @@ import { cx } from "../ui";
 import { timelineLength, type Item } from "./items";
 import type { SettingCtx } from "./settingsRegistry";
 import { pageLabel, valueSaid } from "./settingsRegistry";
+import { queryKeys } from "../queryKeys";
 
 type Fact = { k: string; v: string };
 
@@ -110,7 +111,7 @@ function TimelinePreview({ e }: { e: Extract<CommandEntry, { kind: "timeline" }>
 
 /** A draft: its prompt, and what it is on. */
 function DraftPreview({ e, recipes }: { e: Extract<CommandEntry, { kind: "draft" }>; recipes: RecipeInfo[] }) {
-  const d = useQuery({ queryKey: ["drafts", e.id], queryFn: ({ signal }) => api.draft(e.id, { signal }) }).data;
+  const d = useQuery({ queryKey: queryKeys.drafts.one(e.id), queryFn: ({ signal }) => api.draft(e.id, { signal }) }).data;
   const recipe = recipes.find((r) => r.id === (d?.recipe ?? e.recipe));
   const form = d && recipe ? d.forms[recipe.id] ?? {} : {};
   const main = recipe ? mainTextOf(recipe) : undefined;

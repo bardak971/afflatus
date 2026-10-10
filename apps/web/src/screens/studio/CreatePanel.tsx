@@ -22,6 +22,7 @@ import { inputMissing } from "./missing";
 import { ModelPicker, useModelPick } from "./ModelPicker";
 import { PresetMenu, presetRefusal } from "./PresetMenu";
 import { useGenerate } from "./useGenerate";
+import { queryKeys } from "../../queryKeys";
 
 // the designer's panel is a chunk of its own: fetched the first time it opens
 const Designer = lazy(() => import("../../Designer").then((m) => ({ default: m.Designer })));
@@ -108,7 +109,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
     mutationFn: (name: string) => api.createEntity("preset", name, { recipe: recipe!.id, inputs: draft!.forms[recipe!.id] ?? {}, look: draft!.look }),
     onMutate: () => setPresetError(null),
     onError: (err) => setPresetError(err.message),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["entities"] }),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.entities() }),
   });
 
   const say = useBanners((b) => b.push);

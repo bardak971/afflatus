@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import { api, type Asset } from "./api";
-import { assetKey } from "./data";
 import { clock, when } from "./format";
 import { leftOf } from "./screens/library/justify";
 import { leftWords } from "./screens/studio/expiring";
+import { queryKeys } from "./queryKeys";
 
 /** How long the pointer rests on a tile before its tooltip shows. */
 const TILE_TIP_AFTER_MS = 800;
@@ -65,7 +65,7 @@ const origins: Record<string, string> = { generated: "Generated", uploaded: "Upl
  */
 export function TileTip({ asset, at }: { asset: Asset; at: { left: number; top: number } }) {
   // the render's seed and lineage, read when the tip shows (kept for the session)
-  const detail = useQuery({ queryKey: assetKey(asset.id), queryFn: ({ signal }) => api.asset(asset.id, { signal }), enabled: asset.origin === "generated", staleTime: 5 * 60_000 });
+  const detail = useQuery({ queryKey: queryKeys.assets.one(asset.id), queryFn: ({ signal }) => api.asset(asset.id, { signal }), enabled: asset.origin === "generated", staleTime: 5 * 60_000 });
   const g = detail.data?.generation;
   const lines: Array<{ text: string; tone?: "dim" }> = [];
   const what = asset.kind === "audio" && asset.origin === "imported" ? "Extracted audio" : (origins[asset.origin] ?? asset.origin);

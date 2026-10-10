@@ -6,6 +6,7 @@ import { gb } from "../../format";
 import { Slider } from "../../Slider";
 import { Button, ButtonLink, cx, ErrorNote, fieldClass } from "../../ui";
 import { Block, Card, Fact, Row, Status } from "./Rows";
+import { queryKeys } from "../../queryKeys";
 
 const WHY_PACK = "It lets MiniMax H3 clips on a timeline continue from the clip before's own latent (the motion, the look and the voice carry across the join), and lets Afflatus read model files' headers through ComfyUI when it cannot read its disk.";
 
@@ -21,7 +22,7 @@ const unloadSaid = (minutes: number) => (minutes <= 0 ? "never" : minutes < 60 ?
 /** Afflatus's node pack (MiniMax H3 continued in the latent): written into ComfyUI's folder when it is known, loaded after a ComfyUI restart. */
 function NodePackRow() {
   const settings = useSettings();
-  const pack = useQuery({ queryKey: ["node-pack", settings.data?.comfyDir], queryFn: api.nodePack, enabled: Boolean(settings.data), staleTime: 30_000 });
+  const pack = useQuery({ queryKey: queryKeys.nodePack(settings.data?.comfyDir), queryFn: api.nodePack, enabled: Boolean(settings.data), staleTime: 30_000 });
   if (!pack.data) return null;
   const p = pack.data;
   if (p.loaded) return <Row setting="comfy.pack" label="Node pack" help={WHY_PACK}><Status ok>Loaded</Status></Row>;
@@ -64,7 +65,7 @@ export function ComfyCard() {
   useEffect(() => {
     if (savedDir !== undefined) setDir(savedDir);
   }, [savedDir]);
-  const unload = useMutation({ mutationFn: (minutes: number) => api.saveSettings({ unloadAfterMinutes: minutes }), onSuccess: (saved) => client.setQueryData(["settings"], saved) });
+  const unload = useMutation({ mutationFn: (minutes: number) => api.saveSettings({ unloadAfterMinutes: minutes }), onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved) });
   // the slider's value while it moves; saved only where it is let go
   const savedUnload = settings.data?.unloadAfterMinutes;
   const [minutes, setMinutes] = useState(0);
@@ -73,7 +74,7 @@ export function ComfyCard() {
   }, [savedUnload]);
   const saveDir = useMutation({
     mutationFn: () => api.saveSettings({ comfyDir: dir.trim() }),
-    onSuccess: (saved) => client.setQueryData(["settings"], saved),
+    onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved),
   });
   /** Save the address if it changed, then ask ComfyUI again. Only reads: nothing is queued or loaded. */
   const test = useMutation({
@@ -82,8 +83,8 @@ export function ComfyCard() {
       return api.rescanSetup();
     },
     onSuccess: (scan) => {
-      client.setQueryData(["setup"], scan);
-      void client.invalidateQueries({ queryKey: ["settings"] });
+      client.setQueryData(queryKeys.setup(), scan);
+      void client.invalidateQueries({ queryKey: queryKeys.settings() });
     },
   });
   const comfy = setup.data?.comfy;

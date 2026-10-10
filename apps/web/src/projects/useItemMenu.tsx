@@ -8,6 +8,7 @@ import { when } from "../format";
 import { useItemMutations } from "../itemMutations";
 import { useBanners } from "../store";
 import { useTileMenu } from "../TileMenu";
+import { queryKeys } from "../queryKeys";
 
 /**
  * The menus of the panel's items: one item gets the item's list (useTileMenu, as every tile), after the panel's own
@@ -35,7 +36,7 @@ export function useItemMenu({ onView, onStudio }: { onView(asset: Asset): void; 
       return t;
     },
     onSuccess: (t, v) => {
-      void client.invalidateQueries({ queryKey: ["timelines"] });
+      void client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
       say({ id: `tree-add:${Date.now()}`, tone: "good", title: `${v.assets.length} added to ${t.name}`, text: "At the end, in the order they show.", href: `/timelines/${t.id}`, go: "Open the timeline" });
     },
     onError: (err) => say({ id: `tree-add:${Date.now()}`, tone: "bad", title: "Could not add them", text: err.message, href: "/timelines", go: "Open timelines" }),

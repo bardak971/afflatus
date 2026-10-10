@@ -18,6 +18,7 @@ import { Thumb } from "../../Thumb";
 import { Button, Chip, cx, Empty, ErrorNote } from "../../ui";
 import type { Place } from "../Library";
 import { chipsOf, factsOf, stripOf } from "./timelineCard";
+import { queryKeys } from "../../queryKeys";
 
 // M: four to a row beside the form, five without it; S and L one more and one fewer
 const CARD = { S: "minmax(250px,1fr)", M: "minmax(320px,1fr)", L: "minmax(440px,1fr)" } as const;
@@ -64,7 +65,7 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
   // the size, unused takes and export of every timeline, from the Projects panel's tree (the same query, read once for all the cards)
   const tree = useProjectsTree("");
   const leaves = useMemo(() => new Map((tree.data?.groups ?? []).flatMap((g) => g.timelines.map((l) => [l.id, l] as const))), [tree.data]);
-  const refresh = () => client.invalidateQueries({ queryKey: ["timelines"] });
+  const refresh = () => client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
   const create = useMutation({ mutationFn: () => api.createTimeline(undefined, projectForNew()), onSuccess: (t) => { void refresh(); go(`/timelines/${t.id}`); } });
   const rename = useMutation({ mutationFn: (v: { id: string; name: string }) => api.editTimeline(v.id, { name: v.name }), onSuccess: () => void refresh() });
   const move = useMutation({ mutationFn: (v: { ids: string[]; project: string | null }) => Promise.all(v.ids.map((id) => api.editTimeline(id, { project: v.project, folder: null }))), onSuccess: () => void refresh() });
@@ -133,7 +134,7 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
   const folderList = useFolders();
   const toFolder = useMutation({
     mutationFn: (v: { ids: string[]; folder: string | null }) => Promise.all(v.ids.map((id) => api.editTimeline(id, { folder: v.folder }))),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["timelines"] }),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.timelines.all() }),
   });
   // the header's slot for the selection bar (LibraryHeader), found once it is drawn
   const [slot, setSlot] = useState<HTMLElement | null>(null);
@@ -181,7 +182,7 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
       for (const id of ids) await api.addClip(t.id, { asset: id });
       return t;
     },
-    onSuccess: (t) => { void client.invalidateQueries({ queryKey: ["timelines"] }); go(`/timelines/${t.id}`); },
+    onSuccess: (t) => { void client.invalidateQueries({ queryKey: queryKeys.timelines.all() }); go(`/timelines/${t.id}`); },
   });
   const items = (t: TimelineBrief): MenuItem[] => {
     const many = picked.has(t.id) && picked.size > 1 ? [...picked] : [t.id];
@@ -323,7 +324,7 @@ function TimelineCard({ t, leaf, size, eager, picked, anyPicked, folder, onClick
   }, [seen, t.toRender]);
   // learned from this machine's renders, none said when nothing is learned; a change of the timeline is a new key
   const estimate = useQuery({
-    queryKey: ["timeline-estimate", t.id, t.toRender, t.updatedAt],
+    queryKey: queryKeys.timelineEstimate(t.id, t.toRender, t.updatedAt),
     queryFn: ({ signal }) => api.commandEstimate({ timeline: t.id }, { signal }),
     enabled: seen && Boolean(t.toRender),
     staleTime: 5 * 60_000,

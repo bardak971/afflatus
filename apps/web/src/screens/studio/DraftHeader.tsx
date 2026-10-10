@@ -2,12 +2,12 @@ import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronLeft, LoaderCircle, Pencil, Plus, TriangleAlert, Trash2 } from "lucide-react";
 import { api, type Draft, type DraftBrief } from "../../api";
-import { DRAFT_LIST } from "../../data";
 import type { useDraft } from "../../draft";
 import { DraftMenu } from "./DraftMenu";
 import { ask, askText } from "../../Confirm";
 import { useBanners } from "../../store";
 import { cx, fieldClass, TwoStep } from "../../ui";
+import { queryKeys } from "../../queryKeys";
 
 /**
  * The head of the Create panel: the draft it is on (a list to switch, a name of its own), and the way to a
@@ -32,7 +32,7 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
     onSettled: (_d, _e, v) => {
       setNaming(null);
       // the open draft takes its new name from its own query (see useDraft), the list from the list
-      return Promise.all([client.invalidateQueries({ queryKey: DRAFT_LIST }), client.invalidateQueries({ queryKey: ["drafts", v.id] })]);
+      return Promise.all([client.invalidateQueries({ queryKey: queryKeys.drafts.lists() }), client.invalidateQueries({ queryKey: queryKeys.drafts.one(v.id) })]);
     },
   });
   // Escape leaves the name box without keeping what was typed: the blur that follows must not save it
@@ -90,7 +90,7 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
             titleOf={titleOf}
             onPick={(id) => void d.switchTo(id).catch(failed("opened"))}
             onNew={() => void d.startNew().catch(failed("started"))}
-            onClearUnused={() => api.clearUnusedDrafts(draft?.id).then(() => client.invalidateQueries({ queryKey: DRAFT_LIST }), failed("cleared"))}
+            onClearUnused={() => api.clearUnusedDrafts(draft?.id).then(() => client.invalidateQueries({ queryKey: queryKeys.drafts.lists() }), failed("cleared"))}
             // the open one is renamed and deleted as from the header's own buttons; another, asked in a dialog
             onRename={(x) => {
               if (x.id === draft?.id) {
@@ -105,7 +105,7 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
             onDelete={(x) => {
               if (x.id === draft?.id) return setDeleting(true);
               void ask({ title: "Delete this draft?", text: `${titleOf(x) || "This draft"} is deleted with its conversation with the designer. Its outputs stay in your library.`, yes: "Delete" }).then((ok) => {
-                if (ok) void api.deleteDraft(x.id).then(() => client.invalidateQueries({ queryKey: DRAFT_LIST }), failed("deleted"));
+                if (ok) void api.deleteDraft(x.id).then(() => client.invalidateQueries({ queryKey: queryKeys.drafts.lists() }), failed("deleted"));
               });
             }}
           />

@@ -6,6 +6,7 @@ import type { Fix } from "./attention";
 import type { ExportOptions } from "./ExportDialog";
 import { pinInputs, type ShownPatch } from "./model";
 import type { useClipEdits } from "./useClipEdits";
+import { queryKeys } from "../queryKeys";
 
 /** A new clip as the server takes it; `stopAtMs`: the clip it goes after stops being seen there first, in the same step. */
 type NewClip = Parameters<typeof api.addClip>[1];
@@ -37,10 +38,10 @@ export function useTimelineMutations(id: string, o: {
 }) {
   const { save, ready, inputsOf, editInputs, dropEdits, savedElsewhere } = o.edits;
   const client = useQueryClient();
-  const refresh = useCallback(() => client.invalidateQueries({ queryKey: ["timelines"] }), [client]);
+  const refresh = useCallback(() => client.invalidateQueries({ queryKey: queryKeys.timelines.all() }), [client]);
   const after = () => {
     void refresh();
-    void client.invalidateQueries({ queryKey: ["queue"] });
+    void client.invalidateQueries({ queryKey: queryKeys.queue() });
   };
   const render = useMutation({
     mutationFn: async (v: { clips: Clip[]; takes?: number }) => {
@@ -74,7 +75,7 @@ export function useTimelineMutations(id: string, o: {
   const add = useMutation({
     mutationFn: (v: NewClip) => api.addClip(id, v),
     onSuccess: (r) => {
-      client.setQueryData(["timelines", id], r.timeline);
+      client.setQueryData(queryKeys.timelines.one(id), r.timeline);
       o.on.select(r.clip);
       after();
     },
@@ -104,7 +105,7 @@ export function useTimelineMutations(id: string, o: {
   const stop = useMutation({
     mutationFn: api.cancel,
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["queue"] });
+      void client.invalidateQueries({ queryKey: queryKeys.queue() });
       after();
     },
   });
@@ -164,7 +165,7 @@ export function useTimelineMutations(id: string, o: {
     },
     onSuccess: (r) => {
       // the scene typed goes with the start panel, which the clips replace
-      client.setQueryData(["timelines", id], r.timeline);
+      client.setQueryData(queryKeys.timelines.one(id), r.timeline);
       o.on.select(r.clips[0] ?? null);
       after();
     },

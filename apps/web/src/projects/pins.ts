@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api, type Project, type Settings } from "../api";
 import { useBanners } from "../store";
 import { useProjects, useSettings } from "../data";
+import { queryKeys } from "../queryKeys";
 
 /** How many projects the rail holds under the one worked in. */
 const PIN_LIMIT = 4;
@@ -30,12 +31,12 @@ export function usePins() {
   const say = useBanners((b) => b.push);
   const ids = livePins(settings.data?.pinnedProjects ?? [], projects.data?.items);
   const save = (next: string[]) => {
-    const was = client.getQueryData<Settings>(["settings"]);
-    if (was) client.setQueryData<Settings>(["settings"], { ...was, pinnedProjects: next });
+    const was = client.getQueryData<Settings>(queryKeys.settings());
+    if (was) client.setQueryData<Settings>(queryKeys.settings(), { ...was, pinnedProjects: next });
     api.saveSettings({ pinnedProjects: next }).then(
-      (saved) => client.setQueryData(["settings"], saved),
+      (saved) => client.setQueryData(queryKeys.settings(), saved),
       (err: Error) => {
-        if (was) client.setQueryData(["settings"], was);
+        if (was) client.setQueryData(queryKeys.settings(), was);
         say({ id: `pins:${Date.now()}`, tone: "bad", title: "The rail's pins could not be saved", text: err.message });
       },
     );

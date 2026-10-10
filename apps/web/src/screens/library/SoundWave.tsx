@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api";
+import { queryKeys } from "../../queryKeys";
 
 /**
  * A sound's waveform on its library tile: bars of how loud it is along its length, read off the loudness the
@@ -71,7 +72,7 @@ export function SoundWave({ asset, at, className }: { asset: string; at: number 
   const box = useRef<HTMLSpanElement>(null);
   const near = useNear(box);
   // the same key as the timelines' (useMotionMarks): measured once for both
-  const motion = useQuery({ queryKey: ["motion", asset], queryFn: () => oneAtATime(() => api.motion(asset)), enabled: near, staleTime: Infinity, retry: 0 });
+  const motion = useQuery({ queryKey: queryKeys.motion(asset), queryFn: () => oneAtATime(() => api.motion(asset)), enabled: near, staleTime: Infinity, retry: 0 });
   const bars = barsOf(motion.data?.sound);
   const clip = useId();
   const W = BARS * 3;

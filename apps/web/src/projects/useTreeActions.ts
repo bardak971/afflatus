@@ -4,7 +4,6 @@ import { findAsset } from "../assetCache";
 import { changeAssets } from "../assetChange";
 import { bringFiles } from "../bringFiles";
 import { ask, askAboutDisk, askText } from "../Confirm";
-import { DRAFT_LIST } from "../data";
 import { size } from "../format";
 import { pathOf, useFolderImport } from "../folderImport";
 import { useProject } from "../project";
@@ -12,6 +11,7 @@ import { useSayFailed } from "../sayFailed";
 import { useBanners, useOpenDraft } from "../store";
 import { planBin, planDrop, type Moving, type Row, type Target } from "./tree";
 import { insteadOfWaiting, restorable } from "../keepFor";
+import { queryKeys } from "../queryKeys";
 
 /** Before a folder of the disk is unlinked: the question both folder trees ask (the folder panel's and the Projects panel's). */
 const askUnlink = (name: string) =>
@@ -29,7 +29,7 @@ export function useTreeActions() {
   const client = useQueryClient();
   const say = useBanners((b) => b.push);
   const refresh = () => {
-    for (const queryKey of [["projects"], ["timelines"], DRAFT_LIST, ["folders"], ["assets"]]) void client.invalidateQueries({ queryKey });
+    for (const queryKey of [queryKeys.projects.all(), queryKeys.timelines.all(), queryKeys.drafts.lists(), queryKeys.folders(), queryKeys.assets.all()]) void client.invalidateQueries({ queryKey });
   };
   // a 409 is the server saying what still uses it (a timeline's clip, a person of the Prompt kit): said as such
   const failed = useSayFailed({ id: "tree", go: "Open the Studio", inUse: true });
@@ -119,7 +119,7 @@ export function useTreeActions() {
           else if (r.kind === "timeline") await api.deleteTimeline(r.id!);
           else {
             await api.deleteDraft(r.id!);
-            client.removeQueries({ queryKey: ["drafts", r.id] });
+            client.removeQueries({ queryKey: queryKeys.drafts.one(r.id) });
             if (useOpenDraft.getState().id === r.id) useOpenDraft.getState().open(null);
           }
         }
@@ -146,7 +146,7 @@ export function useTreeActions() {
       const id = r.id;
       if (await run(`${r.label} could not be deleted`, () => api.deleteProject(id)) && useProject.getState().id === id) useProject.getState().set("none");
       // the server took it out of the rail's pins
-      void client.invalidateQueries({ queryKey: ["settings"] });
+      void client.invalidateQueries({ queryKey: queryKeys.settings() });
     },
     rename(r: Row, name: string) {
       const id = r.id;
@@ -162,7 +162,7 @@ export function useTreeActions() {
         await api.editProject(id, { archived });
         if (archived && useProject.getState().id === id) useProject.getState().set("none");
         // archived, it left the rail's pins on the server
-        if (archived) void client.invalidateQueries({ queryKey: ["settings"] });
+        if (archived) void client.invalidateQueries({ queryKey: queryKeys.settings() });
       });
     },
     /**

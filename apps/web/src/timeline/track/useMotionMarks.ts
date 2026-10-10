@@ -4,6 +4,7 @@ import { api, type Clip, type Timeline } from "../../api";
 import type { Clock } from "../clock";
 import type { Slot } from "../model";
 import { motionOf } from "../measures";
+import { queryKeys } from "../../queryKeys";
 
 /** How much moves along a video and how loud it is, as the server measures it. */
 export type Motion = Awaited<ReturnType<typeof api.motion>>;
@@ -36,8 +37,8 @@ export function useMotionMarks({ slots, clips, timeline, playEnd, pps, clock, sn
     return [...ids];
   }, [played, clips, timeline.music]);
   const measures = useQueries({
-    // the same queries as one video's (["motion", id]), asked for together: one request for the timeline, not one per take
-    queries: measured.map((id) => ({ queryKey: ["motion", id], queryFn: () => motionOf(id), staleTime: Infinity, retry: 0 })),
+    // the same queries as one video's (queryKeys.motion(id)), asked for together: one request for the timeline, not one per take
+    queries: measured.map((id) => ({ queryKey: queryKeys.motion(id), queryFn: () => motionOf(id), staleTime: Infinity, retry: 0 })),
     combine: measuresData,
   });
   const measureOf = (id: string | undefined) => (id ? measures[measured.indexOf(id)] : undefined);

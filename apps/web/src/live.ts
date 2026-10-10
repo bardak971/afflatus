@@ -1,11 +1,12 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { ProgressUpdate, QueueStatus, SystemLoad } from "./api";
-import { libraryInPlace, libraryReads, readHistoryHead, RENDER_KEYS, type LibraryChange } from "./data";
+import { readHistoryHead } from "./data";
 import { applyChange } from "./assetCache";
 import { endedSince, mergeProgress, notifyTag, throttle } from "./liveState";
 import { useBanners, useLive, useNotify, useSystem } from "./store";
-import { BAR_INDEX, useBar } from "./bar/store";
+import { useBar } from "./bar/store";
+import { isUnder, libraryInPlace, libraryReads, queryKeys, RENDER_KEYS, type LibraryChange } from "./queryKeys";
 
 /** The version this page was built as (vite.config.ts), "dev" from the sources: what the server's hello is held against. */
 const BUILD_VERSION = __AFFLATUS_VERSION__;
@@ -80,13 +81,13 @@ export function useLiveEvents(): void {
   const client = useQueryClient();
   const notifier = useNotifier();
   useEffect(() => {
-    const on = (key: string) => () => refetch(client, [[key]]);
+    const on = (key: readonly string[]) => () => refetch(client, [key]);
 
     // the queue, and the library, are read again at most once a second, with one last read after the last
     // event: a render reporting every step, or a folder of a thousand files coming in, costs a read a second
-    const readQueue = throttle(() => void client.invalidateQueries({ queryKey: ["queue"], exact: true }), 1000);
+    const readQueue = throttle(() => void client.invalidateQueries({ queryKey: queryKeys.queue(), exact: true }), 1000);
     // each "library" event says what it changed: what it says in full (a new name, a keep) is written in at once, and the
-    // changes are gathered until the read, which reads only the queries one of them can touch (data.ts libraryReads)
+    // changes are gathered until the read, which reads only the queries one of them can touch (queryKeys.ts libraryReads)
     let libraryWaiting: Array<LibraryChange | null> = [];
     const libraryRead = throttle(() => {
       const reads = libraryReads(libraryWaiting);
@@ -107,7 +108,7 @@ export function useLiveEvents(): void {
     let busy = false;
     const unwatch = client.getQueryCache().subscribe((e) => {
       // a read of the queue, not a change made in place (a progress event, a new order)
-      if (e.type !== "updated" || e.action.type !== "success" || e.action.manual || e.query.queryKey.length !== 1 || e.query.queryKey[0] !== "queue") return;
+      if (e.type !== "updated" || e.action.type !== "success" || e.action.manual || e.query.queryKey.length !== 1 || !isUnder(e.query.queryKey, queryKeys.queue())) return;
       const q = e.query.state.data as QueueStatus | undefined;
       if (!q) return;
       const first = seen === null;
@@ -120,7 +121,7 @@ export function useLiveEvents(): void {
       // the history: its first page only, with the jobs that ended put in front of what is loaded (data.ts)
       if (now.ended.length) {
         void readHistoryHead(client);
-        refetch(client, [...RENDER_KEYS, ...(onTimeline ? [["timelines"]] : [])]);
+        refetch(client, [...RENDER_KEYS, ...(onTimeline ? [queryKeys.timelines.all()] : [])]);
       }
       if (!first && notifier.current) {
         const { whenEmpty, eachRender } = useNotify.getState();
@@ -134,7 +135,7 @@ export function useLiveEvents(): void {
     let indexWait: ReturnType<typeof setTimeout> | null = null;
     const readIndex = () => {
       if (indexWait) clearTimeout(indexWait);
-      indexWait = setTimeout(() => void client.invalidateQueries({ queryKey: BAR_INDEX, refetchType: useBar.getState().open ? "active" : "none" }), 300);
+      indexWait = setTimeout(() => void client.invalidateQueries({ queryKey: queryKeys.commandIndex.all(), refetchType: useBar.getState().open ? "active" : "none" }), 300);
     };
 
     // the first hello is the page opening: everything was just read. A later one is a reconnect (or another tab
@@ -146,17 +147,17 @@ export function useLiveEvents(): void {
       library: readLibrary,
       progress: (data) => {
         // with the job's figures in the event, the running job is changed in place: nothing is fetched
-        const merged = mergeProgress(client.getQueryData<QueueStatus>(["queue"]), parse(data) as Partial<ProgressUpdate> | null);
-        if (merged) client.setQueryData<QueueStatus>(["queue"], merged);
+        const merged = mergeProgress(client.getQueryData<QueueStatus>(queryKeys.queue()), parse(data) as Partial<ProgressUpdate> | null);
+        if (merged) client.setQueryData<QueueStatus>(queryKeys.queue(), merged);
         else readQueue();
       },
-      models: on("model-info"),
+      models: on(queryKeys.modelInfo.all()),
       // a timeline changed: its card, and the Projects panel's tree when it is open (its clips, its size)
-      timeline: () => refetch(client, [["timelines"], ["projects", "tree"]]),
-      entities: on("entities"),
-      downloads: on("downloads"),
+      timeline: () => refetch(client, [queryKeys.timelines.all(), queryKeys.projects.trees()]),
+      entities: on(queryKeys.entities()),
+      downloads: on(queryKeys.downloads()),
       // ComfyUI has a file it did not have: what is ready may have changed
-      setup: on("setup"),
+      setup: on(queryKeys.setup()),
       system: (data) => {
         const got = parse(data) as { load: SystemLoad | null } | null;
         if (got) useSystem.getState().set(got.load);
@@ -173,8 +174,8 @@ export function useLiveEvents(): void {
         // everything read again, but the command bar's index, which is only marked old: the bar reads it when it opens
         // next (its search of the library's items is under the same key)
         if (greeted) {
-          void client.invalidateQueries({ predicate: (q) => q.queryKey[0] !== BAR_INDEX[0] });
-          void client.invalidateQueries({ queryKey: BAR_INDEX, refetchType: useBar.getState().open ? "active" : "none" });
+          void client.invalidateQueries({ predicate: (q) => !isUnder(q.queryKey, queryKeys.commandIndex.all()) });
+          void client.invalidateQueries({ queryKey: queryKeys.commandIndex.all(), refetchType: useBar.getState().open ? "active" : "none" });
         }
         greeted = true;
       },

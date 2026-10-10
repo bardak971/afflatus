@@ -12,6 +12,7 @@ import { ComfyLog } from "./queue/Log";
 import { MachineMeters } from "./queue/MachineMeters";
 import { RunningCard } from "./queue/RunningCard";
 import { WaitingList } from "./queue/WaitingList";
+import { queryKeys } from "../queryKeys";
 
 /** The header's buttons: unload the models, pause or resume. */
 function QueueControls({ q, free, pause }: { q: QueueStatus | undefined; free: { mutate(): void; isPending: boolean; isSuccess: boolean }; pause: { mutate(paused: boolean): void } }) {
@@ -44,13 +45,13 @@ function QueueControls({ q, free, pause }: { q: QueueStatus | undefined; free: {
 export function Queue() {
   const queue = useQueue();
   const client = useQueryClient();
-  const refresh = () => client.invalidateQueries({ queryKey: ["queue"] });
+  const refresh = () => client.invalidateQueries({ queryKey: queryKeys.queue() });
   // what fails is said in a banner, as the history's actions do: it goes away, and does not stay on the screen
   const failed = useSayFailed({ id: "queue", href: "/queue", go: "Open queue" });
   const pause = useMutation({ mutationFn: (paused: boolean) => (paused ? api.pause() : api.resume()), onSuccess: refresh, onError: failed("Could not pause or resume the queue") });
   const free = useMutation({ mutationFn: api.freeMemory, onError: failed("Could not unload the models") });
   const cancel = useMutation({ mutationFn: api.cancel, onSuccess: refresh, onError: failed("Could not cancel it") });
-  const order = useMutation({ mutationFn: api.queueOrder, onSuccess: (q) => client.setQueryData(["queue"], q), onError: failed("Could not reorder the queue") });
+  const order = useMutation({ mutationFn: api.queueOrder, onSuccess: (q) => client.setQueryData(queryKeys.queue(), q), onError: failed("Could not reorder the queue") });
   const [refused, setRefused] = useState(false);
   // a view asked for in the address (the command bar's "Queue › Render times"): opened on it, and again when it changes
   const asked = new URLSearchParams(useSearch()).get("view");

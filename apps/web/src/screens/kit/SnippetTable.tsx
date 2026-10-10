@@ -9,6 +9,7 @@ import { Select } from "../../Select";
 import { AutoText, Button, Checkbox, cx, Empty, ErrorNote, fieldClass, Help, Segmented, TwoStep } from "../../ui";
 import { remember, remembered, textOf } from "./shared";
 import { copyText } from "../../secureContext";
+import { queryKeys } from "../../queryKeys";
 
 export type Snippet = Extract<Entity, { kind: "snippet" }>;
 
@@ -32,9 +33,9 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
   useEffect(() => setName(snippet.name), [snippet.name]);
   const save = useMutation({
     mutationFn: (next: { name: string; def: Snippet["def"] }) => api.saveEntity(snippet.id, next),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["entities"] }),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.entities() }),
   });
-  const remove = useMutation({ mutationFn: () => api.deleteEntity(snippet.id), onSuccess: () => client.invalidateQueries({ queryKey: ["entities"] }) });
+  const remove = useMutation({ mutationFn: () => api.deleteEntity(snippet.id), onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.entities() }) });
   const commit = (over: { name?: string; category?: string; text?: string; style?: Snippet["def"]["style"] } = {}) => {
     const next = {
       name: (over.name ?? name).trim() || "Unnamed",
@@ -128,7 +129,7 @@ export function SnippetTable({ snippets, query, only, onOnly: setOnly, fresh }: 
   useEffect(() => {
     if (only !== null && !snippets.some((s) => s.def.category === only)) setOnly(null);
   }, [only, snippets, setOnly]);
-  const refresh = () => client.invalidateQueries({ queryKey: ["entities"] });
+  const refresh = () => client.invalidateQueries({ queryKey: queryKeys.entities() });
   // what a move or a delete touches: the ticked ones still shown, never one the search or the category hides
   const chosen = found.filter((s) => ticked.has(s.id));
   const move = useMutation({

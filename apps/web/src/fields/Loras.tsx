@@ -13,6 +13,7 @@ import { cx, fieldClass, NumberBox } from "../ui";
 import { Slider } from "../Slider";
 import { fileOption } from "./FileSelect";
 import { Label } from "./Label";
+import { queryKeys } from "../queryKeys";
 
 /** A file's name as the words kept for it are filed under: lower case, without its sub-folder. */
 const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
@@ -59,7 +60,7 @@ function LoraWords({ file, info, more, main }: { file: string; info: ModelInfo |
   const { words, from } = wordsOf(info, more);
   const save = useMutation({
     mutationFn: (own: string) => api.setModelWords("loras", file, own.trim() || null),
-    onSuccess: (r) => client.setQueryData<{ items: Record<string, ModelWords> }>(["model-words", "loras"], (old) => ({ items: { ...(old?.items ?? {}), ...r.items } })),
+    onSuccess: (r) => client.setQueryData<{ items: Record<string, ModelWords> }>(queryKeys.modelWords("loras"), (old) => ({ items: { ...(old?.items ?? {}), ...r.items } })),
   });
   const small = "flex h-5 shrink-0 items-center gap-1 rounded px-1 text-[11px] text-ink-2 enabled:hover:bg-hover enabled:hover:text-ink disabled:opacity-35";
   // which of them the prompt holds already: "+" has nothing to add when all are there, "−" nothing to take when none is
@@ -137,9 +138,9 @@ export function useLoraWordsOf(files: string[]) {
     api.findModelWords("loras", asked).then(
       (r) => {
         setFailed(null);
-        client.setQueryData<{ items: Record<string, ModelWords> }>(["model-words", "loras"], (old) => ({ items: { ...(old?.items ?? {}), ...r.items } }));
+        client.setQueryData<{ items: Record<string, ModelWords> }>(queryKeys.modelWords("loras"), (old) => ({ items: { ...(old?.items ?? {}), ...r.items } }));
         // a page came with the words
-        void client.invalidateQueries({ queryKey: ["model-pages", "loras"] });
+        void client.invalidateQueries({ queryKey: queryKeys.modelPages("loras") });
       },
       // said, and not asked again while the page is open (a reload asks again)
       (err: Error) => setFailed(err.message),

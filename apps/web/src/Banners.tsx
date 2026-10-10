@@ -11,6 +11,7 @@ import { OUT_MS } from "./motion";
 import { useBanners, useHandover, useNotify, type Banner } from "./store";
 import { cx } from "./ui";
 import { askViewer, passFrom } from "./viewer/ask";
+import { queryKeys } from "./queryKeys";
 
 /**
  * A finished render is only announced where its result does not show up by itself (the Queue lists it as it ends). The
@@ -96,7 +97,7 @@ export function Banners() {
         else {
           // a pass of an item: the item's details are read again (what was made from it is in them, for Compare)
           const from = passFrom.get(j.id);
-          if (from) void client.invalidateQueries({ queryKey: ["assets", "one", from] });
+          if (from) void client.invalidateQueries({ queryKey: queryKeys.assets.one(from) });
           if (showsResults(path)) continue;
           // switched off in Settings › Interface: what finished is not announced (a failure still is, below)
           if (!useNotify.getState().banner) continue;

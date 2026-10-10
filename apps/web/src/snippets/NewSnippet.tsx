@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Entity } from "../api";
 import { AutoText, Button, cx, ErrorNote, fieldClass } from "../ui";
+import { queryKeys } from "../queryKeys";
 
 /** A new snippet, kept under a name and a category: it starts with what the form's prompt holds. */
 export function NewSnippet({ style, categories, first, onDone, onCancel }: {
@@ -19,7 +20,7 @@ export function NewSnippet({ style, categories, first, onDone, onCancel }: {
     mutationFn: (v: { name: string; category: string; text: string }) => api.createEntity("snippet", v.name.trim(), { text: v.text.trim(), category: v.category.trim(), style }),
     onSuccess: (made) => {
       onDone(made);
-      return client.invalidateQueries({ queryKey: ["entities"] });
+      return client.invalidateQueries({ queryKey: queryKeys.entities() });
     },
   });
   return (

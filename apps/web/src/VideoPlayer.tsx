@@ -5,6 +5,7 @@ import { api, fileUrl, thumbUrl } from "./api";
 import { claimPlayback, PlayButton, releasePlayback, savedVolume, SeekStrip, storeVolume, TimeReadout, VolumeControl } from "./mediaControls";
 import { barsOf, BARS } from "./screens/library/SoundWave";
 import { cx } from "./ui";
+import { queryKeys } from "./queryKeys";
 
 /**
  * The app's video player, in place of the browser's controls: the video, and under it the same bar as the
@@ -47,7 +48,7 @@ export function VideoPlayer({ asset, sound, lengthMs, video: outer, controls = t
   const [full, setFull] = useState(false);
 
   // the same key as the library's waveform and the audio player's: measured once for all of them
-  const motion = useQuery({ queryKey: ["motion", asset], queryFn: () => api.motion(asset), enabled: Boolean(sound && controls), staleTime: Infinity, retry: 0 });
+  const motion = useQuery({ queryKey: queryKeys.motion(asset), queryFn: () => api.motion(asset), enabled: Boolean(sound && controls), staleTime: Infinity, retry: 0 });
   const bars = sound ? barsOf(motion.data?.sound, BARS) : null;
 
   // another video: from its start, paused. Its length is read from the element, not cleared: a file the

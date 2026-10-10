@@ -2,6 +2,7 @@ import { useState } from "react";
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { api } from "../../api";
 import { useRenderTimes } from "../../data";
+import { queryKeys } from "../../queryKeys";
 
 export const HOUR = 3_600_000;
 export const DAY = 86_400_000;
@@ -55,7 +56,7 @@ export function useTimesView() {
     return ms === null ? {} : { from: now - ms, to: now };
   };
   const renders = useInfiniteQuery({
-    queryKey: ["renders", "list", model, only, key],
+    queryKey: queryKeys.renders.list(model, only, key),
     queryFn: ({ pageParam, signal }) => api.renders({ recipe: model ?? undefined, trouble: only === "trouble", before: pageParam, limit: 30, ...bounds() }, { signal }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => (last.more ? last.items.at(-1)?.at : undefined),
@@ -63,7 +64,7 @@ export function useTimesView() {
   });
   // every render of the window, for the lanes (up to five hundred: the longest keep their place in the chart either way)
   const lanes = useQuery({
-    queryKey: ["renders", "lanes", key],
+    queryKey: queryKeys.renders.lanes(key),
     queryFn: ({ signal }) => api.renders({ ...bounds(), limit: 500 }, { signal }),
     placeholderData: keepPreviousData,
   });

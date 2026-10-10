@@ -3,9 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import { useSettings } from "./data";
 import { siteName } from "./format";
+import { queryKeys } from "./queryKeys";
 
 /** Model files being fetched into ComfyUI. Refetched when the server says one of them moved on. */
-export const useDownloads = () => useQuery({ queryKey: ["downloads"], queryFn: api.downloads, staleTime: 10_000 });
+export const useDownloads = () => useQuery({ queryKey: queryKeys.downloads(), queryFn: api.downloads, staleTime: 10_000 });
 
 export type Find = Awaited<ReturnType<typeof api.civitaiFind>>;
 /** Where a download comes from: the address, or a Civitai version. */
@@ -43,7 +44,7 @@ export function useGetFile({ file, folder, url, civitai, pick, hints, auto, sour
   const find = useMutation({ mutationFn: () => api.civitaiFind(file, folder, hints) });
   const start = useMutation({
     mutationFn: (from: From) => api.startDownload({ file, folder: folder!, ...from, ...("civitai" in from && pick ? { pick } : {}) }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["downloads"] }),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.downloads() }),
   });
   const mine = downloads.data?.items.find((d) => d.file === file && d.folder === folder);
   const busy = start.isPending || Boolean(mine && (mine.status === "starting" || mine.status === "downloading" || mine.status === "saving"));

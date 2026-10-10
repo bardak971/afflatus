@@ -3,9 +3,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { api, failure, lookAdds, raw, type Draft } from "./api";
 import { useAutosave } from "./autosave";
-import { DRAFT_LIST, useDrafts } from "./data";
+import { useDrafts } from "./data";
 import { useProject, type ProjectChoice } from "./project";
 import { useBanners, useOpenDraft } from "./store";
+import { queryKeys } from "./queryKeys";
 
 const SAVE_AFTER_MS = 500;
 
@@ -83,8 +84,8 @@ export function useOpenNewDraft() {
   const [, go] = useLocation();
   return useCallback(
     (d: { id: string }) => {
-      client.setQueryData(["drafts", d.id], d);
-      void client.invalidateQueries({ queryKey: DRAFT_LIST });
+      client.setQueryData(queryKeys.drafts.one(d.id), d);
+      void client.invalidateQueries({ queryKey: queryKeys.drafts.lists() });
       open(d.id);
       go("/create");
     },
@@ -104,7 +105,7 @@ export function useDraft(firstRecipe: string | undefined) {
   const project = useProject((s) => s.id);
   const list = useDrafts();
   const say = useBanners((b) => b.push);
-  const loaded = useQuery({ queryKey: ["drafts", openId], queryFn: () => api.draft(openId!), enabled: Boolean(openId), retry: false, staleTime: Infinity });
+  const loaded = useQuery({ queryKey: queryKeys.drafts.one(openId), queryFn: () => api.draft(openId!), enabled: Boolean(openId), retry: false, staleTime: Infinity });
 
   const [draft, setDraft] = useState<Draft | null>(null);
   // the draft on screen, for what arrives after a wait (a designer's reply, a seed moved after queuing)
@@ -126,11 +127,11 @@ export function useDraft(firstRecipe: string | undefined) {
         const to = saved.id;
         if (unsaved.current && unsaved.current.id === from) unsaved.current = { ...unsaved.current, id: to };
         setDraft((x) => (x && x.id === from ? { ...x, id: to } : x));
-        client.removeQueries({ queryKey: ["drafts", from] });
+        client.removeQueries({ queryKey: queryKeys.drafts.one(from) });
         if (useOpenDraft.getState().id === from) open(to);
       }
-      client.setQueryData(["drafts", saved.id], saved);
-      void client.invalidateQueries({ queryKey: DRAFT_LIST });
+      client.setQueryData(queryKeys.drafts.one(saved.id), saved);
+      void client.invalidateQueries({ queryKey: queryKeys.drafts.lists() });
     },
     // closing or reloading the tab: a request that outlives the page, without the conversation when the whole draft is
     // too large for one; when even that cannot go, or the conversation is left out, the browser asks first
@@ -175,8 +176,8 @@ export function useDraft(firstRecipe: string | undefined) {
       creating.current = true;
       api.createDraft({ recipe: firstRecipe })
         .then((d) => {
-          client.setQueryData(["drafts", d.id], d);
-          void client.invalidateQueries({ queryKey: DRAFT_LIST });
+          client.setQueryData(queryKeys.drafts.one(d.id), d);
+          void client.invalidateQueries({ queryKey: queryKeys.drafts.lists() });
           open(d.id);
         })
         .catch((err: Error) => say({ id: "draft:create", tone: "bad", title: "A new draft could not be started", text: err.message, href: "/create", go: "Open the form" }))
@@ -206,14 +207,14 @@ export function useDraft(firstRecipe: string | undefined) {
   const editDraft = useCallback(
     async (id: string, edit: (d: Draft) => Draft) => {
       if (shown.current?.id === id) return change(edit);
-      const base = unsaved.current?.id === id ? unsaved.current : (client.getQueryData<Draft>(["drafts", id]) ?? (await api.draft(id)));
+      const base = unsaved.current?.id === id ? unsaved.current : (client.getQueryData<Draft>(queryKeys.drafts.one(id)) ?? (await api.draft(id)));
       const next = edit(base);
       if (unsaved.current?.id === id) unsaved.current = null;
       const saved = await turn(() => putDraft(id, saveBodyOf(next)));
       // gone meanwhile: nothing left to write into
       if (saved === "gone") return;
-      client.setQueryData(["drafts", id], saved);
-      void client.invalidateQueries({ queryKey: DRAFT_LIST });
+      client.setQueryData(queryKeys.drafts.one(id), saved);
+      void client.invalidateQueries({ queryKey: queryKeys.drafts.lists() });
     },
     [change, client, turn, unsaved],
   );
@@ -263,16 +264,16 @@ export function useDraft(firstRecipe: string | undefined) {
       if (draft && holdsNothing(draft)) return;
       await flush();
       const d = await api.createDraft({ recipe: draft?.recipe ?? firstRecipe! });
-      client.setQueryData(["drafts", d.id], d);
-      void client.invalidateQueries({ queryKey: DRAFT_LIST });
+      client.setQueryData(queryKeys.drafts.one(d.id), d);
+      void client.invalidateQueries({ queryKey: queryKeys.drafts.lists() });
       open(d.id);
     },
     async remove(id: string) {
       if (unsaved.current?.id === id) unsaved.current = null;
       await api.deleteDraft(id);
-      client.removeQueries({ queryKey: ["drafts", id] });
+      client.removeQueries({ queryKey: queryKeys.drafts.one(id) });
       // the list first, so that what opens next is chosen among drafts that still exist
-      await client.invalidateQueries({ queryKey: DRAFT_LIST });
+      await client.invalidateQueries({ queryKey: queryKeys.drafts.lists() });
       if (id === openId) {
         setDraft(null);
         open(null);

@@ -4,6 +4,7 @@ import { itemsWord } from "./assetCache";
 import { ask } from "./Confirm";
 import { insteadOfWaiting } from "./keepFor";
 import { useBanners } from "./store";
+import { queryKeys } from "./queryKeys";
 
 /**
  * What the bin itself offers (its strip over the grid, its items' menu, Del on what is ticked in it): an item erased
@@ -13,7 +14,7 @@ import { useBanners } from "./store";
 
 /** The lists read again after a change of the bin: the library, its folders' counts, the bin's size, the timelines. */
 function readAgain(client: QueryClient) {
-  for (const key of ["assets", "folders", "projects", "storage", "timelines"]) void client.invalidateQueries({ queryKey: [key] });
+  for (const queryKey of [queryKeys.assets.all(), queryKeys.folders(), queryKeys.projects.all(), queryKeys.storage(), queryKeys.timelines.all()]) void client.invalidateQueries({ queryKey });
 }
 
 const say = (tone: "good" | "bad", title: string, text?: string) => useBanners.getState().push({ id: `bin:${Date.now()}`, tone, title, ...(text ? { text } : {}) });
@@ -34,7 +35,7 @@ export async function eraseNow(client: QueryClient, ids: string[]): Promise<bool
     }
     // gone from the bin's list at once, before it is read again
     const gone = new Set(ids);
-    client.setQueriesData<InfiniteData<{ items: Asset[] }>>({ queryKey: ["assets", "list"] }, (d) => (d?.pages ? { ...d, pages: d.pages.map((p) => ({ ...p, items: p.items.filter((a) => !gone.has(a.id)) })) } : d));
+    client.setQueriesData<InfiniteData<{ items: Asset[] }>>({ queryKey: queryKeys.assets.lists() }, (d) => (d?.pages ? { ...d, pages: d.pages.map((p) => ({ ...p, items: p.items.filter((a) => !gone.has(a.id)) })) } : d));
     say("good", `Deleted for good · ${itemsWord(erased)}`, used ? `${itemsWord(used)} still in use stayed in the bin.` : undefined);
     return true;
   } catch (err) {
