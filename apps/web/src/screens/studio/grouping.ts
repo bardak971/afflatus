@@ -73,8 +73,8 @@ export function groupItems(items: Asset[], by: GroupBy, open: Set<string>): Sect
   for (const a of items) {
     const key = by === "timeline" ? a.clipOf?.timeline : by === "draft" ? a.draftOf?.id : dayOf(a.createdAt);
     if (!key) continue;
-    const label = by === "timeline" ? a.clipOf!.timelineName : by === "draft" ? a.draftOf!.name : dayLabel(key);
-    if (!sections.has(key)) sections.set(key, { label, ...(by === "timeline" ? { timeline: key } : {}), items: [] });
+    // the label once per section: a day's is a date written out, too slow to write for each of thousands of items
+    if (!sections.has(key)) sections.set(key, { label: by === "timeline" ? a.clipOf!.timelineName : by === "draft" ? a.draftOf!.name : dayLabel(key), ...(by === "timeline" ? { timeline: key } : {}), items: [] });
     sections.get(key)!.items.push(a);
   }
   const out: Section[] = [];
