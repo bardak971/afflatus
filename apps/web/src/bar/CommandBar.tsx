@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEve
 import { createPortal } from "react-dom";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { LATENT_GRID, type FrameGrid } from "@afflatus/core";
 import {
   Bookmark, Calculator, ChevronRight, Film, Folder, FolderKanban, Image as ImageIcon, Keyboard, ListOrdered, MapPin, Music, Navigation, PenLine, Puzzle, Quote, Search, SlidersHorizontal, Sparkles, User, Video, Workflow, Zap,
 } from "lucide-react";
@@ -78,15 +79,19 @@ const FOOTER_MODES: Array<[string, string]> = [[">", "commands"], ["#", "places"
  */
 const OFF_PARTS: Array<["history" | "cast" | "snippets", string, string]> = [["history", '"', "history"], ["cast", "@", "cast"], ["snippets", ";", "snippets"]];
 
-/** The calculator's grid: the model in play's (the open draft's, else the first one that makes video on a grid), H3's figures when none is known. */
+/**
+ * The calculator's grid: the model in play's (the open draft's, else one on the grid of the latents the app keeps, else
+ * the first one that makes video on a grid), that grid when none is known.
+ */
 function gridOf(recipes: RecipeInfo[], prefer: string | undefined): Grid {
   const video = recipes.filter((r) => r.traits?.frameGrid);
-  const r = video.find((x) => x.id === prefer) ?? video.find((x) => x.family === "h3") ?? video[0];
+  const kept = (g: FrameGrid) => g.step === LATENT_GRID.step && g.offset === LATENT_GRID.offset;
+  const r = video.find((x) => x.id === prefer) ?? video.find((x) => kept(x.traits!.frameGrid)) ?? video[0];
   const sizeInput = r?.inputs.find((i) => i.type === "size");
   return {
     name: r ? r.family.toUpperCase() : "H3",
     fps: r?.traits?.fps ?? 24,
-    frames: r?.traits?.frameGrid ?? { step: 17, offset: 5 },
+    frames: r?.traits?.frameGrid ?? LATENT_GRID,
     size: sizeInput && sizeInput.type === "size" ? sizeInput.grid : 32,
   };
 }
