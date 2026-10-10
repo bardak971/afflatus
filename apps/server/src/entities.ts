@@ -95,16 +95,16 @@ export interface Composed {
   added: { words: Array<{ from: string; text: string }>; loras: Array<{ from: string; file: string }>; references: number; /** The reference pictures added, and whose they are. */ refs: Array<{ asset: string; role: ReferenceRole; from: string }>; voice: string | null; skipped: string[] };
 }
 
-/** The pictures (and outfit pictures) an entity's definition names. */
-const picturesOf = (def: string): string[] => {
-  const d = JSON.parse(def) as { pictures?: string[]; outfits?: Array<{ picture?: string | null }> };
-  return [...(d.pictures ?? []), ...(d.outfits ?? []).map((o) => o.picture)].filter((x): x is string => Boolean(x));
+/** The files an entity's definition names: its pictures, its outfits' pictures and its voice sample. */
+const filesOf = (def: string): string[] => {
+  const d = JSON.parse(def) as { pictures?: string[]; voice?: string | null; outfits?: Array<{ picture?: string | null }> };
+  return [...(d.pictures ?? []), d.voice, ...(d.outfits ?? []).map((o) => o.picture)].filter((x): x is string => Boolean(x));
 };
 
-/** Pictures uploaded for the Prompt kit that no person or place names any more: to the bin (the library never shows them). */
+/** Files uploaded for the Prompt kit (pictures, voice samples) that no person or place names any more: to the bin (the library never shows them). */
 async function binUnwantedKit(db: Db, ids: string[]): Promise<void> {
   if (!ids.length) return;
-  const wanted = new Set((await db.selectFrom("entities").select("def").where("kind", "in", ["person", "place"]).execute()).flatMap((e) => picturesOf(e.def)));
+  const wanted = new Set((await db.selectFrom("entities").select("def").where("kind", "in", ["person", "place"]).execute()).flatMap((e) => filesOf(e.def)));
   const gone = ids.filter((id) => !wanted.has(id));
   if (gone.length) await db.updateTable("assets").set({ deleted_at: now() }).where("id", "in", gone).where("origin", "=", "kit").where("deleted_at", "is", null).execute();
 }
@@ -359,7 +359,7 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
     const next = { name: b.name ?? row.name, def: b.def === undefined ? row.def : JSON.stringify(defs[row.kind].parse(b.def)), updated_at: now() };
     await s.db.updateTable("entities").set(next).where("id", "=", row.id).execute();
     // a picture uploaded for them and taken off again, wanted by no one else: to the bin
-    if (b.def !== undefined) await binUnwantedKit(s.db, picturesOf(row.def).filter((id) => !picturesOf(next.def).includes(id)));
+    if (b.def !== undefined) await binUnwantedKit(s.db, filesOf(row.def).filter((id) => !filesOf(next.def).includes(id)));
     if (b.def !== undefined) await keepTheirs(row.kind, next.def);
     changed();
     return view({ ...row, ...next });
@@ -371,7 +371,7 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
     const r = await s.db.deleteFrom("entities").where("id", "=", req.params.id).executeTakeFirst();
     if (!Number(r.numDeletedRows)) throw missing();
     // the pictures uploaded for them (not those picked from the library), wanted by no one else: to the bin
-    if (row) await binUnwantedKit(s.db, picturesOf(row.def));
+    if (row) await binUnwantedKit(s.db, filesOf(row.def));
     const cut = await dropFromLooks(s.db, req.params.id);
     changed();
     if (cut.timelines) s.queue.events.emit("timeline");

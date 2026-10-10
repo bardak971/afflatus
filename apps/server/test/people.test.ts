@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { now } from "../src/db";
 import { CHECKPOINT, complete, get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
+import { patternClip, toneFile } from "./clipKit";
 
 let fake: FakeComfy;
 let t: TestApp;
@@ -245,6 +246,26 @@ describe("pictures uploaded for the Prompt kit", () => {
     const gone = await t.db.selectFrom("assets").select(["id", "deleted_at"]).where("id", "in", [kit, mine]).execute();
     expect(gone.find((x) => x.id === kit)?.deleted_at).not.toBeNull();
     expect(gone.find((x) => x.id === mine)?.deleted_at).toBeNull();
+  });
+
+  it("take a voice sample the same way: kept with the person, never in the library, binned once no one names it", async () => {
+    const tone = await toneFile(1);
+    const voice = (await t.app.inject({ method: "POST", url: "/api/assets?name=her-voice.wav&as=kit", headers: { "content-type": "audio/wav" }, payload: Buffer.from(tone) })).json();
+    expect(voice).toMatchObject({ kind: "audio", hasSound: true });
+    expect((await get(t.app, "/api/assets?kind=audio")).json().items).toEqual([]);
+    const her = (await post(t.app, "/api/entities", { kind: "person", name: "Her" })).json();
+    await put(`/api/entities/${her.id}`, { def: { voice: voice.id } });
+    const made = (await post(t.app, "/api/compose", { recipe: "h3.video", input: { description: "She says hello." }, look: { cast: [{ id: her.id }] } })).json();
+    expect(made.added.voice).toBe("Her");
+    await put(`/api/entities/${her.id}`, { def: { voice: null } });
+    const row = await t.db.selectFrom("assets").select("deleted_at").where("id", "=", voice.id).executeTakeFirstOrThrow();
+    expect(row.deleted_at).not.toBeNull();
+  });
+
+  it("are refused when they are neither a picture nor a sound", async () => {
+    const clip = await patternClip(1);
+    const res = await t.app.inject({ method: "POST", url: "/api/assets?name=clip.mp4&as=kit", headers: { "content-type": "video/mp4" }, payload: Buffer.from(clip) });
+    expect(res.statusCode).toBe(400);
   });
 });
 
