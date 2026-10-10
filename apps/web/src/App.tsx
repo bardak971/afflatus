@@ -60,7 +60,7 @@ export function App() {
       <div className="flex min-h-0 grow">
         <NavRail />
         {/* while a screen's code loads: the timeline editor's own shape for the editor (it then lands in place), else a line */}
-        <Suspense fallback={/^\/timelines\/[^/]+/.test(path) ? <EditorSkeleton /> : <div className="grow p-8 text-ink-2">Loading…</div>}>
+        <Suspense fallback={/^\/timelines\/[^/]+/.test(path) ? <EditorSkeleton id={path.split("/")[2]} /> : <div className="grow p-8 text-ink-2">Loading…</div>}>
         {/* a screen that fails takes only itself down; going to another screen starts afresh ("/create" and "/timelines" are
             the Studio's own addresses, with its form open or its timelines shown: the same screen; a timeline's editor is not) */}
         <ErrorBoundary key={path === "/create" || path === "/timelines" ? "" : path.split("/")[1]}>

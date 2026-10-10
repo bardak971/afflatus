@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { InputSpec } from "@afflatus/core";
-import type { Clip, RecipeInfo } from "../src/api";
-import { layout, otherShape, PAD, pinInputs, placeOf, playAt, shapeOf, stamp, titleOf } from "../src/timeline/model";
+import type { Asset, Clip, RecipeInfo, Take } from "../src/api";
+import { layout, otherShape, PAD, pinInputs, placeOf, playAt, shapeOf, stamp, takeTrouble, titleOf } from "../src/timeline/model";
 
 const recipe = (inputs: InputSpec[], id = "h3.video"): RecipeInfo => ({ id, family: "h3", version: 1, title: "Video", summary: "A clip.", output: "video", inputs, traits: null });
 const h3 = recipe([
@@ -78,5 +78,22 @@ describe("shapes and stamps", () => {
   it("writes a moment to the tenth of a second", () => {
     expect(stamp(3300)).toBe("0:03.3");
     expect(stamp(61_050)).toBe("1:01.0");
+  });
+});
+
+describe("a broken take", () => {
+  const take = (id: string, fileMs: number, over: Partial<Take> = {}): Take => ({ id, startMs: 0, endMs: fileMs, trimStartMs: 0, trimEndMs: 0, finishedFrom: null, asset: { id: `v-${id}`, durationMs: fileMs } as Asset, ...over }) as Take;
+  it("is not a trimmed take, nor a finished take of its draft's length", () => {
+    const draft = take("d", 5167, { startMs: 500, endMs: 1500, trimStartMs: 500, trimEndMs: 3667 });
+    expect(takeTrouble(draft, [draft])).toBeNull();
+    const finished = take("f", 5200, { finishedFrom: "d", startMs: 500, endMs: 1500 });
+    expect(takeTrouble(finished, [draft, finished])).toBeNull();
+  });
+  it("is a finished take whose file is not its draft's length, or a take with nothing left to play", () => {
+    const draft = take("d", 5167);
+    const short = take("f", 4000, { finishedFrom: "d", startMs: 500, endMs: 500 });
+    expect(takeTrouble(short, [draft, short])).toMatch(/^Its file is 4\.0 s, its draft's 5\.2 s/);
+    const empty = take("e", 3000, { startMs: 1200, endMs: 1200 });
+    expect(takeTrouble(empty, [empty])).toMatch(/^Nothing of it is left to play \(its file is 3\.0 s\)/);
   });
 });

@@ -113,6 +113,26 @@ export function pinInputs(recipe: RecipeInfo | undefined) {
 /** How much of a take can play at most: its video on the model's grid, without the parts it shares with its neighbours (the server's roomMs). */
 export const roomOf = (take: Take) => take.roomMs;
 
+/** Past this a finished take's file and its draft's are not the same length (a frame or two of rounding is not). */
+const SAME_LENGTH_MS = 150;
+
+/**
+ * What is wrong with a take as it stands, in a sentence; null when nothing is. A take of which nothing is left to play,
+ * or a finished take whose file is not its draft's length (it must keep it: its trims and joins are counted in the
+ * draft's time), is broken, and its row says so rather than showing "0.0 s" as a length like any other.
+ */
+export function takeTrouble(take: Take, takes: Take[]): string | null {
+  const s = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+  const file = take.asset.durationMs ?? null;
+  const draft = take.finishedFrom ? takes.find((t) => t.id === take.finishedFrom) : undefined;
+  const draftFile = draft?.asset.durationMs ?? null;
+  if (draft && file !== null && draftFile !== null && Math.abs(file - draftFile) > SAME_LENGTH_MS) {
+    return `Its file is ${s(file)}, its draft's ${s(draftFile)}: a finished take keeps its draft's length, so its trims and joins no longer line up. Finish the draft again, or remove this take.`;
+  }
+  if (take.endMs - take.startMs <= 0) return `Nothing of it is left to play${file !== null ? ` (its file is ${s(file)})` : ""}. Remove this take, or render another.`;
+  return null;
+}
+
 /** A clip's change as the server takes it, a trim asked by what is seen (shownFromMs, shownToMs) included. */
 export type ShownPatch = ClipPatch;
 

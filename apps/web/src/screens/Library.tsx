@@ -109,7 +109,8 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
       onContextMenu={onMenu}
       data-stage
       className={cx(
-        "relative block w-full select-none overflow-hidden rounded-xl bg-panel outline-none hover:ring-2 hover:ring-accent focus-visible:ring-2 focus-visible:ring-accent",
+        // a container: what sits on the tile (its clip and take) says less on a narrow one
+        "@container/tile relative block w-full select-none overflow-hidden rounded-xl bg-panel outline-none hover:ring-2 hover:ring-accent focus-visible:ring-2 focus-visible:ring-accent",
         fill ? "h-full" : "aspect-[3/4]",
         selected && "ring-2 ring-accent",
       )}
@@ -200,14 +201,15 @@ export function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, on
   );
 }
 
-/** On a video that is a take of a timeline clip: the clip's number, the rest on hover. */
+/** On a video that is a take of a timeline clip: the clip's number ("c1 · t12" on a narrow tile, cut to nothing otherwise), the rest in its tip. */
 function ClipMark({ of, className }: { of: NonNullable<Asset["clipOf"]>; className?: string }) {
   const what = `${of.timelineName}: clip ${of.clip}${of.takes > 1 ? `, take ${of.take} of ${of.takes}` : ""}${of.playing ? " (the one playing)" : of.takes > 1 ? " (not the one playing)" : ""}${of.upscaledBy ? `, upscaled${of.upscaledBy !== 1 ? ` ×${of.upscaledBy}` : ""}` : ""}`;
   return (
     <span data-tip={what} aria-label={what} className={cx("flex max-w-[calc(100%-1rem)] items-center gap-1 overflow-hidden rounded-md bg-ground/80 px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap", of.playing || of.takes === 1 ? "text-accent" : "text-ink-2", className)}>
       <Film size={11} className="shrink-0" />
-      Clip {of.clip}
-      {of.takes > 1 && <span className="font-normal text-ink-2">· take {of.take}/{of.takes}</span>}
+      <span className="hidden @min-[10rem]/tile:inline">Clip {of.clip}</span>
+      {of.takes > 1 && <span className="hidden font-normal text-ink-2 @min-[10rem]/tile:inline">· take {of.take}/{of.takes}</span>}
+      <span className="@min-[10rem]/tile:hidden">c{of.clip}{of.takes > 1 && <span className="font-normal text-ink-2"> · t{of.take}</span>}</span>
     </span>
   );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Asset, Clip, Take } from "../src/api";
-import { attention, canDismiss, dismissKey, fixAll, type JoinFigures } from "../src/timeline/attention";
+import { attention, attentionLine, canDismiss, clipWords, dismissKey, fixAll, fixWords, planFix, type JoinFigures, type Row } from "../src/timeline/attention";
 
 /** A clip with only what the rows read. */
 const clip = (over: Partial<Clip> & { id: string }): Clip =>
@@ -78,5 +78,45 @@ describe("a row kept as it is", () => {
   it("never a clip with nothing rendered: there is nothing to keep", () => {
     expect(canDismiss({ key: "missing", kind: "missing", ids: ["a"], warn: false })).toBe(false);
     expect(canDismiss({ key: "join:b", kind: "join", ids: ["b"], warn: true })).toBe(true);
+  });
+});
+
+describe("a clip whose form is still to fill", () => {
+  const why = (c: Clip) => (c.id === "b" ? "Write prompt first." : undefined);
+  it("opens its form, said with what it waits for, when none of the clips can render", () => {
+    const rows = attention([rendered("a", ["t"]), clip({ id: "b" })], { joins: new Map(), renderable: () => false, msOf: ms, misfit: () => false, why });
+    expect(rows.map((r) => [r.kind, r.act])).toEqual([["missing", { do: "open", clip: "b", why: "Write prompt first." }]]);
+  });
+  it("is left out of Fix all, and does not count towards showing it", () => {
+    const clips = [clip({ id: "b" }), rendered("c", ["u"], { join: "stale" })];
+    const rows = attention(clips, { joins: new Map(), renderable: (c) => c.id === "c", msOf: ms, misfit: () => false, why });
+    expect(rows.map((r) => r.act?.do)).toEqual(["open", "render"]);
+    expect(fixAll(rows, clips, ms)).toBeNull();
+    // the one row with an action is what "Fix all first" runs
+    expect(planFix(rows, clips, ms)).toEqual({ patches: [], render: ["c"] });
+  });
+});
+
+describe("Needs attention in words", () => {
+  const clips = [rendered("a", ["t"]), rendered("b", ["u1", "u2"]), rendered("c", ["w"]), rendered("d", ["x"]), clip({ id: "e" })];
+  it("says clip numbers as a list", () => {
+    expect(clipWords([5])).toBe("clip 5");
+    expect(clipWords([4, 2])).toBe("clips 2 and 4");
+    expect(clipWords([1, 2, 6])).toBe("clips 1, 2 and 6");
+  });
+  it("says Fix all as a full sentence", () => {
+    expect(fixWords({ patches: [], render: ["e", "b", "d"] }, clips)).toBe("Renders clips 2, 4 and 5, in order.");
+    expect(fixWords({ patches: [{ clip: "b", patch: { take: "u2" } }], render: ["e"] }, clips)).toBe("Plays take 2 on clip 2, then renders clip 5. Each change is its own Undo step.");
+    expect(fixWords({ patches: [{ clip: "c", patch: { fill: true } }], render: [] }, clips)).toBe("Fills the frame of clip 3. Each change is its own Undo step.");
+  });
+  it("says the rows in one line for the Export and Finish dialogs, the joins together", () => {
+    const rows: Row[] = [
+      { key: "missing", kind: "missing", ids: ["e"], warn: false },
+      { key: "join:b", kind: "join", ids: ["b"], warn: true, figure: 5 },
+      { key: "join:d", kind: "join", ids: ["d"], warn: true, figure: 20 },
+    ];
+    expect(attentionLine(rows, clips)).toBe("3 things need attention: clip 5 not rendered, joins at clips 2 and 4");
+    expect(attentionLine([{ key: "stale", kind: "stale", ids: ["b"], warn: true }], clips)).toBe("1 thing needs attention: clip before clip 2 changed");
+    expect(attentionLine([], clips)).toBe("");
   });
 });

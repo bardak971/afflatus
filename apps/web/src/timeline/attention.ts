@@ -11,11 +11,15 @@ export const SHOWS = 3;
 /** How each take of a clip meets the clip before (`in`) and after (`out`), as the server measures it. */
 export type JoinFigures = Array<{ take: string; in: number | null; out: number | null }>;
 
-/** A row's action: render clips, make another take play, or fill the frame. */
+/**
+ * A row's action: render clips, make another take play, fill the frame, or open a clip whose form is still to fill
+ * (with what it waits for), so that every row has a button and none reads as a dead end.
+ */
 export type Act =
   | { do: "render"; clips: string[]; ms: number }
   | { do: "take"; clip: string; take: string; number: number; figure: number }
-  | { do: "fill"; clips: string[] };
+  | { do: "fill"; clips: string[] }
+  | { do: "open"; clip: string; why: string };
 
 export interface Row {
   key: string;
@@ -44,6 +48,8 @@ export function attention(clips: Clip[], o: {
   msOf(c: Clip): number | null;
   /** Of another shape than the video, shown with bars. */
   misfit(c: Clip): boolean;
+  /** Why a clip cannot be rendered yet ("Write prompt first."), when its form is still to fill. */
+  why?(c: Clip): string | undefined;
 }): Row[] {
   const render = (list: Clip[]): Act | undefined => {
     const can = list.filter(o.renderable);
@@ -52,7 +58,12 @@ export function attention(clips: Clip[], o: {
   const rows: Row[] = [];
   // a failed clip is listed once, as failed: Retry is its action; one with its form still to fill is listed, not rendered
   const unrendered = clips.filter((c) => c.kind === "video" && !c.take && !c.job && !c.failed);
-  if (unrendered.length) rows.push({ key: "missing", kind: "missing", ids: unrendered.map((c) => c.id), warn: false, act: render(unrendered) });
+  if (unrendered.length) {
+    // none of them can render yet: the first one's form is opened, said with what it waits for
+    const waiting = o.why && unrendered.map((c) => ({ clip: c.id, why: o.why!(c) })).find((x) => x.why);
+    const act = render(unrendered) ?? (waiting ? { do: "open" as const, clip: waiting.clip, why: waiting.why! } : undefined);
+    rows.push({ key: "missing", kind: "missing", ids: unrendered.map((c) => c.id), warn: false, act });
+  }
   const stale = clips.filter((c) => c.join === "stale");
   if (stale.length) rows.push({ key: "stale", kind: "stale", ids: stale.map((c) => c.id), warn: true, act: render(stale) });
   const failed = clips.filter((c) => c.failed && !c.take);
@@ -80,14 +91,15 @@ export function attention(clips: Clip[], o: {
 
 /** Fix all, once two rows or more have an action: each clip rendered once, in timeline order, after the patches. */
 export function fixAll(rows: Row[], clips: Clip[], msOf: (c: Clip) => number | null): Fix | null {
-  const acts = rows.flatMap((r) => (r.act ? [r.act] : []));
+  // opening a form mends nothing by itself: it is left out of Fix all, and does not count towards showing it
+  const acts = rows.flatMap((r) => (r.act && r.act.do !== "open" ? [r.act] : []));
   if (acts.length < 2) return null;
   const patches: Fix["patches"] = [];
   const wanted = new Set<string>();
   for (const a of acts) {
     if (a.do === "take") patches.push({ clip: a.clip, patch: { take: a.take } });
     else if (a.do === "fill") for (const clip of a.clips) patches.push({ clip, patch: { fill: true } });
-    else for (const clip of a.clips) wanted.add(clip);
+    else if (a.do === "render") for (const clip of a.clips) wanted.add(clip);
   }
   const render = clips.filter((c) => wanted.has(c.id));
   return { patches, render: render.map((c) => c.id), ms: render.reduce((sum, c) => sum + (msOf(c) ?? 0), 0) };
@@ -100,3 +112,71 @@ export function fixAll(rows: Row[], clips: Clip[], msOf: (c: Clip) => number | n
  */
 export const canDismiss = (r: Row) => r.kind !== "missing";
 export const dismissKey = (r: Row, clips: Clip[]) => `${r.kind}:${r.ids.map((id) => `${id}@${clips.find((c) => c.id === id)?.take?.id ?? "-"}`).join(",")}`;
+
+/** One row's action as Fix all runs it: its patches, then its render. Opening a form is not one: null. */
+export function fixOf(a: Act): Omit<Fix, "ms"> | null {
+  if (a.do === "render") return { patches: [], render: a.clips };
+  if (a.do === "take") return { patches: [{ clip: a.clip, patch: { take: a.take } }], render: [] };
+  if (a.do === "fill") return { patches: a.clips.map((clip) => ({ clip, patch: { fill: true } })), render: [] };
+  return null;
+}
+
+/**
+ * What "Fix all first" runs from the Export and Finish dialogs, as the command bar's Fix all does: Fix all once it is
+ * offered, else the one row's own action when only one row has one; null when nothing listed has an action that mends it.
+ */
+export function planFix(rows: Row[], clips: Clip[], msOf: (c: Clip) => number | null): Omit<Fix, "ms"> | null {
+  const fix = fixAll(rows, clips, msOf);
+  if (fix) return fix;
+  const acts = rows.flatMap((r) => {
+    const f = r.act ? fixOf(r.act) : null;
+    return f ? [f] : [];
+  });
+  return acts.length === 1 ? acts[0]! : null;
+}
+
+/** "clip 5", "clips 2 and 4", "clips 1, 2 and 6": clip numbers in words. */
+export function clipWords(numbers: number[]): string {
+  const n = [...numbers].sort((a, b) => a - b);
+  if (n.length === 1) return `clip ${n[0]}`;
+  return `clips ${n.slice(0, -1).join(", ")} and ${n.at(-1)}`;
+}
+
+/** Fix all's tip, as a sentence: what it changes (each its own Undo step), then what it renders, in timeline order. */
+export function fixWords(fix: Omit<Fix, "ms">, clips: Clip[]): string {
+  const number = (id: string) => clips.findIndex((c) => c.id === id) + 1;
+  const takes = fix.patches.filter((p) => p.patch.take).map((p) => {
+    const c = clips.find((x) => x.id === p.clip);
+    return `take ${(c?.takes.findIndex((t) => t.id === p.patch.take) ?? -1) + 1} on clip ${number(p.clip)}`;
+  });
+  const filled = fix.patches.filter((p) => p.patch.fill).map((p) => number(p.clip));
+  const parts = [
+    ...(takes.length ? [`plays ${takes.join(", ")}`] : []),
+    ...(filled.length ? [`fills the frame of ${clipWords(filled)}`] : []),
+    ...(fix.render.length ? [`${fix.patches.length ? "then renders" : "renders"} ${clipWords(fix.render.map(number))}${fix.render.length > 1 ? ", in order" : ""}`] : []),
+  ];
+  const sentence = parts.join(", ");
+  const undo = fix.patches.length ? ` Each change is its own Undo step.` : "";
+  return sentence ? `${sentence[0]!.toUpperCase()}${sentence.slice(1)}.${undo}` : "";
+}
+
+/**
+ * Needs attention in one line, for the Export and Finish dialogs: "3 things need attention: clip 5 not rendered, joins at
+ * clips 2 and 4". The joins are said together, the other rows each in a few words.
+ */
+export function attentionLine(rows: Row[], clips: Clip[]): string {
+  if (!rows.length) return "";
+  const number = (id: string) => clips.findIndex((c) => c.id === id) + 1;
+  const nums = (r: Row) => r.ids.map(number);
+  const said: string[] = [];
+  const joins = rows.filter((r) => r.kind === "join").flatMap(nums);
+  for (const r of rows) {
+    if (r.kind === "join") {
+      if (r === rows.find((x) => x.kind === "join")) said.push(`${joins.length === 1 ? "join at" : "joins at"} ${clipWords(joins)}`);
+      continue;
+    }
+    const words = clipWords(nums(r));
+    said.push(r.kind === "missing" ? `${words} not rendered` : r.kind === "stale" ? `${r.ids.length === 1 ? "clip" : "clips"} before ${words} changed` : r.kind === "failed" ? `${words} failed` : `${words} in another aspect ratio`);
+  }
+  return `${rows.length === 1 ? "1 thing needs" : `${rows.length} things need`} attention: ${said.join(", ")}`;
+}
