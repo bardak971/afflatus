@@ -126,8 +126,8 @@ export interface QueueCore {
   /** Note what ComfyUI was last asked to load, here and in the database. */
   loaded(loads: string | null, model?: string | null): Promise<void>;
   usual(): Promise<Usual>;
-  /** About how long a waiting render will take, its model to load or not (the forecast, queueSubmit.forecastOf); null when nothing like it was rendered. */
-  expected(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean): Promise<number | null>;
+  /** About how long a waiting render will take, its model to load or not (the forecast, queueSubmit.forecastOf), built as its job will be (a finish on its draft, a clip with what it joins onto); null when nothing like it was rendered. */
+  expected(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean, job?: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit">): Promise<number | null>;
   /** A job that needs no model, claimed and closed by the state machine; `work` is the job itself. */
   runTool(row: JobRow, work: (run: Running) => Promise<void>): Promise<void>;
 }

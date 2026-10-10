@@ -124,6 +124,9 @@ export const h3Video = defineRecipe<H3Video>({
       totalSteps: own ? resampled : steps + resampled,
       passes: own ? [] : [{ node: sampled, steps }, ...(fine ? [{ node: fine[0], steps: resampled }] : [])],
       loads: [`diffusion_models/${unet}`, `text_encoders/${slots.clip}`, ...(lora ? [`loras/${lora}`] : []), ...made.loads],
+      // a continuation window counts its frames as an extension and an overlap, and a finish loads its latent from a file:
+      // neither says the clip's frames in an input the forecast reads, so they are said here (the shared ones included)
+      frames: join.frames,
       ...(head || tail ? { overlap: { headMs: ms(head), tailMs: ms(tail), ...(latentJoin ? { latent: true } : {}), ...(seam ? { seam: true } : {}) } } : {}),
     };
   },

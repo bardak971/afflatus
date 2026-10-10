@@ -331,7 +331,7 @@ function checkMasks(recipe: Recipe<any>, media: Record<string, MediaFacts>): voi
 async function timingOf(core: QueueCore, recipe: Recipe<any>, chosen: Record<string, unknown>, built: BuiltGraph, cold: boolean): Promise<Resume["timing"]> {
   const work = workOf(built);
   return {
-    model: mainModel(built) ?? "", modelFile: modelOf(recipe.inputs, chosen) ?? (mainModel(built) ?? "").split(" + ")[0]!.toLowerCase(),
+    model: mainModel(built) ?? "", modelFile: modelFileOf(recipe, chosen, built),
     timeKey: timeKey(recipe.inputs, chosen), cold, expectedMs: ((await forecastFrom(core, recipe, chosen, built, cold)) ?? fromRates((await core.usual()).rates, recipe, chosen))?.ms ?? null,
     expect: await usualParts(core.db, recipe, chosen).catch(() => ({})),
     // what it samples per step, kept with its figures: the next form like it is forecast from them
@@ -373,9 +373,12 @@ function holding(core: QueueCore, base: string[]): boolean {
 /**
  * The graph a form (or a past render: its inputs and its seed) gives, built without uploading anything:
  * the files a render would send are stood in for by `names` (the file's own name, to be read in the
- * graph), else by a placeholder. Null when the form is not complete enough to build.
+ * graph), else by a placeholder, with the facts a render would send of them (a picture's size, a clip's
+ * size and the frames a join takes of it): what the graph samples is the one the render will. `finishedFrom`:
+ * the job finishes a draft, and a recipe that re-samples the draft's own latent is built from it; `canvas`: a
+ * timeline's frame. Null when the form is not complete enough to build.
  */
-export async function builtOf(core: QueueCore, recipeId: string, rawInput: unknown, opts: { seed?: number; names?: Record<string, string> } = {}): Promise<BuiltGraph | null> {
+export async function builtOf(core: QueueCore, recipeId: string, rawInput: unknown, opts: { seed?: number; names?: Record<string, string>; finishedFrom?: string | null; canvas?: { width: number; height: number } } = {}): Promise<BuiltGraph | null> {
   const recipe = core.registry.recipe(recipeId);
   if (!recipe) return null;
   const input = parseInput(recipe, withTexts(recipe, rawInput)) as Record<string, unknown>;
@@ -383,18 +386,67 @@ export async function builtOf(core: QueueCore, recipeId: string, rawInput: unkno
   const catalog = await comfy.catalog();
   const uploads: Record<string, string> = {};
   const media: Record<string, MediaFacts> = {};
-  const standIn = (key: string, asset: string) => {
+  const standIn = (key: string, asset: string, facts: MediaFacts | null) => {
     uploads[key] = opts.names?.[asset] ?? "stand-in";
-    media[key] = { width: 1024, height: 1024 };
+    media[key] = facts ?? { width: 1024, height: 1024 };
   };
   for (const spec of recipe.inputs as InputSpec[]) {
     const value = input[spec.id];
-    if ((spec.type === "image" || spec.type === "audio" || spec.type === "clip") && typeof value === "string") standIn(spec.id, value);
-    else if (spec.type === "references" && Array.isArray(value)) value.forEach((v, i) => standIn(`${spec.id}.${i}`, typeof v === "string" ? v : String((v as { asset?: string })?.asset ?? "")));
+    if ((spec.type === "image" || spec.type === "audio") && typeof value === "string") standIn(spec.id, value, spec.type === "image" ? await pictureFacts(core.db, value) : null);
+    else if (spec.type === "clip" && value && typeof value === "object") standIn(spec.id, (value as ClipValue).asset, await clipFacts(core, spec, value as ClipValue, input, opts.finishedFrom ?? null));
+    else if (spec.type === "references" && Array.isArray(value)) {
+      for (const [i, v] of value.entries()) {
+        const asset = typeof v === "string" ? v : String((v as { asset?: string })?.asset ?? "");
+        standIn(`${spec.id}.${i}`, asset, spec.media === "video" ? await referenceFacts(core.db, asset) : await pictureFacts(core.db, asset));
+      }
+    }
   }
-  const built = recipe.build(settled(recipe, input, catalog), { seed: opts.seed ?? 1, slots: await slots(core, comfy, recipe), uploads, media, has: (cls: string) => cls in catalog });
+  // a finish that re-samples the draft's own latent is built on it, as submit builds it: else it is built as the draft and its finish both
+  if (opts.finishedFrom && recipe.finishing?.(input)?.latent === "own") uploads["self.latent"] = "stand-in";
+  const built = recipe.build(settled(recipe, input, catalog), { seed: opts.seed ?? 1, slots: await slots(core, comfy, recipe), uploads, media, canvas: opts.canvas, has: (cls: string) => cls in catalog });
   relocateFiles(built.graph, catalog);
   return built;
+}
+
+/** A library picture's size, as uploadImage sends it; null when it is not known (the stand-in's square is used). */
+async function pictureFacts(db: Db, id: string): Promise<MediaFacts | null> {
+  const a = await db.selectFrom("assets").select(["width", "height"]).where("id", "=", id).executeTakeFirst();
+  return a?.width && a.height ? { width: a.width, height: a.height } : null;
+}
+
+/** A reference video as uploadReferences sends it: its first three seconds at 24 frames a second, 384 pixels on its short side. */
+async function referenceFacts(db: Db, id: string): Promise<MediaFacts | null> {
+  const a = await db.selectFrom("assets").select(["width", "height", "duration_ms", "has_sound"]).where("id", "=", id).executeTakeFirst();
+  if (!a?.width || !a.height) return null;
+  const k = 384 / Math.min(a.width, a.height);
+  const frames = Math.max(1, Math.min(72, Math.floor(((a.duration_ms ?? 3000) / 1000) * 24)));
+  return { width: Math.round((a.width * k) / 2) * 2, height: Math.round((a.height * k) / 2) * 2, frames, fps: 24, hasSound: Boolean(a.has_sound) };
+}
+
+/** The size of a render's own frames (kept beside an upscaled take), read once per file: a file kept under a key never changes. */
+const rawSizes = new Map<string, Promise<{ width: number; height: number } | null>>();
+
+/**
+ * A clip as uploadWholeClip or uploadJoinClip sends it, without cutting or uploading anything: its size (the render's own
+ * frames when they were kept), and for a join the frames it would be handed (the first count it is long enough for).
+ */
+async function clipFacts(core: QueueCore, spec: InputSpec & { type: "clip" }, value: ClipValue, input: Record<string, unknown>, finishedFrom: string | null): Promise<MediaFacts | null> {
+  const { db, storage } = core;
+  const shown = await db.selectFrom("assets").selectAll().where("id", "=", value.asset).executeTakeFirst();
+  if (!shown || shown.kind !== "video" || !shown.width || !shown.height) return null;
+  if (spec.whole) return { width: shown.width, height: shown.height, hasSound: Boolean(shown.has_sound) };
+  const asset = finishedFrom ? await draftOf(db, shown) : await renderedOf(db, shown);
+  const key = asset.raw_key;
+  if (key && !rawSizes.has(key)) {
+    rawSizes.set(key, storage.get(key).then((bytes) => readVideo(bytes, extOf(asset.mime))).then((r) => (r.facts ? { width: r.facts.width, height: r.facts.height } : null), () => null));
+  }
+  const size = (key ? await rawSizes.get(key)! : null) ?? (asset.width && asset.height ? { width: asset.width, height: asset.height } : { width: shown.width, height: shown.height });
+  const length = asset.duration_ms ?? shown.duration_ms ?? 0;
+  const room = spec.role === "previous" ? (value.at ?? length) : length - (value.at ?? 0);
+  const wanted = spec.framesFrom ? Number(input[spec.framesFrom]) : NaN;
+  const counts = Number.isFinite(wanted) && wanted > 0 ? [wanted, ...spec.frames.filter((c) => c < wanted)] : spec.frames;
+  const frames = counts.find((c) => c <= Math.floor((room / 1000) * spec.fps)) ?? counts[counts.length - 1]!;
+  return { ...size, frames, fps: spec.fps, hasSound: Boolean(asset.has_sound) };
 }
 
 /**
@@ -403,9 +455,13 @@ export async function builtOf(core: QueueCore, recipeId: string, rawInput: unkno
  * recipe's renders usually took. The one figure every place says: the form's Output line, the Generate button, the
  * command bar, the editor, the queue's rows and the running job's time left. Null for a form not complete enough
  * to read, or one like nothing rendered here yet. `cold` says whether its model has to load (the queue knows it
- * for a job further down the line); left out, it is whether its base models are the ones ComfyUI holds now.
+ * for a job further down the line); left out, it is whether its base models are the ones ComfyUI holds now. A job
+ * that finishes a draft (`finishedFrom`) is built on it; a timeline clip's (`clip`) with what it joins onto as far as
+ * it is known now, as submit will build it: the frames it shares with its neighbours are sampled too.
  */
-export async function forecastOf(core: QueueCore, recipeId: string, rawInput: unknown, opts: { cold?: boolean } = {}): Promise<{ forecast: Forecast; shape: { pixels: number; frames: number } } | null> {
+export async function forecastOf(
+  core: QueueCore, recipeId: string, rawInput: unknown, opts: { cold?: boolean; finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null } = {},
+): Promise<{ forecast: Forecast; shape: { pixels: number; frames: number }; model: string } | null> {
   const recipe = core.registry.recipe(recipeId);
   if (!recipe) return null;
   let chosen: Record<string, unknown>;
@@ -414,21 +470,31 @@ export async function forecastOf(core: QueueCore, recipeId: string, rawInput: un
   } catch {
     return null;
   }
-  const built = await builtOf(core, recipeId, rawInput).catch(() => null);
+  const plan = opts.clip && core.clips ? await core.clips.plan(opts.clip.id, recipe, chosen, opts.clip.fit, opts.finishedFrom ?? null, true).catch(() => null) : null;
+  if (plan) chosen = parseInput(recipe, withTexts(recipe, plan.input)) as Record<string, unknown>;
+  const built = await builtOf(core, recipeId, plan ? plan.input : rawInput, { finishedFrom: opts.finishedFrom ?? null, canvas: plan?.canvas }).catch(() => null);
+  // its settings as submit files them: a file left on its default that this ComfyUI does not have is its best one (the time key)
+  if (built) chosen = settled(recipe, chosen, await (await core.comfy()).catalog());
   const shape = built ? workOf(built) : null;
+  const model = built ? modelFileOf(recipe, chosen, built) : (modelOf(recipe.inputs, chosen) ?? "");
   const f = built && shape?.pixels ? await forecastFrom(core, recipe, chosen, built, opts.cold ?? null) : null;
-  if (f) return { forecast: f, shape: shape! };
+  if (f) return { forecast: f, shape: shape!, model };
   const fallback = fromRates((await core.usual()).rates, recipe, chosen);
-  return fallback ? { forecast: fallback, shape: { pixels: shape?.pixels ?? 0, frames: shape?.frames ?? 1 } } : null;
+  return fallback ? { forecast: fallback, shape: { pixels: shape?.pixels ?? 0, frames: shape?.frames ?? 1 }, model } : null;
 }
+
+/** The model file a render is recorded under (render_stats.model_file). */
+const modelFileOf = (recipe: Recipe<any>, chosen: Record<string, unknown>, built: BuiltGraph) => modelOf(recipe.inputs, chosen) ?? (mainModel(built) ?? "").split(" + ")[0]!.toLowerCase();
 
 /** The forecast of a built graph from its model's past renders; `cold` null: whether its base models are not the ones held now. */
 async function forecastFrom(core: QueueCore, recipe: Recipe<any>, chosen: Record<string, unknown>, built: BuiltGraph, cold: boolean | null): Promise<Forecast | null> {
   const shape = workOf(built);
   if (!shape.pixels) return null;
-  const modelFile = modelOf(recipe.inputs, chosen) ?? (mainModel(built) ?? "").split(" + ")[0]!.toLowerCase();
   const base = baseModels(built);
-  return forecast(core.db, modelFile, shape.pixels * shape.frames, shape.steps, cold ?? (base.length > 0 && !holding(core, base)));
+  return forecast(core.db, modelFileOf(recipe, chosen, built), shape.pixels * shape.frames, shape.steps, cold ?? (base.length > 0 && !holding(core, base)), {
+    recipeId: recipe.id, timeKey: timeKey(recipe.inputs, chosen), family: recipe.family, fps: (id) => core.registry.recipe(id)?.traits?.fps,
+    samples: Object.values(built.phases).includes("sampling"),
+  });
 }
 
 /**

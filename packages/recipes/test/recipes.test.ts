@@ -1107,6 +1107,8 @@ describe("H3's upscale pass", () => {
     // 22 frames of the clip before as the hidden overlap, the new frames a multiple of 17
     expect(win.inputs.overlap_frames).toBe(22);
     expect(Number(win.inputs.extension_frames) % 17).toBe(0);
+    // the window counts its frames as an overlap and an extension: the clip says them itself, what the forecast reads
+    expect(b.frames).toBe(Number(win.inputs.overlap_frames) + Number(win.inputs.extension_frames));
     const loaded = node(b, "AfflatusLoadH3Latent")[0]!;
     expect(loaded.inputs.latent).toBe("a.safetensors [temp]");
     const loadedId = Object.entries(b.graph).find(([, n]) => n === loaded)![0];
@@ -1214,6 +1216,8 @@ describe("H3's upscale pass", () => {
     // 576 × 1024 made 864 × 1536, in 512-pixel tiles overlapping by 128 (2 × 4), and 124 frames in stretches of 85 overlapping by 17 (2)
     expect(b.passes).toEqual([]);
     expect(b.totalSteps).toBe(3 * 2 * 4 * 2);
+    // its latent comes from a file, which says no frame count: the clip's frames are said by the recipe
+    expect(b.frames).toBe(124);
     expect(checkGraph(b, catalog)).toEqual([]);
   });
 

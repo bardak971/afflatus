@@ -40,6 +40,11 @@ export interface BuiltGraph {
   /** The models this graph loads. The queue frees ComfyUI's memory when the next job's list differs. */
   loads: string[];
   /**
+   * How many frames the graph samples, said by the recipe when its nodes do not say it plainly (a continuation window
+   * counted in its own terms, a latent loaded from a file): what a render's work is measured in for the forecast.
+   */
+  frames?: number;
+  /**
    * The parts of a video that repeat its neighbours: its start replays the end of the clip it continues,
    * its end replays the start of the clip it arrives at. A timeline skips them, so the join is seamless.
    */

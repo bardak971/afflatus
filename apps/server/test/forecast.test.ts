@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { forecastFrom, said, workOf } from "../src/forecast";
+import { forecastFrom, inARow, said, workOf, workOfRow } from "../src/forecast";
 
 describe("what a render will take, learned from the renders before it", () => {
   // a card at its usual pace up to 130 M units of work, then streaming its weights: three times the cost per unit
@@ -64,5 +64,52 @@ describe("what a render will take, learned from the renders before it", () => {
       phases: {}, outputs: [], totalSteps: 15, loads: [],
     };
     expect(workOf(built)).toEqual({ pixels: 1024 * 1024, frames: 141, steps: 15 });
+  });
+});
+
+describe("the work of a render whose nodes do not say its frames", () => {
+  it("takes the frames the recipe says: a continuation window counts them in its own terms, a latent loaded from a file not at all", () => {
+    const window = {
+      graph: {
+        "1": { class_type: "MiniMaxH3GuidedContinuationWindow", inputs: { overlap_frames: 22, extension_frames: 153 } },
+        "2": { class_type: "MiniMaxH3ImageToVideo", inputs: { width: 576, height: 1024, length: ["1", 1] } },
+      },
+      phases: {}, outputs: [], totalSteps: 8, loads: [],
+    };
+    // read off the nodes alone, one frame: the render was put on record a hundred times too small
+    expect(workOf(window).frames).toBe(1);
+    expect(workOf({ ...window, frames: 175 })).toEqual({ pixels: 576 * 1024, frames: 175, steps: 8 });
+  });
+
+  it("reads a render recorded before that with its frames, from its length, and leaves the row itself as it was", () => {
+    const fps = (id: string) => (id === "h3.video" ? 24 : undefined);
+    const old = { recipe_id: "h3.video", kind: "video" as const, width: 576, height: 1024, duration_ms: 5854, work: 576 * 1024 };
+    // 141 frames at 24 a second, said 5854 ms long (half a frame short)
+    expect(workOfRow(old, fps)).toBe(576 * 1024 * 141);
+    expect(old.work).toBe(576 * 1024);
+    // upscaled after it: a quarter of its shown size, still one frame
+    expect(workOfRow({ ...old, width: 1152, height: 2048 }, fps)).toBe(576 * 1024 * 141);
+    // a video whose work counted its frames, and a picture, are read as they are
+    expect(workOfRow({ ...old, work: 576 * 1024 * 141 }, fps)).toBe(576 * 1024 * 141);
+    expect(workOfRow({ ...old, kind: "image", duration_ms: null }, fps)).toBe(576 * 1024);
+    // a recipe whose speed is not known: left out rather than taken a hundred times too small
+    expect(workOfRow({ ...old, recipe_id: "workflow.zz-test-clip" }, fps)).toBeNull();
+    expect(workOfRow({ ...old, work: null }, fps)).toBeNull();
+  });
+});
+
+describe("renders one after another", () => {
+  it("load a model once for a run of renders with it, again after another model or a tool on the GPU", () => {
+    const a = { ms: 30_000, loadMs: 10_000, model: "a" };
+    // a batch of four: the load once, not four times
+    expect(inARow([{ ...a, times: 4 }])).toBe(20_000 * 4 + 10_000);
+    expect(inARow([a, a, a])).toBe(20_000 * 3 + 10_000);
+    // another model in between: each loads again
+    const b = { ms: 50_000, loadMs: 20_000, model: "b" };
+    expect(inARow([a, b, a])).toBe(30_000 + 50_000 + 30_000);
+    // a tool between two renders frees the model: the second loads it again
+    expect(inARow([a, { ms: 5_000, loadMs: 0, model: "" }, a])).toBe(30_000 + 5_000 + 30_000);
+    // a model in memory already: its forecasts carry no load, and none is added
+    expect(inARow([{ ...a, loadMs: 0 }, { ...a, loadMs: 0 }])).toBe(60_000);
   });
 });

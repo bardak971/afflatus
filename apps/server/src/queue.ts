@@ -85,7 +85,7 @@ export class Queue {
       get offlineSince() { return self.offlineSince; },
       loaded: (loads, model) => this.loaded(loads, model),
       usual: () => this.usual(),
-      expected: (recipe, input, cold) => this.expected(recipe, input, cold),
+      expected: (recipe, input, cold, job) => this.expected(recipe, input, cold, job),
       runTool: (row, work) => this.runTool(row, work),
     };
   }
@@ -418,14 +418,17 @@ export class Queue {
   /** The waiting jobs' forecasts, by form: a job waits unchanged, so it is worked out once, and again after half a minute (renders end, the record grows). */
   private expectedAt: { at: number; by: Map<string, Promise<number | null>> } = { at: 0, by: new Map() };
   /** About how long a render will take: the forecast of its form, with what loading its model adds when it is not the one loaded before it. */
-  private expected(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean): Promise<number | null> {
+  private expected(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean, job: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit"> | null = null): Promise<number | null> {
     if (Date.now() - this.expectedAt.at > 30_000) this.expectedAt = { at: Date.now(), by: new Map() };
     const key = `${recipe.id}
 ${cold}
+${job?.finished_from}
+${job?.clip_id}
+${job?.clip_fit}
 ${JSON.stringify(input)}`;
     let got = this.expectedAt.by.get(key);
     if (!got) {
-      got = submitting.forecastOf(this.core, recipe.id, input, { cold }).then((f) => f?.forecast.ms ?? null, () => null);
+      got = submitting.forecastOf(this.core, recipe.id, input, { cold, finishedFrom: job?.finished_from, clip: job?.clip_id ? { id: job.clip_id, fit: Boolean(job.clip_fit) } : null }).then((f) => f?.forecast.ms ?? null, () => null);
       this.expectedAt.by.set(key, got);
     }
     return got;
@@ -795,9 +798,9 @@ ${JSON.stringify(input)}`;
   // ---------------------------------------------------------------- a form against this ComfyUI (queueSubmit.ts)
 
   /** The graph a form (or a past render) gives, built without uploading anything; null when the form is not complete enough to build. */
-  builtOf(recipeId: string, rawInput: unknown, opts: { seed?: number; names?: Record<string, string> } = {}): Promise<BuiltGraph | null> { return submitting.builtOf(this.core, recipeId, rawInput, opts); }
+  builtOf(recipeId: string, rawInput: unknown, opts: Parameters<typeof submitting.builtOf>[3] = {}): Promise<BuiltGraph | null> { return submitting.builtOf(this.core, recipeId, rawInput, opts); }
   /** Whether the base models a form would use are the ones ComfyUI was last asked to load; null when it cannot be told. */
   isLoaded(recipeId: string, rawInput: unknown): Promise<boolean | null> { return submitting.isLoaded(this.core, recipeId, rawInput); }
   /** What this model's past renders say a form will take; null without history or for a form not complete enough to build. */
-  forecast(recipeId: string, rawInput: unknown) { return submitting.forecastOf(this.core, recipeId, rawInput); }
+  forecast(recipeId: string, rawInput: unknown, opts: { finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null } = {}) { return submitting.forecastOf(this.core, recipeId, rawInput, opts); }
 }

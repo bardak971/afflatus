@@ -5,6 +5,7 @@ import { z } from "zod";
 import { NOT_IN_LIBRARY } from "./library";
 import { OWNER, type Db, type Tables } from "./db";
 import { httpError } from "./errors";
+import { inARow } from "./forecast";
 import { promptHistory } from "./promptHistory";
 import type { Services } from "./services";
 import { unusedSize, unusedTakes } from "./timelineUnused";
@@ -266,24 +267,21 @@ async function commandEstimate(s: Services, raw: unknown): Promise<CommandEstima
 
   const ahead = Number((await s.db.selectFrom("jobs").select((eb) => eb.fn.countAll().as("n")).where("status", "in", ["queued", "running"]).executeTakeFirst())?.n ?? 0);
   if (!forms.length) return { ms: null, basis: 0, ahead };
-  let ms = 0;
-  let basis = Infinity;
-  for (const got of await forecastsOf(s, forms)) {
-    if (!got) return { ms: null, basis: 0, ahead };
-    ms += got.ms;
-    basis = Math.min(basis, got.samples);
-  }
-  return { ms, basis, ahead };
+  const got = await forecastsOf(s, forms);
+  if (got.some((g) => !g)) return { ms: null, basis: 0, ahead };
+  const parts = got.map((g, i) => ({ ...g!, times: forms[i]!.times }));
+  // the model loads once for a run of renders with it, as the queue runs them: not once a render
+  return { ms: inARow(parts), basis: Math.min(...parts.map((p) => p.samples)), ahead };
 }
 
-/** Each form's forecast (queue.forecast), times its count; null for one with no learned figure. The same form twice is worked out once. */
-async function forecastsOf(s: Services, forms: Array<{ recipe: string; input: Record<string, unknown>; times: number }>): Promise<Array<{ ms: number; samples: number } | null>> {
+/** Each form's forecast (queue.forecast) for one render, with what loading its model adds and that model; null for one with no learned figure. The same form twice is worked out once. */
+async function forecastsOf(s: Services, forms: Array<{ recipe: string; input: Record<string, unknown> }>): Promise<Array<{ ms: number; loadMs: number; model: string; samples: number } | null>> {
   const seen = new Map<string, Promise<Awaited<ReturnType<Services["queue"]["forecast"]>>>>();
   return Promise.all(forms.map(async (f) => {
     const key = `${f.recipe}\n${JSON.stringify(f.input)}`;
     if (!seen.has(key)) seen.set(key, s.queue.forecast(f.recipe, f.input).catch(() => null));
     const got = await seen.get(key)!;
-    return got ? { ms: got.forecast.ms * f.times, samples: got.forecast.samples } : null;
+    return got ? { ms: got.forecast.ms, loadMs: got.forecast.loadMs, model: got.model, samples: got.forecast.samples } : null;
   }));
 }
 
@@ -298,7 +296,7 @@ const forecastsBody = z.strictObject({
  */
 async function forecasts(s: Services, raw: unknown): Promise<{ ms: Array<number | null> }> {
   const b = forecastsBody.parse(raw);
-  const got = await forecastsOf(s, b.forms.map((f) => ({ ...f, times: 1 })));
+  const got = await forecastsOf(s, b.forms);
   return { ms: got.map((g) => g?.ms ?? null) };
 }
 

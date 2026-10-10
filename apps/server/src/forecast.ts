@@ -23,7 +23,35 @@ export function workOf(built: BuiltGraph): { pixels: number; frames: number; ste
       if (typeof v === "number" && v > frames) frames = v;
     }
   }
-  return { pixels, frames, steps: Math.max(1, built.totalSteps) };
+  // the recipe's own count wins: its nodes may count frames in their own terms (a continuation window), or not at all (a latent loaded from a file)
+  return { pixels, frames: built.frames && built.frames > 0 ? built.frames : frames, steps: Math.max(1, built.totalSteps) };
+}
+
+/** What of a recorded render `workOfRow` reads. */
+export interface RecordedWork {
+  recipe_id: string;
+  kind: "image" | "video" | "audio" | null;
+  width: number | null;
+  height: number | null;
+  duration_ms: number | null;
+  work: number | null;
+}
+
+/**
+ * A recorded render's work as it is measured now. Until 2026-10-10 the frames of a graph whose nodes do not say them
+ * plainly (H3's continuation window, a finish that loads its latent from a file) were not read: those renders were
+ * recorded with the work of one frame, a hundred times too small, and taken at that they made the model's other renders
+ * look a hundred times slower per unit of work. The rows are the owner's record and are not rewritten: a video whose
+ * work is less than two of its own frames is read with its frames, from its length at its recipe's speed. Null when that
+ * speed is not known (the row is then left out), or when the row has no work.
+ */
+export function workOfRow(r: RecordedWork, fpsOf: (recipeId: string) => number | undefined): number | null {
+  if (r.work === null) return null;
+  // a video is many frames, even sampled at a quarter of the size it is shown at (an upscale after it): less than two is none counted
+  if (r.kind !== "video" || !r.width || !r.height || !r.duration_ms || r.work >= r.width * r.height * 2) return r.work;
+  const fps = fpsOf(r.recipe_id);
+  // its length is often read half a frame short (141 frames at 24 a second come out 5854 ms): a quarter of a frame up takes both
+  return fps ? r.work * Math.max(1, Math.round((r.duration_ms * fps) / 1000 + 0.25)) : null;
 }
 
 /** One past render of a model: how much it sampled per step (pixels × frames), and what one step cost. */
@@ -81,12 +109,26 @@ export function forecastFrom(points: Point[], work: number, steps: number, extra
   return { ms: Math.round(steps * stepMs + extraMs), pace, fitsUpTo, samples: pts.length, loadMs: 0 };
 }
 
+/** What a form is besides its work: what tells the renders like it from the model's others. */
+export interface Like {
+  /** Its recipe: an upscale or a fix-face with a model is not priced like its text-to-picture. */
+  recipeId?: string;
+  /** Its settings that decide the time (core's timeKey): what surrounds its steps (the passes after them, the finishing) is theirs. */
+  timeKey?: string;
+  /** Its model's family: a model never loaded cold here is taken to load like the others of its family. */
+  family?: string;
+  /** A recipe's frames a second, to read the renders recorded before every video's frames were (workOfRow); left out, those are left out. */
+  fps?: (recipeId: string) => number | undefined;
+  /** Whether it samples a picture of its own first (its graph has a sampling phase); left out, it is not told. */
+  samples?: boolean;
+}
+
 /** What this model's past renders say about a render of `work` sampled over `steps`, with its model to load or already in memory. */
-export async function forecast(db: Db, modelFile: string, work: number, steps: number, cold: boolean): Promise<Forecast | null> {
+export async function forecast(db: Db, modelFile: string, work: number, steps: number, cold: boolean, like: Like = {}): Promise<Forecast | null> {
   if (!modelFile) return null;
-  const rows = await db
+  const found = await db
     .selectFrom("render_stats")
-    .select(["work", "step_ms", "finish_ms", "refine_ms", "load_ms", "cold"])
+    .select(["recipe_id", "time_key", "kind", "width", "height", "duration_ms", "work", "steps", "step_ms", "total_ms", "sample_ms", "load_ms", "cold"])
     .where("model_file", "=", modelFile)
     .where("status", "=", "done")
     .where("whole", "=", 1)
@@ -95,16 +137,69 @@ export async function forecast(db: Db, modelFile: string, work: number, steps: n
     .orderBy("created_at", "desc")
     .limit(200)
     .execute();
+  const fps = like.fps ?? (() => undefined);
+  const all = found.flatMap((r) => {
+    const w = workOfRow(r, fps);
+    return w ? [{ ...r, work: w }] : [];
+  });
+  // a render that samples nothing of its own (a finish re-sampling a draft's latent, a sharper pass over a picture) spends its
+  // steps in the passes after, and is priced from the renders like it: next to a draft's, its steps read nothing alike
+  const kin = like.samples === undefined ? all : all.filter((r) => (r.sample_ms > 0) === like.samples);
+  const rows = kin.length ? kin : all;
   if (!rows.length) return null;
-  const points = rows.map((r) => ({ work: r.work!, stepMs: r.step_ms! }));
-  // what surrounds the sampling: the finishing and any pass after it, and the load when the model is not the one in memory
-  const finish = median(rows.map((r) => r.finish_ms + r.refine_ms));
-  const loads = rows.filter((r) => Boolean(r.cold) === cold).map((r) => r.load_ms);
-  const f = forecastFrom(points, work, steps, finish + (loads.length ? median(loads) : 0));
-  if (!f || !cold || !loads.length) return f;
-  // what the load adds over what a model in memory still spends before its first step (the text, the pictures)
-  const warm = rows.filter((r) => !r.cold).map((r) => r.load_ms);
-  return { ...f, loadMs: Math.round(Math.max(0, median(loads) - (warm.length ? median(warm) : 0))) };
+  // the renders of the same recipe when there are enough of them: the model's others sample something else per step
+  // (an upscale re-samples tiles of a larger picture), and placed among them a form read like theirs
+  const own = like.recipeId ? rows.filter((r) => r.recipe_id === like.recipeId) : [];
+  const keyed = like.timeKey ? own.filter((r) => r.time_key === like.timeKey) : [];
+  const pool = own.length >= OWN_POINTS ? own : rows;
+  const points = pool.map((r) => ({ work: r.work, stepMs: r.step_ms! }));
+  // what surrounds the steps (the finishing, the passes after them, what a step does not count) is the settings' own: from
+  // the renders with the same ones, else the recipe's, else the model's, as usualParts tells it for the running render. It is
+  // what each took beyond its steps and its load, so that its passes after are not counted twice, as steps and again as a pass
+  const around = median((keyed.length ? keyed : own.length ? own : rows).map((r) => r.total_ms - r.load_ms - Math.max(1, r.steps) * r.step_ms!));
+  // and what comes before the first step: what even a model in memory spends (the text, the pictures), and with the
+  // model to load, that load. A model never loaded cold here is taken to load as the family's others did, else any
+  // model: left out, the cold forecast said less than the same form with the model in memory
+  const warmLoads = pool.filter((r) => !r.cold).map((r) => r.load_ms);
+  const warm = warmLoads.length ? median(warmLoads) : 0;
+  let load = warm;
+  if (cold) {
+    const coldLoads = [pool, rows].map((rs) => rs.filter((r) => r.cold).map((r) => r.load_ms)).find((ls) => ls.length) ?? (await coldLoadsElsewhere(db, like.family));
+    load = Math.max(warm, coldLoads.length ? median(coldLoads) : 0);
+  }
+  const f = forecastFrom(points, work, steps, Math.max(0, around) + load);
+  // what the load adds over what a model in memory still spends before its first step
+  return f && cold ? { ...f, loadMs: Math.round(load - warm) } : f;
+}
+
+/** The loads of the latest renders that loaded their model cold: of the family's models, else of any. */
+async function coldLoadsElsewhere(db: Db, family: string | undefined): Promise<number[]> {
+  const of = (fam: string | null) => {
+    let q = db.selectFrom("render_stats").select("load_ms").where("status", "=", "done").where("whole", "=", 1).where("cold", "=", 1).where("model_file", "!=", "");
+    if (fam) q = q.where("family", "=", fam);
+    return q.orderBy("created_at", "desc").limit(50).execute();
+  };
+  const ofFamily = family ? await of(family) : [];
+  return (ofFamily.length ? ofFamily : await of(null)).map((r) => r.load_ms);
+}
+
+/** How many renders of a recipe its own points are taken from alone: with fewer, the model's others say more. */
+const OWN_POINTS = 3;
+
+/**
+ * What renders queued one after another take in all, from each one's forecast (its `ms` with its `loadMs`) and `times`
+ * renders of each: a model loads for the first of a run of renders with it, and the others find it in memory. A part
+ * with no model (a tool on the GPU) frees it: the render after loads its own again.
+ */
+export function inARow(parts: Array<{ ms: number; loadMs: number; model: string; times?: number }>): number {
+  let total = 0;
+  let held = "";
+  for (const p of parts) {
+    const load = p.model && p.model === held ? 0 : p.loadMs;
+    total += (p.ms - p.loadMs) * Math.max(1, p.times ?? 1) + load;
+    held = p.model;
+  }
+  return total;
 }
 
 // ---------------------------------------------------------------- where no render of the model was measured yet

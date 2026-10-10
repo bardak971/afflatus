@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import { roughly, timeKey } from "@afflatus/core";
+import { forecast } from "../src/forecast";
 import { cellOf, fold, list, merge, summary, type RenderRow } from "../src/renders";
 import { CHECKPOINT, complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
@@ -286,6 +287,47 @@ describe("the next render's time is forecast from the record", () => {
     expect(other.loadMs).toBe(41_000);
     expect(other.ms).toBeGreaterThan(other.loadMs);
     expect(other.text).toContain(`About ${roughly(other.ms)},`);
+  });
+});
+
+describe("the forecast reads the renders like the form", () => {
+  it("prices an upscale from the model's upscales, not from its txt2img, with what surrounds its steps from the same settings", async () => {
+    // txt2img: 1 MP, 28 steps of 500 ms. The sharper pass of the same model: 4 MP re-sampled in tiles, 10 steps of 4 s, no sampling of its own
+    await put([
+      ...Array.from({ length: 4 }, () => row({ work: 1e6, steps: 28, step_ms: 500, total_ms: 20_000 })),
+      ...Array.from({ length: 3 }, () => row({ recipe_id: "sdxl.sharper", time_key: "by=2", work: 4e6, steps: 10, step_ms: 4_000, sample_ms: 0, refine_ms: 52_000, finish_ms: 7_000, total_ms: 60_000 })),
+    ]);
+    const like = { recipeId: "sdxl.sharper", timeKey: "by=2", family: "sdxl", samples: false };
+    const sharper = (await forecast(t.db, "illustrious", 4e6, 10, false, like))!;
+    // its steps, what its renders took beyond them (the pass after is not counted twice), the text it encodes first
+    expect(sharper.ms).toBe(10 * 4_000 + (60_000 - 1_000 - 40_000) + 1_000);
+    // read among the model's txt2img renders, it was off by far
+    expect(Math.abs((await forecast(t.db, "illustrious", 4e6, 10, false))!.ms - 60_000)).toBeGreaterThan(12_000);
+    // txt2img still reads its own
+    expect((await forecast(t.db, "illustrious", 1e6, 28, false, { recipeId: "sdxl.text-to-picture", timeKey: "steps=28", samples: true }))!.ms).toBe(20_000);
+  });
+
+  it("reads the renders recorded with one frame of a video with their frames, and leaves the rows as they were", async () => {
+    // continuations recorded before their frames were read: the work of one 576 × 1024 frame, a clip of 141 frames
+    const old = () => row({ recipe_id: "h3.video", family: "h3", model_file: "h3", kind: "video", width: 576, height: 1024, duration_ms: 5854, work: 576 * 1024, steps: 8, step_ms: 15_000, total_ms: 150_000 });
+    await put([old(), old(), old()]);
+    const fps = (id: string) => (id === "h3.video" ? 24 : undefined);
+    const f = (await forecast(t.db, "h3", 576 * 1024 * 141, 8, false, { recipeId: "h3.video", fps }))!;
+    expect(f.ms).toBe(150_000);
+    expect(f.pace).toBe("usual");
+    expect((await t.db.selectFrom("render_stats").select("work").where("model_file", "=", "h3").execute()).map((r) => r.work)).toEqual([576 * 1024, 576 * 1024, 576 * 1024]);
+    // the speed not known: those rows say nothing rather than a hundred times too much
+    expect(await forecast(t.db, "h3", 576 * 1024 * 141, 8, false, { recipeId: "h3.video" })).toBeNull();
+  });
+
+  it("with the model to load and none of its renders loaded cold, takes the family's load: never less than with the model in memory", async () => {
+    await put([row(), row(), row({ model: "other", model_file: "other", total_ms: 60_000, load_ms: 41_000, cold: 1 })]);
+    const warm = (await forecast(t.db, "illustrious", 832 * 1216, 28, false, { family: "sdxl" }))!;
+    const cold = (await forecast(t.db, "illustrious", 832 * 1216, 28, true, { family: "sdxl" }))!;
+    expect(cold.loadMs).toBe(40_000);
+    expect(cold.ms).toBe(warm.ms + 40_000);
+    // no family's either: any model's
+    expect((await forecast(t.db, "illustrious", 832 * 1216, 28, true, { family: "nope" }))!.loadMs).toBe(40_000);
   });
 });
 
