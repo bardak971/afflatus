@@ -109,9 +109,10 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
 
   /** A click with Ctrl or Shift picks instead of opening; so does the tick on the card. */
   const click = (e: React.MouseEvent, t: TimelineBrief, tick = false) => {
-    if (!tick && !(e.ctrlKey || e.metaKey || e.shiftKey) && !picked.size) return go(`/timelines/${t.id}`);
+    // the card is a link (a middle click opens a tab): a plain click is the app's own move, not a page load as well
     e.preventDefault();
     e.stopPropagation();
+    if (!tick && !(e.ctrlKey || e.metaKey || e.shiftKey) && !picked.size) return go(`/timelines/${t.id}`);
     if (e.shiftKey && anchor) {
       const ids = timelines.map((x) => x.id);
       const a = ids.indexOf(anchor);
