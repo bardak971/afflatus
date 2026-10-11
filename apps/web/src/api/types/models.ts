@@ -174,6 +174,8 @@ export interface Download {
   into?: string;
   /** What to know while it runs: it was cut and picked up again, or ComfyUI-Manager may not cope with its size. */
   note?: string;
+  /** Its failure was read (its banner dismissed): a page opened later does not announce it again. */
+  seen?: boolean;
 }
 /** Who downloads model files into this ComfyUI ("none": nothing can). */
 export type DownloadVia = "afflatus" | "pack" | "manager";

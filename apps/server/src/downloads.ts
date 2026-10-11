@@ -56,6 +56,8 @@ export interface DownloadView {
   into?: string;
   /** What to know while it runs: it was cut and picked up again, or Manager may not cope with its size. */
   note?: string;
+  /** Its failure was read (the banner dismissed): a page opened later does not announce it again. */
+  seen?: boolean;
 }
 
 interface Download extends DownloadView {
@@ -169,8 +171,8 @@ export class Downloads {
 
   /** What the browser is told of a download: never its source, its key or its one-time address. */
   private view(d: Download): DownloadView {
-    const { id, file, folder, title, bytes, total, status, error, waiting, via, into, note } = d;
-    const all: DownloadView = { id, file, folder, title, bytes, total, status, error, waiting, via, into, note };
+    const { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen } = d;
+    const all: DownloadView = { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen };
     for (const k of Object.keys(all) as Array<keyof DownloadView>) if (all[k] === undefined) delete all[k];
     return all;
   }
@@ -213,6 +215,17 @@ export class Downloads {
     this.past = this.past.filter((k) => !k.finishedAt || Date.now() - k.finishedAt < KEEP_MS);
     const strip = ({ finishedAt: _f, ...view }: Kept): DownloadView => view;
     return [...[...this.all.values()].reverse().map((d) => this.view(d)), ...this.past.slice().reverse().map(strip)];
+  }
+
+  /** Its failure was read: kept on the list (and in the file the list is kept in), no longer announced. */
+  seen(id: string): boolean {
+    const d = this.all.get(id) ?? this.past.find((k) => k.id === id);
+    if (!d) return false;
+    if (!d.seen) {
+      d.seen = true;
+      this.tell(true);
+    }
+    return true;
   }
 
   /**

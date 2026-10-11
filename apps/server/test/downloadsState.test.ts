@@ -43,6 +43,25 @@ describe("the downloads' state file", () => {
     expect(downloads.stop("nothing")).toBe(false);
   });
 
+  it("keeps a failure marked read across a restart, so a page opened later does not announce it again", async () => {
+    const file = join(dir, "downloads.json");
+    writeFileSync(file, JSON.stringify([
+      { id: "f", file: "failed.safetensors", folder: "diffusion_models", title: "Failed", bytes: 10, total: 50, status: "error", error: "cut", finishedAt: Date.now() - 60_000 },
+    ]));
+    const first = new Downloads(new EventEmitter(), file);
+    await first.restored;
+    expect(first.list()[0]!.seen).toBeUndefined();
+    expect(first.seen("f")).toBe(true);
+    expect(first.seen("nothing")).toBe(false);
+    // still listed (Settings shows it), read
+    expect(first.list()).toMatchObject([{ id: "f", status: "error", seen: true }]);
+    await until(() => (JSON.parse(readFileSync(file, "utf8")) as Array<{ seen?: boolean }>)[0]?.seen === true);
+    // the next start reads it back as read
+    const again = new Downloads(new EventEmitter(), file);
+    await again.restored;
+    expect(again.list()).toMatchObject([{ id: "f", status: "error", seen: true }]);
+  });
+
   it("lists one ComfyUI-Manager was saving as done, and writes the file whole, through a file beside it", async () => {
     const file = join(dir, "downloads.json");
     writeFileSync(file, JSON.stringify([{ id: "s", file: "sent.safetensors", folder: "loras", title: "Sent", bytes: 10, total: 10, status: "saving" }]));

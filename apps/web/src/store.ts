@@ -67,6 +67,8 @@ export interface Banner {
    * presses it while the banner is up (the newest such banner), on a screen whose own Ctrl+Z does nothing else.
    */
   action?: { label: string; key?: string; undo?: boolean; run(): void };
+  /** What closing it also does (a failure marked read, so that a reload does not bring it back). */
+  onDismiss?(): void;
 }
 /** How many banners show at once: past it, the oldest good news goes first. Bad news is never dropped unread. */
 const BANNERS = 5;
@@ -85,7 +87,11 @@ export const useBanners = create<{ items: Banner[]; push(b: Banner): void; dismi
       }
       return { items };
     }),
-  dismiss: (id) => set((s) => ({ items: s.items.filter((x) => x.id !== id) })),
+  dismiss: (id) =>
+    set((s) => {
+      s.items.find((x) => x.id === id)?.onDismiss?.();
+      return { items: s.items.filter((x) => x.id !== id) };
+    }),
 }));
 
 /**

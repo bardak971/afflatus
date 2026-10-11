@@ -202,6 +202,8 @@ export const api = {
   assetEmbedded: (id: string, recipe?: string) => call<Embedded>("GET", `/assets/${id}/embedded${recipe ? `?recipe=${encodeURIComponent(recipe)}` : ""}`),
   downloads: (o?: Asked) => call<{ on: boolean; items: Download[]; manager: { found: boolean; version?: string }; via: DownloadVia | "none" }>("GET", "/downloads", undefined, o?.signal),
   stopDownload: (id: string) => call<{ ok: true }>("DELETE", `/downloads/${id}`),
+  /** A failed download's banner was dismissed: not announced again, on any page or device. */
+  downloadSeen: (id: string) => call<{ ok: true }>("POST", `/downloads/${id}/seen`),
   startDownload: (body: { file: string; folder: string; page?: ModelPage } & ({ civitai: number; pick?: string } | { url: string })) => call<Download>("POST", "/downloads", body),
   /** What a pasted link leads to: its files, the folder it most likely belongs in, ComfyUI's folders, and what ComfyUI has already. */
   resolveLink: (link: string) => call<LinkFound>("POST", "/downloads/resolve", { link }),

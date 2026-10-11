@@ -41,6 +41,12 @@ export function registerDownloads(app: FastifyInstance, s: Services): void {
     return { ...found, folders: [...index.folders].sort(), have };
   });
 
+  /** A failure was read (its banner dismissed): pages opened later do not announce it again, on any device. */
+  app.post<{ Params: { id: string } }>("/api/downloads/:id/seen", async (req) => {
+    if (!s.downloads.seen(req.params.id)) throw notFound("that download");
+    return { ok: true };
+  });
+
   /** Stop a download that is under way (nothing is left behind), or take a finished one off the list. */
   app.delete<{ Params: { id: string } }>("/api/downloads/:id", async (req) => {
     const stopped = s.downloads.stop(req.params.id);

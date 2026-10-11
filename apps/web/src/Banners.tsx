@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, X } from "lucide-react";
-import type { Job } from "./api";
+import { api, type Job } from "./api";
 import { useQueue } from "./data";
 import { useDownloads } from "./useGetFile";
 import { moves } from "./leave";
@@ -123,11 +123,12 @@ export function Banners() {
     const list = downloads.data?.items;
     if (!list) return;
     for (const d of list) {
-      // once the page is open, every change of state; at first, only what failed (the server lists failures of the last hour only, so it is news)
-      if (seenDownloads.current ? seenDownloads.current.get(d.id) === d.status : d.status !== "error") continue;
+      // once the page is open, every change of state; at first, only what failed and was not read yet (the server lists
+      // failures of the last hour only, so it is news; a dismissed one is marked read there, so a reload does not bring it back)
+      if (seenDownloads.current ? seenDownloads.current.get(d.id) === d.status : d.status !== "error" || d.seen) continue;
       const name = d.file.split(/[\\/]/).pop() ?? d.file;
       if (d.status === "done") push({ id: `download:${d.id}`, tone: "good", title: `${name} installed in ComfyUI`, href: "/settings/models", go: "Open settings" });
-      if (d.status === "error") push({ id: `download:${d.id}`, tone: "bad", title: `Download of ${name} failed`, text: d.error, href: "/settings", go: "Open settings" });
+      if (d.status === "error") push({ id: `download:${d.id}`, tone: "bad", title: `Download of ${name} failed`, text: d.error, href: "/settings", go: "Open settings", onDismiss: () => void api.downloadSeen(d.id).catch(() => {}) });
     }
     seenDownloads.current = new Map(list.map((d) => [d.id, d.status]));
   }, [downloads.data, push]);
