@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Minus, Plus } from "lucide-react";
 import type { ClipMusic } from "@afflatus/core";
 import type { Clip, RecipeInfo, Timeline, TimelinePatch } from "../api";
 import { Keys } from "../Keys";
 import { useKeysHere } from "../keys/here";
 import { cx } from "../ui";
-import { layout, NEW_CLIP, otherShape, PAD, placeOf, roomOf, ZOOM, type PinWhere, type ShownPatch, type Slot, type TimeRange } from "./model";
+import { layout, NEW_CLIP, otherShape, PAD, ZOOM, type PinWhere, type ShownPatch, type TimeRange } from "./model";
 import type { Clock } from "./clock";
 import { FramePeek } from "./track/FramePeek";
 import type { PinPlace } from "./track/peek";
@@ -13,23 +13,22 @@ import { PinPeek, type PinOver } from "./track/PinPeek";
 import { Playhead } from "./track/Playhead";
 import { MusicLane } from "./track/MusicLane";
 import { HEIGHT, MUSIC, ROW, SOUND } from "./track/rows";
-import { TrackClip, type Stretch, type TrackClipActs } from "./track/TrackClip";
+import { TrackClip, type TrackClipActs } from "./track/TrackClip";
 import { TrackRuler } from "./track/TrackRuler";
-import { useMotionMarks } from "./track/useMotionMarks";
+import { useRangeDrag } from "./track/useRangeDrag";
+import { useStretch } from "./track/useStretch";
+import { useTrackZoom, type TrackKeys } from "./track/useTrackZoom";
 import { LEGEND, useTrackDrop } from "./track/useTrackDrop";
 
-/** What the editor's keys reach on the track: a zoom step around the playhead, and Fit all. */
-export interface TrackKeys {
-  zoom(by: -1 | 1): void;
-  fit(): void;
-}
+export type { TrackKeys } from "./track/useTrackZoom";
 
 /** How long the pointer rests on a pinned picture before its card shows. */
 const PIN_AFTER_MS = 250;
 
 /**
  * The timeline itself: a ruler, the clips at their length with their own frames, each clip's sound,
- * and the music under all of it. Things are dragged onto it; a clip's edges shorten it.
+ * and the music under all of it. Things are dragged onto it (useTrackDrop); a clip's edges shorten it (useStretch); the
+ * range is drawn and snapped on it (useRangeDrag); it zooms and fits (useTrackZoom).
  */
 export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
   timeline: Timeline;
@@ -97,8 +96,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const floor = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
-  /** An edge being dragged: the clip, which edge, and the length it has for now. */
-  const [stretch, setStretch] = useState<Stretch | null>(null);
+  // a clip's edges: drag to shorten it (or to give back what was cut)
+  const { stretch, startPull, movePull, endPull } = useStretch({ clips, pps, onTrim });
   /** The pinned picture whose card shows (PinPeek), and the timer counting towards showing one. */
   const [pinOver, setPinOver] = useState<PinOver | null>(null);
   const pinTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -117,7 +116,6 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   useEffect(() => () => {
     if (pinTimer.current) clearTimeout(pinTimer.current);
   }, []);
-  const pull = useRef<{ x: number; base: number; least: number; most: number } | null>(null);
 
   const slots = useMemo(() => layout(clips, pps, recipes, stretch ?? undefined), [clips, pps, recipes, stretch]);
   const end = slots.length ? slots.at(-1)!.left + slots.at(-1)!.width : PAD;
@@ -128,153 +126,9 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const { over, dragging, draggedOf, hover, overClip, drop, hint, legend, lineAt, leave } = useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic });
 
   // ---- the range: In and Out, swept on the ruler with Shift, or dragged by their brackets; they snap to cuts, to the playhead and to quiet moments
-  const playEnd = clips.reduce((sum, c) => sum + c.lengthMs, 0);
-  const { measureOf, motion, snapRange } = useMotionMarks({ slots, clips, timeline, playEnd, pps, clock, snapQuiet });
-  const xAt = (ms: number) => placeOf(slots, ms)?.x ?? null;
-  const band = (() => {
-    if (!range) return null;
-    const a = xAt(range.inMs);
-    const b = xAt(range.outMs);
-    return a === null || b === null ? null : { a: Math.min(a, b), b: Math.max(a, b) };
-  })();
-  const rangeMenuAt = (e: ReactMouseEvent) => {
-    if (e.defaultPrevented || !band || !onRangeMenu) return;
-    const x = xOf(e.clientX);
-    if (x >= band.a - 10 && x <= band.b + 10) onRangeMenu(e);
-  };
+  const { playEnd, measureOf, motion, snapRange, band, rangeMenuAt } = useRangeDrag({ slots, clips, timeline, pps, clock, snapQuiet, range, xOf, onRangeMenu });
 
-  // ---- a clip's edges: drag to shorten it (or to give back what was cut)
-  const startPull = (e: ReactPointerEvent, s: Slot, side: "start" | "end") => {
-    e.stopPropagation();
-    e.preventDefault();
-    const c = s.clip;
-    // what is seen can reach back to the first frame it does not share with the clip before, and on to the last one it does not share with the clip after
-    const t = c.take;
-    const most = c.kind === "still" ? 60_000 : Math.max(c.lengthMs, c.lengthMs + (side === "start" ? t!.startMs - t!.headMs : t!.headMs + roomOf(t!) - t!.endMs));
-    pull.current = { x: e.clientX, base: c.lengthMs, least: Math.min(c.lengthMs, 400), most };
-    e.currentTarget.setPointerCapture(e.pointerId);
-    setStretch({ clip: c.id, side, lengthMs: c.lengthMs });
-  };
-  const movePull = (e: ReactPointerEvent) => {
-    const p = pull.current;
-    if (!p || !stretch) return;
-    const moved = ((e.clientX - p.x) / pps) * 1000;
-    const length = Math.round(Math.max(p.least, Math.min(p.most, p.base + (stretch.side === "end" ? moved : -moved))) / 100) * 100;
-    if (length !== stretch.lengthMs) setStretch({ ...stretch, lengthMs: Math.max(p.least, Math.min(p.most, length)) });
-  };
-  const endPull = () => {
-    const p = pull.current;
-    pull.current = null;
-    if (!p || !stretch) return setStretch(null);
-    const c = clips.find((x) => x.id === stretch.clip);
-    const cut = p.base - stretch.lengthMs;
-    if (c && cut !== 0) {
-      if (c.kind === "still") onTrim(c, { stillMs: stretch.lengthMs });
-      // asked by what is seen: the server works out the trims, so that the cut lands on the frame that was seen there
-      else if (stretch.side === "start") onTrim(c, { shownFromMs: Math.max(0, c.take!.startMs + cut) });
-      else onTrim(c, { shownToMs: Math.max(0, c.take!.endMs - cut) });
-    }
-    setStretch(null);
-  };
-
-  // the whole timeline is in view because it was fitted (on arriving, Fit all, a clip added), not zoomed by hand since:
-  // then a change of the track's width (the window, the column dragged or folded) fits it again
-  const whole = useRef(false);
-  /** A zoom asked by hand: what it shows is the person's from then on, kept through a change of width. */
-  const zoomTo = (next: number) => {
-    whole.current = false;
-    onZoom(next);
-  };
-  // Ctrl + wheel zooms around the pointer; a plain wheel scrolls the track sideways (a mouse has no sideways wheel)
-  const ppsNow = useRef(pps);
-  ppsNow.current = pps;
-  useEffect(() => {
-    const el = scroller.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        const rect = el.getBoundingClientRect();
-        const px = e.clientX - rect.left;
-        const ms = ((px + el.scrollLeft - PAD) / ppsNow.current) * 1000;
-        const next = Math.max(ZOOM.least, Math.min(ZOOM.most, ppsNow.current * Math.exp(-e.deltaY * 0.0015)));
-        whole.current = false;
-        onZoom(next);
-        // the moment under the pointer stays under it
-        requestAnimationFrame(() => { el.scrollLeft = Math.max(0, PAD + (ms / 1000) * next - px); });
-      } else if (!e.shiftKey && Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-        e.preventDefault();
-        el.scrollLeft += e.deltaY;
-      }
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, [onZoom]);
-
-  const fitAll = () => {
-    const room = (scroller.current?.clientWidth ?? 800) - NEW_CLIP - PAD * 3 - 40;
-    if (totalMs <= 0) return;
-    whole.current = true;
-    onZoom(Math.max(ZOOM.least, Math.min(ZOOM.most, room / (totalMs / 1000))));
-  };
-  /** One zoom step out (-1) or in (1) around the playhead: it stays where it is on screen (brought to the middle when it was out of view). */
-  const zoomAtHead = (by: -1 | 1) => {
-    const el = scroller.current;
-    const next = Math.max(ZOOM.least, Math.min(ZOOM.most, by > 0 ? pps * ZOOM.step : pps / ZOOM.step));
-    if (!el || next === pps) return;
-    whole.current = false;
-    const layoutMs = cursorMs !== null ? Math.min(cursorMs, totalMs) : placeOf(slots, clock.get())?.layoutMs ?? 0;
-    const shown = PAD + (layoutMs / 1000) * pps - el.scrollLeft;
-    const px = shown >= 0 && shown <= el.clientWidth ? shown : el.clientWidth / 2;
-    onZoom(next);
-    requestAnimationFrame(() => { el.scrollLeft = Math.max(0, PAD + (layoutMs / 1000) * next - px); });
-  };
-  if (keys) keys.current = { zoom: zoomAtHead, fit: fitAll };
-  // arriving on a timeline, the whole of it is in view; zooming after that is the person's
-  const fittedFor = useRef<string | null>(null);
-  useEffect(() => {
-    if (totalMs <= 0 || fittedFor.current === timeline.id) return;
-    // marked done only once it has run: a frame cancelled (the length settling a render later) asks again
-    const id = requestAnimationFrame(() => {
-      fittedFor.current = timeline.id;
-      fitAll();
-    });
-    return () => cancelAnimationFrame(id);
-    // once per timeline, when its length is known
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per timeline, when its length is known
-  }, [timeline.id, totalMs]);
-  // a clip added (New clip, a drop, a continuation): the whole timeline in view again, the new clip with it
-  // (kept asked for until it has run: the new clip's length may settle a render later)
-  // the new clip's panel opens beside the track as it is added and narrows it: a fit just made is made again for the new
-  // width; and a track showing the whole timeline keeps showing all of it at any width (useRef `whole`)
-  const fittedAt = useRef(0);
-  useEffect(() => {
-    const el = scroller.current;
-    if (!el) return;
-    let width = el.clientWidth;
-    const seen = new ResizeObserver(() => {
-      if (el.clientWidth === width) return;
-      width = el.clientWidth;
-      if (whole.current || performance.now() - fittedAt.current < 1500) fitAll();
-    });
-    seen.observe(el);
-    return () => seen.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- watched again only when the length changes; fitAll reads the latest through refs
-  }, [totalMs]);
-  const counted = useRef(clips.length);
-  const fitAsked = useRef(false);
-  useEffect(() => {
-    if (clips.length > counted.current) fitAsked.current = true;
-    counted.current = clips.length;
-    if (!fitAsked.current || totalMs <= 0) return;
-    const id = requestAnimationFrame(() => {
-      fitAsked.current = false;
-      fitAll();
-      fittedAt.current = performance.now();
-    });
-    return () => cancelAnimationFrame(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fitted when clips come or go or the length changes, not when fitAll is made anew
-  }, [clips.length, totalMs]);
+  const { zoomTo, fitAll } = useTrackZoom({ scroller, pps, onZoom, slots, totalMs, clock, cursorMs, timelineId: timeline.id, clipCount: clips.length, keys });
 
   // what the clips do when pressed: read when it happens, so that a clip draws again only when what it shows changes
   const acts = useRef<TrackClipActs>(null!);

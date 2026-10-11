@@ -3,8 +3,7 @@ import { useLocation, useSearch } from "wouter";
 import type { Asset, Clip, DesignerSession, RecipeInfo, Take, Timeline } from "../api";
 import { useFamilies, useModelSettings, useRecipes, useSetup, useTimeline } from "../data";
 import type { DesignerTurn } from "../designer/types";
-import { clock as mmss, notReady } from "../format";
-import { useMenu, type MenuHead } from "../ContextMenu";
+import { notReady } from "../format";
 import { useBanners, useEditorColumn } from "../store";
 import { useSelectedClip } from "../bar/bridge";
 import { useQueueOf } from "../screens/studio/queueOf";
@@ -12,10 +11,11 @@ import { useNewClock } from "./clock";
 import { rememberAspect } from "./EditorSkeleton";
 import type { ExportAsk } from "./ExportDialog";
 import type { Checks } from "./EditorColumns";
-import { layout, moveAfter, otherShape, pinMirrors, ZOOM, type PinWhere } from "./model";
+import { layout, moveAfter, otherShape, pinMirrors, ZOOM } from "./model";
 import type { PlayerHandle } from "./Player";
 import { useClipEdits } from "./useClipEdits";
 import { useClipSteps } from "./useClipSteps";
+import { useEditorMenus } from "./useEditorMenus";
 import { useBarRequests } from "./useBarRequests";
 import { useEditorKeys } from "./useEditorKeys";
 import { useErrorShown, useHeaderNote } from "./useHeaderNote";
@@ -135,29 +135,8 @@ export function useTimelineEditor(id: string) {
     id, clips, durationMs, clock, player, playing, setPlaying,
     on: { after, select, note: setNote, say, writeBetween: (v) => writeBetween.mutate(v) },
   });
-  // the right-click menu of a clip: what the Inspector offers on it, at the pointer
-  const clipMenu = useMenu<Clip>();
-  /** Right-click on a clip's audio strip and on the music strip: what the clip panel's sound section and the music panel do, in place. */
-  const soundMenu = useMenu<Clip>();
-  /** A pinned frame's menu, opened on the track: the clip and which of its frames. */
-  const pinMenu = useMenu<{ clip: Clip; where: PinWhere }>();
-  const musicMenu = useMenu<true>();
-  /** Where the playhead stands on a clip, when it stands on this one. */
-  const onClip = (c: Clip) => {
-    const here = player.current?.where();
-    return here && here.clip.id === c.id ? here : null;
-  };
-  const rangeMenu = useMenu<true>();
-  /** The head of a clip's menu: "Clip 3", its length and which take plays, the picture it shows. */
-  const clipHead = (c: Clip): MenuHead => {
-    const n = clips.findIndex((x) => x.id === c.id) + 1;
-    const take = c.take && c.takes.length > 1 ? ` · take ${c.takes.findIndex((x) => x.id === c.take!.id) + 1} of ${c.takes.length}` : "";
-    return {
-      title: `Clip ${n}`,
-      thumb: c.take?.asset.id ?? c.still?.id ?? c.pictures[0]?.asset.id,
-      sub: <>{c.kind === "still" ? "Still · " : ""}<span className="font-mono">{mmss(c.lengthMs)}</span>{take}</>,
-    };
-  };
+  // the right-click menus (a clip's, its sound's, a pinned frame's, the music's, the range's) and what a clip's says at its head
+  const { clipMenu, soundMenu, pinMenu, musicMenu, rangeMenu, onClip, clipHead } = useEditorMenus(clips, player);
   // the latest that failed, the range's actions among the others (useTimelineMutations)
   const error = rangeAct.error && (!m.error || rangeAct.submittedAt >= m.errorAt) ? rangeAct.error : m.error;
   // an error goes after a while, not while the pointer is on it (the note's own timer is useHeaderNote's)

@@ -4,13 +4,12 @@ import { Plus } from "lucide-react";
 import { api, type Asset } from "../api";
 import { useFolders, useProjects, useTimelines } from "../data";
 import { useProject } from "../project";
-import { plainKey } from "../Keys";
 import { useKeysHere } from "../keys/here";
 import { displayOf, useBanners, useHandover, useOpenDraft, usePanelWidth, useStudio, type Scope } from "../store";
 import { cx, Empty, ErrorNote } from "../ui";
 import { Viewer } from "../viewer/LazyViewer";
 import { useTileMenu } from "../TileMenu";
-import { DRAG_TYPE, FolderPanel, Tile } from "./Library";
+import { FolderPanel, Tile } from "./Library";
 import { LoadMore } from "../LoadMore";
 import { BinStrip } from "./studio/BinStrip";
 import { DraftResults } from "./studio/DraftResults";
@@ -22,7 +21,9 @@ import { GroupedRows, JustifiedRows, morePlaces, PlaceholderRows, rememberShapes
 import { aspectOf, FALLBACK_ASPECT } from "./library/justify";
 import { useQueueOf } from "./studio/queueOf";
 import { useLibraryFilters } from "./studio/useLibraryFilters";
+import { useFolderDrag } from "./studio/useFolderDrag";
 import { useSelection } from "./studio/useSelection";
+import { useStudioAddress } from "./studio/useStudioAddress";
 import { lazyPart, loadCreatePanel, loadTimelineCards } from "../lazyParts";
 import { binFor } from "../keepFor";
 import { failedBanner } from "../sayFailed";
@@ -77,31 +78,8 @@ function FormRail({ onOpen }: { onOpen(): void }) {
 export function Studio({ open: forced, timelines: onTimelines }: { open?: boolean; /** Opened from the rail's Timelines entry: the grid shows the timelines. */ timelines?: boolean }) {
   const view = useStudio();
   const [, go] = useLocation();
-  // N opens the form, or folds it away, from anywhere on the screen (not while typing)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.key.toLowerCase() !== "n" || e.ctrlKey || e.metaKey || e.altKey || !plainKey(e) || document.querySelector("[role=dialog][aria-modal=true]")) return;
-      e.preventDefault();
-      useStudio.getState().set({ form: !useStudio.getState().form });
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-  // The address follows the form: "/create" while it is open, "/" while it is closed, so a reload or a link keeps it
-  // (store.ts reads it when the app loads). Opening and closing replace the address, no history entry per toggle. A
-  // link to "/create" opens the form; "/" with the form open (a way in that opened it, then went to the Studio) takes
-  // the form's address. The timelines' Studio keeps its own address.
-  const formWas = useRef<boolean | null>(null);
-  useEffect(() => {
-    if (onTimelines) return;
-    const toggled = formWas.current !== null && formWas.current !== view.form;
-    formWas.current = view.form;
-    if (Boolean(forced) === view.form) return;
-    if (toggled) go(view.form ? "/create" : "/", { replace: true });
-    else if (forced) view.set({ form: true });
-    else go("/create", { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- follows the form and the address only; go and view are new at every render
-  }, [view.form, forced, onTimelines]);
+  // N opens and folds the form; the address follows it
+  useStudioAddress({ forced, onTimelines });
 
   const folders = useFolders();
   const place = view.place;
@@ -172,45 +150,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
 
   // the project's tree: under the breadcrumb, which also opens by itself while something is dragged, to drop it on a folder
   const folderButton = useRef<HTMLDivElement>(null);
-  const [foldersOpen, setFoldersOpen] = useState<false | "click" | "drag">(false);
-  // on the timelines the drop target is the New timeline card: a file dragged in does not open the tree over it
-  const timelinesShown = useRef(showTimelines);
-  timelinesShown.current = showTimelines;
-  useEffect(() => {
-    // after the drag has started (see dragging.ts): opened in the dragstart itself, the drag was sometimes cancelled
-    const start = (e: DragEvent) => e.dataTransfer?.types.includes(DRAG_TYPE) && setTimeout(() => setFoldersOpen((o) => o || "drag"), 0);
-    const end = () => setFoldersOpen((o) => (o === "drag" ? false : o));
-    // a file from the computer: the same panel, so that it can be dropped straight into a folder (the drop tray stays for the other actions)
-    const files = (e: DragEvent) => Boolean(e.dataTransfer?.types.includes("Files"));
-    let depth = 0;
-    const enter = (e: DragEvent) => {
-      if (!files(e)) return;
-      depth++;
-      if (!timelinesShown.current) setFoldersOpen((o) => o || "drag");
-    };
-    const leave = (e: DragEvent) => {
-      if (!files(e)) return;
-      depth = Math.max(0, depth - 1);
-      if (!depth) end();
-    };
-    const dropped = (e: DragEvent) => {
-      if (!files(e)) return;
-      depth = 0;
-      end();
-    };
-    window.addEventListener("dragstart", start);
-    window.addEventListener("dragend", end);
-    window.addEventListener("dragenter", enter);
-    window.addEventListener("dragleave", leave);
-    window.addEventListener("drop", dropped);
-    return () => {
-      window.removeEventListener("dragstart", start);
-      window.removeEventListener("dragend", end);
-      window.removeEventListener("dragenter", enter);
-      window.removeEventListener("dragleave", leave);
-      window.removeEventListener("drop", dropped);
-    };
-  }, []);
+  const { foldersOpen, setFoldersOpen } = useFolderDrag(showTimelines);
 
   // the grid in sections (grouping.ts); the stacks of takes shown opened
   const [openStacks, setOpenStacks] = useState<Set<string>>(new Set());
