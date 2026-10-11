@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { newId, OWNER } from "../src/db";
 import { BIN_MS, sweep, UNKEPT_MS } from "../src/sweep";
 import { derivedKeys } from "../src/timelineModel";
+import { IN_USE_KEPT_MS, inUseShown } from "../src/timelineUnused";
 import { makeApp, post, type TestApp } from "./helpers";
 
 let t: TestApp;
@@ -156,5 +157,28 @@ describe("the library's keep and bin", () => {
     expect((await asset(free))!.deleted_at).not.toBeNull();
     // what is not used goes as before
     expect((await post(t.app, `/api/assets/${free}/keep`, { kept: false })).statusCode).toBe(200);
+  });
+});
+
+describe("what is in use, for the figures shown (the storage card, the command index, the projects tree)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("is read once and kept until the library, a timeline, a person or the queue changes, or a while has gone", async () => {
+    const id = await add({ kept: true });
+    const first = await inUseShown(t.services);
+    expect(first.has(id)).toBe(false);
+    // a person's picture written straight in the table, which says nothing: the reading kept stands
+    const at = ago(0);
+    await t.db.insertInto("entities").values({ id: newId(), owner_id: OWNER, kind: "person", name: "zz-test", def: JSON.stringify({ pictures: [id] }), created_at: at, updated_at: at }).execute();
+    expect(await inUseShown(t.services)).toBe(first);
+    // the people said changed: read again
+    t.services.queue.events.emit("entities");
+    const second = await inUseShown(t.services);
+    expect(second.get(id)).toBe("a person, a place, a style or a preset");
+    expect(await inUseShown(t.services)).toBe(second);
+    // and read again after a while, whatever was said (a draft's forms change without a word)
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now + IN_USE_KEPT_MS + 1);
+    expect(await inUseShown(t.services)).not.toBe(second);
   });
 });

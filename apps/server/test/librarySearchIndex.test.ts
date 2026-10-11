@@ -152,3 +152,40 @@ describe("migration 0052, the library's search index", () => {
     await db.destroy();
   });
 });
+
+describe("a search, after the 2026-10-11 review", () => {
+  it("takes a control character for a space: a NUL ended the index's phrase early and the search answered 500", async () => {
+    const made = [item(0, "zz-test lantern"), item(1, "zz-test kettle")];
+    await write(t.db, made);
+    const res = await get(t.app, `/api/assets?limit=40&q=${encodeURIComponent("lan\u0000tern")}`);
+    expect(res.statusCode).toBe(200);
+    expect((await get(t.app, `/api/assets?limit=40&q=${encodeURIComponent("kettle\u0000")}`)).json().items.map((i: { id: string }) => i.id)).toEqual([made[1]!.row.id]);
+  });
+
+  it("reads a plain letter as itself in a text of plain letters, and still finds a word typed without its accents", async () => {
+    // no item holds "cfe" as typed: the letters in order are looked for, and "Café" has its e only with an accent
+    const made = [item(0, "zz-test Café"), item(1, "zz-test zebra"), item(2, "zz-test cafe")];
+    await write(t.db, made);
+    expect(new Set(await found("cfe"))).toEqual(new Set([made[0]!.row.id, made[2]!.row.id]));
+    // a typo of a word with a z: the plain texts without one are not let through, and nothing is found that the
+    // forgiving match would not find
+    expect(await found("zbra")).toEqual(expected(made, "zbra"));
+    expect(await found("zzqx")).toEqual(expected(made, "zzqx"));
+  });
+
+  it("keeps a search's ranking for its next pages, and drops it when the library changes", async () => {
+    const made = Array.from({ length: 50 }, (_, n) => item(n, `zz-test boat ${n}`));
+    await write(t.db, made);
+    const first = (await get(t.app, "/api/assets?limit=40&q=boat")).json() as { items: Array<{ id: string }>; next: string | null };
+    expect(first.next).toBe("40");
+    // a new item straight in the table, which says nothing: the next page follows the ranking the first one read
+    const late = item(100, "zz-test boat late");
+    await write(t.db, [late]);
+    const second = (await get(t.app, "/api/assets?limit=40&q=boat&after=40")).json() as { items: Array<{ id: string }> };
+    expect([...first.items, ...second.items].map((i) => i.id)).toHaveLength(50);
+    expect(second.items.map((i) => i.id)).not.toContain(late.row.id);
+    // the library said changed: the search is read afresh
+    t.services.queue.events.emit("library");
+    expect(await found("boat")).toContain(late.row.id);
+  });
+});

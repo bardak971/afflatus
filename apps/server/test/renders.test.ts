@@ -175,6 +175,15 @@ describe("what the tab shows", () => {
     expect(day.tiles.done).toBe(4);
   });
 
+  it("all of it the same a moment later: the stretch the figures cover is in whole steps, so the page's copy is still current (304)", async () => {
+    // a record of weeks: "all" is cut into whole days, and nothing else of it moves within the day
+    await put([row({ ago: 20 * DAY }), row({ ago: 3_600_000 })]);
+    const now = await summary(t.db, t.services.registry, "all", 90, NOW);
+    const later = await summary(t.db, t.services.registry, "all", 90, NOW + 1_234);
+    expect(later.spanMs % later.step).toBe(0);
+    expect(JSON.stringify(later)).toBe(JSON.stringify(now));
+  });
+
   it("the period before as long for the headline's change, the failures out of memory per model, the video length per stretch", async () => {
     await put([
       row({ ago: 3_600_000 }), row({ ago: 2 * 3_600_000, kind: "video", duration_ms: 5_000 }),

@@ -16,3 +16,4 @@ export * from "./joins";
 export * from "./frameGrid";
 export * from "./promptLint";
 export * from "./music";
+export * from "./setupLists";

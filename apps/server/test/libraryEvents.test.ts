@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import { makePng } from "@afflatus/comfy/testing";
-import { libraryFrame } from "../src/events";
+import { request } from "node:http";
+import { libraryFrame, MAX_UNSENT_BYTES } from "../src/events";
 import { complete, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 let t: TestApp;
@@ -108,5 +109,28 @@ describe("a finished render's library event", () => {
     const made = await t.db.selectFrom("assets").select("id").execute();
     expect(made).toHaveLength(1);
     expect(last()).toEqual({ change: "added", items: [made[0]!.id], folders: [null] });
+  });
+});
+
+describe("a page that stops reading the live events", () => {
+  it("is let go once more than MAX_UNSENT_BYTES wait for it, rather than kept in memory without end", async () => {
+    await t.app.listen({ host: "127.0.0.1", port: 0 });
+    const { port } = t.app.server.address() as { port: number };
+    // connected, then never read: what is sent piles up in the server's buffer once the socket's own is full
+    let closed!: Promise<void>;
+    await new Promise<void>((connected) => {
+      closed = new Promise<void>((done) => {
+        request({ host: "127.0.0.1", port, path: "/api/events" }, (res) => {
+          res.pause();
+          res.socket.on("close", () => done());
+          connected();
+        }).end();
+      });
+    });
+    const items = Array.from({ length: 200 }, (_, i) => `zz-test-${String(i).padStart(24, "0")}`);
+    const frame = JSON.stringify(libraryFrame({ change: "added", items })).length;
+    // several times the limit, past what the sockets on both sides hold
+    for (let i = 0; i < Math.ceil((40 * MAX_UNSENT_BYTES) / frame); i++) t.services.queue.events.emit("library", { change: "added", items });
+    await closed;
   });
 });

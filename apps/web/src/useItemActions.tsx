@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { RANDOM_SEED, typedSeed } from "@afflatus/core";
-import { useQueueVariation } from "./actions";
+import { useQueueVariation } from "./queueVariation";
 import type { Asset } from "./api";
 import { useQueryClient } from "@tanstack/react-query";
 import { eraseNow } from "./binActions";

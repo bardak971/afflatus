@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { keepPreviousData, useInfiniteQuery, useQuery, type InfiniteData, type QueryClient } from "@tanstack/react-query";
-import { api, type HistoryPage, type Timeline, type TimesPeriod, type TimesWindow } from "./api";
+import { api, type Asset, type HistoryPage, type Timeline, type TimesPeriod, type TimesWindow } from "./api";
+import { mergeTop } from "./assetCache";
 import { withFreshHead } from "./screens/queue/historyHead";
 import { useProject } from "./project";
 import { queryKeys } from "./queryKeys";
@@ -159,6 +160,27 @@ export function useAssets(filter: { kind?: string; bin?: boolean; folder?: strin
     enabled,
   });
 }
+
+/**
+ * A library list after items were added (live.ts): its first page read again, the new items put above it (assetCache.ts
+ * mergeTop), instead of every page loaded read again one after another. Read whole when that cannot be told from the first
+ * page, when it is another project's (the page's project is the one asked for), or while it is being read anyway.
+ */
+export async function readLibraryTop(client: QueryClient, key: readonly unknown[]): Promise<void> {
+  const whole = () => void client.invalidateQueries({ queryKey: key, exact: true, refetchType: "active" });
+  const q = client.getQueryCache().find({ queryKey: key, exact: true });
+  if (!q || q.state.fetchStatus !== "idle" || key[2] !== useProject.getState().id) return whole();
+  try {
+    const top = await api.assets({ ...(key[3] as Parameters<typeof api.assets>[0]) });
+    const now = client.getQueryData<InfiniteData<AssetsPage, AssetsPageParam>>(key);
+    const merged = now && q.state.fetchStatus === "idle" ? mergeTop(now, top) : null;
+    if (merged) client.setQueryData(key, merged);
+    else whole();
+  } catch {
+    whole();
+  }
+}
+type AssetsPage = { items: Asset[]; next: string | null; prev: string | null };
 
 /** One item with its generation. Its key is under "assets": a "library" event reads it again. */
 export const useAsset = (id: string | null) => useQuery({ queryKey: queryKeys.assets.one(id), queryFn: ({ signal }) => api.asset(id!, { signal }), enabled: Boolean(id) });

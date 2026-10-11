@@ -92,3 +92,27 @@ describe("migration 0034, the work of the renders before it", () => {
     await db.destroy();
   });
 });
+
+describe("migration 0055, the indexes of the counts", () => {
+  const indexes = async (db: ReturnType<typeof openSqlite>) =>
+    (await sql<{ name: string }>`select name from sqlite_master where type = 'index' and name like ${"generations_by_%"} or name like ${"jobs_by_status%"} order by name`.execute(db)).rows.map((r) => r.name);
+  const plan = async (db: ReturnType<typeof openSqlite>, query: string) =>
+    (await sql.raw<{ detail: string }>(`explain query plan ${query}`).execute(db)).rows.map((r) => r.detail).join(" | ");
+
+  it("answers each count from an index alone, in place of the two narrower ones, and is taken back", async () => {
+    const db = openSqlite(":memory:");
+    await migrate(db, "0054_pin_mirror");
+    expect(await indexes(db)).toEqual(["generations_by_draft", "generations_by_family", "generations_by_time", "jobs_by_status"]);
+    expect(await migrate(db)).toContain("0055_aggregate_indexes");
+    expect(await indexes(db)).toEqual(["generations_by_draft_family", "generations_by_family_id", "generations_by_time", "jobs_by_status", "jobs_by_status_warm"]);
+    // the command index's tries of each draft by family, and the history's counts by status: the table is not read
+    expect(await plan(db, "select draft_id, family, count(*), max(created_at) from generations where draft_id is not null group by draft_id, family")).toContain("COVERING INDEX generations_by_draft_family");
+    expect(await plan(db, "select status, count(*) from jobs where warm = 0 and status in ('done', 'failed', 'cancelled') group by status")).toContain("COVERING INDEX jobs_by_status_warm");
+    // a draft's generations and a family's are still found by an index
+    expect(await plan(db, "select id from generations where draft_id = 'd'")).toContain("generations_by_draft_family");
+    expect(await plan(db, "select id from generations where family = 'sdxl'")).toContain("generations_by_family_id");
+    await migrate(db, "0054_pin_mirror");
+    expect(await indexes(db)).toEqual(["generations_by_draft", "generations_by_family", "generations_by_time", "jobs_by_status"]);
+    await db.destroy();
+  });
+});

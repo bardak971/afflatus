@@ -1,27 +1,24 @@
 import { Suspense, useCallback, useEffect, useRef, useState, type DragEvent } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Reveal } from "./bar/bridge";
-import { ArrowDown, ArrowUp, FolderKanban, FolderPlus, LogIn, PinOff } from "lucide-react";
-import { api, type Asset, type Project } from "./api";
+import { ArrowDown, ArrowUp, FolderKanban, LogIn, PinOff } from "lucide-react";
+import type { Asset } from "./api";
 import { useProjects } from "./data";
 import { ContextMenu, useMenu } from "./ContextMenu";
-import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
-import { FieldRow } from "./fields/FieldRow";
-import { Keys } from "./Keys";
 import { useKeysHere } from "./keys/here";
 import { useProject } from "./project";
 import { usePins } from "./projects/pins";
 import { Initial, projectTone } from "./projects/tone";
-import { Button, cx, ErrorNote, fieldClass } from "./ui";
+import { cx } from "./ui";
 import { useFlip } from "./useFlip";
-import { lazyPart, loadProjectsPanel, loadViewer } from "./lazyParts";
-import { queryKeys } from "./queryKeys";
+import { lazyPart, loadNewProject, loadProjectsPanel, loadViewer } from "./lazyParts";
 
 // the panel loads on its first opening: it is not needed to draw the app
 const ProjectsPanel = lazyPart(loadProjectsPanel, (m) => m.ProjectsPanel);
 // the Viewer too: fetched the first time an item is opened from the panel (a lazy import is only that when no file
 // loaded with the app imports the Viewer itself: the screens take it through viewer/LazyViewer.tsx)
 const Viewer = lazyPart(loadViewer, (m) => m.Viewer);
+// and the New project dialog
+const NewProject = lazyPart(loadNewProject, (m) => m.NewProject);
 
 /** The type of a pin dragged along the rail: only the rail's own pins take it. */
 const DRAG_PIN = "application/x-afflatus-pin";
@@ -204,42 +201,7 @@ export function ProjectSwitch() {
       <Pins current={current} />
       {open && <Suspense fallback={null}><ProjectsPanel key={`${search ?? ""}|${reveal?.asset ?? ""}`} search={search} reveal={reveal} anchor={button} onClose={close} onNew={() => setMaking(true)} onView={setViewing} hidden={Boolean(viewing)} /></Suspense>}
       {viewing && <Suspense fallback={null}><Viewer asset={viewing} onClose={() => setViewing(null)} /></Suspense>}
-      {making && <NewProject onClose={() => setMaking(false)} onMade={(p) => { setMaking(false); set(p.id); }} />}
+      {making && <Suspense fallback={null}><NewProject onClose={() => setMaking(false)} onMade={(p) => { setMaking(false); set(p.id); }} /></Suspense>}
     </>
-  );
-}
-
-function NewProject({ onClose, onMade }: { onClose(): void; onMade(p: Project): void }) {
-  const client = useQueryClient();
-  const [name, setName] = useState("");
-  const make = useMutation({
-    mutationFn: (n: string) => api.createProject(n),
-    onSuccess: (p) => {
-      // its root folder: the server says it with a "library" event, which reads the folders again
-      void client.invalidateQueries({ queryKey: queryKeys.projects.all() });
-      onMade(p);
-    },
-  });
-  return (
-    // over the Projects panel it is opened from
-    <Dialog label="New project" onClose={onClose} z="z-[70]" className={DIALOG}>
-      <form
-        className="flex flex-col gap-3.5"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (name.trim()) make.mutate(name.trim());
-        }}
-      >
-        <DialogHead icon={<FolderPlus size={16} />} title="New project" sub="Drafts, timelines and folders, with a root folder of its name" onClose={onClose} />
-        <FieldRow label="Name" htmlFor="new-project-name" note="A project holds drafts, timelines and folders. It gets a root folder of the same name, where its renders land unless another folder of it is open. The library, the drafts and the timelines then show this project's.">
-          <input id="new-project-name" autoFocus aria-label="Project name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Project name" maxLength={120} className={cx(fieldClass, "h-10")} />
-        </FieldRow>
-        {make.isError && <ErrorNote>{make.error.message}</ErrorNote>}
-        <DialogFoot>
-          <Button tone="quiet" type="button" onClick={onClose}>Cancel <Keys keys="Esc" size="sm" /></Button>
-          <Button tone="primary" type="submit" disabled={!name.trim() || make.isPending}>Create <Keys keys="Enter" size="sm" /></Button>
-        </DialogFoot>
-      </form>
-    </Dialog>
   );
 }

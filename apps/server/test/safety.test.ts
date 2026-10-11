@@ -91,6 +91,13 @@ describe("a read from another site's page", () => {
     expect((await read("/api/backup.zip", { "sec-fetch-site": "cross-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "iframe" })).statusCode).toBe(403);
   });
 
+  it("is refused from a page on another port of the same host too (same-site: ComfyUI's own page), with the same exceptions", async () => {
+    expect((await read("/api/backup.zip", { "sec-fetch-site": "same-site", "sec-fetch-mode": "no-cors", "sec-fetch-dest": "empty" })).statusCode).toBe(403);
+    expect((await read("/api/settings", { "sec-fetch-site": "same-site", "sec-fetch-mode": "cors", "sec-fetch-dest": "empty" })).statusCode).toBe(403);
+    expect((await read("/api/health", { "sec-fetch-site": "same-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document" })).statusCode).toBe(200);
+    expect((await read("/api/assets/zz-test-none/thumb", { "sec-fetch-site": "same-site", "sec-fetch-mode": "no-cors", "sec-fetch-dest": "image" })).statusCode).toBe(404);
+  });
+
   it("passes for a link followed, an asset's picture, video or sound shown elsewhere, the app's own requests, and a client that is no browser", async () => {
     expect((await read("/api/health", { "sec-fetch-site": "cross-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document" })).statusCode).toBe(200);
     for (const dest of ["image", "video", "audio"]) {

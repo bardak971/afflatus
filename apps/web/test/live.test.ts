@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Job, QueueStatus, RunningJob } from "../src/api";
-import { endedSince, mergeProgress, notifyTag, throttle } from "../src/liveState";
+import { endedSince, greetings, mergeProgress, notifyTag, throttle } from "../src/liveState";
 import { mayReload, RELOAD_GAP_MS } from "../src/reload";
 
 const job = (id: string, status: Job["status"], kind: Job["kind"] = "render"): Job => ({
@@ -79,5 +79,18 @@ describe("the reload after a stale chunk", () => {
     expect(mayReload(1000, 1000 + RELOAD_GAP_MS - 1)).toBe(false);
     expect(mayReload(1000, 1000 + RELOAD_GAP_MS + 1)).toBe(true);
     expect(mayReload(Number.NaN, 0)).toBe(true);
+  });
+});
+
+describe("a hello on the live connection", () => {
+  it("is the page opening the first time, a reconnect after", () => {
+    const g = greetings();
+    expect(g.hello()).toBe(false);
+    expect(g.hello()).toBe(true);
+  });
+  it("is a reconnect the first time too when another tab held the connection and answered", () => {
+    const g = greetings();
+    g.followed();
+    expect(g.hello()).toBe(true);
   });
 });
