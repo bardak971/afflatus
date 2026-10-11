@@ -99,3 +99,18 @@ describe("the form's search on the screen's own tools", () => {
     expect(matchesText(helpers, "")).toBe(true);
   });
 });
+
+describe("an advanced setting filed under Output", () => {
+  it("shows in the Output chapter's upscale group, where it was dropped from every part before", () => {
+    const r = recipe([
+      { id: "source", type: "image", label: "Image", role: "start", optional: true },
+      { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.28, advanced: true, section: "out" },
+      { id: "colourMatch", type: "toggle", label: "Colour match to the first frame", default: false, showWhen: "source", advanced: true, section: "out" },
+      { id: "seed", type: "seed", label: "Seed" },
+    ]);
+    const l = layoutOf(r, { source: "a" }, "");
+    expect(l.upscaling.map((i) => i.id)).toEqual(["strength", "colourMatch"]);
+    // the seed stays on the Output shelf, not in a group
+    expect(l.out.map((i) => i.id)).toEqual(["seed"]);
+  });
+});

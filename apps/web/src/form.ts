@@ -194,7 +194,9 @@ export function layoutOf(recipe: RecipeInfo, seen: Record<string, unknown>, q: s
   const mediaIds = new Set(rest.filter(isMedia).map((i) => i.id));
   const withMedia = (i: InputSpec) => !i.advanced && typeof i.showWhen === "string" && mediaIds.has(i.showWhen);
   const pictures = rest.filter((i) => i.type === "image" || i.type === "clip");
-  const tuning = sought(rest.filter((i) => i.advanced && !underPrompt(i) && !isMedia(i) && !isOut(i)));
+  // an advanced setting filed under Output (a pass's denoise, a colour match) goes to the Output chapter's upscale
+  // group by groupOf; only the shapes, the seed and the length stay out of the groups, on the Output shelf
+  const tuning = sought(rest.filter((i) => i.advanced && !underPrompt(i) && !isMedia(i) && (!isOut(i) || i.section === "out")));
   const rare = tuning.filter((i) => groupOf(i) === "rare");
   return {
     chapters,

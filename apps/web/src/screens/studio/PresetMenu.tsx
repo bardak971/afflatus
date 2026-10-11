@@ -15,9 +15,22 @@ type Preset = Extract<Entity, { kind: "preset" }>;
 export const presetRefusal = (p: Preset, all: RecipeInfo[]): string | null =>
   p.def.recipe && !all.some((r) => r.id === p.def.recipe) ? `${p.name} is made for a model that is not installed here (${p.def.recipe}).` : null;
 
+/**
+ * The preset the form is on: one for this form whose every value is the form's now (the one that sets the most,
+ * when several do). Null once a value it sets is changed: the form is then the user's own.
+ */
+export function presetOn(presets: Preset[], current: { recipe: string; values: Record<string, unknown> } | undefined): Preset | null {
+  if (!current) return null;
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const on = presets.filter((p) => p.def.recipe === current.recipe && Object.keys(p.def.inputs).length > 0 && Object.entries(p.def.inputs).every(([k, v]) => same(current.values[k], v)));
+  return on.sort((a, b) => Object.keys(b.def.inputs).length - Object.keys(a.def.inputs).length)[0] ?? null;
+}
+
 /** The presets: load one into the form, or save the form as one under a name. */
-export function PresetMenu({ presets, onApply, onSave, error }: {
+export function PresetMenu({ presets, current, onApply, onSave, error }: {
   presets: Preset[];
+  /** The form as it is now: the menu says which preset it is on. */
+  current?: { recipe: string; values: Record<string, unknown> };
   onApply(p: Preset): void;
   onSave(name: string): void;
   /** Why the last load or save did not happen. */
@@ -26,6 +39,7 @@ export function PresetMenu({ presets, onApply, onSave, error }: {
   const recipes = useRecipes();
   const all = recipes.data?.recipes ?? [];
   const [presetName, setPresetName] = useState("");
+  const on = presetOn(presets, current);
   return (
     <>
       <Select
@@ -34,13 +48,13 @@ export function PresetMenu({ presets, onApply, onSave, error }: {
         className="h-9"
         icon={<Bookmark size={13} className="shrink-0" />}
         label="Presets"
-        placeholder={presets.length ? "Load a preset, or save this as one" : "Save as preset"}
+        placeholder={on ? `Preset: ${on.name}` : presets.length ? "Load a preset, or save this as one" : "Save as preset"}
         value=""
         onChange={(id) => {
           const p = presets.find((x) => x.id === id);
           if (p) onApply(p);
         }}
-        options={presets.map((p) => ({ value: p.id, label: p.name, note: p.def.recipe ? recipeLabel(recipes.data?.families.find((f) => f.id === all.find((r) => r.id === p.def.recipe)?.family)?.name, all.find((r) => r.id === p.def.recipe)?.title ?? "model no longer installed") : "any model" }))}
+        options={presets.map((p) => ({ value: p.id, label: p.name, search: `${p.def.author ?? ""} ${p.def.note ?? ""}`, note: p.def.recipe ? recipeLabel(recipes.data?.families.find((f) => f.id === all.find((r) => r.id === p.def.recipe)?.family)?.name, all.find((r) => r.id === p.def.recipe)?.title ?? "model no longer installed") : "any model" }))}
         footer={(close) => (
           <form
             className="flex items-center gap-1.5"
