@@ -85,7 +85,7 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
   const listOf = (ids: string[]) => kinds.timeline(
     ids.flatMap((id) => timelines.filter((t) => t.id === id)).map((t): TimelineSubject => {
       const leaf = leaves.get(t.id);
-      return { id: t.id, name: t.name, project: t.projectId, folder: t.folderId, clips: t.clips, toRender: t.toRender, exported: leaf?.exported, unused: leaf ? (leaf.unusedTakes ? { takes: leaf.unusedTakes, bytes: leaf.unusedBytes } : null) : undefined };
+      return { id: t.id, name: t.name, project: t.projectId, folder: t.folderId, clips: t.clips, toRender: t.toRender, exported: leaf?.exported, unused: leaf ? (leaf.unusedTakes ? { takes: leaf.unusedTakes, bytes: leaf.unusedBytes } : null) : tree.isError ? "unread" : undefined };
     }),
     { done: () => setPicked(new Set()) },
   );

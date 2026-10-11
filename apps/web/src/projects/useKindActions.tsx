@@ -26,7 +26,7 @@ export interface TimelineSubject {
   toRender?: number;
   exported?: boolean;
   /** Null: none; left out while it is read. */
-  unused?: { takes: number; bytes: number } | null;
+  unused?: { takes: number; bytes: number } | null | "unread";
 }
 export interface DraftSubject { id: string; name: string; project: string | null }
 export interface FolderSubject {
@@ -116,7 +116,7 @@ export function useKindActions({ importInto }: { importInto?(t: Target): void } 
   return {
     timeline(ts: TimelineSubject[], p: KindPlace = {}): KindAction[] {
       const t = ts[0]!;
-      const rows = ts.map((x) => rowOf("timeline", x.id, x.name, x.project, { unused: x.unused ?? undefined }));
+      const rows = ts.map((x) => rowOf("timeline", x.id, x.name, x.project, { unused: x.unused && x.unused !== "unread" ? x.unused : undefined }));
       const moving: Moving[] = ts.map((x) => ({ kind: "timeline", id: x.id, group: x.project, folder: x.folder, name: x.name }));
       return list(
         { kind: "timeline", count: ts.length, clips: t.clips, toRender: t.toRender, exported: t.exported, unused: t.unused },

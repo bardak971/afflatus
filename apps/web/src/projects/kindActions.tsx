@@ -139,8 +139,8 @@ export interface KindFacts {
   clips?: number;
   toRender?: number;
   exported?: boolean;
-  /** A timeline's unused takes; null: none; left out while they are read. */
-  unused?: { takes: number; bytes: number } | null;
+  /** A timeline's unused takes; null: none; left out while they are read; "unread": the read failed. */
+  unused?: { takes: number; bytes: number } | null | "unread";
   /** A folder in a project (a folder of the Inbox is no project's root). */
   inProject?: boolean;
   /** A sub-folder of a folder of the disk: only the folder that was linked is renamed, moved or unlinked. */
@@ -194,7 +194,7 @@ export function kindActions(f: KindFacts, runs: KindRuns, subs: KindSubs = {}, h
       case "open": return f.kind === "project" && f.archived ? "unarchive it first" : (f.kind === "project" || f.kind === "inbox") && f.working ? "working in it" : undefined;
       case "render-missing": return noClips ?? (f.toRender === 0 ? "none to render" : undefined);
       case "finish": case "export": case "fix-all": return noClips;
-      case "bin-unused": return f.unused === undefined ? "reading…" : f.unused === null || !f.unused.takes ? "none" : undefined;
+      case "bin-unused": return f.unused === undefined ? "reading…" : f.unused === "unread" ? "could not be read" : f.unused === null || !f.unused.takes ? "none" : undefined;
       case "root": return f.kind === "folder" && !f.inProject ? "in the Inbox" : undefined;
       case "rescan": return f.missing ? "not found on your disk" : undefined;
       case "relink": return f.missing ? undefined : "only when moved";
@@ -231,7 +231,7 @@ function withState(a: KindAction, f: KindFacts, off: string | undefined): KindAc
   switch (a.id) {
     case "render-missing": return off || !f.toRender ? a : { ...a, note: plural(f.toRender, "clip") };
     case "export": return off || !f.exported ? a : { ...a, note: "exported before" };
-    case "bin-unused": return off || !f.unused ? a : { ...a, note: `${f.unused.takes} · ${size(f.unused.bytes)}` };
+    case "bin-unused": return off || !f.unused || f.unused === "unread" ? a : { ...a, note: `${f.unused.takes} · ${size(f.unused.bytes)}` };
     case "import": return f.kind === "project" && !f.hasRoot ? { ...a, note: "makes its root folder first" } : a;
     case "pin": return f.pinned ? { ...a, label: "Unpin from the rail", icon: PinOff, note: undefined, tip: "Off the rail; it stays among the projects." } : a;
     case "archive": return f.archived ? { ...a, label: "Unarchive", icon: ArchiveRestore, note: "back among the projects", tip: "Back among the projects, to work in." } : a;

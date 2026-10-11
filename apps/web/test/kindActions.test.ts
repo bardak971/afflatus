@@ -32,6 +32,8 @@ describe("the list of a timeline, a draft, a folder and a project", () => {
     expect(menuOf({ kind: "timeline", toRender: 0 })).toContain("Render missing clips · none to render (off)");
     // its unused takes not read yet: neither "none" nor a count
     expect(menuOf({ kind: "timeline" })).toContain("Bin unused takes… · reading… (off)");
+    // the read failed: said, not "reading…" for good
+    expect(menuOf({ kind: "timeline", unused: "unread" })).toContain("Bin unused takes… · could not be read (off)");
     const noFolders = lines(toMenu(kindActions({ kind: "timeline", unused: null }, runs, { move: subs.move, put: [] }), true));
     expect(noFolders).toContain("Put in a folder · no folder in its project (off)");
     expect(menuOf({ kind: "linked" })).toContain("Link again… · only when moved (off)");
