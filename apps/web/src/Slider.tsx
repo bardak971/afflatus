@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { snapTo } from "./snap";
 import { cx, NumberBox } from "./ui";
 
 /**
@@ -34,7 +35,7 @@ export function Slider({ value, min, max, step = 1, onChange, onCommit, label, u
   const track = useRef<HTMLSpanElement>(null);
   const [drag, setDrag] = useState<number | null>(null);
   const decimals = (String(step).split(".")[1] ?? "").length;
-  const snap = (v: number) => Number((Math.round(Math.max(min, Math.min(max, v)) / step) * step).toFixed(decimals));
+  const snap = (v: number) => snapTo(v, min, max, step);
   const shown = drag ?? value;
   const at = (v: number) => (max === min ? 0 : ((Math.max(min, Math.min(max, v)) - min) / (max - min)) * 100);
   const said = format ? format(shown) : `${shown.toFixed(decimals)}${unit ? ` ${unit.trim()}` : ""}`;

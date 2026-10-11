@@ -227,7 +227,7 @@ export const wanVideo = defineRecipe<WanVideo>({
       ],
     },
     {
-      id: "short", type: "number", label: "Resolution", min: 320, max: 1080, step: 16, default: 480, unit: "p", picks: [480, 576, 720, 1080],
+      id: "short", type: "number", label: "Resolution", min: 320, max: 1088, step: 16, default: 480, unit: "p", picks: [480, 576, 720, 1080],
       note: "the short side of the frame. Wan is made for 480p and 720p. Past 720p it is beyond what it was trained for: much slower, and it may drift",
     },
     ...upscaleInputs(),

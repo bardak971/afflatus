@@ -327,6 +327,9 @@ describe("stopping a job", () => {
   it("interrupts the running one on ComfyUI", async () => {
     const id = await enqueue();
     await until(() => submitted().length === 1);
+    // ComfyUI started it: only then is it interrupted (an older ComfyUI's /interrupt stops whatever runs)
+    fake.pending = [];
+    fake.running = [submitted()[0]!];
     await post(t.app, `/api/jobs/${id}/cancel`);
     await until(async () => (await statusOf(id)).status === "cancelled");
     expect(fake.calls).toContain("POST /interrupt");

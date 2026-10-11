@@ -177,7 +177,12 @@ function usedAs(graph: Graph, uses: Map<string, Target[]>, from: Ref, names: Arr
  */
 function tame(c: Control, given = ""): Control {
   if (c.kind !== "number") return c;
-  const v = Number(c.default);
+  const t = tamed(c, Number(c.default), given);
+  // the value it was exported with stays inside its range, or the form would take it once and refuse it on the next read
+  return { ...t, min: Math.min(t.min ?? 0, Number(c.default)), max: Math.max(t.max ?? 100, Number(c.default)) };
+}
+
+function tamed(c: Control, v: number, given: string): Control {
   const name = given ? given.toLowerCase().trim() : c.target.input;
   if (/^(seconds?|duration|length)$/.test(name)) return { ...c, min: 1, max: Math.max(30, v) };
   if (/^steps(_total)?$/.test(name)) return { ...c, min: 1, max: Math.max(60, v) };
@@ -229,7 +234,8 @@ function namesOf(source: Graph, catalog: NodeCatalog, editor?: Wiring): Names {
     const base = { id: `ctl_${node}_${input}`.replace(/[^a-zA-Z0-9_]/g, "_"), label, target: { node, input }, ...(authored ? { front: true } : {}), ...(also?.length ? { also } : {}), ...(help ? { help } : {}) };
     if ((type === "INT" || type === "FLOAT") && typeof value === "number") {
       const step = typeof o.step === "number" ? o.step : type === "INT" ? 1 : 0.01;
-      return { ...base, kind: "number", default: value, min: typeof o.min === "number" ? o.min : 0, max: typeof o.max === "number" ? o.max : Math.max(100, value), step };
+      // a value below 0 on a node of a kind this ComfyUI lacks (Wan's end_step -1, "to the end") widens the range down to it
+      return { ...base, kind: "number", default: value, min: Math.min(typeof o.min === "number" ? o.min : 0, value), max: Math.max(typeof o.max === "number" ? o.max : 100, value), step };
     }
     if (type === "BOOLEAN" && typeof value === "boolean") return { ...base, ...splitCaptions(label), kind: "toggle", default: value };
     if (choicesOf(spec) && typeof value === "string") {
