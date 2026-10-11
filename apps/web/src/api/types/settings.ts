@@ -63,7 +63,7 @@ export interface Settings {
   acceptedPresets: string[];
   /** Missing model files may be looked for on Civitai. */
   civitaiLookups: boolean;
-  /** Missing model files may be fetched into ComfyUI, through ComfyUI-Manager. */
+  /** Missing model files may be fetched into ComfyUI's model folders (by Afflatus, its node pack, or ComfyUI-Manager). */
   downloadModels: boolean;
   /** How many days the time of each render is kept one by one; 0 for good. Older ones become daily figures. */
   renderHistoryDays: number;

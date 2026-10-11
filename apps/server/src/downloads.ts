@@ -1,26 +1,39 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { EventEmitter } from "node:events";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rm, stat, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { Readable, Transform } from "node:stream";
 import type { ReadableStream as WebStream } from "node:stream/web";
 import { civitaiSites } from "./civitai";
 import type { Comfy } from "./comfy";
 import { httpError } from "./errors";
 import { fileName } from "./media";
+import { assertRoom, comfyFolderPaths, fetchToFile, freeBytes, modelRoot, placeIn, REFUSED, Refused } from "./modelDownload";
+import { olderThan } from "./nodePack";
 import { assertPublicUrl, fetchPublic, hostnameOf } from "./outbound";
 import { renameOver } from "./storage";
 
 /**
- * Model files fetched straight into ComfyUI's model folders, through ComfyUI-Manager.
+ * Model files fetched straight into ComfyUI's model folders, by the first of three routes this ComfyUI allows:
  *
- * Manager's installer only takes an address and says nothing while it works. So it is handed a
- * one-time address on Afflatus, and Afflatus streams the file through it, counting the bytes on the way:
- * that is the progress bar. Nothing of the file is stored by Afflatus, and a Civitai key never leaves it
- * (Manager only ever sees the one-time address). The list itself is written to a small file in the data
- * folder at each change: a download cut short by Afflatus stopping or restarting is then listed as
- * interrupted at the next start, instead of vanishing without a word (one already handed whole to Manager is done:
- * Manager saves it on its own).
+ * - Afflatus itself ("afflatus"), when it can write the folder ComfyUI reads (ComfyUI on this machine):
+ *   modelDownload.ts writes the file as it comes, picks it up where it stopped after a cut, and names it only
+ *   once it is whole.
+ * - The Afflatus node pack ("pack"), on a ComfyUI on another machine that has a pack recent enough: it fetches
+ *   a one-time address on Afflatus to disk the same way, and asks again from where it stopped (serve() answers
+ *   a Range).
+ * - ComfyUI-Manager ("manager"), the last resort: handed a one-time address on Afflatus, or a public Hugging Face
+ *   address it reads itself. Manager reads any other address whole into memory before it writes the file: a
+ *   file of several gigabytes may fail, and the download says so.
+ *
+ * Through a one-time address, Afflatus streams the file from its source, counting the bytes on the way: that
+ * is the progress bar, and a Civitai key never leaves Afflatus. Afflatus runs AT_ONCE of its own downloads (and
+ * the pack's) at a time; the others wait their turn. The list itself is written to a small file in the data
+ * folder at each change: a download cut short by Afflatus stopping or restarting is then listed as interrupted
+ * at the next start, instead of vanishing without a word (one already handed whole to ComfyUI is done).
  */
+
+export type Via = "afflatus" | "pack" | "manager";
 
 export interface DownloadView {
   id: string;
@@ -35,8 +48,14 @@ export interface DownloadView {
   total: number;
   status: "starting" | "downloading" | "saving" | "done" | "error" | "stopped";
   error?: string;
-  /** While starting: what it waits for (ComfyUI-Manager fetches one file at a time). */
+  /** While starting: what it waits for (Afflatus runs AT_ONCE at a time, ComfyUI-Manager one). */
   waiting?: string;
+  /** Who downloads it. */
+  via?: Via;
+  /** The directory it is written into, when Afflatus or the node pack writes it. */
+  into?: string;
+  /** What to know while it runs: it was cut and picked up again, or Manager may not cope with its size. */
+  note?: string;
 }
 
 interface Download extends DownloadView {
@@ -47,10 +66,24 @@ interface Download extends DownloadView {
   finishedAt?: number;
   /** Cuts the download off at its source. */
   abort: AbortController;
+  /** Afflatus's own: where the file goes (its .part beside it). */
+  dest?: string;
+  /** Under way: taken from the queue of Afflatus's own downloads and the pack's. */
+  begun?: boolean;
+  /** The pack's: the address Afflatus is reached at, and the download's id there. */
+  self?: string;
+  packId?: string;
+  /** The one-time address's stream from the source while one is open: the pack's next request lets it go. */
+  upstream?: AbortController;
+  /** Manager reads a Hugging Face address itself: no bytes pass through Afflatus. */
+  direct?: boolean;
+  /** How many times the connection was cut, and the byte it was picked up from last. */
+  cuts?: number;
+  resumedFrom?: number;
 }
 
-/** What the state file keeps of a download: enough to list it again. */
-type Kept = DownloadView & { finishedAt?: number };
+/** What the state file keeps of a download: enough to list it again, and the .part to remove of one cut short. */
+type Kept = DownloadView & { finishedAt?: number; part?: string };
 const INTERRUPTED = "Interrupted: Afflatus was stopped or restarted while it was downloading. Press Download again.";
 
 /** The folders ComfyUI-Manager knows by a type name; any other folder is given to it as a path under models/. */
@@ -62,8 +95,32 @@ const MANAGER_TYPE: Record<string, string> = {
 const MODEL_FILE = /\.(safetensors|ckpt|gguf|sft|pt|pth|bin|onnx)$/i;
 const KEEP_MS = 60 * 60_000;
 const STARTS_WITHIN_MS = 90_000;
+/** How many of its own downloads (and the pack's) Afflatus runs at once: two share a fast line well, more only split it. */
+export const AT_ONCE = 2;
+/** The first node pack that downloads (POST /afflatus/download). */
+export const PACK_DOWNLOADS = "0.11.0";
+/** Past this, ComfyUI-Manager reading the file whole into memory is a real risk. */
+export const BIG = 2 ** 30;
+export const MANAGER_BIG =
+  "Through ComfyUI-Manager, which holds the whole file in memory before writing it: a file over 1 GB may fail. To download straight to disk, set ComfyUI's folder in Settings › ComfyUI (ComfyUI on this machine), or update the Afflatus node pack (ComfyUI on another machine).";
+export const MANAGER_HF = "ComfyUI-Manager downloads it from Hugging Face itself: no progress shows until it is saved.";
+
+export type Route = { via: "afflatus"; root: string } | { via: "pack" } | { via: "manager"; direct?: string; note?: string };
+
+/**
+ * Who downloads a file: Afflatus when it can write the folder (`root`), else the node pack when this ComfyUI
+ * has one that can, else ComfyUI-Manager. Manager streams a public huggingface.co address to disk on its own
+ * (it is handed that address); any other it reads whole into memory, which a file over 1 GB may not survive.
+ */
+export function chooseRoute(o: { root: string | null; pack: boolean; source: string; headers: Record<string, string>; total: number }): Route {
+  if (o.root) return { via: "afflatus", root: o.root };
+  if (o.pack) return { via: "pack" };
+  if (/^https:\/\/huggingface\.co\//i.test(o.source) && !Object.keys(o.headers).length) return { via: "manager", direct: o.source, note: MANAGER_HF };
+  return { via: "manager", note: o.total > BIG ? MANAGER_BIG : undefined };
+}
 
 const unreachable = (err: unknown) => /fetch failed|ECONNREFUSED|did not answer/i.test((err as Error).message);
+const running = (d: DownloadView) => d.status === "starting" || d.status === "downloading";
 
 export class Downloads {
   private readonly all = new Map<string, Download>();
@@ -78,22 +135,31 @@ export class Downloads {
   startsWithinMs = STARTS_WITHIN_MS;
   /** How often ComfyUI is asked whether the file is listed, once all of it was sent. */
   listedEveryMs = 3000;
+  /** How often the node pack is asked how its download goes. */
+  packEveryMs = 1000;
+  /** Tries in a row that gain nothing before Afflatus gives a download up, and the first wait between them (shorter in tests). */
+  attempts = 5;
+  backoffMs = 2000;
+  /** The free bytes of a directory's disk (a stand-in in the tests). */
+  free: (dir: string) => Promise<number> = freeBytes;
 
   constructor(private readonly events: EventEmitter, private readonly stateFile?: string) {
     this.restored = this.restore();
   }
 
-  /** The state file read: what was still under way when Afflatus last ran is listed as interrupted. */
+  /** The state file read: what was still under way when Afflatus last ran is listed as interrupted, and its .part removed. */
   private async restore(): Promise<void> {
     if (!this.stateFile) return;
     try {
       const kept = JSON.parse(await readFile(this.stateFile, "utf8")) as Kept[];
       const now = Date.now();
+      for (const k of kept) if (k && (k.status === "starting" || k.status === "downloading") && typeof k.part === "string" && k.part.endsWith(".part")) await rm(k.part, { force: true }).catch(() => {});
       this.past = kept
         .filter((k) => k && typeof k.id === "string")
-        // "saving": every byte was handed to ComfyUI-Manager, which saves it on its own whether Afflatus runs or not
+        // "saving": every byte was handed to ComfyUI or is in its folder already, and it lists it whether Afflatus runs or not
         .map((k) => (k.status === "saving" ? { ...k, status: "done" as const, finishedAt: now } : k))
-        .map((k) => (k.status === "starting" || k.status === "downloading" ? { ...k, status: "error" as const, error: INTERRUPTED, finishedAt: now, waiting: undefined } : k))
+        .map((k) => (k.status === "starting" || k.status === "downloading" ? { ...k, status: "error" as const, error: INTERRUPTED, finishedAt: now, waiting: undefined, note: undefined } : k))
+        .map(({ part: _p, ...k }) => k)
         .filter((k) => !k.finishedAt || now - k.finishedAt < KEEP_MS);
       if (this.past.some((k) => k.error === INTERRUPTED)) this.tell(true);
     } catch {
@@ -101,10 +167,18 @@ export class Downloads {
     }
   }
 
+  /** What the browser is told of a download: never its source, its key or its one-time address. */
+  private view(d: Download): DownloadView {
+    const { id, file, folder, title, bytes, total, status, error, waiting, via, into, note } = d;
+    const all: DownloadView = { id, file, folder, title, bytes, total, status, error, waiting, via, into, note };
+    for (const k of Object.keys(all) as Array<keyof DownloadView>) if (all[k] === undefined) delete all[k];
+    return all;
+  }
+
   /** The list as it stands, written for the next run. Never awaited: a failure to write changes nothing here. */
   private persist(): void {
     if (!this.stateFile) return;
-    const kept: Kept[] = [...this.past, ...[...this.all.values()].map(({ token: _t, source: _s, headers: _h, comfy: _c, abort: _a, ...view }) => view)];
+    const kept: Kept[] = [...this.past, ...[...this.all.values()].map((d) => ({ ...this.view(d), ...(d.finishedAt ? { finishedAt: d.finishedAt } : {}), ...(d.dest ? { part: `${d.dest}.part` } : {}) }))];
     const file = this.stateFile;
     // written beside it, then put in its place: a stop in the middle of a write leaves the last whole list, never half of one
     this.writing = this.writing
@@ -128,6 +202,8 @@ export class Downloads {
     d.status = "error";
     d.error = error;
     d.finishedAt = Date.now();
+    delete d.waiting;
+    delete d.note;
     this.tell(true);
   }
 
@@ -136,15 +212,16 @@ export class Downloads {
     for (const [id, d] of this.all) if (d.finishedAt && Date.now() - d.finishedAt > KEEP_MS) this.all.delete(id);
     this.past = this.past.filter((k) => !k.finishedAt || Date.now() - k.finishedAt < KEEP_MS);
     const strip = ({ finishedAt: _f, ...view }: Kept): DownloadView => view;
-    return [...[...this.all.values()].reverse().map(({ token: _t, source: _s, headers: _h, comfy: _c, abort: _a, ...view }) => view), ...this.past.slice().reverse().map(strip)];
+    return [...[...this.all.values()].reverse().map((d) => this.view(d)), ...this.past.slice().reverse().map(strip)];
   }
 
   /**
-   * Stop a download that is under way, or take a finished one off the list. Nothing is left behind:
-   * ComfyUI-Manager only writes a file once it has all of it. False when there is no such download,
-   * "late" when every byte was already handed over and ComfyUI is saving it.
+   * Stop a download that is under way, or take a finished one off the list. Nothing is left behind: a .part is
+   * removed, and ComfyUI-Manager only writes a file once it has all of it. False when there is no such download,
+   * "late" when every byte was already handed over and ComfyUI is saving it, "manager" for one Manager reads
+   * from Hugging Face itself (it cannot be stopped from here).
    */
-  stop(id: string): boolean | "late" {
+  stop(id: string): boolean | "late" | "manager" {
     const d = this.all.get(id);
     if (!d) {
       // one of an earlier run: taken off the list
@@ -155,10 +232,16 @@ export class Downloads {
       return true;
     }
     if (d.status === "saving") return "late";
-    if (d.status === "starting" || d.status === "downloading") {
+    if (d.direct && running(d)) return "manager";
+    if (running(d)) {
       d.status = "stopped";
       d.finishedAt = Date.now();
+      delete d.waiting;
+      delete d.note;
       d.abort.abort();
+      // the pack is told too, and removes its .part
+      if (d.packId) void fetch(`${d.comfy.client.baseUrl}/afflatus/download/${encodeURIComponent(d.packId)}`, { method: "DELETE", signal: AbortSignal.timeout(5000) }).catch(() => {});
+      this.pump();
     } else this.all.delete(id);
     this.tell(true);
     return true;
@@ -181,25 +264,74 @@ export class Downloads {
     return value;
   }
 
+  /** Whether this ComfyUI runs a node pack that downloads (PACK_DOWNLOADS or newer). */
+  private async packCan(comfy: Comfy): Promise<boolean> {
+    const version = await comfy.client.packVersion().catch(() => null);
+    return version !== null && !olderThan(version, PACK_DOWNLOADS);
+  }
+
+  private routeSeen: { key: string; at: number; value: Via | "none" } | null = null;
+
   /**
-   * Ask ComfyUI-Manager to fetch a file. `self` is the address ComfyUI can reach Afflatus at;
-   * the bytes then flow through serve().
+   * Who downloads into this ComfyUI, in general (one folder Afflatus cannot write may still go another way):
+   * for the Settings, and for what a Download button says before it is pressed. Asked at most every half minute.
    */
-  async start(comfy: Comfy, self: string, want: { file: string; folder: string; title: string; source: string; headers?: Record<string, string>; total?: number }): Promise<DownloadView> {
+  async route(comfy: Comfy, comfyDir: string): Promise<Via | "none"> {
+    const key = `${comfy.client.baseUrl}|${comfyDir}`;
+    const seen = this.routeSeen;
+    if (seen && seen.key === key && Date.now() - seen.at < 30_000) return seen.value;
+    const paths = await comfyFolderPaths(comfy.client.baseUrl);
+    let value: Via | "none" = "none";
+    for (const folder of ["checkpoints", "loras", "diffusion_models"]) if (value === "none" && (await modelRoot(paths, folder, comfy.client.baseUrl, comfyDir))) value = "afflatus";
+    if (value === "none" && (await this.packCan(comfy))) value = "pack";
+    if (value === "none" && (await this.manager(comfy)).found) value = "manager";
+    this.routeSeen = { key, at: Date.now(), value };
+    return value;
+  }
+
+  /**
+   * Start fetching a file into ComfyUI. `self` is the address ComfyUI can reach Afflatus at (for the one-time
+   * address the pack or Manager fetches); `comfyDir` is ComfyUI's folder from the Settings, read for a ComfyUI
+   * too old to say its folders.
+   */
+  async start(comfy: Comfy, self: string, want: { file: string; folder: string; title: string; source: string; headers?: Record<string, string>; total?: number; comfyDir?: string }): Promise<DownloadView> {
     const name = want.file.split(/[\\/]/).pop() ?? "";
     const sub = want.file.split(/[\\/]/).slice(0, -1).filter(Boolean).join("/");
     if (!MODEL_FILE.test(name) || /[:*?"<>|]/.test(name)) throw httpError(`"${name}" is not a model file Afflatus can download.`);
     if (!/^[\w.-]+(\/[\w.-]+)*$/.test(want.folder) || /\.\./.test(`${want.folder}/${sub}`)) throw httpError("that is not a models folder");
     // the source has to be out on the internet: the server can reach what a browser on this network cannot (outbound.ts)
     assertPublicUrl(want.source, [hostnameOf(comfy.url), ...civitaiSites().map(hostnameOf)]);
-    const busy = [...this.all.values()].find((d) => d.file === want.file && d.folder === want.folder && (d.status === "starting" || d.status === "downloading" || d.status === "saving"));
-    if (busy) return this.list().find((v) => v.id === busy.id)!;
+    const busy = [...this.all.values()].find((d) => d.file === want.file && d.folder === want.folder && (running(d) || d.status === "saving"));
+    if (busy) return this.view(busy);
 
+    const headers = want.headers ?? {};
+    const root = await modelRoot(await comfyFolderPaths(comfy.client.baseUrl), want.folder, comfy.client.baseUrl, want.comfyDir ?? "");
+    const route = chooseRoute({ root, pack: !root && (await this.packCan(comfy)), source: want.source, headers, total: want.total ?? 0 });
     const d: Download = {
-      id: randomUUID(), token: randomBytes(24).toString("hex"), comfy, source: want.source, headers: want.headers ?? {},
-      file: want.file, folder: want.folder, title: want.title, bytes: 0, total: want.total ?? 0, status: "starting", abort: new AbortController(),
+      id: randomUUID(), token: randomBytes(24).toString("hex"), comfy, source: want.source, headers,
+      file: want.file, folder: want.folder, title: want.title, bytes: 0, total: want.total ?? 0, status: "starting", abort: new AbortController(), via: route.via,
     };
+    if (route.via === "afflatus") {
+      try {
+        const dest = await placeIn(route.root, sub, name);
+        if (await stat(dest).then(() => true, () => false)) throw new Refused(`${name} is in ${dirname(dest)} already.`);
+        // refused before anything is fetched when the size is known (Civitai says it); else once the site says it
+        if (want.total) await assertRoom(dirname(dest), want.total, this.free);
+        d.dest = dest;
+        d.into = dirname(dest);
+      } catch (err) {
+        throw err instanceof Refused ? httpError(err.message) : err;
+      }
+    }
+    if (route.via === "pack") d.self = self;
     this.all.set(d.id, d);
+    if (route.via !== "manager") {
+      this.pump();
+      this.tell(true);
+      return this.view(d);
+    }
+
+    if (route.note) d.note = route.note;
     const post = (path: string, body: unknown) =>
       fetch(comfy.client.baseUrl + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
     const type = MANAGER_TYPE[want.folder];
@@ -208,22 +340,30 @@ export class Downloads {
         client_id: "afflatus", ui_id: d.id, name: want.title, type: type ?? "etc", base: "",
         // a folder Manager knows goes where ComfyUI keeps that kind (which may be another disk); a sub-folder or any other folder is a path under models/
         save_path: type && !sub ? "default" : [want.folder, sub].filter(Boolean).join("/"),
-        url: `${self.replace(/\/+$/, "")}/api/downloads/fetch/${d.id}?t=${d.token}`,
+        url: route.direct ?? this.oneTime(self, d),
         filename: name,
       });
-      if (res.status === 404) throw new Error("This ComfyUI has no ComfyUI-Manager, which does the downloading. Install the custom node, then try again.");
+      if (res.status === 404) throw new Error("This ComfyUI has no ComfyUI-Manager, which does the downloading here. Install the custom node, then try again.");
       if (!res.ok) throw new Error(`ComfyUI-Manager refused the download (${res.status}: ${(await res.text()).slice(0, 160)})`);
       await post("/v2/manager/queue/start", {});
     } catch (err) {
       this.fail(d, unreachable(err) ? "ComfyUI is not answering." : (err as Error).message);
-      return this.list().find((v) => v.id === d.id)!;
+      return this.view(d);
+    }
+    if (route.direct) {
+      // Manager reads it from Hugging Face itself: nothing passes through here to count, so the folder is watched until the file is in it
+      d.direct = true;
+      d.status = "downloading";
+      void this.untilListed(d, 12 * 60 * 60_000);
+      this.tell(true);
+      return this.view(d);
     }
     // Manager checks what it is allowed to do before it fetches: when it never comes, say why. But it
     // fetches one file at a time: behind another download (ours, or any task of its queue) the fetch
     // comes later, and the download waits its turn instead of being given up on
     const watch = async () => {
       if (d.status !== "starting") return;
-      const other = [...this.all.values()].find((o) => o !== d && (o.status === "downloading" || o.status === "saving"));
+      const other = [...this.all.values()].find((o) => o !== d && o.via === "manager" && (o.status === "downloading" || o.status === "saving"));
       let queued = false;
       if (!other) {
         try {
@@ -245,35 +385,170 @@ export class Downloads {
     };
     setTimeout(() => void watch(), this.startsWithinMs).unref();
     this.tell(true);
-    return this.list().find((v) => v.id === d.id)!;
+    return this.view(d);
+  }
+
+  /** The one-time address a download's bytes are fetched from by ComfyUI (the pack, or Manager). */
+  private oneTime(self: string, d: Download): string {
+    return `${self.replace(/\/+$/, "")}/api/downloads/fetch/${d.id}?t=${d.token}`;
   }
 
   /**
-   * The one-time address Manager fetches: the file streamed through, its bytes counted. Null when the
-   * id and token do not match a download that is waiting (the address works once).
+   * Start what waits, AT_ONCE of Afflatus's own downloads and the pack's at a time, in the order they were
+   * asked for; the others say what they wait behind.
    */
-  async serve(id: string, token: string): Promise<{ stream: Readable; size: number } | { error: string } | null> {
+  private pump(): void {
+    const ours = [...this.all.values()].filter((d) => d.via !== "manager");
+    const under = ours.filter((d) => d.begun && running(d));
+    let changed = false;
+    for (const d of ours.filter((o) => !o.begun && o.status === "starting")) {
+      if (under.length < AT_ONCE) {
+        d.begun = true;
+        delete d.waiting;
+        under.push(d);
+        void (d.via === "pack" ? this.runPack(d) : this.runHere(d));
+        changed = true;
+        continue;
+      }
+      const behind = `behind ${under.map((o) => o.file).join(" and ")}`;
+      if (d.waiting !== behind) changed = true;
+      d.waiting = behind;
+    }
+    if (changed) this.tell(true);
+  }
+
+  /** Afflatus downloads it itself, into the folder ComfyUI reads (modelDownload.ts). */
+  private async runHere(d: Download): Promise<void> {
+    d.status = "downloading";
+    this.tell(true);
+    try {
+      await fetchToFile({
+        source: d.source, headers: d.headers, allow: [hostnameOf(d.comfy.url), ...civitaiSites().map(hostnameOf)], dest: d.dest!, signal: d.abort.signal,
+        attempts: this.attempts, backoffMs: this.backoffMs, free: this.free,
+        onBytes: (bytes, total) => {
+          d.bytes = bytes;
+          if (total) d.total = total;
+          // flowing again after a cut: the note says it was picked up, no longer that it is being tried
+          if (d.cuts && d.resumedFrom !== undefined && bytes > d.resumedFrom) {
+            d.note = `Picked up again after ${d.cuts === 1 ? "a cut" : `${d.cuts} cuts`}.`;
+            d.resumedFrom = undefined;
+            this.tell(true);
+          }
+          this.tell();
+        },
+        onRetry: (note) => {
+          d.cuts = (d.cuts ?? 0) + 1;
+          d.resumedFrom = d.bytes;
+          d.note = note;
+          this.tell(true);
+        },
+      });
+      if (d.abort.signal.aborted) return;
+      // whole, and named: ComfyUI lists it once it looks at the folder again
+      d.status = "saving";
+      this.tell(true);
+      void this.untilListed(d);
+    } catch (err) {
+      // stopped: said so already, and the .part is gone
+      if (d.abort.signal.aborted) return;
+      this.fail(d, err instanceof Refused ? err.message : `The download did not finish: ${(err as Error).message}`);
+    } finally {
+      this.pump();
+    }
+  }
+
+  /** The node pack downloads it from the one-time address, and is asked how it goes until it is done. */
+  private async runPack(d: Download): Promise<void> {
+    const base = d.comfy.client.baseUrl;
+    try {
+      const res = await fetch(`${base}/afflatus/download`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(15_000),
+        body: JSON.stringify({ url: this.oneTime(d.self!, d), folder: d.folder, filename: d.file.replace(/\\/g, "/"), total: d.total }),
+      });
+      if (!res.ok) throw new Error(`The Afflatus node pack refused the download (${res.status}: ${(await res.text()).slice(0, 200)})`);
+      const got = (await res.json()) as { id: string; path?: string };
+      d.packId = got.id;
+      if (got.path) d.into = got.path.replace(/[\\/][^\\/]*$/, "");
+      if (!running(d)) {
+        void fetch(`${base}/afflatus/download/${encodeURIComponent(got.id)}`, { method: "DELETE" }).catch(() => {});
+        return;
+      }
+      this.tell(true);
+      let silent = 0;
+      while (running(d)) {
+        await new Promise((r) => setTimeout(r, this.packEveryMs));
+        if (!running(d)) return;
+        const asked = await fetch(`${base}/afflatus/download/${encodeURIComponent(got.id)}`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
+        if (!asked) {
+          if (++silent * this.packEveryMs > 120_000) throw new Error("ComfyUI is not answering.");
+          continue;
+        }
+        silent = 0;
+        if (asked.status === 404) throw new Error("ComfyUI no longer knows the download: was it restarted? Press Download again.");
+        const s = (await asked.json().catch(() => ({}))) as { state?: string; bytes?: number; error?: string; note?: string };
+        if (s.note) d.note = s.note;
+        if (s.state === "error") throw new Error(`The Afflatus node pack could not download it: ${s.error ?? "no reason given"}`);
+        if (s.state === "done") {
+          d.bytes = s.bytes ?? d.bytes;
+          d.total = s.bytes ?? d.total;
+          delete d.note;
+          d.upstream?.abort();
+          d.status = "saving";
+          this.tell(true);
+          void this.untilListed(d);
+          return;
+        }
+      }
+    } catch (err) {
+      d.upstream?.abort();
+      this.fail(d, unreachable(err) ? "ComfyUI is not answering." : (err as Error).message);
+    } finally {
+      this.pump();
+    }
+  }
+
+  /**
+   * The one-time address the pack or Manager fetches: the file streamed through, its bytes counted. Manager's
+   * works once; the pack's as long as its download runs, and from where it asks (`range`, "bytes=<n>-"): the
+   * source is asked for the same, and a source that does not resume sends the whole (the pack then starts over).
+   * Null when the id and token do not match a download that is waiting.
+   */
+  async serve(id: string, token: string, range?: string): Promise<{ stream: Readable; size: number; partial?: string } | { error: string } | null> {
     const d = this.all.get(id);
-    if (!d || d.token !== token || d.status !== "starting") return null;
+    if (!d || d.token !== token || d.direct) return null;
+    if (d.via === "pack" ? !running(d) || !d.begun : d.status !== "starting") return null;
+    // one stream at a time: the pack asks again after a cut, and what may be left of the earlier one is let go
+    d.upstream?.abort();
+    const upstream = new AbortController();
+    d.upstream = upstream;
+    const from = Number(/^bytes=(\d+)-$/.exec(range ?? "")?.[1] ?? 0);
     d.status = "downloading";
     delete d.waiting;
     this.tell(true);
     let res: Response;
     try {
       // each redirect judged as the source was (but never on to ComfyUI's machine), and the Civitai key kept for the host first asked
-      res = await fetchPublic(d.source, { headers: { "User-Agent": "afflatus", Accept: "*/*", ...d.headers }, signal: d.abort.signal }, civitaiSites().map(hostnameOf));
+      res = await fetchPublic(d.source, { headers: { "User-Agent": "afflatus", Accept: "*/*", ...d.headers, ...(from ? { Range: `bytes=${from}-` } : {}) }, signal: AbortSignal.any([d.abort.signal, upstream.signal]) }, civitaiSites().map(hostnameOf));
     } catch (err) {
-      this.fail(d, `The download did not start: ${(err as Error).message}`);
-      return { error: d.error! };
+      // the pack tries again on its own; Manager does not
+      if (d.via === "manager") this.fail(d, `The download did not start: ${(err as Error).message}`);
+      return { error: `The download did not start: ${(err as Error).message}` };
     }
     const type = res.headers.get("content-type") ?? "";
     if (!res.ok || !res.body || /text\/html|application\/json/.test(type)) {
+      await res.body?.cancel().catch(() => {});
       const refused = res.status === 401 || res.status === 403 || /text\/html/.test(type);
-      this.fail(d, refused ? "The site refused the download. For Civitai, save a key in Settings (Finding missing files): some files need an account." : `The site answered ${res.status}.`);
-      return { error: d.error! };
+      const said = refused ? REFUSED : `The site answered ${res.status}.`;
+      // a 5xx may pass, the pack asks again; anything else is the end of it
+      if (d.via === "manager" || res.status < 500) this.fail(d, said);
+      return { error: said };
     }
     const size = Number(res.headers.get("content-length")) || 0;
-    if (size) d.total = size;
+    const partial = from > 0 && res.status === 206 ? res.headers.get("content-range") ?? undefined : undefined;
+    const whole = partial ? Number(/\/(\d+)$/.exec(partial)?.[1]) || 0 : size;
+    if (whole) d.total = whole;
+    if (d.via === "manager" && d.total > BIG) d.note = MANAGER_BIG;
+    d.bytes = partial ? from : 0;
     const counter = new Transform({
       transform: (chunk: Buffer, _enc, done) => {
         d.bytes += chunk.length;
@@ -281,35 +556,44 @@ export class Downloads {
         done(null, chunk);
       },
     });
-    // pipe() does not pass an error on: a source that breaks (the site drops it, or it is stopped) ends what Manager is reading
+    // pipe() does not pass an error on: a source that breaks (the site drops it, or it is stopped) ends what ComfyUI is reading
     const source = Readable.fromWeb(res.body as WebStream);
     source.on("error", (err) => counter.destroy(err));
     const stream = source.pipe(counter);
-    stream.on("error", (err) => this.fail(d, `The download was interrupted: ${err.message}`));
+    // the reader gone (the pack cut off, Manager dropped it): its stream from the source goes too, not left open
+    stream.on("close", () => upstream.abort());
+    stream.on("error", (err) => {
+      if (d.via === "manager") this.fail(d, `The download was interrupted: ${err.message}`);
+    });
     stream.on("end", () => {
-      if (d.status !== "downloading") return;
+      // the pack says itself when it has all of it and has named the file
+      if (d.status !== "downloading" || d.via !== "manager") return;
       // Manager writes the file once it has all of it: wait until ComfyUI lists it
       d.status = "saving";
       this.tell(true);
       void this.untilListed(d);
     });
-    return { stream, size };
+    return { stream, size, partial };
   }
 
-  /** The other end of the one-time address went away before the end. */
+  /** The other end of the one-time address went away before the end. The pack asks again on its own; Manager does not. */
   dropped(id: string): void {
     const d = this.all.get(id);
-    if (d?.status === "downloading") this.fail(d, "ComfyUI-Manager dropped the connection.");
+    if (d?.status === "downloading" && d.via === "manager") this.fail(d, "ComfyUI-Manager dropped the connection.");
   }
 
-  private async untilListed(d: Download): Promise<void> {
+  /** Until ComfyUI lists the file: `withinMs` (3 minutes at the usual pace) for one whole already, hours for one Manager reads itself. */
+  private async untilListed(d: Download, withinMs = 60 * this.listedEveryMs): Promise<void> {
     const name = fileName(d.file);
-    for (let i = 0; i < 60; i++) {
-      await new Promise((r) => setTimeout(r, this.listedEveryMs));
+    const every = d.direct ? Math.max(this.listedEveryMs, 5000) : this.listedEveryMs;
+    for (let waited = 0; waited < withinMs; waited += every) {
+      await new Promise((r) => setTimeout(r, every));
+      if (d.status !== "saving" && d.status !== "downloading") return;
       const files = await d.comfy.client.models(d.folder).catch(() => [] as string[]);
       if (files.some((f) => fileName(f) === name)) {
         d.status = "done";
         d.finishedAt = Date.now();
+        delete d.note;
         // what was worked out about this ComfyUI no longer holds: it has one more file
         d.comfy.forgetAll();
         this.tell(true);
@@ -318,6 +602,10 @@ export class Downloads {
         return;
       }
     }
-    this.fail(d, "All of it was sent, but ComfyUI does not list the file. Look at ComfyUI's own window for what went wrong (a full disk, or not enough memory to hold the file).");
+    this.fail(d, d.via === "afflatus"
+      ? `The file is in ${d.into}, but ComfyUI does not list it. Refresh ComfyUI's model list, or restart ComfyUI.`
+      : d.direct
+        ? "ComfyUI-Manager has not saved the file. Look at ComfyUI's own window for what went wrong."
+        : `All of it was sent, but ComfyUI does not list the file. Look at ComfyUI's own window for what went wrong${d.via === "manager" ? " (a full disk, or not enough memory to hold the file)" : ""}.`);
   }
 }

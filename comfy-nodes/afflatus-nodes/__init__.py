@@ -127,7 +127,7 @@ def clean_output(output_dir: str, hours: float) -> int:
     return clean_folder(os.path.join(output_dir, "Afflatus"), hours, lambda name: bool(_OUR_VIDEO.match(name)))
 
 
-# Three small routes on ComfyUI's own web server, for an Afflatus that runs on another machine (its container,
+# Small routes on ComfyUI's own web server, for an Afflatus that runs on another machine (its container,
 # say) and cannot reach ComfyUI's disk:
 #   GET /afflatus/header?folder=loras&filename=x.safetensors  → the file's safetensors header (its metadata,
 #       and each tensor's dtype and shape: what tells which model the file is for). 404 when there is no such file.
@@ -138,6 +138,8 @@ def clean_output(output_dir: str, hours: float) -> int:
 #       only: a page of another site cannot send one without asking first.
 #       With {"folder": "output"}: the videos ComfyUI's own SaveVideo wrote for Afflatus (when VideoHelperSuite is absent)
 #       instead, output/Afflatus/video_<n>_.mp4 only, by the same rules.
+#   POST /afflatus/download, GET and DELETE /afflatus/download/<id>  → a model file fetched from Afflatus's one-time
+#       address into a model folder, to disk as it comes and picked up again after a cut (downloads.py says how).
 # The first two are read-only, the first bytes of a file only, nothing loaded. ComfyUI's own /view_metadata gives the metadata alone.
 # The disk is read and written off ComfyUI's event loop, which the progress of a render goes through.
 try:
@@ -187,6 +189,10 @@ try:
         else:
             return web.Response(status=400, text="the folder is input or output")
         return web.json_response({"removed": removed})
+
+    from .downloads import register as _register_downloads
+
+    _register_downloads(PromptServer.instance.routes, web, folder_paths)
 except Exception:
     # outside ComfyUI's server (a bare import, a test): the nodes still load, the routes are simply not there
     pass

@@ -1,26 +1,33 @@
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
+import { startFakeComfy, type FakeComfy, type FakeInit } from "@afflatus/comfy/testing";
 import { wan } from "../../../packages/workflows/test/fixtures";
 import { get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
 /** A pretend Civitai (and file host): one model version with one file, 300 000 bytes long. */
 const FILE = Buffer.alloc(300_000, 7);
-let asked: Array<{ url: string; auth?: string }>;
+let asked: Array<{ url: string; auth?: string; range?: string }>;
 /** The slow file's request was given up on by Afflatus (its connection closed). */
 let slowDropped: boolean;
+/** The cut file was cut already: it is sent whole from now on. */
+let cutOnce: boolean;
 let site: Server;
 let siteUrl: string;
 let fake: FakeComfy;
 let t: TestApp;
 let self: string;
 
-async function start(manager: boolean | "refuses") {
-  fake = await startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: [], loras: ["there.safetensors"] }, manager });
+async function start(manager: boolean | "refuses", more: FakeInit = {}) {
+  fake = await startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: [], loras: ["there.safetensors"] }, manager, ...more });
   t = await makeApp({ comfyUrl: fake.url });
   t.services.downloads.listedEveryMs = 10;
   t.services.downloads.startsWithinMs = 150;
+  t.services.downloads.packEveryMs = 20;
+  t.services.downloads.backoffMs = 10;
   // the pretend Manager fetches for real: Afflatus has to listen on a port
   await t.app.listen({ host: "127.0.0.1", port: 0 });
   self = `http://127.0.0.1:${(t.app.server.address() as AddressInfo).port}`;
@@ -30,8 +37,9 @@ async function start(manager: boolean | "refuses") {
 beforeEach(async () => {
   asked = [];
   slowDropped = false;
+  cutOnce = false;
   site = createServer((req, res) => {
-    asked.push({ url: req.url ?? "", auth: req.headers.authorization });
+    asked.push({ url: req.url ?? "", auth: req.headers.authorization, ...(req.headers.range ? { range: req.headers.range } : {}) });
     if (req.url === "/api/v1/model-versions/42") {
       res.setHeader("content-type", "application/json");
       return res.end(JSON.stringify({
@@ -62,7 +70,16 @@ beforeEach(async () => {
       res.writeHead(200, { "content-type": "application/octet-stream", "content-length": FILE.length });
       return res.end(FILE);
     }
-    if (req.url === "/files/slow.safetensors") {
+    if (req.url === "/files/cut.safetensors") {
+      // cut a little way in the first time; asked again from a byte, sends the rest
+      const from = Number(/^bytes=(\d+)-$/.exec(req.headers.range ?? "")?.[1] ?? 0);
+      const body = FILE.subarray(from);
+      res.writeHead(from ? 206 : 200, { "content-type": "application/octet-stream", "content-length": body.length, ...(from ? { "content-range": `bytes ${from}-${FILE.length - 1}/${FILE.length}` } : {}) });
+      if (cutOnce) return res.end(body);
+      cutOnce = true;
+      return res.write(body.subarray(0, 120_000), () => res.socket?.end());
+    }
+    if (req.url?.startsWith("/files/slow")) {
       // a first part, then nothing more for a long while: a download to stop
       res.writeHead(200, { "content-type": "application/octet-stream", "content-length": FILE.length });
       res.write(FILE.subarray(0, 50_000));
@@ -285,5 +302,87 @@ describe("a model from a link", () => {
     expect((await resolve("https://civitai.com/models/9")).json().have).toEqual({});
     const none = await post(t.app, "/api/downloads", { file: "x.safetensors", folder: "checkpoints", civitai: 50, pick: "no_such_file.safetensors" });
     expect(none.statusCode).toBe(404);
+  });
+});
+
+describe("who downloads", () => {
+  let disk = "";
+  beforeEach(() => {
+    disk = mkdtempSync(join(tmpdir(), "afflatus-models-"));
+    for (const f of ["loras", "checkpoints"]) mkdirSync(join(disk, f));
+  });
+  afterEach(() => rmSync(disk, { recursive: true, force: true }));
+  const paths = () => ({ loras: [join(disk, "nowhere"), join(disk, "loras")], checkpoints: [join(disk, "checkpoints")] });
+  const item = async (id: string) => (await list()).items.find((d: { id: string }) => d.id === id);
+
+  it("is Afflatus itself when it can write ComfyUI's model folder: picked up after a cut, the file whole, no Manager", async () => {
+    await start(true, { folderPaths: paths() });
+    await on();
+    expect((await list()).via).toBe("afflatus");
+    const d = (await post(t.app, "/api/downloads", { file: "wan\\cut.safetensors", folder: "loras", url: `${siteUrl}/files/cut.safetensors` })).json();
+    expect(d).toMatchObject({ via: "afflatus", into: expect.stringMatching(/loras[\\/]wan$/) });
+    await done(d.id);
+    expect(await item(d.id)).toMatchObject({ status: "done", bytes: FILE.length, total: FILE.length });
+    expect(readFileSync(join(disk, "loras", "wan", "cut.safetensors")).equals(FILE)).toBe(true);
+    expect(readdirSync(join(disk, "loras", "wan"))).toEqual(["cut.safetensors"]);
+    // asked again from the byte it had (a little before the cut: fetch lets the last piece it held go)
+    expect(asked.filter((a) => a.url === "/files/cut.safetensors").map((a) => a.range)).toEqual([undefined, expect.stringMatching(/^bytes=\d+-$/)]);
+    expect(fake.installAsked).toEqual([]);
+  });
+
+  it("runs two at a time; the third says what it waits behind, and goes when one is stopped", async () => {
+    await start(true, { folderPaths: paths() });
+    await on();
+    const ids: string[] = [];
+    for (const n of ["a", "b", "c"]) ids.push((await post(t.app, "/api/downloads", { file: `${n}.safetensors`, folder: "loras", url: `${siteUrl}/files/slow-${n}.safetensors` })).json().id);
+    await until(async () => (await item(ids[0]!)).bytes > 0 && (await item(ids[1]!)).bytes > 0);
+    expect(await item(ids[2]!)).toMatchObject({ status: "starting", waiting: "behind a.safetensors and b.safetensors", bytes: 0 });
+    await t.app.inject({ method: "DELETE", url: `/api/downloads/${ids[0]}` });
+    await until(async () => (await item(ids[2]!)).bytes > 0);
+    // the stopped one left nothing behind, not even its .part
+    await until(() => !readdirSync(join(disk, "loras")).includes("a.safetensors.part"));
+    for (const id of ids.slice(1)) await t.app.inject({ method: "DELETE", url: `/api/downloads/${id}` });
+    await until(() => readdirSync(join(disk, "loras")).length === 0);
+  });
+
+  it("refuses up front a file the disk has no room for", async () => {
+    await start(true, { folderPaths: paths() });
+    await on();
+    t.services.downloads.free = async () => 1000;
+    const res = await post(t.app, "/api/downloads", { file: "soft_light-v2.safetensors", folder: "loras", civitai: 42 });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/Not enough free space/);
+  });
+
+  it("is the node pack on a ComfyUI Afflatus cannot write: it fetches the one-time address, and from where it stopped after a cut", async () => {
+    // a ComfyUI that does not say its folders (as on another machine), with a pack that downloads
+    await start(true, { folderPaths: paths(), hideFolderPaths: true });
+    fake.packVersion = "0.11.0";
+    await on();
+    expect((await list()).via).toBe("pack");
+    const d = (await post(t.app, "/api/downloads", { file: "cut.safetensors", folder: "loras", url: `${siteUrl}/files/cut.safetensors` })).json();
+    expect(d.via).toBe("pack");
+    await done(d.id);
+    expect(await item(d.id)).toMatchObject({ status: "done", bytes: FILE.length });
+    expect(readFileSync(join(disk, "nowhere", "cut.safetensors")).equals(FILE)).toBe(true);
+    // the relay asked the site for the rest, as the pack asked the relay
+    expect(asked.filter((a) => a.url === "/files/cut.safetensors").map((a) => a.range)).toEqual([undefined, expect.stringMatching(/^bytes=\d+-$/)]);
+    expect(fake.installAsked).toEqual([]);
+  });
+
+  it("is ComfyUI-Manager otherwise: a public Hugging Face address handed to it as it is, anything else through Afflatus", async () => {
+    await start("refuses");
+    fake.packVersion = "0.10.0";
+    await on();
+    expect((await list()).via).toBe("manager");
+    const hf = "https://huggingface.co/Comfy-Org/x/resolve/main/split_files/loras/a.safetensors";
+    const d = (await post(t.app, "/api/downloads", { file: "a.safetensors", folder: "loras", url: hf })).json();
+    expect(d).toMatchObject({ via: "manager", status: "downloading", note: expect.stringMatching(/from Hugging Face itself/) });
+    expect(fake.installAsked.at(-1)).toMatchObject({ url: hf, filename: "a.safetensors" });
+    // it cannot be stopped from here: Manager does not say how
+    expect((await t.app.inject({ method: "DELETE", url: `/api/downloads/${d.id}` })).statusCode).toBe(409);
+    const relayed = (await post(t.app, "/api/downloads", { file: "b.safetensors", folder: "loras", url: `${siteUrl}/files/plain.safetensors` })).json();
+    expect(relayed).toMatchObject({ via: "manager", status: "starting" });
+    expect(fake.installAsked.at(-1)!.url).toMatch(/\/api\/downloads\/fetch\//);
   });
 });

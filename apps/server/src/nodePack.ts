@@ -31,7 +31,7 @@ async function nodePackVersion(): Promise<string | null> {
 }
 
 /** Whether version `a` comes before `b`, part by part as numbers ("0.9.0" before "0.10.0"). */
-const olderThan = (a: string, b: string): boolean => {
+export const olderThan = (a: string, b: string): boolean => {
   const x = a.split(".").map((n) => parseInt(n, 10) || 0);
   const y = b.split(".").map((n) => parseInt(n, 10) || 0);
   for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) < (y[i] ?? 0);

@@ -69,10 +69,21 @@ function pretendClip(graph: Graph, seed: number): Uint8Array | undefined {
 // the models the video workflows load are listed, so that one the demo does not have shows as missing and can be fetched
 catalog.UNETLoader!.input.required!.unet_name = [["minimax_h3_fl2va_demo.safetensors", "minimax_h3_ref2va_demo.safetensors", "SomeoneMinimaxH3_hybridTurboV3_demo.safetensors", "flux-2-klein-base-4b-demo.safetensors", "wan2.2_i2v_high_noise_14B_demo.safetensors", "wan2.2_i2v_low_noise_14B_demo.safetensors"]];
 
+// the pretend ComfyUI's model folders on disk, in the demo's data folder: "Download" in the demo writes there, as
+// Afflatus does into a ComfyUI on the same machine (DEMO_MANAGER=1 leaves them out: the download then goes through Manager)
+const demoModels = join(root, "data-demo", "comfy-models");
+const folderPaths = process.env.DEMO_MANAGER === "1" ? undefined : Object.fromEntries(
+  ["checkpoints", "loras", "vae", "diffusion_models", "text_encoders", "upscale_models"].map((f) => {
+    mkdirSync(join(demoModels, f), { recursive: true });
+    return [f, [join(demoModels, f)]];
+  }),
+);
+
 const fake = await startFakeComfy({
   catalog,
   // a pretend ComfyUI-Manager: "Download" in the demo fetches from the pretend site below
   manager: true,
+  folderPaths,
   models: {
     checkpoints, upscale_models: upscalers,
     loras: ["demo-watercolour.safetensors", "demo-film-grain.safetensors", "demo-detail.safetensors", "minimax_h3_turbo_demo.safetensors", "minimax_h3_ref2v_turbo_demo.safetensors"],
@@ -122,9 +133,14 @@ const llmUrl = `http://127.0.0.1:${(pretendLlm.address() as AddressInfo).port}/v
 
 /**
  * A pretend Civitai, and the place its files come from: it "has" whatever file it is asked for, 48 MB of
- * nothing sent over a few seconds, so that looking a missing file up and fetching it can be tried.
+ * nothing sent over a few seconds, so that looking a missing file up and fetching it can be tried. It resumes
+ * from a byte (Range). DEMO_DOWNLOAD_MB makes the file larger and sends it as fast as it can; DEMO_DOWNLOAD_CUTS=n
+ * cuts the connection at 30% and at 60% of the file, n times in all, to see a download picked up again.
  */
-const PRETEND_BYTES = 48 * 2 ** 20;
+const PRETEND_BYTES = (Number(process.env.DEMO_DOWNLOAD_MB) || 48) * 2 ** 20;
+const PRETEND_FAST = Boolean(process.env.DEMO_DOWNLOAD_MB);
+let pretendCuts = Number(process.env.DEMO_DOWNLOAD_CUTS) || 0;
+const PATTERN = Buffer.from(Array.from({ length: 2 ** 20 + 251 }, (_x, i) => i % 251));
 const pretendSite = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://site");
   const self = `http://127.0.0.1:${(pretendSite.address() as AddressInfo).port}`;
@@ -139,11 +155,21 @@ const pretendSite = createServer(async (req, res) => {
   }
   if (url.pathname.startsWith("/api/v1/model-versions/")) return json(version("model.safetensors"));
   if (url.pathname === "/files/demo") {
-    res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": PRETEND_BYTES });
-    const chunk = Buffer.alloc(2 ** 20);
-    for (let sent = 0; sent < PRETEND_BYTES && !res.destroyed; sent += chunk.length) {
-      res.write(chunk);
-      await new Promise((r) => setTimeout(r, 120));
+    const from = Math.min(PRETEND_BYTES, Number(/^bytes=(\d+)-$/.exec(req.headers.range ?? "")?.[1] ?? 0));
+    res.writeHead(from ? 206 : 200, { "Content-Type": "application/octet-stream", "Content-Length": PRETEND_BYTES - from, ...(from ? { "Content-Range": `bytes ${from}-${PRETEND_BYTES - 1}/${PRETEND_BYTES}` } : {}) });
+    // where this answer is cut, when cuts are asked for: the next of 30% and 60% past where it starts
+    const cutAt = pretendCuts > 0 ? [0.3, 0.6].map((f) => Math.floor(PRETEND_BYTES * f)).find((at) => at > from) : undefined;
+    for (let sent = from; sent < PRETEND_BYTES && !res.destroyed; sent += 2 ** 20) {
+      if (cutAt !== undefined && sent >= cutAt) {
+        pretendCuts--;
+        res.socket?.destroy();
+        return;
+      }
+      // byte n of the file is n % 251: a piece put in the wrong place shows
+      const piece = PATTERN.subarray(sent % 251, sent % 251 + Math.min(2 ** 20, PRETEND_BYTES - sent));
+      // as fast as the disk takes it for a large file; slowly for the 48 MB one, so that its progress shows
+      if (!res.write(piece)) await new Promise((r) => (res.once("drain", r), res.once("close", r)));
+      if (!PRETEND_FAST) await new Promise((r) => setTimeout(r, 120));
     }
     return res.end();
   }

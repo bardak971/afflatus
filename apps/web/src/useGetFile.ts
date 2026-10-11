@@ -9,6 +9,11 @@ import { queryKeys } from "./queryKeys";
 export const useDownloads = () => useQuery({ queryKey: queryKeys.downloads(), queryFn: api.downloads, staleTime: 10_000 });
 
 export type Find = Awaited<ReturnType<typeof api.civitaiFind>>;
+
+/** Why nothing can download into this ComfyUI, and what to do about it. */
+export const NO_ROUTE = "Nothing can download into this ComfyUI: Afflatus cannot write its model folders, it has no Afflatus node pack 0.11 or newer loaded, and ComfyUI-Manager was not found. Set ComfyUI's folder in Settings › ComfyUI (ComfyUI on this machine), restart ComfyUI to load the node pack, or install ComfyUI-Manager (Settings › Models › Missing models says how).";
+/** What is said before a download that ComfyUI-Manager would do: it holds a file in RAM before writing it. */
+export const MANAGER_CAUTION = "Downloads go through ComfyUI-Manager, which holds a file from anywhere but Hugging Face in RAM before writing it: over 1 GB it may fail. To download straight to disk, set ComfyUI's folder in Settings › ComfyUI (ComfyUI on this machine), or restart ComfyUI to load the updated Afflatus node pack."
 /** Where a download comes from: the address, or a Civitai version. */
 export type From = { url: string } | { civitai: number };
 /** The download to offer first, and what it is. */
@@ -48,9 +53,10 @@ export function useGetFile({ file, folder, url, civitai, pick, hints, auto, sour
   });
   const mine = downloads.data?.items.find((d) => d.file === file && d.folder === folder);
   const busy = start.isPending || Boolean(mine && (mine.status === "starting" || mine.status === "downloading" || mine.status === "saving"));
-  // the download runs through ComfyUI-Manager: without it in ComfyUI the button would only fail
-  const noManager = downloads.data?.manager.found === false;
-  const why = noManager ? "ComfyUI-Manager was not found in your ComfyUI: install it first (Settings → Models → Missing models says how), then Test again in Settings → ComfyUI." : undefined;
+  // Afflatus, its node pack or ComfyUI-Manager does the download: with none of them the button would only fail
+  const noRoute = downloads.data?.via === "none";
+  const why = noRoute ? NO_ROUTE : undefined;
+  const caution = downloads.data?.via === "manager" ? MANAGER_CAUTION : undefined;
   const looked = useRef(false);
   useEffect(() => {
     if (auto && lookups && !url && !civitai && !looked.current) {
@@ -75,9 +81,11 @@ export function useGetFile({ file, folder, url, civitai, pick, hints, auto, sour
     /** This file's download, when there is one. */
     mine,
     busy,
-    noManager,
-    /** Why the download buttons are off, when it is the missing ComfyUI-Manager. */
+    noRoute,
+    /** Why the download buttons are off, when nothing can download. */
     why,
+    /** What to know before downloading, when ComfyUI-Manager would do it. */
+    caution,
     best: bestOf({ fetching, url, civitai, source, data: find.data }),
   };
 }

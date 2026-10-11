@@ -4,6 +4,7 @@ import { Link } from "wouter";
 import { api } from "../../api";
 import { useSettings } from "../../data";
 import { DownloadRow, useDownloads } from "../../GetFile";
+import { MANAGER_CAUTION, NO_ROUTE } from "../../useGetFile";
 import { Button, buttonClass, cx, ErrorNote, fieldClass, Toggle } from "../../ui";
 import { Block, Card, Row, Status } from "./Rows";
 import { queryKeys } from "../../queryKeys";
@@ -28,23 +29,27 @@ export function CivitaiCard() {
   const fetching = Boolean(settings.data?.downloadModels);
   const downloads = useDownloads();
   const manager = fetching ? downloads.data?.manager : undefined;
+  const via = fetching ? downloads.data?.via : undefined;
   return (
     <Card title="Missing models">
       <Row
         setting="server.downloadModels"
         label="Download missing models"
-        sub="through ComfyUI-Manager"
-        help={`On: a missing model file gets a "Download" button, from the URL the workflow's author gave, or from Civitai once it is found there. ComfyUI-Manager saves it in the right models folder; the file passes through Afflatus, which shows the progress. Nothing is downloaded until you press the button. Off: Afflatus never asks ComfyUI to download anything; missing models only get links to open in your browser.`}
+        sub={via === "afflatus" ? "straight into ComfyUI's model folders" : via === "pack" ? "through the Afflatus node pack" : via === "manager" ? "through ComfyUI-Manager" : undefined}
+        help={`On: a missing model file gets a "Download" button, from the URL the workflow's author gave, or from Civitai once it is found there. When Afflatus can write ComfyUI's model folders (ComfyUI on this machine), it downloads the file there itself: straight to disk, resumed after a cut, named only once complete, two at a time. Otherwise the Afflatus node pack does the same on ComfyUI's machine, or, last, ComfyUI-Manager saves it (the file passes through Afflatus, which shows the progress). Nothing is downloaded until you press the button. Off: Afflatus never downloads anything; missing models only get links to open in your browser.`}
       >
-        <Toggle bare on={fetching} onChange={(v) => save.mutate({ downloadModels: v })} label="Download missing models into ComfyUI (ComfyUI-Manager)" />
+        <Toggle bare on={fetching} onChange={(v) => save.mutate({ downloadModels: v })} label="Download missing models into ComfyUI" />
       </Row>
-      {manager && (manager.found ? (
-        <Row label="ComfyUI-Manager"><Status ok>found{manager.version ? ` · ${manager.version}` : ""}</Status></Row>
-      ) : (
-        <Row tone="warn" label="ComfyUI-Manager not found" help={`Downloading needs ComfyUI-Manager in your ComfyUI, and it was not found (or ComfyUI is not answering). ${MANAGER_HOWTO}`}>
+      {via === "afflatus" && <Row label="Downloads by"><Status ok>Afflatus, into ComfyUI's model folders</Status></Row>}
+      {via === "pack" && <Row label="Downloads by"><Status ok>the Afflatus node pack, on ComfyUI's machine</Status></Row>}
+      {via === "manager" && manager?.found && (
+        <Row tone="warn" label="Downloads by ComfyUI-Manager" help={MANAGER_CAUTION}><Status ok>found{manager.version ? ` · ${manager.version}` : ""}</Status></Row>
+      )}
+      {via === "none" && (
+        <Row tone="warn" label="Nothing can download" help={`${NO_ROUTE} ${MANAGER_HOWTO}`}>
           <Link href="/settings" className={buttonClass({ tone: "danger", size: "sm" })}>Test again in ComfyUI</Link>
         </Row>
-      ))}
+      )}
       {(downloads.data?.items.length ?? 0) > 0 && (
         <Block className="gap-1.5">
           {downloads.data!.items.map((d) => <DownloadRow key={d.id} d={d} named />)}

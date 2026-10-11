@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Graph, NodeCatalog } from "@afflatus/core";
 import type { HistoryEntry } from "./client";
+import { fakeFolders } from "./fake/folders";
 import { fakeManager } from "./fake/manager";
 import { fakeRoutes } from "./fake/routes";
 import { fakeSimulate } from "./fake/simulate";
@@ -43,6 +44,12 @@ export interface FakeComfy {
   sockets: string[];
   /** What the pretend ComfyUI-Manager downloaded: where it put it and how large it was. */
   installed: Array<{ folder: string; file: string; bytes: number }>;
+  /** What the pretend ComfyUI-Manager was asked to download: the address and where to. */
+  installAsked: Array<{ url: string; filename: string; save_path: string; type: string }>;
+  /** Model folders on a real disk, by folder (init.folderPaths): said on /internal/folder_paths, and their files listed. Null: none. */
+  folderPaths: Record<string, string[]> | null;
+  /** Say no /internal/folder_paths, as a ComfyUI too old to have it. */
+  hideFolderPaths: boolean;
   /** The node packs Manager was asked to install, as its queue got them. */
   packs: Array<{ id: string; version: string; repository?: string }>;
   /** How many times Manager was asked to restart ComfyUI. */
@@ -79,7 +86,7 @@ export interface FakeRequest {
   plain(status: number, text?: string | Uint8Array, type?: string): true;
 }
 
-export interface FakeInit extends Partial<Pick<FakeComfy, "catalog" | "models">> {
+export interface FakeInit extends Partial<Pick<FakeComfy, "catalog" | "models" | "folderPaths" | "hideFolderPaths">> {
   /**
    * Pretend to have ComfyUI-Manager: a model install fetches the address it is given, reads all of it
    * (as the real one does) and lists the file in its folder. "refuses": it accepts the request and
@@ -112,14 +119,16 @@ const body = async (req: IncomingMessage) => {
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: FakeState = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], packs: [], reboots: 0, userdata: {},
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {},
+    folderPaths: init.folderPaths ?? null, hideFolderPaths: init.hideFolderPaths ?? false,
     catalog: init.catalog ?? {},
     models: init.models ?? {},
   };
-  // the parts answer in turn: Manager's routes, then ComfyUI's own and the node pack's
+  // the parts answer in turn: Manager's routes, the model folders on disk, then ComfyUI's own and the node pack's
   let simulate: ReturnType<typeof fakeSimulate> | null = null;
   const parts = [
     fakeManager(fake, init),
+    fakeFolders(fake),
     fakeRoutes(fake, { queued: (id, clientId) => { sockets.own(id, clientId); simulate?.start(id); } }),
   ];
   const server = createServer(async (req, res) => {

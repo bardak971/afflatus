@@ -8,7 +8,7 @@ import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } 
 import { lookAdds, type DraftBrief, type Draft, type DesignerSession, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView } from "./api/types/designer";
 import type { Health, FinishSettings, Settings } from "./api/types/settings";
 import type { CommandEntry, CommandEstimate, CommandIndex, PromptHistoryItem } from "./api/types/bar";
-import type { RecipeInfo, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, HuggingFaceFind, CivitaiFind } from "./api/types/models";
+import type { RecipeInfo, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, HuggingFaceFind, CivitaiFind } from "./api/types/models";
 
 /** Shapes of the server's answers. Kept next to the calls so a change on one side is noticed on the other. */
 export * from "./api/types/queue";
@@ -200,7 +200,7 @@ export const api = {
   },
   /** The same for a picture or a video already in the library. */
   assetEmbedded: (id: string, recipe?: string) => call<Embedded>("GET", `/assets/${id}/embedded${recipe ? `?recipe=${encodeURIComponent(recipe)}` : ""}`),
-  downloads: (o?: Asked) => call<{ on: boolean; items: Download[]; manager: { found: boolean; version?: string } }>("GET", "/downloads", undefined, o?.signal),
+  downloads: (o?: Asked) => call<{ on: boolean; items: Download[]; manager: { found: boolean; version?: string }; via: DownloadVia | "none" }>("GET", "/downloads", undefined, o?.signal),
   stopDownload: (id: string) => call<{ ok: true }>("DELETE", `/downloads/${id}`),
   startDownload: (body: { file: string; folder: string; page?: ModelPage } & ({ civitai: number; pick?: string } | { url: string })) => call<Download>("POST", "/downloads", body),
   /** What a pasted link leads to: its files, the folder it most likely belongs in, ComfyUI's folders, and what ComfyUI has already. */

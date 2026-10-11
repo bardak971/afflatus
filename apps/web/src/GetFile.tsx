@@ -18,6 +18,21 @@ const SAYS: Record<Download["status"], string> = {
   stopped: "Cancelled. Nothing was kept of it.",
 };
 
+/** What a line says of its state, by who downloads it. */
+function says(d: Download): string {
+  const ours = d.via === "afflatus" || d.via === "pack";
+  if (d.status === "error") return d.error ?? SAYS.error;
+  if (d.status === "starting" && d.waiting) return `Waiting its turn, ${d.waiting}: ${ours ? "Afflatus downloads two files at a time" : "ComfyUI-Manager fetches one file at a time"}`;
+  if (d.status === "starting" && d.via === "afflatus") return "Starting…";
+  if (d.status === "starting" && d.via === "pack") return "Waiting for the Afflatus node pack to start…";
+  if (d.status === "saving" && ours) return "Download complete. Waiting for ComfyUI to list it…";
+  return SAYS[d.status];
+}
+
+/** Who downloads it and where to, in a few words. */
+const route = (d: Download) =>
+  d.via === "afflatus" ? `Afflatus downloads it into ${d.into ?? d.folder}` : d.via === "pack" ? `The Afflatus node pack downloads it into ${d.into ?? d.folder}` : "Through ComfyUI-Manager";
+
 /** One download as a line: what it is doing and how far it is. */
 export function DownloadRow({ d, named }: { d: Download; named?: boolean }) {
   const part = d.total ? Math.min(1, d.bytes / d.total) : 0;
@@ -53,12 +68,16 @@ export function DownloadRow({ d, named }: { d: Download; named?: boolean }) {
       {named && <span className="font-semibold break-all">{fileLabel(d.file)} <span className="font-normal text-ink-2">into {d.folder}</span></span>}
       {stop.isError && <span className="text-xs text-warn-ink">{stop.error.message}</span>}
       <span className={cx("text-xs", d.status === "error" ? "text-warn-ink" : d.status === "done" ? "text-good" : "text-ink-2")}>
-        {d.status === "error" ? d.error : d.status === "starting" && d.waiting ? `Waiting its turn, ${d.waiting}: ComfyUI-Manager fetches one file at a time` : SAYS[d.status]}
-        {d.status === "downloading" && ` · ${size(d.bytes)}${d.total ? ` of ${size(d.total)}` : ""}`}
+        {says(d)}
+        {/* ComfyUI-Manager reading Hugging Face itself says nothing of its bytes until the file is there */}
+        {d.status === "downloading" && (d.bytes > 0 || d.via !== "manager") && ` · ${size(d.bytes)}${d.total ? ` of ${size(d.total)}` : ""}`}
         {d.status === "downloading" && speed > 0 && ` · ${speed < 2 ** 20 ? `${Math.round(speed / 1024)} KB` : `${(speed / 2 ** 20).toFixed(1)} MB`}/s${left ? ` · ${left}` : ""}`}
         {d.status === "downloading" && speed > 0 && speed < 300 * 1024 && " · slow server"}
       </span>
       {(d.status === "downloading" || d.status === "saving") && <Bar value={d.status === "saving" ? 100 : part * 100} />}
+      {running && (d.note || d.via) && (
+        <span className={cx("text-xs break-all", d.note && /may fail/.test(d.note) ? "text-warn-ink" : "text-ink-3")}>{[d.note, route(d)].filter(Boolean).join(" · ")}</span>
+      )}
     </div>
   );
 }
@@ -131,19 +150,19 @@ export function GetFile({ file, folder, url, civitai, pick, hints, auto }: {
   /** Words that say which model the file is for (a loader's type, the model's name): they help find the repository that has it. */
   hints?: string[];
 }) {
-  const { lookups, fetching, find, search, start, download, mine, busy, noManager, why } = useGetFile({ file, folder, url, civitai, pick, hints, auto });
+  const { lookups, fetching, find, search, start, download, mine, busy, noRoute, why, caution } = useGetFile({ file, folder, url, civitai, pick, hints, auto });
   if (!lookups && !fetching) return null;
 
   return (
     <span className="flex flex-col gap-1.5 pt-1">
       <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {fetching && url && (
-          <button type="button" disabled={busy || noManager} data-tip={why} onClick={() => download({ url })} className={cx(link, "flex items-center gap-1 disabled:opacity-60")}>
+          <button type="button" disabled={busy || noRoute} data-tip={why} onClick={() => download({ url })} className={cx(link, "flex items-center gap-1 disabled:opacity-60")}>
             <DownloadIcon size={13} /> Download into ComfyUI
           </button>
         )}
         {fetching && civitai && !url && (
-          <button type="button" disabled={busy || noManager} data-tip={why} onClick={() => download({ civitai })} className={cx(link, "flex items-center gap-1 disabled:opacity-60")}>
+          <button type="button" disabled={busy || noRoute} data-tip={why} onClick={() => download({ civitai })} className={cx(link, "flex items-center gap-1 disabled:opacity-60")}>
             <DownloadIcon size={13} /> Download into ComfyUI
           </button>
         )}
@@ -151,6 +170,7 @@ export function GetFile({ file, folder, url, civitai, pick, hints, auto }: {
           <button type="button" onClick={search} disabled={find.isPending} className={link} data-tip="Asks Hugging Face for a file of exactly this name, and Civitai for models with a close name.">{find.isPending ? "Searching…" : "Search"}</button>
         )}
       </span>
+      {fetching && caution && !mine && (url || civitai) && <span className="text-xs text-warn-ink">{caution}</span>}
       {start.isError && <span>{start.error.message}</span>}
       {mine && <DownloadRow d={mine} />}
       {find.isError && <span>{find.error.message}</span>}
