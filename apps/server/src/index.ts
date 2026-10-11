@@ -28,7 +28,9 @@ function portTaken(): never {
 /** The port taken before anything else is done, let go only for the server to listen on it at once. */
 const holdPort = () =>
   new Promise<Server>((resolve, reject) => {
-    const held = createServer();
+    // a connection made while the port is only held (a browser tab reconnecting, a health check) is dropped at once: the
+    // held server never answers, and its close below would wait for such a connection to end, so the start would hang
+    const held = createServer((socket) => socket.destroy());
     held.once("error", (err: NodeJS.ErrnoException) => (err.code === "EADDRINUSE" ? portTaken() : reject(err)));
     held.listen({ host: config.host, port: config.port, exclusive: true }, () => resolve(held));
   });
