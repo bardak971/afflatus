@@ -22,12 +22,25 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **Sharpen after a video upscale (RCAS)**, KJNodes' contrast-adaptive sharpen, on the Wan, LTX and H3 forms and in the timeline's Finish; off by default.
 - **Face and hand detectors** as downloads in Settings → Models; picking the hand one in a face detailer fixes hands.
 - **Wan: the high-to-low handover worked out** from the steps and the shift (where the noise falls below the level the two models were split at), so it follows a changed shift or step count; a share typed in still overrides it.
+- **Mirror on a pinned keyframe:** right-click a clip's pinned frame (on the track or in the Inspector) → Mirror ↔, or Ctrl+K `> mirror pin`; the picture is flipped as it is sent to ComfyUI, the library picture stays as it is, and the thumbnail shows it flipped with a ↔ mark. A frame carried on from the clip before, or one the clip after lands on, cannot be mirrored.
+- **Ctrl+K: a kind typed first** ("draft", "timelines", or its start: "timel") lists that kind, newest first; the words after it narrow the list.
+- **Drafts across models:** the stage, the lists and Ctrl+K say which models a draft was tried on; Duplicate wherever a draft shows.
+- **DaSiWa's model presets built in** (with his agreement): H3 Hybrid v3 / v3 int4 / Turbo v3 / v4 / v4 Turbo, Krea 2 DarkDesire, LTX DragonLeap and GoldenLace, Wan SnatchKiss; presets carry their author's links, and the download button shows on every preset.
+- **Viewer keys** for Wipe, Swap, Mirror, Rename and Open.
+- A person's voice sample from the computer is kept with them in the Prompt kit, like their pictures, not in the library.
 
 ### Changed
 - **Defaults brought to the model authors' settings** (their cards and ComfyUI's own templates): Krea 2's hires fix 1.5× at 0.35, Z-Image 8 steps and its hires fix 1.5× at 0.3, Qwen Image's hires pass on the Turbo steps when Turbo is on, few-step SDXL presets on sgm_uniform with short hires passes, Lightning / Hyper 2- and 4-step files read from their names, Animagine 4's CFG and tags, schnell's hires steps.
 - **Wan Turbo runs Hybrid by default:** the first step on the high-noise model without the turbo LoRA, where the motion is decided (about a fifth more motion in a render pair, the picture the same).
 - **MiniMax H3's latent re-sample** starts lighter: 0.15 in 2 steps (about sigma 0.66 at shift 11, what DaSiWa's tiled upscaler runs) in the form and in the timeline's Finish; 0.3 in 3 steps started near 0.82 and shifted colours.
 - **Model downloads:** with ComfyUI on the same machine, Afflatus downloads the files itself into ComfyUI's model folders: two at a time, picked up again where they stopped after a cut (five tries), free space checked before and size and SHA-256 after, written as `.part` and renamed once complete. With ComfyUI on another machine, the node pack (0.11.0) does the same. ComfyUI-Manager is only the last resort.
+- **One menu per kind:** a timeline, a draft, a folder and a project each have one list of actions, the same in the Studio's cards, the Projects panel, Ctrl+K and the drafts list (same order, names, keys, and one Delete question each); the right-click menus gain Render missing, Finish, Export and Fix all. The rail's pinned project keeps its short menu and gains Show in Projects.
+- **Faster at scale:** the drafts list (about 20× on a large library), the families filter and the queue history through new indexes; a finished render reads only the library's first page instead of every page scrolled; `/api/setup` sends each model folder's list once (813 kB → 83 kB on a library of 362 LoRAs); repeated searches are kept for half a minute; a smaller first download of the page.
+- **The designer has one look** in Create and the timeline (a slim header, the LLM and system prompt as one chip, earlier exchanges folded) and Start over in its header.
+- **The queue goes offline while idle** when ComfyUI stops answering, and forgets the model it had loaded.
+- ComfyUI's input and output folders are cleaned with any job, at most hourly: a Director picture no longer waits there for the next Director job.
+- **Unload models** follows one rule everywhere: off while ComfyUI is offline or a job runs.
+- Right-click menus take the keyboard focus (a screen reader follows them; Space acts like Enter, Home and End jump), and Shift+F10 opens a menu on its first row.
 
 ### Fixed
 - **Advanced Output settings shown again:** Upscale 2×'s strength, SeedVR2's frames and the colour match were filed nowhere in the form; they are in the Output chapter's upscale group.
@@ -40,6 +53,17 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **Outpaint for FLUX.1, Qwen Image and Z-Image:** the new part starts from the picture stretched rather than grey, a light seam pass goes over the join, and the picture itself is put back at its own size: no more line where the two meet, and no softened picture.
 - **Model downloads say what went wrong:** a source that cannot be reached (refused, unknown host, a bad certificate) fails at once with "could not reach <host> (<code>)" instead of five tries ending in "cut at 1 MB"; a failure nobody read stays listed for a day and is written to the server's log. A source is fetched only from the internet (a pretend Civitai by its host and port), never on from https to http, and a `.safetensors` that is not one is refused before it is named. A node pack that answers nothing useful no longer leaves a download "downloading" for good. A second Afflatus started on the same data folder stops before touching it.
 - **Node pack 0.11.1:** a download of unknown size is refused and one is never written past its size; at most two at once; a stopped download says so at once and can be asked for again straight away; `.part` files left by a ComfyUI stopped half way are removed at its next start; a sub-folder linked to another drive is refused instead of failing with a 500.
+- **Form values the render refused:** a slider's ends (Wan's Resolution at its right end gave 1088 against a 1080 limit; it now goes to 1088 on its grid) and typed numbers step from their minimum; an imported workflow's setting whose saved value lies outside the range Afflatus gives it (Wan's `end_step: -1`) is accepted every time, not only on the first render, and workflows saved before are healed when built.
+- **Stop during a render's uploads** stops it: no more uploads, no freeing of ComfyUI's memory and no prompt sent after it; ComfyUI is asked to interrupt only a prompt that is running.
+- **Media fields** (picture, clip video, references, sound) all show a file being added and say why one was refused; a file of the wrong kind is refused in words.
+- **Clip form edits** are kept when the page is reloaded at once, saved one at a time, and the browser asks before closing while a save has failed; Mirror on a pin just changed keeps its flip.
+- A right-click menu left open no longer takes the keys of Ctrl+K opened over it.
+- The timeline editor's header keeps every button reachable down to 800 px (Finish and Export become icons), and Settings' search stays reachable on a narrow window; the status bar fits at 500 px.
+- Splitting a clip finished by SeedVR2, RTX or an upscale model no longer marks its second half "Mirror changed" (Render missing would have rendered it again).
+- Removing a take whose video lies in a linked folder leaves the file in that folder instead of binning it (emptying the bin would have erased it from the disk).
+- A library search with a control character in it no longer fails; a page on another port of the same machine can no longer make Afflatus build a backup; a live preview is only served as a picture or video.
+- Load works on a form that has not got its pictures yet; Ctrl+Enter in Ctrl+K no longer starts a render; a dismissed download failure stays dismissed after a reload.
+- Importing a preset file that is not one says so plainly; Copy link and copying a snippet say they did.
 
 ## [0.3.0] - 2026-10-10
 
