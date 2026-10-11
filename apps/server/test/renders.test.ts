@@ -177,13 +177,23 @@ describe("what the tab shows", () => {
     expect(day.tiles.done).toBe(4);
   });
 
-  it("all of it the same a moment later: the stretch the figures cover is in whole steps, so the page's copy is still current (304)", async () => {
+  it("all of it the same a moment later: the stretch the figures cover is in whole minutes, so the page's copy is still current (304)", async () => {
     // a record of weeks: "all" is cut into whole days, and nothing else of it moves within the day
     await put([row({ ago: 20 * DAY }), row({ ago: 3_600_000 })]);
     const now = await summary(t.db, t.services.registry, "all", 90, NOW);
     const later = await summary(t.db, t.services.registry, "all", 90, NOW + 1_234);
-    expect(later.spanMs % later.step).toBe(0);
+    expect(later.spanMs % 60_000).toBe(0);
     expect(JSON.stringify(later)).toBe(JSON.stringify(now));
+  });
+
+  it("the stretch the figures cover is to the minute: a first render 1 h 29 min ago leaves the GPU busy under 100 %, and the stretch the same a moment later", async () => {
+    // the first render on record, 80 min of GPU time ending 1 h 29 min ago
+    await put([row({ ago: 89 * 60_000, total_ms: 80 * 60_000 })]);
+    const now = await summary(t.db, t.services.registry, "day", 90, NOW);
+    expect(now.spanMs).toBe(89 * 60_000);
+    expect(now.tiles.gpuMs / now.spanMs).toBeLessThanOrEqual(1);
+    // the last day moves with the clock, but the stretch said does not move with every call
+    expect((await summary(t.db, t.services.registry, "day", 90, NOW + 1_234)).spanMs).toBe(now.spanMs);
   });
 
   it("the period before as long for the headline's change, the failures out of memory per model, the video length per stretch", async () => {

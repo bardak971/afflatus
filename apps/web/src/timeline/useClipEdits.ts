@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, raw, type Clip, type Timeline } from "../api";
+import { api, ApiError, raw, type Clip, type Timeline } from "../api";
 import { KEEPALIVE_MAX, useKeyedAutosave } from "../autosave";
 import type { useModelSettings, useRecipes, useSetup } from "../data";
 import { wholeForm } from "../form";
@@ -28,6 +28,7 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
     },
     keepalive: (clipId, inputs) => void raw("PATCH", `/clips/${clipId}`, { inputs }, { keepalive: true }).catch(() => {}),
     goesWhole: (_, inputs) => JSON.stringify({ inputs }).length <= KEEPALIVE_MAX,
+    gone: clipGone,
   });
   const { pending: unsaved, flush, queue, turn } = autosave;
   const saveFailed = autosave.state === "failed" ? autosave.failure : null;
@@ -99,6 +100,9 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
 
   return { edits, dropEdits, saveFailed, save, turn, inputsOf, editInputs, savedElsewhere, shown, formOf, ready };
 }
+
+/** A clip's save answered 404: the clip was removed (here, by Undo, in another tab), and its form has nowhere to go. */
+export const clipGone = (err: unknown): boolean => err instanceof ApiError && err.status === 404;
 
 /** The edits left once the server's clips are read back: a saved edit the server carries is dropped, as is one whose clip is gone. */
 export function settleEdits(edits: Record<string, Record<string, unknown>>, clips: Array<Pick<Clip, "id" | "inputs">>, unsaved: { has(id: string): boolean }): Record<string, Record<string, unknown>> {

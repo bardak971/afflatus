@@ -8,6 +8,11 @@ import { change, VRAM_FULL } from "./flagRules";
 
 const maybe = (ms: number | null | undefined) => (ms === null || ms === undefined ? "—" : long(ms));
 export const pct = (share: number) => `${Math.round(share * 100)} %`;
+/**
+ * The share of the window the GPU spent on Afflatus's jobs, at most all of it: a render that began before the window (or
+ * before the first one on record) counts whole in it, and said "GPU busy 140 %".
+ */
+export const busyShare = (gpuMs: number, spanMs: number) => Math.min(1, gpuMs / Math.max(1, spanMs));
 
 /** The window's length, short: "31 d", "24 h", "45 min". */
 export function spanSaid(ms: number): string {
@@ -94,7 +99,7 @@ export function SummaryTiles({ d }: { d: TimesSummary }) {
       <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-3">
         <Headline
           label="GPU time" value={long(t.gpuMs)}
-          sub={`max ${long(t.longestMs)} · GPU busy ${pct(t.gpuMs / Math.max(1, d.spanMs))}`}
+          sub={`max ${long(t.longestMs)} · GPU busy ${pct(busyShare(t.gpuMs, d.spanMs))}`}
           subTip="Longest job · share of the window the GPU spent on Afflatus's jobs (failed and cancelled included)"
           delta={change(t.gpuMs, prior?.gpuMs)} deltaTip={prior ? `${vs}: ${long(prior.gpuMs)}` : undefined}
         >

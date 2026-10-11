@@ -102,7 +102,7 @@ describe("the list in the command bar", () => {
   it("makes a submenu a row per target that takes it, named after the action", () => {
     const rows = toBar(kindActions({ kind: "timeline", clips: 2, unused: null }, runs, subs)).map((r) => r.label);
     expect(rows).toEqual([
-      "Open", "Show in Projects", "Render missing clips", "Finish…", "Export…", "Fix all", "Rename",
+      "Open", "Show in Projects", "Render missing clips", "Finish…", "Export…", "Fix all", "Rename…",
       "Put in B-roll", "Put in the project's root", "Move to Client work", "Move to the Inbox",
       "Bin unused takes…", "Delete…",
     ]);

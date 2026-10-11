@@ -94,9 +94,15 @@ export function useTimelineMutations(id: string, o: {
       after();
     },
   });
-  const remove = useMutation({ mutationFn: api.deleteClip, onSuccess: after });
+  // what was typed over a clip is saved before it is removed, in the forms' turn: its save sent after the removal was
+  // answered 404 (and Undo brings the clip back with what was typed)
+  const removeClip = async (clip: string) => {
+    await save(clip);
+    await turn(() => api.deleteClip(clip));
+  };
+  const remove = useMutation({ mutationFn: removeClip, onSuccess: after });
   // the clips picked with Ctrl + click, removed one after the other (each comes back with Undo)
-  const removeMany = useMutation({ mutationFn: async (ids: string[]) => { for (const id of ids) await api.deleteClip(id); }, onSuccess: () => { o.on.unpick(); after(); } });
+  const removeMany = useMutation({ mutationFn: async (ids: string[]) => { for (const id of ids) await removeClip(id); }, onSuccess: () => { o.on.unpick(); after(); } });
   const split = useMutation({ mutationFn: (v: { clip: string; atMs: number }) => api.splitClip(v.clip, v.atMs), onSuccess: after });
   // the designer writing a clip put between two others: its texts go into the form unless something was typed there meanwhile
   const writeBetween = useMutation({
