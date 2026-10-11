@@ -17,6 +17,11 @@ const PAIRS: Array<{ ids: [string, string]; label: string; join: string }> = [
 
 const MODEL_FILE = /\.(safetensors|gguf|ckpt|pt|pth)$/i;
 
+/** The sampling inputs whose model default is shown when the preset leaves them: what a render of it actually uses. */
+const SAMPLING = ["steps", "turboSteps", "cfg", "sampler", "scheduler", "shift", "shiftVideo", "shiftAudio"];
+
+type Cell = { key: string; label: string; text: string; file: boolean };
+
 /**
  * A preset that ships with Afflatus, opened in the Prompt kit: its name, what it is for and who made it, the main action
  * (getting its files while one is missing, else Apply in Studio), Duplicate and the rest in ···; then what it sets as
@@ -42,30 +47,47 @@ export function ShippedPreset({ e, onApply, onDuplicate, duplicating, onClose }:
   const value = (k: string, v: unknown) => {
     if (isFile(k, v)) return fileLabel(String(v));
     if (typeof v === "boolean") return v ? "on" : "off";
+    // a shift of 0 is none typed: the model's own (the recipes' "0 leaves the model's own")
+    if (k.startsWith("shift") && v === 0) return "model's own";
+    if (v && typeof v === "object" && "width" in v && "height" in v) return `${String(v.width)} × ${String(v.height)}`;
     if (typeof v === "object" && v !== null) return JSON.stringify(v);
     return String(v);
   };
   const labelOf = (k: string) => recipe?.inputs.find((i) => i.id === k)?.label ?? k;
   // the model files first and wide (their names are long), then each pair in one cell, then the rest in their order
-  const entries = Object.entries(def.inputs);
-  const taken = new Set<string>();
-  const cells: Array<{ key: string; label: string; text: string; file: boolean }> = [];
-  for (const [k, v] of entries) {
-    if (!isFile(k, v)) continue;
-    cells.push({ key: k, label: labelOf(k), text: value(k, v), file: true });
-    taken.add(k);
-  }
-  for (const [k, v] of entries) {
-    if (taken.has(k)) continue;
-    const pair = PAIRS.find((p) => p.ids.includes(k) && p.ids.every((id) => id in def.inputs));
-    if (pair) {
-      cells.push({ key: pair.ids.join("+"), label: pair.label, text: pair.ids.map((id) => value(id, def.inputs[id])).join(pair.join), file: false });
-      for (const id of pair.ids) taken.add(id);
-    } else {
-      cells.push({ key: k, label: labelOf(k), text: value(k, v), file: false });
+  const cellsOf = (values: Record<string, unknown>): Cell[] => {
+    const entries = Object.entries(values);
+    const taken = new Set<string>();
+    const out: Cell[] = [];
+    for (const [k, v] of entries) {
+      if (!isFile(k, v)) continue;
+      out.push({ key: k, label: labelOf(k), text: value(k, v), file: true });
       taken.add(k);
     }
+    for (const [k, v] of entries) {
+      if (taken.has(k)) continue;
+      const pair = PAIRS.find((p) => p.ids.includes(k) && p.ids.every((id) => id in values));
+      if (pair) {
+        out.push({ key: pair.ids.join("+"), label: pair.label, text: pair.ids.map((id) => value(id, values[id])).join(pair.join), file: false });
+        for (const id of pair.ids) taken.add(id);
+      } else {
+        out.push({ key: k, label: labelOf(k), text: value(k, v), file: false });
+        taken.add(k);
+      }
+    }
+    return out;
+  };
+  const cells = cellsOf(def.inputs);
+  // what it leaves to the model, as the model's own defaults: a preset that names only a file still says what a render
+  // uses. Turbo (fast) runs its own steps, the full model its steps; what you saved for the model in Studio comes before these
+  const fast = def.inputs.fast === true;
+  const leftToModel: Record<string, unknown> = {};
+  for (const id of SAMPLING) {
+    if (id in def.inputs || (fast ? id === "steps" : id === "turboSteps")) continue;
+    const spec = recipe?.inputs.find((i) => i.id === id);
+    if (spec && "default" in spec && spec.default !== undefined) leftToModel[id] = spec.default;
   }
+  const defaults = cellsOf(leftToModel);
 
   const link = `${window.location.origin}${kitHref("preset", e.id)}`;
   const moreItems: MenuItem[] = [
@@ -73,6 +95,9 @@ export function ShippedPreset({ e, onApply, onDuplicate, duplicating, onClose }:
     { label: "Save as a file", icon: <FileDown size={14} />, note: "a file another Afflatus imports", run: () => savePresetFile(e) },
   ];
   const several = (def.files?.filter((f) => !f.optional).length ?? 0) > 1;
+  // the licence asks for a look only while there is a file to fetch under it and it was not accepted: with every file in
+  // ComfyUI already (fetched by hand, or before), it is the credit line it is
+  const toAccept = !fetch.accepted && missing > 0;
 
   return (
     <div className="flex max-w-[860px] flex-col gap-5">
@@ -128,15 +153,31 @@ export function ShippedPreset({ e, onApply, onDuplicate, duplicating, onClose }:
         )}
       </div>
 
+      {defaults.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-ink-2">
+            The rest, from {family?.name ?? "the model"}&rsquo;s defaults <Help title="The model's defaults" text="What the preset leaves alone follows the model's own defaults, shown here; values you saved for this model in Studio's form come first." />
+          </span>
+          <div className="grid grid-cols-3 gap-2">
+            {defaults.map((c) => (
+              <div key={c.key} className="flex min-w-0 flex-col gap-0.5 rounded-[10px] border border-dashed border-line px-3 py-2">
+                <span className="text-[11.5px] text-ink-3">{c.label}</span>
+                <span className="break-words text-ink-2">{c.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <PresetFiles id={e.id} def={def} fetch={fetch} inHead />
 
       {/* its licence in one line, marked until it is accepted (the theme's warning colour is a red: only the mark wears it); what matters in it behind the ?, in full at its link */}
       {def.licence && (
-        <div className={cx("flex items-start gap-2.5 rounded-[10px] border px-3 py-2.5 text-[13px] leading-snug", fetch.accepted ? "border-line text-ink-2" : "border-line-strong bg-panel")}>
-          {!fetch.accepted && <span aria-hidden className="font-bold text-warn-ink">!</span>}
+        <div className={cx("flex items-start gap-2.5 rounded-[10px] border px-3 py-2.5 text-[13px] leading-snug", toAccept ? "border-line-strong bg-panel" : "border-line text-ink-2")}>
+          {toAccept && <span aria-hidden className="font-bold text-warn-ink">!</span>}
           <span className="min-w-0">
             <span className="font-semibold text-ink">{def.licence.name}</span>
-            {fetch.accepted ? " · accepted" : `: read it before you fetch the file${several ? "s" : ""}.`}
+            {toAccept ? `: read it before you fetch the file${several ? "s" : ""}.` : fetch.accepted && missing > 0 ? " · accepted" : ""}
             {def.licence.url && <> <a href={def.licence.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold underline underline-offset-2">Read it <ExternalLink size={11} /></a></>}
             {def.licence.note && <> <Help title={def.licence.name} text={def.licence.note} /></>}
           </span>

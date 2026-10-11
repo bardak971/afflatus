@@ -66,7 +66,8 @@ export function textOf(e: Entity): string {
   if (e.kind === "place") return `${e.name} ${e.def.tags} ${e.def.sentence}`;
   if (e.kind === "style") return `${e.name} ${Object.values(e.def.models).map((m) => m.words).join(" ")}`;
   if (e.kind === "snippet") return `${e.name} ${e.def.category} ${e.def.text}`;
-  return e.name;
+  // a preset is found by who made it and what it is picked by too ("darkside", "int4", "turbo")
+  return `${e.name} ${e.def.author ?? ""} ${e.def.line ?? ""}`;
 }
 
 /**
