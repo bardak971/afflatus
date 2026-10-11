@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { clear, list, size, summary } from "./renders";
+import { clear } from "./renders";
+import { list, size, summary } from "./rendersRead";
 import { readSettings } from "./settings";
 import type { Services } from "./services";
 

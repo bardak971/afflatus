@@ -152,10 +152,10 @@ export interface Tables {
     model_file: string;
     model: string;
     family: string;
-    /** JSON: the figures of the day (see Cell in renders.ts). */
+    /** JSON: the figures of the day (see Cell in renderDigests.ts). */
     figures: string;
   };
-  /** A day over whose renders are still rows, digested for the summaries cut into days (see Digest in renders.ts); it goes when the day is folded. */
+  /** A day over whose renders are still rows, digested for the summaries cut into days (see Digest in renderDigests.ts); it goes when the day is folded. */
   render_digests: {
     day: string;
     /** JSON: the digest. */

@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { allowedHosts, hostAllowed } from "./hostCheck";
-import { BUCKETS, tallyByRecipe, type RecipeSum } from "./renders";
+import { BUCKETS } from "./renderDigests";
+import { tallyByRecipe, type RecipeSum } from "./rendersRead";
 import type { Services } from "./services";
 
 /**

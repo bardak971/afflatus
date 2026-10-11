@@ -6,6 +6,7 @@ import { NOT_IN_LIBRARY } from "./library";
 import { OWNER, type Db, type Tables } from "./db";
 import { httpError } from "./errors";
 import { inARow } from "./forecast";
+import { forecastsOf } from "./forecasts-api";
 import { promptHistory } from "./promptHistory";
 import type { Services } from "./services";
 import { inUseShown, unusedSize, unusedTakes } from "./timelineUnused";
@@ -14,7 +15,7 @@ import { formFilled } from "./timelineModel";
 
 /**
  * The command bar's side of the server (docs/command-bar.md): everything the bar can find in one small answer, a render
- * estimate for what the bar is about to send, and the prompts that were rendered. The bar matches in the browser, over
+ * estimate for what the bar is about to send (forecasts-api.ts), and the prompts that were rendered. The bar matches in the browser, over
  * labels it keeps in memory: the index is read once and again on the live events, never per keystroke. The library's
  * items are the exception, as they are too many to send whole (5 000 items made 1.5 MB): the index holds the newest few and
  * those the bar names, and what is typed is looked for among all of them by `commandItems`.
@@ -280,32 +281,6 @@ async function commandEstimate(s: Services, raw: unknown): Promise<CommandEstima
   return { ms: inARow(parts), basis: Math.min(...parts.map((p) => p.samples)), ahead };
 }
 
-/** Each form's forecast (queue.forecast) for one render, with what loading its model adds and that model; null for one with no learned figure. The same form twice is worked out once. */
-async function forecastsOf(s: Services, forms: Array<{ recipe: string; input: Record<string, unknown> }>): Promise<Array<{ ms: number; loadMs: number; model: string; samples: number } | null>> {
-  const seen = new Map<string, Promise<Awaited<ReturnType<Services["queue"]["forecast"]>>>>();
-  return Promise.all(forms.map(async (f) => {
-    const key = `${f.recipe}\n${JSON.stringify(f.input)}`;
-    if (!seen.has(key)) seen.set(key, s.queue.forecast(f.recipe, f.input).catch(() => null));
-    const got = await seen.get(key)!;
-    return got ? { ms: got.forecast.ms, loadMs: got.forecast.loadMs, model: got.model, samples: got.forecast.samples } : null;
-  }));
-}
-
-const forecastsBody = z.strictObject({
-  forms: z.array(z.strictObject({ recipe: z.string().min(1).max(200), input: z.record(z.string(), z.unknown()) })).max(400),
-});
-
-/**
- * What each of these forms would take to render once, as the timeline editor sends them (a clip's whole form, its texts
- * left out): the same forecast as the command bar's and the timeline card's, per form. Null where nothing like it was
- * rendered here yet.
- */
-async function forecasts(s: Services, raw: unknown): Promise<{ ms: Array<number | null> }> {
-  const b = forecastsBody.parse(raw);
-  const got = await forecastsOf(s, b.forms);
-  return { ms: got.map((g) => g?.ms ?? null) };
-}
-
 export function registerCommandBar(app: FastifyInstance, s: Services): void {
   /** Everything the command bar can find (commandIndex); `items`: the ids of items of the library it wants held too ("a,b,c"). */
   app.get("/api/command-index", async (req) => {
@@ -316,8 +291,6 @@ export function registerCommandBar(app: FastifyInstance, s: Services): void {
   app.get("/api/command-items", async (req) => commandItems(s, req.query));
   /** What the bar's command would take to render (commandEstimate). */
   app.get("/api/command-estimate", async (req) => commandEstimate(s, req.query));
-  /** What each of the editor's clips would take to render (forecasts). */
-  app.post("/api/forecasts", async (req) => forecasts(s, req.body));
   /** The prompts that were rendered, newest first (promptHistory.ts). */
   app.get("/api/prompt-history", async (req) => promptHistory(s, req.query));
 }

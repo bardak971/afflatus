@@ -13,6 +13,8 @@ import type { Storage } from "./storage";
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
 import { DEFAULT_QUEUE_OPTIONS, readJson, SHUTDOWN, type JobRow, type QueueCore, type QueueOptions, type Resume, type Running, type Usual } from "./queueModel";
+import * as bulk from "./queueBulk";
+import { needsComfy, Offline } from "./queueOffline";
 import * as submitting from "./queueSubmit";
 import * as storing from "./queueStore";
 import * as tools from "./queueTools";
@@ -35,9 +37,6 @@ const LOADS_KEY = "queue.loads";
 /** At most how often a running render's step count is saved on its job, when the options do not say. */
 const STEPS_SAVE_MS = 5_000;
 
-/** Whether a job needs ComfyUI: a render, a finish and a RIFE slow-motion do; an export and a cut by ffmpeg do not. */
-const needsComfy = (r: JobRow) => r.recipe_id !== EXPORT_JOB && (r.recipe_id !== CUT_JOB || tools.usesGpu(r));
-
 export class Queue {
   /** "queue": jobs changed. "library": an asset was added. "progress": the running job moved. */
   readonly events = new EventEmitter();
@@ -49,7 +48,8 @@ export class Queue {
   /** ComfyUI holds a model this app had it load. Unknown after a restart: taken as not. */
   private holds = false;
   private unloadTimer: NodeJS.Timeout | null = null;
-  private offlineSince: number | null = null;
+  /** ComfyUI away and back (queueOffline.ts). */
+  private readonly offline: Offline;
   private retry: NodeJS.Timeout | null = null;
   /**
    * The base models the last job loaded (checkpoint or diffusion model, text encoders, VAE), file names
@@ -83,12 +83,20 @@ export class Queue {
       get paused() { return self.paused; },
       get lastLoads() { return self.lastLoads; },
       get lastModel() { return self.lastModel; },
-      get offlineSince() { return self.offlineSince; },
+      get offlineSince() { return self.offline.since; },
       loaded: (loads, model) => this.loaded(loads, model),
       usual: () => this.usual(),
       expected: (recipe, input, cold, job) => this.expected(recipe, input, cold, job),
       runTool: (row, work) => this.runTool(row, work),
     };
+    this.offline = new Offline({
+      events: this.events, opts,
+      running: () => this.running,
+      forget: () => this.loaded(null),
+      pump: () => void this.pump(),
+      retryLater: () => this.retryLater(),
+      fail: (r, error) => this.finish(r.id, "failed", { error }, r.status),
+    });
   }
 
   // ---------------------------------------------------------------- start / stop
@@ -231,7 +239,7 @@ export class Queue {
       // what continues from it can never run now, as when it is stopped while it runs
       await this.failDependents(id);
       this.events.emit("queue");
-      if (await this.ofTimeline([id])) this.events.emit("timeline");
+      if (await bulk.ofTimeline(this.db, [id])) this.events.emit("timeline");
       return true;
     }
     if (this.running?.id === id) {
@@ -255,7 +263,7 @@ export class Queue {
     if (promptId) void this.comfy().then((c) => c.client.interrupt(promptId)).catch(() => {});
     await this.failDependents(id);
     this.events.emit("queue");
-    if (await this.ofTimeline([id])) this.events.emit("timeline");
+    if (await bulk.ofTimeline(this.db, [id])) this.events.emit("timeline");
     return true;
   }
 
@@ -352,63 +360,12 @@ export class Queue {
     return (await this.dismissAll([id])) > 0;
   }
 
-  /** Take several finished jobs off the list in one go (one event for all); how many went. Jobs not finished stay. */
-  async dismissAll(ids: readonly string[]): Promise<number> {
-    if (!ids.length) return 0;
-    const finished = this.db.selectFrom("jobs").where("id", "in", [...ids]).where("status", "in", ["done", "failed", "cancelled"]);
-    // a clip's job, a cut or an export is seen on its timeline too
-    const timeline = await finished.select("id").where((eb) => eb.or([eb("clip_id", "is not", null), eb("timeline_id", "is not", null)])).executeTakeFirst();
-    const r = await this.db.deleteFrom("jobs").where("id", "in", [...ids]).where("status", "in", ["done", "failed", "cancelled"]).executeTakeFirst();
-    this.events.emit("queue");
-    if (timeline) this.events.emit("timeline");
-    return Number(r.numDeletedRows);
-  }
-
-  /**
-   * Several finished jobs again, in the order given (a "Retry all failed"): one request, each queued as `again` does it.
-   * With `dismiss`, the ones queued again leave the history in the same go. A job not finished is left alone; one that
-   * cannot be queued again (its workflow was deleted) is counted, not thrown.
-   */
-  async againAll(ids: readonly string[], opts: { dismiss?: boolean } = {}): Promise<{ ids: string[]; failed: number }> {
-    if (!ids.length) return { ids: [], failed: 0 };
-    const finished = new Set((await this.db.selectFrom("jobs").select("id").where("id", "in", [...ids]).where("status", "in", ["done", "failed", "cancelled"]).execute()).map((r) => r.id));
-    const queued: string[] = [];
-    const retried: string[] = [];
-    let failed = 0;
-    for (const id of ids) {
-      if (!finished.has(id)) continue;
-      try {
-        queued.push(await this.again(id));
-        retried.push(id);
-      } catch {
-        failed++;
-      }
-    }
-    if (opts.dismiss && retried.length) await this.dismissAll(retried);
-    return { ids: queued, failed };
-  }
-
-  /**
-   * Every waiting job cancelled in one statement (or, with `ids`, those of them that still wait: what the page showed
-   * when it was asked); how many were. What continues from one of them fails, as with a single cancel. The running job goes on.
-   */
-  async cancelWaiting(ids?: readonly string[]): Promise<number> {
-    let picked = this.db.selectFrom("jobs").select("id").where("status", "=", "queued");
-    if (ids) picked = picked.where("id", "in", ids.length ? [...ids] : [""]);
-    const waiting = (await picked.execute()).map((r) => r.id);
-    if (!waiting.length) return 0;
-    const r = await this.db
-      .updateTable("jobs")
-      .set({ status: "cancelled", error: "stopped by you", finished_at: now(), updated_at: now() })
-      .where("id", "in", waiting)
-      .where("status", "=", "queued")
-      .executeTakeFirst();
-    // one left out of `ids` may continue one cancelled now: it can never run
-    for (const id of waiting) await this.failDependents(id);
-    this.events.emit("queue");
-    if (await this.ofTimeline(waiting)) this.events.emit("timeline");
-    return Number(r.numUpdatedRows);
-  }
+  /** Take several finished jobs off the list in one go (one event for all); how many went (queueBulk.ts). */
+  dismissAll(ids: readonly string[]) { return bulk.dismissAll(this.core, ids); }
+  /** Several finished jobs again, in the order given, each as `again` does it (queueBulk.ts). */
+  againAll(ids: readonly string[], opts: { dismiss?: boolean } = {}) { return bulk.againAll(this.core, (id) => this.again(id), ids, opts); }
+  /** Every waiting job cancelled in one statement, or those of `ids` that still wait (queueBulk.ts). */
+  cancelWaiting(ids?: readonly string[]) { return bulk.cancelWaiting(this.core, (id) => this.failDependents(id), ids); }
 
   private known: (Usual & { at: number }) | null = null;
   /** What the forecast falls back on, worked out at most twice a minute. */
@@ -492,12 +449,8 @@ ${JSON.stringify(input)}`;
             break;
           }
         }
-        if (reachable === false) await this.whileOffline(active);
-        else if (reachable && this.offlineSince !== null) {
-          this.offlineSince = null;
-          this.unanswered = 0;
-          this.events.emit("queue");
-        }
+        if (reachable === false) await this.offline.whileOffline(active);
+        else if (reachable) this.offline.answered();
         if (!next) {
           // a job queued while this pass was reading the line: the line is read again
           if (this.dirty && !this.stopped && reachable !== false) continue;
@@ -523,43 +476,9 @@ ${JSON.stringify(input)}`;
     }, this.opts.offlineRetryMs);
   }
 
-  /**
-   * What the page's status poll (events.ts) found of ComfyUI. The line asks ComfyUI only when a job needs it, so an idle
-   * queue kept saying it was online, with the model it had last loaded, while ComfyUI was off. Twice without an answer
-   * is away (one slow answer is not), never while a job runs (its own connection says); back, the line is read again.
-   */
+  /** What the page's status poll (events.ts) found of ComfyUI (queueOffline.ts). */
   noteReachable(ok: boolean): void {
-    if (ok) {
-      this.unanswered = 0;
-      if (this.offlineSince === null) return;
-      this.offlineSince = null;
-      this.events.emit("queue");
-      void this.pump();
-      return;
-    }
-    if (this.running || ++this.unanswered < 2 || this.offlineSince !== null) return;
-    this.wentOffline();
-  }
-  private unanswered = 0;
-
-  /** ComfyUI stopped answering: since when, and what it had loaded is not known any more (started again, it holds nothing). */
-  private wentOffline(): void {
-    this.offlineSince = Date.now();
-    void this.loaded(null).finally(() => this.events.emit("queue"));
-  }
-
-  /** ComfyUI is away: the jobs that need it wait, and are given up once it has been away too long (a job it had before a restart too). */
-  private async whileOffline(active: JobRow[]): Promise<void> {
-    if (this.offlineSince === null) this.wentOffline();
-    const since = this.offlineSince!;
-    for (const r of active) {
-      // how long each job has waited for it: one queued after ComfyUI had long been away gets its full wait
-      if (Date.now() - Math.max(since, Date.parse(r.created_at) || 0) > this.opts.offlineExpiryMs) {
-        if (!needsComfy(r) || this.running?.id === r.id) continue;
-        await this.finish(r.id, "failed", { error: "ComfyUI stayed offline. Try again when it is back." }, r.status);
-      }
-    }
-    this.retryLater();
+    this.offline.noteReachable(ok);
   }
 
   /** A job ends. `from`: only when it is still in that state (a job that was cancelled meanwhile stays cancelled). */
@@ -579,13 +498,6 @@ ${JSON.stringify(input)}`;
   }
 
   /** The jobs that wait on this one can never run now: each fails (and what waits on those), whichever way this one ended. */
-  /** Whether one of these jobs is a clip's render, a cut or an export: only those change a timeline (a dependent failed with them says so itself, through finish). */
-  private async ofTimeline(ids: readonly string[]): Promise<boolean> {
-    if (!ids.length) return false;
-    const one = await this.db.selectFrom("jobs").select("id").where("id", "in", [...ids]).where((eb) => eb.or([eb("clip_id", "is not", null), eb("timeline_id", "is not", null)])).executeTakeFirst();
-    return Boolean(one);
-  }
-
   private async failDependents(id: string): Promise<void> {
     const dependents = await this.db.selectFrom("jobs").select("id").where("depends_on", "=", id).where("status", "=", "queued").execute();
     for (const d of dependents) await this.finish(d.id, "failed", { error: "the clip it continues was not rendered" }, "queued");

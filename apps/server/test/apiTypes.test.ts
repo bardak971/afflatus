@@ -19,7 +19,7 @@ import type { PresetFilesView } from "../src/presetFiles";
 import type { projectsTree } from "../src/projects";
 import type { PromptHistoryItem } from "../src/promptHistory";
 import type { history, status } from "../src/queueView";
-import type { list, TimesSummary } from "../src/renders";
+import type { list, TimesSummary } from "../src/rendersRead";
 import type { publicSettings } from "../src/settings";
 import type { Timelines } from "../src/timelines";
 
