@@ -14,12 +14,20 @@ import { draftOf, renderedOf } from "./queueStore";
 
 /** A job on its way to ComfyUI: its form settled, its files uploaded, its graph built and checked, the prompt queued. */
 
-/** A form's values with something in every text that must be written: to load its models, what the text says does not matter. */
+/** What a picture a form needs and does not have yet is held by, on a job that only loads its models. */
+export const NO_PICTURE = "afflatus:no-picture";
+
+/**
+ * A form's values with something in every text that must be written, and in every picture it needs and has not
+ * got yet (a mask not painted): to load its models, neither matters. A load without its pictures loads the model
+ * files alone (see `submit`), so that Load works on a form that is still being filled in.
+ */
 export function withTexts(recipe: Recipe<any>, raw: unknown): unknown {
   if (!raw || typeof raw !== "object") return raw;
   const input = { ...(raw as Record<string, unknown>) };
   for (const spec of recipe.inputs as InputSpec[]) {
     if (spec.type === "prompt" && !spec.optional && !String(input[spec.id] ?? "").trim()) input[spec.id] = "a";
+    if (spec.type === "image" && !spec.optional && (typeof input[spec.id] !== "string" || !input[spec.id])) input[spec.id] = NO_PICTURE;
   }
   return input;
 }
@@ -77,7 +85,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const up: Up = { recipe, db, storage, comfy, input, catalog, finishedFrom: row.finished_from, cleanedInput: false, sent: { uploads: {}, media: {}, warnings: [] } };
   for (const spec of recipe.inputs as InputSpec[]) {
     const value = input[spec.id];
-    if (spec.type === "image" && typeof value === "string") await uploadImage(up, spec, value);
+    if (spec.type === "image" && typeof value === "string" && value !== NO_PICTURE) await uploadImage(up, spec, value);
     else if (spec.type === "clip" && value && spec.whole) await uploadWholeClip(up, spec, value as ClipValue);
     else if (spec.type === "clip" && value) await uploadJoinClip(up, spec, value as ClipValue);
     else if (spec.type === "references" && Array.isArray(value)) await uploadReferences(up, spec, value as ReferenceValue[]);
@@ -94,7 +102,12 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   checkMasks(recipe, media);
 
   const seed = typeof input.seed === "number" && input.seed !== RANDOM_SEED ? input.seed : randomSeed();
-  const built = recipe.build(chosen, { seed, slots: slotFiles, uploads, media, canvas: plan?.canvas, has: (cls) => cls in catalog });
+  // a load asked before the form has its pictures: the models are loaded, without the step that would need them
+  const bare = Boolean(row.warm) && (recipe.inputs as InputSpec[]).some((s) => s.type === "image" && input[s.id] === NO_PICTURE);
+  const whole = recipe.build(chosen, { seed, slots: slotFiles, uploads, media, canvas: plan?.canvas, has: (cls) => cls in catalog });
+  const loaders = bare ? warmGraph({ ...whole, passes: [] }) : null;
+  if (bare && !loaders) throw new Error("this loads no model: there is nothing to preload");
+  const built: BuiltGraph = loaders ? { ...whole, graph: loaders.graph, phases: loaders.phases, passes: [], outputs: [] } : whole;
   // a model kept in another sub-folder than the one the graph names is used from where it is
   relocateFiles(built.graph, catalog);
   const imported = Boolean(recipe.imported);
@@ -119,7 +132,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
 
   comfy.monitor.ensure();
   await comfy.monitor.ready();
-  const prompt = await promptOf(comfy, built, Boolean(row.warm));
+  const prompt = await promptOf(comfy, built, Boolean(row.warm), loaders);
   const resume: Resume = row.warm
     ? { ...prompt.resume, seed, outputs: [], loads: built.loads, startedAt: Date.now() }
     : {
@@ -340,11 +353,12 @@ async function timingOf(core: QueueCore, recipe: Recipe<any>, chosen: Record<str
 }
 
 /** The prompt to send ComfyUI, under an id chosen here: the graph, or for a preload only the part that loads its models. */
-async function promptOf(comfy: Comfy, built: BuiltGraph, warm: boolean): Promise<{ graph: BuiltGraph["graph"]; resume: Pick<Resume, "promptId" | "totalSteps" | "phases" | "passes" | "clientId"> }> {
+async function promptOf(comfy: Comfy, built: BuiltGraph, warm: boolean, cut: ReturnType<typeof warmGraph> = null): Promise<{ graph: BuiltGraph["graph"]; resume: Pick<Resume, "promptId" | "totalSteps" | "phases" | "passes" | "clientId"> }> {
   const promptId = randomUUID();
   if (warm) {
     const catalog = await comfy.catalog();
-    const graph = warmGraph(built);
+    // `cut`: the loaders alone, made already (a load without the form's pictures)
+    const graph = cut ?? warmGraph(built);
     if (!graph) throw new Error("this loads no model: there is nothing to preload");
     if (!(WARM_SINK in catalog)) throw new Error(`ComfyUI is missing the ${WARM_SINK} node, which preloading a model needs. Update ComfyUI.`);
     return { graph: graph.graph, resume: { promptId, totalSteps: 1, phases: graph.phases, passes: graph.pass ? [graph.pass] : [], clientId: comfy.client.clientId } };
