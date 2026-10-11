@@ -6,6 +6,7 @@ import { useQueueOf } from "./screens/studio/queueOf";
 import { MARK } from "./logo";
 import { ThemeFlip } from "./theme/Appearance";
 import { cx } from "./ui";
+import { newsOf, useUpdates, useUpdatesSeen } from "./updates";
 
 type Entry = { href: string; label: string; icon: ReactNode };
 
@@ -108,6 +109,26 @@ function QueueItem({ path }: { path: string }) {
   );
 }
 
+/**
+ * Settings, with a dot when a new Afflatus is out that this browser has not seen in Settings → About yet: quiet, nothing
+ * moves on the page, and it sits one click from the Update button. Its tip names the version.
+ */
+function SettingsItem({ path }: { path: string }) {
+  const updates = useUpdates();
+  const seen = useUpdatesSeen((s) => s.seen);
+  const news = newsOf(updates.data, seen);
+  const tip = news ? `Settings · Afflatus ${news} is out` : undefined;
+  return (
+    <Item
+      entry={SETTINGS}
+      path={path}
+      tip={tip}
+      label={tip}
+      badge={news && <span aria-hidden data-news="" className="absolute top-[5px] right-[9px] h-[9px] w-[9px] rounded-full bg-accent ring-2 ring-panel" />}
+    />
+  );
+}
+
 /** The rail at the left of every screen: the mark, the project worked in, the screens, then Settings and the theme at the foot. */
 export function NavRail() {
   const [path] = useLocation();
@@ -119,7 +140,7 @@ export function NavRail() {
       {NAV.map((n) => <Item key={n.href} entry={n} path={path} />)}
       <QueueItem path={path} />
       <span className="grow" />
-      <Item entry={SETTINGS} path={path} />
+      <SettingsItem path={path} />
       <ThemeFlip />
     </nav>
   );

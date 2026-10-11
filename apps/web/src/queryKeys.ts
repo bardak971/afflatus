@@ -14,6 +14,8 @@ export const queryKeys = {
   queue: () => ["queue"] as const,
   settings: () => ["settings"] as const,
   health: () => ["health"] as const,
+  /** Afflatus's own updates (Settings → About, the rail's dot): read again on an "updates" event that changes the phase. */
+  updates: () => ["updates"] as const,
   entities: () => ["entities"] as const,
   workflows: () => ["workflows"] as const,
   /** A saved workflow opened again in the editor, read once. */

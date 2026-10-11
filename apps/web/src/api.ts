@@ -7,6 +7,7 @@ import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from 
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView } from "./api/types/designer";
 import type { Health, FinishSettings, Settings, SettingsPatch } from "./api/types/settings";
+import type { UpdatesView } from "./api/types/updates";
 import type { CommandEntry, CommandEstimate, CommandIndex, PromptHistoryItem } from "./api/types/bar";
 import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, HuggingFaceFind, CivitaiFind } from "./api/types/models";
 
@@ -18,6 +19,7 @@ export * from "./api/types/designer";
 export * from "./api/types/settings";
 export * from "./api/types/models";
 export * from "./api/types/bar";
+export * from "./api/types/updates";
 /** The server always answers errors as { error }, written for a person to read. */
 export class ApiError extends Error {
   /** The HTTP status the server answered with; absent when it did not answer. */
@@ -128,6 +130,18 @@ export const api = {
   checkHealth: () => call<Health>("POST", "/health/check"),
   settings: (o?: Asked) => call<Settings>("GET", "/settings", undefined, o?.signal),
   saveSettings: (patch: SettingsPatch) => call<Settings>("PUT", "/settings", patch),
+  /** Afflatus's own updates: where it stands (the latest release, an update under way, the previous version, the 0.3 move). */
+  updates: (o?: Asked) => call<UpdatesView>("GET", "/updates", undefined, o?.signal),
+  /** The rest only from the computer Afflatus runs on (403 from another): GitHub asked now. */
+  checkUpdates: () => call<UpdatesView>("POST", "/updates/check"),
+  /** Update to the latest release: it goes on in the background, its steps on the event stream. */
+  startUpdate: () => call<UpdatesView>("POST", "/updates/update"),
+  /** Not now / Cancel: the update stopped before it switches; a failed one forgotten. */
+  cancelUpdate: () => call<UpdatesView>("POST", "/updates/cancel"),
+  /** Back to the previous version, with the library as it was at the update; Afflatus restarts. */
+  goBack: () => call<UpdatesView>("POST", "/updates/go-back"),
+  /** The 0.3 library beside this bundle brought in (moved, not copied); Afflatus restarts. */
+  moveLibrary: () => call<UpdatesView>("POST", "/updates/move"),
   presetFiles: (o?: Asked) => call<{ online: boolean; items: PresetFilesView[] }>("GET", "/presets/files", undefined, o?.signal),
   nodePack: (o?: Asked) => call<{ pack: string; path: string; written: boolean; loaded: boolean; canWrite: boolean }>("GET", "/comfy/node-pack", undefined, o?.signal),
   getPresetFiles: (id: string, body: { accept?: boolean; optional?: boolean } = {}) => call<{ started: Download[]; failed: Array<{ file: string; error: string }>; skipped: number }>("POST", `/presets/${encodeURIComponent(id)}/get`, body),
