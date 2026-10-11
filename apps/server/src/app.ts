@@ -38,13 +38,15 @@ import { registerSetup } from "./setup-api";
 import { registerTags } from "./tags";
 import { registerTimelines } from "./timelines-api";
 import { isUpload, uploadBody } from "./uploadBody";
+import { registerUpdates } from "./updates-api";
+import type { AfflatusUpdates } from "./updates";
 import { registerUsage } from "./usage";
 import { registerWorkflows } from "./workflows";
 
 /** The release this is: set by the build (AFFLATUS_VERSION, from the git tag); "dev" when run from the sources. */
 export { VERSION };
 
-export function buildApp(s: Services, opts: { webDir?: string; /** Where the data is, for the backup; without it there is no backup. */ backup?: BackupPlaces } = {}): FastifyInstance {
+export function buildApp(s: Services, opts: { webDir?: string; /** Where the data is, for the backup; without it there is no backup. */ backup?: BackupPlaces; /** Afflatus's own updates (start.ts); without them the routes are not there. */ updates?: AfflatusUpdates } = {}): FastifyInstance {
   // a workflow with many nodes is a large body
   const app = Fastify({ logger: false, bodyLimit: 8 * 1024 * 1024 });
   // the API's JSON tagged for a 304 when unchanged, then it and the web app's files compressed for a browser that takes
@@ -157,6 +159,7 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
   registerJobs(app, s);
   registerHistory(app, s);
   registerAssets(app, s);
+  if (opts.updates) registerUpdates(app, opts.updates);
 
   return app;
 }

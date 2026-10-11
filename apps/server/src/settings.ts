@@ -87,6 +87,8 @@ export const settingsSchema = z.object({
   civitaiLookups: z.boolean().default(false),
   /** Once a day, Civitai is asked whether it has newer versions of the models here (only with lookups on; hashes of the files are sent). */
   updateChecks: z.boolean().default(false),
+  /** Once a day, GitHub is asked whether a newer Afflatus is out (updates.ts); nothing about the user is sent. Apart from `updateChecks`, which is about the models. */
+  afflatusUpdateChecks: z.boolean().default(true),
   /** Missing model files may be fetched into ComfyUI, through ComfyUI-Manager. Off: Afflatus never asks ComfyUI to download anything. */
   downloadModels: z.boolean().default(false),
   /**
@@ -262,6 +264,7 @@ export function publicSettings(s: Settings) {
     acceptedPresets: s.acceptedPresets,
     civitaiLookups: s.civitaiLookups,
     updateChecks: s.updateChecks,
+    afflatusUpdateChecks: s.afflatusUpdateChecks,
     downloadModels: s.downloadModels,
     renderHistoryDays: s.renderHistoryDays,
     unkeptDays: s.unkeptDays,

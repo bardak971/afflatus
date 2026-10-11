@@ -16,6 +16,7 @@ import type { Graph, NodeCatalog } from "@afflatus/core";
 import { buildApp } from "../apps/server/src/app";
 import { migrate, openSqlite, takeOver } from "../apps/server/src/db";
 import { createServices } from "../apps/server/src/services";
+import { AfflatusUpdates } from "../apps/server/src/updates";
 import { seedRenderTimes } from "./demo-times";
 import { seedHistory } from "./demo-history";
 import { writeSettings } from "../apps/server/src/settings";
@@ -197,7 +198,10 @@ await seedHistory(db);
 const services = await createServices(db, "sqlite", new LocalStorage(join(dataDir, "files")));
 // WEB_DIR: another build of the web app than the one `pnpm start` serves
 const dist = process.env.WEB_DIR ? join(root, process.env.WEB_DIR) : join(root, "apps/web/dist");
-const app = buildApp(services, { webDir: existsSync(join(dist, "index.html")) ? dist : undefined, backup: { dataDir, filesDir: join(dataDir, "files") } });
+// Afflatus's own updates, for Settings → About: the check asks only a stand-in site (UPDATES_URL), and a restart is said, not done
+const updates = new AfflatusUpdates({ services, dataDir, restart: async () => console.log("[demo] an update would restart Afflatus here (exit 75)") });
+await updates.init();
+const app = buildApp(services, { webDir: existsSync(join(dist, "index.html")) ? dist : undefined, backup: { dataDir, filesDir: join(dataDir, "files") }, updates });
 const port = Number(process.env.PORT) || 8720;
 await app.listen({ host: "127.0.0.1", port });
 await services.queue.start();

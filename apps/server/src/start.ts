@@ -1,17 +1,19 @@
 import { existsSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
 import { buildApp, VERSION } from "./app";
-import type { Config } from "./config";
+import { envSaid, type Config } from "./config";
 import { migrate, openDb, type DbKind } from "./db";
 import type { QueueOptions } from "./queue";
 import { createServices, type Services } from "./services";
 import { readSettings } from "./settings";
 import { installNodePack } from "./nodePack";
 import { LocalStorage } from "./storage";
-import { preflight } from "./preflight";
+import { preflight, runPreflight } from "./preflight";
+import { AfflatusUpdates, RESTART_CODE, type UpdatesOptions } from "./updates";
 
 /** The built web app, when there is one (`pnpm build`). In development Vite serves it instead. */
 export function webDir(): string | undefined {
@@ -42,12 +44,18 @@ export interface StartOptions {
   queueOptions?: QueueOptions;
   /** Where the start's lines go: the console, unless a test keeps them. */
   log?: Pick<Console, "log" | "warn">;
+  /** How the process ends when an update asks for a restart (exit code 75): process.exit, unless a test keeps it. */
+  exit?: (code: number) => void;
+  /** The updates' stand-ins for the tests (a key, a bundle's root, timers off). */
+  updates?: Omit<UpdatesOptions, "services" | "dataDir" | "restart">;
 }
 
 export interface Started {
   app: FastifyInstance;
   services: Services;
   kind: DbKind;
+  /** Afflatus's own updates (updates.ts). */
+  updates: AfflatusUpdates;
   /** The server and the services stopped: the port is free again once this resolves. */
   close(): Promise<void>;
 }
@@ -74,6 +82,24 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<St
   const held = await holdPort(config);
   let services: Services | undefined;
   let app: FastifyInstance | undefined;
+  let updates: AfflatusUpdates | undefined;
+  const closeAll = async () => {
+    await updates?.stop();
+    await app?.close();
+    await services?.close();
+  };
+  // an update, Go back or the 0.3 move: everything closed (the database too, for a file to be swapped or a folder
+  // renamed in `between`), then exit 75, which the bundle's launcher reads as "start me again". What fails on the way
+  // is logged and the exit still comes: the launcher then starts whichever version versions/current names
+  let restarting = false;
+  const restart = async (between?: () => Promise<void>) => {
+    if (restarting) return;
+    restarting = true;
+    log.log("[updates] restarting");
+    await closeAll().catch((err: Error) => log.warn(`[updates] closing before the restart: ${err.message}`));
+    await between?.().catch((err: Error) => log.warn(`[updates] ${err.message}`));
+    (opts.exit ?? ((code: number) => process.exit(code)))(RESTART_CODE);
+  };
   try {
     // what this computer has of what Afflatus needs: said once here, kept for the health route and Settings → About. First:
     // a data folder that cannot be written stops the start with its fix
@@ -84,7 +110,9 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<St
     const applied = await migrate(db);
     if (applied.length) log.log(`[db] migrated: ${applied.join(", ")}`);
     services = await createServices(db, kind, new LocalStorage(join(config.dataDir, "files")), opts.queueOptions, { dataDir: config.dataDir });
-    app = buildApp(services, { webDir: opts.webDir, backup: { dataDir: config.dataDir, filesDir: join(config.dataDir, "files") } });
+    updates = new AfflatusUpdates({ services, dataDir: config.dataDir, restart, ...opts.updates });
+    await updates.init();
+    app = buildApp(services, { webDir: opts.webDir, backup: { dataDir: config.dataDir, filesDir: join(config.dataDir, "files") }, updates });
     // the node pack kept up to date in ComfyUI's folder, when it is known
     {
       const { comfyDir } = await readSettings(db);
@@ -106,19 +134,31 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<St
     }
     log.log(`Afflatus ${VERSION} on http://${config.host}:${config.port} (${kind})`);
     await services.queue.start();
-    const ready = { app, services };
-    return {
-      app, services, kind,
-      async close() {
-        await ready.app.close();
-        await ready.services.close();
-      },
-    };
+    // the bundle's launcher learns that this version started: without the file, a version that exits takes it back to the previous one
+    const startedFile = envSaid.startedFile()?.trim();
+    if (startedFile) {
+      await mkdir(dirname(startedFile), { recursive: true }).then(() => writeFile(startedFile, new Date().toISOString()))
+        .catch((err: Error) => log.warn(`[updates] the started marker was not written (${startedFile}): ${err.message}`));
+    }
+    return { app, services, kind, updates, close: closeAll };
   } catch (err) {
     // a start that stops half way leaves nothing behind: the port free again, the database closed
     held.close();
+    await updates?.stop().catch(() => {});
     await app?.close().catch(() => {});
     await services?.close().catch(() => {});
     throw err;
   }
+}
+
+/**
+ * `--check`: what a new version is asked before an update switches to it (updates.ts): its code loads (this file is
+ * reached through all of it), the Node it runs on is recent enough and the data folder can be written. Nothing is
+ * started, no port taken, the database not opened. 0 when it can start, 1 when it cannot; a missing ffmpeg is said
+ * and does not stop it, as it does not stop a start.
+ */
+export async function check(config: Config, log: Pick<Console, "log" | "warn"> = console): Promise<number> {
+  const found = await runPreflight(config.dataDir);
+  for (const c of found.checks) log[c.ok ? "log" : "warn"](`[check] ${c.label}: ${c.ok ? c.detail : `${c.detail}. ${c.fix}`}`);
+  return found.checks.every((c) => c.ok || (c.id !== "node" && c.id !== "data")) ? 0 : 1;
 }
