@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { isModelFile } from "@afflatus/core";
 import type { EventEmitter } from "node:events";
 import { readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -94,7 +95,6 @@ const MANAGER_TYPE: Record<string, string> = {
   upscale_models: "upscale", controlnet: "controlnet", clip_vision: "clip_vision", embeddings: "embedding",
 };
 
-const MODEL_FILE = /\.(safetensors|ckpt|gguf|sft|pt|pth|bin|onnx)$/i;
 const KEEP_MS = 60 * 60_000;
 /** A failure nobody has read yet stays listed longer: a page opened the next morning still says it. */
 const KEEP_UNSEEN_MS = 24 * 60 * 60_000;
@@ -318,7 +318,7 @@ export class Downloads {
   async start(comfy: Comfy, self: string, want: { file: string; folder: string; title: string; source: string; headers?: Record<string, string>; total?: number; comfyDir?: string }): Promise<DownloadView> {
     const name = want.file.split(/[\\/]/).pop() ?? "";
     const sub = want.file.split(/[\\/]/).slice(0, -1).filter(Boolean).join("/");
-    if (!MODEL_FILE.test(name) || want.file.split(/[\\/]/).some((p) => BAD_NAME.test(p))) throw httpError(`"${name}" is not a model file Afflatus can download.`);
+    if (!isModelFile(name) || want.file.split(/[\\/]/).some((p) => BAD_NAME.test(p))) throw httpError(`"${name}" is not a model file Afflatus can download.`);
     if (!/^[\w.-]+(\/[\w.-]+)*$/.test(want.folder) || /\.\./.test(`${want.folder}/${sub}`) || NOT_MODELS.has(want.folder.split("/")[0]!)) throw httpError("that is not a models folder");
     // the source has to be out on the internet, ComfyUI's machine included: the server can reach what a browser on this
     // network cannot (outbound.ts). A pretend Civitai (the tests, the demo) is the one exception, by its host and port

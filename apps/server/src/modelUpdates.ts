@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { ModelInfo } from "@afflatus/core";
 import { civitaiGet } from "./civitai";
-import { now } from "./db";
+import { now, type Tables } from "./db";
 import { fileName } from "./media";
 import { modelDirs, readLocalHeader } from "./modelFiles";
 import type { Services } from "./services";
@@ -228,7 +228,7 @@ export class Updates {
   }
 }
 
-const rowView = (r: { folder: string; file: string; model_id: number; model_name: string; version_id: number; version_name: string; latest_id: number | null; latest_name: string | null; latest_at: string | null; latest_file: string | null; checked_at: string }): UpdateRow => ({
+const rowView = (r: Tables["model_updates"]): UpdateRow => ({
   folder: r.folder, file: r.file, modelId: r.model_id, modelName: r.model_name, versionId: r.version_id, versionName: r.version_name,
   newer: r.latest_id ? { id: r.latest_id, name: r.latest_name ?? "", publishedAt: r.latest_at, file: r.latest_file, page: `https://civitai.com/models/${r.model_id}?modelVersionId=${r.latest_id}` } : null,
   checkedAt: r.checked_at,

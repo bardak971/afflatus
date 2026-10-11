@@ -1,3 +1,4 @@
+import { isModelFile } from "@afflatus/core";
 import { civitaiGet, civitaiSites, pretendSites } from "./civitai";
 import { httpError } from "./errors";
 import { assertPublicUrl, fetchPublic } from "./outbound";
@@ -35,7 +36,6 @@ export interface LinkFound {
   why?: string;
 }
 
-const MODEL_FILE = /\.(safetensors|ckpt|gguf|sft|pt|pth|bin|onnx)$/i;
 const FOLDER_OF_KIND: Record<string, string> = {
   Checkpoint: "checkpoints", LORA: "loras", LoCon: "loras", DoRA: "loras", VAE: "vae", TextEncoder: "text_encoders",
   Upscaler: "upscale_models", Controlnet: "controlnet", TextualInversion: "embeddings",
@@ -61,7 +61,7 @@ export async function resolveLink(link: string, key: string): Promise<LinkFound>
   if (/(^|\.)civitai\.(com|red)$/i.test(at.hostname)) return fromCivitai(at, key);
   if (/(^|\.)huggingface\.co$/i.test(at.hostname) || /(^|\.)hf\.co$/i.test(at.hostname)) return fromHuggingFace(at);
   const name = decodeURIComponent(at.pathname.split("/").pop() ?? "");
-  if (at.protocol === "https:" && MODEL_FILE.test(name)) {
+  if (at.protocol === "https:" && isModelFile(name)) {
     // a file anywhere: anywhere on the internet, not inside this network
     assertPublicUrl(at.href, civitaiSites());
     return { source: "address", title: name, about: at.hostname, page: at.href, url: at.href, files: [{ name, bytes: await sizeOf(at.href), note: "" }], folder: null };
@@ -81,7 +81,7 @@ async function fromCivitai(at: URL, key: string): Promise<LinkFound> {
   const kind = model?.type ?? version.model?.type ?? "";
   const base = version.baseModel ?? "";
   const name = model?.name ?? version.model?.name ?? "A model on Civitai";
-  const files = (version.files ?? []).filter((f) => MODEL_FILE.test(f.name ?? "")).map((f) => ({
+  const files = (version.files ?? []).filter((f) => isModelFile(f.name ?? "")).map((f) => ({
     name: f.name!, bytes: Math.round((f.sizeKB ?? 0) * 1024),
     note: [f.metadata?.fp, f.metadata?.size, f.metadata?.format && f.metadata.format !== "SafeTensor" ? f.metadata.format : ""].filter(Boolean).join(" · "),
   }));
@@ -100,7 +100,7 @@ async function fromHuggingFace(at: URL): Promise<LinkFound> {
   // /<owner>/<repo>/resolve|blob/<revision>/<path to the file>
   const m = /^\/([^/]+)\/([^/]+)\/(?:resolve|blob)\/([^/]+)\/(.+)$/.exec(at.pathname);
   const name = decodeURIComponent(m?.[4]?.split("/").pop() ?? "");
-  if (!m || !MODEL_FILE.test(name)) throw bad("On Hugging Face, open the file itself (in \"Files and versions\") and copy its address: it ends in the file's name.");
+  if (!m || !isModelFile(name)) throw bad("On Hugging Face, open the file itself (in \"Files and versions\") and copy its address: it ends in the file's name.");
   const [, owner, repo, revision, path] = m;
   const url = `https://huggingface.co/${owner}/${repo}/resolve/${revision}/${path}`;
   const folder = decodeURIComponent(path!).split("/").slice(0, -1).reverse().find((part) => KNOWN_FOLDERS.includes(part.toLowerCase()))?.toLowerCase() ?? null;

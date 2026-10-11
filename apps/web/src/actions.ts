@@ -4,8 +4,10 @@ import { persist } from "zustand/middleware";
 import { projectForNew } from "./project";
 import { api, type Asset, type Opened } from "./api";
 import { useTimelines } from "./data";
+import { useSayFailed } from "./sayFailed";
 import { useBanners } from "./store";
 import { queryKeys } from "./queryKeys";
+import { timelineOf, type TimelineOf } from "./timelineOf";
 
 /** What the viewer, a tile's menu and the workflows list do alike with an item: the one body each, the words their own. */
 
@@ -57,7 +59,6 @@ export function useOpenInComfy<T>(request: (v: T) => Promise<Opened>, opts: { on
   });
 }
 
-/** An item put at the end of a timeline: one of the project's (by id), or a new one (null). Gives the timeline it went to. */
 /** The timeline an item was last added to, per project (the Inbox under "none"): "Add to <it>" with one key goes there. */
 const useLastTimeline = create<{ by: Record<string, { id: string; name: string }>; set(project: string, t: { id: string; name: string }): void }>()(
   persist((set) => ({ by: {}, set: (project, t) => set((s) => ({ by: { ...s.by, [project]: t } })) }), { name: "afflatus.last-timeline" }),
@@ -75,80 +76,65 @@ export const useLast = () => {
 };
 const remember = (target: { id: string; name: string }) => useLastTimeline.getState().set(projectKey(), target);
 
-export function useAddToTimeline(asset: Asset, opts: { onSuccess?(target: { id: string; name: string }): void } = {}) {
-  const timelines = useTimelines();
+type Target = { id: string; name: string };
+
+/**
+ * A timeline made of items, or items put at the end of one (timelineOf.ts): `of` says what from the mutation's
+ * value (it may first bring files into the library). The timeline is remembered as the last one added to and the
+ * timelines are read again, whichever place asked.
+ */
+export function useTimelineOf<V>(of: (v: V) => TimelineOf | Promise<TimelineOf>, opts: { onSuccess?(target: Target, v: V): void; onError?(err: Error, v: V): void } = {}) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async (timeline: string | null) => {
-      const target = timeline
-        ? { id: timeline, name: timelines.data?.items.find((t) => t.id === timeline)?.name ?? "the timeline" }
-        : await api.createTimeline().then((t) => ({ id: t.id, name: t.name }));
-      await api.addClip(target.id, { asset: asset.id });
-      return target;
-    },
-    onSuccess: (target) => {
+    mutationFn: async (v: V) => timelineOf(await of(v), { create: () => api.createTimeline(), add: api.addClip }),
+    onSuccess: (target: Target, v: V) => {
       remember(target);
       void client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
-      opts.onSuccess?.(target);
+      opts.onSuccess?.(target, v);
     },
+    onError: opts.onError,
   });
+}
+
+/** An item put at the end of a timeline: one of the project's (by id), or a new one (null). Gives the timeline it went to. */
+export function useAddToTimeline(asset: Asset, opts: { onSuccess?(target: Target): void } = {}) {
+  const timelines = useTimelines();
+  return useTimelineOf(
+    (timeline: string | null): TimelineOf => ({
+      assets: [asset],
+      into: timeline ? { id: timeline, name: timelines.data?.items.find((t) => t.id === timeline)?.name ?? "the timeline" } : null,
+    }),
+    { onSuccess: (target) => opts.onSuccess?.(target) },
+  );
 }
 
 /**
  * A timeline started from one item, in the project the rail looks at: a video is its clip 1; a picture is the
  * first frame of a clip 1 to render, its form open on it. Then the editor.
  */
-export function useStartTimeline(opts: { onSuccess?(target: { id: string; name: string }): void } = {}) {
-  const client = useQueryClient();
-  const say = useBanners((b) => b.push);
-  return useMutation({
-    mutationFn: async (asset: Asset) => {
-      const t = await api.createTimeline();
-      await api.addClip(t.id, { asset: asset.id, ...(asset.kind === "image" ? { as: "clip" as const } : {}) });
-      return { id: t.id, name: t.name };
-    },
-    onSuccess: (target) => {
-      remember(target);
-      void client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
-      opts.onSuccess?.(target);
-    },
-    onError: (err) => say({ id: `timeline:${Date.now()}`, tone: "bad", title: "Could not start the timeline", text: err.message, href: "/", go: "Open the library" }),
+export function useStartTimeline(opts: { onSuccess?(target: Target): void } = {}) {
+  const failed = useSayFailed({ id: "timeline" });
+  return useTimelineOf((asset: Asset): TimelineOf => ({ assets: [asset], firstAsClip: true }), {
+    onSuccess: (target) => opts.onSuccess?.(target),
+    onError: failed("Could not start the timeline"),
   });
 }
 
 /** One item to the end of a given timeline (a menu's recent timelines); remembered as the last one, said in a banner. */
 export function useAddTo() {
-  const client = useQueryClient();
   const say = useBanners((b) => b.push);
-  return useMutation({
-    mutationFn: async (v: { asset: Asset; timeline: { id: string; name: string } }) => {
-      await api.addClip(v.timeline.id, { asset: v.asset.id });
-      return v;
-    },
-    onSuccess: ({ asset, timeline }) => {
-      remember({ id: timeline.id, name: timeline.name });
-      void client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
-      say({ id: `add:${Date.now()}`, tone: "good", title: `Added to ${timeline.name}`, text: asset.kind === "image" ? "At the end, as a still." : "At the end.", href: `/timelines/${timeline.id}`, go: "Open the timeline" });
-    },
-    onError: (err) => say({ id: `add:${Date.now()}`, tone: "bad", title: "Could not add it", text: err.message, href: "/", go: "Open the library" }),
+  const failed = useSayFailed({ id: "add" });
+  return useTimelineOf((v: { asset: Asset; timeline: Target }): TimelineOf => ({ assets: [v.asset], into: v.timeline }), {
+    onSuccess: (timeline, { asset }) => say({ id: `add:${Date.now()}`, tone: "good", title: `Added to ${timeline.name}`, text: asset.kind === "image" ? "At the end, as a still." : "At the end.", href: `/timelines/${timeline.id}`, go: "Open the timeline" }),
+    onError: failed("Could not add it"),
   });
 }
 
 /** A new timeline of several items, in the order given: videos as clips, pictures as stills (as the Add dialog makes them). Then the editor. */
-export function useMakeTimelineOf(opts: { onSuccess?(target: { id: string; name: string }): void } = {}) {
-  const client = useQueryClient();
-  const say = useBanners((b) => b.push);
-  return useMutation({
-    mutationFn: async (assets: Asset[]) => {
-      const t = await api.createTimeline();
-      for (const a of assets) await api.addClip(t.id, { asset: a.id });
-      return { id: t.id, name: t.name };
-    },
-    onSuccess: (target) => {
-      remember(target);
-      void client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
-      opts.onSuccess?.(target);
-    },
-    onError: (err) => say({ id: `timeline:${Date.now()}`, tone: "bad", title: "Could not start the timeline", text: err.message, href: "/", go: "Open the library" }),
+export function useMakeTimelineOf(opts: { onSuccess?(target: Target): void } = {}) {
+  const failed = useSayFailed({ id: "timeline" });
+  return useTimelineOf((assets: Asset[]): TimelineOf => ({ assets }), {
+    onSuccess: (target) => opts.onSuccess?.(target),
+    onError: failed("Could not start the timeline"),
   });
 }

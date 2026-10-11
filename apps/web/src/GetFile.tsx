@@ -71,7 +71,7 @@ export function DownloadRow({ d, named }: { d: Download; named?: boolean }) {
         {says(d)}
         {/* ComfyUI-Manager reading Hugging Face itself says nothing of its bytes until the file is there */}
         {d.status === "downloading" && (d.bytes > 0 || d.via !== "manager") && ` · ${size(d.bytes)}${d.total ? ` of ${size(d.total)}` : ""}`}
-        {d.status === "downloading" && speed > 0 && ` · ${speed < 2 ** 20 ? `${Math.round(speed / 1024)} KB` : `${(speed / 2 ** 20).toFixed(1)} MB`}/s${left ? ` · ${left}` : ""}`}
+        {d.status === "downloading" && speed > 0 && ` · ${size(speed)}/s${left ? ` · ${left}` : ""}`}
         {d.status === "downloading" && speed > 0 && speed < 300 * 1024 && " · slow server"}
       </span>
       {(d.status === "downloading" || d.status === "saving") && <Bar value={d.status === "saving" ? 100 : part * 100} />}

@@ -1,5 +1,5 @@
 import type { HistoryJob, Job } from "../../api";
-import { clock } from "../../format";
+import { clock, plural } from "../../format";
 
 /**
  * What a row of the history is called: the name of what it made (renders are named as they are made), else the job's
@@ -28,7 +28,7 @@ export function rowFacts(jobs: Pick<HistoryJob, "kind" | "status" | "made" | "la
   const size = first?.width && first.height ? `${first.width}×${first.height}` : "";
   const length = first?.durationMs ? clock(first.durationMs, { decimals: 1 }) : "";
   if (isFinish(head)) return made.length ? `finish · ${[length, size].filter(Boolean).join(" · ")}` : "finish · a new take of the clip";
-  if (head.kind === "cut") return made.length ? `cut · ${made.length} video${made.length > 1 ? "s" : ""} in the library` : "cut";
+  if (head.kind === "cut") return made.length ? `cut · ${plural(made.length, "video")} in the library` : "cut";
   if (head.kind === "export") return ["export", length, size].filter(Boolean).join(" · ");
   if (head.kind === "load") return "model load · renders nothing";
   if (head.status === "cancelled") return "cancelled";

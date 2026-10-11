@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { type Look, type PresetDef, type RecipeInfo } from "./api";
 import { useEntities, useRecipes, useSetup } from "./data";
-import { formDefaults } from "./form";
-import { recipeLabel } from "./format";
+import { wholeForm } from "./form";
+import { plural, recipeLabel } from "./format";
 import { LookBar, lookWords } from "./LookBar";
 import { useModelSettings } from "./data";
 import { Form } from "./RecipeForm";
@@ -32,7 +32,7 @@ export function PresetEditor({ id, def, onChange }: { id?: string; def: PresetDe
   const held = Object.keys(def.inputs).length;
   const look = (def.look as Look | null | undefined) ?? null;
   // the values the form shows: the model's defaults under what the preset sets
-  const whole = recipe ? { ...formDefaults(recipe, status?.options, settings.data?.items ?? [], def.inputs).defaults, ...def.inputs } : def.inputs;
+  const whole = recipe ? wholeForm(recipe, status?.options, settings.data?.items ?? [], def.inputs) : def.inputs;
   // an emptied text or list is not "set to nothing": it leaves the preset, so that applying it leaves the form's own alone
   const setInputs = (inputs: Record<string, unknown>) => onChange({ ...def, inputs: Object.fromEntries(Object.entries(inputs).filter(([, v]) => !(v === "" || (Array.isArray(v) && v.length === 0)))) });
 
@@ -53,7 +53,7 @@ export function PresetEditor({ id, def, onChange }: { id?: string; def: PresetDe
           searchHint="Search the models and operations"
         />
         <span className="text-xs text-ink-3">
-          {held ? `${held} parameter${held > 1 ? "s" : ""} set` : "No parameter set"}{look && lookWords(look, entities.data?.items ?? []) ? ` · ${lookWords(look, entities.data?.items ?? [])}` : ""}.
+          {held ? `${plural(held, "parameter")} set` : "No parameter set"}{look && lookWords(look, entities.data?.items ?? []) ? ` · ${lookWords(look, entities.data?.items ?? [])}` : ""}.
           {" "}A field left at the model's default is not part of the preset; "Changed · reset" takes one out. Applying the preset changes only what it sets.
         </span>
       </div>

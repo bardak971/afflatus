@@ -1,6 +1,6 @@
 import { Link } from "wouter";
 import { Minus, Plus } from "lucide-react";
-import { hasWildcards } from "@afflatus/core";
+import { hasWildcards, plural } from "@afflatus/core";
 import type { Draft, RecipeInfo } from "../../api";
 import { batchAbout, useAdvice } from "../../advice";
 import { BATCH } from "../../draft";
@@ -55,7 +55,7 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCou
             <span className="truncate">Queuing…</span>
           ) : (
             <span className="flex min-w-0">
-              <span className="truncate">{`Generate ${count} ${noun}${count > 1 ? "s" : ""}`}</span>
+              <span className="truncate">{`Generate ${plural(count, noun)}`}</span>
               {about && <span className="min-w-0 shrink-[100] truncate">&nbsp;· {about}</span>}
             </span>
           )}

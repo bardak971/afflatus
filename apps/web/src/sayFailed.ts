@@ -8,12 +8,14 @@ export interface FailedWhere {
   go?: string;
   /** A 409 (the server naming what still uses the thing) is titled "Still in use". */
   inUse?: boolean;
+  /** The banner takes the place of the last one of its `id` rather than adding one more (a failure that can repeat, as each edit of a draft). */
+  once?: boolean;
 }
 
 /** The banner of a failed action: its title, the error's own words, the way to where it is done. */
-export function failedBanner({ id = "failed", href = "/", go = "Open the library", inUse = false }: FailedWhere, title: string, err: unknown, at = Date.now()): Banner {
+export function failedBanner({ id = "failed", href = "/", go = "Open the library", inUse = false, once = false }: FailedWhere, title: string, err: unknown, at = Date.now()): Banner {
   return {
-    id: `${id}:${at}`,
+    id: once ? id : `${id}:${at}`,
     tone: "bad",
     title: inUse && err instanceof ApiError && err.status === 409 ? "Still in use" : title,
     text: err instanceof Error ? err.message : String(err),

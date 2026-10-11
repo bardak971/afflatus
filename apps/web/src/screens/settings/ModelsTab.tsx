@@ -5,7 +5,7 @@ import { ChevronDown, X } from "lucide-react";
 import { folderOfFileInput } from "@afflatus/core";
 import { api, type RecipeInfo } from "../../api";
 import { useFamilies, useRecipes, useSettings, useSetup } from "../../data";
-import { fileLabel, problemSaid } from "../../format";
+import { fileLabel, plural, problemSaid } from "../../format";
 import { GetFile } from "../../GetFile";
 import { Select } from "../../Select";
 import { Chip, cx, ErrorNote, Help, Toggle } from "../../ui";
@@ -55,11 +55,11 @@ export function ModelSwitches() {
             <div key={f.id} className="flex flex-col">
               <div className="flex min-h-[52px] items-center gap-3 px-[18px]">
                 <span className={cx("truncate font-semibold", !on && "text-ink-2")}>{name}</span>
-                <span className="shrink-0 text-xs text-ink-3">{imported ? `${mine.length} workflow${mine.length > 1 ? "s" : ""}` : `${mine.length} operation${mine.length > 1 ? "s" : ""}`}</span>
+                <span className="shrink-0 text-xs text-ink-3">{imported ? `${plural(mine.length, "workflow")}` : `${plural(mine.length, "operation")}`}</span>
                 <span className="grow" />
                 {!found && (slots.length ? (
                   <button type="button" aria-expanded={open} data-tip="The model files it needs, and where to get them" onClick={() => setNeeds(open ? null : f.id)} className="flex shrink-0 items-center gap-1 text-xs font-semibold text-warn-ink hover:underline">
-                    {slots.length} model file{slots.length > 1 ? "s" : ""} missing <ChevronDown size={13} className={cx("transition-transform", open && "rotate-180")} />
+                    {plural(slots.length, "model file")} missing <ChevronDown size={13} className={cx("transition-transform", open && "rotate-180")} />
                   </button>
                 ) : (
                   <span className="shrink-0 text-xs text-warn-ink" data-tip="No model of this family was found in ComfyUI. Put one in its models folder (an SDXL checkpoint goes in models/checkpoints); it is listed as soon as ComfyUI sees it.">no model file yet</span>
@@ -257,8 +257,8 @@ export function ReadyList() {
                   const extras = (setup.data?.families.find((x) => x.id === family.id)?.slots ?? []).filter((x) => x.optional && !x.file && x.get).length;
                   return (
                     <span className="flex shrink-0 items-baseline gap-2 text-xs">
-                      {setup.data && all && extras > 0 && <span className="text-ink-3">{extras} optional file{extras > 1 ? "s" : ""} to add</span>}
-                      <span className={cx("font-semibold", !setup.data ? "text-ink-3" : all ? "text-good" : "text-warn-ink")}>{setup.data ? (all ? `${mine.length} ready` : `${good} of ${mine.length} ready`) : `${mine.length} operation${mine.length > 1 ? "s" : ""}`}</span>
+                      {setup.data && all && extras > 0 && <span className="text-ink-3">{plural(extras, "optional file")} to add</span>}
+                      <span className={cx("font-semibold", !setup.data ? "text-ink-3" : all ? "text-good" : "text-warn-ink")}>{setup.data ? (all ? `${mine.length} ready` : `${good} of ${mine.length} ready`) : `${plural(mine.length, "operation")}`}</span>
                     </span>
                   );
                 })()}

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ArrowDownToLine, ArrowUpToLine, Layers, Trash2, X } from "lucide-react";
 import type { Job, RunningJob } from "../../api";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
-import { aboutMs, plural, when } from "../../format";
+import { aboutMs, est, plural, when } from "../../format";
 import { Button, Chip, cx, SectionTitle } from "../../ui";
 import { useQueueBulk } from "./bulk";
 import { useModelName } from "./modelName";
@@ -120,7 +120,7 @@ export function WaitingList({ waiting, running, onOrder, onRemove }: { waiting: 
           <span className="min-w-0 grow truncate font-semibold">{w.label}</span>
           <span className="max-w-[40%] shrink-0 truncate text-ink-2">{w.kind === "load" ? `load · ${modelOf(w)}` : modelOf(w)}</span>
           {loads[i] && <Chip tone="warn" tip={`ComfyUI loads ${modelOf(w)} before this one`}>loads {modelOf(w).split(" · ")[0]}</Chip>}
-          <span className="w-[70px] shrink-0 text-right font-mono text-ink-2">{w.estimateMs ? `~${aboutMs(w.estimateMs).replace(/^about /, "")}` : "—"}</span>
+          <span className="w-[70px] shrink-0 text-right font-mono text-ink-2">{est(w.estimateMs) || "—"}</span>
           <button type="button" aria-label={`Cancel ${w.label}`} data-tip="Cancel this one (Del)" onClick={() => onRemove(w.id)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-raised hover:text-ink focus-visible:opacity-100">
             <X size={14} />
           </button>

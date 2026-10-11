@@ -6,12 +6,12 @@ import { api, type Clip, type FinishSettings } from "../api";
 import { useRecipes, useSettings } from "../data";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
 import { FieldRow } from "../fields";
-import { fileLabel } from "../format";
+import { est, fileLabel, plural } from "../format";
 import { Keys } from "../Keys";
 import { Select } from "../Select";
 import { Button, Chip, cx, ErrorNote, Help, NumberBox, Segmented, Toggle } from "../ui";
-import { est } from "./estimate";
 import { queryKeys } from "../queryKeys";
+import { seedvrBatch } from "../snap";
 
 const ROUTES: Array<{ value: FinishSettings["route"]; label: string; detail: string }> = [
   { value: "seedvr", label: "SeedVR2 (restores + enlarges)", detail: "any clip; the whole clip in view, so no flicker; compression and softness repaired too. Minutes per clip" },
@@ -69,8 +69,8 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
     <Dialog label="Finish all clips" onClose={onClose} className={cx(DIALOG, "max-w-xl")}>
         <DialogHead icon={<Sparkles size={16} />} title="Finish all clips" sub={<span className="flex items-center gap-1.5">Each clip's take to its final quality · one job per clip, in order<Help title="Finish all clips" text={`Each finished take plays in place of its draft, with the same motion (the draft stays in the takes list); export "At the finished size" afterwards.`} /></span>} onClose={onClose} />
         <div className="flex flex-wrap gap-1.5">
-          <Chip tone="accent">{todo.length} clip{todo.length === 1 ? "" : "s"} to finish</Chip>
-          {stills > 0 && <Chip>{stills} still{stills > 1 ? "s" : ""} left as {stills > 1 ? "they are" : "it is"}</Chip>}
+          <Chip tone="accent">{plural(todo.length, "clip")} to finish</Chip>
+          {stills > 0 && <Chip>{plural(stills, "still")} left as {stills > 1 ? "they are" : "it is"}</Chip>}
           {v.route === "latent" && resampled < videos.length && <Chip tone="warn" tip="Only a model that offers the latent re-sample (H3) is re-sampled in the latent; the other clips take SeedVR2.">{videos.length - resampled} of {videos.length} not re-sampled: SeedVR2</Chip>}
         </div>
         {attention}
@@ -89,7 +89,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
               <FieldRow label="Batch size" note="SeedVR2's batch size: how many frames it restores together. 0 is auto: by the frame's size (9 at ×2 of a 576p clip, fewer when larger). More is steadier but needs more video memory; past what the card holds it slows to a crawl" trail>
                 {/* 0 said as what it does, beside the box: a bare 0 read as off */}
                 <span className="flex items-center gap-2">
-                  <NumberBox label="SeedVR2 batch size (0 is auto)" value={v.seedvrFrames ?? 0} min={0} max={49} step={4} onCommit={(seedvrFrames) => setV({ ...v, seedvrFrames: Math.round(seedvrFrames) })} />
+                  <NumberBox label="SeedVR2 batch size (0 is auto)" value={v.seedvrFrames ?? 0} min={0} max={49} step={1} onCommit={(n) => setV({ ...v, seedvrFrames: seedvrBatch(n) })} />
                   <span className="text-xs text-ink-3">{v.seedvrFrames ? "frames" : "auto, by the frame's size"}</span>
                 </span>
               </FieldRow>
@@ -117,8 +117,8 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
             </FieldRow>
           )}
           {finished.length > 0 && (
-            <FieldRow label="Redo finished" note={`The ${finished.length} clip${finished.length > 1 ? "s" : ""} finished already. Off: they are skipped`} trail>
-              <Toggle bare on={redo} onChange={setRedo} label={`Redo the ${finished.length} clip${finished.length > 1 ? "s" : ""} finished already`} />
+            <FieldRow label="Redo finished" note={`The ${plural(finished.length, "clip")} finished already. Off: they are skipped`} trail>
+              <Toggle bare on={redo} onChange={setRedo} label={`Redo the ${plural(finished.length, "clip")} finished already`} />
             </FieldRow>
           )}
         </div>
@@ -133,7 +133,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
         <DialogFoot>
           <Button tone="quiet" onClick={onClose}>Close <Keys keys="Esc" size="sm" /></Button>
           <Button disabled={save.isPending} data-tip="These settings become what the dialog starts on, in Settings." onClick={() => save.mutate()}>{save.isSuccess ? "Saved as my defaults" : "Save as my defaults"}</Button>
-          <Button tone="primary" disabled={!todo.length || go.isPending} onClick={() => go.mutate()}>Finish {todo.length} clip{todo.length === 1 ? "" : "s"}</Button>
+          <Button tone="primary" disabled={!todo.length || go.isPending} onClick={() => go.mutate()}>Finish {plural(todo.length, "clip")}</Button>
         </DialogFoot>
     </Dialog>
   );

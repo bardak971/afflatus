@@ -1,22 +1,8 @@
-import { useEffect, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "../api";
+import { useDebounced } from "../hooks";
 import { queryKeys } from "../queryKeys";
 import type { Mode } from "./parse";
-
-/**
- * `value` a moment after it stops changing: what is asked of the server as typed waits for the typing to pause. While
- * `live` is off it keeps what it had (a search of another mode is not asked again on the way back). It starts at `from`.
- */
-export function useDebounced<T>(value: T, ms: number, live: boolean, from: T): T {
-  const [now, setNow] = useState(from);
-  useEffect(() => {
-    if (!live) return;
-    const t = setTimeout(() => setNow(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms, live]);
-  return now;
-}
 
 /**
  * The bar's two searches asked of the server as typed: the library's items whose name could match (the index holds only a

@@ -44,11 +44,13 @@ interface MenuAt {
 }
 
 /**
- * Where a menu opens: at the pointer, or, opened from the keyboard (which leaves the pointer at 0, 0), under
- * the top of the element it was opened on.
+ * Where a menu opens: at the pointer, or, opened from the keyboard, under the top of the element it was opened on.
+ * The keyboard's opening is told by its event: no button pressed (Chrome's menu key and Shift + F10, which put the
+ * pointer over the element, not at 0, 0), or the pointer at 0, 0 (where other browsers leave it).
  */
-export function menuAt(e: { clientX: number; clientY: number }, el: { getBoundingClientRect(): { left: number; top: number; width: number; height: number } } | null): MenuAt {
-  if ((e.clientX !== 0 || e.clientY !== 0) || !el) return { x: e.clientX, y: e.clientY };
+export function menuAt(e: { clientX: number; clientY: number; button?: number }, el: { getBoundingClientRect(): { left: number; top: number; width: number; height: number } } | null): MenuAt {
+  const keyed = e.button === -1 || (e.clientX === 0 && e.clientY === 0);
+  if (!keyed || !el) return { x: e.clientX, y: e.clientY };
   const r = el.getBoundingClientRect();
   return { x: r.left + Math.min(16, r.width / 2), y: r.top + Math.min(r.height, 28), keyed: true };
 }
@@ -301,7 +303,7 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
 /** The state of one menu: where it is and what it holds. `open` takes the right-click event. */
 export function useMenu<T>() {
   const [menu, setMenu] = useState<{ at: MenuAt; subject: T } | null>(null);
-  const open = (e: { preventDefault(): void; clientX: number; clientY: number; currentTarget?: EventTarget | null }, subject: T) => {
+  const open = (e: { preventDefault(): void; clientX: number; clientY: number; button?: number; currentTarget?: EventTarget | null }, subject: T) => {
     e.preventDefault();
     setMenu({ at: menuAt(e, e.currentTarget instanceof Element ? e.currentTarget : null), subject });
   };

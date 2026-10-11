@@ -1,5 +1,6 @@
 import { api } from "./api";
 import type { Banner } from "./store";
+import { plural } from "./format";
 
 /** Where files brought in land: a folder, or none (the Inbox); `made` when a project's root folder was made for them first. */
 export type Landing = { folder: string | null; made: boolean };
@@ -29,7 +30,7 @@ export async function bringFiles(files: File[], o: {
   const folders = o.folders ?? 0;
   const media = files.filter((f) => /^(image|video|audio)\//.test(f.type));
   const left = files.length - media.length - folders;
-  const skipped = [folders && `${folders === 1 ? "a folder" : `${folders} folders`} (use Import a folder… on its right-click menu)`, left > 0 && `${left} file${left === 1 ? "" : "s"} that ${left === 1 ? "is" : "are"} no picture, video or sound`].filter(Boolean).join(" and ");
+  const skipped = [folders && `${folders === 1 ? "a folder" : `${folders} folders`} (use Import a folder… on its right-click menu)`, left > 0 && `${plural(left, "file")} that ${left === 1 ? "is" : "are"} no picture, video or sound`].filter(Boolean).join(" and ");
   const id = `bring:${Date.now()}`;
   if (!media.length) {
     o.say({ id, tone: "bad", title: `Nothing to add to ${o.name}`, text: skipped ? `Left out: ${skipped}.` : undefined, href: "/", go: "Open the Studio" });
@@ -54,7 +55,7 @@ export async function bringFiles(files: File[], o: {
   const added = media.length - failed;
   o.done?.(added, at);
   o.say({
-    id, tone: failed ? "bad" : "good", title: `${failed ? `${added} of ${media.length}` : added} file${media.length === 1 ? "" : "s"} added to ${o.name}`,
+    id, tone: failed ? "bad" : "good", title: `${failed ? `${added} of ${plural(media.length, "file")}` : plural(added, "file")} added to ${o.name}`,
     text: [
       at.made && `${o.name} has a root folder now: they are in it.`,
       o.onDisk && added > 0 && "Written into the folder on your disk.",

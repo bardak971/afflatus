@@ -70,6 +70,16 @@ export function sentForm(recipe: RecipeInfo, defaults: Record<string, unknown>, 
   return input;
 }
 
+/** The whole form: what it starts from (`formDefaults`), with what is stored over it. What a render or a load is sent from. */
+export function wholeForm(
+  recipe: RecipeInfo,
+  options: Record<string, string[]> | undefined,
+  settings: ModelSettings[],
+  stored: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  return { ...formDefaults(recipe, options, settings, stored).defaults, ...stored };
+}
+
 /**
  * What a form starts from, in two layers: the recipe's own defaults, then what was saved for the model
  * file that is picked. A draft holds only what differs from this, so a draft follows its model's

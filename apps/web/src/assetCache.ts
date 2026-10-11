@@ -1,6 +1,7 @@
 import { hashKey, type InfiniteData, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import type { Asset, Folder } from "./api";
 import { isAssets, queryKeys } from "./queryKeys";
+import { plural } from "./format";
 
 /**
  * A change to items of the library made on screen before the server says it is done (keep, unkeep, bin, put back,
@@ -294,4 +295,4 @@ export function placeName(folder: string | null, folders: readonly Folder[] | un
 }
 
 /** "1 item", "3 items". */
-export const itemsWord = (n: number) => `${n} item${n === 1 ? "" : "s"}`;
+export const itemsWord = (n: number) => `${plural(n, "item")}`;

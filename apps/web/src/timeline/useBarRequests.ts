@@ -6,6 +6,8 @@ import type { Slot } from "./model";
 import type { PlayerHandle } from "./Player";
 import type { useClipEdits } from "./useClipEdits";
 import type { useTimelineMutations } from "./useTimelineMutations";
+import { plural } from "../format";
+import { failedBanner } from "../sayFailed";
 
 type Mutations = ReturnType<typeof useTimelineMutations>;
 
@@ -94,11 +96,11 @@ export function useBarRequests({ id, t, shown, clips, slots, missing, ready, ren
       (made) => {
         asked?.reply(made.ids);
         // sent to the top of the queue: the bar says so once they are there
-        if (!request.top) say({ id: `bar-render:${Date.now()}`, tone: "good", title: `${list.length} clip${list.length > 1 ? "s" : ""} of ${t.name} queued`, href: "/queue", go: "Open queue" });
+        if (!request.top) say({ id: `bar-render:${Date.now()}`, tone: "good", title: `${plural(list.length, "clip")} of ${t.name} queued`, href: "/queue", go: "Open queue" });
       },
-      (err: Error) => {
+      (err: unknown) => {
         asked?.reply(null);
-        say({ id: `bar-render:${Date.now()}`, tone: "bad", title: `Clips of ${t.name} could not be rendered`, text: err.message, href: `/timelines/${id}`, go: "Open the timeline" });
+        say(failedBanner({ id: "bar-render", href: `/timelines/${id}`, go: "Open the timeline" }, `Clips of ${t.name} could not be rendered`, err));
       },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per request: the rest is read as it stands then

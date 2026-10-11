@@ -1,11 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type RecipeInfo } from "./api";
 import { useModelSettings, useSetup } from "./data";
-import { formDefaults } from "./form";
+import { wholeForm } from "./form";
 import { notReady } from "./format";
 import { useBanners } from "./store";
 import { passFrom } from "./viewer/ask";
 import { queryKeys } from "./queryKeys";
+import { failedBanner } from "./sayFailed";
 
 // Apart from actions.ts: the Studio's header uses that file as it opens, and this one alone needs the forms' defaults
 // (form.ts), which the first load then carried for a menu's Variation.
@@ -24,7 +25,7 @@ export function useQueueVariation(into?: { draft?: string; folder?: string }) {
       const status = setup.data?.recipes.find((x) => x.id === job.recipe.id);
       const why = setup.isSuccess ? notReady(status, setup.data.comfy.online) : null;
       if (why) throw new Error(why);
-      const input: Record<string, unknown> = { ...formDefaults(job.recipe, status?.options, modelSettings.data?.items ?? [], job.stored).defaults, ...job.stored };
+      const input = wholeForm(job.recipe, status?.options, modelSettings.data?.items ?? [], job.stored);
       const has = new Set(job.recipe.inputs.map((i) => i.id));
       for (const id of Object.keys(input)) if (input[id] === undefined || !has.has(id)) delete input[id];
       const queued = await api.enqueue(job.recipe.id, input, 1, null, into);
@@ -35,6 +36,6 @@ export function useQueueVariation(into?: { draft?: string; folder?: string }) {
       void client.invalidateQueries({ queryKey: queryKeys.queue() });
       say({ id: `queued:${Date.now()}`, tone: "good", title: `${label} queued`, href: "/queue", go: "Open queue" });
     },
-    onError: (err, job) => say({ id: `queued:${Date.now()}`, tone: "bad", title: `${job.label} could not be queued`, text: err.message, href: "/settings", go: "Open settings" }),
+    onError: (err, job) => say(failedBanner({ id: "queued", href: "/settings", go: "Open settings" }, `${job.label} could not be queued`, err)),
   });
 }

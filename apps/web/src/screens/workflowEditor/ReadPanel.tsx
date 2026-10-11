@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { ancestors, pictureId, soundId } from "@afflatus/workflows";
-import { fileLabel } from "../../format";
+import { fileLabel, plural } from "../../format";
 import { Select } from "../../Select";
 import { Checkbox, cx, ErrorNote, fieldClass, Help } from "../../ui";
 import { BeforeItRuns } from "./BeforeItRuns";
@@ -98,31 +98,7 @@ function MediaRoles({ m }: { m: Mapping }) {
     <>
       {(() => {
         const main = new Set([b.startImage?.target.node, b.endImage?.target.node]);
-        const rest = found.images.filter((i) => !main.has(i.node) && i.role !== "mask");
-        if (!rest.length) return null;
-        const have = b.pictures ?? [];
-        return (
-          <Found ok={have.length > 0} role="Other pictures" what={`${have.length} of ${rest.length} in the form`} below={rest.map((i, n) => {
-              const on = have.find((p) => p.target.node === i.node);
-              return (
-                <label key={i.node} className="flex items-center gap-2">
-                  <Checkbox
-                    checked={Boolean(on)}
-                    onChange={() => set({ pictures: on ? have.filter((p) => p !== on) : [...have, { ...i.binding, id: pictureId(i.node), label: i.title && !/^Load ?Image/i.test(i.title) ? i.title : `Image ${n + 2}` }] })}
-                  />
-                  {on ? (
-                    <input
-                      aria-label={`Label of the image input for ${i.title}`}
-                      value={on.label}
-                      onChange={(e) => set({ pictures: have.map((p) => (p === on ? { ...p, label: e.target.value } : p)) })}
-                      className={cx(fieldClass, "h-8 min-w-0 grow")}
-                    />
-                  ) : <span className="text-ink-2">{i.title}</span>}
-                  <span className="shrink-0 text-xs text-ink-3">#{i.node}{on ? (on.required ? " · required" : " · optional") : ""}</span>
-                </label>
-              );
-            })} />
-        );
+        return <ExtraLoaders kind="picture" rest={found.images.filter((i) => !main.has(i.node) && i.role !== "mask")} have={b.pictures ?? []} onChange={(pictures) => set({ pictures })} />;
       })()}
 
       {/* each video the workflow loads, whole: a video it works on, the clip it carries on from, the clip it arrives at */}
@@ -157,35 +133,59 @@ function MediaRoles({ m }: { m: Mapping }) {
           <Select size="sm" label="Sound" value={b.sound?.target.node ?? ""} onChange={m.pickSound} options={[{ value: "", label: "None" }, ...found.sounds.map((i) => ({ value: i.node, label: i.title, note: `#${i.node}` }))]} />
         </Found>
       )}
-      {(() => {
-        // every other sound it loads (the music beside a voice, a second speaker): a slot each, unless it is ticked off
-        const rest = found.sounds.filter((i) => i.node !== b.sound?.target.node);
-        if (!rest.length) return null;
-        const have = b.otherSounds ?? [];
-        return (
-          <Found ok={have.length === rest.length} role="Other sounds" what={`${have.length} of ${rest.length} in the form`} note={have.length < rest.length ? "A sound loader left out keeps the file the workflow was saved with: ComfyUI needs that file in its input folder." : undefined} below={rest.map((i, n) => {
-              const on = have.find((p) => p.target.node === i.node);
-              return (
-                <label key={i.node} className="flex items-center gap-2">
-                  <Checkbox
-                    checked={Boolean(on)}
-                    onChange={() => set({ otherSounds: on ? have.filter((p) => p !== on) : [...have, { ...i.binding, id: soundId(i.node), label: i.title && !/^Load ?Audio/i.test(i.title) ? i.title : `Sound ${n + 2}` }] })}
-                  />
-                  {on ? (
-                    <input
-                      aria-label={`Label of the sound input for ${i.title}`}
-                      value={on.label}
-                      onChange={(e) => set({ otherSounds: have.map((p) => (p === on ? { ...p, label: e.target.value } : p)) })}
-                      className={cx(fieldClass, "h-8 min-w-0 grow")}
-                    />
-                  ) : <span className="text-ink-2">{i.title}</span>}
-                  <span className="shrink-0 text-xs text-ink-3">#{i.node}{on ? (on.required ? " · required" : " · optional") : ""}</span>
-                </label>
-              );
-            })} />
-        );
-      })()}
+      {/* every other sound it loads (the music beside a voice, a second speaker): a slot each, unless it is ticked off */}
+      <ExtraLoaders kind="sound" rest={found.sounds.filter((i) => i.node !== b.sound?.target.node)} have={b.otherSounds ?? []} onChange={(otherSounds) => set({ otherSounds })} />
     </>
+  );
+}
+
+
+const EXTRA = {
+  picture: { role: "Other pictures", loader: /^Load ?Image/i, word: "Image", input: "image", id: pictureId },
+  sound: { role: "Other sounds", loader: /^Load ?Audio/i, word: "Sound", input: "sound", id: soundId },
+} as const;
+
+/**
+ * The other pictures or the other sounds a workflow loads: a slot each in the form, its label typed here, unless it is
+ * ticked off. A sound loader left out keeps the file the workflow was saved with, so the sounds are all wanted; one
+ * picture in the form is enough.
+ */
+function ExtraLoaders<B extends { target: { node: string }; required?: boolean }>({ kind, rest, have, onChange }: {
+  kind: keyof typeof EXTRA;
+  rest: Array<{ node: string; title: string; binding: B }>;
+  have: Array<B & { id: string; label: string }>;
+  onChange(next: Array<B & { id: string; label: string }>): void;
+}) {
+  if (!rest.length) return null;
+  const k = EXTRA[kind];
+  const sound = kind === "sound";
+  return (
+    <Found
+      ok={sound ? have.length === rest.length : have.length > 0}
+      role={k.role}
+      what={`${have.length} of ${rest.length} in the form`}
+      note={sound && have.length < rest.length ? "A sound loader left out keeps the file the workflow was saved with: ComfyUI needs that file in its input folder." : undefined}
+      below={rest.map((i, n) => {
+        const on = have.find((p) => p.target.node === i.node);
+        return (
+          <label key={i.node} className="flex items-center gap-2">
+            <Checkbox
+              checked={Boolean(on)}
+              onChange={() => onChange(on ? have.filter((p) => p !== on) : [...have, { ...i.binding, id: k.id(i.node), label: i.title && !k.loader.test(i.title) ? i.title : `${k.word} ${n + 2}` }])}
+            />
+            {on ? (
+              <input
+                aria-label={`Label of the ${k.input} input for ${i.title}`}
+                value={on.label}
+                onChange={(e) => onChange(have.map((p) => (p === on ? { ...p, label: e.target.value } : p)))}
+                className={cx(fieldClass, "h-8 min-w-0 grow")}
+              />
+            ) : <span className="text-ink-2">{i.title}</span>}
+            <span className="shrink-0 text-xs text-ink-3">#{i.node}{on ? (on.required ? " · required" : " · optional") : ""}</span>
+          </label>
+        );
+      })}
+    />
   );
 }
 
@@ -229,7 +229,7 @@ function OutputPick({ m }: { m: Mapping }) {
               {deadEnds.map((d) => (
                 <label key={d.node} className="flex cursor-pointer items-center gap-2">
                   <Checkbox checked={skipped.has(d.node)} onChange={(v) => setSkip(d, v)} />
-                  <span className="min-w-0 grow truncate"><span className="font-semibold text-ink">{d.title}</span> #{d.node} · {d.nodes.length} node{d.nodes.length === 1 ? "" : "s"} of its own{d.steps ? `, ${d.steps} steps of sampling` : ""}</span>
+                  <span className="min-w-0 grow truncate"><span className="font-semibold text-ink">{d.title}</span> #{d.node} · {plural(d.nodes.length, "node")} of its own{d.steps ? `, ${d.steps} steps of sampling` : ""}</span>
                   <span className="shrink-0">{skipped.has(d.node) ? "left out" : "kept"}</span>
                 </label>
               ))}

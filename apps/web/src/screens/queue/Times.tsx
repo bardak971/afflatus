@@ -1,7 +1,7 @@
 import { lazy, Suspense, useMemo, useState, type ComponentProps } from "react";
 import type { TimesSummary, TopRender } from "../../api";
 import { useAsset } from "../../data";
-import { brief, long, took, UI_LOCALE } from "../../format";
+import { brief, long, plural, took, UI_LOCALE } from "../../format";
 import { cx, Empty, ErrorNote, Segmented } from "../../ui";
 import { TimeChart, useChartColors } from "./Chart";
 import { flagsOf } from "./flagRules";
@@ -146,7 +146,7 @@ function TopList({ bucket }: { bucket: { renders: number; top: TopRender[] } | u
   if (!bucket || !bucket.renders) return <span className="text-ink-3">no render</span>;
   return (
     <div className="mt-1 flex flex-col gap-0.5 border-t border-line pt-1">
-      <span className="text-ink-3">{bucket.renders} job{bucket.renders === 1 ? "" : "s"}{bucket.top.length < bucket.renders ? ` · top ${bucket.top.length}` : ""}</span>
+      <span className="text-ink-3">{plural(bucket.renders, "job")}{bucket.top.length < bucket.renders ? ` · top ${bucket.top.length}` : ""}</span>
       {bucket.top.map((r) => (
         <span key={r.id} className="flex items-baseline gap-2">
           <span className="grow truncate text-ink-2">{r.name}{r.model ? <span className="text-ink-3"> · {r.model.split(" · ")[0]}</span> : ""}</span>

@@ -7,9 +7,11 @@ import { api, type Asset, type CommandEntry } from "../api";
 import { useAsset, useEntities, useModelSettings, useProjects, useRecipes, useSetup, useStorage } from "../data";
 import { itemsWord } from "../assetCache";
 import { useOpenNewDraft } from "../draft";
+import { FolderPicker } from "../FolderPicker";
 import { useFormTarget } from "../formTarget";
-import { size } from "../format";
+import { plural, size } from "../format";
 import { useProject } from "../project";
+import { useQueueOps } from "../queueOps";
 import type { Target } from "../projects/tree";
 import { useTreeActions } from "../projects/useTreeActions";
 import { usePins } from "../projects/pins";
@@ -80,10 +82,11 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
   const pins = usePins();
   // what the queue rows need of the queue: not its progress, which changes at every step
   const queue = useQueueOf((q) => ({
-    paused: q.paused, online: q.online, rendering: q.running?.kind === "render",
+    paused: q.paused, online: q.online, rendering: q.running?.kind === "render", running: Boolean(q.running),
     waiting: q.waiting.map((w) => ({ id: w.id })), failed: q.recent.filter((j) => j.status === "failed").map((j) => j.id),
   }));
   const bulk = useQueueBulk();
+  const ops = useQueueOps();
   const jobs = useJobActions();
   const setup = useSetup();
   // what the bin holds, as its strip says it: "3 items · 12 MB"
@@ -137,11 +140,11 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
     const up = jobs.filter((j) => waiting.includes(j));
     if (up.length) client.setQueryData(queryKeys.queue(), await api.queueOrder(atTop(waiting, up)));
     const n = jobs.length;
-    good(`${n} clip${n > 1 ? "s" : ""} of ${t.name} queued at the top`, up.length < n ? `${n - up.length === 1 ? "One is" : `${n - up.length} are`} rendering already.` : "Ahead of everything else that waits.", "/queue", "Open queue");
+    good(`${plural(n, "clip")} of ${t.name} queued at the top`, up.length < n ? `${n - up.length === 1 ? "One is" : `${n - up.length} are`} rendering already.` : "Ahead of everything else that waits.", "/queue", "Open queue");
   };
 
   const x: BarCtx = {
-    go, client, say, tree, allProjects, projects: allProjects.filter((p) => !p.archivedAt), pins, queue, bulk, jobs, setup,
+    go, client, say, tree, allProjects, projects: allProjects.filter((p) => !p.archivedAt), pins, queue, ops, bulk, jobs, setup,
     binEmpty: bin ? !bin.count : false, binSaid: bin ? `${itemsWord(bin.count)} · ${size(bin.bytes)}` : "",
     recipes, entities, modelSettings, openNew, selectedClip, draftOpen, aim, subject, item, formTarget, openWorkflow, settingCtx, onCopied, setViewing,
     importInto: (t) => {
@@ -258,18 +261,9 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
     <>
       {timelineMenu.element}
       {viewing && <Suspense fallback={null}><Viewer asset={viewing} onClose={() => setViewing(null)} /></Suspense>}
-      <input
+      <FolderPicker
         ref={picker}
-        type="file"
-        multiple
-        hidden
-        aria-hidden="true"
-        tabIndex={-1}
-        // a whole directory, sub-directories included
-        {...{ webkitdirectory: "", directory: "" }}
-        onChange={(e) => {
-          const files = [...(e.target.files ?? [])];
-          e.target.value = "";
+        onFiles={(files) => {
           const t = importTo.current;
           importTo.current = null;
           if (files.length && t) void tree.importFolder(files, t, client);

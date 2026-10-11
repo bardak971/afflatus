@@ -61,7 +61,7 @@ async function readFile(file: File): Promise<Editing> {
     if (missing.length) {
       const packs = [...new Set(Object.values(inspection.packs ?? {}))];
       const some = missing.slice(0, 4).join(", ") + (missing.length > 4 ? ` and ${missing.length - 4} more` : "");
-      throw new ApiError(`This ComfyUI is missing ${missing.length} node type${missing.length > 1 ? "s" : ""} this workflow uses (${some})${packs.length ? `, from ${packs.join(", ")}` : ""}. Install ${packs.length > 1 ? "those packs" : "the pack"} in ComfyUI (ComfyUI-Manager's "Install missing custom nodes" takes them from the workflow), restart it, then import again.`);
+      throw new ApiError(`This ComfyUI is missing ${plural(missing.length, "node type")} this workflow uses (${some})${packs.length ? `, from ${packs.join(", ")}` : ""}. Install ${packs.length > 1 ? "those packs" : "the pack"} in ComfyUI (ComfyUI-Manager's "Install missing custom nodes" takes them from the workflow), restart it, then import again.`);
     }
     throw new ApiError("This workflow has no output: no Save or Preview node for an image, a video or audio.");
   }

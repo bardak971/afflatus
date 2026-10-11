@@ -1,7 +1,7 @@
-import { folderOfFileInput } from "@afflatus/core";
+import { folderOfFileInput, MODEL_EXT } from "@afflatus/core";
 import type { FileSource } from "@afflatus/workflows";
 import { envSaid } from "./config";
-import { civitaiGet, KINDS, pretendSites, squash, STEM, wordsOf, type ApiFile, type ApiModel, type ApiVersion } from "./civitai";
+import { civitaiGet, KINDS, pretendSites, squash, wordsOf, type ApiFile, type ApiModel, type ApiVersion } from "./civitai";
 
 /**
  * Where a missing model file can be had, worked out before anyone searches. Three places, in order:
@@ -40,7 +40,7 @@ type Model = ApiModel & { creator?: { username?: string } };
 type Pool = Array<{ model: Model; version?: number }>;
 
 const baseOf = (file: string) => file.split(/[\\/]/).pop() ?? file;
-const modelFiles = (v: ApiVersion) => (v.files ?? []).filter((f) => STEM.test(f.name ?? ""));
+const modelFiles = (v: ApiVersion) => (v.files ?? []).filter((f) => MODEL_EXT.test(f.name ?? ""));
 
 /**
  * How well a model answers for a file: a version with the file itself (exact), else the version linked

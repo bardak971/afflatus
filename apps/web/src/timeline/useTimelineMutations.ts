@@ -71,10 +71,15 @@ export function useTimelineMutations(id: string, o: {
     },
     onSuccess: after,
   });
-  // what Needs attention mends: the patches one after the other (each its own Undo step), then one render of the clips left
+  // what Needs attention mends: the patches one after the other (each its own Undo step), then one render of the clips left.
+  // Each as `patch` sends one: what was typed over the clip first, then the patch in the forms' turn, so that a save of
+  // its form never crosses it
   const fix = useMutation({
     mutationFn: async (v: Omit<Fix, "ms">) => {
-      for (const p of v.patches) await api.editClip(p.clip, p.patch);
+      for (const p of v.patches) {
+        await save(p.clip);
+        await turn(() => api.editClip(p.clip, p.patch));
+      }
       const clips = (o.clipsNow.current ?? []).filter((c) => v.render.includes(c.id));
       if (clips.length) await render.mutateAsync({ clips });
     },

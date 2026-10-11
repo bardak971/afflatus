@@ -1,13 +1,12 @@
-import type { NodeCatalog } from "@afflatus/core";
+import { endsIn, MODEL_EXT, MODEL_EXTS, modelStem, type NodeCatalog } from "@afflatus/core";
 
 /** A name with something before the dot: "model.safetensors", "sub\\pic.png". A bare ".png" is an extension, not a file. */
-const FILE = /[^\\/.]\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx|engine|png|jpe?g|webp|gif|bmp|tiff?|mp4|webm|mov|mkv|avi|wav|mp3|flac|ogg|m4a|opus|txt|json|ya?ml|csv|patch|latent|glb|obj|ply|ttf|otf|woff2?)$/i;
-const MODEL = /\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx)$/i;
+const FILE = new RegExp(String.raw`[^\\/.]` + endsIn([...MODEL_EXTS, "engine", "png", "jpe?g", "webp", "gif", "bmp", "tiff?", "mp4", "webm", "mov", "mkv", "avi", "wav", "mp3", "flac", "ogg", "m4a", "opus", "txt", "json", "ya?ml", "csv", "patch", "latent", "glb", "obj", "ply", "ttf", "otf", "woff2?"]).source, "i");
 
 const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string");
 const isFileList = (v: unknown): v is string[] => isStrings(v) && v.some((x) => FILE.test(x));
 /** A file's name as some nodes list it: without its folder and without its extension, in lower case. */
-const stemOf = (name: string) => (name.split(/[\\/]/).pop() ?? name).replace(MODEL, "").toLowerCase();
+const stemOf = (name: string) => modelStem(name).toLowerCase();
 
 /** Every array and object of the catalog, with the means to empty a list found in it. */
 function walk(value: unknown, visit: (list: string[], empty: () => void, key: string | null, holder: Record<string, unknown> | null) => boolean): void {
@@ -36,7 +35,7 @@ function walk(value: unknown, visit: (list: string[], empty: () => void, key: st
 export function stripFileLists(catalog: NodeCatalog): number {
   const models = new Set<string>();
   walk(catalog, (list) => {
-    if (isFileList(list)) for (const f of list) if (MODEL.test(f)) models.add(stemOf(f));
+    if (isFileList(list)) for (const f of list) if (MODEL_EXT.test(f)) models.add(stemOf(f));
     return false;
   });
   let n = 0;

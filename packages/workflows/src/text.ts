@@ -1,5 +1,6 @@
 // Text helpers of the workflows, apart from the schemas in types.ts: what imports only these does not load zod (the web's
 // Workflows screen; the package says it has no side effects, so the schemas are left out of a bundle that does not use them).
+import { slug as coreSlug } from "@afflatus/core";
 
 /**
  * Workflow authors name such a switch "X: True = A | False = B". That reads badly on a form: the name
@@ -18,4 +19,12 @@ export function splitCaptions(label: string): { label: string; captions?: { on: 
   return { label: label.slice(0, end).trim() || "Mode", captions: { on, off } };
 }
 
-export const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "workflow";
+/** A workflow's title made a slug for a new id or a file name prefix (core's slug, accents folded); "workflow" when nothing is left. */
+export const slug = (text: string) => coreSlug(text, 48) || "workflow";
+
+/**
+ * The slug a workflow family's id is made from (`workflow-<model>`), as it was first written: no accent folding, a
+ * dash may end it. The family id is made again from the model name each time a saved workflow is read, so a folded
+ * slug would give the workflows already imported with an accented or long model name another family id.
+ */
+export const familySlug = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "workflow";

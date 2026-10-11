@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { snapTo } from "./snap";
 import { cx } from "./ui";
 
 /**
@@ -29,7 +30,7 @@ export function RangeSlider({ from, to, min, max, step = 1, gap, onChange, onCom
   const [drag, setDrag] = useState<{ knob: "from" | "to"; from: number; to: number } | null>(null);
   const decimals = (String(step).split(".")[1] ?? "").length;
   const apart = Math.max(step, gap ?? step);
-  const snap = (v: number) => Number((Math.round(Math.max(min, Math.min(max, v)) / step) * step).toFixed(decimals));
+  const snap = (v: number) => snapTo(v, min, max, step);
   const shownFrom = drag?.from ?? from;
   const shownTo = drag?.to ?? to;
   const at = (v: number) => (max === min ? 0 : ((Math.max(min, Math.min(max, v)) - min) / (max - min)) * 100);

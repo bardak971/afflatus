@@ -6,6 +6,7 @@ import { useRecipes } from "../../data";
 import { usePresetFiles } from "../../PresetFiles";
 import { buttonClass, cx } from "../../ui";
 import { Mark, Row } from "./Row";
+import { plural } from "../../format";
 
 /** An author as a list's dim line says them: "Darksidewalker (DaSiWa)" is Darksidewalker there. */
 export const shortAuthor = (author: string) => author.replace(/\s*\([^)]*\)\s*$/, "").trim() || author;
@@ -91,7 +92,7 @@ export function PresetList({ found, open, onSelect: select, onMenu, children }: 
   const presetBadges = (e: Extract<Entity, { kind: "preset" }>) => {
     const st = filesOf(e);
     const missing = missingOf(e);
-    if (missing > 0) return <span className="font-mono text-[11px] text-ink-3">needs {missing} file{missing > 1 ? "s" : ""}</span>;
+    if (missing > 0) return <span className="font-mono text-[11px] text-ink-3">needs {plural(missing, "file")}</span>;
     return st && st.files.length > 0 ? <span className="font-mono text-[11px] text-good/80">ready</span> : null;
   };
   // who made it and what it is picked by ("Darksidewalker · Hybrid v3 · smaller file"); without a line, its operation

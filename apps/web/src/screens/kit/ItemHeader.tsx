@@ -1,25 +1,19 @@
-import { useEffect, useState } from "react";
 import { Check, FileDown, Link2, MoreHorizontal, Play, X } from "lucide-react";
 import type { Entity } from "../../api";
 import { savePresetFile } from "../../presetFile";
-import { copyText } from "../../secureContext";
 import { Button, Chip } from "../../ui";
 import { kitHref } from "./link";
+import { useCopied } from "../../hooks";
 
 /** What deleting an item does, said before it is done. */
 export const noteOfDelete = (e: Entity) => (e.kind === "person" || e.kind === "place" ? "Images picked from your library stay there; images uploaded here go to the bin with it." : "It cannot be brought back.");
 
 /** The address of an item of the kit, to the clipboard: pasted in another tab, it opens the kit on that item. */
 export function CopyLink({ item }: { item: Entity }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(t);
-  }, [copied]);
+  const { copied, copy } = useCopied();
   const href = `${window.location.origin}${kitHref(item.kind, item.id)}`;
   return (
-    <Button size="sm" data-tip={href} onClick={() => void copyText(href).then(() => setCopied(true), () => {})} className="flex shrink-0 items-center gap-1.5">
+    <Button size="sm" data-tip={href} onClick={() => copy(href)} className="flex shrink-0 items-center gap-1.5">
       {copied ? <Check size={13} /> : <Link2 size={13} />} {copied ? "Copied" : "Copy link"}
     </Button>
   );

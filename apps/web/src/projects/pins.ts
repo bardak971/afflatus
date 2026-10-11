@@ -1,8 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { api, type Project, type Settings } from "../api";
-import { useBanners } from "../store";
 import { useProjects, useSettings } from "../data";
 import { queryKeys } from "../queryKeys";
+import { useSayFailed } from "../sayFailed";
 
 /** How many projects the rail holds under the one worked in. */
 const PIN_LIMIT = 4;
@@ -28,16 +28,16 @@ export function usePins() {
   const client = useQueryClient();
   const settings = useSettings();
   const projects = useProjects();
-  const say = useBanners((b) => b.push);
+  const failed = useSayFailed({ id: "pins", go: "Open the Studio" });
   const ids = livePins(settings.data?.pinnedProjects ?? [], projects.data?.items);
   const save = (next: string[]) => {
     const was = client.getQueryData<Settings>(queryKeys.settings());
     if (was) client.setQueryData<Settings>(queryKeys.settings(), { ...was, pinnedProjects: next });
     api.saveSettings({ pinnedProjects: next }).then(
       (saved) => client.setQueryData(queryKeys.settings(), saved),
-      (err: Error) => {
+      (err: unknown) => {
         if (was) client.setQueryData(queryKeys.settings(), was);
-        say({ id: `pins:${Date.now()}`, tone: "bad", title: "The rail's pins could not be saved", text: err.message });
+        failed("The rail's pins could not be saved")(err);
       },
     );
   };

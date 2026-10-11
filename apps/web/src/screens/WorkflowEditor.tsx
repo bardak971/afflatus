@@ -10,6 +10,7 @@ import { ReadPanel } from "./workflowEditor/ReadPanel";
 import { ShowPanel } from "./workflowEditor/ShowPanel";
 import { useMapping, type Editing } from "./workflowEditor/useMapping";
 import { queryKeys } from "../queryKeys";
+import { plural } from "../format";
 
 export type { Editing };
 
@@ -49,7 +50,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
     b.model && "model file", b.prompt && "prompt", b.negative && "negative prompt", b.startImage && (video ? "first frame" : "image"), b.endImage && "last frame",
     b.sourceVideo && "source video", b.previousVideo && "previous clip", b.nextVideo && "next clip", b.sound && "sound",
     b.size && "resolution", video && b.length && "duration", b.seeds.length && "seed", b.loras.length && (b.loras.length > 1 ? `${b.loras.length} LoRA lists` : "LoRAs"),
-    b.toggles.length && `${b.toggles.length} switch${b.toggles.length === 1 ? "" : "es"}`, b.controls.length && `${b.controls.length} widget${b.controls.length === 1 ? "" : "s"}`,
+    b.toggles.length && `${b.toggles.length} switch${b.toggles.length === 1 ? "" : "es"}`, b.controls.length && `${plural(b.controls.length, "widget")}`,
     `${b.result.kind === "image" ? "image" : b.result.kind === "video" ? (b.result.sound ? "video with audio" : "video") : "audio"} output`,
   ].filter((x): x is string => Boolean(x));
   const lacks = [!b.prompt && "prompt", video && !b.startImage && "first frame", !b.seeds.length && "seed", !b.size && "resolution", video && !b.length && "duration"].filter((x): x is string => Boolean(x));

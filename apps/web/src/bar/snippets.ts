@@ -1,3 +1,5 @@
+import { slug } from "@afflatus/core";
+
 /**
  * Prompt snippets typed by name (Settings › Command bar): the Prompt kit's snippets, each reached as `;` and
  * its name made a slug ("Cine look" → `;cine-look`), expand in a prompt box on a space or Tab. Pure: the box
@@ -11,7 +13,7 @@ export interface Snippet {
 }
 
 /** A snippet's name as it is typed after `;`: lower case, every run of other signs a dash ("Cine look" → "cine-look"). */
-export const slugOf = (name: string) => name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+export const slugOf = (name: string) => slug(name);
 
 /** The `;word` being typed right before `caret`, and where its `;` is; null when the cursor is not at the end of one. */
 export function typedTrigger(text: string, caret: number): { word: string; start: number } | null {

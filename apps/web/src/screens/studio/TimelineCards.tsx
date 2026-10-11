@@ -3,13 +3,14 @@ import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Check, Film, Folder as FolderIcon, FolderKanban, Pencil, Plus, Trash2, X } from "lucide-react";
+import { useTimelineOf } from "../../actions";
 import { Select } from "../../Select";
 import { api, thumbUrl, type TimelineBrief, type TimelineLeaf } from "../../api";
 import { ask, askText } from "../../Confirm";
 import { ContextMenu, useMenu, type MenuHead, type MenuItem } from "../../ContextMenu";
 import { useFolders, useProjects, useProjectsTree } from "../../data";
 import { DRAG_TIMELINE, DRAG_TYPE, useDragged } from "../../dragging";
-import { clock, when } from "../../format";
+import { clock, plural, when } from "../../format";
 import { plainKey } from "../../Keys";
 import { useKeysHere } from "../../keys/here";
 import { projectForNew } from "../../project";
@@ -168,22 +169,16 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
       window.removeEventListener("dragend", end);
     };
   }, []);
-  const makeOf = useMutation({
-    // library items by their ids, or files from the computer: brought into the library first (the folder open, else the
-    // project's root), then put on the new timeline in the order they came
-    mutationFn: async (from: { ids: string[] } | { files: File[] }) => {
-      const ids = "ids" in from ? from.ids : [];
-      if ("files" in from) {
-        const media = from.files.filter((f) => /^(image|video)\//.test(f.type));
-        if (!media.length) throw new Error("A timeline is made of pictures and videos: nothing dropped was one.");
-        for (const f of media) ids.push((await api.upload(f, { folder: openFolderId() ?? undefined, project: projectForNew() })).id);
-      }
-      const t = await api.createTimeline(undefined, projectForNew());
-      for (const id of ids) await api.addClip(t.id, { asset: id });
-      return t;
-    },
-    onSuccess: (t) => { void client.invalidateQueries({ queryKey: queryKeys.timelines.all() }); go(`/timelines/${t.id}`); },
-  });
+  // library items by their ids, or files from the computer: brought into the library first (the folder open, else the
+  // project's root), then put on the new timeline in the order they came, pictures as stills
+  const makeOf = useTimelineOf(async (from: { ids: string[] } | { files: File[] }) => {
+    if ("ids" in from) return { assets: from.ids.map((id) => ({ id })) };
+    const media = from.files.filter((f) => /^(image|video)\//.test(f.type));
+    if (!media.length) throw new Error("A timeline is made of pictures and videos: nothing dropped was one.");
+    const assets = [];
+    for (const f of media) assets.push(await api.upload(f, { folder: openFolderId() ?? undefined, project: projectForNew() }));
+    return { assets };
+  }, { onSuccess: (t) => go(`/timelines/${t.id}`) });
   const items = (t: TimelineBrief): MenuItem[] => {
     const many = picked.has(t.id) && picked.size > 1 ? [...picked] : [t.id];
     const some = many.length > 1 ? `${many.length} timelines` : "";
@@ -213,7 +208,7 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
   const headOf = (t: TimelineBrief): MenuHead =>
     picked.has(t.id) && picked.size > 1
       ? { title: `${picked.size} timelines` }
-      : { title: t.name, thumb: t.cover ?? undefined, sub: <><span className="font-mono">{clock(t.durationMs)}</span> · {t.clips} clip{t.clips === 1 ? "" : "s"}</> };
+      : { title: t.name, thumb: t.cover ?? undefined, sub: <><span className="font-mono">{clock(t.durationMs)}</span> · {plural(t.clips, "clip")}</> };
   const error = create.error ?? makeOf.error ?? rename.error ?? move.error ?? remove.error;
   const firstScreen = firstScreenCards(size);
 

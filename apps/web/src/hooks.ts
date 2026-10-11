@@ -1,13 +1,47 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { copyText } from "./secureContext";
 
 /** The small hooks several screens share. */
 
-/** A value as it stands once it has stopped changing for `ms`: what is typed in a search box, asked for once the typing stops. */
-export function useSettled<T>(value: T, ms = 250): T {
-  const [settled, setSettled] = useState(value);
+/**
+ * `value` a moment after it stops changing: what is asked of the server as typed waits for the typing to pause. While
+ * `live` is off it keeps what it had (a search of another mode is not asked again on the way back). It starts at `from`.
+ */
+export function useDebounced<T>(value: T, ms: number, live: boolean, from: T): T {
+  const [now, setNow] = useState(from);
   useEffect(() => {
-    const t = setTimeout(() => setSettled(value), ms);
+    if (!live) return;
+    const t = setTimeout(() => setNow(value), ms);
     return () => clearTimeout(t);
-  }, [value, ms]);
-  return settled;
+  }, [value, ms, live]);
+  return now;
+}
+
+/** A value as it stands once it has stopped changing for `ms`: what is typed in a search box, asked for once the typing stops. */
+export const useSettled = <T,>(value: T, ms = 250): T => useDebounced(value, ms, true, value);
+
+/**
+ * A value shown for a moment: `flash(v)` sets it, and it is back to `rest` after `ms`. A flash before the last one is
+ * over starts the wait again, and nothing is set once the screen is gone.
+ */
+export function useFlash<T>(rest: T, ms = 1500): [T, (value: T) => void] {
+  const [value, setValue] = useState(rest);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // what it falls back to is read when the wait ends, so that the caller may pass it afresh at each drawing
+  const restRef = useRef(rest);
+  restRef.current = rest;
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const flash = useCallback((next: T) => {
+    clearTimeout(timer.current);
+    setValue(next);
+    timer.current = setTimeout(() => setValue(restRef.current), ms);
+  }, [ms]);
+  return [value, flash];
+}
+
+/** A copy button's "Copied" for a moment: `copy(text)` puts the text on the clipboard and lights `copied`; a copy the browser refuses lights nothing. */
+export function useCopied(ms = 1500): { copied: boolean; copy(text: string): void } {
+  const [copied, flash] = useFlash(false, ms);
+  const copy = useCallback((text: string) => void copyText(text).then(() => flash(true), () => {}), [flash]);
+  return { copied, copy };
 }

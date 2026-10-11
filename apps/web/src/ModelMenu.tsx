@@ -4,6 +4,9 @@ import { useLocation } from "wouter";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { api } from "./api";
 import { useDrafts, useQueue, useRecipes } from "./data";
+import { useQueueOps } from "./queueOps";
+import { unloadBlock } from "./queueRules";
+import { failedBanner } from "./sayFailed";
 import { useBanners } from "./store";
 import { queryKeys } from "./queryKeys";
 
@@ -19,7 +22,8 @@ export function ModelMenuBody({ at, onClose }: { at: Parameters<typeof ContextMe
   const client = useQueryClient();
   const say = useBanners((b) => b.push);
   const [, go] = useLocation();
-  const busy = Boolean(queue.data?.running);
+  const ops = useQueueOps();
+  const why = unloadBlock(queue.data);
   // the last drafts' models, once each: a draft is what holds a model choice whole (its form, its cast)
   const recent = (drafts.data?.items ?? []).filter((d, i, all) => all.findIndex((x) => x.recipe === d.recipe) === i).slice(0, 6);
   const titleOf = (id: string) => {
@@ -33,18 +37,15 @@ export function ModelMenuBody({ at, onClose }: { at: Parameters<typeof ContextMe
       await api.warm(d.recipe, d.forms[d.recipe] ?? {}, d.look);
       say({ id: `load:${Date.now()}`, tone: "good", title: `Loading ${label}`, text: "Queued: the next render with it starts at once.", href: "/queue", go: "Open queue" });
     } catch (err) {
-      say({ id: `load:${Date.now()}`, tone: "bad", title: `Could not load ${label}`, text: err instanceof Error ? err.message : String(err) });
+      say(failedBanner({ id: "load", href: "/queue", go: "Open queue" }, `Could not load ${label}`, err));
     } finally {
       void client.invalidateQueries({ queryKey: queryKeys.queue() });
     }
   };
   const items: MenuItem[] = [
     {
-      label: "Unload models", icon: <MemoryStick size={14} />, disabled: busy, note: busy ? "not while a job runs" : "free VRAM",
-      run: () => void api.freeMemory().then(
-        () => { say({ id: `free:${Date.now()}`, tone: "good", title: "Models unloaded", text: "The next render loads what it needs again." }); void client.invalidateQueries({ queryKey: queryKeys.queue() }); },
-        (err: Error) => say({ id: `free:${Date.now()}`, tone: "bad", title: "Could not unload the models", text: err.message }),
-      ),
+      label: "Unload models", icon: <MemoryStick size={14} />, disabled: Boolean(why), note: why ?? "free VRAM",
+      run: () => ops.unload.mutate(),
     },
     {
       label: "Load", icon: <Play size={14} />, note: "a recent draft's model",

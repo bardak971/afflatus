@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Camera, Download, Link2, Maximize, Pause, Play, Redo2, Repeat, SkipBack, SkipForward, Sparkles, Undo2, Volume2, VolumeX } from "lucide-react";
 import type { Clip, Timeline } from "../api";
-import { clock } from "../format";
-import { est, Estimate } from "./estimate";
+import { clock, est, plural } from "../format";
+import { Estimate } from "./estimate";
 import { Button, Chip, cx, Help } from "../ui";
 import { Slider } from "../Slider";
 import type { Clock } from "./clock";
@@ -63,7 +63,7 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
         {clips.length === 0 ? "Empty" : (
           <span className="truncate">
             <span className="font-mono">{now}</span>
-            {now !== planned && <> rendered of <span className="font-mono">{planned}</span></>} · {clips.length} clip{clips.length > 1 ? "s" : ""}
+            {now !== planned && <> rendered of <span className="font-mono">{planned}</span></>} · {plural(clips.length, "clip")}
           </span>
         )}
       </Chip>

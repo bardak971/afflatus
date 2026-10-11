@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
 import { useSettings, useStorage } from "../../data";
-import { size } from "../../format";
+import { plural, size } from "../../format";
 import { Button, ButtonLink, cx, ErrorNote, Segmented, TwoStep } from "../../ui";
 import { Block, Card, Row } from "./Rows";
 import { daysSaid, insteadOfWaiting } from "../../keepFor";
@@ -52,7 +52,7 @@ export function StorageCard() {
           </Block>
         )}
         {s && s.idleTakes.count > 0 && (
-          <Row setting="storage.idle" label="Takes that never play" sub={`${s.idleTakes.count} take${s.idleTakes.count > 1 ? "s" : ""}`} help={`${s.idleTakes.count > 1 ? "These takes are" : "This take is"} not the one that plays in ${s.idleTakes.count > 1 ? "their" : "its"} clip. ${binDays ? `In the bin they are kept ${daysSaid(binDays)}, then deleted.` : "In the bin they are kept until you empty it."}`}>
+          <Row setting="storage.idle" label="Takes that never play" sub={`${plural(s.idleTakes.count, "take")}`} help={`${s.idleTakes.count > 1 ? "These takes are" : "This take is"} not the one that plays in ${s.idleTakes.count > 1 ? "their" : "its"} clip. ${binDays ? `In the bin they are kept ${daysSaid(binDays)}, then deleted.` : "In the bin they are kept until you empty it."}`}>
             <Button size="sm" disabled={idle.isPending} onClick={() => idle.mutate()}>Move {s.idleTakes.count > 1 ? "them" : "it"} to the bin · {size(s.idleTakes.bytes)}</Button>
           </Row>
         )}
@@ -60,7 +60,7 @@ export function StorageCard() {
           <Row
             setting="storage.bin"
             label="Bin"
-            sub={s.bin.count > 0 ? `${s.bin.count} item${s.bin.count > 1 ? "s" : ""} · ${size(s.bin.bytes)}` : "empty"}
+            sub={s.bin.count > 0 ? `${plural(s.bin.count, "item")} · ${size(s.bin.bytes)}` : "empty"}
             help={`${binDays ? `Kept ${daysSaid(binDays)} before it is deleted.` : "Kept until you empty it."} ${unkeptDays ? `Outputs you do not keep go to the bin after ${daysSaid(unkeptDays)}` : "Outputs you do not keep stay until you bin them"}${s.unkept.count ? ` (${s.unkept.count} not kept now, ${size(s.unkept.bytes)})` : ""}. What is on a timeline is always kept.`}
           >
             {s.bin.count > 0 && <TwoStep label="Empty the bin" tone="danger" title={`Everything in the bin is erased now, files and all, instead of ${insteadOfWaiting(binDays)}`} note="This cannot be undone." yes={`Erase ${size(s.bin.bytes)}`} busy={empty.isPending} onYes={() => empty.mutate()} />}
@@ -121,7 +121,7 @@ function RenderRecord() {
       <Row
         setting="storage.renderTimes"
         label="Render times kept for"
-        sub={r ? `${r.renders} render${r.renders === 1 ? "" : "s"} one by one${r.days ? `, ${r.days} day${r.days === 1 ? "" : "s"} as figures` : ""}` : undefined}
+        sub={r ? `${plural(r.renders, "render")} one by one${r.days ? `, ${plural(r.days, "day")} as figures` : ""}` : undefined}
         help={`What the Queue's "Render times" and the estimates on the buttons are made from. Older renders are folded into one line per model and day, kept for good: the charts still reach back, the list does not.`}
       >
         <Segmented oneLine label="How long each render is kept one by one" value={String(days)} options={KEEP_FOR} onChange={(v) => keep.mutate(Number(v))} />

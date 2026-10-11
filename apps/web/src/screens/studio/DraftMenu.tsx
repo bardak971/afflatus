@@ -4,7 +4,7 @@ import { Thumb } from "../../Thumb";
 import { fuzzyFilter } from "@afflatus/core";
 import { thumbUrl, type DraftBrief } from "../../api";
 import { useRecipes } from "../../data";
-import { triedLabel, when } from "../../format";
+import { plural, triedLabel, when } from "../../format";
 import { ContextMenu, useMenu } from "../../ContextMenu";
 import { Keys } from "../../Keys";
 import { Popover } from "../../Popover";
@@ -215,11 +215,11 @@ export function DraftMenu({ drafts, open: current, titleOf, onPick, onNew, onCle
               <div className="flex h-10 items-center gap-2 pr-3">
                 <button type="button" aria-expanded={emptyShown} data-tip="No prompt, no name and nothing made from them: settings picked and left" onClick={() => setEmptyShown(!emptyShown)} className="flex h-full min-w-0 grow items-center gap-2 px-3 text-left text-xs text-ink-2 hover:text-ink">
                   <ChevronDown size={13} className={cx("shrink-0 transition-transform duration-(--t-pop)", emptyShown && "rotate-180")} />
-                  <span className="truncate">{emptyShown ? `Hide the ${empties} unused draft${empties === 1 ? "" : "s"}` : `${empties} unused draft${empties === 1 ? "" : "s"}`}</span>
+                  <span className="truncate">{emptyShown ? `Hide the ${plural(empties, "unused draft")}` : `${plural(empties, "unused draft")}`}</span>
                 </button>
                 <TwoStep
                   label={clearing ? "Clearing…" : "Clear them"}
-                  title={`Delete the ${empties} unused draft${empties === 1 ? "" : "s"} (the open one stays)`}
+                  title={`Delete the ${plural(empties, "unused draft")} (the open one stays)`}
                   note="Delete? The open one stays."
                   yes="Delete"
                   cancel="Keep"

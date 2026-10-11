@@ -4,6 +4,7 @@ import type { Toggle } from "@afflatus/workflows";
 import { Button, Checkbox, cx, fieldClass, Help, SectionTitle } from "../../ui";
 import { keyOf, plainLabel, rangeOf, Step } from "./parts";
 import type { Mapping } from "./useMapping";
+import { plural } from "../../format";
 
 /** Step 2: the switches, the choice of how far it runs, and the widgets the form can show. */
 export function ShowPanel({ m }: { m: Mapping }) {
@@ -99,7 +100,7 @@ function SwitchList({ m }: { m: Mapping }) {
                 )}
                 {t.help && <Help text={t.help} />}
               </span>
-              <span className="min-w-0 truncate text-xs text-ink-3">{via && <span data-tip="Two switches of this name: this one goes through this node">via {via} · </span>}{t.default ? "on" : "off"} in the file · {nodes} node{nodes === 1 ? "" : "s"}</span>
+              <span className="min-w-0 truncate text-xs text-ink-3">{via && <span data-tip="Two switches of this name: this one goes through this node">via {via} · </span>}{t.default ? "on" : "off"} in the file · {plural(nodes, "node")}</span>
             </div>
             {warnings.map((w) => <span key={w} className="flex items-start gap-1.5 text-xs text-warn-ink"><AlertTriangle size={12} className="mt-0.5 shrink-0" />{w}</span>)}
           </div>
@@ -175,7 +176,7 @@ function WidgetList({ m }: { m: Mapping }) {
               </button>
               {found.about?.[items[0]!.classType] && <Help text={found.about[items[0]!.classType]!} />}
               <button type="button" tabIndex={-1} aria-hidden onClick={() => flipNode(node, open)} className="h-6 grow" />
-              <span className="shrink-0 py-1 text-ink-2">{tickedHere ? `${tickedHere} of ${items.length}` : `${items.length} widget${items.length === 1 ? "" : "s"}`}</span>
+              <span className="shrink-0 py-1 text-ink-2">{tickedHere ? `${tickedHere} of ${items.length}` : `${plural(items.length, "widget")}`}</span>
             </div>
             {open && <div className={cx(card, "ml-4")}>{items.map((c) => {
               const ticked = b.controls.find((x) => x.id === c.id);

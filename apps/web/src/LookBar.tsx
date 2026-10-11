@@ -66,7 +66,7 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
             ev.preventDefault();
             const r = ev.currentTarget.getBoundingClientRect();
             // from the keyboard (Enter, the menu key), its first item is active at once
-            setMenu({ id: e.id, at: below || (ev.clientX === 0 && ev.clientY === 0) ? { x: r.left, y: r.bottom + 4, keyed: ev.detail === 0 } : { x: ev.clientX, y: ev.clientY } });
+            setMenu({ id: e.id, at: below || ev.button === -1 || (ev.clientX === 0 && ev.clientY === 0) ? { x: r.left, y: r.bottom + 4, keyed: ev.detail === 0 } : { x: ev.clientX, y: ev.clientY } });
           };
           return (
             <button

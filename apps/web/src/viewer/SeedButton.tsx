@@ -1,20 +1,11 @@
-import { useEffect, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
-import { copyText } from "../secureContext";
 import { cx } from "../ui";
+import { useCopied } from "../hooks";
 
 /** The seed a render went out with, as a small button that copies it: "Copied" for a moment once it is on the clipboard. */
 export function SeedButton({ seed, className }: { seed: number; className?: string }) {
-  const [copied, setCopied] = useState(false);
-  const timer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
-  const copy = () => {
-    void copyText(String(seed)).then(() => {
-      setCopied(true);
-      window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => setCopied(false), 1500);
-    }, () => {});
-  };
+  const { copied, copy: copyIt } = useCopied();
+  const copy = () => copyIt(String(seed));
   return (
     <button
       type="button"

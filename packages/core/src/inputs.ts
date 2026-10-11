@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { endsIn, MODEL_EXTS } from "./modelFiles";
 
 /**
  * The closed vocabulary of controls. A recipe declares its inputs as a list of these; the composer
@@ -282,9 +283,10 @@ export function schemaFor(specs: InputSpec[]) {
   return z.strictObject(Object.fromEntries(specs.map((s) => [s.id, schemaOf(s)])));
 }
 
+const MODEL_OR_MEDIA = endsIn([...MODEL_EXTS, "png", "jpe?g", "webp", "mp4", "wav", "mp3"]);
 /** Whether a list of choices is a list of files (models, pictures, sounds), not of settings. An empty one may be either. */
 export const looksLikeFiles = (choices: string[]) =>
-  !choices.length || choices.some((c) => /\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx|png|jpe?g|webp|mp4|wav|mp3)$/i.test(c));
+  !choices.length || choices.some((c) => MODEL_OR_MEDIA.test(c));
 
 /**
  * The value a choice starts with, given what ComfyUI offers for it: its default when that is there, else the best

@@ -2,11 +2,12 @@ import { Bookmark, ChevronLeft, ChevronRight, Clapperboard, Eye, FileOutput, Fil
 import { api, type RecipeInfo } from "../../api";
 import { emptyAll, restoreAll } from "../../binActions";
 import { snapEdge } from "../../fields/SizeField";
-import { formDefaults } from "../../form";
+import { wholeForm } from "../../form";
 import { useFormTarget } from "../../formTarget";
-import { size } from "../../format";
+import { plural, size } from "../../format";
 import { rowKeys } from "../../keys/table";
 import { projectForNew, useProject } from "../../project";
+import { unloadBlock } from "../../queueRules";
 import type { Target } from "../../projects/tree";
 import { kitHref } from "../../screens/kit/link";
 import { useBanners } from "../../store";
@@ -23,7 +24,7 @@ const KIT_WORD = { person: "person", place: "place", style: "style", preset: "pr
 
 /** A command with its figures: what it does, then (Ctrl + Enter) where it does it. */
 export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, preset?: Preset): Action[] {
-  const { aim, client, go, say, good, failed, form, noDraft, askTimeline, atTopAction, tree, queue } = x;
+  const { aim, client, go, say, good, failed, form, noDraft, askTimeline, atTopAction, tree, queue, ops } = x;
   const noTimeline: Action = { label: "No timeline to do it on", disabled: true, run: () => {} };
   switch (c.cmd) {
     case "render-clips":
@@ -116,7 +117,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
         const open = useFormTarget.getState().target;
         const status = x.setup.data?.recipes.find((r) => r.id === recipe.id);
         const stored = open?.recipe.id === recipe.id ? open.values : {};
-        const input = { ...formDefaults(recipe, status?.options, x.modelSettings.data?.items ?? [], stored).defaults, ...stored };
+        const input = wholeForm(recipe, status?.options, x.modelSettings.data?.items ?? [], stored);
         await api.warm(recipe.id, input, open?.recipe.id === recipe.id ? open.look ?? null : null);
         void client.invalidateQueries({ queryKey: queryKeys.queue() });
         good(`${recipe.title}: loading its models`, "A job in the queue that renders nothing.", "/queue", "Open queue");
@@ -125,11 +126,8 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
     }
     case "unload": {
       // the Queue page's button, on the same conditions
-      const q = queue;
-      return [{
-        label: "Unload models", icon: <MemoryStick size={14} />, disabled: !q?.online || q.rendering, note: !q?.online ? "ComfyUI is offline" : q.rendering ? "not while a render runs" : "the next render loads what it needs",
-        run: () => api.freeMemory().then(() => good("Models unloaded", "The next render loads what it needs again.", "/queue", "Open queue"), failed("Could not unload the models")),
-      }];
+      const why = unloadBlock(queue);
+      return [{ label: "Unload models", icon: <MemoryStick size={14} />, disabled: Boolean(why), note: why ?? "the next render loads what it needs", run: () => ops.unload.mutate() }];
     }
     case "new-draft":
       if (!recipe) return [{ label: `No model called “${c.recipe}”`, disabled: true, run: () => {} }];
@@ -145,13 +143,14 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       const group = project && project !== "none" ? project : null;
       const p = group ? x.allProjects.find((y) => y.id === group) : undefined;
       const root = p?.folderId ?? null;
+      const name = p?.name ?? "the Inbox";
       return [{
-        label: `New folder “${c.name}” in ${p?.name ?? "the Inbox"}`, icon: <FolderPlus size={14} />,
-        run: () => api.createFolder(c.name, root, root ? undefined : group).then((f) => {
-          for (const queryKey of [queryKeys.folders(), queryKeys.projects.all()]) void client.invalidateQueries({ queryKey });
+        label: `New folder “${c.name}” in ${name}`, icon: <FolderPlus size={14} />,
+        run: () => tree.newFolder({ name, parent: root, project: group, typed: c.name }).then((made) => {
+          if (!made) return;
           x.reindex();
-          good(`${f.name} made`, `In ${p?.name ?? "the Inbox"}.`);
-        }, failed(`${c.name} could not be made`)),
+          good(`${c.name} made`, `In ${name}.`);
+        }),
       }];
     }
     case "new-person":
@@ -188,17 +187,12 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
     case "reconnect":
       return [{
         label: "Reconnect to ComfyUI", icon: <Plug size={14} />, note: "as Settings' Test again",
-        run: () => api.rescanSetup().then((scan) => {
-          client.setQueryData(queryKeys.setup(), scan);
-          for (const queryKey of [queryKeys.settings(), queryKeys.queue()]) void client.invalidateQueries({ queryKey });
-          if (scan.comfy.online) good("ComfyUI answers", scan.comfy.url, "/queue", "Open queue");
-          else say({ id: "bar:comfy", tone: "bad", title: "ComfyUI does not answer", text: scan.comfy.error, href: "/settings", go: "Open settings" });
-        }, failed("Could not reach ComfyUI")),
+        run: () => ops.reconnect.mutate(),
       }];
     case "pause":
-      return [{ label: "Pause queue", icon: <Pause size={14} />, disabled: queue?.paused, note: queue?.paused ? "already paused" : undefined, run: () => api.pause().then((q) => client.setQueryData(queryKeys.queue(), q), failed("Could not pause the queue")) }];
+      return [{ label: "Pause queue", icon: <Pause size={14} />, disabled: queue?.paused, note: queue?.paused ? "already paused" : undefined, run: () => ops.pause.mutate() }];
     case "resume":
-      return [{ label: "Resume queue", icon: <Play size={14} />, disabled: queue ? !queue.paused : false, note: queue && !queue.paused ? "it is running" : undefined, run: () => api.resume().then((q) => client.setQueryData(queryKeys.queue(), q), failed("Could not resume the queue")) }];
+      return [{ label: "Resume queue", icon: <Play size={14} />, disabled: queue ? !queue.paused : false, note: queue && !queue.paused ? "it is running" : undefined, run: () => ops.resume.mutate() }];
     // the bin's own Empty the bin and Put all back (binActions.ts, as its strip over the grid), off while it is empty
     case "empty-bin":
       return [{
@@ -217,9 +211,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       const t: Target = { kind: "group", group, root: null, name };
       return [{
         label: c.path ? `Link ${c.path} to ${name}` : `Link a folder of your disk to ${name}…`, icon: <Link2 size={14} />, note: "used in place, nothing copied",
-        run: () => (c.path
-          ? api.linkFolder(c.path, undefined, group).then((m) => { void client.invalidateQueries({ queryKey: queryKeys.projects.all() }); good(`${m.name} linked: ${m.files ?? 0} ${(m.files ?? 0) === 1 ? "file" : "files"}`, "Its files are used where they are; nothing was copied."); }, failed(`${c.path} could not be linked`))
-          : tree.link(t)),
+        run: () => tree.link(t, c.path || undefined),
       }];
     }
     case "split":
@@ -254,7 +246,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       const ids = queue?.waiting.map((w) => w.id) ?? [];
       return [{
         label: "Cancel all waiting…", icon: <Trash2 size={14} />, danger: true, disabled: !ids.length, note: ids.length ? `${ids.length} · asked first · the running one goes on` : "nothing waits",
-        run: () => x.bulk.cancelAllWaiting({ ids }).then((n) => n && good(`${n} waiting job${n === 1 ? "" : "s"} cancelled`, "In the history as cancelled: Requeue brings one back.", "/queue", "Open queue")),
+        run: () => x.bulk.cancelAllWaiting({ ids }).then((n) => n && good(`${plural(n, "waiting job")} cancelled`, "In the history as cancelled: Requeue brings one back.", "/queue", "Open queue")),
       }];
     }
     case "retry-failed": {
@@ -262,14 +254,14 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       const ids = queue?.failed ?? [];
       return [{
         label: "Retry all failed", icon: <RotateCcw size={14} />, disabled: !ids.length, note: ids.length ? `${ids.length} · the same jobs, oldest first` : "none failed",
-        run: () => x.bulk.retryAllFailed(ids).then((r) => r?.ids.length && good(`${r.ids.length} failed job${r.ids.length === 1 ? "" : "s"} queued again`, undefined, "/queue", "Open queue")),
+        run: () => x.bulk.retryAllFailed(ids).then((r) => r?.ids.length && good(`${plural(r.ids.length, "failed job")} queued again`, undefined, "/queue", "Open queue")),
       }];
     }
     case "dismiss-failed": {
       const ids = queue?.failed ?? [];
       return [{
         label: "Dismiss all failed…", icon: <X size={14} />, danger: true, disabled: !ids.length, note: ids.length ? `${ids.length} · off the history, asked first` : "none failed",
-        run: () => x.bulk.dismissAllFailed({ ids, ask: true }).then((n) => n && good(`${n} failed job${n === 1 ? "" : "s"} dismissed`, "Nothing left the library.", "/queue", "Open queue")),
+        run: () => x.bulk.dismissAllFailed({ ids, ask: true }).then((n) => n && good(`${plural(n, "failed job")} dismissed`, "Nothing left the library.", "/queue", "Open queue")),
       }];
     }
     case "group-queue":
@@ -298,7 +290,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       const n = c.number;
       const over = aim.entry && n > aim.entry.clips;
       return [{
-        label: over ? `${aim.name} has ${aim.entry!.clips} clip${aim.entry!.clips === 1 ? "" : "s"}` : `Go to clip ${n} of ${aim.name}`, icon: <Film size={14} />, disabled: Boolean(over),
+        label: over ? `${aim.name} has ${plural(aim.entry!.clips, "clip")}` : `Go to clip ${n} of ${aim.name}`, icon: <Film size={14} />, disabled: Boolean(over),
         note: over ? undefined : "selected, the playhead on its start",
         run: () => askTimeline(aim, { timeline: aim.id, do: "select", clip: n }),
       }];

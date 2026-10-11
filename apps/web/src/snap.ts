@@ -16,3 +16,9 @@ export function snapTo(v: number, min: number, max: number, step: number): numbe
   // the last step is counted with a little slack for sums like 0.1 + 0.2, which can then land a hair past the end
   return Math.max(min, Math.min(max, at(k)));
 }
+
+/**
+ * SeedVR2's batch size: 0 is auto, else a count of frames on its 4n + 1 grid (1, 5, 9 … 49). Steps of 4 from 0 gave
+ * 4, 8 … 48, which are off that grid, and never reached 49.
+ */
+export const seedvrBatch = (n: number): number => (!(n > 0) ? 0 : Math.min(49, 1 + 4 * Math.max(0, Math.round((n - 1) / 4))));

@@ -11,7 +11,7 @@ import { useEntities, useFolders, useProjects } from "../data";
 import { FieldRow } from "../fields";
 
 import { lookWords } from "../LookBar";
-import { clock, spell } from "../format";
+import { clock, plural, spell } from "../format";
 import { PartHead } from "../recipeForm/Part";
 import { Select } from "../Select";
 import { Button, Chip, cx, Help, Segmented } from "../ui";
@@ -194,7 +194,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, why, kn
     <>
       <div className="flex flex-wrap gap-1.5">
         {/* its length is in the editor's header: not said twice */}
-        <Chip>{`${clips.length} clip${clips.length === 1 ? "" : "s"}${stills ? ` · ${stills} still${stills === 1 ? "" : "s"}` : ""}`}</Chip>
+        <Chip>{`${plural(clips.length, "clip")}${stills ? ` · ${plural(stills, "still")}` : ""}`}</Chip>
         <Chip className={t.width && t.height ? "font-mono" : undefined}>{t.width && t.height ? `${t.width}×${t.height}` : "frame from the first clip"}</Chip>
         {project && (
           <Chip tone="link" tip="Show in Projects" onClick={() => openProjects(project.name)}>
@@ -342,7 +342,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, why, kn
               </>
             )}
             {renderMs > 0 && <Fact label="Rendered in" value={spell(renderMs)} />}
-            {renderMs > 0 && <Fact label="Measured" value={`${rendered} of ${videos} clip${videos === 1 ? "" : "s"}`} />}
+            {renderMs > 0 && <Fact label="Measured" value={`${rendered} of ${plural(videos, "clip")}`} />}
           </div>
         )}
         {/* the chain's health at a glance: the largest frame-to-frame change at each join as it plays, fade included (×1 = the clip's own motion; past ×3 it shows) */}

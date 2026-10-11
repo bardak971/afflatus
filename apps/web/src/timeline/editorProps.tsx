@@ -14,6 +14,8 @@ import { PIN_WORDS, pinInputs, pinMirrorOf } from "./model";
 import { pinMenuItems, placeItems, type ClipMenuActions } from "./menus";
 import type { ContextMenu } from "../ContextMenu";
 import type { LoadedEditor } from "./useTimelineEditor";
+import { plural } from "../format";
+import { failedBanner } from "../sayFailed";
 
 // What each part of the timeline editor is drawn with, from what the editor holds (useTimelineEditor): the wiring
 // that would otherwise fill the editor's layout, one builder a part.
@@ -131,8 +133,8 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     onUpload: (file) =>
       api.upload(file, { folder: t.folderId ?? undefined, project: t.projectId ?? null })
         .then((a) => ({ id: a.id, kind: a.kind }))
-        .catch((err: Error) => {
-          e.say({ id: `upload:${Date.now()}`, tone: "bad", title: `${file.name} could not be added`, text: err.message, href: "/", go: "Open the library" });
+        .catch((err: unknown) => {
+          e.say(failedBanner({ id: "upload" }, `${file.name} could not be added`, err));
           return null;
         }),
     onPin: (clip, where, asset, atS) => {
@@ -335,7 +337,7 @@ export function finishProps(e: LoadedEditor): ComponentProps<typeof FinishDialog
     onQueued: (r) => {
       e.after();
       e.setFin(false);
-      setNote(`${r.jobs.length} clip${r.jobs.length === 1 ? "" : "s"} finishing in the queue${r.skipped.length ? `, ${r.skipped.length} skipped` : ""}`, `One job each; the finished takes arrive as they land.${r.skipped.length ? ` Skipped: ${r.skipped.map((x) => `clip ${x.clip} (${x.why})`).join(", ")}.` : ""}`);
+      setNote(`${plural(r.jobs.length, "clip")} finishing in the queue${r.skipped.length ? `, ${r.skipped.length} skipped` : ""}`, `One job each; the finished takes arrive as they land.${r.skipped.length ? ` Skipped: ${r.skipped.map((x) => `clip ${x.clip} (${x.why})`).join(", ")}.` : ""}`);
     },
   };
 }

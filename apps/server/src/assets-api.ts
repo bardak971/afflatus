@@ -6,6 +6,7 @@ import { registerAssetSearch, withShownName } from "./assetSearch";
 import { registerAssetsBin } from "./assetsBin";
 import { registerAssetUpload } from "./assetUpload";
 import { openInComfy } from "./comfyOpen";
+import { tagMatches } from "./compress";
 import { soundOf } from "./cut";
 import { newId, now, type Tables } from "./db";
 import { httpError, notFound } from "./errors";
@@ -191,7 +192,7 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     }
     const tag = `"${version}"`;
     reply.header("Cache-Control", "private, no-cache").header("ETag", tag);
-    return Boolean(ifNoneMatch?.split(",").some((t) => t.trim().replace(/^W\//, "") === tag));
+    return tagMatches(ifNoneMatch, tag);
   };
 
   app.get<{ Params: { id: string } }>("/api/assets/:id/file", async (req, reply) => {

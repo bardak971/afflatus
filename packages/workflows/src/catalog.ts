@@ -1,4 +1,4 @@
-import type { NodeCatalog, NodeInfo } from "@afflatus/core";
+import { endsIn, MODEL_EXTS, type NodeCatalog, type NodeInfo } from "@afflatus/core";
 
 /** Reading one input's entry in ComfyUI's node catalog: [type, options?]. */
 
@@ -42,7 +42,7 @@ export const dynamicFields = (spec: unknown, picked: unknown): Array<[string, un
 export const defaultOf = (spec: unknown): unknown => optsOf(spec).default ?? dynamicOptions(spec)[0]?.key;
 
 /** A file name a loader takes, as opposed to a prompt or a number. */
-export const MODEL_FILE = /\.(safetensors|sft|gguf|ckpt|pt|pth|bin|onnx|engine)$/i;
+export const MODEL_FILE = endsIn([...MODEL_EXTS, "engine"]);
 
 /**
  * A node that runs a pass of sampling: ComfyUI's samplers by their kind, a pack's sampler that takes a step count

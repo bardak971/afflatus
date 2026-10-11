@@ -101,4 +101,8 @@ describe("where a menu opens", () => {
     expect(menuAt({ clientX: 0, clientY: 0 }, el)).toEqual({ x: 116, y: 78, keyed: true });
     expect(menuAt({ clientX: 0, clientY: 0 }, null)).toEqual({ x: 0, y: 0 });
   });
+  it("knows Chrome's Shift + F10 by its missing button, though the pointer is put over the element", () => {
+    expect(menuAt({ clientX: 180, clientY: 200, button: -1 }, el)).toEqual({ x: 116, y: 78, keyed: true });
+    expect(menuAt({ clientX: 180, clientY: 200, button: 2 }, el)).toEqual({ x: 180, y: 200 });
+  });
 });

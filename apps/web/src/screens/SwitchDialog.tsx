@@ -5,6 +5,7 @@ import { ToggleRight } from "lucide-react";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
 import { Keys } from "../Keys";
 import { Button, Checkbox, cx, fieldClass, Help, Segmented } from "../ui";
+import { plural } from "../format";
 
 /**
  * Making a section's switch: a name, whether it starts on, and the nodes that are bypassed while it is
@@ -102,7 +103,7 @@ export function SwitchDialog({ section, existing, frames, nodes, resultNode, onC
               <Checkbox checked={frameOn(f)} onChange={(v) => setFrame(f, v)} />
               <span className="flex min-w-0 flex-col">
                 <span className="font-semibold">{f.title}</span>
-                <span className="truncate text-xs text-ink-2">frame · {f.nodes.length} node{f.nodes.length === 1 ? "" : "s"} · {f.nodes.slice(0, 4).map(titleOf).join(", ")}{f.nodes.length > 4 ? "…" : ""}{f.nodes.includes(resultNode) ? " · holds the output" : ""}</span>
+                <span className="truncate text-xs text-ink-2">frame · {plural(f.nodes.length, "node")} · {f.nodes.slice(0, 4).map(titleOf).join(", ")}{f.nodes.length > 4 ? "…" : ""}{f.nodes.includes(resultNode) ? " · holds the output" : ""}</span>
               </span>
             </label>
           ))}
@@ -133,7 +134,7 @@ export function SwitchDialog({ section, existing, frames, nodes, resultNode, onC
           </div>
         )}
 
-        <DialogFoot info={chosen.size ? `${chosen.size} node${chosen.size === 1 ? "" : "s"} bypassed while off` : existing ? "no node: saving removes the switch" : "no node chosen"}>
+        <DialogFoot info={chosen.size ? `${plural(chosen.size, "node")} bypassed while off` : existing ? "no node: saving removes the switch" : "no node chosen"}>
           <Button tone="quiet" onClick={onClose}>Cancel <Keys keys="Esc" size="sm" /></Button>
           {existing && !chosen.size
             ? <Button tone="danger" onClick={onRemove}>Remove the switch</Button>

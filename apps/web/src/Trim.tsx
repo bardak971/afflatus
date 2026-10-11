@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Clapperboard, Copy, Gauge, Link2, Pause, Play, Repeat, Scissors, Split, X, ZoomIn, ZoomOut } from "lucide-react";
 import type { Asset } from "./api";
-import { clock } from "./format";
+import { clock, plural } from "./format";
 import { dialogOver } from "./Dialog";
 import { Kbd } from "./Keys";
 import { Select } from "./Select";
@@ -375,7 +375,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
       <div className="flex items-center gap-2 text-xs text-ink-2">
         <Scissors size={14} className="text-accent" />
         <span className="font-semibold text-ink">Trim</span>
-        <span className="font-mono">in {stamp(range.startMs)} · out {stamp(range.endMs)} · {(length / 1000).toFixed(2)} s · {frames} frame{frames === 1 ? "" : "s"}</span>
+        <span className="font-mono">in {stamp(range.startMs)} · out {stamp(range.endMs)} · {(length / 1000).toFixed(2)} s · {plural(frames, "frame")}</span>
         <span className="grow" />
         <span className="font-mono">{stamp(at)} / {clock(duration)}</span>
         <button type="button" aria-label="Leave Trim" data-tip="Leave Trim (Esc)" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-hover hover:text-ink"><X size={14} /></button>

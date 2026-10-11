@@ -11,19 +11,18 @@ import { useOpenNewDraft } from "../draft";
 import { groupTitle, keysShown, sideGroups, type ActionId, type ItemAction } from "../itemActions";
 import { Kbd } from "../Keys";
 import { modelGroups } from "../picker";
-import { clock, fileLabel, hourMinute, notReady, recipeLabel, took, UI_LOCALE, when } from "../format";
+import { clock, fileLabel, hourMinute, leftWords, notReady, plural, recipeLabel, size, took, UI_LOCALE, when } from "../format";
 import { Select } from "../Select";
 import { Button, cx, Help, SectionTitle } from "../ui";
 import { leftOf } from "../screens/library/justify";
 import { daysSaid, unkeptMs, useKeepFor } from "../keepFor";
-import { leftWords } from "../screens/studio/expiring";
 import { FieldRow } from "../fields";
 import { ModelLink } from "../ModelLink";
-import { FORMATS, mb } from "./shared";
+import { FORMATS } from "./shared";
 import { SeedButton } from "./SeedButton";
 import { ViewerHeader } from "./ViewerHeader";
 import type { ViewerActions } from "./useViewerActions";
-import { copyText } from "../secureContext";
+import { useCopied } from "../hooks";
 
 // what a source was to the render: the quiet line under its name
 const ROLES: Record<string, string> = { start: "first frame", end: "last frame", source: "source image", previous: "previous clip", next: "next clip",
@@ -73,11 +72,11 @@ function valueOf(spec: InputSpec, value: unknown): ReactNode {
  * one line of it and a chevron, for the texts few people read again (what to avoid).
  */
 function Sent({ title, text, folded }: { title: string; text: string; folded?: boolean }) {
-  const [copied, setCopied] = useState(false);
+  const { copied, copy: copyIt } = useCopied();
   const copy = (
     <button
       type="button"
-      onClick={(e) => { e.preventDefault(); void copyText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => {}); }}
+      onClick={(e) => { e.preventDefault(); copyIt(text); }}
       className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-ink-2 hover:bg-hover hover:text-ink"
     >
       <Copy size={11} /> {copied ? "Copied" : "Copy"}
@@ -296,7 +295,7 @@ function TimelinePicker({ asset }: { asset: Asset }) {
           className={last ? "w-10 shrink-0 justify-center px-0" : "min-w-0 grow"}
           value=""
         onChange={(id) => add.mutate(id)}
-        options={(timelines.data?.items ?? []).map((t) => ({ value: t.id, label: t.name, note: t.clips ? `${t.clips} clip${t.clips > 1 ? "s" : ""}` : "empty" }))}
+        options={(timelines.data?.items ?? []).map((t) => ({ value: t.id, label: t.name, note: t.clips ? `${plural(t.clips, "clip")}` : "empty" }))}
         footer={(close) => (
           <button type="button" onClick={() => { add.mutate(null); close(); }} className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-hover">
             <Plus size={14} className="text-ink-2" /> New timeline
@@ -549,7 +548,7 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
             {a.kind === "video" && a.durationMs ? <Row label="Audio">{a.hasSound ? "Yes" : "No"}</Row> : null}
             {g?.resolved.overlap?.headMs ? <Row label="Head overlap" help="The first seconds repeat the end of the previous clip. A timeline skips them.">{(g.resolved.overlap.headMs / 1000).toFixed(1)} s</Row> : null}
             {g?.resolved.overlap?.tailMs ? <Row label="Tail overlap" help="The last seconds repeat the start of the next clip. A timeline skips them.">{(g.resolved.overlap.tailMs / 1000).toFixed(1)} s</Row> : null}
-            <Row label="File">{FORMATS[a.mime] ?? a.mime}, {mb(a.bytes)}</Row>
+            <Row label="File">{FORMATS[a.mime] ?? a.mime}, {size(a.bytes)}</Row>
             {a.path && <Row label={a.inBin ? "Was at" : "Path"}><span className="font-mono text-xs break-all">{a.path}</span></Row>}
             <Row label="Created">{made.toLocaleDateString(UI_LOCALE, { day: "numeric", month: "long", year: "numeric" })} at {hourMinute(made)} ({when(a.createdAt)})</Row>
             {g && <Row label="Render time">{took(g.tookMs)}</Row>}

@@ -1,4 +1,4 @@
-import { baseLabel, sameBase, type ModelInfo } from "@afflatus/core";
+import { baseLabel, modelStem as stem, sameBase, type ModelInfo } from "@afflatus/core";
 import { architectureOf, tensorsOf } from "./architecture";
 
 export { baseLabel, type ModelInfo };
@@ -7,7 +7,6 @@ const text = (v: unknown): string | undefined => {
   const s = typeof v === "string" ? v.trim() : "";
   return s && !/^(none|null|undefined)$/i.test(s) ? s : undefined;
 };
-const stem = (file: string) => (file.split(/[\\/]/).pop() ?? file).replace(/\.(safetensors|ckpt|pt|pth|gguf|sft)$/i, "");
 
 /** The caption words of every training folder, added up and put most used first. */
 function tagsFrom(frequency: unknown): string[] {
