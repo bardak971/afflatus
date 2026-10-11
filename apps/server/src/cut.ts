@@ -137,6 +137,8 @@ export interface FramesWanted {
   side: "before" | "after";
   /** The moment, in milliseconds. Left out: the end of the video for "before", its start for "after". */
   at?: number;
+  /** A Stop on the job that wants them: ffmpeg is stopped with it. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -167,7 +169,7 @@ export async function cutFrames(
         "-vf", `fps=${fps},trim=start_frame=${start}:end_frame=${start + count},setpts=PTS-STARTPTS,scale=trunc(iw/2)*2:trunc(ih/2)*2`,
         ...(facts.hasSound ? ["-af", `atrim=start=${from}:end=${to},asetpts=PTS-STARTPTS`, "-c:a", "aac", "-b:a", "192k"] : ["-an"]),
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "10", "-pix_fmt", "yuv420p", out,
-      ]);
+      ], { signal: want.signal });
       if ((await countFrames(out)) === count) break;
       if (attempt >= 2 || start === 0) throw new CutError("The frames to join onto could not be cut from that clip.");
       start--;

@@ -100,7 +100,14 @@ describe("ComfyClient, jobs", () => {
     const id = await client.submit(graph);
     await client.interrupt(id);
     expect(fake.pending).toEqual([]);
+    // a ComfyUI that ignores prompt_id on /interrupt would stop whatever runs: only the prompt running is interrupted
+    expect(fake.calls).not.toContain("POST /interrupt");
+    const running = await client.submit(graph);
+    fake.pending = fake.pending.filter((p) => p !== running);
+    fake.running = [running];
+    await client.interrupt(running);
     expect(fake.calls).toContain("POST /interrupt");
+    expect(fake.running).toEqual([]);
   });
 
   it("uploads to the temp folder under a name loaders accept", async () => {
@@ -149,7 +156,9 @@ describe("ComfyClient, answers that hide a failure", () => {
   it("takes back a prompt whose result node, or a node it comes from, failed validation, and says why", async () => {
     const { calls, client } = answering(invalid("3"));
     await expect(client.submit(chain, { outputs: ["9"] })).rejects.toThrow("ComfyUI rejected the job: KSampler: Value not in list sampler_name: 'x'");
-    expect(calls).toContain("POST /interrupt");
+    // taken out of the queue only: it is not running, and an older ComfyUI's /interrupt would stop another prompt that is
+    expect(calls).toContain("POST /queue");
+    expect(calls).not.toContain("POST /interrupt");
   });
 
   it("lets a prompt run when what failed validation is not on the result's way", async () => {

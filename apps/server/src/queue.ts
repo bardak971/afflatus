@@ -672,6 +672,8 @@ ${JSON.stringify(input)}`;
       if (row.generation_id && !row.warm) return await this.closeFiled(row, row.generation_id, resume);
       const input = JSON.parse(row.inputs) as Record<string, unknown>;
       if (!resume) {
+        // a Stop while its files go up ends it there, before ComfyUI frees its memory or is sent anything (checked again below
+        // for one pressed while the prompt was on its way)
         resume = await submitting.submit(this.core, comfy, recipe, input, row, async (r) => {
           held = r;
           await this.db.updateTable("jobs").set({ resume: JSON.stringify(r), updated_at: now() }).where("id", "=", row.id).execute();
@@ -679,7 +681,7 @@ ${JSON.stringify(input)}`;
           // cached, execution_cached) arrives before submit returns, and was lost when the prompt was tracked only after it
           comfy.monitor.track({ promptId: r.promptId, totalSteps: r.totalSteps, phases: r.phases, passes: r.passes, clientId: r.clientId, expect: r.timing?.expect });
           early = r.promptId;
-        });
+        }, abort.signal);
         // a ComfyUI from before prompt ids could be chosen gave one of its own: that one is followed instead
         if (early && early !== resume.promptId) comfy.monitor.untrack(early);
         await this.db.updateTable("jobs").set({ resume: JSON.stringify(resume), updated_at: now() }).where("id", "=", row.id).execute();

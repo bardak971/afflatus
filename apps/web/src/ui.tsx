@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
 import { Check, Trash2 } from "lucide-react";
+import { snapTo } from "./snap";
 import { PANEL, useExplain, usePanelWidth } from "./store";
 
 /** The few shapes every screen shares, so that a button looks the same wherever it is. */
@@ -78,7 +79,7 @@ export function NumberBox({ value, min, max, step = 1, unit, label, id, onCommit
     const typed = Number(text.replace(",", ".").trim());
     setText(null);
     if (!Number.isFinite(typed) || text.trim() === "") return;
-    const snapped = Number((Math.round(Math.max(min, Math.min(max, typed)) / step) * step).toFixed(decimals));
+    const snapped = snapTo(typed, min, max, step);
     if (snapped !== value) onCommit(snapped);
   };
   return (

@@ -73,7 +73,9 @@ function controlSpec(c: Control, under: Under): InputSpec {
       // a number that picks one of a switch's inputs: a choice of what it picks (a value saved as the number still reads)
       const picked = c.picks?.find((p) => p.value === Number(c.default));
       if (c.picks && picked) return { ...base, type: "choice", options: c.picks.map((p) => p.label), default: picked.label, renamed: Object.fromEntries(c.picks.map((p) => [String(p.value), p.label])) };
-      return { ...base, type: "number", min: c.min ?? 0, max: c.max ?? 100, step: c.step ?? 1, default: Number(c.default) };
+      // widened to the value: a workflow saved before its ranges were is healed when it is built
+      const v = Number(c.default);
+      return { ...base, type: "number", min: Math.min(c.min ?? 0, v), max: Math.max(c.max ?? 100, v), step: c.step ?? 1, default: v };
     }
     case "toggle": return { ...base, type: "toggle", default: Boolean(c.default), ...(c.captions ? { captions: c.captions } : {}) };
     case "choice": return { ...base, type: "choice", options: c.choices ?? [String(c.default)], default: String(c.default) };

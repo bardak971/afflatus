@@ -88,7 +88,9 @@ export class ComfyClient {
   }
 
   private async request(path: string, init?: RequestInit, timeoutMs = META_TIMEOUT): Promise<Response> {
-    const res = await this.fetcher(`${this.baseUrl}${path}`, { ...init, signal: AbortSignal.timeout(timeoutMs) }).catch((err) => {
+    // a caller's own signal (a job's Stop) ends it too, as its time limit does
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const res = await this.fetcher(`${this.baseUrl}${path}`, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout }).catch((err) => {
       throw new ComfyUnreachable(`ComfyUI did not answer at ${this.baseUrl}: ${(err as Error).message}`);
     });
     if (!res.ok) {
@@ -238,9 +240,13 @@ export class ComfyClient {
     return id;
   }
 
-  /** Stop one prompt: drop it from the pending queue, and interrupt it if it is the one running. */
+  /**
+   * Stop one prompt: drop it from the pending queue, and interrupt it if it is the one running. Only then: a ComfyUI from
+   * before /interrupt read `prompt_id` stops whatever runs, which may be another prompt (someone else's, or the next job's).
+   */
   async interrupt(promptId: string): Promise<void> {
     await this.post("/queue", { delete: [promptId] }).catch(() => {});
+    if ((await this.queuePosition(promptId).catch(() => "absent")) !== "running") return;
     await this.post("/interrupt", { prompt_id: promptId }).catch(() => {});
   }
 
@@ -252,16 +258,16 @@ export class ComfyClient {
   /**
    * Put a file in ComfyUI's temp folder; returns the name loader nodes take ("<name> [temp]"). With `into: "input"`
    * it goes to the input folder's "afflatus" subfolder instead, for a node that reads only from there (the DaSiWa
-   * Director's pictures); the name is then "afflatus/<name>".
+   * Director's pictures); the name is then "afflatus/<name>". `signal` drops it half way (a job's Stop).
    */
-  async upload(bytes: Uint8Array, ext: string, opts: { into?: "input" } = {}): Promise<string> {
+  async upload(bytes: Uint8Array, ext: string, opts: { into?: "input"; signal?: AbortSignal } = {}): Promise<string> {
     const form = new FormData();
     const type = MIME[ext] ?? "application/octet-stream";
     form.append("image", new Blob([new Uint8Array(bytes).buffer], { type }), `afflatus_${randomUUID()}.${ext}`);
     form.append("type", opts.into === "input" ? "input" : "temp");
     if (opts.into === "input") form.append("subfolder", "afflatus");
     form.append("overwrite", "true");
-    const r = (await this.read("/upload/image", (res) => res.json(), { method: "POST", body: form }, 60_000)) as { name: string; subfolder?: string };
+    const r = (await this.read("/upload/image", (res) => res.json(), { method: "POST", body: form, ...(opts.signal ? { signal: opts.signal } : {}) }, 60_000)) as { name: string; subfolder?: string };
     const name = `${r.subfolder ? `${r.subfolder}/` : ""}${r.name}`;
     return opts.into === "input" ? name : `${name} [temp]`;
   }

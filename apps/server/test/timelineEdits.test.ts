@@ -285,6 +285,10 @@ describe.skipIf(!ffmpegThere)("a timeline", { timeout: FFMPEG_TIMEOUT }, () => {
     await until(() => fake.prompts.size === 3);
     const job = (await view(id)).clips[0].job as { id: string; status: string };
     expect(job.status).toBe("running");
+    // ComfyUI started it: only then is it interrupted (an older ComfyUI's /interrupt stops whatever runs)
+    const sent = [...fake.prompts.keys()].at(-1)!;
+    fake.pending = fake.pending.filter((p) => p !== sent);
+    fake.running = [sent];
     await call("POST", `/api/jobs/${job.id}/cancel`);
     await until(async () => (await view(id)).clips[0].job === null);
     const clip = (await view(id)).clips[0];

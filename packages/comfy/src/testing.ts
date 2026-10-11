@@ -30,6 +30,8 @@ export interface FakeComfy {
   /** When set, POST /prompt answers 400 with this body. */
   rejectWith: unknown | null;
   uploads: string[];
+  /** How long an upload waits before it is answered: a render's Stop pressed while its files go up. */
+  uploadDelayMs: number;
   /** The bytes of each uploaded file, by the name it was uploaded under. */
   uploaded: Record<string, Uint8Array>;
   /** The bodies of the node pack's cleanups asked for (POST /afflatus/clean-input): the input folder's, or with `folder: "output"` the output folder's. */
@@ -119,7 +121,7 @@ const body = async (req: IncomingMessage) => {
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: FakeState = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {},
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {},
     folderPaths: init.folderPaths ?? null, hideFolderPaths: init.hideFolderPaths ?? false,
     catalog: init.catalog ?? {},
     models: init.models ?? {},
@@ -148,6 +150,7 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
         return true;
       },
     };
+    if (url.pathname === "/upload/image" && fake.uploadDelayMs) await new Promise((resolve) => setTimeout(resolve, fake.uploadDelayMs));
     for (const part of parts) if (await part(r)) return;
     r.json(404, { error: `fake ComfyUI has no ${method} ${url.pathname}` });
   });
