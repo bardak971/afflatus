@@ -75,6 +75,10 @@ export interface Tables {
     id: string;
     owner_id: string;
     recipe_id: string;
+    /**
+     * The recipe's version when it was rendered. Written and never read, on purpose: the day a recipe's inputs change
+     * shape, it tells the records made before from those made after, which nothing else in the row can.
+     */
     recipe_version: number;
     family: string;
     inputs: string;
@@ -301,7 +305,11 @@ export interface Tables {
   };
   /** Imported ComfyUI workflows: the workflow and its mapping, as one JSON document each. */
   workflows: { id: string; owner_id: string; def: string; created_at: string; updated_at: string };
-  /** What a model file says about itself (read once from its header, through ComfyUI), as JSON. */
+  /**
+   * What a model file says about itself (read once from its header, through ComfyUI), as JSON. `read_at` is written and
+   * never read, on purpose: what was read is told stale by its `v` (MODEL_INFO_VERSION), and the date says when, for
+   * someone looking at the database by hand.
+   */
   model_info: { folder: string; file: string; info: string; read_at: string };
   /** The page of a model file on the site it came from, by the file's name (lower case, without its sub-folder). */
   model_pages: { folder: string; name: string; url: string; title: string; found_at: string };
