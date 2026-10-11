@@ -145,7 +145,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
             // bound to this draft: a picture still uploading when another draft is opened lands in the one it was put in
             onChange={(input, value) => void d.editDraft(draft.id, (x) => ({ ...x, forms: { ...x.forms, [recipe.id]: { ...x.forms[recipe.id], [input]: value } } })).catch((err: Error) => say({ id: "draft:late", tone: "bad", title: "A picture could not be put in its draft", text: err.message, href: "/create", go: "Open the form" }))}
             onClear={(inputs) => d.clearValues(recipe.id, inputs)}
-            made={<ModelPicker pick={pick} recipe={recipe} presets={<PresetMenu presets={presets} onApply={applyPreset} onSave={(name) => savePreset.mutate(name)} error={presetError} />} />}
+            made={<ModelPicker pick={pick} recipe={recipe} presets={<PresetMenu presets={presets} current={{ recipe: recipe.id, values: whole }} onApply={applyPreset} onSave={(name) => savePreset.mutate(name)} error={presetError} />} />}
             madeSummary={pick.group ? `${pick.group.name} · ${recipe.title}` : recipe.title}
             look={takesLook ? <LookBar look={draft.look} onChange={d.setLook} recipe={recipe} input={whole} /> : undefined}
             lookSummary={takesLook ? lookWords(draft.look, entities.data?.items ?? []) : undefined}

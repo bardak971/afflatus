@@ -30,6 +30,8 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **Model downloads:** with ComfyUI on the same machine, Afflatus downloads the files itself into ComfyUI's model folders: two at a time, picked up again where they stopped after a cut (five tries), free space checked before and size and SHA-256 after, written as `.part` and renamed once complete. With ComfyUI on another machine, the node pack (0.11.0) does the same. ComfyUI-Manager is only the last resort.
 
 ### Fixed
+- **Advanced Output settings shown again:** Upscale 2×'s strength, SeedVR2's frames and the colour match were filed nowhere in the form; they are in the Output chapter's upscale group.
+- **The preset menu** says which preset the form is on, and its search finds presets by their author and note.
 - One-click passes on an edited copy (a mirror, a cut) use the render it came from: its checkpoint and settings, and its family's tool, instead of a default checkpoint.
 - **Krea 2's hires, tiles and Upscale 2× passes** keep the model's own shift (mu 1.15, as Krea gives it for every size) instead of one extrapolated from the larger size, which started them with far more noise than asked for.
 - Large downloads through ComfyUI-Manager stopping with "ComfyUI-Manager dropped the connection": Manager held the whole file in memory, and Windows refused past a few GB.
