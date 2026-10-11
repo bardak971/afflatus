@@ -1,4 +1,4 @@
-import { frameOf, fuzzyScore, isShown, latentUpscaleSize, megapixels, pickChoice, RANDOM_SEED, secondsInput, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
+import { chosenDefaults, frameOf, fuzzyScore, isShown, latentUpscaleSize, megapixels, pickChoice, RANDOM_SEED, secondsInput, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import type { ModelSettings, RecipeInfo } from "./api";
 import { fileLabel, plural } from "./format";
 
@@ -95,7 +95,10 @@ export function formDefaults(
   const lined = Object.fromEntries(recipe.inputs.filter((i) => i.id in values).map((i) => [i.id, values[i.id]]));
   const perModel = Object.fromEntries(recipe.inputs.filter((i) => i.perModel && i.id in saved).map((i) => [i.id, saved[i.id]]));
   const notes = matched.map((p) => p.note).filter(Boolean);
-  return { defaults: { ...base, ...lined, ...perModel }, file, hasSaved, preset: notes.length ? notes.join(" · ") : undefined };
+  const layered = { ...base, ...lined, ...perModel };
+  // last, what the choices made move (a hand detector picked: the denoise, crop and prompt start on hands); what the
+  // draft holds is its own and stays, so only the settings still at their starting values follow the choice
+  return { defaults: { ...layered, ...chosenDefaults(recipe.inputs, { ...layered, ...stored }) }, file, hasSaved, preset: notes.length ? notes.join(" · ") : undefined };
 }
 
 /**

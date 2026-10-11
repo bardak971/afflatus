@@ -246,6 +246,7 @@ export const PLACES: KeyPlace[] = [
         rows: [
           { keys: "U", does: "Upscale 2x", note: "queued at once" },
           { keys: "F", does: "Face detailer", note: "queued at once" },
+          { keys: "H", does: "Hand detailer", note: "queued at once, on the hand detector" },
           { keys: "B", does: "Remove background", note: "queued at once" },
           { keys: "I", does: "Inpaint…", note: "a new draft, the mask painter open" },
           { keys: "E", does: "Edit…", note: "img2img: a new draft in the form" },

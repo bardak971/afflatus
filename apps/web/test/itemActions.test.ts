@@ -11,7 +11,7 @@ const SRC = join(import.meta.dirname, "../src");
 /** An item for which everything works: every model there, ComfyUI on, a list to compare in. */
 const facts = (kind: Kind, more: Partial<ItemFacts> = {}): ItemFacts => ({
   kind, inBin: false, kept: false, hasSound: true, reading: false, madeHere: true, generated: true, seed: 42,
-  opener: "Wan", carrier: true, passes: { upscale: "u", face: "f", background: "b", inpaint: "i", edit: "e", outpaint: "r" }, voice: true,
+  opener: "Wan", carrier: true, passes: { upscale: "u", face: "f", hand: "h", background: "b", inpaint: "i", edit: "e", outpaint: "r" }, voice: true,
   comfyOnline: true, compare: true,
   timelines: [{ label: "Add to Harbor", run: () => {} }], moves: [{ label: "The Inbox", run: () => {} }],
   ...more,
@@ -23,7 +23,7 @@ const lines = (items: MenuItem[]): string[] => items.flatMap((it) => (it === "�
 
 describe("the item's list", () => {
   it("holds each media type's actions in the spec's order", () => {
-    expect(actionIds("image")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "i2v", "upscale", "face", "background", "inpaint", "edit", "outpaint", "mirror-h", "mirror-v", "compare", "details", "copy-seed", "comfy", "timeline", "move", "bin"]);
+    expect(actionIds("image")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "i2v", "upscale", "face", "hand", "background", "inpaint", "edit", "outpaint", "mirror-h", "mirror-v", "compare", "details", "copy-seed", "comfy", "timeline", "move", "bin"]);
     expect(actionIds("video")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "extend", "trim", "save-frame", "extract-audio", "voice", "compare", "details", "copy-seed", "comfy", "timeline", "move", "bin"]);
     expect(actionIds("audio")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "voice", "details", "copy-seed", "comfy", "timeline", "move", "bin"]);
   });
@@ -105,7 +105,7 @@ describe("every place shows the same list", () => {
         expect(lines(menu).slice(head + (head ? 1 : 0)), place).toEqual(shared);
       }
       // the groups apart, in order; the passes folded for a picture
-      if (kind === "image") expect(shared.slice(0, 13)).toEqual(["Open", "Keep", "Download", "Rename…", "—", "Reuse · same seed", "Reuse · new seed", "Variation", "Image to video (i2v)", "—", "Passes › Upscale 2x", "Passes › Face detailer", "Passes › Remove background"]);
+      if (kind === "image") expect(shared.slice(0, 14)).toEqual(["Open", "Keep", "Download", "Rename…", "—", "Reuse · same seed", "Reuse · new seed", "Variation", "Image to video (i2v)", "—", "Passes › Upscale 2x", "Passes › Face detailer", "Passes › Hand detailer", "Passes › Remove background"]);
     });
   }
 
@@ -146,7 +146,7 @@ describe("every place shows the same list", () => {
 
   it("leaves no place a list of its own: the places' files write none of the list's labels", () => {
     const places = ["TileMenu.tsx", "Viewer.tsx", "viewer/ViewerSidebar.tsx", "viewer/ViewerHeader.tsx", "viewer/useViewerActions.tsx", "projects/useItemMenu.tsx", "bar/useActions.tsx", "screens/queue/History.tsx", "timeline/MediaOverlay.tsx", "screens/studio/DraftResults.tsx"];
-    const ids: ActionId[] = ["download", "reuse-same", "reuse-new", "variation", "i2v", "extend", "upscale", "face", "background", "inpaint", "edit", "outpaint", "trim", "save-frame", "extract-audio", "voice", "compare", "details"];
+    const ids: ActionId[] = ["download", "reuse-same", "reuse-new", "variation", "i2v", "extend", "upscale", "face", "hand", "background", "inpaint", "edit", "outpaint", "trim", "save-frame", "extract-audio", "voice", "compare", "details"];
     const found = places.flatMap((file) => {
       const code = readFileSync(join(SRC, file), "utf8");
       return ids.filter((id) => code.includes(`label: "${ACTIONS[id].label}"`) || code.includes(`label="${ACTIONS[id].label}"`)).map((id) => `${file}: ${ACTIONS[id].label}`);

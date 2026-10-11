@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import sharp from "sharp";
+import { now, OWNER } from "../src/db";
 import { makeApp, type TestApp } from "./helpers";
 
 /** Mirroring a picture: a new picture beside it, kept, its source remembered, its pixels swapped as asked. */
@@ -52,6 +53,22 @@ describe("mirroring a picture", () => {
     expect(detail.source?.asset.id).toBe(up.id);
     // the original is untouched
     expect(await colourAt(up.id, 0, 0)).toEqual([255, 0, 0]);
+  });
+
+  it("hands a copy of a copy the render it comes from, for its passes to carry the render's checkpoint", async () => {
+    const up = (await t.app.inject({ method: "POST", url: "/api/assets?name=lighthouse", headers: { "content-type": "image/png" }, payload: await picture() })).json() as { id: string };
+    // the picture as a render of its own checkpoint (not the one the server would fall back to)
+    const inputs = { prompt: "a lighthouse", checkpoint: "mine.safetensors", seed: 7 };
+    await t.db.insertInto("generations").values({ id: "g1", owner_id: OWNER, recipe_id: "sdxl.text-to-picture", recipe_version: 1, family: "sdxl", inputs: JSON.stringify(inputs), resolved: "{}", gen_ms: 1, draft_id: null, created_at: now() } as never).execute();
+    await t.db.updateTable("assets").set({ generation_id: "g1" }).where("id", "=", up.id).execute();
+    const once = (await t.app.inject({ method: "POST", url: `/api/assets/${up.id}/mirror`, payload: { axis: "horizontal" } })).json() as { id: string };
+    const twice = (await t.app.inject({ method: "POST", url: `/api/assets/${once.id}/mirror`, payload: { axis: "vertical" } })).json() as { id: string };
+    type Detail = { generation: unknown; ancestor: { recipe: string; inputs: Record<string, unknown> } | null };
+    const detail = (await t.app.inject({ method: "GET", url: `/api/assets/${twice.id}` })).json() as Detail;
+    expect(detail.generation).toBeNull();
+    expect(detail.ancestor).toMatchObject({ recipe: "sdxl.text-to-picture", inputs });
+    // the render itself has its own generation, and no ancestor
+    expect(((await t.app.inject({ method: "GET", url: `/api/assets/${up.id}` })).json() as Detail).ancestor).toBeNull();
   });
 
   it("refuses what is not a picture, and an axis it does not know", async () => {

@@ -128,6 +128,13 @@ export interface ChoiceInput extends Base {
    * the first option one matches is the starting value (else the first option there is).
    */
   prefer?: string[];
+  /**
+   * Other settings that start elsewhere while certain options are chosen: regex sources tried on the value, case
+   * ignored; the first that matches gives the starting values of those settings (by input id). Only the starting
+   * values move: a setting changed on purpose keeps its value, and choosing another option brings the usual ones
+   * back. A face detailer's detection model switched to a hand detector starts its denoise, crop and prompt on hands.
+   */
+  whenChosen?: Array<{ match: string; values: Record<string, unknown> }>;
 }
 interface SeedInput extends Base {
   type: "seed";
@@ -298,6 +305,22 @@ export function pickChoice(spec: ChoiceInput, offered: string[] | undefined): st
   }
   // a list of files is known by its files, or by the default being one (a VAE list with only "pixel_space" on it)
   return looksLikeFiles([spec.default, ...offered]) && !spec.prefer ? spec.default : offered[0]!;
+}
+
+/**
+ * The starting values the choices made move (`whenChosen`), for the inputs of the list only: of each choice, the
+ * first entry whose pattern matches the value it holds.
+ */
+export function chosenDefaults(specs: readonly InputSpec[], values: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const spec of specs) {
+    const value = values[spec.id];
+    if (spec.type !== "choice" || !spec.whenChosen || typeof value !== "string") continue;
+    const hit = spec.whenChosen.find((w) => new RegExp(w.match, "i").test(value));
+    if (hit) Object.assign(out, hit.values);
+  }
+  const has = new Set(specs.map((s) => s.id));
+  return Object.fromEntries(Object.entries(out).filter(([id]) => has.has(id)));
 }
 
 /**

@@ -6,18 +6,9 @@ import { useDrafts, useFamilies, useRecipes, useSetup, type useAsset } from "../
 import { useOpenNewDraft } from "../draft";
 import { handMask } from "../handoff";
 import { useReuse } from "../reuse";
-import { carryOver, followOn, usedLast } from "../picker";
-import { ownInputs, toolOf } from "./shared";
+import { followOn, usedLast } from "../picker";
+import { carried, ownInputs, renderOf, toolOf } from "./shared";
 import { useFormAim } from "../recipeForm/formAim";
-
-/** What a tool is handed along with a picture: what the picture was made with (its prompt, model, LoRAs…), where the tool has a place for it. `withLook`: its cast goes along. */
-function carried(g: AssetDetail["generation"] | null | undefined, from: RecipeInfo | undefined, to: RecipeInfo, withLook: boolean): Record<string, unknown> {
-  if (!g || !from) return {};
-  // the picture is the new source; its own source, mask and seed stay behind
-  const taken = carryOver(from, to, ownInputs(g, withLook), undefined);
-  for (const i of to.inputs) if (i.type === "image" || i.type === "seed") delete taken[i.id];
-  return taken;
-}
 
 /**
  * Who a new draft made from this starts with: the people, the places and the style it was made with.
@@ -46,6 +37,10 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
   const g = detail.data?.id === asset.id ? detail.data.generation : null;
   const a: Asset = detail.data?.id === asset.id ? detail.data : asset;
   const recipe = recipes.data?.recipes.find((r) => r.id === g?.recipe);
+  // what a tool carries: the item's own render, else that of the item it was taken from (a mirrored copy has none of its
+  // own, and its face detailer went out on the server's fallback checkpoint instead of the picture's)
+  const made = detail.data?.id === asset.id ? renderOf(detail.data) : null;
+  const madeWith = recipes.data?.recipes.find((r) => r.id === made?.recipe);
   /** The same settings as a new draft, its seed kept (L) or a new one (Shift+L). */
   const reuse = useReuse({ leave });
 
@@ -135,11 +130,11 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
   const all = (recipes.data?.recipes ?? []).filter((r) => on(r.family));
   /** The recipe for an operation: the one of the model the picture was made with when it has it, else one that is ready, else any. */
   const toolFor = (key: string): RecipeInfo | undefined =>
-    toolOf(key, all, recipes.data?.families ?? [], recipe?.id, (r) => Boolean(setup.data?.recipes.find((x) => x.id === r.id)?.ready));
+    toolOf(key, all, recipes.data?.families ?? [], madeWith?.id, (r) => Boolean(setup.data?.recipes.find((x) => x.id === r.id)?.ready));
   /** What a tool is handed with the picture in its source slot; `withLook`: its cast goes along too. */
   const toolInput = (tool: RecipeInfo, withLook = false) => {
     const slot = tool.inputs.find((i) => i.type === "image" && i.role === "source")!;
-    return { ...carried(g, recipe, tool, withLook), [slot.id]: asset.id };
+    return { ...carried(made, madeWith, tool, withLook), [slot.id]: asset.id };
   };
   /** A tool's form, with the picture in place and what it was made with. */
   const openTool = useMutation({
@@ -156,5 +151,5 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
     },
   });
 
-  return { a, g, recipe, recipes, reuse, carrier, fromLastFrame, carryOn, between, extendHere, opener, openerName, animate, follower, follow, toolFor, toolInput, openTool };
+  return { a, g, recipe, madeWith, recipes, reuse, carrier, fromLastFrame, carryOn, between, extendHere, opener, openerName, animate, follower, follow, toolFor, toolInput, openTool };
 }

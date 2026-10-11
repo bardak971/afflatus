@@ -459,7 +459,8 @@ export const kleinFixFace = defineRecipe<KleinFixFace>({
       note: "only with two people in the picture: the one on the RIGHT. Each face is then redrawn from its own person's pictures.",
     },
     { id: "strength", type: "number", label: "Denoising strength", note: "0.5 pulls the face back to the reference images", min: 0.1, max: 0.8, step: 0.05, default: 0.5 },
-    DETECTOR_INPUT,
+    // its strength pulls a face to a person's pictures, which the hand values were not measured for: they stay the classic detailers'
+    { ...DETECTOR_INPUT, whenChosen: undefined },
     ...FACE_INPUTS,
     ...kleinInputs,
   ],
