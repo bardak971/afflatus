@@ -125,11 +125,14 @@ export function Setup() {
   return (
     <div className="flex min-h-0 grow flex-col overflow-hidden px-8 pb-6">
       <header className="flex h-20 shrink-0 items-center gap-5">
-        <h1 className="text-xl font-semibold">Settings</h1>
-        <Segmented<Tab> oneLine label="Settings" value={tab} options={TABS.map((t) => ({ value: t.id, label: marks[t.id] ? <span className="inline-flex items-center gap-1.5">{t.label}{marks[t.id]}</span> : t.label }))} onChange={open} />
+        <h1 className="shrink-0 text-xl font-semibold">Settings</h1>
+        {/* in a narrow window the tabs scroll sideways and the search box gives up some width: both stay reachable */}
+        <div className="min-w-0 shrink overflow-x-auto">
+          <Segmented<Tab> oneLine className="w-max" label="Settings" value={tab} options={TABS.map((t) => ({ value: t.id, label: marks[t.id] ? <span className="inline-flex items-center gap-1.5">{t.label}{marks[t.id]}</span> : t.label }))} onChange={open} />
+        </div>
         <span className="grow" />
-        <div className="relative">
-          <label className="flex h-9 w-64 items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
+        <div className="relative w-64 min-w-40 shrink">
+          <label className="flex h-9 w-full items-center gap-2 rounded-lg border border-line bg-raised px-2.5 focus-within:border-accent">
             <Search size={14} className="shrink-0 text-ink-3" />
             <input ref={input} data-search aria-label="Find a setting" placeholder="Find a setting" value={typed} onChange={(e) => { setTyped(e.target.value); setPicked(false); }} onKeyDown={(e) => { if (e.key === "Escape") setTyped(""); if (e.key === "Enter" && found[0]) pick(found[0].key); }} className="min-w-0 grow bg-transparent placeholder:text-ink-3" />
             {typed && <button type="button" aria-label="Clear" onClick={() => setTyped("")} className="text-ink-3 hover:text-ink"><X size={13} /></button>}
