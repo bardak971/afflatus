@@ -82,6 +82,14 @@ describe("files saved", () => {
     expect(credited).toMatchObject({ author: "Darksidewalker (DaSiWa)", line: "Hybrid v3 · smaller file" });
     expect(presetOfFile(credited, "x.json").def).toMatchObject({ author: "Darksidewalker (DaSiWa)", line: "Hybrid v3 · smaller file" });
   });
+  it("says plainly what is wrong with a file that is not a preset, rather than a script error", () => {
+    expect(() => presetOfFile(null, "x.json")).toThrow("x.json is not a preset file: it holds no preset.");
+    expect(() => presetOfFile([1], "x.json")).toThrow("x.json is not a preset file: it holds no preset.");
+    expect(() => presetOfFile({ inputs: null }, "x.json")).toThrow(/^x\.json is not a preset file: inputs: /);
+    expect(() => presetOfFile({ inputs: {}, links: [null] }, "x.json")).toThrow(/^x\.json is not a preset file: links\.0: /);
+    expect(() => presetOfFile({ def: null }, "x.json")).toThrow(/^x\.json is not a preset file: def: /);
+    expect(() => presetOfFile({ inputs: {}, files: [{ file: "a.safetensors", folder: "loras", url: "javascript:alert(1)" }] }, "x.json")).toThrow(/files\.0\.url/);
+  });
 });
 
 describe("where a menu opens", () => {

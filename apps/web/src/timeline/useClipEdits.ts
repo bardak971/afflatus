@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, type Clip, type Timeline } from "../api";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { api, raw, type Clip, type Timeline } from "../api";
+import { KEEPALIVE_MAX, useKeyedAutosave } from "../autosave";
 import type { useModelSettings, useRecipes, useSetup } from "../data";
 import { formDefaults } from "../form";
 import { notReady } from "../format";
@@ -17,52 +18,38 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
   settings: ReturnType<typeof useModelSettings>;
   comfyOnline: boolean;
 }) {
-  // ---- the clips' forms: shown at once, saved half a second after the last change. A save that fails
-  // keeps the form in `unsaved`, says so in the header, and is sent again by the next save or by Retry
+  // ---- the clips' forms: shown at once, saved half a second after the last change, one save at a time, and as the tab
+  // closes by a request that outlives the page (autosave.ts, as drafts are). A save that fails keeps the form pending,
+  // says so in the header, is sent again by the next save or by Retry, and the browser asks before the tab closes
   const [edits, setEdits] = useState<Record<string, Record<string, unknown>>>({});
-  const unsaved = useRef(new Map<string, Record<string, unknown>>());
-  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  const [saveFailed, setSaveFailed] = useState<string | null>(null);
-  const save = useCallback(async (only?: string) => {
-    const ids = only ? [only] : [...unsaved.current.keys()];
-    let failed: string | null = null;
-    await Promise.all(
-      ids.map(async (clipId) => {
-        const inputs = unsaved.current.get(clipId);
-        clearTimeout(timers.current.get(clipId));
-        timers.current.delete(clipId);
-        if (!inputs) return;
-        try {
-          await api.editClip(clipId, { inputs });
-          // what was sent is saved; a change typed meanwhile is still waiting
-          if (unsaved.current.get(clipId) === inputs) unsaved.current.delete(clipId);
-        } catch (err) {
-          failed = (err as Error).message;
-        }
-      }),
-    );
-    setSaveFailed(failed);
-  }, []);
-  useEffect(() => () => void save(), [save]);
+  const autosave = useKeyedAutosave<Record<string, unknown>>({
+    save: async (clipId, inputs) => {
+      await api.editClip(clipId, { inputs });
+    },
+    keepalive: (clipId, inputs) => void raw("PATCH", `/clips/${clipId}`, { inputs }, { keepalive: true }).catch(() => {}),
+    goesWhole: (_, inputs) => JSON.stringify({ inputs }).length <= KEEPALIVE_MAX,
+  });
+  const { pending: unsaved, flush, queue, turn } = autosave;
+  const saveFailed = autosave.state === "failed" ? autosave.failure : null;
+  /** What was typed over one clip (over all of them when left out) is saved now, after any save already out. */
+  const save = useCallback((only?: string) => flush(only), [flush]);
   const inputsOf = useCallback((c: Clip) => edits[c.id] ?? c.inputs, [edits]);
   // what was typed stays over the clip until the timeline read back carries it (or the clip is gone)
   useEffect(() => {
     if (!t) return;
-    setEdits((e) => settleEdits(e, t.clips, unsaved.current));
-  }, [t]);
+    setEdits((e) => settleEdits(e, t.clips, unsaved));
+  }, [t, unsaved]);
   /**
    * The server was given a clip's inputs by another way than the form's save (a render moving the seed on): the edit over
    * the clip becomes them, so that the read back that carries them drops it. Left as it was, it no longer matched what the
    * server has, and stayed over the clip all session: the old seed shown and sent with every render after.
    */
   const savedElsewhere = useCallback((clipId: string, inputs: Record<string, unknown>) => {
-    setEdits((e) => withServerInputs(e, clipId, inputs, unsaved.current));
-  }, []);
+    setEdits((e) => withServerInputs(e, clipId, inputs, unsaved));
+  }, [unsaved]);
   const editInputs = (c: Clip, next: Record<string, unknown>) => {
     setEdits((e) => ({ ...e, [c.id]: next }));
-    unsaved.current.set(c.id, next);
-    clearTimeout(timers.current.get(c.id));
-    timers.current.set(c.id, setTimeout(() => void save(c.id), 500));
+    queue(c.id, next);
   };
   /** Every edit dropped: what the server has now is what counts (after an undo or a redo, which saved first). */
   const dropEdits = () => setEdits({});
@@ -110,7 +97,7 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
     [recipes.data, setup.data, setup.isSuccess, comfyOnline, inputsOf, settings.data, clips],
   );
 
-  return { edits, dropEdits, saveFailed, save, inputsOf, editInputs, savedElsewhere, shown, formOf, ready };
+  return { edits, dropEdits, saveFailed, save, turn, inputsOf, editInputs, savedElsewhere, shown, formOf, ready };
 }
 
 /** The edits left once the server's clips are read back: a saved edit the server carries is dropped, as is one whose clip is gone. */
