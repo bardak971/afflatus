@@ -1,6 +1,6 @@
 import type { BuildContext, BuiltGraph, GraphBuilder, Ref } from "@afflatus/core";
 import { UPSCALE } from "../video/upscale";
-import { finishFrames } from "../shared/finish";
+import { colourMatched, finishFrames } from "../shared/finish";
 import { saveVideo } from "../shared/out";
 import { H3_FPS } from "./family";
 import type { H3Video } from "./inputs";
@@ -25,7 +25,7 @@ export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made:
   // the frames as the model made them, before anything changes them: a clip that carries on from this
   // one is guided by these, not by the enlarged or interpolated ones (saved beside the result when they differ)
   const native: Ref = upscaling ? g.out("VAEDecode", { samples: [sampled, 0], vae }) : images;
-  const done = finishFrames(g, ctx, images, input, { frame: { width, height }, rife: input.smooth, fps: H3_FPS, audio });
+  const done = finishFrames(g, ctx, colourMatched(g, ctx, images, input), input, { frame: { width, height }, rife: input.smooth, fps: H3_FPS, audio });
   const raw = done.images !== native ? saveVideo(g, ctx, { images: native, audio, fps: H3_FPS, crf: 16 }) : null;
   // the clip's own sampled window, kept beside it for the clips that continue it or land on it: its audio
   // rounded to its own frame boundary first, so that it is a valid clip to continue from

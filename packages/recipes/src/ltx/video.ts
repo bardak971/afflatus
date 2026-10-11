@@ -4,7 +4,7 @@ import { UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNodes } from "../video
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
-import { finishFrames } from "../shared/finish";
+import { colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, type ColourMatch } from "../shared/finish";
 import { applyLoras, livePreview, loraLoads } from "../shared/model";
 
 const SMOOTH_AUTO = "Auto";
@@ -29,11 +29,13 @@ function refineSigmas(from: number, steps: number): string {
 const OWN_SCHEDULE = "LTX's own (8 steps)";
 const BY_STEPS = "By steps";
 
-export interface LtxVideo {
+export interface LtxVideo extends ColourMatch {
   model?: string;
   turboIn: string;
   prompt: string;
   negative: string;
+  nag: boolean;
+  nagScale: number;
   start?: string;
   end?: string;
   mid?: string;
@@ -295,6 +297,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     },
     { id: "short", type: "number", label: "Resolution", note: "the short side of the frame: 704 is about 720p, 1088 about 1080p. Larger is sharper and much slower", min: 384, max: 1088, step: 64, default: 704, unit: "p", picks: [512, 704, 832, 1088] },
     ...upscaleInputs(),
+    ...COLOUR_MATCH_INPUTS,
     {
       id: "twoPass", type: "toggle", label: "Two-pass (latent upscale)", default: true, advanced: true,
       note: "half the size first, enlarged with the latent upscaler, then 3 steps that refine: faster and sharper. Off, or without the upscaler, or with an end image: one pass at full size. A keyframe guides both passes",
@@ -325,8 +328,13 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     {
       id: "negative", type: "prompt", label: "Negative prompt", style: "sentences", optional: true, advanced: true, perModel: true,
       default: "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, pc game, console game, video game, cartoon, childish, ugly",
-      note: "only acts with a CFG scale above 1",
+      note: "acts with a CFG scale above 1, or at 1 through NAG",
     },
+    {
+      id: "nag", type: "toggle", label: "NAG (negative at CFG 1)", default: false, advanced: true, perModel: true,
+      note: "Normalized Attention Guidance: the negative prompt acts at CFG 1, where it is otherwise ignored, at little cost. Needs KJNodes. Off by default: untried on LTX by its authors",
+    },
+    { id: "nagScale", type: "number", label: "NAG scale", min: 1, max: 30, step: 0.5, default: 11, showWhen: "nag", advanced: true, perModel: true, note: "how hard the negative pushes: 11 is its authors' value" },
     { id: "startStrength", type: "number", label: "First frame strength", min: 0.1, max: 1, step: 0.05, default: 0.7, showWhen: "start", advanced: true, note: "lower lets the first frames move away from the picture sooner" },
     { id: "endStrength", type: "number", label: "Last frame strength", min: 0.1, max: 1, step: 0.05, default: 0.7, showWhen: "end", advanced: true },
     {
@@ -370,10 +378,10 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     ];
   },
   // which loaders, and which way the clip is made, depend on the files this ComfyUI has
-  optionalNodes: [...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT,
+  optionalNodes: [...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, ...COLOUR_MATCH_NODES,
     "UNETLoader", "DualCLIPLoader", "VAELoader", "CheckpointLoaderSimple", "LTXVAudioVAELoader", "LTXAVTextEncoderLoader", "LoraLoaderModelOnly",
     "LatentUpscaleModelLoader", "LTXVLatentUpsampler", "LTXVImgToVideoInplace", "LTXVAddGuide", "LTXVCropGuides", "ManualSigmas",
-    "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ",
+    "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ", "LTX2_NAG",
   ],
 
   build(input, ctx) {
@@ -403,6 +411,15 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       negative: g.out("CLIPTextEncode", { clip: loaded.clip, text: input.negative }),
       frame_rate: LTX_FPS,
     });
+    // At CFG 1 the negative prompt is never read. NAG (KJNodes' LTX2_NAG, its authors' alpha and tau) puts it back
+    // inside the attention, on every model the passes sample with. Off by default: one tester found it still let
+    // text overlays through on dialogue-heavy prompts, and nothing LTX-specific has been published for it.
+    if (input.nag && input.cfg <= 1 && input.negative.trim() !== "" && ctx.has("LTX2_NAG")) {
+      const nag = (model: Ref): Ref => g.out("LTX2_NAG", { model, nag_scale: input.nagScale, nag_alpha: 0.25, nag_tau: 2.5, nag_cond_video: [cond, 1], inplace: true });
+      const same = loaded.first === loaded.model;
+      loaded.model = nag(loaded.model);
+      loaded.first = same ? loaded.model : nag(loaded.first);
+    }
     const run: LtxRun = {
       g, ctx, input, loaded, cond, steps, frame: { width, height, frames }, passes: [],
       sampler: g.out("KSamplerSelect", { sampler_name: input.sampler }),
@@ -421,7 +438,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     g.phase("decoding");
     const images = g.out("VAEDecodeTiled", { samples: made.video, vae: loaded.vae, tile_size: input.tile, overlap: 64, temporal_size: input.tileFrames, temporal_overlap: 4 });
     const heard = g.out("LTXVAudioVAEDecode", { samples: made.audio, audio_vae: loaded.audioVae });
-    const done = finishFrames(g, ctx, images, input, { frame: { width, height }, rife: input.smooth && !temporal, fps: LTX_FPS, audio: heard, doubled: temporal });
+    const done = finishFrames(g, ctx, colourMatched(g, ctx, images, input), input, { frame: { width, height }, rife: input.smooth && !temporal, fps: LTX_FPS, audio: heard, doubled: temporal });
 
     return {
       graph: g.graph,

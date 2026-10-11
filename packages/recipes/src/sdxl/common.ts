@@ -264,22 +264,31 @@ export const UPSCALER_PREFER = ["nomos8ksc", "clearreality", "ultrasharp", "x4pl
  * checkpoint runs on euler only, at a low CFG. Clip skip stays at 1: ComfyUI's SDXL encoders already
  * read the second-last layer, which is what these cards call "clip skip 2".
  * Few-step checkpoints (DMD2, LCM, Lightning, Hyper, Turbo merges) come first: on the usual 28 steps at
- * CFG 5 they burn. Their sampling is taken from them and the lineage's tags from the entry after.
+ * CFG 5 they burn. Their sampling is taken from them and the lineage's tags from the entry after; their
+ * hires pass runs a few steps too, not the full model's 15.
  */
 export const SDXL_PRESETS = [
   {
     match: "dmd|(^|[^a-z])lcm([^a-z]|$)",
-    values: { sampler: "lcm", scheduler: "exponential", steps: 8, cfg: 1 },
-    note: "DMD2 / LCM: few steps, lcm at CFG 1",
+    // sgm_uniform, as DMD2's card and ComfyUI's LCM example give it
+    values: { sampler: "lcm", scheduler: "sgm_uniform", steps: 8, cfg: 1, hiresSteps: 4 },
+    note: "DMD2 / LCM: few steps, lcm sgm_uniform at CFG 1",
   },
+  // A Lightning or Hyper file made for 2 or 4 steps says so in its name ("sdxl_lightning_4step"): that count,
+  // ahead of the 8 the line's other files take. 1 step wants a sampler of its own (TCD) and is left to the user.
+  ...[2, 4].map((n) => ({
+    match: `^(?=.*(lightning|hyper[\\s._-]?(sd|\\d)))(?=.*(^|[^0-9])${n}[ _-]?steps?([^a-z]|$))`,
+    values: { steps: n },
+    note: `a ${n}-step file: ${n} steps`,
+  })),
   {
     match: "lightning|hyper[\\s._-]?(sd|\\d)",
-    values: { sampler: "euler", scheduler: "sgm_uniform", steps: 8, cfg: 1 },
+    values: { sampler: "euler", scheduler: "sgm_uniform", steps: 8, cfg: 1, hiresSteps: 4 },
     note: "Lightning / Hyper: few steps, euler sgm_uniform at CFG 1",
   },
   {
     match: "turbo",
-    values: { sampler: "dpmpp_sde", scheduler: "karras", steps: 8, cfg: 2 },
+    values: { sampler: "dpmpp_sde", scheduler: "karras", steps: 8, cfg: 2, hiresSteps: 4 },
     note: "Turbo merge: few steps, DPM++ SDE Karras at CFG 2",
   },
   {
@@ -299,8 +308,9 @@ export const SDXL_PRESETS = [
   },
   {
     match: "animagine",
-    values: { cfg: 6, sampler: "euler_ancestral", scheduler: "normal", steps: 28, quality: "masterpiece, best quality" },
-    note: "Animagine: euler a, CFG 5 to 7, its quality tags",
+    // Animagine XL 4.0's card: CFG 5 and its own quality tags (it was trained on "high score" and "great score")
+    values: { cfg: 5, sampler: "euler_ancestral", scheduler: "normal", steps: 28, quality: "masterpiece, high score, great score, absurdres" },
+    note: "Animagine: euler a, CFG 4 to 7, its quality tags",
   },
 ];
 /** The face detectors of the Impact Pack, best first. */

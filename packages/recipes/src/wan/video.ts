@@ -1,7 +1,7 @@
 import { defineRecipe, GraphBuilder, type BuildContext, type LoraValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
 import { WAN_FORM_PIXELS, WAN_FPS, wanCanvas, wanFrames } from "./family";
 import { UPSCALE_OPTIONAL, upscaleInputs, upscaleNodes } from "../video/upscale";
-import { finishFrames } from "../shared/finish";
+import { colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, type ColourMatch } from "../shared/finish";
 import { applyLoras, livePreview, loraLoads } from "../shared/model";
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
 import { loadUnet, unetNodes } from "../shared/unet";
@@ -14,7 +14,7 @@ import { CORE_VIDEO_OUT, VHS } from "../shared/out";
  */
 const WAN_NEGATIVE = "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走";
 
-export interface WanVideo {
+export interface WanVideo extends ColourMatch {
   model?: string;
   modelLow?: string;
   turboIn: string;
@@ -212,6 +212,7 @@ export const wanVideo = defineRecipe<WanVideo>({
       note: "the short side of the frame. Wan is made for 480p and 720p. Past 720p it is beyond what it was trained for: much slower, and it may drift",
     },
     ...upscaleInputs(),
+    ...COLOUR_MATCH_INPUTS,
     { id: "fast", type: "toggle", label: "Turbo", note: "4 steps at CFG 1, for drafts: with the lightx2v LoRAs (one click in Settings → Models), or as it is with a model made for it. Quicker, with less motion than the full steps", default: false, advanced: true, perModel: true },
     {
       id: "turboIn", type: "choice", label: "Distilled model", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
@@ -280,7 +281,7 @@ export const wanVideo = defineRecipe<WanVideo>({
     ];
   },
   // the video is written by VideoHelperSuite when it is there, else by ComfyUI's own two nodes
-  optionalNodes: [...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ", "WanVideoNAG"],
+  optionalNodes: [...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ", "WanVideoNAG", ...COLOUR_MATCH_NODES],
 
   build(input, ctx) {
     const { slots, media } = ctx;
@@ -312,7 +313,7 @@ export const wanVideo = defineRecipe<WanVideo>({
     const { sampled, passes, steps } = wanPasses(g, ctx, input, models, cond);
 
     g.phase("decoding");
-    const made = finishFrames(g, ctx, g.out("VAEDecode", { samples: [sampled, 0], vae }), input, { frame: { width, height }, rife: input.smooth, fps: input.fps });
+    const made = finishFrames(g, ctx, colourMatched(g, ctx, g.out("VAEDecode", { samples: [sampled, 0], vae }), input), input, { frame: { width, height }, rife: input.smooth, fps: input.fps });
     const lorasOf = (turboLora: string | undefined, loras: LoraValue[]) => [...(turboLora ? [`loras/${turboLora}`] : []), ...loraLoads(loras)];
     return {
       graph: g.graph,

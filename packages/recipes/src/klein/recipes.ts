@@ -6,7 +6,7 @@ import {
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { redrawInTiles, tileInputs, tileNodes, TILE_NODES, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
 import {
-  introduce, kleinCond, kleinInputs, kleinModel, kleinSample, kleinSampleLatent, kleinSize, LOAD_NODES, loadKlein, REFERENCE_NODES, SAMPLE_NODES, withIntro,
+  introduce, KLEIN_PRESETS, kleinCond, kleinInputs, kleinModel, kleinSample, kleinSampleLatent, kleinSize, LOAD_NODES, loadKlein, REFERENCE_NODES, SAMPLE_NODES, withIntro,
   type KleinBase,
 } from "./common";
 
@@ -39,6 +39,7 @@ export const kleinPicture = defineRecipe<KleinPicture>({
   title: "txt2img",
   summary: "Text to image, from a natural-language prompt. With reference images of a person, a place or clothes, it keeps them.",
   output: "image",
+  presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
     { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "A woman in a linen shirt drinks coffee on a terrace at sunrise, soft light, waist up." },
@@ -53,6 +54,8 @@ export const kleinPicture = defineRecipe<KleinPicture>({
         { id: "tall", label: "Portrait", width: 832, height: 1216 },
         { id: "square", label: "Square", width: 1024, height: 1024 },
         { id: "wide", label: "Landscape", width: 1216, height: 832 },
+        { id: "tall-9-16", label: "Portrait 9:16", width: 768, height: 1360 },
+        { id: "wide-16-9", label: "Landscape 16:9", width: 1360, height: 768 },
       ],
     },
     ...DETAIL_INPUTS,
@@ -142,6 +145,7 @@ export const kleinEdit = defineRecipe<KleinEdit>({
   title: "Edit (instruction)",
   summary: "Instruction editing: prompt what to change (the clothes, the place, the light, the pose) and what stays.",
   output: "image",
+  presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
     { id: "source", type: "image", role: "source", label: "Image" },
@@ -202,6 +206,7 @@ export const kleinPaintOver = defineRecipe<KleinPaintOver>({
   title: "Inpaint",
   summary: "Paint a mask over a part of an image and prompt what changes there. Only the masked part is redrawn.",
   output: "image",
+  presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
     { id: "source", type: "image", role: "source", label: "Image" },
@@ -291,6 +296,7 @@ export const kleinReshape = defineRecipe<KleinReshape>({
   title: "Outpaint",
   summary: "Extends an image to another aspect ratio by generating what is beyond its edges. Nothing is cropped and what was there stays.",
   output: "image",
+  presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
     { id: "source", type: "image", role: "source", label: "Image" },
@@ -346,6 +352,7 @@ export const kleinSharper = defineRecipe<KleinSharper>({
   title: "Upscale 2x",
   summary: "For photos: upscales to twice the size with an upscale model, then a low-denoise img2img pass so it looks photographed, not smeared.",
   output: "image",
+  presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
     { id: "source", type: "image", role: "source", label: "Image" },
@@ -436,6 +443,7 @@ export const kleinFixFace = defineRecipe<KleinFixFace>({
   title: "Face detailer",
   summary: "For photos, like ADetailer: detects the face and inpaints it sharper, from reference images of the same person so that it stays them. Needs the Impact Pack nodes.",
   output: "image",
+  presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
     { id: "source", type: "image", role: "source", label: "Image" },
@@ -526,6 +534,7 @@ export const kleinVariation = defineRecipe<KleinVariation>({
   title: "Variation",
   summary: "The same image regenerated: the same people, place, clothes and light, with a slightly different pose, expression and angle. Generate several and keep the best.",
   output: "image",
+  presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
     { id: "source", type: "image", role: "source", label: "Image" },

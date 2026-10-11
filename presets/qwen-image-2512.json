@@ -1,0 +1,38 @@
+{
+  "id": "qwen-image-2512",
+  "name": "Qwen Image 2512 (fp8)",
+  "author": "Qwen (Alibaba)",
+  "note": "Qwen Image 2512, as ComfyUI repackages it: pictures from sentences, strong at writing text into the picture. Its Lightning LoRA makes Turbo (4 steps). Apache 2.0.",
+  "homepage": "https://huggingface.co/Qwen/Qwen-Image-2512",
+  "licence": {
+    "name": "Apache 2.0",
+    "url": "https://huggingface.co/Qwen/Qwen-Image-2512",
+    "note": "Qwen Image 2512 is released under Apache 2.0: free use, commercial too."
+  },
+  "recipe": "qwen.text-to-picture",
+  "inputs": {
+    "model": "qwen_image_2512_fp8_e4m3fn.safetensors"
+  },
+  "files": [
+    {
+      "file": "qwen_image_2512_fp8_e4m3fn.safetensors",
+      "folder": "diffusion_models",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_2512_fp8_e4m3fn.safetensors"
+    },
+    {
+      "file": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "folder": "text_encoders",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors"
+    },
+    {
+      "file": "qwen_image_vae.safetensors",
+      "folder": "vae",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors"
+    },
+    {
+      "file": "Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors",
+      "folder": "loras",
+      "url": "https://huggingface.co/lightx2v/Qwen-Image-2512-Lightning/resolve/main/Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors"
+    }
+  ]
+}

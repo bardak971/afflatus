@@ -17,12 +17,8 @@ export interface FlowSpec {
   model: InputSpec;
   /** The text encoder(s): the loader node(s) they need, how they are loaded, and their files. */
   encoder: { nodes: string[]; load(g: GraphBuilder, slots: Record<string, string>): Ref; files(slots: Record<string, string>): string[] };
-  /**
-   * The node that sets the shift, when one is typed. Flux's follows the size of the picture. `sized`: with no shift
-   * typed, a pass at a size of its own (a hires pass, the light pass after an upscale, a tile) takes ModelSamplingFlux
-   * at that size, the shift that suits it (Krea 2).
-   */
-  shift: { node: "ModelSamplingFlux" | "ModelSamplingAuraFlow"; default: number; note: string; sized?: boolean };
+  /** The node that sets the shift, when one is typed. Flux's follows the size of the picture. */
+  shift: { node: "ModelSamplingFlux" | "ModelSamplingAuraFlow"; default: number; note: string };
   /** Flux's guidance: a number the model was taught to follow, not the CFG scale. */
   guidance?: { default: number; note: string };
   /** A LoRA that makes the model work in a few steps at CFG 1, when the family has one. */
@@ -30,6 +26,11 @@ export interface FlowSpec {
   /** The negative prompt: where it starts, and what stands for it when it is empty. */
   negative: { default: string; note: string; empty: "zero" | "encode" };
   sampling: { steps: number; stepsNote: string; cfg: number; cfgNote: string; sampler: string; scheduler: string };
+  /**
+   * Where txt2img's hires fix starts, when the family's authors give another: how much it enlarges, how much the
+   * second pass redraws and its steps. Without it, 1.25×, 0.4 and half the steps (4 at least).
+   */
+  hires?: { scale?: number; denoise?: number; steps?: number };
   /** How it samples on the form, when the family's inputs are not the usual ones (Krea 2's: no weight precision, Turbo's ranges). */
   inputs?: InputSpec[];
   /** Inpainting with the mask as it is, without Differential Diffusion's soft edge (Krea 2's). */
@@ -115,7 +116,7 @@ export function flowKit(spec: FlowSpec) {
   /** Every node a second pass that is only sometimes made can use (the light pass after an upscale). */
   const SECOND_PASS = [
     "UNETLoader", GGUF_LOADER, ...spec.encoder.nodes, "VAELoader", "CLIPTextEncode", "KSampler", "VAEDecode", "VAEEncode", "LoraLoaderModelOnly",
-    ...(spec.negative.empty === "zero" ? ["ConditioningZeroOut"] : []), spec.shift.node, ...(spec.shift.sized && spec.shift.node !== "ModelSamplingFlux" ? ["ModelSamplingFlux"] : []),
+    ...(spec.negative.empty === "zero" ? ["ConditioningZeroOut"] : []), spec.shift.node,
     ...(spec.guidance ? ["FluxGuidance"] : []), ...TILE_NODES,
   ];
 
@@ -139,6 +140,7 @@ export function flowKit(spec: FlowSpec) {
       vae: g.out("VAELoader", { vae_name: ctx.slots.vae }),
       steps: turbo ? input.turboSteps ?? spec.turbo!.steps : input.steps,
       cfg: turbo ? 1 : input.cfg,
+      turbo,
       loads: [`diffusion_models/${unet}`, ...spec.encoder.files(ctx.slots), `vae/${ctx.slots.vae}`, ...(turboLora ? [`loras/${turboLora}`] : []), ...loraLoads(input.loras)],
     };
   }
@@ -154,9 +156,6 @@ export function flowKit(spec: FlowSpec) {
     if (!(input.shift > 0)) return model;
     return g.out("ModelSamplingAuraFlow", { model, shift: input.shift });
   };
-  /** The same for a pass at a size of its own: with `shift.sized` and no shift typed, the one that suits that size. */
-  const shiftedAt = (g: GraphBuilder, model: Ref, input: FlowBase, size: { width: number; height: number }): Ref =>
-    spec.shift.sized && !(input.shift > 0) ? g.out("ModelSamplingFlux", { model, max_shift: 1.15, base_shift: 0.5, width: size.width, height: size.height }) : shifted(g, model, input, size);
 
   /** The two texts from what the prompt was read into: Flux's guidance on it, and the negative side (the positive one emptied, or the negative prompt, as the family's template has it). */
   function condFrom(g: GraphBuilder, k: Loaded, input: FlowBase, said: Ref) {
@@ -190,6 +189,6 @@ export function flowKit(spec: FlowSpec) {
   /** What the checker's variants share: a fine-tune with a shift, a CFG, its steps, a negative prompt and a LoRA. */
   const tuned = { model: spec.fineTune, shift: 4, cfg: 3, steps: 25, negative: "blurry", loras: [{ file: "l.safetensors", weight: 0.8 }] };
 
-  return { inputs, loadNodes, SOMETIMES, SECOND_PASS, load, shifted, shiftedAt, condFrom, cond, sample, sizeOf, tuned };
+  return { inputs, loadNodes, SOMETIMES, SECOND_PASS, load, shifted, condFrom, cond, sample, sizeOf, tuned };
 }
 export type FlowKit = ReturnType<typeof flowKit>;

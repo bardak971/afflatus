@@ -1,0 +1,33 @@
+{
+  "id": "klein-4b",
+  "name": "FLUX.2 Klein 4B (base)",
+  "author": "Black Forest Labs",
+  "note": "FLUX.2 Klein, the 4B base model, as ComfyUI repackages it: pictures from sentences, and editing from an instruction with up to four reference pictures. Apache 2.0.",
+  "homepage": "https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4B",
+  "licence": {
+    "name": "Apache 2.0",
+    "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4B",
+    "note": "The 4B Klein models are released under Apache 2.0: free use, commercial too. (The 9B ones are not: they are under a non-commercial licence.)"
+  },
+  "recipe": "klein.picture",
+  "inputs": {
+    "model": "flux-2-klein-base-4b.safetensors"
+  },
+  "files": [
+    {
+      "file": "flux-2-klein-base-4b.safetensors",
+      "folder": "diffusion_models",
+      "url": "https://huggingface.co/Comfy-Org/flux2-klein/resolve/main/split_files/diffusion_models/flux-2-klein-base-4b.safetensors"
+    },
+    {
+      "file": "qwen_3_4b.safetensors",
+      "folder": "text_encoders",
+      "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors"
+    },
+    {
+      "file": "flux2-vae.safetensors",
+      "folder": "vae",
+      "url": "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors"
+    }
+  ]
+}

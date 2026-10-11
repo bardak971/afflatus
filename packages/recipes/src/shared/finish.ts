@@ -1,6 +1,33 @@
-import type { BuildContext, GraphBuilder, Ref } from "@afflatus/core";
+import type { BuildContext, GraphBuilder, InputSpec, Ref } from "@afflatus/core";
 import { pixelUpscale, UPSCALE, type UpscaleValues } from "../video/upscale";
 import { saveVideo } from "./out";
+
+/** The colour match to the start picture, on the forms of the families that take one. */
+export interface ColourMatch {
+  colourMatch: boolean;
+  colourStrength: number;
+}
+export const COLOUR_MATCH_INPUTS: InputSpec[] = [
+  {
+    id: "colourMatch", type: "toggle", label: "Colour match to the first frame", default: false, showWhen: "start", advanced: true, section: "out",
+    note: "pulls the clip's colours back to the start picture's when they drift (ComfyUI's ColorTransfer, Reinhard in Lab, one transform for the whole clip so nothing pumps). Off by default: it also damps a grade or a light change the clip means to make",
+  },
+  { id: "colourStrength", type: "number", label: "Colour match strength", min: 0.1, max: 1, step: 0.05, default: 0.75, showWhen: "colourMatch", advanced: true, section: "out" },
+];
+/** The node the colour match brings in: ComfyUI's own, optional on older ComfyUIs. */
+export const COLOUR_MATCH_NODES = ["ColorTransfer"];
+
+/**
+ * The frames' colours pulled towards the start picture's: one transform pooled over every frame (`uniform`),
+ * so a clip does not flicker the way a per-frame match does, and nothing when it is off, there is no start
+ * picture, or this ComfyUI has no ColorTransfer.
+ */
+export function colourMatched(g: GraphBuilder, ctx: BuildContext, images: Ref, input: Partial<ColourMatch> & { start?: string }): Ref {
+  const start = input.start ? ctx.uploads.start : undefined;
+  if (!input.colourMatch || !start || !ctx.has("ColorTransfer")) return images;
+  const ref = g.out("LoadImage", { image: start });
+  return g.out("ColorTransfer", { image_target: images, image_ref: ref, method: "reinhard_lab", source_stats: "uniform", strength: input.colourStrength ?? 0.75 });
+}
 
 /**
  * From a video family's decoded frames to its saved clip, the same in each: SeedVR2 and an upscale model go

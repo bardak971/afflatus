@@ -10,11 +10,15 @@ Each file in this folder is listed in every Afflatus as a read-only "built in" p
 |---|---|---|
 | `krea2-turbo` | Krea 2 Turbo, fp8 (pictures) | Krea 2 Community License |
 | `zimage-turbo` | Z-Image Turbo, bf16 (pictures) | Apache 2.0 |
+| `klein-4b` | FLUX.2 Klein 4B base (pictures, edit by instruction) | Apache 2.0 |
+| `qwen-image-2512` | Qwen Image 2512, fp8, with its Lightning LoRA (pictures, text in the picture) | Apache 2.0 |
+| `qwen-image-21` | Qwen Image 2.1, int8 (pictures up to 2K, edit) | Qwen Research License: research use only |
 | `minimax-h3` | MiniMax H3, int8 (video with sound, seamless timeline joins) | MiniMax H3 Community License: read its excluded territories |
 | `wan22-i2v` | Wan 2.2 image to video, 14B fp8 (video) | Apache 2.0 |
+| `wan22-t2v` | Wan 2.2 text to video, 14B fp8, with lightx2v's 4-step LoRAs (video) | Apache 2.0 |
 | `ltx23-distilled` | LTX 2.3 distilled, 22B fp8 (video with sound) | LTX-2 Community License |
 
-Each one shows its licence before anything is fetched, and you accept it once. Nothing is bundled: the files come from the publishers' own Hugging Face pages, through ComfyUI-Manager.
+Each one shows its licence before anything is fetched, and you accept it once. Nothing is bundled: the files come from the publishers' own Hugging Face pages (or ComfyUI's repackaged ones), downloaded by Afflatus into ComfyUI's model folders.
 
 ## Your own presets
 

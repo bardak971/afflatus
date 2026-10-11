@@ -36,7 +36,7 @@ const STYLE_IMAGES = 2;
  * A picture from a prompt, the way ComfyUI's own Krea 2 Turbo template makes it. With reference images
  * it follows their style: the images are read next to the prompt and the style-reference LoRA is put
  * on the model (ComfyUI's "image style reference" template). Hires fix is the usual upscale and second
- * pass, the second pass with the shift that suits its larger size.
+ * pass, at the model's own shift (see krea2Spec).
  */
 export const krea2Picture = defineRecipe<Krea2Picture>({
   id: "krea2.text-to-picture",
@@ -57,17 +57,18 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
     ...DETAIL_INPUTS,
     ...krea2Kit.inputs.slice(0, -1),
     { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
-    { id: "hiresScale", type: "number", label: "Upscale by", note: "past 2×, the second pass is redrawn in tiles (see Redraw)", min: 1.1, max: 4, step: 0.05, default: 1.25, unit: "×", showWhen: "hires", advanced: true, perModel: true },
+    { id: "hiresScale", type: "number", label: "Upscale by", note: "past 2×, the second pass is redrawn in tiles (see Redraw)", min: 1.1, max: 4, step: 0.05, default: krea2Spec.hires!.scale!, unit: "×", showWhen: "hires", advanced: true, perModel: true },
     {
       id: "hiresUpscaler", type: "choice", label: "Upscaler", note: "from your upscale models", showWhen: "hires", advanced: true, perModel: true,
       options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: UPSCALER_PREFER,
     },
-    { id: "hiresDenoise", type: "number", label: "Denoising strength", note: "how much the second pass may redraw", min: 0.05, max: 0.9, step: 0.05, default: 0.5, showWhen: "hires", advanced: true, perModel: true },
-    { id: "hiresSteps", type: "number", label: "Hires steps", min: 1, max: 60, step: 1, default: 4, showWhen: "hires", advanced: true, perModel: true },
+    { id: "hiresDenoise", type: "number", label: "Denoising strength", note: "how much the second pass may redraw", min: 0.05, max: 0.9, step: 0.05, default: krea2Spec.hires!.denoise!, showWhen: "hires", advanced: true, perModel: true },
+    { id: "hiresSteps", type: "number", label: "Hires steps", min: 1, max: 60, step: 1, default: krea2Spec.hires!.steps!, showWhen: "hires", advanced: true, perModel: true },
     ...HIRES_PASS_INPUTS,
     ...tileInputs("hires"),
     krea2Kit.inputs.at(-1)!,
   ],
+  presets: krea2Spec.presets!,
   optionalNodes: DETAIL_OPTIONAL,
   nodes: (input) => [
     ...detailNodes(input),
@@ -75,10 +76,10 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
     ...tileNodes(input.hires && inTiles(input, krea2Large(input), KREA2_AREA)),
     ...krea2Kit.loadNodes(input).filter((n) => n !== "KSampler" && (n !== "CLIPTextEncode" || !input.references.length || input.negative.trim())), "EmptyLatentImage",
     ...(input.references.length ? ["LoadImage", "TextEncodeQwenImageEditPlus", "FluxKontextMultiReferenceLatentMethod", "LoraLoaderModelOnly", ...(input.shift > 0 ? [] : ["ModelSamplingFlux"])] : []),
-    ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode", ...(input.shift > 0 ? [] : ["ModelSamplingFlux"])] : []),
+    ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"] : []),
   ],
   build(input, ctx) {
-    const { load, shifted, shiftedAt, condFrom, sample } = krea2Kit;
+    const { load, shifted, condFrom, sample } = krea2Kit;
     const g = new GraphBuilder();
     const k = load(g, input, ctx);
     const W = roundTo(input.size.width, 16);
@@ -89,8 +90,10 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
     }
     let model = k.model;
     if (styled) model = g.out("LoraLoaderModelOnly", { model, lora_name: ctx.slots.styleRef, strength_model: input.referenceStrength });
-    // the shift typed in, else the model's own; with reference images and for the second pass, the one that follows the size
-    const sized = (m: Ref, width: number, height: number) => shiftedAt(g, m, input, { width, height });
+    // the shift typed in, else the model's own; with reference images, the one that follows the size, as ComfyUI's
+    // style-reference template sets it
+    const styledAt = (m: Ref, width: number, height: number) =>
+      input.shift > 0 ? shifted(g, m, input, { width, height }) : g.out("ModelSamplingFlux", { model: m, max_shift: 1.15, base_shift: 0.5, width, height });
     let positive: Ref;
     if (styled) {
       const images = Object.fromEntries(input.references.slice(0, STYLE_IMAGES).map((_, i) => [`image${i + 1}`, g.out("LoadImage", { image: ctx.uploads[`references.${i}`] })]));
@@ -104,7 +107,7 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
 
     g.phase("sampling");
     const detail = { input, ctx };
-    const first = sample(g, k, input, styled ? sized(model, W, H) : shifted(g, model, input, { width: W, height: H }), cond, empty, ctx.seed, {}, detail);
+    const first = sample(g, k, input, styled ? styledAt(model, W, H) : shifted(g, model, input, { width: W, height: H }), cond, empty, ctx.seed, {}, detail);
     let latent = first.latent;
     const passes = [first.pass];
     const loads = [...k.loads, ...(styled ? [`loras/${ctx.slots.styleRef}`] : [])];
@@ -121,12 +124,12 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
       const pass = { steps: input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input) };
       if (inTiles(input, { width: W2, height: H2 }, KREA2_AREA)) {
         image = redrawInTiles(g, ctx, scaled, k.vae, { width: W2, height: H2 }, input, (l, _tiles, tile) => {
-          const second = sample(g, k, input, sized(model, tile, tile), cond, l, ctx.seed, pass, detail);
+          const second = sample(g, k, input, shifted(g, model, input, { width: tile, height: tile }), cond, l, ctx.seed, pass, detail);
           passes.push({ ...second.pass, steps: second.pass.steps * tilesOf({ width: W2, height: H2 }, input).count });
           return second.latent;
         });
       } else {
-        const second = sample(g, k, input, sized(model, W2, H2), cond, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), ctx.seed, pass, detail);
+        const second = sample(g, k, input, shifted(g, model, input, { width: W2, height: H2 }), cond, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), ctx.seed, pass, detail);
         latent = second.latent;
         passes.push(second.pass);
       }

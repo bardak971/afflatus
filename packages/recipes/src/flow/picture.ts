@@ -46,13 +46,13 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       ...DETAIL_INPUTS,
       ...inputs.slice(0, -1),
       { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
-      { id: "hiresScale", type: "number", label: "Upscale by", note: "past 2×, the second pass is redrawn in tiles (see Redraw)", min: 1.1, max: 4, step: 0.05, default: 1.25, unit: "×", showWhen: "hires", advanced: true, perModel: true },
+      { id: "hiresScale", type: "number", label: "Upscale by", note: "past 2×, the second pass is redrawn in tiles (see Redraw)", min: 1.1, max: 4, step: 0.05, default: spec.hires?.scale ?? 1.25, unit: "×", showWhen: "hires", advanced: true, perModel: true },
       {
         id: "hiresUpscaler", type: "choice", label: "Upscaler", note: "from your upscale models", showWhen: "hires", advanced: true, perModel: true,
         options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: UPSCALER_PREFER,
       },
-      { id: "hiresDenoise", type: "number", label: "Denoising strength", note: "how much the second pass may redraw", min: 0.05, max: 0.9, step: 0.05, default: 0.4, showWhen: "hires", advanced: true, perModel: true },
-      { id: "hiresSteps", type: "number", label: "Hires steps", min: 1, max: 60, step: 1, default: Math.max(4, Math.round(spec.sampling.steps / 2)), showWhen: "hires", advanced: true, perModel: true },
+      { id: "hiresDenoise", type: "number", label: "Denoising strength", note: "how much the second pass may redraw", min: 0.05, max: 0.9, step: 0.05, default: spec.hires?.denoise ?? 0.4, showWhen: "hires", advanced: true, perModel: true },
+      { id: "hiresSteps", type: "number", label: "Hires steps", min: 1, max: 60, step: 1, default: spec.hires?.steps ?? Math.max(4, Math.round(spec.sampling.steps / 2)), showWhen: "hires", advanced: true, perModel: true },
       ...HIRES_PASS_INPUTS,
       ...tileInputs("hires"),
       inputs.at(-1)!,
@@ -92,7 +92,9 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
         const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.hiresUpscaler }), image: pixels });
         const scaled = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: large.width, height: large.height, crop: "disabled" });
         g.phase("refining");
-        const pass = { steps: input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input) };
+        // a model run for a few steps (Turbo, or a file made for it) redraws in as many as it was made for at most:
+        // the full model's half (25 steps for Qwen Image) is not what it was distilled for, and takes six times as long
+        const pass = { steps: k.turbo ? Math.min(input.hiresSteps, k.steps) : input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input) };
         if (inTiles(input, large, AREA)) {
           // each tile is a picture the model's size to it: the shift for that size
           const tile = Math.min(input.tileSize, Math.max(large.width, large.height));

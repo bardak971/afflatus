@@ -14,7 +14,7 @@ const REFINE_WHOLE_PIXELS = 3.2e6;
  * ComfyUI without the tile nodes says so (TILES_NEEDED), and a picture asked whole is gone over whole.
  */
 export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
-  const { inputs, SECOND_PASS, load, shiftedAt, cond, sample, tuned } = kit;
+  const { inputs, SECOND_PASS, load, shifted, cond, sample, tuned } = kit;
   const files = spec.files;
   return defineRecipe<FlowSharper>({
     id: `${spec.family}.sharper`,
@@ -63,14 +63,14 @@ export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
       if (tiled) {
         // each tile is a picture its own size to the model: the shift for that size
         const { tile, count } = tilesOf(size, input);
-        const model = shiftedAt(g, k.model, input, { width: tile, height: tile });
+        const model = shifted(g, k.model, input, { width: tile, height: tile });
         picture = redrawInTiles(g, ctx, sized, k.vae, size, input, (l) => {
           const done = sample(g, k, input, model, c, l, ctx.seed, light);
           pass = { ...done.pass, steps: done.pass.steps * count };
           return done.latent;
         });
       } else {
-        const done = sample(g, k, input, shiftedAt(g, k.model, input, size), c, g.out("VAEEncode", { pixels: sized, vae: k.vae }), ctx.seed, light);
+        const done = sample(g, k, input, shifted(g, k.model, input, size), c, g.out("VAEEncode", { pixels: sized, vae: k.vae }), ctx.seed, light);
         pass = done.pass;
         g.phase("decoding");
         picture = g.out("VAEDecode", { samples: done.latent, vae: k.vae });
