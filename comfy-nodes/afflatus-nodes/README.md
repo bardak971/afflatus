@@ -12,18 +12,18 @@ colour and voice at the join).
 | Afflatus: Load H3 Latent | Reads such a file back, from an upload or the input folder. |
 | Afflatus: Normalize H3 Latent | Rounds a sampled window's audio to its own frame boundary, so the window is a valid clip to continue from. |
 | Afflatus: Trim H3 Latent | Keeps a latent's first frames (a count on the 17k + 5 grid), video and audio: a clip handed over before its end is continued from there. |
-| Afflatus: H3 Tail Guide | The clip before's tail as the frame-zero guide: its last decoded frames re-encoded by the VAE for the picture, its exact latent for the sound. Without frames, the exact latent tail guide. Afflatus no longer uses it; kept for graphs that name it. |
+| Afflatus: H3 Tail Guide | The clip before's tail as the frame-zero guide: its last decoded frames re-encoded by the VAE for the picture, its exact latent for the sound. Without frames, the exact latent tail guide. Deprecated: Afflatus no longer uses it; kept for graphs that name it, removed in the release after Afflatus 0.4.0. |
 | Afflatus: H3 Latent Head Guide | Anchors the clip after's first tokens at the end of the window: the clip lands exactly where the clip after begins. |
 | Afflatus: H3 Latent Landing | The same from where any of the clip after's 17-frame chunks begins: a clip lands inside another, on time. |
 | Afflatus: H3 Seam Latent | A continuation's new tokens after the clip before's own last ones, to decode the two as one piece: the join then matches the whole chain decoded at once. |
 | MiniMax H3 Guided Continuation Window | Allocates the continuation target: a hidden overlap of the previous latent's tail plus the new frames. |
 | MiniMax H3 Latent Tail Guide | Conditions the target on the previous latent's tail, video and audio, with no VAE round trip. |
-| MiniMax H3 Append Continuation | Drops the hidden overlap and appends only the new tokens to the previous latent. |
+| MiniMax H3 Append Continuation | Drops the hidden overlap and appends only the new tokens to the previous latent. Deprecated (0.11.2): Afflatus joins with Seam Latent instead; removed in the release after Afflatus 0.4.0. |
 
 The last three are the MIT-licensed continuation nodes of ttulttul's
 [ComfyUI-Minimax-H3-Continuation](https://github.com/ttulttul/ComfyUI-Minimax-H3-Continuation), vendored
-with one small change (a guarded import: a ComfyUI too old for them says "update ComfyUI" rather than
-failing with an ImportError); their licence is in `LICENSE-continuation`.
+with two small changes (a guarded import: a ComfyUI too old for them says "update ComfyUI" rather than
+failing with an ImportError; Append Continuation marked deprecated); their licence is in `LICENSE-continuation`.
 
 ## Routes on ComfyUI's server
 

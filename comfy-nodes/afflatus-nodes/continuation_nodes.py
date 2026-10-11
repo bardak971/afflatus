@@ -592,6 +592,10 @@ class MiniMaxH3AppendContinuation(io.ComfyNode):
                 io.Int.Output("total_length"),
             ],
             is_experimental=True,
+            # Afflatus decodes the joins with its own Seam Latent instead: still registered so that a saved graph naming
+            # it loads, marked deprecated (an Afflatus change); it goes, with _validate_transition_tokens, in the release
+            # after 0.4.0.
+            is_deprecated=True,
         )
 
     @classmethod
