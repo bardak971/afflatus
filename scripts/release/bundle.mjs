@@ -1,6 +1,14 @@
 // Packs a release for one platform out of release/app (see stage.mjs): a portable Node runtime, ffmpeg and
 // ffprobe where a build can be redistributed (the LGPL builds for Windows and Linux; on macOS the start
-// script points at Homebrew), the launcher, and the archive the GitHub release carries.
+// script points at Homebrew), the launchers, and the archive the GitHub release carries.
+//
+// The archive holds one folder, Afflatus/, laid out the way an install updates itself (HANDOVER-updater.md):
+//
+//   Afflatus/Afflatus.bat, afflatus.sh       the launchers: start versions/current, again on exit code 75
+//   Afflatus/versions/current                one line, the version to start (0.4.0)
+//   Afflatus/versions/0.4.0/{node,app,bin}   that version: its Node, the app with its launch.mjs, ffmpeg
+//
+// data/ is made beside versions/ at the first start; an update adds a version folder and rewrites current.
 //
 //   node scripts/release/bundle.mjs --platform win-x64|linux-x64|darwin-arm64 [--version v0.2.1] [--ffmpeg autobuild-…] [--record]
 //
@@ -38,9 +46,8 @@ const platform = opt("platform", { win32: "win-x64", linux: "linux-x64", darwin:
 const version = opt("version", process.env.AFFLATUS_VERSION?.trim() || "dev");
 // the version names files and is written into the launchers: a tag (v1.2.3, v1.2.3-rc.1) or "dev", nothing else
 if (!/^v\d+\.\d+\.\d+(-[\w.]+)?$/.test(version) && version !== "dev") throw new Error(`--version ${JSON.stringify(version)} is not a release tag (v1.2.3 or v1.2.3-rc.1)`);
-/** The version inside a .bat `set "X=…"` (% doubled, no quote) and inside a POSIX single-quoted string. */
-const batVersion = version.replace(/%/g, "%%").replace(/"/g, "");
-const shVersion = `'${version.replace(/'/g, "'\\''")}'`;
+/** The version's folder under versions/ and its line in versions/current: the tag without its "v" (0.4.0, 0.4.0-rc.1). */
+const folder = version.replace(/^v/, "");
 const ffmpegTag = opt("ffmpeg", FFMPEG_TAG);
 const record = argv.includes("--record");
 if (!["win-x64", "linux-x64", "darwin-arm64"].includes(platform)) throw new Error(`unknown platform ${platform}`);
@@ -49,10 +56,16 @@ if (!/^v\d+\.\d+\.\d+$/.test(NODE_VERSION)) throw new Error(`NODE_VERSION must b
 const app = join(root, "release", "app");
 if (!existsSync(join(app, "apps/server/dist/index.mjs"))) throw new Error("run scripts/release/stage.mjs first");
 if (!existsSync(join(app, "package-lock.json"))) throw new Error("release/app has no package-lock.json: run scripts/release/stage.mjs again (it writes one)");
+// launch.mjs tells the server the staged version (the one the web page was built with): it must be this one
+const staged = readFileSync(join(app, "VERSION"), "utf8").trim();
+if (version !== "dev" && staged !== version) throw new Error(`release/app was staged as ${staged}, not ${version}: stage again with AFFLATUS_VERSION=${version}`);
 const dist = join(root, "release", "dist");
 const name = `afflatus-${version}-${platform}`;
-const bundle = join(root, "release", "bundle", name);
-rmSync(bundle, { recursive: true, force: true });
+const parent = join(root, "release", "bundle", name);
+const top = join(parent, "Afflatus");
+// the version's folder, where the app, its node and its ffmpeg go
+const bundle = join(top, "versions", folder);
+rmSync(parent, { recursive: true, force: true });
 mkdirSync(bundle, { recursive: true });
 mkdirSync(dist, { recursive: true });
 const win = process.platform === "win32";
@@ -65,9 +78,25 @@ const unpack = (archive, dest) => {
     else run("unzip", ["-q", archive, "-d", dest], root);
   } else run("tar", [archive.endsWith(".xz") ? "-xJf" : "-xzf", archive, "-C", dest], root);
 };
+/**
+ * The zip is written entry by entry, not with Compress-Archive: Windows PowerShell's writes its names with "\"
+ * and in the local code page, and the tar Windows ships (which an Afflatus updating itself unpacks with) then
+ * refuses a name such as "snow ☃" in an npm package's test files. Here the names take "/" and UTF-8.
+ */
+const zipScript = (src, name, archive) => [
+  "Add-Type -AssemblyName System.IO.Compression.FileSystem",
+  `$src = (Resolve-Path -LiteralPath '${src}').Path.TrimEnd('\\')`,
+  `$zip = [IO.Compression.ZipFile]::Open('${archive}', 'Create', [Text.Encoding]::UTF8)`,
+  "try {",
+  "  Get-ChildItem -LiteralPath $src -Recurse -File -Force | ForEach-Object {",
+  `    $entry = '${name}/' + $_.FullName.Substring($src.Length + 1).Replace('\\', '/')`,
+  "    [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, $entry, [IO.Compression.CompressionLevel]::Optimal)",
+  "  }",
+  "} finally { $zip.Dispose() }",
+].join("\n");
 const pack = (dir, name, archive) => {
   if (archive.endsWith(".zip")) {
-    if (win) ps(`Compress-Archive -LiteralPath '${join(dir, name)}' -DestinationPath '${archive}' -CompressionLevel Optimal -Force`);
+    if (win) ps(zipScript(join(dir, name), name, archive));
     else run("zip", ["-qr", archive, name], dir);
   } else run("tar", ["-czf", archive, name], dir);
 };
@@ -112,6 +141,21 @@ const fetchChecked = async (url, file, expected) => {
 console.log("[bundle] app");
 cpSync(app, join(bundle, "app"), { recursive: true });
 run("npm", ["ci", "--omit=dev", "--no-audit", "--no-fund", "--loglevel=error"], join(bundle, "app"));
+// npm packages' files whose names are not plain ASCII (@fastify/send's test fixture "snow ☃") are left out: the
+// tar Windows ships, which an Afflatus updating itself unpacks with, cannot name them and fails the whole unpack.
+// Nothing runs from them
+const sweep = (dir) => {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (/[^\x20-\x7e]/.test(entry.name)) {
+      console.log(`[bundle] left out, a name the Windows tar cannot unpack: ${path}`);
+      rmSync(path, { recursive: true, force: true });
+    } else if (entry.isDirectory()) sweep(path);
+  }
+};
+sweep(join(bundle, "app", "node_modules"));
+// the version's own start (its environment, the restart and the fall back), updated with the app
+cpSync(join(here, "launch.mjs"), join(bundle, "app", "launch.mjs"));
 
 // 2. a portable Node: the one release named above, from nodejs.org, checked against its SHASUMS256.txt
 console.log(`[bundle] node runtime ${NODE_VERSION}`);
@@ -182,56 +226,58 @@ if (platform !== "darwin-arm64") {
   rmSync(ftmp, { recursive: true, force: true });
 }
 
-// 4. the launcher
-console.log("[bundle] launcher");
-if (platform === "win-x64") {
-  writeFileSync(join(bundle, "Afflatus.bat"), [
-    "@echo off",
-    "setlocal",
-    'cd /d "%~dp0"',
-    'set "PATH=%~dp0bin;%PATH%"',
-    'if "%DATA_DIR%"=="" set "DATA_DIR=%~dp0data"',
-    'if "%PORT%"=="" set "PORT=8720"',
-    `set "AFFLATUS_VERSION=${batVersion}"`,
-    "echo Afflatus %AFFLATUS_VERSION% - http://127.0.0.1:%PORT%  (close this window to stop it)",
-    'start "" /b cmd /c "timeout /t 3 >nul & start "" http://127.0.0.1:%PORT%"',
-    '"%~dp0node\\node.exe" --enable-source-maps "%~dp0app\\apps\\server\\dist\\index.mjs"',
-    "if errorlevel 1 pause",
-    "",
-  ].join("\r\n"));
-} else {
-  const mac = platform === "darwin-arm64";
-  writeFileSync(join(bundle, "afflatus.sh"), [
-    "#!/usr/bin/env bash",
-    "set -euo pipefail",
-    'cd "$(dirname "$0")"',
-    'export PATH="$PWD/bin:$PATH"',
-    'export DATA_DIR="${DATA_DIR:-$PWD/data}"',
-    'export PORT="${PORT:-8720}"',
-    `export AFFLATUS_VERSION=${shVersion}`,
-    ...(mac ? [
-      'if ! command -v ffmpeg >/dev/null 2>&1; then',
-      '  echo "ffmpeg is not installed: trims, exports and video previews need it. Install it with:  brew install ffmpeg"',
-      'fi',
-      'xattr -dr com.apple.quarantine node 2>/dev/null || true',
-    ] : []),
-    'echo "Afflatus $AFFLATUS_VERSION - http://127.0.0.1:$PORT  (Ctrl+C stops it)"',
-    `(sleep 3; ${mac ? "open" : "xdg-open"} "http://127.0.0.1:$PORT" >/dev/null 2>&1 || true) &`,
-    'exec "$PWD/node/bin/node" --enable-source-maps "$PWD/app/apps/server/dist/index.mjs"',
-    "",
-  ].join("\n"));
-  chmodSync(join(bundle, "afflatus.sh"), 0o755);
-}
-writeFileSync(join(bundle, "README.txt"), [
+// 4. the launchers, versions/current and the README. The launchers stay this small and never change once
+// unpacked (cmd reads a running .bat from disk as it goes): the rest is in the version's launch.mjs. Both go into
+// every archive, as the layout is the same everywhere.
+console.log("[bundle] launchers");
+writeFileSync(join(top, "versions", "current"), `${folder}\n`);
+writeFileSync(join(top, "Afflatus.bat"), [
+  "@echo off",
+  "setlocal",
+  'cd /d "%~dp0"',
+  ":start",
+  'set "AFFLATUS_V="',
+  'for /f "usebackq delims=" %%v in ("versions\\current") do if not defined AFFLATUS_V set "AFFLATUS_V=%%v"',
+  'if not defined AFFLATUS_V (echo versions\\current names no version to start. & pause & exit /b 1)',
+  '"versions\\%AFFLATUS_V%\\node\\node.exe" "versions\\%AFFLATUS_V%\\app\\launch.mjs" %*',
+  "if %errorlevel%==75 goto start",
+  "if errorlevel 1 pause",
+  "",
+].join("\r\n"));
+writeFileSync(join(top, "afflatus.sh"), [
+  "#!/usr/bin/env bash",
+  'cd "$(dirname "$0")" || exit 1',
+  ...(platform === "darwin-arm64" ? [
+    'if ! command -v ffmpeg >/dev/null 2>&1; then',
+    '  echo "ffmpeg is not installed: trims, exports and video previews need it. Install it with:  brew install ffmpeg"',
+    'fi',
+    'xattr -dr com.apple.quarantine versions 2>/dev/null || true',
+  ] : []),
+  "while :; do",
+  `  v="$(head -n 1 versions/current | tr -d '[:space:]')"`,
+  '  [ -n "$v" ] || { echo "versions/current names no version to start."; exit 1; }',
+  '  node="versions/$v/node/bin/node"',
+  '  [ -x "$node" ] || node="versions/$v/node/node.exe"',
+  '  "$node" "versions/$v/app/launch.mjs" "$@"',
+  "  code=$?",
+  '  [ "$code" -eq 75 ] || exit "$code"',
+  "done",
+  "",
+].join("\n"));
+chmodSync(join(top, "afflatus.sh"), 0o755);
+writeFileSync(join(top, "README.txt"), [
   `Afflatus ${version} for ${platform}`,
   "",
   platform === "win-x64" ? "Double-click Afflatus.bat. Your browser opens on http://127.0.0.1:8720." : "Run ./afflatus.sh. Your browser opens on http://127.0.0.1:8720.",
   "First, in Settings, give it the address of your ComfyUI (http://127.0.0.1:8188 when it runs on this computer).",
-  "Your data (library, settings, timelines) lives in the data folder next to this file. To update, unpack the next release over this one; the data folder stays.",
-  platform === "darwin-arm64" ? "ffmpeg is needed for trims, exports and video previews: brew install ffmpeg" : "ffmpeg and ffprobe (LGPL builds by BtbN) are in bin/, with their build named in bin/VERSIONS.txt.",
+  "Your data (library, settings, timelines) lives in the data folder next to this file, made at the first start.",
+  "Afflatus updates itself: Settings > About says when a release is out and installs it. The releases it has are in",
+  "versions/: the one it runs, and the one before it to go back to.",
+  "Coming from 0.3.0: unpack this beside the old folder and start it; it offers to bring your library over.",
+  platform === "darwin-arm64" ? "ffmpeg is needed for trims, exports and video previews: brew install ffmpeg" : `ffmpeg and ffprobe (LGPL builds by BtbN) are in versions/${folder}/bin/, with their build named in VERSIONS.txt there.`,
   "",
   "Afflatus is free software under the AGPL-3.0: https://github.com/bardak971/afflatus",
-  "The other people's code it ships, and their licences, are listed in app/THIRD_PARTY_NOTICES.txt.",
+  `The other people's code it ships, and their licences, are listed in versions/${folder}/app/THIRD_PARTY_NOTICES.txt.`,
   "",
 ].join("\n"));
 
@@ -239,6 +285,6 @@ writeFileSync(join(bundle, "README.txt"), [
 console.log("[bundle] archive");
 const archive = join(dist, platform === "win-x64" ? `${name}.zip` : `${name}.tar.gz`);
 rmSync(archive, { force: true });
-pack(join(root, "release", "bundle"), name, archive);
+pack(parent, "Afflatus", archive);
 rmSync(tmp, { recursive: true, force: true });
 console.log(`[bundle] done: ${archive}`);

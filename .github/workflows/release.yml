@@ -8,6 +8,10 @@
 # The version reaches the scripts through the environment ($VERSION), never spelled into a shell line; the
 # stage job and bundle.mjs refuse anything but v1.2.3 or v1.2.3-rc.1.
 #
+# The release's SHA256SUMS.txt is signed (SHA256SUMS.txt.sig, scripts/release/sign.mjs) with the Ed25519 key in
+# the secret AFFLATUS_RELEASE_KEY, whose public half the app holds (apps/server/src/releaseKey.ts): an Afflatus
+# updating itself takes only what that signature vouches for. A tag pushed without the secret fails at once.
+#
 # Every action is pinned to a commit SHA, with the tag it stood for as a comment beside it
 # (`uses: owner/action@<sha> # vN`). To move one, read the new SHA off the action's release page on GitHub
 # and change both; a bare tag can be moved by its owner, a SHA cannot.
@@ -55,6 +59,15 @@ jobs:
         run: |
           if ! printf '%s' "$VERSION" | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9_.]+)?'; then
             echo "::error::the version is not a release tag (v1.2.3 or v1.2.3-rc.1)"
+            exit 1
+          fi
+      # before anything is built: a release that cannot be signed is not made
+      - name: Check the release key
+        if: env.PUBLISH == 'true'
+        env: { AFFLATUS_RELEASE_KEY: "${{ secrets.AFFLATUS_RELEASE_KEY }}" }
+        run: |
+          if [ -z "$AFFLATUS_RELEASE_KEY" ]; then
+            echo "::error::the secret AFFLATUS_RELEASE_KEY (the release key, an Ed25519 PKCS#8 PEM) is not set: the release cannot be signed"
             exit 1
           fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -161,8 +174,21 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { path: dist, pattern: "bundle-*", merge-multiple: true }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 24 }
       - name: Checksums
         run: cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Sign the checksums
+        env: { AFFLATUS_RELEASE_KEY: "${{ secrets.AFFLATUS_RELEASE_KEY }}" }
+        run: |
+          if [ -z "$AFFLATUS_RELEASE_KEY" ]; then
+            echo "::error::the secret AFFLATUS_RELEASE_KEY is not set: the release cannot be signed"
+            exit 1
+          fi
+          node scripts/release/sign.mjs dist/SHA256SUMS.txt
+          # checked with the public key the app holds: a secret that is not its private half stops the release here,
+          # rather than shipping a signature no Afflatus accepts
+          node scripts/release/sign.mjs dist/SHA256SUMS.txt --verify "$(sed -n 's/.*RELEASE_KEY = "\(.*\)".*/\1/p' apps/server/src/releaseKey.ts)"
       - name: Release notes header
         run: |
           # the image is tagged by the version without its "v" (metadata-action's semver tag)
@@ -171,13 +197,20 @@ jobs:
           cat > notes.md <<EOF
           ## Run it
 
-          **Windows**: unzip \`afflatus-${VERSION}-win-x64.zip\`, double-click \`Afflatus.bat\`.
-          **Linux**: \`tar xzf afflatus-${VERSION}-linux-x64.tar.gz && ./afflatus-${VERSION}-linux-x64/afflatus.sh\`
-          **macOS (Apple Silicon)**: \`tar xzf afflatus-${VERSION}-darwin-arm64.tar.gz && ./afflatus-${VERSION}-darwin-arm64/afflatus.sh\` (needs \`brew install ffmpeg\`)
+          **Windows**: unzip \`afflatus-${VERSION}-win-x64.zip\`, double-click \`Afflatus\\Afflatus.bat\`.
+          **Linux**: \`tar xzf afflatus-${VERSION}-linux-x64.tar.gz && ./Afflatus/afflatus.sh\`
+          **macOS (Apple Silicon)**: \`tar xzf afflatus-${VERSION}-darwin-arm64.tar.gz && ./Afflatus/afflatus.sh\` (needs \`brew install ffmpeg\`)
           **Docker**: \`docker run -p 127.0.0.1:8720:8720 -v afflatus-data:/data ${IMAGE}:${TAG}\`
 
           Image: \`${IMAGE}:${TAG}\`${ALSO}, linux/amd64 and linux/arm64.
           Then open http://127.0.0.1:8720 and, in Settings, give it the address of your ComfyUI.
+
+          ## Updating
+
+          From 0.4.0 on, the Windows, Linux and macOS downloads update themselves: Settings > About says when a release is out and installs it, keeping the one before to go back to. Docker: pull the new image.
+          **From 0.3.0**: unpack this release beside the 0.3.0 folder (not into it) and start it: it offers to bring your library over.
+
+          \`SHA256SUMS.txt.sig\` is the Ed25519 signature of \`SHA256SUMS.txt\`, by the key whose public half is in \`apps/server/src/releaseKey.ts\`.
 
           ## What changed
           EOF
