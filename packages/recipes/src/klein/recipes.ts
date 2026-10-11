@@ -4,7 +4,7 @@ import {
   type FaceSettings, type MaskSettings, type UpscaleSettings,
 } from "../sdxl/common";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
-import { redrawInTiles, tileInputs, TILE_NODES, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
+import { redrawInTiles, tileInputs, tileNodes, TILE_NODES, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
 import {
   introduce, kleinCond, kleinInputs, kleinModel, kleinSample, kleinSampleLatent, kleinSize, LOAD_NODES, loadKlein, REFERENCE_NODES, SAMPLE_NODES, withIntro,
   type KleinBase,
@@ -16,11 +16,21 @@ const ALL_ROLES = ["person", "place", "clothing", "object", "style"] as const;
 
 // ---------------------------------------------------------------- a new picture
 
-interface KleinPicture extends KleinBase, DetailSettings {
+interface KleinPicture extends KleinBase, DetailSettings, TileSettings {
   prompt: string;
   references: ReferenceValue[];
   size: SizeValue;
+  hires: boolean;
+  hiresScale: number;
+  hiresUpscaler: string;
+  hiresDenoise: number;
+  hiresSteps: number;
 }
+
+/** The size a hires pass enlarges to. */
+const kleinLarge = (input: { size: SizeValue; hiresScale: number }) => ({ width: roundTo(roundTo(input.size.width, 16) * input.hiresScale, 16), height: roundTo(roundTo(input.size.height, 16) * input.hiresScale, 16) });
+/** The sentence each tile of a hires pass is redrawn from: the scene's prompt would be drawn again in every tile. */
+const SAME = "a high quality photo with sharp natural detail, the same image";
 
 export const kleinPicture = defineRecipe<KleinPicture>({
   id: "klein.picture",
@@ -46,9 +56,22 @@ export const kleinPicture = defineRecipe<KleinPicture>({
       ],
     },
     ...DETAIL_INPUTS,
+    { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
+    { id: "hiresScale", type: "number", label: "Upscale by", note: "past about 2.5 megapixels, the second pass is redrawn in tiles (see Redraw)", min: 1.1, max: 4, step: 0.05, default: 1.5, unit: "×", showWhen: "hires", advanced: true, perModel: true },
+    {
+      id: "hiresUpscaler", type: "choice", label: "Upscaler", note: "from your upscale models", showWhen: "hires", advanced: true, perModel: true,
+      options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: UPSCALER_PREFER,
+    },
+    { id: "hiresDenoise", type: "number", label: "Denoising strength", note: "how much the second pass may redraw", min: 0.05, max: 0.9, step: 0.05, default: 0.35, showWhen: "hires", advanced: true, perModel: true },
+    { id: "hiresSteps", type: "number", label: "Hires steps", note: "the steps the second pass runs: 2 or 3 for a distilled model", min: 1, max: 60, step: 1, default: 8, showWhen: "hires", advanced: true, perModel: true },
+    ...tileInputs("hires"),
     ...kleinInputs,
   ],
-  nodes: (input) => [...LOAD_NODES(input), ...SAMPLE_NODES, "EmptyFlux2LatentImage", "PreviewImage", ...(input.references.length ? REFERENCE_NODES : []), ...detailNodes(input, "custom"), ...(input.detail ? fullPassNodes(input, input.steps, "custom") : [])],
+  nodes: (input) => [
+    ...LOAD_NODES(input), ...SAMPLE_NODES, "EmptyFlux2LatentImage", "PreviewImage", ...(input.references.length ? REFERENCE_NODES : []), ...detailNodes(input, "custom"), ...(input.detail ? fullPassNodes(input, input.steps, "custom") : []),
+    ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode", "SplitSigmasDenoise"] : []),
+    ...(input.hires && inTiles(input, kleinLarge(input), REFINE_WHOLE_PIXELS / 4) ? [...tileNodes(true), ...REFERENCE_NODES.filter((n) => n !== "LoadImage")] : []),
+  ],
   optionalNodes: DETAIL_OPTIONAL,
   build(input, ctx) {
     const g = new GraphBuilder();
@@ -57,13 +80,44 @@ export const kleinPicture = defineRecipe<KleinPicture>({
     const pictures = input.references.map((_, i) => g.out("LoadImage", { image: ctx.uploads[`references.${i}`] }));
     const cond = kleinCond(g, k, withIntro(introduce(input.references), input.prompt), pictures);
     const empty = g.out("EmptyFlux2LatentImage", { width: size.width, height: size.height, batch_size: 1 });
-    const { image, pass } = kleinSample(g, k, cond, empty, size, ctx.seed, { detail: { input, ctx } });
+    const detail = { input, ctx };
+    const first = kleinSample(g, k, cond, empty, size, ctx.seed, { detail });
+    if (!input.hires) {
+      const out = g.add("PreviewImage", { images: first.image });
+      return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: first.pass.steps, passes: [first.pass], loads: k.loads };
+    }
+    // Hires fix: the picture enlarged with an upscale model, then a light second pass. Klein's schedule is cut
+    // at the denoising strength, so it is laid out over hiresSteps ÷ strength steps to run hiresSteps of them.
+    const large = kleinLarge(input);
+    g.phase("upscaling");
+    const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.hiresUpscaler }), image: first.image });
+    const scaled = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: large.width, height: large.height, crop: "disabled" });
+    const second = { steps: Math.max(input.hiresSteps, Math.round(input.hiresSteps / input.hiresDenoise)), strength: input.hiresDenoise };
+    let image: Ref;
+    let pass = { node: "", steps: 0 };
+    if (inTiles(input, large, REFINE_WHOLE_PIXELS / 4)) {
+      g.phase("refining");
+      // each tile is shown its own piece of the picture as the reference it keeps, as Upscale 2× does
+      image = redrawInTiles(g, ctx, scaled, k.vae, large, input, (latent, tiles, tile) => {
+        const done = kleinSampleLatent(g, k, kleinCond(g, k, SAME, [tiles]), latent, { width: tile, height: tile }, ctx.seed, { ...second, phase: "refining" });
+        pass = { ...done.pass, steps: done.pass.steps * tilesOf(large, input).count };
+        return done.sampled;
+      });
+    } else {
+      g.phase("refining");
+      const done = kleinSample(g, k, cond, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), large, ctx.seed, { ...second, detail });
+      image = done.image;
+      pass = done.pass;
+    }
     const out = g.add("PreviewImage", { images: image });
-    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads: k.loads };
+    const passes = [first.pass, pass];
+    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: passes.reduce((n, p) => n + p.steps, 0), passes, loads: [...k.loads, `upscale_models/${input.hiresUpscaler}`] };
   },
   variants: [
     { name: "from words", input: { prompt: "a" }, slots: files },
     { name: "detail boost", input: { prompt: "a", detail: true }, slots: files, has: withoutDaemon },
+    { name: "hires fix, whole", input: { prompt: "a", hires: true, hiresUpscaler: "u.pth" }, slots: files },
+    { name: "hires fix 2.5× in tiles, with detail boost", input: { prompt: "a", detail: true, hires: true, hiresScale: 2.5, hiresUpscaler: "u.pth" }, slots: files, has: withoutDaemon },
     {
       name: "a person in a place, with a LoRA",
       input: { prompt: "a", references: [{ asset: "a", role: "person" }, { asset: "b", role: "person" }, { asset: "c", role: "place" }], loras: [{ file: "l.safetensors", weight: 0.8 }], size: { width: 1216, height: 832 } },
@@ -320,7 +374,6 @@ export const kleinSharper = defineRecipe<KleinSharper>({
     }
     g.phase("loading");
     const k = loadKlein(g, input, ctx);
-    const SAME = "a high quality photo with sharp natural detail, the same image";
     let image: Ref;
     let pass = { node: "", steps: 0 };
     if (tiled) {

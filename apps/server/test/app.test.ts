@@ -52,7 +52,7 @@ describe("GET /api/setup", () => {
   });
 
   it("reports what the configured ComfyUI can do, reading only", async () => {
-    const fake = await makeFake();
+    const fake = await makeFake(["LyingSigmaSampler", "DetailDaemonSamplerNode"]);
     try {
       await t.app.inject({ method: "PUT", url: "/api/settings", payload: { comfyUrl: fake.url } });
       const body = (await get(t.app, "/api/setup")).json();

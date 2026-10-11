@@ -5,6 +5,7 @@ import {
   type FaceSettings, type MaskSettings, type OutpaintSettings, type UpscaleSettings,
   type SdxlBase,
 } from "./common";
+import { SDXL_UNION } from "./family";
 
 const picture = { width: 832, height: 1216 };
 
@@ -133,9 +134,18 @@ export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
 interface SdxlOutpaint extends SdxlBase, OutpaintSettings {
   source: string;
   prompt: string;
+  repaint: boolean;
+  repaintModel: string;
 }
 
-/** The picture extended on the sides asked for: the new part is painted in at full denoise, the picture itself stays. */
+/**
+ * The picture extended on the sides asked for: the new part is painted in at full denoise, and the picture
+ * itself is put back over the result at its own size, so it comes out as it went in. With a union ControlNet
+ * in repaint mode (xinsir's ProMax) the new part is guided to continue the picture, and it starts from the
+ * picture stretched and blurred rather than flat grey, which a plain checkpoint reads as a wall or a frame.
+ * Tried on a real ComfyUI: grey padding drew a window around the picture, the stretched one a scene; and a
+ * guide picture scaled after its part was blacked out rang at that edge, which was drawn as a line.
+ */
 export const sdxlOutpaint = defineRecipe<SdxlOutpaint>({
   id: "sdxl.outpaint",
   family: "sdxl",
@@ -147,11 +157,17 @@ export const sdxlOutpaint = defineRecipe<SdxlOutpaint>({
     { id: "source", type: "image", role: "source", label: "Image" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "the whole scene, as it should look once wider", style: "tags", placeholder: "terrace at sunset, wide shot, sea in the background" },
     ...OUTPAINT_INPUTS,
+    {
+      id: "repaint", type: "toggle", label: "ControlNet repaint", default: true, advanced: true,
+      note: "a union ControlNet (xinsir's ProMax) in repaint mode guides the new part to continue the picture, without a seam. Used when that ControlNet is there, with comfyui_controlnet_aux",
+    },
+    { id: "repaintModel", type: "choice", label: "ControlNet", options: { node: "ControlNetLoader", input: "control_net_name" }, default: SDXL_UNION, prefer: ["union.*promax", "union"], showWhen: "repaint", advanced: true },
     ...modelInputs,
     ...samplingInputs(),
   ],
   presets: SDXL_PRESETS,
-  nodes: (input) => [...modelNodes(input), ...OUTPAINT_NODES, "KSampler"],
+  nodes: (input) => [...modelNodes(input), ...OUTPAINT_NODES, "KSampler", "ImageCompositeMasked", "InvertMask", "CropMask", "ImageBlur"],
+  optionalNodes: ["ControlNetLoader", "SetUnionControlNetType", "InpaintPreprocessor", "ControlNetApplyAdvanced", "VAEEncode", "SetLatentNoiseMask", "DifferentialDiffusion"],
   build(input, ctx) {
     if (input.padLeft + input.padRight + input.padTop + input.padBottom === 0) throw new Error("Nothing to extend: set how far the picture grows on at least one side.");
     const g = new GraphBuilder();
@@ -160,20 +176,43 @@ export const sdxlOutpaint = defineRecipe<SdxlOutpaint>({
     const whole = { width: from.width + input.padLeft + input.padRight, height: from.height + input.padTop + input.padBottom };
     const size = workSize(whole);
     const source = g.out("LoadImage", { image: ctx.uploads.source });
-    const { latent } = outpaintLatent(g, source, from, input, size, m.vae);
+    // only a union ControlNet has a repaint mode; the aux pack marks the part to paint the way xinsir's expects
+    const repaint = input.repaint && /union/i.test(input.repaintModel ?? "") && ctx.has("InpaintPreprocessor") && ctx.has("SetUnionControlNetType");
+    const { latent, padded, pixels: grey, mask } = outpaintLatent(g, source, from, input, size, m.vae);
+    let model = m.model;
+    let cond = { positive: m.positive, negative: m.negative };
+    let start = latent;
+    if (repaint) {
+      const net = g.out("SetUnionControlNetType", { control_net: g.out("ControlNetLoader", { control_net_name: input.repaintModel }), type: "repaint" });
+      // blacked out at the size it is drawn at, never scaled after: a scaled black edge rings, and is drawn as a line
+      const hint = g.out("InpaintPreprocessor", { image: grey, mask, black_pixel_for_xinsir_cn: true });
+      const applied = g.add("ControlNetApplyAdvanced", { positive: m.positive, negative: m.negative, control_net: net, image: hint, strength: 1, start_percent: 0, end_percent: 1, vae: m.vae });
+      cond = { positive: [applied, 0], negative: [applied, 1] };
+      // the new part starts from the picture stretched over the whole canvas and blurred, the picture itself on top
+      const stretched = g.out("ImageScale", { image: source, upscale_method: "bilinear", width: whole.width, height: whole.height, crop: "disabled" });
+      const blurred = g.out("ImageBlur", { image: g.out("ImageBlur", { image: stretched, blur_radius: 31, sigma: 10 }), blur_radius: 31, sigma: 10 });
+      const filled = g.out("ImageCompositeMasked", { destination: blurred, source, x: input.padLeft, y: input.padTop, resize_source: false });
+      const pixels = g.out("ImageScale", { image: filled, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
+      start = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels, vae: m.vae }), mask });
+      model = g.out("DifferentialDiffusion", { model: m.model });
+    }
     g.phase("sampling");
-    const sampled = g.out("KSampler", { ...samplerOf(input, m, ctx), latent_image: latent, steps: input.steps, denoise: 1 });
+    const sampled = g.out("KSampler", { ...samplerOf(input, m, ctx), model, ...cond, latent_image: start, steps: input.steps, denoise: 1 });
     g.phase("decoding");
-    const drawn = g.out("VAEDecode", { samples: sampled, vae: m.vae });
-    const out = g.add("PreviewImage", { images: g.out("ImageScale", { image: drawn, upscale_method: "lanczos", width: whole.width, height: whole.height, crop: "disabled" }) });
+    const drawn = g.out("ImageScale", { image: g.out("VAEDecode", { samples: sampled, vae: m.vae }), upscale_method: "lanczos", width: whole.width, height: whole.height, crop: "disabled" });
+    // the picture put back at its own size, faded in through the feathered edge widened once more
+    const keep = g.out("ImageToMask", { image: g.out("ImageBlur", { image: g.out("MaskToImage", { mask: g.out("InvertMask", { mask: [padded, 1] }) }), blur_radius: 31, sigma: 10 }), channel: "red" });
+    const own = g.out("CropMask", { mask: keep, x: input.padLeft, y: input.padTop, width: from.width, height: from.height });
+    const out = g.add("PreviewImage", { images: g.out("ImageCompositeMasked", { destination: drawn, source, x: input.padLeft, y: input.padTop, resize_source: false, mask: own }) });
     return {
       graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }],
-      totalSteps: input.steps, passes: [{ node: sampled[0], steps: input.steps }], loads: [`checkpoints/${input.checkpoint}`],
+      totalSteps: input.steps, passes: [{ node: sampled[0], steps: input.steps }], loads: [`checkpoints/${input.checkpoint}`, ...(repaint ? [`controlnet/${input.repaintModel}`] : [])],
     };
   },
   variants: [
     { name: "wider on both sides", input: { source: "p", prompt: "a", checkpoint: "x.safetensors" }, uploads: { source: "s.png" }, media: { source: picture } },
     { name: "taller, a LoRA", input: { source: "p", prompt: "a", checkpoint: "x.safetensors", padLeft: 0, padRight: 0, padTop: 256, padBottom: 128, feathering: 64, loras: [{ file: "l.safetensors", weight: 0.8 }] }, uploads: { source: "s.png" }, media: { source: { width: 1216, height: 832 } } },
+    { name: "no ControlNet: grey padding, the picture put back", input: { source: "p", prompt: "a", checkpoint: "x.safetensors", repaint: false }, uploads: { source: "s.png" }, media: { source: picture } },
   ],
 });
 

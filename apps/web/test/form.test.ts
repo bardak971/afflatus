@@ -34,6 +34,12 @@ describe("what a form starts from", () => {
     expect(d.defaults.steps).toBe(12);
     expect(d.preset).toBe("Pony likes few steps");
   });
+  it("takes every preset whose pattern matches, each setting from the first that has it", () => {
+    const presets = [{ match: "dmd", note: "few steps", values: { steps: 8, cfg: 1 } }, { match: "pony", note: "Pony's CFG", values: { steps: 25, cfg: 7, prompt: "score_9" } }];
+    const d = formDefaults(recipe(inputs, presets), { model: ["ponyDMD2.safetensors"] }, [], undefined);
+    expect(d.defaults).toMatchObject({ steps: 8, cfg: 1, prompt: "score_9" });
+    expect(d.preset).toBe("few steps · Pony's CFG");
+  });
 });
 
 describe("a preset's model files, as this ComfyUI names them", () => {

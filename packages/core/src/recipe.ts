@@ -163,8 +163,9 @@ export interface Recipe<In = Record<string, unknown>> {
   variants: Variant<In>[];
   /**
    * What a model file starts on the first time it is used, before anything is saved for it: the settings
-   * its line's authors recommend (Pony's score tags and CFG 7, Krea's guidance 4.5). The first whose
-   * pattern matches the file's name wins; a value saved for the file always wins over it.
+   * its line's authors recommend (Pony's score tags and CFG 7, Krea's guidance 4.5). Every preset whose
+   * pattern matches the file's name counts, each setting from the first that has it (a few-step entry
+   * before a lineage's); a value saved for the file always wins over them.
    */
   presets?: Preset[];
 }
