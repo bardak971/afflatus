@@ -1,9 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import { openSqlite, OWNER } from "../src/db";
 import type { Comfy } from "../src/comfy";
 import { taken } from "../src/queueSubmit";
-import { CHECKPOINT, complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
+import { CHECKPOINT, complete, FAST, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 let fake: FakeComfy;
 let t: TestApp;
@@ -370,14 +372,37 @@ describe("when ComfyUI goes away", () => {
   });
 
   it("gives a job queued long after ComfyUI went away its full wait, not the time it had already been away", async () => {
-    await fake.close();
-    t.services.queue.noteReachable(false);
-    t.services.queue.noteReachable(false);
-    await new Promise((r) => setTimeout(r, 200)); // longer than offlineExpiryMs
-    const id = await enqueue();
-    await new Promise((r) => setTimeout(r, 60));
-    expect((await statusOf(id)).status).toBe("queued");
-    await until(async () => (await statusOf(id)).status === "failed");
+    // A ComfyUI that answers every request with an error: the line finds it away on each pass, and the passes can be
+    // counted. The clock is set by hand, so that no wait in this test depends on how fast the machine is.
+    const asked: string[] = [];
+    const down = createServer((req, res) => {
+      asked.push(req.url ?? "");
+      res.writeHead(503).end();
+    });
+    await new Promise<void>((resolve) => down.listen(0, "127.0.0.1", resolve));
+    const app = await makeApp({ comfyUrl: `http://127.0.0.1:${(down.address() as AddressInfo).port}` });
+    const passes = () => asked.filter((u) => u === "/system_stats").length;
+    try {
+      const start = Date.now();
+      vi.setSystemTime(start);
+      await app.services.queue.start();
+      app.services.queue.noteReachable(false);
+      app.services.queue.noteReachable(false);
+      // away for far longer than offlineExpiryMs before the job is queued
+      vi.setSystemTime(start + 100 * FAST.offlineExpiryMs);
+      const id = (await post(app.app, "/api/jobs", job())).json().ids[0] as string;
+      const seen = passes();
+      await until(() => passes() >= seen + 3);
+      const row = async () => app.db.selectFrom("jobs").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
+      expect((await row()).status).toBe("queued");
+      // and once it has waited its own full expiry, it is given up
+      vi.setSystemTime(start + 101 * FAST.offlineExpiryMs + 1);
+      await until(async () => (await row()).status === "failed");
+    } finally {
+      vi.useRealTimers();
+      await app.close();
+      await new Promise((resolve) => down.close(resolve));
+    }
   });
 
   it("picks a submitted job up again after a restart, without submitting it twice", async () => {

@@ -16,6 +16,13 @@ Set them before starting: in the console on Windows (`set PORT=8730` in cmd, `$e
 | `LINK_ROOTS` | empty | The only folders that may be linked into the library (and what is inside them), separated as `PATH` is (`;` on Windows, `:` elsewhere). Set it whenever Afflatus is reachable from other machines: without it, linking is refused once `HOST` is not loopback. System folders are never linked, whatever is set |
 | `DATABASE_URL` | empty | A `postgres://` address instead of SQLite. SQLite is the supported one; Postgres is written and its migrations run in CI, but it is not yet used day to day |
 | `FFMPEG`, `FFPROBE` | the bundled ones, or the `PATH` | The tools' paths |
+| `AFFLATUS_SQLITE_WORKER` | empty | `1` runs SQLite's statements in a worker thread instead of the server's own: a long read no longer holds the other requests, but a route of many small statements gets slower while ffmpeg takes every core. Off by default |
+| `PRESETS_DIR` | the install's `presets/` folder | Where the shipped presets are read from |
+| `NODE_PACK_DIR` | the install's `comfy-nodes/afflatus-nodes` | Where the Afflatus node pack is installed into ComfyUI from |
+| `CIVITAI_URL` | empty: civitai.com, then civitai.red | One Civitai-compatible site to ask instead (a mirror, a stand-in for tests). It lifts no download rule |
+| `HUGGINGFACE_URL` | `https://huggingface.co` | Hugging Face's address, for a stand-in |
+| `MODEL_LIST_URL` | ComfyUI-Manager's `model-list.json` on GitHub | The list of standard model files a missing file is looked up in |
+| `AFFLATUS_PRETEND_SITES` | empty | `1`: the sites are pretend ones on this machine (the tests, the demo). Plain-http downloads are then allowed, and no real site is asked for what no stand-in covers (Hugging Face, Manager's model list). Never set it on a real install |
 
 ## In the app
 

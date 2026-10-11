@@ -1,5 +1,7 @@
+import { readdirSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
+import { shippedPresetsDir } from "../src/presetFiles";
 import { get, makeApp, post, referenceCatalog, type TestApp } from "./helpers";
 
 /**
@@ -59,6 +61,15 @@ describe("presets with files", () => {
     expect(copy.statusCode).toBe(200);
     expect(copy.json().def).toMatchObject({ files: h3!.def.files, author: "MiniMax", licence: h3!.def.licence });
     expect(copy.json().source).toBeUndefined();
+  });
+
+  it("loads every preset file it ships", async () => {
+    // A shipped preset that no longer reads is skipped with only a warning in the log: the count says so here.
+    const onDisk = readdirSync(shippedPresetsDir()).filter((n) => n.endsWith(".json"));
+    expect(onDisk.length).toBeGreaterThan(0);
+    const loaded = (await entities()).filter((e) => e.source === "shipped");
+    expect(loaded.length).toBe(onDisk.length);
+    expect(new Set(loaded.map((e) => e.id)).size).toBe(onDisk.length);
   });
 
   it("takes only http and https addresses for a homepage, a licence, a page or a file", async () => {
