@@ -1,4 +1,4 @@
-import { roundTo, type BuildContext, type GraphBuilder, type InputSpec, type LoraValue, type Phase, type ReferenceValue, type Ref } from "@afflatus/core";
+import { roundTo, type BuildContext, type GraphBuilder, type InputSpec, type LoraValue, type Phase, type Preset, type ReferenceValue, type Ref } from "@afflatus/core";
 import { detailModel, detailSampler, sharpenRange, usesDaemon, type DetailSettings } from "../shared/detail";
 import { loadUnet, unetNodes } from "../shared/unet";
 
@@ -28,6 +28,19 @@ export const kleinInputs: InputSpec[] = [
   { id: "cfg", type: "number", label: "CFG scale", note: "5 for the base model, 1 for a distilled one", min: 1, max: 12, step: 0.5, default: 5, advanced: true, perModel: true },
   { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSamplerSelect", input: "sampler_name" }, default: "euler", advanced: true, perModel: true },
   { id: "seed", type: "seed", label: "Seed" },
+];
+
+/**
+ * What a model file starts on the first time it is used, by its name. The distilled Klein files are named
+ * without "base" (flux-2-klein-4b, flux-2-klein-9b): they run as ComfyUI's template runs them, a few steps at
+ * CFG 1, where the base model's 20 steps at CFG 5 would burn them.
+ */
+export const KLEIN_PRESETS: Preset[] = [
+  {
+    match: "^(?!.*(minimax|h3|base)).*(klein|f2k)",
+    values: { steps: 4, cfg: 1, hiresSteps: 3 },
+    note: "distilled Klein: 4 steps at CFG 1, 3 for hires fix",
+  },
 ];
 
 /** About one megapixel at this shape, both edges multiples of 16: where Klein draws best. */

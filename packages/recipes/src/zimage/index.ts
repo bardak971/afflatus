@@ -6,13 +6,13 @@ const HF = "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_fi
 /**
  * Z-Image: pictures from plain sentences, in English or Chinese, with legible text in the picture. Written
  * blind from ComfyUI's own template (`image_z_image_turbo`): it has never been rendered here. The model
- * that is published for pictures is Turbo (distilled: 8 to 9 steps at CFG 1), and fine-tunes are made from
+ * that is published for pictures is Turbo (distilled: 8 steps at CFG 1), and fine-tunes are made from
  * it; Z-Image Base, the undistilled one, is started on its own sampling by a preset. There is no edit model.
  */
 export const zimage = defineFamily({
   id: "zimage",
   name: "Z-Image",
-  summary: "txt2img from natural-language prompts in English or Chinese, in 9 steps, with legible text rendering: Z-Image Turbo and its fine-tunes.",
+  summary: "txt2img from natural-language prompts in English or Chinese, in 8 steps, with legible text rendering: Z-Image Turbo and its fine-tunes.",
   promptStyle: "sentences",
   slots: [
     {
@@ -72,17 +72,20 @@ const spec: FlowSpec = {
     load: (g, slots) => g.out("CLIPLoader", { clip_name: slots.clip, type: "lumina2", device: "default" }),
     files: (slots) => [`text_encoders/${slots.clip}`],
   },
-  // not `sized`: that falls back to ModelSamplingFlux, which is FLUX.1's and not this model's
   shift: { node: "ModelSamplingAuraFlow", default: 3, note: "3 is what ComfyUI's template uses. 0 leaves the model's own" },
   negative: { default: "", note: "only acts with a CFG scale above 1, which Turbo is not made for", empty: "zero" },
   sampling: {
-    steps: 9, stepsNote: "8 to 9 for Turbo (9 in ComfyUI's template); 28 to 50 for Base",
+    steps: 8, stepsNote: "8 for Turbo, as ComfyUI's template has it now; 28 to 50 for Base",
     cfg: 1, cfgNote: "1 is what Turbo is made for. Above 1 the negative prompt acts and every step takes twice as long", sampler: "res_multistep", scheduler: "simple",
   },
+  // a 1.5× pass that redraws little: the authors' own 2K upscale redraws 0.33 and warns against more than 0.35
+  hires: { scale: 1.5, denoise: 0.3 },
   shapes: [
     { id: "tall", label: "Portrait", width: 896, height: 1152 },
     { id: "square", label: "Square", width: 1024, height: 1024 },
     { id: "wide", label: "Landscape", width: 1152, height: 896 },
+    { id: "tall-9-16", label: "Portrait 9:16", width: 720, height: 1280 },
+    { id: "wide-16-9", label: "Landscape 16:9", width: 1280, height: 720 },
   ],
   megapixels: 1.6,
   // Z-Image draws up to about 2048 × 2048

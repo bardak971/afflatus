@@ -1,0 +1,33 @@
+{
+  "id": "qwen-image-21",
+  "name": "Qwen Image 2.1 (int8)",
+  "author": "Qwen (Alibaba)",
+  "note": "Qwen Image 2.1, as ComfyUI repackages it (int8): pictures from sentences at up to 2K, and editing from an instruction. Under the Qwen Research License: research use only.",
+  "homepage": "https://huggingface.co/Qwen/Qwen-Image-2.1",
+  "licence": {
+    "name": "Qwen Research License",
+    "url": "https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE",
+    "note": "Research and non-commercial use only. Read it before you fetch the files."
+  },
+  "recipe": "qwen21.text-to-picture",
+  "inputs": {
+    "model": "qwen_image_2.1_int8_convrot.safetensors"
+  },
+  "files": [
+    {
+      "file": "qwen_image_2.1_int8_convrot.safetensors",
+      "folder": "diffusion_models",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_int8_convrot.safetensors"
+    },
+    {
+      "file": "qwen3vl_8b_int8_convrot.safetensors",
+      "folder": "text_encoders",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors"
+    },
+    {
+      "file": "qwen_image_2.1_vae_bf16.safetensors",
+      "folder": "vae",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors"
+    }
+  ]
+}

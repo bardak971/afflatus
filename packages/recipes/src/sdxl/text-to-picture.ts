@@ -52,6 +52,8 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
         { id: "tall", label: "Portrait", width: 832, height: 1216 },
         { id: "square", label: "Square", width: 1024, height: 1024 },
         { id: "wide", label: "Landscape", width: 1216, height: 832 },
+        { id: "tall-9-16", label: "Portrait 9:16", width: 768, height: 1344 },
+        { id: "wide-16-9", label: "Landscape 16:9", width: 1344, height: 768 },
       ],
     },
     ...DETAIL_INPUTS,

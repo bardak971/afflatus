@@ -570,9 +570,9 @@ describe("krea2: built the way ComfyUI's own templates build it", () => {
     const b = build({ hires: true, hiresUpscaler: "4x.pth", hiresScale: 1.25, size: { width: 1152, height: 1536 } });
     expect(of(b, "ImageScale")[0]!.inputs).toMatchObject({ width: 1440, height: 1920, upscale_method: "lanczos" });
     const passes = of(b, "KSampler").map((n) => [n.inputs.steps, n.inputs.denoise]);
-    expect(passes).toEqual([[8, 1], [4, 0.5]]);
-    // the second pass gets the shift that suits its size
-    expect(of(b, "ModelSamplingFlux")[0]!.inputs).toMatchObject({ width: 1440, height: 1920, max_shift: 1.15, base_shift: 0.5 });
+    expect(passes).toEqual([[8, 1], [4, 0.35]]);
+    // the second pass keeps the model's own shift: Krea's is one constant at every size
+    expect(of(b, "ModelSamplingFlux")).toHaveLength(0);
     expect(b.totalSteps).toBe(12);
     expect(b.loads).toContain("upscale_models/4x.pth");
   });
@@ -1005,14 +1005,14 @@ describe("zimage: built the way ComfyUI's own Z-Image Turbo template builds it",
   const all = (b: { graph: Record<string, { class_type: string; inputs: Record<string, unknown> }> }, cls: string) => Object.values(b.graph).filter((n) => n.class_type === cls);
   const build = (over: Record<string, unknown> = {}) => zimagePicture.build(parseInput(zimagePicture, { prompt: "a cat", ...over }), dryContext({ seed: 7, slots: files }));
 
-  it("reads with Qwen3 4B as Lumina 2's encoder, shifts by 3, and samples 9 steps of res_multistep at CFG 1 with the negative side emptied", () => {
+  it("reads with Qwen3 4B as Lumina 2's encoder, shifts by 3, and samples 8 steps of res_multistep at CFG 1 with the negative side emptied", () => {
     const b = build();
     expect(all(b, "UNETLoader")[0]!.inputs).toMatchObject({ unet_name: "z_image_turbo_bf16.safetensors", weight_dtype: "default" });
     expect(all(b, "CLIPLoader")[0]!.inputs).toMatchObject({ clip_name: "qwen_3_4b.safetensors", type: "lumina2", device: "default" });
     expect(all(b, "VAELoader")[0]!.inputs.vae_name).toBe("ae.safetensors");
     expect(all(b, "ModelSamplingAuraFlow")[0]!.inputs.shift).toBe(3);
     expect(all(b, "ModelSamplingFlux")).toEqual([]);
-    expect(all(b, "KSampler")[0]!.inputs).toMatchObject({ steps: 9, cfg: 1, sampler_name: "res_multistep", scheduler: "simple", denoise: 1, seed: 7 });
+    expect(all(b, "KSampler")[0]!.inputs).toMatchObject({ steps: 8, cfg: 1, sampler_name: "res_multistep", scheduler: "simple", denoise: 1, seed: 7 });
     expect(all(b, "ConditioningZeroOut")).toHaveLength(1);
     expect(all(b, "CLIPTextEncode").map((n) => n.inputs.text)).toEqual(["a cat"]);
     expect(all(b, "FluxGuidance")).toEqual([]);
@@ -1365,7 +1365,7 @@ describe("H3's upscale pass", () => {
     // no pass named (what loads ahead is its loaders), but the bar counts the re-sample's steps once for every piece:
     // 576 × 1024 made 864 × 1536, in 512-pixel tiles overlapping by 128 (2 × 4), and 124 frames in stretches of 85 overlapping by 17 (2)
     expect(b.passes).toEqual([]);
-    expect(b.totalSteps).toBe(3 * 2 * 4 * 2);
+    expect(b.totalSteps).toBe(2 * 2 * 4 * 2);
     // its latent comes from a file, which says no frame count: the clip's frames are said by the recipe
     expect(b.frames).toBe(124);
     expect(checkGraph(b, catalog)).toEqual([]);
@@ -1435,9 +1435,9 @@ describe("H3's upscale pass", () => {
     expect(node(b, "MMH3LatentUpscaleWithModelParams")).toHaveLength(0);
     expect(node(b, "MMH3SpatialSplitParams")[0]!.inputs).toMatchObject({ upscale_width: 1152, upscale_height: 2048, tile_width: 512, spatial_w_overlap: 128 });
     expect(node(b, "MMH3TemporalSplitParams")[0]!.inputs).toMatchObject({ chunk_length: 85, temporal_overlap: 17 });
-    // one light step
-    const sigmas = node(b, "BasicScheduler").find((n) => n.inputs.denoise === 0.3)!;
-    expect(sigmas.inputs.steps).toBe(3);
+    // two light steps
+    const sigmas = node(b, "BasicScheduler").find((n) => n.inputs.denoise === 0.15)!;
+    expect(sigmas.inputs.steps).toBe(2);
     expect(b.phases[upId]).toBe("refining");
   });
 

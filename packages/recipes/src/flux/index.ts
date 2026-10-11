@@ -103,13 +103,16 @@ const spec: FlowSpec = {
     { id: "tall", label: "Portrait", width: 896, height: 1152 },
     { id: "square", label: "Square", width: 1024, height: 1024 },
     { id: "wide", label: "Landscape", width: 1152, height: 896 },
+    { id: "tall-9-16", label: "Portrait 9:16", width: 768, height: 1360 },
+    { id: "wide-16-9", label: "Landscape 16:9", width: 1360, height: 768 },
   ],
   megapixels: 1.6,
   // FLUX.1 draws from 0.1 to 2 megapixels
   maxPixels: 2.1e6,
   presets: [
     { match: "krea", values: { guidance: 4.5 }, note: "Krea dev: guidance 4.5, as its authors give it" },
-    { match: "schnell", values: { steps: 4 }, note: "schnell: 4 steps" },
+    // schnell is distilled to a few steps: its hires pass redraws in fewer still, not dev's half of 20
+    { match: "schnell", values: { steps: 4, hiresSteps: 3 }, note: "schnell: 4 steps, 3 for hires fix" },
   ],
   placeholder: "A photograph of a woman in a linen shirt drinking coffee on a terrace at sunrise, soft warm light from the left, waist up.",
   files: { unet: "flux1-dev.safetensors", clipL: "clip_l.safetensors", t5: "t5xxl_fp16.safetensors", vae: "ae.safetensors" },

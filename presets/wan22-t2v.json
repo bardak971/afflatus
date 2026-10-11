@@ -1,0 +1,39 @@
+{
+  "id": "wan22-t2v",
+  "name": "Wan 2.2 text to video (14B, fp8)",
+  "author": "Wan (Alibaba)",
+  "note": "Wan 2.2's two text-to-video models, high noise then low noise, as ComfyUI repackages them, with lightx2v's 4-step LoRAs for Turbo. A clip from words alone, Apache 2.0.",
+  "homepage": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+  "licence": {
+    "name": "Apache 2.0",
+    "url": "https://huggingface.co/Wan-AI/Wan2.2-T2V-A14B/blob/main/LICENSE.txt",
+    "note": "Wan 2.2 is released under Apache 2.0: free use, commercial too."
+  },
+  "recipe": "wan.video",
+  "inputs": {
+    "model": "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+    "modelLow": "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors"
+  },
+  "files": [
+    {
+      "file": "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+      "folder": "diffusion_models",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors"
+    },
+    {
+      "file": "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+      "folder": "diffusion_models",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors"
+    },
+    {
+      "file": "wan2.2_t2v_A14b_high_noise_lora_rank64_lightx2v_4step_1217.safetensors",
+      "folder": "loras",
+      "url": "https://huggingface.co/lightx2v/Wan2.2-Distill-Loras/resolve/main/wan2.2_t2v_A14b_high_noise_lora_rank64_lightx2v_4step_1217.safetensors"
+    },
+    {
+      "file": "wan2.2_t2v_A14b_low_noise_lora_rank64_lightx2v_4step_1217.safetensors",
+      "folder": "loras",
+      "url": "https://huggingface.co/lightx2v/Wan2.2-Distill-Loras/resolve/main/wan2.2_t2v_A14b_low_noise_lora_rank64_lightx2v_4step_1217.safetensors"
+    }
+  ]
+}

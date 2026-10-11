@@ -114,12 +114,21 @@ export const qwen21Picture = defineRecipe<Qwen21Picture>({
     model,
     { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "A photograph of a small bakery at dawn, a chalkboard by the door that reads \"FRESH BREAD\", warm light from the windows on wet cobblestones." },
     {
-      id: "size", type: "size", label: "Size", default: "tall", grid: 32, min: 256, max: 2048, maxPixels: 4.3e6,
+      // up to the 2K sizes Qwen's authors list, the largest of which (2400 × 1792) has just over 4.3 megapixels
+      id: "size", type: "size", label: "Size", default: "tall", grid: 32, min: 256, max: 2752, maxPixels: 4.31e6,
       shapes: [
         { id: "tall", label: "Portrait", width: 896, height: 1152 },
         { id: "square", label: "Square", width: 1024, height: 1024 },
         { id: "wide", label: "Landscape", width: 1152, height: 896 },
+        { id: "tall-9-16", label: "Portrait 9:16", width: 768, height: 1376 },
+        { id: "wide-16-9", label: "Landscape 16:9", width: 1376, height: 768 },
         { id: "square-2k", label: "Square 2K", width: 2048, height: 2048 },
+        { id: "tall-2k", label: "Portrait 3:4 2K", width: 1792, height: 2400 },
+        { id: "wide-2k", label: "Landscape 4:3 2K", width: 2400, height: 1792 },
+        { id: "tall-2-3-2k", label: "Portrait 2:3 2K", width: 1696, height: 2528 },
+        { id: "wide-3-2-2k", label: "Landscape 3:2 2K", width: 2528, height: 1696 },
+        { id: "tall-9-16-2k", label: "Portrait 9:16 2K", width: 1536, height: 2752 },
+        { id: "wide-16-9-2k", label: "Landscape 16:9 2K", width: 2752, height: 1536 },
       ],
     },
     ...sampling,
