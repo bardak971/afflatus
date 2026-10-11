@@ -29,6 +29,11 @@ export const loadTimelineCards = chunk(() => import("./screens/studio/TimelineCa
 export const loadProjectsPanel = chunk(() => import("./projects/ProjectsPanel"));
 export const loadViewer = chunk(() => import("./Viewer"));
 export const loadTileMenuBody = chunk(() => import("./TileMenuBody"));
+export const loadConfirmDialog = chunk(() => import("./ConfirmDialog"));
+export const loadNewProject = chunk(() => import("./projects/NewProject"));
+export const loadDropTrayBody = chunk(() => import("./DropTrayBody"));
+export const loadModelMenu = chunk(() => import("./ModelMenu"));
+export const loadExpiringPanel = chunk(() => import("./ExpiringPanel"));
 
 export const loadPeople = chunk(() => import("./screens/People"));
 export const loadQueue = chunk(() => import("./screens/Queue"));
@@ -117,7 +122,7 @@ export function prefetchWhenIdle(): void {
   if (started) return;
   started = true;
   for (const type of ["pointerover", "focusin"]) document.addEventListener(type, onLink, { passive: true, capture: true });
-  const studio = [loadTileMenuBody, loadCreatePanel, loadTimelineCards, loadProjectsPanel, loadViewer];
+  const studio = [loadTileMenuBody, loadCreatePanel, loadTimelineCards, loadProjectsPanel, loadViewer, loadConfirmDialog, loadNewProject, loadDropTrayBody, loadModelMenu, loadExpiringPanel];
   const later: Array<Array<() => Promise<unknown>>> = [
     [loadQueue, loadSetup, loadPeople],
     [loadWorkflows, loadTimelineEditor],

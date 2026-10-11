@@ -1,5 +1,5 @@
 import { projectForNew, projectParam } from "./project";
-import type { ModelInfo } from "@afflatus/core";
+import { unlistOptions, type ListedOptions, type ModelInfo } from "@afflatus/core";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
 import type { Advice, HistoryPage, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem } from "./api/types/queue";
@@ -8,7 +8,7 @@ import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } 
 import { lookAdds, type DraftBrief, type Draft, type DesignerSession, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView } from "./api/types/designer";
 import type { Health, FinishSettings, Settings } from "./api/types/settings";
 import type { CommandEntry, CommandEstimate, CommandIndex, PromptHistoryItem } from "./api/types/bar";
-import type { RecipeInfo, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, HuggingFaceFind, CivitaiFind } from "./api/types/models";
+import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, HuggingFaceFind, CivitaiFind } from "./api/types/models";
 
 /** Shapes of the server's answers. Kept next to the calls so a change on one side is noticed on the other. */
 export * from "./api/types/queue";
@@ -119,9 +119,10 @@ function assetParams(opts: AssetFilter): URLSearchParams {
 
 export const api = {
   recipes: (o?: Asked) => call<{ families: FamilyInfo[]; recipes: RecipeInfo[] }>("GET", "/recipes", undefined, o?.signal),
-  setup: (o?: Asked) => call<Scan>("GET", "/setup", undefined, o?.signal),
+  /** What ComfyUI can do; each recipe's options come as places in a list of lists (core's listOptions), put back here. */
+  setup: (o?: Asked) => call<ListedOptions<RecipeStatus> & Omit<Scan, "recipes">>("GET", "/setup", undefined, o?.signal).then((sent): Scan => unlistOptions(sent)),
   /** ComfyUI asked again, now: its address, its files, its nodes. A POST, since it does work on the server. */
-  rescanSetup: () => call<Scan>("POST", "/setup/rescan"),
+  rescanSetup: () => call<ListedOptions<RecipeStatus> & Omit<Scan, "recipes">>("POST", "/setup/rescan").then((sent): Scan => unlistOptions(sent)),
   health: (o?: Asked) => call<Health>("GET", "/health", undefined, o?.signal),
   /** The tools Afflatus needs looked for again, now. */
   checkHealth: () => call<Health>("POST", "/health/check"),

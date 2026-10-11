@@ -78,9 +78,12 @@ const MEDIA_DEST = new Set(["image", "video", "audio"]);
  * followed, a URL typed: the user sees where they went) and a picture, video or sound of an asset that
  * a page shows. Only Sec-Fetch-Site is read: a client that does not send it (curl, ComfyUI-Manager
  * fetching a download, a probe) is no browser's page, and the app's own requests are same-origin.
+ * "same-site" is another site too, as for the changes (crossSite): a page on another port of the same
+ * host, such as ComfyUI's own, where any custom node's script runs.
  */
 export function crossSiteRead(headers: { "sec-fetch-site"?: string | string[]; "sec-fetch-mode"?: string | string[]; "sec-fetch-dest"?: string | string[] }, path: string): boolean {
-  if (headers["sec-fetch-site"] !== "cross-site") return false;
+  const site = headers["sec-fetch-site"];
+  if (site !== "cross-site" && site !== "same-site") return false;
   const dest = headers["sec-fetch-dest"];
   // a frame is a navigation too, but not a top-level one: the headers below keep it from showing, not from running
   if (headers["sec-fetch-mode"] === "navigate" && (dest === undefined || dest === "document")) return false;

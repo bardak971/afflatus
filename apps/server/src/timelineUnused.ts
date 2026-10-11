@@ -1,3 +1,4 @@
+import type { EventEmitter } from "node:events";
 import type { Db } from "./db";
 import { isLinked } from "./linked";
 import { inUse } from "./sweep";
@@ -24,8 +25,46 @@ export interface Unused {
   assets: Map<string, number>;
 }
 
-/** By timeline: its unused takes and their videos. `only`: just that timeline's (the others still decide what is shared). */
-export async function unusedTakes(db: Db, only?: string): Promise<Map<string, Unused>> {
+/** The events after which what is in use may have changed: an item, a timeline, a person or a preset, a job queued or ended. */
+const USE_CHANGES = ["library", "timeline", "entities", "queue"] as const;
+/**
+ * How long a reading of what is in use is kept at most: a draft's forms name pictures too, and saving a draft says nothing.
+ * The bin's moves read it afresh (in their transaction); only the figures shown wait.
+ */
+export const IN_USE_KEPT_MS = 30_000;
+const keptUse = new WeakMap<EventEmitter, { changes: number; read?: { changes: number; at: number; used: Promise<Map<string, string>> } }>();
+
+/**
+ * What is in use but the takes (inUse), for the reads that show figures (the storage card, the command index, the projects
+ * tree): kept until one of USE_CHANGES or IN_USE_KEPT_MS, as the model tally is. Its seven reads (about 8 ms at
+ * scale) ran on every open of the bar and every refresh of the tree.
+ */
+export function inUseShown(s: { db: Db; queue: { events: EventEmitter } }): Promise<Map<string, string>> {
+  const events = s.queue.events;
+  let kept = keptUse.get(events);
+  if (!kept) {
+    const fresh = { changes: 0 };
+    for (const name of USE_CHANGES) events.on(name, () => fresh.changes++);
+    keptUse.set(events, fresh);
+    kept = fresh;
+  }
+  const read = kept.read;
+  if (read && read.changes === kept.changes && Date.now() - read.at < IN_USE_KEPT_MS) return read.used;
+  const used = inUse(s.db, { takes: false });
+  const mine = { changes: kept.changes, at: Date.now(), used };
+  kept.read = mine;
+  // a failed read is not kept: the next one asks again
+  used.catch(() => {
+    if (kept.read === mine) kept.read = undefined;
+  });
+  return used;
+}
+
+/**
+ * By timeline: its unused takes and their videos. `only`: just that timeline's (the others still decide what is shared).
+ * `used`: what is in use but the takes, when the caller has it (inUseShown); read here otherwise.
+ */
+export async function unusedTakes(db: Db, only?: string, used?: Promise<Map<string, string>>): Promise<Map<string, Unused>> {
   const rows = await db
     .selectFrom("takes")
     .innerJoin("clips", "clips.id", "takes.clip_id")
@@ -37,7 +76,7 @@ export async function unusedTakes(db: Db, only?: string): Promise<Map<string, Un
     .execute();
   const out = new Map<string, Unused>();
   if (!rows.length) return out;
-  const used = await inUse(db, { takes: false });
+  const inUseNow = await (used ?? inUse(db, { takes: false }));
   const byId = new Map(rows.map((r) => [r.id, r]));
   const byAsset = new Map<string, typeof rows>();
   for (const r of rows) byAsset.set(r.asset, [...(byAsset.get(r.asset) ?? []), r]);
@@ -52,7 +91,7 @@ export async function unusedTakes(db: Db, only?: string): Promise<Map<string, Un
   };
   for (const r of rows) {
     const shared = new Set(byAsset.get(r.asset)!.map((x) => x.timeline)).size > 1;
-    if (r.id === r.playing || shared || r.deletedAt || isLinked(r.fileKey) || used.has(r.asset)) keep(r.id);
+    if (r.id === r.playing || shared || r.deletedAt || isLinked(r.fileKey) || inUseNow.has(r.asset)) keep(r.id);
   }
   // what a kept take was made from is kept, and so is every take of a video a kept take plays
   for (let id = work.pop(); id; id = work.pop()) {

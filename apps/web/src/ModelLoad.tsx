@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Folder, ListOrdered, MemoryStick, Play } from "lucide-react";
-import { useLocation } from "wouter";
-import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
+import { Folder } from "lucide-react";
+import { useMenu } from "./ContextMenu";
+import { lazyPart, loadModelMenu } from "./lazyParts";
 import { create } from "zustand";
 import { api, type RecipeInfo } from "./api";
-import { useDrafts, useQueue, useRecipes } from "./data";
-import { useBanners } from "./store";
+import { useQueue, useRecipes } from "./data";
 import { cx } from "./ui";
 import { queryKeys } from "./queryKeys";
+
+const ModelMenuBody = lazyPart(loadModelMenu, (m) => m.ModelMenuBody);
 
 /** The same keys holding the same values (a value that is an object counts by itself, not by what it holds). */
 const sameEntries = (a: Record<string, unknown>, b: Record<string, unknown>) => {
@@ -112,55 +113,12 @@ export function StripModel() {
 }
 
 /**
- * The model's menu, on a click of its name or a right-click anywhere on it: free the VRAM now, load the model of a
- * recent draft ahead (a load job: one step, nothing saved; the render with it then starts at once), the Queue. The
- * strip was the one place that says what is loaded, and the only way to change it was through the Queue or a form.
+ * The model's menu, on a click of its name or a right-click anywhere on it (ModelMenu.tsx): free the VRAM now, load the
+ * model of a recent draft ahead, the Queue. Its body is a chunk of its own, fetched while the page is idle: the strip is
+ * in the first load, the menu is opened now and then.
  */
 function ModelMenu({ children }: { children: React.ReactNode }) {
   const menu = useMenu<true>();
-  const queue = useQueue();
-  const drafts = useDrafts(Boolean(menu.menu));
-  const recipes = useRecipes();
-  const client = useQueryClient();
-  const say = useBanners((b) => b.push);
-  const [, go] = useLocation();
-  const busy = Boolean(queue.data?.running);
-  // the last drafts' models, once each: a draft is what holds a model choice whole (its form, its cast)
-  const recent = (drafts.data?.items ?? []).filter((d, i, all) => all.findIndex((x) => x.recipe === d.recipe) === i).slice(0, 6);
-  const titleOf = (id: string) => {
-    const r = recipes.data?.recipes.find((x) => x.id === id);
-    const family = recipes.data?.families.find((f) => f.id === r?.family)?.name;
-    return r ? (family && !r.title.startsWith(family) ? `${family} · ${r.title}` : r.title) : id;
-  };
-  const loadFrom = async (draftId: string, label: string) => {
-    try {
-      const d = await api.draft(draftId);
-      await api.warm(d.recipe, d.forms[d.recipe] ?? {}, d.look);
-      say({ id: `load:${Date.now()}`, tone: "good", title: `Loading ${label}`, text: "Queued: the next render with it starts at once.", href: "/queue", go: "Open queue" });
-    } catch (err) {
-      say({ id: `load:${Date.now()}`, tone: "bad", title: `Could not load ${label}`, text: err instanceof Error ? err.message : String(err) });
-    } finally {
-      void client.invalidateQueries({ queryKey: queryKeys.queue() });
-    }
-  };
-  const items: MenuItem[] = [
-    {
-      label: "Unload models", icon: <MemoryStick size={14} />, disabled: busy, note: busy ? "not while a job runs" : "free VRAM",
-      run: () => void api.freeMemory().then(
-        () => { say({ id: `free:${Date.now()}`, tone: "good", title: "Models unloaded", text: "The next render loads what it needs again." }); void client.invalidateQueries({ queryKey: queryKeys.queue() }); },
-        (err: Error) => say({ id: `free:${Date.now()}`, tone: "bad", title: "Could not unload the models", text: err.message }),
-      ),
-    },
-    {
-      label: "Load", icon: <Play size={14} />, note: "a recent draft's model",
-      disabled: !recent.length && drafts.isSuccess,
-      items: recent.length
-        ? recent.map((d): MenuItem => ({ label: titleOf(d.recipe), note: d.name || d.title || undefined, run: () => void loadFrom(d.id, titleOf(d.recipe)) }))
-        : [{ label: drafts.isSuccess ? "No draft yet" : "Reading…", disabled: true }],
-    },
-    "—",
-    { label: "Open the Queue", icon: <ListOrdered size={14} />, run: () => go("/queue") },
-  ];
   return (
     <span
       className="inline-flex min-w-0 cursor-pointer"
@@ -169,7 +127,7 @@ function ModelMenu({ children }: { children: React.ReactNode }) {
       onClick={(e) => { if (!(e.target as Element).closest("button")) menu.open(e, true); }}
     >
       {children}
-      {menu.menu && <ContextMenu at={menu.menu.at} label="Model" head={{ title: queue.data?.model ?? "No model loaded", sub: "what ComfyUI holds" }} items={items} onClose={menu.close} />}
+      {menu.menu && <Suspense fallback={null}><ModelMenuBody at={menu.menu.at} onClose={menu.close} /></Suspense>}
     </span>
   );
 }

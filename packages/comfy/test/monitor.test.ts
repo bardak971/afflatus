@@ -95,6 +95,14 @@ describe("Monitor", () => {
     fake.send("kj_preview_override", { image: Buffer.from([3, 4]).toString("base64"), mime: "video/mp4", step: 3, total: 4 });
     await until(() => monitor.preview("p1").seq === 3);
     expect([...monitor.preview("p1").bytes!]).toEqual([3, 4]);
+
+    // the type is the message's word, sent back as the preview's Content-Type: a page's type is not taken
+    fake.send("kj_preview_override", { image: Buffer.from([6]).toString("base64"), mime: "text/html", step: 4, total: 4 });
+    await until(() => monitor.preview("p1").seq === 4);
+    expect(monitor.preview("p1").mime).toBe("image/jpeg");
+    fake.send("kj_preview_override", { image: Buffer.from([7]).toString("base64"), mime: "image/webp", step: 4, total: 4 });
+    await until(() => monitor.preview("p1").seq === 5);
+    expect(monitor.preview("p1").mime).toBe("image/webp");
   });
 
   it("forgets a prompt when told to", async () => {

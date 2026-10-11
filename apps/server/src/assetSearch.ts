@@ -3,7 +3,7 @@ import { sql, type Expression, type SqlBool } from "kysely";
 import { z } from "zod";
 import { describeRecipe, fuzzyFilter } from "@afflatus/core";
 import { draftLabel, promptOf, recipeWords, shownNames } from "./autoName";
-import type { Tables } from "./db";
+import type { DbKind, Tables } from "./db";
 import { assetView } from "./media";
 import { folderIdsOf, NOT_IN_LIBRARY } from "./library";
 import { readJson } from "./queueModel";
@@ -23,8 +23,11 @@ const listQuery = z.object({
   after: z.string().optional(),
   /** The `prev` value of the page below: the page just above it, in the same order. */
   before: z.string().optional(),
-  /** Words to find, in the name or in what was written to make it. Forgiving: typos and letters left out. */
-  q: z.string().max(200).optional(),
+  /**
+   * Words to find, in the name or in what was written to make it. Forgiving: typos and letters left out. A control character
+   * is a space: it holds no letter to look for, and in a phrase of the index's MATCH a NUL ended the text early (a 500).
+   */
+  q: z.string().max(200).transform((q) => q.replace(/[\u0000-\u001f\u007f]/g, " ")).optional(),
   /** Only what was made with this model family. */
   family: z.string().optional(),
   /** Only what was kept ("1"); "0": only what was not. */
@@ -87,8 +90,16 @@ const TRIGRAM = 3;
 const ACCENTED = new Set([..."acegilnorsuyz"]);
 /** `%`, `_` and the escape itself taken as themselves in a LIKE pattern. */
 const likeLiteral = (c: string) => (c === "%" || c === "_" || c === "\\" ? `\\${c}` : c);
-/** A letter of a word in a LIKE pattern: itself, or any one letter when it may carry an accent or is not plain ASCII. */
-const likeLetter = (c: string) => (ACCENTED.has(c) || !/^[\x21-\x7e]$/.test(c) ? "_" : likeLiteral(c));
+/** A plain ASCII character, one that LIKE matches as itself (SQLite's in either case). */
+const ascii = (c: string) => /^[\x21-\x7e]$/.test(c);
+/** A letter of a word in a LIKE pattern, for a text written in plain ASCII: itself; any one letter when it is not plain ASCII. */
+const likeLetter = (c: string) => (ascii(c) ? likeLiteral(c) : "_");
+/** A letter of a word in a LIKE pattern, for a text with other letters: any one letter too when it may carry an accent there. */
+const looseLetter = (c: string) => (ACCENTED.has(c) ? "_" : likeLetter(c));
+/** A word whose letters a text may hold in another form (an accent, a letter that is not plain ASCII). */
+const loose = (w: string) => [...w].some((c) => ACCENTED.has(c) || !ascii(c));
+/** Any character past plain ASCII, as a GLOB (SQLite) or a regular expression (Postgres) finds one. */
+const NOT_ASCII = "[^\u0001-\u007f]";
 /** A text as the forgiving match reads it (fuzzy.ts): accents off, lower case. */
 const plain = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 /** The words of a search, as the forgiving match reads them. */
@@ -97,14 +108,29 @@ const wordsOf = (q: string) => plain(q).split(/\s+/).filter(Boolean);
 /**
  * The SQL sieve of a search by words: what lets through every item `fuzzyScore` could take for them (each word's letters
  * in order, somewhere in `text`: the name and the form it was made with), so that the forgiving match runs over those alone,
- * from the whole library rather than only its newest items. A letter that may carry an accent, or is not plain ASCII, is any
- * one letter here: the sieve lets more through than matches, never less (the form's JSON holds its texts in order, as the
- * words fuzzyFilter reads).
+ * from the whole library rather than only its newest items. A letter that is not plain ASCII is any one letter here, and so
+ * is one that may carry an accent in a text that has any (see holds): the sieve lets more through than matches, never less
+ * (the form's JSON holds its texts in order, as the words fuzzyFilter reads).
  */
-function wordsSieve(words: string[], text: Expression<string>) {
-  const pattern = (w: string) => `%${[...w].map(likeLetter).join("%")}%`;
-  return sql<SqlBool>`(${sql.join(words.map((w) => sql`${text} like ${pattern(w)} escape '\\'`), sql` and `)})`;
+function wordsSieve(words: string[], text: Expression<string>, kind: DbKind) {
+  return sql<SqlBool>`(${sql.join(words.map((w) => holds(w, text, kind, (letters) => `%${letters.join("%")}%`)), sql` and `)})`;
 }
+/**
+ * A text holds a word, as a LIKE `pattern` of its letters says: each plain letter as itself, unless the text has a character
+ * past plain ASCII, where a letter that may carry an accent is any one letter. Read loosely in every text, `z` or `e` let
+ * nearly the whole library through; the texts with an accent somewhere are few.
+ */
+function holds(w: string, text: Expression<string>, kind: DbKind, pattern: (letters: string[]) => string) {
+  const strict = sql<SqlBool>`${text} like ${pattern([...w].map(likeLetter))} escape '\\'`;
+  if (!loose(w)) return strict;
+  const other = kind === "sqlite" ? sql<SqlBool>`${text} glob ${`*${NOT_ASCII}*`}` : sql<SqlBool>`${text} ~ ${NOT_ASCII}`;
+  return sql<SqlBool>`(${strict} or (${text} like ${pattern([...w].map(looseLetter))} escape '\\' and ${other}))`;
+}
+/** What is kept of a found item, best match first: enough to page through and to say when its countdown started. */
+type Ranked = { id: string; created_at: string; countdown_from: string | null };
+/** How long a search's ranking is kept (see `ranked`), and how many searches at most. */
+const RANKED_MS = 30_000;
+const RANKED_KEPT = 16;
 /** A word looked up in the index (asset_words_index): its letters in this order, anywhere, as an FTS5 phrase. */
 const phrase = (w: string) => `"${w.replaceAll('"', '""')}"`;
 /** How many generations' readings are kept: the most recent ones. A generation never changes, so neither does what is read off it. */
@@ -167,10 +193,29 @@ export function registerAssetSearch(app: FastifyInstance, s: Services): void {
    * What a search finds among the rows the filters let through, best match first: by words through the index of the
    * library's words where there is one (SQLite), else by reading the library (a search by files alone, or on Postgres).
    */
-  const searched = (filtered: Filtered, q: ListQuery) => {
+  const searched = (filtered: Filtered, q: ListQuery): Promise<Ranked[]> => {
+    const key = JSON.stringify([q.q, q.model, q.lora, q.kind, q.bin, q.folder, q.project, q.kept, q.since, q.family, q.draft]);
+    const had = ranked.get(key);
+    if (had && Date.now() - had.at < RANKED_MS) return had.rows;
     const words = wordsOf(q.q ?? "");
-    return words.length && s.dbKind === "sqlite" ? byIndex(filtered, q, words) : byReading(filtered, q);
+    const rows = (words.length && s.dbKind === "sqlite" ? byIndex(filtered, q, words) : byReading(filtered, q)).then((found) =>
+      found.map((r): Ranked => ({ id: r.id, created_at: r.created_at, countdown_from: r.countdown_from })),
+    );
+    if (ranked.size >= RANKED_KEPT) ranked.delete(ranked.keys().next().value!);
+    const mine = { at: Date.now(), rows };
+    ranked.set(key, mine);
+    // a failed search is not kept: the next one asks again
+    rows.catch(() => {
+      if (ranked.get(key) === mine) ranked.delete(key);
+    });
+    return rows;
   };
+  /**
+   * The searches ranked lately, by their filters and words: the next page of one (Load more, a scroll) and the count of its
+   * unkept items read the ranking again instead of matching and ranking every hit once more. Dropped when the library changes.
+   */
+  const ranked = new Map<string, { at: number; rows: Promise<Ranked[]> }>();
+  s.queue.events.on("library", () => ranked.clear());
 
   /**
    * A search by words through the index of the library's words (migration 0052), over the whole library: the items that hold
@@ -188,15 +233,20 @@ export function registerAssetSearch(app: FastifyInstance, s: Services): void {
     let held = query;
     const long = words.filter((w) => [...w].length >= TRIGRAM);
     if (long.length) held = held.where(sql<SqlBool>`assets.id in (select w.asset_id from asset_words w where w.doc in (select rowid from asset_words_index where asset_words_index match ${long.map(phrase).join(" AND ")}))`);
-    const short = words.filter((w) => [...w].length < TRIGRAM).map((w) => sql<SqlBool>`w.words like ${`%${[...w].map(likeLetter).join("")}%`} escape '\\'`);
+    const short = words.filter((w) => [...w].length < TRIGRAM).map((w) => holds(w, sql.ref("w.words"), s.dbKind, (letters) => `%${letters.join("")}%`));
     if (short.length) held = held.where(sql<SqlBool>`assets.id in (select w.asset_id from asset_words w where ${sql.join(short, sql` and `)})`);
-    // what SQL lets through holds the words but for an accent or a letter's case that the forgiving match may read otherwise
-    const found = (await ordered(held)).filter((r) => {
+    // what SQL lets through holds the words but for an accent or a letter's case that the forgiving match may read otherwise;
+    // a phrase the index cannot read (a character its syntax refuses) finds nothing there, and the sieve below reads the words
+    const through = await ordered(held).catch((e: unknown) => {
+      if (long.length) return [];
+      throw e;
+    });
+    const found = through.filter((r) => {
       const text = plain(r.words);
       return words.every((w) => text.includes(w));
     });
     // the sieve reads every item's words once, on their own: joined, SQLite would read the library's rows too
-    const rows = found.length ? found : await ordered(query.where(sql<SqlBool>`assets.id in (select w.asset_id from asset_words w where ${wordsSieve(words, sql.ref("w.words"))})`));
+    const rows = found.length ? found : await ordered(query.where(sql<SqlBool>`assets.id in (select w.asset_id from asset_words w where ${wordsSieve(words, sql.ref("w.words"), s.dbKind)})`));
     return fuzzyFilter(rows, q.q!, (a) => a.words);
   };
 
@@ -214,7 +264,7 @@ export function registerAssetSearch(app: FastifyInstance, s: Services): void {
     const last = rows.at(-1);
     if (words.length && last && rows.length === SEARCHED) {
       const older = await query
-        .where(wordsSieve(words, text))
+        .where(wordsSieve(words, text, s.dbKind))
         .where((eb) => eb.or([eb("created_at", "<", last.created_at), eb.and([eb("created_at", "=", last.created_at), eb("id", "<", last.id)])]))
         .orderBy("created_at", "desc").orderBy("id", "desc").limit(SEARCHED).execute();
       rows = [...rows, ...older];
@@ -321,10 +371,20 @@ export function registerAssetSearch(app: FastifyInstance, s: Services): void {
     return rows.map((r) => ({ ...assetView(r), ...(shown.has(r.id) ? { shownName: shown.get(r.id)! } : {}), clipOf: placed.get(r.id) ?? null, draftOf: (r.generation_id && drafts.get(r.generation_id)) || null, family: (r.generation_id && families.get(r.generation_id)) || null }));
   }
 
-  /** The model families things in the library were made with, for the "Any model" filter. */
+  /**
+   * The model families things in the library were made with, for the "Any model" filter. The few families there are are
+   * listed first, and each kept when one live item was made with it (generations_by_family_id): joining every generation to
+   * its items and then keeping the distinct families read the whole library on each call.
+   */
   app.get("/api/assets/families", async () => ({
     items: (
-      await s.db.selectFrom("generations").innerJoin("assets", "assets.generation_id", "generations.id").select("generations.family").where("assets.deleted_at", "is", null).distinct().execute()
+      await s.db
+        .selectFrom((db) => db.selectFrom("generations").select("family").distinct().as("f"))
+        .select("f.family")
+        .where(({ exists, selectFrom }) =>
+          exists(selectFrom("generations").innerJoin("assets", "assets.generation_id", "generations.id").select("generations.id").whereRef("generations.family", "=", "f.family").where("assets.deleted_at", "is", null)),
+        )
+        .execute()
     ).map((r) => r.family),
   }));
 

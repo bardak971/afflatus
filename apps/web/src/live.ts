@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { ProgressUpdate, QueueStatus, SystemLoad } from "./api";
-import { readHistoryHead } from "./data";
-import { applyChange } from "./assetCache";
-import { endedSince, mergeProgress, notifyTag, throttle } from "./liveState";
+import { readHistoryHead, readLibraryTop } from "./data";
+import { applyChange, readsTop } from "./assetCache";
+import { endedSince, greetings, mergeProgress, notifyTag, throttle } from "./liveState";
 import { useBanners, useLive, useNotify, useSystem } from "./store";
 import { useBar } from "./bar/store";
 import { isUnder, libraryInPlace, libraryReads, queryKeys, RENDER_KEYS, type LibraryChange } from "./queryKeys";
@@ -91,8 +91,13 @@ export function useLiveEvents(): void {
     let libraryWaiting: Array<LibraryChange | null> = [];
     const libraryRead = throttle(() => {
       const reads = libraryReads(libraryWaiting);
+      // only items added (a render that finished, an upload): a list newest first on screen reads its first page alone
+      const added = libraryWaiting.every((c) => c?.change === "added");
       libraryWaiting = [];
-      void client.invalidateQueries({ predicate: (q) => reads(q.queryKey), refetchType: "active" });
+      const tops = added ? client.getQueryCache().findAll({ predicate: (q) => q.isActive() && reads(q.queryKey) && readsTop(q.queryKey, q.state.data) }) : [];
+      const byTop = new Set(tops.map((q) => q.queryHash));
+      void client.invalidateQueries({ predicate: (q) => reads(q.queryKey) && !byTop.has(q.queryHash), refetchType: "active" });
+      for (const q of tops) void readLibraryTop(client, q.queryKey);
     }, 1000);
     const readLibrary = (data: string) => {
       const change = parse(data) as LibraryChange | null;
@@ -138,10 +143,10 @@ export function useLiveEvents(): void {
       indexWait = setTimeout(() => void client.invalidateQueries({ queryKey: queryKeys.commandIndex.all(), refetchType: useBar.getState().open ? "active" : "none" }), 300);
     };
 
-    // the first hello is the page opening: everything was just read. A later one is a reconnect (or another tab
-    // taking the connection over), after which anything may have changed; and a server of another version means
-    // this page is out of date
-    let greeted = false;
+    // the first hello is the page opening: everything was just read. A later one is a reconnect (or this tab taking
+    // the connection over from another), after which anything may have changed (liveState.ts greetings); and a server
+    // of another version means this page is out of date
+    const greeted = greetings();
     const handlers: Record<string, (data: string) => void> = {
       queue: readQueue,
       library: readLibrary,
@@ -173,11 +178,10 @@ export function useLiveEvents(): void {
         }
         // everything read again, but the command bar's index, which is only marked old: the bar reads it when it opens
         // next (its search of the library's items is under the same key)
-        if (greeted) {
+        if (greeted.hello()) {
           void client.invalidateQueries({ predicate: (q) => !isUnder(q.queryKey, queryKeys.commandIndex.all()) });
           void client.invalidateQueries({ queryKey: queryKeys.commandIndex.all(), refetchType: useBar.getState().open ? "active" : "none" });
         }
-        greeted = true;
       },
     };
     // the one place an event is acted on: from this tab's own connection or passed on by the tab that has it
@@ -251,6 +255,8 @@ export function useLiveEvents(): void {
           if ("ask" in m) tell({ down });
           return;
         }
+        // another tab has the connection and speaks: what this one read on opening follows its events from here
+        if (!("ask" in m)) greeted.followed();
         if ("event" in m) handle(m.event, m.data);
         else if ("down" in m) useLive.getState().set(m.down);
       };
@@ -264,9 +270,8 @@ export function useLiveEvents(): void {
       navigator.locks
         .request(LOCK, { ifAvailable: true }, async (lock) => {
           if (lock) return hold();
-          // another tab has the connection: this one follows it (what it read on opening is current, so the next
-          // hello is a reconnect), and waits its turn
-          greeted = true;
+          // another tab may have the connection: this one asks, follows it once it answers (see greetings), and waits its
+          // turn. One that is going away (the page this one was opened from) does not answer
           tell({ ask: true });
           await navigator.locks.request(LOCK, { signal: stop.signal }, hold);
         })

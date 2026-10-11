@@ -1,7 +1,7 @@
 import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
-import type { Graph } from "@afflatus/core";
+import { unlistOptions, type Graph } from "@afflatus/core";
 import { sweep } from "../src/sweep";
 import { CHECKPOINT, complete, get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
@@ -174,7 +174,7 @@ describe("the other things done to a picture", () => {
       "flux.edit", "flux.redraw", "flux.paint-over", "flux.outpaint", "flux.sharper", "flux.fix-face", "qwen.edit", "qwen.redraw", "qwen.paint-over", "qwen.outpaint", "qwen.sharper", "qwen.fix-face", "qwen21.edit",
       "zimage.redraw", "zimage.paint-over", "zimage.outpaint", "zimage.sharper", "zimage.fix-face", "tools.remove-background", "tools.seedvr-upscale",
     ]);
-    const setup = (await get(t.app, "/api/setup")).json();
+    const setup = unlistOptions((await get(t.app, "/api/setup")).json());
     const of = (id: string) => setup.recipes.find((r: { id: string }) => r.id === id);
     expect(of("klein.picture")).toMatchObject({ ready: true });
     // the pretend ComfyUI has upscale models, but no face finder and no model that finds the background

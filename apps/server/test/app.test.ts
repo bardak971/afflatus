@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { loadConfig } from "../src/config";
 import { migrate } from "../src/db";
 import { allowedHosts, hostAllowed } from "../src/hostCheck";
+import { unlistOptions } from "@afflatus/core";
 import { CHECKPOINT, get, makeApp, makeFake, NOWHERE, png, post, type TestApp } from "./helpers";
 
 let t: TestApp;
@@ -47,7 +48,7 @@ describe("GET /api/recipes", () => {
 
 describe("GET /api/setup", () => {
   it("says so when ComfyUI is not there", async () => {
-    const body = (await get(t.app, "/api/setup")).json();
+    const body = unlistOptions((await get(t.app, "/api/setup")).json());
     expect(body.comfy).toMatchObject({ online: false, url: NOWHERE });
   });
 
@@ -55,7 +56,7 @@ describe("GET /api/setup", () => {
     const fake = await makeFake(["LyingSigmaSampler", "DetailDaemonSamplerNode"]);
     try {
       await t.app.inject({ method: "PUT", url: "/api/settings", payload: { comfyUrl: fake.url } });
-      const body = (await get(t.app, "/api/setup")).json();
+      const body = unlistOptions((await get(t.app, "/api/setup")).json());
       expect(body.comfy).toMatchObject({ online: true, device: "fake gpu" });
       const recipe = body.recipes.find((r: { id: string }) => r.id === "sdxl.text-to-picture");
       // Detail Daemon is not in the fake ComfyUI: the detail boost takes the built-in way, and Settings says so
@@ -247,7 +248,7 @@ describe("the model of a recipe that has a usual one", () => {
     });
     const own = await makeApp({ comfyUrl: fake.url });
     try {
-      const setup = (await get(own.app, "/api/setup")).json();
+      const setup = unlistOptions((await get(own.app, "/api/setup")).json());
       const h3 = setup.recipes.find((r: { id: string }) => r.id === "h3.video");
       expect(h3.ready).toBe(true);
       expect(h3.options.model).toEqual(["minimax_h3_fl2va.safetensors", "SomeoneMinimaxH3_hybridTurboV3.safetensors", "A_wan_model.safetensors", "zz_other.safetensors"]);
@@ -272,7 +273,7 @@ describe("MiniMax H3 with a hybrid fine-tune and none of MiniMax's own model fil
     });
     const own = await makeApp({ comfyUrl: fake.url });
     try {
-      const setup = (await get(own.app, "/api/setup")).json();
+      const setup = unlistOptions((await get(own.app, "/api/setup")).json());
       const slots = Object.fromEntries(setup.families.find((f: { id: string }) => f.id === "h3").slots.map((s: { id: string; file: string | null }) => [s.id, s.file]));
       // the full-step one before the turbo one
       expect(slots).toMatchObject({ unet: "SomeoneMinimaxH3_hybridV3.safetensors", refUnet: "SomeoneMinimaxH3_hybridV3.safetensors" });

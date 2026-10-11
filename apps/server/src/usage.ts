@@ -6,11 +6,11 @@ import { foldersOf, type LibraryChange } from "./events";
 import type { Services } from "./services";
 import { resetCountdown } from "./media";
 import { ERASED, eraseUnused } from "./sweep";
-import { unusedTakes } from "./timelineUnused";
+import { inUseShown, unusedTakes } from "./timelineUnused";
 
 /** The unused takes of every timeline (see timelineUnused), as the storage card counts and bins them. */
-async function idleTakes(db: Kysely<Tables>): Promise<Array<{ id: string; asset_id: string }>> {
-  return [...(await unusedTakes(db)).values()].flatMap((u) => [...u.videoOf].map(([id, asset_id]) => ({ id, asset_id })));
+async function idleTakes(db: Kysely<Tables>, used?: Promise<Map<string, string>>): Promise<Array<{ id: string; asset_id: string }>> {
+  return [...(await unusedTakes(db, undefined, used)).values()].flatMap((u) => [...u.videoOf].map(([id, asset_id]) => ({ id, asset_id })));
 }
 
 /**
@@ -20,7 +20,7 @@ async function idleTakes(db: Kysely<Tables>): Promise<Array<{ id: string; asset_
 export function registerUsage(app: FastifyInstance, s: Services): void {
   app.get("/api/storage", async () => {
     const assets = await s.db.selectFrom("assets").select(["id", "kind", "bytes", "deleted_at", "kept_at", "origin"]).execute();
-    const idle = new Set((await idleTakes(s.db)).map((t) => t.asset_id));
+    const idle = new Set((await idleTakes(s.db, inUseShown(s))).map((t) => t.asset_id));
     const sum = (rows: typeof assets) => rows.reduce((n, a) => n + a.bytes, 0);
     const live = assets.filter((a) => !a.deleted_at);
     const bin = assets.filter((a) => a.deleted_at);

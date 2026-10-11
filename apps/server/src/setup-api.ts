@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { said } from "./forecast";
 import { allowedHosts, hostAllowed } from "./hostCheck";
 import { z } from "zod";
-import { describeRecipe } from "@afflatus/core";
+import { describeRecipe, listOptions } from "@afflatus/core";
 import { installNodePack } from "./nodePack";
 import { preflight } from "./preflight";
 import type { Services } from "./services";
@@ -36,10 +36,13 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
     return publicSettings(saved);
   });
 
-  /** What ComfyUI can do: the setup page, and what the composer offers. Read-only on ComfyUI. */
-  app.get("/api/setup", async () => (await s.comfy()).scan());
+  /**
+   * What ComfyUI can do: the setup page, and what the composer offers. Read-only on ComfyUI. Each list of what an input
+   * offers is sent once (core's listOptions), and each recipe names the ones it offers.
+   */
+  app.get("/api/setup", async () => listOptions(await (await s.comfy()).scan()));
   /** The same, asked of ComfyUI afresh rather than from what was learned a moment ago ("Test" in Settings). */
-  app.post("/api/setup/rescan", async () => (await s.comfy()).scan(true));
+  app.post("/api/setup/rescan", async () => listOptions(await (await s.comfy()).scan(true)));
 
   /**
    * ComfyUI's terminal log, the last few hundred lines: the Queue page's log tab reads it every couple of seconds.

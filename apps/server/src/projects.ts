@@ -5,7 +5,7 @@ import { httpError } from "./errors";
 import { newId, now, OWNER, type Db } from "./db";
 import type { Services } from "./services";
 import { NOT_IN_LIBRARY } from "./library";
-import { unusedSize, unusedTakes } from "./timelineUnused";
+import { inUseShown, unusedSize, unusedTakes } from "./timelineUnused";
 import { unusedDrafts } from "./drafts";
 import { updateSettings } from "./settings";
 import type { LibraryChange } from "./events";
@@ -63,7 +63,7 @@ export async function projectsTree(s: Services, q?: string, only?: "image" | "vi
   const unusedCounts = new Map<string | null, number>();
   for (const d of await unusedDrafts(db)) unusedCounts.set(d.project_id, (unusedCounts.get(d.project_id) ?? 0) + 1);
   const leaves = await s.timelines.leaves();
-  const unused = await unusedTakes(db);
+  const unused = await unusedTakes(db, undefined, inUseShown(s));
   const matching = needle
     ? (await db.selectFrom("drafts").select(["id", "title", "name", "recipe_id", "created_at", "updated_at", "project_id"]).orderBy("updated_at", "desc").execute()).filter((d) => hit(d.title) || hit(d.name))
     : [];

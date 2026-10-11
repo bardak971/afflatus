@@ -15,6 +15,11 @@ const PROGRESS_EVERY_MS = 250;
 /** A beat on every connection, whatever ComfyUI answers: a page that hears nothing for a while knows the stream is dead (a proxy can keep it open after the server went). */
 const PING_EVERY_MS = 10_000;
 const RELAYED = ["queue", "library", "models", "timeline", "entities", "downloads", "setup"] as const;
+/**
+ * How much may wait unsent to one page before it is let go: a page that stops reading (a laptop asleep, a stalled proxy)
+ * would otherwise have every event kept for it in memory, about 10 MB a day. A page let go reconnects and reads everything again.
+ */
+export const MAX_UNSENT_BYTES = 1024 * 1024;
 
 /**
  * What a "library" event says changed, when its sender knows, so that a page reads again only the lists it touched (live.ts,
@@ -71,7 +76,15 @@ export function registerEvents(app: FastifyInstance, s: Services, version: strin
   const clients = new Set<FastifyReply>();
   const send = (event: string, data: unknown = {}) => {
     const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-    for (const reply of clients) reply.raw.write(frame);
+    for (const reply of clients) {
+      if (reply.raw.writableLength > MAX_UNSENT_BYTES) {
+        clients.delete(reply);
+        reply.raw.destroy();
+        continue;
+      }
+      reply.raw.write(frame);
+    }
+    rest();
   };
   // what it finds of ComfyUI goes to the queue too: an idle queue asks ComfyUI nothing, and kept saying it was online
   const sendSystem = async () => {

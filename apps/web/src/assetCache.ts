@@ -211,6 +211,38 @@ export function applyChange(client: QueryClient, c: AssetChange, now = new Date(
 }
 
 /**
+ * Whether new items are read into a library list by its first page alone (topRead): a list newest first (no other order,
+ * no search, which pages by rank) of which more than one page is loaded. Read whole, TanStack reads every page loaded,
+ * one after another: thirty pages scrolled were thirty requests for each render that finished.
+ */
+export function readsTop(key: QueryKey, data: unknown): boolean {
+  if (!isAssets(key, "list")) return false;
+  const f = (key[3] ?? {}) as { q?: string; model?: string; lora?: string; sort?: string };
+  if (f.q?.trim() || f.model || f.lora || (f.sort && f.sort !== "new")) return false;
+  return ((data as InfiniteData<Page> | undefined)?.pages.length ?? 0) > 1;
+}
+
+/**
+ * A list with its first page read again worked in: the items new to it put above the first page, the rest left as it is
+ * (new items only came: nothing in it changed or went, and each page's cursor still holds). Null when it cannot be told
+ * from that page alone, and the list is read whole: the page holds nothing of what was at the top (more new items than a
+ * page), or a new item sits below one already there (made earlier than what was at the top: a file of a linked folder),
+ * or the list's first page is not the top of it.
+ */
+export function mergeTop(list: InfiniteData<Page>, top: Page): InfiniteData<Page> | null {
+  const first = list.pages[0];
+  // a capped list scrolled down has let its top pages go: its first page is not the list's
+  if (!first || first.prev) return null;
+  const had = new Set(list.pages.flatMap((p) => p.items.map((a) => a.id)));
+  const at = first.items[0] ? top.items.findIndex((a) => a.id === first.items[0]!.id) : top.items.length;
+  if (at < 0) return null;
+  if (top.items.slice(at).some((a) => !had.has(a.id))) return null;
+  const fresh = top.items.slice(0, at).filter((a) => !had.has(a.id));
+  if (!fresh.length) return list;
+  return { ...list, pages: [{ ...first, items: [...fresh, ...first.items] }, ...list.pages.slice(1)] };
+}
+
+/**
  * What the refused change did, undone on every copy (the latest first, so that a copy changed twice ends as it began).
  * A copy nothing else changed since is put back whole; in one changed since (another change that went through, a read
  * that landed) only the items of the refused change go back as they were, where they were: putting the whole copy back

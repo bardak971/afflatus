@@ -177,8 +177,11 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
   app.get("/api/drafts", async (req) => {
     const { project, limit } = z.object({ project: z.string().optional(), limit: z.coerce.number().int().min(1).max(1000).optional() }).parse(req.query);
     const rows = await inProject(s.db, project).orderBy("updated_at", "desc").limit(limit ?? LIST_LIMIT).execute();
+    // Both reads start from the drafts' generations: SQLite keeps a CROSS JOIN's left table outermost, where an inner join
+    // let it start from every live item in the library (assets_by_bin) and look each one's generation up: 18 ms instead of 0.3 ms at
+    // scale. Postgres plans a cross join with a join condition like an inner join.
     const outputs = rows.length
-      ? await s.db.selectFrom("assets").innerJoin("generations", "generations.id", "assets.generation_id")
+      ? await s.db.selectFrom("generations").crossJoin("assets").whereRef("assets.generation_id", "=", "generations.id")
         .select(["generations.draft_id as draft", "assets.id as id", "assets.kind as kind", "assets.bytes as bytes"])
         .where("generations.draft_id", "in", rows.map((d) => d.id)).where("assets.deleted_at", "is", null).where("assets.origin", "not in", NOT_IN_LIBRARY)
         .orderBy("assets.created_at", "desc").execute()
@@ -186,7 +189,7 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
     // the families its outputs were made with, newest first, with how many each made: a draft is an idea tried on models
     const families = new Map<string, Map<string, number>>();
     if (rows.length) {
-      const tries = await s.db.selectFrom("assets").innerJoin("generations", "generations.id", "assets.generation_id")
+      const tries = await s.db.selectFrom("generations").crossJoin("assets").whereRef("assets.generation_id", "=", "generations.id")
         .select(["generations.draft_id as draft", "generations.family as family"]).select((eb) => [eb.fn.countAll<number>().as("n"), eb.fn.max("assets.created_at").as("last")])
         .where("generations.draft_id", "in", rows.map((d) => d.id)).where("assets.deleted_at", "is", null).where("assets.origin", "not in", NOT_IN_LIBRARY)
         .groupBy(["generations.draft_id", "generations.family"]).orderBy("last", "desc").execute();

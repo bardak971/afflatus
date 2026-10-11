@@ -89,6 +89,11 @@ interface Tracked extends Tracking {
 }
 
 const SAMPLER_PHASES: ReadonlyArray<string> = ["sampling", "refining", "restoring", "detailing"];
+/**
+ * The types an animated live preview (KJNodes) may say it is: the server sends the picture back under that type, so
+ * whatever a ComfyUI message names (text/html, a script) would be a page of Afflatus's own. Anything else is read as a JPEG.
+ */
+const PREVIEW_MIME = /^(image\/(png|jpeg|webp|gif)|video\/(mp4|webm))$/;
 /** How long a dropped socket waits before it is opened again: doubling from the first wait to the longest. */
 const RETRY = { firstMs: 500, mostMs: 15_000 };
 
@@ -353,7 +358,7 @@ export class Monitor {
       r.preview = {
         seq: r.preview.seq + 1,
         bytes: new Uint8Array(Buffer.from(d.image, "base64")),
-        mime: typeof d.mime === "string" && d.mime ? d.mime : "image/jpeg",
+        mime: typeof d.mime === "string" && PREVIEW_MIME.test(d.mime) ? d.mime : "image/jpeg",
       };
     } else if (msg.type === "execution_start") {
       r.phase = "loading";

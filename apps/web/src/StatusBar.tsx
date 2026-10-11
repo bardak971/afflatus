@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Clock, Download, Eye, Star } from "lucide-react";
-import { ContextMenu, useMenu } from "./ContextMenu";
+import { Clock, Download } from "lucide-react";
+import { useMenu } from "./ContextMenu";
 import { Link, useLocation } from "wouter";
 import { api, type Job, type QueueStatus, type RunningJob } from "./api";
 import { useAsset, useProjects, useQueue, useSettings } from "./data";
@@ -10,15 +10,17 @@ import { BAR_DEFAULT } from "./keys/barDefault";
 import { useDownloads } from "./useGetFile";
 import { elapsed, gb, phaseLabel, timeLeft, when } from "./format";
 import { StripModel, StripPlace, stripGhost } from "./ModelLoad";
-import { Popover } from "./Popover";
+import { lazyPart, loadExpiringPanel } from "./lazyParts";
 import { useProject } from "./project";
 import { expiringSaid, useExpiring, useExpiringOnly, useKeepAllExpiring } from "./screens/studio/expiring";
-import { daysSaid, unkeptMs, useKeepFor } from "./keepFor";
+import { unkeptMs, useKeepFor } from "./keepFor";
 import { useLive, useStudio, useSystem } from "./store";
-import { Button, Chip, cx, ErrorNote, Help } from "./ui";
+import { Chip, cx } from "./ui";
 import { queryKeys } from "./queryKeys";
 
 // the viewer is fetched the first time the last result is opened from here
+// the expiring chip's panel and menu: opened now and then, the strip itself is in the first load
+const ExpiringPanel = lazyPart(loadExpiringPanel, (m) => m.ExpiringPanel);
 const Viewer = lazy(() => import("./Viewer").then((m) => ({ default: m.Viewer })));
 
 /** A number of the strip in the room of three digits. */
@@ -249,10 +251,6 @@ function Idle({ last }: { last: Job | null }) {
   );
 }
 
-/** What the expiring chip's ? says: the rule, once, with the days Settings › Storage gives. */
-const expiringHelp = (unkeptDays: number, binDays: number) =>
-  `Renders nobody kept go to the bin by themselves ${daysSaid(unkeptDays)} after they were made (or unkept), and ${binDays ? `are deleted ${daysSaid(binDays)} later` : "stay there until it is emptied"}. S keeps one; what is on a timeline is always kept. Settings › Storage says how long.`;
-
 /**
  * The renders of the project that nobody kept, which go to the bin by themselves: how many and when the next goes
  * ("23 expiring · 3 h"), in the warning colour when it goes within the hour; nothing when there are none. Its panel
@@ -302,33 +300,13 @@ function Expiring() {
         <span className={cx("font-semibold", !said.soon && "text-ink")}>{count} expiring</span>
         <span>· {said.next}</span>
       </button>
-      {open && (
-        <Popover anchor={anchor} onClose={() => setOpen(false)} label="Expiring renders" width={340} height={150}>
-          <div className="flex flex-col gap-2.5 p-3.5">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-bold">{count} expiring in {where}</span>
-              <Help text={expiringHelp(keepFor.unkeptDays, keepFor.binDays)} />
-            </div>
-            <span className="text-xs text-ink-2">{said.next === said.last ? `They go to the bin in ${said.next}` : `The next goes to the bin in ${said.next}, the last in ${said.last}`}</span>
-            {keep.isError && <ErrorNote>{keep.error.message}</ErrorNote>}
-            <div className="flex gap-2">
-              <Button size="sm" tone="primary" onClick={show} data-tip="The library, showing only what expires (Filters › Expiring only)">Show them</Button>
-              <Button size="sm" disabled={keep.isPending} onClick={() => void keepAll(count)} data-tip="They stay until you bin them">{keep.isPending ? "Keeping…" : `Keep all ${count}`}</Button>
-            </div>
-          </div>
-        </Popover>
-      )}
-      {menu.menu && (
-        <ContextMenu
-          at={menu.menu.at}
-          label="Expiring renders"
-          head={{ title: `${count} expiring`, sub: `the next in ${said.next}` }}
-          items={[
-            { label: "Show them", icon: <Eye size={14} />, note: "Expiring only", run: show },
-            { label: `Keep all ${count}`, icon: <Star size={14} />, disabled: keep.isPending, run: () => void keepAll(count) },
-          ]}
-          onClose={menu.close}
-        />
+      {(open || menu.menu) && (
+        <Suspense fallback={null}>
+          <ExpiringPanel
+            anchor={anchor} open={open} menuAt={menu.menu?.at ?? null} count={count} said={said} where={where} keepFor={keepFor} keep={keep}
+            onShow={show} onKeepAll={() => void keepAll(count)} onClose={() => setOpen(false)} onMenuClose={menu.close}
+          />
+        </Suspense>
       )}
     </>
   );

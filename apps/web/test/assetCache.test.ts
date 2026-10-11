@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { QueryClient, type InfiniteData } from "@tanstack/react-query";
 import type { Asset, Folder } from "../src/api";
-import { applyChange, changed, findAsset, fits, placeName, placesBefore, rollback, type Seats } from "../src/assetCache";
+import { applyChange, changed, findAsset, fits, mergeTop, placeName, placesBefore, readsTop, rollback, type Seats } from "../src/assetCache";
 import { refusedTitle } from "../src/assetChange";
 
 const NOW = "2026-10-10T12:00:00.000Z";
@@ -187,5 +187,39 @@ describe("Undo and the words said", () => {
     expect(refusedTitle({ kind: "keep", ids: ["a"], kept: true })).toBe("Could not keep it");
     expect(refusedTitle({ kind: "bin", ids: ["a", "b"] })).toBe("Could not move them to the bin");
     expect(changed(item("a", { inBin: true }), { kind: "restore", ids: ["a"] }, NOW)).toMatchObject({ inBin: false, countdownFrom: NOW });
+  });
+});
+
+describe("items added, read into a list by its first page", () => {
+  const top = (...list: Asset[]): Page => ({ items: list, next: "cursor", prev: null });
+  const [n1, n2, a, b, c, d] = ["n1", "n2", "a", "b", "c", "d"].map((id) => item(id)) as [Asset, Asset, Asset, Asset, Asset, Asset];
+
+  it("puts the new items above the first page, the pages below left as they are", () => {
+    const list = pages([a, b], [c, d]);
+    const merged = mergeTop(list, top(n1, n2, a, b))!;
+    expect(merged.pages.map((p) => p.items.map((x) => x.id))).toEqual([["n1", "n2", "a", "b"], ["c", "d"]]);
+    // the second page is the same object: nothing of it is read or drawn again
+    expect(merged.pages[1]).toBe(list.pages[1]);
+    // nothing new: the list as it was
+    expect(mergeTop(list, top(a, b))).toBe(list);
+  });
+
+  it("gives up (the list is read whole) when the first page cannot say where the new items go", () => {
+    // more new items than a page: what was at the top is not in it
+    expect(mergeTop(pages([a, b], [c, d]), top(n1, n2))).toBeNull();
+    // a new item below one already there: made earlier than the top of the list
+    expect(mergeTop(pages([a, b], [c, d]), top(a, n1, b))).toBeNull();
+    // a capped list scrolled down: its first page is not the top of the list
+    expect(mergeTop({ pages: [{ items: [c], next: null, prev: "x" }, { items: [d], next: null, prev: null }], pageParams: [{}, {}] }, top(n1, a, b, c))).toBeNull();
+  });
+
+  it("is only for a list newest first, not searched, with more than one page loaded", () => {
+    const two = pages([a], [b]);
+    expect(readsTop(["assets", "list", "p1", {}, false], two)).toBe(true);
+    expect(readsTop(["assets", "list", "p1", { folder: "f1", kind: "image" }, true], two)).toBe(true);
+    expect(readsTop(["assets", "list", "p1", {}, false], pages([a]))).toBe(false);
+    expect(readsTop(["assets", "list", "p1", { q: "cat" }, false], two)).toBe(false);
+    expect(readsTop(["assets", "list", "p1", { model: "m.safetensors" }, false], two)).toBe(false);
+    expect(readsTop(["assets", "tree", "f1", null, 1, "new", true], two)).toBe(false);
   });
 });

@@ -48,3 +48,23 @@ export function throttle(run: () => void, ms: number, now: () => number = Date.n
 
 /** The tag of a job's notification: one per job, so that tabs that both say it show it once. */
 export const notifyTag = (jobId: string) => `afflatus:${jobId}`;
+
+/**
+ * Whether a hello is a reconnect, after which anything may have changed and everything is read again. The first hello is the
+ * page opening, everything just read; unless another tab held the connection meanwhile (`followed`: it answered this one or
+ * passed an event on), whose events this page heard. Waiting for the connection is not following: a page opened from another
+ * Afflatus page waits for the old one to let it go, and taking that wait for a reconnect read its whole first load twice.
+ */
+export function greetings(): { followed(): void; hello(): boolean } {
+  let greeted = false;
+  return {
+    followed: () => {
+      greeted = true;
+    },
+    hello: () => {
+      const again = greeted;
+      greeted = true;
+      return again;
+    },
+  };
+}

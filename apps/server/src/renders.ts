@@ -583,8 +583,11 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   return {
     period: typeof period === "string" ? period : ("window" as const), from: start, to: end, step, times, keepDays, since, buckets,
     upscale,
-    /** The stretch of time the figures cover: the period, or since the first render when that is later. */
-    spanMs: Math.max(step, Math.min(end, when) - Math.max(start, since ? Date.parse(since) : start)),
+    /**
+     * The stretch of time the figures cover: the period, or since the first render when that is later. In whole steps: to
+     * the millisecond it changed on every call, and the summary was never the same twice for its ETag.
+     */
+    spanMs: Math.max(step, Math.round((Math.min(end, when) - Math.max(start, since ? Date.parse(since) : start)) / step) * step),
     tiles: {
       done: whole.done, images: whole.images, videos: whole.videos, failed: whole.failed + unsentCount.failed, cancelled: whole.cancelled + unsentCount.cancelled,
       // of those, the ones that never reached ComfyUI: they took no GPU time (said in the tip)

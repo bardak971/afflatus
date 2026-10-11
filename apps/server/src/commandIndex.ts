@@ -8,7 +8,7 @@ import { httpError } from "./errors";
 import { inARow } from "./forecast";
 import { promptHistory } from "./promptHistory";
 import type { Services } from "./services";
-import { unusedSize, unusedTakes } from "./timelineUnused";
+import { inUseShown, unusedSize, unusedTakes } from "./timelineUnused";
 import { findDraft } from "./drafts";
 import { formFilled } from "./timelineModel";
 
@@ -90,7 +90,7 @@ export async function commandIndex(s: Services, opts: { items?: string[] } = {})
     db.selectFrom("generations").select((eb) => ["draft_id", "family", eb.fn.countAll().as("n"), eb.fn.max("created_at").as("last")]).where("draft_id", "is not", null).groupBy(["draft_id", "family"]).orderBy("last", "desc").execute(),
     // its figures (clips, lengths, exported) need only the takes that play
     s.timelines.leaves({ playingOnly: true }),
-    unusedTakes(db),
+    unusedTakes(db, undefined, inUseShown(s)),
     db.selectFrom("workflows").select(["id", "created_at", "updated_at"]).where("owner_id", "=", OWNER).execute(),
     db.selectFrom("entities").select(["id", "kind", "name", "created_at", "updated_at"]).where("owner_id", "=", OWNER).orderBy("name").execute(),
   ]);
