@@ -77,6 +77,10 @@ describe("files saved", () => {
     expect(presetOfFile({ inputs: {} }, "from disk.json").name).toBe("from disk");
     expect(presetOfFile({ name: "kept", def: { inputs: { a: 1 } } }, "f.json").def).toEqual({ inputs: { a: 1 } });
     expect(slug("  ")).toBe("preset");
+    // who made it and what it is picked by go with it, both ways
+    const credited = presetToFile({ ...e, def: { ...e.def, author: "Darksidewalker (DaSiWa)", line: "Hybrid v3 · smaller file" } });
+    expect(credited).toMatchObject({ author: "Darksidewalker (DaSiWa)", line: "Hybrid v3 · smaller file" });
+    expect(presetOfFile(credited, "x.json").def).toMatchObject({ author: "Darksidewalker (DaSiWa)", line: "Hybrid v3 · smaller file" });
   });
 });
 

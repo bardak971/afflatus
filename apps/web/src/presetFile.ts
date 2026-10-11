@@ -9,11 +9,12 @@ import { saveJson } from "./download";
 export const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "preset";
 
 export function presetToFile(e: Extract<Entity, { kind: "preset" }>): Record<string, unknown> {
-  const { recipe, inputs, look, files, author, note, homepage, links, licence } = e.def;
+  const { recipe, inputs, look, files, author, line, note, homepage, links, licence } = e.def;
   return {
     id: e.source === "shipped" ? e.id.replace(/^shipped:/, "") : slug(e.name),
     name: e.name,
     ...(author ? { author } : {}),
+    ...(line ? { line } : {}),
     ...(note ? { note } : {}),
     ...(homepage ? { homepage } : {}),
     ...(links?.length ? { links } : {}),
@@ -48,6 +49,7 @@ export function presetOfFile(raw: Record<string, unknown>, fileName: string): { 
         ...(raw.look ? { look: raw.look as PresetDef["look"] } : {}),
         ...(Array.isArray(raw.files) ? { files: raw.files as PresetDef["files"] } : {}),
         ...(typeof raw.author === "string" ? { author: raw.author } : {}),
+        ...(typeof raw.line === "string" ? { line: raw.line } : {}),
         ...(typeof raw.note === "string" ? { note: raw.note } : {}),
         ...(typeof raw.homepage === "string" ? { homepage: raw.homepage } : {}),
         ...(Array.isArray(raw.links) ? { links: (raw.links as Array<{ label?: unknown; url?: unknown }>).filter((l) => typeof l.label === "string" && typeof l.url === "string") as PresetDef["links"] } : {}),
