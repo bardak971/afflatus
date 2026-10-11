@@ -158,6 +158,12 @@ const pretendSite = createServer(async (req, res) => {
     return json({ items: [{ id: 501, name: "Pretend model (the demo's Civitai)", type: "Checkpoint", modelVersions: [version(file)] }] });
   }
   if (url.pathname.startsWith("/api/v1/model-versions/")) return json(version("model.safetensors"));
+  // GitHub's latest release, as the updates check reads it (DEMO_RELEASE below)
+  if (url.pathname === "/releases/latest" && process.env.DEMO_RELEASE) {
+    const v = process.env.DEMO_RELEASE.trim();
+    const notes = ["- Pretend highlight one", "- Pretend highlight two", ...(process.env.DEMO_SECURITY ? ["", "Security: a pretend fix, for the demo's banner"] : [])];
+    return json({ tag_name: `v${v}`, name: `Afflatus ${v}`, html_url: `${self}/releases/tag/v${v}`, published_at: new Date().toISOString(), prerelease: false, body: notes.join("\n"), assets: [] });
+  }
   if (url.pathname === "/files/demo") {
     const from = Math.min(PRETEND_BYTES, Number(/^bytes=(\d+)-$/.exec(req.headers.range ?? "")?.[1] ?? 0));
     res.writeHead(from ? 206 : 200, { "Content-Type": "application/octet-stream", "Content-Length": PRETEND_BYTES - from, ...(from ? { "Content-Range": `bytes ${from}-${PRETEND_BYTES - 1}/${PRETEND_BYTES}` } : {}) });
@@ -185,6 +191,9 @@ await new Promise<void>((resolve) => pretendSite.listen(0, "127.0.0.1", resolve)
 process.env.CIVITAI_URL = `http://127.0.0.1:${(pretendSite.address() as AddressInfo).port}`;
 // the pretend site is plain http, and no real site is asked in its place (civitai.ts pretendSites)
 process.env.AFFLATUS_PRETEND_SITES = "1";
+// DEMO_RELEASE=0.9.0: the pretend site stands in for GitHub with that release, so that Settings → About can show a new
+// version (DEMO_SECURITY=1 marks it a security fix); without it the updates check asks nothing
+if (process.env.DEMO_RELEASE) process.env.UPDATES_URL = `http://127.0.0.1:${(pretendSite.address() as AddressInfo).port}/releases/latest`;
 
 const dataDir = join(root, "data-demo");
 mkdirSync(dataDir, { recursive: true });

@@ -8,6 +8,7 @@ import type { Draft, DraftBrief, DraftPatch, Entity, PresetFilesView as WebPrese
 import type { Settings as WebSettings, SettingsPatch } from "../../web/src/api/types/settings";
 import type { CommandEntry as WebEntry, CommandEstimate as WebEstimate, CommandIndex, PromptHistoryItem as WebPromptItem } from "../../web/src/api/types/bar";
 import type { Download } from "../../web/src/api/types/models";
+import type { UpdatesView as WebUpdates } from "../../web/src/api/types/updates";
 import type { LibraryChange as WebLibraryChange } from "../../web/src/queryKeys";
 // the server's own: what its routes return
 import type { assetDetail } from "../src/assets-api";
@@ -26,6 +27,7 @@ import type { list, TimesSummary } from "../src/rendersRead";
 import type { llmSchema, publicSettings, settingsSchema } from "../src/settings";
 import type { Timelines } from "../src/timelines";
 import type { clipPatch, timelinePatch } from "../src/timelines-api";
+import type { UpdatesView } from "../src/updates";
 
 /**
  * The web keeps its own copy of the shapes the server answers with (it imports nothing from the server), so a field
@@ -151,5 +153,9 @@ describe("the web's API types match what the server answers", () => {
     agree<CommandEstimate, WebEstimate>().toEqualTypeOf<true>();
     agree<PromptHistoryItem, WebPromptItem>().toEqualTypeOf<true>();
     agree<DownloadView, Download>().toEqualTypeOf<true>();
+  });
+
+  it("Afflatus's own updates", () => {
+    agree<UpdatesView, WebUpdates>().toEqualTypeOf<true>();
   });
 });

@@ -38,7 +38,7 @@ const SERVER: Record<string, string> = {
   acceptedPresets: "internal: a preset's licence, accepted where the preset is applied",
   civitaiLookups: "server.civitaiLookups",
   downloadModels: "server.downloadModels",
-  afflatusUpdateChecks: "internal: the switch of About's Updates part, which has no index row yet",
+  afflatusUpdateChecks: "about.updates",
   renderHistoryDays: "storage.renderTimes",
   unkeptDays: "storage.unkeptDays",
   binDays: "storage.binDays",
@@ -85,6 +85,9 @@ const BROWSER: Record<string, string> = {
   "afflatus.timeline.takes": "internal: how many takes a clip's panel shows",
   "afflatus.volume": "internal: the viewer's volume, set on it",
   "afflatus.check.": "internal: a start-up check already said, per check",
+  "afflatus.updates.seen": "internal: the new version About was last seen with, for the rail's dot",
+  "afflatus.updates.security": "internal: the security fix whose banner was closed",
+  "afflatus.updates.move": "internal: the 0.3 library left where it was (Start empty)",
 };
 
 // a row's key, or one of the bar's ids the row stands for (`also`)

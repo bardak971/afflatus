@@ -75,6 +75,7 @@ export const INDEX: SettingSpot[] = [
   { tab: "interface", label: "Notify when the queue is empty", key: "notify.empty", words: "notifications browser" },
   { tab: "interface", label: "Notify after each render", key: "notify.each", words: "notifications browser" },
   { tab: "about", label: "About Afflatus", key: "about.version", words: "version about license source github" },
+  { tab: "about", label: "Check for new versions", key: "about.updates", words: "updates update new version release upgrade github check daily go back previous security" },
   { tab: "about", label: "On this computer", key: "about.checks", words: "start-up checks startup ffmpeg ffprobe node data folder tools missing install path preflight" },
 ];
 

@@ -1,12 +1,13 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import type { ProgressUpdate, QueueStatus, SystemLoad } from "./api";
+import type { ProgressUpdate, QueueStatus, SystemLoad, UpdateFlow, UpdatesView } from "./api";
 import { readHistoryHead, readLibraryTop } from "./data";
 import { applyChange, readsTop } from "./assetCache";
 import { endedSince, greetings, mergeProgress, notifyTag, throttle } from "./liveState";
 import { useBanners, useLive, useNotify, useSystem } from "./store";
 import { useBar } from "./bar/store";
 import { isUnder, libraryInPlace, libraryReads, queryKeys, RENDER_KEYS, type LibraryChange } from "./queryKeys";
+import { backFromRestart, followRestart, readsAgain, useRestarting } from "./updates";
 
 /** The version this page was built as (vite.config.ts), "dev" from the sources: what the server's hello is held against. */
 const BUILD_VERSION = __AFFLATUS_VERSION__;
@@ -51,7 +52,7 @@ const refetch = (client: QueryClient, keys: ReadonlyArray<readonly string[]>) =>
 };
 
 /** Every event the server sends (events.ts): what the tab with the connection listens for and passes on. */
-const EVENTS = ["hello", "ping", "system", "progress", "queue", "library", "models", "timeline", "entities", "downloads", "setup"] as const;
+const EVENTS = ["hello", "ping", "system", "progress", "queue", "library", "models", "timeline", "entities", "downloads", "setup", "updates"] as const;
 /** The events after which the command bar's index is old. */
 const INDEXED = new Set(["library", "timeline", "queue", "entities", "models"]);
 /** The lock of the tab that holds the connection, and the channel it passes the events on over. */
@@ -163,12 +164,27 @@ export function useLiveEvents(): void {
       downloads: on(queryKeys.downloads()),
       // ComfyUI has a file it did not have: what is ready may have changed
       setup: on(queryKeys.setup()),
+      // an update's flow: its progress written in place, the whole view read again when its phase changes (updates.ts)
+      updates: (data) => {
+        const flow = (parse(data) as { flow?: UpdateFlow | null } | null)?.flow ?? null;
+        const view = client.getQueryData<UpdatesView>(queryKeys.updates());
+        followRestart(view?.version ?? BUILD_VERSION, flow);
+        if (view) client.setQueryData<UpdatesView>(queryKeys.updates(), { ...view, flow });
+        if (!view || readsAgain(view.flow, flow)) void client.invalidateQueries({ queryKey: queryKeys.updates() });
+      },
       system: (data) => {
         const got = parse(data) as { load: SystemLoad | null } | null;
         if (got) useSystem.getState().set(got.load);
       },
       hello: (data) => {
         const version = (parse(data) as { version?: string } | null)?.version;
+        const again = greeted.hello();
+        // the server is back from the restart this page waited for (an update, Go back, the move): the page is read again,
+        // which brings the new version's own page, rather than the banner below
+        if (backFromRestart(useRestarting.getState().from, version, again)) {
+          location.reload();
+          return;
+        }
         if (version && version !== BUILD_VERSION) {
           useBanners.getState().push({
             id: "version", tone: "bad", title: "Afflatus was updated",
@@ -178,7 +194,7 @@ export function useLiveEvents(): void {
         }
         // everything read again, but the command bar's index, which is only marked old: the bar reads it when it opens
         // next (its search of the library's items is under the same key)
-        if (greeted.hello()) {
+        if (again) {
           void client.invalidateQueries({ predicate: (q) => !isUnder(q.queryKey, queryKeys.commandIndex.all()) });
           void client.invalidateQueries({ queryKey: queryKeys.commandIndex.all(), refetchType: useBar.getState().open ? "active" : "none" });
         }
