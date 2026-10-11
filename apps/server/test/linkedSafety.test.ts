@@ -338,6 +338,18 @@ describe("the files of Afflatus's own storage", () => {
     expect(existsSync(join(t.dir, "notes.txt"))).toBe(true);
   });
 
+  it("are not erased beside a database with no item at all: that database is not the library's own", async () => {
+    // a start on an empty database where the library's went missing (a Go back stopped halfway): its files are the library
+    const ids = [newId(), newId()];
+    for (const id of ids) {
+      await t.services.storage.put(`assets/${id.slice(0, 2)}/${id}.png`, picture());
+      old(join(t.dir, "assets", id.slice(0, 2), `${id}.png`));
+    }
+    expect(await t.db.selectFrom("assets").select("id").execute()).toEqual([]);
+    expect(await sweepOrphans(t.db, t.services.storage)).toBe(0);
+    for (const id of ids) expect(existsSync(join(t.dir, "assets", id.slice(0, 2), `${id}.png`))).toBe(true);
+  });
+
   it("are written whole or not at all: no part file is left beside one", async () => {
     await t.services.storage.put("assets/ab/zz-test.png", picture(1));
     await t.services.storage.put("assets/ab/zz-test.png", picture(2));

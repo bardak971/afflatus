@@ -6,7 +6,7 @@ import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
 import { useBanners } from "./store";
 import { plural, size } from "./format";
 import { Button, ErrorNote } from "./ui";
-import { followRestart, useRestarting, useUpdates, useUpdatesSeen } from "./updates";
+import { followRestart, securityNews, useRestarting, useUpdates, useUpdatesSeen } from "./updates";
 import { queryKeys } from "./queryKeys";
 
 /** A restart that takes longer than this is said, with a way to read the page again by hand. */
@@ -22,7 +22,8 @@ export function UpdateNews() {
   const push = useBanners((s) => s.push);
   const closed = useUpdatesSeen((s) => s.security);
   const closeSecurity = useUpdatesSeen((s) => s.closeSecurity);
-  const security = v?.newer && v.latest?.security ? v.latest : null;
+  const asked = useUpdatesSeen((s) => s.asked);
+  const security = securityNews(v, asked);
   useEffect(() => {
     if (!security || closed === security.version) return;
     const version = security.version;

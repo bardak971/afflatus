@@ -12,7 +12,7 @@ const LOOPBACK = ["localhost", "127.0.0.1", "::1", "[::1]"];
 const EVERY_ADDRESS = new Set(["", "0.0.0.0", "::", "[::]"]);
 
 /** The host part of a Host header, lower-cased, without the port: "pc.lan:8720" → "pc.lan", "[::1]:8720" → "[::1]". */
-function hostOnly(header: string): string {
+export function hostOnly(header: string): string {
   const h = header.trim().toLowerCase();
   const bracketed = /^(\[[^\]]*\])(?::\d*)?$/.exec(h);
   if (bracketed) return bracketed[1]!;

@@ -1,5 +1,5 @@
 import { loadConfig } from "./config";
-import { check, DataFolderError, PortTakenError, start, webDir } from "./start";
+import { check, DataFolderError, EXIT_DATA_FOLDER, EXIT_PORT_TAKEN, PortTakenError, start, webDir } from "./start";
 
 // the start itself is in start.ts, where a test runs it; here only what a process does around it: a start that cannot go
 // on is said in one line and ends the process, and a signal stops the server before the process ends
@@ -10,9 +10,10 @@ let started: Awaited<ReturnType<typeof start>>;
 try {
   started = await start(config, { webDir: webDir() });
 } catch (err) {
+  // each with its own code, which the bundle's launcher does not take for a new version that does not start
   if (err instanceof PortTakenError || err instanceof DataFolderError) {
     console.error(err.message);
-    process.exit(1);
+    process.exit(err instanceof PortTakenError ? EXIT_PORT_TAKEN : EXIT_DATA_FOLDER);
   }
   throw err;
 }

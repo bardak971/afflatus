@@ -173,16 +173,25 @@ export async function sweepOrphans(db: Db, storage: Storage, at = Date.now()): P
   const rows = await db.selectFrom("assets").select(["id", "file_key", "thumb_key", "raw_key", "latent_key", "fine_latent_key"]).execute();
   const ids = new Set(rows.map((r) => r.id));
   const named = new Set(rows.flatMap((r) => [r.file_key, r.thumb_key, r.raw_key, r.latent_key, r.fine_latent_key]));
-  let erased = 0;
+  const due: string[] = [];
+  let items = 0;
   for (const dir of ITEM_DIRS) {
     for await (const f of storage.list(dir)) {
       if (at - f.mtimeMs < UNKEPT_MS || named.has(f.key)) continue;
       const name = f.key.slice(f.key.lastIndexOf("/") + 1);
       const id = ITEM_FILE.exec(name)?.[1];
       if (!name.endsWith(".part") && (!id || ids.has(id))) continue;
-      await storage.delete(f.key).catch(() => {});
-      erased++;
+      due.push(f.key);
+      if (!name.endsWith(".part")) items++;
     }
   }
-  return erased;
+  // A database with no item at all beside a folder of items' files is not a library whose items all went: it is a
+  // database that is not this folder's (a new one made where the library's went missing, a Go back stopped halfway).
+  // Its files are the library, so nothing is erased until the database names them again.
+  if (!rows.length && items > 0) {
+    console.warn(`[sweep] the database has no item but the files folder has ${items} items' files: nothing erased (is afflatus.db the library's own?)`);
+    return 0;
+  }
+  for (const key of due) await storage.delete(key).catch(() => {});
+  return due.length;
 }

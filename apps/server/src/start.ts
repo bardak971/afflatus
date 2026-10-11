@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,6 +37,44 @@ export class DataFolderError extends Error {
   }
 }
 
+/**
+ * The library's database was migrated by a newer Afflatus (a migration this version does not have is marked done in
+ * it): this version cannot open it. Said plainly, with the copy to put back, where the migrator said only "corrupted
+ * migrations".
+ */
+export class NewerLibraryError extends DataFolderError {
+  constructor(dataDir: string, migration: string, backup: string | null) {
+    super("", "");
+    this.message = `Afflatus cannot start: the library in ${dataDir} is from a newer Afflatus (its database has the change "${migration}", which ${VERSION} does not know). Start the newer version again${backup ? `, or, to stay on ${VERSION}, put the copy taken before the update in its place: with Afflatus stopped, copy ${backup} over ${join(dataDir, "afflatus.db")}` : ""}.`;
+    this.name = "NewerLibraryError";
+  }
+}
+
+/**
+ * The exit codes of a start that stopped on something other than the version itself, which the bundle's launcher
+ * (scripts/release/launch.mjs) never takes for a version that does not start: the port is taken, or the data folder
+ * cannot be used.
+ */
+export const EXIT_PORT_TAKEN = 3;
+export const EXIT_DATA_FOLDER = 4;
+
+/** The migrator's word for a database that has a migration this code does not know: a newer version migrated it. */
+const NEWER = /corrupted migrations: previously executed migration (\S+) is missing/;
+
+/** The copy of the library to put back before a newer version's changes: the update's own, else the one taken before the migration. */
+async function copyBeforeNewer(dataDir: string): Promise<string | null> {
+  const newest = async (dir: string, pick: (name: string) => boolean) => {
+    let best: { path: string; at: number } | null = null;
+    for (const name of await readdir(dir).catch(() => [] as string[])) {
+      if (!pick(name)) continue;
+      const at = await stat(join(dir, name)).then((s) => s.mtimeMs, () => 0);
+      if (!best || at > best.at) best = { path: join(dir, name), at };
+    }
+    return best?.path ?? null;
+  };
+  return (await newest(join(dataDir, "backups"), (n) => /^before-.+\.db$/.test(n))) ?? (await newest(dataDir, (n) => n.startsWith("afflatus.db.pre-")));
+}
+
 export interface StartOptions {
   /** The built web app's folder; none in development (and in the tests). */
   webDir?: string;
@@ -72,8 +110,9 @@ const holdPort = (config: Config) =>
 
 /**
  * The server started: the port held, the data folder checked, the database migrated, the services made and the app
- * listening, with the queue taking jobs. Nothing here ends the process: a port taken throws a PortTakenError and a data
- * folder that cannot be written a DataFolderError, which the caller (index.ts) says and exits on.
+ * listening, with the queue taking jobs. Nothing here ends the process: a port taken throws a PortTakenError, and a data
+ * folder that cannot be written or a library a newer version migrated a DataFolderError, which the caller (index.ts)
+ * says and exits on.
  */
 export async function start(config: Config, opts: StartOptions = {}): Promise<Started> {
   const log = opts.log ?? console;
@@ -107,7 +146,12 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<St
     const data = checked.checks.find((c) => c.id === "data");
     if (data && !data.ok) throw new DataFolderError(data.detail, data.fix);
     const { db, kind } = openDb(config);
-    const applied = await migrate(db);
+    const applied = await migrate(db).catch(async (err: Error) => {
+      const newer = NEWER.exec(err.message);
+      if (!newer) throw err;
+      await db.destroy().catch(() => {});
+      throw new NewerLibraryError(config.dataDir, newer[1]!, kind === "sqlite" ? await copyBeforeNewer(config.dataDir) : null);
+    });
     if (applied.length) log.log(`[db] migrated: ${applied.join(", ")}`);
     services = await createServices(db, kind, new LocalStorage(join(config.dataDir, "files")), opts.queueOptions, { dataDir: config.dataDir });
     updates = new AfflatusUpdates({ services, dataDir: config.dataDir, restart, ...opts.updates });
@@ -140,6 +184,8 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<St
       await mkdir(dirname(startedFile), { recursive: true }).then(() => writeFile(startedFile, new Date().toISOString()))
         .catch((err: Error) => log.warn(`[updates] the started marker was not written (${startedFile}): ${err.message}`));
     }
+    // this version has started once: from now on, a start that fails is never a reason to fall back from it
+    await updates.listening();
     return { app, services, kind, updates, close: closeAll };
   } catch (err) {
     // a start that stops half way leaves nothing behind: the port free again, the database closed
