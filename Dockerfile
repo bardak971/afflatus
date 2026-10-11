@@ -40,7 +40,10 @@ RUN npm ci --omit=dev --no-audit --no-fund --loglevel=error \
  && npm cache clean --force \
  && mkdir -p /data && chown -R node:node /app /data
 ARG AFFLATUS_VERSION=dev
+# AFFLATUS_INSTALL tells the server it runs in an image: it says when a release is out, and that a new image is
+# pulled to update (an image is never changed from inside)
 ENV AFFLATUS_VERSION=$AFFLATUS_VERSION \
+    AFFLATUS_INSTALL=docker \
     NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=8720 \
