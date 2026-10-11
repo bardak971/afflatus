@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown, Search, X } from "lucide-react";
 import { ContextMenu, useMenu } from "../ContextMenu";
 import { useFit } from "../useFit";
-import { cx } from "../ui";
+import { cx, pillBox, placePill, sameBox, type PillBox } from "../ui";
 import { scrollInside } from "../scrollInside";
 
 /**
@@ -44,6 +44,32 @@ export function Strip({ parts, open, query, setQuery, found }: {
   // how far above its place the strip sticks: the scroller's top padding, so that it sits against the box's top edge
   // when stuck (a sticky row stops at the padding's edge, and what is scrolled past would show in that gap above it)
   const [lift, setLift] = useState(0);
+  // the part in view is lit by one pill that stretches from the part before to the new one, as a Segmented's does:
+  // a click or the scroll moves it. Until it is placed (before the first paint) the part is lit by its own background
+  const pill = useRef<HTMLSpanElement>(null);
+  const at = useRef<PillBox | null>(null);
+  const [placed, setPlaced] = useState(false);
+  const ON = ":scope > [data-on]";
+  useLayoutEffect(() => {
+    if (!self.current || !pill.current) return;
+    const to = searching ? null : pillBox(self.current, ON);
+    placePill(pill.current, at.current, to, true);
+    at.current = to;
+    setPlaced(true);
+  }, [current, searching, fold]);
+  // the strip changes width (the panel dragged wider, a font loading): the pill follows at once, without travel
+  useLayoutEffect(() => {
+    const s = self.current;
+    if (!s) return;
+    const watch = new ResizeObserver(() => {
+      const to = searching ? null : pillBox(s, ON);
+      if (!pill.current || sameBox(to, at.current)) return;
+      placePill(pill.current, at.current, to, false);
+      at.current = to;
+    });
+    watch.observe(s);
+    return () => watch.disconnect();
+  }, [searching]);
   // and behind it the colour of the box it scrolls in (a panel, a kit editor): what is scrolled past stays hidden
   // in its rounded corners too
   const [backing, setBacking] = useState<string | undefined>(undefined);
@@ -127,7 +153,12 @@ export function Strip({ parts, open, query, setQuery, found }: {
     // the sticky row is a square backing in the box's own colour with the rounded, opaque strip in it: once stuck
     // against the box's top edge, nothing scrolled past shows through the strip, above it or in its corners
     <div style={{ top: -lift, backgroundColor: backing }} className="sticky z-10 shrink-0">
-      <div ref={self} className="flex items-center gap-x-0.5 overflow-x-hidden rounded-lg border border-line bg-raised px-1 py-1 shadow-md shadow-shade/20">
+      <div ref={self} className="relative flex items-center gap-x-0.5 overflow-x-hidden rounded-lg border border-line bg-raised px-1 py-1 shadow-md shadow-shade/20">
+        <span
+          ref={pill}
+          aria-hidden
+          className="pointer-events-none absolute rounded bg-line-strong motion-safe:data-[travel]:[transition:left_var(--t-travel)_var(--ease-snap)_var(--edge-l),right_var(--t-travel)_var(--ease-snap)_var(--edge-r),top_var(--t-travel)_var(--ease-snap)]"
+        />
         {searching ? (
           <label className="flex h-7 min-w-0 grow items-center gap-1.5 rounded-full border border-line bg-panel px-2 text-xs focus-within:border-accent">
             <Search size={13} className="shrink-0 text-ink-2" />
@@ -152,7 +183,8 @@ export function Strip({ parts, open, query, setQuery, found }: {
                 key={p.id}
                 type="button"
                 onClick={() => goTo(p.id)}
-                className={cx("shrink-0 rounded px-1.5 py-1 text-[11px] font-semibold whitespace-nowrap", current === p.id ? "bg-line-strong text-ink-strong" : "text-ink-2 hover:bg-hover hover:text-ink")}
+                data-on={current === p.id ? "" : undefined}
+                className={cx("relative shrink-0 rounded px-1.5 py-1 text-[11px] font-semibold whitespace-nowrap transition-colors", current === p.id ? cx("text-ink-strong", !placed && "bg-line-strong") : "text-ink-2 hover:bg-hover hover:text-ink")}
               >
                 {p.label}
               </button>
@@ -164,7 +196,8 @@ export function Strip({ parts, open, query, setQuery, found }: {
                 aria-label={`${hidden.length} more part${hidden.length === 1 ? "" : "s"}`}
                 data-tip={hidden.map((p) => p.label).join(", ")}
                 onClick={(e) => more.open(e, true)}
-                className={cx("flex shrink-0 items-center gap-0.5 rounded px-1.5 py-1 text-[11px] font-semibold whitespace-nowrap", hidden.some((p) => p.id === current) ? "bg-line-strong text-ink-strong" : "text-ink-2 hover:bg-hover hover:text-ink")}
+                data-on={hidden.some((p) => p.id === current) ? "" : undefined}
+                className={cx("relative flex shrink-0 items-center gap-0.5 rounded px-1.5 py-1 text-[11px] font-semibold whitespace-nowrap transition-colors", hidden.some((p) => p.id === current) ? cx("text-ink-strong", !placed && "bg-line-strong") : "text-ink-2 hover:bg-hover hover:text-ink")}
               >
                 {hidden.find((p) => p.id === current)?.label ?? `+${hidden.length}`}
                 <ChevronDown size={11} />

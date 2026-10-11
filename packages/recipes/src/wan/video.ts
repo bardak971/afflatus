@@ -239,21 +239,21 @@ export const wanVideo = defineRecipe<WanVideo>({
     },
     { id: "turboSteps", type: "number", label: "Turbo steps", note: "4 is what the turbo LoRAs are made for; some fine-tunes ask for 6 or 8", min: 2, max: 12, step: 1, default: 4, showWhen: "fast", advanced: true, perModel: true },
     {
-      id: "turboStrength", type: "number", label: "Turbo LoRA strength (high noise)", min: 0.2, max: 1.2, step: 0.05, default: 1, showWhen: "fast", advanced: true, perModel: true,
-      note: "1 is the LoRAs' own. 0.6 to 0.8 on the high-noise half brings back motion the 4-step LoRA flattens; the low-noise half stays at 1",
+      id: "turboStrength", type: "number", label: "High-noise turbo", min: 0.2, max: 1.2, step: 0.05, default: 1, showWhen: "fast", advanced: true, perModel: true,
+      note: "the turbo LoRA's strength on the high-noise model. 1 is the LoRAs' own. 0.6 to 0.8 on the high-noise half brings back motion the 4-step LoRA flattens; the low-noise half stays at 1",
     },
     {
-      id: "turboHybrid", type: "toggle", label: "Hybrid turbo (motion first)", default: true, showWhen: "fast", advanced: true, perModel: true,
+      id: "turboHybrid", type: "toggle", label: "Hybrid turbo", default: true, showWhen: "fast", advanced: true, perModel: true,
       note: "the first step or two run on the high-noise model WITHOUT the turbo LoRA at the full CFG scale (the motion is decided there), then the LoRAs take over at CFG 1: a draft that moves like a full render, a little slower. Only with the turbo LoRAs, not with a distilled model",
     },
     {
-      id: "nag", type: "toggle", label: "NAG (negative at CFG 1)", default: true, showWhen: "fast", advanced: true, perModel: true,
+      id: "nag", type: "toggle", label: "NAG", default: true, showWhen: "fast", advanced: true, perModel: true,
       note: "Normalized Attention Guidance: the negative prompt acts in Turbo, where CFG 1 ignores it, at little cost. Needs KJNodes",
     },
     { id: "nagScale", type: "number", label: "NAG scale", min: 1, max: 30, step: 0.5, default: 11, showWhen: "nag", advanced: true, perModel: true, note: "how hard the negative pushes: 11 is its authors' value" },
     { id: "steps", type: "number", label: "Steps", min: 2, max: 50, step: 1, default: 20, showWhen: { input: "fast", in: [false] }, advanced: true, perModel: true },
     {
-      id: "split", type: "number", label: "High-noise steps (share)", min: 0, max: 0.9, step: 0.05, default: 0, advanced: true, perModel: true,
+      id: "split", type: "number", label: "High-noise share", min: 0, max: 0.9, step: 0.05, default: 0, advanced: true, perModel: true,
       note: "the share of the steps the first model makes before the second takes over. 0 is Auto: where the noise falls below the level the two models were split at in training (0.9 for image to video, 0.875 for text to video), from the steps and the shift; 0.5 is half",
     },
     {

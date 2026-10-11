@@ -18,7 +18,7 @@ export const SAGE_NEEDED = `SageAttention needs KJNodes (its ${SAGE_NODE} node) 
 
 export const SPEED_INPUTS: InputSpec[] = [
   {
-    id: "sage", type: "toggle", label: "Faster attention (SageAttention)", default: false, perModel: true, section: "speed",
+    id: "sage", type: "toggle", label: "SageAttention", default: false, perModel: true, section: "speed",
     note: "a quicker attention kernel: same picture, less time, often much less on video. Needs the sageattention package in ComfyUI's Python",
   },
   {

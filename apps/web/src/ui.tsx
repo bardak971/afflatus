@@ -196,28 +196,31 @@ export function PanelEdge({ side, size }: { side: "left" | "right"; size?: { get
   );
 }
 
-/** Where the lit pill of a Segmented sits, in its box's own pixels. */
-interface PillBox {
+/** Where the lit pill of a Segmented (or of the form's strip) sits, in its box's own pixels. */
+export interface PillBox {
   left: number;
   right: number;
   top: number;
   height: number;
 }
 
-/** The box of the option on (null when none is), read from the page so that any labels and any wrapping work. */
-function pillBox(group: HTMLElement): PillBox | null {
-  const on = group.querySelector<HTMLElement>(':scope > [role="radio"][aria-checked="true"]');
+/**
+ * The box of the option on (null when none is), read from the page so that any labels and any wrapping work. `which`:
+ * how the option on is found, when it is not a checked radio (the form's strip marks its part with data-on).
+ */
+export function pillBox(group: HTMLElement, which: string = ':scope > [role="radio"][aria-checked="true"]'): PillBox | null {
+  const on = group.querySelector<HTMLElement>(which);
   if (!on) return null;
   return { left: on.offsetLeft, right: group.clientWidth - on.offsetLeft - on.offsetWidth, top: on.offsetTop, height: on.offsetHeight };
 }
 
-const sameBox = (a: PillBox | null, b: PillBox | null) => a === b || (a !== null && b !== null && a.left === b.left && a.right === b.right && a.top === b.top && a.height === b.height);
+export const sameBox = (a: PillBox | null, b: PillBox | null) => a === b || (a !== null && b !== null && a.left === b.left && a.right === b.right && a.top === b.top && a.height === b.height);
 
 /**
  * Puts the pill on `to`. `travel`: a new choice, which stretches there (the edge on the side it goes leads, the other one
  * follows --t-trail later); anything else (a resize, a label turning bold) puts it there at once.
  */
-function placePill(pill: HTMLElement, from: PillBox | null, to: PillBox | null, travel: boolean) {
+export function placePill(pill: HTMLElement, from: PillBox | null, to: PillBox | null, travel: boolean) {
   if (!to) {
     pill.style.opacity = "0";
     return;

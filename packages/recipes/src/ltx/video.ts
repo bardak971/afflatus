@@ -331,7 +331,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       note: "acts with a CFG scale above 1, or at 1 through NAG",
     },
     {
-      id: "nag", type: "toggle", label: "NAG (negative at CFG 1)", default: false, advanced: true, perModel: true,
+      id: "nag", type: "toggle", label: "NAG", default: false, advanced: true, perModel: true,
       note: "Normalized Attention Guidance: the negative prompt acts at CFG 1, where it is otherwise ignored, at little cost. Needs KJNodes. Off by default: untried on LTX by its authors",
     },
     { id: "nagScale", type: "number", label: "NAG scale", min: 1, max: 30, step: 0.5, default: 11, showWhen: "nag", advanced: true, perModel: true, note: "how hard the negative pushes: 11 is its authors' value" },
@@ -342,7 +342,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       note: "how closely the clip holds the keyframe at its moment: lower lets it pass near the picture rather than through it",
     },
     {
-      id: "compression", type: "number", label: "Input image compression (CRF)", min: 0, max: 50, step: 1, default: 18, advanced: true,
+      id: "compression", type: "number", label: "Input CRF", min: 0, max: 50, step: 1, default: 18, advanced: true,
       note: "the start, keyframe and end pictures are compressed like a video frame before the model sees them: a picture that is too clean gives a clip that does not move. 0 leaves them as they are",
     },
     {

@@ -102,7 +102,7 @@ export function upscaleInputs(opts: { latent?: boolean } = {}): InputSpec[] {
       note: "from models/upscale_models. The model enlarges by its own factor, then the frames are resized to the factor asked for: a 2× model (2xNomosUni_span_multijpg, RealESRGAN_x2plus) is the direct road for ×2. NomosUni_span is fast, steady from frame to frame and forgiving of compression; Nomos8kSC is sharper on clean footage; UltraSharp and ESRGAN tend to flicker",
     },
     {
-      id: "upscaleSharpen", type: "number", label: "Sharpen after the upscale (RCAS)", min: 0, max: 1, step: 0.05, default: 0, section: "out",
+      id: "upscaleSharpen", type: "number", label: "RCAS sharpen", min: 0, max: 1, step: 0.05, default: 0, section: "out",
       showWhen: { input: "upscale", in: PIXEL_ROUTES },
       note: `RCAS (AMD FSR's robust contrast-adaptive sharpen) on the upscaled frames: crisps the edges an upscale leaves soft, without the halos of a plain sharpen or unsharp mask. 0.3 is a usual amount; 0 = off. Needs KJNodes (${SHARPEN_NODE})`,
     },

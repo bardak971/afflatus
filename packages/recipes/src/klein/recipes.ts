@@ -543,7 +543,7 @@ export const kleinVariation = defineRecipe<KleinVariation>({
     kleinModel,
     { id: "source", type: "image", role: "source", label: "Image" },
     { id: "prompt", type: "prompt", label: "Prompt", note: `optional: left empty, ${DIFFERS}`, style: "sentences", optional: true, default: "", placeholder: "she looks over her shoulder and laughs" },
-    { id: "photo", type: "toggle", label: "Photo (not an illustration)", note: "off for a drawing or a painting: its style is kept instead", default: true },
+    { id: "photo", type: "toggle", label: "Photo", note: "off for a drawing or a painting: its style is kept instead", default: true },
     { id: "references", type: "references", label: "Reference images of the person", max: 4, roles: ["person"], note: "optional: more pictures of who is in it help the face stay the same", advanced: true },
     ...kleinInputs,
   ],

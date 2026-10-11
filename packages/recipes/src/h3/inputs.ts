@@ -87,7 +87,7 @@ export const h3Inputs: InputSpec[] = [
     note: "the motion and the voices of that clip continue into this one. With the Afflatus node pack in ComfyUI (Settings → ComfyUI), the clip continues from that clip's own latent, which keeps the look and the voice as well as the motion",
   },
   {
-    id: "handover", type: "toggle", label: "Hand over before a frozen tail", default: true, showWhen: "previous", advanced: true, section: "rare",
+    id: "handover", type: "toggle", label: "Skip a frozen tail", default: true, showWhen: "previous", advanced: true, section: "rare",
     note: "H3 often holds its last frames still. When the clip before ends still for a quarter second or more, this clip carries on from its last lively moment and that clip is trimmed to it",
   },
   {
@@ -181,7 +181,7 @@ export const h3Inputs: InputSpec[] = [
     note: "it follows reference pictures and voices itself; otherwise those clips use MiniMax's reference model. Auto reads it from the file name",
   },
   { id: "smooth", type: "toggle", label: "RIFE ×2", note: "frame interpolation: frames interpolated with RIFE, from 24 to 48 a second", default: true, advanced: true },
-  { id: "sharpRefs", type: "toggle", label: "Reference images at full resolution", note: "holds a face better, several times slower", default: false, advanced: true },
+  { id: "sharpRefs", type: "toggle", label: "Full-res references", note: "holds a face better, several times slower", default: false, advanced: true },
   { id: "cache", type: "toggle", label: "Step cache", note: "faster, softer: steps that barely change are skipped (MiniMaxH3Cache, from the ComfyUI-DaSiWa-Nodes pack; without it nothing changes). Only without Turbo", default: false, showWhen: { input: "fast", in: [false] }, advanced: true },
   {
     id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
