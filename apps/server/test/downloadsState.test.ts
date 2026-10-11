@@ -1,8 +1,11 @@
 import { EventEmitter } from "node:events";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Comfy } from "../src/comfy";
 import { Downloads } from "../src/downloads";
 import { until } from "./helpers";
 
@@ -87,6 +90,24 @@ describe("the downloads' state file", () => {
     await until(() => readdirSync(dir).join() === "downloads.json");
   });
 
+  it("keeps a failure nobody read for a day, where a read one or a finished one goes after an hour", async () => {
+    const file = join(dir, "downloads.json");
+    const now = Date.now();
+    const hours = (n: number) => now - n * 60 * 60_000;
+    writeFileSync(file, JSON.stringify([
+      { id: "unread", file: "a.safetensors", folder: "loras", title: "A", bytes: 0, total: 0, status: "error", error: "cut", finishedAt: hours(3) },
+      { id: "read", file: "b.safetensors", folder: "loras", title: "B", bytes: 0, total: 0, status: "error", error: "cut", seen: true, finishedAt: hours(3) },
+      { id: "done", file: "c.safetensors", folder: "loras", title: "C", bytes: 1, total: 1, status: "done", finishedAt: hours(3) },
+      { id: "too-old", file: "d.safetensors", folder: "loras", title: "D", bytes: 0, total: 0, status: "error", error: "cut", finishedAt: hours(25) },
+    ]));
+    const downloads = new Downloads(new EventEmitter(), file);
+    await downloads.restored;
+    expect(downloads.list().map((d) => d.id)).toEqual(["unread"]);
+    // read now: an hour after it ended, it goes
+    downloads.seen("unread");
+    expect(downloads.list()).toEqual([]);
+  });
+
   it("is nothing without a state file, and does not mind one it cannot read", async () => {
     const bare = new Downloads(new EventEmitter());
     await bare.restored;
@@ -96,5 +117,59 @@ describe("the downloads' state file", () => {
     const d = new Downloads(new EventEmitter(), broken);
     await d.restored;
     expect(d.list()).toEqual([]);
+  });
+});
+
+/** A node pack that answers, but says nothing usable: the download is given up, never left "downloading". */
+describe("the node pack's answers", () => {
+  let comfy: Server;
+  let polled = 0;
+  const was = process.env.CIVITAI_URL;
+  beforeEach(async () => {
+    polled = 0;
+    comfy = createServer((req, res) => {
+      if (req.method === "POST" && req.url === "/afflatus/download") {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ id: "p1", path: "/models/loras/a.safetensors" }));
+      }
+      if (req.method === "GET" && req.url === "/afflatus/download/p1") {
+        polled++;
+        // a ComfyUI in trouble: its error page, then a body that is not the state
+        if (polled % 2) {
+          res.writeHead(500, { "content-type": "text/html" });
+          return res.end("<html>500</html>");
+        }
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end("{not json");
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    await new Promise<void>((r) => comfy.listen(0, "127.0.0.1", r));
+    process.env.CIVITAI_URL = "http://127.0.0.1:1";
+  });
+  afterEach(async () => {
+    if (was === undefined) delete process.env.CIVITAI_URL;
+    else process.env.CIVITAI_URL = was;
+    await new Promise((r) => comfy.close(r));
+  });
+
+  it("counts a 5xx and a body that is not the state as silence, and gives the download up after a while of it", async () => {
+    const baseUrl = `http://127.0.0.1:${(comfy.address() as AddressInfo).port}`;
+    // a ComfyUI on another machine with a pack that downloads: no folder of its is written from here
+    const stub = { url: "http://192.0.2.10:8188", client: { baseUrl, packVersion: async () => "0.11.1", models: async () => [] }, forgetAll() {} } as unknown as Comfy;
+    const downloads = new Downloads(new EventEmitter());
+    downloads.packEveryMs = 5;
+    downloads.packSilentMs = 100;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const d = await downloads.start(stub, "http://127.0.0.1:2", { file: "a.safetensors", folder: "loras", title: "A", source: "http://127.0.0.1:1/a.safetensors" });
+      expect(d.via).toBe("pack");
+      await until(() => downloads.list()[0]!.status === "error");
+      expect(downloads.list()[0]!.error).toMatch(/node pack says nothing usable about the download \(HTTP 500\)/);
+      expect(polled).toBeGreaterThan(2);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

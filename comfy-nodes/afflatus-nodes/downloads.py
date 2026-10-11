@@ -17,6 +17,10 @@ without asking first):
   POST   /afflatus/download {url, folder, filename, total}  → {id, path}
   GET    /afflatus/download/<id>  → {state: downloading|done|error|stopped, bytes, total, error, note}
   DELETE /afflatus/download/<id>  → stops it, and removes its .part
+
+Afflatus always says the file's size (the one-time address answers with its length): a download whose size is not
+known is refused, and one that sends more than it said is cut off there, so a source cannot fill the disk. At most
+MAX_JOBS run at once (a 429 past that).
 """
 
 import os
@@ -31,11 +35,17 @@ import uuid
 MODEL_FILE = re.compile(r"\.(safetensors|ckpt|gguf|sft|pt|pth|bin|onnx)$", re.I)
 # what a name must not hold on any system: a path's separators, a drive's colon, Windows' reserved characters
 BAD_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+# a model download's .part: this pack's (with its download's id) or Afflatus's own
+PART = re.compile(r"\.(safetensors|ckpt|gguf|sft|pt|pth|bin|onnx)(\.[0-9a-f]{8})?\.part$", re.I)
 RELAY = re.compile(r"^/api/downloads/fetch/[\w-]{1,64}$")
 # folders ComfyUI lists that hold code or settings, not models
 NOT_MODELS = {"custom_nodes", "configs"}
 # finished downloads are forgotten after an hour
 KEEP_S = 3600
+# Afflatus runs two of its downloads at a time (downloads.ts AT_ONCE): more here would only be someone else's
+MAX_JOBS = 2
+# a .part not written to for this long belongs to no download under way: one cut short by ComfyUI stopping
+STALE_PART_S = 3600
 
 
 class Refused(ValueError):
@@ -74,8 +84,13 @@ def target(folder, filename, folder_paths):
     if root is None:
         raise Refused(f"{folder} is not a model folder ComfyUI can write here")
     path = os.path.realpath(os.path.join(root, *parts))
-    # a sub-folder that is a link elsewhere does not take the file out of the folder
-    if os.path.commonpath([root, path]) != root or path == root:
+    # a sub-folder that is a link elsewhere does not take the file out of the folder; one linked to another drive
+    # has no path in common with it at all (commonpath raises), and is refused the same way
+    try:
+        outside = os.path.commonpath([root, path]) != root or path == root
+    except ValueError:
+        outside = True
+    if outside:
         raise Refused(f"{filename} would land outside {folder}")
     return root, path
 
@@ -104,8 +119,20 @@ class Job:
         self.ended = None
         self.cancelled = threading.Event()
 
+    @property
+    def part(self):
+        # its own .part: a download stopped and asked for again at once never shares one with the first, still letting go
+        return f"{self.path}.{self.id[:8]}.part"
+
     def view(self):
         return {"state": self.state, "bytes": self.bytes, "total": self.total, "error": self.error, "note": self.note}
+
+    def stop(self):
+        """Stopped as soon as it is asked: said so at once, and a retry of the same file is not turned away while the thread lets go."""
+        self.cancelled.set()
+        if self.state == "downloading":
+            self.state = "stopped"
+            self.ended = time.time()
 
 
 class _Stopped(Exception):
@@ -122,7 +149,7 @@ def _remove(path):
 def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeout=60):
     """Fetch `job.url` into `job.path`, through `<path>.part`: picked up with a Range after a cut, tried again with a
     growing wait, named only once whole. Sets job.state to done, error or stopped; the .part never outlives a failure."""
-    part = job.path + ".part"
+    part = job.part
     have = 0
     fails = 0
     try:
@@ -149,13 +176,18 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
                         size = int(res.headers.get("Content-Length") or 0)
                         if size:
                             job.total = size
+                    if not job.total:
+                        raise Refused("the size of the file is not known")
                     with open(part, mode) as f:
                         while True:
                             if job.cancelled.is_set():
                                 raise _Stopped()
-                            block = res.read(chunk)
+                            block = res.read(min(chunk, job.total - have + 1))
                             if not block:
                                 break
+                            if have + len(block) > job.total:
+                                # never more than it said: the rest is not written, and the download fails
+                                raise Refused(f"more than the {job.total} bytes it said came")
                             f.write(block)
                             have += len(block)
                             job.bytes = have
@@ -183,6 +215,8 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
             job.note = f"{why}: trying again from byte {have} ({fails + 1} of {attempts})."
             if job.cancelled.wait(backoff * 2 ** (fails - 1)):
                 raise _Stopped()
+        if job.cancelled.is_set():
+            raise _Stopped()
         # never over a file that is there: ComfyUI may have it in use
         if os.path.exists(job.path):
             raise Refused("a file of that name is in the folder already")
@@ -194,15 +228,49 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
         job.state = "stopped"
     except Exception as e:
         _remove(part)
-        job.state = "error"
-        job.error = str(e)
+        # a stop said at once (Job.stop) stays a stop, whatever the thread met while letting go
+        if job.state == "downloading":
+            job.state = "error"
+            job.error = str(e)
     finally:
-        job.ended = time.time()
+        job.ended = job.ended or time.time()
+
+
+def sweep_parts(folder_paths, older_than=STALE_PART_S, now=None):
+    """Remove the .part files of model downloads left in the model folders by a ComfyUI that stopped half way: only
+    those of a model file's name, not written to for `older_than` seconds (a download under way writes all the time,
+    Afflatus's own included). Returns the paths removed."""
+    now = time.time() if now is None else now
+    removed = []
+    for folder in list(folder_paths.folder_names_and_paths):
+        if folder in NOT_MODELS:
+            continue
+        try:
+            paths = folder_paths.get_folder_paths(folder)
+        except Exception:
+            continue
+        for base in paths:
+            if not os.path.isdir(base):
+                continue
+            for top, _dirs, files in os.walk(base):
+                for name in files:
+                    if not PART.search(name):
+                        continue
+                    path = os.path.join(top, name)
+                    try:
+                        if now - os.path.getmtime(path) > older_than:
+                            os.remove(path)
+                            removed.append(path)
+                    except OSError:
+                        pass
+    return removed
 
 
 def register(routes, web, folder_paths):
     """The download routes on ComfyUI's server (`routes`, aiohttp's `web`)."""
     jobs = {}
+    # what a ComfyUI stopped half way left behind, looked for without holding up its start
+    threading.Thread(target=sweep_parts, args=(folder_paths,), name="afflatus-sweep-parts", daemon=True).start()
 
     def forget():
         now = time.time()
@@ -228,6 +296,8 @@ def register(routes, web, folder_paths):
         forget()
         if os.path.exists(path) or any(j.path == path and j.state == "downloading" for j in jobs.values()):
             return web.Response(status=409, text="that file is there already, or being downloaded")
+        if sum(j.state == "downloading" for j in jobs.values()) >= MAX_JOBS:
+            return web.Response(status=429, text=f"{MAX_JOBS} downloads are under way already")
         job = Job(body["url"], path, body.get("total") or 0)
         jobs[job.id] = job
         threading.Thread(target=run, args=(job,), name=f"afflatus-download-{job.id[:8]}", daemon=True).start()
@@ -243,7 +313,7 @@ def register(routes, web, folder_paths):
         job = jobs.get(request.match_info.get("id", ""))
         if job is None:
             return web.Response(status=404)
-        job.cancelled.set()
+        job.stop()
         return web.json_response({"ok": True})
 
     return jobs

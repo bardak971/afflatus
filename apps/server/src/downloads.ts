@@ -8,9 +8,9 @@ import { civitaiSites } from "./civitai";
 import type { Comfy } from "./comfy";
 import { httpError } from "./errors";
 import { fileName } from "./media";
-import { assertRoom, comfyFolderPaths, fetchToFile, freeBytes, modelRoot, placeIn, REFUSED, Refused } from "./modelDownload";
+import { assertRoom, BAD_NAME, comfyFolderPaths, fetchToFile, freeBytes, modelRoot, NOT_MODELS, placeIn, REFUSED, Refused } from "./modelDownload";
 import { olderThan } from "./nodePack";
-import { assertPublicUrl, fetchPublic, hostnameOf } from "./outbound";
+import { assertPublicUrl, cannotReach, fetchFailure, fetchPublic } from "./outbound";
 import { renameOver } from "./storage";
 
 /**
@@ -96,6 +96,8 @@ const MANAGER_TYPE: Record<string, string> = {
 
 const MODEL_FILE = /\.(safetensors|ckpt|gguf|sft|pt|pth|bin|onnx)$/i;
 const KEEP_MS = 60 * 60_000;
+/** A failure nobody has read yet stays listed longer: a page opened the next morning still says it. */
+const KEEP_UNSEEN_MS = 24 * 60 * 60_000;
 const STARTS_WITHIN_MS = 90_000;
 /** How many of its own downloads (and the pack's) Afflatus runs at once: two share a fast line well, more only split it. */
 export const AT_ONCE = 2;
@@ -123,6 +125,8 @@ export function chooseRoute(o: { root: string | null; pack: boolean; source: str
 
 const unreachable = (err: unknown) => /fetch failed|ECONNREFUSED|did not answer/i.test((err as Error).message);
 const running = (d: DownloadView) => d.status === "starting" || d.status === "downloading";
+/** Whether a finished download is still listed at `now`: an hour after it ended, a day for a failure nobody read. */
+const stillListed = (d: DownloadView & { finishedAt?: number }, now: number) => !d.finishedAt || now - d.finishedAt < (d.status === "error" && !d.seen ? KEEP_UNSEEN_MS : KEEP_MS);
 
 export class Downloads {
   private readonly all = new Map<string, Download>();
@@ -137,8 +141,9 @@ export class Downloads {
   startsWithinMs = STARTS_WITHIN_MS;
   /** How often ComfyUI is asked whether the file is listed, once all of it was sent. */
   listedEveryMs = 3000;
-  /** How often the node pack is asked how its download goes. */
+  /** How often the node pack is asked how its download goes, and how long it may say nothing before the download is given up. */
   packEveryMs = 1000;
+  packSilentMs = 120_000;
   /** Tries in a row that gain nothing before Afflatus gives a download up, and the first wait between them (shorter in tests). */
   attempts = 5;
   backoffMs = 2000;
@@ -162,7 +167,7 @@ export class Downloads {
         .map((k) => (k.status === "saving" ? { ...k, status: "done" as const, finishedAt: now } : k))
         .map((k) => (k.status === "starting" || k.status === "downloading" ? { ...k, status: "error" as const, error: INTERRUPTED, finishedAt: now, waiting: undefined, note: undefined } : k))
         .map(({ part: _p, ...k }) => k)
-        .filter((k) => !k.finishedAt || now - k.finishedAt < KEEP_MS);
+        .filter((k) => stillListed(k, now));
       if (this.past.some((k) => k.error === INTERRUPTED)) this.tell(true);
     } catch {
       // no file yet, or one that cannot be read: nothing to restore
@@ -206,13 +211,16 @@ export class Downloads {
     d.finishedAt = Date.now();
     delete d.waiting;
     delete d.note;
+    // in the server's log too: a failure is read there when nobody had a page open
+    console.warn(`[downloads] ${d.file} (${d.folder}, via ${d.via ?? "?"}) failed: ${error}`);
     this.tell(true);
   }
 
-  /** Newest first. What finished is forgotten after an hour. */
+  /** Newest first. What finished is forgotten after an hour, a failure nobody read after a day. */
   list(): DownloadView[] {
-    for (const [id, d] of this.all) if (d.finishedAt && Date.now() - d.finishedAt > KEEP_MS) this.all.delete(id);
-    this.past = this.past.filter((k) => !k.finishedAt || Date.now() - k.finishedAt < KEEP_MS);
+    const now = Date.now();
+    for (const [id, d] of this.all) if (!stillListed(d, now)) this.all.delete(id);
+    this.past = this.past.filter((k) => stillListed(k, now));
     const strip = ({ finishedAt: _f, ...view }: Kept): DownloadView => view;
     return [...[...this.all.values()].reverse().map((d) => this.view(d)), ...this.past.slice().reverse().map(strip)];
   }
@@ -310,10 +318,11 @@ export class Downloads {
   async start(comfy: Comfy, self: string, want: { file: string; folder: string; title: string; source: string; headers?: Record<string, string>; total?: number; comfyDir?: string }): Promise<DownloadView> {
     const name = want.file.split(/[\\/]/).pop() ?? "";
     const sub = want.file.split(/[\\/]/).slice(0, -1).filter(Boolean).join("/");
-    if (!MODEL_FILE.test(name) || /[:*?"<>|]/.test(name)) throw httpError(`"${name}" is not a model file Afflatus can download.`);
-    if (!/^[\w.-]+(\/[\w.-]+)*$/.test(want.folder) || /\.\./.test(`${want.folder}/${sub}`)) throw httpError("that is not a models folder");
-    // the source has to be out on the internet: the server can reach what a browser on this network cannot (outbound.ts)
-    assertPublicUrl(want.source, [hostnameOf(comfy.url), ...civitaiSites().map(hostnameOf)]);
+    if (!MODEL_FILE.test(name) || want.file.split(/[\\/]/).some((p) => BAD_NAME.test(p))) throw httpError(`"${name}" is not a model file Afflatus can download.`);
+    if (!/^[\w.-]+(\/[\w.-]+)*$/.test(want.folder) || /\.\./.test(`${want.folder}/${sub}`) || NOT_MODELS.has(want.folder.split("/")[0]!)) throw httpError("that is not a models folder");
+    // the source has to be out on the internet, ComfyUI's machine included: the server can reach what a browser on this
+    // network cannot (outbound.ts). A pretend Civitai (the tests, the demo) is the one exception, by its host and port
+    assertPublicUrl(want.source, civitaiSites());
     const busy = [...this.all.values()].find((d) => d.file === want.file && d.folder === want.folder && (running(d) || d.status === "saving"));
     if (busy) return this.view(busy);
 
@@ -338,21 +347,27 @@ export class Downloads {
     }
     if (route.via === "pack") d.self = self;
     this.all.set(d.id, d);
-    if (route.via !== "manager") {
-      this.pump();
-      this.tell(true);
-      return this.view(d);
-    }
+    if (route.via === "manager") await this.runManager(d, route, sub, name, self);
+    else this.pump();
+    this.tell(true);
+    return this.view(d);
+  }
 
+  /**
+   * ComfyUI-Manager is handed the download: the one-time address, or a public Hugging Face address it reads itself;
+   * then watched until it comes for the bytes. A refusal fails the download here.
+   */
+  private async runManager(d: Download, route: Extract<Route, { via: "manager" }>, sub: string, name: string, self: string): Promise<void> {
+    const comfy = d.comfy;
     if (route.note) d.note = route.note;
     const post = (path: string, body: unknown) =>
       fetch(comfy.client.baseUrl + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
-    const type = MANAGER_TYPE[want.folder];
+    const type = MANAGER_TYPE[d.folder];
     try {
       const res = await post("/v2/manager/queue/install_model", {
-        client_id: "afflatus", ui_id: d.id, name: want.title, type: type ?? "etc", base: "",
+        client_id: "afflatus", ui_id: d.id, name: d.title, type: type ?? "etc", base: "",
         // a folder Manager knows goes where ComfyUI keeps that kind (which may be another disk); a sub-folder or any other folder is a path under models/
-        save_path: type && !sub ? "default" : [want.folder, sub].filter(Boolean).join("/"),
+        save_path: type && !sub ? "default" : [d.folder, sub].filter(Boolean).join("/"),
         url: route.direct ?? this.oneTime(self, d),
         filename: name,
       });
@@ -361,15 +376,14 @@ export class Downloads {
       await post("/v2/manager/queue/start", {});
     } catch (err) {
       this.fail(d, unreachable(err) ? "ComfyUI is not answering." : (err as Error).message);
-      return this.view(d);
+      return;
     }
     if (route.direct) {
       // Manager reads it from Hugging Face itself: nothing passes through here to count, so the folder is watched until the file is in it
       d.direct = true;
       d.status = "downloading";
       void this.untilListed(d, 12 * 60 * 60_000);
-      this.tell(true);
-      return this.view(d);
+      return;
     }
     // Manager checks what it is allowed to do before it fetches: when it never comes, say why. But it
     // fetches one file at a time: behind another download (ours, or any task of its queue) the fetch
@@ -397,8 +411,6 @@ export class Downloads {
       this.fail(d, "ComfyUI-Manager did not start the download. Either it is not allowed to (in its config.ini, set network_mode = personal_cloud or security_level = normal, then restart ComfyUI), or ComfyUI cannot reach Afflatus at the address it was given.");
     };
     setTimeout(() => void watch(), this.startsWithinMs).unref();
-    this.tell(true);
-    return this.view(d);
   }
 
   /** The one-time address a download's bytes are fetched from by ComfyUI (the pack, or Manager). */
@@ -436,7 +448,7 @@ export class Downloads {
     this.tell(true);
     try {
       await fetchToFile({
-        source: d.source, headers: d.headers, allow: [hostnameOf(d.comfy.url), ...civitaiSites().map(hostnameOf)], dest: d.dest!, signal: d.abort.signal,
+        source: d.source, headers: d.headers, allow: civitaiSites(), dest: d.dest!, signal: d.abort.signal,
         attempts: this.attempts, backoffMs: this.backoffMs, free: this.free,
         onBytes: (bytes, total) => {
           d.bytes = bytes;
@@ -492,13 +504,16 @@ export class Downloads {
         await new Promise((r) => setTimeout(r, this.packEveryMs));
         if (!running(d)) return;
         const asked = await fetch(`${base}/afflatus/download/${encodeURIComponent(got.id)}`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
-        if (!asked) {
-          if (++silent * this.packEveryMs > 120_000) throw new Error("ComfyUI is not answering.");
+        if (asked?.status === 404) throw new Error("ComfyUI no longer knows the download: was it restarted? Press Download again.");
+        // an answer that says nothing (a 5xx, a page instead of the state, a body cut short) counts as no answer: two
+        // minutes of them and the download is given up, never left "downloading" for good
+        const s = asked?.ok ? ((await asked.json().catch(() => null)) as { state?: string; bytes?: number; error?: string; note?: string } | null) : null;
+        if (!s || typeof s !== "object") {
+          await asked?.body?.cancel().catch(() => {});
+          if (++silent * this.packEveryMs > this.packSilentMs) throw new Error(asked ? `The Afflatus node pack says nothing usable about the download (HTTP ${asked.status}): look at ComfyUI's own window.` : "ComfyUI is not answering.");
           continue;
         }
         silent = 0;
-        if (asked.status === 404) throw new Error("ComfyUI no longer knows the download: was it restarted? Press Download again.");
-        const s = (await asked.json().catch(() => ({}))) as { state?: string; bytes?: number; error?: string; note?: string };
         if (s.note) d.note = s.note;
         if (s.state === "error") throw new Error(`The Afflatus node pack could not download it: ${s.error ?? "no reason given"}`);
         if (s.state === "done") {
@@ -526,7 +541,7 @@ export class Downloads {
    * source is asked for the same, and a source that does not resume sends the whole (the pack then starts over).
    * Null when the id and token do not match a download that is waiting.
    */
-  async serve(id: string, token: string, range?: string): Promise<{ stream: Readable; size: number; partial?: string } | { error: string } | null> {
+  async serve(id: string, token: string, range?: string): Promise<{ stream: Readable; size: number; partial?: string } | { error: string; status: number } | null> {
     const d = this.all.get(id);
     if (!d || d.token !== token || d.direct) return null;
     if (d.via === "pack" ? !running(d) || !d.begun : d.status !== "starting") return null;
@@ -541,20 +556,25 @@ export class Downloads {
     let res: Response;
     try {
       // each redirect judged as the source was (but never on to ComfyUI's machine), and the Civitai key kept for the host first asked
-      res = await fetchPublic(d.source, { headers: { "User-Agent": "afflatus", Accept: "*/*", ...d.headers, ...(from ? { Range: `bytes=${from}-` } : {}) }, signal: AbortSignal.any([d.abort.signal, upstream.signal]) }, civitaiSites().map(hostnameOf));
+      res = await fetchPublic(d.source, { headers: { "User-Agent": "afflatus", Accept: "*/*", ...d.headers, ...(from ? { Range: `bytes=${from}-` } : {}) }, signal: AbortSignal.any([d.abort.signal, upstream.signal]) }, civitaiSites());
     } catch (err) {
-      // the pack tries again on its own; Manager does not
-      if (d.via === "manager") this.fail(d, `The download did not start: ${(err as Error).message}`);
-      return { error: `The download did not start: ${(err as Error).message}` };
+      const said = `The download did not start: ${fetchFailure(err, d.source)}`;
+      // the pack tries again on its own, unless trying again changes nothing (a redirect refused, a host that is not
+      // there); Manager does not
+      const final = d.via === "manager" || typeof (err as { statusCode?: unknown }).statusCode === "number" || cannotReach(err);
+      if (final) this.fail(d, said);
+      return { error: said, status: final ? 403 : 502 };
     }
     const type = res.headers.get("content-type") ?? "";
     if (!res.ok || !res.body || /text\/html|application\/json/.test(type)) {
       await res.body?.cancel().catch(() => {});
       const refused = res.status === 401 || res.status === 403 || /text\/html/.test(type);
       const said = refused ? REFUSED : `The site answered ${res.status}.`;
-      // a 5xx may pass, the pack asks again; anything else is the end of it
-      if (d.via === "manager" || res.status < 500) this.fail(d, said);
-      return { error: said };
+      // a 5xx or a 429 may pass, the pack asks again; anything else is the end of it, and the pack is told so with
+      // the site's own 4xx (a 502 would have it try four times more)
+      const final = d.via === "manager" || (res.status < 500 && res.status !== 429);
+      if (final) this.fail(d, said);
+      return { error: said, status: res.status >= 400 && res.status < 500 && res.status !== 429 ? res.status : refused ? 403 : final ? 422 : 502 };
     }
     const size = Number(res.headers.get("content-length")) || 0;
     const partial = from > 0 && res.status === 206 ? res.headers.get("content-range") ?? undefined : undefined;

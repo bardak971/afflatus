@@ -63,7 +63,8 @@ export function registerDownloads(app: FastifyInstance, s: Services): void {
   app.get<{ Params: { id: string }; Querystring: { t?: string } }>("/api/downloads/fetch/:id", async (req, reply) => {
     const got = await s.downloads.serve(req.params.id, z.object({ t: z.string().default("") }).parse(req.query).t, req.headers.range);
     if (!got) return reply.code(404).send({ error: "this address is no longer good" });
-    if ("error" in got) return reply.code(502).send({ error: got.error });
+    // the source's own refusal (a 4xx) goes on as one, so that the pack stops; what may pass (a 5xx) is a 502 it asks again after
+    if ("error" in got) return reply.code(got.status).send({ error: got.error });
     req.raw.on("close", () => {
       if (!reply.raw.writableEnded) s.downloads.dropped(req.params.id);
     });

@@ -3,13 +3,15 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeComfy, type FakeComfy, type FakeInit } from "@afflatus/comfy/testing";
 import { wan } from "../../../packages/workflows/test/fixtures";
 import { get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
-/** A pretend Civitai (and file host): one model version with one file, 300 000 bytes long. */
+/** A pretend Civitai (and file host): one model version with one file, 300 000 bytes long, which starts as a safetensors file does. */
 const FILE = Buffer.alloc(300_000, 7);
+FILE.writeBigUInt64LE(2n, 0);
+FILE.write("{}", 8);
 let asked: Array<{ url: string; auth?: string; range?: string }>;
 /** The slow file's request was given up on by Afflatus (its connection closed). */
 let slowDropped: boolean;
@@ -174,9 +176,13 @@ describe("fetching a missing model file into ComfyUI", () => {
   it("says so when the site sends a sign-in page instead of the file, and when there is no Manager", async () => {
     await start(true);
     await on();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const d = (await post(t.app, "/api/downloads", { file: "b.safetensors", folder: "loras", url: `${siteUrl}/files/login` })).json();
     await done(d.id);
     expect((await list()).items[0]).toMatchObject({ status: "error", error: expect.stringContaining("refused the download") });
+    // in the server's log too, for when nobody had a page open
+    expect(warn.mock.calls.flat().join("\n")).toMatch(/\[downloads\] b\.safetensors .*refused the download/);
+    warn.mockRestore();
     expect(fake.installed).toEqual([]);
     await t.close();
     await fake.close();
@@ -229,6 +235,28 @@ describe("fetching a missing model file into ComfyUI", () => {
     expect(fake.calls.filter((c) => c.includes("manager/queue"))).toEqual([]);
   });
 
+  it("never fetches from ComfyUI's machine: allowed is the pretend Civitai, by its host and its port", async () => {
+    await start(true);
+    await on();
+    // ComfyUI itself, and any other port of its machine: another service, whose answer would be saved as a model
+    for (const url of [`${fake.url}/api/comfy/node-pack.zip?x=.safetensors`, `${self}/api/comfy/node-pack.zip`]) {
+      const res = await post(t.app, "/api/downloads", { file: "x.safetensors", folder: "loras", url });
+      expect(res.statusCode, url).toBe(400);
+      expect(res.json().error).toContain("inside your own network");
+    }
+    expect(fake.calls.filter((c) => c.includes("manager/queue"))).toEqual([]);
+  });
+
+  it("passes the site's own refusal on to ComfyUI as one, so that the pack does not ask again", async () => {
+    await start("refuses");
+    await on();
+    const d = (await post(t.app, "/api/downloads", { file: "gone.safetensors", folder: "loras", url: `${siteUrl}/files/gone.safetensors` })).json();
+    const once = await fetch(fake.installAsked.at(-1)!.url);
+    expect(once.status).toBe(404);
+    expect((await once.json()).error).toBe("The site answered 404.");
+    expect((await list()).items.find((x: { id: string }) => x.id === d.id)).toMatchObject({ status: "error", error: "The site answered 404." });
+  });
+
   it("refuses what is not a model file or not a folder", async () => {
     await start(true);
     await on();
@@ -236,6 +264,14 @@ describe("fetching a missing model file into ComfyUI", () => {
     expect(await bad({ file: "run.exe", folder: "loras" })).toBe(400);
     expect(await bad({ file: "a.safetensors", folder: "../outside" })).toBe(400);
     expect(await bad({ file: "..\\..\\a.safetensors", folder: "loras" })).toBe(400);
+    // a folder of code or settings, as the pack refuses it; a control character in a name, refused before any try
+    expect(await bad({ file: "a.safetensors", folder: "custom_nodes" })).toBe(400);
+    expect(await bad({ file: "a.safetensors", folder: "configs" })).toBe(400);
+    expect(await bad({ file: "a\u0000b.safetensors", folder: "loras" })).toBe(400);
+    expect(await bad({ file: "sub\u0007/a.safetensors", folder: "loras" })).toBe(400);
+    // the page kept for the file becomes a link: a web address only
+    expect(await bad({ file: "a.safetensors", folder: "loras", page: { url: "javascript:alert(1)", title: "x" } })).toBe(400);
+    expect(await bad({ file: "a.safetensors", folder: "loras", page: { url: "data:text/html,x", title: "x" } })).toBe(400);
     expect(fake.calls.filter((c) => c.includes("install_model"))).toEqual([]);
   });
 });

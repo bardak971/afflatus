@@ -1,9 +1,9 @@
 import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { civitaiGet } from "../src/civitai";
 import { findOnHuggingFace, forgetHuggingFace } from "../src/huggingface";
-import { assertPublicUrl, fetchPublic, isPrivateAddress, isPrivateHost } from "../src/outbound";
+import { assertPublicUrl, cannotReach, fetchFailure, fetchPublic, isPrivateAddress, isPrivateHost } from "../src/outbound";
 
 describe("where the server may fetch from", () => {
   it("knows the addresses of this machine and its network", () => {
@@ -26,8 +26,17 @@ describe("where the server may fetch from", () => {
     expect(() => assertPublicUrl("file:///etc/passwd")).toThrow(/http and https/);
     expect(() => assertPublicUrl("not a url")).toThrow(/not an address/);
     expect(assertPublicUrl("https://civitai.com/api/download/models/1").hostname).toBe("civitai.com");
-    expect(assertPublicUrl("http://127.0.0.1:8188/x", ["127.0.0.1"]).port).toBe("8188");
-    expect(assertPublicUrl("http://[::1]:9/x", ["::1"]).hostname).toBe("[::1]");
+    expect(assertPublicUrl("http://127.0.0.1:8188/x", ["http://127.0.0.1:8188"]).port).toBe("8188");
+    expect(assertPublicUrl("http://[::1]:9/x", ["http://[::1]:9"]).hostname).toBe("[::1]");
+  });
+
+  it("allows a host inside the network by its port too: another port of the same machine is another service", () => {
+    const allow = ["http://127.0.0.1:8188"];
+    expect(() => assertPublicUrl("http://127.0.0.1:8720/api/comfy/node-pack.zip", allow)).toThrow(/inside your own network/);
+    expect(() => assertPublicUrl("http://127.0.0.1/x", allow)).toThrow(/inside your own network/);
+    // a host alone allows no port of it
+    expect(() => assertPublicUrl("http://127.0.0.1:8188/x", ["127.0.0.1"])).toThrow(/inside your own network/);
+    expect(() => assertPublicUrl("http://localhost:8188/x", allow)).toThrow(/inside your own network/);
   });
 });
 
@@ -68,21 +77,50 @@ describe("following a redirect", () => {
   const headers = { "User-Agent": "afflatus", Authorization: "Bearer k-123" };
 
   it("judges each address it is sent on to, as the first one was", async () => {
-    await expect(fetchPublic(`${aUrl}/inside`, { headers }, ["127.0.0.1"])).rejects.toThrow(/inside your own network/);
+    await expect(fetchPublic(`${aUrl}/inside`, { headers }, [aUrl, bUrl])).rejects.toThrow(/inside your own network/);
     expect(seen.map((s) => s.url)).toEqual(["/inside"]);
   });
 
   it("keeps the key for the host first asked: another host gets none", async () => {
-    expect(await (await fetchPublic(`${aUrl}/elsewhere`, { headers }, ["127.0.0.1"])).text()).toBe("file");
+    expect(await (await fetchPublic(`${aUrl}/elsewhere`, { headers }, [aUrl, bUrl])).text()).toBe("file");
     expect(seen).toEqual([{ at: "a", url: "/elsewhere", auth: "Bearer k-123" }, { at: "b", url: "/file", auth: undefined }]);
     seen = [];
-    await fetchPublic(`${aUrl}/same`, { headers }, ["127.0.0.1"]);
+    await fetchPublic(`${aUrl}/same`, { headers }, [aUrl, bUrl]);
     expect(seen.map((s) => s.auth)).toEqual(["Bearer k-123", "Bearer k-123"]);
   });
 
+  it("is never let down from https to plain http on the way", async () => {
+    const asked: string[] = [];
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      asked.push(String(url));
+      return new Response(null, { status: 302, headers: { location: "http://cdn.example.com/model.safetensors" } });
+    });
+    try {
+      await expect(fetchPublic("https://example.com/model.safetensors", { headers })).rejects.toThrow(/plain http address \(cdn\.example\.com\): refused/);
+      expect(asked).toEqual(["https://example.com/model.safetensors"]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("gives up after five redirects", async () => {
-    await expect(fetchPublic(`${aUrl}/loop`, { headers }, ["127.0.0.1"])).rejects.toThrow(/more than 5 times/);
+    await expect(fetchPublic(`${aUrl}/loop`, { headers }, [aUrl, bUrl])).rejects.toThrow(/more than 5 times/);
     expect(seen.length).toBe(6);
+  });
+});
+
+describe("a failed fetch, said plainly", () => {
+  it("names the host and the reason instead of undici's bare 'fetch failed'", async () => {
+    const closed = createServer();
+    await new Promise<void>((r) => closed.listen(0, "127.0.0.1", r));
+    const url = `http://127.0.0.1:${(closed.address() as AddressInfo).port}/x`;
+    await new Promise((r) => closed.close(r));
+    const err = await fetch(url).catch((e: unknown) => e);
+    expect(cannotReach(err)).toBe(true);
+    expect(fetchFailure(err, url)).toBe(`could not reach ${new URL(url).host} (ECONNREFUSED)`);
+    // anything else is said as it was
+    expect(cannotReach(new Error("terminated"))).toBe(false);
+    expect(fetchFailure(new Error("the site answered 503"), url)).toBe("the site answered 503");
   });
 });
 
@@ -126,9 +164,10 @@ describe("Civitai's and Hugging Face's APIs, sent on elsewhere", () => {
     await new Promise((r) => b.close(r));
   });
 
-  it("Civitai's key stays with Civitai: the host it is sent on to gets none", async () => {
-    expect(await civitaiGet<{ id: number }>("/api/v1/model-versions/1", "k-123")).toEqual({ id: 1 });
-    expect(seen).toEqual([{ at: "a", url: "/api/v1/model-versions/1", auth: "Bearer k-123" }, { at: "b", url: "/v", auth: undefined }]);
+  it("a pretend Civitai sent on to another port of its machine is not followed: that is another service", async () => {
+    // the key staying with the host first asked is shown above, with both hosts allowed
+    await expect(civitaiGet<{ id: number }>("/api/v1/model-versions/1", "k-123")).rejects.toThrow(/inside your own network/);
+    expect(seen).toEqual([{ at: "a", url: "/api/v1/model-versions/1", auth: "Bearer k-123" }]);
   });
 
   it("an answer sent on into the network is not followed, from either", async () => {

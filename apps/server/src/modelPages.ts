@@ -30,7 +30,8 @@ export interface PageCandidate extends ModelPage {
 
 const FOLDER = /^[\w-]{1,64}$/;
 const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
-const webUrl = z.string().max(2000).refine((u) => /^https?:\/\/[^\s]+$/i.test(u), "that is not a web address");
+/** A page's address: http or https only, since it becomes a link the browser opens (a javascript: one would run). */
+export const webUrl = z.string().max(2000).refine((u) => /^https?:\/\/[^\s]+$/i.test(u), "that is not a web address");
 
 /** A model folder's name, as a route is given it: a word, else a 400. */
 const folderOf = (folder: string) => {

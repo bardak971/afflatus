@@ -5,9 +5,10 @@ import { httpError } from "./errors";
  * Where the server may fetch from on a user's say-so: a model file's address, a link to resolve. The
  * server itself can reach what a browser on the LAN cannot (the router's page, a database with no
  * password, the cloud's metadata address), so an address that points inside the network is refused,
- * unless it is one of the few the server is meant to talk to (ComfyUI, a pretend Civitai in the tests).
- * The address as written is judged, and each address a redirect sends on to (fetchPublic): a public name
- * that resolves to a private address is not caught.
+ * unless it is one of the few the server is meant to talk to (a pretend Civitai in the tests and the demo),
+ * named by host and port: another port of the same machine is another service. The address as written is
+ * judged, and each address a redirect sends on to (fetchPublic): a public name that resolves to a private
+ * address is not caught.
  */
 
 /** Whether an IP address literal is one of the machine's own, of the LAN, or of the link (RFC 1918, loopback, link-local, and their IPv6 kin). */
@@ -30,10 +31,12 @@ export function isPrivateAddress(ip: string): boolean {
   return false;
 }
 
-/** The host of an address, as a host alone: no port, no brackets. */
-export function hostnameOf(url: string): string | null {
+/** The host and port of an address ("127.0.0.1:8188"), the port said even when it is the scheme's own; null for what is not an address. */
+export function hostPortOf(url: string): string | null {
   try {
-    return new URL(url).hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    const at = new URL(url);
+    if (at.protocol !== "http:" && at.protocol !== "https:") return null;
+    return `${at.hostname.toLowerCase()}:${at.port || (at.protocol === "https:" ? "443" : "80")}`;
   } catch {
     return null;
   }
@@ -49,7 +52,8 @@ export function isPrivateHost(host: string): boolean {
 
 /**
  * Refuse an address the server should not fetch on a user's behalf: one that is not http or https, or
- * one that points at this machine or its network. `allow` lists hosts that are fine anyway (ComfyUI's).
+ * one that points at this machine or its network. `allow` lists addresses that are fine anyway (a pretend
+ * Civitai's), each by its host and its port: allowing one service of a machine allows none of its others.
  */
 export function assertPublicUrl(url: string, allow: Array<string | null | undefined> = []): URL {
   let at: URL;
@@ -60,9 +64,9 @@ export function assertPublicUrl(url: string, allow: Array<string | null | undefi
   }
   if (at.protocol !== "http:" && at.protocol !== "https:") throw httpError("Only http and https addresses are fetched.");
   const host = at.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  const allowed = new Set(allow.filter((h): h is string => Boolean(h)).map((h) => h.replace(/^\[|\]$/g, "").toLowerCase()));
-  if (!allowed.has(host) && isPrivateHost(host)) {
-    throw httpError(`Afflatus does not fetch from addresses inside your own network (${at.hostname}): only from the internet.`);
+  const allowed = new Set(allow.map((a) => (a ? hostPortOf(a) : null)).filter(Boolean));
+  if (!allowed.has(hostPortOf(at.href)) && isPrivateHost(host)) {
+    throw httpError(`Afflatus does not fetch from addresses inside your own network (${at.host}): only from the internet.`);
   }
   return at;
 }
@@ -73,8 +77,9 @@ const PLAIN = new Set(["user-agent", "accept"]);
 /**
  * fetch() for an address already judged by assertPublicUrl: redirects are followed here, at most `hops`
  * of them, each new address judged the same way (a public link may send on into the network, or to the
- * cloud's metadata address). The headers given (a Civitai key) go to the host first asked only. `seen` hears
- * of each answer that sends on, before its body is let go: Hugging Face says a file's size and SHA-256 there only.
+ * cloud's metadata address), and never from https down to http. The headers given (a Civitai key) go to the
+ * host first asked only. `seen` hears of each answer that sends on, before its body is let go: Hugging Face says
+ * a file's size and SHA-256 there only.
  */
 export async function fetchPublic(url: string, init: Omit<RequestInit, "redirect" | "headers"> & { headers?: Record<string, string> }, allow: Array<string | null | undefined> = [], hops = 5, seen?: (res: Response) => void): Promise<Response> {
   const first = new URL(url).host;
@@ -88,6 +93,40 @@ export async function fetchPublic(url: string, init: Omit<RequestInit, "redirect
     seen?.(res);
     await res.body?.cancel().catch(() => {});
     if (n >= hops) throw httpError(`${new URL(url).hostname} sent the request on more than ${hops} times.`, 502);
-    at = assertPublicUrl(new URL(next, at).href, allow).href;
+    const to = assertPublicUrl(new URL(next, at).href, allow);
+    // what was asked over https is not let down to plain http on the way: anyone on the path could answer it
+    if (new URL(at).protocol === "https:" && to.protocol === "http:") throw httpError(`${new URL(at).hostname} sent the request on to a plain http address (${to.host}): refused.`, 502);
+    at = to.href;
   }
+}
+
+/** The error codes that say a host could not be reached at all, where trying again a moment later changes nothing. */
+const UNREACHABLE = /^(ECONNREFUSED|ENOTFOUND|CERT_|UNABLE_TO_|DEPTH_ZERO_|SELF_SIGNED_|ERR_TLS_CERT)/;
+
+/** The code of a failed fetch() (undici says "fetch failed" and keeps the reason in its cause): ECONNREFUSED, ENOTFOUND, a certificate's. */
+export function failCode(err: unknown): string | null {
+  for (let e = err as { code?: unknown; cause?: unknown; errors?: unknown[] } | undefined, n = 0; e && n < 4; e = e.cause as typeof e, n++) {
+    if (typeof e.code === "string") return e.code;
+    // a name with several addresses: each one refused, said together
+    const first = Array.isArray(e.errors) ? (e.errors[0] as { code?: unknown } | undefined) : undefined;
+    if (typeof first?.code === "string") return first.code;
+  }
+  return null;
+}
+
+/** Whether a failed fetch() means its host cannot be reached (refused, unknown, a bad certificate), not a connection cut. */
+export const cannotReach = (err: unknown) => UNREACHABLE.test(failCode(err) ?? "");
+
+/** A failed fetch() said plainly: "could not reach civitai.com (ENOTFOUND)" rather than undici's bare "fetch failed". */
+export function fetchFailure(err: unknown, url: string): string {
+  const said = (err as Error).message ?? String(err);
+  if (!/fetch failed/i.test(said)) return said;
+  let host = url;
+  try {
+    host = new URL(url).host;
+  } catch {
+    // not an address: said as it was given
+  }
+  const code = failCode(err);
+  return `could not reach ${host}${code ? ` (${code})` : ""}`;
 }

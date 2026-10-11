@@ -1,6 +1,6 @@
 import { envSaid } from "./config";
 import { httpError } from "./errors";
-import { fetchPublic, hostnameOf } from "./outbound";
+import { fetchPublic } from "./outbound";
 
 /**
  * Asking Civitai where a model file can be had. Two sites answer the same way: civitai.com, and
@@ -72,7 +72,7 @@ export const wordsOf = (file: string) => [...new Set((file.split(/[\\/]/).pop() 
 
 const headers = (key: string): Record<string, string> => ({ Accept: "application/json", "User-Agent": "afflatus", ...(key ? { Authorization: `Bearer ${key}` } : {}) });
 /** Civitai's API asked: a redirect is judged hop by hop, and the key goes to the site asked only (outbound.ts). */
-const ask = (url: string, key: string) => fetchPublic(url, { headers: headers(key), signal: AbortSignal.timeout(20_000) }, civitaiSites().map(hostnameOf));
+const ask = (url: string, key: string) => fetchPublic(url, { headers: headers(key), signal: AbortSignal.timeout(20_000) }, civitaiSites());
 
 /**
  * The models both sites find for a file's name, the likeliest first: the one that has a file of exactly

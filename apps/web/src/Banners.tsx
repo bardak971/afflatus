@@ -124,7 +124,7 @@ export function Banners() {
     if (!list) return;
     for (const d of list) {
       // once the page is open, every change of state; at first, only what failed and was not read yet (the server lists
-      // failures of the last hour only, so it is news; a dismissed one is marked read there, so a reload does not bring it back)
+      // unread failures of the last day only, so it is news; a dismissed one is marked read there, so a reload does not bring it back)
       if (seenDownloads.current ? seenDownloads.current.get(d.id) === d.status : d.status !== "error" || d.seen) continue;
       const name = d.file.split(/[\\/]/).pop() ?? d.file;
       if (d.status === "done") push({ id: `download:${d.id}`, tone: "good", title: `${name} installed in ComfyUI`, href: "/settings/models", go: "Open settings" });

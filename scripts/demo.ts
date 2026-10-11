@@ -141,6 +141,9 @@ const PRETEND_BYTES = (Number(process.env.DEMO_DOWNLOAD_MB) || 48) * 2 ** 20;
 const PRETEND_FAST = Boolean(process.env.DEMO_DOWNLOAD_MB);
 let pretendCuts = Number(process.env.DEMO_DOWNLOAD_CUTS) || 0;
 const PATTERN = Buffer.from(Array.from({ length: 2 ** 20 + 251 }, (_x, i) => i % 251));
+// it starts as a safetensors file does (its header's length, then the header), or Afflatus refuses it before naming it
+const HEAD = Buffer.concat([Buffer.alloc(8), Buffer.from("{}")]);
+HEAD.writeBigUInt64LE(2n);
 const pretendSite = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://site");
   const self = `http://127.0.0.1:${(pretendSite.address() as AddressInfo).port}`;
@@ -165,8 +168,9 @@ const pretendSite = createServer(async (req, res) => {
         res.socket?.destroy();
         return;
       }
-      // byte n of the file is n % 251: a piece put in the wrong place shows
-      const piece = PATTERN.subarray(sent % 251, sent % 251 + Math.min(2 ** 20, PRETEND_BYTES - sent));
+      // byte n of the file is n % 251 past its first ten: a piece put in the wrong place shows
+      let piece = PATTERN.subarray(sent % 251, sent % 251 + Math.min(2 ** 20, PRETEND_BYTES - sent));
+      if (sent < HEAD.length) piece = Buffer.concat([HEAD.subarray(sent), piece.subarray(HEAD.length - sent)]);
       // as fast as the disk takes it for a large file; slowly for the 48 MB one, so that its progress shows
       if (!res.write(piece)) await new Promise((r) => (res.once("drain", r), res.once("close", r)));
       if (!PRETEND_FAST) await new Promise((r) => setTimeout(r, 120));
