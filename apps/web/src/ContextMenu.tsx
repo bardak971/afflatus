@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronRight } from "lucide-react";
 import { thumbUrl } from "./api";
@@ -53,23 +53,85 @@ export function menuAt(e: { clientX: number; clientY: number }, el: { getBoundin
   return { x: r.left + Math.min(16, r.width / 2), y: r.top + Math.min(r.height, 28), keyed: true };
 }
 
+/** What a key does in a menu panel, worked out apart from the page so that it can be tested. */
+export type MenuStep = { do: "close" } | { do: "back" } | { do: "move"; to: number } | { do: "sub" } | { do: "choose" } | null;
+
+/**
+ * The keys of a menu panel, as the command bar's list has them: the arrows walk the items that can run (round), Home and
+ * End go to the first and the last, Enter and Space run the active one (Space toggles a ticked item, as a check box
+ * does), → opens its submenu, ← and Escape close a submenu, Escape and Tab close the menu.
+ */
+export function menuStep(key: string, runnable: number[], active: number, inSub: boolean): MenuStep {
+  if (key === "Escape") return { do: inSub ? "back" : "close" };
+  if (key === "ArrowLeft" && inSub) return { do: "back" };
+  if (key === "Tab") return { do: "close" };
+  if (key === "ArrowDown" || key === "ArrowUp" || key === "Home" || key === "End") {
+    if (!runnable.length) return { do: "move", to: active };
+    const k = runnable.indexOf(active);
+    const n = runnable.length;
+    const to = key === "Home" ? 0 : key === "End" ? n - 1 : key === "ArrowDown" ? (k + 1) % n : (k - 1 + n) % n;
+    return { do: "move", to: runnable[to]! };
+  }
+  if (active < 0) return null;
+  if (key === "ArrowRight") return { do: "sub" };
+  if (key === "Enter" || key === " ") return { do: "choose" };
+  return null;
+}
+
+/**
+ * Whether the menu takes the keys pressed with the focus on `focused`. Not while the focus is in a modal that is not the
+ * menu (the command bar opened over it, a dialog): the arrows and Enter are that modal's then, never a hidden menu's.
+ */
+export function menuHearsKeys(focused: Element | null): boolean {
+  if (!focused?.closest) return true;
+  return Boolean(focused.closest("[data-context-menu]")) || !focused.closest('[role="dialog"][aria-modal="true"]');
+}
+
+/**
+ * The element the open menu was opened from (what had the focus then). A modal that opens over the menu and asks
+ * where the focus was (the command bar) is told this one: the menu is gone by the time the modal closes.
+ */
+let opener: HTMLElement | null = null;
+export function focusBehindMenu(el: Element | null): HTMLElement | null {
+  if (el?.closest?.("[data-context-menu]")) return opener?.isConnected ? opener : null;
+  return el instanceof HTMLElement ? el : null;
+}
+
 /**
  * A right-click menu, at the pointer: it stays inside the window, closes on a click elsewhere, Escape,
- * a scroll or a resize; the arrow keys walk it, Enter runs, → opens a submenu and ← closes it. While it
- * is open the screen's own keys are off (Keys.plainKey sees the [role=menu]).
+ * a scroll, a resize or the focus going elsewhere (the command bar, a dialog); the arrow keys walk it, Enter
+ * or Space runs, → opens a submenu and ← closes it. It takes the focus while it is open, so that a screen
+ * reader follows the active item, and gives it back to where it was. While it is open the screen's own keys
+ * are off (Keys.plainKey sees the [role=menu]).
  */
 export function ContextMenu({ at, items, label, head, onClose }: { at: MenuAt; items: MenuItem[]; label: string; head?: MenuHead; onClose(): void }) {
+  // read at the first drawing, before the menu takes the focus
+  const [from] = useState(() => (document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null));
   useEffect(() => {
-    const down = (e: PointerEvent) => { if (!(e.target as Element | null)?.closest?.("[data-context-menu]")) onClose(); };
+    opener = from;
+    return () => {
+      if (opener === from) opener = null;
+      // the focus goes back where it was, unless something else took it meanwhile (a dialog an item opened)
+      const now = document.activeElement;
+      if (from?.isConnected && (!now || now === document.body || now.closest("[data-context-menu]"))) from.focus({ preventScroll: true });
+    };
+  }, [from]);
+  useEffect(() => {
+    const outside = (e: Event) => !(e.target as Element | null)?.closest?.("[data-context-menu]");
+    const down = (e: PointerEvent) => { if (outside(e)) onClose(); };
     const away = () => onClose();
-    const scrolled = (e: Event) => { if (!(e.target as Element | null)?.closest?.("[data-context-menu]")) onClose(); };
+    const scrolled = (e: Event) => { if (outside(e)) onClose(); };
+    // the command bar or a dialog opened over the menu takes the focus: the menu goes, and its keys with it
+    const moved = (e: FocusEvent) => { if (outside(e)) onClose(); };
     window.addEventListener("pointerdown", down, true);
     window.addEventListener("scroll", scrolled, true);
+    window.addEventListener("focusin", moved, true);
     window.addEventListener("resize", away);
     window.addEventListener("blur", away);
     return () => {
       window.removeEventListener("pointerdown", down, true);
       window.removeEventListener("scroll", scrolled, true);
+      window.removeEventListener("focusin", moved, true);
       window.removeEventListener("resize", away);
       window.removeEventListener("blur", away);
     };
@@ -91,6 +153,8 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
   keyed?: boolean;
 }) {
   const self = useRef<HTMLDivElement>(null);
+  const ids = useId();
+  const rowId = (i: number) => `${ids}-${i}`;
   // closed (a choice, Escape, a click elsewhere, ← out of a submenu), it fades as a still copy: the menu and its keys go at once
   const selfRef = useLeave("m-pop-out", self);
   const rows = useRef<Array<HTMLButtonElement | null>>([]);
@@ -131,22 +195,26 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
     it.run?.();
   };
 
+  // the innermost panel has the focus (a submenu once open, its parent again once it closes): its active item is
+  // announced through aria-activedescendant
+  useEffect(() => {
+    if (!sub) self.current?.focus({ preventScroll: true });
+  }, [sub]);
+
   // only the innermost panel takes the keys: a parent with a submenu open leaves them to it
   useEffect(() => {
     if (sub) return;
     const key = (e: KeyboardEvent) => {
-      const stop = () => { e.preventDefault(); e.stopPropagation(); };
-      if (e.key === "Escape") { stop(); if (onBack) onBack(); else onClose(); return; }
-      if (e.key === "ArrowLeft" && onBack) { stop(); onBack(); return; }
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        stop();
-        if (!runnable.length) return;
-        const k = runnable.indexOf(active);
-        setActive(e.key === "ArrowDown" ? runnable[(k + 1) % runnable.length]! : runnable[(k - 1 + runnable.length) % runnable.length]!);
-        return;
-      }
-      if (e.key === "ArrowRight" && active >= 0) { stop(); openSub(active, true); return; }
-      if (e.key === "Enter" && active >= 0) { stop(); choose(active); }
+      if (!menuHearsKeys(document.activeElement)) return;
+      const step = menuStep(e.key, runnable, active, Boolean(onBack));
+      if (!step) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (step.do === "close") onClose();
+      else if (step.do === "back") onBack?.();
+      else if (step.do === "move") setActive(step.to);
+      else if (step.do === "sub") openSub(active, true);
+      else choose(active);
     };
     window.addEventListener("keydown", key, true);
     return () => window.removeEventListener("keydown", key, true);
@@ -160,10 +228,12 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
         ref={selfRef}
         role="menu"
         aria-label={label}
+        tabIndex={-1}
+        aria-activedescendant={active >= 0 && !sub ? rowId(active) : undefined}
         data-context-menu
         // a menu opened from inside a popover (the folder panel) is part of it: pressing an item does not close the popover first
         data-floating=""
-        className="fixed z-[90] flex max-h-[calc(100vh-8px)] min-w-[230px] max-w-[340px] flex-col overflow-y-auto overscroll-contain rounded-[14px] border border-line-strong bg-panel p-1.5 shadow-2xl shadow-shade/60 motion-safe:animate-[tip-in_100ms_ease-out]"
+        className="fixed z-[90] flex outline-none max-h-[calc(100vh-8px)] min-w-[230px] max-w-[340px] flex-col overflow-y-auto overscroll-contain rounded-[14px] border border-line-strong bg-panel p-1.5 shadow-2xl shadow-shade/60 motion-safe:animate-[tip-in_100ms_ease-out]"
         style={{ left: pos.x, top: pos.y }}
         onContextMenu={(e) => e.preventDefault()}
       >
@@ -183,8 +253,10 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
             <button
               // by place, not by label: two items may say the same thing (two projects of one name under "Move to")
               key={i}
+              id={rowId(i)}
               ref={(el) => { rows.current[i] = el; }}
               type="button"
+              tabIndex={-1}
               role={it.checked !== undefined ? "menuitemcheckbox" : "menuitem"}
               aria-checked={it.checked}
               aria-haspopup={it.items ? "menu" : undefined}
