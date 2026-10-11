@@ -15,6 +15,8 @@ What it does to keep that boundary where you put it:
 - Nothing leaves your machine unless you turn on a download or a lookup.
 - A download is fetched from the internet only: an address inside your network (this machine, ComfyUI's, your router, a cloud's metadata address) is refused, on every redirect too. A stand-in site allowed for the tests and the demo is allowed by its host and port, never the whole machine.
 - The designer's stored API key goes only to the server it was typed for: pointing the language model at another address (another scheme, host or port) drops the key until you type it again.
+- Releases are signed. A bundle installs an update only when the release's `SHA256SUMS.txt` carries a valid Ed25519 signature by the release key, whose public half is built into Afflatus (`apps/server/src/releaseKey.ts`; the private half is a secret of the release workflow, never in the repository), and when the archive's SHA-256 is the one that signed list gives. Anything else is refused before it is unpacked, and nothing changes. The new version is unpacked beside the running one and must pass its own start check before Afflatus switches to it. The key is part of the app: no setting or environment variable changes it.
+- Updates are done only from the computer Afflatus runs on. Updating, going back to the previous version and bringing a 0.3.0 library over are accepted only from a loopback address, and never through a proxy that says whom it forwards for: other computers on your network see that a new version is out, and nothing more. The daily check for a new version is one request to GitHub with nothing about you in it; a switch in Settings → About turns it off.
 
 What it does **not** do:
 
@@ -31,6 +33,6 @@ Please report security problems **privately**, through GitHub's [private vulnera
 
 Useful to include: the version, how Afflatus was run (bundle, Docker, Helm, source; `HOST` and the other settings that matter), the steps to reproduce, and what an attacker gains.
 
-Since there is no login, "someone on my network can use Afflatus" is expected behaviour, not a vulnerability. In scope are, for example: a way past the host check or the cross-site checks, reading or writing files outside the data folder and the linked folders, running commands on the host, or a hostile workflow, preset or model file that does more than it should when imported.
+Since there is no login, "someone on my network can use Afflatus" is expected behaviour, not a vulnerability. In scope are, for example: a way past the host check or the cross-site checks, a way to make Afflatus install an update the release key did not sign, reading or writing files outside the data folder and the linked folders, running commands on the host, or a hostile workflow, preset or model file that does more than it should when imported.
 
 This is a one-person project. Expect a first answer within a week, and a fix in a release as soon as it is ready; you will be credited in the release notes unless you would rather not be.

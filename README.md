@@ -134,7 +134,18 @@ The default files are ComfyUI's own releases on Hugging Face. Some options need 
 
 ## Your data
 
-Everything (library, settings, timelines) lives in the `data` folder next to the launcher, or in the `/data` volume. To update, unpack the next release over the old one or pull the next image; the database updates itself when it starts. A backup is one zip from **Settings → Storage**.
+Everything (library, settings, timelines) lives in the `data` folder next to the launcher, or in the `/data` volume. A backup is one zip from **Settings → Storage**.
+
+## Updating
+
+Once a day Afflatus asks GitHub for its latest release: one request, with nothing about you or your library in it (the switch is in **Settings → About**). A new version shows as a dot on **Settings**, and **About** gives its notes.
+
+- **The Windows, Linux and macOS bundles update themselves**, from 0.4.0 on: press **Update** in About. The download is checked against the release's signature, unpacked beside the version that runs, and Afflatus restarts on it once the queue has finished what it had; a render under way is never cut. The version before is kept, and **Go back** returns to it with the library as it was at the update. Updating and going back are done on the computer Afflatus runs on; another computer only sees the notice.
+- **From 0.3.0**, download 0.4.0 by hand once: unpack it beside the 0.3.0 folder (not into it) and start it. It offers to bring your library over, moved rather than copied ([details](docs/install-desktop.md#coming-from-030)).
+- **Docker:** `docker compose pull && docker compose up -d`, or pull the new image and start the container again. The volume carries your library across.
+- **From the sources:** `git pull && corepack pnpm install && corepack pnpm build`, then start Afflatus again.
+
+The database updates itself when the new version starts.
 
 ## Status
 

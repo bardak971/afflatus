@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { sql } from "kysely";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
@@ -13,7 +14,7 @@ import { createServices, type Services } from "../src/services";
 import { writeSettings } from "../src/settings";
 import { check, start } from "../src/start";
 import { LocalStorage } from "../src/storage";
-import { AfflatusUpdates, compareVersions, readRelease, readSums, systemTar, verifySignature, type InstallKind, type UpdatesView } from "../src/updates";
+import { AfflatusUpdates, compareVersions, librarySummary, readRelease, readSums, systemTar, verifySignature, type InstallKind, type UpdatesView } from "../src/updates";
 import { FAST, job, makeApp, makeFake, NOWHERE, post, until } from "./helpers";
 
 /**
@@ -491,7 +492,7 @@ describe("after an update", () => {
         writeFileSync(join(old, "files", "zz-test.png"), "png");
       },
     });
-    expect((await r.view()).move).toEqual({ from: old, version: "0.3.0" });
+    expect((await r.view()).move).toEqual({ from: old, version: "0.3.0", items: null, timelines: null, drafts: null, bytes: 3 });
     // another computer is not offered it
     expect((await r.view("192.168.1.20")).move).toBeNull();
     expect((await r.post("move")).statusCode).toBe(200);
@@ -513,7 +514,29 @@ describe("after an update", () => {
         writeFileSync(join(old, "afflatus.db"), "zz-test old library");
       },
     });
-    expect((await r.view()).move).toEqual({ from: old, version: "0.3.0" });
+    expect((await r.view()).move).toEqual({ from: old, version: "0.3.0", items: null, timelines: null, drafts: null, bytes: 0 });
+  });
+
+  it("says what the 0.3 library holds: its items out of the bin, timelines, drafts, read without writing to it, and its files' size", async () => {
+    let old = "";
+    const r = await rig({
+      before: ({ base }) => {
+        old = join(base, "afflatus-v0.3.0-win-x64", "data");
+        mkdirSync(join(old, "files", "a"), { recursive: true });
+        writeFileSync(join(old, "files", "zz-test.png"), Buffer.alloc(1000));
+        writeFileSync(join(old, "files", "a", "zz-test.mp4"), Buffer.alloc(24));
+        // the tables as far as the counts read them
+        const db = new DatabaseSync(join(old, "afflatus.db"));
+        db.exec("CREATE TABLE assets (id TEXT, deleted_at TEXT); CREATE TABLE timelines (id TEXT); CREATE TABLE drafts (id TEXT);");
+        db.exec("INSERT INTO assets VALUES ('a', NULL), ('b', NULL), ('c', '2026-01-01'); INSERT INTO timelines VALUES ('t'); INSERT INTO drafts VALUES ('d1'), ('d2'), ('d3');");
+        db.close();
+      },
+    });
+    const before = readFileSync(join(old, "afflatus.db"));
+    expect((await r.view()).move).toEqual({ from: old, version: "0.3.0", items: 2, timelines: 1, drafts: 3, bytes: 1024 });
+    expect(readFileSync(join(old, "afflatus.db")).equals(before)).toBe(true);
+    // no database to read: the counts are unknown, not zero
+    expect(await librarySummary(join(r.base, "nowhere"))).toEqual({ items: null, timelines: null, drafts: null, bytes: 0 });
   });
 
   it("offers no move once its own library has something in it", async () => {
@@ -589,7 +612,7 @@ describe("the server's side of the launcher's contract", () => {
       const events = await fetch(`http://127.0.0.1:${port}/api/events`, { signal: stream.signal });
       expect(events.status).toBe(200);
       const view = (await (await fetch(`http://127.0.0.1:${port}/api/updates`)).json()) as UpdatesView;
-      expect(view.move).toEqual({ from: old, version: "0.3.1" });
+      expect(view.move).toMatchObject({ from: old, version: "0.3.1" });
       const moved = await fetch(`http://127.0.0.1:${port}/api/updates/move`, { method: "POST", headers: { "x-afflatus": "1" } });
       expect(moved.status).toBe(200);
       await until(() => exits.length > 0, 15_000);

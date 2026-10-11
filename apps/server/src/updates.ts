@@ -3,6 +3,7 @@ import { createHash, createPublicKey, verify } from "node:crypto";
 import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { sql } from "kysely";
 import { z } from "zod";
@@ -232,6 +233,46 @@ async function renameSoon(from: string, to: string): Promise<void> {
   }
 }
 
+/** The size of the files under a folder, its subfolders included; links are not followed (a linked folder is not the library's). */
+async function folderBytes(dir: string): Promise<number> {
+  let total = 0;
+  for (const e of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    const path = join(dir, e.name);
+    if (e.isDirectory()) total += await folderBytes(path);
+    else if (e.isFile()) total += await stat(path).then((s) => s.size, () => 0);
+  }
+  return total;
+}
+
+/**
+ * What a library (a data folder) holds: its items (not in the bin), timelines and drafts, counted in its database opened
+ * read-only, and the size of its files folder. A database that cannot be read (another program holds it, a version whose
+ * tables are named otherwise) gives no counts, only the size: the move is still offered, the dialog says less.
+ */
+export async function librarySummary(dataDir: string): Promise<LibrarySummary> {
+  const counts: Pick<LibrarySummary, "items" | "timelines" | "drafts"> = { items: null, timelines: null, drafts: null };
+  try {
+    const db = new DatabaseSync(join(dataDir, "afflatus.db"), { readOnly: true });
+    try {
+      const count = (query: string) => {
+        try {
+          return Number((db.prepare(query).get() as { n: number | bigint } | undefined)?.n ?? 0);
+        } catch {
+          return null;
+        }
+      };
+      counts.items = count("SELECT COUNT(*) AS n FROM assets WHERE deleted_at IS NULL");
+      counts.timelines = count("SELECT COUNT(*) AS n FROM timelines");
+      counts.drafts = count("SELECT COUNT(*) AS n FROM drafts");
+    } finally {
+      db.close();
+    }
+  } catch {
+    // not a database this can open: the counts stay unknown
+  }
+  return { ...counts, bytes: await folderBytes(join(dataDir, "files")) };
+}
+
 // ---------------------------------------------------------------- what the web reads
 
 /** Where an update stands. `failed` keeps the error until it is tried again or another check comes. */
@@ -283,9 +324,15 @@ export interface UpdatesView {
   last: LastChange | null;
   /** The launcher went back to the previous version because the new one did not start (read once, at this start). */
   fallback: Fallback | null;
-  /** A 0.3 library beside this fresh bundle, which the move would bring in: its data folder and its version. */
-  move: { from: string; version: string } | null;
+  /** A 0.3 library beside this fresh bundle, which the move would bring in: its data folder, its version and what it holds. */
+  move: (OldLibrary & LibrarySummary) | null;
 }
+
+/** A 0.3 bundle's library found beside this one: its data folder and its version. */
+interface OldLibrary { from: string; version: string }
+
+/** What a library holds, for the move's dialog: its counts (null when its database could not be read) and its files' size. */
+export interface LibrarySummary { items: number | null; timelines: number | null; drafts: number | null; bytes: number }
 
 /** Kept between restarts: the last answer and its ETag. */
 interface CheckState { etag: string | null; checkedAt: string | null; triedAt: string | null; error: string | null; release: Release | null }
@@ -334,7 +381,9 @@ export class AfflatusUpdates {
   private running: string | null = null;
   private fallback: Fallback | null = null;
   private last: LastChange | null = null;
-  private moveFrom: { from: string; version: string } | null = null;
+  private moveFrom: OldLibrary | null = null;
+  /** What the 0.3 library holds, read once (a walk of its files folder) on the first view that offers the move. */
+  private moveSummary: Promise<LibrarySummary> | null = null;
   /** The library had something in it once: the move is never offered again in this run. */
   private filled = false;
   private timers: NodeJS.Timeout[] = [];
@@ -501,7 +550,7 @@ export class AfflatusUpdates {
       previous: await this.previous(),
       last: this.last,
       fallback: this.fallback,
-      move: here && (await this.moveOffer()) ? this.moveFrom : null,
+      move: here && (await this.moveOffer()) ? { ...this.moveFrom!, ...(await (this.moveSummary ??= librarySummary(this.moveFrom!.from))) } : null,
     };
   }
 
@@ -774,7 +823,7 @@ export class AfflatusUpdates {
   // ---------------------------------------------------------------- the 0.3 move
 
   /** A 0.3 bundle's library beside this one (../afflatus-v0.3.*-<platform>/data), the newest when there are several. */
-  private async findOldLibrary(): Promise<{ from: string; version: string } | null> {
+  private async findOldLibrary(): Promise<OldLibrary | null> {
     if (this.install !== "bundle" || !this.root || this.o.services.dbKind !== "sqlite") return null;
     // only the data folder the launcher set: one set by hand is the user's choice, and is left as it is
     const same = (a: string, b: string) => (process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b);
@@ -783,7 +832,7 @@ export class AfflatusUpdates {
     // Extract All, each archive gets a folder of its own name first (…\afflatus-v0.3.0-win-x64\afflatus-v0.3.0-win-x64\data
     // beside …\afflatus-v0.4.0-win-x64\Afflatus), so the folder above this one's is looked in too, and one level inside each
     const parents = [dirname(this.root), dirname(dirname(this.root))].filter((p, i, all) => all.indexOf(p) === i);
-    let found: { from: string; version: string } | null = null;
+    let found: OldLibrary | null = null;
     for (const parent of parents) {
       for (const e of await readdir(parent, { withFileTypes: true }).catch(() => [])) {
         const m = OLD_BUNDLE.exec(e.name);

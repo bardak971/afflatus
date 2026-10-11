@@ -22,6 +22,9 @@ Set them before starting: in the console on Windows (`set PORT=8730` in cmd, `$e
 | `CIVITAI_URL` | empty: civitai.com, then civitai.red | One Civitai-compatible site to ask instead (a mirror, a stand-in for tests). It lifts no download rule |
 | `HUGGINGFACE_URL` | `https://huggingface.co` | Hugging Face's address, for a stand-in |
 | `MODEL_LIST_URL` | ComfyUI-Manager's `model-list.json` on GitHub | The list of standard model files a missing file is looked up in |
+| `UPDATES_URL` | GitHub's latest release of Afflatus | Where the daily check asks for the latest release, in the shape of GitHub's `releases/latest` answer: a mirror, or a stand-in for tests. Its downloads are fetched from it too. An update is still taken only when its `SHA256SUMS.txt` is signed by the release key built into Afflatus |
+| `AFFLATUS_INSTALL` | set by the launcher (`bundle`) and the image (`docker`) | How Afflatus was installed, which decides what Settings → About offers: `bundle` updates itself, `docker` and anything else (the sources) get the notice and the command. Not to be set by hand |
+| `AFFLATUS_NO_BROWSER` | empty | `1`: a bundle's launcher opens no browser tab when Afflatus starts |
 | `AFFLATUS_PRETEND_SITES` | empty | `1`: the sites are pretend ones on this machine (the tests, the demo). Plain-http downloads are then allowed, and no real site is asked for what no stand-in covers (Hugging Face, Manager's model list). Never set it on a real install |
 
 ## In the app
@@ -35,6 +38,6 @@ Everything else is in **Settings**, saved as you change it:
 - **Interface:** theme and accent colour, explanations under every setting or behind the `?`, playing videos and sound on hover; browser notifications when the queue empties or after each render.
 - **Command bar:** its shortcut, whether it learns what you use, its preview, and its optional parts (prompt snippets, prompt history).
 - **Storage:** disk usage, the bin, takes that never play, how long render times are kept, backups.
-- **About:** the version and the start-up checks (ffmpeg, ffprobe, Node, the data folder).
+- **About:** the version and its updates (a new version's notes, Update and Go back on a bundle, the command for Docker and the sources), "Check for new versions" (once a day, on by default: one request to GitHub, nothing about you in it), and the start-up checks (ffmpeg, ffprobe, Node, the data folder).
 
 Nothing leaves your machine unless you turn on a download or a lookup; each such switch is off until you turn it on.

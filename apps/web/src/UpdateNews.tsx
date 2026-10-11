@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FolderInput, RefreshCw } from "lucide-react";
-import { api } from "./api";
+import { api, type UpdatesView } from "./api";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
 import { useBanners } from "./store";
+import { plural, size } from "./format";
 import { Button, ErrorNote } from "./ui";
 import { followRestart, useRestarting, useUpdates, useUpdatesSeen } from "./updates";
 import { queryKeys } from "./queryKeys";
@@ -41,14 +42,21 @@ export function UpdateNews() {
   }, [v]);
   return (
     <>
-      {v?.move && v.here && <MoveDialog from={v.move.from} version={v.move.version} />}
+      {v?.move && v.here && <MoveDialog move={v.move} />}
       <Restarting />
     </>
   );
 }
 
+/** What the 0.3 library holds, as the dialog says it: "1240 items · 12 timelines · 85 drafts · 38.2 GB"; the counts its database did not give are left out. */
+export function libraryLine(m: NonNullable<UpdatesView["move"]>): string {
+  const counts = ([[m.items, "item"], [m.timelines, "timeline"], [m.drafts, "draft"]] as const).filter(([n]) => n !== null).map(([n, word]) => plural(n!, word));
+  return [...counts, size(m.bytes)].join(" · ");
+}
+
 /** The 0.3 library found beside this fresh bundle: brought over (moved, not copied), or left where it is. */
-function MoveDialog({ from, version }: { from: string; version: string }) {
+function MoveDialog({ move: found }: { move: NonNullable<UpdatesView["move"]> }) {
+  const { from, version } = found;
   const client = useQueryClient();
   const declined = useUpdatesSeen((s) => s.moveDeclined);
   const decline = useUpdatesSeen((s) => s.declineMove);
@@ -64,7 +72,10 @@ function MoveDialog({ from, version }: { from: string; version: string }) {
     <Dialog label={`Bring your library from Afflatus ${version}?`} onClose={() => decline(from)} className={DIALOG.replace("max-w-md", "max-w-lg")}>
       <DialogHead icon={<FolderInput size={15} />} title={`Bring your library from Afflatus ${version}?`} />
       <span className="text-[13px] text-ink-2">Found beside this one:</span>
-      <code className="rounded-[10px] border border-line bg-ground px-3.5 py-3 font-mono text-xs break-all">{from}</code>
+      <div className="flex flex-col gap-1.5 rounded-[10px] border border-line bg-ground px-3.5 py-3">
+        <code className="font-mono text-xs break-all">{from}</code>
+        <span className="text-[13px] text-ink-2">{libraryLine(found)}</span>
+      </div>
       <p className="m-0 text-[13px] leading-relaxed text-ink-2">
         It is moved, not copied: no second copy on your disk. Its settings, the Prompt kit and your linked folders come with it. The {version} folder can be deleted afterwards.
       </p>

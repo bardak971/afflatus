@@ -19,9 +19,43 @@ A console window opens and says the address; your browser opens on `http://127.0
 
 ## Where things are
 
-- Your data, the library, the settings and the timelines, lives in the `data` folder next to the launcher.
-- To update, unpack the next release over the old folder, or beside it and move the `data` folder across. The database migrates itself at start.
-- To move Afflatus to another machine, move the folder. A backup is one zip from Settings → Storage → Back up now; restoring is unpacking it into an empty `data` folder.
+From 0.4.0 the download unpacks to one `Afflatus` folder, which updates keep in place:
+
+```
+Afflatus/
+  Afflatus.bat, afflatus.sh    the launchers: they start the version named in versions/current
+  versions/
+    current                    one line: the version to start
+    0.4.0/                     a version: its Node, the app and ffmpeg
+  data/                        your library, settings and timelines, made at the first start
+```
+
+- Your data, the library, the settings and the timelines, lives in `data`, never inside a version.
+- To move Afflatus to another machine, move the `Afflatus` folder. A backup is one zip from Settings → Storage → Back up now; restoring is unpacking it into an empty `data` folder.
+
+## Updating
+
+Once a day Afflatus asks GitHub for its latest release (one request, nothing about you in it; the switch is "Check for new versions" in Settings → About). A new version shows as a dot on Settings; Settings → About gives its notes and **Update to …**:
+
+1. The archive, `SHA256SUMS.txt` and its signature are downloaded into `data/updates/`. The signature is checked with the release key built into Afflatus, then the archive's SHA-256 against the signed list: anything that does not match is refused, and nothing changes.
+2. The new version is unpacked into `versions/` beside the one that runs, and asked to start once with `--check`.
+3. Afflatus waits for the renders already in the queue; nothing new starts meanwhile. **Not now** stops the update until it switches.
+4. A copy of the database goes to `data/backups/before-<version>.db`, `versions/current` names the new version, and Afflatus restarts on it. The page follows by itself.
+
+The version before is kept in `versions/` (one, never more). **Go back** in Settings → About restarts on it and restores the database copy taken at the update: what was made since stays in the `data` folder, not in the list. If a new version stops before it is up, the launcher starts the one before again and About says so.
+
+Update and Go back are done on the computer Afflatus runs on: another computer on your network sees the notice, not the buttons.
+
+## Coming from 0.3.0
+
+A 0.3.0 bundle keeps its library inside its own folder, so 0.4.0 is the one download done by hand:
+
+1. Close Afflatus 0.3.0.
+2. Unpack 0.4.0 **beside** the 0.3.0 folder, not into it. Both straight in one folder, or each in a folder of its own name as Windows' Extract All does, are found: `Downloads\afflatus-v0.3.0-win-x64\…\data` beside `Downloads\afflatus-v0.4.0-win-x64\Afflatus`.
+3. Start 0.4.0. While its own library is still empty it offers to **bring your library from Afflatus 0.3.0**, and says what that library holds (items, timelines, drafts, size). **Bring it over** moves its `data` folder into the new `Afflatus` folder (a rename on the same disk, no second copy) and restarts; its settings, the Prompt kit and your linked folders come with it. **Start empty** leaves it where it is.
+4. Once your library is there, the 0.3.0 folder can be deleted.
+
+When the two are on different disks, or `DATA_DIR` is set, nothing is moved for you: with Afflatus stopped, move the old `data` folder into `Afflatus` yourself (or point `DATA_DIR` at it).
 
 ## Options
 
@@ -34,8 +68,9 @@ The launcher reads a few environment variables. On Windows set them in the conso
 | `ALLOWED_HOSTS` | empty | The names Afflatus answers to, comma-separated, besides `localhost`, `127.0.0.1`, the `HOST` address and the host of `PUBLIC_URL`. A request that names any other host (a page on another site pointing one of its names at this machine) gets a 403. When you open Afflatus by your PC's name or LAN address, put that name or address here: `ALLOWED_HOSTS=pc.lan,192.168.x.y` |
 | `PUBLIC_URL` | empty | The address other machines reach Afflatus at (`http://192.168.x.y:8720`), given to ComfyUI's node pack for model downloads when ComfyUI runs elsewhere; its host is answered to as well |
 | `LINK_ROOTS` | empty | Only the folders named here (and what is inside them) can be linked from Settings → Folders, separated as PATH is (`;` on Windows, `:` elsewhere). Set it whenever Afflatus can be reached from other machines: without it, anyone who can open the page can link any folder of the disk Afflatus can read and have its pictures, videos and sounds served and written to. The system's own folders (Windows, Program Files, AppData, a drive's root, the home folder itself) are never linked, whatever is set |
-| `DATA_DIR` | the `data` folder beside the launcher | Where everything is kept |
-| `FFMPEG`, `FFPROBE` | the bundled ones (`bin/`), or the PATH on macOS | The tools' paths |
+| `DATA_DIR` | the `data` folder beside the launcher | Where everything is kept. When it is set, a 0.3.0 library is not offered for the move |
+| `FFMPEG`, `FFPROBE` | the bundled ones (`versions/<version>/bin/`), or the PATH on macOS | The tools' paths |
+| `AFFLATUS_NO_BROWSER` | empty | `1`: the launcher opens no browser tab when Afflatus starts (a machine without a desktop, a start at log-in) |
 
 ## macOS and ffmpeg
 

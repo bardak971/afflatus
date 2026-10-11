@@ -72,6 +72,9 @@ export interface UpdatesView {
   last: LastChange | null;
   /** The launcher went back to the previous version because the new one did not start. */
   fallback: { version: string; previous: string; at: string; code: number | null } | null;
-  /** A 0.3 library beside this fresh bundle, which the move would bring in: its data folder and its version. */
-  move: { from: string; version: string } | null;
+  /**
+   * A 0.3 library beside this fresh bundle, which the move would bring in: its data folder, its version, its items (out of
+   * the bin), timelines and drafts (null when its database could not be read) and the size of its files.
+   */
+  move: { from: string; version: string; items: number | null; timelines: number | null; drafts: number | null; bytes: number } | null;
 }
