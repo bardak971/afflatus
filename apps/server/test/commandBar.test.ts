@@ -62,9 +62,9 @@ describe("the command bar's index", () => {
     const named = await call("POST", "/api/drafts", { recipe: "sdxl.text-to-picture", project: harbor.id });
     await call("PUT", `/api/drafts/${named.id}`, { name: "Night market" });
     const blank = await call("POST", "/api/drafts", { recipe: "sdxl.text-to-picture" });
-    // two renders made from the named draft
-    for (const id of [newId(), newId()]) {
-      await t.db.insertInto("generations").values({ id, owner_id: "local", recipe_id: "sdxl.text-to-picture", recipe_version: 1, family: "sdxl", inputs: "{}", resolved: "{}", gen_ms: 1, draft_id: named.id, created_at: now() }).execute();
+    // two renders made from the named draft, on two models: SDXL first, then FLUX
+    for (const [family, at] of [["sdxl", "2026-01-01T00:00:00.000Z"], ["flux", "2026-01-02T00:00:00.000Z"]] as const) {
+      await t.db.insertInto("generations").values({ id: newId(), owner_id: "local", recipe_id: "sdxl.text-to-picture", recipe_version: 1, family, inputs: "{}", resolved: "{}", gen_ms: 1, draft_id: named.id, created_at: at }).execute();
     }
 
     const answer = (await get(t.app, "/api/command-index")).json() as { entries: Entry[]; inboxItems: number };
@@ -91,7 +91,7 @@ describe("the command bar's index", () => {
     expect(of(shots.id)).toMatchObject({ kind: "folder", label: "shots", project: harbor.id, parent: null, items: 2, linked: false });
     expect(of(loose.id)).toMatchObject({ kind: "folder", project: null, items: 1 });
     expect(of(tl.id)).toMatchObject({ kind: "timeline", label: "Harbor cut", project: harbor.id, clips: 0, durationMs: 0, plannedMs: 0, exported: false, unusedTakes: 0, unusedBytes: 0 });
-    expect(of(named.id)).toMatchObject({ kind: "draft", label: "Night market", project: harbor.id, recipe: "sdxl.text-to-picture", renders: 2 });
+    expect(of(named.id)).toMatchObject({ kind: "draft", label: "Night market", project: harbor.id, recipe: "sdxl.text-to-picture", renders: 2, models: ["flux", "sdxl"] });
     // named, with nothing written yet: no prompt to tell it apart by, but when it was started
     expect(of(named.id)).not.toHaveProperty("prompt");
     expect(typeof (of(named.id) as { createdAt?: string }).createdAt).toBe("string");

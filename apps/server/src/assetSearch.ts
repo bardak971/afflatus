@@ -305,15 +305,20 @@ export function registerAssetSearch(app: FastifyInstance, s: Services): void {
     // what made it in Create: the draft of its generation, by name (for grouping the grid by draft)
     const gens = rows.map((r) => r.generation_id).filter((g): g is string => Boolean(g));
     const drafts = new Map<string, { id: string; name: string }>();
+    // and the model family it was made with: the stage groups a draft's results by it, Compare says it of each side
+    const families = new Map<string, string>();
     if (gens.length) {
       const found = await s.db.selectFrom("generations").leftJoin("drafts", "drafts.id", "generations.draft_id")
-        .select(["generations.id as gen", "generations.draft_id as draft", "generations.recipe_id as recipe", "generations.inputs as inputs", "drafts.name as name", "drafts.title as title"])
-        .where("generations.id", "in", gens).where("generations.draft_id", "is not", null).execute();
+        .select(["generations.id as gen", "generations.draft_id as draft", "generations.recipe_id as recipe", "generations.family as family", "generations.inputs as inputs", "drafts.name as name", "drafts.title as title"])
+        .where("generations.id", "in", gens).execute();
       // a draft with no name nor title is called after the start of the prompt it was sent with, as its results are (autoName.ts)
-      for (const g of found) if (g.draft) drafts.set(g.gen, { id: g.draft, name: draftLabel({ name: g.name, title: g.title, prompt: promptOf(readJson<Record<string, unknown>>(g.inputs, {})), recipe: s.registry.recipe(g.recipe)?.title ?? recipeWords(g.recipe) }) });
+      for (const g of found) {
+        if (g.family) families.set(g.gen, g.family);
+        if (g.draft) drafts.set(g.gen, { id: g.draft, name: draftLabel({ name: g.name, title: g.title, prompt: promptOf(readJson<Record<string, unknown>>(g.inputs, {})), recipe: s.registry.recipe(g.recipe)?.title ?? recipeWords(g.recipe) }) });
+      }
     }
     const shown = await shownNames(s.db, rows, (id) => s.registry.recipe(id)?.title);
-    return rows.map((r) => ({ ...assetView(r), ...(shown.has(r.id) ? { shownName: shown.get(r.id)! } : {}), clipOf: placed.get(r.id) ?? null, draftOf: (r.generation_id && drafts.get(r.generation_id)) || null }));
+    return rows.map((r) => ({ ...assetView(r), ...(shown.has(r.id) ? { shownName: shown.get(r.id)! } : {}), clipOf: placed.get(r.id) ?? null, draftOf: (r.generation_id && drafts.get(r.generation_id)) || null, family: (r.generation_id && families.get(r.generation_id)) || null }));
   }
 
   /** The model families things in the library were made with, for the "Any model" filter. */

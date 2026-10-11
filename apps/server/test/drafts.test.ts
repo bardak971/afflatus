@@ -23,6 +23,12 @@ describe("a draft's name", () => {
     expect((await put(`/api/drafts/${d.id}`, { name: "" })).json()).toMatchObject({ name: null });
   });
 
+  it("can be given as it is made (a duplicate's), which writes it even with nothing in its form", async () => {
+    const d = (await post(t.app, "/api/drafts", { recipe: RECIPE, name: " zz-test copy " })).json();
+    expect(d).toMatchObject({ name: "zz-test copy" });
+    expect((await get(t.app, "/api/drafts")).json().items.map((x: { id: string }) => x.id)).toContain(d.id);
+  });
+
   it("is what a job sent from it is called (the toast, the status bar, the Queue), not its recipe's title; a label given wins", async () => {
     const labelOf = async (id: string) => (await t.db.selectFrom("jobs").select("label").where("id", "=", id).executeTakeFirstOrThrow()).label;
     const named = (await post(t.app, "/api/drafts", { recipe: RECIPE })).json();
@@ -128,6 +134,11 @@ describe("thumbnails", () => {
     expect(byId.get(made.id)).toMatchObject({ cover: a.id, coverKind: "image", outputs: 1, bytes: a.bytes, unused: false });
     expect(byId.get(bare.id)).toMatchObject({ cover: null, outputs: 0, bytes: 0, unused: true });
     expect(byId.get(named.id)).toMatchObject({ unused: false });
+    // the models it was tried on, with how many each made; and each listed result says its own
+    const family = (await get(t.app, "/api/assets")).json().items[0].family as string;
+    expect(family).toEqual(expect.any(String));
+    expect((byId.get(made.id) as { models: unknown }).models).toEqual([{ family, outputs: 1 }]);
+    expect((byId.get(bare.id) as { models: unknown }).models).toEqual([]);
     expect(list.unused).toBe(2);
     // a limit reads more than the recent ones (the projects panel), never past 1000
     expect((await get(t.app, "/api/drafts?limit=2")).json().items).toHaveLength(2);

@@ -1,8 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronLeft, LoaderCircle, Pencil, Plus, TriangleAlert, Trash2 } from "lucide-react";
 import { api, type Draft, type DraftBrief } from "../../api";
-import type { useDraft } from "../../draft";
+import { duplicateDraft, type useDraft } from "../../draft";
 import { DraftMenu } from "./DraftMenu";
 import { ask, askText } from "../../Confirm";
 import { useBanners } from "../../store";
@@ -37,6 +37,14 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
   });
   // Escape leaves the name box without keeping what was typed: the blur that follows must not save it
   const cancelledNaming = useRef(false);
+  // a duplicate opens with its name box, once it is the draft open (the box renames the draft open)
+  const [nameNext, setNameNext] = useState<string | null>(null);
+  useEffect(() => {
+    if (!draft || draft.id !== nameNext) return;
+    setNameNext(null);
+    cancelledNaming.current = false;
+    setNaming(draft.name ?? "");
+  }, [draft, nameNext]);
   // the delete asked first takes the whole row: the question with its two buttons, rather than squeezed in beside the menu
   const [deleting, setDeleting] = useState(false);
   if (deleting && draft) {
@@ -102,6 +110,14 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
                 if (name !== null && name !== (x.name ?? "")) rename.mutate({ id: x.id, name });
               });
             }}
+            onDuplicate={(x) =>
+              void duplicateDraft(x.id).then((made) => {
+                client.setQueryData(queryKeys.drafts.one(made.id), made);
+                void client.invalidateQueries({ queryKey: queryKeys.drafts.lists() });
+                setNameNext(made.id);
+                return d.switchTo(made.id);
+              }).catch(failed("duplicated"))
+            }
             onDelete={(x) => {
               if (x.id === draft?.id) return setDeleting(true);
               void ask({ title: "Delete this draft?", text: `${titleOf(x) || "This draft"} is deleted with its conversation with the designer. Its outputs stay in your library.`, yes: "Delete" }).then((ok) => {

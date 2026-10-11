@@ -106,6 +106,15 @@ export const fileLabel = (file: string) => (file.split(/[\\/]/).pop() ?? file).r
 
 /** A recipe under its model's name, without saying the name twice when the title already starts with it. */
 export const recipeLabel = (family: string | undefined, title: string) => (!family || title.toLowerCase().startsWith(family.toLowerCase()) ? title : `${family} · ${title}`);
+/**
+ * A draft's models, as its lists say them: its form's family, the other families it was tried on, then what its form does
+ * ("Krea 2 · Z-Image · txt2img"); with no others, its recipeLabel.
+ */
+export function triedLabel(family: string | undefined, others: readonly string[], title: string): string {
+  const own = recipeLabel(family, title);
+  if (!others.length) return own;
+  return family && own !== title ? [family, ...others, title].join(" · ") : [own, ...others].join(" · ");
+}
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 

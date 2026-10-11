@@ -21,6 +21,8 @@ export interface DraftBrief {
   bytes?: number;
   /** No prompt, no name, no conversation, nothing made from it: what "Clear unused" deletes. */
   unused?: boolean;
+  /** In the list: the model families its outputs were made with, the newest first, and how many each made. */
+  models?: Array<{ family: string; outputs: number }>;
 }
 export interface Draft extends DraftBrief {
   /** Recipe id → the values of its form. */

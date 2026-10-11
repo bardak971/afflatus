@@ -51,6 +51,11 @@ export interface Item {
   keyRow?: KeysAsk & { hits?: KeyHit[] };
 }
 
+/** The families a draft was tried on (`tried`, the newest first), the one its form is on first when it was tried on it. */
+export function draftModels(own: string | undefined, tried: readonly string[]): string[] {
+  return own && tried.includes(own) ? [own, ...tried.filter((f) => f !== own)] : [...tried];
+}
+
 /** Where a row of "Go to" leads: an address, an event the app listens for, or the Studio's bin (every project's). */
 type Nav = { href: string } | { event: string } | { bin: true };
 
@@ -72,7 +77,7 @@ export function timelineLength(e: { durationMs: number; plannedMs: number }): st
  * Every entry of the index as a row: its words, its detail line, its project said by name. `inboxItems`: how many items are
  * in no project, as the server counted them (the index holds only some of the library's items); left out, those of `entries`.
  */
-export function indexItems(entries: readonly CommandEntry[], recipes: readonly RecipeInfo[], current: string | null, inboxItems?: number): Item[] {
+export function indexItems(entries: readonly CommandEntry[], recipes: readonly RecipeInfo[], current: string | null, inboxItems?: number, families: ReadonlyArray<{ id: string; name: string }> = []): Item[] {
   const projects = new Map<string, { label: string; archived: boolean }>();
   for (const e of entries) if (e.kind === "project") projects.set(e.id, { label: e.label, archived: e.archived });
   const folders = new Map<string, string>();
@@ -80,6 +85,8 @@ export function indexItems(entries: readonly CommandEntry[], recipes: readonly R
   const place = (project: string | null) => (project ? projects.get(project)?.label ?? "a project" : "Inbox");
   const archived = (project: string | null) => Boolean(project && projects.get(project)?.archived);
   const recipeTitle = new Map(recipes.map((r) => [r.id, r.title]));
+  const familyName = new Map(families.map((f) => [f.id, f.name]));
+  const recipeFamily = new Map(recipes.map((r) => [r.id, r.family]));
   const out: Item[] = [];
   for (const e of entries) {
     const base = { key: `${e.kind}:${e.id}`, label: e.label, p: prepare(e.label), entry: e };
@@ -87,9 +94,15 @@ export function indexItems(entries: readonly CommandEntry[], recipes: readonly R
       case "timeline":
         out.push({ ...base, kind: "timeline", group: "Timelines", verb: "open", archived: archived(e.project), meta: ["Timeline", plural(e.clips, "clip"), timelineLength(e), e.exported && "exported", place(e.project)].filter(Boolean).join(" · ") });
         break;
-      case "draft":
-        out.push({ ...base, kind: "draft", group: "Drafts", verb: "open", archived: archived(e.project), meta: ["Draft", recipeTitle.get(e.recipe) ?? e.recipe, plural(e.renders, "render"), when(e.updatedAt), place(e.project)].join(" · ") });
+      case "draft": {
+        // every model it was tried on, its own first: a draft is an idea, and "krea" finds the drafts tried on Krea too
+        const tried = draftModels(recipeFamily.get(e.recipe), e.models ?? []).map((f) => familyName.get(f) ?? f);
+        out.push({
+          ...base, kind: "draft", group: "Drafts", verb: "open", archived: archived(e.project), p: tried.length ? prepare(`${e.label} ${tried.join(" ")}`) : base.p,
+          meta: ["Draft", tried.length ? tried.join(" · ") : recipeTitle.get(e.recipe) ?? e.recipe, plural(e.renders, "render"), when(e.updatedAt), place(e.project)].join(" · "),
+        });
         break;
+      }
       case "asset":
         // in the bin: found by its name, after the rest, and said so first (its Tab list puts it back)
         out.push({

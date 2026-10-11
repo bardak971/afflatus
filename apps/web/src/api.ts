@@ -249,7 +249,7 @@ export const api = {
   clearUnusedDrafts: (keep?: string) => call<{ deleted: number }>("POST", "/drafts/clear-unused", { project: projectParam() ?? undefined, keep }),
   draft: (id: string, o?: Asked) => call<Draft>("GET", `/drafts/${id}`, undefined, o?.signal),
   /** A new draft, in the project the app looks at unless another is named. */
-  createDraft: (body: { recipe: string; forms?: Draft["forms"]; count?: number; look?: Look | null; project?: string | null }) => call<Draft>("POST", "/drafts", { ...body, project: body.project === undefined ? projectForNew() : body.project }),
+  createDraft: (body: { recipe: string; forms?: Draft["forms"]; count?: number; look?: Look | null; project?: string | null; name?: string }) => call<Draft>("POST", "/drafts", { ...body, project: body.project === undefined ? projectForNew() : body.project }),
   saveDraft: (id: string, patch: { recipe?: string; forms?: Draft["forms"]; count?: number; look?: Look | null; chat?: unknown[]; designer?: DesignerSession | null; name?: string }) => call<Draft>("PUT", `/drafts/${id}`, patch),
   /** One turn of the conversation with the designer about a form. */
   /** What the designer will know about a form before anything is said: the pictures whose story it has, and the clip it carries on from. */

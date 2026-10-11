@@ -3,6 +3,7 @@ import { ChevronsLeftRight } from "lucide-react";
 import { fileUrl, type Asset } from "../api";
 import { Keys } from "../Keys";
 import { useKeysHere } from "../keys/here";
+import { useFamilyName } from "../data";
 import { Button, cx } from "../ui";
 import { AudioPlayer } from "../AudioPlayer";
 import { VideoPlayer } from "../VideoPlayer";
@@ -46,7 +47,7 @@ function useInStep(master: RefObject<HTMLVideoElement | null>, other: RefObject<
  * The wipe's line on the two pictures: dragged anywhere on them (a press moves it there), or by its round
  * handle with the keyboard: ←/→ a step, Shift ten, Home/End the edges. Its arrows are not the viewer's.
  */
-function Wipe({ pinned, other, at, onAt }: { pinned: Asset; other: Asset; at: number; onAt(at: number): void }) {
+function Wipe({ pinned, other, at, onAt, said }: { pinned: Asset; other: Asset; at: number; onAt(at: number): void; said(a: Asset): string }) {
   const box = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   const clamp = (v: number) => Math.max(0, Math.min(100, v));
@@ -96,8 +97,8 @@ function Wipe({ pinned, other, at, onAt }: { pinned: Asset; other: Asset; at: nu
       >
         <ChevronsLeftRight size={16} aria-hidden />
       </div>
-      <span className={cx(label, "left-2.5")}>Pinned{pinned.name ? ` · ${pinned.name}` : ""}</span>
-      <span className={cx(label, "right-2.5")}>This one{other.name ? ` · ${other.name}` : ""}</span>
+      <span className={cx(label, "left-2.5")}>Pinned{said(pinned)}</span>
+      <span className={cx(label, "right-2.5")}>This one{said(other)}</span>
     </div>
   );
 }
@@ -115,9 +116,13 @@ export function Compare({ pinned, other, onSwap, onClose }: { pinned: Asset; oth
   // the keys sheet's "Here now": comparing is the viewer's (its arrows change the other one)
   useKeysHere("viewer", true, { kind: other.kind });
   const pictures = pinned.kind === "image" && other.kind === "image";
+  // two models compared (one draft tried on each): each side says which made it
+  const familyName = useFamilyName();
+  const models = Boolean(pinned.family && other.family && pinned.family !== other.family);
+  const said = (a: Asset) => `${models ? ` · ${familyName(a.family!)}` : ""}${a.name ? ` · ${a.name}` : ""}`;
   const pane = (a: Asset, ref: RefObject<HTMLVideoElement | null>, label: string) => (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center gap-1.5">
-      <span className="max-w-full truncate text-xs text-ink-3">{label}{a.name ? ` · ${a.name}` : ""}</span>
+      <span className="max-w-full truncate text-xs text-ink-3">{label}{said(a)}</span>
       {/* each one in the middle of its half, whatever its shape and kind: a picture beside a video lines up with it */}
       <div className="flex min-h-0 w-full grow items-center justify-center">
       {a.kind === "video" ? (
@@ -140,7 +145,7 @@ export function Compare({ pinned, other, onSwap, onClose }: { pinned: Asset; oth
         </div>
       ) : (
         <div className="flex min-h-0 grow items-center justify-center">
-          <Wipe pinned={pinned} other={other} at={wipe} onAt={setWipe} />
+          <Wipe pinned={pinned} other={other} at={wipe} onAt={setWipe} said={said} />
         </div>
       )}
       <div className="flex shrink-0 flex-wrap items-center justify-center gap-2">

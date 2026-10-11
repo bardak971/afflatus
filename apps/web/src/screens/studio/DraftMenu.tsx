@@ -1,10 +1,10 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { ChevronDown, Film, FolderOpen, Image as ImageIcon, Music, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { ChevronDown, Film, FolderOpen, Image as ImageIcon, Layers, Music, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { Thumb } from "../../Thumb";
 import { fuzzyFilter } from "@afflatus/core";
 import { thumbUrl, type DraftBrief } from "../../api";
 import { useRecipes } from "../../data";
-import { when } from "../../format";
+import { triedLabel, when } from "../../format";
 import { ContextMenu, useMenu } from "../../ContextMenu";
 import { Keys } from "../../Keys";
 import { Popover } from "../../Popover";
@@ -23,11 +23,11 @@ function Cover({ d, size }: { d: DraftBrief; size: number }) {
 }
 
 /**
- * The drafts, as the command bar's rows: the cover, the name, the model on a dim line, and on the right how
- * many outputs it has and when it was last changed. Opens from the head of the Create panel; typing narrows
+ * The drafts, as the command bar's rows: the cover, the name, the models it was tried on on a dim line (its form's
+ * first), and on the right how many outputs it has (by model when it was tried on several) and when it was last changed. Opens from the head of the Create panel; typing narrows
  * the list, the arrow keys move in it, Enter opens. A draft with no prompt is named after its model.
  */
-export function DraftMenu({ drafts, open: current, titleOf, onPick, onNew, onClearUnused, onRename, onDelete }: {
+export function DraftMenu({ drafts, open: current, titleOf, onPick, onNew, onClearUnused, onRename, onDuplicate, onDelete }: {
   drafts: DraftBrief[];
   open: DraftBrief | null;
   /** What a draft is called: its name, else the start of its prompt, else "" (named after its model here). */
@@ -35,8 +35,9 @@ export function DraftMenu({ drafts, open: current, titleOf, onPick, onNew, onCle
   onPick(id: string): void;
   onNew(): void;
   onClearUnused(): Promise<unknown>;
-  /** A draft of the list renamed (asked for its name) or deleted (asked first), from its right-click menu. */
+  /** A draft of the list renamed (asked for its name), duplicated or deleted (asked first), from its right-click menu. */
   onRename(d: DraftBrief): void;
+  onDuplicate(d: DraftBrief): void;
   onDelete(d: DraftBrief): void;
 }) {
   const rowMenu = useMenu<DraftBrief>();
@@ -54,17 +55,24 @@ export function DraftMenu({ drafts, open: current, titleOf, onPick, onNew, onCle
     const r = recipeOf(id);
     return recipes.data?.families.find((f) => f.id === r?.family)?.name ?? r?.family ?? "";
   };
+  const familyName = (id: string) => recipes.data?.families.find((f) => f.id === id)?.name ?? id;
+  // a draft is an idea, its models are tries of it: the other families it made something with, the newest first
+  const othersOf = (d: DraftBrief) => (d.models ?? []).filter((m) => m.family !== recipeOf(d.recipe)?.family);
   const modelLine = (d: DraftBrief) => {
     const r = recipeOf(d.recipe);
     const family = familyOf(d.recipe);
-    return r ? (r.title.toLowerCase().startsWith(family.toLowerCase()) ? r.title : `${family} · ${r.title}`) : d.recipe;
+    const others = othersOf(d).map((m) => familyName(m.family));
+    return r ? triedLabel(family, others, r.title) : [d.recipe, ...others].join(" · ");
   };
   const nameOf = (d: DraftBrief) => titleOf(d) || `${familyOf(d.recipe) || "Untitled"} draft`;
   const countOf = (d: DraftBrief) => {
     const n = d.outputs ?? 0;
     if (!n) return "empty";
     const words = OUTPUT_WORD[recipeOf(d.recipe)?.output ?? d.coverKind ?? "image"];
-    return `${n} ${n === 1 ? words[0] : words[1]}`;
+    // tried on several models: how many each made, in the order of the line ("2 + 2 pictures")
+    const own = d.models?.find((m) => m.family === recipeOf(d.recipe)?.family);
+    const each = [...(own ? [own] : []), ...othersOf(d)];
+    return `${each.length > 1 ? each.map((m) => m.outputs).join(" + ") : n} ${n === 1 ? words[0] : words[1]}`;
   };
 
   // drafts that read the same (three "Wan 2.2 draft", one prompt sent twice): their dim line tells them apart by
@@ -128,6 +136,7 @@ export function DraftMenu({ drafts, open: current, titleOf, onPick, onNew, onCle
         aria-haspopup="dialog"
         aria-expanded={shown}
         aria-label={`Drafts: ${current ? nameOf(current) : "no draft yet"}`}
+        data-tip={current ? modelLine(drafts.find((d) => d.id === current.id) ?? current) : undefined}
         onClick={() => (shown ? close() : (setShown(true), setAt(Math.max(0, drafts.findIndex((d) => d.id === current?.id)))))}
         className={cx("flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg border bg-raised pr-2.5 pl-1.5 text-left font-semibold", shown ? "border-accent" : "border-line-strong hover:border-accent")}
       >
@@ -228,9 +237,11 @@ export function DraftMenu({ drafts, open: current, titleOf, onPick, onNew, onCle
             <ContextMenu
               at={rowMenu.menu.at}
               label="Actions on this draft"
+              head={{ title: nameOf(rowMenu.menu.subject), sub: `${modelLine(rowMenu.menu.subject)} · ${countOf(rowMenu.menu.subject)}` }}
               items={[
                 ...(rowMenu.menu.subject.id === current?.id ? [] : [{ label: "Open", icon: <FolderOpen size={14} />, run: () => pick(rowMenu.menu!.subject.id) }]),
                 { label: "Rename…", icon: <Pencil size={14} />, run: () => { const d = rowMenu.menu!.subject; close(); onRename(d); } },
+                { label: "Duplicate", icon: <Layers size={14} />, note: "a new draft with its forms", run: () => { const d = rowMenu.menu!.subject; close(); onDuplicate(d); } },
                 "—",
                 { label: "Delete…", icon: <Trash2 size={14} />, danger: true, note: "its outputs stay", run: () => { const d = rowMenu.menu!.subject; close(); onDelete(d); } },
               ]}

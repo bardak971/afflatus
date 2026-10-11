@@ -1,5 +1,5 @@
 import type { MouseEvent } from "react";
-import { Archive, ArchiveRestore, Eraser, Film, Folder, FolderInput, FolderKanban, FolderOpen, FolderPlus, FolderRoot, Inbox, Link2, PenLine, Pencil, Pin, PinOff, RefreshCw, Trash2, Unlink, Upload } from "lucide-react";
+import { Archive, ArchiveRestore, Eraser, Film, Folder, FolderInput, FolderKanban, FolderOpen, FolderPlus, FolderRoot, Inbox, Layers, Link2, PenLine, Pencil, Pin, PinOff, RefreshCw, Trash2, Unlink, Upload } from "lucide-react";
 import type { Asset, Folder as FolderInfo, Project, TreeGroup } from "../api";
 import { useMenu, type MenuHead, type MenuItem } from "../ContextMenu";
 import { size } from "../format";
@@ -13,7 +13,7 @@ import { movingOf } from "./useTreeDrag";
  * The Projects panel's right-click menus: one per kind of row, the menu of several picked rows ("Move 3 to", "Delete 3…"),
  * the library tile's own menu on an item, and the selection bar's "Move to".
  */
-export function useRowMenus({ picked, rows, byKey, scoped, current, projects, folders, groups, binCount, binBytes, actions, pins, setProject, setOpen, setFocused, setClearAsk, clearPicks, activate, startRename, remove, importInto, onView, showInStudio }: {
+export function useRowMenus({ picked, rows, byKey, scoped, current, projects, folders, groups, binCount, binBytes, actions, pins, setProject, setOpen, setFocused, setClearAsk, clearPicks, activate, startRename, duplicate, remove, importInto, onView, showInStudio }: {
   picked: Map<string, Row>;
   rows: Row[];
   byKey: Map<string, Row>;
@@ -38,6 +38,8 @@ export function useRowMenus({ picked, rows, byKey, scoped, current, projects, fo
   /** What a plain click (or Enter) does on the row. */
   activate(r: Row): void;
   startRename(r: Row): void;
+  /** A draft copied into its project, its copy's name box open. */
+  duplicate(r: Row): void;
   remove(rs: Row[]): void;
   /** "Import a folder…" into that target: the computer's folder picker. */
   importInto(t: Target): void;
@@ -159,7 +161,13 @@ export function useRowMenus({ picked, rows, byKey, scoped, current, projects, fo
           del,
         ];
       case "draft":
-        return [{ label: "Open", key: "Enter", icon: <PenLine size={14} />, run: () => activate(r) }, moveTo, "—", del];
+        return [
+          { label: "Open", key: "Enter", icon: <PenLine size={14} />, run: () => activate(r) },
+          ...(rs.length > 1 ? [] : [rename, { label: "Duplicate", icon: <Layers size={14} />, note: "a new draft with its forms", run: () => duplicate(r) }]),
+          moveTo,
+          "—",
+          del,
+        ];
       case "empty":
         return [{ label: `Clear ${r.label}…`, icon: <Eraser size={14} />, danger: true, note: "the open one stays", run: () => setClearAsk(r.key) }];
       case "item": {

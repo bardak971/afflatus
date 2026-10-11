@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Images, Square, X } from "lucide-react";
 import type { Asset } from "../../api";
-import { useAssets } from "../../data";
-import { clock, phaseLabel, timeLeft } from "../../format";
+import { useAssets, useFamilyName } from "../../data";
+import { clock, phaseLabel, timeLeft, when } from "../../format";
 import { Keys } from "../../Keys";
 import { useStudio } from "../../store";
 import { LivePreview, StageStrip } from "../../LivePreview";
@@ -125,7 +125,7 @@ export function DraftResults({ draft, folder, list, title, empty }: {
         )}
         {/* the newer pages, let go past the cap (useAssets) */}
         {assets.hasPreviousPage && <Button size="sm" onClick={() => assets.fetchPreviousPage()} disabled={busy}>Newer</Button>}
-        <StripItems items={items} shown={live ? undefined : shown?.id} onPick={(a) => setPicked(a.id)} onMenu={(e, a) => tileMenu.open(e, a)} />
+        <StripItems items={items} byModel={Boolean(draft)} shown={live ? undefined : shown?.id} onPick={(a) => setPicked(a.id)} onMenu={(e, a) => tileMenu.open(e, a)} />
         {assets.hasNextPage && <Button size="sm" onClick={() => assets.fetchNextPage()} disabled={busy}>More</Button>}
       </div>
       {details && <Viewer asset={items.find((a) => a.id === details.id) ?? details} items={items} more={more} onOpen={setDetails} onClose={() => setDetails(null)} into={{ draft, folder }} />}
@@ -145,8 +145,22 @@ const STRIP_WIDTH = 152;
  * drawn measured (the caption and the padding), and measured again once drawn, so the column keeps its height and
  * nothing moves as results come and go.
  */
-function StripItems({ items, shown, onPick, onMenu }: { items: Asset[]; shown: string | undefined; onPick(a: Asset): void; onMenu(e: React.MouseEvent, a: Asset): void }) {
+function StripItems({ items, byModel, shown, onPick, onMenu }: { items: Asset[]; byModel: boolean; shown: string | undefined; onPick(a: Asset): void; onMenu(e: React.MouseEvent, a: Asset): void }) {
   const list = useRef<HTMLDivElement>(null);
+  // a draft tried on several models: each run of results of one model under its name, how many and when ("Krea 2 · 2 · now")
+  const familyName = useFamilyName();
+  const heads = useMemo(() => {
+    const out = new Map<number, { model: string; rest: string }>();
+    if (!byModel || new Set(items.map((a) => a.family ?? "")).size < 2) return out;
+    for (let i = 0; i < items.length; ) {
+      let j = i;
+      while (j < items.length && (items[j]!.family ?? "") === (items[i]!.family ?? "")) j++;
+      const f = items[i]!.family;
+      out.set(i, { model: f ? familyName(f) : "Other", rest: `${j - i} · ${when(items[i]!.createdAt)}` });
+      i = j;
+    }
+    return out;
+  }, [byModel, items, familyName]);
   // the heights measured, by item; the room around a tile and the column's width, from the first one measured
   const measured = useRef(new Map<string, number>());
   const room = useRef({ extra: STRIP_EXTRA, width: STRIP_WIDTH });
@@ -160,7 +174,8 @@ function StripItems({ items, shown, onPick, onMenu }: { items: Asset[]; shown: s
         const id = el.dataset.itemId;
         if (!id) continue;
         const h = el.getBoundingClientRect().height;
-        const tile = el.firstElementChild?.getBoundingClientRect();
+        // the room around a tile, from one without a model's name over it
+        const tile = el.dataset.head ? undefined : el.querySelector("[data-strip-tile]")?.getBoundingClientRect();
         if (tile && tile.height > 0) room.current = { extra: h - tile.height, width: el.clientWidth - 12 };
         if (Math.abs((measured.current.get(id) ?? -1) - h) > 0.5) {
           measured.current.set(id, h);
@@ -189,10 +204,14 @@ function StripItems({ items, shown, onPick, onMenu }: { items: Asset[]; shown: s
       {drawn.map((i) => {
         const a = items[i]!;
         const on = shown === a.id;
+        const head = heads.get(i);
         return (
-          // at its own shape (a portrait take stays portrait), with its name under it; the one shown large is marked
-          <div key={a.id} ref={observe} data-item-id={a.id} className={cx("flex flex-col gap-1.5 rounded-[12px] p-1.5", on ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : "hover:shadow-[inset_0_0_0_1px_var(--color-line-strong)]")}>
-            <div style={{ aspectRatio: shapeOf(a), width: `min(100%, ${Math.round(TILE_H * shapeOf(a))}px)` }} className="mx-auto">
+          // measured with the model's name over it, when it starts a run of one model
+          <div key={a.id} ref={observe} data-item-id={a.id} data-head={head ? "" : undefined} className="flex flex-col gap-1.5">
+          {head && <span className={cx("truncate px-1.5 text-xs font-bold text-ink", i > 0 && "pt-1.5")}>{head.model} <span className="font-normal text-ink-3">· {head.rest}</span></span>}
+          {/* at its own shape (a portrait take stays portrait), with its name under it; the one shown large is marked */}
+          <div className={cx("flex flex-col gap-1.5 rounded-[12px] p-1.5", on ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : "hover:shadow-[inset_0_0_0_1px_var(--color-line-strong)]")}>
+            <div data-strip-tile style={{ aspectRatio: shapeOf(a), width: `min(100%, ${Math.round(TILE_H * shapeOf(a))}px)` }} className="mx-auto">
               <Tile fill plain asset={a} onOpen={() => onPick(a)} onMenu={(e) => onMenu(e, a)} />
             </div>
             {/* what it is, under the picture: its name, then its clip and its length (or size) */}
@@ -205,6 +224,7 @@ function StripItems({ items, shown, onPick, onMenu }: { items: Asset[]; shown: s
                 <span className="shrink-0 font-mono text-[11px] text-ink-2">{a.durationMs !== null && a.kind !== "image" ? clock(a.durationMs, { decimals: 1 }) : a.width && a.height ? `${a.width}×${a.height}` : ""}</span>
               </span>
             </span>
+          </div>
           </div>
         );
       })}

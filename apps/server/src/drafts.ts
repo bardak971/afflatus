@@ -24,6 +24,8 @@ const createBody = z.strictObject({
   look: lookSchema.nullable().optional(),
   /** The project it is made in; null or left out: the Inbox. */
   project: z.string().nullable().optional(),
+  /** A name of its own from the start (a duplicate's "… copy"). */
+  name: z.string().max(80).optional(),
 });
 const saveBody = z.strictObject({
   recipe: z.string().min(1).optional(),
@@ -181,6 +183,20 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
         .where("generations.draft_id", "in", rows.map((d) => d.id)).where("assets.deleted_at", "is", null).where("assets.origin", "not in", NOT_IN_LIBRARY)
         .orderBy("assets.created_at", "desc").execute()
       : [];
+    // the families its outputs were made with, newest first, with how many each made: a draft is an idea tried on models
+    const families = new Map<string, Map<string, number>>();
+    if (rows.length) {
+      const tries = await s.db.selectFrom("assets").innerJoin("generations", "generations.id", "assets.generation_id")
+        .select(["generations.draft_id as draft", "generations.family as family"]).select((eb) => [eb.fn.countAll<number>().as("n"), eb.fn.max("assets.created_at").as("last")])
+        .where("generations.draft_id", "in", rows.map((d) => d.id)).where("assets.deleted_at", "is", null).where("assets.origin", "not in", NOT_IN_LIBRARY)
+        .groupBy(["generations.draft_id", "generations.family"]).orderBy("last", "desc").execute();
+      for (const t of tries) {
+        if (!t.draft) continue;
+        const m = families.get(t.draft) ?? new Map<string, number>();
+        m.set(t.family, Number(t.n));
+        families.set(t.draft, m);
+      }
+    }
     const made = new Map<string, { cover: string; coverKind: "image" | "video" | "audio"; outputs: number; bytes: number }>();
     for (const o of outputs) {
       if (!o.draft) continue;
@@ -193,7 +209,7 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
     const unused = await unusedDrafts(s.db, project);
     const idle = new Set(unused.map((d) => d.id));
     return {
-      items: rows.map((d) => ({ ...brief(d), cover: made.get(d.id)?.cover ?? null, coverKind: made.get(d.id)?.coverKind ?? null, outputs: made.get(d.id)?.outputs ?? 0, bytes: made.get(d.id)?.bytes ?? 0, unused: idle.has(d.id) })),
+      items: rows.map((d) => ({ ...brief(d), cover: made.get(d.id)?.cover ?? null, coverKind: made.get(d.id)?.coverKind ?? null, outputs: made.get(d.id)?.outputs ?? 0, bytes: made.get(d.id)?.bytes ?? 0, unused: idle.has(d.id), models: [...(families.get(d.id) ?? [])].map(([family, outputs]) => ({ family, outputs })) })),
       unused: unused.length,
     };
   });
@@ -214,7 +230,7 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
     const at = now();
     const row: Tables["drafts"] = {
       id: newId(), owner_id: OWNER, target: body.target, recipe_id: body.recipe, title: titleOf(s.registry.recipe(body.recipe), body.forms),
-      name: null, forms: json, count: body.count, chat: null, look: look ? JSON.stringify(look) : null, project_id: body.project ?? null, created_at: at, updated_at: at,
+      name: body.name?.trim() || null, forms: json, count: body.count, chat: null, look: look ? JSON.stringify(look) : null, project_id: body.project ?? null, created_at: at, updated_at: at,
     };
     if (holdsSomething(s.registry, row)) await s.db.insertInto("drafts").values(row).execute();
     else {
