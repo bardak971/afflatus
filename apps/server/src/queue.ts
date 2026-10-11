@@ -62,6 +62,8 @@ export class Queue {
   /** The name of the model that is loaded, when it is known. */
   private lastModel: string | null = null;
   private stopped = false;
+  /** While an update waits for the queue (updates.ts): only these jobs may start, the rest wait for the new version. Null: any. */
+  private only: ReadonlySet<string> | null = null;
   /** The timelines, for jobs that render a clip of one (set once both exist). */
   clips: Timelines | null = null;
   /** The door the submitting, storing, tools and view modules reach this state through (queueModel.ts). */
@@ -393,6 +395,21 @@ ${JSON.stringify(input)}`;
     return got;
   }
 
+  /** Whether the queue is paused by hand: a queued render does not start. */
+  get isPaused(): boolean {
+    return this.paused;
+  }
+
+  /**
+   * Let only these jobs start (an update waits for them before it restarts Afflatus); null lets every job start again.
+   * Not kept across a restart: the new version starts with the jobs held here.
+   */
+  holdNew(only: ReadonlySet<string> | null): void {
+    this.only = only;
+    this.events.emit("queue");
+    if (!only) void this.pump();
+  }
+
   async setPaused(paused: boolean): Promise<void> {
     this.paused = paused;
     await this.setting(PAUSED_KEY, String(paused));
@@ -434,6 +451,8 @@ ${JSON.stringify(input)}`;
         let reachable: boolean | null = null;
         let next: JobRow | undefined;
         for (const r of line) {
+          // a job asked for after Update was pressed waits for the new version, whatever it needs
+          if (this.only && r.status === "queued" && !this.only.has(r.id)) continue;
           // what needs no ComfyUI (an export, a cut by ffmpeg) goes on whatever ComfyUI is doing: paused, away, or a GPU job before it waiting
           if (!needsComfy(r)) {
             next = r;

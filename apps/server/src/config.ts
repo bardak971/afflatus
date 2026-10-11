@@ -54,6 +54,16 @@ export const envSaid = {
   /** ffmpeg and ffprobe, when they are not on the PATH. */
   ffmpeg: () => process.env.FFMPEG,
   ffprobe: () => process.env.FFPROBE,
+  /** The address of Afflatus's latest release (GitHub's, unless set): a stand-in site in the tests, or a mirror. */
+  updatesUrl: () => process.env.UPDATES_URL,
+  /** How Afflatus was installed: "bundle" (set by the release's launcher), "docker" (by the image); anything else is the sources. */
+  install: () => process.env.AFFLATUS_INSTALL,
+  /** A bundle's own folder, the one the user unzipped (set by its launcher): versions/ and data/ are in it. */
+  root: () => process.env.AFFLATUS_ROOT,
+  /** The file written once the server listens, which tells the launcher this version started (R/versions/<v>/.started). */
+  startedFile: () => process.env.AFFLATUS_STARTED_FILE,
+  /** Windows' own folder, where its tar.exe is (updates.ts systemTar). */
+  systemRoot: () => process.env.SystemRoot,
   /** "1": SQLite's statements run in a worker thread, not on the server's own (db.ts openSqlite). */
   sqliteWorker: () => process.env.AFFLATUS_SQLITE_WORKER === "1",
 };
