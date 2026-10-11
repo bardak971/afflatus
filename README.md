@@ -27,6 +27,7 @@ It is one small server and a folder of data, on your PC or in a container, talki
 - **Your own workflows, as forms.** Drop in a ComfyUI workflow file and Afflatus turns it into a form, keeps the controls its author put forward, and tells you which node packs and models are missing.
 - **Picture to video in one click.** Like a picture? Open it and press **M**. Pin a first frame, a last frame or a keyframe in the middle, and the model fills in the motion.
 - **A timeline for real videos.** Chain clips into one film, with several takes per clip, trims, music that ducks under voices, and one export. MiniMax H3 clips carry on from the previous clip's latent, so motion and sound flow across the cut.
+- **Fix just the part you don't like.** Mark a stretch of the timeline with **I** and **O**, across clips if you like, and regenerate it: a new clip is made between the two frames and takes its place, while everything around it stays. Or loop it, split it, copy it, or play it in slow motion.
 - **It measures what it makes.** Generation is only half the job. Every take is scored on how cleanly it joins the clip before and how its brightness, sharpness and pace compare. The timeline points out the joins that jump; which take makes the better clip stays your call.
 - **It learns your machine.** Before you press Generate, the form tells you how long it will take, learned from your own past renders. While it runs, you watch a live preview.
 - **Everything in reach.** Projects, a bin that cleans itself, a Prompt kit for people and styles, and **Ctrl+K** to find or do anything from the keyboard.
@@ -78,9 +79,9 @@ Import the workflow file you saved from ComfyUI and Afflatus reads it for you. I
 
 ### The timeline
 
-<p align="center"><img src="docs/media/timeline.webp" alt="The timeline editor with a MiniMax H3 chain" width="820"></p>
+<p align="center"><img src="docs/media/timeline.webp" alt="The timeline editor with a range marked across clips 3 and 4, and its actions: Regenerate, Loop, Split, Remove, Copy, Slow" width="820"></p>
 
-Turn clips into a film. Each clip is a form of its own with as many takes as you like; pick the one that plays. A clip can carry on from the one before, so the motion and the sound keep going across the cut. Trim with scene detection, hold a picture as a still, add music that ducks under voices, then export one video with its colours matched across the cuts, or a small copy for the web.
+Turn clips into a film. Each clip is a form of its own with as many takes as you like; pick the one that plays. A clip can carry on from the one before, so the motion and the sound keep going across the cut. Not happy with two seconds in the middle? Mark them with **I** and **O** and press **Regenerate**: a new clip is made between those two frames, pinned to them, and replaces what was there. Trim with scene detection, hold a picture as a still, add music that ducks under voices, then export one video with its colours matched across the cuts, or a small copy for the web.
 
 ### What it measures
 
