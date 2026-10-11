@@ -63,6 +63,7 @@ export function fakeManager(fake: FakeState, init: FakeInit): (r: FakeRequest) =
       const task = JSON.parse(raw.toString("utf-8")) as Install & { client_id?: string; ui_id?: string };
       if (!task.client_id || !task.ui_id || /[\\/:]/.test(task.filename)) return plain(400, "Invalid model data");
       installs.push(task);
+      fake.installAsked.push({ url: task.url, filename: task.filename, save_path: task.save_path, type: task.type });
       return plain(200);
     }
     if (path === "/v2/manager/reboot") {

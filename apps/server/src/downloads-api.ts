@@ -12,7 +12,11 @@ export function registerDownloads(app: FastifyInstance, s: Services): void {
   /** Model files being fetched into ComfyUI, whether that is turned on, and whether this ComfyUI can do it. */
   app.get("/api/downloads", async () => {
     const settings = await readSettings(s.db);
-    return { on: settings.downloadModels, items: s.downloads.list(), manager: settings.downloadModels ? await s.downloads.manager(await s.comfy()) : { found: false } };
+    if (!settings.downloadModels) return { on: false, items: s.downloads.list(), manager: { found: false }, via: "none" };
+    const comfy = await s.comfy();
+    // who would download: Afflatus itself (it can write ComfyUI's model folders), the node pack, ComfyUI-Manager, or nobody
+    const [manager, via] = await Promise.all([s.downloads.manager(comfy), s.downloads.route(comfy, settings.comfyDir)]);
+    return { on: true, items: s.downloads.list(), manager, via };
   });
 
   /** Fetch a missing model file into ComfyUI (see fetchFile.ts). Only when the user turned this on in Settings. */
@@ -42,12 +46,16 @@ export function registerDownloads(app: FastifyInstance, s: Services): void {
     const stopped = s.downloads.stop(req.params.id);
     if (stopped === false) throw notFound("that download");
     if (stopped === "late") throw httpError("Download complete: ComfyUI is saving the file now.", 409);
+    if (stopped === "manager") throw httpError("ComfyUI-Manager downloads this one on its own: it cannot be stopped from Afflatus.", 409);
     return { ok: true };
   });
 
-  /** The one-time address ComfyUI-Manager fetches a file from. It works once, for the download it was made for. */
+  /**
+   * The one-time address ComfyUI fetches a file from (the node pack, or ComfyUI-Manager), for the download it
+   * was made for: once for Manager; for the pack as long as its download runs, from where it asks (a Range).
+   */
   app.get<{ Params: { id: string }; Querystring: { t?: string } }>("/api/downloads/fetch/:id", async (req, reply) => {
-    const got = await s.downloads.serve(req.params.id, z.object({ t: z.string().default("") }).parse(req.query).t);
+    const got = await s.downloads.serve(req.params.id, z.object({ t: z.string().default("") }).parse(req.query).t, req.headers.range);
     if (!got) return reply.code(404).send({ error: "this address is no longer good" });
     if ("error" in got) return reply.code(502).send({ error: got.error });
     req.raw.on("close", () => {
@@ -55,6 +63,7 @@ export function registerDownloads(app: FastifyInstance, s: Services): void {
     });
     reply.header("Content-Type", "application/octet-stream");
     if (got.size) reply.header("Content-Length", got.size);
+    if (got.partial) reply.code(206).header("Content-Range", got.partial);
     return reply.send(got.stream);
   });
 }

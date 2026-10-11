@@ -73,9 +73,10 @@ const PLAIN = new Set(["user-agent", "accept"]);
 /**
  * fetch() for an address already judged by assertPublicUrl: redirects are followed here, at most `hops`
  * of them, each new address judged the same way (a public link may send on into the network, or to the
- * cloud's metadata address). The headers given (a Civitai key) go to the host first asked only.
+ * cloud's metadata address). The headers given (a Civitai key) go to the host first asked only. `seen` hears
+ * of each answer that sends on, before its body is let go: Hugging Face says a file's size and SHA-256 there only.
  */
-export async function fetchPublic(url: string, init: Omit<RequestInit, "redirect" | "headers"> & { headers?: Record<string, string> }, allow: Array<string | null | undefined> = [], hops = 5): Promise<Response> {
+export async function fetchPublic(url: string, init: Omit<RequestInit, "redirect" | "headers"> & { headers?: Record<string, string> }, allow: Array<string | null | undefined> = [], hops = 5, seen?: (res: Response) => void): Promise<Response> {
   const first = new URL(url).host;
   const all = init.headers ?? {};
   const plain = Object.fromEntries(Object.entries(all).filter(([k]) => PLAIN.has(k.toLowerCase())));
@@ -84,6 +85,7 @@ export async function fetchPublic(url: string, init: Omit<RequestInit, "redirect
     const res = await fetch(at, { ...init, headers: new URL(at).host === first ? all : plain, redirect: "manual" });
     const next = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
     if (!next) return res;
+    seen?.(res);
     await res.body?.cancel().catch(() => {});
     if (n >= hops) throw httpError(`${new URL(url).hostname} sent the request on more than ${hops} times.`, 502);
     at = assertPublicUrl(new URL(next, at).href, allow).href;

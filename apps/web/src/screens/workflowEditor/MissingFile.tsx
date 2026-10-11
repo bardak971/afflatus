@@ -28,7 +28,7 @@ export function MissingFile({ f, m, hints, where }: { f: MissingFileOf; m: Mappi
 
   const civitai = f.source?.civitai;
   // looked up as soon as it shows, when nothing else says where it is
-  const { lookups, fetching, find, search, start, download, mine, busy, noManager, why, best } = useGetFile({
+  const { lookups, fetching, find, search, start, download, mine, busy, noRoute, why, caution, best } = useGetFile({
     file: f.file,
     folder,
     url: f.url ?? f.source?.url,
@@ -77,7 +77,7 @@ export function MissingFile({ f, m, hints, where }: { f: MissingFileOf; m: Mappi
         </div>
         {/* plain, not primary: there can be one per missing file, and the header's Save is the screen's one primary action */}
         {!replaced && best && (
-          <Button size="sm" disabled={busy || noManager} data-tip={why ?? best.tip} onClick={() => download(best.from)} className="shrink-0">
+          <Button size="sm" disabled={busy || noRoute} data-tip={why ?? (caution ? `${best.tip ? `${best.tip} · ` : ""}${caution}` : best.tip)} onClick={() => download(best.from)} className="shrink-0">
             <DownloadIcon size={13} /> Download{best.bytes ? ` · ${size(best.bytes)}` : ""}
           </Button>
         )}
@@ -137,14 +137,14 @@ export function MissingFile({ f, m, hints, where }: { f: MissingFileOf; m: Mappi
                 {moreHf.map((h) => (
                   <HfMatch key={h.url} h={h}>
                     {fetching && !h.gated && (
-                      <Button size="sm" disabled={busy || noManager} data-tip={why} onClick={() => download({ url: h.url })} className="shrink-0"><DownloadIcon size={13} /> Download</Button>
+                      <Button size="sm" disabled={busy || noRoute} data-tip={why} onClick={() => download({ url: h.url })} className="shrink-0"><DownloadIcon size={13} /> Download</Button>
                     )}
                   </HfMatch>
                 ))}
                 {moreCivitai.map((c) => (
                   <CivitaiMatch key={c.url} m={c} folder={folder}>
                     {fetching && c.versionId && (c.fits || c.exact) && !c.have && (
-                      <Button size="sm" disabled={busy || noManager} data-tip={why ?? civitaiTip(c, f.file)} onClick={() => download({ civitai: c.versionId! })} className="shrink-0">
+                      <Button size="sm" disabled={busy || noRoute} data-tip={why ?? civitaiTip(c, f.file)} onClick={() => download({ civitai: c.versionId! })} className="shrink-0">
                         <DownloadIcon size={13} /> {c.exact ? "Download" : "Download as this filename"}
                       </Button>
                     )}

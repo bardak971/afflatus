@@ -102,7 +102,7 @@ export function LinkCard() {
             <input aria-label="Filename it is saved under" value={saveAs} spellCheck={false} onChange={(e) => setSaveAs(e.target.value)} className={cx(field, "grow font-mono")} />
           </Row>
           {already && <Row tone="warn" label="Already in ComfyUI"><span className="truncate text-xs text-warn-ink">{file}, in {already}</span></Row>}
-          <Row label="Download" help="The file is fetched into ComfyUI through ComfyUI-Manager. Once started it shows under Missing models above, and at the bottom of every screen.">
+          <Row label="Download" help="The file is fetched into ComfyUI's models folder: by Afflatus itself when it can write there, else by the Afflatus node pack or ComfyUI-Manager. Once started it shows under Missing models above, and at the bottom of every screen.">
             {start.isSuccess && <span className="text-xs text-good">Started</span>}
             <Button tone="primary" disabled={!folder || !file || start.isPending} onClick={() => start.mutate()}>
               {start.isPending ? "Starting…" : `Download into ComfyUI${chosen?.bytes ? ` · ${size(chosen.bytes)}` : ""}`}

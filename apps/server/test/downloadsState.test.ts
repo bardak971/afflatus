@@ -55,6 +55,19 @@ describe("the downloads' state file", () => {
     expect(readdirSync(dir)).toEqual(["downloads.json"]);
   });
 
+  it("removes the .part of a download Afflatus was writing itself when it stopped", async () => {
+    const file = join(dir, "downloads.json");
+    const part = join(dir, "big.safetensors.part");
+    writeFileSync(part, "half");
+    writeFileSync(file, JSON.stringify([{ id: "h", file: "big.safetensors", folder: "loras", title: "Big", bytes: 4, total: 8, status: "downloading", via: "afflatus", part }]));
+    const downloads = new Downloads(new EventEmitter(), file);
+    await downloads.restored;
+    expect(downloads.list()).toMatchObject([{ id: "h", status: "error", via: "afflatus" }]);
+    // the path of the .part stays in the state file, never in what the browser is told
+    expect(downloads.list()[0]).not.toHaveProperty("part");
+    await until(() => readdirSync(dir).join() === "downloads.json");
+  });
+
   it("is nothing without a state file, and does not mind one it cannot read", async () => {
     const bare = new Downloads(new EventEmitter());
     await bare.restored;

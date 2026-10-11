@@ -1,0 +1,216 @@
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { realpath } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { chooseRoute, MANAGER_BIG, MANAGER_HF } from "../src/downloads";
+import { fetchToFile, modelRoot, placeIn, Refused, type FetchTo } from "../src/modelDownload";
+import { until } from "./helpers";
+
+/** A file of 3 MB whose every byte depends on where it is: a piece out of place shows. */
+const SIZE = 3 * 2 ** 20;
+const FILE = Buffer.alloc(SIZE);
+for (let i = 0; i < SIZE; i++) FILE[i] = (i * 31 + (i >> 12)) & 255;
+const SHA = createHash("sha256").update(FILE).digest("hex");
+
+/** What each request asked: its path, its Range, and the key it carried. */
+let asked: Array<{ host: string; url: string; range?: string; auth?: string }>;
+let cuts: number;
+let site: Server;
+let other: Server;
+let siteUrl: string;
+let otherUrl: string;
+let dir: string;
+
+/** Sends the file from `from`, and cuts the connection after `cutAfter` bytes of it when that is set. */
+function send(res: import("node:http").ServerResponse, from: number, partial: boolean, cutAfter?: number) {
+  const body = FILE.subarray(from);
+  res.writeHead(partial ? 206 : 200, { "content-type": "application/octet-stream", "content-length": body.length, ...(partial ? { "content-range": `bytes ${from}-${SIZE - 1}/${SIZE}` } : {}) });
+  if (cutAfter === undefined) return res.end(body);
+  // closed the polite way: every byte written reaches the other end before the connection ends
+  res.write(body.subarray(0, cutAfter), () => res.socket?.end());
+}
+
+const from = (range?: string) => Number(/^bytes=(\d+)-$/.exec(range ?? "")?.[1] ?? 0);
+
+beforeEach(async () => {
+  asked = [];
+  cuts = 0;
+  dir = mkdtempSync(join(tmpdir(), "afflatus-fetch-"));
+  const handler = (host: string) => (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => {
+    const range = req.headers.range;
+    asked.push({ host, url: req.url ?? "", range, auth: req.headers.authorization });
+    const at = from(range);
+    // resumes, but cuts the connection twice, a third of the way and two thirds of the way
+    if (req.url === "/cut-twice") return cuts < 2 ? (cuts++, send(res, at, at > 0, Math.floor(SIZE / 3))) : send(res, at, at > 0);
+    // never resumes: each answer is the whole file, the first one cut half way
+    if (req.url === "/no-range") return cuts < 1 ? (cuts++, send(res, 0, false, SIZE / 2)) : send(res, 0, false);
+    if (req.url === "/fails") {
+      res.writeHead(503);
+      return res.end();
+    }
+    // a first part, then nothing more for a long while: a download to stop
+    if (req.url === "/slow") {
+      res.writeHead(200, { "content-type": "application/octet-stream", "content-length": SIZE });
+      return res.write(FILE.subarray(0, 100_000));
+    }
+    // as Hugging Face: the size and SHA-256 on the first answer, which sends on to where the bytes are
+    if (req.url === "/hf" || req.url === "/hf-wrong") {
+      res.writeHead(302, { location: `${otherUrl}/bytes`, "x-linked-size": String(SIZE), "x-linked-etag": `"${req.url === "/hf" ? SHA : "0".repeat(64)}"` });
+      return res.end();
+    }
+    if (req.url === "/bytes" || req.url === "/plain") return send(res, at, at > 0);
+    if (req.url === "/login") {
+      res.writeHead(200, { "content-type": "text/html" });
+      return res.end("<html>sign in</html>");
+    }
+    res.writeHead(404);
+    res.end();
+  };
+  site = createServer(handler("site"));
+  other = createServer(handler("other"));
+  await new Promise<void>((r) => site.listen(0, "127.0.0.1", r));
+  await new Promise<void>((r) => other.listen(0, "127.0.0.1", r));
+  siteUrl = `http://127.0.0.1:${(site.address() as AddressInfo).port}`;
+  otherUrl = `http://127.0.0.1:${(other.address() as AddressInfo).port}`;
+});
+afterEach(async () => {
+  site.closeAllConnections();
+  other.closeAllConnections();
+  await new Promise((r) => site.close(r));
+  await new Promise((r) => other.close(r));
+  rmSync(dir, { recursive: true, force: true });
+});
+
+const fetchTo = (path: string, over: Partial<FetchTo> = {}) => {
+  const notes: string[] = [];
+  const dest = join(dir, "model.safetensors");
+  const done = fetchToFile({
+    source: `${siteUrl}${path}`, headers: {}, allow: ["127.0.0.1"], dest, signal: new AbortController().signal,
+    onBytes: () => {}, onRetry: (n) => notes.push(n), backoffMs: 5, free: async () => 100 * 2 ** 30, ...over,
+  });
+  return { done, notes, dest };
+};
+
+describe("Afflatus downloading a model file itself", () => {
+  it("picks up from the byte it had after each cut, and the file is the same, byte for byte", async () => {
+    const { done, notes, dest } = fetchTo("/cut-twice");
+    await expect(done).resolves.toMatchObject({ bytes: SIZE, sha256: SHA });
+    expect(readFileSync(dest).equals(FILE)).toBe(true);
+    // asked again from the byte it had on disk after each cut (a little before where the site cut: fetch lets the last
+    // piece it held go when the connection ends early); a wrong place would have spoiled the file above
+    const starts = asked.map((a) => from(a.range));
+    expect(starts[0]).toBe(0);
+    expect(starts[1]).toBeGreaterThan(0);
+    expect(starts[1]).toBeLessThanOrEqual(Math.floor(SIZE / 3));
+    expect(starts[2]).toBeGreaterThan(starts[1]!);
+    expect(starts).toHaveLength(3);
+    expect(notes).toHaveLength(2);
+    expect(notes[0]).toMatch(/cut at .*trying again from \d+ MB \(2 of 5\)/);
+    expect(readdirSync(dir)).toEqual(["model.safetensors"]);
+  });
+
+  it("starts over when the site ignores Range", async () => {
+    const { done, notes, dest } = fetchTo("/no-range");
+    await expect(done).resolves.toMatchObject({ bytes: SIZE, sha256: SHA });
+    expect(asked).toHaveLength(2);
+    expect(from(asked[1]!.range)).toBeGreaterThan(0);
+    expect(notes.at(-1)).toMatch(/does not resume downloads: starting over/);
+    expect(readFileSync(dest).equals(FILE)).toBe(true);
+  });
+
+  it("gives up after so many tries in a row that gain nothing, with why, and leaves nothing", async () => {
+    const { done } = fetchTo("/fails", { attempts: 3 });
+    await expect(done).rejects.toThrow(/failed 3 times in a row \(the site answered 503\)/);
+    await expect(done).rejects.toBeInstanceOf(Refused);
+    expect(asked).toHaveLength(3);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("writes to a .part, never to the file's name, until all of it is there; a stop removes the .part", async () => {
+    const stop = new AbortController();
+    const { done, dest } = fetchTo("/slow", { signal: stop.signal });
+    await until(() => existsSync(`${dest}.part`) && readFileSync(`${dest}.part`).length === 100_000);
+    // what ComfyUI would list: nothing of a model's name while it comes
+    expect(readdirSync(dir)).toEqual(["model.safetensors.part"]);
+    stop.abort();
+    await expect(done).rejects.toThrow();
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("refuses a file the disk has no room for, before writing a byte of it", async () => {
+    const { done } = fetchTo("/plain", { free: async () => 10 * 2 ** 20 });
+    await expect(done).rejects.toThrow(/Not enough free space for it: the file is 3 MB, and the disk of .* has 10 MB free/);
+    expect(asked).toHaveLength(1);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("sends a key to the host first asked only, never on to where it sends", async () => {
+    const { done } = fetchTo("/hf", { headers: { Authorization: "Bearer k-123" } });
+    await done;
+    expect(asked.map((a) => [a.host, a.url, a.auth])).toEqual([["site", "/hf", "Bearer k-123"], ["other", "/bytes", undefined]]);
+  });
+
+  it("checks the SHA-256 Hugging Face gives, and keeps nothing of a file that does not match it", async () => {
+    await expect(fetchTo("/hf").done).resolves.toMatchObject({ sha256: SHA });
+    rmSync(join(dir, "model.safetensors"));
+    await expect(fetchTo("/hf-wrong").done).rejects.toThrow(/came damaged: its SHA-256/);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("says when the site refuses (a sign-in page), without trying again", async () => {
+    await expect(fetchTo("/login").done).rejects.toThrow(/The site refused the download/);
+    expect(asked).toHaveLength(1);
+  });
+});
+
+describe("where Afflatus may write a model", () => {
+  it("takes the first path ComfyUI lists for the folder that is there and writable, and only one of those", async () => {
+    const loras = join(dir, "loras");
+    mkdirSync(loras);
+    const listed = { loras: [join(dir, "missing"), loras], unet: [loras] };
+    expect(await modelRoot(listed, "loras", "http://127.0.0.1:8188", "")).toBe(await realpath(loras));
+    // ComfyUI's older name is read for the newer one
+    expect(await modelRoot(listed, "diffusion_models", "http://127.0.0.1:8188", "")).not.toBeNull();
+    // a folder ComfyUI does not list is nowhere Afflatus writes
+    expect(await modelRoot(listed, "vae", "http://127.0.0.1:8188", "")).toBeNull();
+    // a ComfyUI on another machine: its paths are its own disk's, not this one's
+    expect(await modelRoot(listed, "loras", "http://192.0.2.10:8188", "")).toBeNull();
+    // a path on a network share is never written
+    expect(await modelRoot({ loras: ["\\\\nas\\models\\loras"] }, "loras", "http://127.0.0.1:8188", "")).toBeNull();
+  });
+
+  it("keeps a sub-folder inside the folder, and refuses one whose link leads out of it", async () => {
+    const root = join(dir, "loras");
+    mkdirSync(root);
+    const real = await realpath(root);
+    expect(await placeIn(real, "wan/high", "a.safetensors")).toBe(join(real, "wan", "high", "a.safetensors"));
+    await expect(placeIn(real, "../outside", "a.safetensors")).rejects.toThrow(/not a models folder/);
+    const elsewhere = join(dir, "elsewhere");
+    mkdirSync(elsewhere);
+    // a junction needs no rights on Windows, and is a link anywhere else
+    symlinkSync(elsewhere, join(real, "out"), "junction");
+    await expect(placeIn(real, "out", "a.safetensors")).rejects.toThrow(/leads out of the models folder/);
+  });
+});
+
+describe("who downloads a file", () => {
+  const base = { headers: {}, total: 0 };
+  it("is Afflatus when it can write the folder, then the node pack, then ComfyUI-Manager", () => {
+    expect(chooseRoute({ ...base, root: "/m/loras", pack: true, source: "https://civitai.com/api/download/models/1" })).toEqual({ via: "afflatus", root: "/m/loras" });
+    expect(chooseRoute({ ...base, root: null, pack: true, source: "https://civitai.com/api/download/models/1" })).toEqual({ via: "pack" });
+  });
+  it("hands Manager a public Hugging Face address itself, since it streams that one to disk", () => {
+    const hf = "https://huggingface.co/Comfy-Org/x/resolve/main/a.safetensors";
+    expect(chooseRoute({ ...base, root: null, pack: false, source: hf })).toEqual({ via: "manager", direct: hf, note: MANAGER_HF });
+    // with a key, it goes through Afflatus: the key never reaches ComfyUI
+    expect(chooseRoute({ ...base, root: null, pack: false, source: hf, headers: { Authorization: "Bearer x" } })).toEqual({ via: "manager", note: undefined });
+  });
+  it("warns that Manager holds a file over 1 GB in memory, otherwise", () => {
+    expect(chooseRoute({ ...base, root: null, pack: false, source: "https://civitai.com/x", total: 7 * 2 ** 30 })).toEqual({ via: "manager", note: MANAGER_BIG });
+    expect(chooseRoute({ ...base, root: null, pack: false, source: "https://civitai.com/x", total: 200 * 2 ** 20 })).toEqual({ via: "manager", note: undefined });
+  });
+});

@@ -166,9 +166,17 @@ export interface Download {
   total: number;
   status: "starting" | "downloading" | "saving" | "done" | "error" | "stopped";
   error?: string;
-  /** While starting: what it waits for (ComfyUI-Manager fetches one file at a time). */
+  /** While starting: what it waits for (Afflatus downloads two files at a time, ComfyUI-Manager one). */
   waiting?: string;
+  /** Who downloads it: Afflatus itself, the Afflatus node pack, or ComfyUI-Manager. */
+  via?: DownloadVia;
+  /** The directory it is written into, when Afflatus or the node pack writes it. */
+  into?: string;
+  /** What to know while it runs: it was cut and picked up again, or ComfyUI-Manager may not cope with its size. */
+  note?: string;
 }
+/** Who downloads model files into this ComfyUI ("none": nothing can). */
+export type DownloadVia = "afflatus" | "pack" | "manager";
 /** A file of exactly the name that is missing, found in a repository on Hugging Face. */
 export interface HuggingFaceFind {
   repo: string;

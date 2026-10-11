@@ -11,8 +11,9 @@ import { readSettings } from "./settings";
 
 /**
  * Fetching one model file into ComfyUI: from Civitai (a version, and which of its files), or from the
- * address a workflow's author or a pack gives. ComfyUI-Manager does the saving; Afflatus passes the bytes
- * through. Only when the user turned this on in Settings. Used by the Download buttons and by packs.
+ * address a workflow's author or a pack gives. Afflatus writes it into ComfyUI's folder itself when it can,
+ * else ComfyUI's node pack or ComfyUI-Manager does (downloads.ts). Only when the user turned this on in
+ * Settings. Used by the Download buttons and by packs.
  */
 
 export const downloadBody = z.strictObject({
@@ -55,7 +56,7 @@ export async function beginDownload(s: Services, req: FastifyRequest, b: Downloa
     if (!/^https:\/\//.test(b.url) && !pretendSites()) throw bad("only https URLs are downloaded");
     // not an address inside this network (ComfyUI's own machine, and a pretend Civitai in the tests, are fine)
     assertPublicUrl(b.url, [hostnameOf(comfy.url), ...civitaiSites().map(hostnameOf)]);
-    const started = await s.downloads.start(comfy, self, { file: b.file, folder: b.folder, title: name, source: b.url });
+    const started = await s.downloads.start(comfy, self, { file: b.file, folder: b.folder, title: name, source: b.url, comfyDir: settings.comfyDir });
     await keepPage(started.file);
     return started;
   }
@@ -67,6 +68,6 @@ export async function beginDownload(s: Services, req: FastifyRequest, b: Downloa
   return s.downloads.start(comfy, self, {
     file: saveAs, folder: b.folder, title: found.title || name,
     source: found.file.downloadUrl, headers: settings.civitaiKey ? { Authorization: `Bearer ${settings.civitaiKey}` } : undefined,
-    total: Math.round((found.file.sizeKB ?? 0) * 1024),
+    total: Math.round((found.file.sizeKB ?? 0) * 1024), comfyDir: settings.comfyDir,
   });
 }
