@@ -1,5 +1,5 @@
 import { Suspense, useCallback, useEffect, useRef, useState, type DragEvent } from "react";
-import type { Reveal } from "./bar/bridge";
+import { openProjects, type Reveal } from "./bar/bridge";
 import { ArrowDown, ArrowUp, FolderKanban, LogIn, PinOff } from "lucide-react";
 import type { Asset } from "./api";
 import { useProjects } from "./data";
@@ -116,6 +116,8 @@ function Pins({ current }: { current: string }) {
             head={{ title: nameOf(id), sub: "pinned to the rail" }}
             items={[
               { label: "Work in it", icon: <LogIn size={14} />, disabled: id === current, note: id === current ? "working in it" : undefined, run: () => set(id) },
+              // the rail's own short menu; the rest of the project's list is a click away, in the Projects panel
+              { label: "Show in Projects", icon: <FolderKanban size={14} />, run: () => openProjects(nameOf(id)) },
               "—",
               { label: "Move up", key: "Alt+↑", icon: <ArrowUp size={14} />, disabled: i === 0, run: () => pins.move(id, i - 1) },
               { label: "Move down", key: "Alt+↓", icon: <ArrowDown size={14} />, disabled: i === pins.ids.length - 1, run: () => pins.move(id, i + 2) },

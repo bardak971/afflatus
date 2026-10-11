@@ -8,6 +8,7 @@ import type { Target } from "../../projects/tree";
 import type { usePins } from "../../projects/pins";
 import type { useQueueOps } from "../../queueOps";
 import type { useTreeActions } from "../../projects/useTreeActions";
+import type { useKindActions } from "../../projects/useKindActions";
 import type { useQueueBulk } from "../../screens/queue/bulk";
 import type { useJobActions } from "../../screens/queue/jobActions";
 import type { Banner } from "../../store";
@@ -32,6 +33,8 @@ export interface BarCtx {
   client: QueryClient;
   say(b: Banner): void;
   tree: ReturnType<typeof useTreeActions>;
+  /** The lists of a timeline, a draft, a folder, a project and the Inbox, as every place shows them. */
+  kinds: ReturnType<typeof useKindActions>;
   allProjects: NonNullable<ReturnType<typeof useProjects>["data"]>["items"];
   /** The projects not archived. */
   projects: BarCtx["allProjects"];
