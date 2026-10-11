@@ -11,11 +11,11 @@ import { OUT_MS } from "./motion";
  * absolute): the copy is added at the end of the same parent and must land in the same place.
  */
 
-/** A page that draws (not the tests' jsdom, whose queries would find the copy), and motion wanted. */
+/** A page that draws (not the tests' pretend page, jsdom or happy-dom, whose queries would find the copy), and motion wanted. */
 export const moves = () =>
   typeof window !== "undefined" &&
   typeof window.matchMedia === "function" &&
-  !/jsdom/i.test(navigator.userAgent) &&
+  !/jsdom|happydom/i.test(navigator.userAgent) &&
   !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** The classes that would play an opening again on the copy. */
