@@ -1,6 +1,7 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { createPortal } from "react-dom";
+import { focusBehindMenu } from "./ContextMenu";
 import { useLeave } from "./leave";
 import { cx } from "./ui";
 
@@ -57,12 +58,15 @@ export function Dialog({ label, onClose, children, className, z = "z-40" }: {
   // a press that started inside the panel and ends on the backdrop (a slider dragged out) is not a click on the backdrop
   const downOnBackdrop = useRef(false);
   const leaving = useLeave<HTMLDivElement>("m-out");
+  // where the focus goes back to: read at the first drawing, before a field of the dialog takes it (autoFocus). Opened from
+  // a right-click menu, the focus is on the menu's panel, which is gone by the time the dialog closes: it goes back to
+  // what the menu was opened on, as the command bar's does.
+  const [from] = useState(() => focusBehindMenu(document.activeElement));
 
   useEffect(() => {
     const id = me.current;
     stack.push(id);
     const el = panel.current;
-    const from = document.activeElement as HTMLElement | null;
     if (el && !el.contains(document.activeElement)) firstStop(el).focus({ preventScroll: true });
     const onKey = (e: KeyboardEvent) => {
       if (stack.at(-1) !== id || !el) return;
@@ -99,7 +103,8 @@ export function Dialog({ label, onClose, children, className, z = "z-40" }: {
       // the focus goes back where it was, when that is still on the page
       if (from && document.contains(from)) from.focus({ preventScroll: true });
     };
-  }, []);
+    // `from` is read once, at the first drawing: the effect runs once
+  }, [from]);
 
   return createPortal(
     <div

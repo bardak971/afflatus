@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RenderItem, TimesSummary } from "../src/api";
 import { change, flagsOf, paceDrift } from "../src/screens/queue/flagRules";
+import { busyShare, pct } from "../src/screens/queue/SummaryTiles";
 
 const DAY = 86_400_000;
 const times = Array.from({ length: 10 }, (_x, i) => Date.UTC(2026, 9, 1) + i * DAY);
@@ -66,5 +67,13 @@ describe("the flags of a period", () => {
     const item = { name: "MiniMax H3 · Video", width: 1024, height: 576, vram: 99 } as RenderItem;
     expect(flagsOf(summary({ tiles: { vramPeak: 99.4 } }), [{ ...item, vram: 80, name: "x" }, item])).toEqual([{ kind: "vram", peak: 99, spills: 0, spillLostMs: 0, where: "MiniMax H3 @ 1024×576" }]);
     expect(flagsOf(summary({ tiles: { vramPeak: 94 } }))).toEqual([]);
+  });
+});
+
+describe("the GPU busy share", () => {
+  it("is the GPU time over the window, never past all of it (a render that began before the window counts whole)", () => {
+    expect(pct(busyShare(30 * 60_000, 60 * 60_000))).toBe("50 %");
+    expect(pct(busyShare(80 * 60_000, 10 * 60_000))).toBe("100 %");
+    expect(busyShare(1_000, 0)).toBe(1);
   });
 });

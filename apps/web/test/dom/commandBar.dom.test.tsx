@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { BarHost } from "../../src/bar/BarHost";
 import { ContextMenu, useMenu } from "../../src/ContextMenu";
+import { fakeApi } from "./fakeApi";
 import { draw } from "./render";
 
 /** A button with a right-click menu whose first item is `run`, and the command bar as the app mounts it. */
@@ -47,5 +48,24 @@ describe("the command bar opened over a right-click menu", () => {
     await user.keyboard("{Enter}");
     expect(run).not.toHaveBeenCalled();
     expect((box as HTMLInputElement).value).toMatch(/^>\s*render clips/i);
+  });
+});
+
+describe("the command bar on an archived project", () => {
+  beforeAll(() => import("../../src/bar/CommandBar"));
+
+  it("unarchives it on Enter, and lists Unarchive first", async () => {
+    const project = { kind: "project", id: "zz-test-project", label: "zz-test archived", updatedAt: "2026-10-11T00:00:00.000Z", archived: true, timelines: 0, items: 0, bytes: 0 };
+    fakeApi.on("GET /command-index", { entries: [project], inboxItems: 0 });
+    fakeApi.on("PATCH /projects/:id", { id: project.id, name: project.label, archivedAt: null });
+    const { user } = draw(<BarHost />);
+    await user.keyboard("{Control>}k{/Control}");
+    const box = await screen.findByRole("combobox", { name: "Search Afflatus" });
+    await user.keyboard("zz-test archived");
+    await screen.findByRole("option", { name: /zz-test archived/ });
+    // the selection on the project's row: its first action is what Enter does
+    await waitFor(() => expect(document.getElementById(box.getAttribute("aria-activedescendant") ?? "")?.textContent).toContain("zz-test archived"));
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(fakeApi.calls("PATCH", "/projects/")).toEqual([expect.objectContaining({ path: "/projects/zz-test-project", body: { archived: false } })]));
   });
 });

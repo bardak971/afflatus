@@ -282,7 +282,8 @@ export function toBar(list: KindAction[]): BarLine[] {
       return a.items.flatMap((it): BarLine[] => (it === "—" || !it.run || it.disabled ? [] : [{ label: flatLabel(a.flat!, it.label), icon: it.icon ?? <a.icon size={14} />, note: it.note, disabled: it.disabled, run: it.run }]));
     }
     if (a.flat) return [];
-    return [{ label: a.label, icon: <a.icon size={14} />, note: a.note, danger: a.danger, disabled: a.disabled, run: () => a.run?.() }];
+    // the bar asks the new name in a dialog (a menu renames in place): its line says it asks, as the bar's others do
+    return [{ label: a.id === "rename" ? `${a.label}…` : a.label, icon: <a.icon size={14} />, note: a.note, danger: a.danger, disabled: a.disabled, run: () => a.run?.() }];
   });
 }
 

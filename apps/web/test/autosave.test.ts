@@ -1,16 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../src/api";
 import { autosaver, type AutosaveOpts, type SaveState } from "../src/autosave";
+import { clipGone } from "../src/timeline/useClipEdits";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 /** An autosaver whose saves wait until each is let go, in the order they were sent, with what was said kept. */
 function rig(over: Partial<AutosaveOpts<string>> = {}) {
-  const sent: Array<{ key: string; item: string; done: () => void; fail: (why: string) => void }> = [];
+  const sent: Array<{ key: string; item: string; done: () => void; fail: (why: string) => void; throws: (err: Error) => void }> = [];
   const kept: Array<[string, string]> = [];
   const states: Array<[SaveState, string | null]> = [];
   const opts: AutosaveOpts<string> = {
-    save: (key, item) => new Promise<void>((done, no) => sent.push({ key, item, done, fail: (why) => no(new Error(why)) })),
+    save: (key, item) => new Promise<void>((done, no) => sent.push({ key, item, done, fail: (why) => no(new Error(why)), throws: no })),
     keepalive: (key, item) => kept.push([key, item]),
     ...over,
   };
@@ -106,5 +108,39 @@ describe("an autosave of clip forms (keyed)", () => {
     sent[0]!.done();
     await settle();
     expect(s.pending.get("c1")).toBe("ab");
+  });
+
+  it("drops a clip's change when its save answers 404 (the clip removed meanwhile), and the others are said saved again", async () => {
+    const { s, sent, last } = rig({ gone: clipGone });
+    s.queue("c1", "typed just before the clip was removed");
+    s.queue("c2", "x");
+    void s.flush();
+    await settle();
+    sent[0]!.throws(new ApiError("No such clip", 404));
+    await settle();
+    sent[1]!.done();
+    await settle();
+    expect(s.pending.size).toBe(0);
+    expect(last()).toEqual(["saved", null]);
+    // a later save of another clip is said saved, and the tab closes without asking
+    s.queue("c2", "xy");
+    void s.flush("c2");
+    await settle();
+    sent[2]!.done();
+    await settle();
+    expect(last()).toEqual(["saved", null]);
+    expect(s.mustAsk()).toBe(false);
+  });
+
+  it("keeps a clip's change failed when its save fails another way than 404", async () => {
+    const { s, sent, last } = rig({ gone: clipGone });
+    s.queue("c1", "a");
+    void s.flush();
+    await settle();
+    sent[0]!.throws(new ApiError("Afflatus is not answering", 502));
+    await settle();
+    expect(s.pending.get("c1")).toBe("a");
+    expect(last()).toEqual(["failed", "Afflatus is not answering"]);
+    expect(s.mustAsk()).toBe(true);
   });
 });

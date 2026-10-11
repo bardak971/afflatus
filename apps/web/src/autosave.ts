@@ -28,6 +28,12 @@ export type AutosaveOpts<T> = {
   keepalive(key: string, item: T): void;
   /** Whether all of it can go as the page closes; when not, the browser asks first, and the ordinary save is started. Left out: always. */
   goesWhole?(key: string, item: T): boolean;
+  /**
+   * Whether a failed save says the thing is no more on the server (a clip removed while its form was being saved): its
+   * change is dropped rather than kept as failed, which would leave every later save said failed, and the tab asking
+   * before it closes, for the rest of the session. Left out: never.
+   */
+  gone?(err: unknown): boolean;
   delayMs?: number;
 };
 
@@ -56,15 +62,19 @@ export function autosaver<T>(opts: () => AutosaveOpts<T>, said: (state: SaveStat
   const send = async (key: string) => {
     const item = pending.get(key);
     if (item === undefined) return;
-    try {
-      await opts().save(key, item);
+    // what was sent is saved, or has nothing left to be saved to; a change made meanwhile is still waiting
+    const done = () => {
       failures.delete(key);
-      // what was sent is saved; a change made meanwhile is still waiting
       if (pending.get(key) === item) pending.delete(key);
       const left = [...failures.values()];
       if (left.length) set("failed", left[left.length - 1]!);
       else if (!pending.size) set("saved", null);
+    };
+    try {
+      await opts().save(key, item);
+      done();
     } catch (err) {
+      if (opts().gone?.(err)) return done();
       // the change stays pending: the next flush, or Retry, sends it again
       failures.set(key, (err as Error).message);
       set("failed", (err as Error).message);

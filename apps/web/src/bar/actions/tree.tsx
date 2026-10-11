@@ -23,7 +23,10 @@ export const draftActions = (x: BarCtx, d: Extract<CommandEntry, { kind: "draft"
 export function projectActions(x: BarCtx, e: CommandEntry | undefined, inbox: boolean): Action[] {
   if (inbox || !e) return toBar(x.kinds.inbox());
   const p = e as Extract<CommandEntry, { kind: "project" }>;
-  return toBar(x.kinds.project({ id: p.id, name: p.label, archived: p.archived, root: x.allProjects.find((y) => y.id === p.id)?.folderId ?? null }));
+  const list = x.kinds.project({ id: p.id, name: p.label, archived: p.archived, root: x.allProjects.find((y) => y.id === p.id)?.folderId ?? null });
+  // an archived project: Enter unarchives it (to work in it, it has to come back first), so Unarchive leads in the bar;
+  // the menus keep the kind's order, Work in it off with its reason
+  return toBar(p.archived ? [...list.filter((a) => a.id === "archive"), ...list.filter((a) => a.id !== "archive")] : list);
 }
 
 /** A folder, of the library or linked from the disk: the list every place shows. */

@@ -8,6 +8,8 @@ import { cellOf, DAY, dayOf, dayStart, digestedThrough, digestOf, groupKey, medi
  * from its digest (renderDigests.ts), so that only today's rows are worked out again on every call.
  */
 
+/** The grain of the stretch the figures cover (`spanMs`). */
+const MINUTE = 60_000;
 const OUT_OF_MEMORY = /out of memory|\boom\b|allocat|not enough memory/i;
 /**
  * The failed renders among `rows` that ran out of memory (OOM): their job's error says so. A job no longer kept is
@@ -155,10 +157,11 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
     period: typeof period === "string" ? period : ("window" as const), from: start, to: end, step, times, keepDays, since, buckets,
     upscale,
     /**
-     * The stretch of time the figures cover: the period, or since the first render when that is later. In whole steps: to
-     * the millisecond it changed on every call, and the summary was never the same twice for its ETag.
+     * The stretch of time the figures cover: the period, or since the first render when that is later. In whole minutes:
+     * to the millisecond it changed on every call, and the summary was never the same twice for its ETag. Not in whole
+     * steps: a first render 1 h 29 min ago made it one hour, and the GPU busy past 100 %.
      */
-    spanMs: Math.max(step, Math.round((Math.min(end, when) - Math.max(start, since ? Date.parse(since) : start)) / step) * step),
+    spanMs: Math.max(MINUTE, Math.round((Math.min(end, when) - Math.max(start, since ? Date.parse(since) : start)) / MINUTE) * MINUTE),
     tiles: {
       done: whole.done, images: whole.images, videos: whole.videos, failed: whole.failed + unsentCount.failed, cancelled: whole.cancelled + unsentCount.cancelled,
       // of those, the ones that never reached ComfyUI: they took no GPU time (said in the tip)

@@ -90,10 +90,13 @@ export function useRowMenus({ picked, rows, byKey, scoped, projects, folders, gr
   const menuItems = (r: Row | "picked"): MenuItem[] => {
     if (r === "picked") return moveItems([...picked.values()]);
     const rs = subjectOf(r);
+    // several kinds picked (a timeline and a draft, a folder): the kind's list builds its moves as the clicked row's kind,
+    // so they go through the panel's own Move to, which keeps each row's kind
+    const mixed = rs.some((x) => x.kind !== r.kind);
     // the kind's list (kindActions.tsx), without Show in Projects (it is here); the panel renames in the row, opens as a
     // click does, and drops the picks after a move or a delete
     const place: KindPlace = {
-      hide: ["show", ...(rs.some((x) => x.kind !== r.kind) ? (["put"] as const) : [])],
+      hide: ["show", ...(mixed ? (["put"] as const) : [])],
       runs: {
         open: () => activate(r),
         rename: () => startRename(r),
@@ -101,8 +104,8 @@ export function useRowMenus({ picked, rows, byKey, scoped, projects, folders, gr
         "new-folder": () => void actions.newFolder({ name: r.kind === "inbox" ? "the Inbox" : r.label, parent: r.kind === "folder" ? r.id : r.kind === "project" ? groups.find((x) => x.id === r.id)?.rootFolderId ?? null : null, project: r.kind === "project" ? r.id : r.group }).then((ok) => ok && setOpen(r.key, true)),
         ...(r.target ? { import: () => importInto(r.target!), link: () => void actions.link(r.target!) } : {}),
       },
-      // items among those picked go to folders, which only the panel's own Move to lists
-      subs: rs.some((x) => x.kind === "item") ? { move: moveItems(rs) } : undefined,
+      // items among those picked go to folders, which only the panel's own Move to lists; it also keeps each row's kind
+      subs: mixed || rs.some((x) => x.kind === "item") ? { move: moveItems(rs) } : undefined,
       done: clearPicks,
     };
     const menu = (list: KindAction[]) => toMenu(list, true);
