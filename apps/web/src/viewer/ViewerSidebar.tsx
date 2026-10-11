@@ -135,10 +135,11 @@ function Act({ icon, label, k, pressed, done, onClick, disabled, title, wide }: 
   );
 }
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+/** One fact of the file: its name (with its ? right after, as every ? of the app follows what it explains), then its value. */
+function Row({ label, help, children }: { label: string; help?: string; children: ReactNode }) {
   return (
     <>
-      <dt className="text-ink-2">{label}</dt>
+      <dt className="flex items-center gap-1.5 text-ink-2">{label}{help && <Help text={help} title={label} />}</dt>
       <dd className="min-w-0 break-words">{children}</dd>
     </>
   );
@@ -546,8 +547,8 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
             {a.width && a.height ? <Row label="Resolution">{a.width} × {a.height}</Row> : null}
             {a.kind === "video" && a.durationMs ? <Row label="Duration">{(a.durationMs / 1000).toFixed(1)} s{a.fps ? `, ${Math.round(a.fps)} fps` : ""}</Row> : null}
             {a.kind === "video" && a.durationMs ? <Row label="Audio">{a.hasSound ? "Yes" : "No"}</Row> : null}
-            {g?.resolved.overlap?.headMs ? <Row label="Head overlap"><span className="inline-flex items-center gap-1.5">{(g.resolved.overlap.headMs / 1000).toFixed(1)} s <Help text="The first seconds repeat the end of the previous clip. A timeline skips them." /></span></Row> : null}
-            {g?.resolved.overlap?.tailMs ? <Row label="Tail overlap"><span className="inline-flex items-center gap-1.5">{(g.resolved.overlap.tailMs / 1000).toFixed(1)} s <Help text="The last seconds repeat the start of the next clip. A timeline skips them." /></span></Row> : null}
+            {g?.resolved.overlap?.headMs ? <Row label="Head overlap" help="The first seconds repeat the end of the previous clip. A timeline skips them.">{(g.resolved.overlap.headMs / 1000).toFixed(1)} s</Row> : null}
+            {g?.resolved.overlap?.tailMs ? <Row label="Tail overlap" help="The last seconds repeat the start of the next clip. A timeline skips them.">{(g.resolved.overlap.tailMs / 1000).toFixed(1)} s</Row> : null}
             <Row label="File">{FORMATS[a.mime] ?? a.mime}, {mb(a.bytes)}</Row>
             {a.path && <Row label={a.inBin ? "Was at" : "Path"}><span className="font-mono text-xs break-all">{a.path}</span></Row>}
             <Row label="Created">{made.toLocaleDateString(UI_LOCALE, { day: "numeric", month: "long", year: "numeric" })} at {hourMinute(made)} ({when(a.createdAt)})</Row>

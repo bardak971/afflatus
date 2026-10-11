@@ -114,7 +114,7 @@ export const PartHead = ({ children }: { children: ReactNode }) => (
 export function Part({ id, title, help, summary, warn, needs, head, children, startOpen }: {
   id: string;
   title: string;
-  /** What the part is for, behind a ? beside the fold. */
+  /** What the part is for, behind a ? right after its name. */
   help?: string;
   /** What it holds, in a few words. */
   summary: ReactNode;
@@ -134,17 +134,20 @@ export function Part({ id, title, help, summary, warn, needs, head, children, st
   const now = useParts((s) => s.now === id);
   return (
     <section data-part={id} className={cx("scroll-mt-12 rounded-xl border shadow-card transition-colors", open ? "border-line-strong bg-panel" : "border-line bg-raised hover:border-line-strong")}>
-      <div className={cx("flex items-center", Boolean(head) && "pr-3")}>
-        <button type="button" aria-expanded={open} onClick={() => set(id, !open)} className="flex min-w-0 grow items-center gap-2.5 px-3 py-2.5 text-left">
-          <span className="flex min-w-0 grow flex-col gap-0.5">
-            <PartHead>{title}</PartHead>
-            <span className="truncate font-semibold">{summary}</span>
-            {warn && <span className="truncate text-xs text-warn-ink">{warn}</span>}
+      {/* the whole head folds and unfolds it; its name is the button (the keys reach it), and its ? sits right after the
+          name, as every ? of a form does: in the button it could not be (a button in a button), and beside the fold it
+          read as the chevron's. A click on the ? or on the head's own control (a chapter's switch) stays theirs */}
+      <div onClick={() => set(id, !open)} className={cx("flex cursor-pointer items-center gap-2.5 px-3 py-2.5", Boolean(head) && "pr-3")}>
+        <span className="flex min-w-0 grow flex-col gap-0.5 text-left">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <button type="button" aria-expanded={open} aria-label={`${title}: ${open ? "fold" : "unfold"}`} className="min-w-0 text-left"><PartHead>{title}</PartHead></button>
+            {help && <span onClick={(e) => e.stopPropagation()}><Help text={help} title={title} /></span>}
           </span>
-          <ChevronDown size={15} className={cx("shrink-0 text-ink-2", chevronMotion(open, searching), open && "rotate-180")} />
-        </button>
-        {help && <span className="pr-3"><Help text={help} /></span>}
-        {head}
+          <span className="truncate font-semibold">{summary}</span>
+          {warn && <span className="truncate text-xs text-warn-ink">{warn}</span>}
+        </span>
+        <ChevronDown size={15} className={cx("shrink-0 text-ink-2", chevronMotion(open, searching), open && "rotate-180")} />
+        {head && <span onClick={(e) => e.stopPropagation()}>{head}</span>}
       </div>
       <FoldBody open={open} now={now} className="flex flex-col gap-2 border-t border-line px-3 pt-2 pb-3">{children}</FoldBody>
     </section>
@@ -159,17 +162,22 @@ export function TextFold({ spec, value, children }: { spec: Extract<InputSpec, {
   const searching = useContext(FormSearching);
   const said = value.trim().replace(/\s+/g, " ");
   const note = withNote(spec).note;
-  // the row is its name: the text box under it, open, has no label of its own (only for screen readers)
+  // the row is its name: the text box under it, open, has no label of its own (only for screen readers). The name and
+  // its ? first, as every row of a form has them (FieldRow), then what it holds: the ? cannot sit in the row's button
+  // (a button in a button), and after the chevron it read as the value's
+  const toggle = () => set(id, !open);
   return (
     <div data-part={id} className="flex flex-col">
-      <div className="flex items-center">
-        <button type="button" aria-expanded={open} onClick={() => set(id, !open)} className="grid h-9 min-w-0 grow grid-cols-[104px_minmax(0,1fr)_14px] items-center gap-2 pl-3 text-left">
-          <span className="truncate text-xs font-semibold text-ink-2">{spec.label}</span>
+      <div className="grid h-9 grid-cols-[124px_minmax(0,1fr)] items-center gap-2 px-3">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <button type="button" aria-expanded={open} onClick={toggle} className="truncate text-left text-xs font-semibold text-ink-2 hover:text-ink">{spec.label}</button>
+          {note && <Help text={note} title={spec.label} />}
+        </span>
+        <button type="button" aria-expanded={open} aria-label={`${spec.label}: ${open ? "fold" : said || "empty"}`} onClick={toggle} className="flex h-full min-w-0 items-center gap-2 text-left">
           {/* folded, what it holds; open, the box says it */}
-          <span className={cx("truncate text-xs", said ? "text-ink" : "text-ink-3")}>{open ? "" : said || "empty"}</span>
-          <ChevronDown size={14} className={cx("text-ink-3", chevronMotion(open, searching), open && "rotate-180")} />
+          <span className={cx("min-w-0 grow truncate text-xs", said ? "text-ink" : "text-ink-3")}>{open ? "" : said || "empty"}</span>
+          <ChevronDown size={14} className={cx("shrink-0 text-ink-3", chevronMotion(open, searching), open && "rotate-180")} />
         </button>
-        {note && <Help text={note} title={spec.label} className="pr-3 pl-2" />}
       </div>
       <FoldBody open={open} className="px-3 pb-3">{children}</FoldBody>
     </div>

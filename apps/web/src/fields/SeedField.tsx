@@ -21,8 +21,11 @@ export function SeedField({ id, label, note, value, onChange }: { id: string; la
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-3">
         {/* random, there is no number box to name: the chips carry the name themselves */}
-        {random ? <span className="shrink-0">{label}</span> : <label htmlFor={id} className="shrink-0">{label}</label>}
-        {note && <Help text={note} title={label} />}
+        {/* named as every row is (FieldRow): bold, its ? right after it */}
+        <span className="flex shrink-0 items-center gap-1.5">
+          {random ? <span className="font-semibold">{label}</span> : <label htmlFor={id} className="font-semibold">{label}</label>}
+          {note && <Help text={note} title={label} />}
+        </span>
         <Segmented
           label={label}
           value={random ? "random" : mode}

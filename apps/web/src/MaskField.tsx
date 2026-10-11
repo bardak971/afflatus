@@ -40,7 +40,7 @@ export function MaskField({ label, note, picture, value, onChange }: {
   return (
     <div ref={root} className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="flex items-center gap-1.5"><span className="text-xs font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
+        <span className="flex items-center gap-1.5"><span className="font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
         {explain && <Note text={note} />}
       </div>
       {!picture ? (

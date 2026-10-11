@@ -6,7 +6,7 @@ import { ask } from "../../Confirm";
 import { fuzzyFilter } from "@afflatus/core";
 import { api, type Entity } from "../../api";
 import { Select } from "../../Select";
-import { AutoText, Button, Checkbox, cx, Empty, ErrorNote, fieldClass, Help, Segmented, TwoStep } from "../../ui";
+import { AutoText, Button, Checkbox, cx, Empty, ErrorNote, fieldClass, Segmented, TwoStep } from "../../ui";
 import { remember, remembered, textOf } from "./shared";
 import { copyText } from "../../secureContext";
 import { queryKeys } from "../../queryKeys";
@@ -205,7 +205,7 @@ export function SnippetTable({ snippets, query, only, onOnly: setOnly, fresh }: 
       )}
       {(move.isError || removeAll.isError) && <ErrorNote>{(move.error ?? removeAll.error)?.message}</ErrorNote>}
       {snippets.length === 0 && (
-        <Empty title="No snippets yet"><Help title="Snippets" text={`A snippet is a bit of prompt text kept under a name: a pose, a light, a camera move. Under "Snippets" above a form, tick it and it is appended to your prompt each time you generate; the dice ticks one of each category at random.`} /></Empty>
+        <Empty title="No snippets yet" helpTitle="Snippets" help={`A snippet is a bit of prompt text kept under a name: a pose, a light, a camera move. Under "Snippets" above a form, tick it and it is appended to your prompt each time you generate; the dice ticks one of each category at random.`} />
       )}
       {snippets.length > 0 && found.length === 0 && <Empty title="Nothing matches" />}
       {found.length > 0 && (

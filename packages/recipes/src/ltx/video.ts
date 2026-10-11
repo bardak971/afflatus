@@ -357,7 +357,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       note: "while it renders, a short clip of what is forming, each step, without its sound. Without it the preview is one still frame: the start image. A small cost per step. Needs the KJNodes pack",
     },
     ...SPEED_INPUTS,
-    { id: "smooth", type: "toggle", label: "Frame interpolation (×2)", note: "from 25 to 50 frames a second: with LTX's own temporal upscaler in latent space when its file is there (motion-aware, then a short refine), else RIFE on the pixels", default: false, advanced: true },
+    { id: "smooth", type: "toggle", label: "Interpolate ×2", note: "frame interpolation, from 25 to 50 frames a second: with LTX's own temporal upscaler in latent space when its file is there (motion-aware, then a short refine), else RIFE on the pixels", default: false, advanced: true },
     {
       id: "smoothWith", type: "choice", label: "Interpolate with", options: [SMOOTH_AUTO, SMOOTH_LTX, SMOOTH_RIFE], default: SMOOTH_AUTO, showWhen: "smooth", advanced: true,
       note: "Auto takes LTX's temporal upscaler when its file is there, else RIFE. The temporal upscaler doubles the latent's frames and a 2-step pass settles them: experimental, the refine after it is not Lightricks' published setting",

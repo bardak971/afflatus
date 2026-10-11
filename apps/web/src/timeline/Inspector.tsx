@@ -160,7 +160,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
     summary: pinWords ? `pinned ${pinWords}` : "",
     node: (
       <div className="flex flex-col gap-1.5">
-        <span className="flex items-center gap-1.5 text-xs font-semibold">Pinned frames<Help text={pinHelp} /></span>
+        <span className="flex items-center gap-1.5 font-semibold">Pinned frames<Help text={pinHelp} /></span>
         {pinnedInner}
       </div>
     ),

@@ -46,7 +46,9 @@ export function ClipMusicPopover({ anchor, index, music, base, onChange, onClose
     <Popover anchor={anchor} onClose={onClose} label={`Music under clip ${index + 1}`} width={330} height={300}>
       <div className="flex items-center gap-2 px-3.5 py-2.5">
         <span className="rounded-md bg-accent-wash px-1.5 py-0.5 text-[11px] font-bold text-accent">CLIP {index + 1}</span>
-        <span className="grow text-[11px] font-bold tracking-wider text-ink-3 uppercase">Music under it</span>
+        <span className="text-[11px] font-bold tracking-wider text-ink-3 uppercase">Music under it</span>
+        <Help title="Music under it" text={`Over the music's own volume, fades and ducking. Fades take ${(CLIP_FADE_MS / 1000).toFixed(1)} s; level changes at the clip's edges ramp over ${MUSIC_RAMP_MS} ms. The player and the export apply it alike.`} />
+        <span className="grow" />
         <span className="text-xs text-ink-3">Esc</span>
       </div>
       <Row name="Volume">
@@ -94,7 +96,6 @@ export function ClipMusicPopover({ anchor, index, music, base, onChange, onClose
         <span className="flex justify-end"><Toggle bare on={Boolean(m.muted)} onChange={(muted) => set({ muted })} label="Mute the music under this clip" /></span>
       </Row>
       <div className="flex items-center gap-2 border-t border-line px-3.5 pt-2 pb-3">
-        <Help text={`Over the music's own volume, fades and ducking. Fades take ${(CLIP_FADE_MS / 1000).toFixed(1)} s; level changes at the clip's edges ramp over ${MUSIC_RAMP_MS} ms. The player and the export apply it alike.`} />
         <span className="grow" />
         <Button size="sm" disabled={!music} onClick={() => onChange(null)}>Same as the rest</Button>
       </div>

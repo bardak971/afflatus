@@ -13,16 +13,17 @@ const Dense = createContext(false);
 /**
  * A card: its title with what it says at a glance on the right, then its rows, a thin line between them.
  * `dense`: the Prompt kit's look, an 11px upper-case head and 150px names. `help`: what the card is for,
- * behind a ? at the end of its head.
+ * behind a ? right after its title (as a row's ? follows its name); `status` stays on the right.
  */
 export function Card({ title, status, help, dense, id, label, setting, children }: { title?: ReactNode; status?: ReactNode; help?: string; dense?: boolean; id?: string; label?: string; setting?: string; children: ReactNode }) {
   return (
     <section id={id} aria-label={label} data-setting={setting} className="overflow-hidden rounded-[14px] border border-line bg-panel shadow-card">
       {title && (
         <div className={cx("flex items-center gap-2.5 border-b border-line", dense ? "min-h-[42px] px-4 py-2" : "min-h-[48px] px-[18px] py-2.5")}>
-          <h2 className={cx("grow", dense ? "text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase" : "text-[14px] font-bold")}>{title}</h2>
+          <h2 className={cx("min-w-0", dense ? "text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase" : "text-[14px] font-bold")}>{title}</h2>
+          {help && <Help text={help} title={typeof title === "string" ? title : label} className="-ml-1" />}
+          <span className="grow" />
           {status}
-          {help && <Help text={help} title={typeof title === "string" ? title : label} />}
         </div>
       )}
       <Dense.Provider value={Boolean(dense)}>

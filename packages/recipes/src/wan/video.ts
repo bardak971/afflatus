@@ -271,7 +271,7 @@ export const wanVideo = defineRecipe<WanVideo>({
       note: "acts with a CFG scale above 1, and with Turbo through NAG. The starting text is Wan's own, in Chinese",
     },
     ...SPEED_INPUTS,
-    { id: "smooth", type: "toggle", label: "Frame interpolation (RIFE ×2)", note: "frames interpolated with RIFE: 32 a second in place of 16", default: true, advanced: true },
+    { id: "smooth", type: "toggle", label: "RIFE ×2", note: "frame interpolation: frames interpolated with RIFE, 32 a second in place of 16", default: true, advanced: true },
     {
       id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
       note: "while it renders, a short clip of what is forming, each step. Without it the preview is one still frame: the start image. A small cost per step. Needs the KJNodes pack",

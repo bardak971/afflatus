@@ -122,8 +122,8 @@ export function ModelLink({ folder, file, className }: { folder: string; file: s
               {find.data && !find.data.lookups && (
                 <span className="flex items-center gap-1.5 px-2 py-1.5 text-ink-2">
                   Search Hugging Face and Civitai: off
-                  <Link href="/settings/models" className="font-semibold underline" onClick={() => setOpen(false)}>Settings</Link>
                   <Help text="The page is looked for only with this switch on (Settings › Models). Or search by hand below and paste the page URL." />
+                  <Link href="/settings/models" className="font-semibold underline" onClick={() => setOpen(false)}>Settings</Link>
                 </span>
               )}
               {find.data?.lookups && !candidates.length && (

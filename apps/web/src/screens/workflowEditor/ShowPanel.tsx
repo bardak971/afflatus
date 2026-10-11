@@ -44,17 +44,16 @@ function FollowAuthor({ m }: { m: Mapping }) {
     <div className="flex shrink-0 flex-col gap-1.5 rounded-xl border border-accent/35 bg-panel px-3 py-2 text-xs">
       {authorDiff.add.length > 0 && (
         <div className="flex items-start gap-2">
-          <span className="min-w-0 grow pt-1.5"><span className="text-ink-2">Author's front, not on the form:</span> <span className="font-semibold">{names(authorDiff.add)}</span></span>
+          <span className="min-w-0 grow pt-1.5"><span className="text-ink-2">Author's front, not on the form:</span> <Help className="align-middle" title="Saved differently" text={EXPLAIN} /> <span className="font-semibold">{names(authorDiff.add)}</span></span>
           {/* quiet like its Remove: the header's Save is the screen's one primary action */}
           <Button size="sm" tone="quiet" onClick={() => followAuthor("add")} className="shrink-0">Add {authorDiff.add.length}</Button>
-          <Help className="mt-2" title="Saved differently" text={EXPLAIN} />
         </div>
       )}
       {authorDiff.remove.length > 0 && (
         <div className="flex items-start gap-2">
-          <span className="min-w-0 grow pt-1.5"><span className="text-ink-2">On the form, not the author's:</span> <span className="font-semibold">{names(authorDiff.remove)}</span></span>
+          {/* the ? right after what it explains, once: on the first of the two lines shown */}
+          <span className="min-w-0 grow pt-1.5"><span className="text-ink-2">On the form, not the author's:</span> {authorDiff.add.length === 0 && <><Help className="align-middle" title="Saved differently" text={EXPLAIN} /> </>}<span className="font-semibold">{names(authorDiff.remove)}</span></span>
           <Button size="sm" tone="quiet" onClick={() => followAuthor("remove")} className="shrink-0">Remove {authorDiff.remove.length}</Button>
-          {authorDiff.add.length > 0 ? <span className="w-4 shrink-0" /> : <Help className="mt-2" title="Saved differently" text={EXPLAIN} />}
         </div>
       )}
     </div>
@@ -91,12 +90,15 @@ function SwitchList({ m }: { m: Mapping }) {
           <div key={t.id} className="flex flex-col gap-1 px-3 py-1.5">
             <div className="flex min-h-7 items-center gap-2.5">
               <Checkbox label={`Add the switch ${t.label}`} checked={Boolean(ticked)} onChange={() => m.toggleSwitch(t)} />
-              {t.help && <Help text={t.help} />}
-              {ticked ? (
-                <input aria-label="Name of the switch" value={ticked.label} onChange={(e) => m.changeSwitch(t.id, { label: e.target.value })} className={quietName} />
-              ) : (
-                <span className="min-w-24 grow basis-24 truncate text-ink-2" data-tip={plainLabel(t.label)}>{plainLabel(t.label)}</span>
-              )}
+              {/* its name, then its ? right after it */}
+              <span className="flex min-w-24 grow basis-24 items-center gap-1.5">
+                {ticked ? (
+                  <input aria-label="Name of the switch" value={ticked.label} onChange={(e) => m.changeSwitch(t.id, { label: e.target.value })} className={quietName} />
+                ) : (
+                  <span className="min-w-0 truncate text-ink-2" data-tip={plainLabel(t.label)}>{plainLabel(t.label)}</span>
+                )}
+                {t.help && <Help text={t.help} />}
+              </span>
               <span className="min-w-0 truncate text-xs text-ink-3">{via && <span data-tip="Two switches of this name: this one goes through this node">via {via} · </span>}{t.default ? "on" : "off"} in the file · {nodes} node{nodes === 1 ? "" : "s"}</span>
             </div>
             {warnings.map((w) => <span key={w} className="flex items-start gap-1.5 text-xs text-warn-ink"><AlertTriangle size={12} className="mt-0.5 shrink-0" />{w}</span>)}
@@ -181,12 +183,15 @@ function WidgetList({ m }: { m: Mapping }) {
               return (
                 <div key={c.id} className={cx("flex min-h-10 items-center gap-2.5 px-3 py-1.5", used && "opacity-50")}>
                   <Checkbox label={`Add a control for ${c.label}`} checked={Boolean(ticked)} disabled={used} onChange={() => m.toggleControl(c)} />
-                  {c.help && <Help text={c.help} />}
-                  {ticked ? (
-                    <input aria-label="Name of the control" value={ticked.label} onChange={(e) => m.change(c.id, { label: e.target.value })} className={quietName} />
-                  ) : (
-                    <span className="min-w-24 grow basis-24 truncate text-ink-2" data-tip={plainLabel(c.label)}>{plainLabel(c.label)}</span>
-                  )}
+                  {/* its name, then its ? right after it */}
+                  <span className="flex min-w-24 grow basis-24 items-center gap-1.5">
+                    {ticked ? (
+                      <input aria-label="Name of the control" value={ticked.label} onChange={(e) => m.change(c.id, { label: e.target.value })} className={quietName} />
+                    ) : (
+                      <span className="min-w-0 truncate text-ink-2" data-tip={plainLabel(c.label)}>{plainLabel(c.label)}</span>
+                    )}
+                    {c.help && <Help text={c.help} />}
+                  </span>
                   <Origin c={c} />
                   {!ticked && (() => {
                     const what = used ? "already in step 1" : `${rangeOf(c)}${c.off ? " · in a part that is off" : ""}`;

@@ -64,12 +64,13 @@ export function LookTable({ timeline, index, take, onSelectClip }: { timeline: T
     <div className="min-w-0 overflow-hidden rounded-lg border border-line">
       {/* the warnings go under the title when the column is too narrow for them beside it */}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-line px-3 py-2">
-        <span className="min-w-0 grow truncate text-[11px] font-bold tracking-[.08em] text-ink-3 uppercase">Look · take {n} of clip {index + 1}</span>
+        <span className="min-w-0 truncate text-[11px] font-bold tracking-[.08em] text-ink-3 uppercase">Look · take {n} of clip {index + 1}</span>
+        <Help title="Look" text={note} />
+        <span className="grow" />
         {/* at most the head's width, the words cut short there: the full warning is its tip */}
         {warning && <Chip tone="warn" className="max-w-full font-mono" tip={warning}><span className="min-w-0 truncate">{warning}</span></Chip>}
         {m.handover != null && m.handover > DRIFT.handover && <Chip tone="warn" className="font-mono" tip="The model stepped away from its guide where the run-up ends: the join shows. Render a new take.">run-up end ×{m.handover.toFixed(1)}</Chip>}
-        <Help title="Look" text={note} />
-      </div>
+        </div>
       <div className="px-3 pt-1.5 pb-1 text-xs">
         <div className={cx("grid items-center gap-x-2.5", grid)}>
           <span className="border-b border-line pb-1" />

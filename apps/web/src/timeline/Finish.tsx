@@ -67,12 +67,11 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
   return (
     // wider than the kit's card: its subtitle, its labels and the foot's three buttons each on one line
     <Dialog label="Finish all clips" onClose={onClose} className={cx(DIALOG, "max-w-xl")}>
-        <DialogHead icon={<Sparkles size={16} />} title="Finish all clips" sub="Each clip's take to its final quality · one job per clip, in order" onClose={onClose} />
+        <DialogHead icon={<Sparkles size={16} />} title="Finish all clips" sub={<span className="flex items-center gap-1.5">Each clip's take to its final quality · one job per clip, in order<Help title="Finish all clips" text={`Each finished take plays in place of its draft, with the same motion (the draft stays in the takes list); export "At the finished size" afterwards.`} /></span>} onClose={onClose} />
         <div className="flex flex-wrap gap-1.5">
           <Chip tone="accent">{todo.length} clip{todo.length === 1 ? "" : "s"} to finish</Chip>
           {stills > 0 && <Chip>{stills} still{stills > 1 ? "s" : ""} left as {stills > 1 ? "they are" : "it is"}</Chip>}
           {v.route === "latent" && resampled < videos.length && <Chip tone="warn" tip="Only a model that offers the latent re-sample (H3) is re-sampled in the latent; the other clips take SeedVR2.">{videos.length - resampled} of {videos.length} not re-sampled: SeedVR2</Chip>}
-          <Help title="Finish all clips" text={`Each finished take plays in place of its draft, with the same motion (the draft stays in the takes list); export "At the finished size" afterwards.`} className="ml-auto self-center" />
         </div>
         {attention}
         <div className="flex flex-col">

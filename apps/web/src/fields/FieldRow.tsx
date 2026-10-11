@@ -13,9 +13,10 @@ export function FieldRow({ label, note, htmlFor, stack, children }: { label: str
     // in the timeline editor's column dragged narrow (its container, "column"), the control goes under its label: side
     // by side, a switch or a picker beside a 124 px label was cut
     <div className={cx("grid min-h-11 items-center gap-x-3 gap-y-1", stack ? "grid-cols-1 py-1" : "grid-cols-[124px_minmax(0,1fr)] @max-[21rem]/column:grid-cols-1 @max-[21rem]/column:py-1")}>
-      <span className="flex min-w-0 items-center justify-between gap-1.5">
+      <span className="flex min-w-0 items-center gap-1.5">
         {htmlFor ? <label htmlFor={htmlFor} className="truncate font-semibold">{label}</label> : <span className="truncate font-semibold">{label}</span>}
-        {/* pinned to the column's right edge: the ?s of a card line up */}
+        {/* right after its name, as on a stacked field (Label): pinned to the column's edge, it read as the value's, and a
+            card's rows of both kinds had their ?s in two places */}
         {note && !explain && <Help text={note} title={label} />}
       </span>
       <div className="flex min-w-0 flex-col gap-1.5">{children}</div>

@@ -264,7 +264,7 @@ export function ClipField({ label, note, role, optional, value, onChange }: {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="flex items-center gap-1.5"><span className="text-xs font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
+        <span className="flex items-center gap-1.5"><span className="font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
         {optional && <span className="text-xs text-ink-2">optional</span>}
       </div>
       {value ? (
@@ -357,7 +357,7 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="flex items-center gap-1.5"><span className="text-xs font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
+        <span className="flex items-center gap-1.5"><span className="font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
         <span className="text-xs text-ink-2">{value.length + cast.length} of {max}</span>
       </div>
       {value.map((ref, i) => (
@@ -439,7 +439,7 @@ export function SoundField({ label, note, optional, value, onChange, part }: {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="flex items-center gap-1.5"><span className="text-xs font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
+        <span className="flex items-center gap-1.5"><span className="font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
         {optional && <span className="text-xs text-ink-2">optional</span>}
       </div>
       {value ? (

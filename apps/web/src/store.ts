@@ -140,7 +140,13 @@ export const usePanelWidth = create<{ width: number; set(width: number): void }>
  * narrower than the form's panel so that a 1280 px screen keeps its stage, and folded to a strip by hand only (never
  * by itself: the clip is watched while its form is worked). Both remembered.
  */
-export const EDITOR_COLUMN = { least: 320, most: 720, usual: 380 };
+/**
+ * The editor's right column. Usual: wide enough that a form's rows hold on one line (the resolution's four chips, the
+ * shapes): at 380 they broke onto a second one.
+ */
+export const EDITOR_COLUMN = { least: 320, most: 720, usual: 420 };
+/** The usual width before it was 420: a column left at it (never dragged) takes the new one. */
+const OLD_USUAL = 380;
 export const useEditorColumn = create<{ width: number; folded: boolean; set(width: number): void; fold(folded: boolean): void }>()(
   persist(
     (set) => ({
@@ -149,7 +155,14 @@ export const useEditorColumn = create<{ width: number; folded: boolean; set(widt
       set: (width) => set({ width: Math.max(EDITOR_COLUMN.least, Math.min(EDITOR_COLUMN.most, Math.round(width))) }),
       fold: (folded) => set({ folded }),
     }),
-    { name: "afflatus.editor-column" },
+    {
+      name: "afflatus.editor-column",
+      version: 1,
+      migrate: (saved, version) => {
+        const s = (saved ?? {}) as { width?: number; folded?: boolean };
+        return version < 1 && s.width === OLD_USUAL ? { ...s, width: EDITOR_COLUMN.usual } : s;
+      },
+    },
   ),
 );
 
