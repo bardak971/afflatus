@@ -26,8 +26,9 @@ export function OutputPart({ out, upscaling, encoding, summary, estimate, q, ren
   return (
     <Part id="output" title="Output" summary={summary} warn={estimate?.pace === "over" ? "past your card's usual pace" : undefined} needs={Boolean(q)}>
       {out.map(render)}
-      {/* the tuning of the upscale pass sits with the route that turns it on */}
-      {upscaling.length > 0 && <Heading title="Upscale pass" note="the second sampling over the enlarged latent: how hard it re-samples, which upscaler, tiles and stretches" />}
+      {/* the tuning of the upscale pass sits with the route that turns it on; a video's colour match runs after sampling
+          too, with no upscale at all, so the heading names both rather than calling it part of a pass that is off */}
+      {upscaling.length > 0 && <Heading title="After sampling" note="the upscale pass (how hard it re-samples, which upscaler, tiles and stretches) and the colour match" />}
       {upscaling.map(setting)}
       {encoding.length > 0 && <Heading title="Encode" note="frame rate, frame interpolation, compression" />}
       {encoding.map(setting)}
