@@ -1,7 +1,8 @@
 {
   "id": "klein-4b",
-  "name": "FLUX.2 Klein 4B (base)",
+  "name": "FLUX.2 Klein 4B",
   "author": "Black Forest Labs",
+  "line": "base · pictures and editing",
   "note": "FLUX.2 Klein, the 4B base model, as ComfyUI repackages it: pictures from sentences, and editing from an instruction with up to four reference pictures. Apache 2.0.",
   "homepage": "https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4B",
   "licence": {

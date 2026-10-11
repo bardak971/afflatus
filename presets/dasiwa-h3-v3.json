@@ -1,7 +1,8 @@
 {
   "id": "dasiwa-h3-v3",
-  "name": "DaSiWa Hybrid v3",
+  "name": "Miracle",
   "author": "Darksidewalker (DaSiWa)",
+  "line": "Hybrid v3 · int8 · 20–25 steps",
   "note": "Hybrid v3 \"Miracle\": MiniMax's fl2va and ref2va merged and fine-tuned in one file, for text, first/last frame and references; int8 ConvRot (needs a recent ComfyUI). Recommended: res_multistep or euler / simple, shift 10–12 video and 3–5 sound, 20–25 steps.",
   "homepage": "https://civitai.com/models/2877206?modelVersionId=3374445",
   "links": [

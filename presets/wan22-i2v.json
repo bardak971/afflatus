@@ -1,7 +1,8 @@
 {
   "id": "wan22-i2v",
-  "name": "Wan 2.2 image to video (14B, fp8)",
+  "name": "Wan 2.2 image to video",
   "author": "Wan (Alibaba)",
+  "line": "14B · fp8 · high + low noise",
   "note": "Wan 2.2's two image-to-video models, high noise then low noise, as ComfyUI repackages them. A clip from a first frame, Apache 2.0.",
   "homepage": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
   "licence": {

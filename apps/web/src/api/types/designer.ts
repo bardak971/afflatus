@@ -119,6 +119,8 @@ export interface PresetDef {
   /** The model files it is made for, with where each is had. */
   files?: PresetFile[];
   author?: string;
+  /** What it is picked by, in a few words ("Hybrid v3 · smaller file"): the list's dim line, after the author. */
+  line?: string;
   note?: string;
   homepage?: string;
   /** The author's other pages, credited beside the preset's own (their GitHub, say). */

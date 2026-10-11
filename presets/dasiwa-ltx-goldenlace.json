@@ -2,6 +2,7 @@
   "id": "dasiwa-ltx-goldenlace",
   "name": "GoldenLace v3",
   "author": "Darksidewalker (DaSiWa)",
+  "line": "TrueVision · by steps",
   "note": "GoldenLace v3, the TrueVision line (undistilled) on Sulphur: image-to-video and video-to-video first, with sound; fp8. The form runs it with the distilled LoRA on LTX's own 8 steps, or by steps.",
   "homepage": "https://civitai.com/models/2543443?modelVersionId=2967331",
   "links": [

@@ -1,7 +1,8 @@
 {
   "id": "wan22-t2v",
-  "name": "Wan 2.2 text to video (14B, fp8)",
+  "name": "Wan 2.2 text to video",
   "author": "Wan (Alibaba)",
+  "line": "14B · fp8 · 4-step LoRAs for Turbo",
   "note": "Wan 2.2's two text-to-video models, high noise then low noise, as ComfyUI repackages them, with lightx2v's 4-step LoRAs for Turbo. A clip from words alone, Apache 2.0.",
   "homepage": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
   "licence": {

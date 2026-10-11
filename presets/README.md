@@ -44,8 +44,9 @@ A community fine-tune (from Civitai or elsewhere) ships here only when the perso
 ```json
 {
   "id": "minimax-h3",
-  "name": "MiniMax H3 (int8)",
+  "name": "MiniMax H3",
   "author": "MiniMax",
+  "line": "int8 · first/last frame, seamless joins",
   "note": "One or two sentences on what it is and what it is for.",
   "homepage": "https://huggingface.co/Comfy-Org/MiniMax-H3",
   "licence": { "name": "MiniMax H3 Community License", "url": "https://…", "note": "What matters in it, in one line." },
@@ -58,6 +59,8 @@ A community fine-tune (from Civitai or elsewhere) ships here only when the perso
 ```
 
 - `id`: lower-case letters, digits and dashes; the file is named after it.
+- `name`: the model's own name, as its author calls it ("Miracle int4", "Krea 2 Turbo"). The list already groups by family: the name does not repeat it.
+- `line`: what it is picked by, in a few words ("Hybrid v3 · smaller file", "fp8 · 8 steps"): the list's dim line, after the author.
 - `recipe`: a built-in operation (`h3.video`, `wan.video`, `ltx.video`, `krea2.text-to-picture`, `sdxl.text-to-picture`, `flux.text-to-picture`…; `GET /api/recipes` lists them).
 - `inputs`: the form's values, by input id. Only what the preset means to set: everything else follows the model's defaults and what the user saved for it. A model file is named as it is in ComfyUI; a sub-folder on the user's side is matched by name.
 - `files[]`: `file` and `folder` (ComfyUI's model folder), and where it comes from: `url` for an address (Hugging Face), or `civitai` for Civitai (`version`: the version id; `pick`: the file's own name there when the version has several; `page`: its page). Civitai needs the user's API key for most files. `optional` marks a file the preset works without. `size` in bytes, when known.

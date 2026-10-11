@@ -29,10 +29,14 @@ const fileKey = (folder: string, file: string) => `${folder}:${(file.split(/[\\/
 
 const KEYS = [queryKeys.presetFiles(), queryKeys.setup(), queryKeys.downloads(), queryKeys.settings()];
 
-export function PresetFiles({ id, def }: { id: string; def: PresetDef }) {
+/**
+ * A preset's files and the one fetch of the required missing ones: what is missing, its size, whether the licence is
+ * accepted, and `go` (asks the licence first when it is not). Shared by the files block and, on a shipped preset, the
+ * page's head, whose main button it is while a file is missing.
+ */
+export function usePresetFetch(id: string, def: PresetDef) {
   const all = usePresetFiles();
   const settings = useSettings();
-  const downloads = useDownloads();
   const client = useQueryClient();
   const [licence, setLicence] = useState(false);
   const [got, setGot] = useState<{ started: number; failed: Array<{ file: string; error: string }>; skipped: number } | null>(null);
@@ -50,13 +54,25 @@ export function PresetFiles({ id, def }: { id: string; def: PresetDef }) {
       void Promise.all(KEYS.map((k) => client.invalidateQueries({ queryKey: k })));
     },
   });
-  if (!files.length) return null;
   const missing = files.filter((f) => !f.have);
   const fetchable = missing.filter((f) => (f.url || f.civitai) && !f.optional);
   const needsKey = fetchable.some((f) => f.civitai) && !settings.data?.hasCivitaiKey;
   const bytes = fetchable.reduce((n, f) => n + (f.size ?? 0), 0);
   const accepted = status?.accepted ?? !def.licence;
   const go = () => (def.licence && !accepted ? setLicence(true) : fetchAll.mutate(undefined));
+  return { status, files, missing, fetchable, needsKey, bytes, accepted, fetching, go, fetchAll, got, licence, setLicence };
+}
+export type PresetFetch = ReturnType<typeof usePresetFetch>;
+
+/**
+ * `fetch`: the page's own (a shipped preset's head holds the Get button); `inHead`: that button and the licence line are the
+ * page's, not drawn here.
+ */
+export function PresetFiles({ id, def, fetch, inHead = false }: { id: string; def: PresetDef; fetch?: PresetFetch; inHead?: boolean }) {
+  const own = usePresetFetch(id, def);
+  const downloads = useDownloads();
+  const { status, files, fetchable, needsKey, bytes, accepted, fetching, go, fetchAll, got, licence, setLicence } = fetch ?? own;
+  if (!files.length) return null;
   return (
     <div className="flex flex-col gap-2">
       <span className="text-xs font-semibold text-ink-2">Model files</span>
@@ -90,7 +106,7 @@ export function PresetFiles({ id, def }: { id: string; def: PresetDef }) {
           {status.needs.name} itself is missing {status.needs.missing.join(", ").toLowerCase()}: <Link href="/settings/models" className="font-semibold underline">Settings → Models</Link> has them.
         </div>
       )}
-      {def.licence && (
+      {def.licence && !inHead && (
         <div className="text-xs text-ink-2">
           Licence: {def.licence.url ? <a href={def.licence.url} target="_blank" rel="noreferrer" className="font-semibold underline">{def.licence.name}</a> : <span className="font-semibold">{def.licence.name}</span>}
           {accepted ? " · accepted" : " · to accept before the files are fetched"}
@@ -98,7 +114,7 @@ export function PresetFiles({ id, def }: { id: string; def: PresetDef }) {
         </div>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        {fetchable.length > 0 && (
+        {fetchable.length > 0 && !inHead && (
           <Button size="sm" tone="primary" onClick={go} disabled={fetchAll.isPending} className="flex items-center gap-1.5">
             <DownloadIcon size={13} /> Get the {fetchable.length} missing file{fetchable.length > 1 ? "s" : ""}{bytes ? ` (${gb(bytes)})` : ""}
           </Button>

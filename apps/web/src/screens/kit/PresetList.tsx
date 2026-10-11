@@ -5,12 +5,10 @@ import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { useRecipes } from "../../data";
 import { usePresetFiles } from "../../PresetFiles";
 import { buttonClass, cx } from "../../ui";
-import { Badge, Mark, Row } from "./Row";
+import { Mark, Row } from "./Row";
 
-/** The author a shipped preset is filed under when its file names none. */
-const UNNAMED_AUTHOR = "Shipped";
-/** Who a shipped preset is by, as its file says; a shipped file that names nobody is filed under one word. */
-export const authorOf = (e: Entity) => (e.kind === "preset" && e.def.author?.trim()) || UNNAMED_AUTHOR;
+/** An author as a list's dim line says them: "Darksidewalker (DaSiWa)" is Darksidewalker there. */
+export const shortAuthor = (author: string) => author.replace(/\s*\([^)]*\)\s*$/, "").trim() || author;
 
 /**
  * Presets in the list's groups, in its order: one group per model family as the families are listed, then the ones for
@@ -89,20 +87,18 @@ export function PresetList({ found, open, onSelect: select, onMenu, children }: 
     </button>
   );
   const groups = presetGroups(presetsShown, recipeList, familyList);
+  // a file missing is the usual state of a shipped preset, not an alarm: said quietly, the Files missing filter finds them
   const presetBadges = (e: Extract<Entity, { kind: "preset" }>) => {
     const st = filesOf(e);
     const missing = missingOf(e);
-    return (
-      <>
-        {e.source === "shipped" && <Badge>{authorOf(e)}</Badge>}
-        {missing > 0 ? <Badge tone="warn">{missing} file{missing > 1 ? "s" : ""} missing</Badge> : st && st.files.length > 0 ? <Badge tone="good">files ready</Badge> : null}
-      </>
-    );
+    if (missing > 0) return <span className="font-mono text-[11px] text-ink-3">needs {missing} file{missing > 1 ? "s" : ""}</span>;
+    return st && st.files.length > 0 ? <span className="font-mono text-[11px] text-good/80">ready</span> : null;
   };
+  // who made it and what it is picked by ("Darksidewalker · Hybrid v3 · smaller file"); without a line, its operation
   const presetLine = (e: Extract<Entity, { kind: "preset" }>) => {
     const r = recipeList.find((x) => x.id === e.def.recipe);
-    const n = Object.keys(e.def.inputs).length;
-    return [e.source === "shipped" ? "" : e.def.author, r?.title, n ? `${n} parameter${n > 1 ? "s" : ""}` : "", e.def.look && (e.def.look.cast.length || e.def.look.style || e.def.look.snippets?.length) ? "with references" : ""].filter(Boolean).join(" · ");
+    const refs = e.def.look && (e.def.look.cast.length || e.def.look.style || e.def.look.snippets?.length) ? "with references" : "";
+    return [e.def.author ? shortAuthor(e.def.author) : "", e.def.line || r?.title, refs].filter(Boolean).join(" · ");
   };
   const presetRow = (e: Extract<Entity, { kind: "preset" }>) => {
     const f = familyOf(e);

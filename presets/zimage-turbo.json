@@ -1,7 +1,8 @@
 {
   "id": "zimage-turbo",
-  "name": "Z-Image Turbo (bf16)",
+  "name": "Z-Image Turbo",
   "author": "Tongyi-MAI (Alibaba)",
+  "line": "bf16 · 9 steps",
   "note": "Z-Image Turbo as ComfyUI repackages it: pictures from plain sentences in English or Chinese, with legible text, in 9 steps at CFG 1. The family's own defaults.",
   "homepage": "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo",
   "licence": {
