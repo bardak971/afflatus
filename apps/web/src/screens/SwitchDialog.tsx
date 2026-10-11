@@ -109,7 +109,7 @@ export function SwitchDialog({ section, existing, frames, nodes, resultNode, onC
           {!usable.length && <span className="text-xs text-ink-3">no frames in this workflow</span>}
           <Button size="sm" tone="quiet" aria-expanded={oneByOne} onClick={() => setOneByOne((v) => !v)} className="self-start">{oneByOne ? "Hide the nodes" : "Pick nodes one by one"}</Button>
           {oneByOne && (
-            <div className="flex max-h-56 flex-col gap-1 overflow-y-auto rounded-lg border border-line bg-ground p-1.5">
+            <div className="flex max-h-56 flex-col gap-1 overflow-y-auto rounded-2xl border border-line bg-ground p-1.5">
               {/* Enter here finds, it does not save */}
               <input aria-label="Search the nodes" placeholder={`Search ${nodes.length} nodes`} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }} className={cx(fieldClass, "h-8 shrink-0 px-2 text-xs")} />
               {listed.map((n) => (

@@ -232,7 +232,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
           ref={flip(`card:${s.id}`)}
           data-section={s.id}
           aria-label={`Section ${s.label}`}
-          className={cx("flex flex-col rounded-lg border bg-panel", over && "before" in over && over.before === s.id ? "border-accent" : "border-line")}
+          className={cx("flex flex-col rounded-xl border bg-panel", over && "before" in over && over.before === s.id ? "border-accent" : "border-line")}
           onDragOver={(e) => { if (allow(e)) setOver({ before: s.id }); }}
           onDragLeave={() => setOver(null)}
           onDrop={dropAt({ section: s.id, group: null, index: s.items.length })}

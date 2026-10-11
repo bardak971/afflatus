@@ -276,7 +276,7 @@ function StagePlaceholder({ title }: { title: string }) {
         <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{title} · <span className="font-mono">–</span></span>
         {[0, 1, 2].map((i) => (
           <div key={i} className="flex flex-col gap-1.5 rounded-[12px] p-1.5">
-            <div style={{ aspectRatio: PLACEHOLDER_SHAPE, width: `min(100%, ${Math.round(TILE_H * PLACEHOLDER_SHAPE)}px)` }} className="m-skeleton mx-auto rounded-xl!" />
+            <div style={{ aspectRatio: PLACEHOLDER_SHAPE, width: `min(100%, ${Math.round(TILE_H * PLACEHOLDER_SHAPE)}px)` }} className="m-skeleton mx-auto rounded-md!" />
             {/* the two lines under a result, at their own line heights */}
             <span className="flex min-w-0 flex-col gap-1 px-0.5">
               <span className="text-[12.5px]"><span className="m-skeleton inline-block h-[0.8em] w-3/4 align-middle" /></span>

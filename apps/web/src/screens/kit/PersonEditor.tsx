@@ -92,7 +92,7 @@ function Pictures({ value, onChange, what, sent, face }: { value: string[]; onCh
         {...drop.props}
         onDragOver={(e) => (dragged ? e.preventDefault() : drop.props.onDragOver(e))}
         onDrop={onDrop}
-        className={cx("relative -m-1 flex flex-wrap gap-2 rounded-xl border-[1.5px] border-transparent p-1", room > 0 && !dragged && drop.zone)}
+        className={cx("relative -m-1 flex flex-wrap gap-2 rounded-2xl border-[1.5px] border-transparent p-1", room > 0 && !dragged && drop.zone)}
       >
         {first > 0 && (
           // the pictures a model is handed: a bar over them, as wide as they are
@@ -174,7 +174,7 @@ function Voice({ value, onChange }: { value: string | null; onChange(value: stri
   return (
     <div className="flex min-w-0 grow flex-col gap-1">
       {value ? (
-        <div {...drop.props} className={cx("flex min-w-0 items-center gap-2 rounded-[10px] border bg-raised py-1 pr-1.5 pl-2", drop.over ? "border-accent bg-accent-wash" : drop.wanted ? "border-dashed border-accent" : "border-line")}>
+        <div {...drop.props} className={cx("flex min-w-0 items-center gap-2 rounded-xl border bg-raised py-1 pr-1.5 pl-2", drop.over ? "border-accent bg-accent-wash" : drop.wanted ? "border-dashed border-accent" : "border-line")}>
           <AudioPlayer asset={value} name={asset.data?.name || "Audio"} bare className="min-w-0 grow" />
           <Button size="sm" onClick={() => setPicking(true)}>Change</Button>
           <Button size="sm" onClick={() => onChange(null)}>Remove</Button>

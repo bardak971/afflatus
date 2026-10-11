@@ -362,8 +362,8 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
       </div>
       {value.map((ref, i) => (
         <div key={ref.asset} className={cx("flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5", !first.current.has(ref.asset) && "m-fade")}>
-          <button type="button" aria-label={`Show reference ${i + 1} large`} onClick={() => setOpen(ref.asset)} className="shrink-0 cursor-zoom-in rounded-md">
-            <img src={thumbUrl(ref.asset)} alt="" className="h-12 w-12 rounded-md object-cover" />
+          <button type="button" aria-label={`Show reference ${i + 1} large`} onClick={() => setOpen(ref.asset)} className="shrink-0 cursor-zoom-in rounded-[3px]">
+            <img src={thumbUrl(ref.asset)} alt="" className="h-12 w-12 rounded-[3px] object-cover" />
           </button>
           <div className="min-w-0 grow">
             {roles.length === 1 && <span className="text-ink-2">{video ? `Video ${i + 1}` : `Image ${i + 1}`}: {ROLE_WORDS[ref.role].label.toLowerCase()}</span>}
@@ -380,8 +380,8 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
       ))}
       {cast.map((c) => (
         <div key={`cast:${c.asset}`} className="flex items-center gap-2.5 rounded-lg border border-dashed border-line-strong p-1.5" data-tip={`Added from the cast when the form is sent. Take ${c.from} out of the cast to leave it out; your own images come first.`}>
-          <button type="button" aria-label={`Show ${c.from}'s reference large`} onClick={() => setOpen(c.asset)} className="shrink-0 cursor-zoom-in rounded-md">
-            <img src={thumbUrl(c.asset)} alt="" className="h-12 w-12 rounded-md object-cover opacity-90" />
+          <button type="button" aria-label={`Show ${c.from}'s reference large`} onClick={() => setOpen(c.asset)} className="shrink-0 cursor-zoom-in rounded-[3px]">
+            <img src={thumbUrl(c.asset)} alt="" className="h-12 w-12 rounded-[3px] object-cover opacity-90" />
           </button>
           <span className="min-w-0 grow text-ink-2"><span className="font-semibold text-ink">{c.from}</span> · {ROLE_WORDS[c.role].label.toLowerCase()}<span className="block text-xs text-ink-3">from the cast</span></span>
         </div>

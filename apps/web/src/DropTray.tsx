@@ -158,7 +158,7 @@ export function DropTray() {
       {kind && zones.length > 0 && (
         <div ref={trayRef} style={{ transformOrigin: "bottom" }} className="m-pop pointer-events-none fixed inset-x-0 bottom-14 z-[70] flex flex-col items-center gap-2">
           <span className="rounded-full bg-ground/90 px-3 py-1 text-xs text-ink-2">Drop on an action</span>
-          <div className="pointer-events-auto flex gap-3 rounded-2xl border border-line-strong bg-panel/95 p-3 shadow-2xl">
+          <div className="pointer-events-auto flex gap-3 rounded-3xl border border-line-strong bg-panel/95 p-3 shadow-2xl">
             {zones.map((z) => (
               <div
                 key={z.id}

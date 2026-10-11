@@ -14,16 +14,16 @@ function ThemeTile({ theme, accent, on, onPick }: { theme: Theme; accent: string
       aria-pressed={on}
       onClick={onPick}
       data-tip={theme.name}
-      className={cx("flex w-[132px] flex-col gap-1.5 rounded-xl border-2 p-1.5 text-left", on ? "border-accent" : "border-transparent hover:border-line-strong")}
+      className={cx("flex w-[132px] flex-col gap-1.5 rounded-2xl border-2 p-1.5 text-left", on ? "border-accent" : "border-transparent hover:border-line-strong")}
     >
       <span className="flex h-[70px] w-full gap-1.5 overflow-hidden rounded-lg p-1.5" style={{ background: t.ground, border: `1px solid ${t.line}` }}>
-        <span className="h-full w-7 rounded" style={{ background: t.panel }} />
-        <span className="flex grow flex-col gap-1.5 rounded p-1.5" style={{ background: t.panel }}>
+        <span className="h-full w-7 rounded-xs" style={{ background: t.panel }} />
+        <span className="flex grow flex-col gap-1.5 rounded-xs p-1.5" style={{ background: t.panel }}>
           <span className="h-1.5 w-4/5 rounded-full" style={{ background: t.ink }} />
           <span className="h-1.5 w-3/5 rounded-full" style={{ background: t["ink-2"] }} />
           <span className="mt-auto flex items-center justify-between">
             <span className="h-1.5 w-1.5 rounded-full" style={{ background: t.good }} />
-            <span className="h-3 w-9 rounded" style={{ background: t.accent }} />
+            <span className="h-3 w-9 rounded-xs" style={{ background: t.accent }} />
           </span>
         </span>
       </span>

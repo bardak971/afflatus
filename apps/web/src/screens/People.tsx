@@ -254,7 +254,7 @@ export function People() {
                   return (
                     <Row
                       key={e.id} active={open === e.id} onClick={() => select(e.id)} onMenu={(ev) => rowMenu.open(ev, e)} title={e.name} summary={summaryOf(e, recipeList)}
-                      mark={<span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-raised text-ink-3">{face ? <Thumb src={thumbUrl(face)} alt="" loading="lazy" className="h-full w-full object-cover" /> : tab === "person" ? <User size={16} /> : <MapPin size={16} />}</span>}
+                      mark={<span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[3px] bg-raised text-ink-3">{face ? <Thumb src={thumbUrl(face)} alt="" loading="lazy" className="h-full w-full object-cover" /> : tab === "person" ? <User size={16} /> : <MapPin size={16} />}</span>}
                     />
                   );
                 })}
@@ -303,7 +303,7 @@ export function People() {
 function PlaceholderRow({ big }: { big: boolean }) {
   return (
     <div aria-hidden className="flex w-full items-center gap-3 rounded-[11px] border border-transparent px-2 py-2">
-      <span className={cx("m-skeleton shrink-0", big ? "h-10 w-10 rounded-md!" : "h-6 w-6 rounded!")} />
+      <span className={cx("m-skeleton shrink-0", big ? "h-10 w-10 rounded-[3px]!" : "h-6 w-6 rounded!")} />
       <span className="flex min-w-0 grow flex-col gap-0.5">
         <span className="text-sm"><span className="m-skeleton inline-block h-[0.8em] w-1/2 align-middle" /></span>
         <span className="text-xs"><span className="m-skeleton inline-block h-[0.8em] w-3/4 align-middle" /></span>

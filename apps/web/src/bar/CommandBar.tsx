@@ -500,7 +500,7 @@ export function CommandBar() {
                         aria-disabled={a.disabled}
                         onMouseMove={() => i !== acting.sel && setActing({ ...acting, sel: i })}
                         onClick={() => { run(acting.item, a); if (a.stay) setActing(null); input.current?.focus(); }}
-                        className={cx("flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left", i === acting.sel && "bg-accent/14 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_35%,transparent)]", a.disabled && "opacity-45")}
+                        className={cx("flex w-full items-center gap-3 rounded-[10px] px-3 py-2 text-left", i === acting.sel && "bg-accent/14 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_35%,transparent)]", a.disabled && "opacity-45")}
                       >
                         <span className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-raised", a.danger ? "text-warn-ink" : "text-ink-2")}>{a.icon ?? <Zap size={15} />}</span>
                         <span className="flex min-w-0 grow flex-col">
@@ -568,7 +568,7 @@ export function CommandBar() {
                               aria-selected={on}
                               onMouseMove={() => !on && setSel(i)}
                               onClick={() => { setSel(i); choose(it); input.current?.focus(); }}
-                              className={cx("flex w-full items-center gap-3 rounded-xl px-3 py-[9px] text-left", on && "bg-accent/14 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_35%,transparent)]")}
+                              className={cx("flex w-full items-center gap-3 rounded-[10px] px-3 py-[9px] text-left", on && "bg-accent/14 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_35%,transparent)]")}
                             >
                               <span className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[color-mix(in_srgb,currentColor_13%,transparent)]", it.job?.state === "failed" ? "text-warn" : TONE[it.kind])}>{iconOf(it)}</span>
                               <span className="flex min-w-0 grow flex-col gap-px">

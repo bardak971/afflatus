@@ -163,7 +163,7 @@ export function PinnedFrames({ stored, pins, frames, midDefault, onInputs, onPic
             {[{ where: "start" as const, id: opens, input: pins.start, text: "First frame" }, { where: "end" as const, id: ends, input: pins.end, text: loops ? "Last frame, same as the first: it loops" : "Last frame" }].map((p) =>
               p.id ? (
                 <PinDrop key={p.where} className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5" onPick={(id) => onInputs({ ...stored, [p.input!]: id })}>
-                  <img src={thumbUrl(p.id)} alt="" className="h-11 w-11 rounded-md object-cover" />
+                  <img src={thumbUrl(p.id)} alt="" className="h-11 w-11 rounded-[3px] object-cover" />
                   <span className="grow">{p.text}</span>
                   <Button size="sm" onClick={() => setPicking(p.where)}>Change</Button>
                   <button type="button" aria-label="Remove this pinned frame" onClick={() => onInputs(without(p.input))} className="flex h-7 w-7 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
@@ -172,7 +172,7 @@ export function PinnedFrames({ stored, pins, frames, midDefault, onInputs, onPic
             )}
             {through && pins.mid && pins.midAt && (
               <PinDrop className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5" onPick={(id) => onInputs({ ...stored, [pins.mid!]: id })}>
-                <img src={thumbUrl(through)} alt="" className="h-11 w-11 rounded-md object-cover" />
+                <img src={thumbUrl(through)} alt="" className="h-11 w-11 rounded-[3px] object-cover" />
                 <span className="grow">Keyframe at</span>
                 <NumberBox label="When the clip reaches this keyframe, in seconds" value={Number(stored[pins.midAt] ?? midDefault)} min={0.5} max={14.5} step={0.5} unit="s" onCommit={(v) => onInputs({ ...stored, [pins.midAt!]: v })} />
                 <button type="button" aria-label="Remove this pinned frame" onClick={() => onInputs(without(pins.mid))} className="flex h-7 w-7 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>

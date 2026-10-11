@@ -152,7 +152,7 @@ export function Strip({ parts, open, query, setQuery, found }: {
                 key={p.id}
                 type="button"
                 onClick={() => goTo(p.id)}
-                className={cx("shrink-0 rounded-full px-1.5 py-1 text-[11px] font-semibold whitespace-nowrap", current === p.id ? "bg-line-strong text-ink-strong" : "text-ink-2 hover:bg-hover hover:text-ink")}
+                className={cx("shrink-0 rounded px-1.5 py-1 text-[11px] font-semibold whitespace-nowrap", current === p.id ? "bg-line-strong text-ink-strong" : "text-ink-2 hover:bg-hover hover:text-ink")}
               >
                 {p.label}
               </button>
@@ -164,7 +164,7 @@ export function Strip({ parts, open, query, setQuery, found }: {
                 aria-label={`${hidden.length} more part${hidden.length === 1 ? "" : "s"}`}
                 data-tip={hidden.map((p) => p.label).join(", ")}
                 onClick={(e) => more.open(e, true)}
-                className={cx("flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-1 text-[11px] font-semibold whitespace-nowrap", hidden.some((p) => p.id === current) ? "bg-line-strong text-ink-strong" : "text-ink-2 hover:bg-hover hover:text-ink")}
+                className={cx("flex shrink-0 items-center gap-0.5 rounded px-1.5 py-1 text-[11px] font-semibold whitespace-nowrap", hidden.some((p) => p.id === current) ? "bg-line-strong text-ink-strong" : "text-ink-2 hover:bg-hover hover:text-ink")}
               >
                 {hidden.find((p) => p.id === current)?.label ?? `+${hidden.length}`}
                 <ChevronDown size={11} />

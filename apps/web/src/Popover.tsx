@@ -68,7 +68,7 @@ export function Popover({ anchor, onClose, label, width = 360, height = 420, bes
       aria-label={label}
       data-floating
       style={{ left: place.left, top: place.top, bottom: place.bottom, width, maxHeight: Math.min(place.maxHeight, window.innerHeight - 16), transformOrigin: place.top !== undefined ? "top left" : "bottom left" }}
-      className={cx("m-pop fixed z-[66] flex flex-col overflow-hidden rounded-xl border border-line-strong bg-panel text-sm shadow-2xl shadow-shade/60", className)}
+      className={cx("m-pop fixed z-[66] flex flex-col overflow-hidden rounded-[14px] border border-line-strong bg-panel text-sm shadow-2xl shadow-shade/60", className)}
     >
       {children}
     </div>,
