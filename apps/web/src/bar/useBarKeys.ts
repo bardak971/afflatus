@@ -1,7 +1,7 @@
 import { useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { Item } from "./items";
 import { useBar } from "./store";
-import type { Action } from "./useActions";
+import type { Action } from "./actions/ctx";
 
 /** The selected result's actions on show (Tab), filtered by what is typed in their place. */
 export type Acting = { item: Item; text: string; sel: number };

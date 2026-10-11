@@ -1,4 +1,4 @@
-import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { ArrowUpToLine, Copy, Keyboard, Navigation, RotateCcw, Settings2, Square } from "lucide-react";
@@ -30,7 +30,7 @@ import { formWhenOpen, openProjects, useSelectedClip, useTimelineRequest, type T
 import type { Item } from "./items";
 import { pageLabel, type SettingCtx } from "./settingsRegistry";
 import { commandActions } from "./actions/commands";
-import type { BarCtx, FolderEntry, RenderTimeline, TimelineEntry } from "./actions/ctx";
+import type { Action, BarCtx, FolderEntry, RenderTimeline, TimelineAim, TimelineEntry } from "./actions/ctx";
 import { historyActions, kitActions, personActions } from "./actions/kit";
 import { jobActions } from "./actions/queue";
 import { renderActions } from "./actions/renders";
@@ -38,29 +38,6 @@ import { draftActions, folderActions, projectActions, timelineActions, workflowA
 import { queryKeys } from "../queryKeys";
 
 const Viewer = lazy(() => import("../Viewer").then((m) => ({ default: m.Viewer })));
-
-/** One thing a result can have done to it: Enter does the first, Ctrl + Enter the second, Tab lists them all. */
-export interface Action {
-  label: string;
-  note?: string;
-  icon?: ReactNode;
-  danger?: boolean;
-  disabled?: boolean;
-  /** The bar stays open after it (a switch flipped in place, a figure copied). */
-  stay?: boolean;
-  /** The key that does the same where the action comes from (the viewer's menu hint, the editor's key), drawn on its right. */
-  keys?: string;
-  run(): unknown;
-}
-
-/** The timeline a command acts on: the one open in the editor, else the one last used. */
-export interface TimelineAim {
-  id: string;
-  name: string;
-  entry?: Extract<CommandEntry, { kind: "timeline" }>;
-  /** Open in the editor now (its keys and history are on screen). */
-  open?: true;
-}
 
 /**
  * What each kind of result can have done, made of what the app already does: the viewer's own actions for a render,

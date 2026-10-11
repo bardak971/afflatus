@@ -35,8 +35,6 @@ export function closingBody(d: Draft): Partial<ReturnType<typeof saveBodyOf>> | 
   return size(rest) <= KEEPALIVE_MAX ? rest : null;
 }
 
-export { inTurn, KEEPALIVE_MAX } from "./autosave";
-
 /**
  * A draft saved, through `raw` rather than `api.saveDraft`: whether the draft is gone (404) is wanted, and a save made
  * as the page closes must outlive the page (`keepalive`). "gone": the server no longer has it.
@@ -124,7 +122,7 @@ export function useDraft(firstRecipe: string | undefined) {
   const fate = loaded.data ? draftFate(loaded.data.projectId, under, project) : "keep";
 
   // the edits on screen, saved half a second after the last one (autosave.ts); the saves of drafts go one at a time (see
-  // inTurn), the edits of a draft that is not on screen too
+  // autosave.ts inTurn), the edits of a draft that is not on screen too
   const save = useAutosave<Draft>({
     delayMs: SAVE_AFTER_MS,
     save: async (d) => {

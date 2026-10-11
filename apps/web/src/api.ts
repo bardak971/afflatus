@@ -5,8 +5,8 @@ export type { ModelInfo };
 import type { Advice, HistoryPage, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem } from "./api/types/queue";
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
-import { lookAdds, type DraftBrief, type Draft, type DesignerSession, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView } from "./api/types/designer";
-import type { Health, FinishSettings, Settings } from "./api/types/settings";
+import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView } from "./api/types/designer";
+import type { Health, FinishSettings, Settings, SettingsPatch } from "./api/types/settings";
 import type { CommandEntry, CommandEstimate, CommandIndex, PromptHistoryItem } from "./api/types/bar";
 import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, HuggingFaceFind, CivitaiFind } from "./api/types/models";
 
@@ -127,7 +127,7 @@ export const api = {
   /** The tools Afflatus needs looked for again, now. */
   checkHealth: () => call<Health>("POST", "/health/check"),
   settings: (o?: Asked) => call<Settings>("GET", "/settings", undefined, o?.signal),
-  saveSettings: (patch: Record<string, unknown>) => call<Settings>("PUT", "/settings", patch),
+  saveSettings: (patch: SettingsPatch) => call<Settings>("PUT", "/settings", patch),
   presetFiles: (o?: Asked) => call<{ online: boolean; items: PresetFilesView[] }>("GET", "/presets/files", undefined, o?.signal),
   nodePack: (o?: Asked) => call<{ pack: string; path: string; written: boolean; loaded: boolean; canWrite: boolean }>("GET", "/comfy/node-pack", undefined, o?.signal),
   getPresetFiles: (id: string, body: { accept?: boolean; optional?: boolean } = {}) => call<{ started: Download[]; failed: Array<{ file: string; error: string }>; skipped: number }>("POST", `/presets/${encodeURIComponent(id)}/get`, body),
@@ -251,7 +251,7 @@ export const api = {
   draft: (id: string, o?: Asked) => call<Draft>("GET", `/drafts/${id}`, undefined, o?.signal),
   /** A new draft, in the project the app looks at unless another is named. */
   createDraft: (body: { recipe: string; forms?: Draft["forms"]; count?: number; look?: Look | null; project?: string | null; name?: string }) => call<Draft>("POST", "/drafts", { ...body, project: body.project === undefined ? projectForNew() : body.project }),
-  saveDraft: (id: string, patch: { recipe?: string; forms?: Draft["forms"]; count?: number; look?: Look | null; chat?: unknown[]; designer?: DesignerSession | null; name?: string }) => call<Draft>("PUT", `/drafts/${id}`, patch),
+  saveDraft: (id: string, patch: DraftPatch) => call<Draft>("PUT", `/drafts/${id}`, patch),
   /** One turn of the conversation with the designer about a form. */
   /** What the designer will know about a form before anything is said: the pictures whose story it has, and the clip it carries on from. */
   designerKnows: (recipe: string, values: Record<string, unknown>) =>

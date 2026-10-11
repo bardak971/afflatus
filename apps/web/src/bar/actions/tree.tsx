@@ -5,8 +5,7 @@ import { toBar } from "../../projects/kindActions";
 import type { Row } from "../../projects/tree";
 import { rowOf } from "../../projects/useKindActions";
 import { workflowEditHref } from "../bridge";
-import type { Action } from "../useActions";
-import type { BarCtx, FolderEntry, TimelineEntry } from "./ctx";
+import type { Action, BarCtx, FolderEntry, TimelineEntry } from "./ctx";
 import { queryKeys } from "../../queryKeys";
 
 /** The Projects panel's row of an entry, as its actions take them. */

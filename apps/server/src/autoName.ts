@@ -263,49 +263,6 @@ export async function labelNames(db: AnyDb, label: string | null | undefined, co
   return Array.from({ length: count }, (_, i) => numbered(given, from + i + 1));
 }
 
-/** Names written many at a time: one statement per two hundred, and never over a name already there. */
-async function writeNames(db: AnyDb, given: Map<string, string>): Promise<void> {
-  const all = [...given];
-  for (let i = 0; i < all.length; i += 200) {
-    const chunk = all.slice(i, i + 200);
-    const cases = sql.join(chunk.map(([id, name]) => sql`when ${id} then ${name}`), sql` `);
-    await db.updateTable("assets").set({ name: sql`case id ${cases} end` }).where("id", "in", chunk.map(([id]) => id)).where("name", "=", "").execute();
-  }
-}
-
-/**
- * Every nameless result of a job sent from no draft and for no clip, whose job is still in the queue's list: named
- * "<label> NN" after the label given to it, else after the first words of its prompt, numbered in the order they were
- * made, past the numbers that label already has. `recipeTitle` says a recipe's title (undefined when not known), to tell
- * a given label from the queue's own. Returns how many were named.
- */
-export async function backfillLabelNames(db: AnyDb, recipeTitle: (id: string) => string | undefined): Promise<number> {
-  const rows = (await db.selectFrom("assets").innerJoin("generations", "generations.id", "assets.generation_id")
-    .innerJoin("jobs", "jobs.generation_id", "generations.id")
-    .select(["assets.id as id", "jobs.label as label", "jobs.recipe_id as recipe_id", "generations.inputs as inputs"])
-    .where("assets.name", "=", "").where("generations.draft_id", "is", null).where("jobs.draft_id", "is", null).where("jobs.clip_id", "is", null)
-    .orderBy("assets.created_at").orderBy("assets.id").execute()) as Array<{ id: string; label: string; recipe_id: string; inputs: string }>;
-  const promptIn = (inputs: string) => {
-    try {
-      return promptOf(JSON.parse(inputs) as Record<string, unknown>);
-    } catch {
-      return ""; // a record that cannot be read: named after its label only
-    }
-  };
-  const labelled = rows.map((r) => ({ id: r.id, label: jobLabel(r.label, { id: r.recipe_id, title: recipeTitle(r.recipe_id) }, promptIn(r.inputs)) })).filter((r) => r.label);
-  if (!labelled.length) return 0;
-  const next = await highestAfter(db, [...new Set(labelled.map((r) => r.label))]);
-  const given = new Map<string, string>();
-  for (const r of labelled) {
-    if (given.has(r.id)) continue;
-    const n = next.get(r.label)! + 1;
-    next.set(r.label, n);
-    given.set(r.id, numbered(r.label, n));
-  }
-  await writeNames(db, given);
-  return given.size;
-}
-
 /** What an item's name is worked out from when it says nothing (saysNothing): its row, as the assets table holds it. */
 export type NamedRow = { id: string; name: string | null; kind: string; origin: string; generation_id: string | null; source_id: string | null; source_range: string | null };
 

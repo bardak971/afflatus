@@ -21,6 +21,7 @@
     "check:graphs": "tsx scripts/check-graphs.ts",
     "check:player": "tsx scripts/check-player.ts",
     "check:digests": "tsx scripts/check-render-digests.ts",
+    "check:cycles": "tsx scripts/check-cycles.ts",
     "restore": "tsx scripts/restore-backup.ts",
     "comfy:scan": "tsx scripts/comfy-scan.ts",
     "comfy:load": "tsx scripts/comfy-load.ts",

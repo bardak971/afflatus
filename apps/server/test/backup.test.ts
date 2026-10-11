@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, type FakeComfy } from "@afflatus/comfy/testing";
 import { restoreBackup } from "../src/backup";
 import { migrate, openSqlite } from "../src/db";
-import { crc32, zipNames } from "../src/zip";
+import { crc32 } from "../src/zip";
+import { zipNames } from "./zipKit";
 import { ZipStream } from "../src/zipStream";
 import { get, makeApp, makeFake, until, type TestApp } from "./helpers";
 

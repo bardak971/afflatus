@@ -1,27 +1,31 @@
 import { describe, expectTypeOf, it } from "vitest";
+import type { z } from "zod";
 // the web's shapes of the server's answers (apps/web/src/api/types), as the page reads them
 import type { Asset, AssetDetail, ClipOf, ProjectsTree } from "../../web/src/api/types/library";
 import type { HistoryPage, QueueStatus, RenderItem, TimesSummary as WebTimes } from "../../web/src/api/types/queue";
-import type { Measure as WebMeasure, Timeline } from "../../web/src/api/types/timeline";
-import type { Draft, Entity, PresetFilesView as WebPresetFiles } from "../../web/src/api/types/designer";
-import type { Settings as WebSettings } from "../../web/src/api/types/settings";
+import type { ClipPatch, Measure as WebMeasure, Timeline, TimelinePatch } from "../../web/src/api/types/timeline";
+import type { Draft, DraftBrief, DraftPatch, Entity, PresetFilesView as WebPresetFiles } from "../../web/src/api/types/designer";
+import type { Settings as WebSettings, SettingsPatch } from "../../web/src/api/types/settings";
 import type { CommandEntry as WebEntry, CommandEstimate as WebEstimate, CommandIndex, PromptHistoryItem as WebPromptItem } from "../../web/src/api/types/bar";
 import type { Download } from "../../web/src/api/types/models";
+import type { LibraryChange as WebLibraryChange } from "../../web/src/queryKeys";
 // the server's own: what its routes return
 import type { assetDetail } from "../src/assets-api";
 import type { CommandEntry, CommandEstimate, commandIndex, commandItems } from "../src/commandIndex";
 import type { Measure } from "../src/cut";
 import type { DownloadView } from "../src/downloads";
-import type { DraftView } from "../src/drafts";
+import type { DraftView, draftsList, saveBody } from "../src/drafts";
 import type { EntityView } from "../src/entities";
+import type { LibraryChange } from "../src/events";
 import type { assetView } from "../src/media";
 import type { PresetFilesView } from "../src/presetFiles";
 import type { projectsTree } from "../src/projects";
 import type { PromptHistoryItem } from "../src/promptHistory";
 import type { history, status } from "../src/queueView";
-import type { list, TimesSummary } from "../src/renders";
-import type { publicSettings } from "../src/settings";
+import type { list, TimesSummary } from "../src/rendersRead";
+import type { llmSchema, publicSettings, settingsSchema } from "../src/settings";
 import type { Timelines } from "../src/timelines";
+import type { clipPatch, timelinePatch } from "../src/timelines-api";
 
 /**
  * The web keeps its own copy of the shapes the server answers with (it imports nothing from the server), so a field
@@ -74,6 +78,21 @@ type Agree<S, W, Skip extends string = never> = 0 extends 1 & (S | W)
 const agree = <S, W, Skip extends string = never>() => expectTypeOf<Agree<S, W, Skip>>();
 
 /**
+ * A request body the web sends (`W`) held against what the server's schema takes (`S`, its z.input), both ways: the web's
+ * must fit the schema; every key it sends, nested ones included, must be one the schema has (a strict schema refuses any
+ * other, and a loose one drops it unread); and every key the schema takes must be one the web's shape has, so that a field
+ * added on the server is not left out of the web's by mistake.
+ */
+type Takes<S, W> = 0 extends 1 & (S | W)
+  ? { anyOnOneSide: true }
+  : [W] extends [S]
+    ? [Unknown<S, W>] extends [never]
+      ? [Unknown<W, S>] extends [never] ? true : { keysTheWebDoesNotHave: Unknown<W, S> }
+      : { keysTheServerDoesNotTake: Unknown<S, W> }
+    : { doesNotFit: Said<Misfits<W, S>> };
+const takes = <S, W>() => expectTypeOf<Takes<S, W>>();
+
+/**
  * The keys of a library item the listings add (GET /api/assets): the web's one Asset has them as optional, and an item
  * read alone, or one inside another answer (a timeline's clip, an item's sources), goes without them.
  */
@@ -106,6 +125,22 @@ describe("the web's API types match what the server answers", () => {
     // a kit item's definition is stored as JSON and sent back as read: the web's per-kind shapes are its only word on it
     agree<EntityView, Omit<Entity, "def" | "source">>().toEqualTypeOf<true>();
     agree<PresetFilesView, WebPresetFiles>().toEqualTypeOf<true>();
+    // the drafts list: each draft's brief with its cover and counts
+    agree<Awaited<ReturnType<typeof draftsList>>, { items: DraftBrief[]; unused: number }>().toEqualTypeOf<true>();
+  });
+
+  it("the library's live events", () => {
+    agree<LibraryChange, WebLibraryChange>().toEqualTypeOf<true>();
+    // and the other way: a change the server can say is one the page knows to read in place
+    agree<WebLibraryChange, LibraryChange>().toEqualTypeOf<true>();
+  });
+
+  it("what the web sends", () => {
+    takes<z.input<typeof clipPatch>, ClipPatch>().toEqualTypeOf<true>();
+    takes<z.input<typeof timelinePatch>, TimelinePatch>().toEqualTypeOf<true>();
+    takes<z.input<typeof saveBody>, DraftPatch>().toEqualTypeOf<true>();
+    // any setting by key (the server parses the whole after merging), and the model in use the short way
+    takes<Partial<z.input<typeof settingsSchema>> & { llm?: Partial<Omit<z.input<typeof llmSchema>, "id">> }, SettingsPatch>().toEqualTypeOf<true>();
   });
 
   it("settings, the command bar, downloads", () => {

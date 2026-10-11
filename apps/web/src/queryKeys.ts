@@ -1,6 +1,5 @@
 import type { QueryKey } from "@tanstack/react-query";
 import type { Clip, Timeline } from "./api";
-import type { AssetChange } from "./assetCache";
 
 /**
  * Every query key of the page, in one place. A key is a path: invalidating a key reads again every query whose key
@@ -160,6 +159,21 @@ export const isAssets = (key: QueryKey, part: "list" | "tree" | "one" | "unkept"
 export const LIBRARY_KEYS = [queryKeys.assets.all(), queryKeys.folders(), queryKeys.storage(), queryKeys.projects.all(), queryKeys.facets.all()] as const;
 /** What a render that ended changes: the record of render times, and what a form and the Finish dialog forecast from it (live.ts). */
 export const RENDER_KEYS = [queryKeys.renders.all(), queryKeys.advice.all(), queryKeys.finishForecast.all()] as const;
+
+/**
+ * A change to items of the library made on screen before the server says it is done (keep, unkeep, bin, put back,
+ * move, rename): every copy the screens read is changed at once (the library's lists, the Projects panel's folder
+ * lists, the item itself, the expiring count of the status bar, the folders' counts), and what each copy was is kept,
+ * so that a refusal puts every one back as it was. Applied by assetCache.ts; the hook that sends the change and says
+ * what happened is assetChange.tsx. Here, beside the keys, because a change a "library" event says in full is one too
+ * (libraryInPlace), and assetCache.ts reads the keys.
+ */
+export type AssetChange =
+  | { kind: "keep"; ids: string[]; kept: boolean }
+  | { kind: "bin"; ids: string[] }
+  | { kind: "restore"; ids: string[] }
+  | { kind: "move"; ids: string[]; folder: string | null }
+  | { kind: "rename"; ids: string[]; name: string };
 
 /**
  * What a "library" event says changed, when its sender knows (the server's LibraryChange, events.ts, says what each is);

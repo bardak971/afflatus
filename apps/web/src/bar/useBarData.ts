@@ -25,7 +25,7 @@ import { PAGES, SETTINGS, settingKeyNow, type SettingCtx } from "./settingsRegis
 import { useSelectedClip } from "./bridge";
 import { castPlace } from "./castTo";
 import { useBar } from "./store";
-import type { TimelineAim } from "./useActions";
+import type { TimelineAim } from "./actions/ctx";
 
 /** One empty list while the recipes load, so what is worked out from them is not redone at every render. */
 const NO_RECIPES: RecipeInfo[] = [];
@@ -122,7 +122,7 @@ export function useBarData({ open, mode, text, ranks, picked, learn, foundEntrie
   const settingCtx: SettingCtx = useMemo(() => ({
     server: settings.data,
     save: async (patch: Partial<Settings>) => {
-      const saved = await api.saveSettings(patch as Record<string, unknown>);
+      const saved = await api.saveSettings(patch);
       client.setQueryData(queryKeys.settings(), saved);
     },
   }), [settings.data, client]);

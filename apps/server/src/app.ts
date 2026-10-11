@@ -18,6 +18,7 @@ import { registerEntities } from "./entities";
 import { httpError } from "./errors";
 import { registerEvents } from "./events";
 import { registerFolders } from "./folders";
+import { registerForecasts } from "./forecasts-api";
 import { allowedHosts, ANY_HOST, crossSite, crossSiteRead, hostAllowed, marked, SAFETY_HEADERS, UPLOAD_TYPE } from "./hostCheck";
 import { registerHistory } from "./history-api";
 import { registerJobs } from "./jobs-api";
@@ -141,6 +142,7 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
   registerFolders(app, s);
   registerProjects(app, s);
   registerCommandBar(app, s);
+  registerForecasts(app, s);
   registerWorkflows(app, s);
   registerTimelines(app, s);
   registerMeasures(app, s);

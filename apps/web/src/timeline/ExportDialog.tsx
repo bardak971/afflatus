@@ -5,8 +5,7 @@ import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
 import { FieldRow } from "../fields";
 import { Keys } from "../Keys";
 import { Button, ButtonLink, Chip, ErrorNote, Segmented, Toggle } from "../ui";
-import { stamp } from "./model";
-import type { TimeRange } from "./Track";
+import { stamp, type TimeRange } from "./model";
 import { plural } from "../format";
 
 /** The export box: open, what was asked, and the export that was there before (to tell the new one). */

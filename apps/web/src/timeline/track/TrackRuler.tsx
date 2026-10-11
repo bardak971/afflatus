@@ -1,7 +1,6 @@
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import type { Clock } from "../clock";
-import { PAD, playAt, stamp, type Slot } from "../model";
-import type { TimeRange } from "../Track";
+import { PAD, playAt, stamp, type Slot, type TimeRange } from "../model";
 import { HINTS } from "./peek";
 import { HEIGHT, RULER } from "./rows";
 import type { useMotionMarks } from "./useMotionMarks";

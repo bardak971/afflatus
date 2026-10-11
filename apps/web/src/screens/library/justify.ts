@@ -1,6 +1,5 @@
 import { unkeptMs } from "../../keepFor";
 import type { Asset } from "../../api";
-import { leftWords } from "../../format";
 
 /**
  * The library's grid in justified rows: every picture and video at its own shape, every row the same
@@ -82,15 +81,3 @@ export function justify(aspects: number[], width: number, target: number, gap: n
 export const SOON_MS = 3 * 60 * 60_000;
 /** How long an item nobody kept has before it goes to the bin by itself (Settings › Storage); null when nothing goes on its own. */
 export const leftOf = (a: Pick<Asset, "countdownFrom" | "createdAt">, now = Date.now(), ms = unkeptMs()): number | null => (ms === null ? null : new Date(a.countdownFrom ?? a.createdAt).getTime() + ms - now);
-
-/** When the items not kept go to the bin, said once for all of them: "23–24 h", "5 h", "40 min–3 h". */
-export function binRange(lefts: number[]): string {
-  if (!lefts.length) return "";
-  const lo = Math.max(0, Math.min(...lefts));
-  const hi = Math.max(0, Math.max(...lefts));
-  const a = leftWords(lo);
-  const b = leftWords(hi, true);
-  if (a === b) return a;
-  // "23–24 h", not "23 h–24 h"
-  return a.endsWith(" h") && b.endsWith(" h") ? `${a.slice(0, -2)}–${b}` : `${a}–${b}`;
-}

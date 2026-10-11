@@ -27,7 +27,8 @@ const createBody = z.strictObject({
   /** A name of its own from the start (a duplicate's "… copy"). */
   name: z.string().max(80).optional(),
 });
-const saveBody = z.strictObject({
+/** What PUT /api/drafts/:id takes (the web's DraftPatch is held to it in test/apiTypes.test.ts). */
+export const saveBody = z.strictObject({
   recipe: z.string().min(1).optional(),
   forms: forms.optional(),
   count: z.number().int().min(1).max(8).optional(),
@@ -156,8 +157,56 @@ const full = (d: Tables["drafts"]) => ({
   chat: d.chat ? (JSON.parse(d.chat) as unknown[]) : [],
   designer: d.designer ? (JSON.parse(d.designer) as { llm?: string; instruction?: string }) : null,
 });
-/** A draft as GET /api/drafts/:id answers it: what the web's types are held against (test/apiTypes.test.ts). */
+/** A draft as GET /api/drafts/:id answers it: what the web's types are held against (test/apiTypes.test.ts). @internal */
 export type DraftView = ReturnType<typeof full>;
+
+/**
+ * The drafts list (GET /api/drafts). `project`: only the drafts of that project; "none": the Inbox; left out: all. Each
+ * with its newest output (the cover), how many it has in the library and their size, read in one query, and whether it
+ * is unused (see unusedDrafts); and how many drafts are unused. `limit`: more than the recent ones (the projects panel
+ * lists all of a project's).
+ */
+export async function draftsList(s: Services, project: string | undefined, limit: number | undefined) {
+  const rows = await inProject(s.db, project).orderBy("updated_at", "desc").limit(limit ?? LIST_LIMIT).execute();
+  // Both reads start from the drafts' generations: SQLite keeps a CROSS JOIN's left table outermost, where an inner join
+  // let it start from every live item in the library (assets_by_bin) and look each one's generation up: 18 ms instead of 0.3 ms at
+  // scale. Postgres plans a cross join with a join condition like an inner join.
+  const outputs = rows.length
+    ? await s.db.selectFrom("generations").crossJoin("assets").whereRef("assets.generation_id", "=", "generations.id")
+      .select(["generations.draft_id as draft", "assets.id as id", "assets.kind as kind", "assets.bytes as bytes"])
+      .where("generations.draft_id", "in", rows.map((d) => d.id)).where("assets.deleted_at", "is", null).where("assets.origin", "not in", NOT_IN_LIBRARY)
+      .orderBy("assets.created_at", "desc").execute()
+    : [];
+  // the families its outputs were made with, newest first, with how many each made: a draft is an idea tried on models
+  const families = new Map<string, Map<string, number>>();
+  if (rows.length) {
+    const tries = await s.db.selectFrom("generations").crossJoin("assets").whereRef("assets.generation_id", "=", "generations.id")
+      .select(["generations.draft_id as draft", "generations.family as family"]).select((eb) => [eb.fn.countAll<number>().as("n"), eb.fn.max("assets.created_at").as("last")])
+      .where("generations.draft_id", "in", rows.map((d) => d.id)).where("assets.deleted_at", "is", null).where("assets.origin", "not in", NOT_IN_LIBRARY)
+      .groupBy(["generations.draft_id", "generations.family"]).orderBy("last", "desc").execute();
+    for (const t of tries) {
+      if (!t.draft) continue;
+      const m = families.get(t.draft) ?? new Map<string, number>();
+      m.set(t.family, Number(t.n));
+      families.set(t.draft, m);
+    }
+  }
+  const made = new Map<string, { cover: string; coverKind: "image" | "video" | "audio"; outputs: number; bytes: number }>();
+  for (const o of outputs) {
+    if (!o.draft) continue;
+    const m = made.get(o.draft);
+    if (m) {
+      m.outputs++;
+      m.bytes += o.bytes;
+    } else made.set(o.draft, { cover: o.id, coverKind: o.kind, outputs: 1, bytes: o.bytes });
+  }
+  const unused = await unusedDrafts(s.db, project);
+  const idle = new Set(unused.map((d) => d.id));
+  return {
+    items: rows.map((d) => ({ ...brief(d), cover: made.get(d.id)?.cover ?? null, coverKind: made.get(d.id)?.coverKind ?? null, outputs: made.get(d.id)?.outputs ?? 0, bytes: made.get(d.id)?.bytes ?? 0, unused: idle.has(d.id), models: [...(families.get(d.id) ?? [])].map(([family, outputs]) => ({ family, outputs })) })),
+    unused: unused.length,
+  };
+}
 
 export function registerDrafts(app: FastifyInstance, s: Services): void {
   const notFound = () => httpError("this draft was not found", 404);
@@ -169,52 +218,10 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
   };
   const pending = unwrittenOf(s.db);
 
-  /**
-   * `project`: only the drafts of that project; "none": the Inbox; left out: all. Each with its newest output (the
-   * cover), how many it has in the library and their size, read in one query, and whether it is unused (see unusedDrafts);
-   * and how many drafts are unused. `limit`: more than the recent ones (the projects panel lists all of a project's).
-   */
+  /** The drafts, with their covers and counts (draftsList). */
   app.get("/api/drafts", async (req) => {
     const { project, limit } = z.object({ project: z.string().optional(), limit: z.coerce.number().int().min(1).max(1000).optional() }).parse(req.query);
-    const rows = await inProject(s.db, project).orderBy("updated_at", "desc").limit(limit ?? LIST_LIMIT).execute();
-    // Both reads start from the drafts' generations: SQLite keeps a CROSS JOIN's left table outermost, where an inner join
-    // let it start from every live item in the library (assets_by_bin) and look each one's generation up: 18 ms instead of 0.3 ms at
-    // scale. Postgres plans a cross join with a join condition like an inner join.
-    const outputs = rows.length
-      ? await s.db.selectFrom("generations").crossJoin("assets").whereRef("assets.generation_id", "=", "generations.id")
-        .select(["generations.draft_id as draft", "assets.id as id", "assets.kind as kind", "assets.bytes as bytes"])
-        .where("generations.draft_id", "in", rows.map((d) => d.id)).where("assets.deleted_at", "is", null).where("assets.origin", "not in", NOT_IN_LIBRARY)
-        .orderBy("assets.created_at", "desc").execute()
-      : [];
-    // the families its outputs were made with, newest first, with how many each made: a draft is an idea tried on models
-    const families = new Map<string, Map<string, number>>();
-    if (rows.length) {
-      const tries = await s.db.selectFrom("generations").crossJoin("assets").whereRef("assets.generation_id", "=", "generations.id")
-        .select(["generations.draft_id as draft", "generations.family as family"]).select((eb) => [eb.fn.countAll<number>().as("n"), eb.fn.max("assets.created_at").as("last")])
-        .where("generations.draft_id", "in", rows.map((d) => d.id)).where("assets.deleted_at", "is", null).where("assets.origin", "not in", NOT_IN_LIBRARY)
-        .groupBy(["generations.draft_id", "generations.family"]).orderBy("last", "desc").execute();
-      for (const t of tries) {
-        if (!t.draft) continue;
-        const m = families.get(t.draft) ?? new Map<string, number>();
-        m.set(t.family, Number(t.n));
-        families.set(t.draft, m);
-      }
-    }
-    const made = new Map<string, { cover: string; coverKind: "image" | "video" | "audio"; outputs: number; bytes: number }>();
-    for (const o of outputs) {
-      if (!o.draft) continue;
-      const m = made.get(o.draft);
-      if (m) {
-        m.outputs++;
-        m.bytes += o.bytes;
-      } else made.set(o.draft, { cover: o.id, coverKind: o.kind, outputs: 1, bytes: o.bytes });
-    }
-    const unused = await unusedDrafts(s.db, project);
-    const idle = new Set(unused.map((d) => d.id));
-    return {
-      items: rows.map((d) => ({ ...brief(d), cover: made.get(d.id)?.cover ?? null, coverKind: made.get(d.id)?.coverKind ?? null, outputs: made.get(d.id)?.outputs ?? 0, bytes: made.get(d.id)?.bytes ?? 0, unused: idle.has(d.id), models: [...(families.get(d.id) ?? [])].map(([family, outputs]) => ({ family, outputs })) })),
-      unused: unused.length,
-    };
+    return draftsList(s, project, limit);
   });
 
   /** The unused drafts deleted (see unusedDrafts) of a project ("none": the Inbox; left out: all), but the one open (`keep`). */

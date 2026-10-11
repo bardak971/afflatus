@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import { newId, now } from "../src/db";
 import { newAssetRow } from "../src/media";
-import type { RenderRow } from "../src/renders";
+import type { RenderRow } from "../src/renderDigests";
 import { sdxl } from "../../../packages/workflows/test/fixtures";
 import { prepare, score } from "../../web/src/bar/match";
 import { CHECKPOINT, complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";

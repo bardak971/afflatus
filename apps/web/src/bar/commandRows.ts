@@ -3,7 +3,7 @@ import { rowKeys, type RowId } from "../keys/table";
 import type { Item } from "./items";
 import { prepare } from "./match";
 import { COMMANDS, KIT_OF, parseCommand, type Command, type CommandId, type KitNew } from "./parse";
-import type { TimelineAim } from "./useActions";
+import type { TimelineAim } from "./actions/ctx";
 import { plural } from "../format";
 import { unloadBlock } from "../queueRules";
 

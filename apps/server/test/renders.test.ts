@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import { roughly, timeKey } from "@afflatus/core";
 import { forecast } from "../src/forecast";
-import { cellOf, clear, digestDays, fold, list, merge, summary, type RenderRow } from "../src/renders";
+import { cellOf, digestDays, merge, type RenderRow } from "../src/renderDigests";
+import { clear, fold } from "../src/renders";
+import { list, summary } from "../src/rendersRead";
 import { CHECKPOINT, complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 let fake: FakeComfy;

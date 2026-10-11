@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hiddenRunUp } from "@afflatus/core";
-import { spilled } from "../src/renders";
+import { spilled } from "../src/renderDigests";
 import { joinFade, landingOnGrid, leadOf, lengthOnGrid, plays, sameMaking, seamless, type AssetRow, type TakeRow } from "../src/timelineModel";
 
 /** The joins anchor on the model's own frame grid, not on an interpolated file's length (one frame short of it). */

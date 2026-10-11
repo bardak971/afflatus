@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { api } from "../../api";
+import { api, type SettingsPatch } from "../../api";
 import { useSettings } from "../../data";
 import { DownloadRow, useDownloads } from "../../GetFile";
 import { MANAGER_CAUTION, NO_ROUTE } from "../../useGetFile";
@@ -17,7 +17,7 @@ export function CivitaiCard() {
   const client = useQueryClient();
   const [key, setKey] = useState("");
   const save = useMutation({
-    mutationFn: (patch: Record<string, unknown>) => api.saveSettings(patch),
+    mutationFn: (patch: SettingsPatch) => api.saveSettings(patch),
     onSuccess: () => {
       setKey("");
       // whether ComfyUI-Manager is there is only asked once downloading is turned on

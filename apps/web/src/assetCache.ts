@@ -1,21 +1,7 @@
 import { hashKey, type InfiniteData, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import type { Asset, Folder } from "./api";
-import { isAssets, queryKeys } from "./queryKeys";
+import { isAssets, queryKeys, type AssetChange } from "./queryKeys";
 import { plural } from "./format";
-
-/**
- * A change to items of the library made on screen before the server says it is done (keep, unkeep, bin, put back,
- * move, rename): every copy the screens read is changed at once (the library's lists, the Projects panel's folder
- * lists, the item itself, the expiring count of the status bar, the folders' counts), and what each copy was is kept,
- * so that a refusal puts every one back as it was. Pure but for the query client, for the tests; the hook that sends
- * the change and says what happened is assetChange.tsx.
- */
-export type AssetChange =
-  | { kind: "keep"; ids: string[]; kept: boolean }
-  | { kind: "bin"; ids: string[] }
-  | { kind: "restore"; ids: string[] }
-  | { kind: "move"; ids: string[]; folder: string | null }
-  | { kind: "rename"; ids: string[]; name: string };
 
 /** What a copy was before the change, what the change made of it, and the items it changed: put back by `rollback`. */
 export type Snapshot = Array<[QueryKey, unknown, unknown, ReadonlySet<string>]>;

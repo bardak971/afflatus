@@ -36,14 +36,3 @@ export function snippetsFor<T extends Snippet>(word: string, snippets: readonly 
 export function insertSnippet(text: string, start: number, caret: number, with_: string): { text: string; caret: number } {
   return { text: text.slice(0, start) + with_ + text.slice(caret), caret: start + with_.length };
 }
-
-/**
- * The text with the `;name` that ends right before `caret` replaced by its snippet. Null when nothing there is
- * a snippet's name: the key then does what it always does.
- */
-export function expandSnippet(text: string, caret: number, snippets: readonly Snippet[]): { text: string; caret: number } | null {
-  const t = typedTrigger(text, caret);
-  if (!t || !t.word) return null;
-  const found = snippets.find((s) => slugOf(s.name) === t.word);
-  return found ? insertSnippet(text, t.start, caret, found.text) : null;
-}

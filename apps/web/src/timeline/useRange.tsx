@@ -7,7 +7,7 @@ import type { MenuItem } from "../ContextMenu";
 import type { Banner } from "../store";
 import type { Clock } from "./clock";
 import type { PlayerHandle } from "./Player";
-import type { TimeRange } from "./Track";
+import type { TimeRange } from "./model";
 
 /**
  * The range: In and Out on the clock of what plays, what is done with it, and the transport that knows

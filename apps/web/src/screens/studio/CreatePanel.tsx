@@ -2,7 +2,7 @@ import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "reac
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Entity } from "../../api";
 import { useEntities, useFamilies, useModelSettings, useRecipes, useSetup } from "../../data";
-import type { DesignerTurn } from "../../Designer";
+import type { DesignerTurn } from "../../designer/types";
 import { WritingHelp } from "../../WritingHelp";
 import { useDraft } from "../../draft";
 import { Form, mainTextOf } from "../../RecipeForm";

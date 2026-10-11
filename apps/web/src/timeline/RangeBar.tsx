@@ -2,8 +2,7 @@ import { Magnet, X } from "lucide-react";
 import type { Clip } from "../api";
 import type { MenuItem } from "../ContextMenu";
 import { Button, cx } from "../ui";
-import { stamp } from "./model";
-import type { TimeRange } from "./Track";
+import { stamp, type TimeRange } from "./model";
 
 /** The range bar's words for its actions: the menu says them in full. */
 const SHORT: Record<string, string> = { "Play range": "Play", "Loop: on": "Loop", "Loop: off": "Loop", "Regenerate range": "Regenerate", "Insert a clip here": "Insert clip", "Split at In and Out": "Split at In / Out", "Remove range": "Remove", "Copy to library": "Copy", "Slow motion ×2": "Slow ×2", "Slow motion ×4": "Slow ×4" };

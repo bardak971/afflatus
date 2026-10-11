@@ -35,6 +35,18 @@ export interface FinishSettings {
   /** RCAS after a pixel route, 0 to 1; 0 = off. */
   sharpen?: number;
 }
+/** A model the designer can write with, as Settings sends it back: its key only when one was typed (else the saved one is kept). */
+export type LlmPatch = Omit<LlmInfo, "hasApiKey"> & { apiKey?: string };
+/**
+ * What PUT /api/settings takes: some of the settings, by key, merged by the server into the rest (a key it does not know is
+ * refused). As the answer says them, but for what the answer hides: the Civitai key itself, the models with their keys,
+ * and `llm`, the model in use changed the short way. Held to the server's schema by test/apiTypes.test.ts.
+ */
+export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiKey">> & {
+  civitaiKey?: string;
+  llms?: LlmPatch[];
+  llm?: Partial<Omit<LlmPatch, "id">>;
+};
 export interface Settings {
   comfyUrl: string;
   /** ComfyUI's folder on Afflatus's computer, when they share one; empty otherwise. */

@@ -6,7 +6,7 @@ import { MODEL_FILE, own } from "./catalog";
 import { familySlug, slug } from "./text";
 import type { Control, Target, Toggle, WorkflowDef } from "./types";
 import { ancestors, cutFileNameChains, modesFor, prune, readersOf, remove, selectorOf, settle, skipsFor, trim } from "./wiring";
-import { MEDIA_LOADERS } from "./inspect";
+import { MEDIA_LOADERS } from "./nodeKinds";
 import { offLine, sectionSummary } from "./explain";
 import { fillDirector } from "./director";
 import { inputNode } from "./suggest";

@@ -3,6 +3,7 @@
   "ignoreExportsUsedInFile": true,
   "ignoreBinaries": ["ffmpeg", "ffprobe"],
   "workspaces": {
+    ".": { "entry": ["scripts/**/*.{ts,mts,mjs}!", "!scripts/check-player.ts!", "!scripts/corpus-expect.mts!"] },
     "packages/workflows": { "entry": ["test/comfyExport.mjs"] }
   }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RecipeStatus } from "../src/api";
-import { about, aboutMs, brief, clock, dateTime, dayMonth, dayOf, daysBack, elapsed, hourMinute, localDay, plural, shortDate, fileLabel, left, long, notReady, pace, phaseLabel, problemSaid, recipeLabel, seconds, siteName, size, slotsSaid, sourceOf, spell, took, when } from "../src/format";
+import { about, aboutMs, brief, clock, dateTime, dayMonth, dayOf, daysBack, elapsed, hourMinute, localDay, plural, shortDate, fileLabel, leftWords, long, notReady, pace, phaseLabel, problemSaid, recipeLabel, seconds, siteName, size, slotsSaid, sourceOf, spell, took, when } from "../src/format";
 
 describe("minutes and seconds", () => {
   it("rounds a length to the second", () => {
@@ -51,11 +51,11 @@ describe("durations", () => {
     expect(pace(null)).toBe("—");
   });
   it("says what is left of a countdown, never less than a minute", () => {
-    expect(left(0)).toBe("going to the bin");
-    expect(left(-1, "over")).toBe("over");
-    expect(left(10_000)).toBe("1 min left");
-    expect(left(30 * 60_000)).toBe("30 min left");
-    expect(left(5.4 * 3_600_000)).toBe("5 h left");
+    expect(leftWords(0)).toBe("1 min");
+    expect(leftWords(10_000)).toBe("1 min");
+    expect(leftWords(30 * 60_000)).toBe("30 min");
+    expect(leftWords(5.4 * 3_600_000)).toBe("5 h");
+    expect(leftWords(5.4 * 3_600_000, true)).toBe("6 h");
   });
   it("says an estimate as one, in steps of five seconds, never under five", () => {
     expect(aboutMs(null)).toBe("");

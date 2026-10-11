@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
-import { backfillLabelNames, capName, draftLabel, finishedName, frameName, fromName, givenLabel, nameOf, numbered, passName, saysNothing, shownNames, soundName, takeName, type NamedRow } from "../src/autoName";
+import { capName, draftLabel, finishedName, frameName, fromName, givenLabel, nameOf, numbered, passName, saysNothing, shownNames, soundName, takeName, type NamedRow } from "../src/autoName";
 import { migrate, newId, openSqlite, OWNER, type Db } from "../src/db";
+import m0047 from "../src/migrations/0047-label-names";
 import { newAssetRow } from "../src/media";
 import { CHECKPOINT, complete, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
@@ -297,8 +298,9 @@ describe("migration 0047, names for what was sent with a label before", () => {
       a1: `${label} 05`, a2: `${label} 06`, a3: "kept by hand", a4: `${label} 07`, a5: "Harbor walk · B02 close 01",
       a6: "", a7: "", a8: "", a9: "", a10: "a quiet harbour at dawn 02", a11: "a quiet harbour at dawn 03", a12: "", a13: `${label} 08`,
     });
-    // run again, nothing is left to name
-    expect(await backfillLabelNames(db, () => "txt2img")).toBe(0);
+    // run again, nothing is left to name and nothing named changes
+    await m0047.up(db);
+    expect(Object.fromEntries((await db.selectFrom("assets").select(["id", "name"]).execute()).map((a) => [a.id, a.name]))).toEqual(names);
     await db.destroy();
   });
 });

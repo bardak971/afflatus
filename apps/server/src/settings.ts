@@ -7,7 +7,7 @@ import { oneAtATime } from "./keyedLock";
 const httpUrl = z.url({ protocol: /^https?$/ });
 
 /** One language model the designer can write with: any OpenAI-compatible endpoint. */
-const llmSchema = z.object({
+export const llmSchema = z.object({
   id: z.string().min(1).max(40),
   /** What the user calls it, for the list ("Local Qwen"). Empty: the model's own name is shown. */
   name: z.string().max(60).default(""),
@@ -56,7 +56,7 @@ const barSchema = z.object({
 });
 
 
-const settingsSchema = z.object({
+export const settingsSchema = z.object({
   comfyUrl: httpUrl.default("http://127.0.0.1:8188"),
   /**
    * ComfyUI's own folder on the computer Afflatus runs on (the one with main.py), when they share a disk.

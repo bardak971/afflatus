@@ -5,8 +5,7 @@ import { formPlaces } from "../../formTarget";
 import { placeMenu } from "../../itemActions";
 import { copyText } from "../../secureContext";
 import { askViewer } from "../../viewer/ask";
-import type { Action } from "../useActions";
-import type { BarCtx } from "./ctx";
+import type { Action, BarCtx } from "./ctx";
 
 /** A submenu of the app's own menus, laid flat: "Timeline › Add to Harbor walk". */
 function flatten(items: MenuItem[], path = ""): Action[] {

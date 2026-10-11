@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import type { useOpenInComfy } from "../../actions";
 import type { Asset, CommandEntry, Entity, RecipeInfo } from "../../api";
@@ -15,7 +16,29 @@ import type { Banner } from "../../store";
 import type { useItemActions } from "../../useItemActions";
 import type { SelectedClip, TimelineRequest } from "../bridge";
 import type { SettingCtx } from "../settingsRegistry";
-import type { Action, TimelineAim } from "../useActions";
+
+/** One thing a result can have done to it: Enter does the first, Ctrl + Enter the second, Tab lists them all. */
+export interface Action {
+  label: string;
+  note?: string;
+  icon?: ReactNode;
+  danger?: boolean;
+  disabled?: boolean;
+  /** The bar stays open after it (a switch flipped in place, a figure copied). */
+  stay?: boolean;
+  /** The key that does the same where the action comes from (the viewer's menu hint, the editor's key), drawn on its right. */
+  keys?: string;
+  run(): unknown;
+}
+
+/** The timeline a command acts on: the one open in the editor, else the one last used. */
+export interface TimelineAim {
+  id: string;
+  name: string;
+  entry?: Extract<CommandEntry, { kind: "timeline" }>;
+  /** Open in the editor now (its keys and history are on screen). */
+  open?: true;
+}
 
 export type TimelineEntry = Extract<CommandEntry, { kind: "timeline" }>;
 export type FolderEntry = Extract<CommandEntry, { kind: "folder" }>;

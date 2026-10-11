@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type LlmInfo, type Settings } from "../../api";
+import { api, type LlmInfo, type Settings, type SettingsPatch } from "../../api";
 import { useSettings } from "../../data";
 import { AutoText, Button, Chip, cx, ErrorNote, fieldClass, Help, TwoStep } from "../../ui";
 import { LlmEditor } from "./LlmEditor";
@@ -76,7 +76,7 @@ export function DesignerCard() {
   const [newNotes, setNewNotes] = useState<Settings["designerInstructions"]>([]);
   /** The system prompt open for reading or changing; the rest are folded to a line. */
   const [openNote, setOpenNote] = useState<string | null>(null);
-  const put = async (patch: Record<string, unknown>) => client.setQueryData(queryKeys.settings(), await api.saveSettings(patch));
+  const put = async (patch: SettingsPatch) => client.setQueryData(queryKeys.settings(), await api.saveSettings(patch));
   // one per card: an error shows under the card it came from
   const changeLlms = useMutation({ mutationFn: put });
   const changeNotes = useMutation({ mutationFn: put });

@@ -3,7 +3,7 @@ import { FRAME_SLACK_MS } from "@afflatus/core";
 import type { Clip } from "../api";
 import type { Clock } from "./clock";
 import type { PlayerHandle } from "./Player";
-import type { TimeRange } from "./Track";
+import type { TimeRange } from "./model";
 
 /**
  * The timeline editor's playhead and how loud it plays: the moment the player reports (a range played alone stops or

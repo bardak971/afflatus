@@ -9,7 +9,7 @@ import type { Item, Kind, Section } from "./items";
 import { pieces } from "./match";
 import type { Mode } from "./parse";
 import type { SettingCtx } from "./settingsRegistry";
-import type { Action } from "./useActions";
+import type { Action } from "./actions/ctx";
 
 /** Each kind's icon and the colour of its tile. */
 const TONE: Record<Kind, string> = {

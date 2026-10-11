@@ -2,7 +2,8 @@ import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction }
 import type { Clock } from "./clock";
 import { editKey, keyPlace, playbackKey, selectionKey, type KeyActions } from "./editorKeys";
 import type { PlayerHandle } from "./Player";
-import type { TimeRange, TrackKeys } from "./Track";
+import type { TimeRange } from "./model";
+import type { TrackKeys } from "./Track";
 
 /**
  * The editor's keys: Space plays, Ctrl+Z and Ctrl+Shift+Z undo and redo, I and O mark the range, L loops it,

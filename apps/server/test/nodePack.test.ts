@@ -2,7 +2,8 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
-import { zipNames, zipOf, crc32 } from "../src/zip";
+import { zipOf, crc32 } from "../src/zip";
+import { zipNames } from "./zipKit";
 import { get, makeApp, referenceCatalog, type TestApp } from "./helpers";
 
 describe("a zip made here", () => {

@@ -1,10 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chunkAtOrAfter, joinFade, latentFrameAtOrBefore, near } from "@afflatus/core";
-import { colourNudge, joinVideos, meansAlong, meansWithin, stretchMeans } from "../src/cut";
+import { colourNudge, joinVideosInto, meansAlong, meansOf, meansWithin } from "../src/cut";
 import { newId, now, OWNER } from "../src/db";
 import { newAssetRow } from "../src/media";
 import { markJoins, trimsOf, LEAST_PLAY_MS, type AssetRow, type ClipRow, type Placed, type TakeRow } from "../src/timelineModel";
@@ -574,15 +575,16 @@ describe.skipIf(!sample)("videos handed to ffmpeg by path", () => {
   afterAll(() => rmSync(sample!.dir, { recursive: true, force: true }));
   it("join the same as from their bytes", async () => {
     const part = (source: string | Uint8Array) => ({ kind: "video" as const, source, ext: "mp4", startMs: 0, endMs: 1000, hasSound: false, sound: "own" as const, volume: 1, fill: false });
-    const fromPath = await joinVideos([part(sample!.file), part(sample!.file)], { width: 192, height: 320 }, 24);
-    const fromBytes = await joinVideos([part(sample!.bytes), part(sample!.bytes)], { width: 192, height: 320 }, 24);
+    const joined = (source: string | Uint8Array) => joinVideosInto([part(source), part(source)], { width: 192, height: 320 }, 24, {}, (file) => readFile(file));
+    const fromPath = await joined(sample!.file);
+    const fromBytes = await joined(sample!.bytes);
     expect(fromPath.length).toBeGreaterThan(1000);
     expect(Math.abs(fromPath.length - fromBytes.length)).toBeLessThan(fromBytes.length * 0.05);
   });
   it("read a stretch's colour off the video's frame means as the export measures it", async () => {
     const along = await meansAlong(sample!.file, "mp4");
     expect(along.t.length).toBeGreaterThanOrEqual(47);
-    const direct = await stretchMeans(sample!.bytes, "mp4", 600, 0.4);
+    const direct = await meansOf(sample!.file, 0.6, 0.4);
     const read = meansWithin(along, 600, 0.4);
     expect(read).not.toBeNull();
     for (const k of ["y", "u", "v"] as const) expect(Math.abs(read![k] - direct![k])).toBeLessThan(0.5);

@@ -1,7 +1,7 @@
 import { lazy, Suspense } from "react";
 import { api, type Clip, type DesignerSession, type RecipeInfo, type Timeline } from "../api";
 import type { useModelSettings, useSetup } from "../data";
-import type { DesignerTurn } from "../Designer";
+import type { DesignerTurn } from "../designer/types";
 import { wholeForm } from "../form";
 
 // the designer's panel is a chunk of its own: fetched the first time it opens

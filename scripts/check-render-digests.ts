@@ -10,7 +10,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { migrate, openSqlite } from "../apps/server/src/db";
 import { Registry } from "../apps/server/src/registry";
-import { digestDays, summary } from "../apps/server/src/renders";
+import { digestDays } from "../apps/server/src/renderDigests";
+import { summary } from "../apps/server/src/rendersRead";
 
 const [source] = process.argv.slice(2);
 if (!source) {

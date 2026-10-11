@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { aspectOf, binRange, FALLBACK_ASPECT, justify, SOUND_ASPECT } from "../src/screens/library/justify";
+import { aspectOf, FALLBACK_ASPECT, justify, SOUND_ASPECT } from "../src/screens/library/justify";
 import { barsOf } from "../src/screens/library/SoundWave";
-
-const H = 3_600_000;
 
 describe("the library's justified rows", () => {
   it("fills every full row to the width exactly, at one height per row near the target", () => {
@@ -51,15 +49,6 @@ describe("the library's justified rows", () => {
     const rows = justify(shapes, 1600, 210, 8);
     expect(performance.now() - t).toBeLessThan(50);
     expect(rows.reduce((n, r) => n + r.widths.length, 0)).toBe(5000);
-  });
-});
-
-describe("the not-kept line", () => {
-  it("says when the items not kept go to the bin as one range", () => {
-    expect(binRange([23.4 * H, 23.9 * H])).toBe("23–24 h");
-    expect(binRange([5 * H])).toBe("5 h");
-    expect(binRange([40 * 60_000, 2.5 * H])).toBe("40 min–3 h");
-    expect(binRange([])).toBe("");
   });
 });
 

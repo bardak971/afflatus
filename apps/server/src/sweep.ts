@@ -68,7 +68,7 @@ export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean; jobs?: 
 
 type Erased = Pick<Tables["assets"], "id" | "file_key" | "thumb_key" | "raw_key" | "latent_key" | "fine_latent_key" | "duration_ms">;
 
-/** Erase an asset for good: its row first (nothing can name a file that is about to go), then its files and what was derived from them. */
+/** Erase an asset for good: its row first (nothing can name a file that is about to go), then its files and what was derived from them. For the tests (the app erases through eraseUnused). @internal */
 export async function eraseAsset(db: Db, storage: Storage, a: Erased): Promise<void> {
   await db.deleteFrom("assets").where("id", "=", a.id).execute();
   await eraseFiles(storage, a);

@@ -2,26 +2,16 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, RotateCcw, Send, Sparkles, X } from "lucide-react";
-import { api, type DesignerReply, type DesignerSession, type Look, type RecipeInfo } from "./api";
+import { api, type DesignerReply, type DesignerSession, type Look, type RecipeInfo, type SettingsPatch } from "./api";
 import { useSettings } from "./data";
 import { Reply } from "./designer/Reply";
 import { SessionBar } from "./designer/SessionBar";
 import { SystemView } from "./designer/SystemView";
 import { keep, recall } from "./designer/typed";
+import type { DesignerTurn } from "./designer/types";
 import { useLeave } from "./leave";
 import { AutoText, Button, cx, ErrorNote, Help } from "./ui";
 import { queryKeys } from "./queryKeys";
-
-/** One thing said in the conversation. What the designer said keeps what it proposed, to use or not. */
-export interface DesignerTurn {
-  role: "user" | "assistant";
-  content: string;
-  reply?: DesignerReply;
-  /** The proposal was put in the form. */
-  used?: boolean;
-  /** What the parts it changes held when it was proposed: to show what changed, and to put back. */
-  was?: Record<string, string>;
-}
 
 /** What the designer said, as text again: the language model is shown its own earlier answers. */
 const asText = (r: DesignerReply) =>
@@ -152,7 +142,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
   };
   /** A choice belongs to this conversation; it is also what the next new conversation starts with. */
   const remember = useMutation({
-    mutationFn: (patch: Record<string, unknown>) => api.saveSettings(patch),
+    mutationFn: (patch: SettingsPatch) => api.saveSettings(patch),
     onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved),
   });
   const choose = (change: DesignerSession) => {

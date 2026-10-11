@@ -1,7 +1,8 @@
 import { useCallback } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError, type Folder, type Project } from "./api";
-import { applyChange, itemsWord, placeName, placesBefore, rollback, type AssetChange, type Seats } from "./assetCache";
+import { applyChange, itemsWord, placeName, placesBefore, rollback, type Seats } from "./assetCache";
+import type { AssetChange } from "./queryKeys";
 import { moves } from "./leave";
 import { useBanners } from "./store";
 import { libraryReads, queryKeys, type LibraryChange } from "./queryKeys";

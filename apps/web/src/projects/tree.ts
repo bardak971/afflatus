@@ -163,7 +163,8 @@ export const groupMeta = (g: TreeGroup) => [plural(g.counts.timelines, "timeline
 /** The text of a draft row: its name, else the start of its prompt; "No prompt yet" is an unused one's. */
 export const draftLabel = (d: DraftLeaf) => d.name || d.title || (d.unused ? "No prompt yet" : "Untitled draft");
 
-export function flatten(tree: ProjectsTree, s: {
+/** What flatten is asked for (see there). */
+export interface FlattenAsk {
   isOpen(key: string): boolean;
   /** The drafts of a group, by its draftsKey; absent while not read. Not used with a search: the tree carries them. */
   drafts(key: string): DraftsRead | undefined;
@@ -183,146 +184,177 @@ export function flatten(tree: ProjectsTree, s: {
    * root folder's sub-folders brought up beside the root, the Inbox's loose items as a "No folder" row, then the Bin.
    */
   only?: { group: string | null };
-}): Row[] {
+}
+
+/** A row before it is placed (its depth, prefix, parent and folding are the walk's), what it holds, and how many. */
+type Node = { row: Omit<Row, "depth" | "prefix" | "parent" | "open" | "foldable">; kids: () => Node[]; count: number };
+
+/** What every kind of row is built with: the ask, the search in lower case, and the order of each level. */
+interface Ctx {
+  s: FlattenAsk;
+  q: string;
+  timelinesIn(list: TreeGroup["timelines"]): TreeGroup["timelines"];
+  draftsIn(list: DraftLeaf[]): DraftLeaf[];
+  sortedFolders(list: FolderNode[]): FolderNode[];
+  /** With a search: the text holds it. */
+  has(text: string): boolean;
+}
+
+/** A row that holds nothing: an item, a timeline, a draft, "Reading…", "Show more", the bin. */
+const leaf = (row: Node["row"]): Node => ({ row, count: 0, kids: () => [] });
+
+/**
+ * A group's folders, each with its sub-folders, the timelines filed in it and its items. A folder of the disk under
+ * another of the disk is one of its sub-folders: it never moves on its own.
+ */
+function folderNodes(c: Ctx, g: TreeGroup, list: FolderNode[], parent: string | null, ancestors: string[], parentLinked = false, filed: Map<string, TreeGroup["timelines"]> = new Map()): Node[] {
+  return c.sortedFolders(list).map((f) => ({
+    row: {
+      key: `f:${f.id}`, kind: "folder", id: f.id, label: f.name, bytes: f.bytes, ...(f.createdAt ? { created: f.createdAt } : {}), group: g.id, linked: f.linked, linkedRoot: f.linked && !parentLinked, archived: g.archived,
+      meta: folderMeta(f, c.s.kind),
+      ...(f.path ? { path: f.path, ...(f.missing ? { missing: true } : {}) } : {}),
+      ...(c.s.kind && !f.totalItems ? { empty: true } : {}),
+      ...(!f.totalItems && !f.children.length && !filed.get(f.id)?.length ? { dim: true } : {}),
+      match: c.has(f.name),
+      ...(f.linked && parentLinked ? {} : { moving: { kind: "folder" as const, id: f.id, group: g.id, parent, name: f.name, ...(f.linked ? { linkedRoot: true } : {}) } }),
+      target: { kind: "folder", id: f.id, group: g.id, linked: f.linked, ancestors, name: f.name },
+    },
+    // its items show when it is unfolded, not while searching
+    count: f.children.length + (filed.get(f.id)?.length ?? 0) + (c.q ? 0 : f.items),
+    // its sub-folders, the timelines filed in it, then its items
+    kids: () => [...folderNodes(c, g, f.children, f.id, [...ancestors, f.id], f.linked, filed), ...c.timelinesIn(filed.get(f.id) ?? []).map((t) => timelineNode(c, g, t)), ...(c.q ? [] : itemNodes(c, g, f))],
+  }));
+}
+
+/** A folder's items as read so far, with "Show more" when there are more; "Reading…" while none are. */
+function itemNodes(c: Ctx, g: TreeGroup, f: FolderNode): Node[] {
+  if (!f.items) return [];
+  const key = `f:${f.id}`;
+  const read = c.s.items?.(key);
+  if (!read?.items) return [leaf({ key: `more:${key}`, kind: "more", id: null, label: "Reading…", meta: "", bytes: null, group: g.id })];
+  return [
+    ...read.items.map((a) => leaf({ key: `a:${a.id}`, kind: "item", id: a.id, label: itemLabel(a), meta: itemMeta(a), bytes: a.bytes, created: a.createdAt, group: g.id, archived: g.archived, asset: a, moving: { kind: "asset", id: a.id, folder: f.id, name: itemLabel(a), ...(a.path ? { onDisk: true } : {}) } })),
+    ...(read.more ? [leaf({ key: `more:${key}`, kind: "more", id: null, label: "Show more", meta: "", bytes: null, group: g.id, more: key })] : []),
+  ];
+}
+
+/** What a group's Drafts row holds: the drafts worked on (so many at a time), then the unused ones folded into one row. */
+function draftNodes(c: Ctx, g: TreeGroup, searched: DraftLeaf[] | null): Node[] {
+  if (searched) return c.draftsIn(searched).map((d) => draftNode(c, g, d));
+  const dk = draftsKey(g.id);
+  const read = c.s.drafts(dk);
+  if (!read?.items) return [leaf({ key: `more:${g.id ?? "inbox"}`, kind: "more", id: null, label: "Reading…", meta: "", bytes: null, group: g.id })];
+  const used = read.items.filter((d) => !d.unused);
+  const unused = read.items.filter((d) => d.unused);
+  const shown = c.draftsIn(used).slice(0, read.limit).map((d) => draftNode(c, g, d));
+  const left = used.length - read.limit;
+  const more: Node[] = left > 0 ? [leaf({ key: `more:${g.id ?? "inbox"}`, kind: "more", id: null, label: "Show more", meta: `${left} more`, bytes: null, group: g.id, more: dk })] : [];
+  // the unused ones folded into one row, last: unfolded, they are listed; its Clear deletes them
+  const empty: Node[] = unused.length
+    ? [{ row: { key: `e:${g.id ?? "inbox"}`, kind: "empty", id: null, label: plural(unused.length, "empty draft"), drafts: unused.length, meta: "", bytes: null, group: g.id, archived: g.archived, dim: true }, count: unused.length, kids: () => c.draftsIn(unused).map((d) => draftNode(c, g, d)) }]
+    : [];
+  return [...shown, ...more, ...empty];
+}
+
+/**
+ * A project or the Inbox: its folders, the timelines in none of them, and its drafts. `hoist`: the one-project tree, where
+ * the root folder comes first as "Name (root)" with its sub-folders beside it.
+ */
+function groupNode(c: Ctx, g: TreeGroup, hoist = false): Node {
+  const key = groupKey(g);
+  const dk = draftsKey(g.id);
+  const searched = c.q ? g.drafts ?? [] : null;
+  const draftCount = searched ? searched.length : g.counts.drafts;
+  // "Drafts · 9 · 12 empty": the unused ones are said apart (a search finds none: they have no prompt and no name)
+  const counted = draftCounts(g);
+  const draftsLabel = searched || !counted.empty ? `Drafts · ${draftCount}` : counted.used ? `Drafts · ${counted.used} · ${counted.empty} empty` : `Drafts · ${counted.empty} empty`;
+  // a timeline filed in one of the group's folders shows inside it; one in no folder, or in the project's root, under the group
+  const shown = new Set<string>();
+  const walkFolders = (list: FolderNode[]) => list.forEach((f) => { shown.add(f.id); walkFolders(f.children); });
+  walkFolders(g.folders);
+  const filed = new Map<string, TreeGroup["timelines"]>();
+  const loose: TreeGroup["timelines"] = [];
+  for (const t of g.timelines) {
+    if (t.folderId && shown.has(t.folderId)) filed.set(t.folderId, [...(filed.get(t.folderId) ?? []), t]);
+    else loose.push(t);
+  }
+  // the one-project tree: the root folder first, as "Name (root)" with its own items, and its sub-folders beside it rather than
+  // under it (the project's row stands for the whole of it, so the root is one more level for nothing)
+  const root = hoist ? g.folders.find((f) => f.id === g.rootFolderId && !f.linked) : undefined;
+  const tops = (): Node[] =>
+    root
+      ? [
+          ...folderNodes(c, g, [{ ...root, name: `${root.name} (root)`, children: [] }], null, [], false, filed),
+          ...folderNodes(c, g, root.children, root.id, [root.id], false, filed),
+          ...folderNodes(c, g, g.folders.filter((f) => f !== root), null, [], false, filed),
+        ]
+      : folderNodes(c, g, g.folders, null, [], false, filed);
+  const kids = (): Node[] => [
+    ...tops(),
+    ...c.timelinesIn(loose).map((t) => timelineNode(c, g, t)),
+    ...(draftCount ? [{ row: { key: dk, kind: "drafts" as const, id: null, label: draftsLabel, meta: "", bytes: null, group: g.id, archived: g.archived }, count: draftCount, kids: () => draftNodes(c, g, searched) }] : []),
+  ];
+  const count = g.folders.length + (root ? root.children.length : 0) + loose.length + (draftCount ? 1 : 0);
+  return {
+    row: {
+      key, kind: g.kind, id: g.id, label: g.name, meta: groupMeta(g), bytes: g.bytes, ...(g.createdAt ? { created: g.createdAt } : {}), group: g.id, archived: g.archived, noRoot: g.kind === "project" && !g.rootFolderId,
+      ...(!g.counts.items && !g.counts.timelines && !g.counts.drafts && !g.folders.length && !g.timelines.length ? { dim: true } : {}),
+      match: c.has(g.name),
+      target: { kind: "group", group: g.id, root: g.rootFolderId, ...(g.folders.some((f) => f.id === g.rootFolderId && f.linked) ? { rootLinked: true } : {}), name: g.kind === "inbox" ? "the Inbox" : g.name },
+    },
+    count,
+    kids,
+  };
+}
+
+/** A timeline's row: its clips, its length, whether it was exported, and its unused takes. */
+const timelineNode = (c: Ctx, g: TreeGroup, t: TreeGroup["timelines"][number]): Node =>
+  leaf({
+    key: `t:${t.id}`, kind: "timeline", id: t.id, label: t.name, bytes: t.bytes, group: g.id, archived: g.archived, created: t.createdAt ?? t.updatedAt,
+    meta: [plural(t.clips, "clip"), clock(t.durationMs), ...(t.exported ? ["exported"] : []), ...(t.unusedTakes > 0 ? [`${t.unusedTakes} unused`, size(t.unusedBytes)] : [])].join(" · "),
+    ...(t.unusedTakes > 0 ? { unused: { takes: t.unusedTakes, bytes: t.unusedBytes } } : {}),
+    match: c.has(t.name),
+    moving: { kind: "timeline", id: t.id, group: g.id, folder: t.folderId, name: t.name },
+  });
+
+/** A draft's row. */
+const draftNode = (c: Ctx, g: TreeGroup, d: DraftLeaf): Node =>
+  leaf({ key: `dr:${d.id}`, kind: "draft", id: d.id, label: draftLabel(d), meta: c.s.draftMeta?.(d) ?? "", bytes: d.bytes ? d.bytes : null, created: d.createdAt ?? d.updatedAt, group: g.id, archived: g.archived, match: c.has(draftLabel(d)), moving: { kind: "draft", id: d.id, group: g.id, name: draftLabel(d) } });
+
+/** The one-project tree: its row is the whole of it (a place, never folded), what it holds is the top level. */
+function scopedNodes(c: Ctx, g: TreeGroup): Node[] {
+  const n = groupNode(c, g, true);
+  const inbox = g.kind === "inbox";
+  return [
+    leaf({ ...n.row, meta: `${inbox ? "the whole Inbox" : "the whole project"} · ${n.row.meta}` }),
+    ...n.kids(),
+    ...(inbox ? [leaf({ key: "loose", kind: "loose", id: null, label: "No folder", meta: "items in no folder", bytes: null, group: null })] : []),
+  ];
+}
+
+/** The tree's rows, unfolded as asked (FlattenAsk): each kind of row is built by its own function above. */
+export function flatten(tree: ProjectsTree, s: FlattenAsk): Row[] {
   const q = (s.q ?? "").trim().toLowerCase();
   const order = s.sort ?? DEFAULT_SORT;
-  const timelinesIn = (list: TreeGroup["timelines"]) => sortLeaves(list, order, (t) => ({ name: t.name, created: t.createdAt ?? t.updatedAt, bytes: t.bytes }));
-  const draftsIn = (list: DraftLeaf[]) => sortLeaves(list, order, (d) => ({ name: draftLabel(d), created: d.createdAt ?? d.updatedAt, bytes: d.bytes }));
-  const has = (text: string) => Boolean(q) && text.toLowerCase().includes(q);
+  const c: Ctx = {
+    s, q,
+    timelinesIn: (list) => sortLeaves(list, order, (t) => ({ name: t.name, created: t.createdAt ?? t.updatedAt, bytes: t.bytes })),
+    draftsIn: (list) => sortLeaves(list, order, (d) => ({ name: draftLabel(d), created: d.createdAt ?? d.updatedAt, bytes: d.bytes })),
+    sortedFolders: (list) => sortFolders(list, order),
+    has: (text) => Boolean(q) && text.toLowerCase().includes(q),
+  };
   const rows: Row[] = [];
-  type Node = { row: Omit<Row, "depth" | "prefix" | "parent" | "open" | "foldable">; kids: () => Node[]; count: number };
-
-  // a folder of the disk under another of the disk is one of its sub-folders: it never moves on its own
-  const folderNodes = (g: TreeGroup, list: FolderNode[], parent: string | null, ancestors: string[], parentLinked = false, filed: Map<string, TreeGroup["timelines"]> = new Map()): Node[] =>
-    sortFolders(list, order).map((f) => ({
-      row: {
-        key: `f:${f.id}`, kind: "folder", id: f.id, label: f.name, bytes: f.bytes, ...(f.createdAt ? { created: f.createdAt } : {}), group: g.id, linked: f.linked, linkedRoot: f.linked && !parentLinked, archived: g.archived,
-        meta: folderMeta(f, s.kind),
-        ...(f.path ? { path: f.path, ...(f.missing ? { missing: true } : {}) } : {}),
-        ...(s.kind && !f.totalItems ? { empty: true } : {}),
-        ...(!f.totalItems && !f.children.length && !filed.get(f.id)?.length ? { dim: true } : {}),
-        match: has(f.name),
-        ...(f.linked && parentLinked ? {} : { moving: { kind: "folder" as const, id: f.id, group: g.id, parent, name: f.name, ...(f.linked ? { linkedRoot: true } : {}) } }),
-        target: { kind: "folder", id: f.id, group: g.id, linked: f.linked, ancestors, name: f.name },
-      },
-      // its items show when it is unfolded, not while searching
-      count: f.children.length + (filed.get(f.id)?.length ?? 0) + (q ? 0 : f.items),
-      // its sub-folders, the timelines filed in it, then its items
-      kids: () => [...folderNodes(g, f.children, f.id, [...ancestors, f.id], f.linked, filed), ...timelinesIn(filed.get(f.id) ?? []).map((t) => timelineNode(g, t)), ...(q ? [] : itemNodes(g, f))],
-    }));
-  const itemNodes = (g: TreeGroup, f: FolderNode): Node[] => {
-    if (!f.items) return [];
-    const key = `f:${f.id}`;
-    const read = s.items?.(key);
-    if (!read?.items) return [{ row: { key: `more:${key}`, kind: "more", id: null, label: "Reading…", meta: "", bytes: null, group: g.id }, count: 0, kids: () => [] }];
-    return [
-      ...read.items.map((a): Node => ({
-        row: { key: `a:${a.id}`, kind: "item", id: a.id, label: itemLabel(a), meta: itemMeta(a), bytes: a.bytes, created: a.createdAt, group: g.id, archived: g.archived, asset: a, moving: { kind: "asset", id: a.id, folder: f.id, name: itemLabel(a), ...(a.path ? { onDisk: true } : {}) } },
-        count: 0,
-        kids: () => [],
-      })),
-      ...(read.more ? [{ row: { key: `more:${key}`, kind: "more" as const, id: null, label: "Show more", meta: "", bytes: null, group: g.id, more: key }, count: 0, kids: () => [] }] : []),
-    ];
-  };
-
-  const groupNode = (g: TreeGroup, hoist = false): Node => {
-    const key = groupKey(g);
-    const dk = draftsKey(g.id);
-    const searched = q ? g.drafts ?? [] : null;
-    const draftCount = searched ? searched.length : g.counts.drafts;
-    // "Drafts · 9 · 12 empty": the unused ones are said apart (a search finds none: they have no prompt and no name)
-    const counted = draftCounts(g);
-    const draftsLabel = searched || !counted.empty ? `Drafts · ${draftCount}` : counted.used ? `Drafts · ${counted.used} · ${counted.empty} empty` : `Drafts · ${counted.empty} empty`;
-    const draftRows = (): Node[] => {
-      if (searched) return draftsIn(searched).map((d) => draftNode(g, d));
-      const read = s.drafts(dk);
-      if (!read?.items) return [{ row: { key: `more:${g.id ?? "inbox"}`, kind: "more", id: null, label: "Reading…", meta: "", bytes: null, group: g.id }, count: 0, kids: () => [] }];
-      const used = read.items.filter((d) => !d.unused);
-      const unused = read.items.filter((d) => d.unused);
-      const shown = draftsIn(used).slice(0, read.limit).map((d) => draftNode(g, d));
-      const left = used.length - read.limit;
-      const more: Node[] = left > 0 ? [{ row: { key: `more:${g.id ?? "inbox"}`, kind: "more", id: null, label: "Show more", meta: `${left} more`, bytes: null, group: g.id, more: dk }, count: 0, kids: () => [] }] : [];
-      // the unused ones folded into one row, last: unfolded, they are listed; its Clear deletes them
-      const empty: Node[] = unused.length
-        ? [{ row: { key: `e:${g.id ?? "inbox"}`, kind: "empty", id: null, label: plural(unused.length, "empty draft"), drafts: unused.length, meta: "", bytes: null, group: g.id, archived: g.archived, dim: true }, count: unused.length, kids: () => draftsIn(unused).map((d) => draftNode(g, d)) }]
-        : [];
-      return [...shown, ...more, ...empty];
-    };
-    // a timeline filed in one of the group's folders shows inside it; one in no folder, or in the project's root, under the group
-    const shown = new Set<string>();
-    const walkFolders = (list: FolderNode[]) => list.forEach((f) => { shown.add(f.id); walkFolders(f.children); });
-    walkFolders(g.folders);
-    const filed = new Map<string, TreeGroup["timelines"]>();
-    const loose: TreeGroup["timelines"] = [];
-    for (const t of g.timelines) {
-      if (t.folderId && shown.has(t.folderId)) filed.set(t.folderId, [...(filed.get(t.folderId) ?? []), t]);
-      else loose.push(t);
-    }
-    // the one-project tree: the root folder first, as "Name (root)" with its own items, and its sub-folders beside it rather than
-    // under it (the project's row stands for the whole of it, so the root is one more level for nothing)
-    const root = hoist ? g.folders.find((f) => f.id === g.rootFolderId && !f.linked) : undefined;
-    const tops = (): Node[] =>
-      root
-        ? [
-            ...folderNodes(g, [{ ...root, name: `${root.name} (root)`, children: [] }], null, [], false, filed),
-            ...folderNodes(g, root.children, root.id, [root.id], false, filed),
-            ...folderNodes(g, g.folders.filter((f) => f !== root), null, [], false, filed),
-          ]
-        : folderNodes(g, g.folders, null, [], false, filed);
-    const kids = (): Node[] => [
-      ...tops(),
-      ...timelinesIn(loose).map((t) => timelineNode(g, t)),
-      ...(draftCount ? [{ row: { key: dk, kind: "drafts" as const, id: null, label: draftsLabel, meta: "", bytes: null, group: g.id, archived: g.archived }, count: draftCount, kids: draftRows }] : []),
-    ];
-    const count = g.folders.length + (root ? root.children.length : 0) + loose.length + (draftCount ? 1 : 0);
-    return {
-      row: {
-        key, kind: g.kind, id: g.id, label: g.name, meta: groupMeta(g), bytes: g.bytes, ...(g.createdAt ? { created: g.createdAt } : {}), group: g.id, archived: g.archived, noRoot: g.kind === "project" && !g.rootFolderId,
-        ...(!g.counts.items && !g.counts.timelines && !g.counts.drafts && !g.folders.length && !g.timelines.length ? { dim: true } : {}),
-        match: has(g.name),
-        target: { kind: "group", group: g.id, root: g.rootFolderId, ...(g.folders.some((f) => f.id === g.rootFolderId && f.linked) ? { rootLinked: true } : {}), name: g.kind === "inbox" ? "the Inbox" : g.name },
-      },
-      count,
-      kids,
-    };
-  };
-  const timelineNode = (g: TreeGroup, t: TreeGroup["timelines"][number]): Node => ({
-    row: {
-      key: `t:${t.id}`, kind: "timeline", id: t.id, label: t.name, bytes: t.bytes, group: g.id, archived: g.archived, created: t.createdAt ?? t.updatedAt,
-      meta: [plural(t.clips, "clip"), clock(t.durationMs), ...(t.exported ? ["exported"] : []), ...(t.unusedTakes > 0 ? [`${t.unusedTakes} unused`, size(t.unusedBytes)] : [])].join(" · "),
-      ...(t.unusedTakes > 0 ? { unused: { takes: t.unusedTakes, bytes: t.unusedBytes } } : {}),
-      match: has(t.name),
-      moving: { kind: "timeline", id: t.id, group: g.id, folder: t.folderId, name: t.name },
-    },
-    count: 0,
-    kids: () => [],
-  });
-  const draftNode = (g: TreeGroup, d: DraftLeaf): Node => ({
-    row: { key: `dr:${d.id}`, kind: "draft", id: d.id, label: draftLabel(d), meta: s.draftMeta?.(d) ?? "", bytes: d.bytes ? d.bytes : null, created: d.createdAt ?? d.updatedAt, group: g.id, archived: g.archived, match: has(draftLabel(d)), moving: { kind: "draft", id: d.id, group: g.id, name: draftLabel(d) } },
-    count: 0,
-    kids: () => [],
-  });
 
   const active = tree.groups.filter((g) => !g.archived);
   const archived = tree.groups.filter((g) => g.archived);
-  const bin: Node[] = s.bin ? [{ row: { key: "bin", kind: "bin" as const, id: null, label: "Bin", meta: s.bin.count ? `${plural(s.bin.count, "item")} · ${binFor() ? `kept ${binFor()}` : "kept until emptied"}` : "empty", bytes: s.bin.bytes, group: null }, count: 0, kids: () => [] }] : [];
+  const bin: Node[] = s.bin ? [leaf({ key: "bin", kind: "bin", id: null, label: "Bin", meta: s.bin.count ? `${plural(s.bin.count, "item")} · ${binFor() ? `kept ${binFor()}` : "kept until emptied"}` : "empty", bytes: s.bin.bytes, group: null })] : [];
   const one = s.only ? tree.groups.find((g) => g.id === s.only!.group) : undefined;
-  // the one-project tree: its row is the whole of it (a place, never folded), what it holds is the top level
-  const scoped = (g: TreeGroup): Node[] => {
-    const n = groupNode(g, true);
-    const inbox = g.kind === "inbox";
-    return [
-      { row: { ...n.row, meta: `${inbox ? "the whole Inbox" : "the whole project"} · ${n.row.meta}` }, count: 0, kids: () => [] },
-      ...n.kids(),
-      ...(inbox ? [{ row: { key: "loose", kind: "loose" as const, id: null, label: "No folder", meta: "items in no folder", bytes: null, group: null }, count: 0, kids: () => [] }] : []),
-    ];
-  };
   const top: Node[] = s.only
-    ? [...(one ? scoped(one) : []), ...bin]
+    ? [...(one ? scopedNodes(c, one) : []), ...bin]
     : [
-        ...active.map((g) => groupNode(g)),
+        ...active.map((g) => groupNode(c, g)),
         ...(archived.length
-          ? [{ row: { key: "archived", kind: "archive" as const, id: null, label: `Archived (${archived.length})`, meta: plural(archived.length, "project"), bytes: archived.reduce((n, g) => n + g.bytes, 0), group: null }, count: archived.length, kids: () => archived.map((g) => groupNode(g)) }]
+          ? [{ row: { key: "archived", kind: "archive" as const, id: null, label: `Archived (${archived.length})`, meta: plural(archived.length, "project"), bytes: archived.reduce((n, g) => n + g.bytes, 0), group: null }, count: archived.length, kids: () => archived.map((g) => groupNode(c, g)) }]
           : []),
         ...bin,
       ];
