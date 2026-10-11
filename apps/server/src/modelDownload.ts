@@ -5,7 +5,7 @@ import { networkInterfaces } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import { isNetworkPath } from "./linked";
 import { modelDirs } from "./modelFiles";
-import { fetchPublic } from "./outbound";
+import { cannotReach, failCode, fetchFailure, fetchPublic } from "./outbound";
 
 /**
  * Afflatus downloading a model file itself, straight into one of ComfyUI's model folders, when it can write
@@ -21,8 +21,14 @@ export class Refused extends Error {}
 
 export const REFUSED = "The site refused the download. For Civitai, save a key in Settings (Finding missing files): some files need an account.";
 
-/** A size in words: "7.3 GB", "48 MB". */
-export const sizeText = (n: number) => (n >= 2 ** 30 ? `${(n / 2 ** 30).toFixed(1)} GB` : `${Math.max(1, Math.round(n / 2 ** 20))} MB`);
+/** A size in words: "7.3 GB", "48 MB"; a few bytes are "1 MB", none are "0 MB". */
+export const sizeText = (n: number) => (n >= 2 ** 30 ? `${(n / 2 ** 30).toFixed(1)} GB` : `${n > 0 ? Math.max(1, Math.round(n / 2 ** 20)) : 0} MB`);
+
+/** Folders ComfyUI lists that hold code or settings, not models: never downloaded into (the node pack refuses them too). */
+export const NOT_MODELS = new Set(["custom_nodes", "configs"]);
+
+/** What a file's name must not hold on any system: a drive's colon, Windows' reserved characters, control characters. */
+export const BAD_NAME = /[:*?"<>|\x00-\x1f]/;
 
 /** What is kept free on the disk beyond the file itself: a disk filled to its last byte troubles everything on it. */
 const SPARE = 256 * 2 ** 20;
@@ -171,16 +177,27 @@ export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: 
         await file?.close().catch(() => {});
         if (o.signal.aborted) throw err;
         if (err instanceof Refused) throw err;
+        // a redirect refused on the way (into the network, down to http, one too many): the same again next time
+        if (typeof (err as { statusCode?: unknown }).statusCode === "number") throw new Refused((err as Error).message);
         // a write that failed half way leaves the .part shorter than counted: picked up from what is really there
         const onDisk = await stat(part).then((s) => s.size, () => 0);
         if (onDisk !== have) {
           have = Math.min(onDisk, have);
           hash = await hashOf(part, have);
         }
+        // a host that cannot be reached at all (refused, unknown, a bad certificate) before a byte came: trying again changes nothing
+        if (!have && cannotReach(err)) throw new Refused(`Could not reach ${hostOf(o.source)} (${failCode(err)}). Check the address, then press Download again.`);
         fails = have > before ? 1 : fails + 1;
-        // undici says a cut connection in its own words ("terminated", "other side closed"): said plainly here
+        // undici says a cut connection in its own words ("terminated", "other side closed"): said plainly here, and
+        // a cut only once some of the file came; before that, what kept it from coming is said
         const said = (err as Error).message.replace(/\.$/, "");
-        const why = /terminated|other side closed|ECONNRESET|socket|fetch failed|EPIPE/i.test(said) ? `the connection was cut at ${sizeText(have)}` : said;
+        const why = !/terminated|other side closed|ECONNRESET|socket|fetch failed|EPIPE/i.test(said)
+          ? said
+          : have
+            ? `the connection was cut at ${sizeText(have)}`
+            : /fetch failed/i.test(said)
+              ? fetchFailure(err, o.source)
+              : "the connection was cut before any of the file came";
         if (fails >= attempts) throw new Refused(`The download failed ${attempts} times in a row (${why}). Press Download again to start over.`);
         o.onRetry?.(`${why[0]!.toUpperCase()}${why.slice(1)}: trying again${have ? ` from ${sizeText(have)}` : ""} (${fails + 1} of ${attempts}).`);
         await sleep(backoff * 2 ** (fails - 1), o.signal);
@@ -189,6 +206,7 @@ export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: 
     if (expectSize && have !== expectSize) throw new Refused(`The file came incomplete: ${have} of ${expectSize} bytes. Press Download again.`);
     const sha256 = hash.digest("hex");
     if (expectSha && sha256 !== expectSha) throw new Refused("The file came damaged: its SHA-256 is not the one Hugging Face lists. Press Download again.");
+    if (SAFETENSORS.test(o.dest) && !(await looksLikeSafetensors(part, have))) throw new Refused("What came is not a safetensors file (the site sent something else under that name). Check the address.");
     // never over a file that is there: ComfyUI may have it in use, and it was asked for as missing
     if (await stat(o.dest).then(() => true, () => false)) throw new Refused("A file of that name is in the folder already.");
     await rename(part, o.dest);
@@ -198,6 +216,34 @@ export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: 
     throw err;
   }
 }
+
+const SAFETENSORS = /\.(safetensors|sft)$/i;
+
+/**
+ * Whether a file starts as a safetensors file does: the length of its JSON header in 8 bytes (little-endian), then
+ * the header's `{`, the header within the file. A page, an archive or another service's answer saved under a
+ * model's name does not, and is refused before ComfyUI lists it.
+ */
+export async function looksLikeSafetensors(path: string, size: number): Promise<boolean> {
+  if (size < 10) return false;
+  const file = await open(path, "r");
+  try {
+    const head = Buffer.alloc(9);
+    await file.read(head, 0, 9, 0);
+    const length = head.readBigUInt64LE(0);
+    return length >= 2n && length <= BigInt(size - 8) && head[8] === 0x7b;
+  } finally {
+    await file.close();
+  }
+}
+
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+};
 
 const dirOf = (path: string) => path.replace(/[\\/][^\\/]*$/, "");
 const mkdirFor = (path: string) => mkdir(dirOf(path), { recursive: true });
@@ -243,19 +289,25 @@ export async function comfyFolderPaths(comfyUrl: string): Promise<Record<string,
  * The directory Afflatus downloads a model folder's files into, when it can write there itself: the first
  * of the paths ComfyUI reads that folder from (as ComfyUI-Manager would pick) that exists here and can be
  * written, as its real path. Only a path ComfyUI listed (or, from an older ComfyUI, one of the folder set in
- * Settings) is ever taken; never one on a network share (see isNetworkPath). Null when there is none: the
- * download then goes through ComfyUI.
+ * Settings) is ever taken, inside that folder when ComfyUI is not on this machine; never one on a network share
+ * (see isNetworkPath), never custom_nodes or configs. Null when there is none: the download then goes through ComfyUI.
  */
 export async function modelRoot(paths: Record<string, string[]> | null, folder: string, comfyUrl: string, comfyDir: string): Promise<string | null> {
   const dir = comfyDir.trim();
   // ComfyUI's paths are its machine's: they are this machine's only when it runs here, or when its folder was set here
-  const here = onThisMachine(comfyUrl) || Boolean(dir && !isNetworkPath(dir));
-  if (!here) return null;
+  const local = onThisMachine(comfyUrl);
+  const here = local || Boolean(dir && !isNetworkPath(dir));
+  if (!here || NOT_MODELS.has(folder)) return null;
+  // a ComfyUI on another machine says paths of its own disk: taken here only inside the folder set in Settings, never
+  // wherever that ComfyUI's answer points
+  const within = local || !paths ? null : await realpath(dir).catch(() => null);
+  if (!local && paths && !within) return null;
   const listed = paths ? paths[folder] ?? (OTHER_NAME[folder] ? paths[OTHER_NAME[folder]!] : undefined) ?? [] : await modelDirs(dir, folder);
   for (const p of listed) {
     if (!p || isNetworkPath(p) || !isAbsolute(p)) continue;
     try {
       const real = await realpath(p);
+      if (within && !inside(within, real)) continue;
       if (!(await stat(real)).isDirectory()) continue;
       await access(real, constants.W_OK);
       return real;

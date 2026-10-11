@@ -22,10 +22,13 @@ RELAY = "/api/downloads/fetch/abc-123"
 class _Site:
     """Afflatus's one-time address: the file from the byte asked for, cut short `cuts` times; `ranges` ignores Range when false."""
 
-    def __init__(self, cuts=0, ranges=True, status=200):
+    def __init__(self, cuts=0, ranges=True, status=200, length=True, extra=0):
         self.cuts = cuts
         self.ranges = ranges
         self.status = status
+        # without a length, the end of the body is the end of the connection; `extra` bytes more than the file
+        self.length = length
+        self.extra = extra
         self.asked = []
         site = self
 
@@ -41,9 +44,10 @@ class _Site:
                     return
                 got = re.match(r"^bytes=(\d+)-$", self.headers.get("Range") or "")
                 start = int(got.group(1)) if got and site.ranges else 0
-                body = FILE[start:]
+                body = FILE[start:] + bytes(site.extra)
                 self.send_response(206 if start else 200)
-                self.send_header("Content-Length", str(len(body)))
+                if site.length:
+                    self.send_header("Content-Length", str(len(body)))
                 if start:
                     self.send_header("Content-Range", f"bytes {start}-{SIZE - 1}/{SIZE}")
                 self.end_headers()
@@ -210,3 +214,75 @@ def test_a_stop_removes_the_part(tmp_path):
     run(job)
     assert job.state == "stopped"
     assert not os.path.exists(job.path + ".part")
+
+
+def test_a_file_of_unknown_size_is_refused(tmp_path, site):
+    s = site(length=False)
+    job = _fetch(tmp_path, s.url)
+    assert job.state == "error" and "size of the file is not known" in job.error
+    assert os.listdir(tmp_path / "loras") == []
+
+
+def test_never_more_than_the_size_it_said(tmp_path, site):
+    # Afflatus said the size; the address sends on past it, with no length of its own
+    s = site(length=False, extra=5 * 2**20)
+    job = Job(s.url, str(tmp_path / "loras" / "model.safetensors"), SIZE)
+    run(job, backoff=0.01)
+    assert job.state == "error" and f"more than the {SIZE} bytes" in job.error
+    assert job.bytes <= SIZE
+    assert os.listdir(tmp_path / "loras") == []
+
+
+def test_a_sub_folder_on_another_drive_is_refused_not_a_crash(tmp_path, monkeypatch):
+    fp = _FolderPaths(str(tmp_path))
+
+    def other_drive(paths):
+        raise ValueError("Paths don't have the same drive")
+
+    monkeypatch.setattr(downloads.os.path, "commonpath", other_drive)
+    with pytest.raises(Refused):
+        target("loras", "linked/x.safetensors", fp)
+
+
+def test_old_parts_are_swept_and_nothing_else(tmp_path):
+    fp = _FolderPaths(str(tmp_path))
+    loras = tmp_path / "loras"
+    (loras / "wan").mkdir()
+    names = ["old.safetensors.0123abcd.part", "wan/old.ckpt.part", "fresh.safetensors.part", "notes.txt.part", "kept.safetensors"]
+    for name in names:
+        (loras / name).write_bytes(b"x")
+    nodes = tmp_path / "custom_nodes" / "old.safetensors.part"
+    nodes.write_bytes(b"x")
+    now = os.path.getmtime(loras / "kept.safetensors")
+    # all of them but the fresh one untouched for two hours
+    for path in [loras / n for n in names if not n.startswith("fresh")] + [nodes]:
+        os.utime(path, (now - 7200, now - 7200))
+    removed = downloads.sweep_parts(fp, now=now)
+    assert sorted(os.path.relpath(p, loras).replace(os.sep, "/") for p in removed) == ["old.safetensors.0123abcd.part", "wan/old.ckpt.part"]
+    assert sorted(os.listdir(loras)) == ["fresh.safetensors.part", "kept.safetensors", "notes.txt.part", "wan"]
+    assert nodes.exists()
+
+
+def test_at_most_two_at_once_and_a_stop_is_said_at_once(tmp_path, site):
+    found, routes, web = _routes()
+    fp = _FolderPaths(str(tmp_path))
+    jobs = downloads.register(routes, web, fp)
+    start, stop = found[("POST", "/afflatus/download")], found[("DELETE", "/afflatus/download/{id}")]
+    s = site()
+    # two under way (their threads stand-ins: nothing runs them)
+    for name in ("a", "b"):
+        job = Job(s.url, str(tmp_path / "loras" / f"{name}.safetensors"), SIZE)
+        jobs[job.id] = job
+    assert asyncio.run(start(_Request({"url": s.url, "folder": "loras", "filename": "c.safetensors", "total": SIZE}))).status == 429
+    # one stopped: it says so at once, and the same file can be asked for again straight away
+    first = next(iter(jobs.values()))
+    assert asyncio.run(stop(_Request(match={"id": first.id}))).status == 200
+    assert first.state == "stopped" and first.cancelled.is_set()
+    again = asyncio.run(start(_Request({"url": s.url, "folder": "loras", "filename": "a.safetensors", "total": SIZE})))
+    assert again.status == 200
+    assert jobs[again.body["id"]].part != first.part
+    for _ in range(500):
+        if jobs[again.body["id"]].state != "downloading":
+            break
+        threading.Event().wait(0.01)
+    assert jobs[again.body["id"]].state == "done"

@@ -5,7 +5,8 @@ import { civitaiSites, civitaiVersion, pretendSites } from "./civitai";
 import type { DownloadView } from "./downloads";
 import { httpError as bad } from "./errors";
 import { fileName } from "./media";
-import { assertPublicUrl, hostnameOf } from "./outbound";
+import { webUrl } from "./modelPages";
+import { assertPublicUrl } from "./outbound";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
 
@@ -23,7 +24,7 @@ export const downloadBody = z.strictObject({
   // of a Civitai version with several files: the one to fetch, by the name Civitai gives it
   pick: z.string().max(400).optional(),
   // the page it comes from, kept for the file: its name then leads there
-  page: z.strictObject({ url: z.string().url().max(2000), title: z.string().max(300) }).optional(),
+  page: z.strictObject({ url: webUrl, title: z.string().max(300) }).optional(),
 });
 export type DownloadBody = z.infer<typeof downloadBody>;
 
@@ -54,8 +55,8 @@ export async function beginDownload(s: Services, req: FastifyRequest, b: Downloa
   if (b.url) {
     if (!name) throw bad("no filename given");
     if (!/^https:\/\//.test(b.url) && !pretendSites()) throw bad("only https URLs are downloaded");
-    // not an address inside this network (ComfyUI's own machine, and a pretend Civitai in the tests, are fine)
-    assertPublicUrl(b.url, [hostnameOf(comfy.url), ...civitaiSites().map(hostnameOf)]);
+    // not an address inside this network, ComfyUI's machine included (a pretend Civitai in the tests and the demo is fine)
+    assertPublicUrl(b.url, civitaiSites());
     const started = await s.downloads.start(comfy, self, { file: b.file, folder: b.folder, title: name, source: b.url, comfyDir: settings.comfyDir });
     await keepPage(started.file);
     return started;

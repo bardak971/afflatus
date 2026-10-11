@@ -1,6 +1,6 @@
 import { envSaid } from "./config";
 import { pretendSites, wordsOf } from "./civitai";
-import { fetchPublic, hostnameOf } from "./outbound";
+import { fetchPublic } from "./outbound";
 
 /**
  * Looking for a file on Hugging Face by its exact name. Unlike Civitai, where models are found by words
@@ -32,7 +32,7 @@ let official: { at: number; repos: Promise<Repo[]> } | null = null;
 
 async function list(params: Record<string, string>): Promise<Repo[]> {
   // a redirect is judged hop by hop (outbound.ts), as a download's is
-  const res = await fetchPublic(`${site()}/api/models?${new URLSearchParams({ ...params, full: "true" })}`, { headers: { "User-Agent": "afflatus" }, signal: AbortSignal.timeout(20_000) }, [hostnameOf(site())]);
+  const res = await fetchPublic(`${site()}/api/models?${new URLSearchParams({ ...params, full: "true" })}`, { headers: { "User-Agent": "afflatus" }, signal: AbortSignal.timeout(20_000) }, [site()]);
   if (!res.ok) throw new Error(`Hugging Face answered HTTP ${res.status}`);
   return ((await res.json().catch(() => [])) as Repo[]) ?? [];
 }

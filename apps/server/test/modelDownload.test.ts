@@ -7,13 +7,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chooseRoute, MANAGER_BIG, MANAGER_HF } from "../src/downloads";
-import { fetchToFile, modelRoot, placeIn, Refused, type FetchTo } from "../src/modelDownload";
+import { fetchToFile, modelRoot, placeIn, Refused, sizeText, type FetchTo } from "../src/modelDownload";
 import { until } from "./helpers";
 
-/** A file of 3 MB whose every byte depends on where it is: a piece out of place shows. */
+/** A file of 3 MB whose every byte depends on where it is: a piece out of place shows. It starts as a safetensors file does. */
 const SIZE = 3 * 2 ** 20;
 const FILE = Buffer.alloc(SIZE);
 for (let i = 0; i < SIZE; i++) FILE[i] = (i * 31 + (i >> 12)) & 255;
+FILE.writeBigUInt64LE(2n, 0);
+FILE.write("{}", 8);
 const SHA = createHash("sha256").update(FILE).digest("hex");
 
 /** What each request asked: its path, its Range, and the key it carried. */
@@ -63,6 +65,12 @@ beforeEach(async () => {
       return res.end();
     }
     if (req.url === "/bytes" || req.url === "/plain") return send(res, at, at > 0);
+    // another service's answer, a zip, under a model's name
+    if (req.url === "/zip") {
+      const zip = Buffer.from("PK not a model at all");
+      res.writeHead(200, { "content-type": "application/zip", "content-length": zip.length });
+      return res.end(zip);
+    }
     if (req.url === "/login") {
       res.writeHead(200, { "content-type": "text/html" });
       return res.end("<html>sign in</html>");
@@ -89,7 +97,7 @@ const fetchTo = (path: string, over: Partial<FetchTo> = {}) => {
   const notes: string[] = [];
   const dest = join(dir, "model.safetensors");
   const done = fetchToFile({
-    source: `${siteUrl}${path}`, headers: {}, allow: ["127.0.0.1"], dest, signal: new AbortController().signal,
+    source: `${siteUrl}${path}`, headers: {}, allow: [siteUrl, otherUrl], dest, signal: new AbortController().signal,
     onBytes: () => {}, onRetry: (n) => notes.push(n), backoffMs: 5, free: async () => 100 * 2 ** 30, ...over,
   });
   return { done, notes, dest };
@@ -161,6 +169,26 @@ describe("Afflatus downloading a model file itself", () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
+  it("refuses a .safetensors that is not one, before naming it", async () => {
+    await expect(fetchTo("/zip").done).rejects.toThrow(/not a safetensors file/);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("says a host it cannot reach at once, by name and reason, instead of trying five times and calling it a cut", async () => {
+    const closed = createServer();
+    await new Promise<void>((r) => closed.listen(0, "127.0.0.1", r));
+    const at = `http://127.0.0.1:${(closed.address() as AddressInfo).port}`;
+    await new Promise((r) => closed.close(r));
+    const { done, notes } = fetchTo("", { source: `${at}/x.safetensors`, allow: [at] });
+    await expect(done).rejects.toThrow(`Could not reach ${at.slice(7)} (ECONNREFUSED)`);
+    await expect(done).rejects.toBeInstanceOf(Refused);
+    expect(notes).toEqual([]);
+    expect(readdirSync(dir)).toEqual([]);
+    // nothing came is said as nothing, never as "1 MB"
+    expect(sizeText(0)).toBe("0 MB");
+    expect(sizeText(1)).toBe("1 MB");
+  });
+
   it("says when the site refuses (a sign-in page), without trying again", async () => {
     await expect(fetchTo("/login").done).rejects.toThrow(/The site refused the download/);
     expect(asked).toHaveLength(1);
@@ -181,6 +209,20 @@ describe("where Afflatus may write a model", () => {
     expect(await modelRoot(listed, "loras", "http://192.0.2.10:8188", "")).toBeNull();
     // a path on a network share is never written
     expect(await modelRoot({ loras: ["\\\\nas\\models\\loras"] }, "loras", "http://127.0.0.1:8188", "")).toBeNull();
+  });
+
+  it("takes a ComfyUI on another machine's paths only inside the folder set in Settings, and never custom_nodes", async () => {
+    const comfy = join(dir, "comfy");
+    const inside = join(comfy, "models", "loras");
+    const outside = join(dir, "elsewhere");
+    mkdirSync(inside, { recursive: true });
+    mkdirSync(outside);
+    const remote = "http://192.0.2.10:8188";
+    expect(await modelRoot({ loras: [outside, inside] }, "loras", remote, comfy)).toBe(await realpath(inside));
+    expect(await modelRoot({ loras: [outside] }, "loras", remote, comfy)).toBeNull();
+    // the same paths of a ComfyUI on this machine are its own
+    expect(await modelRoot({ loras: [outside] }, "loras", "http://127.0.0.1:8188", comfy)).toBe(await realpath(outside));
+    expect(await modelRoot({ custom_nodes: [inside] }, "custom_nodes", "http://127.0.0.1:8188", comfy)).toBeNull();
   });
 
   it("keeps a sub-folder inside the folder, and refuses one whose link leads out of it", async () => {

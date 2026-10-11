@@ -40,8 +40,10 @@ With the pack loaded, ComfyUI answers:
   than an hour). The body must be sent as `application/json`.
 - `POST /afflatus/download`, `GET` and `DELETE /afflatus/download/<id>` (0.11.0): a model file fetched from
   Afflatus's own one-time download address into the first folder ComfyUI lists for its kind, for a ComfyUI on
-  another machine than Afflatus. Written as `<name>.part`, picked up again where it stopped after a cut, renamed
-  once complete. Only model-file names, only into model folders (never `custom_nodes`), no redirects followed.
+  another machine than Afflatus. Written as a `.part` beside it, picked up again where it stopped after a cut, renamed
+  once complete. Only model-file names, only into model folders (never `custom_nodes`), no redirects followed. From
+  0.11.1: a file of unknown size is refused and never written past its size, two at a time at most, and the
+  `.part` files a stopped ComfyUI left are removed at its next start.
 
 ## Install
 
