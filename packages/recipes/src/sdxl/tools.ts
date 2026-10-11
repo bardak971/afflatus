@@ -1,7 +1,7 @@
 import { defineRecipe, GraphBuilder, roundTo, type Ref } from "@afflatus/core";
 import { redrawInTiles, tileInputs, TILE_NODES, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
 import {
-  boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, loadSdxl, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, samplerOf, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
+  boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, loadSdxl, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, samplerOf, stretchedFill, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
   type FaceSettings, type MaskSettings, type OutpaintSettings, type UpscaleSettings,
   type SdxlBase,
 } from "./common";
@@ -166,7 +166,7 @@ export const sdxlOutpaint = defineRecipe<SdxlOutpaint>({
     ...samplingInputs(),
   ],
   presets: SDXL_PRESETS,
-  nodes: (input) => [...modelNodes(input), ...OUTPAINT_NODES, "KSampler", "ImageCompositeMasked", "InvertMask", "CropMask", "ImageBlur"],
+  nodes: (input) => [...modelNodes(input), ...OUTPAINT_NODES, "KSampler", ...PASTE_BACK_NODES],
   optionalNodes: ["ControlNetLoader", "SetUnionControlNetType", "InpaintPreprocessor", "ControlNetApplyAdvanced", "VAEEncode", "SetLatentNoiseMask", "DifferentialDiffusion"],
   build(input, ctx) {
     if (input.padLeft + input.padRight + input.padTop + input.padBottom === 0) throw new Error("Nothing to extend: set how far the picture grows on at least one side.");
@@ -188,22 +188,14 @@ export const sdxlOutpaint = defineRecipe<SdxlOutpaint>({
       const hint = g.out("InpaintPreprocessor", { image: grey, mask, black_pixel_for_xinsir_cn: true });
       const applied = g.add("ControlNetApplyAdvanced", { positive: m.positive, negative: m.negative, control_net: net, image: hint, strength: 1, start_percent: 0, end_percent: 1, vae: m.vae });
       cond = { positive: [applied, 0], negative: [applied, 1] };
-      // the new part starts from the picture stretched over the whole canvas and blurred, the picture itself on top
-      const stretched = g.out("ImageScale", { image: source, upscale_method: "bilinear", width: whole.width, height: whole.height, crop: "disabled" });
-      const blurred = g.out("ImageBlur", { image: g.out("ImageBlur", { image: stretched, blur_radius: 31, sigma: 10 }), blur_radius: 31, sigma: 10 });
-      const filled = g.out("ImageCompositeMasked", { destination: blurred, source, x: input.padLeft, y: input.padTop, resize_source: false });
-      const pixels = g.out("ImageScale", { image: filled, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
-      start = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels, vae: m.vae }), mask });
+      start = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: stretchedFill(g, source, input, whole, size), vae: m.vae }), mask });
       model = g.out("DifferentialDiffusion", { model: m.model });
     }
     g.phase("sampling");
     const sampled = g.out("KSampler", { ...samplerOf(input, m, ctx), model, ...cond, latent_image: start, steps: input.steps, denoise: 1 });
     g.phase("decoding");
     const drawn = g.out("ImageScale", { image: g.out("VAEDecode", { samples: sampled, vae: m.vae }), upscale_method: "lanczos", width: whole.width, height: whole.height, crop: "disabled" });
-    // the picture put back at its own size, faded in through the feathered edge widened once more
-    const keep = g.out("ImageToMask", { image: g.out("ImageBlur", { image: g.out("MaskToImage", { mask: g.out("InvertMask", { mask: [padded, 1] }) }), blur_radius: 31, sigma: 10 }), channel: "red" });
-    const own = g.out("CropMask", { mask: keep, x: input.padLeft, y: input.padTop, width: from.width, height: from.height });
-    const out = g.add("PreviewImage", { images: g.out("ImageCompositeMasked", { destination: drawn, source, x: input.padLeft, y: input.padTop, resize_source: false, mask: own }) });
+    const out = g.add("PreviewImage", { images: pasteBack(g, drawn, source, padded, from, input) });
     return {
       graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }],
       totalSteps: input.steps, passes: [{ node: sampled[0], steps: input.steps }], loads: [`checkpoints/${input.checkpoint}`, ...(repaint ? [`controlnet/${input.repaintModel}`] : [])],

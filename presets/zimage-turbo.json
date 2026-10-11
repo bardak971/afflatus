@@ -1,0 +1,23 @@
+{
+  "id": "zimage-turbo",
+  "name": "Z-Image Turbo (bf16)",
+  "author": "Tongyi-MAI (Alibaba)",
+  "note": "Z-Image Turbo as ComfyUI repackages it: pictures from plain sentences in English or Chinese, with legible text, in 9 steps at CFG 1. The family's own defaults.",
+  "homepage": "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo",
+  "licence": {
+    "name": "Apache 2.0",
+    "url": "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo",
+    "note": "Z-Image Turbo is released under Apache 2.0: free use, commercial too."
+  },
+  "recipe": "zimage.text-to-picture",
+  "inputs": {
+    "model": "z_image_turbo_bf16.safetensors"
+  },
+  "files": [
+    {
+      "file": "z_image_turbo_bf16.safetensors",
+      "folder": "diffusion_models",
+      "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors"
+    }
+  ]
+}

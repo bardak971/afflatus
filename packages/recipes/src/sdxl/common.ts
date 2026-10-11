@@ -227,6 +227,32 @@ export function outpaintLatent(g: GraphBuilder, source: Ref, from: { width: numb
   const mask = g.out("ImageToMask", { image: g.out("ImageScale", { image: g.out("MaskToImage", { mask: [padded, 1] }), upscale_method: "bilinear", width: size.width, height: size.height, crop: "disabled" }), channel: "red" });
   return { latent: g.out("VAEEncodeForInpaint", { pixels, vae, mask, grow_mask_by: 16 }), whole, padded, pixels, mask };
 }
+/** The nodes `pasteBack` and `stretchedFill` bring in (GrowMask besides, for a paste with an inset). */
+export const PASTE_BACK_NODES = ["ImageCompositeMasked", "InvertMask", "CropMask", "ImageBlur"];
+/**
+ * The picture put back over the outpainted result at its own size, faded in through the padding's feathered
+ * edge widened once more: the model redraws the whole canvas, which softens the picture. `inset` pulls the
+ * edge into the picture and widens the fade, for a result whose join was redrawn by a seam pass.
+ */
+export function pasteBack(g: GraphBuilder, drawn: Ref, source: Ref, padded: string, from: { width: number; height: number }, input: OutpaintSettings, inset = 0): Ref {
+  let edge: Ref = g.out("InvertMask", { mask: [padded, 1] });
+  if (inset > 0) edge = g.out("GrowMask", { mask: edge, expand: -inset, tapered_corners: true });
+  let soft = g.out("ImageBlur", { image: g.out("MaskToImage", { mask: edge }), blur_radius: 31, sigma: 10 });
+  if (inset > 0) soft = g.out("ImageBlur", { image: g.out("ImageBlur", { image: soft, blur_radius: 31, sigma: 10 }), blur_radius: 31, sigma: 10 });
+  const own = g.out("CropMask", { mask: g.out("ImageToMask", { image: soft, channel: "red" }), x: input.padLeft, y: input.padTop, width: from.width, height: from.height });
+  return g.out("ImageCompositeMasked", { destination: drawn, source, x: input.padLeft, y: input.padTop, resize_source: false, mask: own });
+}
+/**
+ * The padded canvas the new part starts from: the picture stretched over it and blurred, the picture itself
+ * on top, at the drawing size. Flat grey is read as a wall or a frame (tried on a real ComfyUI: grey drew a
+ * window around the picture, the stretched picture a scene).
+ */
+export function stretchedFill(g: GraphBuilder, source: Ref, input: OutpaintSettings, whole: { width: number; height: number }, size: { width: number; height: number }): Ref {
+  const stretched = g.out("ImageScale", { image: source, upscale_method: "bilinear", width: whole.width, height: whole.height, crop: "disabled" });
+  const blurred = g.out("ImageBlur", { image: g.out("ImageBlur", { image: stretched, blur_radius: 31, sigma: 10 }), blur_radius: 31, sigma: 10 });
+  const filled = g.out("ImageCompositeMasked", { destination: blurred, source, x: input.padLeft, y: input.padTop, resize_source: false });
+  return g.out("ImageScale", { image: filled, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
+}
 
 /** The upscale models that suit most pictures, best first. */
 /** Which upscale model a picture recipe starts on when its default is not there: UltraSharp, else Nomos8kSC (photos), else a general one, never an anime one. */

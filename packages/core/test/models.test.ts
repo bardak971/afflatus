@@ -22,6 +22,13 @@ describe("which LoRAs suit a model family", () => {
     expect(loraFit(wan, "klein.safetensors", { base: "FLUX.2 Klein" })).toBe(-1);
   });
 
+  it("names Z-Image by its own name, even when its file names the Qwen text encoder it reads with", () => {
+    expect(baseLabel("z_image_turbo_qwen_3_4b")).toBe("Z-Image");
+    expect(baseLabel("Z-Image Turbo")).toBe("Z-Image");
+    expect(baseLabel("qwen_image_2512")).toBe("Qwen Image");
+    expect(loraFit({ name: "Z-Image", loraMatch: ["z[ ._-]?image", "(^|[^a-z0-9])zit([^a-z0-9]|$)"] }, "ZIT/film_look.safetensors", {})).toBe(1);
+  });
+
   it("falls back on the file's name and folder when the file says nothing", () => {
     expect(loraFit(wan, "Wan/High/WAN-2.2-I2V-something-HIGH.safetensors", {})).toBe(1);
     expect(loraFit(sdxl, "Illustrious/hands.safetensors")).toBe(1);

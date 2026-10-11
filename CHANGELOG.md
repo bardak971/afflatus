@@ -8,6 +8,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **A keyframe for LTX 2.3:** a picture the clip passes through at a moment of its own, with its strength, in one pass and in two (a guide at each size); on its own it decides the shape.
 - **NAG for Wan Turbo:** the negative prompt acts at CFG 1 (KJNodes' WanVideoNAG), on by default in Turbo, with its scale.
 - **Hires fix for FLUX.2 Klein txt2img**, as the other families have it: an upscale model, then a light Klein pass, in tiles past about 2.5 megapixels.
+- **Z-Image:** Z-Image Turbo and its fine-tunes as a built-in family, from ComfyUI's own template (9 steps of res_multistep at CFG 1): txt2img with hires fix, img2img, inpaint, outpaint, upscale and face detailer, its three files downloadable from Settings → Models; Z-Image Base starts on its own sampling (30 steps, CFG 4). Lumina 2 files are no longer taken for Z-Image.
 - **Few-step SDXL checkpoints** (DMD2, LCM, Lightning, Hyper, Turbo) start on their own sampling, and a model's matching presets combine: an Illustrious DMD2 merge gets few steps and Illustrious's quality tags.
 
 ### Changed
@@ -17,6 +18,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - Large downloads through ComfyUI-Manager stopping with "ComfyUI-Manager dropped the connection": Manager held the whole file in memory, and Windows refused past a few GB.
 - **SDXL outpaint:** with xinsir's ControlNet Union ProMax it continues the picture in repaint mode, from the picture stretched rather than grey, without the frame or the seams it used to draw; the picture itself is put back at its own size instead of coming back redrawn and softened.
 - **LTX 2.3:** the ×2 latent upscaler slot no longer takes the ×1.5 file, which the two passes would have made a clip at three quarters of the size from.
+- **Outpaint for FLUX.1, Qwen Image and Z-Image:** the new part starts from the picture stretched rather than grey, a light seam pass goes over the join, and the picture itself is put back at its own size: no more line where the two meet, and no softened picture.
 
 ## [0.3.0] - 2026-10-10
 

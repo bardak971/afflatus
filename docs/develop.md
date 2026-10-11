@@ -24,7 +24,7 @@ Without a GPU, `corepack pnpm demo` runs the real app against a pretend ComfyUI 
 | Folder | What |
 |---|---|
 | `packages/core` | The recipe contract: inputs, the graph builder, the graph checker, what a model file says about itself |
-| `packages/recipes` | The built-in forms per model family (SDXL, FLUX.1, Klein, Krea 2, Qwen, MiniMax H3, Wan 2.2, LTX 2.3), each with its prompting guide |
+| `packages/recipes` | The built-in forms per model family (SDXL, FLUX.1, Klein, Krea 2, Qwen, Z-Image, MiniMax H3, Wan 2.2, LTX 2.3), each with its prompting guide |
 | `packages/comfy` | The ComfyUI client, the scan of what a ComfyUI can do, the monitor, a pretend ComfyUI for the tests, the architecture detector |
 | `packages/workflows` | Reading a ComfyUI workflow file and running it as a form |
 | `apps/server` | Fastify: the library, the queue, the timelines, the designer, the settings, the downloads; SQLite through Node's own `node:sqlite` |

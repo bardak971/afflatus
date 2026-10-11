@@ -122,6 +122,7 @@ These come with a ready-made form. Anything else, bring in as a workflow.
 | FLUX.1 ² | dev, Kontext | txt2img, edit, img2img, inpaint, outpaint, upscale, face detailer |
 | Qwen Image | 2512, Qwen Image Edit | txt2img, edit, img2img, inpaint, outpaint, upscale, face detailer |
 | Qwen Image 2.1 | | txt2img, edit |
+| Z-Image | Turbo and its fine-tunes | txt2img, img2img, inpaint, outpaint, upscale, face detailer |
 | MiniMax H3 | video with sound | text, first frame, first and last frames, references, continuation: the timeline's native model |
 | Wan 2.2 | | video |
 | LTX 2.3 | | video |

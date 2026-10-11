@@ -28,7 +28,10 @@ describe("the architecture behind a file's tensors", () => {
     expect(arch({ "img_in.weight": [3072, 64], "double_blocks.0.img_attn.qkv.weight": [9216, 3072], "distilled_guidance_layer.0.norms.0.scale": [3072] })).toEqual({ base: "Chroma" });
     expect(arch({ "img_in.weight": [3072, 64], "txt_norm.weight": [3584], "transformer_blocks.0.attn.add_q_proj.weight": [3072, 3072], "time_text_embed.timestep_embedder.linear_1.weight": [3072, 256] })).toEqual({ base: "Qwen Image" });
     expect(arch({ "img_in.weight": [3072, 64], "proj_out.weight": [64, 3072], "txt_in.text_norm.weight": [3584], "modulation.1.weight": [3072, 3072], "transformer_blocks.0.attn.norm_q.weight": [128], "transformer_blocks.0.img_mlp.gate_up.weight": [8192, 3072] })).toEqual({ base: "Qwen Image 2.1" });
-    expect(arch({ "cap_embedder.1.weight": [2304, 2304], "noise_refiner.0.attention.k_norm.weight": [128] })).toEqual({ base: "Z-Image" });
+    // the NextDiTs, by the width of the text they read: Qwen3 4B for Z-Image, Gemma 2 2B for Lumina 2, and so for a LoRA's lora_down too
+    expect(arch({ "cap_embedder.1.weight": [3840, 2560], "noise_refiner.0.attention.k_norm.weight": [128] })).toEqual({ base: "Z-Image" });
+    expect(arch({ "diffusion_model.cap_embedder.1.lora_down.weight": [32, 2560], "diffusion_model.noise_refiner.0.attention.qkv.lora_down.weight": [32, 3840] })).toEqual({ base: "Z-Image" });
+    expect(arch({ "cap_embedder.1.weight": [2304, 2304], "noise_refiner.0.attention.k_norm.weight": [128] })).toEqual({ base: "Lumina 2" });
   });
 
   it("tells the UNets apart by the width of the text they read, with or without the checkpoint wrapper", () => {
