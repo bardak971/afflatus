@@ -4,6 +4,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type QueueStatus } from "../api";
 import { useQueue } from "../data";
 import { NOTIFY_HELP, NOTIFY_REFUSED, NotifyToggle } from "../NotifyToggle";
+import { useQueueOps } from "../queueOps";
+import { unloadBlock } from "../queueRules";
 import { useSayFailed } from "../sayFailed";
 import { Button, cx, ErrorNote, Help, SectionTitle, Segmented } from "../ui";
 import { History } from "./queue/History";
@@ -15,21 +17,22 @@ import { WaitingList } from "./queue/WaitingList";
 import { queryKeys } from "../queryKeys";
 
 /** The header's buttons: unload the models, pause or resume. */
-function QueueControls({ q, free, pause }: { q: QueueStatus | undefined; free: { mutate(): void; isPending: boolean; isSuccess: boolean }; pause: { mutate(paused: boolean): void } }) {
+function QueueControls({ q, free, pause, resume }: { q: QueueStatus | undefined; free: { mutate(): void; isPending: boolean; isSuccess: boolean }; pause: { mutate(): void }; resume: { mutate(): void } }) {
+  const why = unloadBlock(q);
   return (
     <>
       {q?.online && (
         <Button
           className="h-10 px-4"
-          disabled={free.isPending || Boolean(q.running && q.running.kind === "render")}
-          data-tip="Unloads ComfyUI's models from VRAM and RAM, for a game or another program. The next render loads what it needs again. Not while a render is running."
+          disabled={free.isPending || Boolean(why)}
+          data-tip="Unloads ComfyUI's models from VRAM and RAM, for a game or another program. The next render loads what it needs again. Not while a job is running."
           onClick={() => free.mutate()}
         >
           {free.isPending ? "Unloading…" : free.isSuccess ? "Models unloaded" : "Unload models"}
         </Button>
       )}
       {q && (
-        <Button tone={q.paused ? "primary" : "plain"} className="h-10 px-4" data-tip={q.paused ? "Send what waits to ComfyUI again" : "Finish the running render, then send nothing new: the GPU is yours"} onClick={() => pause.mutate(!q.paused)}>
+        <Button tone={q.paused ? "primary" : "plain"} className="h-10 px-4" data-tip={q.paused ? "Send what waits to ComfyUI again" : "Finish the running render, then send nothing new: the GPU is yours"} onClick={() => (q.paused ? resume : pause).mutate()}>
           {q.paused ? "Resume queue" : "Pause queue"}
         </Button>
       )}
@@ -48,8 +51,7 @@ export function Queue() {
   const refresh = () => client.invalidateQueries({ queryKey: queryKeys.queue() });
   // what fails is said in a banner, as the history's actions do: it goes away, and does not stay on the screen
   const failed = useSayFailed({ id: "queue", href: "/queue", go: "Open queue" });
-  const pause = useMutation({ mutationFn: (paused: boolean) => (paused ? api.pause() : api.resume()), onSuccess: refresh, onError: failed("Could not pause or resume the queue") });
-  const free = useMutation({ mutationFn: api.freeMemory, onError: failed("Could not unload the models") });
+  const { pause, resume, unload: free } = useQueueOps();
   const cancel = useMutation({ mutationFn: api.cancel, onSuccess: refresh, onError: failed("Could not cancel it") });
   const order = useMutation({ mutationFn: api.queueOrder, onSuccess: (q) => client.setQueryData(queryKeys.queue(), q), onError: failed("Could not reorder the queue") });
   const [refused, setRefused] = useState(false);
@@ -82,7 +84,7 @@ export function Queue() {
           </span>
           {q?.model && <span className="truncate font-mono">{q.model} loaded</span>}
         </div>
-        <QueueControls q={q} free={free} pause={pause} />
+        <QueueControls q={q} free={free} pause={pause} resume={resume} />
       </header>
 
       {queue.error && <ErrorNote>Could not read the queue: {queue.error.message}</ErrorNote>}

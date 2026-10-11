@@ -1,5 +1,6 @@
 import { unkeptMs } from "../../keepFor";
 import type { Asset } from "../../api";
+import { leftWords } from "../../format";
 
 /**
  * The library's grid in justified rows: every picture and video at its own shape, every row the same
@@ -85,11 +86,10 @@ export const leftOf = (a: Pick<Asset, "countdownFrom" | "createdAt">, now = Date
 /** When the items not kept go to the bin, said once for all of them: "23–24 h", "5 h", "40 min–3 h". */
 export function binRange(lefts: number[]): string {
   if (!lefts.length) return "";
-  const say = (ms: number, up: boolean) => (ms < 3_600_000 ? `${Math.max(1, Math.round(ms / 60_000))} min` : `${(up ? Math.ceil : Math.floor)(ms / 3_600_000)} h`);
   const lo = Math.max(0, Math.min(...lefts));
   const hi = Math.max(0, Math.max(...lefts));
-  const a = say(lo, false);
-  const b = say(hi, true);
+  const a = leftWords(lo);
+  const b = leftWords(hi, true);
   if (a === b) return a;
   // "23–24 h", not "23 h–24 h"
   return a.endsWith(" h") && b.endsWith(" h") ? `${a.slice(0, -2)}–${b}` : `${a}–${b}`;

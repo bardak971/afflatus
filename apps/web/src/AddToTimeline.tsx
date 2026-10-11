@@ -6,7 +6,7 @@ import { useAddToTimeline } from "./actions";
 import { thumbUrl, type Asset } from "./api";
 import { useFolders, useTimelines } from "./data";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
-import { clock, when } from "./format";
+import { clock, plural, when } from "./format";
 import { Keys } from "./Keys";
 import { useProject } from "./project";
 import { Select } from "./Select";
@@ -52,7 +52,7 @@ export function AddToTimeline({ asset, onClose }: { asset: Asset; onClose(): voi
               {t.cover ? <img src={thumbUrl(t.cover)} alt="" className="h-9 w-14 rounded object-cover" /> : <span className="flex h-9 w-14 items-center justify-center rounded bg-raised text-ink-3"><Film size={14} /></span>}
               <span className="flex min-w-0 grow flex-col">
                 <span className="truncate font-semibold">{t.name}</span>
-                <span className="text-xs text-ink-2">{t.clips === 0 ? "Empty" : `${t.clips} clip${t.clips > 1 ? "s" : ""}${t.durationMs ? ` · ${clock(t.durationMs)}` : ""}`} · {when(t.updatedAt)}</span>
+                <span className="text-xs text-ink-2">{t.clips === 0 ? "Empty" : `${plural(t.clips, "clip")}${t.durationMs ? ` · ${clock(t.durationMs)}` : ""}`} · {when(t.updatedAt)}</span>
               </span>
             </button>
           ))}

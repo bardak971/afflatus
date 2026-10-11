@@ -1,5 +1,6 @@
 import { isRef, type BuiltGraph } from "./graph";
 import { looksLikeFiles } from "./inputs";
+import { isModelFile } from "./modelFiles";
 
 /**
  * ComfyUI's node catalog (GET /object_info). An input is [type, options?]; a list of choices is either
@@ -53,7 +54,7 @@ export function relocateFiles(graph: Record<string, { class_type: string; inputs
     const def = infoIn(catalog, node.class_type);
     if (!def) continue;
     for (const [input, value] of Object.entries(node.inputs)) {
-      if (typeof value !== "string" || !/\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx)$/i.test(value)) continue;
+      if (typeof value !== "string" || !isModelFile(value)) continue;
       const offered = choicesOf(def.input.required?.[input] ?? def.input.optional?.[input]);
       if (!offered?.length || offered.includes(value)) continue;
       const found = sameFile(offered, value);

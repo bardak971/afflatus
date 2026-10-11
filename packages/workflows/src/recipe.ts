@@ -3,7 +3,7 @@ import {
 } from "@afflatus/core";
 import type { Chapter } from "@afflatus/core";
 import { MODEL_FILE, own } from "./catalog";
-import { slug } from "./text";
+import { familySlug, slug } from "./text";
 import type { Control, Target, Toggle, WorkflowDef } from "./types";
 import { ancestors, cutFileNameChains, modesFor, prune, readersOf, remove, selectorOf, settle, skipsFor, trim } from "./wiring";
 import { MEDIA_LOADERS } from "./inspect";
@@ -14,7 +14,7 @@ import { inputNode } from "./suggest";
 /** The family a workflow recipe belongs to: the model name the user gave it. */
 export function familyOf(def: WorkflowDef): Family {
   return {
-    id: `workflow-${slug(def.model)}`,
+    id: `workflow-${familySlug(def.model)}`,
     name: def.model,
     summary: "From your own workflow.",
     imported: true,

@@ -3,7 +3,7 @@ import { Music } from "lucide-react";
 import { api, fileUrl, thumbUrl, type AssetDetail, type CommandEntry, type RecipeInfo } from "../api";
 import { useTimeline } from "../data";
 import { mainTextOf } from "../form";
-import { clock, recipeLabel, size, took, when } from "../format";
+import { clock, plural, recipeLabel, size, took, when } from "../format";
 import { cx } from "../ui";
 import { timelineLength, type Item } from "./items";
 import type { SettingCtx } from "./settingsRegistry";
@@ -156,7 +156,7 @@ export function Preview({ item, detail, recipes, settingCtx, extra }: {
   );
   else if (e?.kind === "folder") body = (
     <>
-      <TextCard>{`${e.items} item${e.items === 1 ? "" : "s"} here${e.linked ? ", in a folder of your disk: used where they are." : "."}`}</TextCard>
+      <TextCard>{`${plural(e.items, "item")} here${e.linked ? ", in a folder of your disk: used where they are." : "."}`}</TextCard>
       <Title title={e.label} sub={item.meta} />
       <Facts facts={[{ k: "items", v: String(e.items) }, { k: "kind", v: e.linked ? "on your disk" : "folder" }]} />
     </>

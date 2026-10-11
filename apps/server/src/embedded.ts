@@ -3,6 +3,7 @@ import { mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inflateSync } from "node:zlib";
+import { modelStem } from "@afflatus/core";
 import { localInputs, tools } from "./video";
 
 /**
@@ -182,7 +183,7 @@ async function mediaTags(bytes: Uint8Array): Promise<Record<string, string>> {
 // ---------------------------------------------------------------- A1111 text
 
 /** Only real model extensions: "Slider_v1.0" keeps its ".0". */
-export const stemOf = (p: string) => (p.split(/[\\/]/).pop() ?? p).replace(/\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx)$/i, "");
+export const stemOf = modelStem;
 
 /** `<lora:name:w>` tags, taken out of the text into a list. */
 function splitLoras(prompt: string): { text: string; loras: Array<{ name: string; weight: number }> } {

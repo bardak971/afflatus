@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { basename, delimiter, dirname, extname, join, parse, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
 import type { EventEmitter } from "node:events";
+import { slug } from "@afflatus/core";
 import { loadConfig, environment } from "./config";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { httpError } from "./errors";
@@ -225,7 +226,6 @@ function writeRefused(err: NodeJS.ErrnoException, folder: Folder, dir: string, n
 }
 
 /** The start of a text as a part of a file name: lower case, words joined by dashes, accents dropped ("Crème brûlée": "creme-brulee"). */
-export const slug = (text: string) => text.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "");
 
 export class Linked {
   private scanning = new Map<string, Promise<{ files: number; folders: number }>>();
@@ -524,7 +524,7 @@ export class Linked {
     if (stem) return `${stem}.${ext}`;
     const g = a.generation_id ? await this.db.selectFrom("generations").select("inputs").where("id", "=", a.generation_id).executeTakeFirst() : undefined;
     const texts = g ? Object.values(JSON.parse(g.inputs) as Record<string, unknown>).filter((v): v is string => typeof v === "string" && /\s/.test(v.trim())) : [];
-    const words = slug(texts[0] ?? "");
+    const words = slug(texts[0] ?? "", 40);
     return `${a.created_at.slice(0, 10)}${words ? `_${words}` : ""}.${ext}`;
   }
 

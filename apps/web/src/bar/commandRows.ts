@@ -5,6 +5,9 @@ import { prepare } from "./match";
 import { COMMANDS, KIT_OF, parseCommand, type Command, type CommandId, type KitNew } from "./parse";
 import type { TimelineAim } from "./useActions";
 import { plural } from "../format";
+import { unloadBlock } from "../queueRules";
+
+const upper = (s: string | null) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : null);
 
 /** A command read from what is typed, as a row of the bar: its words, what it touches and how many. */
 
@@ -66,7 +69,7 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
   const kitNew = (cmd: KitNew): [string, string] => [`New ${KIT_OF[cmd]} “${named}”`, "In the Prompt kit, opened there"];
   const mirrorWords = c.cmd === "mirror-pin" && c.off ? "Mirror off" : "Mirror pinned frame";
   const words: Record<Command["cmd"], [string, string]> = {
-    "render-clips": [`${said(c)} of ${t}`, c.cmd === "render-clips" ? `${c.clips.length} clip${c.clips.length > 1 ? "s" : ""} · they go to the end of the queue · Ctrl+Enter: to the top` : ""],
+    "render-clips": [`${said(c)} of ${t}`, c.cmd === "render-clips" ? `${plural(c.clips.length, "clip")} · they go to the end of the queue · Ctrl+Enter: to the top` : ""],
     "render-missing": [`Render missing clips of ${t}`, "Clips with no take yet, or whose join went stale · Ctrl+Enter: at the top of the queue"],
     export: [`Export ${t}`, "The export dialog opens on it"],
     finish: [`Finish ${t}…`, "The Finish dialog: every take upscaled to its final quality"],
@@ -74,7 +77,7 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     generate: ["Generate", "The open draft, as its Generate button"],
     preset: [`Apply ${preset?.name ?? named}`, preset ? `Preset${preset.source === "shipped" ? " · built in" : ""} · on the open draft` : "No preset by that name"],
     "save-preset": [`Save as preset “${named}”`, "The open draft's model, form and cast"],
-    unload: ["Unload models", !queueNow?.online ? "ComfyUI is offline" : queueNow.rendering ? "Not while a render runs" : "ComfyUI's models out of memory · the next render loads them again"],
+    unload: ["Unload models", upper(unloadBlock(queueNow)) ?? "ComfyUI's models out of memory · the next render loads them again"],
     "new-timeline": [named ? `New timeline “${named}”` : "New timeline", "In the project you work in · opens in the editor"],
     "new-folder": [`New folder “${named}”`, "At the top of the project you work in"],
     "new-person": kitNew("new-person"),
@@ -96,7 +99,7 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     resume: ["Resume queue", `${queueNow?.waiting ?? 0} waiting`],
     "empty-bin": ["Empty the bin…", binEmpty ? "The bin is empty" : `${binSaid} · asked first · cannot be undone`],
     "put-back-all": ["Put all back", binEmpty ? "The bin is empty" : `${binSaid} · each back where it was`],
-    "bin-unused": [`Bin unused takes of ${t}…`, aim?.entry ? (aim.entry.unusedTakes ? `${aim.entry.unusedTakes} take${aim.entry.unusedTakes === 1 ? "" : "s"} · asked first` : "It has none") : "Asked first"],
+    "bin-unused": [`Bin unused takes of ${t}…`, aim?.entry ? (aim.entry.unusedTakes ? `${plural(aim.entry.unusedTakes, "take")} · asked first` : "It has none") : "Asked first"],
     "link-folder": [c.cmd === "link-folder" && c.path ? `Link ${c.path}` : "Link a folder of your disk", "Used in place, nothing copied"],
     "new-project": [`New project “${c.cmd === "new-project" ? c.name : ""}”`, "Made, and worked in"],
     // the key that does the same in the editor is drawn on the row's right (from the key table), not said here

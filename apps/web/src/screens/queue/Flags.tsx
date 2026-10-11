@@ -79,7 +79,7 @@ export function Flags({ flags, onJobs }: { flags: Flag[]; onJobs(model: string, 
           return (
             <Line
               key="vram" warn={f.spills > 0} lead={`VRAM peak ${f.peak} %`} rest={f.where ? `· ${f.where}` : undefined}
-              sub={f.spills ? `${f.spills} spill${f.spills === 1 ? "" : "s"} · +${long(f.spillLostMs)}` : "no spill measured"}
+              sub={f.spills ? `${plural(f.spills, "spill")} · +${long(f.spillLostMs)}` : "no spill measured"}
             />
           );
         })}

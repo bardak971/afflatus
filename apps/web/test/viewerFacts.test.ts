@@ -11,10 +11,10 @@ const g = { id: "g", recipe: "r", family: "f", inputs: {}, resolved: {}, tookMs:
 
 describe("the viewer's facts line", () => {
   it("says what made a picture, its size, its file, when and how long it took", () => {
-    expect(factsOf(asset("a"), g, "Model · Text to image")).toBe("Model · Text to image · 1536×864 · PNG 3.0 MB · 5 min ago · rendered in 21 s");
+    expect(factsOf(asset("a"), g, "Model · Text to image")).toBe("Model · Text to image · 1536×864 · PNG 3 MB · 5 min ago · rendered in 21 s");
   });
   it("leaves the title out when it is the name already, and says nothing of a render it did not have", () => {
-    expect(factsOf(asset("a"), null, "")).toBe("1536×864 · PNG 3.0 MB · 5 min ago");
+    expect(factsOf(asset("a"), null, "")).toBe("1536×864 · PNG 3 MB · 5 min ago");
   });
   it("gives a video its length, speed and whether it is silent", () => {
     const v = asset("v", { kind: "video", mime: "video/mp4", durationMs: 5000, fps: 24, hasSound: false, bytes: 2048 });

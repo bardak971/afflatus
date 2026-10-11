@@ -8,6 +8,7 @@ import { ask, askText } from "../../Confirm";
 import { useBanners } from "../../store";
 import { cx, fieldClass, TwoStep } from "../../ui";
 import { queryKeys } from "../../queryKeys";
+import { failedBanner } from "../../sayFailed";
 
 /**
  * The head of the Create panel: the draft it is on (a list to switch, a name of its own), and the way to a
@@ -23,7 +24,7 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
   const client = useQueryClient();
   const say = useBanners((b) => b.push);
   /** A draft action that failed, said where it is seen whatever is open. */
-  const failed = (what: string) => (err: Error) => say({ id: `draft:${what}`, tone: "bad", title: `The draft could not be ${what}`, text: err.message, href: "/create", go: "Open the form" });
+  const failed = (what: string) => (err: unknown) => say(failedBanner({ id: `draft:${what}`, once: true, href: "/create", go: "Open the form" }, `The draft could not be ${what}`, err));
   // a draft being given a name of its own, instead of the start of what is written in it
   const [naming, setNaming] = useState<string | null>(null);
   const rename = useMutation({

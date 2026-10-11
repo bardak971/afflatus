@@ -1,3 +1,4 @@
+import { isModelFile } from "@afflatus/core";
 import { CopyPlus, Download as DownloadIcon, ExternalLink, FileDown, Link2, MoreHorizontal, Play, X } from "lucide-react";
 import type { Entity, PresetDef } from "./api";
 import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
@@ -16,8 +17,6 @@ const PAIRS: Array<{ ids: [string, string]; label: string; join: string }> = [
   { ids: ["sampler", "scheduler"], label: "Sampler · scheduler", join: " · " },
   { ids: ["shiftVideo", "shiftAudio"], label: "Shift · video / sound", join: " / " },
 ];
-
-const MODEL_FILE = /\.(safetensors|gguf|ckpt|pt|pth)$/i;
 
 /** The sampling inputs whose model default is shown when the preset leaves them: what a render of it actually uses. */
 const SAMPLING = ["steps", "turboSteps", "cfg", "sampler", "scheduler", "shift", "shiftVideo", "shiftAudio"];
@@ -45,7 +44,7 @@ export function ShippedPreset({ e, onApply, onDuplicate, duplicating, onClose }:
   const more = useMenu<null>();
   const missing = fetch.fetchable.length;
 
-  const isFile = (k: string, v: unknown) => recipe?.inputs.find((i) => i.id === k)?.type === "model" || (typeof v === "string" && MODEL_FILE.test(v));
+  const isFile = (k: string, v: unknown) => recipe?.inputs.find((i) => i.id === k)?.type === "model" || (typeof v === "string" && isModelFile(v));
   const value = (k: string, v: unknown) => {
     if (isFile(k, v)) return fileLabel(String(v));
     if (typeof v === "boolean") return v ? "on" : "off";

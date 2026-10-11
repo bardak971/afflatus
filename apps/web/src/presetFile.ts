@@ -1,5 +1,5 @@
 import { api, type Entity, type PresetDef } from "./api";
-import { readPresetFile } from "@afflatus/core";
+import { readPresetFile, slug as coreSlug } from "@afflatus/core";
 import { saveJson } from "./download";
 
 /**
@@ -7,7 +7,8 @@ import { saveJson } from "./download";
  * preset saved from here can be imported by another Afflatus, or contributed by pull request as it is.
  */
 
-export const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "preset";
+/** A preset's name made its file id: "Crème brûlée" → "creme-brulee"; "preset" when nothing is left. */
+export const slug = (name: string) => coreSlug(name, 60) || "preset";
 
 export function presetToFile(e: Extract<Entity, { kind: "preset" }>): Record<string, unknown> {
   const { recipe, inputs, look, files, author, line, note, homepage, links, licence } = e.def;

@@ -1,3 +1,4 @@
+import { isModelFile } from "@afflatus/core";
 import type { HistoryJob } from "../../api";
 import { daysBack, localDay } from "../../format";
 
@@ -48,9 +49,6 @@ export function dayLabel(key: string, now = new Date()): string {
 }
 
 
-/** A model file's name, as ComfyUI's loaders take them: what tells a missing file from any other value not offered. */
-const MODEL_FILE = /\.(safetensors|sft|ckpt|pt|pth|bin|gguf|onnx)$/i;
-
 /**
  * A failure said in one readable sentence, for the row; the whole ComfyUI text stays in the row's unfolded view.
  * A value ComfyUI does not offer that is a model file ("UNETLoader: Value not in list unet_name: 'x.safetensors' not
@@ -64,7 +62,7 @@ export function readableError(error: string | null, memory: "ram" | "vram" | nul
     const [, node, input, value] = notInList as unknown as [string, string, string, string];
     // a subfolder's path as ComfyUI lists it (on Windows its repr doubles the backslash): the file's own name is what is fetched
     const file = value.split(/[\\/]+/).pop()!;
-    if (MODEL_FILE.test(file)) return { text: `Missing model file ${file} (${node} · ${input})`, missing: { file, node, input } };
+    if (isModelFile(file)) return { text: `Missing model file ${file} (${node} · ${input})`, missing: { file, node, input } };
     return { text: `${node} does not offer ${input} '${value}'`, missing: null };
   }
   // Afflatus's own check before submitting says it its way: `this cannot run on your ComfyUI: 3 UNETLoader: ComfyUI has
@@ -73,7 +71,7 @@ export function readableError(error: string | null, memory: "ram" | "vram" | nul
   if (noFile) {
     const [, node, value, input] = noFile as unknown as [string, string, string, string];
     const file = value.split(/[\/]+/).pop()!;
-    if (MODEL_FILE.test(file)) return { text: `Missing model file ${file} (${node} · ${input})`, missing: { file, node, input } };
+    if (isModelFile(file)) return { text: `Missing model file ${file} (${node} · ${input})`, missing: { file, node, input } };
   }
   if (memory === "vram") return { text: "Out of VRAM", missing: null };
   if (memory === "ram") return { text: "Out of RAM: the work had fallen back to the CPU", missing: null };

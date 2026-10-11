@@ -1,11 +1,11 @@
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api, type QueueStatus } from "../../api";
 import { ask } from "../../Confirm";
-import { useBanners } from "../../store";
 import { pinnedFailures } from "./failures";
 import { byModel, groupingSaves } from "./order";
 import { plural } from "../../format";
 import { queryKeys } from "../../queryKeys";
+import { useSayFailed } from "../../sayFailed";
 
 // what the command bar shows next to "Group the queue by model"
 export { groupingSaves };
@@ -73,9 +73,9 @@ async function allFailures() {
 /** The bulk actions bound to this page's query client, what fails said in a banner (as the queue's other actions do). */
 export function useQueueBulk() {
   const client = useQueryClient();
-  const say = useBanners((b) => b.push);
+  const sayFailed = useSayFailed({ id: "queue", href: "/queue", go: "Open queue" });
   const failed = (title: string) => (err: unknown) => {
-    say({ id: `queue:${Date.now()}`, tone: "bad", title, text: err instanceof Error ? err.message : String(err), href: "/queue", go: "Open queue" });
+    sayFailed(title)(err);
     return null;
   };
   return {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, raw, type Clip, type Timeline } from "../api";
 import { KEEPALIVE_MAX, useKeyedAutosave } from "../autosave";
 import type { useModelSettings, useRecipes, useSetup } from "../data";
-import { formDefaults } from "../form";
+import { wholeForm } from "../form";
 import { notReady } from "../format";
 
 /**
@@ -64,7 +64,7 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
       const status = setup.data?.recipes.find((r) => r.id === recipe.id);
       if (setup.isSuccess && notReady(status, comfyOnline)) return null;
       const stored = inputsOf(c);
-      const input: Record<string, unknown> = { ...formDefaults(recipe, status?.options, settings.data?.items ?? [], stored).defaults, ...stored };
+      const input = wholeForm(recipe, status?.options, settings.data?.items ?? [], stored);
       for (const i of recipe.inputs) if (input[i.id] === undefined || i.type === "clip") delete input[i.id];
       return input;
     }),
@@ -81,7 +81,7 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
       const blocked = setup.isSuccess ? notReady(status, comfyOnline) : null;
       if (blocked) return { why: blocked };
       const stored = inputsOf(c);
-      const input: Record<string, unknown> = { ...formDefaults(recipe, status?.options, settings.data?.items ?? [], stored).defaults, ...stored };
+      const input = wholeForm(recipe, status?.options, settings.data?.items ?? [], stored);
       for (const i of recipe.inputs) if (input[i.id] === undefined || i.type === "clip") delete input[i.id];
       const at = clips.findIndex((x) => x.id === c.id);
       const before = at > 0 ? clips[at - 1] : undefined;

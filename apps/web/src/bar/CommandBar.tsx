@@ -20,6 +20,7 @@ import { useBarActions, type Action } from "./useActions";
 import { commandExtra, loadRanks, useBarData, useShown } from "./useBarData";
 import { type Acting, useBarKeys } from "./useBarKeys";
 import { useBarSearch } from "./useBarSearch";
+import { useFlash } from "../hooks";
 
 const MODE_WORD: Partial<Record<Mode, string>> = { command: "commands", place: "projects & folders", setting: "settings", calc: "calculator", queue: "queue", keys: "keys", history: "prompt history", cast: "cast" };
 const MODE_TONE: Record<Mode, string> = { all: "text-accent", command: "text-warn-ink", place: "text-accent", setting: "text-ink-2", calc: "text-good", queue: "text-good", keys: "text-ink-2", history: "text-ink-2", cast: "text-accent" };
@@ -44,7 +45,7 @@ export function CommandBar() {
   const [acting, setActing] = useState<Acting | null>(null);
   const [ranks, setRanks] = useState<Ranks>(loadRanks);
   /** A word in the footer for a moment: a figure copied, or why Enter did nothing (`bad`). */
-  const [flash, setFlash] = useState<{ text: string; bad?: boolean } | null>(null);
+  const [flash, setFlash] = useFlash<{ text: string; bad?: boolean } | null>(null, 1600);
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const returnTo = useRef<HTMLElement | null>(null);
@@ -78,11 +79,6 @@ export function CommandBar() {
   const { shown, setDwell, detail } = useShown(open, current, acting?.item ?? null);
 
   const onCopied = (what: string) => setFlash(what ? { text: `Copied ${what}` } : { text: "Could not copy: the browser refused", bad: true });
-  useEffect(() => {
-    if (!flash) return;
-    const t = setTimeout(() => setFlash(null), 1600);
-    return () => clearTimeout(t);
-  }, [flash]);
   const { actionsOf, element } = useBarActions({ subject: detail ?? null, aim, settingCtx, onCopied });
 
   const actions: Action[] = acting ? actionsOf(acting.item) : [];

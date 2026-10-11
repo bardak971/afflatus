@@ -7,13 +7,13 @@ import { useModelInfo, useModelWords } from "../data";
 import { fileLabel } from "../format";
 import { ModelLink } from "../ModelLink";
 import { appendTo, removeFrom, wordsIn } from "../promptText";
-import { copyText } from "../secureContext";
 import { Select, type Option } from "../Select";
 import { cx, fieldClass, NumberBox } from "../ui";
 import { Slider } from "../Slider";
 import { fileOption } from "./FileSelect";
 import { Label } from "./Label";
 import { queryKeys } from "../queryKeys";
+import { useCopied } from "../hooks";
 
 /** A file's name as the words kept for it are filed under: lower case, without its sub-folder. */
 const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
@@ -55,7 +55,7 @@ export interface MainText {
  */
 function LoraWords({ file, info, more, main }: { file: string; info: ModelInfo | undefined; more: ModelWords | undefined; main?: MainText }) {
   const client = useQueryClient();
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopied();
   const [typing, setTyping] = useState<string | null>(null);
   const { words, from } = wordsOf(info, more);
   const save = useMutation({
@@ -96,7 +96,7 @@ function LoraWords({ file, info, more, main }: { file: string; info: ModelInfo |
         type="button"
         disabled={!words}
         data-tip={words && from ? `${FROM[from]}: ${words}\nClick to copy them.` : undefined}
-        onClick={() => void copyText(words).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => {})}
+        onClick={() => copy(words)}
         className="flex min-w-0 grow items-center gap-1.5 text-left enabled:hover:text-ink"
       >
         <span className={cx("min-w-0 truncate", !words && "text-ink-3", there.all && "text-ink")}>{copied ? "Copied" : words || "No trigger words known"}</span>

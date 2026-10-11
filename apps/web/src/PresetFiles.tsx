@@ -5,7 +5,7 @@ import { Link } from "wouter";
 import { api, type PresetDef, type PresetFileView, type PresetFilesView } from "./api";
 import { useSettings } from "./data";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
-import { fileLabel, gb } from "./format";
+import { fileLabel, gb, plural } from "./format";
 import { DownloadRow, GetFile, useDownloads } from "./GetFile";
 import { Keys } from "./Keys";
 import { Button, cx, ErrorNote } from "./ui";
@@ -116,7 +116,7 @@ export function PresetFiles({ id, def, fetch, inHead = false }: { id: string; de
       <div className="flex flex-wrap items-center gap-2">
         {fetchable.length > 0 && !inHead && (
           <Button size="sm" tone="primary" onClick={go} disabled={fetchAll.isPending} className="flex items-center gap-1.5">
-            <DownloadIcon size={13} /> Get the {fetchable.length} missing file{fetchable.length > 1 ? "s" : ""}{bytes ? ` (${gb(bytes)})` : ""}
+            <DownloadIcon size={13} /> Get the {plural(fetchable.length, "missing file")}{bytes ? ` (${gb(bytes)})` : ""}
           </Button>
         )}
         {/* most Civitai files are refused without a key: said before the click, with where the key goes */}
@@ -125,7 +125,7 @@ export function PresetFiles({ id, def, fetch, inHead = false }: { id: string; de
       </div>
       {got && (
         <div className="text-xs text-ink-2">
-          {got.started > 0 && <div>{got.started} download{got.started > 1 ? "s" : ""} started.</div>}
+          {got.started > 0 && <div>{plural(got.started, "download")} started.</div>}
           {got.failed.map((x) => <div key={x.file} className="text-warn-ink">{fileLabel(x.file)}: {x.error}</div>)}
         </div>
       )}

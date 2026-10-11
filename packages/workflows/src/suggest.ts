@@ -1,4 +1,4 @@
-import { isRef, type Graph, type InputSpec } from "@afflatus/core";
+import { isRef, plural, type Graph, type InputSpec } from "@afflatus/core";
 import { isSamplingPass } from "./catalog";
 import { slug } from "./text";
 import type { Bindings, Section, SwitchGroup, Toggle, Wiring } from "./types";
@@ -182,7 +182,7 @@ interface Arranging {
   ids: Set<string>;
 }
 
-const plural = (n: number) => `${n} setting${n === 1 ? "" : "s"}`;
+const settings = (n: number) => plural(n, "setting");
 function uniqueId(a: Arranging, prefix: string, title: string): string {
   let id = `${prefix}_${slug(title) || "frame"}`;
   for (let n = 2; a.ids.has(id); n++) id = `${prefix}_${slug(title) || "frame"}_${n}`;
@@ -269,11 +269,11 @@ function framesToSections(a: Arranging, frames: Frame[]): void {
       const got = take(a, f.deep);
       if (sw) {
         items = [sw.group(got)];
-        said = `${sw.said}, with ${plural(got.length)} under it`;
+        said = `${sw.said}, with ${settings(got.length)} under it`;
       } else {
         items = got;
         const why = f.deep.includes(result) ? " (it holds the output)" : base !== null && f.deep.includes(base) ? " (the base pass: never a switch)" : f.deep.some((id) => "steps" in graph[id]!.inputs || PASS_WORK.test(graph[id]!.class_type)) ? " (bypassing it would cut the output)" : "";
-        said = `a section with ${plural(got.length)}${why}`;
+        said = `a section with ${settings(got.length)}${why}`;
       }
     }
     const count = items.reduce<number>((n, it) => n + (typeof it === "string" ? 1 : 1 + it.items.length), 0);
@@ -446,12 +446,12 @@ export function suggestSections(graph: Graph, wiring: Wiring | undefined, result
     // what the author's frames leave out (a loader, a sampler, the choice of how far it runs): by what its nodes do
     const before = a.placedIds.size;
     byRole(a, false);
-    if (a.placedIds.size > before) a.why.push(`${plural(a.placedIds.size - before)} outside the author's frames: placed by what ${a.placedIds.size - before === 1 ? "its node does" : "their nodes do"}.`);
+    if (a.placedIds.size > before) a.why.push(`${settings(a.placedIds.size - before)} outside the author's frames: placed by what ${a.placedIds.size - before === 1 ? "its node does" : "their nodes do"}.`);
   }
   placeValueNodes(a);
   const split = splitLong(a, mergeTwins(a.sections));
   const left = placeables.filter((p) => !a.placedIds.has(p.id)).length;
-  if (split.length && left) a.why.push(`${plural(left)} placed nowhere ${left === 1 ? "stays" : "stay"} under Advanced.`);
+  if (split.length && left) a.why.push(`${settings(left)} placed nowhere ${left === 1 ? "stays" : "stay"} under Advanced.`);
   if (!split.length) a.why.push("Nothing to arrange: arrange it by hand.");
   return { sections: split, toggles: a.toggles.filter((t) => split.some((s) => s.items.some((it) => typeof it !== "string" && it.toggle === t.id))), why: a.why };
 }

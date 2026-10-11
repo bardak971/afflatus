@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Clock, Download } from "lucide-react";
 import { useMenu } from "./ContextMenu";
 import { Link, useLocation } from "wouter";
@@ -12,11 +12,11 @@ import { elapsed, gb, phaseLabel, timeLeft, when } from "./format";
 import { StripModel, StripPlace, stripGhost } from "./ModelLoad";
 import { lazyPart, loadExpiringPanel } from "./lazyParts";
 import { useProject } from "./project";
+import { useQueueOps } from "./queueOps";
 import { expiringSaid, useExpiring, useExpiringOnly, useKeepAllExpiring } from "./screens/studio/expiring";
 import { unkeptMs, useKeepFor } from "./keepFor";
 import { useLive, useStudio, useSystem } from "./store";
 import { Chip, cx } from "./ui";
-import { queryKeys } from "./queryKeys";
 
 // the viewer is fetched the first time the last result is opened from here
 // the expiring chip's panel and menu: opened now and then, the strip itself is in the first load
@@ -70,16 +70,17 @@ export function StatusBar() {
       {/* the server's events stopped coming (a restart, a proxy between): what is shown may be old until they are back */}
       {liveDown && <Chip tone="warn" tip="The connection that brings live updates from the server dropped. It is being opened again; what is shown here may be out of date until then, and is read again once it is back.">live updates lost · reconnecting</Chip>}
       <span className="grow" />
-      {/* the place and the model come with the first answers: they fade in rather than pop (the model waits for the queue's) */}
+      {/* the place and the model come with the first answers: they fade in rather than pop (the model waits for the queue's).
+          Clipped when short of room, and left out on a narrow window: they spilled over the meters there */}
       {!queue.isPending && (
-        <span className="m-fade inline-flex min-w-0 items-center gap-2.5">
+        <span className="m-fade inline-flex min-w-0 items-center gap-2.5 overflow-hidden max-md:hidden">
           <StripPlace />
           <StripModel />
         </span>
       )}
       {/* the meters before the machine's first figures: their room kept, unseen, so the chips beside them do not move when they come */}
       {!load && (
-        <span aria-hidden className="invisible inline-flex shrink-0 items-center gap-2.5">
+        <span aria-hidden className="invisible inline-flex shrink-0 items-center gap-2.5 max-sm:hidden">
           <Sep />
           <Meter label="GPU" value={0} />
           <Meter label="VRAM" value={0} />
@@ -88,15 +89,15 @@ export function StatusBar() {
       )}
       {gpu && (
         // every number keeps the room of three digits: what is beside it does not move when they change; they fade in
-        // when the machine's figures first come
-        <span className="m-fade inline-flex shrink-0 items-center gap-2.5">
+        // when the machine's figures first come. On a narrow window they leave the room to what runs (the Queue shows them)
+        <span className="m-fade inline-flex shrink-0 items-center gap-2.5 max-sm:hidden">
           <Sep />
           {/* the CPU only while it is busy: otherwise its figure is in the GPU meter's tip */}
           {cpu !== undefined && cpu >= 70 && <Meter label="CPU" value={cpu} warn={cpu >= 90} className="max-[1440px]:hidden" />}
           {gpu.load !== undefined && <Meter label="GPU" value={gpu.load} fill={run ? "bg-accent" : undefined} tip={gpuTip(gpu, cpu)} />}
           {/* 90 %: little room left before a render spills out of VRAM */}
           <Meter label="VRAM" value={gpu.vramPercent} warn={gpu.vramPercent >= 90} />
-          {ram && <Meter label="RAM" value={ram.percent} warn={ram.percent >= 90} tip={`System RAM: ${(ram.used / 2 ** 30).toFixed(1)} of ${gb(ram.total)}. When VRAM is full, ComfyUI moves models here; when this fills too, everything slows down.`} />}
+          {ram && <Meter label="RAM" value={ram.percent} warn={ram.percent >= 90} tip={`System RAM: ${gb(ram.used)} of ${gb(ram.total)}. When VRAM is full, ComfyUI moves models here; when this fills too, everything slows down.`} />}
           {/* 80 °C: a temperature, the same for every card, not a figure of one card */}
           {gpu.temperature !== undefined && <span className={cx("shrink-0 font-mono whitespace-pre text-ink-2", gpu.temperature >= 80 && "text-warn-ink")}>{pad(gpu.temperature)}°</span>}
         </span>
@@ -164,13 +165,16 @@ function Running({ run }: { run: RunningJob }) {
         data-tip={`${run.progress > 0 ? `${pct} % of this render` : "No step count from this phase yet"}${run.eta ? ` · ${timeLeft(run.eta)}` : ""} · running for ${ran}`}
       >
         <span className="size-3 shrink-0 animate-spin rounded-full border-2 border-accent/30 border-t-accent motion-reduce:animate-none" />
-        <span className="min-w-0 truncate font-semibold">{what}</span>
+        <span className="min-w-16 truncate font-semibold">{what}</span>
         {/* the first thing to go when the strip is short of room */}
         {of && <span className="max-w-48 min-w-0 truncate text-ink-2 max-[1440px]:hidden">{of}</span>}
         {run.join && <span className="shrink-0 rounded-[5px] bg-accent-wash px-1.5 py-px text-[10.5px] font-bold text-accent" data-tip={JOIN_TIP[run.join]}>{JOIN_WORD[run.join]}</span>}
-        <Sep />
-        <span className="shrink-0 text-ink-2">{phaseLabel(run.phase)}</span>
-        {steps && <span className="shrink-0 font-mono whitespace-pre">{steps}</span>}
+        {/* the phase and the steps go on a narrow window, so that what renders keeps room for its name */}
+        <span className="contents max-sm:hidden">
+          <Sep />
+          <span className="shrink-0 text-ink-2">{phaseLabel(run.phase)}</span>
+          {steps && <span className="shrink-0 font-mono whitespace-pre">{steps}</span>}
+        </span>
         <span className="shrink-0 font-mono whitespace-pre text-ink-2">· {left}</span>
         <span className={cx("absolute bottom-0 left-0 h-0.5 bg-accent transition-[width] motion-reduce:transition-none", !run.progress && "animate-pulse opacity-40")} style={{ width: `${run.progress > 0 ? Math.min(100, run.progress * 100) : 100}%` }} />
       </Link>
@@ -181,16 +185,7 @@ function Running({ run }: { run: RunningJob }) {
 
 /** ComfyUI does not answer: what waits, and a way to ask it again now. */
 function Offline({ q }: { q: QueueStatus }) {
-  const client = useQueryClient();
-  const retry = useMutation({
-    // the Settings test (it reads ComfyUI again), then the queue asked to look now rather than at its next try (a paused queue stays paused)
-    mutationFn: async () => {
-      const scan = await api.rescanSetup();
-      client.setQueryData(queryKeys.setup(), scan);
-      if (!q.paused) await api.resume();
-    },
-    onSettled: () => void client.invalidateQueries({ queryKey: queryKeys.queue() }),
-  });
+  const retry = useQueueOps().reconnect;
   return (
     <span className={cx(pill, "shrink-0 bg-warn-wash text-warn-ink")} data-tip={`ComfyUI has not answered for ${elapsed(q.offlineForMs)}: queued jobs wait for it. Its address is in Settings › ComfyUI.`}>
       <span className={cx(dot, "bg-warn")} />
@@ -205,8 +200,7 @@ function Offline({ q }: { q: QueueStatus }) {
 
 /** The queue is paused: what waits, and the Queue screen's Resume. */
 function Paused({ waiting }: { waiting: number }) {
-  const client = useQueryClient();
-  const resume = useMutation({ mutationFn: api.resume, onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.queue() }) });
+  const resume = useQueueOps().resume;
   return (
     <span className={cx(pill, "shrink-0")} data-tip="Paused. The running render finishes, then nothing new goes to ComfyUI until you resume.">
       <span className={cx(dot, "bg-warn")} />

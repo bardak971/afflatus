@@ -25,6 +25,7 @@ import { useLibraryFilters } from "./studio/useLibraryFilters";
 import { useSelection } from "./studio/useSelection";
 import { lazyPart, loadCreatePanel, loadTimelineCards } from "../lazyParts";
 import { binFor } from "../keepFor";
+import { failedBanner } from "../sayFailed";
 
 // the form and the timeline cards are chunks of their own (lazyParts.ts): the library is drawn without them, and the
 // form, when the app opens on it ("/create"), is asked for at once rather than once the screen is drawn
@@ -136,7 +137,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
     void api.asset(shown).then((a) => setOpen((was) => {
       if (was?.id === a.id) requestAnimationFrame(() => setOpen(a));
       return was?.id === a.id ? null : a;
-    })).catch((err: Error) => say({ id: `shown:${Date.now()}`, tone: "bad", title: "The item that was dropped could not be opened", text: err.message, href: "/", go: "Open the library" }));
+    })).catch((err: unknown) => say(failedBanner({ id: "shown" }, "The item that was dropped could not be opened", err)));
   }, [shown, hand, say]);
   // the address says which it is: the timelines live at /timelines, the media at /, so the rail's two entries always land somewhere
   const filters = useLibraryFilters({ place, view, draftId, initialKind: onTimelines ? "timeline" : "all", onKind: (k) => { if ((k === "timeline") !== Boolean(onTimelines)) go(k === "timeline" ? "/timelines" : "/", { replace: true }); } });

@@ -2,7 +2,7 @@ import { lazy, Suspense } from "react";
 import { api, type Clip, type DesignerSession, type RecipeInfo, type Timeline } from "../api";
 import type { useModelSettings, useSetup } from "../data";
 import type { DesignerTurn } from "../Designer";
-import { formDefaults } from "../form";
+import { wholeForm } from "../form";
 
 // the designer's panel is a chunk of its own: fetched the first time it opens
 const Designer = lazy(() => import("../Designer").then((m) => ({ default: m.Designer })));
@@ -45,7 +45,7 @@ export function ClipDesigner({ timeline: t, clip: c, clips, recipes, setup, sett
         side="inline"
         draftKey={`clip:${c.id}`}
         recipe={recipe}
-        values={{ ...formDefaults(recipe, status?.options, settings.data?.items ?? [], stored).defaults, ...stored }}
+        values={wholeForm(recipe, status?.options, settings.data?.items ?? [], stored)}
         previous={before && beforeMain ? String(inputsOf(before)[beforeMain.id] ?? "") || undefined : undefined}
         story={{ clips: clips.map(sayOf), index: at }}
         look={c.look ?? t.look}

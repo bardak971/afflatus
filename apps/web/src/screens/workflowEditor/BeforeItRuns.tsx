@@ -1,6 +1,6 @@
 import { ChevronRight } from "lucide-react";
 import { folderOfFileInput } from "@afflatus/core";
-import { fileLabel } from "../../format";
+import { fileLabel, plural } from "../../format";
 import { Select } from "../../Select";
 import { Button, cx, Help } from "../../ui";
 import { MissingPacks } from "../MissingPacks";
@@ -15,7 +15,7 @@ import type { Mapping } from "./useMapping";
 export function beforeItems(m: Mapping): string[] {
   const { found, graph, looseNotes } = m;
   return [
-    ...(found.missingNodes.length ? [`${found.missingNodes.length} node type${found.missingNodes.length === 1 ? "" : "s"}: ${found.missingNodes.join(", ")}`] : []),
+    ...(found.missingNodes.length ? [`${plural(found.missingNodes.length, "node type")}: ${found.missingNodes.join(", ")}`] : []),
     ...found.missingFiles.filter((f) => String(graph[f.node]?.inputs[f.input] ?? f.file) === f.file).map((f) => fileLabel(f.file)),
     ...(found.missingChoices ?? []).filter((c) => String(graph[c.node]?.inputs[c.input] ?? c.value) === c.value).map((c) => `${c.value} (${c.input.replace(/_/g, " ")})`),
     ...looseNotes,

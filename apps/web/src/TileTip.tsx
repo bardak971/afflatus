@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import { api, type Asset } from "./api";
-import { clock, when } from "./format";
+import { clock, leftWords, when } from "./format";
 import { leftOf } from "./screens/library/justify";
-import { leftWords } from "./screens/studio/expiring";
 import { queryKeys } from "./queryKeys";
 
 /** How long the pointer rests on a tile before its tooltip shows. */

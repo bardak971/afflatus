@@ -6,6 +6,7 @@ import type { useOpenNewDraft } from "../../draft";
 import type { FormTarget } from "../../formTarget";
 import type { Target } from "../../projects/tree";
 import type { usePins } from "../../projects/pins";
+import type { useQueueOps } from "../../queueOps";
 import type { useTreeActions } from "../../projects/useTreeActions";
 import type { useQueueBulk } from "../../screens/queue/bulk";
 import type { useJobActions } from "../../screens/queue/jobActions";
@@ -36,7 +37,9 @@ export interface BarCtx {
   projects: BarCtx["allProjects"];
   pins: ReturnType<typeof usePins>;
   /** What the queue rows need of the queue: not its progress, which changes at every step. */
-  queue: { paused: boolean; online: boolean; rendering: boolean; waiting: Array<{ id: string }>; failed: string[] } | undefined;
+  queue: { paused: boolean; online: boolean; rendering: boolean; running: boolean; waiting: Array<{ id: string }>; failed: string[] } | undefined;
+  /** The queue's pause, resume, unload and reconnect, as the Queue screen and the status bar have them. */
+  ops: ReturnType<typeof useQueueOps>;
   bulk: ReturnType<typeof useQueueBulk>;
   jobs: ReturnType<typeof useJobActions>;
   setup: ReturnType<typeof useSetup>;

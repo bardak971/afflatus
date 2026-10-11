@@ -416,7 +416,7 @@ export function rowsFor(mode: Mode, d: RowsData): Section[] {
     }
     case "cast": {
       // where `@name` puts the person: the clip selected in the timeline editor, else the open draft
-      const people = d.entities.filter((e): e is Extract<Entity, { kind: "person" }> => e.kind === "person").map((p): Item => ({ key: `person:${p.id}`, kind: "person", label: p.name, meta: `Prompt kit · ${p.def.pictures.length} picture${p.def.pictures.length === 1 ? "" : "s"} ${d.castTo}`, group: "Cast", verb: "add", p: prepare(p.name), person: p }));
+      const people = d.entities.filter((e): e is Extract<Entity, { kind: "person" }> => e.kind === "person").map((p): Item => ({ key: `person:${p.id}`, kind: "person", label: p.name, meta: `Prompt kit · ${plural(p.def.pictures.length, "picture")} ${d.castTo}`, group: "Cast", verb: "add", p: prepare(p.name), person: p }));
       const found = q ? search(people, q, LIMIT, learned).map((x) => x.item) : people.slice(0, LIMIT);
       return [{ group: "Cast", rows: withRanges(found, q) }].filter((s) => s.rows.length);
     }

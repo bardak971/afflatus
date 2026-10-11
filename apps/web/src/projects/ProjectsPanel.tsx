@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { Asset } from "../api";
 import { ContextMenu } from "../ContextMenu";
 import { useFolders, useProjects, useProjectsTree, useStorage } from "../data";
+import { FolderPicker } from "../FolderPicker";
 import { size } from "../format";
 import { useProject } from "../project";
 import { useOpenDraft, type Place } from "../store";
@@ -24,6 +25,7 @@ import { useTreeActions } from "./useTreeActions";
 import { useTreeDrag } from "./useTreeDrag";
 import { useTreeKeys } from "./useTreeKeys";
 import { useTreeRows } from "./useTreeRows";
+import { useSettled } from "../hooks";
 
 /** The columns of every row, under their heads: Name · Holds · Created · Size. */
 const COLUMNS = "grid-cols-[minmax(160px,1fr)_minmax(0,300px)_84px_72px]";
@@ -87,11 +89,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
 
   // the search: what is typed, and what is asked for a quarter second after the last key
   const [text, setText] = useState(searchFor ?? "");
-  const [q, setQ] = useState(searchFor?.trim().slice(0, 100) ?? "");
-  useEffect(() => {
-    const t = setTimeout(() => setQ(text.trim().slice(0, 100)), 250);
-    return () => clearTimeout(t);
-  }, [text]);
+  const q = useSettled(text.trim().slice(0, 100), 250);
   // which kind of item the folders show and count, and the column the rows are sorted by: kept per browser
   const { kind, setKind, sort, sortBy } = useTreePrefs(scoped);
   const tree = useProjectsTree(q, kind);
@@ -309,18 +307,9 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
           <span className="shrink-0 font-mono whitespace-nowrap text-ink">{tree.data ? `${size(tree.data.totalBytes)} in all` : ""}</span>
         </div>
       )}
-      <input
+      <FolderPicker
         ref={picker}
-        type="file"
-        multiple
-        hidden
-        aria-hidden="true"
-        tabIndex={-1}
-        // a whole directory, sub-directories included
-        {...{ webkitdirectory: "", directory: "" }}
-        onChange={(e) => {
-          const files = [...(e.target.files ?? [])];
-          e.target.value = "";
+        onFiles={(files) => {
           const t = importTo.current;
           importTo.current = null;
           if (files.length && t) void actions.importFolder(files, t, client);

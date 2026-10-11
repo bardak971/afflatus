@@ -1,8 +1,7 @@
 import { memo, useEffect, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { Link2, Scissors, TriangleAlert, VolumeX, X } from "lucide-react";
 import { STRIP_FRAMES, stripUrl, thumbUrl, type Clip, type RecipeInfo } from "../../api";
-import { phaseLabel } from "../../format";
-import { est } from "../estimate";
+import { est, phaseLabel } from "../../format";
 import { LivePreview } from "../../LivePreview";
 import { Bar, cx } from "../../ui";
 import { useQueueOf } from "../../screens/studio/queueOf";

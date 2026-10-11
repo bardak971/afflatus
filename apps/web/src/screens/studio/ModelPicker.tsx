@@ -2,7 +2,7 @@ import { useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "r
 import { Workflow } from "lucide-react";
 import type { Draft, RecipeInfo } from "../../api";
 import { useFamilies, useRecipes, useSetup } from "../../data";
-import { notReady } from "../../format";
+import { notReady, plural } from "../../format";
 import { carryAcross, carryOver, modelGroups } from "../../picker";
 import { Select } from "../../Select";
 import { cx, Segmented } from "../../ui";
@@ -124,7 +124,7 @@ export function ModelPicker({ pick, recipe, presets }: { pick: ReturnType<typeof
           onChange={pick.pickModel}
           options={groups.map((g) => ({
             value: g.key, label: g.name, group: g.builtIn ? "Models" : "Your workflows",
-            note: g.recipes.some((r) => !why(r)) ? `${g.recipes.length} operation${g.recipes.length === 1 ? "" : "s"}` : "not ready",
+            note: g.recipes.some((r) => !why(r)) ? `${plural(g.recipes.length, "operation")}` : "not ready",
             detail: g.builtIn ? g.summary : g.recipes.map((r) => r.title).join(" · "), search: g.recipes.map((r) => r.title).join(" "),
           }))}
         />

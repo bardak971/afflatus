@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useRef, type RefObject } from "react";
 import { RANDOM_SEED, typedSeed } from "@afflatus/core";
 import { useQueueVariation } from "./queueVariation";
 import type { Asset } from "./api";
@@ -13,6 +13,7 @@ import { useBanners } from "./store";
 import { handsOf, OPS } from "./viewer/shared";
 import { useMediaExtract } from "./viewer/useMediaExtract";
 import { useNewDraftActions } from "./viewer/useNewDraftActions";
+import { useFlash } from "./hooks";
 
 /** How long a pass button says "Queued" after the server took the job. */
 const QUEUED_MS = 1400;
@@ -59,15 +60,8 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
 
   // the button of a pass just queued says so for a moment ("Queued", the ok look), on the item it was queued for: the
   // job shows in the queue only once the server has it, and a click with nothing on screen reads as one that missed
-  const [done, setDone] = useState<{ id: string; action: ActionId } | null>(null);
-  const doneTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => clearTimeout(doneTimer.current), []);
-  const flash = (action: ActionId) => {
-    const id = a.id;
-    clearTimeout(doneTimer.current);
-    setDone({ id, action });
-    doneTimer.current = setTimeout(() => setDone(null), QUEUED_MS);
-  };
+  const [done, setDone] = useFlash<{ id: string; action: ActionId } | null>(null, QUEUED_MS);
+  const flash = (action: ActionId) => setDone({ id: a.id, action });
   /** A job queued from here, its button flashing once the server took it. */
   const queue = (action: ActionId, job: Parameters<typeof queued.mutate>[0]) => queued.mutate(job, { onSuccess: () => flash(action) });
 

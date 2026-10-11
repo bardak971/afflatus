@@ -1,3 +1,4 @@
+import { MODEL_EXT } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { findOnCivitai } from "./civitai";
@@ -23,7 +24,7 @@ export function registerLookup(app: FastifyInstance, s: Services): void {
     const settings = await readSettings(s.db);
     if (!settings.civitaiLookups) throw httpError("Searching Hugging Face and Civitai is off. Turn it on in Settings › Models.");
     const file = query.file.split(/[\\/]/).pop() ?? "";
-    if (!file.replace(/\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx)$/i, "")) throw httpError("no filename given");
+    if (!file.replace(MODEL_EXT, "")) throw httpError("no filename given");
     // Hugging Face is asked for the file itself, by its exact name; Civitai for models whose names are close
     const hints = query.hints.split("|").map((h) => h.trim()).filter(Boolean).slice(0, 3);
     const [exact, civitai] = await Promise.all([

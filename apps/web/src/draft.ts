@@ -7,6 +7,7 @@ import { useDrafts } from "./data";
 import { useProject, type ProjectChoice } from "./project";
 import { useBanners, useOpenDraft } from "./store";
 import { queryKeys } from "./queryKeys";
+import { failedBanner } from "./sayFailed";
 
 const SAVE_AFTER_MS = 500;
 
@@ -188,7 +189,7 @@ export function useDraft(firstRecipe: string | undefined) {
           void client.invalidateQueries({ queryKey: queryKeys.drafts.lists() });
           open(d.id);
         })
-        .catch((err: Error) => say({ id: "draft:create", tone: "bad", title: "A new draft could not be started", text: err.message, href: "/create", go: "Open the form" }))
+        .catch((err: unknown) => say(failedBanner({ id: "draft:create", once: true, href: "/create", go: "Open the form" }, "A new draft could not be started", err)))
         .finally(() => {
           creating.current = false;
         });

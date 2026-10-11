@@ -6,6 +6,7 @@ import { AutoText, Button, Chip, cx, ErrorNote, fieldClass, Help, TwoStep } from
 import { LlmEditor } from "./LlmEditor";
 import { Block, Card, Row } from "./Rows";
 import { queryKeys } from "../../queryKeys";
+import { plural } from "../../format";
 
 const shortId = () => Math.random().toString(36).slice(2, 10);
 
@@ -177,7 +178,7 @@ export function DesignerCard() {
         <Row
           setting="designer.forget"
           label="Clear every conversation"
-          sub={forget.isSuccess ? `Cleared: ${forget.data.forgotten} conversation${forget.data.forgotten === 1 ? "" : "s"}.` : undefined}
+          sub={forget.isSuccess ? `Cleared: ${plural(forget.data.forgotten, "conversation")}.` : undefined}
           help={`Clears every conversation with the designer, in all drafts and on all timelines. What it wrote into your forms stays. One conversation is cleared with "Start over" in the designer's panel.`}
         >
           <TwoStep label="Clear every conversation" tone="danger" title="Clear every conversation with the designer" yes="Clear all" busy={forget.isPending} onAsk={() => forget.reset()} onYes={() => forget.mutate()} />

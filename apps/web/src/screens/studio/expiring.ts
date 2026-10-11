@@ -5,6 +5,7 @@ import { ask } from "../../Confirm";
 import { useProject } from "../../project";
 import { unkeptMs } from "../../keepFor";
 import { queryKeys } from "../../queryKeys";
+import { leftWords } from "../../format";
 
 /**
  * The renders nobody kept, which go to the bin by themselves a day after they were made (or unkept): said once,
@@ -18,8 +19,6 @@ export const useExpiringOnly = create<{ on: boolean; set(on: boolean): void }>((
 /** Beyond this many, Keep all asks first. */
 const ASK_OVER = 20;
 
-/** How long until an expiring item goes, in a few words: "40 min" under the hour, else whole hours ("3 h"), rounded down unless `up`. */
-export const leftWords = (ms: number, up = false) => (ms < 3_600_000 ? `${Math.max(1, Math.round(ms / 60_000))} min` : `${(up ? Math.ceil : Math.floor)(ms / 3_600_000)} h`);
 
 /**
  * What the chip and its panel say of the items expiring: when the next goes and the last ("3 h", "40 min"); `soon` within

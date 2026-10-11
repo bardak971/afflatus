@@ -6,6 +6,7 @@ import { useFlip } from "../useFlip";
 import { ADVANCED, isGroup, isMark, placedIn, PROMPT, reordered, withNew, type Spot } from "./workflowEditor/sections";
 import { useCardMoves } from "./workflowEditor/useCardMoves";
 import { useItemMoves, type Refocus } from "./workflowEditor/useItemMoves";
+import { plural } from "../format";
 
 /**
  * The form of an imported workflow, arranged: named sections holding the form's inputs in the order
@@ -268,7 +269,7 @@ export function FormSections({ sections, onChange, items, toggles, onMakeSwitch,
                     {chip(item.toggle, name, "min-w-0 grow cursor-grab truncate rounded text-left font-semibold")}
                     {sw ? (
                       <>
-                        <span className="shrink-0 text-ink-3" data-tip={`Off, ${nodes} node${nodes === 1 ? "" : "s"} are bypassed`}>switch · {nodes} node{nodes === 1 ? "" : "s"}</span>
+                        <span className="shrink-0 text-ink-3" data-tip={`Off, ${plural(nodes, "node")} are bypassed`}>switch · {plural(nodes, "node")}</span>
                         <Switch bare label={`${name} starts on`} on={sw.default} onChange={(v) => onSwitchDefault(sw.id, v)} />
                         {sw.made && <Button size="sm" onClick={() => onMakeSwitch(s, sw.id)} className="shrink-0">Edit</Button>}
                       </>

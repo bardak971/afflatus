@@ -5,6 +5,7 @@ import { api, type Folder } from "./api";
 import { projectForNew } from "./project";
 import { Bar } from "./ui";
 import { queryKeys } from "./queryKeys";
+import { plural } from "./format";
 
 /**
  * Bringing a whole folder in from the computer: every picture, video and sound in it is uploaded, and
@@ -105,7 +106,7 @@ export function FolderImportNote() {
       <span className="text-xs text-ink-2">
         {run.total === 0 ? "It holds no image, video or audio file." : `${run.done} of ${run.total}`}
         {run.failed > 0 && <span className="text-warn-ink"> · {run.failed} failed</span>}
-        {run.skipped > 0 && ` · ${run.skipped} other file${run.skipped === 1 ? "" : "s"} skipped`}
+        {run.skipped > 0 && ` · ${plural(run.skipped, "other file")} skipped`}
       </span>
       {run.error && <span className="text-xs text-warn-ink">{run.error}</span>}
     </div>

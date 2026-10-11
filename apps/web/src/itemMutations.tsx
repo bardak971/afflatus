@@ -9,10 +9,10 @@ import { useAssetChange } from "./assetChange";
 import { askText } from "./Confirm";
 import type { MenuItem } from "./ContextMenu";
 import { useFolders, useProjects, useTimelines } from "./data";
-import { when } from "./format";
+import { plural, when } from "./format";
 import { tree } from "./screens/library/tree";
 import { copyText } from "./secureContext";
-import { useSayFailed } from "./sayFailed";
+import { failedBanner, useSayFailed } from "./sayFailed";
 import { useBanners } from "./store";
 import { queryKeys } from "./queryKeys";
 
@@ -83,7 +83,7 @@ export function useItemMutations() {
   };
   const openInComfy = useOpenInComfy((asset: Asset) => api.openRender(asset.id), {
     onSuccess: (r) => { if (!r.direct) say({ id: `menu:${Date.now()}`, tone: "good", title: "Saved in ComfyUI", text: `${r.path}: open the Workflows sidebar there (key W) and pick it under "afflatus".`, href: "/settings", go: "Open settings" }); },
-    onError: (err) => say({ id: `menu:${Date.now()}`, tone: "bad", title: "Could not open in ComfyUI", text: err.message, href: "/settings", go: "Open settings" }),
+    onError: (err) => say(failedBanner({ id: "menu", href: "/settings", go: "Open settings" }, "Could not open in ComfyUI", err)),
   });
   /** The seed on the clipboard, said in a banner: where the menu was, nothing shows the figure. */
   const copySeed = (seed: number) => void copyText(String(seed)).then(
@@ -119,12 +119,12 @@ export function useTimelineSubmenu(opts: {
       void client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
       say({ id: `music:${Date.now()}`, tone: "good", title: `${v.asset.name || "The sound"} is the music of ${v.timeline.name}`, href: `/timelines/${v.timeline.id}`, go: "Open the timeline" });
     },
-    onError: (err) => say({ id: `music:${Date.now()}`, tone: "bad", title: "Could not set the music", text: err.message, href: "/timelines", go: "Open timelines" }),
+    onError: (err) => say(failedBanner({ id: "music", href: "/timelines", go: "Open timelines" }, "Could not set the music", err)),
   });
   const recent = (n: number) => [...(timelines.data?.items ?? [])]
     .sort((x, y) => (x.id === last?.id ? -1 : y.id === last?.id ? 1 : y.updatedAt.localeCompare(x.updatedAt)))
     .slice(0, n);
-  const clipsNote = (t: TimelineBrief) => `${t.clips} clip${t.clips === 1 ? "" : "s"} · ${when(t.updatedAt)}`;
+  const clipsNote = (t: TimelineBrief) => `${plural(t.clips, "clip")} · ${when(t.updatedAt)}`;
   /** The submenu's lines (the list's "Timeline" holds them). */
   const items = (asset: Asset): MenuItem[] => {
     if (asset.kind === "audio") {

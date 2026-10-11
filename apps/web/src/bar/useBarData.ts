@@ -7,7 +7,7 @@ import { useAsset, useEntities, useFamilies, useRecipes, useSettings, useStorage
 import { itemsWord } from "../assetCache";
 import { groupingSaves } from "../screens/queue/bulk";
 import { useQueueOf } from "../screens/studio/queueOf";
-import { aboutMs, size } from "../format";
+import { aboutMs, plural, size } from "../format";
 import { useProject } from "../project";
 import { useBanners, useExplain, useHoverPlay, useNotify } from "../store";
 import { useThemeChoice } from "../theme/store";
@@ -184,7 +184,7 @@ export function useBarData({ open, mode, text, ranks, picked, learn, foundEntrie
     placeholderData: keepPreviousData,
   });
   const estimated = estimateOf ? estimate.data : undefined;
-  const estimateSaid = estimated ? [estimated.ms !== null && `${aboutMs(estimated.ms)}, learned from ${estimated.basis} render${estimated.basis === 1 ? "" : "s"}`, estimated.ahead ? `after ${estimated.ahead} job${estimated.ahead === 1 ? "" : "s"}` : "nothing before it"].filter(Boolean).join(" · ") : "";
+  const estimateSaid = estimated ? [estimated.ms !== null && `${aboutMs(estimated.ms)}, learned from ${plural(estimated.basis, "render")}`, estimated.ahead ? `after ${plural(estimated.ahead, "job")}` : "nothing before it"].filter(Boolean).join(" · ") : "";
 
   const sections: Section[] = useMemo(() => {
     if (!open) return [];

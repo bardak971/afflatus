@@ -1,4 +1,4 @@
-import { LIMITS, presetFileSchema, provenanceSchema, type InputSpec, type LoraValue, type Recipe, type ReferenceRole, type ReferenceValue } from "@afflatus/core";
+import { LIMITS, plural, presetFileSchema, provenanceSchema, type InputSpec, type LoraValue, type Recipe, type ReferenceRole, type ReferenceValue } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { httpError } from "./errors";
@@ -236,7 +236,7 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
     const all = [...have, ...more.map(({ asset, role }) => ({ asset, role }))].slice(0, refSpec.max);
     added.references = all.length - have.length;
     added.refs = more.slice(0, added.references);
-    if (more.length > added.references) added.skipped.push(`${more.length - added.references} reference picture${more.length - added.references > 1 ? "s" : ""} did not fit: this model takes ${refSpec.max}`);
+    if (more.length > added.references) added.skipped.push(`${plural(more.length - added.references, "reference picture")} did not fit: this model takes ${refSpec.max}`);
     input[refSpec.id] = all;
     withRefs = all.length > 0;
   }
@@ -266,7 +266,7 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
       const more = loras.filter((l, i) => !have.some((h) => h.file === l.file) && loras.findIndex((x) => x.file === l.file) === i);
       const room = Math.max(0, loraSpec.max - have.length);
       for (const l of more.slice(0, room)) added.loras.push({ from: l.from, file: l.file });
-      if (more.length > room) added.skipped.push(`${more.length - room} LoRA${more.length - room > 1 ? "s" : ""} did not fit: this model takes ${loraSpec.max}`);
+      if (more.length > room) added.skipped.push(`${plural(more.length - room, "LoRA")} did not fit: this model takes ${loraSpec.max}`);
       input[loraSpec.id] = [...have, ...more.slice(0, room).map((l) => ({ file: l.file, weight: l.weight }))];
     } else added.skipped.push("this model takes no LoRA");
   }

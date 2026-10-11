@@ -16,7 +16,7 @@
     "start": "tsx apps/server/src/index.ts",
     "demo": "tsx scripts/demo.ts",
     "test": "vitest run",
-    "lint": "oxlint --deny-warnings --report-unused-disable-directives",
+    "lint": "oxlint --deny-warnings --report-unused-disable-directives && tsx scripts/check-shared.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",
     "check:graphs": "tsx scripts/check-graphs.ts",
     "check:player": "tsx scripts/check-player.ts",

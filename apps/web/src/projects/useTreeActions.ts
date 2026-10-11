@@ -4,7 +4,7 @@ import { findAsset } from "../assetCache";
 import { changeAssets } from "../assetChange";
 import { bringFiles } from "../bringFiles";
 import { ask, askAboutDisk, askText } from "../Confirm";
-import { size } from "../format";
+import { plural, size } from "../format";
 import { pathOf, useFolderImport } from "../folderImport";
 import { duplicateDraft } from "../draft";
 import { useProject } from "../project";
@@ -214,12 +214,15 @@ export function useTreeActions() {
       if (!(await ask({ title: "Empty the bin?", text: `Everything in the bin is erased now, files and all, instead of ${insteadOfWaiting()}. This cannot be undone.`, yes: "Erase" }))) return;
       let erased = 0;
       if (await run("The bin could not be emptied", async () => { erased = (await api.emptyBin()).erased; })) {
-        say({ id: `tree-empty:${Date.now()}`, tone: "good", title: `${erased} item${erased === 1 ? "" : "s"} erased` });
+        say({ id: `tree-empty:${Date.now()}`, tone: "good", title: `${plural(erased, "item")} erased` });
       }
     },
-    /** A folder asked a name for, inside a folder, at the top of a project (in its root) or of the Inbox. Answers whether one was made. */
-    async newFolder(where: { name: string; parent: string | null; project: string | null }) {
-      const name = await askText({ title: `New folder in ${where.name}`, value: "", placeholder: "Folder name", yes: "Create" });
+    /**
+     * A folder asked a name for, inside a folder, at the top of a project (in its root) or of the Inbox. Answers whether
+     * one was made. `typed`: the name already given (the command bar's "new folder <name>"), not asked again.
+     */
+    async newFolder(where: { name: string; parent: string | null; project: string | null; typed?: string }) {
+      const name = where.typed || (await askText({ title: `New folder in ${where.name}`, value: "", placeholder: "Folder name", yes: "Create" }));
       if (!name) return false;
       return run(`${name} could not be made`, () => api.createFolder(name, where.parent, where.parent ? undefined : where.project));
     },
@@ -257,16 +260,19 @@ export function useTreeActions() {
     upload(files: File[], t: Target, folders: number) {
       return bringFiles(files, { name: t.name, folders, onDisk: t.kind === "folder" ? t.linked : Boolean(t.rootLinked), landing: () => self.landing(t), say, done: refresh });
     },
-    /** A folder of the disk linked to the top of a project or of the Inbox: used in place, nothing copied. */
-    async link(t: Target) {
+    /**
+     * A folder of the disk linked to the top of a project or of the Inbox: used in place, nothing copied. `typed`: the
+     * path already given (the command bar's "link <path>"), not asked again.
+     */
+    async link(t: Target, typed?: string) {
       const project = t.kind === "group" ? t.group : null;
-      const path = await askText({ title: `Link a folder of your disk to ${t.name}`, value: "", placeholder: "Folder path, for example D:\\images\\shoots", yes: "Link" });
+      const path = typed || await askText({ title: `Link a folder of your disk to ${t.name}`, value: "", placeholder: "Folder path, for example D:\\images\\shoots", yes: "Link" });
       if (!path) return;
       let made: { name: string; count: number; files?: number } | null = null;
       if (await run(`${path} could not be linked`, async () => { made = await api.linkFolder(path, undefined, project); })) {
         const m = made as { name: string; count: number; files?: number } | null;
         const n = m?.files ?? m?.count ?? 0;
-        say({ id: `tree-link:${Date.now()}`, tone: "good", title: `${m?.name ?? path} linked: ${n} file${n === 1 ? "" : "s"}`, text: "Its files are used where they are; nothing was copied.", href: "/", go: "Open the Studio" });
+        say({ id: `tree-link:${Date.now()}`, tone: "good", title: `${m?.name ?? path} linked: ${plural(n, "file")}`, text: "Its files are used where they are; nothing was copied.", href: "/", go: "Open the Studio" });
       }
     },
     /** A folder of the disk whose directory is not found, pointed at where it is now: its files keep their places. */
@@ -286,7 +292,7 @@ export function useTreeActions() {
       let found: { files: number; folders: number } | null = null;
       if (await run(`${r.label} could not be read`, async () => { found = await api.scanFolder(id); })) {
         const f = found as { files: number; folders: number } | null;
-        say({ id: `tree-scan:${Date.now()}`, tone: "good", title: `${r.label} read again`, text: f ? `${f.files} file${f.files === 1 ? "" : "s"} in ${f.folders + 1} folder${f.folders ? "s" : ""}.` : undefined, href: "/", go: "Open the Studio" });
+        say({ id: `tree-scan:${Date.now()}`, tone: "good", title: `${r.label} read again`, text: f ? `${plural(f.files, "file")} in ${f.folders + 1} folder${f.folders ? "s" : ""}.` : undefined, href: "/", go: "Open the Studio" });
       }
     },
     /** A folder of the disk no longer shown. Nothing on the disk is touched. */
@@ -310,7 +316,7 @@ export function useTreeActions() {
       let done = { binned: 0, bytes: 0 };
       if (await run(`The unused takes of ${r.label} could not go to the bin`, async () => { done = await api.binUnusedTakes(id); })) {
         say({
-          id: `tree-unused:${Date.now()}`, tone: "good", title: done.binned ? `${done.binned} unused take${done.binned === 1 ? "" : "s"} of ${r.label} moved to the bin` : `${r.label} has no unused takes left`,
+          id: `tree-unused:${Date.now()}`, tone: "good", title: done.binned ? `${plural(done.binned, "unused take")} of ${r.label} moved to the bin` : `${r.label} has no unused takes left`,
           text: done.binned ? `${size(done.bytes)}: ${restorable()}, or Undo in the timeline.` : undefined, href: `/timelines/${id}`, go: "Open the timeline",
         });
       }

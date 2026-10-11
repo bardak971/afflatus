@@ -4,6 +4,7 @@ import { ContextMenu, useMenu } from "../ContextMenu";
 import { useFit } from "../useFit";
 import { cx, pillBox, placePill, sameBox, type PillBox } from "../ui";
 import { scrollInside } from "../scrollInside";
+import { plural } from "../format";
 
 /**
  * The strip at the top of a form: its parts in the order they are touched, the one in view marked;
@@ -193,7 +194,7 @@ export function Strip({ parts, open, query, setQuery, found }: {
               <button
                 type="button"
                 aria-haspopup="menu"
-                aria-label={`${hidden.length} more part${hidden.length === 1 ? "" : "s"}`}
+                aria-label={`${plural(hidden.length, "more part")}`}
                 data-tip={hidden.map((p) => p.label).join(", ")}
                 onClick={(e) => more.open(e, true)}
                 data-on={hidden.some((p) => p.id === current) ? "" : undefined}

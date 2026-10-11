@@ -1,7 +1,6 @@
 import type { RecipeStatus } from "./api";
-import { missingNodesSaid, roughly } from "@afflatus/core";
+import { missingNodesSaid, modelStem, roughly } from "@afflatus/core";
 
-/** "42 s", "3 min 05 s". */
 /** A length to a tenth of a second: "4.5 s". */
 export const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 
@@ -13,12 +12,13 @@ export function spell(ms: number): string {
   return `${Math.floor(s / 3600)} h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")} min`;
 }
 
+/** "42 s", "3 min 05 s". */
 export function took(ms: number): string {
   const s = Math.round(ms / 1000);
   return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, "0")} s`;
 }
 
-/** "about 40 s", "about 2 min": an estimate, said as one. */
+/** What is left of a run, said as an estimate: "about 40 s left", "about 2 min left"; empty when nothing is. */
 export function about(seconds: number): string {
   if (seconds <= 0) return "";
   return seconds < 90 ? `about ${Math.max(5, Math.round(seconds / 5) * 5)} s left` : `about ${Math.round(seconds / 60)} min left`;
@@ -69,9 +69,15 @@ export function brief(ms: number): string {
 /** Seconds per step, as ComfyUI says it (s/it): two decimals under ten seconds, one above. "—" when not known. */
 export const pace = (stepMs: number | null): string => (stepMs === null ? "—" : (stepMs / 1000).toFixed(stepMs < 10_000 ? 2 : 1));
 
-/** What is left of a countdown: "going to the bin" once over, else "12 min left" (never under 1), "5 h left". */
+/**
+ * How long until an item nobody kept goes to the bin, in a few words: "40 min" under the hour (never under 1), else
+ * whole hours ("3 h"), rounded down unless `up`. The tile, its tip, the viewer and the expiring chip say it alike.
+ */
+export const leftWords = (ms: number, up = false) => (ms < 3_600_000 ? `${Math.max(1, Math.round(ms / 60_000))} min` : `${(up ? Math.ceil : Math.floor)(ms / 3_600_000)} h`);
+
+/** What is left of a countdown: "going to the bin" once over, else "12 min left", "5 h left". */
 export function left(ms: number, over = "going to the bin"): string {
-  return ms <= 0 ? over : ms < 3_600_000 ? `${Math.max(1, Math.round(ms / 60_000))} min left` : `${Math.round(ms / 3_600_000)} h left`;
+  return ms <= 0 ? over : `${leftWords(ms)} left`;
 }
 
 /** A time that is a guess, said as one: "about 40 s", "about 2 min". Empty when there is nothing to go on. */
@@ -81,18 +87,24 @@ export function aboutMs(ms: number | null | undefined): string {
   return `about ${roughly(ms)}`;
 }
 
+/**
+ * A render time that is a guess, short, as the editor, the queue and the timeline cards say it: "~5 s", "~7 min". Empty
+ * when nothing was learned yet. A measured time is said without "~" (`spell`).
+ */
+export const est = (ms: number | null | undefined) => aboutMs(ms).replace(/^about /, "~");
+
 const REPO = "https://github.com/bardak971/afflatus";
 /** Where the source of a release is: its tag ("v0.2.1", "0.2.1"); the repository itself for "dev" or nothing known. */
 export const sourceOf = (version: string | undefined) => (version && /^v?\d+\.\d+\.\d+/.test(version) ? `${REPO}/tree/${version}` : REPO);
 
 /** A size on disk: "340 MB", "38.2 GB". */
 export const size = (bytes: number) =>
-  bytes < 2 ** 20 ? `${Math.round(bytes / 1024)} KB` : bytes < 2 ** 30 ? `${Math.round(bytes / 2 ** 20)} MB` : `${(bytes / 2 ** 30).toFixed(1)} GB`;
+  bytes < 2 ** 20 ? `${bytes > 0 ? Math.max(1, Math.round(bytes / 1024)) : 0} KB` : bytes < 2 ** 30 ? `${Math.round(bytes / 2 ** 20)} MB` : `${(bytes / 2 ** 30).toFixed(1)} GB`;
 
 export const gb = (bytes: number) => `${(bytes / 2 ** 30).toFixed(1)} GB`;
 
-/** A count with its word: "1 take", "3 settings", "2 people" (`many` for a word that does not just take an s). */
-export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+/** A count with its word: "1 take", "3 settings", "2 people" (core's, shared with the server). */
+export { plural } from "@afflatus/core";
 
 const PHASES: Record<string, string> = {
   waiting: "Queued on ComfyUI", loading: "Loading model", sampling: "Sampling", upscaling: "Upscale",
@@ -102,7 +114,7 @@ const PHASES: Record<string, string> = {
 export const phaseLabel = (phase: string) => PHASES[phase] ?? phase;
 
 /** A model file as a name: no folder, no extension. */
-export const fileLabel = (file: string) => (file.split(/[\\/]/).pop() ?? file).replace(/\.(safetensors|ckpt|pt|pth|bin|gguf|sft)$/i, "");
+export const fileLabel = modelStem;
 
 /** A recipe under its model's name, without saying the name twice when the title already starts with it. */
 export const recipeLabel = (family: string | undefined, title: string) => (!family || title.toLowerCase().startsWith(family.toLowerCase()) ? title : `${family} · ${title}`);

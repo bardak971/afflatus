@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Search } from "lucide-react";
 import { api, type UpdateRow } from "../../api";
 import { useModelUpdates, useSettings } from "../../data";
-import { dateTime, dayOf, fileLabel } from "../../format";
+import { dateTime, dayOf, fileLabel, plural } from "../../format";
 import { Dialog, DialogHead, DIALOG } from "../../Dialog";
 import { Button, cx, ErrorNote, Segmented, Toggle } from "../../ui";
 import { Block, Card, Row } from "./Rows";
@@ -60,7 +60,7 @@ export function UpdatesCard() {
           <Row
             label="Last check"
             sub={r?.error ? <span className="text-warn-ink">did not go through: {r.error}</span> : undefined}
-            help={r?.checkedAt && !check.isPending ? `${r.items.length} file${r.items.length === 1 ? "" : "s"} matched, ${newer.length} with a newer version${r.unmatched ? `, ${r.unmatched} not on Civitai or not readable` : ""}${r.hashesLeft ? `, ${r.hashesLeft} still to hash` : ""}.` : undefined}
+            help={r?.checkedAt && !check.isPending ? `${plural(r.items.length, "file")} matched, ${newer.length} with a newer version${r.unmatched ? `, ${r.unmatched} not on Civitai or not readable` : ""}${r.hashesLeft ? `, ${r.hashesLeft} still to hash` : ""}.` : undefined}
           >
             <span className="min-w-0 grow text-xs text-ink-2">
               {check.isPending

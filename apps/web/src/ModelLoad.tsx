@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Folder } from "lucide-react";
 import { useMenu } from "./ContextMenu";
@@ -8,6 +8,7 @@ import { api, type RecipeInfo } from "./api";
 import { useQueue, useRecipes } from "./data";
 import { cx } from "./ui";
 import { queryKeys } from "./queryKeys";
+import { useSettled } from "./hooks";
 
 const ModelMenuBody = lazyPart(loadModelMenu, (m) => m.ModelMenuBody);
 
@@ -189,11 +190,7 @@ function OfForm({ recipe, input, look }: OpenForm) {
   const texts = new Set(recipe.inputs.filter((i) => i.type === "prompt").map((i) => i.id));
   const form = Object.fromEntries(Object.entries(whole).filter(([k]) => !texts.has(k)));
   const now = JSON.stringify([recipe.id, form, look ?? null]);
-  const [asked, setAsked] = useState(now);
-  useEffect(() => {
-    const t = setTimeout(() => setAsked(now), 500);
-    return () => clearTimeout(t);
-  }, [now]);
+  const asked = useSettled(now, 500);
   // asked again when a job starts or ends, or the memory is freed: what is loaded may have changed
   const jobs = `${queue.data?.running?.id ?? ""}:${queue.data?.recent[0]?.id ?? ""}:${queue.data?.model ?? ""}`;
   const loaded = useQuery({

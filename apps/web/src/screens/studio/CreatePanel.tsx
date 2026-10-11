@@ -23,6 +23,7 @@ import { ModelPicker, useModelPick } from "./ModelPicker";
 import { PresetMenu, presetRefusal } from "./PresetMenu";
 import { useGenerate } from "./useGenerate";
 import { queryKeys } from "../../queryKeys";
+import { failedBanner } from "../../sayFailed";
 
 // the designer's panel is a chunk of its own: fetched the first time it opens
 const Designer = lazy(() => import("../../Designer").then((m) => ({ default: m.Designer })));
@@ -143,7 +144,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
             status={status}
             stored={formValues}
             // bound to this draft: a picture still uploading when another draft is opened lands in the one it was put in
-            onChange={(input, value) => void d.editDraft(draft.id, (x) => ({ ...x, forms: { ...x.forms, [recipe.id]: { ...x.forms[recipe.id], [input]: value } } })).catch((err: Error) => say({ id: "draft:late", tone: "bad", title: "A picture could not be put in its draft", text: err.message, href: "/create", go: "Open the form" }))}
+            onChange={(input, value) => void d.editDraft(draft.id, (x) => ({ ...x, forms: { ...x.forms, [recipe.id]: { ...x.forms[recipe.id], [input]: value } } })).catch((err: unknown) => say(failedBanner({ id: "draft:late", once: true, href: "/create", go: "Open the form" }, "A picture could not be put in its draft", err)))}
             onClear={(inputs) => d.clearValues(recipe.id, inputs)}
             made={<ModelPicker pick={pick} recipe={recipe} presets={<PresetMenu presets={presets} current={{ recipe: recipe.id, values: whole }} onApply={applyPreset} onSave={(name) => savePreset.mutate(name)} error={presetError} />} />}
             madeSummary={pick.group ? `${pick.group.name} · ${recipe.title}` : recipe.title}
@@ -179,7 +180,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
             values={whole}
             look={draft.look}
             turns={draft.chat as DesignerTurn[]}
-            onTurns={(turns) => void d.editDraft(draft.id, (x) => ({ ...x, chat: turns })).catch((err: Error) => say({ id: "draft:designer", tone: "bad", title: "The conversation could not be kept with its draft", text: err.message, href: "/create", go: "Open the form" }))}
+            onTurns={(turns) => void d.editDraft(draft.id, (x) => ({ ...x, chat: turns })).catch((err: unknown) => say(failedBanner({ id: "draft:designer", once: true, href: "/create", go: "Open the form" }, "The conversation could not be kept with its draft", err)))}
             session={draft.designer}
             onSession={d.setDesigner}
             onApply={(changes) => d.setValues(recipe.id, changes)}

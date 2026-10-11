@@ -8,7 +8,7 @@ import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, useDropZone } from
 import { useAsset, useRecipes, useSetup } from "../../data";
 import { Viewer } from "../../viewer/LazyViewer";
 import { useLoraWordsOf } from "../../fields";
-import { fileLabel } from "../../format";
+import { fileLabel, plural } from "../../format";
 import { Picker } from "../../PictureField";
 import { ModelLink } from "../../ModelLink";
 import { Card, Row } from "../../Rows";
@@ -278,7 +278,7 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
               <div key={f.id} className="grid min-h-[48px] grid-cols-[150px_128px_minmax(0,1fr)] items-start gap-x-3.5 gap-y-1.5 px-4 py-2">
                 <span className="flex h-8 min-w-0 items-center truncate text-[13px] font-semibold">{f.name}</span>
                 <span className="flex h-8 flex-wrap content-center items-center gap-1">
-                  {can.pictures && refs > 0 && <Takes tip={`${refs} reference image${refs > 1 ? "s" : ""} of ${name}`}>{`${refs} ref${refs > 1 ? "s" : ""}`}</Takes>}
+                  {can.pictures && refs > 0 && <Takes tip={`${plural(refs, "reference image")} of ${name}`}>{`${plural(refs, "ref")}`}</Takes>}
                   <Takes tip={can.tags ? "Reads the tags" : "Reads the natural language"}>{can.tags ? "tags" : "NL"}</Takes>
                   {can.voice && def.voice && <Takes tip="Takes the voice sample">voice</Takes>}
                 </span>

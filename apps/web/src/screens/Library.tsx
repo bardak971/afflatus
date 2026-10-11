@@ -3,14 +3,13 @@ import { Check, Clock, FileX2, Film, Play, VolumeX } from "lucide-react";
 import { HoverAudio, HoverVideo } from "../HoverVideo";
 import { TileTip, useTileTip } from "../TileTip";
 import type { Asset } from "../api";
-import { clock, when } from "../format";
+import { clock, leftWords, when } from "../format";
 import { DRAG_HAS_SOUND, DRAG_TYPE, dragKind } from "../dragging";
 import { useHoverPlay } from "../store";
 import { cx } from "../ui";
 import { leftOf, SOON_MS } from "./library/justify";
 import { unkeptMs, useKeepFor } from "../keepFor";
 import { KIND_WORD, tileName } from "./library/tileName";
-import { leftWords } from "./studio/expiring";
 import { SoundWave } from "./library/SoundWave";
 
 /** The pieces of the library that several screens use: a tile, what dragging one carries, and the folders. The screen itself is Studio. */

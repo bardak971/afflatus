@@ -1,4 +1,5 @@
 import { isRef, type BuiltGraph, type Graph } from "./graph";
+import { isModelFile } from "./modelFiles";
 import { folderOfFileInput } from "./models";
 
 /** The nodes a set of nodes is made from, themselves included. */
@@ -14,7 +15,6 @@ export function upstream(graph: Graph, from: Iterable<string>): Set<string> {
   return seen;
 }
 
-const MODEL_FILE = /\.(safetensors|ckpt|gguf|sft|pt|pth)$/i;
 const BASE_FOLDERS = new Set(["checkpoints", "diffusion_models", "text_encoders", "vae"]);
 /** A model file as it is compared: without its folder, whatever the case. */
 export const modelFileName = (value: string): string => value.replace(/\\/g, "/").split("/").pop()!.toLowerCase();
@@ -31,7 +31,7 @@ export function baseModels(built: Pick<BuiltGraph, "graph" | "outputs">): string
   for (const id of used) {
     const node = built.graph[id]!;
     for (const [input, value] of Object.entries(node.inputs)) {
-      if (typeof value !== "string" || !MODEL_FILE.test(value)) continue;
+      if (typeof value !== "string" || !isModelFile(value)) continue;
       const folder = folderOfFileInput(node.class_type, input);
       // loaders of node packs name their file input "model" or "model_name": the node's own name tells what it loads
       const base = folder
@@ -56,7 +56,7 @@ export function mainModel(built: Pick<BuiltGraph, "graph" | "outputs">): string 
   for (const id of used) {
     const node = built.graph[id]!;
     for (const [input, value] of Object.entries(node.inputs)) {
-      if (typeof value !== "string" || !MODEL_FILE.test(value)) continue;
+      if (typeof value !== "string" || !isModelFile(value)) continue;
       const folder = folderOfFileInput(node.class_type, input);
       const main = folder
         ? folder === "checkpoints" || folder === "diffusion_models"
@@ -94,7 +94,7 @@ export function warmGraph(built: BuiltGraph): { graph: Graph; phases: BuiltGraph
     : named;
   const ends = first && built.graph[first]
     ? [first]
-    : [...used].filter((id) => Object.values(built.graph[id]!.inputs).some((v) => typeof v === "string" && MODEL_FILE.test(v)));
+    : [...used].filter((id) => Object.values(built.graph[id]!.inputs).some((v) => typeof v === "string" && isModelFile(v)));
   if (!ends.length) return null;
 
   const keep = upstream(built.graph, ends);
@@ -132,7 +132,7 @@ export function warmGraph(built: BuiltGraph): { graph: Graph; phases: BuiltGraph
   }
   // steps that could not be cut (sigmas written by hand): the pass itself is left out, its loaders stay
   const sinks = first && !cut
-    ? [...keep].filter((id) => id !== first && Object.values(graph[id]!.inputs).some((v) => typeof v === "string" && MODEL_FILE.test(v)))
+    ? [...keep].filter((id) => id !== first && Object.values(graph[id]!.inputs).some((v) => typeof v === "string" && isModelFile(v)))
     : ends;
   if (first && !cut) {
     const kept = upstream(graph, sinks);

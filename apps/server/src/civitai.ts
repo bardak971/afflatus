@@ -1,3 +1,4 @@
+import { MODEL_EXT, modelStem } from "@afflatus/core";
 import { envSaid } from "./config";
 import { httpError } from "./errors";
 import { fetchPublic } from "./outbound";
@@ -65,10 +66,9 @@ export interface CivitaiFound {
   have?: { folder: string; file: string };
 }
 
-export const STEM = /\.(safetensors|ckpt|pt|pth|bin|gguf|sft|onnx)$/i;
 export const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
 /** The words of a file's name: "qwen3vl_4b_fp8_scaled" → qwen3vl, 4b, fp8, scaled. */
-export const wordsOf = (file: string) => [...new Set((file.split(/[\\/]/).pop() ?? file).replace(STEM, "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 2))];
+export const wordsOf = (file: string) => [...new Set(modelStem(file).toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 2))];
 
 const headers = (key: string): Record<string, string> => ({ Accept: "application/json", "User-Agent": "afflatus", ...(key ? { Authorization: `Bearer ${key}` } : {}) });
 /** Civitai's API asked: a redirect is judged hop by hop, and the key goes to the site asked only (outbound.ts). */
@@ -118,7 +118,7 @@ export async function findOnCivitai(file: string, folder: string | null, key: st
       const versions = m.modelVersions ?? [];
       // a version often has several files of the model (fp8, int8, GGUF…): the one whose name is closest, its main one when they tie
       const fileOf = (v: ApiVersion) => {
-        const models = (v.files ?? []).filter((f) => STEM.test(f.name ?? ""));
+        const models = (v.files ?? []).filter((f) => MODEL_EXT.test(f.name ?? ""));
         const near = (f: ApiFile) => words.filter((w) => squash(f.name ?? "").includes(squash(w))).length + (f.primary ? 0.5 : 0);
         return models.find((f) => f.name?.toLowerCase() === name.toLowerCase()) ?? [...models].sort((a, b) => near(b) - near(a))[0] ?? v.files?.[0];
       };
@@ -188,7 +188,7 @@ export async function civitaiVersion(id: number, wanted: string, key: string): P
       continue;
     }
     const v = (await res.json()) as ApiVersion;
-    const files = (v.files ?? []).filter((f) => f.downloadUrl && STEM.test(f.name ?? ""));
+    const files = (v.files ?? []).filter((f) => f.downloadUrl && MODEL_EXT.test(f.name ?? ""));
     // the file of that very name when the version has it, else the one the lookup showed: the closest name, its main file on a tie
     const words = wordsOf(wanted);
     const near = (f: ApiFile) => words.filter((w) => squash(f.name ?? "").includes(squash(w))).length + (f.primary ? 0.5 : 0);

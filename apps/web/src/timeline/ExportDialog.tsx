@@ -7,6 +7,7 @@ import { Keys } from "../Keys";
 import { Button, ButtonLink, Chip, ErrorNote, Segmented, Toggle } from "../ui";
 import { stamp } from "./model";
 import type { TimeRange } from "./Track";
+import { plural } from "../format";
 
 /** The export box: open, what was asked, and the export that was there before (to tell the new one). */
 export type ExportAsk = { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range: boolean; blend: boolean; match: boolean; fit: "timeline" | "largest"; web: 0 | 10 | 25; before: string | null; asked: boolean };
@@ -45,8 +46,8 @@ export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, r
     <Dialog label="Export video" onClose={onClose} className={DIALOG}>
         <DialogHead icon={<Film size={16} />} title="Export video" sub={`${t.name} · one MP4 in your library`} onClose={onClose} />
         <div className="flex flex-wrap gap-1.5">
-          <Chip>{exp.range && range ? `${stamp(range.inMs)} → ${stamp(range.outMs)} · ${((range.outMs - range.inMs) / 1000).toFixed(1)} s of ${stamp(t.durationMs)}` : `${stamp(t.durationMs)} · ${playable < clips.length ? `${playable} of ${clips.length} clips` : `${playable} clip${playable > 1 ? "s" : ""}`}`}</Chip>
-          {misfits > 0 && !exportDone && !busy && <Chip tone="warn" tip={`${misfits} clip${misfits > 1 ? "s have" : " has"} another aspect ratio and will be letterboxed (shown with bars).`}>{misfits} clip{misfits > 1 ? "s" : ""} letterboxed</Chip>}
+          <Chip>{exp.range && range ? `${stamp(range.inMs)} → ${stamp(range.outMs)} · ${((range.outMs - range.inMs) / 1000).toFixed(1)} s of ${stamp(t.durationMs)}` : `${stamp(t.durationMs)} · ${playable < clips.length ? `${playable} of ${clips.length} clips` : `${plural(playable, "clip")}`}`}</Chip>
+          {misfits > 0 && !exportDone && !busy && <Chip tone="warn" tip={`${misfits} clip${misfits > 1 ? "s have" : " has"} another aspect ratio and will be letterboxed (shown with bars).`}>{plural(misfits, "clip")} letterboxed</Chip>}
         </div>
         {exportDone ? (
           <>
