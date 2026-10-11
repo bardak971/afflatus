@@ -494,6 +494,7 @@ ${JSON.stringify(input)}`;
         if (reachable === false) await this.whileOffline(active);
         else if (reachable && this.offlineSince !== null) {
           this.offlineSince = null;
+          this.unanswered = 0;
           this.events.emit("queue");
         }
         if (!next) {
@@ -521,14 +522,38 @@ ${JSON.stringify(input)}`;
     }, this.opts.offlineRetryMs);
   }
 
+  /**
+   * What the page's status poll (events.ts) found of ComfyUI. The line asks ComfyUI only when a job needs it, so an idle
+   * queue kept saying it was online, with the model it had last loaded, while ComfyUI was off. Twice without an answer
+   * is away (one slow answer is not), never while a job runs (its own connection says); back, the line is read again.
+   */
+  noteReachable(ok: boolean): void {
+    if (ok) {
+      this.unanswered = 0;
+      if (this.offlineSince === null) return;
+      this.offlineSince = null;
+      this.events.emit("queue");
+      void this.pump();
+      return;
+    }
+    if (this.running || ++this.unanswered < 2 || this.offlineSince !== null) return;
+    this.wentOffline();
+  }
+  private unanswered = 0;
+
+  /** ComfyUI stopped answering: since when, and what it had loaded is not known any more (started again, it holds nothing). */
+  private wentOffline(): void {
+    this.offlineSince = Date.now();
+    void this.loaded(null).finally(() => this.events.emit("queue"));
+  }
+
   /** ComfyUI is away: the jobs that need it wait, and are given up once it has been away too long (a job it had before a restart too). */
   private async whileOffline(active: JobRow[]): Promise<void> {
-    if (this.offlineSince === null) {
-      this.offlineSince = Date.now();
-      this.events.emit("queue");
-    }
-    if (Date.now() - this.offlineSince > this.opts.offlineExpiryMs) {
-      for (const r of active) {
+    if (this.offlineSince === null) this.wentOffline();
+    const since = this.offlineSince!;
+    for (const r of active) {
+      // how long each job has waited for it: one queued after ComfyUI had long been away gets its full wait
+      if (Date.now() - Math.max(since, Date.parse(r.created_at) || 0) > this.opts.offlineExpiryMs) {
         if (!needsComfy(r) || this.running?.id === r.id) continue;
         await this.finish(r.id, "failed", { error: "ComfyUI stayed offline. Try again when it is back." }, r.status);
       }

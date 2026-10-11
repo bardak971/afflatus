@@ -69,14 +69,23 @@ export class Comfy {
     return this.lastCatalog.value;
   }
 
+  /** Whether ComfyUI answered the last `load()`: null before the first. A null load alone does not say (it may have no GPU figures). */
+  answered: boolean | null = null;
+
   /** The machine's load: the monitor extension's latest broadcast if it is fresh, else ComfyUI's memory numbers. */
   async load(): Promise<SystemLoad | null> {
     this.monitor.ensure();
     const live = this.monitor.system;
-    if (live && Date.now() - live.at < 5_000) return live;
+    if (live && Date.now() - live.at < 5_000) {
+      this.answered = true;
+      return live;
+    }
     try {
-      return systemLoadFromStatus(await this.client.status());
+      const load = systemLoadFromStatus(await this.client.status());
+      this.answered = true;
+      return load;
     } catch {
+      this.answered = false;
       return null;
     }
   }

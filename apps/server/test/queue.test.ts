@@ -354,6 +354,29 @@ describe("when ComfyUI goes away", () => {
     expect((await statusOf(id)).error).toContain("offline");
   });
 
+  it("says it is offline while idle once the status poll found it away twice, forgets what it had loaded, and is back on an answer", async () => {
+    const q = t.services.queue;
+    q.noteReachable(false);
+    // one missed answer is not away
+    expect((await queue()).online).toBe(true);
+    q.noteReachable(false);
+    await until(async () => (await queue()).online === false);
+    expect((await queue()).model).toBeNull();
+    q.noteReachable(true);
+    await until(async () => (await queue()).online === true);
+  });
+
+  it("gives a job queued long after ComfyUI went away its full wait, not the time it had already been away", async () => {
+    await fake.close();
+    t.services.queue.noteReachable(false);
+    t.services.queue.noteReachable(false);
+    await new Promise((r) => setTimeout(r, 200)); // longer than offlineExpiryMs
+    const id = await enqueue();
+    await new Promise((r) => setTimeout(r, 60));
+    expect((await statusOf(id)).status).toBe("queued");
+    await until(async () => (await statusOf(id)).status === "failed");
+  });
+
   it("picks a submitted job up again after a restart, without submitting it twice", async () => {
     const db = openSqlite(":memory:");
     const first = await makeApp({ db, comfyUrl: fake.url });

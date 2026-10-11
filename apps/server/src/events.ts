@@ -73,7 +73,13 @@ export function registerEvents(app: FastifyInstance, s: Services, version: strin
     const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     for (const reply of clients) reply.raw.write(frame);
   };
-  const sendSystem = async () => send("system", { load: await (await s.comfy()).load().catch(() => null) });
+  // what it finds of ComfyUI goes to the queue too: an idle queue asks ComfyUI nothing, and kept saying it was online
+  const sendSystem = async () => {
+    const comfy = await s.comfy();
+    const load = await comfy.load().catch(() => null);
+    if (comfy.answered !== null) s.queue.noteReachable(comfy.answered);
+    send("system", { load });
+  };
 
   // every connection used to add its own listeners: the limit that warns about a leak does not apply to a fan-out
   s.queue.events.setMaxListeners(0);
