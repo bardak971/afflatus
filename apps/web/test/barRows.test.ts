@@ -24,6 +24,18 @@ function rows(typed: string, over: Partial<RowsData> = {}, command: Partial<Comm
 }
 
 describe("the bar's rows, mode by mode (rowsFor)", () => {
+  it("lists a kind named first, the newest first, the words after it narrowing it; the New draft command still comes", () => {
+    const [drafts, ...rest] = rows("draft");
+    expect(drafts!.group).toBe("Drafts");
+    expect(drafts!.rows.map((r) => r.key)).toEqual(["draft:d1"]);
+    expect(rest.some((s) => s.rows.some((r) => r.key.startsWith("cmd:new-draft")))).toBe(true);
+    expect(rows("timelines")[0]!.rows.map((r) => r.key)).toEqual(["timeline:t1", "timeline:t2"]);
+    expect(rows("timeline pier")[0]!.rows.map((r) => r.key)).toEqual(["timeline:t2"]);
+    // its start, typed halfway, from four letters
+    expect(rows("timel")[0]!.rows.map((r) => r.key)).toEqual(["timeline:t1", "timeline:t2"]);
+    expect(rows("draf")[0]!.rows.map((r) => r.key)).toEqual(["draft:d1"]);
+  });
+
   it("with nothing typed and nothing learned, Recent lists what changed last, newest first", () => {
     const [recent, ...rest] = rows("");
     expect(recent!.group).toBe("Recent");

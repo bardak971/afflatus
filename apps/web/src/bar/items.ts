@@ -283,6 +283,15 @@ export interface RowsData {
 // (and a timeline, a draft or a project before the renders of the same name: "Harbor walk" the timeline before its takes)
 const KIND_NUDGE: Partial<Record<Kind, number>> = { timeline: 25, draft: 15, project: 15, folder: 10, command: -60, nav: -40 };
 
+/**
+ * A kind named as the first word typed ("draft", "timelines", or its start from four letters: "timel"): its rows are listed,
+ * the words after it narrowing them.
+ */
+const KIND_WORDS: Record<string, Kind> = {
+  draft: "draft", drafts: "draft", timeline: "timeline", timelines: "timeline", project: "project", projects: "project",
+  folder: "folder", folders: "folder", render: "render", renders: "render", workflow: "workflow", workflows: "workflow",
+};
+
 /** The bar's rows in their sections for one mode: what it lists for what is typed. */
 export function rowsFor(mode: Mode, d: RowsData): Section[] {
   const q = d.text;
@@ -331,6 +340,19 @@ export function rowsFor(mode: Mode, d: RowsData): Section[] {
         ].filter((s) => s.rows.length);
       }
       const found = search([...base, ...templates, ...navRows, ...settingRows], q, LIMIT, everything).map((x) => x.item);
+      // "draft": the drafts, the newest first ("draft krea": those the words find), then what the words find elsewhere
+      // (the New draft command); before, only a draft with "draft" in its name came up
+      const [first = "", ...after] = q.trim().toLowerCase().split(/\s+/);
+      const kind = KIND_WORDS[first] ?? (first.length >= 4 ? Object.entries(KIND_WORDS).find(([w]) => w.startsWith(first))?.[1] : undefined);
+      if (kind) {
+        const words = after.join(" ");
+        const pool = base.filter((i) => i.kind === kind);
+        const ofKind = words
+          ? search(pool, words, LIMIT, everything).map((x) => x.item)
+          : [...pool].sort((a, b) => Number(Boolean(a.archived)) - Number(Boolean(b.archived)) || (b.entry!.updatedAt > a.entry!.updatedAt ? 1 : -1));
+        const rest = found.filter((i) => !ofKind.includes(i));
+        return grouped([...withRanges(ofKind.slice(0, Math.max(10, LIMIT - rest.length)), words), ...withRanges(rest, q)], LIMIT);
+      }
       return grouped(withRanges(found, q), LIMIT);
     }
     case "command": {
