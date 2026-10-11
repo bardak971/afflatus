@@ -41,7 +41,7 @@ export function AboutCard() {
           <span className="font-mono text-xs">{health.data ? `version ${health.data.version}` : "…"}</span>
           {note && <Status ok={note.good}>{note.text}</Status>}
         </Row>
-        {v && <UpdatesPart v={v} />}
+        {v && <UpdatesPart v={v} startupUnchecked={health.isSuccess && !checks.length} />}
         <Row label="Database"><span className="font-mono text-xs">{health.data?.database ?? "…"}</span></Row>
         <Row label="ComfyUI"><span className="truncate font-mono text-xs">{comfy?.online ? `${comfy.version} · ${comfy.nodes} node types · ${comfy.device}` : comfy ? "not answering" : "…"}</span></Row>
         <Row label="License"><span className="font-mono text-xs">AGPL-3.0</span></Row>
@@ -113,9 +113,11 @@ function Notes({ v }: { v: UpdatesView }) {
 /**
  * The Updates part of About, in the states of a release's life (updates.ts aboutState): up to date, a new version out, an
  * update waiting for the queue, under way, failed; Docker and a checkout told their command; another computer told where
- * to press. Then the previous version kept to go back to, the last check, and the switch.
+ * to press. Then the previous version kept to go back to, the last check, and the switch. `startupUnchecked`: the start-up
+ * checks below never ran, so their card shows a "Check now" too; this one then says what it checks, so that the page
+ * does not carry two buttons of the same name.
  */
-function UpdatesPart({ v }: { v: UpdatesView }) {
+function UpdatesPart({ v, startupUnchecked }: { v: UpdatesView; startupUnchecked: boolean }) {
   const client = useQueryClient();
   const check = useUpdatesAction(api.checkUpdates);
   const update = useUpdatesAction(api.startUpdate);
@@ -225,7 +227,7 @@ function UpdatesPart({ v }: { v: UpdatesView }) {
       {!v.flow && (
         <Row label="Updates" sub={v.checkError ? <span className="text-warn-ink">the last check got no answer: {v.checkError}</span> : undefined}>
           <span className="text-xs text-ink-3">{check.isPending ? "Asking GitHub…" : v.checkedAt ? `checked ${when(v.checkedAt)}` : "not checked yet"}</span>
-          {v.here && <Button size="sm" disabled={check.isPending} onClick={() => check.mutate()}>{check.isPending ? "Checking…" : "Check now"}</Button>}
+          {v.here && <Button size="sm" disabled={check.isPending} onClick={() => check.mutate()}>{check.isPending ? "Checking…" : startupUnchecked ? "Check for updates" : "Check now"}</Button>}
         </Row>
       )}
       <Row setting="about.updates" label="Check for new versions" help="Once a day Afflatus asks GitHub for its latest release; nothing about you or your library is sent. A new version shows as a dot on Settings until you open About.">

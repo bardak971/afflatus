@@ -11,6 +11,13 @@
 // data/ is made beside versions/ at the first start; an update adds a version folder and rewrites current.
 //
 //   node scripts/release/bundle.mjs --platform win-x64|linux-x64|darwin-arm64 [--version v0.2.1] [--ffmpeg autobuild-…] [--record]
+//                                   [--release-key <public key, base64>]
+//
+// --release-key is for trying the updates end to end with a throwaway key (two local bundles, a pretend release
+// server): the bundle's server then trusts that key instead of the one in apps/server/src/releaseKey.ts. It is written
+// into this bundle's own copy of the server at build time, never read from the environment or a file at run time, so
+// that nothing a user or another program sets on an installed Afflatus can change the key its updates are checked
+// with. The release workflow never passes it.
 //
 // Runs on the platform it packs for (npm ci resolves sharp's native package for the host). Everything it
 // downloads is one exact release, checked against a SHA-256 before it is unpacked: Node against nodejs.org's
@@ -50,6 +57,9 @@ if (!/^v\d+\.\d+\.\d+(-[\w.]+)?$/.test(version) && version !== "dev") throw new 
 const folder = version.replace(/^v/, "");
 const ffmpegTag = opt("ffmpeg", FFMPEG_TAG);
 const record = argv.includes("--record");
+const releaseKey = opt("release-key", null);
+// a key that is not 32 bytes of base64 would make every update refused: said now rather than found in the app
+if (releaseKey !== null && Buffer.from(releaseKey, "base64").length !== 32) throw new Error("--release-key is not an Ed25519 public key (32 bytes of base64)");
 if (!["win-x64", "linux-x64", "darwin-arm64"].includes(platform)) throw new Error(`unknown platform ${platform}`);
 if (!/^v\d+\.\d+\.\d+$/.test(NODE_VERSION)) throw new Error(`NODE_VERSION must be an exact release (v24.x.y), not ${JSON.stringify(NODE_VERSION)}`);
 
@@ -156,6 +166,16 @@ const sweep = (dir) => {
 sweep(join(bundle, "app", "node_modules"));
 // the version's own start (its environment, the restart and the fall back), updated with the app
 cpSync(join(here, "launch.mjs"), join(bundle, "app", "launch.mjs"));
+if (releaseKey !== null) {
+  // the key's one literal in the bundled server, swapped in this bundle's copy only (release/app keeps the real one)
+  const builtIn = /RELEASE_KEY = "([^"]+)"/.exec(readFileSync(join(root, "apps/server/src/releaseKey.ts"), "utf8"))?.[1];
+  const server = join(bundle, "app", "apps", "server", "dist", "index.mjs");
+  const code = readFileSync(server, "utf8");
+  const found = builtIn ? code.split(`"${builtIn}"`).length - 1 : 0;
+  if (found !== 1) throw new Error(`the release key is found ${found} times in the bundled server, not once: --release-key cannot be written in`);
+  writeFileSync(server, code.replace(`"${builtIn}"`, () => JSON.stringify(releaseKey)));
+  console.log(`[bundle] this bundle trusts the release key ${releaseKey}, NOT the one in releaseKey.ts: for tests only`);
+}
 
 // 2. a portable Node: the one release named above, from nodejs.org, checked against its SHASUMS256.txt
 console.log(`[bundle] node runtime ${NODE_VERSION}`);

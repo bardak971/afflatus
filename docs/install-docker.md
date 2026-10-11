@@ -27,7 +27,7 @@ volumes:
 docker compose up -d
 ```
 
-Open `http://127.0.0.1:8720`. The port is published on this computer only. To reach Afflatus from other machines, publish it as `8720:8720` and set `ALLOWED_HOSTS` (below). To link folders of your disk, see [Linked folders](#linked-folders). To update, `docker compose pull && docker compose up -d`. The data volume carries everything (database, library, settings) across updates.
+Open `http://127.0.0.1:8720`. The port is published on this computer only. To reach Afflatus from other machines, publish it as `8720:8720` and set `ALLOWED_HOSTS` (below). To link folders of your disk, see [Linked folders](#linked-folders). To update, `docker compose pull && docker compose up -d`. The data volume carries everything (database, library, settings) across updates. Settings → About says when a new version is out and gives that command; a container does not replace its own image.
 
 Or without compose:
 
