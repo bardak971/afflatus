@@ -2,6 +2,7 @@
   "id": "dasiwa-ltx-dragonleap",
   "name": "DragonLeap v4",
   "author": "Darksidewalker (DaSiWa)",
+  "line": "Lightspeed · 8–10 steps",
   "note": "DragonLeap v4, the Lightspeed line (distilled) on JoyAI-Echo: image-to-video and video-to-video first, with sound; fp8 with the VAE included. Recommended: CFG 1, euler_cfg_pp, 8–10 steps (here on LTX's own 8-step schedule).",
   "homepage": "https://civitai.com/models/2543443?modelVersionId=3092188",
   "links": [

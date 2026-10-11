@@ -1,7 +1,8 @@
 {
   "id": "ltx23-distilled",
-  "name": "LTX 2.3 distilled (22B, fp8)",
+  "name": "LTX 2.3 distilled",
   "author": "Lightricks",
+  "line": "22B · fp8 · few steps",
   "note": "LTX 2.3, video with sound, its distilled model: few steps, quick drafts, from Lightricks' own fp8 release.",
   "homepage": "https://huggingface.co/Lightricks/LTX-2.3-fp8",
   "licence": {

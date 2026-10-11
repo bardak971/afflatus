@@ -1,7 +1,8 @@
 {
   "id": "dasiwa-wan",
-  "name": "SnatchKiss v11 (High + Low)",
+  "name": "SnatchKiss v11",
   "author": "Darksidewalker (DaSiWa)",
+  "line": "TrueVision · high + low noise · 20–30 steps",
   "note": "SnatchKiss v11, the TrueVision line of Wan 2.2 image-to-video: the high- and low-noise 14B models in fp8. Recommended: 20–30 steps, CFG 3.5, euler or uni_pc_bh2 / simple, up to 720p.",
   "homepage": "https://civitai.com/models/2272580?modelVersionId=2959309",
   "links": [

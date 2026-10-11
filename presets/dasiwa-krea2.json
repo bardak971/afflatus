@@ -2,6 +2,7 @@
   "id": "dasiwa-krea2",
   "name": "DarkDesire V3 Turbo UC",
   "author": "Darksidewalker (DaSiWa)",
+  "line": "int8 · 8 steps · realism and anime",
   "note": "DarkDesire V3 Turbo UC, realism and anime, int8 ConvRot. Recommended: CFG 1, euler / linear_quadratic (or er_sde / simple), 8 steps, 1536 × 1536.",
   "homepage": "https://civitai.com/models/2760803?modelVersionId=3362930",
   "links": [

@@ -1,7 +1,8 @@
 {
   "id": "dasiwa-h3-v3-turbo",
-  "name": "DaSiWa Hybrid Turbo v3",
+  "name": "Miracle Turbo",
   "author": "Darksidewalker (DaSiWa)",
+  "line": "Hybrid v3 · 8 steps",
   "note": "Hybrid Turbo v3: \"Miracle\" distilled for 8 steps, int8 ConvRot; no turbo LoRA on top. Recommended: euler or lcm / simple, shift 6–12 video and 3–5 sound, 4 or 8 steps.",
   "homepage": "https://civitai.com/models/2877206?modelVersionId=3374439",
   "links": [

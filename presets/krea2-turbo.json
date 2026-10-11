@@ -1,7 +1,8 @@
 {
   "id": "krea2-turbo",
-  "name": "Krea 2 Turbo (fp8)",
+  "name": "Krea 2 Turbo",
   "author": "Krea",
+  "line": "fp8 · 8 steps",
   "note": "Krea 2 Turbo as ComfyUI repackages it: pictures from plain sentences in 8 steps at CFG 1. The family's own defaults; a good first model for pictures.",
   "homepage": "https://huggingface.co/Comfy-Org/Krea-2",
   "licence": {

@@ -1,7 +1,8 @@
 {
   "id": "qwen-image-2512",
-  "name": "Qwen Image 2512 (fp8)",
+  "name": "Qwen Image 2512",
   "author": "Qwen (Alibaba)",
+  "line": "fp8 · Turbo by its Lightning LoRA",
   "note": "Qwen Image 2512, as ComfyUI repackages it: pictures from sentences, strong at writing text into the picture. Its Lightning LoRA makes Turbo (4 steps). Apache 2.0.",
   "homepage": "https://huggingface.co/Qwen/Qwen-Image-2512",
   "licence": {

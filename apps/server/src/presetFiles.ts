@@ -35,6 +35,8 @@ export const presetFileSchema = z.strictObject({
 });
 export const provenanceSchema = {
   author: z.string().max(80).optional(),
+  /** What it is picked by, in a few words ("Hybrid v3 · smaller file"): the list's dim line, after the author. */
+  line: z.string().max(80).optional(),
   note: z.string().max(1000).optional(),
   homepage: webUrl.optional(),
   links: z.array(z.strictObject({ label: z.string().trim().min(1).max(40), url: webUrl })).max(6).optional(),

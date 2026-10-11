@@ -1,7 +1,8 @@
 {
   "id": "qwen-image-21",
-  "name": "Qwen Image 2.1 (int8)",
+  "name": "Qwen Image 2.1",
   "author": "Qwen (Alibaba)",
+  "line": "int8 · research use only",
   "note": "Qwen Image 2.1, as ComfyUI repackages it (int8): pictures from sentences at up to 2K, and editing from an instruction. Under the Qwen Research License: research use only.",
   "homepage": "https://huggingface.co/Qwen/Qwen-Image-2.1",
   "licence": {

@@ -1,7 +1,8 @@
 {
   "id": "minimax-h3",
-  "name": "MiniMax H3 (int8)",
+  "name": "MiniMax H3",
   "author": "MiniMax",
+  "line": "int8 · first/last frame, seamless joins",
   "note": "MiniMax H3, video with sound, as ComfyUI repackages it: text, first and last frames, and clips that carry on from the clip before, which is what a timeline's seamless joins are made with.",
   "homepage": "https://huggingface.co/Comfy-Org/MiniMax-H3",
   "licence": {

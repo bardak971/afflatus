@@ -15,12 +15,12 @@ import { Thumb } from "../Thumb";
 import { Button, cx, ErrorNote, Help } from "../ui";
 import { ask, askText } from "../Confirm";
 import { copyText } from "../secureContext";
-import { CopyLink, ItemHeader, noteOfDelete } from "./kit/ItemHeader";
+import { ItemHeader, noteOfDelete } from "./kit/ItemHeader";
 import { KitHeader, TABS, type Tab } from "./kit/KitHeader";
 import { kitHash, kitHref, readKitHash } from "./kit/link";
 import { PersonEditor, PlaceEditor } from "./kit/PersonEditor";
-import { authorOf, presetGroups, PresetList } from "./kit/PresetList";
-import { Badge, Mark, Row } from "./kit/Row";
+import { presetGroups, PresetList } from "./kit/PresetList";
+import { Mark, Row } from "./kit/Row";
 import { outfitsOf, remember, remembered, textOf } from "./kit/shared";
 import { SnippetTable, type Snippet } from "./kit/SnippetTable";
 import { StyleEditor } from "./kit/StyleEditor";
@@ -267,20 +267,7 @@ export function People() {
 
           <section className="min-h-0 overflow-y-auto px-7 py-4">
             {shipped ? (
-              <div className="flex max-w-[820px] flex-col gap-3">
-                {/* the name on a line of its own, whole: beside the buttons a long one was cut even on a wide screen */}
-                <div className="flex items-start gap-3">
-                  <h2 className="min-w-0 grow text-xl font-semibold leading-snug">{shipped.name}</h2>
-                  <button type="button" aria-label="Close" onClick={() => select(null)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge>{authorOf(shipped)}</Badge>
-                  <CopyLink item={shipped} />
-                  <Button size="sm" tone="primary" onClick={() => applyInStudio(shipped.id)} className="flex items-center gap-1.5"><Play size={13} /> Apply in Studio</Button>
-                  <Button size="sm" onClick={() => savePresetFile(shipped)} className="flex items-center gap-1.5"><FileDown size={13} /> Save as a file</Button>
-                </div>
-                <ShippedPreset e={shipped} onCopied={(c) => setOpen(c.id)} />
-              </div>
+              <ShippedPreset e={shipped} onApply={() => applyInStudio(shipped.id)} onDuplicate={() => duplicate.mutate(shipped)} duplicating={duplicate.isPending} onClose={() => select(null)} />
             ) : editing ? (
               // a preset's form keeps its reading width; a person, a place or a style uses the column's (two halves once
               // it is wide, see PersonEditor's Halves), not the left 820 px of a wide screen
