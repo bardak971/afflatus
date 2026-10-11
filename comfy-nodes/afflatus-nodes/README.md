@@ -25,7 +25,7 @@ The last three are the MIT-licensed continuation nodes of ttulttul's
 with one small change (a guarded import: a ComfyUI too old for them says "update ComfyUI" rather than
 failing with an ImportError); their licence is in `LICENSE-continuation`.
 
-## Three routes on ComfyUI's server
+## Routes on ComfyUI's server
 
 With the pack loaded, ComfyUI answers:
 
@@ -38,6 +38,10 @@ With the pack loaded, ComfyUI answers:
 - `POST /afflatus/clean-input` with `{"older_than_hours": 24}`: removes the pictures Afflatus uploaded to
   `input/afflatus/` that are older than that (only files named `afflatus_*`, in that one folder, never younger
   than an hour). The body must be sent as `application/json`.
+- `POST /afflatus/download`, `GET` and `DELETE /afflatus/download/<id>` (0.11.0): a model file fetched from
+  Afflatus's own one-time download address into the first folder ComfyUI lists for its kind, for a ComfyUI on
+  another machine than Afflatus. Written as `<name>.part`, picked up again where it stopped after a cut, renamed
+  once complete. Only model-file names, only into model folders (never `custom_nodes`), no redirects followed.
 
 ## Install
 

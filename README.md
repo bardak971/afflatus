@@ -38,7 +38,7 @@ You need **ComfyUI** running somewhere (a clone, the portable build or the deskt
 
 1. **Download and start.** Grab the bundle for your system from the [releases page](https://github.com/bardak971/afflatus/releases), unpack it and run `Afflatus.bat` (Windows) or `afflatus.sh` (Linux, macOS). Your browser opens on `http://127.0.0.1:8720`.
 2. **Connect ComfyUI.** In **Settings → ComfyUI**, enter its address (`http://127.0.0.1:8188` on the same machine) and press **Test**. Give it ComfyUI's folder too, so Afflatus can install its small node pack.
-3. **Get a model.** **Settings → Models** shows, for each model family, what is ready and what is missing, file by file. Turn on ComfyUI-Manager in ComfyUI ([how](docs/comfyui-setup.md#comfyui-manager-for-downloads)) and Afflatus downloads the missing files for you, or put them in place yourself.
+3. **Get a model.** **Settings → Models** shows, for each model family, what is ready and what is missing, file by file. Press **Download** and Afflatus fetches the missing files straight into ComfyUI's model folders ([how downloads work](docs/comfyui-setup.md#downloads)), or put them in place yourself.
 4. **Make a picture.** Open the **Studio**, press **N** for the form, pick a model, write a prompt and press **Ctrl+Enter**. It lands in your library with everything it was made with.
 5. **Make it move.** Open the picture, press **M** (image to video), describe the motion and render. Then drop clips on a **Timeline** to build a film.
 6. **Bring your own workflow.** Have a graph you love in ComfyUI? **Workflows → Import** the `.json` you saved from it, and use it like any other form.

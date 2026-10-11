@@ -73,6 +73,6 @@ One server-sent-events stream (`events.ts`) to every open page. Most events only
 ## Around the edges
 
 - **No login.** The server listens on localhost unless `HOST` says otherwise, and refuses requests whose `Host` is not one of its own names (`hostCheck.ts`: loopback, `HOST`, `PUBLIC_URL`, `ALLOWED_HOSTS`), which stops DNS rebinding. `/api/health` and `/metrics` answer any name, for probes and scrapers.
-- **Outbound requests** (model downloads, Civitai and Hugging Face lookups, the designer's LLM) are made only when turned on, and model downloads go through ComfyUI-Manager on the GPU machine.
+- **Outbound requests** (model downloads, Civitai and Hugging Face lookups, the designer's LLM) are made only when turned on, and model downloads are written into ComfyUI's model folders by Afflatus itself when it can reach them (resumed after a cut, renamed once complete), else by its node pack on the GPU machine, with ComfyUI-Manager as the last resort.
 - **The designer** is any OpenAI-style endpoint. It writes prompts by the family's guide and answers in a checked shape.
 - **The node pack** (`comfy-nodes/afflatus-nodes`) saves and loads H3 latents, guides and decodes continuations, and lets Afflatus read model file headers through ComfyUI when it cannot reach ComfyUI's disk.

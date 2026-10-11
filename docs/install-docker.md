@@ -55,11 +55,11 @@ In Settings → ComfyUI, give it the address as seen from inside the container:
 
 - ComfyUI on the same machine as Docker Desktop (Windows or macOS): `http://host.docker.internal:8188`.
 - ComfyUI on the same Linux machine: `http://host.docker.internal:8188` with the `extra_hosts` line above, or the machine's LAN address.
-- ComfyUI on another machine: its LAN address, `http://192.168.x.y:8188`. ComfyUI must listen on that address (`--listen`). For Afflatus to download models into it, its ComfyUI-Manager must then have `network_mode = personal_cloud` in its `config.ini` (`user/__manager/` for the built-in Manager, `custom_nodes/ComfyUI-Manager/` for the custom node): a ComfyUI that listens on the network refuses downloads from a URL otherwise.
+- ComfyUI on another machine: its LAN address, `http://192.168.x.y:8188`. ComfyUI must listen on that address (`--listen`). For Afflatus to download models into it, give it Afflatus's node pack (below): the pack fetches the files through Afflatus (set `PUBLIC_URL`). Without the pack ComfyUI-Manager does it, and must then have `network_mode = personal_cloud` in its `config.ini` (`user/__manager/` for the built-in Manager, `custom_nodes/ComfyUI-Manager/` for the custom node): a ComfyUI that listens on the network refuses downloads from a URL otherwise.
 
 ## The node pack
 
-The container cannot write into ComfyUI's folder, so install Afflatus's node pack by hand once: Settings → ComfyUI → "download the node pack", unpack the zip into ComfyUI's `custom_nodes` folder (it makes `custom_nodes/afflatus-nodes/`), restart ComfyUI. It brings the MiniMax H3 continuation nodes and the route Afflatus uses to read your model files' headers through ComfyUI, since it cannot read the disk.
+The container cannot write into ComfyUI's folder, so install Afflatus's node pack by hand once: Settings → ComfyUI → "download the node pack", unpack the zip into ComfyUI's `custom_nodes` folder (it makes `custom_nodes/afflatus-nodes/`), restart ComfyUI. It brings the MiniMax H3 continuation nodes, the route Afflatus uses to read your model files' headers through ComfyUI (it cannot read the disk), and, from 0.11.0, the route that downloads models into ComfyUI's folders.
 
 ## Environment
 
@@ -69,7 +69,7 @@ The container cannot write into ComfyUI's folder, so install Afflatus's node pac
 | `HOST` | `0.0.0.0` | Listens on all addresses inside the container; publish the port as you see fit |
 | `DATA_DIR` | `/data` | The volume |
 | `ALLOWED_HOSTS` | empty | The names Afflatus answers to, comma-separated. `localhost` and `127.0.0.1` always are; a request with any other `Host` header gets a 403, which keeps a page from another site from driving the API by pointing one of its names at this machine. Name here whatever you open Afflatus as from other machines, and the name a reverse proxy or a scraper uses (`ALLOWED_HOSTS=afflatus.home,192.168.x.y`) |
-| `PUBLIC_URL` | empty | The address ComfyUI reaches Afflatus at, for model downloads; its host is answered to as well |
+| `PUBLIC_URL` | empty | The address ComfyUI reaches Afflatus at, for model downloads (the node pack fetches through it); its host is answered to as well |
 | `LINK_ROOTS` | empty | The directories that may be linked as folders, `:`-separated (a mounted volume: `LINK_ROOTS=/media`). Needed to link anything: the image listens beyond loopback, so with it empty every link is refused ([Linked folders](#linked-folders)) |
 | `DATABASE_URL` | empty | A `postgres://` address instead of SQLite in the volume. SQLite is the supported one |
 | `TZ` | `UTC` | The time zone, for the times shown |

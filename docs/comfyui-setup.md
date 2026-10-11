@@ -15,11 +15,23 @@ When ComfyUI is on **another** machine:
 
 - start ComfyUI with `--listen` so it answers on the network;
 - download the node pack from Settings → ComfyUI, unpack it into ComfyUI's `custom_nodes` (it makes `custom_nodes/afflatus-nodes/`) and restart ComfyUI. The pack also lets Afflatus read model headers through ComfyUI;
-- set `PUBLIC_URL` on Afflatus to the address ComfyUI can reach it at, so ComfyUI-Manager can fetch downloads through it ([configuration](configuration.md)).
+- set `PUBLIC_URL` on Afflatus to the address ComfyUI can reach it at, so the node pack can fetch downloads through it ([configuration](configuration.md)).
 
-## ComfyUI-Manager, for downloads
+## Downloads
 
-Afflatus downloads missing models into ComfyUI through ComfyUI-Manager, and installs the node packs an imported workflow needs the same way. Without it, every missing file still gets a link to open in your browser.
+Each missing file in Settings → Models has a **Download** button. Who fetches it depends on where ComfyUI runs:
+
+- **ComfyUI on this machine:** Afflatus downloads the file itself, into the folder ComfyUI lists first for that kind of model (ComfyUI's own list, `extra_model_paths.yaml` included). Two files download at a time. A cut connection is picked up again where it stopped, up to five tries in a row. The free space is checked before, the size (and Hugging Face's SHA-256) after. The file is written as `<name>.part` and renamed once complete, so ComfyUI never lists half a model.
+- **ComfyUI on another machine:** Afflatus's node pack (0.11.0 or newer) downloads it the same way, fetching through Afflatus. Set `PUBLIC_URL` so ComfyUI can reach Afflatus, and restart ComfyUI after the pack is updated.
+- **Otherwise,** ComfyUI-Manager does it (below). It fetches one file at a time, and it holds a file from anywhere but Hugging Face in memory until the end before writing it, so a large one can fail; Afflatus says so before it starts.
+
+Most files on Civitai need an account: paste your Civitai API key in Settings → Models. Afflatus sends it to Civitai only, never to ComfyUI.
+
+Without any of these, every missing file still gets a link to open in your browser.
+
+### ComfyUI-Manager
+
+Afflatus installs the node packs an imported workflow needs through ComfyUI-Manager, and falls back on it for downloads.
 
 - **ComfyUI 0.3.7x and newer** have Manager built in, off until asked. In ComfyUI's folder, run `pip install -r manager_requirements.txt` with ComfyUI's own Python (the venv's, or `python_embeded\python.exe` in the portable build), then start ComfyUI with `--enable-manager`.
 - **The desktop app** has it on already.
@@ -32,16 +44,14 @@ Afflatus downloads missing models into ComfyUI through ComfyUI-Manager, and inst
 
 A ComfyUI that listens on localhost only needs nothing.
 
-Most files on Civitai need an account: paste your Civitai API key in Settings → Models. Afflatus fetches the file itself and hands it to Manager, which needs no key.
-
 ## Node packs
 
 Every built-in form runs on ComfyUI's own nodes first. Some forms and options need a custom node pack on top, and only where they are used. When one is missing, Afflatus names it on the form before you press Generate, and in the queue if a render needs it, with how to install it (ComfyUI-Manager, or the repository to clone) and that ComfyUI must be restarted after.
 
 | Pack | What it unlocks |
 |---|---|
-| **afflatus-nodes**, Afflatus's own (MIT, in [comfy-nodes](../comfy-nodes)) | MiniMax H3 clips that carry on from the clip before's own latent: seamless joins on the timeline, landings on the clip after, the H3 latent re-sample finish. Reading model headers through ComfyUI |
-| [ComfyUI-Manager](https://github.com/Comfy-Org/ComfyUI-Manager) | Downloads of missing models; installing the packs an imported workflow needs |
+| **afflatus-nodes**, Afflatus's own (MIT, in [comfy-nodes](../comfy-nodes)) | MiniMax H3 clips that carry on from the clip before's own latent: seamless joins on the timeline, landings on the clip after, the H3 latent re-sample finish. Reading model headers through ComfyUI. Downloads into a ComfyUI on another machine (0.11.0) |
+| [ComfyUI-Manager](https://github.com/Comfy-Org/ComfyUI-Manager) | Installing the packs an imported workflow needs; downloads when neither Afflatus nor its node pack can write ComfyUI's model folders |
 | [Comfyui-MMH3-UltimateUpscale](https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale) | H3's latent re-sample: the "Latent: re-sampled" upscale and the H3 finish route |
 | [ComfyUI-DaSiWa-Nodes](https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes) | H3's step cache; the RTX upscaler and refiner node |
 | [Nvidia_RTX_Nodes_ComfyUI](https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI) | RTX Video Super Resolution, as an upscale and a finish route (NVIDIA cards) |

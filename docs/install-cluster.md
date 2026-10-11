@@ -81,9 +81,9 @@ A release is then a `targetRevision` bump: the chart at that tag runs the image 
 
 ## After the first start
 
-1. Settings → ComfyUI: the address of the ComfyUI on the GPU machine, as the pod reaches it (`http://<gpu-machine>:8188`; ComfyUI must listen on it with `--listen`). For Afflatus to download models into it, its ComfyUI-Manager must then have `network_mode = personal_cloud` in its `config.ini` (`user/__manager/` for the built-in Manager, `custom_nodes/ComfyUI-Manager/` for the custom node): a ComfyUI that listens on the network refuses downloads from a URL otherwise.
+1. Settings → ComfyUI: the address of the ComfyUI on the GPU machine, as the pod reaches it (`http://<gpu-machine>:8188`; ComfyUI must listen on it with `--listen`). For Afflatus to download models into it, give it Afflatus's node pack 0.11.0 or newer: the pack fetches the files through Afflatus (set `PUBLIC_URL` to the address the GPU machine reaches Afflatus at). Without the pack ComfyUI-Manager does it, and must then have `network_mode = personal_cloud` in its `config.ini` (`user/__manager/` for the built-in Manager, `custom_nodes/ComfyUI-Manager/` for the custom node): a ComfyUI that listens on the network refuses downloads from a URL otherwise.
 2. The same page offers the node pack as a zip: unpack it into that ComfyUI's `custom_nodes` and restart ComfyUI. The pod cannot write there itself. With the pack, MiniMax H3 continuations run in the latent and Afflatus reads your model files' headers through ComfyUI, which is how it tells which model each file is for when it cannot read the disk.
-3. Settings → Models says what is ready and what is missing. Downloads into ComfyUI go through ComfyUI-Manager on the GPU machine, when you turn that on.
+3. Settings → Models says what is ready and what is missing. Downloads into ComfyUI go through Afflatus's node pack on the GPU machine (ComfyUI-Manager without it), when you turn that on.
 
 ## Data and backups
 

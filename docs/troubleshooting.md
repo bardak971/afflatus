@@ -8,9 +8,11 @@ Start with **Settings → About**: it runs the start-up checks (ffmpeg, ffprobe,
 
 **A form says a node pack is missing.** The form and the queue name the pack. Install it from the card (through ComfyUI-Manager, ComfyUI restarts from there), or by hand into `custom_nodes`, then restart ComfyUI. The Afflatus node pack itself is installed from Settings → ComfyUI once Afflatus knows ComfyUI's folder.
 
-**A model file is missing.** Settings → Models lists each missing file, the folder it goes in, and where to get it. **Download** works through ComfyUI-Manager; see [ComfyUI setup](comfyui-setup.md#comfyui-manager-for-downloads).
+**A model file is missing.** Settings → Models lists each missing file, the folder it goes in, and where to get it. **Download** fetches it into ComfyUI's model folder; see [Downloads](comfyui-setup.md#downloads).
 
-**Downloads are refused when ComfyUI listens on the network.** ComfyUI-Manager only fetches from a URL behind `--listen` when its `network_mode` is `personal_cloud`. Set it in Manager's `config.ini` and restart ComfyUI ([details](comfyui-setup.md#comfyui-manager-for-downloads)). When ComfyUI runs on another machine than Afflatus, also set `PUBLIC_URL` so Manager can reach Afflatus ([configuration](configuration.md)).
+**Downloads are refused when ComfyUI listens on the network.** That is ComfyUI-Manager, which downloads only when neither Afflatus nor its node pack can: behind `--listen` it fetches from a URL only when its `network_mode` is `personal_cloud`. Set it in Manager's `config.ini` and restart ComfyUI ([details](comfyui-setup.md#comfyui-manager)). Better, update Afflatus's node pack to 0.11.0 and restart ComfyUI: the pack then downloads instead. When ComfyUI runs on another machine than Afflatus, also set `PUBLIC_URL` so ComfyUI can reach Afflatus ([configuration](configuration.md)).
+
+**A large download stops with "ComfyUI-Manager dropped the connection".** Manager holds a file from anywhere but Hugging Face in memory until the end, and Windows can refuse past a few GB (`WinError 10055` in ComfyUI's log). Let Afflatus download it instead: on the same machine, give Settings → ComfyUI the ComfyUI folder; on another machine, update the node pack and restart ComfyUI.
 
 **A video render dies at the very end, with a stack overflow in ComfyUI's log.** Some large video graphs crash ComfyUI's graph compiler. Start ComfyUI with `--disable-comfy-compiler`.
 
