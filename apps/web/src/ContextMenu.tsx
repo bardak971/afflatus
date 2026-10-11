@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight } from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
 import { thumbUrl } from "./api";
 import { Keys } from "./Keys";
 import { useLeave } from "./leave";
@@ -20,6 +20,8 @@ export type MenuItem =
       note?: string;
       danger?: boolean;
       disabled?: boolean;
+      /** A setting turned on or off: its tick stands where the icon would. Left out, the item is a plain action. */
+      checked?: boolean;
       run?(): void;
       /** A submenu: opened on hover, → or Enter; ← or Escape closes it. */
       items?: MenuItem[];
@@ -183,7 +185,8 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
               key={i}
               ref={(el) => { rows.current[i] = el; }}
               type="button"
-              role="menuitem"
+              role={it.checked !== undefined ? "menuitemcheckbox" : "menuitem"}
+              aria-checked={it.checked}
               aria-haspopup={it.items ? "menu" : undefined}
               aria-expanded={it.items ? sub?.index === i : undefined}
               disabled={it.disabled}
@@ -199,7 +202,7 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
                 it.danger ? "text-warn-ink" : "text-ink",
               )}
             >
-              <span className={cx("flex w-4 shrink-0 items-center justify-center", it.danger ? "text-warn-ink" : "text-ink-2")}>{it.icon}</span>
+              <span className={cx("flex w-4 shrink-0 items-center justify-center", it.danger ? "text-warn-ink" : it.checked ? "text-accent" : "text-ink-2")}>{it.checked !== undefined ? it.checked && <Check size={14} /> : it.icon}</span>
               <span className="min-w-0 grow truncate">{it.label}{it.note && <span className="ml-1.5 text-xs text-ink-3">{it.note}</span>}</span>
               {it.key && <Keys keys={it.key} size="sm" className="text-ink-2" />}
               {it.items && <ChevronRight size={14} className="shrink-0 text-ink-2" />}

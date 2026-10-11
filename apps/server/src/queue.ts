@@ -143,7 +143,7 @@ export class Queue {
 
   // ---------------------------------------------------------------- enqueue / cancel / pause
 
-  async enqueue(recipeId: string, rawInput: unknown, opts: { label?: string; dependsOn?: string; clip?: { id: string; fit: boolean }; draft?: string | null; folder?: string | null; warm?: boolean; look?: unknown; finishedFrom?: string | null; asked?: Record<string, unknown> } = {}): Promise<string> {
+  async enqueue(recipeId: string, rawInput: unknown, opts: { label?: string; dependsOn?: string; clip?: { id: string; fit: boolean; mirror?: readonly string[] }; draft?: string | null; folder?: string | null; warm?: boolean; look?: unknown; finishedFrom?: string | null; asked?: Record<string, unknown> } = {}): Promise<string> {
     const recipe = this.registry.recipe(recipeId);
     if (!recipe) throw httpError(`there is no model or operation called ${recipeId}`);
     // loading the models is asked for while the form is still being filled in: a text not written yet is no reason to refuse
@@ -161,7 +161,7 @@ export class Queue {
       .values({
         id, owner_id: OWNER, recipe_id: recipe.id, label: opts.label?.trim() || recipe.title, inputs: JSON.stringify(input), asked,
         status: "queued", warm: opts.warm ? 1 : 0, look: opts.look ? JSON.stringify(opts.look) : null, priority: recipe.output === "image" ? 0 : 10, depends_on: opts.dependsOn ?? null,
-        attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip?.id ?? null, clip_fit: opts.clip?.fit ? 1 : 0,
+        attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip?.id ?? null, clip_fit: opts.clip?.fit ? 1 : 0, clip_mirror: opts.clip?.mirror?.length ? JSON.stringify(opts.clip.mirror) : null,
         draft_id: opts.draft ?? null, folder_id: opts.folder ?? null, finished_from: opts.finishedFrom ?? null,
         created_at: at, started_at: null, finished_at: null, updated_at: at,
       })
@@ -337,7 +337,8 @@ export class Queue {
     const was = Object.fromEntries(Object.entries(JSON.parse(row.inputs) as Record<string, unknown>).filter(([k]) => !has.size || has.has(k)));
     return this.enqueue(row.recipe_id, { ...was, ...change }, {
       label: row.label,
-      clip: row.clip_id ? { id: row.clip_id, fit: Boolean(row.clip_fit) } : undefined,
+      // with the flips it was sent with: done again, it renders what it was asked to, whatever the clip says now
+      clip: row.clip_id ? { id: row.clip_id, fit: Boolean(row.clip_fit), mirror: readJson<string[]>(row.clip_mirror, []) } : undefined,
       draft: row.draft_id, folder: row.folder_id, warm: Boolean(row.warm), look: readJson(row.look, undefined),
       // a finish done again is still the finished version of the same take
       finishedFrom: row.finished_from,

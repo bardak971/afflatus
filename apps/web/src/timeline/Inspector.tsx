@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Music } from "lucide-react";
-import { api, thumbUrl, type Clip, type RecipeInfo, type Take, type Timeline } from "../api";
+import { api, thumbUrl, type Asset, type Clip, type RecipeInfo, type Take, type Timeline } from "../api";
 import { useRecipes, useSetup } from "../data";
 import { FormModel } from "../ModelLoad";
 import { phaseLabel, timeLeft } from "../format";
@@ -10,7 +10,7 @@ import { Picker } from "../PictureField";
 import { Bar, Button, cx, ErrorNote, Help, SectionTitle, Segmented, Toggle } from "../ui";
 import { Keys } from "../Keys";
 import { ColumnEdge, useColumnWidth } from "./column";
-import { otherShape, pinInputs, roomOf, shapeOf, type ShownPatch } from "./model";
+import { otherShape, pinInputs, pinMirrors, roomOf, shapeOf, type ShownPatch } from "./model";
 import { useRunningOf } from "./useRunning";
 import { SHOWS } from "./attention";
 import { Estimate } from "./estimate";
@@ -25,7 +25,7 @@ import { queryKeys } from "../queryKeys";
 /** Where how many takes a render makes is remembered, per browser. */
 const TAKES_KEY = "afflatus.timeline.takes";
 
-export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, busy, error, onInputs, onRecipe, onPatch, onRender, onMenu, onRemoveTake, onStop, onPreview, onDesigner, designer, writing, writeError, onWriteBetween, onClose, onSelectClip }: {
+export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, busy, error, onInputs, onRecipe, onPatch, onRender, onMenu, onRemoveTake, onStop, onPreview, onDesigner, designer, writing, writeError, onWriteBetween, onClose, onSelectClip, onOpen }: {
   timeline: Timeline;
   clip: Clip;
   index: number;
@@ -47,6 +47,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   onRender(count: number): void;
   /** The clip's own menu (its right-click menu on the track), under the head's ··· button: Remove clip is there, with its Del. */
   onMenu(e: { preventDefault(): void; clientX: number; clientY: number; currentTarget?: EventTarget | null }): void;
+  /** The viewer, on a picture (a pinned frame's menu: Open). */
+  onOpen?(asset: Asset): void;
   onRemoveTake(id: string): void;
   /** Stop the render of this clip that is under way, or take it out of the queue. */
   onStop(): void;
@@ -138,7 +140,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   const takesHelp = clip.takes.length > 1 ? `Hover a take to preview it, click to make it play.${joins.data ? ` The join figures say how much the picture jumps at In and at Out (×1 = like the clip's own motion; past ×${SHOWS} the join shows); the smoothest is marked.` : joins.isFetching ? " Measuring the joins…" : ""}` : "Each render adds a take; the one you pick plays.";
   const durationInner = still || take ? <Duration clip={clip} take={take} room={room} rendered={Boolean(recipe)} onPatch={onPatch} /> : null;
   const lookInner = take?.measure && !still ? <LookTable timeline={timeline} index={index} take={take} onSelectClip={onSelectClip} /> : null;
-  const pinnedInner = recipe && !still && (pins.start || pins.end) ? <PinnedFrames stored={stored} pins={pins} frames={{ opens, ends, through, loops, carries }} midDefault={midSpec?.type === "number" ? midSpec.default : 2.5} onInputs={onInputs} onPick={setPicking} /> : null;
+  const pinnedInner = recipe && !still && (pins.start || pins.end) ? <PinnedFrames stored={stored} pins={pins} frames={{ opens, ends, through, loops, carries }} midDefault={midSpec?.type === "number" ? midSpec.default : 2.5} mirrors={pinMirrors(clip, recipe, stored, carries)} pictures={clip.pictures} onInputs={onInputs} onPick={setPicking} onMirror={(input, on) => onPatch({ pinMirror: { [input]: on } })} onOpen={onOpen} /> : null;
   const pinHelp = `${carries && pins.start ? `It extends clip ${index}, so it needs no first frame. ` : ""}Or drop an image on the clip: near its start for the first frame, near its end for the last frame${pins.mid ? ", in the middle for a keyframe" : ""}.${take ? " A pinned frame counts from the next take." : ""}`;
   const playing = take ? clip.takes.findIndex((t) => t.id === take.id) + 1 : 0;
   const takesLead = inForm && (takesInner || durationInner) ? {

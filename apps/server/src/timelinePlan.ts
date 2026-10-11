@@ -5,7 +5,7 @@ import { httpError, notFound } from "./errors";
 import type { Registry } from "./registry";
 import type { TimelineMedia } from "./timelineMedia";
 import type { TimelineTakes } from "./timelineTakes";
-import { FROM_PREVIOUS, landingOnGrid, plays, stillRef, type AssetRow, type ClipRow, type Placed, type TakeRow, type TimelineCore } from "./timelineModel";
+import { FROM_PREVIOUS, landingOnGrid, mirroredPins, plays, stillRef, type AssetRow, type ClipRow, type Placed, type TakeRow, type TimelineCore } from "./timelineModel";
 
 /**
  * What a clip is made from: a new clip's model and form (taken over from the clips before it), a scene planned as
@@ -19,6 +19,8 @@ export interface ClipPlan {
   /** What it was made from besides its own inputs, for the lineage. */
   sources: Array<{ asset: string; role: string }>;
   links: TakeLinks;
+  /** The pinned pictures flipped left to right as they are uploaded: those of the job's flips that are the user's own pins here (mirroredPins). */
+  mirror: string[];
 }
 export interface TakeLinks {
   prev?: { take: string; at: number };
@@ -170,14 +172,14 @@ export class TimelinePlan {
    * picture, to open on); a take made to fit is given the next clip's video and the moment it starts playing.
    * `quick`: for the forecast of a clip still waiting, nothing is measured or made (where the clip before stops
    * moving, its last frame as a picture) and a clip before with no take yet is no error: what it joins onto, as
-   * far as it is known now, without the work.
+   * far as it is known now, without the work. `flips`: the pinned pictures the job was sent to flip (its clip's Mirror).
    */
-  async plan(clipId: string, recipe: Recipe<any>, raw: Record<string, unknown>, fit: boolean, finishedFrom: string | null = null, quick = false): Promise<ClipPlan> {
+  async plan(clipId: string, recipe: Recipe<any>, raw: Record<string, unknown>, fit: boolean, finishedFrom: string | null = null, quick = false, flips: readonly string[] = []): Promise<ClipPlan> {
     const clip = await this.core.clipRow(clipId);
     const t = await this.core.row(clip.timeline_id);
     const all = await this.core.placed(clip.timeline_id);
     const i = all.findIndex((p) => p.clip.id === clipId);
-    const plan: ClipPlan = { input: ownInputs(recipe, raw), sources: [], links: {} };
+    const plan: ClipPlan = { input: ownInputs(recipe, raw), sources: [], links: {}, mirror: [] };
     if (t.width && t.height) plan.canvas = { width: t.width, height: t.height };
     if (clip.joined === "continue" && i > 0) await this.carryOn(plan, all[i - 1]!, recipe, raw, finishedFrom, quick);
     const startSpec = recipe.inputs.find((s) => s.type === "image" && s.role === "start");
@@ -195,6 +197,8 @@ export class TimelinePlan {
       plan.input[nextSpec.id] = { asset: after.active.asset.id, at };
       plan.links.next = { take: after.active.take.id, at };
     }
+    // a frame carried on from the clip before, or landed on in the clip after, is never flipped: the join would no longer meet
+    plan.mirror = mirroredPins(recipe, plan.input, flips, { carries: clip.joined === "continue" && i > 0, lands: Boolean(plan.links.next) });
     return plan;
   }
 

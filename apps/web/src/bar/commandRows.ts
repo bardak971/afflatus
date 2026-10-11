@@ -24,7 +24,7 @@ interface QueueNow {
 export interface CommandCtx {
   aim: TimelineAim | null;
   queue: QueueNow | null;
-  selectedClip: { number: number; timelineName: string } | null;
+  selectedClip: { number: number; timelineName: string; pins?: Array<{ where: string; on: boolean }> } | null;
   bannerUndo: string | null;
   editorUndo: string | null;
   binEmpty: boolean;
@@ -51,7 +51,7 @@ export function commandKeys(c: Command | { cmd: CommandId }): string | undefined
 }
 
 /** The commands offered only where they apply: a clip selected in the open editor, jobs waiting, failures, loads to save. */
-const LIVE: CommandId[] = ["split", "previous-take", "next-take", "cancel-waiting", "retry-failed", "dismiss-failed", "group-queue", "unload"];
+const LIVE: CommandId[] = ["split", "previous-take", "next-take", "mirror-pin", "cancel-waiting", "retry-failed", "dismiss-failed", "group-queue", "unload"];
 /** What is done to the whole queue, listed after its jobs in the `!` mode. */
 export const QUEUE_BULK: CommandId[] = ["cancel-waiting", "retry-failed", "dismiss-failed", "group-queue"];
 
@@ -64,6 +64,7 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
   const t = aim?.name ?? "the open timeline";
   const named = "name" in c ? c.name : "";
   const kitNew = (cmd: KitNew): [string, string] => [`New ${KIT_OF[cmd]} “${named}”`, "In the Prompt kit, opened there"];
+  const mirrorWords = c.cmd === "mirror-pin" && c.off ? "Mirror off" : "Mirror pinned frame";
   const words: Record<Command["cmd"], [string, string]> = {
     "render-clips": [`${said(c)} of ${t}`, c.cmd === "render-clips" ? `${c.clips.length} clip${c.clips.length > 1 ? "s" : ""} · they go to the end of the queue · Ctrl+Enter: to the top` : ""],
     "render-missing": [`Render missing clips of ${t}`, "Clips with no take yet, or whose join went stale · Ctrl+Enter: at the top of the queue"],
@@ -102,6 +103,10 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     split: [selectedClip ? `Split clip ${selectedClip.number} at playhead` : "Split clip at playhead", selectedClip ? selectedClip.timelineName : "No clip selected in an open timeline"],
     "previous-take": [selectedClip ? `Clip ${selectedClip.number}: previous take` : "Previous take", selectedClip ? selectedClip.timelineName : "No clip selected in an open timeline"],
     "next-take": [selectedClip ? `Clip ${selectedClip.number}: next take` : "Next take", selectedClip ? selectedClip.timelineName : "No clip selected in an open timeline"],
+    "mirror-pin": [
+      selectedClip ? `Clip ${selectedClip.number}: ${mirrorWords.toLowerCase()}` : mirrorWords,
+      !selectedClip ? "No clip selected in an open timeline" : selectedClip.pins?.length ? `${selectedClip.timelineName} · flipped at render time, the library picture unchanged` : "Nothing pinned on it",
+    ],
     "cancel-waiting": ["Cancel all waiting…", queueNow?.waiting ? `${queueNow.waiting} waiting · asked first · the running one goes on` : "Nothing waits"],
     "retry-failed": ["Retry all failed", queueNow?.failed ? `${plural(queueNow.failed, "failed job")} · the same jobs, oldest first` : "None failed"],
     "dismiss-failed": ["Dismiss all failed…", queueNow?.failed ? `${plural(queueNow.failed, "failed job")} · off the history, asked first` : "None failed"],
@@ -117,6 +122,7 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
 /** Whether a command offered only where it applies applies now. */
 const applies = (x: CommandCtx, id: CommandId): boolean =>
   id === "split" || id === "previous-take" || id === "next-take" ? Boolean(x.selectedClip)
+  : id === "mirror-pin" ? Boolean(x.selectedClip?.pins?.length)
   : id === "cancel-waiting" ? Boolean(x.queue?.waiting)
   : id === "retry-failed" || id === "dismiss-failed" ? Boolean(x.queue?.failed)
   : id === "group-queue" ? Boolean(x.queue?.saves)

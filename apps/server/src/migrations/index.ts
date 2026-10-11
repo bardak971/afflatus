@@ -52,6 +52,7 @@ import m0050 from "./0050-job-error-trace";
 import m0051 from "./0051-review-indexes";
 import m0052 from "./0052-library-search";
 import m0053 from "./0053-render-digests";
+import m0054 from "./0054-pin-mirror";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -112,4 +113,5 @@ export const migrations: Record<string, Migration> = {
   "0051_review_indexes": m0051,
   "0052_library_search": m0052,
   "0053_render_digests": m0053,
+  "0054_pin_mirror": m0054,
 };

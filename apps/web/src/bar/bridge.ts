@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { Look } from "../api/types/designer";
 import { useFormTarget, type FormTarget } from "../formTarget";
 import type { ClipCast } from "./castTo";
+import type { PinMirror } from "../timeline/model";
 
 /**
  * What the command bar asks of a screen that does the work itself: the timeline editor renders and exports
@@ -62,6 +63,9 @@ export interface SelectedClip extends ClipCast {
   /** Whether the clip has a cast of its own (else it follows the timeline's, which `look` then is). */
   own: boolean;
   setLook(look: Look): Promise<unknown>;
+  /** Its pinned frames and what their Mirror says (pinMirrors), and the editor's own switch of one (one step to undo). */
+  pins: PinMirror[];
+  mirror(input: string, on: boolean): Promise<unknown>;
 }
 export const useSelectedClip = create<{ clip: SelectedClip | null; set(clip: SelectedClip | null): void }>((set) => ({
   clip: null,

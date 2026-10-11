@@ -65,6 +65,8 @@ export interface Resume {
   /** A timeline clip: the takes it was joined onto, and what else it was made from. */
   links?: TakeLinks;
   sources?: Array<{ asset: string; role: string }>;
+  /** A timeline clip: the pinned pictures it flipped left to right as they were uploaded (its Mirror), kept with what it makes. */
+  mirror?: string[];
   /** For the record of render times: what it is filed under, whether its model had to load, and what was expected of it. */
   timing?: { model: string; modelFile: string; timeKey: string; cold: boolean; expectedMs: number | null; expect: { laterMs?: number; finishMs?: number }; work?: number };
   /** What was sent otherwise than asked (a latent join made on frames, a whole sound for its part): said on the job. */

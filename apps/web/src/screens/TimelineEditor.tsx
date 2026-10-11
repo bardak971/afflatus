@@ -18,7 +18,7 @@ import { clipMenuItems } from "../timeline/menus";
 import { FoldedColumn, OverviewColumn } from "../timeline/EditorColumns";
 import { RangeBar } from "../timeline/RangeBar";
 import { SoundMenus } from "../timeline/SoundMenus";
-import { clipActs, exportProps, finishProps, headerProps, inspectorProps, overviewProps, placeItemsOf, playerProps, soundMenusProps, trackProps, transportProps } from "../timeline/editorProps";
+import { clipActs, exportProps, pinMenuProps, finishProps, headerProps, inspectorProps, overviewProps, placeItemsOf, playerProps, soundMenusProps, trackProps, transportProps } from "../timeline/editorProps";
 import { useTimelineEditor } from "../timeline/useTimelineEditor";
 
 /**
@@ -44,6 +44,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
 
   const e = { ...editor, t, shown };
   const { clips, current, musicOpen, range, clipMenu, rangeMenu, exp } = e;
+  const pinMenu = pinMenuProps(e);
   return (
     <div className="flex min-w-0 grow flex-col">
       <TimelineHeader {...headerProps(e)} />
@@ -82,6 +83,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
       </div>
 
       {clipMenu.menu && <ContextMenu at={clipMenu.menu.at} label="Actions on this clip" head={e.clipHead(clipMenu.menu.subject)} items={clipMenuItems(clipMenu.menu.subject, clipActs(e))} onClose={clipMenu.close} />}
+      {pinMenu && <ContextMenu {...pinMenu} />}
       {rangeMenu.menu && range && <ContextMenu at={rangeMenu.menu.at} label="Actions on the range" head={{ title: "Range", sub: <span className="font-mono">{mmss(range.inMs, { decimals: 1 })} – {mmss(range.outMs, { decimals: 1 })}</span> }} items={e.rangeItems()} onClose={rangeMenu.close} />}
       <SoundMenus {...soundMenusProps(e)} />
 

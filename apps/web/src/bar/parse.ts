@@ -37,6 +37,7 @@ export type Command =
   | { cmd: "split" }
   | { cmd: "previous-take" }
   | { cmd: "next-take" }
+  | { cmd: "mirror-pin"; off?: boolean }
   | { cmd: "cancel-waiting" }
   | { cmd: "retry-failed" }
   | { cmd: "dismiss-failed" }
@@ -105,6 +106,7 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "split", name: "Split clip at playhead", typed: "split", example: "split", what: "The clip selected in the open timeline, as its key in the editor" },
   { id: "previous-take", name: "Previous take", typed: "previous take", example: "prev take", what: "The selected clip plays its take before, as its key in the editor" },
   { id: "next-take", name: "Next take", typed: "next take", example: "next take", what: "The selected clip plays its take after, as its key in the editor" },
+  { id: "mirror-pin", name: "Mirror pinned frame", typed: "mirror pin", example: "mirror pin", what: "A pinned frame of the selected clip flipped at render time (or back: mirror pin off), as its right-click menu" },
   { id: "cancel-waiting", name: "Cancel all waiting…", typed: "cancel waiting", example: "cancel waiting", what: "Every waiting job, asked first; the running one goes on" },
   { id: "retry-failed", name: "Retry all failed", typed: "retry failed", example: "retry failed", what: "The failed jobs the queue lists, queued again oldest first" },
   { id: "dismiss-failed", name: "Dismiss all failed…", typed: "dismiss failed", example: "dismiss failed", what: "The failed jobs the queue lists, off the history, asked first" },
@@ -186,6 +188,8 @@ export function parseCommand(input: string): Command | null {
   if (/^undo$/.test(low)) return { cmd: "undo" };
   if (/^(?:prev|previous) take$/.test(low)) return { cmd: "previous-take" };
   if (/^next take$/.test(low)) return { cmd: "next-take" };
+  if ((m = /^(?:mirror|flip) (?:the )?(?:pin(?:ned)?|frame|pinned frame)s?(?: (on|off))?$/.exec(low))) return { cmd: "mirror-pin", off: m[1] === "off" };
+  if (/^(?:unmirror|unflip) (?:the )?(?:pin(?:ned)?|frame|pinned frame)s?$/.test(low)) return { cmd: "mirror-pin", off: true };
   if (/^cancel (?:all )?(?:the )?waiting(?: jobs)?$/.test(low)) return { cmd: "cancel-waiting" };
   if (/^retry (?:all )?(?:the )?failed(?: jobs)?$/.test(low)) return { cmd: "retry-failed" };
   if (/^dismiss (?:all )?(?:the )?failed(?: jobs)?$/.test(low)) return { cmd: "dismiss-failed" };

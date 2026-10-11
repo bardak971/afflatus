@@ -184,6 +184,8 @@ export interface Tables {
     timeline_id: string | null;
     /** For a clip: whether the take should end where the next clip begins (0 / 1). */
     clip_fit: number;
+    /** For a clip: the pinned pictures it flips left to right as it uploads them (JSON, a list of input ids); null = none. */
+    clip_mirror?: string | null;
     /** A finish job: the take whose finished version its result is. */
     finished_from: string | null;
     /** What went less well than asked in a job that still finished (its take not placed, a latent join made on frames); null when nothing did. */
@@ -270,6 +272,8 @@ export interface Tables {
     designer?: string | null;
     /** What it asks of the music under it (JSON, @afflatus/core's ClipMusic); null = as the rest of the video. */
     music?: string | null;
+    /** Its pinned pictures flipped left to right at render time (JSON, input id → true), the library's picture left as it is; null = none. */
+    pin_mirror?: string | null;
     created_at: string;
     updated_at: string;
   };

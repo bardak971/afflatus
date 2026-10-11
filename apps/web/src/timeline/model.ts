@@ -110,6 +110,43 @@ export function pinInputs(recipe: RecipeInfo | undefined) {
   return { start: find("start")?.id, end: find("end")?.id, mid: mid?.type === "image" && mid.at ? mid.id : undefined, midAt: mid?.type === "image" ? mid.at : undefined };
 }
 
+/** Where a picture is pinned on a clip: its first frame, its last frame, its keyframe. */
+export type PinWhere = "start" | "end" | "mid";
+
+/** A pinned frame's words: "first frame", "last frame", "keyframe". */
+export const PIN_WORDS: Record<PinWhere, string> = { start: "first frame", end: "last frame", mid: "keyframe" };
+
+/** What a clip's pinned frame's Mirror says, its menus and the command bar alike. */
+export interface PinMirror {
+  where: PinWhere;
+  /** The recipe input that holds the picture. */
+  input: string;
+  /** The picture pinned there. */
+  asset: string;
+  /** It is flipped left to right at render time. */
+  on: boolean;
+  /** Why it cannot be flipped (the item is off, this its note); null when it can. */
+  why: string | null;
+}
+
+/**
+ * Mirror on the picture pinned at `where` of a clip: null when nothing is pinned there. `inputs`: its form as it stands
+ * (the Inspector's, written or not yet). A first frame carried on from the clip before is that clip's: flipped, the join
+ * would no longer meet, so it cannot be (the server passes the flip over there too). A last frame the user pinned always
+ * wins over a landing on the clip after, so it is always the user's own.
+ */
+export function pinMirrorOf(clip: Pick<Clip, "pinMirror" | "joined">, recipe: RecipeInfo | undefined, inputs: Record<string, unknown>, where: PinWhere, carries: boolean): PinMirror | null {
+  const input = pinInputs(recipe)[where];
+  const asset = input ? inputs[input] : undefined;
+  if (!input || typeof asset !== "string" || !asset) return null;
+  const why = where === "start" && carries ? "carried on from the clip before: the join would no longer meet" : null;
+  return { where, input, asset, on: !why && (clip.pinMirror ?? []).includes(input), why };
+}
+
+/** The pinned frames of a clip, with what their Mirror says, in the order they play. */
+export const pinMirrors = (clip: Pick<Clip, "pinMirror" | "joined">, recipe: RecipeInfo | undefined, inputs: Record<string, unknown>, carries: boolean): PinMirror[] =>
+  (["start", "mid", "end"] as const).flatMap((w) => pinMirrorOf(clip, recipe, inputs, w, carries) ?? []);
+
 /** How much of a take can play at most: its video on the model's grid, without the parts it shares with its neighbours (the server's roomMs). */
 export const roomOf = (take: Take) => take.roomMs;
 

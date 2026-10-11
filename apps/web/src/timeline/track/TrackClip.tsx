@@ -7,7 +7,8 @@ import { LivePreview } from "../../LivePreview";
 import { Bar, cx } from "../../ui";
 import { useQueueOf } from "../../screens/studio/queueOf";
 import { useRunningOf } from "../useRunning";
-import { DRAG_CLIP, fileVersion, PAD, pinInputs, playAt, titleOf, type Slot } from "../model";
+import { DRAG_CLIP, fileVersion, PAD, pinInputs, pinMirrors, playAt, titleOf, type PinWhere, type Slot } from "../model";
+import { flipped, MirrorMark } from "../MirrorMark";
 import type { TimeRange } from "../Track";
 import { HINTS, type PinPlace } from "./peek";
 import { ROW, SOUND } from "./rows";
@@ -42,6 +43,8 @@ export interface TrackClipActs {
   onSeek(playMs: number, trackMs?: number): void;
   onMenu?(clip: Clip, e: React.MouseEvent): void;
   onSoundMenu?(clip: Clip, e: React.MouseEvent): void;
+  /** A right-click on one of its pinned pictures: that frame's menu (Mirror, Open, Remove). */
+  onPinMenu?(clip: Clip, where: PinWhere, e: React.MouseEvent): void;
   onStop(job: string): void;
   onJoin?(clip: Clip, joined: "continue" | "cut"): void;
   /** Render a clip that has nothing to play yet. */
@@ -105,6 +108,17 @@ export const TrackClip = memo(function TrackClip({ s, prev, recipe, misfit, on, 
   }
   const pinned = over?.kind === "pin" && over.clip === c.id ? over.where : null;
   const through = pins.mid && pins.midAt && typeof c.inputs[pins.mid] === "string" ? { asset: c.inputs[pins.mid] as string, part: Math.max(0.15, Math.min(0.85, (Number(c.inputs[pins.midAt] ?? 2.5) * 1000) / Math.max(1, s.lengthMs))) } : null;
+  // which of its pinned pictures are mirrored at render time: shown flipped, a ↔ on their corner
+  const mirrored = new Set(pinMirrors(c, recipe, c.inputs, carries).filter((m) => m.on).map((m) => m.where));
+  const pinMenu = (where: PinWhere) => (e: React.MouseEvent) => {
+    const { onPinMenu, onSelect } = a();
+    if (!onPinMenu) return;
+    // the frame's menu, not the clip's under it
+    e.stopPropagation();
+    e.preventDefault();
+    onSelect(c.id);
+    onPinMenu(c, where, e);
+  };
   const heard = c.kind === "still" || s.planned ? (c.sound === "file" ? c.soundAsset?.name || "Audio file" : "") : c.sound === "file" ? c.soundAsset?.name || "Audio file" : c.sound === "muted" ? "Muted" : video?.hasSound ? "Own audio" : "Silent";
   return (
     <div key={c.id}>
@@ -236,9 +250,13 @@ export const TrackClip = memo(function TrackClip({ s, prev, recipe, misfit, on, 
           )}
         </span>
         {/* pictures pinned to its start, its end and its middle: resting on one shows it large (PinPeek) */}
-        {opens && <img src={thumbUrl(opens)} alt="" data-pin draggable={false} onPointerEnter={(e) => a().restPin(c.id, "start", e.currentTarget)} onPointerLeave={() => a().restPin(c.id, null)} className={pinLook(pinOn === "start", "left-3.5")} />}
-        {ends && <img src={thumbUrl(ends)} alt="" data-pin draggable={false} onPointerEnter={(e) => a().restPin(c.id, "end", e.currentTarget)} onPointerLeave={() => a().restPin(c.id, null)} className={pinLook(pinOn === "end", "right-3.5")} />}
-        {through && <img src={thumbUrl(through.asset)} alt="" data-pin draggable={false} onPointerEnter={(e) => a().restPin(c.id, "mid", e.currentTarget)} onPointerLeave={() => a().restPin(c.id, null)} className={pinLook(pinOn === "mid", "-translate-x-1/2")} style={{ left: `${through.part * 100}%` }} />}
+        {opens && <img src={thumbUrl(opens)} alt="" data-pin draggable={false} onPointerEnter={(e) => a().restPin(c.id, "start", e.currentTarget)} onPointerLeave={() => a().restPin(c.id, null)} onContextMenu={pinMenu("start")} className={cx(pinLook(pinOn === "start", "left-3.5"), flipped(mirrored.has("start")))} />}
+        {ends && <img src={thumbUrl(ends)} alt="" data-pin draggable={false} onPointerEnter={(e) => a().restPin(c.id, "end", e.currentTarget)} onPointerLeave={() => a().restPin(c.id, null)} onContextMenu={pinMenu("end")} className={cx(pinLook(pinOn === "end", "right-3.5"), flipped(mirrored.has("end")))} />}
+        {through && <img src={thumbUrl(through.asset)} alt="" data-pin draggable={false} onPointerEnter={(e) => a().restPin(c.id, "mid", e.currentTarget)} onPointerLeave={() => a().restPin(c.id, null)} onContextMenu={pinMenu("mid")} className={cx(pinLook(pinOn === "mid", "-translate-x-1/2"), flipped(mirrored.has("mid")))} style={{ left: `${through.part * 100}%` }} />}
+        {/* a mirrored frame's ↔, on its top right corner (the frames are 28 px, 14 px in from the clip's edge, 24 px down) */}
+        {opens && mirrored.has("start") && <MirrorMark className="top-[18px] left-9" onMenu={pinMenu("start")} />}
+        {ends && mirrored.has("end") && <MirrorMark className="top-[18px] right-2" onMenu={pinMenu("end")} />}
+        {through && mirrored.has("mid") && <MirrorMark className="top-[18px]" style={{ left: `calc(${through.part * 100}% + 8px)` }} onMenu={pinMenu("mid")} />}
         {pinned && <span aria-hidden className={cx("absolute inset-y-0 w-2 bg-accent", pinned === "start" ? "left-0" : pinned === "end" ? "right-0" : "left-1/2 -translate-x-1/2")} />}
       </div>
 

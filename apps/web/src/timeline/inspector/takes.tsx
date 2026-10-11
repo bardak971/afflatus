@@ -1,21 +1,24 @@
 import { useState, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { ImagePlus, Scissors, X } from "lucide-react";
-import { api, thumbUrl, type Clip, type Take } from "../../api";
+import { api, thumbUrl, type Asset, type Clip, type Take } from "../../api";
 import { Button, cx, NumberBox } from "../../ui";
 import { FieldRow } from "../../fields";
 import { RangeSlider } from "../../RangeSlider";
 import { DRAG_PICTURE, useDropZone } from "../../dragging";
 import { projectForNew } from "../../project";
-import { pinInputs, takeTrouble, type ShownPatch } from "../model";
+import { ContextMenu, useMenu } from "../../ContextMenu";
+import { PIN_WORDS, pinInputs, takeTrouble, type PinMirror, type PinWhere, type ShownPatch } from "../model";
+import { pinMenuItems } from "../menus";
+import { flipped, MirrorMark } from "../MirrorMark";
 import { SHOWS } from "../attention";
 
 /** A place a picture can be dropped on to become a pinned frame: one from the library, or a file from the computer, which goes into the library first. */
-function PinDrop({ className, onPick, children }: { className?: string; onPick(id: string): void; children: ReactNode }) {
+function PinDrop({ className, onPick, onMenu, children }: { className?: string; onPick(id: string): void; onMenu?(e: React.MouseEvent): void; children: ReactNode }) {
   const upload = useMutation({ mutationFn: (file: File) => api.upload(file, { project: projectForNew() }), onSuccess: (a) => onPick(a.id) });
   const drop = useDropZone([DRAG_PICTURE], onPick, (file) => file.type.startsWith("image/") && upload.mutate(file));
   return (
-    <div {...drop.props} className={cx(className, drop.zone, drop.wanted && "ring-1 ring-accent/50")} data-tip={drop.wanted ? "Drop the picture here" : undefined}>
+    <div {...drop.props} onContextMenu={onMenu} className={cx(className, drop.zone, drop.wanted && "ring-1 ring-accent/50")} data-tip={drop.wanted ? "Drop the picture here" : undefined}>
       {children}
       {upload.isPending && <span className="ml-1 text-xs text-ink-2">Adding…</span>}
     </div>
@@ -145,25 +148,51 @@ export function Duration({ clip, take, room, rendered, onPatch }: { clip: Clip; 
   );
 }
 
-/** The pictures pinned on a clip's form: its first and last frame and a keyframe, each changed, dropped on or removed. */
-export function PinnedFrames({ stored, pins, frames, midDefault, onInputs, onPick }: {
+/**
+ * The pictures pinned on a clip's form: its first and last frame and a keyframe, each changed, dropped on or removed. A
+ * right-click on one opens its menu: Mirror (flipped left to right at render time), and what its buttons do.
+ */
+export function PinnedFrames({ stored, pins, frames, midDefault, mirrors, pictures, onInputs, onPick, onMirror, onOpen }: {
   stored: Record<string, unknown>;
   pins: ReturnType<typeof pinInputs>;
   /** The pictures pinned now (its opening one only when it does not carry on from the clip before), whether it loops, whether it carries on. */
   frames: { opens: string | null; ends: string | null; through: string | null; loops: boolean; carries: boolean };
   midDefault: number;
+  /** What each pinned frame's Mirror says (pinMirrors). */
+  mirrors: PinMirror[];
+  /** The pinned pictures as the server has them, for Open. */
+  pictures: Clip["pictures"];
   onInputs(next: Record<string, unknown>): void;
-  onPick(where: "start" | "end" | "mid"): void;
+  onPick(where: PinWhere): void;
+  onMirror(input: string, on: boolean): void;
+  /** The viewer, on a picture. */
+  onOpen?(asset: Asset): void;
 }) {
   const { opens, ends, through, loops, carries } = frames;
   const without = (id: string | undefined) => Object.fromEntries(Object.entries(stored).filter(([k]) => k !== id));
   const setPicking = onPick;
+  const menu = useMenu<PinMirror>();
+  const mirrorOf = (where: PinWhere) => mirrors.find((m) => m.where === where);
+  /** The row's right-click: its frame's menu (none for a frame with nothing pinned). */
+  const menuOn = (where: PinWhere) => (e: React.MouseEvent) => {
+    const m = mirrorOf(where);
+    if (m) menu.open(e, m);
+  };
+  const subject = menu.menu?.subject;
+  const opened = subject ? pictures.find((p) => p.asset.id === subject.asset)?.asset : undefined;
+  /** A pinned frame's thumbnail: flipped while mirrored, its ↔ mark on the corner. */
+  const thumb = (where: PinWhere, id: string) => (
+    <span className="relative shrink-0">
+      <img src={thumbUrl(id)} alt="" className={cx("h-11 w-11 rounded-[3px] object-cover", flipped(mirrorOf(where)?.on))} />
+      {mirrorOf(where)?.on && <MirrorMark className="-top-1 -right-1" onMenu={menuOn(where)} />}
+    </span>
+  );
   return (
     <div className="flex flex-col gap-2">
             {[{ where: "start" as const, id: opens, input: pins.start, text: "First frame" }, { where: "end" as const, id: ends, input: pins.end, text: loops ? "Last frame, same as the first: it loops" : "Last frame" }].map((p) =>
               p.id ? (
-                <PinDrop key={p.where} className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5" onPick={(id) => onInputs({ ...stored, [p.input!]: id })}>
-                  <img src={thumbUrl(p.id)} alt="" className="h-11 w-11 rounded-[3px] object-cover" />
+                <PinDrop key={p.where} className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5" onPick={(id) => onInputs({ ...stored, [p.input!]: id })} onMenu={menuOn(p.where)}>
+                  {thumb(p.where, p.id)}
                   <span className="grow">{p.text}</span>
                   <Button size="sm" onClick={() => setPicking(p.where)}>Change</Button>
                   <button type="button" aria-label="Remove this pinned frame" onClick={() => onInputs(without(p.input))} className="flex h-7 w-7 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
@@ -171,8 +200,8 @@ export function PinnedFrames({ stored, pins, frames, midDefault, onInputs, onPic
               ) : null,
             )}
             {through && pins.mid && pins.midAt && (
-              <PinDrop className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5" onPick={(id) => onInputs({ ...stored, [pins.mid!]: id })}>
-                <img src={thumbUrl(through)} alt="" className="h-11 w-11 rounded-[3px] object-cover" />
+              <PinDrop className="flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5" onPick={(id) => onInputs({ ...stored, [pins.mid!]: id })} onMenu={menuOn("mid")}>
+                {thumb("mid", through)}
                 <span className="grow">Keyframe at</span>
                 <NumberBox label="When the clip reaches this keyframe, in seconds" value={Number(stored[pins.midAt] ?? midDefault)} min={0.5} max={14.5} step={0.5} unit="s" onCommit={(v) => onInputs({ ...stored, [pins.midAt!]: v })} />
                 <button type="button" aria-label="Remove this pinned frame" onClick={() => onInputs(without(pins.mid))} className="flex h-7 w-7 items-center justify-center rounded-md text-ink-2 hover:bg-hover"><X size={14} /></button>
@@ -184,6 +213,20 @@ export function PinnedFrames({ stored, pins, frames, midDefault, onInputs, onPic
               {pins.mid && !through && <PinDrop className="rounded-lg" onPick={(id) => onInputs({ ...stored, [pins.mid!]: id })}><Button size="sm" onClick={() => setPicking("mid")}><ImagePlus size={13} /> Keyframe</Button></PinDrop>}
               {pins.end && !ends && <PinDrop className="rounded-lg" onPick={(id) => onInputs({ ...stored, [pins.end!]: id })}><Button size="sm" onClick={() => setPicking("end")}><ImagePlus size={13} /> Last frame</Button></PinDrop>}
             </div>
+      {menu.menu && subject && (
+        <ContextMenu
+          at={menu.menu.at}
+          label={`Actions on the ${PIN_WORDS[subject.where]}`}
+          head={{ title: PIN_WORDS[subject.where].replace(/^./, (c) => c.toUpperCase()), sub: subject.on ? "mirrored at render time" : "pinned", thumb: subject.asset }}
+          items={pinMenuItems(subject, {
+            mirror: (on) => onMirror(subject.input, on),
+            open: opened && onOpen ? () => onOpen(opened) : undefined,
+            change: () => setPicking(subject.where),
+            remove: () => onInputs(without(subject.input)),
+          })}
+          onClose={menu.close}
+        />
+      )}
     </div>
   );
 }

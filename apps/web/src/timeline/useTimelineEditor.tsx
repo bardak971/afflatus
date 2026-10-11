@@ -12,7 +12,7 @@ import { useNewClock } from "./clock";
 import { rememberAspect } from "./EditorSkeleton";
 import type { ExportAsk } from "./ExportDialog";
 import type { Checks } from "./EditorColumns";
-import { layout, moveAfter, otherShape, ZOOM } from "./model";
+import { layout, moveAfter, otherShape, pinMirrors, ZOOM, type PinWhere } from "./model";
 import type { PlayerHandle } from "./Player";
 import { useClipEdits } from "./useClipEdits";
 import { useClipSteps } from "./useClipSteps";
@@ -139,6 +139,8 @@ export function useTimelineEditor(id: string) {
   const clipMenu = useMenu<Clip>();
   /** Right-click on a clip's audio strip and on the music strip: what the clip panel's sound section and the music panel do, in place. */
   const soundMenu = useMenu<Clip>();
+  /** A pinned frame's menu, opened on the track: the clip and which of its frames. */
+  const pinMenu = useMenu<{ clip: Clip; where: PinWhere }>();
   const musicMenu = useMenu<true>();
   /** Where the playhead stands on a clip, when it stands on this one. */
   const onClip = (c: Clip) => {
@@ -169,8 +171,8 @@ export function useTimelineEditor(id: string) {
     if (to !== undefined) patch.mutate({ clip, patch: { after: to } });
   }, [patch]);
 
-  /** What is left to render: clips without a take, and clips whose join went stale. */
-  const missing = clips.filter((c) => c.kind === "video" && !c.job && (!c.take || c.join === "stale") && ready(c).input);
+  /** What is left to render: clips without a take, clips whose join went stale, and clips whose take was made with other flips than Mirror asks now. */
+  const missing = clips.filter((c) => c.kind === "video" && !c.job && (!c.take || c.join === "stale" || c.mirrorChanged) && ready(c).input);
   const renderable = (c: Clip) => picked.has(c.id) && c.kind === "video" && Boolean(ready(c).input);
 
   /** About how long a clip takes to render: the server's forecast of its whole form, learned from past renders (as the timeline card's). */
@@ -186,16 +188,19 @@ export function useTimelineEditor(id: string) {
   };
 
   // the selected clip, for the command bar's `@name`: who is in it and the Inspector's own change of its cast
-  const setLook = patch.mutateAsync;
+  const patchNow = patch.mutateAsync;
   const castRecipe = current?.recipe ? recipes.data?.recipes.find((r) => r.id === current.recipe) ?? null : null;
   const castNumber = current ? clips.indexOf(current) + 1 : 0;
   useEffect(() => {
     if (!current || !t) return void useSelectedClip.getState().set(null);
     useSelectedClip.getState().set({
       timeline: id, timelineName: t.name, id: current.id, number: castNumber, kind: current.kind, recipe: castRecipe,
-      look: current.look ?? t.look, own: current.look !== null, setLook: (look) => setLook({ clip: current.id, patch: { look } }),
+      look: current.look ?? t.look, own: current.look !== null, setLook: (look) => patchNow({ clip: current.id, patch: { look } }),
+      // its pinned frames' Mirror, for the bar's `> mirror pin`: its form as it stands, the Inspector's edits not yet saved included
+      pins: pinMirrors(current, castRecipe ?? undefined, inputsOf(current), castNumber > 1 && current.joined === "continue" && current.kind === "video"),
+      mirror: (input, on) => patchNow({ clip: current.id, patch: { pinMirror: { [input]: on } } }),
     });
-  }, [current, t, id, castNumber, castRecipe, setLook]);
+  }, [current, t, id, castNumber, castRecipe, patchNow, inputsOf]);
   useEffect(() => () => useSelectedClip.getState().set(null), []);
 
   const { volume, muted, onVolume, onMute, cursor, setCursor, onTime, frameMs } = usePlayhead({ clock, clips, player, rangeRef, loopRef, playingRange, setPlaying });
@@ -275,7 +280,7 @@ export function useTimelineEditor(id: string) {
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, inputsOf, editInputs, formOf, ready, sayOf, say, m, range, setRange, loopRange, snapQuiet,
-    toggleSnapQuiet, emptyRange, toggle, toggleLoop, rangeAct, rangeItems, clipMenu, soundMenu, musicMenu, rangeMenu, onClip,
+    toggleSnapQuiet, emptyRange, toggle, toggleLoop, rangeAct, rangeItems, clipMenu, soundMenu, pinMenu, musicMenu, rangeMenu, onClip,
     newClip, move, missing, renderable, takes, allMs, checks, volume, muted, onVolume, onMute, cursor, setCursor, onTime,
     trackKeys, jump, splitAt, stepTake, continueFrom, continueHere, misfits, finishedSize, fixFirst, exportNow, clipHead,
     after, render, patch, fix, edit, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan,

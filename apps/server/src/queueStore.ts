@@ -72,7 +72,7 @@ export async function store(
   const generationId = newId();
   const at = now();
   // with the cast it was sent with: what is made from it later (a video of this picture) can take it over
-  const resolved: Record<string, unknown> = { seed: resume.seed, loads: resume.loads, ...(resume.overlap ? { overlap: resume.overlap } : {}), ...(row.look ? { look: JSON.parse(row.look) } : {}) };
+  const resolved: Record<string, unknown> = { seed: resume.seed, loads: resume.loads, ...(resume.overlap ? { overlap: resume.overlap } : {}), ...(resume.mirror?.length ? { mirror: resume.mirror } : {}), ...(row.look ? { look: JSON.parse(row.look) } : {}) };
   // the folder that was open when it was sent, when it is still there. Being in a folder does not keep a result:
   // it still goes to the bin after a day unless it is kept
   const folder = row.folder_id ? (await db.selectFrom("folders").select("id").where("id", "=", row.folder_id).executeTakeFirst())?.id ?? null : null;

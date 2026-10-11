@@ -73,6 +73,10 @@ export interface Clip {
   designer: DesignerSession | null;
   /** What it asks of the music under it; null = as the rest of the video. */
   music: ClipMusic | null;
+  /** Its pinned pictures flipped left to right at render time (Mirror), by input id; the library's pictures stay as they are. */
+  pinMirror: string[];
+  /** The take that plays was rendered with other flips than Mirror asks now: to render again. */
+  mirrorChanged: boolean;
   /** How it starts: carrying on from the clip before, or on its own. */
   joined: "continue" | "cut";
   /** Whether it still follows the clip before: null when there is nothing to compare yet. */
@@ -159,6 +163,8 @@ export interface ClipPatch {
   chat?: unknown[];
   designer?: DesignerSession | null;
   music?: ClipMusic | null;
+  /** Mirror on a pinned picture, by input id: true flips it at render time, false turns it back. */
+  pinMirror?: Record<string, boolean>;
 }
 export interface TimelinePatch {
   name?: string;
