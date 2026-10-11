@@ -8,7 +8,10 @@ import { api, type Entity } from "../../api";
 import { Select } from "../../Select";
 import { AutoText, Button, Checkbox, cx, Empty, ErrorNote, fieldClass, Segmented, TwoStep } from "../../ui";
 import { remember, remembered, textOf } from "./shared";
+import { useSayFailed } from "../../sayFailed";
 import { copyText } from "../../secureContext";
+import { useBanners } from "../../store";
+import { kitHref } from "./link";
 import { queryKeys } from "../../queryKeys";
 
 export type Snippet = Extract<Entity, { kind: "snippet" }>;
@@ -54,9 +57,12 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
   const leaveOnEnter = (e: KeyboardEvent<HTMLInputElement>) => e.key === "Enter" && e.currentTarget.blur();
   // right-click on the row (not in its fields, which keep the browser's own menu for the text)
   const menu = useMenu<true>();
+  const say = useBanners((b) => b.push);
+  const failed = useSayFailed({ id: "kit", href: kitHref("snippet"), go: "Open the snippets" });
   const items: MenuItem[] = [
     { label: ticked ? "Untick" : "Tick", icon: <CheckSquare size={14} />, note: "to move or delete several", run: () => onTick(!ticked) },
-    { label: "Copy its text", icon: <Copy size={14} />, run: () => void copyText(text).catch(() => {}) },
+    // said in a banner, as the seed is: a menu item shows nothing once it closes
+    { label: "Copy its text", icon: <Copy size={14} />, run: () => void copyText(text).then(() => say({ id: `copied:${Date.now()}`, tone: "good", title: `Text of ${snippet.name} copied` }), failed("Could not copy the snippet")) },
     "—",
     { label: "Delete", icon: <Trash2 size={14} />, danger: true, run: () => void ask({ title: `Delete the snippet ${snippet.name}?`, text: "It goes from every draft that uses it.", yes: "Delete" }).then((yes) => yes && remove.mutate()) },
   ];

@@ -6,7 +6,7 @@ import { z } from "zod";
 import { envSaid } from "./config";
 import { httpError } from "./errors";
 import { fileName } from "./media";
-import type { PresetFile, ShippedPreset } from "@afflatus/core";
+import { shippedSchema, type PresetFile, type ShippedPreset } from "@afflatus/core";
 import { OWNER } from "./db";
 import type { DownloadView } from "./downloads";
 import { beginDownload } from "./fetchFile";
@@ -20,36 +20,6 @@ import { readSettings, updateSettings } from "./settings";
  * files, `GET /api/presets/files` says which ComfyUI has, and `POST /api/presets/:id/get` fetches the
  * missing ones through the download path — only under a licence the user accepted.
  */
-
-/** An address shown as a link or fetched: http or https only (a javascript: or file: address is refused). */
-const webUrl = z.string().url().max(2000).refine((u) => /^https?:\/\//i.test(u), "only http and https addresses");
-export const presetFileSchema = z.strictObject({
-  file: z.string().min(1).max(400),
-  folder: z.string().min(1).max(120),
-  url: webUrl.optional(),
-  civitai: z.strictObject({ version: z.number().int().positive(), pick: z.string().max(400).optional(), page: webUrl.optional() }).optional(),
-  page: webUrl.optional(),
-  size: z.number().int().nonnegative().optional(),
-  note: z.string().max(400).optional(),
-  optional: z.boolean().optional(),
-});
-export const provenanceSchema = {
-  author: z.string().max(80).optional(),
-  /** What it is picked by, in a few words ("Hybrid v3 · smaller file"): the list's dim line, after the author. */
-  line: z.string().max(80).optional(),
-  note: z.string().max(1000).optional(),
-  homepage: webUrl.optional(),
-  links: z.array(z.strictObject({ label: z.string().trim().min(1).max(40), url: webUrl })).max(6).optional(),
-  licence: z.strictObject({ name: z.string().min(1).max(120), url: webUrl.optional(), note: z.string().max(600).optional() }).optional(),
-};
-const shippedSchema = z.strictObject({
-  id: z.string().regex(/^[a-z0-9][a-z0-9-]{1,60}$/, "an id is lower-case letters, digits and dashes"),
-  name: z.string().trim().min(1).max(120),
-  ...provenanceSchema,
-  recipe: z.string().min(1).max(120),
-  inputs: z.record(z.string(), z.unknown()),
-  files: z.array(presetFileSchema).max(40),
-});
 
 /** The id a shipped preset is listed under among the entities. */
 export const SHIPPED = "shipped:";

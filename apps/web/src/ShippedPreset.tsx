@@ -6,7 +6,9 @@ import { fileLabel, gb, recipeLabel } from "./format";
 import { PresetFiles, usePresetFetch } from "./PresetFiles";
 import { savePresetFile } from "./presetFile";
 import { kitHref } from "./screens/kit/link";
+import { useSayFailed } from "./sayFailed";
 import { copyText } from "./secureContext";
+import { useBanners } from "./store";
 import { Button, cx, Help } from "./ui";
 
 /** Inputs a cell says together, under one label: the sampler and its scheduler, the two shifts of a video with sound. */
@@ -90,8 +92,11 @@ export function ShippedPreset({ e, onApply, onDuplicate, duplicating, onClose }:
   const defaults = cellsOf(leftToModel);
 
   const link = `${window.location.origin}${kitHref("preset", e.id)}`;
+  const say = useBanners((b) => b.push);
+  const failed = useSayFailed({ id: "kit", href: kitHref("preset", e.id), go: "Open the preset" });
   const moreItems: MenuItem[] = [
-    { label: "Copy link", icon: <Link2 size={14} />, run: () => void copyText(link).catch(() => {}) },
+    // said in a banner, as the seed is: a menu item shows nothing once it closes
+    { label: "Copy link", icon: <Link2 size={14} />, run: () => void copyText(link).then(() => say({ id: `copied:${Date.now()}`, tone: "good", title: "Link copied" }), failed("Could not copy the link")) },
     { label: "Save as a file", icon: <FileDown size={14} />, note: "a file another Afflatus imports", run: () => savePresetFile(e) },
   ];
   const several = (def.files?.filter((f) => !f.optional).length ?? 0) > 1;

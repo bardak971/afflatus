@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 /** Where an autosave stands: all sent, a change waiting or on its way, or the last send failed (the change is kept). */
 export type SaveState = "saved" | "saving" | "failed";
@@ -17,96 +17,178 @@ export function inTurn(): <T>(job: () => Promise<T>) => Promise<T> {
   };
 }
 
+/** The most a request that outlives the page may carry: the browser refuses a `keepalive` body past 64 KiB (sendBeacon too). */
+export const KEEPALIVE_MAX = 60 * 1024;
+
+/** How the things an autosave keeps are saved, each under its key (a clip's id; one key for a draft). */
+export type AutosaveOpts<T> = {
+  /** Send it; a throw keeps it pending, its message said as the failure. */
+  save(key: string, item: T): Promise<void>;
+  /** As the page closes: send it by a request that outlives the page (`raw` with `keepalive`), if it can go that way. */
+  keepalive(key: string, item: T): void;
+  /** Whether all of it can go as the page closes; when not, the browser asks first, and the ordinary save is started. Left out: always. */
+  goesWhole?(key: string, item: T): boolean;
+  delayMs?: number;
+};
+
 /**
- * Something edited on screen and saved to the server on its own (a draft, a Prompt kit item): saved `delayMs` after the
- * last change, and at once on `flush` (another one is opened), when the screen is left, or as the tab closes, by a
+ * The saving itself, apart from React (so that it can be tested on its own): what waits to be saved under each key, a
+ * timer per key, and one turn for every save, so that two saves of one thing never cross. `opts` is read at each use
+ * (the hook passes its latest); `said` hears where the whole stands after each change.
+ */
+export function autosaver<T>(opts: () => AutosaveOpts<T>, said: (state: SaveState, failure: string | null) => void = () => {}) {
+  const pending = new Map<string, T>();
+  const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  // why the last save of each key failed: the whole stands failed while one of them has
+  const failures = new Map<string, string>();
+  const turn = inTurn();
+  let state: SaveState = "saved";
+  const set = (next: SaveState, failure: string | null) => {
+    state = next;
+    said(next, failure);
+  };
+  const stop = (key?: string) => {
+    for (const k of key === undefined ? [...timers.keys()] : [key]) {
+      clearTimeout(timers.get(k));
+      timers.delete(k);
+    }
+  };
+  const send = async (key: string) => {
+    const item = pending.get(key);
+    if (item === undefined) return;
+    try {
+      await opts().save(key, item);
+      failures.delete(key);
+      // what was sent is saved; a change made meanwhile is still waiting
+      if (pending.get(key) === item) pending.delete(key);
+      const left = [...failures.values()];
+      if (left.length) set("failed", left[left.length - 1]!);
+      else if (!pending.size) set("saved", null);
+    } catch (err) {
+      // the change stays pending: the next flush, or Retry, sends it again
+      failures.set(key, (err as Error).message);
+      set("failed", (err as Error).message);
+    }
+  };
+  /** What waits under `key` (under every key when left out) is saved now, in its turn. */
+  const flush = (key?: string) => {
+    stop(key);
+    // what is pending is read when its turn comes: a change made while the save before it was out goes along
+    return turn(async () => {
+      for (const k of key === undefined ? [...pending.keys()] : [key]) await send(k);
+    });
+  };
+  /** A change is pending under `key` (set in `pending` first): saved after the delay, unless another comes before. */
+  const schedule = (key: string) => {
+    // a failure stays said until a save goes through: what failed is still not saved
+    if (state !== "failed") set("saving", null);
+    stop(key);
+    timers.set(key, setTimeout(() => void flush(key), opts().delayMs ?? 500));
+  };
+  const queue = (key: string, item: T) => {
+    pending.set(key, item);
+    schedule(key);
+  };
+  const retry = () => {
+    set("saving", null);
+    return flush();
+  };
+  /** The page closes: every change still waiting goes by a request that outlives the page. */
+  const hide = () => {
+    stop();
+    for (const [key, item] of pending) opts().keepalive(key, item);
+  };
+  /**
+   * Whether the browser should ask before the tab closes: a save has failed, or what waits cannot go whole as the page
+   * closes. In that last case the ordinary save is started, so that staying lets it finish.
+   */
+  const mustAsk = () => {
+    const whole = opts().goesWhole;
+    const cut = Boolean(whole && [...pending].some(([key, item]) => !whole(key, item)));
+    if (cut) void flush();
+    return cut || state === "failed";
+  };
+  return { pending, turn, flush, schedule, queue, retry, hide, mustAsk };
+}
+
+/**
+ * Things edited on screen and saved to the server on their own, each under its key (the clips of a timeline): saved
+ * `delayMs` after the last change to it, and at once on `flush`, when the screen is left, or as the tab closes, by a
  * request that outlives the page. A save that fails keeps the change: the next flush, or `retry`, sends it again, and
  * the browser asks before the tab is closed meanwhile. Saves go one at a time (`turn`, see inTurn).
  *
- * `pending` is what waits to be saved: the caller may rewrite it (a draft made again under another id).
+ * `pending` is what waits to be saved, by key: the caller may rewrite it.
+ */
+export function useKeyedAutosave<T>(opts: AutosaveOpts<T>) {
+  const own = useRef(opts);
+  own.current = opts;
+  const [state, setState] = useState<SaveState>("saved");
+  /** Why the last save failed, in the server's words. */
+  const [failure, setFailure] = useState<string | null>(null);
+  const [saver] = useState(() => autosaver<T>(() => own.current, (s, f) => {
+    setState(s);
+    setFailure(f);
+  }));
+
+  // leaving the screen saves what is pending
+  useEffect(() => () => void saver.flush(), [saver]);
+  // so does closing or reloading the tab: a request that outlives the page. While a save has failed, or when what is
+  // pending cannot go whole that way, the browser asks first: staying lets the ordinary save, started then, finish.
+  useEffect(() => {
+    const ask = (e: BeforeUnloadEvent) => {
+      if (!saver.mustAsk()) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("pagehide", saver.hide);
+    window.addEventListener("beforeunload", ask);
+    return () => {
+      window.removeEventListener("pagehide", saver.hide);
+      window.removeEventListener("beforeunload", ask);
+    };
+  }, [saver]);
+
+  return useMemo(() => ({ ...saver, state, failure }), [saver, state, failure]);
+}
+
+/** The one key of an autosave that keeps a single thing. */
+const ONE = "";
+
+/**
+ * Something edited on screen and saved to the server on its own (a draft, a Prompt kit item): a `useKeyedAutosave`
+ * with one key. `pending` is what waits to be saved: the caller may rewrite it (a draft made again under another id).
  */
 export function useAutosave<T>(opts: {
-  /** Send it; a throw keeps it pending, its message said as the failure. */
   save(item: T): Promise<void>;
-  /** As the page closes: send it by a request that outlives the page (`raw` with `keepalive`), if it can go that way. */
   keepalive(item: T): void;
-  /** Whether all of it can go as the page closes; when not, the browser asks first, and the ordinary save is started. Left out: always. */
   goesWhole?(item: T): boolean;
   delayMs?: number;
 }) {
   const own = useRef(opts);
   own.current = opts;
-  const pending = useRef<T | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [state, setState] = useState<SaveState>("saved");
-  /** Why the last save failed, in the server's words. */
-  const [failure, setFailure] = useState<string | null>(null);
-  const [turn] = useState(inTurn);
-
-  const send = useCallback(async () => {
-    const item = pending.current;
-    if (!item) return;
-    try {
-      await own.current.save(item);
-      // what was sent is saved; a change made meanwhile is still waiting
-      if (pending.current === item) pending.current = null;
-      if (!pending.current) {
-        setState("saved");
-        setFailure(null);
-      }
-    } catch (err) {
-      // the change stays pending: the next flush, or Retry, sends it again
-      setState("failed");
-      setFailure((err as Error).message);
-    }
-  }, []);
-  const flush = useCallback(async () => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-    // what is pending is read when its turn comes: a change made while the save before it was out goes along
-    return turn(send);
-  }, [turn, send]);
-  /** A change is pending (set `pending` first): saved after the delay, unless another comes before. */
-  const schedule = useCallback(() => {
-    setState("saving");
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => void flush(), own.current.delayMs ?? 500);
-  }, [flush]);
-  const queue = useCallback((item: T) => {
-    pending.current = item;
-    schedule();
-  }, [schedule]);
-  const retry = useCallback(() => {
-    setState("saving");
-    void flush();
-  }, [flush]);
-
-  // leaving the screen saves what is pending
-  useEffect(() => () => void flush(), [flush]);
-  // so does closing or reloading the tab: a request that outlives the page. While a save has failed, or when what is
-  // pending cannot go whole that way, the browser asks first: staying lets the ordinary save, started then, finish.
-  useEffect(() => {
-    const hide = () => {
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = null;
-      const item = pending.current;
-      if (item) own.current.keepalive(item);
-    };
-    const ask = (e: BeforeUnloadEvent) => {
-      const item = pending.current;
-      const cut = Boolean(item && own.current.goesWhole && !own.current.goesWhole(item));
-      if (state !== "failed" && !cut) return;
-      if (cut) void flush();
-      e.preventDefault();
-      e.returnValue = "";
-    };
-    window.addEventListener("pagehide", hide);
-    window.addEventListener("beforeunload", ask);
-    return () => {
-      window.removeEventListener("pagehide", hide);
-      window.removeEventListener("beforeunload", ask);
-    };
-  }, [state, flush]);
-
-  return { pending, state, failure, flush, schedule, queue, retry, turn };
+  const keyed = useKeyedAutosave<T>({
+    save: (_, item) => own.current.save(item),
+    keepalive: (_, item) => own.current.keepalive(item),
+    goesWhole: (_, item) => own.current.goesWhole?.(item) ?? true,
+    delayMs: opts.delayMs,
+  });
+  const { pending: map, flush, schedule, queue, retry, turn, state, failure } = keyed;
+  const pending = useMemo(() => ({
+    get current(): T | null {
+      return map.get(ONE) ?? null;
+    },
+    set current(item: T | null) {
+      if (item === null) map.delete(ONE);
+      else map.set(ONE, item);
+    },
+  }), [map]);
+  // the same functions for the life of the screen: callers' effects depend on them
+  const fns = useMemo(() => ({
+    flush: () => flush(),
+    schedule: () => schedule(ONE),
+    queue: (item: T) => queue(ONE, item),
+    retry: () => void retry(),
+    turn,
+  }), [flush, schedule, queue, retry, turn]);
+  return useMemo(() => ({ ...fns, pending, state, failure }), [fns, pending, state, failure]);
 }

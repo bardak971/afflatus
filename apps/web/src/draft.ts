@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { api, failure, lookAdds, raw, type Draft } from "./api";
-import { useAutosave } from "./autosave";
+import { KEEPALIVE_MAX, useAutosave } from "./autosave";
 import { useDrafts } from "./data";
 import { useProject, type ProjectChoice } from "./project";
 import { useBanners, useOpenDraft } from "./store";
@@ -20,8 +20,6 @@ export const BATCH = { least: 1, most: 8 } as const;
 
 export const saveBodyOf = (d: Draft) => ({ recipe: d.recipe, forms: d.forms, count: d.count, look: d.look, chat: d.chat, designer: d.designer });
 
-/** The most a request that outlives the page may carry: the browser refuses a `keepalive` body past 64 KiB (sendBeacon too). */
-export const KEEPALIVE_MAX = 60 * 1024;
 
 /**
  * What the save made as the page closes sends: the whole draft when it fits a request that outlives the page; else the
@@ -36,7 +34,7 @@ export function closingBody(d: Draft): Partial<ReturnType<typeof saveBodyOf>> | 
   return size(rest) <= KEEPALIVE_MAX ? rest : null;
 }
 
-export { inTurn } from "./autosave";
+export { inTurn, KEEPALIVE_MAX } from "./autosave";
 
 /**
  * A draft saved, through `raw` rather than `api.saveDraft`: whether the draft is gone (404) is wanted, and a save made

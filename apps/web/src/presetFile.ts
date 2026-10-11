@@ -1,4 +1,5 @@
 import { api, type Entity, type PresetDef } from "./api";
+import { readPresetFile } from "@afflatus/core";
 import { saveJson } from "./download";
 
 /**
@@ -32,29 +33,22 @@ export function savePresetFile(e: Extract<Entity, { kind: "preset" }>): void {
   saveJson(out, `${out.id}.json`);
 }
 
-/** A preset file brought in: becomes one of the user's presets. */
+/** A preset file brought in: becomes one of the user's presets. A file that is not JSON, or not a preset, says so plainly. */
 export async function importPresetFile(file: File): Promise<Entity> {
-  const { name, def } = presetOfFile(JSON.parse(await file.text()) as Record<string, unknown>, file.name);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await file.text());
+  } catch {
+    throw new Error(`${file.name} is not a preset file: it is not JSON.`);
+  }
+  const { name, def } = presetOfFile(raw, file.name);
   return api.createEntity("preset", name, def);
 }
 
-/** What a preset file holds, as a preset: its name (else the file's), and what it sets. */
-export function presetOfFile(raw: Record<string, unknown>, fileName: string): { name: string; def: PresetDef } {
-  // either the file shape above, or a saved entity ({ name, def })
-  const def: PresetDef = raw.def && typeof raw.def === "object"
-    ? (raw.def as PresetDef)
-    : {
-        ...(typeof raw.recipe === "string" ? { recipe: raw.recipe } : {}),
-        inputs: (raw.inputs as Record<string, unknown> | undefined) ?? {},
-        ...(raw.look ? { look: raw.look as PresetDef["look"] } : {}),
-        ...(Array.isArray(raw.files) ? { files: raw.files as PresetDef["files"] } : {}),
-        ...(typeof raw.author === "string" ? { author: raw.author } : {}),
-        ...(typeof raw.line === "string" ? { line: raw.line } : {}),
-        ...(typeof raw.note === "string" ? { note: raw.note } : {}),
-        ...(typeof raw.homepage === "string" ? { homepage: raw.homepage } : {}),
-        ...(Array.isArray(raw.links) ? { links: (raw.links as Array<{ label?: unknown; url?: unknown }>).filter((l) => typeof l.label === "string" && typeof l.url === "string") as PresetDef["links"] } : {}),
-        ...(raw.licence && typeof raw.licence === "object" ? { licence: raw.licence as PresetDef["licence"] } : {}),
-      };
-  const name = typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : fileName.replace(/\.json$/i, "");
-  return { name, def };
+/** What a preset file holds, as a preset: its name (else the file's), and what it sets. Throws, in plain words, for anything else. */
+export function presetOfFile(raw: unknown, fileName: string): { name: string; def: PresetDef } {
+  const read = readPresetFile(raw);
+  if ("error" in read) throw new Error(`${fileName} is not a preset file: ${read.error}.`);
+  const name = read.name?.trim() || fileName.replace(/\.json$/i, "");
+  return { name, def: read.def as PresetDef };
 }

@@ -1,5 +1,5 @@
 import { useExplain } from "./store";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Film, ImagePlus, Music, Search, Upload, X } from "lucide-react";
 import type { ClipValue, ReferenceRole, ReferenceValue } from "@afflatus/core";
@@ -164,72 +164,138 @@ export function Picker({ title, kind = "image", kit, onPick, onClose }: { title:
   );
 }
 
+/** What a file of each kind is called, in the words a refused drop says. */
+const AN = { image: "an image", video: "a video", audio: "an audio file" } as const;
+
+/** Why a file dropped on a slot is not taken (it is of another kind), or null when it is taken. */
+export function refusedFile(file: { name: string; type: string }, kind: keyof typeof AN): string | null {
+  return file.type.startsWith(`${kind}/`) ? null : `${file.name} is not ${AN[kind]}.`;
+}
+
+/**
+ * The shell every media slot of a form shares: its header (the name, its ?, and what is always seen beside it), the place a
+ * file or a library item is dropped, the upload of a file from the computer with its "Adding…" and its failure, the
+ * explanation, and the Picker. Each field gives only what it shows once filled. Three of the four slots had their own copy
+ * of this and never said that an upload was on its way, or that it was refused.
+ */
+function Slot({ label, note, aside, kind, drags, kit, onAsset, filled, empty, children }: {
+  label: string;
+  note?: string;
+  /** Beside the name, always seen: "optional", "1 of 6". */
+  aside?: string;
+  /** What it takes: what the Picker lists and what a dropped file must be. */
+  kind: "image" | "video" | "audio";
+  /** The library items it takes when dragged onto it. */
+  drags: string[];
+  /** For the Prompt kit: a file from the computer is kept with the person or place, not put in the library. */
+  kit?: boolean;
+  /** A library item for it: picked, dropped, or a file brought in. */
+  onAsset(id: string): void;
+  /** What it holds, drawn in its box (a drop on it replaces it); `pick` opens the Picker. Left out: it holds nothing. */
+  filled?: { className: string; body(pick: () => void): ReactNode };
+  /** The place to choose or drop one while it can take one: its icon, its words, what a drop says, and its height. */
+  empty?: { icon: ReactNode; text: string; says: string; tall?: boolean };
+  /** What it shows above that place: the references chosen, and the viewer one of them opens in. */
+  children?: ReactNode;
+}) {
+  const explain = useExplain((st) => st.on);
+  const [picking, setPicking] = useState(false);
+  const pick = () => setPicking(true);
+  const upload = useUpload((a) => onAsset(a.id), kit);
+  // a file of another kind is refused here, in words, rather than left without a sign
+  const [wrong, setWrong] = useState<string | null>(null);
+  const drop = useDropZone(drags, (id) => {
+    setWrong(null);
+    onAsset(id);
+  }, (file) => {
+    const refused = refusedFile(file, kind);
+    setWrong(refused);
+    if (!refused) upload.mutate(file);
+  });
+  const failed = wrong ?? upload.error?.message;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="flex items-center gap-1.5"><span className="font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
+        {aside && <span className="text-xs text-ink-2">{aside}</span>}
+      </div>
+      {children}
+      {filled ? (
+        <div {...drop.props} className={cx("relative rounded-lg border bg-raised p-2", filled.className, LEAN_MOTION, drop.lean || "border-line")}>
+          {filled.body(pick)}
+          {drop.over ? empty && <DropSays>{empty.says}</DropSays> : upload.isPending && <DropSays>Adding…</DropSays>}
+        </div>
+      ) : empty ? (
+        <button
+          type="button"
+          {...drop.props}
+          onClick={pick}
+          disabled={upload.isPending}
+          className={cx("flex items-center justify-center rounded-lg border-[1.5px] text-ink-2 hover:text-ink", empty.tall ? "h-[72px] gap-2.5" : "h-10 gap-2", LEAN_MOTION, drop.lean || "border-dashed border-line-strong")}
+        >
+          {empty.icon}
+          <span>{upload.isPending ? "Adding…" : drop.over ? empty.says : empty.text}</span>
+        </button>
+      ) : null}
+      {failed && <ErrorNote>{failed}</ErrorNote>}
+      {explain && <Note text={note} />}
+      {picking && (
+        <Picker
+          title={label}
+          kind={kind}
+          kit={kit}
+          onClose={() => setPicking(false)}
+          onPick={(id) => {
+            onAsset(id);
+            setPicking(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 /**
  * A slot for one picture. It holds the library item's id: a picture from the computer goes to the
  * library first, so that what was used can always be found again.
  */
-export function PictureField({ label, optional, kit, value, onChange }: {
+export function PictureField({ label, note, optional, kit, value, onChange }: {
   label: string;
+  note?: string;
   optional: boolean;
   /** For the Prompt kit: a file from the computer is kept with the person or place, not put in the library. */
   kit?: boolean;
   value: string | null;
   onChange(value: string | undefined): void;
 }) {
-  const [picking, setPicking] = useState(false);
-  const upload = useUpload((a) => onChange(a.id), kit);
   // a click on the picture shows it large
   const [open, setOpen] = useState(false);
   const shown = useAsset(open ? value : null);
-  // a picture of the library, or a picture file from the computer (a picture slot takes pictures only)
-  const drop = useDropZone([DRAG_PICTURE], onChange, (file) => file.type.startsWith("image/") && upload.mutate(file));
   const says = `Drop to use as ${label.toLowerCase()}`;
   // a picture put in after the slot was drawn (dropped, picked) fades in; the one it opened with is simply there
   const first = useRef(value);
-
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="flex items-center gap-1.5"><span className="text-xs font-semibold">{label}</span></span>
-        {optional && <span className="text-xs text-ink-2">optional</span>}
-      </div>
-      {value ? (
-        <div {...drop.props} className={cx("relative flex items-center gap-3 rounded-lg border bg-raised p-2", LEAN_MOTION, drop.lean || "border-line")}>
-          <button type="button" aria-label={`Show ${label.toLowerCase()} large`} onClick={() => setOpen(true)} className="shrink-0 cursor-zoom-in rounded-md">
-            <img key={value} src={thumbUrl(value)} alt={label} className={cx("h-[72px] w-[72px] rounded-md object-cover", value !== first.current && "m-fade")} />
-          </button>
-          <div className="flex flex-wrap gap-1.5">
-            <Button size="sm" onClick={() => setPicking(true)}>Change</Button>
-            {/* a slot the form must have can be emptied too: the form then says what is missing, as it does before one is chosen */}
-            <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>
-          </div>
-          {drop.over && <DropSays>{says}</DropSays>}
-        </div>
-      ) : (
-        <button
-          type="button"
-          {...drop.props}
-          onClick={() => setPicking(true)}
-          className={cx("flex h-[72px] items-center justify-center gap-2.5 rounded-lg border-[1.5px] text-ink-2 hover:text-ink", LEAN_MOTION, drop.lean || "border-dashed border-line-strong")}
-        >
-          <ImagePlus size={17} />
-          <span>{upload.isPending ? "Adding…" : drop.over ? says : "Choose an image, or drop one here"}</span>
-        </button>
-      )}
-      {upload.error && <ErrorNote>{upload.error.message}</ErrorNote>}
-      {picking && (
-        <Picker
-          title={label}
-          kit={kit}
-          onClose={() => setPicking(false)}
-          onPick={(id) => {
-            onChange(id);
-            setPicking(false);
-          }}
-        />
-      )}
+    <Slot
+      label={label} note={note} aside={optional ? "optional" : undefined} kind="image" drags={[DRAG_PICTURE]} kit={kit} onAsset={onChange}
+      empty={{ icon: <ImagePlus size={17} />, text: "Choose an image, or drop one here", says, tall: true }}
+      filled={value ? {
+        className: "flex items-center gap-3",
+        body: (pick) => (
+          <>
+            <button type="button" aria-label={`Show ${label.toLowerCase()} large`} onClick={() => setOpen(true)} className="shrink-0 cursor-zoom-in rounded-md">
+              <img key={value} src={thumbUrl(value)} alt={label} className={cx("h-[72px] w-[72px] rounded-md object-cover", value !== first.current && "m-fade")} />
+            </button>
+            <div className="flex flex-wrap gap-1.5">
+              <Button size="sm" onClick={pick}>Change</Button>
+              {/* a slot the form must have can be emptied too: the form then says what is missing, as it does before one is chosen */}
+              <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>
+            </div>
+          </>
+        ),
+      } : undefined}
+    >
       {shown.data && <Viewer asset={shown.data} onClose={() => setOpen(false)} />}
-    </div>
+    </Slot>
   );
 }
 
@@ -249,73 +315,48 @@ export function ClipField({ label, note, role, optional, value, onChange }: {
   value: ClipValue | null;
   onChange(value: ClipValue | undefined): void;
 }) {
-  const explain = useExplain((st) => st.on);
-  const [picking, setPicking] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
   const asset = useAsset(value?.asset ?? null);
-  // a video from the computer goes into the library and lands here
-  const upload = useUpload((a) => onChange({ asset: a.id }));
-  const drop = useDropZone([DRAG_VIDEO], (id) => onChange({ asset: id }), (file) => file.type.startsWith("video/") && upload.mutate(file));
   const length = asset.data?.durationMs ?? 0;
   const edge = role === "previous" ? "its end" : "its start";
   const says = role === "previous" ? "Drop to continue from this video" : role === "next" ? "Drop to flow into this video" : `Drop to use as ${label.toLowerCase()}`;
   // a video put in after the slot was drawn fades in
   const first = useRef(value?.asset);
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="flex items-center gap-1.5"><span className="font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
-        {optional && <span className="text-xs text-ink-2">optional</span>}
-      </div>
-      {value ? (
-        <div {...drop.props} className={cx("relative flex flex-col gap-2 rounded-lg border bg-raised p-2", LEAN_MOTION, drop.lean || "border-line")}>
-          <div key={value.asset} className={cx(value.asset !== first.current && "m-fade")}>
-            <VideoPlayer asset={value.asset} video={video} compact className="w-full" videoClassName="max-h-56 w-full rounded-md bg-ground" />
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {/* a source video is worked on whole: no moment to pick */}
-            {role === "source" ? (
-              <span className="grow text-xs text-ink-2">The whole video{length ? `, ${clock(length)}` : ""}</span>
-            ) : (
-              <>
-                <span className="grow text-xs text-ink-2">
-                  {role === "previous" ? "Continues from " : "Flows into "}
-                  <span className="font-semibold text-ink">{value.at === undefined ? edge : moment(value.at)}</span>
-                  {length ? ` of ${clock(length)}` : ""}
-                </span>
-                <Button size="sm" onClick={() => onChange({ asset: value.asset, at: Math.round((video.current?.currentTime ?? 0) * 1000) })}>Use the frame shown</Button>
-                {value.at !== undefined && <Button size="sm" onClick={() => onChange({ asset: value.asset })}>Use {edge}</Button>}
-              </>
-            )}
-            <Button size="sm" onClick={() => setPicking(true)}>Change</Button>
-            {optional && <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>}
-          </div>
-          {drop.over && <DropSays>{says}</DropSays>}
-        </div>
-      ) : (
-        <button
-          type="button"
-          {...drop.props}
-          onClick={() => setPicking(true)}
-          className={cx("flex h-[72px] items-center justify-center gap-2.5 rounded-lg border-[1.5px] text-ink-2 hover:text-ink", LEAN_MOTION, drop.lean || "border-dashed border-line-strong")}
-        >
-          <Film size={17} />
-          <span>{drop.over ? says : "Choose a video, or drop one here"}</span>
-        </button>
-      )}
-      {explain && <Note text={note} />}
-      {picking && (
-        <Picker
-          title={label}
-          kind="video"
-          onClose={() => setPicking(false)}
-          onPick={(id) => {
-            onChange({ asset: id });
-            setPicking(false);
-          }}
-        />
-      )}
-    </div>
+    // a video from the computer goes into the library and lands here
+    <Slot
+      label={label} note={note} aside={optional ? "optional" : undefined} kind="video" drags={[DRAG_VIDEO]} onAsset={(id) => onChange({ asset: id })}
+      empty={{ icon: <Film size={17} />, text: "Choose a video, or drop one here", says, tall: true }}
+      filled={value ? {
+        className: "flex flex-col gap-2",
+        body: (pick) => (
+          <>
+            <div key={value.asset} className={cx(value.asset !== first.current && "m-fade")}>
+              <VideoPlayer asset={value.asset} video={video} compact className="w-full" videoClassName="max-h-56 w-full rounded-md bg-ground" />
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {/* a source video is worked on whole: no moment to pick */}
+              {role === "source" ? (
+                <span className="grow text-xs text-ink-2">The whole video{length ? `, ${clock(length)}` : ""}</span>
+              ) : (
+                <>
+                  <span className="grow text-xs text-ink-2">
+                    {role === "previous" ? "Continues from " : "Flows into "}
+                    <span className="font-semibold text-ink">{value.at === undefined ? edge : moment(value.at)}</span>
+                    {length ? ` of ${clock(length)}` : ""}
+                  </span>
+                  <Button size="sm" onClick={() => onChange({ asset: value.asset, at: Math.round((video.current?.currentTime ?? 0) * 1000) })}>Use the frame shown</Button>
+                  {value.at !== undefined && <Button size="sm" onClick={() => onChange({ asset: value.asset })}>Use {edge}</Button>}
+                </>
+              )}
+              <Button size="sm" onClick={pick}>Change</Button>
+              {/* as on a picture: a video the form must have can be emptied too, the form then says what is missing */}
+              <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>
+            </div>
+          </>
+        ),
+      } : undefined}
+    />
   );
 }
 
@@ -344,22 +385,21 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
   /** The cast's pictures, added when the form is sent (after these, in the room left): shown, kept by the person. */
   cast?: CastPicture[];
 }) {
-  const explain = useExplain((st) => st.on);
   const [open, setOpen] = useState<string | null>(null);
   const shown = useAsset(open);
-  const [picking, setPicking] = useState(false);
-  const add = (asset: string) => !value.some((v) => v.asset === asset) && value.length < max && onChange([...value, { asset, role: roles[0]! }]);
   // a file from the computer goes into the library and is added here
-  const upload = useUpload((a) => add(a.id));
-  const drop = useDropZone([video ? DRAG_VIDEO : DRAG_PICTURE], add, (file) => file.type.startsWith(video ? "video/" : "image/") && upload.mutate(file));
+  const add = (asset: string) => !value.some((v) => v.asset === asset) && value.length < max && onChange([...value, { asset, role: roles[0]! }]);
   // a reference added after the field was drawn (dropped, picked) fades in; those it opened with are simply there
   const first = useRef(new Set(value.map((v) => v.asset)));
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="flex items-center gap-1.5"><span className="font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
-        <span className="text-xs text-ink-2">{value.length + cast.length} of {max}</span>
-      </div>
+    <Slot
+      label={label} note={note} aside={`${value.length + cast.length} of ${max}`} kind={video ? "video" : "image"} drags={[video ? DRAG_VIDEO : DRAG_PICTURE]} onAsset={add}
+      empty={value.length < max ? {
+        icon: <ImagePlus size={15} />,
+        text: video ? "Add a reference video, or drop one here" : "Add a reference image, or drop one here",
+        says: video ? "Drop to add as reference video" : "Drop to add as reference",
+      } : undefined}
+    >
       {value.map((ref, i) => (
         <div key={ref.asset} className={cx("flex items-center gap-2.5 rounded-lg border border-line bg-raised p-1.5", !first.current.has(ref.asset) && "m-fade")}>
           <button type="button" aria-label={`Show reference ${i + 1} large`} onClick={() => setOpen(ref.asset)} className="shrink-0 cursor-zoom-in rounded-[3px]">
@@ -387,30 +427,7 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
         </div>
       ))}
       {shown.data && <Viewer asset={shown.data} onClose={() => setOpen(null)} />}
-      {value.length < max && (
-        <button
-          type="button"
-          {...drop.props}
-          onClick={() => setPicking(true)}
-          className={cx("flex h-10 items-center justify-center gap-2 rounded-lg border-[1.5px] text-ink-2 hover:text-ink", LEAN_MOTION, drop.lean || "border-dashed border-line-strong")}
-        >
-          <ImagePlus size={15} />
-          <span>{drop.over ? (video ? "Drop to add as reference video" : "Drop to add as reference") : video ? "Add a reference video, or drop one here" : "Add a reference image, or drop one here"}</span>
-        </button>
-      )}
-      {explain && <Note text={note} />}
-      {picking && (
-        <Picker
-          title={label}
-          kind={video ? "video" : "image"}
-          onClose={() => setPicking(false)}
-          onPick={(id) => {
-            add(id);
-            setPicking(false);
-          }}
-        />
-      )}
-    </div>
+    </Slot>
   );
 }
 
@@ -424,63 +441,41 @@ export function SoundField({ label, note, optional, value, onChange, part }: {
   /** Only a part of the sound is used: where it starts and how long it is, in seconds. */
   part?: { start: number; seconds: number; onStart(seconds: number): void; onSeconds(seconds: number): void };
 }) {
-  const explain = useExplain((st) => st.on);
-  const [picking, setPicking] = useState(false);
   const asset = useAsset(value);
-  // a sound of the library, or a video that has sound
-  // a sound file from the computer goes into the library and lands here
-  const upload = useUpload((a) => onChange(a.id));
-  const drop = useDropZone([DRAG_SOUND, DRAG_HAS_SOUND], onChange, (file) => file.type.startsWith("audio/") && upload.mutate(file));
   const total = asset.data?.durationMs ? asset.data.durationMs / 1000 : null;
-  const says = `Drop to use as ${label.toLowerCase()}`;
   // the part as it will be cut: from where it was asked as long as two seconds are left, ending where the sound ends
   const from = part ? (total === null ? part.start : Math.max(0, Math.min(part.start, total - 2))) : 0;
   const lasts = part ? (total === null ? part.seconds : Math.max(0.1, Math.min(part.seconds, total - from))) : 0;
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="flex items-center gap-1.5"><span className="font-semibold">{label}</span>{note && !explain && <Help text={note} />}</span>
-        {optional && <span className="text-xs text-ink-2">optional</span>}
-      </div>
-      {value ? (
-        <div {...drop.props} className={cx("relative flex flex-col gap-2 rounded-lg border bg-raised p-2", LEAN_MOTION, drop.lean || "border-line")}>
-          {/* with a part set, the player plays that part */}
-          <AudioPlayer asset={value} name={asset.data?.name || "Audio"} range={part ? { from, to: from + lasts } : undefined} bare className="px-0.5 pt-0.5" />
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-line pt-2 text-xs text-ink-2">
-            {part && (
-              <>
-              <span>Use it from</span>
-              <NumberBox label={`${label}: the part used starts at, in seconds`} value={part.start} min={0} max={total ? Math.max(0, Math.floor((total - 2) * 2) / 2) : 600} step={0.5} unit="s" onCommit={part.onStart} />
-              <span>for</span>
-              <NumberBox label={`${label}: the part used lasts, in seconds`} value={part.seconds} min={2} max={15} step={0.5} unit="s" onCommit={part.onSeconds} />
-              {total !== null && lasts < part.seconds && <span>(the audio ends at {total.toFixed(1)} s: {lasts.toFixed(1)} s are used)</span>}
-              </>
-            )}
-            <span className="ml-auto flex gap-1.5">
-              <Button size="sm" onClick={() => setPicking(true)}>Change</Button>
-              {optional && <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>}
-            </span>
-          </div>
-          {drop.over && <DropSays>{says}</DropSays>}
-        </div>
-      ) : (
-        <button type="button" {...drop.props} onClick={() => setPicking(true)} className={cx("flex h-10 items-center justify-center gap-2 rounded-lg border-[1.5px] text-ink-2 hover:text-ink", LEAN_MOTION, drop.lean || "border-dashed border-line-strong")}>
-          <Music size={15} />
-          <span>{drop.over ? says : "Choose an audio file, or drop one here"}</span>
-        </button>
-      )}
-      {explain && <Note text={note} />}
-      {picking && (
-        <Picker
-          title={label}
-          kind="audio"
-          onClose={() => setPicking(false)}
-          onPick={(id) => {
-            onChange(id);
-            setPicking(false);
-          }}
-        />
-      )}
-    </div>
+    // a sound of the library, or a video that has sound; a sound file from the computer goes into the library and lands here
+    <Slot
+      label={label} note={note} aside={optional ? "optional" : undefined} kind="audio" drags={[DRAG_SOUND, DRAG_HAS_SOUND]} onAsset={onChange}
+      empty={{ icon: <Music size={15} />, text: "Choose an audio file, or drop one here", says: `Drop to use as ${label.toLowerCase()}` }}
+      filled={value ? {
+        className: "flex flex-col gap-2",
+        body: (pick) => (
+          <>
+            {/* with a part set, the player plays that part */}
+            <AudioPlayer asset={value} name={asset.data?.name || "Audio"} range={part ? { from, to: from + lasts } : undefined} bare className="px-0.5 pt-0.5" />
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-line pt-2 text-xs text-ink-2">
+              {part && (
+                <>
+                <span>Use it from</span>
+                <NumberBox label={`${label}: the part used starts at, in seconds`} value={part.start} min={0} max={total ? Math.max(0, Math.floor((total - 2) * 2) / 2) : 600} step={0.5} unit="s" onCommit={part.onStart} />
+                <span>for</span>
+                <NumberBox label={`${label}: the part used lasts, in seconds`} value={part.seconds} min={2} max={15} step={0.5} unit="s" onCommit={part.onSeconds} />
+                {total !== null && lasts < part.seconds && <span>(the audio ends at {total.toFixed(1)} s: {lasts.toFixed(1)} s are used)</span>}
+                </>
+              )}
+              <span className="ml-auto flex gap-1.5">
+                <Button size="sm" onClick={pick}>Change</Button>
+                {/* as on a picture: a sound the form must have can be emptied too, the form then says what is missing */}
+                <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>
+              </span>
+            </div>
+          </>
+        ),
+      } : undefined}
+    />
   );
 }
