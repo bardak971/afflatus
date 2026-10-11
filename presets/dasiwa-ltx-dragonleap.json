@@ -1,0 +1,36 @@
+{
+  "id": "dasiwa-ltx-dragonleap",
+  "name": "DragonLeap v4",
+  "author": "Darksidewalker (DaSiWa)",
+  "note": "DragonLeap v4, the Lightspeed line (distilled) on JoyAI-Echo: image-to-video and video-to-video first, with sound; fp8 with the VAE included. Recommended: CFG 1, euler_cfg_pp, 8–10 steps (here on LTX's own 8-step schedule).",
+  "homepage": "https://civitai.com/models/2543443?modelVersionId=3092188",
+  "links": [
+    {
+      "label": "GitHub",
+      "url": "https://github.com/darksidewalker"
+    }
+  ],
+  "licence": {
+    "name": "LTX-2 Community License, with the author's addendum",
+    "url": "https://huggingface.co/Lightricks/LTX-2.3/blob/main/LICENSE",
+    "note": "Lightricks' licence for LTX-2 weights: free use, commercial too under a yearly revenue ceiling. The model page adds terms: a mirror must drop the DaSiWa name and link back to the page, and a paid generation service needs the author's agreement to use the name. Read both before you fetch the file."
+  },
+  "recipe": "ltx.video",
+  "inputs": {
+    "model": "DasiwaLTX23_dragonleapV4.safetensors",
+    "cfg": 1,
+    "sampler": "euler_cfg_pp"
+  },
+  "files": [
+    {
+      "file": "DasiwaLTX23_dragonleapV4.safetensors",
+      "folder": "diffusion_models",
+      "size": 27618449814,
+      "civitai": {
+        "version": 3092188,
+        "pick": "DasiwaLTX23_dragonleapV4_2972051.safetensors",
+        "page": "https://civitai.com/models/2543443?modelVersionId=3092188"
+      }
+    }
+  ]
+}

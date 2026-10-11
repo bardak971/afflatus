@@ -268,13 +268,16 @@ export function People() {
           <section className="min-h-0 overflow-y-auto px-7 py-4">
             {shipped ? (
               <div className="flex max-w-[820px] flex-col gap-3">
-                <div className="flex items-center gap-3">
-                  <h2 className="min-w-0 grow truncate text-xl font-semibold">{shipped.name}</h2>
+                {/* the name on a line of its own, whole: beside the buttons a long one was cut even on a wide screen */}
+                <div className="flex items-start gap-3">
+                  <h2 className="min-w-0 grow text-xl font-semibold leading-snug">{shipped.name}</h2>
+                  <button type="button" aria-label="Close" onClick={() => select(null)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
                   <Badge>{authorOf(shipped)}</Badge>
                   <CopyLink item={shipped} />
                   <Button size="sm" tone="primary" onClick={() => applyInStudio(shipped.id)} className="flex items-center gap-1.5"><Play size={13} /> Apply in Studio</Button>
                   <Button size="sm" onClick={() => savePresetFile(shipped)} className="flex items-center gap-1.5"><FileDown size={13} /> Save as a file</Button>
-                  <button type="button" aria-label="Close" onClick={() => select(null)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
                 </div>
                 <ShippedPreset e={shipped} onCopied={(c) => setOpen(c.id)} />
               </div>

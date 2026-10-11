@@ -32,6 +32,8 @@ interface PresetProvenance {
   note?: string;
   /** The page that explains it (the author's). */
   homepage?: string;
+  /** The author's other pages, credited beside it (their GitHub, say). */
+  links?: Array<{ label: string; url: string }>;
   /** The licence of the files: shown, and accepted once, before any is fetched. */
   licence?: { name: string; url?: string; note?: string };
 }

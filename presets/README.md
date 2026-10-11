@@ -4,7 +4,7 @@ A preset is a starting point for a form: an operation, the values it sets (at le
 
 ## The ones that ship
 
-Each file in this folder is listed in every Afflatus as a read-only "built in" preset. They stay on the **official model releases**, the same files Settings → Models knows how to get:
+Each file in this folder is listed in every Afflatus as a read-only "built in" preset: the **official model releases**, the same files Settings → Models knows how to get, and **community models whose authors agreed** to have their settings shipped, credited on each preset with links to their pages:
 
 | Preset | Model | Licence |
 |---|---|---|
@@ -17,6 +17,17 @@ Each file in this folder is listed in every Afflatus as a read-only "built in" p
 | `wan22-i2v` | Wan 2.2 image to video, 14B fp8 (video) | Apache 2.0 |
 | `wan22-t2v` | Wan 2.2 text to video, 14B fp8, with lightx2v's 4-step LoRAs (video) | Apache 2.0 |
 | `ltx23-distilled` | LTX 2.3 distilled, 22B fp8 (video with sound) | LTX-2 Community License |
+| `dasiwa-h3-v3` | DaSiWa MiniMax H3 Hybrid v3, int8 (video with sound) | MiniMax H3 Community License, with the author's addendum |
+| `dasiwa-h3-v3-int4` | DaSiWa MiniMax H3 Hybrid v3, int4: a smaller file | MiniMax H3 Community License, with the author's addendum |
+| `dasiwa-h3-v3-turbo` | DaSiWa MiniMax H3 Hybrid Turbo v3, int8, 8 steps | MiniMax H3 Community License, with the author's addendum |
+| `dasiwa-h3-v4` | DaSiWa MiniMax H3 Hybrid v4, int8 | MiniMax H3 Community License, with the author's addendum |
+| `dasiwa-h3-v4-turbo` | DaSiWa MiniMax H3 Hybrid v4 Turbo, int8, 4 steps | MiniMax H3 Community License, with the author's addendum |
+| `dasiwa-krea2` | DaSiWa Krea 2 DarkDesire v3 Turbo, int8 (pictures) | Krea 2 Community License |
+| `dasiwa-ltx-dragonleap` | DaSiWa LTX 2.3 DragonLeap v4, distilled, fp8 (video with sound) | LTX-2 Community License, with the author's addendum |
+| `dasiwa-ltx-goldenlace` | DaSiWa LTX 2.3 GoldenLace v3, undistilled, fp8 (video with sound) | LTX-2 Community License, with the author's addendum |
+| `dasiwa-wan` | DaSiWa Wan 2.2 image to video, TrueVision SnatchKiss v11, fp8 (video) | Apache 2.0 (Wan 2.2), with the author's distribution addendum |
+
+The DaSiWa ones are [Darksidewalker](https://civitai.com/user/Darksidewalker)'s fine-tunes ([GitHub](https://github.com/darksidewalker)), shipped with his agreement: his recommended settings, set per version from his Civitai pages, and the files fetched from there (Civitai asks for your API key: Settings → Models). His settings are a guide; they are kept up to date from his posts.
 
 Each one shows its licence before anything is fetched, and you accept it once. Nothing is bundled: the files come from the publishers' own Hugging Face pages (or ComfyUI's repackaged ones), downloaded by Afflatus into ComfyUI's model folders.
 
@@ -26,7 +37,7 @@ Each one shows its licence before anything is fetched, and you accept it once. N
 - **Share one:** **Save as a file** on any preset writes a `.json` file in the format below. Send it, put it in a gist, attach it to a post.
 - **Use one someone shared:** Prompt kit → Presets → **Import**, and pick the file. It shows its licence and what it is missing, like the built-in ones.
 
-Community fine-tunes (from Civitai or elsewhere) are best shared that way, as files, rather than shipped here: their versions and licences change, and the person who made the model is the one who should say how it is used.
+A community fine-tune (from Civitai or elsewhere) ships here only when the person who made it agrees: their versions and licences change, and they are the one who should say how it is used. Otherwise, share it as a file.
 
 ## Format
 

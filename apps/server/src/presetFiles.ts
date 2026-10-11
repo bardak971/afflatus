@@ -37,6 +37,7 @@ export const provenanceSchema = {
   author: z.string().max(80).optional(),
   note: z.string().max(1000).optional(),
   homepage: webUrl.optional(),
+  links: z.array(z.strictObject({ label: z.string().trim().min(1).max(40), url: webUrl })).max(6).optional(),
   licence: z.strictObject({ name: z.string().min(1).max(120), url: webUrl.optional(), note: z.string().max(600).optional() }).optional(),
 };
 const shippedSchema = z.strictObject({

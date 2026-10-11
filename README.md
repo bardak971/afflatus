@@ -151,6 +151,7 @@ Afflatus is under [AGPL-3.0](LICENSE). Its node pack for ComfyUI in [comfy-nodes
 - [ComfyUI](https://github.com/Comfy-Org/ComfyUI), which does all the rendering.
 - The node pack vendors the MIT continuation nodes of ttulttul's [ComfyUI-Minimax-H3-Continuation](https://github.com/ttulttul/ComfyUI-Minimax-H3-Continuation), with one small change (a guarded import).
 - The authors of the node packs listed in [ComfyUI setup](docs/comfyui-setup.md#node-packs).
-- The shipped presets point at the official model releases (Krea, MiniMax, Wan, Lightricks) on Hugging Face; each names its maker and its licence. Nothing of theirs is bundled.
+- The shipped presets point at the official model releases (Krea, MiniMax, Wan, Lightricks, Black Forest Labs, Qwen, Tongyi) on Hugging Face; each names its maker and its licence. Nothing of theirs is bundled.
+- [Darksidewalker](https://civitai.com/user/Darksidewalker) (DaSiWa, [GitHub](https://github.com/darksidewalker)), whose fine-tunes of MiniMax H3, Krea 2, LTX 2.3 and Wan 2.2 ship as presets with his agreement, his recommended settings set per version and the files fetched from his Civitai pages; and whose [ComfyUI-DaSiWa-Nodes](https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes) Afflatus uses.
 - The ffmpeg builds in the Windows and Linux bundles are the LGPL builds by [BtbN](https://github.com/BtbN/FFmpeg-Builds).
 - Every release carries `THIRD_PARTY_NOTICES.txt`: the npm packages and fonts it ships, with their licences.

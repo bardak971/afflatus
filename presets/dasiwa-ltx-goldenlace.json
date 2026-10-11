@@ -1,0 +1,34 @@
+{
+  "id": "dasiwa-ltx-goldenlace",
+  "name": "GoldenLace v3",
+  "author": "Darksidewalker (DaSiWa)",
+  "note": "GoldenLace v3, the TrueVision line (undistilled) on Sulphur: image-to-video and video-to-video first, with sound; fp8. The form runs it with the distilled LoRA on LTX's own 8 steps, or by steps.",
+  "homepage": "https://civitai.com/models/2543443?modelVersionId=2967331",
+  "links": [
+    {
+      "label": "GitHub",
+      "url": "https://github.com/darksidewalker"
+    }
+  ],
+  "licence": {
+    "name": "LTX-2 Community License, with the author's addendum",
+    "url": "https://huggingface.co/Lightricks/LTX-2.3/blob/main/LICENSE",
+    "note": "Lightricks' licence for LTX-2 weights: free use, commercial too under a yearly revenue ceiling. The model page adds terms: a mirror must drop the DaSiWa name and link back to the page, and a paid generation service needs the author's agreement to use the name. Read both before you fetch the file."
+  },
+  "recipe": "ltx.video",
+  "inputs": {
+    "model": "DasiwaLTX23_goldenlaceV3.safetensors"
+  },
+  "files": [
+    {
+      "file": "DasiwaLTX23_goldenlaceV3.safetensors",
+      "folder": "diffusion_models",
+      "size": 29161931478,
+      "civitai": {
+        "version": 2967331,
+        "pick": "DasiwaLTX23_goldenlaceV3_2851659.safetensors",
+        "page": "https://civitai.com/models/2543443?modelVersionId=2967331"
+      }
+    }
+  ]
+}

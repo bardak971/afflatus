@@ -1,0 +1,39 @@
+{
+  "id": "dasiwa-h3-v4",
+  "name": "DaSiWa Hybrid v4",
+  "author": "Darksidewalker (DaSiWa)",
+  "note": "Hybrid v4 \"Resonance of Thoughts\", the newest hybrid, int8 ConvRot (the page also has int6 and int4). Recommended: res_multistep or euler / simple, shift 10–12 video and 3–5 sound, 20–25 steps.",
+  "homepage": "https://civitai.com/models/2877206?modelVersionId=3391862",
+  "links": [
+    {
+      "label": "GitHub",
+      "url": "https://github.com/darksidewalker"
+    }
+  ],
+  "licence": {
+    "name": "MiniMax H3 Community License, with the author's addendum",
+    "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE",
+    "note": "MiniMax's licence for H3 weights: it names territories where the weights may not be used (the EU, the UK, South Korea and the USA at the time of writing) and a revenue ceiling for commercial use; outputs shown in public must be disclosed as machine-made. The model page adds terms on mirrors, the DaSiWa name and paid generation services. Read both before you fetch the file."
+  },
+  "recipe": "h3.video",
+  "inputs": {
+    "model": "DasiwaMinimaxH3_dasiwaHybridV4_int8.safetensors",
+    "sampler": "res_multistep",
+    "scheduler": "simple",
+    "shiftVideo": 11,
+    "shiftAudio": 4,
+    "steps": 24
+  },
+  "files": [
+    {
+      "file": "DasiwaMinimaxH3_dasiwaHybridV4_int8.safetensors",
+      "folder": "diffusion_models",
+      "size": 20967668616,
+      "civitai": {
+        "version": 3391862,
+        "pick": "DasiwaMinimaxH3_dasiwaHybridV4_3281578.safetensors",
+        "page": "https://civitai.com/models/2877206?modelVersionId=3391862"
+      }
+    }
+  ]
+}

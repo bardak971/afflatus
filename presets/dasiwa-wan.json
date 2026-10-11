@@ -1,0 +1,49 @@
+{
+  "id": "dasiwa-wan",
+  "name": "SnatchKiss v11 (High + Low)",
+  "author": "Darksidewalker (DaSiWa)",
+  "note": "SnatchKiss v11, the TrueVision line of Wan 2.2 image-to-video: the high- and low-noise 14B models in fp8. Recommended: 20–30 steps, CFG 3.5, euler or uni_pc_bh2 / simple, up to 720p.",
+  "homepage": "https://civitai.com/models/2272580?modelVersionId=2959309",
+  "links": [
+    {
+      "label": "GitHub",
+      "url": "https://github.com/darksidewalker"
+    }
+  ],
+  "licence": {
+    "name": "Apache 2.0 (Wan 2.2), with the author's distribution addendum",
+    "url": "https://civitai.com/models/2272580",
+    "note": "Wan 2.2 is Apache 2.0; the model page adds that the files may not be hosted, mirrored or redistributed elsewhere without the author's written permission."
+  },
+  "recipe": "wan.video",
+  "inputs": {
+    "model": "DasiwaWAN22I2V14BTruevision_snatchkissHighV11.safetensors",
+    "modelLow": "DasiwaWAN22I2V14BTruevision_snatchkissLowV11.safetensors",
+    "steps": 24,
+    "cfg": 3.5,
+    "sampler": "euler",
+    "scheduler": "simple"
+  },
+  "files": [
+    {
+      "file": "DasiwaWAN22I2V14BTruevision_snatchkissHighV11.safetensors",
+      "folder": "diffusion_models",
+      "size": 19457051552,
+      "civitai": {
+        "version": 2959309,
+        "pick": "DasiwaWAN22I2V14BTruevision_snatchkissHighV11.safetensors",
+        "page": "https://civitai.com/models/2272580?modelVersionId=2959309"
+      }
+    },
+    {
+      "file": "DasiwaWAN22I2V14BTruevision_snatchkissLowV11.safetensors",
+      "folder": "diffusion_models",
+      "size": 19457051552,
+      "civitai": {
+        "version": 2959520,
+        "pick": "DasiwaWAN22I2V14BTruevision_snatchkissLowV11.safetensors",
+        "page": "https://civitai.com/models/2272580?modelVersionId=2959520"
+      }
+    }
+  ]
+}

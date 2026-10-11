@@ -40,7 +40,11 @@ export function PresetFiles({ id, def }: { id: string; def: PresetDef }) {
   const files = status?.files ?? (def.files ?? []).map((f) => ({ ...f, have: false }));
   const fetching = Boolean(settings.data?.downloadModels);
   const fetchAll = useMutation({
-    mutationFn: (accept?: boolean) => api.getPresetFiles(id, accept ? { accept } : {}),
+    // the button is there whether downloads are on or not: pressed, it turns them on (it says so) and fetches
+    mutationFn: async (accept?: boolean) => {
+      if (!fetching) await api.saveSettings({ downloadModels: true });
+      return api.getPresetFiles(id, accept ? { accept } : {});
+    },
     onSuccess: (r) => {
       setGot({ started: r.started.length, failed: r.failed, skipped: r.skipped });
       void Promise.all(KEYS.map((k) => client.invalidateQueries({ queryKey: k })));
@@ -94,13 +98,14 @@ export function PresetFiles({ id, def }: { id: string; def: PresetDef }) {
         </div>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        {missing.length > 0 && fetching && fetchable.length > 0 && (
+        {fetchable.length > 0 && (
           <Button size="sm" tone="primary" onClick={go} disabled={fetchAll.isPending} className="flex items-center gap-1.5">
             <DownloadIcon size={13} /> Get the {fetchable.length} missing file{fetchable.length > 1 ? "s" : ""}{bytes ? ` (${gb(bytes)})` : ""}
           </Button>
         )}
-        {missing.length > 0 && !fetching && <span className="text-xs text-ink-2">To fetch them from here, turn on "Download missing models into ComfyUI" under <Link href="/settings/models" className="font-semibold underline">Settings → Models</Link>.</span>}
-        {missing.length > 0 && fetching && needsKey && <span className="text-xs text-ink-2">Civitai files need your Civitai key (Settings → Models) for most downloads.</span>}
+        {/* most Civitai files are refused without a key: said before the click, with where the key goes */}
+        {fetchable.length > 0 && needsKey && <span className="text-xs text-warn-ink">Most Civitai files need your Civitai API key (free with an account): add it in <Link href="/settings/models" className="font-semibold underline">Settings → Models</Link>.</span>}
+        {fetchable.length > 0 && !needsKey && !fetching && <span className="text-xs text-ink-2">This also turns on "Download missing models into ComfyUI" (<Link href="/settings/models" className="font-semibold underline">Settings → Models</Link>).</span>}
       </div>
       {got && (
         <div className="text-xs text-ink-2">
