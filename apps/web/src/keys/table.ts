@@ -229,7 +229,8 @@ export const PLACES: KeyPlace[] = [
           { keys: "S", does: "Keep / unkeep" },
           { keys: "Del", does: "Move to the bin, go to the next" },
           { keys: "D", does: "Download", note: "in the bin too" },
-          { keys: "F2", does: "Rename", note: "opened large" },
+          { keys: "Enter", does: "Open it large", note: "on the stage under Draft" },
+          { keys: "F2", does: "Rename", note: "opened large: in place; on the stage: asked" },
           { keys: "N", does: "Start a timeline from it", note: "opened large; under Draft N folds the form" },
           { keys: "A", does: "Add to the timeline last added to" },
           { keys: "L", does: "Reuse · same seed", note: "the form, same parameters and seed" },
@@ -250,6 +251,8 @@ export const PLACES: KeyPlace[] = [
           { keys: "E", does: "Edit…", note: "img2img: a new draft in the form" },
           { keys: "R", does: "Outpaint…", note: "a new draft in the form" },
           { keys: "M", does: "Image to video (i2v)" },
+          { keys: "Shift+H", does: "Mirror ↔", note: "a mirrored copy, left and right swapped" },
+          { keys: "Shift+V", does: "Mirror ↕", note: "a mirrored copy, top and bottom swapped" },
         ],
       },
       {
@@ -264,6 +267,8 @@ export const PLACES: KeyPlace[] = [
       {
         name: "Compare",
         rows: [
+          { keys: "W", does: "Wipe", note: "the two pictures over each other, or side by side again" },
+          { keys: "Shift+X", does: "Swap", note: "the pinned one becomes the one the arrows change" },
           { keys: "← →", does: "Move the wipe", note: "its handle focused; Shift: ten" },
           { keys: "Home End", does: "Wipe all one side", note: "its handle focused" },
         ],

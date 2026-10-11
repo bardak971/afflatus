@@ -59,6 +59,8 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   const detail = useAsset(asset.id);
   // what a video gives besides itself: the frame it is paused on, and its sound; both open here once made
   const player = useRef<HTMLVideoElement>(null);
+  // comparing: Wipe and Swap, by their keys (W, Shift+X), filled by Compare
+  const compareKeys = useRef<{ wipe(): void; swap(): void } | null>(null);
   const acts = useViewerActions({ asset, first, trailed: trail.length > 0, items, more, detail, into, inline, player, trim, onOpen, onClose, onOpened: (a) => setTrail((t) => [...t, a]) });
   const { a, g, leave, move, timeline } = acts;
   const formTarget = useFormTarget((st) => st.target);
@@ -170,6 +172,8 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
       return;
     }
     if (info || !plainKey(e, { over: "[data-keys-help]" })) return;
+    // Enter on a button, a link or a row that has the focus is theirs (it presses them), not Open's
+    if (e.key === "Enter" && (e.target as HTMLElement | null)?.closest?.("button, a, [role=button], [role=option], [role=slider], [role=menuitem], summary")) return;
     const k = e.key.toLowerCase();
     // a video that has the focus keeps its own arrow keys
     const inPlayer = (e.target as HTMLElement | null)?.tagName === "VIDEO";
@@ -179,6 +183,9 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     // drawn in place (the Studio's stage), N is the Studio's own (it folds the form): a timeline starts from the menus there
     else if (k === "n" && !inline && a.kind !== "audio" && !a.inBin) timeline.startFrom(a);
     else if (k === "a" && a.kind !== "audio" && !a.inBin && timeline.addToLast) timeline.addToLast(a);
+    // comparing: W lays the two pictures over each other (or side by side again), Shift+X swaps the pinned one and the other
+    else if (comparing && k === "w" && !e.shiftKey && compareKeys.current) compareKeys.current.wipe();
+    else if (comparing && k === "x" && e.shiftKey && compareKeys.current) compareKeys.current.swap();
     else {
       // every other key is the list's: the action whose key it is, when it acts here and is on now (in the bin, D)
       const action = actionOfKey(list, place, keyOfEvent(e));
@@ -193,7 +200,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const compare = comparing ? <Compare pinned={pinned!} other={asset} onSwap={() => { const was = pinned!; setPinned(asset); onOpen?.(was); }} onClose={() => setPinned(null)} /> : null;
+  const compare = comparing ? <Compare pinned={pinned!} other={asset} onSwap={() => { const was = pinned!; setPinned(asset); onOpen?.(was); }} onClose={() => setPinned(null)} keys={compareKeys} /> : null;
   // the viewer's menu: the open form first (the place's own section), then the item's list
   const places = formPlaces(formTarget, a);
   const own: MenuItem[] = places.length ? [{ label: "Use in this draft", icon: <Plus size={14} />, note: formTarget?.recipe.title, items: places }] : [];

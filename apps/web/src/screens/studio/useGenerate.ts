@@ -47,7 +47,9 @@ export function useGenerate({ recipe, draft, defaults, folder, d, blocked }: {
   };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      // not once something else took the key: Ctrl+Enter in the command bar is a row's second action ("Show in Projects"),
+      // and the bar closing on it left nothing here to tell it was not the form's
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !e.defaultPrevented) {
         e.preventDefault();
         make.current();
       }

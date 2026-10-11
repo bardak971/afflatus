@@ -118,7 +118,9 @@ export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onS
       data-stage
       className={cx(
         // a container: what sits on the tile (its clip and take) says less on a narrow one
-        "@container/tile relative block w-full select-none overflow-hidden rounded-xl bg-panel outline-none hover:ring-2 hover:ring-accent focus-visible:ring-2 focus-visible:ring-accent",
+        "@container/tile relative block w-full select-none overflow-hidden rounded-xl bg-panel outline-none focus-visible:ring-2 focus-visible:ring-accent",
+        // in the draft's results column the card around it marks the hover: a ring of its own drew a second border inside it
+        !plain && "hover:ring-2 hover:ring-accent",
         fill ? "h-full" : "aspect-[3/4]",
         selected && "ring-2 ring-accent",
       )}

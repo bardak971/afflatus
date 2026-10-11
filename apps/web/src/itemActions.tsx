@@ -54,8 +54,8 @@ export const ACTIONS: Record<ActionId, Spec> = {
   inpaint: { group: "passes", label: "Inpaint…", key: "I", kinds: ["image"], icon: Paintbrush, tip: "Inpaint: a new draft with this picture as the source, the mask painter open." },
   edit: { group: "passes", label: "Edit…", key: "E", kinds: ["image"], icon: PenLine, tip: "Edit / img2img: a new draft in the form with this picture as the source." },
   outpaint: { group: "passes", label: "Outpaint…", key: "R", kinds: ["image"], icon: SquareDashed, tip: "Outpaint: a new draft in the form, the picture on a larger canvas." },
-  "mirror-h": { group: "passes", label: "Mirror ↔", kinds: ["image"], icon: FlipHorizontal2, tip: "A mirrored copy, left and right swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU." },
-  "mirror-v": { group: "passes", label: "Mirror ↕", kinds: ["image"], icon: FlipVertical2, tip: "A mirrored copy, top and bottom swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU." },
+  "mirror-h": { group: "passes", label: "Mirror ↔", key: "Shift+H", kinds: ["image"], icon: FlipHorizontal2, tip: "A mirrored copy, left and right swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU." },
+  "mirror-v": { group: "passes", label: "Mirror ↕", key: "Shift+V", kinds: ["image"], icon: FlipVertical2, tip: "A mirrored copy, top and bottom swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU." },
   trim: { group: "tools", label: "Trim", key: "T", kinds: ["video"], icon: Scissors, tip: "Pick an in and an out, then copy, split or remove the range, save its frames, or generate between them." },
   "save-frame": { group: "tools", label: "Save frame", key: "G", kinds: ["video"], icon: ImageDown, tip: "Save the frame the video is paused on as a picture in your library." },
   "extract-audio": { group: "tools", label: "Extract audio", kinds: ["video"], icon: AudioLines, tip: "Its audio track as a file of its own in your library: for another clip, or as music." },
@@ -204,13 +204,13 @@ export type Place = "grid" | "stage" | "viewer" | "inline" | "shelf" | "projects
 
 /**
  * Whether a place draws an action's key: only where the key does it. The viewer's keys act in the viewer (over the
- * screen, or in place on the stage, where F2 and Enter do not); the command bar names the viewer's key; the Projects
+ * screen, or in place on the stage, where Enter opens it large and F2 asks its name); the command bar names the viewer's key; the Projects
  * panel's own keys keep, rename and bin a row; the Studio's grid, the media shelf and the queue have none of these.
  */
 export function keysShown(place: Place, id: ActionId): boolean {
   switch (place) {
     case "viewer": return id !== "open";
-    case "inline": case "stage": return id !== "open" && id !== "rename";
+    case "inline": case "stage": return true;
     case "command": return true;
     case "projects": return id === "keep" || id === "rename" || id === "bin";
     default: return false;
@@ -309,7 +309,8 @@ export function keyOfEvent(e: { key: string; shiftKey: boolean }): string {
   if (e.key === "Delete") return "Del";
   if (e.key === "F2" || e.key === "Enter") return e.key;
   const k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
-  return e.shiftKey && k === "L" ? "Shift+L" : k;
+  // Shift with a letter is a key of its own (Shift+L, Shift+H): it never does what the letter alone does
+  return e.shiftKey && /^[A-Z]$/.test(k) ? `Shift+${k}` : k;
 }
 
 /** The action a key does in a place, when it acts there and is on now; passes included. */

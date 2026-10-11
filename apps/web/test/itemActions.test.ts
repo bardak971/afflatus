@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { MenuItem } from "../src/ContextMenu";
-import { ACTIONS, actionIds, itemActions, keysShown, ORDER, PASSES, placeMenu, sideGroups, sideSlot, stageBar, toMenu, type ActionId, type ItemFacts, type Kind, type Place, type Runs } from "../src/itemActions";
+import { ACTIONS, actionIds, itemActions, keyOfEvent, keysShown, ORDER, PASSES, placeMenu, sideGroups, sideSlot, stageBar, toMenu, type ActionId, type ItemFacts, type Kind, type Place, type Runs } from "../src/itemActions";
 import { parseKeys } from "../src/keys/grammar";
 import { PLACES } from "../src/keys/table";
 
@@ -47,6 +47,14 @@ describe("the item's list", () => {
       expect(parseKeys(key), id).not.toBeNull();
       expect(listed.has(key), `${id}: ${key}`).toBe(true);
     }
+  });
+
+  it("reads Shift with a letter as a key of its own, never as the letter alone", () => {
+    expect(keyOfEvent({ key: "H", shiftKey: true })).toBe("Shift+H");
+    expect(keyOfEvent({ key: "u", shiftKey: false })).toBe("U");
+    expect(keyOfEvent({ key: "U", shiftKey: true })).toBe("Shift+U");
+    expect(keyOfEvent({ key: "Delete", shiftKey: true })).toBe("Del");
+    expect(keyOfEvent({ key: "?", shiftKey: true })).toBe("?");
   });
 
   it("keeps an action that does not apply now in its place, off, with the reason", () => {
@@ -109,7 +117,9 @@ describe("every place shows the same list", () => {
     expect(keysShown("projects", "variation")).toBe(false);
     expect(keysShown("viewer", "variation")).toBe(true);
     expect(keysShown("viewer", "open")).toBe(false);
-    expect(keysShown("inline", "rename")).toBe(false);
+    // on the stage Enter opens it large and F2 asks its name
+    expect(keysShown("inline", "rename")).toBe(true);
+    expect(keysShown("stage", "open")).toBe(true);
     expect(keysShown("command", "open")).toBe(true);
     const grid = toMenu(itemActions(facts("image"), runs), "grid");
     expect(grid.some((x) => x !== "—" && x.key)).toBe(false);

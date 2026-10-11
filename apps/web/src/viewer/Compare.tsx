@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { ChevronsLeftRight } from "lucide-react";
 import { fileUrl, type Asset } from "../api";
 import { Keys } from "../Keys";
@@ -49,6 +49,23 @@ function useInStep(master: RefObject<HTMLVideoElement | null>, other: RefObject<
  */
 function Wipe({ pinned, other, at, onAt, said }: { pinned: Asset; other: Asset; at: number; onAt(at: number): void; said(a: Asset): string }) {
   const box = useRef<HTMLDivElement>(null);
+  // the room it has, measured, and the box the pinned picture fits in it at its own shape: both pictures are drawn in that box.
+  // Sized from the window's height instead, it ran under the buttons below the stage, and the second picture, fitted to a box
+  // cut shorter than the first, came out narrower than it
+  const area = useRef<HTMLDivElement>(null);
+  const [room, setRoom] = useState<{ w: number; h: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = area.current;
+    if (!el) return;
+    const measure = () => setRoom({ w: el.clientWidth, h: el.clientHeight });
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
+  const [natural, setNatural] = useState<number | null>(null);
+  const shape = pinned.width && pinned.height ? pinned.width / pinned.height : natural ?? 1;
+  const fit = room && room.w > 0 && room.h > 0 ? (room.w / room.h > shape ? { w: room.h * shape, h: room.h } : { w: room.w, h: room.w / shape }) : null;
   const [dragging, setDragging] = useState(false);
   const clamp = (v: number) => Math.max(0, Math.min(100, v));
   const toPointer = (clientX: number) => {
@@ -57,10 +74,12 @@ function Wipe({ pinned, other, at, onAt, said }: { pinned: Asset; other: Asset; 
   };
   const label = "absolute bottom-2.5 max-w-[45%] truncate rounded-md bg-black/60 px-1.5 py-0.5 font-mono text-[11px] text-white";
   return (
-    // the two pictures in one box: the second drawn over the first and cut at the line
+    <div ref={area} className="absolute inset-0 flex items-center justify-center">
+    {/* the two pictures in one box: the second drawn over the first and cut at the line */}
     <div
       ref={box}
-      className={cx("relative max-h-full max-w-full touch-none select-none", dragging ? "cursor-grabbing" : "cursor-ew-resize")}
+      style={fit ? { width: fit.w, height: fit.h } : { visibility: "hidden" }}
+      className={cx("relative touch-none overflow-hidden rounded-lg select-none", dragging ? "cursor-grabbing" : "cursor-ew-resize")}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -71,8 +90,8 @@ function Wipe({ pinned, other, at, onAt, said }: { pinned: Asset; other: Asset; 
       onPointerUp={() => setDragging(false)}
       onPointerCancel={() => setDragging(false)}
     >
-      <img src={fileUrl(pinned.id)} alt="" draggable={false} className="max-h-[calc(100vh-150px)] max-w-full rounded-lg object-contain" />
-      <img src={fileUrl(other.id)} alt="" draggable={false} className="absolute inset-0 h-full w-full rounded-lg object-contain" style={{ clipPath: `inset(0 0 0 ${at}%)` }} />
+      <img src={fileUrl(pinned.id)} alt="" draggable={false} onLoad={(e) => setNatural(e.currentTarget.naturalWidth / (e.currentTarget.naturalHeight || 1))} className="absolute inset-0 h-full w-full object-contain" />
+      <img src={fileUrl(other.id)} alt="" draggable={false} className="absolute inset-0 h-full w-full object-contain" style={{ clipPath: `inset(0 0 0 ${at}%)` }} />
       <div className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-white shadow-[0_0_6px_rgba(0,0,0,.5)]" style={{ left: `${at}%` }} />
       <div
         role="slider"
@@ -100,6 +119,7 @@ function Wipe({ pinned, other, at, onAt, said }: { pinned: Asset; other: Asset; 
       <span className={cx(label, "left-2.5")}>Pinned{said(pinned)}</span>
       <span className={cx(label, "right-2.5")}>This one{said(other)}</span>
     </div>
+    </div>
   );
 }
 
@@ -107,7 +127,14 @@ function Wipe({ pinned, other, at, onAt, said }: { pinned: Asset; other: Asset; 
  * Two items side by side: the one pinned, and the one the arrow keys move through. Videos play in step
  * from the pinned one's controls; two pictures can also be laid over each other with a wipe.
  */
-export function Compare({ pinned, other, onSwap, onClose }: { pinned: Asset; other: Asset; onSwap(): void; onClose(): void }) {
+export function Compare({ pinned, other, onSwap, onClose, keys }: {
+  pinned: Asset;
+  other: Asset;
+  onSwap(): void;
+  onClose(): void;
+  /** Filled here for the viewer's keys: W lays the pictures over each other (or side by side again), Shift+X swaps them. */
+  keys?: RefObject<{ wipe(): void; swap(): void } | null>;
+}) {
   const left = useRef<HTMLVideoElement>(null);
   const right = useRef<HTMLVideoElement>(null);
   // pictures laid over each other: where the second one takes over, in percent of the width; null = side by side
@@ -116,6 +143,8 @@ export function Compare({ pinned, other, onSwap, onClose }: { pinned: Asset; oth
   // the keys sheet's "Here now": comparing is the viewer's (its arrows change the other one)
   useKeysHere("viewer", true, { kind: other.kind });
   const pictures = pinned.kind === "image" && other.kind === "image";
+  const toggleWipe = () => setWipe((w) => (w === null ? 50 : null));
+  if (keys) keys.current = { wipe: () => pictures && toggleWipe(), swap: onSwap };
   // two models compared (one draft tried on each): each side says which made it
   const familyName = useFamilyName();
   const models = Boolean(pinned.family && other.family && pinned.family !== other.family);
@@ -144,13 +173,13 @@ export function Compare({ pinned, other, onSwap, onClose }: { pinned: Asset; oth
           {pane(other, right, "This one")}
         </div>
       ) : (
-        <div className="flex min-h-0 grow items-center justify-center">
+        <div className="relative min-h-0 grow">
           <Wipe pinned={pinned} other={other} at={wipe} onAt={setWipe} said={said} />
         </div>
       )}
       <div className="flex shrink-0 flex-wrap items-center justify-center gap-2">
-        {pictures && <Button size="sm" tone={wipe !== null ? "primary" : "plain"} aria-pressed={wipe !== null} data-tip="The two pictures over each other, the second cut at a line you move" onClick={() => setWipe((w) => (w === null ? 50 : null))}>Wipe</Button>}
-        <Button size="sm" data-tip="The pinned one becomes the one you move through, and the other way round" onClick={onSwap}>Swap</Button>
+        {pictures && <Button size="sm" tone={wipe !== null ? "primary" : "plain"} aria-pressed={wipe !== null} data-tip="The two pictures over each other, the second cut at a line you move" onClick={toggleWipe}>Wipe <Keys keys="W" size="sm" /></Button>}
+        <Button size="sm" data-tip="The pinned one becomes the one you move through, and the other way round" onClick={onSwap}>Swap <Keys keys="Shift+X" size="sm" /></Button>
         <span className="flex items-center gap-1 text-xs text-ink-3"><Keys keys="← →" size="sm" /> another one on the right{wipe !== null && pictures ? " · drag the line on the picture" : ""}</span>
         <Button size="sm" onClick={onClose}>Done <Keys keys="X" size="sm" /></Button>
       </div>
