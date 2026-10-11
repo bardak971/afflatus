@@ -28,6 +28,8 @@ export interface Asset {
   clipOf?: ClipOf | null;
   /** Made in Create: the draft it came from (only in listings). */
   draftOf?: { id: string; name: string } | null;
+  /** Generated: the model family it was made with (only in listings). */
+  family?: string | null;
   /**
    * When its own name says nothing (none, or "video · 0:01–0:02" from a nameless video): the name it is shown under, worked
    * out from where it came from ("Big Air · c2 · t5 · 0:01–0:02"). Absent when its name holds or there is nothing to go on.
@@ -155,4 +157,6 @@ export interface DraftLeaf {
   id: string; title: string; name: string | null; recipe: string; createdAt?: string; updatedAt: string;
   /** Read from the drafts list, not the tree's search: its renders in the library and their size; no prompt, no name, nothing made from it. */
   outputs?: number; bytes?: number; unused?: boolean;
+  /** Also from the drafts list: the model families its outputs were made with, the newest first. */
+  models?: Array<{ family: string; outputs: number }>;
 }

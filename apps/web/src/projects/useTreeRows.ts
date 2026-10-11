@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { keepPreviousData, useQueries } from "@tanstack/react-query";
 import { api, type Asset, type DraftLeaf, type ProjectsTree } from "../api";
 import { useRecipes } from "../data";
-import { recipeLabel } from "../format";
+import { triedLabel } from "../format";
 import { draftsKey, flatten, groupKey, itemsOrder, rowHeight, siblings, type DraftsRead, type ItemKind, type ItemsRead, type Sort } from "./tree";
 import { queryKeys } from "../queryKeys";
 
@@ -47,11 +47,14 @@ export function useTreeRows({ data, q, kind, sort, only, current, isOpen, folds,
       return [draftsKey(g.id), { items, limit: limits[draftsKey(g.id)] ?? DRAFTS_PAGE }];
     }),
   );
-  const recipeName = (id: string) => {
-    const r = recipes.data?.recipes.find((x) => x.id === id);
-    return r ? recipeLabel(recipes.data?.families.find((f) => f.id === r.family)?.name, r.title) : id;
+  const familyName = (id: string) => recipes.data?.families.find((f) => f.id === id)?.name ?? id;
+  // its form's model, then the other families it was tried on, as the drafts list says them
+  const draftMeta = (d: DraftLeaf) => {
+    const r = recipes.data?.recipes.find((x) => x.id === d.recipe);
+    const others = (d.models ?? []).filter((m) => m.family !== r?.family).map((m) => familyName(m.family));
+    const said = r ? triedLabel(familyName(r.family), others, r.title) : [d.recipe, ...others].join(" · ");
+    return `${said}${d.outputs ? ` · ${d.outputs} render${d.outputs === 1 ? "" : "s"}` : ""}`;
   };
-  const draftMeta = (d: DraftLeaf) => `${recipeName(d.recipe)}${d.outputs ? ` · ${d.outputs} render${d.outputs === 1 ? "" : "s"}` : ""}`;
   // the items of each unfolded folder that is shown, read when it opens (the folders shown do not depend on items: they come first)
   const [itemPages, setItemPages] = useState<Record<string, number>>({});
   const openFolders = useMemo(

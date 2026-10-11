@@ -6,6 +6,7 @@ import { bringFiles } from "../bringFiles";
 import { ask, askAboutDisk, askText } from "../Confirm";
 import { size } from "../format";
 import { pathOf, useFolderImport } from "../folderImport";
+import { duplicateDraft } from "../draft";
 import { useProject } from "../project";
 import { useSayFailed } from "../sayFailed";
 import { useBanners, useOpenDraft } from "../store";
@@ -152,8 +153,18 @@ export function useTreeActions() {
       const id = r.id;
       if (!id || !name || name === r.label) return Promise.resolve(false);
       return run(`${r.label} could not be renamed`, () =>
-        r.kind === "project" ? api.editProject(id, { name }) : r.kind === "folder" ? api.editFolder(id, { name }) : api.editTimeline(id, { name }),
+        r.kind === "project" ? api.editProject(id, { name }) : r.kind === "folder" ? api.editFolder(id, { name }) : r.kind === "draft" ? api.saveDraft(id, { name }).then(() => client.invalidateQueries({ queryKey: queryKeys.drafts.one(id) })) : api.editTimeline(id, { name }),
       );
+    },
+    /** A draft copied (draft.ts duplicateDraft) into its project: the copy's id, or null when it failed (said in a banner). */
+    async duplicate(r: Row): Promise<string | null> {
+      const id = r.id;
+      if (!id) return null;
+      let made: string | null = null;
+      await run(`${r.label} could not be duplicated`, async () => {
+        made = (await duplicateDraft(id)).id;
+      });
+      return made;
     },
     archive(r: Row, archived: boolean) {
       const id = r.id;

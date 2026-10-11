@@ -3,7 +3,7 @@ import { castPlace, clipRefuses, withPerson, type ClipCast } from "../src/bar/ca
 import { atTop } from "../src/screens/queue/order";
 import { gridAtLeast } from "@afflatus/core";
 import { arithmetic, calc, ratioOf, sizeFor, type Grid } from "../src/bar/calc";
-import { indexItems, lowerFirst, navItems, timelineLength, usedItems, withItems } from "../src/bar/items";
+import { draftModels, indexItems, lowerFirst, navItems, timelineLength, usedItems, withItems } from "../src/bar/items";
 import { snapEdge } from "../src/fields/SizeField";
 import { useBanners, useNotify } from "../src/store";
 import { highlight, pieces, prepare, QUALITY, score, search } from "../src/bar/match";
@@ -341,6 +341,23 @@ describe("a timeline's length in the bar", () => {
       clips: 3, durationMs: 12_000, plannedMs: 42_200, exported: false, unusedTakes: 0, unusedBytes: 0,
     }], [], null);
     expect(row!.meta).toBe("Timeline · 3 clips · 0:12 rendered of 0:42 · Inbox");
+  });
+});
+
+describe("a draft's row in the bar", () => {
+  const draft = { kind: "draft" as const, id: "d1", label: "Sunflower field", project: null, updatedAt: new Date().toISOString(), recipe: "krea2.txt2img", renders: 4, models: ["zimage", "krea2"] };
+  const recipes = [{ id: "krea2.txt2img", title: "txt2img", family: "krea2" }] as unknown as Parameters<typeof indexItems>[1];
+  const families = [{ id: "krea2", name: "Krea 2" }, { id: "zimage", name: "Z-Image" }];
+  it("says every model it was tried on, its form's first, and is found by any of them", () => {
+    const [row] = indexItems([draft], recipes, null, undefined, families);
+    expect(row!.meta).toMatch(/^Draft · Krea 2 · Z-Image · 4 renders · /);
+    expect(row!.p.lower).toContain("z-image");
+  });
+  it("says its recipe when nothing was made from it, or from a server that does not send the models", () => {
+    const { models: _, ...old } = draft;
+    expect(indexItems([{ ...old, renders: 0 }], recipes, null, undefined, families)[0]!.meta).toMatch(/^Draft · txt2img · 0 renders/);
+    expect(draftModels("krea2", ["zimage", "krea2"])).toEqual(["krea2", "zimage"]);
+    expect(draftModels("flux", ["zimage", "krea2"])).toEqual(["zimage", "krea2"]);
   });
 });
 

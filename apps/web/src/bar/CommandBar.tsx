@@ -121,7 +121,8 @@ export function CommandBar() {
   const { open, seed, preview, learn, hide, setPreview } = useBar();
   const [path, go] = useLocation();
   const client = useQueryClient();
-  const recipes = useRecipes().data?.recipes ?? NO_RECIPES;
+  const recipeList = useRecipes().data;
+  const recipes = recipeList?.recipes ?? NO_RECIPES;
   const families = useFamilies();
   const settings = useSettings();
   const entities = useEntities();
@@ -220,7 +221,8 @@ export function CommandBar() {
 
   // the timeline a command acts on: the one open in the editor, else the one last opened from here, else the last changed
   const entries = useMemo(() => withItems(index.data?.entries ?? [], picked, foundEntries ?? []), [index.data, picked, foundEntries]);
-  const base = useMemo(() => indexItems(entries, recipes, currentProject, index.data?.inboxItems), [entries, recipes, currentProject, index.data?.inboxItems]);
+  const familyList = recipeList?.families;
+  const base = useMemo(() => indexItems(entries, recipes, currentProject, index.data?.inboxItems, familyList), [entries, recipes, currentProject, index.data?.inboxItems, familyList]);
   const byKey = useMemo(() => new Map(base.map((i) => [i.key, i])), [base]);
   const aim: TimelineAim | null = useMemo(() => {
     const open = /^\/timelines\/([^/]+)/.exec(path)?.[1];

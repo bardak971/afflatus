@@ -156,13 +156,23 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
   /** A group's empty drafts deleted, asked in place on their row (from its Clear button or its menu); the open one stays. */
   const [clearAsk, setClearAsk] = useState<string | null>(null);
   const clearEmpty = (r: Row) => void actions.clearEmpty(r.group, groups.find((g) => g.id === r.group)?.name ?? "the Inbox", openDraftId);
-  const startRename = (r: Row) => (r.kind === "project" || (r.kind === "folder" && (!r.linked || r.linkedRoot)) || r.kind === "timeline") && r.id && setRenaming({ key: r.key, name: r.label });
+  const startRename = (r: Row) => (r.kind === "project" || (r.kind === "folder" && (!r.linked || r.linkedRoot)) || r.kind === "timeline" || r.kind === "draft") && r.id && setRenaming({ key: r.key, name: r.label });
+  // a duplicate lands beside its draft with its name box open, once its row is there (the drafts are read again)
+  const [nameNext, setNameNext] = useState<string | null>(null);
+  useEffect(() => {
+    const r = nameNext ? byKey.get(nameNext) : undefined;
+    if (!r) return;
+    setNameNext(null);
+    setFocused(r.key);
+    setRenaming({ key: r.key, name: r.label });
+  }, [nameNext, byKey]);
+  const duplicate = (r: Row) => void actions.duplicate(r).then((id) => id && setNameNext(`dr:${id}`));
 
   // the right-click menus: one per kind of row, and the selection bar's "Move to"
   const menus = useRowMenus({
     picked, rows, byKey, scoped, current, projects: projects.data?.items ?? [], folders: folders.data?.items ?? [], groups,
     binCount: storage.data?.bin.count ?? 0, binBytes: storage.data?.bin.bytes ?? 0, actions, pins, setProject, setOpen, setFocused, setClearAsk,
-    clearPicks, activate, startRename, remove, importInto, onView, showInStudio,
+    clearPicks, activate, startRename, duplicate, remove, importInto, onView, showInStudio,
   });
   // dragging rows onto a project, the Inbox or a folder, and the library's items and files from the computer
   const drag = useTreeDrag({ picked, renaming: Boolean(renaming), setOpen, actions, clearPicks, targetOf, list, head, footHeight });

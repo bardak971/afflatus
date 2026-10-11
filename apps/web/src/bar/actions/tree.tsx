@@ -1,6 +1,7 @@
 import { Archive, ArchiveRestore, Download, ExternalLink, FileOutput, Film, FolderInput, FolderKanban, FolderOpen, FolderPlus, Layers, Pencil, PenLine, Pin, PinOff, Play, RefreshCw, Sparkles, Trash2, Upload, Wand2 } from "lucide-react";
 import { api, type CommandEntry } from "../../api";
 import { ask, askText } from "../../Confirm";
+import { duplicateDraft } from "../../draft";
 import { size } from "../../format";
 import { useProject } from "../../project";
 import type { Moving, Row, Target } from "../../projects/tree";
@@ -55,8 +56,8 @@ export function draftActions(x: BarCtx, d: Extract<CommandEntry, { kind: "draft"
     { label: "Show in Projects", icon: <FolderKanban size={14} />, run: () => openProjects(d.label) },
     { label: "Generate again", icon: <Play size={14} />, note: "as its Generate button", run: () => formWhenOpen(d.id, () => openDraft(d.id)).then((t) => (t?.generate ? t.generate() : x.say({ id: "bar:gen", tone: "bad", title: "The draft could not be opened", href: "/", go: "Open the Studio" }))) },
     {
-      label: "Duplicate", icon: <Layers size={14} />, note: "a new draft with its form",
-      run: () => api.draft(d.id).then((y) => api.createDraft({ recipe: y.recipe, forms: y.forms, count: y.count, look: y.look, project: d.project })).then((made) => { void client.invalidateQueries({ queryKey: queryKeys.drafts.lists() }); x.openNew(made); }, failed("Could not duplicate the draft")),
+      label: "Duplicate", icon: <Layers size={14} />, note: "a new draft with its forms",
+      run: () => duplicateDraft(d.id).then((made) => { void client.invalidateQueries({ queryKey: queryKeys.drafts.lists() }); x.openNew(made); }, failed("Could not duplicate the draft")),
     },
     {
       // as the draft header's pencil: the name it is listed by, instead of the start of its prompt

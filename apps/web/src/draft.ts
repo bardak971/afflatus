@@ -78,6 +78,16 @@ export const pickFor = (items: { id: string }[], last: string | undefined, skip:
  * A draft that was just made (from a picture, a workflow, a file's parameters) opened in the form:
  * it is put in the cache, the list is told, it becomes the open draft, and the screen goes to the form.
  */
+/**
+ * A copy of a draft, as every Duplicate makes it: its forms for every model, its count, its cast, its project, and its name
+ * (or the start of its prompt) with " copy"; not what was made from it, nor its conversation with the designer.
+ */
+export async function duplicateDraft(id: string): Promise<Draft> {
+  const d = await api.draft(id);
+  const named = (d.name || d.title).trim();
+  return api.createDraft({ recipe: d.recipe, forms: d.forms, count: d.count, look: d.look, project: d.projectId, ...(named ? { name: `${named.slice(0, 75)} copy` } : {}) });
+}
+
 export function useOpenNewDraft() {
   const client = useQueryClient();
   const open = useOpenDraft((s) => s.open);

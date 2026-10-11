@@ -77,7 +77,7 @@ const agree = <S, W, Skip extends string = never>() => expectTypeOf<Agree<S, W, 
  * The keys of a library item the listings add (GET /api/assets): the web's one Asset has them as optional, and an item
  * read alone, or one inside another answer (a timeline's clip, an item's sources), goes without them.
  */
-type ListedOnly = "clipOf" | "draftOf" | "shownName";
+type ListedOnly = "clipOf" | "draftOf" | "shownName" | "family";
 
 describe("the web's API types match what the server answers", () => {
   it("the library", () => {
@@ -85,7 +85,7 @@ describe("the web's API types match what the server answers", () => {
     agree<Awaited<ReturnType<typeof assetDetail>>, AssetDetail>().toEqualTypeOf<true>();
     agree<NonNullable<Awaited<ReturnType<Timelines["clipOf"]>> extends Map<string, infer C> ? C : never>, ClipOf>().toEqualTypeOf<true>();
     // a draft of the tree has its counts from the drafts list (DraftLeaf)
-    agree<Awaited<ReturnType<typeof projectsTree>>, ProjectsTree, "outputs" | "bytes" | "unused">().toEqualTypeOf<true>();
+    agree<Awaited<ReturnType<typeof projectsTree>>, ProjectsTree, "outputs" | "bytes" | "unused" | "models">().toEqualTypeOf<true>();
   });
 
   it("the queue, its history and the render times", () => {
@@ -101,8 +101,8 @@ describe("the web's API types match what the server answers", () => {
   });
 
   it("drafts and the kit", () => {
-    // the list's items add their cover and counts to the draft's own fields
-    agree<DraftView, Omit<Draft, "cover" | "coverKind" | "outputs" | "bytes" | "unused">>().toEqualTypeOf<true>();
+    // the list's items add their cover, counts and models to the draft's own fields
+    agree<DraftView, Omit<Draft, "cover" | "coverKind" | "outputs" | "bytes" | "unused" | "models">>().toEqualTypeOf<true>();
     // a kit item's definition is stored as JSON and sent back as read: the web's per-kind shapes are its only word on it
     agree<EntityView, Omit<Entity, "def" | "source">>().toEqualTypeOf<true>();
     agree<PresetFilesView, WebPresetFiles>().toEqualTypeOf<true>();

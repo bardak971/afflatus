@@ -12,6 +12,11 @@ import { queryKeys } from "./queryKeys";
  */
 
 export const useRecipes = () => useQuery({ queryKey: queryKeys.recipes(), queryFn: api.recipes, staleTime: Infinity });
+/** A model family's name by its id: the id itself while the recipes load, or for a family no longer installed. */
+export function useFamilyName(): (id: string) => string {
+  const families = useRecipes().data?.families;
+  return useMemo(() => (id: string) => families?.find((f) => f.id === id)?.name ?? id, [families]);
+}
 export const useSetup = () => useQuery({ queryKey: queryKeys.setup(), queryFn: api.setup, staleTime: 60_000 });
 export const useQueue = () => useQuery({ queryKey: queryKeys.queue(), queryFn: api.queue });
 /**
