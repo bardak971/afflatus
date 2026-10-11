@@ -82,9 +82,9 @@ describe("loading a model ahead of the render", () => {
     expect((await get(t.app, "/api/queue")).json().model).toBe("illustrious");
     expect((await post(t.app, "/api/comfy/loaded", form({ loras: [{ file: "a.safetensors", weight: 1 }] }))).json()).toEqual({ loaded: true });
     expect((await post(t.app, "/api/comfy/loaded", form({ checkpoint: "other.safetensors" }))).json()).toEqual({ loaded: false });
-    // a form too incomplete to build (a redraw with no picture yet): its chosen model alone says when the loaded one is not it, and nothing when it is
+    // a form without its picture yet (a redraw): its models are what is asked about, so it is answered like any other
     expect((await post(t.app, "/api/comfy/loaded", { recipe: "sdxl.redraw", input: { checkpoint: "other.safetensors" } })).json()).toEqual({ loaded: false });
-    expect((await post(t.app, "/api/comfy/loaded", { recipe: "sdxl.redraw", input: { checkpoint: CHECKPOINT } })).json()).toEqual({ loaded: null });
+    expect((await post(t.app, "/api/comfy/loaded", { recipe: "sdxl.redraw", input: { checkpoint: CHECKPOINT } })).json()).toEqual({ loaded: true });
 
     await render({ prompt: "a dog" });
     expect(frees()).toBe(1);
@@ -120,5 +120,22 @@ describe("loading a model ahead of the render", () => {
     const bad = (await post(t.app, "/api/jobs/warm", form({ checkpoint: "gone.safetensors" }))).json().id as string;
     await until(async () => (await statusOf(bad)) === "failed");
     expect((await post(t.app, "/api/comfy/loaded", { recipe: "nothing.like-it", input: {} })).json()).toEqual({ loaded: null });
+  });
+});
+
+describe("loading a model before the form has its pictures", () => {
+  it("loads the model files alone for an inpaint whose mask is not painted yet, instead of refusing", async () => {
+    const asked = await post(t.app, "/api/jobs/warm", { recipe: "sdxl.paint-over", input: { prompt: "", checkpoint: CHECKPOINT } });
+    expect(asked.statusCode).toBe(200);
+    const id = asked.json().id as string;
+    await until(() => submitted().length === 1);
+    const graph = fake.prompts.get(submitted()[0]!)!;
+    const classes = Object.values(graph).map((n) => n.class_type);
+    // the loaders and the node that holds them, nothing that would need the picture or the mask
+    expect(classes).toContain("CheckpointLoaderSimple");
+    expect(classes).toContain("PreviewAny");
+    for (const absent of ["LoadImage", "LoadImageMask", "KSampler", "VAEEncode"]) expect(classes).not.toContain(absent);
+    done(submitted()[0]!);
+    await until(async () => (await statusOf(id)) === "done");
   });
 });
