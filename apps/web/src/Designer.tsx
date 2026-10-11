@@ -8,20 +8,10 @@ import { Reply } from "./designer/Reply";
 import { SessionBar } from "./designer/SessionBar";
 import { SystemView } from "./designer/SystemView";
 import { keep, recall } from "./designer/typed";
+import type { DesignerTurn } from "./designer/types";
 import { useLeave } from "./leave";
 import { AutoText, Button, cx, ErrorNote, Help } from "./ui";
 import { queryKeys } from "./queryKeys";
-
-/** One thing said in the conversation. What the designer said keeps what it proposed, to use or not. */
-export interface DesignerTurn {
-  role: "user" | "assistant";
-  content: string;
-  reply?: DesignerReply;
-  /** The proposal was put in the form. */
-  used?: boolean;
-  /** What the parts it changes held when it was proposed: to show what changed, and to put back. */
-  was?: Record<string, string>;
-}
 
 /** What the designer said, as text again: the language model is shown its own earlier answers. */
 const asText = (r: DesignerReply) =>

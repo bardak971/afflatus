@@ -2,8 +2,7 @@ import { ArrowLeft, ArrowLeftToLine, ArrowRight, ArrowRightToLine, Camera, Chevr
 import type { InputSpec, ReferenceValue } from "@afflatus/core";
 import type { Asset, Clip, ClipPatch, RecipeInfo, Timeline, TimelinePatch } from "../api";
 import type { MenuItem } from "../ContextMenu";
-import { PIN_WORDS, pinInputs, splitPoint, type PinMirror } from "./model";
-import type { TimeRange } from "./Track";
+import { PIN_WORDS, pinInputs, splitPoint, type PinMirror, type TimeRange } from "./model";
 
 /** Where the playhead stands on a clip, as the player says it. */
 type Place = { clip: Clip; localMs: number; assetMs: number };

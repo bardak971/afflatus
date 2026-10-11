@@ -7,6 +7,7 @@ import { httpError } from "./errors";
 import { isNetworkPath } from "./linked";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
+import { olderThan } from "./version";
 import { zipOf } from "./zip";
 
 /**
@@ -29,14 +30,6 @@ async function nodePackVersion(): Promise<string | null> {
   const toml = await readFile(join(nodePackSource(), "pyproject.toml"), "utf-8").catch(() => "");
   return /^version\s*=\s*"([^"]+)"/m.exec(toml)?.[1] ?? null;
 }
-
-/** Whether version `a` comes before `b`, part by part as numbers ("0.9.0" before "0.10.0"). */
-export const olderThan = (a: string, b: string): boolean => {
-  const x = a.split(".").map((n) => parseInt(n, 10) || 0);
-  const y = b.split(".").map((n) => parseInt(n, 10) || 0);
-  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) < (y[i] ?? 0);
-  return false;
-};
 
 /** Copy the pack into `<comfyDir>/custom_nodes/afflatus-nodes/`; says whether anything was written. */
 export async function installNodePack(comfyDir: string): Promise<{ written: boolean; changed: boolean; path: string }> {

@@ -10,7 +10,7 @@ import type { Comfy } from "./comfy";
 import { httpError } from "./errors";
 import { fileName } from "./media";
 import { assertRoom, BAD_NAME, comfyFolderPaths, fetchToFile, freeBytes, modelRoot, NOT_MODELS, placeIn, REFUSED, Refused } from "./modelDownload";
-import { olderThan } from "./nodePack";
+import { olderThan } from "./version";
 import { assertPublicUrl, cannotReach, fetchFailure, fetchPublic } from "./outbound";
 import { renameOver } from "./storage";
 

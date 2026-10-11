@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import type { Asset, Clip, DesignerSession, RecipeInfo, Take, Timeline } from "../api";
 import { useFamilies, useModelSettings, useRecipes, useSetup, useTimeline } from "../data";
-import type { DesignerTurn } from "../Designer";
+import type { DesignerTurn } from "../designer/types";
 import { clock as mmss, notReady } from "../format";
 import { useMenu, type MenuHead } from "../ContextMenu";
 import { useBanners, useEditorColumn } from "../store";

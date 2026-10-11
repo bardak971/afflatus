@@ -5,7 +5,7 @@ import type { Clip, RecipeInfo, Timeline, TimelinePatch } from "../api";
 import { Keys } from "../Keys";
 import { useKeysHere } from "../keys/here";
 import { cx } from "../ui";
-import { layout, NEW_CLIP, otherShape, PAD, placeOf, roomOf, ZOOM, type PinWhere, type ShownPatch, type Slot } from "./model";
+import { layout, NEW_CLIP, otherShape, PAD, placeOf, roomOf, ZOOM, type PinWhere, type ShownPatch, type Slot, type TimeRange } from "./model";
 import type { Clock } from "./clock";
 import { FramePeek } from "./track/FramePeek";
 import type { PinPlace } from "./track/peek";
@@ -26,12 +26,6 @@ export interface TrackKeys {
 
 /** How long the pointer rests on a pinned picture before its card shows. */
 const PIN_AFTER_MS = 250;
-
-/** In and Out on the timeline, on the clock of what plays. */
-export interface TimeRange {
-  inMs: number;
-  outMs: number;
-}
 
 /**
  * The timeline itself: a ruler, the clips at their length with their own frames, each clip's sound,

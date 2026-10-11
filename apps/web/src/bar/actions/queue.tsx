@@ -4,8 +4,7 @@ import { moved } from "../../screens/queue/order";
 import { lighter, memoryThatRanOut, shorterStretch } from "../../screens/queue/retry";
 import { copyText } from "../../secureContext";
 import type { Item } from "../items";
-import type { Action } from "../useActions";
-import type { BarCtx } from "./ctx";
+import type { Action, BarCtx } from "./ctx";
 import { queryKeys } from "../../queryKeys";
 
 /** A job of the queue: what its row and menu on the Queue page do. */

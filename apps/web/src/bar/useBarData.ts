@@ -25,7 +25,7 @@ import { PAGES, SETTINGS, settingKeyNow, type SettingCtx } from "./settingsRegis
 import { useSelectedClip } from "./bridge";
 import { castPlace } from "./castTo";
 import { useBar } from "./store";
-import type { TimelineAim } from "./useActions";
+import type { TimelineAim } from "./actions/ctx";
 
 /** One empty list while the recipes load, so what is worked out from them is not redone at every render. */
 const NO_RECIPES: RecipeInfo[] = [];

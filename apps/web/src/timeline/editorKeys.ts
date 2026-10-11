@@ -2,7 +2,8 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import { stepFrames } from "../frameStep";
 import type { Clock } from "./clock";
 import type { PlayerHandle } from "./Player";
-import type { TimeRange, TrackKeys } from "./Track";
+import type { TimeRange } from "./model";
+import type { TrackKeys } from "./Track";
 
 // The timeline editor's keys, by what they do: playing and moving about, editing the clips, and letting go of what is
 // selected. No key is taken by two of them, so the order they are asked in (useEditorKeys) changes nothing.

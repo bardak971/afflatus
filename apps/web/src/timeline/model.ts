@@ -14,6 +14,12 @@ export const ZOOM = { least: 2, most: 110, start: 40, step: 1.3 };
 export const PAD = 10;
 export const NEW_CLIP = 116;
 
+/** In and Out on the timeline, on the clock of what plays. */
+export interface TimeRange {
+  inMs: number;
+  outMs: number;
+}
+
 /** "0:03.4": a moment on the timeline, to the tenth of a second. */
 export const stamp = (ms: number) => clock(ms, { decimals: 1 });
 

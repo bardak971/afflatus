@@ -6,8 +6,7 @@ import { size } from "../../format";
 import { useProject } from "../../project";
 import type { Moving, Row, Target } from "../../projects/tree";
 import { formWhenOpen, openProjects, workflowEditHref } from "../bridge";
-import type { Action, TimelineAim } from "../useActions";
-import type { BarCtx, FolderEntry, TimelineEntry } from "./ctx";
+import type { Action, BarCtx, FolderEntry, TimelineAim, TimelineEntry } from "./ctx";
 import { queryKeys } from "../../queryKeys";
 
 /** The Projects panel's row of an entry, as its actions take them. */

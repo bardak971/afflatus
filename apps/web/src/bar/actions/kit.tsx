@@ -4,8 +4,7 @@ import { mainTextOf } from "../../form";
 import { kitHref } from "../../screens/kit/link";
 import { copyText } from "../../secureContext";
 import { castPlace, withPerson } from "../castTo";
-import type { Action } from "../useActions";
-import type { BarCtx, Person } from "./ctx";
+import type { Action, BarCtx, Person } from "./ctx";
 
 /** A preset of the Prompt kit on the open draft, as the form's preset menu applies it (refused the same way). */
 export async function applyPreset(x: BarCtx, p: { id: string; name: string }) {

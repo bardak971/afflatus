@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Check, RefreshCw, RotateCcw, TriangleAlert, Undo2 } from "lucide-react";
 import { changedShare, wordDiff } from "../diff";
 import { Button, cx } from "../ui";
-import type { DesignerTurn } from "../Designer";
+import type { DesignerTurn } from "./types";
 
 /** A proposed text with what changed against what was there: new words marked, words taken out struck. */
 function Changed({ was, now }: { was: string; now: string }) {
