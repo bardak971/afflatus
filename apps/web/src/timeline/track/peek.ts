@@ -190,5 +190,6 @@ export function clipFacts(clip: Clip, index: number, clips: Clip[], jump: number
   }
   if (!take && clip.kind === "still" && job) facts.lines.push(job);
   if (clip.join === "stale") facts.lines.push({ text: `Join stale: clip ${index} changed since`, tone: "warn" });
+  if (clip.mirrorChanged) facts.lines.push({ text: "Mirror changed since this take", tone: "warn" });
   return facts;
 }

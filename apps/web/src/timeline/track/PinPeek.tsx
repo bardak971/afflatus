@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { fileUrl, thumbUrl, type RecipeInfo } from "../../api";
-import { pinInputs, type Slot } from "../model";
+import { pinInputs, pinMirrorOf, type Slot } from "../model";
+import { flipped } from "../MirrorMark";
+import { cx } from "../../ui";
 import { fitFrame, frameUrl, PEEK, pinCompare, pinTitle, takeLabel, type PinPlace } from "./peek";
 import { PeekCard, PeekFrame } from "./PeekCard";
 
@@ -31,6 +33,8 @@ export function PinPeek({ over, slot, recipe, bounds }: {
   const [size, setSize] = useState<{ id: string; w: number; h: number } | null>(null);
   if (!asset) return null;
 
+  // mirrored at render time: shown as it will be sent, flipped (the frame of the take beside it is as rendered)
+  const mirrored = pinMirrorOf(c, recipe, c.inputs, over.where, slot.index > 0 && c.joined === "continue")?.on;
   const midAtS = pins.midAt !== undefined ? Number(c.inputs[pins.midAt] ?? 2.5) : undefined;
   const take = !slot.planned && c.take ? c.take : null;
   const r = over.el.getBoundingClientRect();
@@ -50,7 +54,7 @@ export function PinPeek({ over, slot, recipe, bounds }: {
     />
   );
   const picture = (
-    <span className="relative block shrink-0 overflow-hidden rounded-[10px] bg-stage bg-contain bg-center bg-no-repeat" style={{ width: pinned.w, height: pinned.h, backgroundImage: `url(${thumbUrl(asset)})` }}>
+    <span className={cx("relative block shrink-0 overflow-hidden rounded-[10px] bg-stage bg-contain bg-center bg-no-repeat", flipped(mirrored))} style={{ width: pinned.w, height: pinned.h, backgroundImage: `url(${thumbUrl(asset)})` }}>
       {whole}
     </span>
   );
@@ -66,7 +70,7 @@ export function PinPeek({ over, slot, recipe, bounds }: {
       <span className="flex items-center gap-2.5">
         <span className="flex flex-col gap-1.5">
           {picture}
-          <Dot className="bg-accent">pinned</Dot>
+          <Dot className="bg-accent">{mirrored ? "pinned · mirrored" : "pinned"}</Dot>
         </span>
         <span className="flex flex-col gap-1.5">
           <PeekFrame url={frameUrl(take.asset, at.atMs, frame.h)} w={frame.w} h={frame.h} />

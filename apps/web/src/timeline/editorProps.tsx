@@ -10,8 +10,9 @@ import type { Track } from "./Track";
 import type { TimelineHeader, Transport } from "./EditorBars";
 import { ClipDesigner } from "./ClipDesigner";
 import { AttentionNote } from "./Overview";
-import { pinInputs } from "./model";
-import { placeItems, type ClipMenuActions } from "./menus";
+import { PIN_WORDS, pinInputs, pinMirrorOf } from "./model";
+import { pinMenuItems, placeItems, type ClipMenuActions } from "./menus";
+import type { ContextMenu } from "../ContextMenu";
 import type { LoadedEditor } from "./useTimelineEditor";
 
 // What each part of the timeline editor is drawn with, from what the editor holds (useTimelineEditor): the wiring
@@ -150,6 +151,7 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     onNewClip: (afterId) => e.newClip(afterId),
     onMenu: (clip, ev) => e.clipMenu.open(ev, clip),
     onSoundMenu: (clip, ev) => e.soundMenu.open(ev, clip),
+    onPinMenu: (clip, where, ev) => e.pinMenu.open(ev, { clip, where }),
     onMusicMenu: (ev) => e.musicMenu.open(ev, true),
     onMusicEdit: (p) => edit.mutate(p),
     onClipMusic: (clip, music) => patch.mutate({ clip: clip.id, patch: { music } }),
@@ -181,6 +183,7 @@ export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<t
     onPatch: (p) => patch.mutate({ clip: current.id, patch: p }),
     onRender: (count) => render.mutate({ clips: [current], takes: count }),
     onMenu: (ev) => e.clipMenu.open(ev, current),
+    onOpen: e.setOpened,
     onRemoveTake: (takeId) => e.removeTake.mutate(takeId),
     onStop: () => current.job && e.stop.mutate(current.job.id),
     onDesigner: () => e.setDesigning((d) => (d ? null : current.id)),
@@ -226,6 +229,34 @@ export function overviewProps(e: LoadedEditor): ComponentProps<typeof OverviewCo
     onFix: (f) => e.fix.mutate(f),
     onRenderPicked: () => { render.mutate({ clips: clips.filter(e.renderable) }); e.setPicked(new Set()); },
     start: { busy: add.isPending, planning: plan.isPending, onPickImage: () => e.setPicking(true), onPlan: (idea, count) => plan.mutate({ idea, clips: count }), onNewClip: () => e.newClip() },
+  };
+}
+
+/**
+ * The menu of a pinned frame right-clicked on the track: Mirror, Open (the viewer) and Remove, as the Inspector's row has them
+ * (its Change is the Inspector's picker). Null when no such menu is open, or the frame is no longer pinned.
+ */
+export function pinMenuProps(e: LoadedEditor): ComponentProps<typeof ContextMenu> | null {
+  const open = e.pinMenu.menu;
+  if (!open) return null;
+  const clip = e.shown.clips.find((c) => c.id === open.subject.clip.id) ?? open.subject.clip;
+  const index = e.shown.clips.indexOf(clip);
+  const recipe = e.recipes.data?.recipes.find((r) => r.id === clip.recipe);
+  const inputs = e.inputsOf(clip);
+  const pin = pinMirrorOf(clip, recipe, inputs, open.subject.where, index > 0 && clip.joined === "continue");
+  if (!pin) return null;
+  const asset = clip.pictures.find((p) => p.asset.id === pin.asset)?.asset;
+  const words = PIN_WORDS[pin.where];
+  return {
+    at: open.at,
+    label: `Actions on the ${words} of clip ${index + 1}`,
+    head: { title: `Clip ${index + 1} · ${words}`, sub: pin.on ? "mirrored at render time" : "pinned", thumb: pin.asset },
+    items: pinMenuItems(pin, {
+      mirror: (on) => e.patch.mutate({ clip: clip.id, patch: { pinMirror: { [pin.input]: on } } }),
+      open: asset ? () => e.setOpened(asset) : undefined,
+      remove: () => e.editInputs(clip, Object.fromEntries(Object.entries(inputs).filter(([k]) => k !== pin.input))),
+    }),
+    onClose: e.pinMenu.close,
   };
 }
 

@@ -5,7 +5,7 @@ import type { Clip, RecipeInfo, Timeline, TimelinePatch } from "../api";
 import { Keys } from "../Keys";
 import { useKeysHere } from "../keys/here";
 import { cx } from "../ui";
-import { layout, NEW_CLIP, otherShape, PAD, placeOf, roomOf, ZOOM, type ShownPatch, type Slot } from "./model";
+import { layout, NEW_CLIP, otherShape, PAD, placeOf, roomOf, ZOOM, type PinWhere, type ShownPatch, type Slot } from "./model";
 import type { Clock } from "./clock";
 import { FramePeek } from "./track/FramePeek";
 import type { PinPlace } from "./track/peek";
@@ -37,7 +37,7 @@ export interface TimeRange {
  * The timeline itself: a ruler, the clips at their length with their own frames, each clip's sound,
  * and the music under all of it. Things are dragged onto it; a clip's edges shorten it.
  */
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -78,6 +78,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onMenu?(clip: Clip, e: React.MouseEvent): void;
   /** Right-click on a clip's audio strip, and on the music strip. */
   onSoundMenu?(clip: Clip, e: React.MouseEvent): void;
+  /** Right-click on a clip's pinned picture: that frame's menu. */
+  onPinMenu?(clip: Clip, where: PinWhere, e: React.MouseEvent): void;
   onMusicMenu?(e: React.MouseEvent): void;
   /** The music's place changed on its lane: which part of the song plays, the clip it starts with. */
   onMusicEdit?(patch: TimelinePatch): void;
@@ -283,7 +285,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   // what the clips do when pressed: read when it happens, so that a clip draws again only when what it shows changes
   const acts = useRef<TrackClipActs>(null!);
   acts.current = {
-    xOf, slots, totalMs, pps, range, leaveTip, restPin, overClip, startPull, movePull, endPull, onSelect, onPick, onRange, onSeek, onMenu, onSoundMenu, onStop, onJoin,
+    xOf, slots, totalMs, pps, range, leaveTip, restPin, overClip, startPull, movePull, endPull, onSelect, onPick, onRange, onSeek, onMenu, onSoundMenu, onPinMenu, onStop, onJoin,
     render: (c) => renderOf?.(c)?.run(),
   };
 

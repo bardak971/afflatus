@@ -1,8 +1,8 @@
-import { ArrowLeft, ArrowLeftToLine, ArrowRight, ArrowRightToLine, Camera, ChevronLeft, ChevronRight, Copy, Eye, Film, Gauge, Image as ImageIcon, Images, Link2, ListEnd, Mic, Music, Repeat, Scissors, SlidersHorizontal, Split, Trash2, Volume2, VolumeX, Wand2 } from "lucide-react";
+import { ArrowLeft, ArrowLeftToLine, ArrowRight, ArrowRightToLine, Camera, ChevronLeft, ChevronRight, Copy, Eye, Film, Gauge, Image as ImageIcon, Images, Link2, ListEnd, Mic, Music, Repeat, Scissors, SlidersHorizontal, Split, Trash2, Volume2, VolumeX, Wand2, X } from "lucide-react";
 import type { InputSpec, ReferenceValue } from "@afflatus/core";
 import type { Asset, Clip, ClipPatch, RecipeInfo, Timeline, TimelinePatch } from "../api";
 import type { MenuItem } from "../ContextMenu";
-import { pinInputs, splitPoint } from "./model";
+import { PIN_WORDS, pinInputs, splitPoint, type PinMirror } from "./model";
 import type { TimeRange } from "./Track";
 
 /** Where the playhead stands on a clip, as the player says it. */
@@ -240,3 +240,25 @@ export const placeItems = (a: Asset, act: PlaceActions): MenuItem[] => {
   }
   return out.length ? [...out, "—"] : [];
 };
+
+/** What a pinned frame's menu reaches: Mirror, and the pin's own actions where it is shown (Open, Change, Remove), each as its button or drop does. */
+export interface PinMenuActions {
+  mirror(on: boolean): void;
+  /** The viewer, on the picture. */
+  open?(): void;
+  /** Another picture, from the library. */
+  change?(): void;
+  remove(): void;
+}
+
+/** The tooltip of a mirrored frame's mark. */
+export const MIRRORED_TIP = "Mirrored at render time; the library picture is unchanged. Right-click to turn it off.";
+
+/** The right-click menu of a pinned frame (the Inspector's row, the frame on the track): Mirror first, then what the pin does. */
+export const pinMenuItems = (pin: PinMirror, act: PinMenuActions): MenuItem[] => [
+  { label: "Mirror ↔", checked: pin.on, disabled: Boolean(pin.why), note: pin.why ?? "at render time", run: () => act.mirror(!pin.on) },
+  "—",
+  ...(act.open ? [{ label: "Open", icon: <Eye size={14} />, run: act.open }] : []),
+  ...(act.change ? [{ label: "Change…", icon: <ImageIcon size={14} />, run: act.change }] : []),
+  { label: `Remove ${PIN_WORDS[pin.where]}`, icon: <X size={14} />, danger: true, run: act.remove },
+];

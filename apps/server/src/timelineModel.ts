@@ -337,3 +337,33 @@ export const musicBaseOf = (t: TimelineRow, song: Pick<AssetRow, "duration_ms"> 
 
 /** The clips that play, as the music plan takes them. */
 export const musicClipsOf = (laid: Laid[]) => laid.map((l) => ({ id: l.p.clip.id, atMs: l.atMs, lengthMs: l.lengthMs, music: musicOfRow(l.p.clip) }));
+
+/** The pinned pictures a clip flips left to right at render time, as its row keeps them: their input ids. */
+export function mirrorOfRow(c: Pick<ClipRow, "pin_mirror">): string[] {
+  if (!c.pin_mirror) return [];
+  try {
+    const flips = JSON.parse(c.pin_mirror) as Record<string, unknown>;
+    return Object.keys(flips).filter((k) => flips[k] === true).sort();
+  } catch {
+    return [];
+  }
+}
+
+/** The flips as a row keeps them: null when none is left. */
+export const mirrorJson = (ids: string[]) => (ids.length ? JSON.stringify(Object.fromEntries([...new Set(ids)].sort().map((k) => [k, true]))) : null);
+
+/**
+ * Which of `flips` a render of the clip makes: only on a picture the user pinned there. A first frame is not the user's when
+ * the clip carries on from the one before (the frame comes from that clip, or the clip itself does), and a last frame not
+ * when the clip lands on the one after: flipped, the join would no longer meet, so the flip is passed over there.
+ */
+export function mirroredPins(recipe: Recipe<any>, inputs: Record<string, unknown>, flips: readonly string[], from: { carries: boolean; lands?: boolean }): string[] {
+  const out: string[] = [];
+  for (const i of recipe.inputs) {
+    if (i.type !== "image" || !flips.includes(i.id)) continue;
+    const value = inputs[i.id];
+    if (typeof value !== "string" || !value || value === FROM_PREVIOUS) continue;
+    if (i.role === "start" ? !from.carries : i.role === "end" ? !from.lands : i.role === "mid") out.push(i.id);
+  }
+  return out.sort();
+}

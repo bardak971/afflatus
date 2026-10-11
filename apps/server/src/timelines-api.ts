@@ -71,6 +71,8 @@ const clipPatch = z.strictObject({
   volume: z.number().min(0).max(100).optional(),
   fill: z.boolean().optional(),
   fitNext: z.boolean().optional(),
+  /** Its pinned pictures flipped left to right at render time (Mirror), by input id: true flips one, false turns it back. */
+  pinMirror: z.record(z.string().max(64), z.boolean()).refine((m) => Object.keys(m).length <= 8, "at most 8 pinned frames").optional(),
   stillMs: z.number().min(0).optional(),
   animate: z.boolean().optional(),
   look: lookSchema.nullable().optional(),
@@ -386,7 +388,8 @@ async function renderClips(s: Services, timeline: string, clips: z.infer<typeof 
         label: `${view.name} · clip ${i + 1}${count > 1 ? ` · take ${k + 1} of ${count}` : ""}`,
         dependsOn: before && clip.joined === "continue" ? pending.get(before.id) : undefined,
         // a clip rendered together with the one after it has nothing to fit: that one is made to follow it
-        clip: { id: clip.id, fit: ask.fit ?? (clip.fitNext && !(next && wanted.has(next.id))) },
+        // with its Mirror as it is now: a flip changed while it waits is for the next render
+        clip: { id: clip.id, fit: ask.fit ?? (clip.fitNext && !(next && wanted.has(next.id))), mirror: clip.pinMirror },
         look: clip.look ?? view.look,
         // what was typed before the cast was worked in: what a tool opened from the take carries
         asked: askedOf(typed, input),
@@ -456,7 +459,8 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
       const kept = await s.db.selectFrom("assets").select("latent_key").where("id", "=", draft.asset.id).executeTakeFirst();
       if (!kept?.latent_key) { skipped.push({ clip: i + 1, why: "its latent was not kept (rendered before Afflatus kept them, or without its node pack): finish it with SeedVR2, RTX or a model" }); continue; }
       plan.push({ kind: "render", recipe: gen.recipe, input: { ...gen.inputs, seed: gen.seed, upscale: "Latent: re-sampled", upscaleBy: b.factor, upscaleDenoise: b.latentDenoise ?? 0.15, upscaleSteps: b.latentSteps ?? 2 }, opts: {
-        label, clip: { id: clip.id, fit: false }, look: clip.look ?? view.look, folder, finishedFrom: from,
+        // the pictures its draft flipped are flipped again: the finish re-samples the draft, made from them as they were sent
+        label, clip: { id: clip.id, fit: false, mirror: gen.mirror }, look: clip.look ?? view.look, folder, finishedFrom: from,
       } });
       continue;
     }

@@ -19,7 +19,7 @@ import { takeView, TimelineViews } from "./timelineViews";
 import { recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type TakeLinks } from "./timelinePlan";
 import { TimelineTakes } from "./timelineTakes";
 import { unusedSize, unusedTakes } from "./timelineUnused";
-import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow } from "./timelineModel";
+import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, mirroredPins, mirrorJson, mirrorOfRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow } from "./timelineModel";
 
 /**
  * Timelines: clips played one after the other. A clip is a place on the timeline with a form (what to
@@ -117,6 +117,8 @@ export interface ClipPatch {
   designer?: { llm?: string; instruction?: string } | null;
   /** What it asks of the music under it; null = as the rest of the video again. */
   music?: ClipMusic | null;
+  /** Its pinned pictures flipped left to right at render time (Mirror), by input id: true flips one, false turns it back. The others stay as they are. */
+  pinMirror?: Record<string, boolean>;
 }
 export interface TimelinePatch {
   name?: string;
@@ -272,6 +274,21 @@ export class Timelines {
     return takeFollows(b.active.take, a.active) || takeLandsOn(a.active.take, b.active) ? "fresh" : "stale";
   }
 
+  /**
+   * Whether the take that plays was rendered with other flips than the clip's Mirror asks now (on its pinned pictures that a
+   * render flips, see mirroredPins): a take that is not the clip's as it stands, to render again. A finished take answers for
+   * its draft; a video not rendered here was flipped nowhere.
+   */
+  private mirrorChanged(all: Placed[], i: number, flipped: Map<string, string[]>): boolean {
+    const p = all[i]!;
+    const recipe = p.clip.kind === "video" && p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined;
+    if (!recipe || !p.active) return false;
+    const asked = mirroredPins(recipe, JSON.parse(p.clip.inputs) as Record<string, unknown>, mirrorOfRow(p.clip), { carries: i > 0 && p.clip.joined === "continue" });
+    const draft = p.active.take.finished_from ? p.takes.find((x) => x.take.id === p.active!.take.finished_from) ?? p.active : p.active;
+    const made = (draft.asset.generation_id && flipped.get(draft.asset.generation_id)) || [];
+    return asked.join() !== [...made].sort().join();
+  }
+
   /** A video clip with a model here and its form filled, as the editor's ready() reads it (see formFilled). */
   renderable(all: Placed[], i: number): boolean {
     const p = all[i]!;
@@ -337,6 +354,7 @@ export class Timelines {
     const all = await this.placed(id);
     const { live, last } = await this.views.jobsOf(all.map((p) => p.clip.id));
     const rendered = await this.views.renderedOf(all);
+    const flipped = await this.views.mirrorsOf(all);
     const renderOf = (x: Taken, takes: Taken[]) => {
       const own = x.asset.generation_id ? rendered.get(x.asset.generation_id) : undefined;
       if (own?.measure || !x.take.finished_from) return own;
@@ -369,6 +387,9 @@ export class Timelines {
         designer: p.clip.designer ? (JSON.parse(p.clip.designer) as { llm?: string; instruction?: string }) : null,
         /** What it asks of the music under it; null = as the rest. */
         music: musicOfRow(p.clip),
+        /** Its pinned pictures flipped left to right at render time (Mirror), by input id; and whether the take that plays was rendered otherwise. */
+        pinMirror: mirrorOfRow(p.clip),
+        mirrorChanged: this.mirrorChanged(all, i, flipped),
         /** Where it starts on the timeline, and how long it plays. */
         atMs: at, lengthMs: length,
         job: job ? { id: job.id, status: job.status } : null,
@@ -581,7 +602,7 @@ export class Timelines {
     if (keys.length === 1 && keys[0] === "inputs") await this.rememberWriting(clip, all);
     else if (keys.length) await this.remember(clip.timeline_id, labelOf(patch));
 
-    const { animate, trims, order } = checked;
+    const { animate, trims, order, mirror } = checked;
     await this.db.transaction().execute(async (tx) => {
       await tx
         .updateTable("clips")
@@ -596,6 +617,7 @@ export class Timelines {
           ...(patch.fitNext !== undefined ? { fit_next: patch.fitNext ? 1 : 0 } : {}),
           ...(patch.look !== undefined ? { look: patch.look ? JSON.stringify(patch.look) : null } : {}),
           ...(patch.music !== undefined ? { music: musicJson(patch.music) } : {}),
+          ...(mirror !== undefined ? { pin_mirror: mirror } : {}),
           ...(patch.stillMs !== undefined ? { still_ms: Math.max(STILL_MS.least, Math.min(STILL_MS.most, Math.round(patch.stillMs))) } : {}),
           ...(animate
             ? { kind: "video" as const, still_asset_id: null, recipe_id: animate.id, joined: "cut" as const, inputs: JSON.stringify({ [animate.inputs.find((i) => i.type === "image" && i.role === "start")!.id]: clip.still_asset_id }) }
@@ -661,7 +683,29 @@ export class Timelines {
     const recipe = patch.inputs ? this.registry.recipe(patch.recipe ?? clip.recipe_id ?? "") : undefined;
     const was = JSON.parse(clip.inputs) as Record<string, unknown>;
     const pinned = recipe ? (recipe.inputs as InputSpec[]).find((i) => i.type === "image" && typeof patch.inputs![i.id] === "string" && patch.inputs![i.id] !== was[i.id]) : undefined;
-    return { animate, trims, order, pinnedNow: pinned ? (patch.inputs![pinned.id] as string) : null };
+    return { animate, trims, order, pinnedNow: pinned ? (patch.inputs![pinned.id] as string) : null, mirror: this.mirrorAfter(clip, patch) };
+  }
+
+  /**
+   * The clip's flips after the change, as its row keeps them; undefined when they stay as they are. Only a pinned picture of its
+   * model is flipped. A pin changed for another picture, or removed, loses its flip: the new picture is shown as it is.
+   */
+  private mirrorAfter(clip: ClipRow, patch: ClipPatch): string | null | undefined {
+    if (patch.pinMirror === undefined && patch.inputs === undefined && patch.recipe === undefined) return undefined;
+    const recipe = this.registry.recipe(patch.recipe ?? clip.recipe_id ?? "");
+    const images = new Set((recipe?.inputs ?? []).filter((i) => i.type === "image").map((i) => i.id));
+    const was = JSON.parse(clip.inputs) as Record<string, unknown>;
+    const inputs = patch.inputs ?? was;
+    const flips = new Set(mirrorOfRow(clip));
+    for (const [id, on] of Object.entries(patch.pinMirror ?? {})) {
+      if (!images.has(id)) throw httpError(`${id} is not a pinned frame of this clip's model.`);
+      if (on && (typeof inputs[id] !== "string" || !inputs[id])) throw httpError("Pin a picture there first: only a pinned frame is mirrored.");
+      if (on) flips.add(id);
+      else flips.delete(id);
+    }
+    for (const id of [...flips]) if (!images.has(id) || (inputs[id] !== was[id] && patch.pinMirror?.[id] === undefined)) flips.delete(id);
+    const after = mirrorJson([...flips]);
+    return after === (clip.pin_mirror ?? null) ? undefined : after;
   }
 
   async removeClip(id: string) {
@@ -782,13 +826,14 @@ export class Timelines {
   }
 
   /** What a take was rendered with, to render it again the same: its form and its seed. Null for a video that was not rendered here. */
-  async generationOf(assetId: string): Promise<{ recipe: string; inputs: Record<string, unknown>; seed: number } | null> {
+  async generationOf(assetId: string): Promise<{ recipe: string; inputs: Record<string, unknown>; seed: number; mirror: string[] } | null> {
     const asset = await this.db.selectFrom("assets").select("generation_id").where("id", "=", assetId).executeTakeFirst();
     if (!asset?.generation_id) return null;
     const g = await this.db.selectFrom("generations").select(["recipe_id", "inputs", "resolved"]).where("id", "=", asset.generation_id).executeTakeFirst();
     if (!g) return null;
-    const seed = (JSON.parse(g.resolved) as { seed?: number }).seed;
-    return typeof seed === "number" ? { recipe: g.recipe_id, inputs: JSON.parse(g.inputs) as Record<string, unknown>, seed } : null;
+    const { seed, mirror } = JSON.parse(g.resolved) as { seed?: number; mirror?: string[] };
+    // with the pinned pictures it flipped (Mirror): rendered again, it flips them again, whatever its clip says now
+    return typeof seed === "number" ? { recipe: g.recipe_id, inputs: JSON.parse(g.inputs) as Record<string, unknown>, seed, mirror: mirror ?? [] } : null;
   }
 
   /**
@@ -833,6 +878,7 @@ function labelOf(patch: ClipPatch): string {
     : patch.music !== undefined ? "the music under the clip"
     : patch.fill !== undefined ? "the fit in the frame"
     : patch.fitNext !== undefined ? "the end on the next clip"
+    : patch.pinMirror !== undefined ? (Object.values(patch.pinMirror).some(Boolean) ? "the frame mirrored" : "the mirror turned off")
     : patch.look !== undefined ? "the change of characters"
     : "the change of model";
 }

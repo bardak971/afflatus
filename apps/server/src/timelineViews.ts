@@ -101,4 +101,30 @@ export class TimelineViews {
     // how each render's own part looks (mean luma, sharpness), measured on its frames when it was stored
     return new Map(records.map((g) => [g.id, { genMs: g.gen_ms, measure: g.measure ? (JSON.parse(g.measure) as Measure) : null }]));
   }
+
+  /**
+   * The pinned pictures each render flipped (Mirror), by generation: of the takes that play and the drafts they finish only,
+   * which is what a clip compares with its Mirror. A render that flipped none is left out.
+   */
+  async mirrorsOf(all: Placed[]): Promise<Map<string, string[]>> {
+    const made = new Set<string>();
+    for (const p of all) {
+      const a = p.active;
+      if (!a) continue;
+      const draft = a.take.finished_from ? p.takes.find((x) => x.take.id === a.take.finished_from) : undefined;
+      for (const x of [a, draft]) if (x?.asset.generation_id) made.add(x.asset.generation_id);
+    }
+    const out = new Map<string, string[]>();
+    if (!made.size) return out;
+    for (const g of await this.db.selectFrom("generations").select(["id", "resolved"]).where("id", "in", [...made]).execute()) {
+      let mirror: unknown;
+      try {
+        mirror = (JSON.parse(g.resolved) as { mirror?: unknown }).mirror;
+      } catch {
+        mirror = undefined;
+      }
+      if (Array.isArray(mirror) && mirror.length) out.set(g.id, mirror.filter((m): m is string => typeof m === "string"));
+    }
+    return out;
+  }
 }

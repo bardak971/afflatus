@@ -1,4 +1,4 @@
-import { Bookmark, ChevronLeft, ChevronRight, Clapperboard, Eye, FileOutput, FileUp, Film, FolderPlus, Layers, Link2, MemoryStick, Pause, PenLine, Play, Plug, RotateCcw, Sparkles, Split, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { Bookmark, ChevronLeft, ChevronRight, Clapperboard, Eye, FileOutput, FileUp, Film, FlipHorizontal2, FolderPlus, Layers, Link2, MemoryStick, Pause, PenLine, Play, Plug, RotateCcw, Sparkles, Split, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { api, type RecipeInfo } from "../../api";
 import { emptyAll, restoreAll } from "../../binActions";
 import { snapEdge } from "../../fields/SizeField";
@@ -17,6 +17,7 @@ import type { BarCtx, Preset } from "./ctx";
 import { applyPreset } from "./kit";
 import { row } from "./tree";
 import { queryKeys } from "../../queryKeys";
+import { PIN_WORDS } from "../../timeline/model";
 
 const KIT_WORD = { person: "person", place: "place", style: "style", preset: "preset", snippet: "snippet" } as const;
 
@@ -233,6 +234,21 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       if (c.cmd === "split") return [{ label: `Split clip ${clip.number} at playhead`, icon: <Split size={14} />, keys: rowKeys("split"), run }];
       const next = c.cmd === "next-take";
       return [{ label: `Clip ${clip.number}: ${next ? "next" : "previous"} take`, icon: next ? <ChevronRight size={14} /> : <ChevronLeft size={14} />, keys: rowKeys("take", next ? 1 : 0), run }];
+    }
+    case "mirror-pin": {
+      const clip = x.selectedClip;
+      if (!clip) return [{ label: "No clip selected in an open timeline", disabled: true, run: () => {} }];
+      if (!clip.pins.length) return [{ label: `Clip ${clip.number} has no pinned frame`, disabled: true, run: () => {} }];
+      // one row a pinned frame, as its right-click menu's Mirror: `mirror pin off` offers only to turn it off
+      return clip.pins.map((p) => {
+        const on = c.off ? false : !p.on;
+        const words = PIN_WORDS[p.where];
+        return {
+          label: on ? `Mirror ${words}` : `Mirror ${words} off`, icon: <FlipHorizontal2 size={14} />,
+          disabled: Boolean(p.why) || (c.off && !p.on), note: p.why ?? (c.off && !p.on ? "not mirrored" : `clip ${clip.number} · at render time`),
+          run: () => void clip.mirror(p.input, on).catch(failed("Could not change the mirror")),
+        };
+      });
     }
     case "cancel-waiting": {
       const ids = queue?.waiting.map((w) => w.id) ?? [];

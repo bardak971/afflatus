@@ -7,9 +7,9 @@ import type { Db, Tables } from "./db";
 import { extOf } from "./media";
 import { usualParts } from "./renders";
 import type { Storage } from "./storage";
-import { maskBox, readPicture } from "./thumbs";
+import { maskBox, mirrorPicture, readPicture } from "./thumbs";
 import { readVideo } from "./video";
-import type { JobRow, QueueCore, Resume } from "./queueModel";
+import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel";
 import { draftOf, renderedOf } from "./queueStore";
 
 /** A job on its way to ComfyUI: its form settled, its files uploaded, its graph built and checked, the prompt queued. */
@@ -62,6 +62,8 @@ interface Up {
   input: Record<string, unknown>;
   catalog: Awaited<ReturnType<Comfy["catalog"]>>;
   finishedFrom: string | null;
+  /** The pictures flipped left to right on their way up (a timeline clip's Mirror), by input id. */
+  mirror: readonly string[];
   sent: Sent;
 }
 
@@ -73,7 +75,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const { db, storage } = core;
   const catalog = await comfy.catalog();
   // a timeline clip: what it joins onto is settled now, when the clips around it have their takes
-  const plan = row.clip_id && core.clips ? await core.clips.plan(row.clip_id, recipe, raw, Boolean(row.clip_fit), row.finished_from) : null;
+  const plan = row.clip_id && core.clips ? await core.clips.plan(row.clip_id, recipe, raw, Boolean(row.clip_fit), row.finished_from, false, readJson<string[]>(row.clip_mirror, [])) : null;
   const input = plan ? (parseInput(recipe, plan.input) as Record<string, unknown>) : raw;
   const chosen = settled(recipe, input, catalog);
   const missing = recipe.nodes(input).filter((n: string) => !(n in catalog));
@@ -81,7 +83,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const slotFiles = await slots(core, comfy, recipe);
 
   // pictures, videos and sounds the recipe takes are uploaded to ComfyUI's temp folder under fresh names
-  const up: Up = { recipe, db, storage, comfy, input, catalog, finishedFrom: row.finished_from, sent: { uploads: {}, media: {}, warnings: [] } };
+  const up: Up = { recipe, db, storage, comfy, input, catalog, finishedFrom: row.finished_from, mirror: plan?.mirror ?? [], sent: { uploads: {}, media: {}, warnings: [] } };
   for (const spec of recipe.inputs as InputSpec[]) {
     const value = input[spec.id];
     if (spec.type === "image" && typeof value === "string" && value !== NO_PICTURE) await uploadImage(up, spec, value);
@@ -139,7 +141,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
       ...prompt.resume, seed, outputs: built.outputs, loads: built.loads, startedAt: Date.now(), timing,
       // the nodes' titles, for naming what a preview node shows on the way
       titles: Object.fromEntries(Object.entries(built.graph).flatMap(([id, n]) => { const t = (n as { _meta?: { title?: unknown } })._meta?.title; return typeof t === "string" ? [[id, t]] : []; })),
-      ...(plan ? { input, links: plan.links, sources: plan.sources } : {}),
+      ...(plan ? { input, links: plan.links, sources: plan.sources, ...(plan.mirror.length ? { mirror: plan.mirror } : {}) } : {}),
       ...(built.overlap ? { overlap: built.overlap } : {}),
       ...(warnings.length ? { warnings } : {}),
     };
@@ -184,7 +186,10 @@ async function uploadImage(up: Up, spec: InputSpec, value: string): Promise<void
   if (asset.kind !== "image") throw new Error(`the ${spec.label.toLowerCase()} is not a picture`);
   const bytes = await storage.get(asset.file_key);
   const intoInput = spec.type === "image" && spec.folder === "input";
-  sent.uploads[spec.id] = await comfy.client.upload(bytes, extOf(asset.mime), intoInput ? { into: "input" } : {});
+  // a pinned frame mirrored at render time is flipped on its way up, as a PNG of the same size: the library's file stays as it is
+  const flipped = up.mirror.includes(spec.id) ? await mirrorPicture(bytes, "horizontal") : null;
+  if (up.mirror.includes(spec.id) && !flipped) throw new Error(`the ${spec.label.toLowerCase()} could not be mirrored: sharp could not read it`);
+  sent.uploads[spec.id] = flipped ? await comfy.client.upload(flipped, "png", intoInput ? { into: "input" } : {}) : await comfy.client.upload(bytes, extOf(asset.mime), intoInput ? { into: "input" } : {});
   const size = asset.width && asset.height ? { width: asset.width, height: asset.height } : await readPicture(bytes);
   sent.media[spec.id] = { width: size?.width ?? 0, height: size?.height ?? 0 };
   if (spec.type === "image" && spec.role === "mask") {
