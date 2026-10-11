@@ -30,13 +30,14 @@ It is one small server and a folder of data, on your PC or in a container, talki
 - **Fix just the part you don't like.** Mark a stretch of the timeline with **I** and **O**, across clips if you like, and regenerate it: a new clip is made between the two frames and takes its place, while everything around it stays. Or loop it, split it, copy it, or play it in slow motion.
 - **It measures what it makes.** Generation is only half the job. Every take is scored on how cleanly it joins the clip before and how its brightness, sharpness and pace compare. The timeline points out the joins that jump; which take makes the better clip stays your call.
 - **It learns your machine.** Before you press Generate, the form tells you how long it will take, learned from your own past renders. While it runs, you watch a live preview.
+- **Keeps itself current.** A dot on Settings says a new version is out; the downloadable bundles update in one click, signed and checked, with a way back.
 - **Everything in reach.** Projects, a bin that cleans itself, a Prompt kit for people and styles, and **Ctrl+K** to find or do anything from the keyboard.
 
 ## From download to your first render
 
 You need **ComfyUI** running somewhere (a clone, the portable build or the desktop app) and any card ComfyUI runs on. Afflatus does not install ComfyUI for you.
 
-1. **Download and start.** Grab the bundle for your system from the [releases page](https://github.com/bardak971/afflatus/releases), unpack it and run `Afflatus.bat` (Windows) or `afflatus.sh` (Linux, macOS). Your browser opens on `http://127.0.0.1:8720`.
+1. **Download and start.** Grab the bundle for your system from the [releases page](https://github.com/bardak971/afflatus/releases), unpack it and run `Afflatus.bat` (Windows) or `afflatus.sh` (Linux, macOS) in the `Afflatus` folder it holds. Your browser opens on `http://127.0.0.1:8720`.
 2. **Connect ComfyUI.** In **Settings → ComfyUI**, enter its address (`http://127.0.0.1:8188` on the same machine) and press **Test**. Give it ComfyUI's folder too, so Afflatus can install its small node pack.
 3. **Get a model.** **Settings → Models** shows, for each model family, what is ready and what is missing, file by file. Press **Download** and Afflatus fetches the missing files straight into ComfyUI's model folders ([how downloads work](docs/comfyui-setup.md#downloads)), or put them in place yourself.
 4. **Make a picture.** Open the **Studio**, press **N** for the form, pick a model, write a prompt and press **Ctrl+Enter**. It lands in your library with everything it was made with.
@@ -47,9 +48,9 @@ Other ways to run it:
 
 | Platform | How |
 |---|---|
-| Windows | Unzip `afflatus-<version>-win-x64.zip`, double-click `Afflatus.bat` |
-| Linux ¹ | `tar xzf afflatus-<version>-linux-x64.tar.gz`, run `afflatus.sh` |
-| macOS, Apple Silicon ¹ | `tar xzf afflatus-<version>-darwin-arm64.tar.gz`, run `afflatus.sh`; `brew install ffmpeg` once |
+| Windows | Unzip `afflatus-<version>-win-x64.zip`, double-click `Afflatus\Afflatus.bat` |
+| Linux ¹ | `tar xzf afflatus-<version>-linux-x64.tar.gz`, run `Afflatus/afflatus.sh` |
+| macOS, Apple Silicon ¹ | `tar xzf afflatus-<version>-darwin-arm64.tar.gz`, run `Afflatus/afflatus.sh`; `brew install ffmpeg` once |
 | Docker | `docker run -p 127.0.0.1:8720:8720 -v afflatus-data:/data ghcr.io/bardak971/afflatus:latest`, or the [compose.yaml](compose.yaml) ([guide](docs/install-docker.md)) |
 | Kubernetes | the Helm chart in [chart/](chart) ([guide](docs/install-cluster.md)) |
 | From the sources | Node 22.16+ and ffmpeg: `corepack pnpm install && corepack pnpm build && corepack pnpm start` |
@@ -116,19 +117,19 @@ These come with a ready-made form. Anything else, bring in as a workflow.
 
 | Family | Models | What you can do |
 |---|---|---|
-| SDXL | any SDXL checkpoint: Illustrious, NoobAI, Pony, Juggernaut XL… | txt2img, img2img, inpaint, outpaint, upscale, face detailer |
-| FLUX.2 Klein | 4B base and its fine-tunes | txt2img, edit by instruction, variation, inpaint, outpaint, upscale, face detailer |
-| Krea 2 | Turbo and its fine-tunes | txt2img, img2img, inpaint, upscale, face detailer |
-| FLUX.1 | dev, Kontext | txt2img, edit, img2img, inpaint, outpaint, upscale, face detailer |
-| Qwen Image | 2512, Qwen Image Edit | txt2img, edit, img2img, inpaint, outpaint, upscale, face detailer |
+| SDXL | any SDXL checkpoint: Illustrious, NoobAI, Pony, Juggernaut XL… | txt2img, img2img, inpaint, outpaint, upscale, face and hand detailer |
+| FLUX.2 Klein | 4B base and its fine-tunes | txt2img, edit by instruction, variation, inpaint, outpaint, upscale, face and hand detailer |
+| Krea 2 | Turbo and its fine-tunes | txt2img, img2img, inpaint, upscale, face and hand detailer |
+| FLUX.1 | dev, Kontext | txt2img, edit, img2img, inpaint, outpaint, upscale, face and hand detailer |
+| Qwen Image | 2512, Qwen Image Edit | txt2img, edit, img2img, inpaint, outpaint, upscale, face and hand detailer |
 | Qwen Image 2.1 | | txt2img, edit |
-| Z-Image | Turbo and its fine-tunes | txt2img, img2img, inpaint, outpaint, upscale, face detailer |
+| Z-Image | Turbo and its fine-tunes | txt2img, img2img, inpaint, outpaint, upscale, face and hand detailer |
 | MiniMax H3 | video with sound | text, first frame, first and last frames, references, continuation: the timeline's native model |
 | Wan 2.2 | | video |
-| LTX 2.3 | | video |
+| LTX 2.3 | | video: text, first and last frames, a keyframe in between |
 | Image tools | SeedVR2, background removal | restore and upscale, remove the background |
 
-The default files are ComfyUI's own releases on Hugging Face. Some options need a custom node pack; when one is missing, Afflatus tells you which and how to install it ([the list](docs/comfyui-setup.md#node-packs)).
+Each family starts on its model authors' own settings, and the Prompt kit ships presets for the official releases and for DaSiWa's fine-tunes (with his agreement). The default files are ComfyUI's own releases on Hugging Face. Some options need a custom node pack; when one is missing, Afflatus tells you which and how to install it ([the list](docs/comfyui-setup.md#node-packs)).
 
 **Model licences.** The models are other people's work under their own licences, which you accept when you download them. The shipped presets bundle nothing; each shows its licence and asks you to accept it once. Read them: several are community licences with limits on commercial use, and **MiniMax H3's licence does not grant its use in the European Union, the United Kingdom, South Korea or the United States** (its "Excluded Territories"). It also asks that machine-made content shown in public be disclosed as such.
 

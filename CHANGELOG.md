@@ -29,6 +29,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **DaSiWa's model presets built in** (with his agreement): H3 Hybrid v3 / v3 int4 / Turbo v3 / v4 / v4 Turbo, Krea 2 DarkDesire, LTX DragonLeap and GoldenLace, Wan SnatchKiss; presets carry their author's links, and the download button shows on every preset.
 - **Viewer keys** for Wipe, Swap, Mirror, Rename and Open.
 - A person's voice sample from the computer is kept with them in the Prompt kit, like their pictures, not in the library.
+- **Tests that draw the web's components** (menus, the command bar, the media slots, the update states) and checks in CI for import cycles, exports only tests use, and the shared helpers written out by hand again.
 
 ### Changed
 - **Defaults brought to the model authors' settings** (their cards and ComfyUI's own templates): Krea 2's hires fix 1.5× at 0.35, Z-Image 8 steps and its hires fix 1.5× at 0.3, Qwen Image's hires pass on the Turbo steps when Turbo is on, few-step SDXL presets on sgm_uniform with short hires passes, Lightning / Hyper 2- and 4-step files read from their names, Animagine 4's CFG and tags, schnell's hires steps.
@@ -41,6 +42,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **The queue goes offline while idle** when ComfyUI stops answering, and forgets the model it had loaded.
 - ComfyUI's input and output folders are cleaned with any job, at most hourly: a Director picture no longer waits there for the next Director job.
 - **Unload models** follows one rule everywhere: off while ComfyUI is offline or a job runs.
+- **The forms read more evenly:** a switch, a chip row or a number box sits at its row's end with the name taking the rest; every "?" comes right after what it explains; long setting names wrap, ten are shorter; nested boxes' corners follow the outer one.
+- **Prompt kit presets** are laid out as cells, getting the files first; they show the model's real names and its defaults, are found by author and line, keep their line in a preset file, and ask for the licence only while a file is still to fetch.
+- **The bundle's folder:** from 0.4.0 one `Afflatus` folder holds the versions side by side and the library in `data/` (it was inside the version's folder).
 - Right-click menus take the keyboard focus (a screen reader follows them; Space acts like Enter, Home and End jump), and Shift+F10 opens a menu on its first row.
 
 ### Fixed
@@ -66,6 +70,8 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - A library search with a control character in it no longer fails; a page on another port of the same machine can no longer make Afflatus build a backup; a live preview is only served as a picture or video.
 - Load works on a form that has not got its pictures yet; Ctrl+Enter in Ctrl+K no longer starts a render; a dismissed download failure stays dismissed after a reload.
 - Importing a preset file that is not one says so plainly; Copy link and copying a snippet say they did.
+- Every picture slot has its "?": the Keyframe, and the tool forms' Image and Mask.
+- Compare: the wipe fits the stage.
 
 ## [0.3.0] - 2026-10-10
 
