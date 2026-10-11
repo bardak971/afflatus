@@ -26,7 +26,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **Mirror on a pinned keyframe:** right-click a clip's pinned frame (on the track or in the Inspector) → Mirror ↔, or Ctrl+K `> mirror pin`; the picture is flipped as it is sent to ComfyUI, the library picture stays as it is, and the thumbnail shows it flipped with a ↔ mark. A frame carried on from the clip before, or one the clip after lands on, cannot be mirrored.
 - **Ctrl+K: a kind typed first** ("draft", "timelines", or its start: "timel") lists that kind, newest first; the words after it narrow the list.
 - **Drafts across models:** the stage, the lists and Ctrl+K say which models a draft was tried on; Duplicate wherever a draft shows.
-- **DaSiWa's model presets built in** (with his agreement): H3 Hybrid v3 / v3 int4 / Turbo v3 / v4 / v4 Turbo, Krea 2 DarkDesire, LTX DragonLeap and GoldenLace, Wan SnatchKiss; presets carry their author's links, and the download button shows on every preset.
+- **DaSiWa's model presets built in**: H3 Hybrid v3 / v3 int4 / Turbo v3 / v4 / v4 Turbo, Krea 2 DarkDesire, LTX DragonLeap and GoldenLace, Wan SnatchKiss; presets carry their author's links, and the download button shows on every preset.
 - **Viewer keys** for Wipe, Swap, Mirror, Rename and Open.
 - A person's voice sample from the computer is kept with them in the Prompt kit, like their pictures, not in the library.
 - **Tests that draw the web's components** (menus, the command bar, the media slots, the update states) and checks in CI for import cycles, exports only tests use, and the shared helpers written out by hand again.

@@ -27,7 +27,7 @@ Each file in this folder is listed in every Afflatus as a read-only "built in" p
 | `dasiwa-ltx-goldenlace` | **GoldenLace v3** · DaSiWa LTX 2.3, undistilled, fp8 (video with sound) | LTX-2 Community License, with the author's addendum |
 | `dasiwa-wan` | **SnatchKiss v11** · DaSiWa Wan 2.2 image to video, TrueVision, fp8 (video) | Apache 2.0 (Wan 2.2), with the author's distribution addendum |
 
-The DaSiWa ones are [Darksidewalker](https://civitai.com/user/Darksidewalker)'s fine-tunes ([GitHub](https://github.com/darksidewalker)), shipped with his agreement: his recommended settings, set per version from his Civitai pages, and the files fetched from there (Civitai asks for your API key: Settings → Models). His settings are a guide; they are kept up to date from his posts.
+The DaSiWa ones are [Darksidewalker](https://civitai.com/user/Darksidewalker)'s fine-tunes ([GitHub](https://github.com/darksidewalker)): his recommended settings, set per version from his Civitai pages, and the files fetched from there (Civitai asks for your API key: Settings → Models). His settings are a guide; they are kept up to date from his posts.
 
 Each one shows its licence before anything is fetched, and you accept it once. Nothing is bundled: the files come from the publishers' own Hugging Face pages (or ComfyUI's repackaged ones), downloaded by Afflatus into ComfyUI's model folders.
 
