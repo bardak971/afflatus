@@ -9,6 +9,7 @@ Each file in this folder is listed in every Afflatus as a read-only "built in" p
 | Preset | Model | Licence |
 |---|---|---|
 | `krea2-turbo` | Krea 2 Turbo, fp8 (pictures) | Krea 2 Community License |
+| `zimage-turbo` | Z-Image Turbo, bf16 (pictures) | Apache 2.0 |
 | `minimax-h3` | MiniMax H3, int8 (video with sound, seamless timeline joins) | MiniMax H3 Community License: read its excluded territories |
 | `wan22-i2v` | Wan 2.2 image to video, 14B fp8 (video) | Apache 2.0 |
 | `ltx23-distilled` | LTX 2.3 distilled, 22B fp8 (video with sound) | LTX-2 Community License |

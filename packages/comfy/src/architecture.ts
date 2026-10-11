@@ -79,7 +79,10 @@ export function architectureOf(tensors: Map<string, number[]>): Architecture | n
   if (has("audio_adaln_single")) return { base: "LTX", note: "AV" };
   if (has("adaln_single.emb.timestep_embedder")) return { base: "LTX" };
   if (has("txt_in.individual_token_refiner")) return { base: "Hunyuan" };
-  if (has("cap_embedder.1") && has("noise_refiner.0")) return { base: "Z-Image" };
+  if (has("cap_embedder.1") && has("noise_refiner.0")) {
+    // the NextDiTs: Z-Image reads Qwen3 4B (2560 wide), Lumina Image 2.0 reads Gemma 2 2B (2304 wide), in the input of cap_embedder.1
+    return inWidth("cap_embedder.1") === 2304 ? { base: "Lumina 2" } : { base: "Z-Image" };
+  }
 
   if (has("double_blocks.0.img_attn") || has("double_blocks.0.img_mod")) {
     if (has("double_stream_modulation_img")) {

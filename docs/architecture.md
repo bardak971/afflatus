@@ -10,7 +10,7 @@ One Node process serves the API, the live events and the built web app, on one p
 apps/server           Fastify: routes, queue, timelines, storage, database, designer (LLM), ffmpeg
 apps/web              React 19, Vite, TanStack Query, zustand, Tailwind 4
 packages/core         the recipe contract, the input types, graphs, frame grids, the graph checker
-packages/recipes      the built-in recipes, one folder per family (sdxl, klein, flux, krea2, qwen, h3, wan, ltx…)
+packages/recipes      the built-in recipes, one folder per family (sdxl, klein, flux, krea2, qwen, zimage, h3, wan, ltx…)
 packages/comfy        the ComfyUI client: submit, wait, the progress monitor, uploads, capabilities
 packages/workflows    the importer: a ComfyUI editor file read into a recipe
 comfy-nodes/          Afflatus's node pack for ComfyUI (Python): H3 latents, model headers

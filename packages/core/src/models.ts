@@ -59,10 +59,11 @@ export function baseLabel(raw: string): string {
   if (/ltx/.test(s)) return "LTX";
   if (/hunyuan/.test(s)) return "Hunyuan";
   if (/krea[\s._-]*2|(^|[^a-z0-9])k2([^a-z0-9]|$)/.test(s)) return "Krea 2";
+  // before the Qwens: Z-Image's files name its text encoder ("z_image_turbo_qwen_3_4b")
+  if (/z[\s._-]*image/.test(s)) return "Z-Image";
   if (/qwen[\s._-]*image[\s._-]*2[._]1|qwen[\s._-]*2[._]1/.test(s)) return "Qwen Image 2.1";
   if (/qwen/.test(s)) return "Qwen Image";
   if (/chroma/.test(s)) return "Chroma";
-  if (/z[\s._-]*image/.test(s)) return "Z-Image";
   // "xl" as a word of its own: a file name can hold those two letters by chance
   if (/sdxl|(^|[^a-z])xl([^a-z]|$)|illustrious|pony|noob/.test(s)) return "SDXL";
   if (/stable-diffusion-v?3|sd3/.test(s)) return "SD 3";

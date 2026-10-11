@@ -16,8 +16,9 @@ import { qwen21, qwen21Edit, qwen21Picture } from "./qwen21";
 import { removeBackground, seedvrPicture, tools } from "./tools";
 import { wan } from "./wan/family";
 import { wanVideo } from "./wan/video";
+import { zimage, zimageFixFace, zimageOutpaint, zimagePaintOver, zimagePicture, zimageRedraw, zimageSharper } from "./zimage";
 
-export const families: Family[] = [sdxl, klein, krea2, flux, qwen, qwen21, h3, wan, ltx, tools];
+export const families: Family[] = [sdxl, klein, krea2, flux, qwen, qwen21, zimage, h3, wan, ltx, tools];
 
 /** Every built-in recipe. Imported workflows are added to this list at run time by the server. */
 export const recipes: Recipe<any>[] = [
@@ -27,6 +28,7 @@ export const recipes: Recipe<any>[] = [
   fluxPicture, fluxEdit, fluxRedraw, fluxPaintOver, fluxOutpaint, fluxSharper, fluxFixFace,
   qwenPicture, qwenEdit, qwenRedraw, qwenPaintOver, qwenOutpaint, qwenSharper, qwenFixFace,
   qwen21Picture, qwen21Edit,
+  zimagePicture, zimageRedraw, zimagePaintOver, zimageOutpaint, zimageSharper, zimageFixFace,
   h3Video,
   wanVideo,
   ltxVideo,
@@ -39,7 +41,7 @@ export const recipeById = (id: string) => recipes.find((r) => r.id === id);
 export { h3, h3Video, klein, krea2, krea2Picture, sdxl, sdxlTextToPicture, tools, wan, wanVideo };
 export { wanCanvas, wanFrames, WAN_FPS } from "./wan/family";
 export { ltx, ltxVideo };
-export { flux, fluxEdit, fluxPicture, qwen, qwenEdit, qwenPicture, qwen21, qwen21Edit, qwen21Picture };
+export { flux, fluxEdit, fluxPicture, qwen, qwenEdit, qwenPicture, qwen21, qwen21Edit, qwen21Picture, zimage, zimagePicture };
 export { ltxCanvas, ltxFrames, LTX_FPS } from "./ltx/family";
 export { LTX_REFINE_SIGMAS, LTX_SIGMAS } from "./ltx/video";
 export type { LtxVideo } from "./ltx/video";

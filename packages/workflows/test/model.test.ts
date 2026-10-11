@@ -16,6 +16,8 @@ describe("the model a workflow seems to be for", () => {
     expect(guessModel({ "1": { class_type: "UNETLoader", inputs: { unet_name: "flux2-klein-9b.safetensors" } } })).toBe("FLUX.2 Klein");
     expect(guessModel({ "1": { class_type: "UNETLoader", inputs: { unet_name: "flux1-dev.safetensors" } } })).toBe("FLUX.1");
     expect(guessModel({ "1": { class_type: "LTXVLoader", inputs: { ckpt_name: "ltx-2.3-22b-dev.safetensors" } } })).toBe("LTX 2.3");
+    expect(guessModel({ "1": { class_type: "UNETLoader", inputs: { unet_name: "z_image_turbo_bf16.safetensors" } } })).toBe("Z-Image");
+    expect(guessModel({ "1": { class_type: "UNETLoader", inputs: { unet_name: "ZImage/z_image_turbo_qwen_3_4b_fp8.safetensors" } } })).toBe("Z-Image");
   });
 
   it("tells SDXL from SD 1.5 by the checkpoint's name, else by the latent's size", () => {

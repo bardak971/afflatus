@@ -23,6 +23,8 @@ export function guessModel(graph: Graph): string {
     if (has(/minimax|mmh3|(^|[^a-z0-9])h3([^a-z0-9]|$)/i)) return "MiniMax H3";
     if (has(/wan\s*2[._-]?1(?![0-9])/i)) return "Wan 2.1";
     if (has(/wanvideo|\bwan\b|wan2|wan[_-]2/i)) return "Wan 2.2";
+    // before the Qwens: a Z-Image file can name its Qwen3 text encoder ("z_image_turbo_qwen_3_4b")
+    if (has(/(^|[^a-z0-9])z[._ -]?image/i)) return "Z-Image";
     if (has(/qwen[_ -]?image[_ -]?2|qwen[_ -]?2[._]1/i)) return "Qwen Image 2.1";
     if (has(/qwen/i)) return "Qwen Image";
     if (has(/ltx/i)) return "LTX 2.3";

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { checkGraph, choicesOf, dryContext, parseInput, pickChoice, schemaFor, type ChoiceInput, type NodeCatalog } from "@afflatus/core";
-import { seedvrChunk, familyById, krea2Picture, h3Canvas, h3Frames, h3Prompt, h3Video, introduce, kleinSize, padsFor, recipeById, recipes, sdxlTextToPicture, wanCanvas, wanFrames, wanVideo, ltxCanvas, ltxFrames, ltxVideo, LTX_REFINE_SIGMAS, LTX_SIGMAS, fluxEdit, fluxPicture, qwenEdit, qwenPicture, flux, qwen, wan, ltx } from "../src";
+import { seedvrChunk, familyById, krea2Picture, h3Canvas, h3Frames, h3Prompt, h3Video, introduce, kleinSize, padsFor, recipeById, recipes, sdxlTextToPicture, wanCanvas, wanFrames, wanVideo, ltxCanvas, ltxFrames, ltxVideo, LTX_REFINE_SIGMAS, LTX_SIGMAS, fluxEdit, fluxPicture, qwenEdit, qwenPicture, flux, qwen, wan, ltx, zimage, zimagePicture } from "../src";
 
 const catalog = JSON.parse(
   readFileSync(fileURLToPath(new URL("../../../reference/comfy-object-info.json", import.meta.url)), "utf-8"),
@@ -944,6 +944,22 @@ describe("flux and qwen image, from what is said once about each", () => {
     expect(found(qwen, "clip", ["qwen3vl_4b_fp8_scaled.safetensors", "qwen_3_4b.safetensors", "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"])).toBeNull();
     expect(found(qwen, "clip", ["qwen_2.5_vl_7b_fp8_scaled.safetensors"])).toBe("qwen_2.5_vl_7b_fp8_scaled.safetensors");
     expect(found(qwen, "turbo", ["Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"])).toBeNull();
+    // Z-Image: Turbo first, never the Omni or Edit models; its text encoder is Klein's Qwen3 4B, never Krea 2's Qwen3-VL;
+    // FLUX.1's VAE, never FLUX.2's; and no other family takes its models, nor it theirs
+    expect(found(zimage, "unet", ["z_image_omni_bf16.safetensors", "z_image_edit_bf16.safetensors", "flux1-dev.safetensors", "qwen_image_2512_fp8_e4m3fn.safetensors"])).toBeNull();
+    expect(found(zimage, "unet", ["z_image_bf16.safetensors", "ZImage/someone_zimage_turbo_v2.safetensors", "z_image_turbo_bf16.safetensors"])).toBe("ZImage/someone_zimage_turbo_v2.safetensors");
+    expect(found(zimage, "unet", ["z_image_base_bf16.safetensors", "z_image_turbo_bf16.safetensors"])).toBe("z_image_turbo_bf16.safetensors");
+    expect(found(zimage, "unet", ["z_image_base_bf16.safetensors"])).toBe("z_image_base_bf16.safetensors");
+    expect(found(zimage, "unet", ["Realism/ZIT_realism_v3.safetensors"])).toBe("Realism/ZIT_realism_v3.safetensors");
+    expect(found(zimage, "clip", ["qwen3vl_4b_fp8_scaled.safetensors", "qwen_2.5_vl_7b_fp8_scaled.safetensors", "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"])).toBeNull();
+    expect(found(zimage, "clip", ["qwen3vl_4b_fp8_scaled.safetensors", "qwen_3_4b.safetensors"])).toBe("qwen_3_4b.safetensors");
+    expect(found(zimage, "vae", ["flux2-vae.safetensors", "qwen_image_vae.safetensors", "Wan/wan_2.1_vae.safetensors", "klein_flux_vae.safetensors"])).toBeNull();
+    expect(found(zimage, "vae", ["flux2-vae.safetensors", "ae.safetensors"])).toBe("ae.safetensors");
+    const zFiles = ["z_image_turbo_bf16.safetensors", "z_image_bf16.safetensors", "ZImage/someone_zimage_turbo_v2.safetensors"];
+    for (const family of [flux, qwen, ...["klein", "krea2", "qwen21", "h3", "wan", "ltx"].map((id) => familyById(id)!)]) {
+      for (const slot of family.slots.filter((x) => x.folder === "diffusion_models")) expect(found(family, slot.id, zFiles), `${family.id}.${slot.id}`).toBeNull();
+    }
+    expect(found(zimage, "unet", ["flux-2-klein-base-4b.safetensors", "krea2_turbo_fp8_scaled.safetensors", "qwen_image_2.1_int8_convrot.safetensors", "minimax_h3_fl2va.safetensors", "flux1-dev-kontext_fp8_scaled.safetensors"])).toBeNull();
     // Wan and LTX: each half of Wan goes to its own slot; LTX's two VAEs are told apart
     expect(found(wan, "i2vHigh", ["Low/SomeoneWAN22I2V14B_LowV1.safetensors", "High/SomeoneWAN22I2V14B_HighV1.safetensors"])).toBe("High/SomeoneWAN22I2V14B_HighV1.safetensors");
     expect(found(wan, "i2vLow", ["High/SomeoneWAN22I2V14B_HighV1.safetensors", "Low/SomeoneWAN22I2V14B_LowV1.safetensors"])).toBe("Low/SomeoneWAN22I2V14B_LowV1.safetensors");
@@ -984,6 +1000,54 @@ describe("flux and qwen image, from what is said once about each", () => {
   });
 });
 
+describe("zimage: built the way ComfyUI's own Z-Image Turbo template builds it", () => {
+  const files = { unet: "z_image_turbo_bf16.safetensors", clip: "qwen_3_4b.safetensors", vae: "ae.safetensors" };
+  const all = (b: { graph: Record<string, { class_type: string; inputs: Record<string, unknown> }> }, cls: string) => Object.values(b.graph).filter((n) => n.class_type === cls);
+  const build = (over: Record<string, unknown> = {}) => zimagePicture.build(parseInput(zimagePicture, { prompt: "a cat", ...over }), dryContext({ seed: 7, slots: files }));
+
+  it("reads with Qwen3 4B as Lumina 2's encoder, shifts by 3, and samples 9 steps of res_multistep at CFG 1 with the negative side emptied", () => {
+    const b = build();
+    expect(all(b, "UNETLoader")[0]!.inputs).toMatchObject({ unet_name: "z_image_turbo_bf16.safetensors", weight_dtype: "default" });
+    expect(all(b, "CLIPLoader")[0]!.inputs).toMatchObject({ clip_name: "qwen_3_4b.safetensors", type: "lumina2", device: "default" });
+    expect(all(b, "VAELoader")[0]!.inputs.vae_name).toBe("ae.safetensors");
+    expect(all(b, "ModelSamplingAuraFlow")[0]!.inputs.shift).toBe(3);
+    expect(all(b, "ModelSamplingFlux")).toEqual([]);
+    expect(all(b, "KSampler")[0]!.inputs).toMatchObject({ steps: 9, cfg: 1, sampler_name: "res_multistep", scheduler: "simple", denoise: 1, seed: 7 });
+    expect(all(b, "ConditioningZeroOut")).toHaveLength(1);
+    expect(all(b, "CLIPTextEncode").map((n) => n.inputs.text)).toEqual(["a cat"]);
+    expect(all(b, "FluxGuidance")).toEqual([]);
+    expect(all(b, "EmptySD3LatentImage")[0]!.inputs).toMatchObject({ width: 896, height: 1152, batch_size: 1 });
+    // on a grid of 16
+    expect(all(build({ size: { width: 1000, height: 1300 } }), "EmptySD3LatentImage")[0]!.inputs).toMatchObject({ width: 1008, height: 1296 });
+    // a negative prompt that is written is encoded; a shift of 0 leaves the model's own
+    expect(all(build({ negative: "blurry", cfg: 3 }), "CLIPTextEncode").map((n) => n.inputs.text)).toEqual(["a cat", "blurry"]);
+    expect(all(build({ shift: 0 }), "ModelSamplingAuraFlow")).toEqual([]);
+    expect(zimagePicture.inputs.map((i) => i.id)).not.toContain("guidance");
+    expect(zimagePicture.inputs.map((i) => i.id)).not.toContain("fast");
+    expect(b.loads).toEqual(["diffusion_models/z_image_turbo_bf16.safetensors", "text_encoders/qwen_3_4b.safetensors", "vae/ae.safetensors"]);
+  });
+
+  it("has the operations of the other picture models but Edit, which Z-Image has no model for", () => {
+    expect(recipes.filter((r) => r.family === "zimage").map((r) => r.id)).toEqual(["zimage.text-to-picture", "zimage.redraw", "zimage.paint-over", "zimage.outpaint", "zimage.sharper", "zimage.fix-face"]);
+    expect(familyById("zimage")!.name).toBe("Z-Image");
+  });
+
+  it("starts Z-Image Base on its own sampling, only by its own names: never Turbo or a fine-tune of it", () => {
+    const matched = (name: string) => zimagePicture.presets!.filter((p) => new RegExp(p.match, "i").test(name)).map((p) => p.values);
+    expect(matched("z_image_bf16.safetensors")).toEqual([{ steps: 30, cfg: 4, sampler: "res_multistep" }]);
+    expect(matched("ZImage\\z_image_fp8_e4m3fn.safetensors")).toHaveLength(1);
+    expect(matched("Z-Image-Base-fp16.safetensors")).toHaveLength(1);
+    for (const name of ["z_image_turbo_bf16.safetensors", "ZImage/z_image_turbo_fp8.safetensors", "someone_zimage_v2.safetensors", "Realism/ZIT_realism_v3.safetensors"]) expect(matched(name), name).toEqual([]);
+  });
+
+  it("warns on weights and quality words in a prompt", () => {
+    const lint = (text: string) => zimage.lint!({ text, main: "prompt", changes: {} }).map((l) => l.text);
+    expect(lint("A photograph of a (red:1.3) door.")).toEqual([expect.stringMatching(/weight/)]);
+    expect(lint("masterpiece, a door")).toEqual([expect.stringMatching(/Quality words/)]);
+    expect(lint("A photograph of a red door in the rain.")).toEqual([]);
+  });
+});
+
 describe("klein: the model and how it samples are the user's to set", () => {
   const picture = recipes.find((r) => r.id === "klein.picture")!;
   const slots = { unet: "flux-2-klein-base-4b.safetensors", clip: "qwen_3_4b.safetensors", vae: "flux2-vae.safetensors" };
@@ -1021,13 +1085,14 @@ describe("what was fixed inside the recipes is the user's to set", () => {
     krea2: { unet: "krea2.safetensors", clip: "qwen3vl_4b.safetensors", vae: "qwen_image_vae.safetensors" },
     flux: { unet: "flux1-dev.safetensors", clipL: "clip_l.safetensors", t5: "t5xxl.safetensors", vae: "ae.safetensors" },
     qwen: { unet: "qwen_image.safetensors", clip: "qwen_2.5_vl_7b.safetensors", vae: "qwen_image_vae.safetensors" },
+    zimage: { unet: "z_image_turbo_bf16.safetensors", clip: "qwen_3_4b.safetensors", vae: "ae.safetensors" },
   };
   const build = (id: string, input: Record<string, unknown>, ctx: Parameters<typeof dryContext>[0] = {}) => {
     const r = byId(id);
     const family = id.split(".")[0]!;
     return r.build(parseInput(r, { ...(family === "sdxl" ? { checkpoint: "c.safetensors" } : {}), ...input }), dryContext({ seed: 7, slots: files[family] ?? {}, uploads: { source: "s.png", mask: "m.png" }, media: { source: photo, mask: { ...photo, box: { x: 300, y: 500, width: 600, height: 500 } } }, ...ctx }));
   };
-  const families = ["sdxl", "klein", "krea2", "flux", "qwen"];
+  const families = ["sdxl", "klein", "krea2", "flux", "qwen", "zimage"];
 
   it("the face detailer: how sure it must be, the room around the face, and the sizes it works at", () => {
     for (const family of families) {
@@ -1060,7 +1125,7 @@ describe("what was fixed inside the recipes is the user's to set", () => {
   });
 
   it("a hires second pass: its own sampler and scheduler, or the first pass's", () => {
-    for (const id of ["sdxl.text-to-picture", "krea2.text-to-picture", "flux.text-to-picture", "qwen.text-to-picture"]) {
+    for (const id of ["sdxl.text-to-picture", "krea2.text-to-picture", "flux.text-to-picture", "qwen.text-to-picture", "zimage.text-to-picture"]) {
       const same = node(build(id, { prompt: "a", hires: true, hiresUpscaler: "u.pth", sampler: "euler", scheduler: "simple" }), "KSampler");
       expect(same.map((k) => [k.sampler_name, k.scheduler]), id).toEqual([["euler", "simple"], ["euler", "simple"]]);
       const own = node(build(id, { prompt: "a", hires: true, hiresUpscaler: "u.pth", sampler: "euler", scheduler: "simple", hiresSampler: "dpmpp_2m", hiresScheduler: "beta" }), "KSampler");
