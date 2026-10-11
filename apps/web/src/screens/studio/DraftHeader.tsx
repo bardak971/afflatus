@@ -4,7 +4,9 @@ import { Check, ChevronLeft, LoaderCircle, Pencil, Plus, TriangleAlert, Trash2 }
 import { api, type Draft, type DraftBrief } from "../../api";
 import { duplicateDraft, type useDraft } from "../../draft";
 import { DraftMenu } from "./DraftMenu";
-import { ask, askText } from "../../Confirm";
+import { askText } from "../../Confirm";
+import { deleteQuestion, toMenu } from "../../projects/kindActions";
+import { useKindActions } from "../../projects/useKindActions";
 import { useBanners } from "../../store";
 import { cx, fieldClass, TwoStep } from "../../ui";
 import { queryKeys } from "../../queryKeys";
@@ -22,6 +24,7 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
   onClose(): void;
 }) {
   const client = useQueryClient();
+  const kinds = useKindActions();
   const say = useBanners((b) => b.push);
   /** A draft action that failed, said where it is seen whatever is open. */
   const failed = (what: string) => (err: unknown) => say(failedBanner({ id: `draft:${what}`, once: true, href: "/create", go: "Open the form" }, `The draft could not be ${what}`, err));
@@ -49,13 +52,18 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
   // the delete asked first takes the whole row: the question with its two buttons, rather than squeezed in beside the menu
   const [deleting, setDeleting] = useState(false);
   if (deleting && draft) {
+    const question = deleteQuestion("draft", [titleOf(draft) || "this draft"]);
     return (
       <div className="flex h-[60px] shrink-0 items-center gap-2 border-b border-line px-3">
+        {/* the draft's one Delete question, in the row: the words every place asks with */}
         <span className="flex min-w-0 grow flex-col">
-          <span className="truncate font-semibold">Delete this draft?</span>
-          <span className="truncate text-xs text-ink-2">Its outputs stay in your library.</span>
+          <span className="truncate font-semibold">{question.title}</span>
+          <span className="truncate text-xs text-ink-2" data-tip={question.text}>{question.text}</span>
         </span>
-        <TwoStep title="Delete this draft" open stay yes="Delete" cancel="Keep" onCancel={() => setDeleting(false)} onYes={() => { setDeleting(false); void d.remove(draft.id).catch(failed("deleted")); }} />
+        {/* the buttons keep their row beside the question's long line, which is the one cut short */}
+        <span className="shrink-0">
+          <TwoStep title="Delete this draft" open stay yes="Delete" cancel="Keep" onCancel={() => setDeleting(false)} onYes={() => { setDeleting(false); void d.remove(draft.id).catch(failed("deleted")); }} />
+        </span>
       </div>
     );
   }
@@ -100,31 +108,32 @@ export function DraftHeader({ d, draft, titleOf, onClose }: {
             onPick={(id) => void d.switchTo(id).catch(failed("opened"))}
             onNew={() => void d.startNew().catch(failed("started"))}
             onClearUnused={() => api.clearUnusedDrafts(draft?.id).then(() => client.invalidateQueries({ queryKey: queryKeys.drafts.lists() }), failed("cleared"))}
-            // the open one is renamed and deleted as from the header's own buttons; another, asked in a dialog
-            onRename={(x) => {
-              if (x.id === draft?.id) {
-                cancelledNaming.current = false;
-                setNaming(draft.name ?? "");
-                return;
-              }
-              void askText({ title: "Rename the draft", value: x.name ?? "", placeholder: "Draft name (empty: the start of the prompt)", yes: "Rename" }).then((name) => {
-                if (name !== null && name !== (x.name ?? "")) rename.mutate({ id: x.id, name });
-              });
-            }}
-            onDuplicate={(x) =>
-              void duplicateDraft(x.id).then((made) => {
-                client.setQueryData(queryKeys.drafts.one(made.id), made);
-                void client.invalidateQueries({ queryKey: queryKeys.drafts.lists() });
-                setNameNext(made.id);
-                return d.switchTo(made.id);
-              }).catch(failed("duplicated"))
-            }
-            onDelete={(x) => {
-              if (x.id === draft?.id) return setDeleting(true);
-              void ask({ title: "Delete this draft?", text: `${titleOf(x) || "This draft"} is deleted with its conversation with the designer. Its outputs stay in your library.`, yes: "Delete" }).then((ok) => {
-                if (ok) void api.deleteDraft(x.id).then(() => client.invalidateQueries({ queryKey: queryKeys.drafts.lists() }), failed("deleted"));
-              });
-            }}
+            // the draft's list; the open one is renamed and deleted as from the header's own buttons (its name box, the
+            // delete asked in the row), and a copy opens with its name box
+            menuOf={(x) => toMenu(kinds.draft([{ id: x.id, name: titleOf(x) || "this draft", project: x.projectId }], {
+              hide: x.id === draft?.id ? ["open"] : [],
+              runs: {
+                open: () => void d.switchTo(x.id).catch(failed("opened")),
+                rename: () => {
+                  if (x.id === draft?.id) {
+                    cancelledNaming.current = false;
+                    setNaming(draft.name ?? "");
+                    return;
+                  }
+                  void askText({ title: "Rename the draft", value: x.name ?? "", placeholder: "Draft name (empty: the start of the prompt)", yes: "Rename" }).then((name) => {
+                    if (name !== null && name !== (x.name ?? "")) rename.mutate({ id: x.id, name });
+                  });
+                },
+                duplicate: () =>
+                  void duplicateDraft(x.id).then((made) => {
+                    client.setQueryData(queryKeys.drafts.one(made.id), made);
+                    void client.invalidateQueries({ queryKey: queryKeys.drafts.lists() });
+                    setNameNext(made.id);
+                    return d.switchTo(made.id);
+                  }).catch(failed("duplicated")),
+                ...(x.id === draft?.id ? { delete: () => setDeleting(true) } : {}),
+              },
+            }), false)}
           />
         </div>
       )}

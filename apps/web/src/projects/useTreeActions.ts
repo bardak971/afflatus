@@ -10,6 +10,7 @@ import { duplicateDraft } from "../draft";
 import { useProject } from "../project";
 import { useSayFailed } from "../sayFailed";
 import { useBanners, useOpenDraft } from "../store";
+import { deleteQuestion } from "./kindActions";
 import { planBin, planDrop, type Moving, type Row, type Target } from "./tree";
 import { insteadOfWaiting, restorable } from "../keepFor";
 import { queryKeys } from "../queryKeys";
@@ -17,9 +18,6 @@ import { queryKeys } from "../queryKeys";
 /** Before a folder of the disk is unlinked: the question both folder trees ask (the folder panel's and the Projects panel's). */
 const askUnlink = (name: string) =>
   ask({ title: `Unlink ${name}?`, text: "Afflatus stops showing it and its sub-folders. Nothing on your disk is touched: its files stay where they are. It can be linked again later.", yes: "Unlink" });
-/** Before one folder is deleted, from either folder tree. */
-const askDeleteFolder = (name: string) =>
-  ask({ title: `Delete ${name}?`, text: "Its items move to the folder above it. A deleted folder cannot be restored from the bin.", yes: "Delete" });
 
 /**
  * What the Projects panel changes: moves, deletes, renames, new folders, root folders, archiving. Each
@@ -101,9 +99,13 @@ export function useTreeActions() {
       ].filter(Boolean);
       const binOnly = list.every((r) => r.kind === "item");
       const title = binOnly ? (one ? `Move ${list[0]!.label} to the bin?` : `Move these ${list.length} items to the bin?`) : one ? `Delete ${list[0]!.label}?` : `Delete these ${list.length}?`;
-      // one folder alone: the question the folder panel asks for it
-      const lone = one && list[0]!.kind === "folder" ? list[0]! : null;
-      const yes = lone ? await (lone.linked ? askUnlink(lone.label) : askDeleteFolder(lone.label)) : await ask({ title, text: lines.join("\n"), yes: binOnly ? "Move to bin" : "Delete" });
+      // one folder of the disk alone: unlinked, as its own Unlink asks; timelines, drafts or folders alone: the kind's
+      // one Delete question (kindActions.tsx), the same from every place
+      const kind = list[0]!.kind;
+      const same = (kind === "timeline" || kind === "draft" || kind === "folder") && list.every((r) => r.kind === kind && !r.linked) ? kind : null;
+      const yes = one && kind === "folder" && list[0]!.linked
+        ? await askUnlink(list[0]!.label)
+        : await ask(same ? deleteQuestion(same, list.map((r) => r.label)) : { title, text: lines.join("\n"), yes: binOnly ? "Move to bin" : "Delete" });
       if (!yes) return;
       // items alone: gone from the lists at once, with Undo (assetChange.tsx)
       if (binOnly) {

@@ -1,11 +1,11 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { ChevronDown, Film, FolderOpen, Image as ImageIcon, Layers, Music, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { ChevronDown, Film, Image as ImageIcon, Music, Plus, Search } from "lucide-react";
 import { Thumb } from "../../Thumb";
 import { fuzzyFilter } from "@afflatus/core";
 import { thumbUrl, type DraftBrief } from "../../api";
 import { useRecipes } from "../../data";
 import { plural, triedLabel, when } from "../../format";
-import { ContextMenu, useMenu } from "../../ContextMenu";
+import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { Keys } from "../../Keys";
 import { Popover } from "../../Popover";
 import { cx, TwoStep } from "../../ui";
@@ -27,7 +27,7 @@ function Cover({ d, size }: { d: DraftBrief; size: number }) {
  * first), and on the right how many outputs it has (by model when it was tried on several) and when it was last changed. Opens from the head of the Create panel; typing narrows
  * the list, the arrow keys move in it, Enter opens. A draft with no prompt is named after its model.
  */
-export function DraftMenu({ drafts, open: current, titleOf, onPick, onNew, onClearUnused, onRename, onDuplicate, onDelete }: {
+export function DraftMenu({ drafts, open: current, titleOf, onPick, onNew, onClearUnused, menuOf }: {
   drafts: DraftBrief[];
   open: DraftBrief | null;
   /** What a draft is called: its name, else the start of its prompt, else "" (named after its model here). */
@@ -35,10 +35,8 @@ export function DraftMenu({ drafts, open: current, titleOf, onPick, onNew, onCle
   onPick(id: string): void;
   onNew(): void;
   onClearUnused(): Promise<unknown>;
-  /** A draft of the list renamed (asked for its name), duplicated or deleted (asked first), from its right-click menu. */
-  onRename(d: DraftBrief): void;
-  onDuplicate(d: DraftBrief): void;
-  onDelete(d: DraftBrief): void;
+  /** A draft's right-click menu: the draft's list, as every place shows it (projects/kindActions.tsx). */
+  menuOf(d: DraftBrief): MenuItem[];
 }) {
   const rowMenu = useMenu<DraftBrief>();
   const recipes = useRecipes();
@@ -107,6 +105,9 @@ export function DraftMenu({ drafts, open: current, titleOf, onPick, onNew, onCle
     setShown(false);
     setQuery("");
   };
+  /** A line of a row's menu closes the list before it runs: what it does (a question, another draft) is seen over the Studio. */
+  const closing = (items: MenuItem[]): MenuItem[] =>
+    items.map((it) => (it === "—" ? it : { ...it, ...(it.items ? { items: closing(it.items) } : {}), ...(it.run ? { run: () => { close(); it.run!(); } } : {}) }));
   const active = shown ? list[at] : undefined;
   // the row the arrows are on stays in sight in a long list
   useEffect(() => {
@@ -238,13 +239,7 @@ export function DraftMenu({ drafts, open: current, titleOf, onPick, onNew, onCle
               at={rowMenu.menu.at}
               label="Actions on this draft"
               head={{ title: nameOf(rowMenu.menu.subject), sub: `${modelLine(rowMenu.menu.subject)} · ${countOf(rowMenu.menu.subject)}` }}
-              items={[
-                ...(rowMenu.menu.subject.id === current?.id ? [] : [{ label: "Open", icon: <FolderOpen size={14} />, run: () => pick(rowMenu.menu!.subject.id) }]),
-                { label: "Rename…", icon: <Pencil size={14} />, run: () => { const d = rowMenu.menu!.subject; close(); onRename(d); } },
-                { label: "Duplicate", icon: <Layers size={14} />, note: "a new draft with its forms", run: () => { const d = rowMenu.menu!.subject; close(); onDuplicate(d); } },
-                "—",
-                { label: "Delete…", icon: <Trash2 size={14} />, danger: true, note: "its outputs stay", run: () => { const d = rowMenu.menu!.subject; close(); onDelete(d); } },
-              ]}
+              items={closing(menuOf(rowMenu.menu.subject))}
               onClose={rowMenu.close}
             />
           )}

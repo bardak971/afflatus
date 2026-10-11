@@ -168,8 +168,8 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
 
   // the right-click menus: one per kind of row, and the selection bar's "Move to"
   const menus = useRowMenus({
-    picked, rows, byKey, scoped, current, projects: projects.data?.items ?? [], folders: folders.data?.items ?? [], groups,
-    binCount: storage.data?.bin.count ?? 0, binBytes: storage.data?.bin.bytes ?? 0, actions, pins, setProject, setOpen, setFocused, setClearAsk,
+    picked, rows, byKey, scoped, projects: projects.data?.items ?? [], folders: folders.data?.items ?? [], groups,
+    binCount: storage.data?.bin.count ?? 0, binBytes: storage.data?.bin.bytes ?? 0, actions, setProject, setOpen, setFocused, setClearAsk,
     clearPicks, activate, startRename, duplicate, remove, importInto, onView, showInStudio,
   });
   // dragging rows onto a project, the Inbox or a folder, and the library's items and files from the computer

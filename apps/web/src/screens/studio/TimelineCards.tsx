@@ -2,11 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Check, Film, Folder as FolderIcon, FolderKanban, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Check, Film, Folder as FolderIcon, Plus, Trash2, X } from "lucide-react";
 import { useTimelineOf } from "../../actions";
 import { Select } from "../../Select";
 import { api, thumbUrl, type TimelineBrief, type TimelineLeaf } from "../../api";
-import { ask, askText } from "../../Confirm";
 import { ContextMenu, useMenu, type MenuHead, type MenuItem } from "../../ContextMenu";
 import { useFolders, useProjects, useProjectsTree } from "../../data";
 import { DRAG_TIMELINE, DRAG_TYPE, useDragged } from "../../dragging";
@@ -14,6 +13,8 @@ import { clock, plural, when } from "../../format";
 import { plainKey } from "../../Keys";
 import { useKeysHere } from "../../keys/here";
 import { projectForNew } from "../../project";
+import { toMenu, type KindActionId } from "../../projects/kindActions";
+import { useKindActions, type TimelineSubject } from "../../projects/useKindActions";
 import { openFolderId } from "../../store";
 import { Thumb } from "../../Thumb";
 import { Button, Chip, cx, Empty, ErrorNote } from "../../ui";
@@ -46,7 +47,7 @@ const HATCH = "repeating-linear-gradient(45deg, var(--color-raised) 0 6px, var(-
 
 /**
  * The timelines of the place that is open, as cards in the Studio's grid: a click opens one in the editor,
- * Ctrl or Shift + click picks several, a right-click gives Open, Rename, Move to a project and Delete,
+ * Ctrl or Shift + click picks several, a right-click gives the timeline's list (projects/kindActions.tsx),
  * F2 renames, Delete asks about what is picked. The last card is a dashed one that makes a new timeline
  * where the Studio is looking.
  */
@@ -68,9 +69,8 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
   const leaves = useMemo(() => new Map((tree.data?.groups ?? []).flatMap((g) => g.timelines.map((l) => [l.id, l] as const))), [tree.data]);
   const refresh = () => client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
   const create = useMutation({ mutationFn: () => api.createTimeline(undefined, projectForNew()), onSuccess: (t) => { void refresh(); go(`/timelines/${t.id}`); } });
-  const rename = useMutation({ mutationFn: (v: { id: string; name: string }) => api.editTimeline(v.id, { name: v.name }), onSuccess: () => void refresh() });
-  const move = useMutation({ mutationFn: (v: { ids: string[]; project: string | null }) => Promise.all(v.ids.map((id) => api.editTimeline(id, { project: v.project, folder: null }))), onSuccess: () => void refresh() });
-  const remove = useMutation({ mutationFn: (ids: string[]) => Promise.all(ids.map((id) => api.deleteTimeline(id))), onSuccess: () => { setPicked(new Set()); void refresh(); } });
+  // the timeline's list, as every place shows it (projects/kindActions.tsx); a move or a delete drops the selection
+  const kinds = useKindActions();
 
   /** The cards picked with Ctrl or Shift; `anchor` is the last one clicked, where a Shift range starts. */
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -81,15 +81,15 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
 
   // the folder chip only for a timeline that sits in a folder: one at the project's root (most of them) says nothing by it
   const folderName = (id: string | null) => (id && !projects.some((p) => p.folderId === id) ? folderList.data?.items.find((f) => f.id === id)?.name ?? "Folder" : null);
-  const renameOne = async (t: TimelineBrief) => {
-    const name = await askText({ title: "Rename the timeline", value: t.name, placeholder: "A name for it", yes: "Rename" });
-    if (name && name !== t.name) rename.mutate({ id: t.id, name });
-  };
-  const removeSome = async (ids: string[]) => {
-    const named = ids.map((id) => timelines.find((t) => t.id === id)?.name).filter(Boolean);
-    const one = ids.length === 1;
-    if (await ask({ title: one ? `Delete ${named[0] ?? "this timeline"}?` : `Delete ${ids.length} timelines?`, text: "The videos stay in your library; only the sequence goes.", yes: "Delete" })) remove.mutate(ids);
-  };
+  /** The list for these cards: what is known of each (its unused takes and export from the tree, once read). */
+  const listOf = (ids: string[]) => kinds.timeline(
+    ids.flatMap((id) => timelines.filter((t) => t.id === id)).map((t): TimelineSubject => {
+      const leaf = leaves.get(t.id);
+      return { id: t.id, name: t.name, project: t.projectId, folder: t.folderId, clips: t.clips, toRender: t.toRender, exported: leaf?.exported, unused: leaf ? (leaf.unusedTakes ? { takes: leaf.unusedTakes, bytes: leaf.unusedBytes } : null) : undefined };
+    }),
+    { done: () => setPicked(new Set()) },
+  );
+  const runOf = (ids: string[], id: KindActionId) => listOf(ids).find((a) => a.id === id && !a.disabled)?.run?.();
 
   // Escape drops the selection; Delete asks about it; F2 renames the one picked
   useEffect(() => {
@@ -98,11 +98,8 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
       if (e.key === "Escape") setPicked(new Set());
       else if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
-        void removeSome([...picked]);
-      } else if (e.key === "F2" && picked.size === 1) {
-        const t = timelines.find((x) => x.id === [...picked][0]);
-        if (t) void renameOne(t);
-      }
+        runOf([...picked], "delete");
+      } else if (e.key === "F2" && picked.size === 1) runOf([...picked], "rename");
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
@@ -179,37 +176,13 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
     for (const f of media) assets.push(await api.upload(f, { folder: openFolderId() ?? undefined, project: projectForNew() }));
     return { assets };
   }, { onSuccess: (t) => go(`/timelines/${t.id}`) });
-  const items = (t: TimelineBrief): MenuItem[] => {
-    const many = picked.has(t.id) && picked.size > 1 ? [...picked] : [t.id];
-    const some = many.length > 1 ? `${many.length} timelines` : "";
-    const folders = (folderList.data?.items ?? []).filter((x) => x.projectId === t.projectId && !x.path);
-    return [
-      { label: "Open", key: "Enter", run: () => go(`/timelines/${t.id}`) },
-      { label: "Rename", key: "F2", icon: <Pencil size={13} />, run: () => void renameOne(t) },
-      ...(folders.length ? [{ label: some ? `Put ${some} in a folder` : "Put in a folder", icon: <FolderIcon size={14} />, note: "listed there; its renders land there", items: [
-        ...folders.map((x): MenuItem => ({ label: x.name, icon: <FolderIcon size={14} />, disabled: many.every((id) => timelines.find((y) => y.id === id)?.folderId === x.id), run: () => toFolder.mutate({ ids: many, folder: x.id }) })),
-        "—" as const,
-        { label: "The project's root", icon: <FolderIcon size={14} />, run: () => toFolder.mutate({ ids: many, folder: null }) },
-      ] }] : []),
-      ...(projects.length
-        ? [
-            "—" as const,
-            { label: some ? `Move ${some} to` : "Move to", icon: <FolderKanban size={14} />, note: "another project", items: [
-            ...projects.map((p): MenuItem => ({ label: p.name, icon: <FolderKanban size={14} />, note: "its root folder", disabled: many.every((id) => timelines.find((x) => x.id === id)?.projectId === p.id), run: () => move.mutate({ ids: many, project: p.id }) })),
-            { label: "The Inbox", icon: <FolderKanban size={14} />, note: "out of every project", disabled: many.every((id) => timelines.find((x) => x.id === id)?.projectId === null), run: () => move.mutate({ ids: many, project: null }) },
-            ] },
-          ]
-        : []),
-      "—" as const,
-      { label: some ? `Delete ${some}` : "Delete", key: "Del", icon: <Trash2 size={13} />, danger: true, note: "the videos stay in your library", run: () => void removeSome(many) },
-    ];
-  };
+  const items = (t: TimelineBrief): MenuItem[] => toMenu(listOf(picked.has(t.id) && picked.size > 1 ? [...picked] : [t.id]), true);
   /** The head of its menu: its name, length and clips; several picked: how many. */
   const headOf = (t: TimelineBrief): MenuHead =>
     picked.has(t.id) && picked.size > 1
       ? { title: `${picked.size} timelines` }
       : { title: t.name, thumb: t.cover ?? undefined, sub: <><span className="font-mono">{clock(t.durationMs)}</span> · {plural(t.clips, "clip")}</> };
-  const error = create.error ?? makeOf.error ?? rename.error ?? move.error ?? remove.error;
+  const error = create.error ?? makeOf.error;
   const firstScreen = firstScreenCards(size);
 
   return (
@@ -231,7 +204,7 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
               />
             </div>
           )}
-          <Button size="sm" disabled={remove.isPending} data-tip="Delete them: the videos stay in your library (Del)" onClick={() => void removeSome([...picked])}><Trash2 size={13} /> Delete</Button>
+          <Button size="sm" data-tip="Delete them: the videos stay in your library (Del)" onClick={() => runOf([...picked], "delete")}><Trash2 size={13} /> Delete</Button>
           <button type="button" aria-label="Clear selection" data-tip="Clear selection (Esc)" onClick={() => setPicked(new Set())} className="flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><X size={14} /></button>
         </div>,
         slot,

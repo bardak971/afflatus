@@ -14,6 +14,7 @@ import { useProject } from "../project";
 import { useQueueOps } from "../queueOps";
 import type { Target } from "../projects/tree";
 import { useTreeActions } from "../projects/useTreeActions";
+import { useKindActions } from "../projects/useKindActions";
 import { usePins } from "../projects/pins";
 import { useQueueBulk } from "../screens/queue/bulk";
 import { useJobActions } from "../screens/queue/jobActions";
@@ -113,6 +114,12 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
   const picker = useRef<HTMLInputElement>(null);
   const importTo = useRef<Target | null>(null);
 
+  const importInto = (t: Target) => {
+    importTo.current = t;
+    picker.current?.click();
+  };
+  const kinds = useKindActions({ importInto });
+
   const failed = useSayFailed({ id: "bar", go: "Open the Studio" });
   const good = (title: string, text?: string, href = "/", goTo = "Open the Studio") => say({ id: `bar:${Date.now()}`, tone: "good", title, text, href, go: goTo });
 
@@ -144,13 +151,10 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
   };
 
   const x: BarCtx = {
-    go, client, say, tree, allProjects, projects: allProjects.filter((p) => !p.archivedAt), pins, queue, ops, bulk, jobs, setup,
+    go, client, say, tree, kinds, allProjects, projects: allProjects.filter((p) => !p.archivedAt), pins, queue, ops, bulk, jobs, setup,
     binEmpty: bin ? !bin.count : false, binSaid: bin ? `${itemsWord(bin.count)} · ${size(bin.bytes)}` : "",
     recipes, entities, modelSettings, openNew, selectedClip, draftOpen, aim, subject, item, formTarget, openWorkflow, settingCtx, onCopied, setViewing,
-    importInto: (t) => {
-      importTo.current = t;
-      picker.current?.click();
-    },
+    importInto,
     failed,
     good,
     noDraft: (what = "No draft is open") => say({ id: "bar:form", tone: "bad", title: what, text: "Open a draft in the Studio first.", href: "/", go: "Open the Studio" }),
