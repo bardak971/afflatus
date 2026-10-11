@@ -230,7 +230,7 @@ if (platform !== "darwin-arm64") {
 // unpacked (cmd reads a running .bat from disk as it goes): the rest is in the version's launch.mjs. Both go into
 // every archive, as the layout is the same everywhere.
 console.log("[bundle] launchers");
-writeFileSync(join(top, "versions", "current"), `${folder}\n`);
+writeFileSync(join(top, "versions", "current"), folder);
 writeFileSync(join(top, "Afflatus.bat"), [
   "@echo off",
   "setlocal",

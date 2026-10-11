@@ -779,14 +779,19 @@ export class AfflatusUpdates {
     // only the data folder the launcher set: one set by hand is the user's choice, and is left as it is
     const same = (a: string, b: string) => (process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b);
     if (!same(resolve(this.o.dataDir), join(this.root, "data"))) return null;
-    const parent = dirname(this.root);
+    // where an archive lands: unzipped in place, this bundle's Afflatus folder sits beside the 0.3 folder; with Windows'
+    // Extract All, each archive gets a folder of its own name first (…\afflatus-v0.3.0-win-x64\afflatus-v0.3.0-win-x64\data
+    // beside …\afflatus-v0.4.0-win-x64\Afflatus), so the folder above this one's is looked in too, and one level inside each
+    const parents = [dirname(this.root), dirname(dirname(this.root))].filter((p, i, all) => all.indexOf(p) === i);
     let found: { from: string; version: string } | null = null;
-    for (const e of await readdir(parent, { withFileTypes: true })) {
-      const m = OLD_BUNDLE.exec(e.name);
-      if (!m || !e.isDirectory() || same(join(parent, e.name), this.root)) continue;
-      const data = join(parent, e.name, "data");
-      if (!existsSync(join(data, "afflatus.db"))) continue;
-      if (!found || (compareVersions(m[1]!, found.version) ?? 0) > 0) found = { from: data, version: m[1]! };
+    for (const parent of parents) {
+      for (const e of await readdir(parent, { withFileTypes: true }).catch(() => [])) {
+        const m = OLD_BUNDLE.exec(e.name);
+        if (!m || !e.isDirectory() || same(join(parent, e.name), this.root)) continue;
+        const data = [join(parent, e.name, "data"), join(parent, e.name, e.name, "data")].find((d) => existsSync(join(d, "afflatus.db")));
+        if (!data) continue;
+        if (!found || (compareVersions(m[1]!, found.version) ?? 0) > 0) found = { from: data, version: m[1]! };
+      }
     }
     return found;
   }

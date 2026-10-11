@@ -130,10 +130,11 @@ interface Rig {
 
 const rigs: Rig[] = [];
 
-async function rig(o: { running?: string; version?: string; install?: InstallKind; free?: (dir: string) => Promise<number>; before?: (r: { base: string; root: string; versions: string; data: string }) => void } = {}): Promise<Rig> {
+async function rig(o: { running?: string; version?: string; install?: InstallKind; free?: (dir: string) => Promise<number>; extracted?: boolean; before?: (r: { base: string; root: string; versions: string; data: string }) => void } = {}): Promise<Rig> {
   const running = o.running ?? "0.4.1";
   const base = mkdtempSync(join(tmpdir(), "afflatus-zz-test-updates-"));
-  const root = join(base, "Afflatus");
+  // `extracted`: unpacked by Windows' Extract All, into a folder named after the archive first
+  const root = o.extracted ? join(base, "afflatus-v0.4.0-win-x64", "Afflatus") : join(base, "Afflatus");
   const versions = join(root, "versions");
   const data = join(root, "data");
   mkdirSync(join(versions, running), { recursive: true });
@@ -500,6 +501,19 @@ describe("after an update", () => {
     expect(existsSync(old)).toBe(false);
     expect(readdirSync(r.root).some((n) => /^data-empty-/.test(n))).toBe(true);
     expect(JSON.parse(readFileSync(join(r.data, "updates", "last.json"), "utf8"))).toMatchObject({ kind: "moved", from: "0.3.0" });
+  });
+
+  it("finds a 0.3 library unpacked by Windows' Extract All, a folder deeper, beside this one's own", async () => {
+    let old = "";
+    const r = await rig({
+      extracted: true,
+      before: ({ base }) => {
+        old = join(base, "afflatus-v0.3.0-win-x64", "afflatus-v0.3.0-win-x64", "data");
+        mkdirSync(old, { recursive: true });
+        writeFileSync(join(old, "afflatus.db"), "zz-test old library");
+      },
+    });
+    expect((await r.view()).move).toEqual({ from: old, version: "0.3.0" });
   });
 
   it("offers no move once its own library has something in it", async () => {
