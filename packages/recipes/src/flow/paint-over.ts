@@ -1,6 +1,6 @@
 import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
 import { boxOf, MASK_INPUTS, MASK_NODES, maskParts, type MaskSettings } from "../sdxl/common";
-import { photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
+import { INPAINT_PATCH_NODES, inpaintPatched, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 
 export interface FlowPaintOver extends FlowBase, MaskSettings { source: string; mask: string; prompt: string; strength: number }
 
@@ -29,7 +29,7 @@ export function flowPaintOver(spec: FlowSpec, kit: FlowKit): Recipe<FlowPaintOve
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
     nodes: (input) => [...loadNodes(input), "LoadImage", "VAEEncode", ...(spec.hardInpaint ? [] : ["DifferentialDiffusion"]), ...MASK_NODES],
-    ...(SOMETIMES.length ? { optionalNodes: SOMETIMES } : {}),
+    ...(SOMETIMES.length || spec.inpaintPatch ? { optionalNodes: [...SOMETIMES, ...(spec.inpaintPatch ? INPAINT_PATCH_NODES : [])] } : {}),
     build(input, ctx) {
       const g = new GraphBuilder();
       const k = load(g, input, ctx);
@@ -44,14 +44,15 @@ export function flowPaintOver(spec: FlowSpec, kit: FlowKit): Recipe<FlowPaintOve
       // a family that inpaints with the mask as it is (hardInpaint) gets the plain one
       const masked = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: sized, vae: k.vae }), mask: spec.hardInpaint ? masks.forLatent : masks.softForLatent });
       g.phase("sampling");
-      const model = spec.hardInpaint ? shifted(g, k.model, input, size) : g.out("DifferentialDiffusion", { model: shifted(g, k.model, input, size) });
+      const guided = inpaintPatched(g, ctx, spec, shifted(g, k.model, input, size), k.vae, sized, masks.forLatent);
+      const model = spec.hardInpaint ? guided.model : g.out("DifferentialDiffusion", { model: guided.model });
       const { latent, pass } = sample(g, k, input, model, c, masked, ctx.seed, { denoise: input.strength });
       g.phase("decoding");
       const drawn = g.out("VAEDecode", { samples: latent, vae: k.vae });
       const back = g.out("ImageScale", { image: drawn, upscale_method: "lanczos", width: box.width, height: box.height, crop: "disabled" });
       const whole = g.out("ImageCompositeMasked", { destination: source, source: back, x: box.x, y: box.y, resize_source: false, mask: masks.soft });
       const out = g.add("PreviewImage", { images: whole });
-      return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads: k.loads };
+      return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads: [...k.loads, ...guided.loads] };
     },
     variants: [
       {

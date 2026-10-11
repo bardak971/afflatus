@@ -20,7 +20,7 @@ const ROUTES: Array<{ value: FinishSettings["route"]; label: string; detail: str
   { value: "model", label: "Pixel upscale model", detail: "an ESRGAN-type model, frame by frame: fast, sharp, may shimmer" },
 ];
 const COLOURS = ["lab", "wavelet", "adain", "none"] as const;
-const FALLBACK: FinishSettings = { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.15, latentSteps: 2, seedvrFrames: 0 };
+const FALLBACK: FinishSettings = { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.15, latentSteps: 2, seedvrFrames: 0, sharpen: 0 };
 
 /**
  * Finish all clips: every clip's selected take brought to its final quality by an upscale route, as a
@@ -109,6 +109,12 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
           {v.route === "model" && (
             <FieldRow label="Upscale model">
               <Select label="Upscale model" value={v.upscaleModel} onChange={(upscaleModel) => setV({ ...v, upscaleModel })} placeholder={upscaleModels.length ? "The first found" : "No upscale model in ComfyUI"} options={[{ value: "", label: "The first found" }, ...upscaleModels.map((m) => ({ value: m, label: fileLabel(m) }))]} />
+            </FieldRow>
+          )}
+          {/* every route but H3's own re-sample runs a pixel route, after which RCAS can go (the re-sample samples real detail) */}
+          {(v.route !== "latent" || resampled < videos.length) && (
+            <FieldRow label="Sharpen" note="RCAS (AMD FSR's contrast-adaptive sharpen) on the finished frames: crisps the edges an upscale leaves soft, without a plain sharpen's halos. 0.3 is a usual amount; 0 is off. Needs KJNodes">
+              <NumberBox label="Sharpen (RCAS)" value={v.sharpen ?? 0} min={0} max={1} step={0.05} onCommit={(sharpen) => setV({ ...v, sharpen })} />
             </FieldRow>
           )}
           {finished.length > 0 && (

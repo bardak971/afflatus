@@ -1,4 +1,5 @@
 import { defineFamily, defineRecipe, GraphBuilder, REMOVE_BACKGROUND, TOOLS_FAMILY } from "@afflatus/core";
+import { DETECTOR_SLOTS } from "../shared/detector";
 import { SEEDVR_COLOURS, SEEDVR_NODES, SEEDVR_SLOTS, seedvrUpscale } from "../video/upscale";
 
 /** Things done to a picture that need no picture model: nothing is drawn, so there is no prompt. */
@@ -15,6 +16,7 @@ export const tools = defineFamily({
       get: { file: "birefnet.safetensors", url: "https://huggingface.co/Comfy-Org/BiRefNet/resolve/main/background_removal/birefnet.safetensors" },
     },
     ...SEEDVR_SLOTS,
+    ...DETECTOR_SLOTS,
   ],
   loraMatch: [],
 });

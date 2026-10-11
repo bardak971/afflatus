@@ -192,7 +192,7 @@ describe("settings", () => {
       llms: [{ id: "main", name: "", baseUrl: "http://llm/v1", model: "m", hasApiKey: true, vision: false, contextSize: 16384, maxOutputTokens: 3000, noThinking: false }],
       unloadAfterMinutes: 0, designerLlm: "main", designerInstructions: [], designerInstruction: "", designerGuides: {},
       tagCheck: true, families: {}, hasCivitaiKey: true, civitaiLookups: false, updateChecks: false, downloadModels: false, renderHistoryDays: 90, unkeptDays: 1, binDays: 7,
-      finish: { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.15, latentSteps: 2, seedvrFrames: 0 }, slotFiles: {}, acceptedPresets: [],
+      finish: { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.15, latentSteps: 2, seedvrFrames: 0, sharpen: 0 }, slotFiles: {}, acceptedPresets: [],
       bar: { shortcut: "Ctrl+K", snippets: false, history: false, cast: false }, pinnedProjects: [],
     });
     expect(res.body).not.toContain("secret");

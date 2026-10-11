@@ -127,7 +127,7 @@ const exportBody = z.strictObject({
 /** How the clips are finished: the route, how much larger, its settings; `redo` finishes again the clips finished already. */
 const finishBody = z.strictObject({
   route: z.enum(["seedvr", "latent", "rtx", "model"]), factor: z.number().min(1).max(4), colour: z.enum(["lab", "wavelet", "adain", "none"]).optional(), upscaleModel: z.string().max(200).optional(), seedvrFrames: z.number().int().min(0).max(49).optional(),
-  latentDenoise: z.number().min(0.05).max(0.6).optional(), latentSteps: z.number().int().min(1).max(6).optional(), redo: z.boolean().default(false), clips: z.array(z.string()).optional(),
+  sharpen: z.number().min(0).max(1).optional(), latentDenoise: z.number().min(0.05).max(0.6).optional(), latentSteps: z.number().int().min(1).max(6).optional(), redo: z.boolean().default(false), clips: z.array(z.string()).optional(),
 });
 
 /** How a slow-motion job makes its frames: RIFE on the GPU when this ComfyUI is up and has it, else ffmpeg on the processor. */
@@ -463,7 +463,7 @@ async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finis
     const route = b.route === "latent" ? "seedvr" : b.route;
     const a = draft.asset;
     plan.push({ kind: "cut", label, video: { width: a.width ?? null, height: a.height ?? null, durationMs: a.durationMs ?? null, fps: a.fps ?? null },
-      cut: { asset: a.id, startMs: 0, endMs: a.durationMs ?? 0, action: "finish", route, by: b.factor, colour: b.colour, upscaleModel: b.upscaleModel, seedvrFrames: b.seedvrFrames, hiddenMs: hiddenRunUp(draft.headMs), clip: clip.id, finishedFrom: from } });
+      cut: { asset: a.id, startMs: 0, endMs: a.durationMs ?? 0, action: "finish", route, by: b.factor, colour: b.colour, upscaleModel: b.upscaleModel, seedvrFrames: b.seedvrFrames, sharpen: b.sharpen, hiddenMs: hiddenRunUp(draft.headMs), clip: clip.id, finishedFrom: from } });
   }
   return { plan, skipped };
 }

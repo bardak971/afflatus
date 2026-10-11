@@ -108,7 +108,26 @@ function wanLoad(g: GraphBuilder, ctx: BuildContext, input: WanVideo, picked: Wa
   };
   const high = load(picked.high, turboLoras?.high, input.turboStrength, input.loras);
   const low = load(picked.low, turboLoras?.low, 1, input.lorasLow).model;
-  return { high: high.model, plain: high.plain, low, turbo, turboLoras };
+  return { high: high.model, plain: high.plain, low, turbo, turboLoras, shift };
+}
+
+/**
+ * The step at which the low-noise model takes over. A share typed in (split > 0) is taken as it is. Left at 0 (Auto), it is
+ * where the noise level falls below the one Wan 2.2's two models were split at in training (0.9 for image to video,
+ * 0.875 for text to video, as Wan's own code and KJ's SigmaToStep switch): the same step as half at the defaults, but it
+ * follows a shift or a step count that is changed. Worked out on ComfyUI's simple / normal / sgm_uniform spacing of the
+ * shifted flow sigmas (sigma = s·t / (1 + (s − 1)·t)); on another scheduler, half.
+ */
+export function wanHandover(steps: number, shift: number, scheduler: string, words: boolean, split: number): number {
+  const clamp = (n: number) => Math.max(1, Math.min(steps - 1, n));
+  if (split > 0) return clamp(Math.round(steps * split));
+  if (!["simple", "normal", "sgm_uniform"].includes(scheduler)) return clamp(Math.round(steps / 2));
+  const boundary = words ? 0.875 : 0.9;
+  for (let i = 1; i < steps; i++) {
+    const t = 1 - i / steps;
+    if ((shift * t) / (1 + (shift - 1) * t) < boundary) return clamp(i);
+  }
+  return clamp(steps - 1);
 }
 
 /** The texts, and the latent to fill: an empty one from words alone, else the first (and the last) picture, which the node resizes to the canvas itself. */
@@ -143,7 +162,7 @@ function wanPasses(g: GraphBuilder, ctx: BuildContext, input: WanVideo, models: 
   const low = nag(models.low);
   const steps = models.turbo ? input.turboSteps : input.steps;
   const cfg = models.turbo ? 1 : input.cfg;
-  const handover = Math.max(1, Math.min(steps - 1, Math.round(steps * input.split)));
+  const handover = wanHandover(steps, models.shift, input.scheduler, uses(input).words, input.split);
   const lead = models.turbo && input.turboHybrid && models.plain ? Math.min(handover - 1, steps >= 6 ? 2 : 1) : 0;
   const passes: Array<{ node: string; steps: number }> = [];
   g.phase("sampling");
@@ -224,7 +243,7 @@ export const wanVideo = defineRecipe<WanVideo>({
       note: "1 is the LoRAs' own. 0.6 to 0.8 on the high-noise half brings back motion the 4-step LoRA flattens; the low-noise half stays at 1",
     },
     {
-      id: "turboHybrid", type: "toggle", label: "Hybrid turbo (motion first)", default: false, showWhen: "fast", advanced: true, perModel: true,
+      id: "turboHybrid", type: "toggle", label: "Hybrid turbo (motion first)", default: true, showWhen: "fast", advanced: true, perModel: true,
       note: "the first step or two run on the high-noise model WITHOUT the turbo LoRA at the full CFG scale (the motion is decided there), then the LoRAs take over at CFG 1: a draft that moves like a full render, a little slower. Only with the turbo LoRAs, not with a distilled model",
     },
     {
@@ -234,8 +253,8 @@ export const wanVideo = defineRecipe<WanVideo>({
     { id: "nagScale", type: "number", label: "NAG scale", min: 1, max: 30, step: 0.5, default: 11, showWhen: "nag", advanced: true, perModel: true, note: "how hard the negative pushes: 11 is its authors' value" },
     { id: "steps", type: "number", label: "Steps", min: 2, max: 50, step: 1, default: 20, showWhen: { input: "fast", in: [false] }, advanced: true, perModel: true },
     {
-      id: "split", type: "number", label: "High-noise steps (share)", min: 0.1, max: 0.9, step: 0.05, default: 0.5, advanced: true, perModel: true,
-      note: "the share of the steps the first model makes before the second takes over: 0.5 is half",
+      id: "split", type: "number", label: "High-noise steps (share)", min: 0, max: 0.9, step: 0.05, default: 0, advanced: true, perModel: true,
+      note: "the share of the steps the first model makes before the second takes over. 0 is Auto: where the noise falls below the level the two models were split at in training (0.9 for image to video, 0.875 for text to video), from the steps and the shift; 0.5 is half",
     },
     {
       id: "cfg", type: "number", label: "CFG scale", min: 1, max: 10, step: 0.5, default: 3.5, showWhen: { input: "fast", in: [false] }, advanced: true, perModel: true,

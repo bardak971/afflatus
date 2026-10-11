@@ -238,6 +238,8 @@ describe.skipIf(!ffmpegThere)("a clip's take, trimmed on the timeline", { timeou
     expect(nodes(graph, "ImageUpscaleWithModel")).toHaveLength(1);
     expect(nodes(graph, "UpscaleModelLoader")[0]!.inputs.model_name).toBe("RealESRGAN_x4plus.pth");
     expect(nodes(graph, "VHS_VideoCombine")[0]!.inputs.audio).toBeDefined();
+    // no RCAS unless it is asked for
+    expect(nodes(graph, "ImageSharpenKJ")).toEqual([]);
     await finish(three!, 4);
     const v = await view(tl);
     for (const c of v.clips) {
@@ -265,9 +267,10 @@ describe.skipIf(!ffmpegThere)("a clip's take, trimmed on the timeline", { timeou
     const again = await call("POST", `/api/timelines/${tl}/finish`, { route: "model", factor: 2 });
     expect(again.jobs).toEqual([]);
     expect(again.skipped.map((x: { why: string }) => x.why)).toEqual(["finished already", "finished already"]);
-    const redo = await call("POST", `/api/timelines/${tl}/finish`, { route: "model", factor: 1.5, upscaleModel: "RealESRGAN_x4plus.pth", redo: true, clips: [a] });
+    const redo = await call("POST", `/api/timelines/${tl}/finish`, { route: "model", factor: 1.5, upscaleModel: "RealESRGAN_x4plus.pth", sharpen: 0.3, redo: true, clips: [a] });
     expect(redo.jobs).toHaveLength(1);
-    await finish(three!, 5);
+    // asked for: RCAS on the upscaled frames, at the strength asked
+    expect(nodes(await finish(three!, 5), "ImageSharpenKJ").map((n) => n.inputs)).toEqual([expect.objectContaining({ method: "rcas", "method.strength": 0.3 })]);
     const w = await view(tl);
     // the redo is the finished version of the draft, not of the finished take
     expect(w.clips[0].takes).toHaveLength(3);

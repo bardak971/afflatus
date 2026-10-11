@@ -35,6 +35,12 @@ export const zimage = defineFamily({
       hint: "Put ae.safetensors (FLUX.1's VAE) in ComfyUI's models/vae folder.",
       get: { file: "ae.safetensors", url: `${HF}/vae/ae.safetensors` },
     },
+    {
+      // Alibaba PAI's Fun ControlNet Union 2.1, used here for its inpaint mode only: inpaint and outpaint fit the picture better with it
+      id: "inpaintCn", label: "Fun ControlNet Union (inpaint)", folder: "model_patches", detect: ["z.?image.*fun.?controlnet.*union"], optional: true,
+      hint: "Optional: with Z-Image-Turbo-Fun-Controlnet-Union-2.1-*.safetensors in ComfyUI's models/model_patches folder, inpaint and outpaint are guided to fit the picture around them.",
+      get: { file: "Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors", url: "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1/resolve/main/Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors" },
+    },
   ],
   loraMatch: ["z[ ._-]?image", "(^|[^a-z0-9])zit([^a-z0-9]|$)"],
   guide: `Z-Image reads plain sentences, in English or Chinese, through a Qwen3 language model: long, detailed descriptions are followed closely, and its authors' own prompt enhancer writes them that way. One flowing paragraph, the subject first; 50 to 200 words is plenty.
@@ -80,6 +86,7 @@ const spec: FlowSpec = {
   },
   // a 1.5× pass that redraws little: the authors' own 2K upscale redraws 0.33 and warns against more than 0.35
   hires: { scale: 1.5, denoise: 0.3 },
+  inpaintPatch: { slot: "inpaintCn" },
   shapes: [
     { id: "tall", label: "Portrait", width: 896, height: 1152 },
     { id: "square", label: "Square", width: 1024, height: 1024 },
@@ -99,7 +106,7 @@ const spec: FlowSpec = {
     },
   ],
   placeholder: "A photograph of a small bookshop at dusk, a hand-painted sign above the door that reads \"OPEN LATE\", warm light from the windows on the wet pavement.",
-  files: { unet: "z_image_turbo_bf16.safetensors", clip: "qwen_3_4b.safetensors", vae: "ae.safetensors" },
+  files: { unet: "z_image_turbo_bf16.safetensors", clip: "qwen_3_4b.safetensors", vae: "ae.safetensors", inpaintCn: "Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors" },
   fineTune: "ZImage\\someone_zimage_turbo_v1.safetensors",
 };
 

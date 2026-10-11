@@ -1,7 +1,7 @@
 import { defineRecipe, GraphBuilder, roundTo, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
 import {
-  boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, MASK_INPUTS, MASK_NODES, maskParts, UPSCALER_PREFER,
-  type FaceSettings, type MaskSettings, type UpscaleSettings,
+  boxOf, FACE_INPUTS, FACTOR_INPUT, MASK_INPUTS, MASK_NODES, maskParts, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_PREFER,
+  type FaceSettings, type MaskSettings, type RefineColourMatch, type UpscaleSettings,
 } from "../sdxl/common";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { redrawInTiles, tileInputs, tileNodes, TILE_NODES, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
@@ -9,6 +9,7 @@ import {
   introduce, KLEIN_PRESETS, kleinCond, kleinInputs, kleinModel, kleinSample, kleinSampleLatent, kleinSize, LOAD_NODES, loadKlein, REFERENCE_NODES, SAMPLE_NODES, withIntro,
   type KleinBase,
 } from "./common";
+import { DETECTOR_INPUT } from "../shared/detector";
 
 const files = { unet: "flux-2-klein-base-4b.safetensors", clip: "qwen_3_4b.safetensors", vae: "flux2-vae.safetensors" };
 const photo = { width: 1536, height: 2048 };
@@ -336,7 +337,7 @@ export const kleinReshape = defineRecipe<KleinReshape>({
 
 // ---------------------------------------------------------------- twice as large
 
-interface KleinSharper extends KleinBase, UpscaleSettings, TileSettings {
+interface KleinSharper extends KleinBase, UpscaleSettings, TileSettings, RefineColourMatch {
   source: string;
   upscaler: string;
   refine: boolean;
@@ -359,12 +360,13 @@ export const kleinSharper = defineRecipe<KleinSharper>({
     { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: ["x4plus(?!.*anime)", ...UPSCALER_PREFER], section: "out" },
     FACTOR_INPUT,
     { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the model; past about 2.5 megapixels it is made in tiles", default: true, section: "out" },
+    REFINE_COLOUR_MATCH_INPUT,
     ...tileInputs("refine"),
     ...kleinInputs,
   ],
   nodes: () => ["LoadImage", "UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "PreviewImage"],
   // the second pass: only when it is asked for and the result is small enough for it. All are ComfyUI's own nodes.
-  optionalNodes: ["UNETLoader", "CLIPLoader", "VAELoader", "LoraLoaderModelOnly", ...SAMPLE_NODES, "ImageScaleToTotalPixels", "VAEEncode", "ReferenceLatent", "SplitSigmasDenoise", ...TILE_NODES],
+  optionalNodes: ["UNETLoader", "CLIPLoader", "VAELoader", "LoraLoaderModelOnly", ...SAMPLE_NODES, "ImageScaleToTotalPixels", "VAEEncode", "ReferenceLatent", "SplitSigmasDenoise", ...TILE_NODES, "ColorTransfer"],
   build(input, ctx) {
     const g = new GraphBuilder();
     const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
@@ -399,12 +401,13 @@ export const kleinSharper = defineRecipe<KleinSharper>({
       pass = done.pass;
     }
     g.phase("decoding");
-    const out = g.add("PreviewImage", { images: image });
+    const out = g.add("PreviewImage", { images: refineColourMatched(g, ctx, image, sized, input) });
     return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads: [...loads, ...k.loads] };
   },
   variants: [
     { name: "enlarged and gone over", input: { source: "p", upscaler: "u.pth" }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
     { name: "only enlarged", input: { source: "p", upscaler: "u.pth", refine: false }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
+    { name: "gone over, no colour match", input: { source: "p", upscaler: "u.pth", colourMatch: false }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
     { name: "too large to go over whole: in tiles", input: { source: "p", upscaler: "u.pth" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
     { name: "too large, asked whole: gone over whole", input: { source: "p", upscaler: "u.pth", tiles: "Whole picture" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
   ],
@@ -456,7 +459,7 @@ export const kleinFixFace = defineRecipe<KleinFixFace>({
       note: "only with two people in the picture: the one on the RIGHT. Each face is then redrawn from its own person's pictures.",
     },
     { id: "strength", type: "number", label: "Denoising strength", note: "0.5 pulls the face back to the reference images", min: 0.1, max: 0.8, step: 0.05, default: 0.5 },
-    { id: "detector", type: "choice", label: "Detection model", note: "from ComfyUI's models/ultralytics folder", options: { node: "UltralyticsDetectorProvider", input: "model_name" }, default: "bbox/face_yolov8m.pt", prefer: FACE_DETECTOR_PREFER, advanced: true },
+    DETECTOR_INPUT,
     ...FACE_INPUTS,
     ...kleinInputs,
   ],
