@@ -75,11 +75,6 @@ export const pace = (stepMs: number | null): string => (stepMs === null ? "—" 
  */
 export const leftWords = (ms: number, up = false) => (ms < 3_600_000 ? `${Math.max(1, Math.round(ms / 60_000))} min` : `${(up ? Math.ceil : Math.floor)(ms / 3_600_000)} h`);
 
-/** What is left of a countdown: "going to the bin" once over, else "12 min left", "5 h left". */
-export function left(ms: number, over = "going to the bin"): string {
-  return ms <= 0 ? over : `${leftWords(ms)} left`;
-}
-
 /** A time that is a guess, said as one: "about 40 s", "about 2 min". Empty when there is nothing to go on. */
 export function aboutMs(ms: number | null | undefined): string {
   if (!ms || ms <= 0) return "";

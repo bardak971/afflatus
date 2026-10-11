@@ -1,9 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { joinVideos, webCut } from "../src/cut";
+import { joinVideosInto, webCut } from "../src/cut";
 import { readVideo } from "../src/video";
 
 /** A copy for the web: brought down to 1280 on its long side, 30 frames a second, under the size asked for. */
@@ -39,7 +40,7 @@ describe.skipIf(!sample)("a web copy made by ffmpeg", () => {
   afterAll(() => rmSync(sample!.dir, { recursive: true, force: true }));
   it("comes out at 1280 wide, 30 frames a second, under the size", async () => {
     const part = { kind: "video" as const, source: sample!.bytes, ext: "mp4", startMs: 0, endMs: 3000, hasSound: true, sound: "own" as const, volume: 1, fill: false };
-    const out = await joinVideos([part], { width: 2048, height: 1152 }, 48, { webMb: 10 });
+    const out = await joinVideosInto([part], { width: 2048, height: 1152 }, 48, { webMb: 10 }, (file) => readFile(file));
     expect(out.length).toBeLessThan(10 * 1000 * 1000);
     const { facts } = await readVideo(out, "mp4");
     expect(facts).toMatchObject({ width: 1280, height: 720 });

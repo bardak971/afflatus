@@ -156,7 +156,7 @@ const full = (d: Tables["drafts"]) => ({
   chat: d.chat ? (JSON.parse(d.chat) as unknown[]) : [],
   designer: d.designer ? (JSON.parse(d.designer) as { llm?: string; instruction?: string }) : null,
 });
-/** A draft as GET /api/drafts/:id answers it: what the web's types are held against (test/apiTypes.test.ts). */
+/** A draft as GET /api/drafts/:id answers it: what the web's types are held against (test/apiTypes.test.ts). @internal */
 export type DraftView = ReturnType<typeof full>;
 
 export function registerDrafts(app: FastifyInstance, s: Services): void {

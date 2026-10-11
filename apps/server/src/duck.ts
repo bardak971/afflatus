@@ -1,4 +1,4 @@
-import { curveAt, duckDbAt, type MusicPlan } from "@afflatus/core";
+import { duckDbAt, type MusicPlan } from "@afflatus/core";
 import { visible, type Laid } from "./timelineModel";
 
 /**
@@ -70,11 +70,6 @@ export function eased(talking: boolean[], depthDb: number | number[]): number[] 
     g += (target - g) * (target < g ? down : up);
     return Math.round(g * 1000) / 1000;
   });
-}
-
-/** The curve as a mono 32-bit float WAV at `rate` Hz, held between its points: the export multiplies the music by it. */
-export function duckWav(curve: DuckCurve, totalMs: number, rate = 8000): Uint8Array {
-  return gainWav((ms) => curveAt(curve, ms), totalMs, rate);
 }
 
 /** A gain along the timeline (the music plan's level times its ducking) as a mono 32-bit float WAV at `rate` Hz. */

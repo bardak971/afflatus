@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DUCK_RATE, duckWav, eased } from "../src/duck";
+import { curveAt } from "@afflatus/core";
+import { DUCK_RATE, eased, gainWav } from "../src/duck";
 
 describe("the music ducked under speech", () => {
   it("goes down quickly while people speak, holds a moment after, and comes back slowly", () => {
@@ -16,7 +17,7 @@ describe("the music ducked under speech", () => {
   });
 
   it("is written as a float WAV the export multiplies the music by", () => {
-    const wav = duckWav({ rate: DUCK_RATE, gains: [1, 0.5, 0.25] }, 150, 8000);
+    const wav = gainWav((ms) => curveAt({ rate: DUCK_RATE, gains: [1, 0.5, 0.25] }, ms), 150, 8000);
     const b = Buffer.from(wav);
     expect(b.toString("ascii", 0, 4)).toBe("RIFF");
     expect(b.readUInt16LE(20)).toBe(3);

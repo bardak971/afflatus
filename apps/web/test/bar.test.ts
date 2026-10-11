@@ -11,7 +11,7 @@ import { clipList, COMMANDS, modeOf, parseCommand, sizeOf } from "../src/bar/par
 import { bonus, bumped, frecency, HALF_LIFE_MS, KEPT, recentKeys, renamed } from "../src/bar/rank";
 import { PAGES, SETTINGS, settingKeyNow } from "../src/bar/settingsRegistry";
 import { settingHref } from "../src/screens/settings/settingsIndex";
-import { expandSnippet, slugOf, snippetsFor, typedTrigger } from "../src/bar/snippets";
+import { insertSnippet, slugOf, snippetsFor, typedTrigger } from "../src/bar/snippets";
 
 const H3: Grid = { name: "H3", fps: 24, frames: { step: 17, offset: 5 }, size: 32 };
 
@@ -274,16 +274,19 @@ describe("snippets", () => {
     expect(slugOf("Cine look")).toBe("cine-look");
     expect(slugOf("  Été / pluie!! ")).toBe("ete-pluie");
   });
-  it("expands ;name before the cursor", () => {
-    expect(expandSnippet("A harbor ;cine-look", 19, list)).toEqual({ text: "A harbor Live-action, cinematic", caret: 31 });
-    expect(expandSnippet(";night", 6, list)).toEqual({ text: "Night exterior, wet streets", caret: 27 });
-    expect(expandSnippet("x ;cine-look and more", 12, list)).toEqual({ text: "x Live-action, cinematic and more", caret: 24 });
+  // as SnippetKeys puts one in: the ;word before the cursor, replaced by the snippet the box picked
+  const put = (text: string, caret: number, s: { text: string }) => insertSnippet(text, typedTrigger(text, caret)!.start, caret, s.text);
+  it("puts a snippet in for the ;name before the cursor", () => {
+    expect(typedTrigger("A harbor ;cine-look", 19)).toEqual({ word: "cine-look", start: 9 });
+    expect(put("A harbor ;cine-look", 19, list[0]!)).toEqual({ text: "A harbor Live-action, cinematic", caret: 31 });
+    expect(put(";night", 6, list[1]!)).toEqual({ text: "Night exterior, wet streets", caret: 27 });
+    expect(put("x ;cine-look and more", 12, list[0]!)).toEqual({ text: "x Live-action, cinematic and more", caret: 24 });
   });
   it("leaves alone what is no snippet", () => {
-    expect(expandSnippet("a;cine-look", 11, list)).toBeNull();
-    expect(expandSnippet(";nope", 5, list)).toBeNull();
-    expect(expandSnippet(";", 1, list)).toBeNull();
-    expect(expandSnippet("plain", 5, list)).toBeNull();
+    expect(typedTrigger("a;cine-look", 11)).toBeNull();
+    expect(snippetsFor("nope", list)).toEqual([]);
+    expect(typedTrigger(";", 1)).toEqual({ word: "", start: 0 });
+    expect(typedTrigger("plain", 5)).toBeNull();
   });
   it("offers the snippets a ;word starts, the exact one first", () => {
     expect(typedTrigger("rain ;ni", 8)).toEqual({ word: "ni", start: 5 });

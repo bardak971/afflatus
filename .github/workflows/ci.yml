@@ -26,6 +26,8 @@ jobs:
       - run: pnpm lint
       # nothing exported that nothing uses (knip.json); run pinned, not a dependency of the app
       - run: npx -y knip@6.39.0 --no-progress
+      # and nothing the app exports that only tests use (a test hook says so with @internal); the scripts count as the app
+      - run: npx -y knip@6.39.0 --no-progress --production --include exports,types
       - run: pnpm test
       # the node pack: every file compiles, and its frame and token arithmetic holds (on stand-ins for torch and ComfyUI)
       - run: python3 -m py_compile comfy-nodes/afflatus-nodes/*.py

@@ -406,10 +406,6 @@ export function colourNudge(before: Means, after: Means, carry: Means): Means {
   const nudge = (want: number, have: number) => Math.round(Math.max(-MATCH.mostSteps, Math.min(MATCH.mostSteps, want - have)) * 10) / 10;
   return { y: nudge(before.y + carry.y, after.y), u: nudge(before.u + carry.u, after.u), v: nudge(before.v + carry.v, after.v) };
 }
-/** The mean luma and chroma of a stretch of a video (see meansOf). */
-export async function stretchMeans(source: Media, ext: string, fromMs: number, seconds: number): Promise<Means | null> {
-  return inTemp(async (dir) => meansOf(await onDisk(dir, `in.${ext}`, source), fromMs / 1000, seconds));
-}
 
 /** Every frame's mean luma and chroma along a video, with its moment (ms from its first frame): see meansAlong. */
 export interface FrameMeans {
@@ -454,7 +450,7 @@ export function meansWithin(along: FrameMeans, fromMs: number, seconds: number):
 }
 
 /** The mean luma and chroma of a stretch of a video file, for matching one clip's colour to the next. */
-async function meansOf(file: string, fromSec: number, seconds: number): Promise<Means | null> {
+export async function meansOf(file: string, fromSec: number, seconds: number): Promise<Means | null> {
   const said = await ffmpegPool(() => must(tools.ffmpeg, ["-loglevel", "error", "-ss", Math.max(0, fromSec).toFixed(3), "-t", seconds.toFixed(3), "-i", file, "-an", "-vf", "scale=96:-2,signalstats,metadata=print:file=-", "-f", "null", "-"])).catch(() => "");
   const pick = (key: string) => [...said.matchAll(new RegExp(`lavfi\\.signalstats\\.${key}=([\\d.]+)`, "g"))].map((m) => Number(m[1]));
   const y = pick("YAVG");
@@ -473,7 +469,7 @@ export interface ExportMusic {
   duck: DuckCurve | null;
 }
 
-/** What joinVideos is asked besides its parts. */
+/** What joinVideosInto is asked besides its parts. */
 export interface JoinOptions {
   scale?: number;
   music?: ExportMusic;
@@ -507,13 +503,9 @@ export function webCut(frame: { width: number; height: number }, totalMs: number
 /**
  * Clips and pictures played one after the other, as one MP4: each cut to the part that plays, fitted
  * into the frame, brought to one speed; what has no sound is silent for its length; music, when there is
- * some, lies under all of it. `scale` enlarges every frame at the end (nothing is rendered again).
+ * some, lies under all of it. `scale` enlarges every frame at the end (nothing is rendered again). The joined file is
+ * handed to `use` where it lies, before it is cleared away: stored from there, it is never held whole in memory.
  */
-export async function joinVideos(parts: ExportPart[], frame: { width: number; height: number }, fps: number, opts: JoinOptions = {}): Promise<Uint8Array> {
-  return joinVideosInto(parts, frame, fps, opts, async (file) => new Uint8Array(await readFile(file)));
-}
-
-/** The same, the joined file handed to `use` where it lies, before it is cleared away: stored from there, it is never held whole in memory. */
 export async function joinVideosInto<T>(parts: ExportPart[], frame: { width: number; height: number }, fps: number, opts: JoinOptions, use: (file: string) => Promise<T>): Promise<T> {
   if (!parts.length) throw new CutError("There is nothing to export yet.");
   // a copy for the web is never enlarged, and is made at the web's size from the start (the parts are fitted to it)

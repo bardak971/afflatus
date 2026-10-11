@@ -37,7 +37,7 @@ async function list(params: Record<string, string>): Promise<Repo[]> {
   return ((await res.json().catch(() => [])) as Repo[]) ?? [];
 }
 
-/** For the tests: forget what was learned about the repositories. */
+/** For the tests: forget what was learned about the repositories. @internal */
 export function forgetHuggingFace(): void {
   official = null;
 }

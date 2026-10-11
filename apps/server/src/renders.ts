@@ -612,6 +612,7 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
     models,
   };
 }
+/** The render summary as GET /api/renders/summary answers it: what the web's types are held against (test/apiTypes.test.ts). @internal */
 export type TimesSummary = Awaited<ReturnType<typeof summary>>;
 
 /** The totals of a window, rows, digested days and folded days: what a period is set against. Days only when the window is whole days. */

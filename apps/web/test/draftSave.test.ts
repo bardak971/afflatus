@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NOT_ANSWERING, type Draft, type Entity, type RecipeInfo } from "../src/api";
-import { closingBody, draftFate, inTurn, KEEPALIVE_MAX, pickFor, putDraft, remade, saveBodyOf } from "../src/draft";
+import { inTurn, KEEPALIVE_MAX } from "../src/autosave";
+import { closingBody, draftFate, pickFor, putDraft, remade, saveBodyOf } from "../src/draft";
 import { presetRefusal } from "../src/screens/studio/PresetMenu";
 import { copyText, localId } from "../src/secureContext";
 
