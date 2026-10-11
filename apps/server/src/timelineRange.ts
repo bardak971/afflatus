@@ -216,13 +216,25 @@ export class TimelineRange {
     const atMs = visible(p.active!).start + localMs;
     // the second half: the same video, trimmed to start where the first stops
     const second = newId();
+    const startMs = Math.max(0, Math.round(atMs - take.head_ms));
+    // a finished take's draft comes along as a take of the second half too, cut the same way (as duplicateClip copies it):
+    // what reads a finish's draft looks for it among the clip's own takes (its Mirror, its measure, a finish redone), and
+    // the first half's draft stays free to remove
+    const draft = take.finished_from ? await db.selectFrom("takes").selectAll().where("id", "=", take.finished_from).executeTakeFirst() : undefined;
+    const ownDraft = draft ? newId() : null;
+    if (draft) {
+      await db
+        .insertInto("takes")
+        .values({ ...draft, id: ownDraft!, clip_id: id, trim_start_ms: startMs, trim_end_ms: take.trim_end_ms, prev_take_id: null, prev_at_ms: null, next_take_id: take.next_take_id, next_at_ms: take.next_at_ms, join_kind: null })
+        .execute();
+    }
     await db
       .insertInto("takes")
       .values({
-        id: second, clip_id: id, asset_id: asset.id, head_ms: take.head_ms, tail_ms: take.tail_ms, trim_start_ms: Math.max(0, Math.round(atMs - take.head_ms)), trim_end_ms: take.trim_end_ms,
+        id: second, clip_id: id, asset_id: asset.id, head_ms: take.head_ms, tail_ms: take.tail_ms, trim_start_ms: startMs, trim_end_ms: take.trim_end_ms,
         // the second half starts as a cut inside the video; it ends where the clip did, so it still lands on the clip after
         // as the clip did, and it is as finished as the clip was (a finish asked again starts from the draft, not from it)
-        prev_take_id: null, prev_at_ms: null, next_take_id: take.next_take_id, next_at_ms: take.next_at_ms, finished_from: take.finished_from, join_kind: null, created_at: at,
+        prev_take_id: null, prev_at_ms: null, next_take_id: take.next_take_id, next_at_ms: take.next_at_ms, finished_from: ownDraft ?? take.finished_from, join_kind: null, created_at: at,
       })
       .execute();
     await db.updateTable("clips").set({ take_id: second, updated_at: at }).where("id", "=", id).execute();

@@ -204,6 +204,29 @@ describe.skipIf(!ffmpegThere)("a range of a linked video split out", () => {
   });
 });
 
+describe("a take whose video sits in a linked folder", () => {
+  it("is removed from its clip without the user's file going: emptying the bin afterwards leaves it on the disk (B-3)", async () => {
+    // a render of a clip, kept and filed into a linked folder: the file is the folder's now
+    writeFileSync(join(dir, "zz-test take.mp4"), "a video");
+    await link();
+    const row = (await byName("zz-test take.mp4"))!;
+    const generation = newId();
+    const at = now();
+    await t.db.insertInto("generations").values({ id: generation, owner_id: OWNER, recipe_id: "h3.video", recipe_version: 1, family: "h3", inputs: "{}", resolved: "{}", gen_ms: 1, draft_id: null, created_at: at }).execute();
+    await t.db.updateTable("assets").set({ generation_id: generation, kind: "video", mime: "video/mp4" }).where("id", "=", row.id).execute();
+    await onTimeline(row.id);
+    const clip = (await t.db.selectFrom("takes").select("clip_id").where("asset_id", "=", row.id).executeTakeFirstOrThrow()).clip_id;
+    await t.db.insertInto("jobs").values({
+      id: newId(), owner_id: OWNER, recipe_id: "h3.video", label: "zz-test", inputs: "{}", status: "done", warm: 0, look: null, priority: 10, depends_on: null, attempts: 1, resume: null, error: null,
+      generation_id: generation, clip_id: clip, clip_fit: 0, timeline_id: null, draft_id: null, folder_id: null, finished_from: null, created_at: at, started_at: at, finished_at: at, updated_at: at,
+    } as never).execute();
+    const take = (await t.db.selectFrom("takes").select("id").where("asset_id", "=", row.id).executeTakeFirstOrThrow()).id;
+    expect((await t.app.inject({ method: "DELETE", url: `/api/takes/${take}` })).statusCode).toBeLessThan(300);
+    expect((await post(t.app, "/api/storage/empty-bin", {})).statusCode).toBeLessThan(300);
+    expect(readFileSync(join(dir, "zz-test take.mp4"), "utf8")).toBe("a video");
+  });
+});
+
 describe("a linked file changed on the disk", () => {
   it("is served with a tag of its version and asked again each time; Afflatus's own files stay cached for good", async () => {
     await link();

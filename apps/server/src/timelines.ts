@@ -5,6 +5,7 @@ import { musicPlan, type ClipMusic, type InputSpec } from "@afflatus/core";
 import { newId, now, OWNER, type Db } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError, notFound } from "./errors";
+import { isLinked } from "./linked";
 import { rootFolderOf } from "./projects";
 import { timelineMediaFollows } from "./timelineFolder";
 import type { Look } from "./entities";
@@ -505,6 +506,12 @@ export class Timelines {
     return Boolean(await this.db.selectFrom("jobs").select("id").where("generation_id", "=", asset.generation_id).where("clip_id", "is not", null).executeTakeFirst());
   }
 
+  /** A file of a linked folder, on the user's disk rather than in Afflatus's storage. */
+  private async linkedFile(assetId: string): Promise<boolean> {
+    const asset = await this.db.selectFrom("assets").select("file_key").where("id", "=", assetId).executeTakeFirst();
+    return Boolean(asset && isLinked(asset.file_key));
+  }
+
   /** Something on a timeline still plays or uses it: another take, a clip's sound or still, a timeline's music. */
   private async stillUsed(assetId: string, except?: string): Promise<boolean> {
     if (await this.db.selectFrom("takes").select("id").where("asset_id", "=", assetId).$if(Boolean(except), (q) => q.where("id", "!=", except!)).executeTakeFirst()) return true;
@@ -722,7 +729,7 @@ export class Timelines {
   /**
    * A take goes, and the video that was rendered for it goes to the bin with it (it comes back with
    * Undo, or from the bin for a week). A video that was brought in from the library stays there, and so
-   * does one that something else still uses. The newest of the other takes plays instead.
+   * does one that something else still uses, or one in a linked folder. The newest of the other takes plays instead.
    */
   async removeTake(id: string) {
     const found = await this.db.selectFrom("takes").select("clip_id").where("id", "=", id).executeTakeFirst();
@@ -737,7 +744,9 @@ export class Timelines {
       const finished = await this.db.selectFrom("takes").select("id").where("finished_from", "=", id).executeTakeFirst();
       if (finished) throw httpError("This take is the draft of a finished take: the clip after continues from it, and a finish is redone from it. Remove the finished take first.", 409);
       const clip = await this.clipRow(take.clip_id);
-      const bin = (await this.madeForATimeline(take.asset_id)) && !(await this.stillUsed(take.asset_id, id));
+      // a file of a linked folder (a kept render filed there) is the user's own file on disk: it stays in its folder, as the
+      // unused takes' do (timelineUnused.ts). Binned in place, emptying the bin would delete it from that folder
+      const bin = !(await this.linkedFile(take.asset_id)) && (await this.madeForATimeline(take.asset_id)) && !(await this.stillUsed(take.asset_id, id));
       await this.db.transaction().execute(async (tx) => {
         await this.remember(clip.timeline_id, "the take removed", undefined, tx);
         await tx.deleteFrom("takes").where("id", "=", id).execute();
