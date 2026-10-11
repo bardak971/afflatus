@@ -449,6 +449,28 @@ describe("after an update", () => {
     expect(existsSync(join(r.data, "updates", "fallback.json"))).toBe(false);
   });
 
+  it("does not offer again a version that did not start, and takes its folder away; the next release is offered", async () => {
+    const r = await rig({
+      before: ({ data, versions }) => {
+        mkdirSync(join(data, "updates"));
+        mkdirSync(join(versions, "0.4.2"));
+        writeFileSync(join(data, "updates", "fallback.json"), JSON.stringify({ version: "0.4.2", previous: "0.4.1", at: "2026-10-11T10:00:00.000Z", code: 3 }));
+      },
+    });
+    expect(existsSync(join(r.versions, "0.4.2"))).toBe(false);
+    publish(gh, "0.4.2");
+    await r.post("check");
+    expect(await r.view()).toMatchObject({ newer: true, canUpdate: false, cannot: "0.4.2 did not start here: the next release will be offered." });
+    publish(gh, "0.4.3");
+    await r.post("check");
+    expect(await r.view()).toMatchObject({ newer: true, canUpdate: true, cannot: null });
+  });
+
+  it("says the running version as releases are said, without the tag's v", async () => {
+    const r = await rig({ version: "v0.4.1" });
+    expect((await r.view()).version).toBe("0.4.1");
+  });
+
   it("goes back to the previous version with the library as it was at the update", async () => {
     const r = await rig({
       running: "0.4.2",

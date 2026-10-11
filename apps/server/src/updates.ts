@@ -380,6 +380,8 @@ export class AfflatusUpdates {
   /** The folder under versions/ this process runs from, when it is a bundle. */
   private running: string | null = null;
   private fallback: Fallback | null = null;
+  /** A version that did not start here (the launcher went back from it): not offered again; the next release is. */
+  private failed: string | null = null;
   private last: LastChange | null = null;
   private moveFrom: OldLibrary | null = null;
   /** What the 0.3 library holds, read once (a walk of its files folder) on the first view that offers the move. */
@@ -431,8 +433,12 @@ export class AfflatusUpdates {
     if (fell && typeof fell.version === "string" && typeof fell.previous === "string") {
       this.fallback = { version: fell.version, previous: fell.previous, at: typeof fell.at === "string" ? fell.at : now(), code: typeof fell.code === "number" ? fell.code : null };
       console.warn(`[updates] ${fell.version} did not start; back on ${fell.previous}`);
+      // remembered past this start, and its folder taken away: it is not offered again, and nothing starts it by mistake
+      await writeFile(join(this.updatesDir, "failed.json"), JSON.stringify({ version: bareVersion(fell.version) })).catch(() => {});
+      if (this.versionsDir && fell.version !== this.running) await rm(join(this.versionsDir, fell.version), { recursive: true, force: true }).catch(() => {});
     }
     await rm(fallbackFile, { force: true }).catch(() => {});
+    this.failed = await readFile(join(this.updatesDir, "failed.json"), "utf8").then((t) => (JSON.parse(t) as { version?: string }).version ?? null, () => null);
     this.last = await readFile(join(this.updatesDir, "last.json"), "utf8").then((t) => JSON.parse(t) as LastChange, () => null);
     this.moveFrom = await this.findOldLibrary().catch(() => null);
     if (this.o.timers !== false) {
@@ -536,7 +542,8 @@ export class AfflatusUpdates {
     const cannot = newer ? this.cannot(here, release!) : null;
     const busy = Boolean(this.flow && this.flow.phase !== "failed");
     return {
-      version: this.version,
+      // said as releases are said: 0.4.0, not the tag's v0.4.0
+      version: this.version === "dev" ? this.version : bareVersion(this.version),
       install: this.install,
       checks: settings.afflatusUpdateChecks,
       checkedAt: this.state.checkedAt,
@@ -560,6 +567,7 @@ export class AfflatusUpdates {
     if (this.install === "sources") return "Run from the sources: pull and build the new version.";
     if (!this.versionsDir || !this.running) return "This bundle is not laid out to update itself (versions/ beside data/): download the new one by hand.";
     if (!here) return "Only on the computer Afflatus runs on.";
+    if (this.failed && r.version === this.failed) return `${r.version} did not start here: the next release will be offered.`;
     if (this.o.services.dbKind !== "sqlite") return "With a Postgres database, update by hand (the database is backed up with Postgres's tools).";
     if (!assetFor(r, this.platform)) return `This release has no download for ${this.platform}.`;
     if (!r.assets.some((a) => a.name === "SHA256SUMS.txt") || !r.assets.some((a) => a.name === "SHA256SUMS.txt.sig")) return "This release is not signed: download it by hand.";
@@ -769,7 +777,7 @@ export class AfflatusUpdates {
       if (e.isDirectory() && !keep.has(e.name)) await rm(join(versions, e.name), { recursive: true, force: true }).catch(() => {});
     }
     for (const e of await readdir(this.updatesDir, { withFileTypes: true }).catch(() => [])) {
-      if (e.isFile() && !/^(last|fallback)\.json$/.test(e.name)) await rm(join(this.updatesDir, e.name), { force: true }).catch(() => {});
+      if (e.isFile() && !/^(last|fallback|failed)\.json$/.test(e.name)) await rm(join(this.updatesDir, e.name), { force: true }).catch(() => {});
     }
     const backups = join(this.o.dataDir, "backups");
     for (const name of await readdir(backups).catch(() => [] as string[])) {
