@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash, createPublicKey, verify } from "node:crypto";
 import { createReadStream, existsSync, readFileSync } from "node:fs";
-import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
@@ -62,6 +62,16 @@ export function parseVersion(v: string): Parsed | null {
 
 /** A version without its tag's "v": the name of its folder under versions/ and what is said. */
 export const bareVersion = (v: string) => v.trim().replace(/^v(?=\d)/, "");
+
+/**
+ * A version's name as versions/ holds it ("0.4.1", "0.4.0-rc.2"), or null for anything else. The names read from
+ * versions/current and previous, and from the launcher's notes, are joined into paths that are started, written or
+ * removed: one that could reach out of versions/ ("../x", "..", or "..." which Windows reads as "..") is never taken.
+ */
+export function versionName(name: unknown): string | null {
+  if (typeof name !== "string" || !/^[\w.+-]+$/.test(name) || name.startsWith(".") || name.endsWith(".")) return null;
+  return name;
+}
 
 /** Semver order: 1 when `a` comes after `b`, -1 before, 0 the same; null when either is not a version. A prerelease comes before its release. */
 export function compareVersions(a: string, b: string): number | null {
@@ -219,6 +229,35 @@ function runProgram(cmd: string, args: string[], opts: { cwd?: string; env?: Nod
 
 /** A file's text, trimmed; null when it is not there. */
 const readLine = (path: string) => readFile(path, "utf8").then((t) => t.trim() || null, () => null);
+/** A version named in a file under versions/ (current, previous, trial); null when there is none, or the name is not one. */
+const readVersion = async (path: string) => versionName(await readLine(path));
+
+/**
+ * The node of an installed version, as the launchers run it: node/node.exe on Windows, node/bin/node elsewhere (the
+ * layout of nodejs.org's archives), else node/node.exe as afflatus.sh falls back to.
+ */
+export function nodeIn(versionDir: string, platform: string): string {
+  const exe = join(versionDir, "node", "node.exe");
+  if (platform.startsWith("win")) return exe;
+  const bin = join(versionDir, "node", "bin", "node");
+  return existsSync(bin) || !existsSync(exe) ? bin : exe;
+}
+
+/**
+ * A small file written whole or not at all (versions/current and the like): a temporary file, flushed to the disk, then
+ * renamed over the old one. A disk that fills up halfway leaves the old file as it was, never an empty one.
+ */
+async function writeAtomic(path: string, text: string): Promise<void> {
+  const tmp = `${path}.tmp`;
+  const file = await open(tmp, "w");
+  try {
+    await file.writeFile(text);
+    await file.sync();
+  } finally {
+    await file.close();
+  }
+  await renameSoon(tmp, path);
+}
 
 /** A rename tried again for a few seconds: on Windows a folder whose files were just closed can stay locked a moment. */
 async function renameSoon(from: string, to: string): Promise<void> {
@@ -231,6 +270,27 @@ async function renameSoon(from: string, to: string): Promise<void> {
       await new Promise((r) => setTimeout(r, 250));
     }
   }
+}
+
+/**
+ * A copy of the library put in place of its database (Go back): the copy written beside it under a temporary name and
+ * flushed first, then the database set aside (its -wal with it, which must not be replayed into the copy), then the copy
+ * renamed in. A stop at any point leaves one database or the other in place: never none, which a start would take for
+ * an empty library.
+ */
+export async function restoreDatabase(db: string, copy: string, aside: string): Promise<void> {
+  const tmp = `${db}.tmp`;
+  await copyFile(copy, tmp);
+  const file = await open(tmp, "r+");
+  try {
+    await file.sync();
+  } finally {
+    await file.close();
+  }
+  if (existsSync(`${db}-wal`)) await renameSoon(`${db}-wal`, `${aside}-wal`);
+  await rm(`${db}-shm`, { force: true });
+  if (existsSync(db)) await renameSoon(db, aside);
+  await renameSoon(tmp, db);
 }
 
 /** The size of the files under a folder, its subfolders included; links are not followed (a linked folder is not the library's). */
@@ -356,7 +416,7 @@ export interface UpdatesOptions {
   startedFile?: string | null;
   platform?: string;
   free?: (dir: string) => Promise<number>;
-  /** The node of an installed version (its node/node[.exe]). */
+  /** The node of an installed version (nodeIn: node/node.exe, node/bin/node). */
   nodeOf?: (versionDir: string) => string;
   /** How often the wait for the queue looks again. */
   waitPollMs?: number;
@@ -391,6 +451,8 @@ export class AfflatusUpdates {
   private timers: NodeJS.Timeout[] = [];
   private lastProgress = 0;
   private goingAway = false;
+  /** The update presses, counted: the run that owns the flow is the last one, and only it lets go of the queue's hold. */
+  private runs = 0;
 
   constructor(private readonly o: UpdatesOptions) {
     this.version = o.version ?? VERSION;
@@ -425,20 +487,22 @@ export class AfflatusUpdates {
     }
     if (this.install === "bundle" && this.versionsDir) {
       const started = this.o.startedFile !== undefined ? this.o.startedFile : envSaid.startedFile()?.trim() || null;
-      this.running = started ? basename(dirname(started)) : await readLine(join(this.versionsDir, "current"));
+      this.running = started ? versionName(basename(dirname(started))) : await readVersion(join(this.versionsDir, "current"));
     }
     // the launcher's note is said once: read and taken away, so that the next start does not say it again
     const fallbackFile = join(this.updatesDir, "fallback.json");
     const fell = await readFile(fallbackFile, "utf8").then((t) => JSON.parse(t) as Partial<Fallback>, () => null);
-    if (fell && typeof fell.version === "string" && typeof fell.previous === "string") {
-      this.fallback = { version: fell.version, previous: fell.previous, at: typeof fell.at === "string" ? fell.at : now(), code: typeof fell.code === "number" ? fell.code : null };
-      console.warn(`[updates] ${fell.version} did not start; back on ${fell.previous}`);
+    const fellFrom = versionName(fell?.version);
+    const fellTo = versionName(fell?.previous);
+    if (fell && fellFrom && fellTo) {
+      this.fallback = { version: fellFrom, previous: fellTo, at: typeof fell.at === "string" ? fell.at : now(), code: typeof fell.code === "number" ? fell.code : null };
+      console.warn(`[updates] ${fellFrom} did not start; back on ${fellTo}`);
       // remembered past this start, and its folder taken away: it is not offered again, and nothing starts it by mistake
-      await writeFile(join(this.updatesDir, "failed.json"), JSON.stringify({ version: bareVersion(fell.version) })).catch(() => {});
-      if (this.versionsDir && fell.version !== this.running) await rm(join(this.versionsDir, fell.version), { recursive: true, force: true }).catch(() => {});
+      await writeFile(join(this.updatesDir, "failed.json"), JSON.stringify({ version: bareVersion(fellFrom) })).catch(() => {});
+      if (this.versionsDir && fellFrom !== this.running) await rm(join(this.versionsDir, fellFrom), { recursive: true, force: true }).catch(() => {});
     }
     await rm(fallbackFile, { force: true }).catch(() => {});
-    this.failed = await readFile(join(this.updatesDir, "failed.json"), "utf8").then((t) => (JSON.parse(t) as { version?: string }).version ?? null, () => null);
+    this.failed = await readFile(join(this.updatesDir, "failed.json"), "utf8").then((t) => versionName((JSON.parse(t) as { version?: unknown }).version), () => null);
     this.last = await readFile(join(this.updatesDir, "last.json"), "utf8").then((t) => JSON.parse(t) as LastChange, () => null);
     this.moveFrom = await this.findOldLibrary().catch(() => null);
     if (this.o.timers !== false) {
@@ -449,6 +513,16 @@ export class AfflatusUpdates {
       every.unref();
       this.timers.push(first, every);
     }
+  }
+
+  /**
+   * The server listens: this version has started once, so versions/trial (written at the switch to it) goes, and from now
+   * on the launcher never falls back from it (scripts/release/launch.mjs decide). versions/previous stays, for Go back.
+   */
+  async listening(): Promise<void> {
+    if (this.install !== "bundle" || !this.versionsDir || !this.running) return;
+    const trial = join(this.versionsDir, "trial");
+    if ((await readVersion(trial)) === this.running) await rm(trial, { force: true }).catch((err: Error) => console.warn(`[updates] ${trial} was not taken away: ${err.message}`));
   }
 
   /** The timers stopped and an update under way given up (the server is closing). */
@@ -577,7 +651,7 @@ export class AfflatusUpdates {
   /** The version installed before the running one, which Go back starts again. */
   private async previous(): Promise<UpdatesView["previous"]> {
     if (this.install !== "bundle" || !this.versionsDir || !this.running) return null;
-    const p = await readLine(join(this.versionsDir, "previous"));
+    const p = await readVersion(join(this.versionsDir, "previous"));
     if (!p || p === this.running || !existsSync(join(this.versionsDir, p))) return null;
     return { version: p, restoresLibrary: this.o.services.dbKind === "sqlite" && existsSync(this.backupOf(this.running)) };
   }
@@ -609,17 +683,26 @@ export class AfflatusUpdates {
     const why = this.cannot(here, release);
     if (why) throw httpError(why, here ? 409 : 403);
     const asset = assetFor(release, this.platform)!;
-    // what is in the queue now finishes; what is asked for from now on waits for the new version
-    const active = await this.db.selectFrom("jobs").select("id").where("status", "in", ["queued", "running"]).execute();
-    const allowed = new Set(active.map((r) => r.id));
-    this.o.services.queue.holdNew(allowed);
+    // the flow and the hold are taken before anything is awaited: a second press meanwhile finds the update under way
+    // (409), rather than starting a second one whose failure would let go of the hold the first one waits behind
+    const run = ++this.runs;
     const abort = new AbortController();
     this.abort = abort;
     this.flow = { phase: "downloading", version: release.version, bytes: 0, total: asset.size, left: 0, error: null };
+    this.o.services.queue.holdNew(new Set());
     this.emit(true);
-    this.work = this.install_(release, asset, allowed, abort.signal).then(
+    // what is in the queue now finishes; what is asked for from now on waits for the new version
+    const allowed = new Set<string>();
+    const work = this.db.selectFrom("jobs").select("id").where("status", "in", ["queued", "running"]).execute().then((active) => {
+      for (const r of active) allowed.add(r.id);
+      if (run === this.runs) this.o.services.queue.holdNew(allowed);
+      return this.install_(release, asset, allowed, abort.signal);
+    });
+    this.work = work.then(
       () => undefined,
       async (err: Error) => {
+        // only the run that owns the flow lets the queue go: another one's is not this one's to release
+        if (run !== this.runs) return;
         this.o.services.queue.holdNew(null);
         if (abort.signal.aborted) {
           this.flow = null;
@@ -631,6 +714,7 @@ export class AfflatusUpdates {
         this.emit(true);
       },
     ).finally(() => {
+      if (run !== this.runs) return;
       this.work = null;
       this.abort = null;
     });
@@ -705,8 +789,8 @@ export class AfflatusUpdates {
       if (out.code !== 0) throw new Error(`The archive could not be unpacked (${out.said || `tar exited with ${out.code}`})`);
       const top = (await readdir(tmp, { withFileTypes: true })).filter((d) => d.isDirectory());
       const base = !existsSync(join(tmp, "versions")) && top.length === 1 ? join(tmp, top[0]!.name) : tmp;
-      const inside = await readLine(join(base, "versions", "current"));
-      if (!inside || !/^[\w.+-]+$/.test(inside) || !existsSync(join(base, "versions", inside))) throw new Refused("The archive holds no version to start (versions/current)");
+      const inside = await readVersion(join(base, "versions", "current"));
+      if (!inside || !existsSync(join(base, "versions", inside))) throw new Refused("The archive holds no version to start (versions/current)");
       if (bareVersion(inside) !== release.version) throw new Refused(`The archive holds version ${inside}, not ${release.version}`);
       if (inside === this.running) throw new Refused(`${inside} is the version running`);
       const target = join(versions, inside);
@@ -718,7 +802,7 @@ export class AfflatusUpdates {
 
       // the new version asked to start, without starting: it loads all of its code and checks the data folder (--check)
       this.set({ phase: "starting" });
-      const node = this.o.nodeOf?.(target) ?? join(target, "node", process.platform === "win32" ? "node.exe" : "node");
+      const node = this.o.nodeOf?.(target) ?? nodeIn(target, this.platform);
       const env: NodeJS.ProcessEnv = { ...environment(), DATA_DIR: this.o.dataDir };
       delete env.AFFLATUS_STARTED_FILE;
       const smoke = await runProgram(node, [join(target, "app", "apps", "server", "dist", "index.mjs"), "--check"], { cwd: target, env, timeoutMs: 2 * 60_000, signal });
@@ -747,14 +831,30 @@ export class AfflatusUpdates {
     this.set({ phase: "switching" });
     const from = this.running!;
     const to = basename(unpacked);
-    await mkdir(join(this.o.dataDir, "backups"), { recursive: true });
     const backup = this.backupOf(to);
-    await rm(backup, { force: true });
-    await sql`VACUUM INTO ${backup}`.execute(this.db);
-    await writeFile(join(versions, "previous"), from);
-    await writeFile(join(versions, "current"), to);
-    this.last = { kind: "updated", from: bareVersion(from), to: bareVersion(to), at: now() };
-    await writeFile(join(dir, "last.json"), JSON.stringify(this.last));
+    const before = await readLine(join(versions, "previous"));
+    try {
+      await mkdir(join(this.o.dataDir, "backups"), { recursive: true });
+      await rm(backup, { force: true });
+      await sql`VACUUM INTO ${backup}`.execute(this.db);
+      // versions/trial: the new version's first start, from which alone the launcher falls back (the server takes it away
+      // once it listens); then previous, and current last, each written whole or not at all
+      await writeAtomic(join(versions, "trial"), to);
+      await writeAtomic(join(versions, "previous"), from);
+      await writeAtomic(join(versions, "current"), to);
+      const last: LastChange = { kind: "updated", from: bareVersion(from), to: bareVersion(to), at: now() };
+      await writeFile(join(dir, "last.json"), JSON.stringify(last));
+      this.last = last;
+    } catch (err) {
+      // a switch that did not go through is undone: the running version stays the one started, and nothing names the new one
+      await writeAtomic(join(versions, "current"), from).catch((e: Error) => console.warn(`[updates] versions/current could not be set back to ${from}: ${e.message}`));
+      if (before) await writeAtomic(join(versions, "previous"), before).catch(() => {});
+      else await rm(join(versions, "previous"), { force: true }).catch(() => {});
+      await rm(join(versions, "trial"), { force: true }).catch(() => {});
+      await rm(unpacked, { recursive: true, force: true }).catch(() => {});
+      await rm(backup, { force: true }).catch(() => {});
+      throw err;
+    }
     // one previous version kept, never more; the downloads and the older database copies go
     await this.tidy(versions, new Set([from, to]), to);
     this.goingAway = true;
@@ -808,17 +908,15 @@ export class AfflatusUpdates {
     setTimeout(() => void this.o.restart(async () => {
       // the database as it is now is set aside, not deleted: what was made since stays on disk
       const aside = join(this.o.dataDir, "backups", `after-${from}-${at.replace(/[:.]/g, "-")}.db`);
-      await renameSoon(db, aside);
-      for (const tail of ["-wal", "-shm"]) await rm(`${db}${tail}`, { force: true }).catch(() => {});
       try {
-        await copyFile(backup, db);
+        await restoreDatabase(db, backup, aside);
       } catch (err) {
-        await renameSoon(aside, db).catch(() => {});
         await this.note({ kind: "failed", from, to: prev.version, at, error: `Going back did not go through: ${(err as Error).message}` });
         throw err;
       }
-      await writeFile(join(versions, "current"), prev.version);
+      await writeAtomic(join(versions, "current"), prev.version);
       await rm(join(versions, "previous"), { force: true });
+      await rm(join(versions, "trial"), { force: true });
       await this.note({ kind: "went-back", from: bareVersion(from), to: bareVersion(prev.version), at });
     }), 200);
   }

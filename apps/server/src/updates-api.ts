@@ -1,17 +1,22 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { httpError } from "./errors";
+import { hostOnly } from "./hostCheck";
 import type { AfflatusUpdates } from "./updates";
 
 /**
  * Afflatus's own updates (updates.ts), for Settings → About. Anyone who can open the page reads where they stand; only
  * the computer Afflatus runs on changes anything (checks, updates, goes back, brings a 0.3 library over): the LAN may be
  * open by choice, and installing stays with whoever sits at the machine. A request through a proxy (one that says whom
- * it forwards for) is not taken as from this computer, even when the proxy itself runs on it.
+ * it forwards for) is not taken as from this computer, even when the proxy itself runs on it; nor is one whose Host is
+ * not a loopback name, which a proxy on this computer that says nothing of whom it forwards for still passes on as the
+ * name it is reached by (docs/configuration.md).
  */
 
-/** Whether a request comes from this computer: a loopback address, not forwarded by a proxy. */
+/** Whether a request comes from this computer: a loopback address, asked by a loopback name, not forwarded by a proxy. */
 export function fromThisComputer(req: FastifyRequest): boolean {
   if (req.headers["x-forwarded-for"] || req.headers.forwarded || req.headers["x-real-ip"]) return false;
+  const host = hostOnly(req.headers.host ?? "");
+  if (!(host === "localhost" || /^127\.\d+\.\d+\.\d+$/.test(host) || host === "[::1]")) return false;
   const ip = (req.socket.remoteAddress ?? "").toLowerCase();
   return /^127\./.test(ip) || ip === "::1" || /^::ffff:127\./.test(ip);
 }

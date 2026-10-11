@@ -22,10 +22,10 @@ export function AboutCard() {
   const checked = health.data?.checkedAt ? new Date(health.data.checkedAt).toLocaleTimeString(UI_LOCALE) : null;
   const v = updates.data;
   const note = v ? versionNote(v) : null;
-  // the rail's dot goes once this card has been seen with the news on it
+  // the rail's dot goes once this card has been seen with the news on it, whether or not the dot was shown for it
   const seen = useUpdatesSeen((s) => s.seen);
   const see = useUpdatesSeen((s) => s.see);
-  const news = newsOf(v, seen);
+  const news = newsOf(v, seen, true);
   useEffect(() => {
     if (news) see(news);
   }, [news, see]);
@@ -119,7 +119,12 @@ function Notes({ v }: { v: UpdatesView }) {
  */
 function UpdatesPart({ v, startupUnchecked }: { v: UpdatesView; startupUnchecked: boolean }) {
   const client = useQueryClient();
-  const check = useUpdatesAction(api.checkUpdates);
+  const pressedCheck = useUpdatesSeen((s) => s.ask);
+  // Check now pressed: what it finds is said even with the daily checks off
+  const check = useUpdatesAction(() => {
+    pressedCheck();
+    return api.checkUpdates();
+  });
   const update = useUpdatesAction(api.startUpdate);
   const cancel = useUpdatesAction(api.cancelUpdate);
   const back = useUpdatesAction(api.goBack);

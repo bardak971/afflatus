@@ -233,6 +233,20 @@ describe("the security banner", () => {
     expect(useBanners.getState().items).toEqual([]);
   });
 
+  it("is not said with the checks off, until Check now is pressed in this page", async () => {
+    const off = out({ checks: false, latest: { ...release, security: "zz-test: a pretend hole closed" } });
+    serve(off);
+    draw(<><NavRail /><UpdateNews /></>);
+    await waitFor(() => expect(fakeApi.calls("GET", "/updates").length).toBeGreaterThan(0));
+    // the answer read and drawn: a banner or a dot would be there by now
+    await new Promise((r) => setTimeout(r, 100));
+    expect(useBanners.getState().items).toEqual([]);
+    expect(dot()).toBeNull();
+    draw(<AboutCard />);
+    (await waitFor(() => within(updatesRow()).getByRole("button", { name: "Check now" }))).click();
+    await waitFor(() => expect(useBanners.getState().items.map((b) => b.id)).toEqual(["updates:security"]));
+  });
+
   it("is not said for a release that is not a security fix", async () => {
     serve(out());
     draw(<UpdateNews />);

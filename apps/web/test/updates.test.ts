@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UpdateFlow, UpdatesView } from "../src/api";
-import { aboutState, backFromRestart, newsOf, readsAgain, stepsOf, versionNote } from "../src/updates";
+import { aboutState, backFromRestart, newsOf, readsAgain, securityNews, stepsOf, versionNote } from "../src/updates";
 
 /** A view as the server answers it: a bundle on this computer, 0.4.1, nothing newer. */
 const view = (over: Partial<UpdatesView> = {}): UpdatesView => ({
@@ -63,6 +63,15 @@ describe("the rail's dot", () => {
     // seen for an older one: the next is news again
     expect(newsOf(view({ latest: release, newer: true }), "0.4.1")).toBe("0.4.2");
   });
+
+  it("says nothing with the checks off (an answer kept from before), unless Check now was pressed in this page", () => {
+    const off = view({ latest: { ...release, security: "zz-test hole" }, newer: true, checks: false });
+    expect(newsOf(off, null)).toBeNull();
+    expect(securityNews(off, false)).toBeNull();
+    expect(newsOf(off, null, true)).toBe("0.4.2");
+    expect(securityNews(off, true)?.version).toBe("0.4.2");
+    expect(securityNews(view({ latest: release, newer: true }), false)).toBeNull();
+  });
 });
 
 describe("the updates event", () => {
@@ -79,6 +88,9 @@ describe("the updates event", () => {
     expect(backFromRestart(null, "0.4.2", true)).toBe(false);
     expect(backFromRestart("0.4.1", "0.4.2", false)).toBe(true);
     expect(backFromRestart("0.4.1", "0.4.1", false)).toBe(false);
+    // the hello says the build's name, with the tag's v; the view the bare version: the same server, not back yet
+    expect(backFromRestart("0.4.1", "v0.4.1", false)).toBe(false);
+    expect(backFromRestart("0.4.1", "v0.4.2", false)).toBe(true);
     // the move restarts on the same version
     expect(backFromRestart("0.4.1", "0.4.1", true)).toBe(true);
   });

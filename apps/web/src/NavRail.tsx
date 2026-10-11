@@ -116,7 +116,8 @@ function QueueItem({ path }: { path: string }) {
 function SettingsItem({ path }: { path: string }) {
   const updates = useUpdates();
   const seen = useUpdatesSeen((s) => s.seen);
-  const news = newsOf(updates.data, seen);
+  const asked = useUpdatesSeen((s) => s.asked);
+  const news = newsOf(updates.data, seen, asked);
   const tip = news ? `Settings · Afflatus ${news} is out` : undefined;
   return (
     <Item

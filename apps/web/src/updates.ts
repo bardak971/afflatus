@@ -41,11 +41,23 @@ export function versionNote(v: UpdatesView, now = new Date()): { text: string; g
   return null;
 }
 
-/** The news this browser has not seen: the version the rail's dot names, or null (nothing newer, or About already seen for it). */
-export function newsOf(v: UpdatesView | undefined, seen: string | null): string | null {
-  if (!v?.newer || !v.latest) return null;
-  return v.latest.version === seen ? null : v.latest.version;
+/**
+ * Whether a newer release is said to the user unasked (the rail's dot, the security banner): only while the checks are on,
+ * or once Check now was pressed in this page. A check left from before the switch was turned off says nothing.
+ */
+export const tellsNews = (v: UpdatesView | undefined, asked: boolean): boolean => Boolean(v?.newer && v.latest && (v.checks || asked));
+
+/**
+ * The news this browser has not seen: the version the rail's dot names, or null (nothing newer, the checks off and
+ * nothing asked, or About already seen for it).
+ */
+export function newsOf(v: UpdatesView | undefined, seen: string | null, asked = false): string | null {
+  if (!tellsNews(v, asked)) return null;
+  return v!.latest!.version === seen ? null : v!.latest!.version;
 }
+
+/** A newer release that fixes a security issue, to be said in a banner (tellsNews), or null. */
+export const securityNews = (v: UpdatesView | undefined, asked: boolean) => (tellsNews(v, asked) && v!.latest!.security ? v!.latest! : null);
 
 /**
  * Whether an "updates" event needs the view read again. The event carries the flow only: a download's progress (the same
@@ -99,12 +111,15 @@ function writeKey(key: string, value: string): void {
 
 /**
  * What this browser has seen of the news, by version: the release About was opened on (the dot goes), the security
- * banner closed, and the 0.3 library left where it was ("Start empty"), by its folder.
+ * banner closed, and the 0.3 library left where it was ("Start empty"), by its folder. `asked`: Check now was pressed in
+ * this page, which says the news even with the checks off (not kept: the next page goes by the switch again).
  */
 export const useUpdatesSeen = create<{
   seen: string | null;
   security: string | null;
   moveDeclined: string | null;
+  asked: boolean;
+  ask(): void;
   see(version: string): void;
   closeSecurity(version: string): void;
   declineMove(from: string): void;
@@ -112,6 +127,8 @@ export const useUpdatesSeen = create<{
   seen: readKey(SEEN_KEY),
   security: readKey(SECURITY_KEY),
   moveDeclined: readKey(MOVE_KEY),
+  asked: false,
+  ask: () => set({ asked: true }),
   see: (version) => {
     writeKey(SEEN_KEY, version);
     set({ seen: version });
@@ -147,7 +164,10 @@ export function followRestart(version: string, flow: UpdateFlow | null | undefin
 
 /**
  * Whether a hello from the server, while the page waits for it to restart, is the server back: one of another version,
- * or any hello on a connection opened again (the old server's own connection was the page's first).
+ * or any hello on a connection opened again (the old server's own connection was the page's first). The versions are
+ * compared without the tag's "v": the hello says the build's name (v0.4.1), the view the bare one (0.4.1).
  */
 export const backFromRestart = (from: string | null, version: string | undefined, reconnect: boolean): boolean =>
-  from !== null && ((Boolean(version) && version !== from) || reconnect);
+  from !== null && ((Boolean(version) && bare(version!) !== bare(from)) || reconnect);
+
+const bare = (v: string) => v.trim().replace(/^v(?=\d)/, "");
