@@ -119,7 +119,7 @@ These come with a ready-made form. Anything else, bring in as a workflow.
 | SDXL | any SDXL checkpoint: Illustrious, NoobAI, Pony, Juggernaut XL… | txt2img, img2img, inpaint, outpaint, upscale, face detailer |
 | FLUX.2 Klein | 4B base and its fine-tunes | txt2img, edit by instruction, variation, inpaint, outpaint, upscale, face detailer |
 | Krea 2 | Turbo and its fine-tunes | txt2img, img2img, inpaint, upscale, face detailer |
-| FLUX.1 ² | dev, Kontext | txt2img, edit, img2img, inpaint, outpaint, upscale, face detailer |
+| FLUX.1 | dev, Kontext | txt2img, edit, img2img, inpaint, outpaint, upscale, face detailer |
 | Qwen Image | 2512, Qwen Image Edit | txt2img, edit, img2img, inpaint, outpaint, upscale, face detailer |
 | Qwen Image 2.1 | | txt2img, edit |
 | Z-Image | Turbo and its fine-tunes | txt2img, img2img, inpaint, outpaint, upscale, face detailer |
@@ -127,8 +127,6 @@ These come with a ready-made form. Anything else, bring in as a workflow.
 | Wan 2.2 | | video |
 | LTX 2.3 | | video |
 | Image tools | SeedVR2, background removal | restore and upscale, remove the background |
-
-² Built from the model cards and not yet run against the models.
 
 The default files are ComfyUI's own releases on Hugging Face. Some options need a custom node pack; when one is missing, Afflatus tells you which and how to install it ([the list](docs/comfyui-setup.md#node-packs)).
 
