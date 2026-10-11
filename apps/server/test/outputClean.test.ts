@@ -23,8 +23,8 @@ afterEach(async () => {
   await fake.close().catch(() => {});
 });
 
-describe("the videos ComfyUI's SaveVideo leaves in its output folder", () => {
-  it("are asked to be cleaned when a job writes one there, at most once an hour", async () => {
+describe("what Afflatus leaves in ComfyUI's input and output folders", () => {
+  it("is asked to be cleaned with any job, at most once an hour", async () => {
     for (const n of [1, 2]) {
       const id = (await post(t.app, "/api/jobs", { recipe: "h3.video", input: { description: `She waves, ${n}.` } })).json().ids[0] as string;
       await until(() => fake.prompts.size === n);
@@ -34,7 +34,7 @@ describe("the videos ComfyUI's SaveVideo leaves in its output folder", () => {
       await t.services.queue.cancel(id);
       await until(async () => (await t.db.selectFrom("jobs").select("status").where("id", "=", id).executeTakeFirstOrThrow()).status === "cancelled");
     }
-    await until(() => fake.cleaned.length === 1);
-    expect(fake.cleaned).toEqual([{ folder: "output", older_than_hours: 24 }]);
+    await until(() => fake.cleaned.length === 2);
+    expect(fake.cleaned).toEqual([{ older_than_hours: 24 }, { folder: "output", older_than_hours: 24 }]);
   });
 });

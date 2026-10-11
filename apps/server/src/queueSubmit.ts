@@ -53,7 +53,7 @@ interface Sent {
   media: Record<string, MediaFacts>;
   warnings: string[];
 }
-/** What each uploader works with. `recipe`: the one the job runs; `finishedFrom`: the take a finish job finishes; `cleanedInput`: ComfyUI's input folder was cleared already. */
+/** What each uploader works with. `recipe`: the one the job runs; `finishedFrom`: the take a finish job finishes */
 interface Up {
   recipe: Recipe<any>;
   db: Db;
@@ -62,7 +62,6 @@ interface Up {
   input: Record<string, unknown>;
   catalog: Awaited<ReturnType<Comfy["catalog"]>>;
   finishedFrom: string | null;
-  cleanedInput: boolean;
   sent: Sent;
 }
 
@@ -82,7 +81,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const slotFiles = await slots(core, comfy, recipe);
 
   // pictures, videos and sounds the recipe takes are uploaded to ComfyUI's temp folder under fresh names
-  const up: Up = { recipe, db, storage, comfy, input, catalog, finishedFrom: row.finished_from, cleanedInput: false, sent: { uploads: {}, media: {}, warnings: [] } };
+  const up: Up = { recipe, db, storage, comfy, input, catalog, finishedFrom: row.finished_from, sent: { uploads: {}, media: {}, warnings: [] } };
   for (const spec of recipe.inputs as InputSpec[]) {
     const value = input[spec.id];
     if (spec.type === "image" && typeof value === "string" && value !== NO_PICTURE) await uploadImage(up, spec, value);
@@ -127,8 +126,9 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   }
   const timing = await timingOf(core, recipe, chosen, built, cold);
 
-  // a video saved by ComfyUI's own SaveVideo stays in its output folder: the old ones there go (best effort, at most hourly)
-  if (Object.values(built.graph).some((n) => n.class_type === "SaveVideo")) cleanOutput(comfy);
+  // what Afflatus left in ComfyUI's input and output folders a day ago or more goes (best effort, at most hourly): with
+  // any job, so a picture sent to the DaSiWa Director does not wait there for the next Director job
+  cleanComfy(comfy);
 
   comfy.monitor.ensure();
   await comfy.monitor.ready();
@@ -153,12 +153,16 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   return resume;
 }
 
-/** When ComfyUI's output folder was last asked to drop its old videos, by client: at most once an hour. */
-const outputCleaned = new WeakMap<object, number>();
-function cleanOutput(comfy: Comfy): void {
-  const last = outputCleaned.get(comfy.client) ?? 0;
+/**
+ * When ComfyUI was last asked to drop what Afflatus left in it, by client: at most once an hour. ComfyUI clears its temp
+ * folder itself, not its input folder (the Director's pictures) nor its output folder (videos from its own SaveVideo).
+ */
+const comfyCleaned = new WeakMap<object, number>();
+function cleanComfy(comfy: Comfy): void {
+  const last = comfyCleaned.get(comfy.client) ?? 0;
   if (Date.now() - last < 60 * 60_000) return;
-  outputCleaned.set(comfy.client, Date.now());
+  comfyCleaned.set(comfy.client, Date.now());
+  void comfy.client.cleanInput(24);
   void comfy.client.cleanOutput(24);
 }
 
@@ -180,11 +184,6 @@ async function uploadImage(up: Up, spec: InputSpec, value: string): Promise<void
   if (asset.kind !== "image") throw new Error(`the ${spec.label.toLowerCase()} is not a picture`);
   const bytes = await storage.get(asset.file_key);
   const intoInput = spec.type === "image" && spec.folder === "input";
-  // ComfyUI clears its temp folder, not its input folder: the pictures put there a day ago or more go first (best effort)
-  if (intoInput && !up.cleanedInput) {
-    up.cleanedInput = true;
-    void comfy.client.cleanInput(24);
-  }
   sent.uploads[spec.id] = await comfy.client.upload(bytes, extOf(asset.mime), intoInput ? { into: "input" } : {});
   const size = asset.width && asset.height ? { width: asset.width, height: asset.height } : await readPicture(bytes);
   sent.media[spec.id] = { width: size?.width ?? 0, height: size?.height ?? 0 };

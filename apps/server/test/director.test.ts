@@ -49,7 +49,7 @@ describe.skipIf(!picture)("a picture for the DaSiWa Director", () => {
     await fake.close().catch(() => {});
   });
 
-  it("goes to ComfyUI's input folder and into the Director's first slot; the old pictures there are cleaned first", async () => {
+  it("goes to ComfyUI's input folder and into the Director's first slot; the old pictures there are cleaned", async () => {
     const found = (await post(t.app, "/api/workflows/inspect", workflow)).json();
     expect(found.suggested.director).toEqual({ node: "1" });
     const { id } = (await post(t.app, "/api/workflows", { title: "Director", model: "H3", source: "d.json", graph: found.graph, bindings: found.suggested })).json();
@@ -62,6 +62,6 @@ describe.skipIf(!picture)("a picture for the DaSiWa Director", () => {
     expect(items[0]).toMatchObject({ type: "image", slot: 0 });
     expect(items[0]!.value).toMatch(/^afflatus\/afflatus_.*\.png$/);
     expect(sent.mode).toBe("I2VA");
-    expect(fake.cleaned).toEqual([{ older_than_hours: 24 }]);
+    expect(fake.cleaned).toContainEqual({ older_than_hours: 24 });
   });
 });
