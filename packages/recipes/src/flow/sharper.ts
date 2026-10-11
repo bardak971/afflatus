@@ -1,9 +1,9 @@
 import { defineRecipe, GraphBuilder, roundTo, type Recipe, type Ref } from "@afflatus/core";
-import { FACTOR_INPUT, UPSCALER_PREFER, type UpscaleSettings } from "../sdxl/common";
+import { FACTOR_INPUT, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_PREFER, type RefineColourMatch, type UpscaleSettings } from "../sdxl/common";
 import { redrawInTiles, tileInputs, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
 import { photo, SAME_PICTURE, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 
-export interface FlowSharper extends FlowBase, UpscaleSettings, TileSettings { source: string; prompt: string; upscaler: string; refine: boolean; strength: number }
+export interface FlowSharper extends FlowBase, UpscaleSettings, TileSettings, RefineColourMatch { source: string; prompt: string; upscaler: string; refine: boolean; strength: number }
 
 /** Past this many pixels, Auto makes the light pass in tiles: a picture that large is past what the model draws whole. */
 const REFINE_WHOLE_PIXELS = 3.2e6;
@@ -31,13 +31,14 @@ export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
       FACTOR_INPUT,
       { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the model; past about 3 megapixels it is made in tiles", default: true, section: "out" },
       { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.25, showWhen: "refine", advanced: true, section: "out" },
+      REFINE_COLOUR_MATCH_INPUT,
       ...tileInputs("refine"),
       ...inputs,
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
     nodes: () => ["LoadImage", "UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "PreviewImage"],
     // the second pass: only when it is asked for. All are ComfyUI's own nodes.
-    optionalNodes: SECOND_PASS,
+    optionalNodes: [...SECOND_PASS, "ColorTransfer"],
     build(input, ctx) {
       const g = new GraphBuilder();
       const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
@@ -76,12 +77,13 @@ export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
         picture = g.out("VAEDecode", { samples: done.latent, vae: k.vae });
       }
       g.phase("decoding");
-      const out = g.add("PreviewImage", { images: picture });
+      const out = g.add("PreviewImage", { images: refineColourMatched(g, ctx, picture, sized, input) });
       return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads: [...loads, ...k.loads] };
     },
     variants: [
       { name: "enlarged and gone over", input: { source: "p", upscaler: "u.pth" } as Partial<FlowSharper>, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
       { name: "only enlarged", input: { source: "p", upscaler: "u.pth", refine: false } as Partial<FlowSharper>, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
+      { name: "gone over, no colour match", input: { source: "p", upscaler: "u.pth", colourMatch: false } as Partial<FlowSharper>, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
       { name: "too large to go over whole: in tiles", input: { source: "p", upscaler: "u.pth" } as Partial<FlowSharper>, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
       { name: "too large, asked whole: gone over whole", input: { source: "p", upscaler: "u.pth", tiles: "Whole picture" } as Partial<FlowSharper>, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
       { name: "a fine-tune with its shift, a prompt and a LoRA", input: { source: "p", upscaler: "u.pth", prompt: "a", ...tuned } as Partial<FlowSharper>, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },

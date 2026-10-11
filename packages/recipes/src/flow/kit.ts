@@ -35,6 +35,11 @@ export interface FlowSpec {
   inputs?: InputSpec[];
   /** Inpainting with the mask as it is, without Differential Diffusion's soft edge (Krea 2's). */
   hardInpaint?: boolean;
+  /**
+   * A model patch that guides inpainting and outpainting when its optional file is there (Z-Image's Fun ControlNet
+   * Union: the picture and the mask are given to it, and the masked part is drawn to fit them): the slot it is in.
+   */
+  inpaintPatch?: { slot: string };
   /** The sizes offered for a new picture, and about how many megapixels a picture is redrawn at. */
   shapes: Array<{ id: string; label: string; width: number; height: number }>;
   megapixels: number;
@@ -76,6 +81,22 @@ export const A_FACE = "A detailed, natural face with sharp eyes and realistic sk
 export const photo = { width: 1536, height: 2048 };
 
 /** What the recipes of one family share: its inputs, how its model is loaded, how it samples. */
+/** The nodes the inpaint patch brings in: ComfyUI's own, used only when the family's file is there. */
+export const INPAINT_PATCH_NODES = ["ModelPatchLoader", "ZImageFunControlnet"];
+
+/**
+ * The model with the family's inpaint patch on it when its file is there (and what it loads), else the model as it is.
+ * The patch is given the picture the masked part is drawn into and the mask at the drawing size (1 = to draw; the node
+ * turns it around itself). Tried on a real ComfyUI with Z-Image: the new part's scale and stone took the picture's
+ * around it more closely, and an outpainted strip carried the scene further, than without it.
+ */
+export function inpaintPatched(g: GraphBuilder, ctx: BuildContext, spec: FlowSpec, model: Ref, vae: Ref, picture: Ref, mask: Ref): { model: Ref; loads: string[] } {
+  const file = spec.inpaintPatch ? ctx.slots[spec.inpaintPatch.slot] : undefined;
+  if (!file || !INPAINT_PATCH_NODES.every((n) => ctx.has(n))) return { model, loads: [] };
+  const patch = g.out("ModelPatchLoader", { name: file });
+  return { model: g.out("ZImageFunControlnet", { model, model_patch: patch, vae, strength: 1, inpaint_image: picture, mask }), loads: [`model_patches/${file}`] };
+}
+
 export function flowKit(spec: FlowSpec) {
   /** How it samples: the values of ComfyUI's own template to begin with, each kept per model once saved. */
   const inputs: InputSpec[] = spec.inputs ?? [

@@ -641,7 +641,8 @@ describe("wan.video", () => {
   });
 
   it("runs Turbo with the two lightx2v LoRAs, with none on a model made for it, and at full steps without their files", () => {
-    const fast = build({ fast: true });
+    // plain Turbo (Hybrid, on by default, adds a motion step: tested on its own)
+    const fast = build({ fast: true, turboHybrid: false });
     expect(passes(fast)[0]).toMatchObject({ steps: 4, cfg: 1, end_at_step: 2 });
     expect(all(fast, "LoraLoaderModelOnly").map((n) => [n.inputs.lora_name, n.inputs.strength_model])).toEqual([["th.safetensors", 1], ["tl.safetensors", 1]]);
     // the shift the LoRAs are made for; the high-noise LoRA eased when asked

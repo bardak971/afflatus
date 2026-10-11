@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ChevronDown, X } from "lucide-react";
+import { folderOfFileInput } from "@afflatus/core";
 import { api, type RecipeInfo } from "../../api";
 import { useFamilies, useRecipes, useSettings, useSetup } from "../../data";
 import { fileLabel, problemSaid } from "../../format";
@@ -155,6 +156,13 @@ function ReadyRow({ r }: { r: RecipeInfo }) {
   const slots = setup.data?.families.find((f) => f.id === r.family)?.slots ?? [];
   const needed = slots.filter((x) => s?.missingSlots.includes(x.id));
   const extra = s?.ready ? slots.filter((x) => x.optional && !x.file && x.get) : [];
+  // the image tools' detector downloads, for a recipe that picks a detector (a face detailer's detection model): offered here too,
+  // where the input that lists them is, ready or not. Detectors only: a model folder (diffusion_models) would bring in every
+  // other family's optional models
+  const folders = new Set<string>(r.inputs.flatMap((i) => (i.type === "choice" && i.options && !Array.isArray(i.options) ? [folderOfFileInput(i.options.node, i.options.input)] : [])).filter((f) => f === "ultralytics"));
+  const owned = new Set(slots.map((x) => x.id));
+  const lent = (setup.data?.families ?? []).filter((f) => f.id !== r.family).flatMap((f) => f.slots).filter((x) => folders.has(x.folder) && x.optional && !x.file && x.get && !owned.has(x.id));
+  const offered = [...extra, ...lent.filter((x, i) => lent.findIndex((y) => y.id === x.id) === i)];
   return (
     <div className="flex flex-col gap-1 px-[18px] py-2.5">
       <div className="flex items-center justify-between gap-3">
@@ -168,7 +176,7 @@ function ReadyRow({ r }: { r: RecipeInfo }) {
           {x.get && <GetFile file={x.get.file} folder={x.folder} url={x.get.url} hints={family?.name ? [family.name] : []} />}
         </div>
       ))}
-      {extra.map((x) => (
+      {offered.map((x) => (
         <div key={x.id} className="text-ink-2">
           <span className="mr-1.5 rounded bg-raised px-1.5 py-px text-[10px] font-bold tracking-wide text-ink-3 uppercase">optional</span>
           <span className="font-semibold">{x.label}</span> is not installed; the operation runs without it. {x.hint}

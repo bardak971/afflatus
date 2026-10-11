@@ -39,6 +39,8 @@ const finishSchema = z.object({
   latentSteps: z.number().int().min(1).max(6).default(2),
   /** SeedVR2: frames restored together, 0 = by the frame's size. */
   seedvrFrames: z.number().int().min(0).max(49).default(0),
+  /** RCAS after a pixel route (SeedVR2, RTX, a model), 0 to 1; 0 = off. */
+  sharpen: z.number().min(0).max(1).default(0),
 });
 
 /** The command bar (docs/command-bar.md): its shortcut, and its optional parts, each off until turned on. */

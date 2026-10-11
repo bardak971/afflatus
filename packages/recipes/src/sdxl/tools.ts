@@ -1,11 +1,11 @@
 import { defineRecipe, GraphBuilder, roundTo, type Ref } from "@afflatus/core";
 import { redrawInTiles, tileInputs, TILE_NODES, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
 import {
-  boxOf, FACE_DETECTOR_PREFER, FACE_INPUTS, FACTOR_INPUT, loadSdxl, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, samplerOf, stretchedFill, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
-  type FaceSettings, type MaskSettings, type OutpaintSettings, type UpscaleSettings,
+  boxOf, FACE_INPUTS, FACTOR_INPUT, loadSdxl, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, REPAINT_NODES, repaintGuided, repaintInputs, repaints, samplerOf, stretchedFill, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
+  type FaceSettings, type MaskSettings, type OutpaintSettings, type RefineColourMatch, type RepaintSettings, type UpscaleSettings,
   type SdxlBase,
 } from "./common";
-import { SDXL_UNION } from "./family";
+import { DETECTOR_INPUT } from "../shared/detector";
 
 const picture = { width: 832, height: 1216 };
 
@@ -62,7 +62,7 @@ export const sdxlRedraw = defineRecipe<SdxlRedraw>({
 
 // ---------------------------------------------------------------- paint over a part
 
-interface SdxlPaintOver extends SdxlBase, MaskSettings {
+interface SdxlPaintOver extends SdxlBase, MaskSettings, RepaintSettings {
   source: string;
   mask: string;
   prompt: string;
@@ -71,7 +71,9 @@ interface SdxlPaintOver extends SdxlBase, MaskSettings {
 
 /**
  * Only the painted part is redone: it is cut out with room around it, redrawn at the size SDXL draws
- * best, and put back into the untouched picture through a soft edge.
+ * best, and put back into the untouched picture through a soft edge. With a union ControlNet in repaint
+ * mode (xinsir's ProMax) the new part is guided to fit what is around it: a plain checkpoint at a high
+ * denoise only sees noise there, and often draws something that does not belong.
  */
 export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
   id: "sdxl.paint-over",
@@ -86,11 +88,13 @@ export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
     { id: "prompt", type: "prompt", label: "Prompt", style: "tags", placeholder: "what the painted part should show" },
     { id: "strength", type: "number", label: "Denoising strength", note: "1 ignores what was there", min: 0.05, max: 1, step: 0.05, default: 0.75 },
     ...MASK_INPUTS,
+    ...repaintInputs("a union ControlNet (xinsir's ProMax) in repaint mode guides the masked part to fit the picture around it, which a plain checkpoint struggles with at a high denoise. Used when that ControlNet is there, with comfyui_controlnet_aux"),
     ...modelInputs,
     ...samplingInputs(),
   ],
   presets: SDXL_PRESETS,
   nodes: (input) => [...modelNodes(input), "LoadImage", "VAEEncode", "KSampler", "VAEDecode", "PreviewImage", "DifferentialDiffusion", ...MASK_NODES],
+  optionalNodes: REPAINT_NODES,
   build(input, ctx) {
     const g = new GraphBuilder();
     const m = loadSdxl(g, input, input.prompt);
@@ -103,8 +107,11 @@ export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
     const latent = g.out("VAEEncode", { pixels: sized, vae: m.vae });
     // soft inpainting: the model fades the new part in by the soft edge (Differential Diffusion) instead of a hard mask and a halo
     const masked = g.out("SetLatentNoiseMask", { samples: latent, mask: masks.softForLatent });
+    // the guide marks the part by the hard mask, on the crop the model works on: the soft edge stays the latent's, so it still fades in
+    const repaint = repaints(input, ctx);
+    const cond = repaint ? repaintGuided(g, m, input, sized, masks.forLatent) : { positive: m.positive, negative: m.negative };
     g.phase("sampling");
-    const sampled = g.out("KSampler", { ...samplerOf(input, m, ctx), model: g.out("DifferentialDiffusion", { model: m.model }), latent_image: masked, steps: input.steps, denoise: input.strength });
+    const sampled = g.out("KSampler", { ...samplerOf(input, m, ctx), model: g.out("DifferentialDiffusion", { model: m.model }), ...cond, latent_image: masked, steps: input.steps, denoise: input.strength });
     g.phase("decoding");
     const drawn = g.out("VAEDecode", { samples: sampled, vae: m.vae });
     const back = g.out("ImageScale", { image: drawn, upscale_method: "lanczos", width: box.width, height: box.height, crop: "disabled" });
@@ -112,7 +119,7 @@ export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
     const out = g.add("PreviewImage", { images: whole });
     return {
       graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }],
-      totalSteps: input.steps, passes: [{ node: sampled[0], steps: input.steps }], loads: [`checkpoints/${input.checkpoint}`],
+      totalSteps: input.steps, passes: [{ node: sampled[0], steps: input.steps }], loads: [`checkpoints/${input.checkpoint}`, ...(repaint ? [`controlnet/${input.repaintModel}`] : [])],
     };
   },
   variants: [
@@ -126,16 +133,19 @@ export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
       input: { source: "p", mask: "m", prompt: "a", checkpoint: "x.safetensors", strength: 1, loras: [{ file: "l.safetensors", weight: 1 }] },
       uploads: { source: "s.png", mask: "m.png" }, media: { source: picture },
     },
+    {
+      name: "no ControlNet: the checkpoint alone",
+      input: { source: "p", mask: "m", prompt: "a", checkpoint: "x.safetensors", repaint: false },
+      uploads: { source: "s.png", mask: "m.png" }, media: { source: picture, mask: { ...picture, box: { x: 200, y: 300, width: 320, height: 400 } } },
+    },
   ],
 });
 
 // ---------------------------------------------------------------- outpaint
 
-interface SdxlOutpaint extends SdxlBase, OutpaintSettings {
+interface SdxlOutpaint extends SdxlBase, OutpaintSettings, RepaintSettings {
   source: string;
   prompt: string;
-  repaint: boolean;
-  repaintModel: string;
 }
 
 /**
@@ -157,17 +167,13 @@ export const sdxlOutpaint = defineRecipe<SdxlOutpaint>({
     { id: "source", type: "image", role: "source", label: "Image" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "the whole scene, as it should look once wider", style: "tags", placeholder: "terrace at sunset, wide shot, sea in the background" },
     ...OUTPAINT_INPUTS,
-    {
-      id: "repaint", type: "toggle", label: "ControlNet repaint", default: true, advanced: true,
-      note: "a union ControlNet (xinsir's ProMax) in repaint mode guides the new part to continue the picture, without a seam. Used when that ControlNet is there, with comfyui_controlnet_aux",
-    },
-    { id: "repaintModel", type: "choice", label: "ControlNet", options: { node: "ControlNetLoader", input: "control_net_name" }, default: SDXL_UNION, prefer: ["union.*promax", "union"], showWhen: "repaint", advanced: true },
+    ...repaintInputs("a union ControlNet (xinsir's ProMax) in repaint mode guides the new part to continue the picture, without a seam. Used when that ControlNet is there, with comfyui_controlnet_aux"),
     ...modelInputs,
     ...samplingInputs(),
   ],
   presets: SDXL_PRESETS,
   nodes: (input) => [...modelNodes(input), ...OUTPAINT_NODES, "KSampler", ...PASTE_BACK_NODES],
-  optionalNodes: ["ControlNetLoader", "SetUnionControlNetType", "InpaintPreprocessor", "ControlNetApplyAdvanced", "VAEEncode", "SetLatentNoiseMask", "DifferentialDiffusion"],
+  optionalNodes: [...REPAINT_NODES, "VAEEncode", "SetLatentNoiseMask", "DifferentialDiffusion"],
   build(input, ctx) {
     if (input.padLeft + input.padRight + input.padTop + input.padBottom === 0) throw new Error("Nothing to extend: set how far the picture grows on at least one side.");
     const g = new GraphBuilder();
@@ -176,18 +182,13 @@ export const sdxlOutpaint = defineRecipe<SdxlOutpaint>({
     const whole = { width: from.width + input.padLeft + input.padRight, height: from.height + input.padTop + input.padBottom };
     const size = workSize(whole);
     const source = g.out("LoadImage", { image: ctx.uploads.source });
-    // only a union ControlNet has a repaint mode; the aux pack marks the part to paint the way xinsir's expects
-    const repaint = input.repaint && /union/i.test(input.repaintModel ?? "") && ctx.has("InpaintPreprocessor") && ctx.has("SetUnionControlNetType");
+    const repaint = repaints(input, ctx);
     const { latent, padded, pixels: grey, mask } = outpaintLatent(g, source, from, input, size, m.vae);
     let model = m.model;
     let cond = { positive: m.positive, negative: m.negative };
     let start = latent;
     if (repaint) {
-      const net = g.out("SetUnionControlNetType", { control_net: g.out("ControlNetLoader", { control_net_name: input.repaintModel }), type: "repaint" });
-      // blacked out at the size it is drawn at, never scaled after: a scaled black edge rings, and is drawn as a line
-      const hint = g.out("InpaintPreprocessor", { image: grey, mask, black_pixel_for_xinsir_cn: true });
-      const applied = g.add("ControlNetApplyAdvanced", { positive: m.positive, negative: m.negative, control_net: net, image: hint, strength: 1, start_percent: 0, end_percent: 1, vae: m.vae });
-      cond = { positive: [applied, 0], negative: [applied, 1] };
+      cond = repaintGuided(g, m, input, grey, mask);
       start = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: stretchedFill(g, source, input, whole, size), vae: m.vae }), mask });
       model = g.out("DifferentialDiffusion", { model: m.model });
     }
@@ -210,7 +211,7 @@ export const sdxlOutpaint = defineRecipe<SdxlOutpaint>({
 
 // ---------------------------------------------------------------- twice as large
 
-interface SdxlSharper extends SdxlBase, UpscaleSettings, TileSettings {
+interface SdxlSharper extends SdxlBase, UpscaleSettings, TileSettings, RefineColourMatch {
   source: string;
   prompt: string;
   upscaler: string;
@@ -236,6 +237,7 @@ export const sdxlSharper = defineRecipe<SdxlSharper>({
     FACTOR_INPUT,
     { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the checkpoint; past about 4 megapixels it is made in tiles", default: true, section: "out" },
     { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.28, showWhen: "refine", advanced: true, section: "out" },
+    REFINE_COLOUR_MATCH_INPUT,
     ...tileInputs("refine"),
     ...modelInputs,
     ...samplingInputs(),
@@ -243,7 +245,7 @@ export const sdxlSharper = defineRecipe<SdxlSharper>({
   presets: SDXL_PRESETS,
   nodes: () => ["LoadImage", "UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "PreviewImage"],
   // the second pass: only when it is asked for and the result is small enough for it. All are ComfyUI's own nodes.
-  optionalNodes: [...REFINE_NODES, ...TILE_NODES],
+  optionalNodes: [...REFINE_NODES, ...TILE_NODES, "ColorTransfer"],
   build(input, ctx) {
     const g = new GraphBuilder();
     const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
@@ -276,7 +278,7 @@ export const sdxlSharper = defineRecipe<SdxlSharper>({
       picture = g.out("VAEDecode", { samples: sampled, vae: m.vae });
     }
     g.phase("decoding");
-    const out = g.add("PreviewImage", { images: picture });
+    const out = g.add("PreviewImage", { images: refineColourMatched(g, ctx, picture, sized, input) });
     // in tiles, the pass runs once for each tile
     const rounds = tiled ? tilesOf({ width: W, height: H }, input).count : 1;
     return {
@@ -287,6 +289,7 @@ export const sdxlSharper = defineRecipe<SdxlSharper>({
   variants: [
     { name: "enlarged and gone over", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth" }, uploads: { source: "s.png" }, media: { source: picture } },
     { name: "only enlarged", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", refine: false }, uploads: { source: "s.png" }, media: { source: picture } },
+    { name: "gone over, no colour match", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", colourMatch: false }, uploads: { source: "s.png" }, media: { source: picture } },
     { name: "too large to go over whole: in tiles", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", clipSkip: 2 }, uploads: { source: "s.png" }, media: { source: { width: 1664, height: 2432 } } },
     { name: "too large, asked whole: gone over whole", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", tiles: "Whole picture" }, uploads: { source: "s.png" }, media: { source: { width: 1664, height: 2432 } } },
   ],
@@ -313,7 +316,7 @@ export const sdxlFixFace = defineRecipe<SdxlFixFace>({
     { id: "source", type: "image", role: "source", label: "Image" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "the face and who it is: eye colour, hair, expression", style: "tags", optional: true, default: "" },
     { id: "strength", type: "number", label: "Denoising strength", note: "0.3 cleans the face, 0.6 can make another one", min: 0.1, max: 0.8, step: 0.05, default: 0.4 },
-    { id: "detector", type: "choice", label: "Detection model", note: "from ComfyUI's models/ultralytics folder", options: { node: "UltralyticsDetectorProvider", input: "model_name" }, default: "bbox/face_yolov8m.pt", prefer: FACE_DETECTOR_PREFER, advanced: true },
+    DETECTOR_INPUT,
     ...FACE_INPUTS,
     ...modelInputs,
     ...samplingInputs(),

@@ -1,5 +1,5 @@
 import { roundTo, type BuildContext, type GraphBuilder, type InputSpec, type LoraValue, type MediaFacts, type Ref } from "@afflatus/core";
-import { DEFAULT_NEGATIVE } from "./family";
+import { DEFAULT_NEGATIVE, SDXL_UNION } from "./family";
 
 /** What every SDXL recipe that works on a picture asks for besides its own inputs. */
 export interface SdxlBase {
@@ -180,6 +180,24 @@ export interface UpscaleSettings {
 }
 export const FACTOR_INPUT: InputSpec = { id: "factor", type: "number", label: "Upscale by", note: "2 doubles each edge. The light pass after it is made in tiles when the result is large", min: 1.5, max: 4, step: 0.5, default: 2, unit: "×", section: "out" };
 
+/** Whether Upscale's light pass is colour matched back to the enlarged picture it started from. */
+export interface RefineColourMatch {
+  colourMatch: boolean;
+}
+export const REFINE_COLOUR_MATCH_INPUT: InputSpec = {
+  id: "colourMatch", type: "toggle", label: "Colour match after the pass", default: true, showWhen: "refine", section: "out",
+  note: "the img2img pass can shift the colours slightly: this pulls them back to the upscaled source's (ComfyUI's ColorTransfer, Reinhard in Lab)",
+};
+/**
+ * The light pass's result with its colours matched back to the enlarged picture before the pass: that one has
+ * the original's colours at the same size, so only the drift the pass made is taken out, not the detail it
+ * added. Nothing when it is off or this ComfyUI has no ColorTransfer (an optional node of every Upscale 2x).
+ */
+export function refineColourMatched(g: GraphBuilder, ctx: BuildContext, refined: Ref, enlarged: Ref, input: Partial<RefineColourMatch>): Ref {
+  if (!input.colourMatch || !ctx.has("ColorTransfer")) return refined;
+  return g.out("ColorTransfer", { image_target: refined, image_ref: enlarged, method: "reinhard_lab", source_stats: "uniform", strength: 1 });
+}
+
 /** A hires second pass with the sampler and the scheduler of the first, unless others are picked. */
 const SAME_PASS = "As the first pass";
 export interface HiresPass {
@@ -252,6 +270,32 @@ export function stretchedFill(g: GraphBuilder, source: Ref, input: OutpaintSetti
   const blurred = g.out("ImageBlur", { image: g.out("ImageBlur", { image: stretched, blur_radius: 31, sigma: 10 }), blur_radius: 31, sigma: 10 });
   const filled = g.out("ImageCompositeMasked", { destination: blurred, source, x: input.padLeft, y: input.padTop, resize_source: false });
   return g.out("ImageScale", { image: filled, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
+}
+
+/** A union ControlNet's repaint mode (xinsir's ProMax), which guides a part that is painted in to fit the picture around it. */
+export interface RepaintSettings {
+  repaint: boolean;
+  repaintModel: string;
+}
+export const repaintInputs = (note: string): InputSpec[] => [
+  { id: "repaint", type: "toggle", label: "ControlNet repaint", default: true, advanced: true, note },
+  { id: "repaintModel", type: "choice", label: "ControlNet", options: { node: "ControlNetLoader", input: "control_net_name" }, default: SDXL_UNION, prefer: ["union.*promax", "union"], showWhen: "repaint", advanced: true },
+];
+/** The nodes the repaint guidance brings in: optional, a recipe draws without it when they are not there. */
+export const REPAINT_NODES = ["ControlNetLoader", "SetUnionControlNetType", "InpaintPreprocessor", "ControlNetApplyAdvanced"];
+/** Only a union ControlNet has a repaint mode, and the aux pack marks the part to paint the way xinsir's expects. */
+export const repaints = (input: Partial<RepaintSettings>, ctx: BuildContext) =>
+  !!input.repaint && /union/i.test(input.repaintModel ?? "") && ctx.has("InpaintPreprocessor") && ctx.has("SetUnionControlNetType");
+/**
+ * The prompt's conditioning guided by the union ControlNet in repaint mode. The hint is the picture the model
+ * works on with the part to paint blacked out, at the size it is drawn at and never scaled after: a scaled
+ * black edge rings, and is drawn as a line (learned on outpaint). `mask` is the hard mask at that size.
+ */
+export function repaintGuided(g: GraphBuilder, m: { positive: Ref; negative: Ref; vae: Ref }, input: RepaintSettings, image: Ref, mask: Ref) {
+  const net = g.out("SetUnionControlNetType", { control_net: g.out("ControlNetLoader", { control_net_name: input.repaintModel }), type: "repaint" });
+  const hint = g.out("InpaintPreprocessor", { image, mask, black_pixel_for_xinsir_cn: true });
+  const applied = g.add("ControlNetApplyAdvanced", { positive: m.positive, negative: m.negative, control_net: net, image: hint, strength: 1, start_percent: 0, end_percent: 1, vae: m.vae });
+  return { positive: [applied, 0] as Ref, negative: [applied, 1] as Ref };
 }
 
 /** The upscale models that suit most pictures, best first. */

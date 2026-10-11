@@ -21,6 +21,10 @@ export const UPSCALE = {
 const RTX_NVIDIA = "RTXVideoSuperResolution";
 const RTX_NODE = "DaSiWa_RTX_UpscalerRefiner";
 const RTX_NODES = [RTX_NVIDIA, RTX_NODE];
+/** The routes that enlarge the decoded frames, after which the RCAS sharpen can run. */
+const PIXEL_ROUTES: string[] = [UPSCALE.model, UPSCALE.rtx, UPSCALE.seedvr];
+/** KJNodes' sharpen, whose RCAS method is the one offered. */
+export const SHARPEN_NODE = "ImageSharpenKJ";
 /** SeedVR2 in ComfyUI's own nodes (0.37): a one-step video restoration model, sampled in temporal chunks. */
 /**
  * Frames SeedVR2 restores together (4n + 1). Its own "auto" asked the free memory and, at 1.7 Mpx a frame (a 576 × 736 clip
@@ -66,6 +70,8 @@ export interface UpscaleValues {
   upscaleColour?: string;
   /** SeedVR2: frames restored together; 0 = by the frame's size (see seedvrChunk). */
   seedvrFrames?: number;
+  /** RCAS after a pixel route, 0 to 1; 0 (the default) = off (see `sharpened`). */
+  upscaleSharpen?: number;
 }
 
 /** The inputs of the choice, for a form: the route, the factor, and the model file for the pixel route. */
@@ -95,7 +101,23 @@ export function upscaleInputs(opts: { latent?: boolean } = {}): InputSpec[] {
       showWhen: { input: "upscale", in: [UPSCALE.model] },
       note: "from models/upscale_models. The model enlarges by its own factor, then the frames are resized to the factor asked for: a 2× model (2xNomosUni_span_multijpg, RealESRGAN_x2plus) is the direct road for ×2. NomosUni_span is fast, steady from frame to frame and forgiving of compression; Nomos8kSC is sharper on clean footage; UltraSharp and ESRGAN tend to flicker",
     },
+    {
+      id: "upscaleSharpen", type: "number", label: "Sharpen after the upscale (RCAS)", min: 0, max: 1, step: 0.05, default: 0, section: "out",
+      showWhen: { input: "upscale", in: PIXEL_ROUTES },
+      note: `RCAS (AMD FSR's robust contrast-adaptive sharpen) on the upscaled frames: crisps the edges an upscale leaves soft, without the halos of a plain sharpen or unsharp mask. 0.3 is a usual amount; 0 = off. Needs KJNodes (${SHARPEN_NODE})`,
+    },
   ];
+}
+
+/**
+ * The upscaled frames through RCAS at the strength asked for, or as they are: when no pixel route ran (the
+ * latent route samples real detail and is left alone), the strength is 0, or this ComfyUI has no KJNodes.
+ */
+export function sharpened(g: GraphBuilder, ctx: BuildContext, images: Ref, input: { upscale: string; upscaleSharpen?: number }): Ref {
+  const strength = input.upscaleSharpen ?? 0;
+  if (strength <= 0 || !PIXEL_ROUTES.includes(input.upscale) || !ctx.has(SHARPEN_NODE)) return images;
+  // a choice that brings its own inputs, as RTX's "resize_type.scale": the strength belongs to the method picked
+  return g.out(SHARPEN_NODE, { image: images, method: "rcas", "method.strength": Math.min(1, strength) });
 }
 
 /** The nodes a pixel route needs, for a recipe's node list. RTX: either driver does, so neither is required here (see `UPSCALE_OPTIONAL`). */
@@ -104,8 +126,8 @@ export function upscaleNodes(input: UpscaleValues): string[] {
   if (input.upscale === UPSCALE.seedvr) return SEEDVR_NODES;
   return [];
 }
-/** What a video recipe lists as optional for the routes: the RTX drivers, the chunking of the pixel route, the GGUF loader. */
-export const UPSCALE_OPTIONAL = ["RebatchImages", ...RTX_NODES];
+/** What a video recipe lists as optional for the routes: the RTX drivers, the chunking of the pixel route, the RCAS sharpen. */
+export const UPSCALE_OPTIONAL = ["RebatchImages", ...RTX_NODES, SHARPEN_NODE];
 
 /**
  * The decoded frames, enlarged by the pixel route the form asks for (none for the other routes). `frame`

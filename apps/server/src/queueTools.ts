@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ComfyCancelled, detect, waitForOutputs, type Measured, type OutputFile } from "@afflatus/comfy";
 import { choicesOf, GraphBuilder, TOOLS_FAMILY, type BuildContext, type Ref } from "@afflatus/core";
-import { pixelUpscale, saveVideo, UPSCALE } from "@afflatus/recipes";
+import { pixelUpscale, saveVideo, sharpened, UPSCALE } from "@afflatus/recipes";
 import type { Comfy } from "./comfy";
 import { slowSoundOnto } from "./cut";
 import { finishedName, nameOf } from "./autoName";
@@ -192,7 +192,9 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
       restored = g.out("ImageBatch", { image1: plain, image2: done.images });
     }
     if (rife) g.phase("interpolating");
-    const images: Ref = rife ? g.out("FrameInterpolate", { interp_model: g.out("FrameInterpolationModelLoader", { model_name: rife }), images: restored, multiplier: 2 }) : restored;
+    const smooth: Ref = rife ? g.out("FrameInterpolate", { interp_model: g.out("FrameInterpolationModelLoader", { model_name: rife }), images: restored, multiplier: 2 }) : restored;
+    // RCAS on the final frames, as a form's finish does it (finishFrames): nothing at 0 or without KJNodes
+    const images = sharpened(g, ctx, smooth, { upscale: route, upscaleSharpen: opts.sharpen ?? 0 });
     g.phase("encoding");
     const outNode = saveVideo(g, ctx, { images, ...(video.has_sound ? { audio: [parts, 1] as Ref } : {}), fps: video.fps ?? 24, crf: 16 });
     // on the record as a tool of its own: the route, the factor, what it makes (the frames past the hidden run-up are what the route restores)

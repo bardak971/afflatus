@@ -15,9 +15,16 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **Colour match to the first frame** (ComfyUI's ColorTransfer, one transform for the whole clip) for Wan, LTX 2.3 and MiniMax H3, off by default.
 - **NAG for LTX 2.3** (KJNodes' LTX2_NAG): the negative prompt at CFG 1, off by default.
 - Presets for Krea 2 RAW (52 steps, CFG 3.5) and for distilled FLUX.2 Klein files (4 steps, CFG 1).
+- **SDXL inpaint with ControlNet Union ProMax's repaint mode**, when that ControlNet is there: the painted part fits the picture around it at a high denoise.
+- **Z-Image's Fun ControlNet Union 2.1** as an optional file (Settings → Models): inpaint and outpaint are guided by it when it is there.
+- **Colour match after Upscale 2×'s light pass** (every picture family, on by default): the pass no longer shifts the colours.
+- **Sharpen after a video upscale (RCAS)**, KJNodes' contrast-adaptive sharpen, on the Wan, LTX and H3 forms and in the timeline's Finish; off by default.
+- **Face and hand detectors** as downloads in Settings → Models; picking the hand one in a face detailer fixes hands.
+- **Wan: the high-to-low handover worked out** from the steps and the shift (where the noise falls below the level the two models were split at), so it follows a changed shift or step count; a share typed in still overrides it.
 
 ### Changed
 - **Defaults brought to the model authors' settings** (their cards and ComfyUI's own templates): Krea 2's hires fix 1.5× at 0.35, Z-Image 8 steps and its hires fix 1.5× at 0.3, Qwen Image's hires pass on the Turbo steps when Turbo is on, few-step SDXL presets on sgm_uniform with short hires passes, Lightning / Hyper 2- and 4-step files read from their names, Animagine 4's CFG and tags, schnell's hires steps.
+- **Wan Turbo runs Hybrid by default:** the first step on the high-noise model without the turbo LoRA, where the motion is decided (about a fifth more motion in a render pair, the picture the same).
 - **MiniMax H3's latent re-sample** starts lighter: 0.15 in 2 steps (about sigma 0.66 at shift 11, what DaSiWa's tiled upscaler runs) in the form and in the timeline's Finish; 0.3 in 3 steps started near 0.82 and shifted colours.
 - **Model downloads:** with ComfyUI on the same machine, Afflatus downloads the files itself into ComfyUI's model folders: two at a time, picked up again where they stopped after a cut (five tries), free space checked before and size and SHA-256 after, written as `.part` and renamed once complete. With ComfyUI on another machine, the node pack (0.11.0) does the same. ComfyUI-Manager is only the last resort.
 

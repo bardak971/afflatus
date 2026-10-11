@@ -12,7 +12,7 @@ const nodes = (graph: Record<string, { class_type: string; inputs: Record<string
 
 describe("wan.video: NAG gives Turbo a negative prompt", () => {
   it("puts WanVideoNAG on both models Turbo runs at CFG 1, fed by the negative, and the samplers on them", () => {
-    const graph = build({ fast: true });
+    const graph = build({ fast: true, turboHybrid: false });
     const nags = nodes(graph, "WanVideoNAG");
     expect(nags).toHaveLength(2);
     expect(nags[0]![1].inputs).toMatchObject({ nag_scale: 11, nag_alpha: 0.25, nag_tau: 2.5 });

@@ -32,6 +32,8 @@ export interface FinishSettings {
   latentDenoise: number;
   latentSteps: number;
   seedvrFrames?: number;
+  /** RCAS after a pixel route, 0 to 1; 0 = off. */
+  sharpen?: number;
 }
 export interface Settings {
   comfyUrl: string;

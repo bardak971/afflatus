@@ -1,5 +1,5 @@
 import type { BuildContext, GraphBuilder, InputSpec, Ref } from "@afflatus/core";
-import { pixelUpscale, UPSCALE, type UpscaleValues } from "../video/upscale";
+import { pixelUpscale, sharpened, UPSCALE, type UpscaleValues } from "../video/upscale";
 import { saveVideo } from "./out";
 
 /** The colour match to the start picture, on the forms of the families that take one. */
@@ -33,7 +33,7 @@ export function colourMatched(g: GraphBuilder, ctx: BuildContext, images: Ref, i
  * From a video family's decoded frames to its saved clip, the same in each: SeedVR2 and an upscale model go
  * before the frame interpolation (their cost grows with the frame count, and an upscale model would enlarge
  * RIFE's made-up frames too), RIFE ×2 when it is asked for and there, the other pixel routes after it, on the
- * final frames; then the clip is saved, at twice the rate when its frames were doubled (by RIFE here, or
+ * final frames; the RCAS sharpen when one was asked for after a pixel route; then the clip is saved, at twice the rate when its frames were doubled (by RIFE here, or
  * already by the family: `doubled`). What comes out: the final frames, the saver, what was loaded, and whether
  * RIFE ran.
  */
@@ -54,6 +54,8 @@ export function finishFrames(
   // the route ran before the interpolation already: its frames were interpolated above (taken again here, the interpolation was
   // lost and the file, saved at twice the rate, played twice as fast)
   if (!pixel) images = late.images;
+  // once, on the final frames, whichever side of the interpolation the route ran: RIFE's made-up frames are sharpened as their neighbours are
+  images = sharpened(g, ctx, images, input);
   g.phase("encoding");
   const out = saveVideo(g, ctx, { images, ...(opts.audio ? { audio: opts.audio } : {}), fps: smooth || opts.doubled ? opts.fps * 2 : opts.fps, crf: input.crf });
   return { images, out, loads: late.loads, smooth };

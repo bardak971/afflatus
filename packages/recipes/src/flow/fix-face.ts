@@ -1,6 +1,7 @@
 import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
-import { FACE_DETECTOR_PREFER, FACE_INPUTS, type FaceSettings } from "../sdxl/common";
+import { FACE_INPUTS, type FaceSettings } from "../sdxl/common";
 import { A_FACE, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
+import { DETECTOR_INPUT } from "../shared/detector";
 
 export interface FlowFixFace extends FlowBase, FaceSettings { source: string; prompt: string; detector: string; strength: number }
 
@@ -20,7 +21,7 @@ export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
       { id: "source", type: "image", role: "source", label: "Image" },
       { id: "prompt", type: "prompt", label: "Prompt", note: "the face and who it is: eye colour, hair, expression", style: "sentences", optional: true, default: "" },
       { id: "strength", type: "number", label: "Denoising strength", note: "0.3 cleans the face, 0.6 can make another one", min: 0.1, max: 0.8, step: 0.05, default: 0.4 },
-      { id: "detector", type: "choice", label: "Detection model", note: "from ComfyUI's models/ultralytics folder", options: { node: "UltralyticsDetectorProvider", input: "model_name" }, default: "bbox/face_yolov8m.pt", prefer: FACE_DETECTOR_PREFER, advanced: true },
+      DETECTOR_INPUT,
       ...FACE_INPUTS,
       ...inputs,
     ],

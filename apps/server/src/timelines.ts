@@ -56,6 +56,8 @@ export interface CutOptions {
   upscaleModel?: string;
   /** "finish" with SeedVR2: frames restored together, 0 = by the frame's size. */
   seedvrFrames?: number;
+  /** "finish": RCAS on the finished frames, 0 to 1; 0 or none = off. */
+  sharpen?: number;
   /** "finish": the start of the video that is never seen (a continuation's hidden run-up, hiddenRunUp): enlarged plainly, not restored. */
   hiddenMs?: number;
   finishedFrom?: string;
