@@ -68,8 +68,10 @@ export async function makeApp(opts: { db?: Db; dir?: string; comfyUrl?: string }
   };
 }
 
-export async function makeFake(): Promise<FakeComfy> {
-  return startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: [CHECKPOINT, "other.safetensors"], upscale_models: [] } });
+/** A fake ComfyUI with the reference catalog, less the node types named (a pack it is said not to have). */
+export async function makeFake(without: string[] = []): Promise<FakeComfy> {
+  const catalog = Object.fromEntries(Object.entries(referenceCatalog()).filter(([type]) => !without.includes(type)));
+  return startFakeComfy({ catalog, models: { checkpoints: [CHECKPOINT, "other.safetensors"], upscale_models: [] } });
 }
 
 /** Wait until something that happens on a later tick is true. */

@@ -217,14 +217,15 @@ export const OUTPAINT_NODES = ["LoadImage", "ImagePadForOutpaint", "ImageScale",
 /**
  * The picture padded on the sides asked for (grey, with a soft edge into the picture), scaled to the size
  * the model draws at, and encoded with the padding as the part to paint: what ComfyUI's own outpaint
- * example does. Returns the latent to sample at denoise 1, and the size to bring the result back to.
+ * example does. Returns the latent to sample at denoise 1, the size to bring the result back to, and the
+ * padding node, and the padded picture and its mask at the drawing size, for a recipe that encodes its own.
  */
 export function outpaintLatent(g: GraphBuilder, source: Ref, from: { width: number; height: number }, input: OutpaintSettings, size: { width: number; height: number }, vae: Ref) {
   const padded = g.add("ImagePadForOutpaint", { image: source, left: input.padLeft, top: input.padTop, right: input.padRight, bottom: input.padBottom, feathering: input.feathering });
   const whole = { width: from.width + input.padLeft + input.padRight, height: from.height + input.padTop + input.padBottom };
   const pixels = g.out("ImageScale", { image: [padded, 0], upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
   const mask = g.out("ImageToMask", { image: g.out("ImageScale", { image: g.out("MaskToImage", { mask: [padded, 1] }), upscale_method: "bilinear", width: size.width, height: size.height, crop: "disabled" }), channel: "red" });
-  return { latent: g.out("VAEEncodeForInpaint", { pixels, vae, mask, grow_mask_by: 16 }), whole };
+  return { latent: g.out("VAEEncodeForInpaint", { pixels, vae, mask, grow_mask_by: 16 }), whole, padded, pixels, mask };
 }
 
 /** The upscale models that suit most pictures, best first. */
@@ -236,8 +237,25 @@ export const UPSCALER_PREFER = ["nomos8ksc", "clearreality", "ultrasharp", "x4pl
  * Pony wants its score tags and a high CFG; Illustrious and NoobAI their quality tags; a NoobAI v-pred
  * checkpoint runs on euler only, at a low CFG. Clip skip stays at 1: ComfyUI's SDXL encoders already
  * read the second-last layer, which is what these cards call "clip skip 2".
+ * Few-step checkpoints (DMD2, LCM, Lightning, Hyper, Turbo merges) come first: on the usual 28 steps at
+ * CFG 5 they burn. Their sampling is taken from them and the lineage's tags from the entry after.
  */
 export const SDXL_PRESETS = [
+  {
+    match: "dmd|(^|[^a-z])lcm([^a-z]|$)",
+    values: { sampler: "lcm", scheduler: "exponential", steps: 8, cfg: 1 },
+    note: "DMD2 / LCM: few steps, lcm at CFG 1",
+  },
+  {
+    match: "lightning|hyper[\\s._-]?(sd|\\d)",
+    values: { sampler: "euler", scheduler: "sgm_uniform", steps: 8, cfg: 1 },
+    note: "Lightning / Hyper: few steps, euler sgm_uniform at CFG 1",
+  },
+  {
+    match: "turbo",
+    values: { sampler: "dpmpp_sde", scheduler: "karras", steps: 8, cfg: 2 },
+    note: "Turbo merge: few steps, DPM++ SDE Karras at CFG 2",
+  },
   {
     match: "noob.*v.?pred|v.?pred.*noob|vpred",
     values: { sampler: "euler", scheduler: "normal", cfg: 4.5, steps: 30, quality: "masterpiece, best quality, newest, absurdres, highres", negative: `${DEFAULT_NEGATIVE}, old, early`, prediction: V_PRED },

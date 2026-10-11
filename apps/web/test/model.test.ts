@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InputSpec } from "@afflatus/core";
+import { recipeById } from "@afflatus/recipes";
 import type { Asset, Clip, RecipeInfo, Take } from "../src/api";
 import { layout, otherShape, PAD, pinInputs, placeOf, playAt, shapeOf, stamp, takeTrouble, titleOf } from "../src/timeline/model";
 
@@ -60,6 +61,8 @@ describe("a clip's name and pictures", () => {
   it("finds the inputs its pictures are pinned to", () => {
     expect(pinInputs(h3)).toEqual({ start: "start", end: "end", mid: "mid", midAt: "midAt" });
     expect(pinInputs(undefined)).toEqual({ start: undefined, end: undefined, mid: undefined, midAt: undefined });
+    // LTX 2.3 pins a keyframe the same way, from its own inputs
+    expect(pinInputs(recipe(recipeById("ltx.video")!.inputs, "ltx.video"))).toEqual({ start: "start", end: "end", mid: "mid", midAt: "midAt" });
   });
 });
 

@@ -791,6 +791,79 @@ describe("ltx.video", () => {
     const own = build({}, { slots: { ...parts, ...extras } });
     expect(all(own, "CFGGuider").map((n) => sourceOf(own, (n.inputs.model as [string, number])[0]))).toEqual(["LoraLoaderModelOnly", "LoraLoaderModelOnly"]);
   });
+
+  describe("a keyframe", () => {
+    const mids = { uploads: { start: "a.png", end: "b.png", mid: "c.png" }, media: { start: picture, end: picture, mid: picture } };
+    const from = (b: ReturnType<typeof build>, ref: unknown) => b.graph[(ref as [string, number])[0]]!;
+    // the size a guide's picture is scaled to, through its LTXVPreprocess
+    const sizeOf = (b: ReturnType<typeof build>, guide: { inputs: Record<string, unknown> }) => {
+      const scaled = from(b, from(b, guide.inputs.image).inputs.image);
+      return [scaled.inputs.width, scaled.inputs.height];
+    };
+
+    it("is a guide at its moment between the first and the last picture in one pass, taken out once with the others", () => {
+      const b = build({ start: "p", mid: "m", end: "q" }, mids);
+      expect(all(b, "LTXVLatentUpsampler")).toEqual([]);
+      // 2.5 s at 25 frames a second; the last picture still at -1, which ComfyUI counts without the guide frames
+      expect(all(b, "LTXVAddGuide").map((n) => [n.inputs.frame_idx, n.inputs.strength])).toEqual([[0, 0.7], [63, 0.8], [-1, 0.7]]);
+      expect(all(b, "LTXVCropGuides")).toHaveLength(1);
+      expect(all(b, "LoadImage").map((n) => n.inputs.image)).toEqual(["a.png", "c.png", "b.png"]);
+      // a keyframe alone is a guide too, and is taken out again
+      const alone = build({ mid: "m", twoPass: false, midStrength: 0.6 }, mids);
+      expect(all(alone, "LTXVAddGuide").map((n) => [n.inputs.frame_idx, n.inputs.strength])).toEqual([[63, 0.6]]);
+      expect(all(alone, "LTXVCropGuides")).toHaveLength(1);
+    });
+
+    it("guides both passes at their own size, and is taken out before the clip is enlarged and before it is decoded", () => {
+      const b = build({ start: "p", mid: "m" }, mids);
+      const guides = all(b, "LTXVAddGuide");
+      expect(guides.map((n) => [n.inputs.frame_idx, n.inputs.strength])).toEqual([[63, 0.8], [63, 0.8]]);
+      expect(guides.map((n) => sizeOf(b, n))).toEqual([[512, 352], [1024, 704]]);
+      // the first frame is still put in place in the latent, not given as a guide
+      expect(all(b, "LTXVImgToVideoInplace").map((n) => n.inputs.strength)).toEqual([0.7, 1]);
+      const crops = all(b, "LTXVCropGuides");
+      expect(crops).toHaveLength(2);
+      // each crop takes out the guide its own pass was given, from what that pass sampled
+      crops.forEach((crop, i) => {
+        expect(from(b, crop.inputs.positive)).toBe(guides[i]);
+        expect(from(b, crop.inputs.latent).class_type).toBe("LTXVSeparateAVLatent");
+      });
+      expect(from(b, all(b, "LTXVLatentUpsampler")[0]!.inputs.samples)).toBe(crops[0]);
+      expect(from(b, all(b, "VAEDecodeTiled")[0]!.inputs.samples)).toBe(crops[1]);
+      // the full-size guide goes on the enlarged clip with its first frame put back, from the prompt's own conditioning
+      expect(from(b, guides[1]!.inputs.latent).class_type).toBe("LTXVImgToVideoInplace");
+      expect(from(b, guides[1]!.inputs.positive).class_type).toBe("LTXVConditioning");
+    });
+
+    it("gives the temporal upscaler a clip without its guide frames", () => {
+      const b = build({ start: "p", mid: "m", smooth: true }, { ...mids, slots: { ...one, ...extras, temporal: "temporal.safetensors" } });
+      const upsamplers = all(b, "LTXVLatentUpsampler");
+      expect(upsamplers).toHaveLength(2);
+      expect(from(b, upsamplers[1]!.inputs.samples)).toBe(all(b, "LTXVCropGuides")[1]);
+    });
+
+    it("stays off the first and the last frame, however late it is asked for", () => {
+      const at = (midAt: number, seconds = 5) => all(build({ mid: "m", midAt, seconds, twoPass: false }, mids), "LTXVAddGuide")[0]!.inputs.frame_idx;
+      expect(at(19.5)).toBe(ltxFrames(5) - 2);
+      expect(at(0.5)).toBe(13);
+      expect(at(4, 2)).toBe(ltxFrames(2) - 2);
+    });
+
+    it("decides the shape when it is the only picture", () => {
+      const tall = { width: 832, height: 1216 };
+      const b = build({ mid: "m" }, { uploads: { mid: "c.png" }, media: { mid: tall } });
+      const c = ltxCanvas(tall.width, tall.height, 704);
+      expect(all(b, "EmptyLTXVLatentVideo")[0]!.inputs).toMatchObject({ width: c.width / 2, height: c.height / 2 });
+      expect(ltxVideo.inputs.find((i) => i.id === "shape")).toMatchObject({ decidedBy: ["start", "end", "mid"] });
+    });
+
+    it("leaves a clip without one as it was", () => {
+      for (const b of [build({ start: "p" }), build({ twoPass: false })]) {
+        expect(all(b, "LTXVAddGuide")).toEqual([]);
+        expect(all(b, "LTXVCropGuides")).toEqual([]);
+      }
+    });
+  });
 });
 
 describe("flux and qwen image, from what is said once about each", () => {
@@ -840,6 +913,15 @@ describe("flux and qwen image, from what is said once about each", () => {
     expect(all(qwenOf({ fast: false, turboSteps: 8, model: "someone_qwen_lightning_8steps.safetensors" }), "KSampler")[0]!.inputs).toMatchObject({ steps: 8, cfg: 1 });
   });
 
+  it("starts few-step SDXL checkpoints on few steps, and leaves the names that only look alike", () => {
+    const first = (name: string) => sdxlTextToPicture.presets!.filter((p) => new RegExp(p.match, "i").test(name)).map((p) => p.note);
+    expect(first("BabesIllustriousBSY_DMD2_C36.safetensors")[0]).toMatch(/DMD2/);
+    expect(first("BabesIllustriousBSY_DMD2_C36.safetensors")[1]).toMatch(/Illustrious/);
+    expect(first("juggernautXL_v9Lightning4S.safetensors")[0]).toMatch(/Lightning/);
+    expect(first("dreamshaperXL_v21TurboDPMSDE.safetensors")[0]).toMatch(/Turbo/);
+    expect(first("Hyper-SDXL-8steps.safetensors")[0]).toMatch(/Hyper/);
+    for (const name of ["HyperRealismXL_v3.safetensors", "realvisxlV50.safetensors", "noobaiXLNAIXL_vPred10.safetensors"]) expect(first(name).join(), name).not.toMatch(/few steps/);
+  });
   it("finds each family's files by name, and not the files of another model that are named alike", () => {
     const found = (family: { slots: Array<{ id: string; detect: string[] }> }, slot: string, files: string[]) => {
       const patterns = family.slots.find((x) => x.id === slot)!.detect.map((d) => new RegExp(d, "i"));
@@ -868,6 +950,9 @@ describe("flux and qwen image, from what is said once about each", () => {
     expect(found(wan, "t2vHigh", ["High/SomeoneWAN22I2V14B_HighV1.safetensors"])).toBeNull();
     expect(found(ltx, "videoVae", ["taeltx2_3.safetensors", "LTX23_audio_vae_bf16.safetensors", "LTX23_video_vae_bf16.safetensors"])).toBe("LTX23_video_vae_bf16.safetensors");
     expect(found(ltx, "audioVae", ["LTX23_video_vae_bf16.safetensors", "LTX23_audio_vae_bf16.safetensors"])).toBe("LTX23_audio_vae_bf16.safetensors");
+    // the two passes halve the first one, so only the ×2 latent upscaler fits: never the ×1.5 one
+    expect(found(ltx, "upscaler", ["ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors"])).toBeNull();
+    expect(found(ltx, "upscaler", ["ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors", "ltx-2.3-spatial-upscaler-x2-1.1.safetensors"])).toBe("ltx-2.3-spatial-upscaler-x2-1.1.safetensors");
   });
 
   it("gives every picture model the same six operations, under the names the tools look for", () => {

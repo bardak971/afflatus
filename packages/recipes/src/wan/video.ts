@@ -10,7 +10,7 @@ import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 /**
  * Wan's own negative prompt, as its authors give it (in Chinese: washed-out colours, overexposure, a
  * still picture, blurred detail, subtitles, bad hands and faces, extra limbs, a cluttered background,
- * walking backwards). It only acts above CFG 1, so not with Turbo.
+ * walking backwards). It only acts above CFG 1, and with Turbo through NAG.
  */
 const WAN_NEGATIVE = "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走";
 
@@ -29,6 +29,8 @@ export interface WanVideo {
   turboSteps: number;
   turboStrength: number;
   turboHybrid: boolean;
+  nag: boolean;
+  nagScale: number;
   steps: number;
   split: number;
   cfg: number;
@@ -133,6 +135,12 @@ function wanLatent(g: GraphBuilder, ctx: BuildContext, input: WanVideo, frame: {
  */
 function wanPasses(g: GraphBuilder, ctx: BuildContext, input: WanVideo, models: ReturnType<typeof wanLoad>, cond: { positive: Ref; negative: Ref; latent: Ref }) {
   const { positive, negative, latent } = cond;
+  // At CFG 1 the negative prompt is never read. NAG puts it back inside the attention instead (KJNodes' WanVideoNAG,
+  // at its authors' alpha and tau), on the two models Turbo runs at CFG 1; the hybrid lead runs at full CFG already.
+  const nagged = models.turbo && input.nag && input.negative.trim() !== "" && ctx.has("WanVideoNAG");
+  const nag = (model: Ref): Ref => (nagged ? g.out("WanVideoNAG", { model, conditioning: negative, nag_scale: input.nagScale, nag_alpha: 0.25, nag_tau: 2.5 }) : model);
+  const high = nag(models.high);
+  const low = nag(models.low);
   const steps = models.turbo ? input.turboSteps : input.steps;
   const cfg = models.turbo ? 1 : input.cfg;
   const handover = Math.max(1, Math.min(steps - 1, Math.round(steps * input.split)));
@@ -149,13 +157,13 @@ function wanPasses(g: GraphBuilder, ctx: BuildContext, input: WanVideo, models: 
     passes.push({ node: motion, steps: lead });
   }
   const first = g.add("KSamplerAdvanced", {
-    model: models.high, positive, negative, latent_image: latentSoFar, add_noise: lead > 0 ? "disable" : "enable", noise_seed: lead > 0 ? 0 : ctx.seed, steps, cfg,
+    model: high, positive, negative, latent_image: latentSoFar, add_noise: lead > 0 ? "disable" : "enable", noise_seed: lead > 0 ? 0 : ctx.seed, steps, cfg,
     sampler_name: input.sampler, scheduler: input.scheduler, start_at_step: lead, end_at_step: handover, return_with_leftover_noise: "enable",
   });
   passes.push({ node: first, steps: handover - lead });
   g.phase("refining");
   const second = g.add("KSamplerAdvanced", {
-    model: models.low, positive, negative, latent_image: [first, 0], add_noise: "disable", noise_seed: 0, steps, cfg,
+    model: low, positive, negative, latent_image: [first, 0], add_noise: "disable", noise_seed: 0, steps, cfg,
     sampler_name: input.sampler, scheduler: input.scheduler, start_at_step: handover, end_at_step: 10000, return_with_leftover_noise: "disable",
   });
   passes.push({ node: second, steps: steps - handover });
@@ -218,6 +226,11 @@ export const wanVideo = defineRecipe<WanVideo>({
       id: "turboHybrid", type: "toggle", label: "Hybrid turbo (motion first)", default: false, showWhen: "fast", advanced: true, perModel: true,
       note: "the first step or two run on the high-noise model WITHOUT the turbo LoRA at the full CFG scale (the motion is decided there), then the LoRAs take over at CFG 1: a draft that moves like a full render, a little slower. Only with the turbo LoRAs, not with a distilled model",
     },
+    {
+      id: "nag", type: "toggle", label: "NAG (negative at CFG 1)", default: true, showWhen: "fast", advanced: true, perModel: true,
+      note: "Normalized Attention Guidance: the negative prompt acts in Turbo, where CFG 1 ignores it, at little cost. Needs KJNodes",
+    },
+    { id: "nagScale", type: "number", label: "NAG scale", min: 1, max: 30, step: 0.5, default: 11, showWhen: "nag", advanced: true, perModel: true, note: "how hard the negative pushes: 11 is its authors' value" },
     { id: "steps", type: "number", label: "Steps", min: 2, max: 50, step: 1, default: 20, showWhen: { input: "fast", in: [false] }, advanced: true, perModel: true },
     {
       id: "split", type: "number", label: "High-noise steps (share)", min: 0.1, max: 0.9, step: 0.05, default: 0.5, advanced: true, perModel: true,
@@ -235,7 +248,7 @@ export const wanVideo = defineRecipe<WanVideo>({
     },
     {
       id: "negative", type: "prompt", label: "Negative prompt", style: "sentences", optional: true, default: WAN_NEGATIVE, advanced: true, perModel: true,
-      note: "only acts with a CFG scale above 1, so not with Turbo. The starting text is Wan's own, in Chinese",
+      note: "acts with a CFG scale above 1, and with Turbo through NAG. The starting text is Wan's own, in Chinese",
     },
     ...SPEED_INPUTS,
     { id: "smooth", type: "toggle", label: "Frame interpolation (RIFE ×2)", note: "frames interpolated with RIFE: 32 a second in place of 16", default: true, advanced: true },
@@ -267,7 +280,7 @@ export const wanVideo = defineRecipe<WanVideo>({
     ];
   },
   // the video is written by VideoHelperSuite when it is there, else by ComfyUI's own two nodes
-  optionalNodes: [...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ"],
+  optionalNodes: [...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ", "WanVideoNAG"],
 
   build(input, ctx) {
     const { slots, media } = ctx;
@@ -336,6 +349,7 @@ export const wanVideo = defineRecipe<WanVideo>({
       { name: "SageAttention and torch.compile on both models", input: { prompt: "a", start: "p1", sage: true, compile: true }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
       { name: "from words alone, Turbo", input: { prompt: "a", seconds: 3 }, slots: all },
       { name: "from words alone, full steps, wide", input: { prompt: "a", fast: false, steps: 30, split: 0.4, cfg: 4, shift: 12, shape: { width: 832, height: 480 }, negative: "blurry" }, slots: all },
+      { name: "Turbo with NAG off", input: { prompt: "a", start: "p1", fast: true, nag: false }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
       { name: "Turbo with the high-noise LoRA eased", input: { prompt: "a", start: "p1", fast: true, turboStrength: 0.7 }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
       { name: "hybrid Turbo: the motion decided without the LoRA first", input: { prompt: "a", start: "p1", fast: true, turboHybrid: true, turboSteps: 6 }, slots: all, uploads: { start: "a.png" }, media: { start: picture } },
       { name: "a GGUF model, SeedVR2 upscale, ComfyUI's own video output", input: { prompt: "a", start: "p1", model: "wan2.2_i2v_high_noise_14B_Q5_K_M.gguf", modelLow: "wan2.2_i2v_low_noise_14B_Q5_K_M.gguf", upscale: "Video: SeedVR2 (restores)", smooth: false }, slots: { ...all, seedvr: "seedvr2_3b_int8_convrot.safetensors", seedvrVae: "seedvr2_ema_vae_fp16.safetensors" }, uploads: { start: "a.png" }, media: { start: picture }, has: (n: string) => n !== "VHS_VideoCombine" },

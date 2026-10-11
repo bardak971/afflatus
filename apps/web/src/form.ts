@@ -88,10 +88,14 @@ export function formDefaults(
   const hasSaved = Object.keys(saved).length > 0;
   // nothing saved for this file yet: what its line's authors recommend, read from its name (Pony, NoobAI v-pred, Krea…)
   const name = file.split(/[\\/]/).pop() ?? "";
-  const preset = !hasSaved && name ? (recipe.presets ?? []).find((p) => new RegExp(p.match, "i").test(name)) : undefined;
-  const lined = preset ? Object.fromEntries(recipe.inputs.filter((i) => i.id in preset.values).map((i) => [i.id, preset.values[i.id]])) : {};
+  // Every preset that matches counts, each setting from the first that has it: an Illustrious DMD2 merge
+  // takes the few-step sampling and Illustrious's quality tags.
+  const matched = !hasSaved && name ? (recipe.presets ?? []).filter((p) => new RegExp(p.match, "i").test(name)) : [];
+  const values: Record<string, unknown> = Object.assign({}, ...[...matched].reverse().map((p) => p.values));
+  const lined = Object.fromEntries(recipe.inputs.filter((i) => i.id in values).map((i) => [i.id, values[i.id]]));
   const perModel = Object.fromEntries(recipe.inputs.filter((i) => i.perModel && i.id in saved).map((i) => [i.id, saved[i.id]]));
-  return { defaults: { ...base, ...lined, ...perModel }, file, hasSaved, preset: preset?.note };
+  const notes = matched.map((p) => p.note).filter(Boolean);
+  return { defaults: { ...base, ...lined, ...perModel }, file, hasSaved, preset: notes.length ? notes.join(" · ") : undefined };
 }
 
 /**

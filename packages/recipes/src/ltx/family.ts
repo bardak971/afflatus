@@ -14,7 +14,7 @@ import { SEEDVR_SLOTS } from "../video/upscale";
 export const ltx = defineFamily({
   id: "ltx",
   name: "LTX 2.3",
-  summary: "Video with audio. t2v, i2v from a first frame, or from a first to a last frame.",
+  summary: "Video with audio. t2v, i2v from a first frame, or from a first to a last frame, through a keyframe if wanted.",
   promptStyle: "sentences",
   slots: [
     {
@@ -48,7 +48,7 @@ export const ltx = defineFamily({
       get: { file: "gemma_3_12B_it_fp4_mixed.safetensors", url: "https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors" },
     },
     {
-      id: "upscaler", label: "Latent upscaler (×2)", folder: "latent_upscale_models", detect: ["ltx.?2[._]?3.*spatial.?upscaler"], optional: true,
+      id: "upscaler", label: "Latent upscaler (×2)", folder: "latent_upscale_models", detect: ["ltx.?2[._]?3.*spatial.?upscaler.?x2"], optional: true,
       hint: "Without it, clips are generated in one pass at full resolution, which is slower and softer. Put ltx-2.3-spatial-upscaler-x2-*.safetensors in ComfyUI's models/latent_upscale_models folder.",
       get: { file: "ltx-2.3-spatial-upscaler-x2-1.1.safetensors", url: "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x2-1.1.safetensors" },
     },
@@ -85,6 +85,7 @@ RULES
 - Physical cues instead of feelings: "her jaw tightens", not "she is angry".
 - One or two actions per clip; no readable text or logos, no crowds, no many-body physics.
 - A first-frame picture: write only what moves and how the camera moves, never the picture again.
+- A keyframe picture: the clip passes through it at its moment; write the action that leads into it and on from it, in order, never the picture again.
 - The "Negative prompt" part only acts above CFG 1 (the distilled models run at 1): leave it alone unless asked. No weights, no quality words.
 EXAMPLE, for the form only (its subject, place and words are not to be reused):
 A saxophone player in a wrinkled suit plays a slow melody with his eyes closed, swaying gently, in a dimly lit 1950s New York jazz club. Smoke curls through amber spotlights behind him; a few patrons at small tables to the left cradle drinks in blue shadow. Medium shot from a slightly low angle, the camera pushing in slowly and settling on his face as he opens his eyes mid-phrase. Warm amber light on him, deep blue shadows, a film noir palette with soft grain. The audio is the slow saxophone line over the clink of glasses and low murmured conversation, no other music.`,
