@@ -21,7 +21,7 @@ export function SeedField({ id, label, note, value, onChange }: { id: string; la
   // under them (four chips beside a number box fold into a block in a narrow panel). Random, there is no number box to
   // name: the chips carry the name themselves
   return (
-    <FieldRow label={label} note={note} htmlFor={random ? undefined : id}>
+    <FieldRow label={label} note={note} htmlFor={random ? undefined : id} trail>
       <Segmented
         label={label}
         value={random ? "random" : mode}

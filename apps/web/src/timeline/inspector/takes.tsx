@@ -113,7 +113,7 @@ export function Duration({ clip, take, room, rendered, onPatch }: { clip: Clip; 
   const [moving, setMoving] = useState<{ from: number; to: number } | null>(null);
   if (clip.kind === "still") {
     return (
-      <FieldRow label="Held for">
+      <FieldRow label="Held for" trail>
         <NumberBox label="How long the still is held, in seconds" value={clip.lengthMs / 1000} min={0.5} max={60} step={0.1} unit="s" onCommit={(v) => onPatch({ stillMs: Math.round(v * 1000) })} />
       </FieldRow>
     );

@@ -78,7 +78,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
           <FieldRow label="Route" note={ROUTES.find((r) => r.value === v.route)?.detail}>
             <Select label="Route" value={v.route} onChange={(route) => setV({ ...v, route: route as FinishSettings["route"] })} options={ROUTES.map((r) => ({ value: r.value, label: r.label, detail: r.detail }))} />
           </FieldRow>
-          <FieldRow label="Upscale by" note={v.route === "latent" ? "1.5 is light on video memory; 2 asks much more of H3's re-sample" : v.route === "seedvr" ? "2 is what SeedVR2 is tuned for; 1 restores without enlarging" : "2 is what the routes are tuned for"}>
+          <FieldRow label="Upscale by" note={v.route === "latent" ? "1.5 is light on video memory; 2 asks much more of H3's re-sample" : v.route === "seedvr" ? "2 is what SeedVR2 is tuned for; 1 restores without enlarging" : "2 is what the routes are tuned for"} trail>
             <NumberBox label="Upscale factor" value={v.factor} min={1} max={4} step={0.25} unit="×" onCommit={(factor) => setV({ ...v, factor })} />
           </FieldRow>
           {(v.route === "seedvr" || (v.route === "latent" && resampled < videos.length)) && (
@@ -86,7 +86,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
               <FieldRow label="Colour match" note="SeedVR2's restored frames matched in colour to the originals: lab is the most faithful, wavelet keeps the new fine detail, adain is a global tint">
                 <Segmented<(typeof COLOURS)[number]> label="Colour match" value={v.colour} onChange={(colour) => setV({ ...v, colour })} options={COLOURS.map((c) => ({ value: c, label: c }))} />
               </FieldRow>
-              <FieldRow label="Batch size" note="SeedVR2's batch size: how many frames it restores together. 0 is auto: by the frame's size (9 at ×2 of a 576p clip, fewer when larger). More is steadier but needs more video memory; past what the card holds it slows to a crawl">
+              <FieldRow label="Batch size" note="SeedVR2's batch size: how many frames it restores together. 0 is auto: by the frame's size (9 at ×2 of a 576p clip, fewer when larger). More is steadier but needs more video memory; past what the card holds it slows to a crawl" trail>
                 {/* 0 said as what it does, beside the box: a bare 0 read as off */}
                 <span className="flex items-center gap-2">
                   <NumberBox label="SeedVR2 batch size (0 is auto)" value={v.seedvrFrames ?? 0} min={0} max={49} step={4} onCommit={(seedvrFrames) => setV({ ...v, seedvrFrames: Math.round(seedvrFrames) })} />
@@ -97,10 +97,10 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
           )}
           {v.route === "latent" && (
             <>
-              <FieldRow label="Denoise" note="Re-sample denoise. 0.2 adds detail and keeps the clip; 0.25 and up invent small things (a bird, a moon); past 0.4 faces change">
+              <FieldRow label="Denoise" note="Re-sample denoise. 0.2 adds detail and keeps the clip; 0.25 and up invent small things (a bird, a moon); past 0.4 faces change" trail>
                 <NumberBox label="Re-sample denoise" value={v.latentDenoise} min={0.05} max={0.6} step={0.01} onCommit={(latentDenoise) => setV({ ...v, latentDenoise })} />
               </FieldRow>
-              <FieldRow label="Steps" note="Re-sample steps: each step is a pass over the whole clip">
+              <FieldRow label="Steps" note="Re-sample steps: each step is a pass over the whole clip" trail>
                 <NumberBox label="Re-sample steps" value={v.latentSteps} min={1} max={6} step={1} onCommit={(latentSteps) => setV({ ...v, latentSteps: Math.round(latentSteps) })} />
               </FieldRow>
             </>
@@ -112,7 +112,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
           )}
           {/* every route but H3's own re-sample runs a pixel route, after which RCAS can go (the re-sample samples real detail) */}
           {(v.route !== "latent" || resampled < videos.length) && (
-            <FieldRow label="Sharpen" note="RCAS (AMD FSR's contrast-adaptive sharpen) on the finished frames: crisps the edges an upscale leaves soft, without a plain sharpen's halos. 0.3 is a usual amount; 0 is off. Needs KJNodes">
+            <FieldRow label="Sharpen" note="RCAS (AMD FSR's contrast-adaptive sharpen) on the finished frames: crisps the edges an upscale leaves soft, without a plain sharpen's halos. 0.3 is a usual amount; 0 is off. Needs KJNodes" trail>
               <NumberBox label="Sharpen (RCAS)" value={v.sharpen ?? 0} min={0} max={1} step={0.05} onCommit={(sharpen) => setV({ ...v, sharpen })} />
             </FieldRow>
           )}

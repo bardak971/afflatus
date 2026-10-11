@@ -107,7 +107,7 @@ export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, r
                 </FieldRow>
               )}
               {finishedSize && !exp.web && (
-                <FieldRow label="Finished size" note="The frame of the largest take: the finished clips as they are, the drafts enlarged to it. Off: the timeline's frame.">
+                <FieldRow label="Finished size" note="The frame of the largest take: the finished clips as they are, the drafts enlarged to it. Off: the timeline's frame." trail>
                   <span className="flex items-center gap-2.5">
                     <Toggle bare on={exp.fit === "largest"} onChange={(on) => setExp({ ...exp, fit: on ? "largest" : "timeline" })} label={`At the finished size (${finishedSize})`} />
                     <span className="text-xs text-ink-2">{finishedSize}</span>

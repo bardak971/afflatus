@@ -14,8 +14,9 @@ export function FieldRow({ label, note, htmlFor, stack, trail, children }: {
   /** The control always under its label: one that needs the row's whole width (a range of a clip with its figures under it). */
   stack?: boolean;
   /**
-   * The control at the row's end, the name taking the rest: a switch, which needs no column of its own. In the value
-   * column it left the name 124 px, and "Comfy Kitchen attention" went on two lines beside an empty row.
+   * The control at the row's end, the name taking the rest: one of its own size (a switch, a few chips, a number box),
+   * which needs no column. In the value column it left the name 124 px, and "Comfy Kitchen attention" went on two
+   * lines beside an empty row. Sliders and pickers fill the value column, to the same right edge.
    */
   trail?: boolean;
   children: ReactNode;
@@ -37,7 +38,7 @@ export function FieldRow({ label, note, htmlFor, stack, trail, children }: {
         {head && name(head)}
         <span className="whitespace-nowrap">{name(last)}{note && !explain && <Help text={note} title={label} className="relative -top-[1.5px] ml-1.5 align-middle" />}</span>
       </span>
-      <div className="flex min-w-0 flex-col gap-1.5">{children}</div>
+      <div className={cx("flex min-w-0 flex-col gap-1.5", trail && "items-end")}>{children}</div>
       {explain && note && <span className="col-span-full text-xs text-ink-2">{note}</span>}
     </div>
   );

@@ -106,7 +106,7 @@ export function MusicPanel({ timeline, onEdit, onClose }: { timeline: Timeline; 
       </div>
       <div className="@container/column flex min-h-0 grow flex-col gap-4 overflow-y-auto p-4">
         <SongStrip timeline={timeline} onFrom={(fromMs) => onEdit({ music: { fromMs } })} />
-        <FieldRow label="Song from" note="The moment of the song heard where the music starts. Drag the lit stretch, or the song on its lane.">
+        <FieldRow label="Song from" note="The moment of the song heard where the music starts. Drag the lit stretch, or the song on its lane." trail>
           <NumberBox label="Song from, in seconds" value={m.fromMs / 1000} min={0} max={mostFromMs({ ...m, durationMs: m.asset.durationMs ?? 0 }, timeline.clips) / 1000} step={0.1} unit="s" onCommit={(s) => onEdit({ music: { fromMs: Math.round(s * 1000) } })} />
         </FieldRow>
         <FieldRow label="Starts" note="The clip the music starts with. Alt + drag the music's left edge on its lane does the same.">

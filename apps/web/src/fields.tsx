@@ -95,7 +95,7 @@ export function Field({ spec, value, values, options, family, model, onChange, o
     case "toggle":
       if (spec.captions) {
         return (
-          <FieldRow label={spec.label} note={spec.note}>
+          <FieldRow label={spec.label} note={spec.note} trail>
             <Segmented
               label={spec.label}
               value={value ? "on" : "off"}
@@ -121,7 +121,7 @@ export function Field({ spec, value, values, options, family, model, onChange, o
       // a few short choices sit side by side; file names and long lists go in a list
       const few = all.length <= 4 && all.every((o) => fileLabel(o).length <= 14);
       return (
-        <FieldRow label={spec.label} note={spec.note} htmlFor={few ? undefined : id}>
+        <FieldRow label={spec.label} note={spec.note} htmlFor={few ? undefined : id} trail={few}>
           {few ? (
             <Segmented label={spec.label} value={current} options={all.map((o) => ({ value: o, label: fileLabel(o) }))} onChange={onChange} className="w-fit" />
           ) : (
