@@ -15,7 +15,8 @@ import { folderOfTimeline } from "./timelineFolder";
 import type { Services } from "./services";
 import { clockOf, FROM_PREVIOUS, type CutOptions, type Timelines } from "./timelines";
 
-const timelinePatch = z.strictObject({
+/** What PATCH /api/timelines/:id takes (the web's TimelinePatch is held to it in test/apiTypes.test.ts). */
+export const timelinePatch = z.strictObject({
   name: z.string().max(200).optional(),
   /** The frame every clip is made to fit; null for both = the first clip rendered decides. */
   width: z.number().int().min(64).max(4096).nullable().optional(),
@@ -55,7 +56,8 @@ const newClip = z.strictObject({
   stopAtMs: z.number().min(0).optional(),
 });
 
-const clipPatch = z.strictObject({
+/** What PATCH /api/clips/:id takes (the web's ClipPatch is held to it in test/apiTypes.test.ts). */
+export const clipPatch = z.strictObject({
   recipe: z.string().optional(),
   inputs: z.record(z.string(), z.unknown()).optional(),
   joined: z.enum(["continue", "cut"]).optional(),

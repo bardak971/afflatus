@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, RotateCcw, Send, Sparkles, X } from "lucide-react";
-import { api, type DesignerReply, type DesignerSession, type Look, type RecipeInfo } from "./api";
+import { api, type DesignerReply, type DesignerSession, type Look, type RecipeInfo, type SettingsPatch } from "./api";
 import { useSettings } from "./data";
 import { Reply } from "./designer/Reply";
 import { SessionBar } from "./designer/SessionBar";
@@ -142,7 +142,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
   };
   /** A choice belongs to this conversation; it is also what the next new conversation starts with. */
   const remember = useMutation({
-    mutationFn: (patch: Record<string, unknown>) => api.saveSettings(patch),
+    mutationFn: (patch: SettingsPatch) => api.saveSettings(patch),
     onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved),
   });
   const choose = (change: DesignerSession) => {

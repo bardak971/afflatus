@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "../../api";
+import { api, type SettingsPatch } from "../../api";
 import { useSettings } from "../../data";
 import { AutoText, Button, ErrorNote, Help, Toggle } from "../../ui";
 import { Block, Card, Fact, Row } from "./Rows";
@@ -71,7 +71,7 @@ function GuideEditor({ guide, own, open, onOpen, onSave }: {
 export function PromptsCard() {
   const settings = useSettings();
   const client = useQueryClient();
-  const put = async (patch: Record<string, unknown>) => client.setQueryData(queryKeys.settings(), await api.saveSettings(patch));
+  const put = async (patch: SettingsPatch) => client.setQueryData(queryKeys.settings(), await api.saveSettings(patch));
   const s = settings.data;
   return (
     <Card setting="prompts.guides" title={<span className="flex items-center gap-1.5">Prompting guides <Help title="Prompting guides" text="How each model family's prompts are written, as the designer is told first: the rules of the model's own guide, and one example of the form. Change a family's text and yours replaces the built-in one for that family; the eye in the designer panel shows the whole system prompt as it is sent." /></span>}>

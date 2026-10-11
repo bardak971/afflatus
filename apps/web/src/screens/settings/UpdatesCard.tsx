@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Search } from "lucide-react";
-import { api, type UpdateRow } from "../../api";
+import { api, type SettingsPatch, type UpdateRow } from "../../api";
 import { useModelUpdates, useSettings } from "../../data";
 import { dateTime, dayOf, fileLabel, plural } from "../../format";
 import { Dialog, DialogHead, DIALOG } from "../../Dialog";
@@ -17,7 +17,7 @@ export function UpdatesCard() {
   const [q, setQ] = useState("");
   // the list in a dialog of its own: few update their models, and with many it would make the tab endless
   const [open, setOpen] = useState(false);
-  const save = useMutation({ mutationFn: (patch: Record<string, unknown>) => api.saveSettings(patch), onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.settings() }) });
+  const save = useMutation({ mutationFn: (patch: SettingsPatch) => api.saveSettings(patch), onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.settings() }) });
   const check = useMutation({ mutationFn: api.checkModelUpdates, onSuccess: (r) => client.setQueryData(queryKeys.modelUpdates(), r) });
   // "Get it" per row: each row its own state, one error line for the list
   const rowKey = (u: UpdateRow) => `${u.folder}/${u.file}`;

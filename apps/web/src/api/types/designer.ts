@@ -24,6 +24,18 @@ export interface DraftBrief {
   /** In the list: the model families its outputs were made with, the newest first, and how many each made. */
   models?: Array<{ family: string; outputs: number }>;
 }
+/** What PUT /api/drafts/:id takes: the fields it changes. Held to the server's schema by test/apiTypes.test.ts. */
+export interface DraftPatch {
+  recipe?: string;
+  forms?: Draft["forms"];
+  count?: number;
+  look?: Look | null;
+  chat?: unknown[];
+  designer?: DesignerSession | null;
+  name?: string;
+  /** The project it moves to (null: the Inbox). */
+  project?: string | null;
+}
 export interface Draft extends DraftBrief {
   /** Recipe id → the values of its form. */
   forms: Record<string, Record<string, unknown>>;

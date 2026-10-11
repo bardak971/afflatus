@@ -122,7 +122,7 @@ export function useBarData({ open, mode, text, ranks, picked, learn, foundEntrie
   const settingCtx: SettingCtx = useMemo(() => ({
     server: settings.data,
     save: async (patch: Partial<Settings>) => {
-      const saved = await api.saveSettings(patch as Record<string, unknown>);
+      const saved = await api.saveSettings(patch);
       client.setQueryData(queryKeys.settings(), saved);
     },
   }), [settings.data, client]);
