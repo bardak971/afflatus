@@ -4,6 +4,8 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-12
+
 ### Added
 - **Afflatus updates itself.** Once a day it asks GitHub for its latest release (one request, nothing about you in it; a switch in Settings → About). A new version shows as a dot on Settings, and About gives its notes. The Windows, Linux and macOS bundles install it in one click: signed (Ed25519) and checked, unpacked beside the running version, switched once the queue is done (a render is never cut), with the version before kept and **Go back** to it, the library as it was at the update. A version that does not start falls back to the one before. Docker and the sources get the notice and the command. Update and Go back only from the computer Afflatus runs on. From 0.4.0 the bundle is one `Afflatus` folder (`versions/` beside `data/`), and 0.4.0 started beside a 0.3.0 folder offers to bring its library over, moved rather than copied.
 - **Hand detailer** (H): a one-click pass beside the Face detailer, the same tool with the hand detector, denoise 0.35, crop factor 2 and a hands prompt; in the form, picking a hand detector moves those settings to hand values (what you set yourself stays).
@@ -148,5 +150,6 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 The first release: the Studio and its library, a form per model family, timelines, the prompt kit, imported workflows, the queue, the node pack, the Docker image, the Helm chart and the desktop bundles.
 
-[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/bardak971/afflatus/releases/tag/v0.4.0
 [0.3.0]: https://github.com/bardak971/afflatus/releases/tag/v0.3.0
