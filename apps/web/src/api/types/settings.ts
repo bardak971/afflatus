@@ -86,7 +86,8 @@ export interface Settings {
   /** The days the bin keeps what is in it before it is erased: 7 or 30; 0 until it is emptied by hand. */
   binDays: 0 | 7 | 30;
   /** Once a day, Civitai is asked for newer versions of the models here (lookups on; hashes are sent). */
-  updateChecks: boolean;  /** The command bar's shortcut and its optional parts. */
+  updateChecks: boolean;
+  /** The command bar's shortcut and its optional parts. */
   bar: BarSettings;
   /** The projects pinned to the rail under the one worked in, in their order there (four at most). */
   pinnedProjects: string[];
