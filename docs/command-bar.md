@@ -21,6 +21,8 @@ Everything is searched together: an index of the timelines, drafts, projects, fo
 | Command | run it | what it does · what it touches · estimate |
 | Setting | flip it, run it, or open its page | name · Settings › page · its value |
 
+A kind typed first lists that kind, newest first: `draft`, `timelines`, `projects`, `folders`, `renders`, `workflows`, or the start of one from four letters (`timel`). The words after it narrow the list (`timeline pier`, `draft krea`); what the words find elsewhere (the New draft command) still comes after.
+
 With nothing typed, the bar shows **Recent** (the last timelines, drafts, renders and commands you used) and a few **Suggested** rows that fit the moment: pause the queue while something runs (resume it when paused), bin unused takes when a timeline has some, reconnect to ComfyUI when it is offline, the selected clip's split and takes, group by model when it saves loads, and "N failed in the queue" (Enter types `!`).
 
 ## Keys
@@ -69,7 +71,7 @@ The actions are the ones the app already has (the viewer, the Projects panel, th
 Plain words read by fixed rules, never an LLM. Each command shows what it will do before Enter: what it touches, how many, and an estimate where one exists. A command still missing its figures (named with "…") completes the bar on Enter or Tab.
 
 - On the open timeline (else the one last opened from the bar): `render clips 3-5`, `render missing`, `export`, `finish`, `fix all`, `bin unused takes`. Ctrl+Enter on a render renders and moves its jobs to the top of the queue, in their order (the queue's "Run next").
-- On the clip selected in the editor: `split`, `previous take`, `next take`. `clip 3` selects clip 3 of the open timeline and puts the playhead on its start (it opens the timeline the bar aims at first).
+- On the clip selected in the editor: `split`, `previous take`, `next take`, `mirror pin` (one row per pinned frame, as its right-click menu's Mirror ↔; `mirror pin off` turns it off). `clip 3` selects clip 3 of the open timeline and puts the playhead on its start (it opens the timeline the bar aims at first).
 - On the open draft: `generate`, `seed 1234`, `steps 30`, `cfg 4`, `size 576x1024`, `length 5s`, `preset <name>`, `save as preset <name>`.
 - Models: `load <model>`, `unload models` (as the Queue page's button: not while a render runs), `new draft <model>`, `import workflow`.
 - Making things: `new timeline [name]`, `new folder <name>` (at the top of the project you work in), `new project <name>`, `new person|place|style|preset|snippet <name>` (opened in the Prompt kit), `link folder [path]`.

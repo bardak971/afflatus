@@ -44,6 +44,7 @@ Put people and a style into a draft or a whole timeline (**Cast and look**), and
 A timeline is a video made of clips. Open **Timelines** in the rail, start one, and drop pictures or videos from the library onto the track (or right-click a picture → **Timeline** → *Start a timeline from it*).
 
 - **A clip** is a form of its own. A picture dropped on the track becomes its first frame; a clip can also have a last frame and a keyframe in the middle.
+- **Mirror a pinned frame:** right-click a pinned frame (on the track or in the Inspector) → **Mirror ↔**, or **Ctrl+K** `> mirror pin` for the selected clip. The picture goes to ComfyUI flipped at render time; the one in the library is left as it is. A first frame carried on from the clip before, or a last frame landed on by the clip after, cannot be mirrored: the join must meet.
 - **Takes:** each render of a clip is a take. Render several at once (**Takes at once**), and pick the one that plays.
 - **Carry on:** a clip can continue from the one before, so the motion and the sound go on across the cut. For MiniMax H3 the join is made in the model's own latent.
 - **What it measures:** hover a clip, or open its Takes tab, to see how clean its join is and how its brightness, sharpness and pace compare with the clips around it. The timeline lists the joins that jump and the takes that would join more cleanly; whether that take is the better clip is yours to judge, and each row can be hidden.
