@@ -38,6 +38,7 @@ export function ShippedPreset({ e, onCopied }: { e: Extract<Entity, { kind: "pre
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-2">
         {def.author && <span>By <span className="font-semibold">{def.author}</span></span>}
         {def.homepage && <a href={def.homepage} target="_blank" rel="noreferrer" className="flex items-center gap-1 font-semibold underline">Its page <ExternalLink size={11} /></a>}
+        {def.links?.map((l) => <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 font-semibold underline">{l.label} <ExternalLink size={11} /></a>)}
       </div>
       <div className="flex flex-col gap-1">
         <span className="text-xs font-semibold text-ink-2">Model and operation</span>

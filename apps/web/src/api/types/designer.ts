@@ -121,6 +121,8 @@ export interface PresetDef {
   author?: string;
   note?: string;
   homepage?: string;
+  /** The author's other pages, credited beside the preset's own (their GitHub, say). */
+  links?: Array<{ label: string; url: string }>;
   licence?: { name: string; url?: string; note?: string };
 }
 export type Entity =
