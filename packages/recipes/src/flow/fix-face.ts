@@ -18,7 +18,7 @@ export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
     output: "image",
     inputs: [
       spec.model,
-      { id: "source", type: "image", role: "source", label: "Image" },
+      { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
       { id: "prompt", type: "prompt", label: "Prompt", note: "the face and who it is: eye colour, hair, expression", style: "sentences", optional: true, default: "" },
       { id: "strength", type: "number", label: "Denoising strength", note: "0.3 cleans the face, 0.6 can make another one", min: 0.1, max: 0.8, step: 0.05, default: 0.4 },
       DETECTOR_INPUT,

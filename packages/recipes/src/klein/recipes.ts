@@ -149,7 +149,7 @@ export const kleinEdit = defineRecipe<KleinEdit>({
   presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
-    { id: "source", type: "image", role: "source", label: "Image" },
+    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "an instruction: what to change, and what stays", style: "sentences", placeholder: "Change her dress to a red silk one. Keep her face, her hair, the pose and the room exactly the same." },
     {
       // 4 pictures in all, the one being changed included
@@ -210,8 +210,8 @@ export const kleinPaintOver = defineRecipe<KleinPaintOver>({
   presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
-    { id: "source", type: "image", role: "source", label: "Image" },
-    { id: "mask", type: "image", role: "mask", of: "source", label: "Mask" },
+    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    { id: "mask", type: "image", role: "mask", of: "source", label: "Mask", note: "the part to redo, painted over the picture" },
     { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "Replace the cup with a glass of orange juice. Keep everything else the same." },
     { id: "strength", type: "number", label: "Denoising strength", note: "1 redoes the masked part from the prompt; lower only touches it up", min: 0.1, max: 1, step: 0.05, default: 1 },
     { id: "references", type: "references", label: "Reference images", max: 3, roles: [...ALL_ROLES], note: "optional: the person whose face it is, the thing to put there", advanced: true },
@@ -300,7 +300,7 @@ export const kleinReshape = defineRecipe<KleinReshape>({
   presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
-    { id: "source", type: "image", role: "source", label: "Image" },
+    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     { id: "shape", type: "choice", label: "Aspect ratio", options: SHAPES, default: "Widescreen 16:9" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "optional: what is around it. Left empty, the surroundings simply continue", style: "sentences", optional: true, default: "" },
     ...kleinInputs,
@@ -356,7 +356,7 @@ export const kleinSharper = defineRecipe<KleinSharper>({
   presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
-    { id: "source", type: "image", role: "source", label: "Image" },
+    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: ["x4plus(?!.*anime)", ...UPSCALER_PREFER], section: "out" },
     FACTOR_INPUT,
     { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the model; past about 2.5 megapixels it is made in tiles", default: true, section: "out" },
@@ -449,7 +449,7 @@ export const kleinFixFace = defineRecipe<KleinFixFace>({
   presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
-    { id: "source", type: "image", role: "source", label: "Image" },
+    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     {
       id: "references", type: "references", label: "Reference images of the person", max: 4, roles: ["person"],
       note: "clear pictures of their face. Without any, the face is redrawn from the picture itself. With two people, this is the one on the LEFT.",
@@ -541,7 +541,7 @@ export const kleinVariation = defineRecipe<KleinVariation>({
   presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
-    { id: "source", type: "image", role: "source", label: "Image" },
+    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     { id: "prompt", type: "prompt", label: "Prompt", note: `optional: left empty, ${DIFFERS}`, style: "sentences", optional: true, default: "", placeholder: "she looks over her shoulder and laughs" },
     { id: "photo", type: "toggle", label: "Photo", note: "off for a drawing or a painting: its style is kept instead", default: true },
     { id: "references", type: "references", label: "Reference images of the person", max: 4, roles: ["person"], note: "optional: more pictures of who is in it help the face stay the same", advanced: true },

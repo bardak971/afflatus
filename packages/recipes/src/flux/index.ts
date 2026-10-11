@@ -155,7 +155,7 @@ export const fluxEdit = defineRecipe<FluxEdit>({
   needs: ["kontext"],
   inputs: [
     kontextModel,
-    { id: "source", type: "image", role: "source", label: "Image" },
+    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     { id: "prompt", type: "prompt", label: "Instruction", style: "sentences", placeholder: "Change the car to red, keep everything else the same." },
     ...kit.inputs.map((i) => (i.id === "guidance" ? { ...i, default: 2.5, note: "2.5 is Kontext's usual one" } : i) as InputSpec),
   ],

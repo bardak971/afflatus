@@ -26,7 +26,7 @@ export const sdxlRedraw = defineRecipe<SdxlRedraw>({
   summary: "Image to image: an image redrawn from a prompt. The denoising strength says how far it may go from the original.",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Image" },
+    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     { id: "prompt", type: "prompt", label: "Prompt", style: "tags", placeholder: "what the picture shows, as it should come out" },
     { id: "strength", type: "number", label: "Denoising strength", note: "0.3 keeps it close, 0.7 only keeps the layout", min: 0.05, max: 1, step: 0.05, default: 0.55 },
     ...modelInputs,
@@ -83,8 +83,8 @@ export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
   summary: "Paint a mask over a part of an image and prompt what goes there. Only the masked part is redrawn, faded in by a soft edge (Differential Diffusion).",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Image" },
-    { id: "mask", type: "image", role: "mask", of: "source", label: "Mask" },
+    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    { id: "mask", type: "image", role: "mask", of: "source", label: "Mask", note: "the part to redo, painted over the picture" },
     { id: "prompt", type: "prompt", label: "Prompt", style: "tags", placeholder: "what the painted part should show" },
     { id: "strength", type: "number", label: "Denoising strength", note: "1 ignores what was there", min: 0.05, max: 1, step: 0.05, default: 0.75 },
     ...MASK_INPUTS,
@@ -164,7 +164,7 @@ export const sdxlOutpaint = defineRecipe<SdxlOutpaint>({
   summary: "Extends an image beyond its edges: the sides you choose are painted in from the prompt, the picture itself stays.",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Image" },
+    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "the whole scene, as it should look once wider", style: "tags", placeholder: "terrace at sunset, wide shot, sea in the background" },
     ...OUTPAINT_INPUTS,
     ...repaintInputs("a union ControlNet (xinsir's ProMax) in repaint mode guides the new part to continue the picture, without a seam. Used when that ControlNet is there, with comfyui_controlnet_aux"),
@@ -231,7 +231,7 @@ export const sdxlSharper = defineRecipe<SdxlSharper>({
   summary: "Upscales an image to twice its size with an upscale model, then a low-denoise img2img pass so it does not look smeared.",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Image" },
+    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "what is in the picture: it helps the img2img pass", style: "tags", optional: true, default: "" },
     { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "4x-UltraSharp.pth", prefer: UPSCALER_PREFER, section: "out" },
     FACTOR_INPUT,
@@ -313,7 +313,7 @@ export const sdxlFixFace = defineRecipe<SdxlFixFace>({
   summary: "Like ADetailer: detects every face and inpaints it with more detail. Needs the Impact Pack nodes in ComfyUI.",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Image" },
+    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "the face and who it is: eye colour, hair, expression", style: "tags", optional: true, default: "" },
     { id: "strength", type: "number", label: "Denoising strength", note: "0.3 cleans the face, 0.6 can make another one", min: 0.1, max: 0.8, step: 0.05, default: 0.4 },
     DETECTOR_INPUT,

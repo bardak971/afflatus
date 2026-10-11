@@ -80,7 +80,7 @@ export const h3Inputs: InputSpec[] = [
   { id: "music", type: "prompt", weights: false, label: "Music", style: "sentences", optional: true, placeholder: "none" },
   { id: "start", type: "image", role: "start", label: "First frame", note: "the first frame", optional: true },
   { id: "end", type: "image", role: "end", label: "Last frame", note: "the last frame", optional: true },
-  { id: "mid", type: "image", role: "mid", at: "midAt", label: "Keyframe", optional: true, advanced: true },
+  { id: "mid", type: "image", role: "mid", at: "midAt", label: "Keyframe", note: "a picture the clip passes through, at the time set below", optional: true, advanced: true },
   { id: "midAt", type: "number", label: "Keyframe at", min: 0.5, max: 14.5, step: 0.5, default: 2.5, unit: " s", showWhen: "mid", advanced: true },
   {
     id: "previous", type: "clip", role: "previous", label: "Previous clip", optional: true, frames: H3_JOIN_FRAMES, framesFrom: "context", fps: H3_FPS,

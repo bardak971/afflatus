@@ -282,7 +282,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     },
     { id: "start", type: "image", role: "start", label: "First frame", note: "the first frame", optional: true },
     { id: "end", type: "image", role: "end", label: "Last frame", note: "the last frame. With one, the clip is made in one pass at full size", optional: true },
-    { id: "mid", type: "image", role: "mid", at: "midAt", label: "Keyframe", optional: true, advanced: true },
+    { id: "mid", type: "image", role: "mid", at: "midAt", label: "Keyframe", note: "a picture the clip passes through, at the time set below", optional: true, advanced: true },
     { id: "midAt", type: "number", label: "Keyframe at", min: 0.5, max: 19.5, step: 0.5, default: 2.5, unit: " s", showWhen: "mid", advanced: true },
     { id: "seconds", type: "number", label: "Duration", min: 1, max: 20, step: 0.5, default: 5, unit: " s" },
     {

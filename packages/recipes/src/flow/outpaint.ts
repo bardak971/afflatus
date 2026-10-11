@@ -28,7 +28,7 @@ export function flowOutpaint(spec: FlowSpec, kit: FlowKit): Recipe<FlowOutpaint>
     output: "image",
     inputs: [
       spec.model,
-      { id: "source", type: "image", role: "source", label: "Image" },
+      { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
       { id: "prompt", type: "prompt", label: "Prompt", note: "the whole scene, as it should look once wider", style: "sentences", placeholder: "A wide shot of the terrace at sunset, the sea behind the railing, warm light." },
       ...OUTPAINT_INPUTS,
       ...inputs,

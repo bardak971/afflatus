@@ -169,7 +169,7 @@ export const qwenEdit = defineRecipe<QwenEdit>({
   needs: ["edit"],
   inputs: [
     editModel,
-    { id: "source", type: "image", role: "source", label: "Image" },
+    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     { id: "prompt", type: "prompt", label: "Instruction", style: "sentences", placeholder: "Change the sofa's leather to the fur of image 2, keep everything else the same." },
     {
       id: "references", type: "references", label: "Additional images", max: EDIT_IMAGES - 1, roles: [...REFERENCE_ROLES],
