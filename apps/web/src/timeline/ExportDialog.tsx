@@ -76,7 +76,7 @@ export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, r
                 <Segmented<"1" | "1.5" | "2"> label="Resolution" value={String(exp.scale) as "1" | "1.5" | "2"} onChange={(v) => setExp({ ...exp, scale: Number(v) as 1 | 1.5 | 2 })} options={[{ value: "1", label: "As rendered" }, { value: "1.5", label: "1.5×", tip: "1.5× upscale" }, { value: "2", label: "2×", tip: "2× upscale" }]} oneLine className="w-fit" />
               </FieldRow>}
               {range && !emptyRange && (
-                <FieldRow label="Only the range" note={`In ${stamp(range.inMs)} to Out ${stamp(range.outMs)}`}>
+                <FieldRow label="Only the range" note={`In ${stamp(range.inMs)} to Out ${stamp(range.outMs)}`} trail>
                   <Toggle bare on={exp.range} onChange={(only) => setExp({ ...exp, range: only })} label="Only the range" />
                 </FieldRow>
               )}
@@ -86,23 +86,23 @@ export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, r
                     <span className="text-xs text-ink-2">Left out of a range</span>
                   </FieldRow>
                 ) : (
-                  <FieldRow label="Music">
+                  <FieldRow label="Music" trail>
                     <Toggle bare on={exp.music} onChange={(music) => setExp({ ...exp, music })} label="Include the music" />
                   </FieldRow>
                 )
               )}
               {!exp.web && Math.max(0, ...clips.map((c) => c.take?.asset.fps ?? 0)) < 47 && (
-                <FieldRow label="Interpolation" note="Frame interpolation to 48 fps, by ffmpeg minterpolate. The frames in between are worked out by your processor, not by a model: slow (minutes for a short video), and fast motion can smear. Frame interpolation at render time (RIFE, in the clip's form) is better.">
+                <FieldRow label="Interpolation" note="Frame interpolation to 48 fps, by ffmpeg minterpolate. The frames in between are worked out by your processor, not by a model: slow (minutes for a short video), and fast motion can smear. Frame interpolation at render time (RIFE, in the clip's form) is better." trail>
                   <Toggle bare on={exp.smooth} onChange={(smooth) => setExp({ ...exp, smooth })} label="Frame interpolation" />
                 </FieldRow>
               )}
               {clips.some((c, i) => i > 0 && c.joined === "continue" && c.take && c.take.headMs > c.take.trimStartMs) && (
-                <FieldRow label="Blend joins" note="A clip that extends the one before is crossfaded in over the frames they share (up to 0.4 s), with its sound.">
+                <FieldRow label="Blend joins" note="A clip that extends the one before is crossfaded in over the frames they share (up to 0.4 s), with its sound." trail>
                   <Toggle bare on={exp.blend} onChange={(blend) => setExp({ ...exp, blend })} label="Blend joins" />
                 </FieldRow>
               )}
               {playable > 1 && (
-                <FieldRow label="Match colours" note="At joins: each clip's brightness and tint nudged to the clip before, a few steps at most.">
+                <FieldRow label="Match colours" note="At joins: each clip's brightness and tint nudged to the clip before, a few steps at most." trail>
                   <Toggle bare on={exp.match} onChange={(match) => setExp({ ...exp, match })} label="Match colours at joins" />
                 </FieldRow>
               )}

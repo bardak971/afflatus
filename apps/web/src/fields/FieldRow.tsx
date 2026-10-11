@@ -7,7 +7,19 @@ import { cx, Help } from "../ui";
  * line under it), the control on the right. Numbers, switches and choices are drawn so; pictures, prompts and
  * lists of files keep their own stacked shape.
  */
-export function FieldRow({ label, note, htmlFor, stack, children }: { label: string; note?: string; htmlFor?: string; /** The control always under its label: one that needs the row's whole width (a range of a clip with its figures under it). */ stack?: boolean; children: ReactNode }) {
+export function FieldRow({ label, note, htmlFor, stack, trail, children }: {
+  label: string;
+  note?: string;
+  htmlFor?: string;
+  /** The control always under its label: one that needs the row's whole width (a range of a clip with its figures under it). */
+  stack?: boolean;
+  /**
+   * The control at the row's end, the name taking the rest: a switch, which needs no column of its own. In the value
+   * column it left the name 124 px, and "Comfy Kitchen attention" went on two lines beside an empty row.
+   */
+  trail?: boolean;
+  children: ReactNode;
+}) {
   const explain = useExplain((st) => st.on);
   const cut = label.lastIndexOf(" ");
   const head = cut < 0 ? "" : label.slice(0, cut + 1);
@@ -17,7 +29,7 @@ export function FieldRow({ label, note, htmlFor, stack, children }: { label: str
   return (
     // in the timeline editor's column dragged narrow (its container, "column"), the control goes under its label: side
     // by side, a switch or a picker beside a 124 px label was cut
-    <div className={cx("grid min-h-11 items-center gap-x-3 gap-y-1", stack ? "grid-cols-1 py-1" : "grid-cols-[124px_minmax(0,1fr)] @max-[21rem]/column:grid-cols-1 @max-[21rem]/column:py-1")}>
+    <div className={cx("grid min-h-11 items-center gap-x-3 gap-y-1", stack ? "grid-cols-1 py-1" : trail ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-[124px_minmax(0,1fr)] @max-[21rem]/column:grid-cols-1 @max-[21rem]/column:py-1")}>
       {/* a long name goes on a second line rather than end in "…" (cut, "Turbo LoRA str…" said nothing). Its ? follows
           the last word, as on a stacked field (Label), held to it: beside a name that wraps, a ? of its own sat at the
           column's edge, where it read as the value's */}

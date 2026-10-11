@@ -117,7 +117,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, attention, onClos
             </FieldRow>
           )}
           {finished.length > 0 && (
-            <FieldRow label="Redo finished" note={`The ${finished.length} clip${finished.length > 1 ? "s" : ""} finished already. Off: they are skipped`}>
+            <FieldRow label="Redo finished" note={`The ${finished.length} clip${finished.length > 1 ? "s" : ""} finished already. Off: they are skipped`} trail>
               <Toggle bare on={redo} onChange={setRedo} label={`Redo the ${finished.length} clip${finished.length > 1 ? "s" : ""} finished already`} />
             </FieldRow>
           )}

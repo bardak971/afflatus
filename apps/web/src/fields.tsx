@@ -107,7 +107,7 @@ export function Field({ spec, value, values, options, family, model, onChange, o
         );
       }
       return (
-        <FieldRow label={spec.label} note={spec.note}>
+        <FieldRow label={spec.label} note={spec.note} trail>
           <Toggle bare on={Boolean(value)} onChange={onChange} label={spec.label} />
         </FieldRow>
       );

@@ -1,6 +1,7 @@
 import { RANDOM_SEED } from "@afflatus/core";
 import { useSeedMode, type SeedMode } from "../seedMode";
-import { cx, Help, Segmented } from "../ui";
+import { cx, Segmented } from "../ui";
+import { FieldRow } from "./FieldRow";
 import { field } from "./Label";
 
 /**
@@ -16,23 +17,18 @@ export function SeedField({ id, label, note, value, onChange }: { id: string; la
     setMode(v);
     if (random) onChange(0);
   };
-  // two lines: the label with the four chips, then the seed itself (four chips beside a number box fold into a block in a narrow panel)
+  // a row as every setting's (FieldRow): the chips in the value column, lined up with the others, and the seed itself
+  // under them (four chips beside a number box fold into a block in a narrow panel). Random, there is no number box to
+  // name: the chips carry the name themselves
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-3">
-        {/* random, there is no number box to name: the chips carry the name themselves */}
-        {/* named as every row is (FieldRow): bold, its ? right after it */}
-        <span className="flex shrink-0 items-center gap-1.5">
-          {random ? <span className="font-semibold">{label}</span> : <label htmlFor={id} className="font-semibold">{label}</label>}
-          {note && <Help text={note} title={label} />}
-        </span>
-        <Segmented
-          label={label}
-          value={random ? "random" : mode}
-          options={[{ value: "random", label: "Random" }, { value: "fixed", label: "Fixed" }, { value: "up", label: "+1" }, { value: "down", label: "−1" }]}
-          onChange={pick}
-        />
-      </div>
+    <FieldRow label={label} note={note} htmlFor={random ? undefined : id}>
+      <Segmented
+        label={label}
+        value={random ? "random" : mode}
+        options={[{ value: "random", label: "Random" }, { value: "fixed", label: "Fixed" }, { value: "up", label: "+1" }, { value: "down", label: "−1" }]}
+        onChange={pick}
+        className="w-fit"
+      />
       {!random && (
         <input
           id={id}
@@ -45,6 +41,6 @@ export function SeedField({ id, label, note, value, onChange }: { id: string; la
           className={cx(field, "h-9 w-full font-mono")}
         />
       )}
-    </div>
+    </FieldRow>
   );
 }
