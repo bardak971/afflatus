@@ -278,7 +278,31 @@ describe("takes", () => {
     expect(copyDone.finishedFrom).toBe(copyDraft.id);
     expect(copyDraft.id).not.toBe(draft);
     const { clip: second } = await call("POST", `/api/clips/${a}/split`, { atMs: 2500 });
-    expect((await view(tl)).clips.find((x: { id: string }) => x.id === second).take.finishedFrom).toBe(draft);
+    // the second half is as finished as the clip was, the finish of a draft of its own (a copy of the first's, B-2)
+    const half = (await view(tl)).clips.find((x: { id: string }) => x.id === second);
+    const ownDraft = half.takes.find((x: { id: string }) => x.id === half.take.finishedFrom);
+    expect(ownDraft).toBeDefined();
+    expect(ownDraft.id).not.toBe(draft);
+    expect(ownDraft.asset.id).toBe((await t.db.selectFrom("takes").select("asset_id").where("id", "=", draft).executeTakeFirstOrThrow()).asset_id);
+  });
+
+  it("a split of a mirrored clip finished by an upscale keeps both halves the clip as it stands: no re-render asked (B-2)", async () => {
+    const tl = (await t.services.timelines.create("zz-test split mirror")).id;
+    const pin = await video({ kind: "image", mime: "image/png", name: "zz-test pin.png" });
+    const a = await clip(tl, 0, { joined: "cut", inputs: JSON.stringify({ description: "A lighthouse.", start: pin.id }), pin_mirror: JSON.stringify({ start: true }) });
+    // the draft was rendered with the start frame flipped; the finish (an upscale model, SeedVR2, RTX) is a render of no flips
+    const generation = newId();
+    await t.db.insertInto("generations").values({ id: generation, owner_id: OWNER, recipe_id: "h3.video", recipe_version: 1, family: "h3", inputs: "{}", resolved: JSON.stringify({ mirror: ["start"] }), gen_ms: 1, draft_id: null, created_at: now() }).execute();
+    const draft = await take(a, await video({ generation_id: generation }), {}, false);
+    await take(a, await video({ width: 1152, height: 2048 }), { finished_from: draft });
+    expect((await view(tl)).clips[0].mirrorChanged).toBe(false);
+    await call("POST", `/api/clips/${a}/split`, { atMs: 2500 });
+    const v = await view(tl);
+    expect(v.clips.map((c: { mirrorChanged: boolean }) => c.mirrorChanged)).toEqual([false, false]);
+    // the first half's draft can still go once its own finish has: the second half's finish leans on a draft of its own
+    await call("DELETE", `/api/takes/${v.clips[0].take.id}`);
+    await call("DELETE", `/api/takes/${draft}`);
+    expect((await view(tl)).clips[1].mirrorChanged).toBe(false);
   });
 
   it("places a tool's video once, however many times it is handed back (T-6)", async () => {
