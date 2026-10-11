@@ -63,6 +63,8 @@ export interface AssetDetail extends Asset {
     resolved: { seed?: number; loads?: string[]; overlap?: { headMs: number; tailMs: number } };
     tookMs: number;
   };
+  /** Of an item with no generation of its own (a mirrored copy, a frame, a cut): the render of the nearest item it was taken from, a few steps back at most; else null. What a pass on it carries. */
+  ancestor: AssetDetail["generation"];
   /** The pictures it was made from, and what each was for. */
   sources: Array<{ role: string; asset: Asset }>;
   /** What was made from it. */

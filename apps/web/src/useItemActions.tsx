@@ -9,7 +9,8 @@ import { useSetup, type useAsset } from "./data";
 import { saveAsset } from "./download";
 import { itemActions, PASS_KEYS, type ActionId, type ItemFacts, type Runs } from "./itemActions";
 import { useItemMutations, useTimelineSubmenu } from "./itemMutations";
-import { OPS } from "./viewer/shared";
+import { useBanners } from "./store";
+import { handsOf, OPS } from "./viewer/shared";
 import { useMediaExtract } from "./viewer/useMediaExtract";
 import { useNewDraftActions } from "./viewer/useNewDraftActions";
 
@@ -52,6 +53,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
   const timeline = useTimelineSubmenu(timelineOpts);
   const setup = useSetup();
   const client = useQueryClient();
+  const say = useBanners((b) => b.push);
   const { a, g, recipe, reuse, carrier, carryOn, opener, openerName, animate, follower, follow, toolFor, toolInput, openTool } = drafts;
   const said = (title: string) => (sayErrors ? { onError: mutations.failed(title) } : undefined);
 
@@ -74,6 +76,24 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     const tool = toolFor(key);
     const action = (Object.keys(PASS_KEYS) as ActionId[]).find((id) => PASS_KEYS[id] === key);
     if (tool && action) queue(action, { recipe: tool, stored: toolInput(tool), label: OPS[key]!.label, from: a.id });
+  };
+  /**
+   * The face detailer on the hand detector, on the values the recipe starts on for hands (denoise, crop factor, a
+   * prompt about hands); the picture's negative prompt and model carried as for the face. A ComfyUI without the
+   * detector is told where to get it rather than handed a face pass.
+   */
+  const hands = () => {
+    const tool = toolFor("h");
+    const way = tool && handsOf(tool);
+    if (!tool || !way) return;
+    const offered = setup.data?.recipes.find((x) => x.id === tool.id)?.options[way.input.id] ?? [];
+    const file = offered.find((o) => new RegExp(way.match, "i").test(o));
+    // offline, nothing is listed: the queue says ComfyUI does not answer, which is the reason
+    if (!file && setup.data?.comfy.online) {
+      say({ id: `queued:${Date.now()}`, tone: "bad", title: "Hand detailer could not be queued", text: "The hand detector is not installed: Settings → Models → Image tools has it (one click).", href: "/settings/models", go: "Open settings" });
+      return;
+    }
+    queue("hand", { recipe: tool, stored: { ...toolInput(tool), ...way.values, ...(file ? { [way.input.id]: file } : {}) }, label: OPS.h!.label, from: a.id });
   };
   /** A pass that opens a form with the picture in place (Inpaint, Edit, Outpaint). */
   const openPass = (key: string) => {
@@ -99,7 +119,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     queued: done && done.id === a.id ? { [done.action]: true } : undefined,
     busy: {
       "reuse-same": reuse.isPending, "reuse-new": reuse.isPending, variation: queued.isPending, i2v: animate.isPending, extend: carryOn.isPending,
-      upscale: queued.isPending, face: queued.isPending, background: queued.isPending, inpaint: openTool.isPending, edit: openTool.isPending, outpaint: openTool.isPending,
+      upscale: queued.isPending, face: queued.isPending, hand: queued.isPending, background: queued.isPending, inpaint: openTool.isPending, edit: openTool.isPending, outpaint: openTool.isPending,
       "mirror-h": media.mirror.isPending, "mirror-v": media.mirror.isPending, "save-frame": media.saveFrame.isPending, "extract-audio": media.takeSound.isPending, voice: follow.isPending,
       comfy: mutations.openInComfy.isPending,
     },
@@ -122,6 +142,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     extend: () => carryOn.mutate(undefined, said("Could not extend it")),
     upscale: () => quick("u"),
     face: () => quick("f"),
+    hand: hands,
     background: () => quick("b"),
     inpaint: () => openPass("i"),
     edit: () => openPass("e"),

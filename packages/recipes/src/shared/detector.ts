@@ -1,4 +1,4 @@
-import type { InputSpec } from "@afflatus/core";
+import type { ChoiceInput } from "@afflatus/core";
 import { FACE_DETECTOR_PREFER } from "../sdxl/common";
 
 /**
@@ -19,8 +19,18 @@ export const DETECTOR_SLOTS = [
   },
 ];
 
+/** What a detection model is known as a hand detector by: its file name. */
+export const HAND_DETECTOR = "hand";
+
+/**
+ * Where the face detailer starts when it is given hands: a lighter denoise (0.4 redraws fingers into new ones), a
+ * tighter crop (three hand sizes take in the arm and the body) and words about hands, as the owner's test found.
+ */
+export const HAND_VALUES = { strength: 0.35, faceCrop: 2, prompt: "natural hands, five fingers, detailed skin" };
+
 /** The face detailer's detection model: a face detector by default (FACE_DETECTOR_PREFER), any other the user has in models/ultralytics. */
-export const DETECTOR_INPUT: InputSpec = {
+export const DETECTOR_INPUT: ChoiceInput = {
   id: "detector", type: "choice", label: "Detection model", options: { node: "UltralyticsDetectorProvider", input: "model_name" }, default: "bbox/face_yolov8m.pt", prefer: FACE_DETECTOR_PREFER, advanced: true,
-  note: "from ComfyUI's models/ultralytics folder. Picking a hand detector (hand_yolov8s, a download in Settings → Models) fixes hands instead of faces; any other bbox or segm detector there (eyes, person) works the same way",
+  note: "from ComfyUI's models/ultralytics folder. Picking a hand detector (hand_yolov8s, a download in Settings → Models) fixes hands instead of faces, and starts the denoise, the crop factor and the prompt on hand values; any other bbox or segm detector there (eyes, person) works the same way",
+  whenChosen: [{ match: HAND_DETECTOR, values: HAND_VALUES }],
 };

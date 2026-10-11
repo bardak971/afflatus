@@ -42,6 +42,35 @@ function assetLookup(s: Services) {
 }
 export type AssetLookup = ReturnType<typeof assetLookup>;
 
+/** How far back an edited copy's sources are followed for the render it comes from (a mirror of a frame of a cut of a render is four). */
+const ANCESTRY = 5;
+
+/** A generation as the detail of an item shows it. */
+const generationView = (g: Tables["generations"]) =>
+  ({ id: g.id, recipe: g.recipe_id, family: g.family, inputs: JSON.parse(g.inputs) as Record<string, unknown>, resolved: JSON.parse(g.resolved) as { seed?: number; loads?: string[]; overlap?: { headMs: number; tailMs: number } }, tookMs: g.gen_ms, ...(g.asked ? { asked: JSON.parse(g.asked) as Record<string, unknown> } : {}) });
+
+/**
+ * The render an item without one of its own was taken from: a mirrored copy, a frame or a cut is followed back through
+ * its sources to the nearest item that was rendered. A pass on the copy (a face detailer, an upscale) carries that
+ * render's model and prompt; without it the job would go out on whatever the server falls back to.
+ */
+async function ancestorRender(s: Services, a: Tables["assets"]): Promise<ReturnType<typeof generationView> | null> {
+  if (a.generation_id) return null;
+  const seen = new Set([a.id]);
+  let id = a.source_id;
+  for (let step = 0; id && !seen.has(id) && step < ANCESTRY; step++) {
+    seen.add(id);
+    const from = await s.db.selectFrom("assets").select(["generation_id", "source_id"]).where("id", "=", id).executeTakeFirst();
+    if (!from) return null;
+    if (from.generation_id) {
+      const g = await s.db.selectFrom("generations").selectAll().where("id", "=", from.generation_id).executeTakeFirst();
+      return g ? generationView(g) : null;
+    }
+    id = from.source_id;
+  }
+  return null;
+}
+
 /** One item as GET /api/assets/:id answers it: its view, with how it was made, what it was made from and what was made from it (the web's AssetDetail, held against it in test/apiTypes.test.ts). */
 export async function assetDetail(s: Services, a: Tables["assets"]) {
   const g = a.generation_id ? await s.db.selectFrom("generations").selectAll().where("id", "=", a.generation_id).executeTakeFirst() : undefined;
@@ -64,9 +93,8 @@ export async function assetDetail(s: Services, a: Tables["assets"]) {
     clipOf: placed.get(a.id) ?? null,
     // who was in it, as far back as it is known: what is made from it next can start with the same people
     look: castOf(await madeIn(s, a.id)),
-    generation: g
-      ? { id: g.id, recipe: g.recipe_id, family: g.family, inputs: JSON.parse(g.inputs), resolved: JSON.parse(g.resolved), tookMs: g.gen_ms, ...(g.asked ? { asked: JSON.parse(g.asked) } : {}) }
-      : null,
+    generation: g ? generationView(g) : null,
+    ancestor: await ancestorRender(s, a),
     sources: sources.map(({ role, ...row }) => ({ role, asset: named(assetView(row)) })),
     usedIn: usedIn.map((u) => named({ ...assetView(u), clipOf: placed.get(u.id) ?? null })),
     // a frame or a cut: the video it was taken from, and the range when it is one

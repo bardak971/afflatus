@@ -428,7 +428,7 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
   onNaming(naming: boolean): void;
   onClose(): void;
 }) {
-  const { a, g, recipe, recipes, leave, reuse, saveFrame, takeSound, animate, carryOn, cutRange, between, extendHere, mirror, follow, toolFor, openTool } = acts;
+  const { a, g, recipe, madeWith, recipes, leave, reuse, saveFrame, takeSound, animate, carryOn, cutRange, between, extendHere, mirror, follow, toolFor, openTool } = acts;
   const family = recipes.data?.families.find((f) => f.id === (recipe?.family ?? g?.family));
   const title = recipe ? recipeLabel(family?.name, recipe.title) : g ? "Generated with a recipe that is no longer here" : a.origin === "uploaded" ? "Uploaded" : a.origin === "generated" ? "Generated" : a.origin === "exported" ? "Timeline export" : a.origin === "frame" ? "Video frame" : a.origin === "edited" ? "Edited copy" : a.origin === "imported" && a.kind === "audio" ? "Extracted audio" : "Imported";
   const made = new Date(a.createdAt);
@@ -447,7 +447,7 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
   const unkeptDays = useKeepFor((s) => s.unkeptDays);
   const left = leftOf(a, Date.now(), unkeptMs(unkeptDays));
   const bin = byId("bin");
-  const passTools = new Set((["u", "f", "b", "i", "e", "r"] as const).flatMap((k) => (toolFor(k) ? [toolFor(k)!.id] : [])));
+  const passTools = new Set((["u", "f", "h", "b", "i", "e", "r"] as const).flatMap((k) => (toolFor(k) ? [toolFor(k)!.id] : [])));
   // each item starts at the top of the side: kept scrolled down from the last one (Details), the actions were out of sight
   const scroller = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -495,7 +495,7 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
                 <Act key={x.id} icon={x.icon} label={x.label} k={x.key && keysShown("viewer", x.id) ? x.key : undefined} pressed={x.pressed} done={x.done} disabled={x.disabled} title={x.disabled && x.note ? `${x.label}: ${x.note}` : x.tip} onClick={() => x.run?.()} />
               ))}
             </div>
-            {group === "passes" && !a.inBin && <MorePasses madeWith={recipe} shown={passTools} start={openTool} />}
+            {group === "passes" && !a.inBin && <MorePasses madeWith={madeWith} shown={passTools} start={openTool} />}
           </div>
         ))}
         {failed && <span className="-mt-2 text-warn-ink">{failed.message}</span>}

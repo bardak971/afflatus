@@ -1,4 +1,4 @@
-import { ArrowRightFromLine, AudioLines, Clapperboard, Columns2, Copy, Download, Eraser, ExternalLink, Eye, Film, FlipHorizontal2, FlipVertical2, FolderKanban, ImageDown, Info, Maximize2, Mic, Paintbrush, Pencil, PenLine, Scissors, Shuffle, SlidersHorizontal, Smile, SquareDashed, Star, Trash2, Undo2, Wand2, type LucideIcon } from "lucide-react";
+import { ArrowRightFromLine, AudioLines, Clapperboard, Columns2, Copy, Download, Eraser, ExternalLink, Eye, Film, FlipHorizontal2, FlipVertical2, FolderKanban, Hand, ImageDown, Info, Maximize2, Mic, Paintbrush, Pencil, PenLine, Scissors, Shuffle, SlidersHorizontal, Smile, SquareDashed, Star, Trash2, Undo2, Wand2, type LucideIcon } from "lucide-react";
 import type { MenuItem } from "./ContextMenu";
 
 /**
@@ -15,7 +15,7 @@ export type Kind = "image" | "video" | "audio";
 export type ActionId =
   | "open" | "keep" | "download" | "rename"
   | "reuse-same" | "reuse-new" | "variation" | "i2v" | "extend"
-  | "upscale" | "face" | "background" | "inpaint" | "edit" | "outpaint" | "mirror-h" | "mirror-v"
+  | "upscale" | "face" | "hand" | "background" | "inpaint" | "edit" | "outpaint" | "mirror-h" | "mirror-v"
   | "trim" | "save-frame" | "extract-audio" | "voice"
   | "compare" | "details" | "copy-seed" | "comfy"
   | "timeline" | "move"
@@ -50,6 +50,7 @@ export const ACTIONS: Record<ActionId, Spec> = {
   extend: { group: "make", label: "Extend", key: "C", kinds: ["video"], icon: ArrowRightFromLine, tip: "A new clip that carries on from the end of this one, same model and parameters." },
   upscale: { group: "passes", label: "Upscale 2x", key: "U", kinds: ["image"], icon: Maximize2, tip: "Upscale 2x: queued at once with the picture's generation parameters." },
   face: { group: "passes", label: "Face detailer", key: "F", kinds: ["image"], icon: Smile, tip: "Face detailer: queued at once with the picture's generation parameters." },
+  hand: { group: "passes", label: "Hand detailer", key: "H", kinds: ["image"], icon: Hand, tip: "Hand detailer: the face detailer on the hand detector (hand_yolov8s), at denoise 0.35, crop factor 2, a prompt about hands; queued at once with the picture's generation parameters." },
   background: { group: "passes", label: "Remove background", key: "B", kinds: ["image"], icon: Eraser, tip: "Remove background: queued at once." },
   inpaint: { group: "passes", label: "Inpaint…", key: "I", kinds: ["image"], icon: Paintbrush, tip: "Inpaint: a new draft with this picture as the source, the mask painter open." },
   edit: { group: "passes", label: "Edit…", key: "E", kinds: ["image"], icon: PenLine, tip: "Edit / img2img: a new draft in the form with this picture as the source." },
@@ -78,7 +79,7 @@ export const ORDER = (Object.keys(ACTIONS) as ActionId[]).filter((id) => id !== 
 export const actionIds = (kind: Kind): ActionId[] => ORDER.filter((id) => ACTIONS[id].kinds.includes(kind));
 
 /** The passes by the viewer's key for them (viewer/shared.ts OPS reads the recipe for each). */
-export const PASS_KEYS: Partial<Record<ActionId, string>> = { upscale: "u", face: "f", background: "b", inpaint: "i", edit: "e", outpaint: "r" };
+export const PASS_KEYS: Partial<Record<ActionId, string>> = { upscale: "u", face: "f", hand: "h", background: "b", inpaint: "i", edit: "e", outpaint: "r" };
 
 /** A group's heading, where a place shows headings (the viewer's side); a video's tools and a sound's are named for it. */
 export const groupTitle = (group: GroupId, kind: Kind): string =>
@@ -162,7 +163,7 @@ export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<Acti
       case "reuse-same": case "reuse-new": case "variation": return f.generated ? undefined : notMade;
       case "i2v": return f.opener ? undefined : "no video model takes a first frame";
       case "extend": return f.carrier ? undefined : "no video model carries a clip on";
-      case "upscale": case "face": case "background": case "inpaint": case "edit": case "outpaint": return f.passes[id] ? undefined : "no model for it";
+      case "upscale": case "face": case "hand": case "background": case "inpaint": case "edit": case "outpaint": return f.passes[id] ? undefined : "no model for it";
       case "extract-audio": return f.hasSound ? undefined : "it has no sound";
       case "voice": return f.kind === "video" && !f.hasSound ? "it has no sound" : f.voice ? undefined : "no model takes a voice sample";
       case "compare": return f.compare === true ? undefined : f.compare;
