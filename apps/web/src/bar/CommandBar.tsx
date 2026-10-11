@@ -1,141 +1,47 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { LATENT_GRID, type FrameGrid } from "@afflatus/core";
-import {
-  Bookmark, Calculator, ChevronRight, Film, Folder, FolderKanban, Image as ImageIcon, Keyboard, ListOrdered, MapPin, Music, Navigation, PenLine, Puzzle, Quote, Search, SlidersHorizontal, Sparkles, User, Video, Workflow, Zap,
-} from "lucide-react";
-import { api, type AssetDetail, type CommandEntry, type Entity, type RecipeInfo, type Settings } from "../api";
-import { useAsset, useEntities, useFamilies, useRecipes, useSettings, useStorage } from "../data";
-import { itemsWord } from "../assetCache";
-import { groupingSaves } from "../screens/queue/bulk";
-import { stepRateSaid, useStepRate } from "../screens/queue/stepRate";
-import { useQueueOf } from "../screens/studio/queueOf";
-import { aboutMs, size } from "../format";
-import { useProject } from "../project";
-import { useBanners, useExplain, useHoverPlay, useNotify } from "../store";
-import { useThemeChoice } from "../theme/store";
+import { ChevronRight, Search } from "lucide-react";
+import type { CommandEntry } from "../api";
+import { useSettings } from "../data";
+import { focusBehindMenu } from "../ContextMenu";
 import { cx } from "../ui";
 import { Keys } from "../Keys";
-import { opened } from "../keys/search";
-import { BAR_DEFAULT } from "../keys/table";
-import { type Grid } from "./calc";
-import { commandTemplates, type CommandCtx } from "./commandRows";
-import { indexItems, lowerFirst, navItems, rowsFor, settingItems, usedItems, withItems, type Item, type Kind, type Section } from "./items";
-import { settingHref, TABS, tabHref } from "../screens/settings/settingsIndex";
-import { pieces, prepare, search } from "./match";
-import { COMMANDS, modeOf, parseCommand, type Mode } from "./parse";
+import { settingHref } from "../screens/settings/settingsIndex";
+import { BarFooter } from "./BarFooter";
+import { BarRows, optionId } from "./BarRows";
+import { lowerFirst, type Item } from "./items";
+import { prepare, search } from "./match";
+import { modeOf, type Mode } from "./parse";
 import { Preview } from "./Preview";
-import { bumped, load, recentKeys, renamed, save, type Ranks } from "./rank";
-import { PAGES, SETTINGS, settingKeyNow, type SettingCtx } from "./settingsRegistry";
-import { useSelectedClip } from "./bridge";
-import { castPlace } from "./castTo";
+import { bumped, save, type Ranks } from "./rank";
 import { useBar } from "./store";
-import { useBarActions, type Action, type TimelineAim } from "./useActions";
-import { isUnder, queryKeys } from "../queryKeys";
-
-/** How long a row stays selected before its preview is drawn: arrowing fast loads nothing. */
-const DWELL_MS = 80;
+import { useBarActions, type Action } from "./useActions";
+import { commandExtra, loadRanks, useBarData, useShown } from "./useBarData";
+import { type Acting, useBarKeys } from "./useBarKeys";
+import { useBarSearch } from "./useBarSearch";
 
 const MODE_WORD: Partial<Record<Mode, string>> = { command: "commands", place: "projects & folders", setting: "settings", calc: "calculator", queue: "queue", keys: "keys", history: "prompt history", cast: "cast" };
 const MODE_TONE: Record<Mode, string> = { all: "text-accent", command: "text-warn-ink", place: "text-accent", setting: "text-ink-2", calc: "text-good", queue: "text-good", keys: "text-ink-2", history: "text-ink-2", cast: "text-accent" };
 
-/** Each kind's icon and the colour of its tile. */
-const TONE: Record<Kind, string> = {
-  timeline: "text-warn", render: "text-picture", draft: "text-accent", project: "text-accent", folder: "text-picture", command: "text-warn-ink",
-  setting: "text-ink-2", job: "text-good", calc: "text-good", history: "text-ink-2", person: "text-accent",
-  workflow: "text-picture", kit: "text-accent", nav: "text-ink-2", key: "text-ink-2",
-};
-const KIT_ICON = { person: User, place: MapPin, style: Sparkles, preset: Bookmark, snippet: Puzzle } as const;
-function iconOf(it: Item): ReactNode {
-  const s = 16;
-  switch (it.kind) {
-    case "timeline": return <Film size={s} />;
-    case "render": return it.entry?.kind === "asset" && it.entry.assetKind === "video" ? <Video size={s} /> : it.entry?.kind === "asset" && it.entry.assetKind === "audio" ? <Music size={s} /> : <ImageIcon size={s} />;
-    case "draft": return <PenLine size={s} />;
-    case "project": return <FolderKanban size={s} />;
-    case "folder": return <Folder size={s} />;
-    case "command": return <Zap size={s} />;
-    case "setting": return <SlidersHorizontal size={s} />;
-    case "job": return <ListOrdered size={s} />;
-    case "calc": return <Calculator size={s} />;
-    case "history": return <Quote size={s} />;
-    case "person": return <User size={s} />;
-    case "workflow": return <Workflow size={s} />;
-    case "kit": {
-      const Icon = KIT_ICON[it.entry?.kind === "kit" ? it.entry.entity : "person"];
-      return <Icon size={s} />;
-    }
-    case "nav": return <Navigation size={s} />;
-    case "key": return <Keyboard size={s} />;
-  }
-}
-
-/** The modes the footer lists, by their first character, with the sheet's names for them. */
-const FOOTER_MODES: Array<[string, string]> = [[">", "commands"], ["#", "places"], ["/", "settings"], ["=", "calc"], ["!", "queue"], ["?", "keys"]];
-/**
- * The parts of the bar that are off until turned on, listed dimmed in the footer while they are off: a power user finds
- * the `"` and `@` modes (and `;` snippets in prompt boxes) there, and a click opens their row in Settings › Command bar.
- */
-const OFF_PARTS: Array<["history" | "cast" | "snippets", string, string]> = [["history", '"', "history"], ["cast", "@", "cast"], ["snippets", ";", "snippets"]];
-
-/** One empty list while the recipes load, so what is worked out from them is not redone at every render. */
-const NO_RECIPES: RecipeInfo[] = [];
-
-/**
- * The calculator's grid: the model in play's (the open draft's, else one on the grid of the latents the app keeps, else
- * the first one that makes video on a grid), that grid when none is known.
- */
-function gridOf(recipes: RecipeInfo[], prefer: string | undefined): Grid {
-  const video = recipes.filter((r) => r.traits?.frameGrid);
-  const kept = (g: FrameGrid) => g.step === LATENT_GRID.step && g.offset === LATENT_GRID.offset;
-  const r = video.find((x) => x.id === prefer) ?? video.find((x) => kept(x.traits!.frameGrid)) ?? video[0];
-  const sizeInput = r?.inputs.find((i) => i.type === "size");
-  return {
-    name: r ? r.family.toUpperCase() : "H3",
-    fps: r?.traits?.fps ?? 24,
-    frames: r?.traits?.frameGrid ?? LATENT_GRID,
-    size: sizeInput && sizeInput.type === "size" ? sizeInput.grid : 32,
-  };
-}
-
 /** Why an action cannot run, in a few words: its note ("ComfyUI is offline") or its label ("No model called “zzz”"). */
 const offSaid = (a: Action) => lowerFirst(a.note ?? a.label);
-
-/** What this browser learned, with the keys of results that were renamed since carried over. */
-const loadRanks = () => renamed(load(), settingKeyNow);
-
-/** The running render's s/it, after its row's detail: its own subscription, so that only it draws again at each step. */
-function StepRateSaid({ id }: { id: string }) {
-  const rate = useStepRate();
-  return rate && rate.id === id ? <> · {stepRateSaid(rate.secondsPerStep)}</> : null;
-}
 
 /**
  * The command bar: one box over whatever screen is open, that reaches everything Afflatus holds and does
  * (docs/command-bar.md). Mounted once it was first opened and kept: what one of its actions opens (the
- * viewer, a dialog) stays after it closes, and the index stays read.
+ * viewer, a dialog) stays after it closes, and the index stays read. What it lists comes from useBarData and
+ * useBarSearch, its keys from useBarKeys; the list and the footer are drawn by BarRows and BarFooter.
  */
 export function CommandBar() {
-  const { open, seed, preview, learn, hide, setPreview } = useBar();
-  const [path, go] = useLocation();
-  const client = useQueryClient();
-  const recipeList = useRecipes().data;
-  const recipes = recipeList?.recipes ?? NO_RECIPES;
-  const families = useFamilies();
-  const settings = useSettings();
-  const entities = useEntities();
-  const currentProject = useProject((s) => s.id);
-  // the index holds the newest of the library's items and those used here lately (for Recent); the others are asked for as typed
-  const index = useQuery({ queryKey: queryKeys.commandIndex.all(), queryFn: ({ signal }) => api.commandIndex(usedItems(loadRanks()), { signal }), staleTime: Infinity });
+  const { open, seed, preview, learn, hide: close } = useBar();
+  const [, go] = useLocation();
   /** The library's items opened from the bar since the index was read: Recent finds them before the index is read again. */
   const [picked, setPicked] = useState<CommandEntry[]>([]);
-
   const [typed, setTyped] = useState(seed);
   const [sel, setSel] = useState(0);
   /** Tab: the selected result's actions, filtered by what is typed in their place. */
-  const [acting, setActing] = useState<{ item: Item; text: string; sel: number } | null>(null);
+  const [acting, setActing] = useState<Acting | null>(null);
   const [ranks, setRanks] = useState<Ranks>(loadRanks);
   /** A word in the footer for a moment: a figure copied, or why Enter did nothing (`bad`). */
   const [flash, setFlash] = useState<{ text: string; bad?: boolean } | null>(null);
@@ -143,7 +49,8 @@ export function CommandBar() {
   const list = useRef<HTMLDivElement>(null);
   const returnTo = useRef<HTMLElement | null>(null);
 
-  // opened: what was typed starts afresh (or on the mode asked for), the focus comes here and goes back where it was on closing
+  // opened: what was typed starts afresh (or on the mode asked for), the focus comes here and goes back where it was on
+  // closing (to what a right-click menu open under the bar was opened from: the menu closes as the bar takes the focus)
   useLayoutEffect(() => {
     if (!open) {
       const back = returnTo.current;
@@ -151,159 +58,24 @@ export function CommandBar() {
       if (back && document.contains(back)) back.focus({ preventScroll: true });
       return;
     }
-    returnTo.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    returnTo.current = focusBehindMenu(document.activeElement);
     setTyped(seed);
     setSel(0);
     setActing(null);
     setFlash(null);
     setRanks(loadRanks());
     input.current?.focus({ preventScroll: true });
-    // marked old by a live event while closed: read now (the old one shows meanwhile)
-    if (index.isStale && !index.isFetching) void index.refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- on opening only: the bar is set up from what stands then
   }, [open]);
-  const close = hide;
 
-  // a draft made, saved or deleted is not announced by the server: a change of the drafts lists marks the index old too
-  useEffect(() => {
-    let t: ReturnType<typeof setTimeout> | null = null;
-    const stop = client.getQueryCache().subscribe((e) => {
-      // (the workflows likewise: their import and removal send no live event)
-      const key = e.query.queryKey;
-      if (e.type !== "updated" || e.action.type !== "success" || !(isUnder(key, queryKeys.drafts.lists()) || isUnder(key, queryKeys.workflows()))) return;
-      if (t) clearTimeout(t);
-      t = setTimeout(() => void client.invalidateQueries({ queryKey: queryKeys.commandIndex.all(), refetchType: useBar.getState().open ? "active" : "none" }), 300);
-    });
-    return () => {
-      stop();
-      if (t) clearTimeout(t);
-    };
-  }, [client]);
-
-  const settingCtx: SettingCtx = useMemo(() => ({
-    server: settings.data,
-    save: async (patch: Partial<Settings>) => {
-      const saved = await api.saveSettings(patch as Record<string, unknown>);
-      client.setQueryData(queryKeys.settings(), saved);
-    },
-  }), [settings.data, client]);
-  // the switches kept in this browser: the bar is drawn again when one changes, so that a switch flipped here shows it
-  const kept = [useHoverPlay(), useExplain(), useThemeChoice(), useNotify()];
-  const bar = settings.data?.bar;
-  const selectedClip = useSelectedClip((c) => c.clip);
-  // what the bin holds, for Empty the bin and Put all back
-  const binNow = useStorage().data?.bin;
-  const binEmpty = binNow ? !binNow.count : false;
-  const binSaid = binNow ? `${itemsWord(binNow.count)} · ${size(binNow.bytes)}` : "";
-  const { mode, text } = modeOf(typed, { history: Boolean(bar?.history), cast: Boolean(bar?.cast) });
-  // the queue only while open, and in full only in the queue mode (its jobs live): the bar does not draw again
-  // at every sampler step for the counts it says elsewhere
-  const queueNow = useQueueOf((q) => (open ? { paused: q.paused, online: q.online, rendering: q.running?.kind === "render", running: Boolean(q.running), waiting: q.waiting.length, failed: q.recent.filter((j) => j.status === "failed").length, saves: groupingSaves(q.waiting, q.running) } : null));
-  const queueFull = useQueueOf((q) => (open && mode === "queue" ? q : null));
-
-  // the library's items whose name could match what is typed, a moment after the typing stops: asked of the server, which
-  // looks through all of them and the bin (the index holds only a few); the ones found before stay while it answers. Under
-  // the index's key, so that what marks the index old marks them too
-  const [itemsQ, setItemsQ] = useState("");
-  useEffect(() => {
-    const q = mode === "all" ? text.trim() : "";
-    const t = setTimeout(() => setItemsQ(q), q ? 80 : 0);
-    return () => clearTimeout(t);
-  }, [mode, text]);
-  const found = useQuery({
-    queryKey: queryKeys.commandIndex.items(itemsQ),
-    queryFn: ({ signal }) => api.commandItems(itemsQ, { signal }),
-    enabled: open && Boolean(itemsQ),
-    staleTime: Infinity,
-    placeholderData: keepPreviousData,
-  });
-  const foundEntries = itemsQ && mode === "all" ? found.data?.entries : undefined;
-
-  // the timeline a command acts on: the one open in the editor, else the one last opened from here, else the last changed
-  const entries = useMemo(() => withItems(index.data?.entries ?? [], picked, foundEntries ?? []), [index.data, picked, foundEntries]);
-  const familyList = recipeList?.families;
-  const base = useMemo(() => indexItems(entries, recipes, currentProject, index.data?.inboxItems, familyList), [entries, recipes, currentProject, index.data?.inboxItems, familyList]);
-  const byKey = useMemo(() => new Map(base.map((i) => [i.key, i])), [base]);
-  const aim: TimelineAim | null = useMemo(() => {
-    const open = /^\/timelines\/([^/]+)/.exec(path)?.[1];
-    const pick = (id: string | undefined) => {
-      const it = id ? byKey.get(`timeline:${id}`) : undefined;
-      return it?.entry?.kind === "timeline" ? { id: it.entry.id, name: it.entry.label, entry: it.entry } : null;
-    };
-    if (open) return { ...(pick(open) ?? { id: open, name: "the open timeline" }), open: true };
-    const used = recentKeys(ranks, 50).find((k) => k.startsWith("timeline:"));
-    if (used && pick(used.slice(9))) return pick(used.slice(9));
-    const last = base.filter((i) => i.kind === "timeline" && !i.archived).sort((a, b) => (b.entry!.updatedAt > a.entry!.updatedAt ? 1 : -1))[0];
-    return last ? pick(last.entry!.id) : null;
-  }, [path, byKey, ranks, base]);
-  // what `> undo` would undo: the open editor's last change (as its header's Undo says it), else the newest banner's
-  const bannerUndo = useBanners((s) => [...s.items].reverse().find((x) => x.action?.undo)?.title ?? null);
-  const editorUndo = aim?.open ? client.getQueryData<{ undo?: string | null }>(queryKeys.timelines.one(aim.id))?.undo ?? null : null;
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- the rows follow the kept settings' values, not the identity of their list
-  const settingRows = useMemo(() => settingItems([...SETTINGS, ...PAGES], settingCtx), [settingCtx, ...kept]);
-  const recipeItems = useMemo(() => recipes.map((r) => ({ r, p: prepare(`${r.family} ${r.title}`) })), [recipes]);
-  const presetItems = useMemo(() => (entities.data?.items ?? []).filter((e): e is Extract<Entity, { kind: "preset" }> => e.kind === "preset").map((e) => ({ e, p: prepare(e.name) })), [entities.data]);
-  const navRows = useMemo(() => navItems(TABS.map((t) => ({ id: t.id, label: t.label, href: tabHref(t.id) }))), []);
-  // the places of the key table open under the bar, read as it opens: the `?` mode lists their rows first, as the sheet does
-  const keysHere = useMemo(() => (open ? opened().here : []), [open]);
-  const barKey = bar?.shortcut ?? BAR_DEFAULT;
-
-  // what the command rows say of the moment (commandRows.ts); the commands offered with it, those that apply now
-  const commandCtx: CommandCtx = useMemo(() => ({ aim, queue: queueNow ?? null, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid }), [aim, queueNow, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid]);
-  const templates = useMemo(() => commandTemplates(commandCtx), [commandCtx]);
-
-  // the render estimate of a render command, learned from this machine's renders (none said when nothing is learned)
-  const parsed = mode === "command" ? parseCommand(text) : null;
-  const estimateOf = parsed && aim && (parsed.cmd === "render-clips" || parsed.cmd === "render-missing") ? { timeline: aim.id, clips: parsed.cmd === "render-clips" ? parsed.clips : undefined } : null;
-  const estimate = useQuery({
-    queryKey: queryKeys.barEstimate(estimateOf),
-    queryFn: ({ signal }) => api.commandEstimate(estimateOf!, { signal }),
-    enabled: Boolean(estimateOf) && open,
-    staleTime: 30_000,
-    placeholderData: keepPreviousData,
-  });
-  const estimateSaid = estimateOf && estimate.data ? [estimate.data.ms !== null && `${aboutMs(estimate.data.ms)}, learned from ${estimate.data.basis} render${estimate.data.basis === 1 ? "" : "s"}`, estimate.data.ahead ? `after ${estimate.data.ahead} job${estimate.data.ahead === 1 ? "" : "s"}` : "nothing before it"].filter(Boolean).join(" · ") : "";
-
-  // prompt history: asked of the server a moment after the typing stops (it searches every prompt rendered)
-  const [historyQ, setHistoryQ] = useState("");
-  useEffect(() => {
-    if (mode !== "history") return;
-    const t = setTimeout(() => setHistoryQ(text), 150);
-    return () => clearTimeout(t);
-  }, [mode, text]);
-  const history = useQuery({ queryKey: queryKeys.promptHistory.search(historyQ), queryFn: ({ signal }) => api.promptHistory(historyQ, 30, { signal }), enabled: open && mode === "history", placeholderData: keepPreviousData });
-
-  const sections: Section[] = useMemo(() => {
-    if (!open) return [];
-    return rowsFor(mode, {
-      text, base, byKey, templates, settingRows, navRows, command: commandCtx, learn, ranks, now: Date.now(), parsed, estimateSaid,
-      recipes, recipeItems, presetItems, familyOn: (f) => families.isOn(f), grid: gridOf(recipes, undefined), queue: queueFull ?? null,
-      history: history.data?.items ?? [], keysHere, barKey, entities: entities.data?.items ?? [], castTo: castPlace(selectedClip).detail,
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the rows are worked out from what they show; the helpers read here are new at every render
-  }, [open, mode, text, base, ranks, learn, queueFull, settingRows, estimateSaid, history.data, entities.data, recipeItems, presetItems, navRows, selectedClip, keysHere, barKey, templates, commandCtx]);
-
-  const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
+  const barSettings = useSettings().data?.bar;
+  const { mode, text } = modeOf(typed, { history: Boolean(barSettings?.history), cast: Boolean(barSettings?.cast) });
+  const { foundEntries, history } = useBarSearch(open, mode, text);
+  const { index, recipes, settingCtx, bar, aim, estimated, sections, flat } = useBarData({ open, mode, text, ranks, picked, learn, foundEntries, history: history.data?.items });
   const at = Math.min(sel, Math.max(0, flat.length - 1));
   const current = flat[at] ?? null;
 
-  // the preview and the full read of a render wait until the row stays selected a moment
-  const [dwell, setDwell] = useState<Item | null>(null);
-  useEffect(() => {
-    if (!current) return setDwell(null);
-    const t = setTimeout(() => setDwell(current), DWELL_MS);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the row by its key: a new object for the same row does not start the wait again
-  }, [current?.key]);
-  const shown = dwell && current && dwell.key === current.key ? current : null;
-  const renderId = (acting?.item ?? shown)?.kind === "render" ? (acting?.item ?? shown)!.entry!.id : null;
-  const read = useAsset(open ? renderId : null).data;
-  // the render last read stays the actions' subject once the bar closes: an action runs after the bar is gone, and the
-  // hooks that do it (Mirror, Image to video, Extend, a pass's form…) read their item when they run, not when chosen
-  const lastRead = useRef<AssetDetail | null>(null);
-  if (read) lastRead.current = read;
-  const detail = read ?? (open ? undefined : lastRead.current ?? undefined);
+  const { shown, setDwell, detail } = useShown(open, current, acting?.item ?? null);
 
   const onCopied = (what: string) => setFlash(what ? { text: `Copied ${what}` } : { text: "Could not copy: the browser refused", bad: true });
   useEffect(() => {
@@ -343,68 +115,13 @@ export function CommandBar() {
     const list = actionsOf(it);
     run(it, list[second ? 1 : 0] ?? (second ? undefined : list[0]));
   };
+  const keys = useBarKeys({ acting, setActing, shownActions, count: flat.length, at, setSel, typed, setTyped, current, actionsOf, choose, run, setDwell, close });
 
   // the selected row stays in view
   useEffect(() => {
     const el = list.current?.querySelector<HTMLElement>(`[data-row="${acting ? acting.sel : at}"]`);
     el?.scrollIntoView({ block: "nearest" });
   }, [at, acting?.sel, acting]);
-
-  // Shift pressed and let go alone shows or hides the preview (Shift + a letter is a capital, Shift + Tab goes back)
-  const shiftAlone = useRef(false);
-  const onKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
-    const k = e.key;
-    shiftAlone.current = k === "Shift" && !e.repeat;
-    const count = acting ? shownActions.length : flat.length;
-    const move = (by: number) => {
-      e.preventDefault();
-      if (!count) return;
-      if (acting) setActing({ ...acting, sel: (acting.sel + by + count) % count });
-      else setSel((at + by + count) % count);
-    };
-    if (k === "ArrowDown") return move(1);
-    if (k === "ArrowUp") return move(-1);
-    if (k === "PageDown") return move(Math.min(8, count - 1 - (acting ? acting.sel : at)) || 0);
-    if (k === "PageUp") return move(-Math.min(8, acting ? acting.sel : at));
-    if (k === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      if (acting) return setActing(null);
-      if (typed) {
-        setTyped("");
-        setSel(0);
-        return;
-      }
-      return close();
-    }
-    if (k === "Tab") {
-      e.preventDefault();
-      if (acting) return setActing(null);
-      if (current?.complete) return choose(current);
-      if (current && actionsOf(current).length) {
-        setDwell(current);
-        setActing({ item: current, text: "", sel: 0 });
-      }
-      return;
-    }
-    if (k === "Enter") {
-      e.preventDefault();
-      if (e.nativeEvent.isComposing) return;
-      if (acting) {
-        const a = shownActions[acting.sel];
-        if (a) {
-          run(acting.item, a);
-          if (a.stay) setActing(null);
-        }
-        return;
-      }
-      return choose(current, e.ctrlKey || e.metaKey);
-    }
-  };
-  const onKeyUp = (e: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Shift" && shiftAlone.current) setPreview(!useBar.getState().preview);
-    shiftAlone.current = false;
-  };
 
   if (!open) return element;
 
@@ -414,16 +131,8 @@ export function CommandBar() {
   // a row whose first action cannot run now ("No model by that name", ComfyUI offline): Enter says why rather than "run"
   const off = !acting && first?.disabled ? offSaid(first) : null;
   const verb = acting ? "run" : current?.complete ? "complete" : off ? "unavailable" : current?.verb ?? "open";
-  const commandExtra = shown?.kind === "command" && shown.command ? {
-    text: shown.meta,
-    facts: [
-      ...(estimateOf && estimate.data ? [{ k: "estimate", v: estimate.data.ms !== null ? `${aboutMs(estimate.data.ms)} (learned)` : "not learned yet" }, { k: "queue ahead", v: String(estimate.data.ahead) }] : []),
-      ...(shown.command.cmd === "render-clips" ? [{ k: "clips", v: shown.command.clips.join(", ") }] : []),
-      ...(aim && ["render-clips", "render-missing", "export", "bin-unused"].includes(shown.command.cmd) ? [{ k: "timeline", v: aim.name }] : []),
-    ],
-  } : shown?.kind === "command" && shown.complete ? { text: `${COMMANDS.find((c) => `cmd:${c.id}` === shown.key)?.what ?? ""}.\nEnter or Tab writes it in the bar: add its figures.`, facts: [{ k: "example", v: COMMANDS.find((c) => `cmd:${c.id}` === shown.key)?.example ?? "" }] } : undefined;
-  const optionId = (i: number) => `bar-opt-${i}`;
   const empty = !acting && !flat.length;
+  const back = () => input.current?.focus();
 
   return (
     <>
@@ -469,8 +178,8 @@ export function CommandBar() {
                     setSel(0);
                   }
                 }}
-                onKeyDown={onKey}
-                onKeyUp={onKeyUp}
+                onKeyDown={keys.onKeyDown}
+                onKeyUp={keys.onKeyUp}
                 className="min-w-0 grow bg-transparent text-xl font-medium text-ink placeholder:text-ink-3"
                 // the bar itself is what has the focus: no ring of its own (the app's ring is outside the utility layer)
                 style={{ outline: "none" }}
@@ -482,162 +191,25 @@ export function CommandBar() {
 
             <div className={cx("flex min-h-0", mode === "calc" ? "max-h-[min(520px,62vh)]" : "h-[min(520px,62vh)]")}>
               <div ref={list} id="bar-list" role="listbox" aria-label={acting ? "Actions" : "Results"} className="min-w-0 flex-1 overflow-y-auto p-2">
-                {acting ? (
-                  <>
-                    <div className="px-3 pt-2.5 pb-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Actions</div>
-                    {shownActions.map((a, i) => {
-                      // Enter and Ctrl+Enter on the result run the list's first two actions, wherever a filter shows them
-                      const place = actions.indexOf(a);
-                      return (
-                      <button
-                        key={`${a.label}:${i}`}
-                        id={optionId(i)}
-                        data-row={i}
-                        type="button"
-                        role="option"
-                        tabIndex={-1}
-                        aria-selected={i === acting.sel}
-                        aria-disabled={a.disabled}
-                        onMouseMove={() => i !== acting.sel && setActing({ ...acting, sel: i })}
-                        onClick={() => { run(acting.item, a); if (a.stay) setActing(null); input.current?.focus(); }}
-                        className={cx("flex w-full items-center gap-3 rounded-[10px] px-3 py-2 text-left", i === acting.sel && "bg-accent/14 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_35%,transparent)]", a.disabled && "opacity-45")}
-                      >
-                        <span className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-raised", a.danger ? "text-warn-ink" : "text-ink-2")}>{a.icon ?? <Zap size={15} />}</span>
-                        <span className="flex min-w-0 grow flex-col">
-                          <span className={cx("truncate text-[14.5px] font-semibold", a.danger ? "text-warn-ink" : "text-ink")}>{a.label}</span>
-                          {(a.note || place < 2) && <span className="truncate text-xs text-ink-2">{[a.note, place === 0 ? "Enter on the result" : place === 1 ? "Ctrl+Enter on the result" : ""].filter(Boolean).join(" · ")}</span>}
-                        </span>
-                        {a.keys && <Keys keys={a.keys} size="sm" className="text-ink-2" />}
-                        {i === acting.sel && <span className="flex shrink-0 items-center gap-1 text-[11px] text-ink-2"><Keys keys="Enter" size="sm" /> run</span>}
-                      </button>
-                      );
-                    })}
-                    {!shownActions.length && <div className="px-5 py-10 text-center text-sm text-ink-3">No action called that.</div>}
-                  </>
-                ) : mode === "calc" ? (
-                  <div className="flex flex-col gap-3 p-2.5">
-                    {flat.length ? (
-                      <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-3">
-                        {flat.map((it, i) => (
-                          <button
-                            key={it.key}
-                            id={optionId(i)}
-                            data-row={i}
-                            type="button"
-                            role="option"
-                            tabIndex={-1}
-                            aria-selected={i === at}
-                            onMouseMove={() => i !== at && setSel(i)}
-                            onClick={() => { choose(it); input.current?.focus(); }}
-                            className={cx("flex flex-col gap-1 rounded-xl p-3.5 text-left", i === at ? "bg-good/10 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-good)_40%,transparent)]" : "bg-raised/60")}
-                          >
-                            <span className="text-xs text-ink-2">{it.card!.label}</span>
-                            <span className="font-mono text-[26px] leading-tight font-medium text-ink-strong">{it.card!.value}</span>
-                            <span className="text-[11.5px] text-ink-2">{it.card!.note}</span>
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="px-3 py-6 text-center text-sm text-ink-3">{text ? "The calculator does not read that." : "A length, frames, a size, proportions, or a sum."}</div>
-                    )}
-                    <div className="flex flex-wrap gap-2 font-mono text-xs text-ink-2">
-                      {["7s 24fps", "121f 24fps", "1152x2048", "9:16 1mp", "17*10+5"].map((x) => (
-                        <button key={x} type="button" tabIndex={-1} onClick={() => { setTyped(`= ${x}`); input.current?.focus(); }} className="rounded-[7px] bg-raised px-2 py-1 hover:text-ink">{x}</button>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  sections.map((s) => {
-                    const first = flat.indexOf(s.rows[0]!);
-                    return (
-                      <div key={s.group} role="group" aria-label={s.group}>
-                        <div className="px-3 pt-2.5 pb-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{s.group}</div>
-                        {s.rows.map((it, k) => {
-                          const i = first + k;
-                          const on = i === at;
-                          const toggle = it.setting?.kind === "switch" ? Boolean(it.setting.get?.(settingCtx)) : null;
-                          const running = it.job?.state === "running" ? (it.job.job as { progress?: number }).progress ?? 0 : null;
-                          return (
-                            <button
-                              key={it.key}
-                              id={optionId(i)}
-                              data-row={i}
-                              type="button"
-                              role="option"
-                              tabIndex={-1}
-                              aria-selected={on}
-                              onMouseMove={() => !on && setSel(i)}
-                              onClick={() => { setSel(i); choose(it); input.current?.focus(); }}
-                              className={cx("flex w-full items-center gap-3 rounded-[10px] px-3 py-[9px] text-left", on && "bg-accent/14 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_35%,transparent)]")}
-                            >
-                              <span className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[color-mix(in_srgb,currentColor_13%,transparent)]", it.job?.state === "failed" ? "text-warn" : TONE[it.kind])}>{iconOf(it)}</span>
-                              <span className="flex min-w-0 grow flex-col gap-px">
-                                <span className={cx("truncate text-[14.5px] font-semibold", it.job?.state === "failed" ? "text-warn-ink" : "text-ink", it.archived && "opacity-60")}>
-                                  {pieces(it.label, it.ranges ?? []).map((p, n) => (p.hit ? <span key={n} className="text-accent">{p.text}</span> : <span key={n}>{p.text}</span>))}
-                                </span>
-                                {running !== null && <span className="my-1 block h-1 overflow-hidden rounded-full bg-raised"><span className="block h-full rounded-full bg-good transition-[width] duration-500" style={{ width: `${Math.round(running * 100)}%` }} /></span>}
-                                <span className="truncate text-xs text-ink-2">{it.meta}{it.job?.state === "running" && <StepRateSaid id={it.job.job.id} />}</span>
-                              </span>
-                              {toggle !== null && (
-                                <span aria-hidden className={cx("h-5 w-[34px] shrink-0 rounded-full p-[3px] transition-colors", toggle ? "bg-accent" : "bg-line-strong")}>
-                                  <span className={cx("block h-3.5 w-3.5 rounded-full transition-[margin] duration-150", toggle ? "ml-[14px] bg-knob" : "bg-ink")} />
-                                </span>
-                              )}
-                              {/* the key that does the same in the app, from the key table (a row of the `?` mode: its own keys, a search's lit) */}
-                              {it.keys && <Keys keys={it.keys} size="sm" hits={it.keyRow?.hits} className="text-ink-2" />}
-                              {on && <span className="flex shrink-0 items-center gap-1 text-[11px] whitespace-nowrap text-ink-2"><Keys keys="Enter" size="sm" /> {it.complete ? "complete" : off ? "unavailable" : it.verb}</span>}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    );
-                  })
-                )}
-                {empty && mode !== "calc" && (
-                  <div className="px-5 py-10 text-center text-sm text-ink-3">
-                    {index.isLoading ? "Reading what Afflatus holds…"
-                      : mode === "command" ? <>No command reads that. Try <span className="font-mono text-ink-2">render clips 3-5</span>, <span className="font-mono text-ink-2">seed 1234</span>, <span className="font-mono text-ink-2">pause queue</span>.</>
-                      : mode === "queue" ? "Nothing runs, waits or failed lately."
-                      : mode === "history" ? (history.isFetching ? "Looking…" : "No rendered prompt holds that.")
-                      : mode === "cast" ? "No person of the Prompt kit is called that."
-                      : mode === "keys" ? <>No key does that. Try another word, or a key: <Keys keys="S" size="sm" />, <Keys keys="Ctrl+Z" size="sm" />.</>
-                      : <>{text ? "Nothing called that." : "Nothing used or made yet."} Try <Keys keys=">" size="sm" /> for commands.</>}
-                  </div>
-                )}
+                <BarRows
+                  acting={acting} actions={actions} shownActions={shownActions} mode={mode} text={text} sections={sections} flat={flat} at={at} off={off}
+                  settingCtx={settingCtx} reading={index.isLoading} looking={history.isFetching}
+                  onSelect={setSel}
+                  onActSelect={(i) => acting && setActing({ ...acting, sel: i })}
+                  onChoose={(it, i) => { if (mode !== "calc") setSel(i); choose(it); back(); }}
+                  onRun={(a) => { if (!acting) return; run(acting.item, a); if (a.stay) setActing(null); back(); }}
+                  onType={(t) => { setTyped(t); back(); }}
+                />
               </div>
-              {showPreview && shown && <Preview item={shown} detail={detail} recipes={recipes} settingCtx={settingCtx} extra={commandExtra} />}
+              {showPreview && shown && <Preview item={shown} detail={detail} recipes={recipes} settingCtx={settingCtx} extra={commandExtra(shown, estimated, aim)} />}
             </div>
 
-            {/* the footer in the sheet's notation and names: keycaps for the keys, the mode characters as caps with their names */}
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line bg-ground/40 px-[18px] py-2.5 text-xs whitespace-nowrap text-ink-2">
-              <span className="flex items-center gap-1.5"><Keys keys="↑ ↓" /> move</span>
-              <span className="flex min-w-0 items-center gap-1.5"><Keys keys="Enter" /> <span className="max-w-[260px] truncate">{verb}{off && <span className="text-ink-3">: {off}</span>}</span></span>
-              {!acting && current && !current.complete && second && <span className="flex min-w-0 items-center gap-1.5"><Keys keys="Ctrl+Enter" /> <span className="max-w-[170px] truncate">{lowerFirst(second.label)}</span></span>}
-              <span className="flex items-center gap-1.5"><Keys keys="Tab" /> {acting ? "back" : "actions"}</span>
-              <span className="flex items-center gap-1.5"><Keys keys="Shift" /> preview{preview ? "" : " (off)"}</span>
-              <span className="grow" />
-              {flash ? (
-                <span role="status" className={cx("font-semibold", flash.bad ? "text-warn-ink" : "text-good")}>{flash.text}</span>
-              ) : (
-                <span className="flex min-w-0 flex-wrap justify-end gap-x-2.5 gap-y-1 text-ink-3">
-                  {[...FOOTER_MODES, ...(bar?.history ? [['"', "history"]] : []), ...(bar?.cast ? [["@", "cast"]] : [])].map(([c, w]) => (
-                    <button key={c} type="button" tabIndex={-1} onClick={() => { setTyped(c!); setSel(0); setActing(null); input.current?.focus(); }} className="flex items-center gap-1 hover:text-ink">
-                      <Keys keys={c!} /> {w}
-                    </button>
-                  ))}
-                  {bar && OFF_PARTS.filter(([k]) => !bar[k]).map(([k, c, w]) => (
-                    <button
-                      key={k} type="button" tabIndex={-1}
-                      data-tip="Off. Click to turn it on in Settings › Command bar."
-                      onClick={() => { close(); go(settingHref(`bar.${k}`)); }}
-                      className="flex items-center gap-1 opacity-55 hover:text-ink hover:opacity-100"
-                    >
-                      <Keys keys={c} /> {w} off
-                    </button>
-                  ))}
-                </span>
-              )}
-            </div>
+            <BarFooter
+              verb={verb} off={off} acting={Boolean(acting)} preview={preview} flash={flash} bar={bar}
+              second={!acting && current && !current.complete && second ? lowerFirst(second.label) : null}
+              onMode={(c) => { setTyped(c); setSel(0); setActing(null); back(); }}
+              onTurnOn={(k) => { close(); go(settingHref(`bar.${k}`)); }}
+            />
           </div>
         </div>,
         document.body,

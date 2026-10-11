@@ -42,8 +42,12 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
   // rendered and planned, as the index says them ("1:37 rendered of 1:47"), the figures in mono
   const now = clock(t.durationMs);
   const planned = clock(total);
+  // a narrow header (a small window, a wide right column) says Finish and Export by their icons, their names in the
+  // tip, as Undo and Redo do; the name box and the chips give up their width first, so no button is pushed off-screen
+  const narrow = "@max-[70rem]/head:hidden";
+  const iconOnly = "@max-[70rem]/head:w-10 @max-[70rem]/head:px-0!";
   return (
-    <header className="flex h-[56px] shrink-0 items-center gap-2.5 border-b border-line px-3">
+    <header className="@container/head flex h-[56px] shrink-0 items-center gap-2.5 border-b border-line px-3">
       <input
         aria-label="Timeline name"
         value={name ?? t.name}
@@ -53,21 +57,21 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
           setName(null);
         }}
         onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-        className="h-9 w-56 rounded-lg border border-transparent bg-transparent px-2 text-base font-semibold hover:border-line focus:border-accent focus:bg-raised"
+        className="h-9 w-56 min-w-24 shrink rounded-lg border border-transparent bg-transparent px-2 text-base font-semibold hover:border-line focus:border-accent focus:bg-raised"
       />
-      <Chip>
+      <Chip className="min-w-0 shrink!">
         {clips.length === 0 ? "Empty" : (
-          <span>
+          <span className="truncate">
             <span className="font-mono">{now}</span>
             {now !== planned && <> rendered of <span className="font-mono">{planned}</span></>} · {clips.length} clip{clips.length > 1 ? "s" : ""}
           </span>
         )}
       </Chip>
-      {missing.length > 0 && <Chip tone="warn">{missing.length} to render{allMs ? ` · ${est(allMs)}` : ""}</Chip>}
+      {missing.length > 0 && <Chip tone="warn" className="min-w-0 shrink!"><span className="truncate">{missing.length} to render{allMs ? ` · ${est(allMs)}` : ""}</span></Chip>}
       <span className="grow" />
       {saveFailed ? (
         // what was typed is still on screen and not on the server: said, with the way to send it again
-        <span className="flex max-w-sm items-center gap-2 text-warn-ink" data-tip={saveFailed}>
+        <span className="flex min-w-0 max-w-sm items-center gap-2 text-warn-ink" data-tip={saveFailed}>
           <span className="truncate">Could not save the clip's form: {saveFailed}</span>
           <Button size="sm" onClick={onRetrySave}>Retry</Button>
         </span>
@@ -95,11 +99,11 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
           Render {picked.size} picked
         </Button>
       )}
-      <Button disabled={!clips.some((c) => c.kind === "video" && c.take)} data-tip="Every clip's selected take brought to its final quality by an upscale route, as a new take each. The drafts stay." onClick={onFinish}>
-        <Sparkles size={15} /> Finish
+      <Button className={cx("shrink-0", iconOnly)} aria-label="Finish" disabled={!clips.some((c) => c.kind === "video" && c.take)} data-tip="Finish: every clip's selected take brought to its final quality by an upscale route, as a new take each. The drafts stay." onClick={onFinish}>
+        <Sparkles size={15} /> <span className={narrow}>Finish</span>
       </Button>
-      <Button disabled={!t.durationMs} onClick={onExport}>
-        <Download size={15} /> {t.exporting ? "Exporting…" : "Export video"}
+      <Button className={cx("shrink-0", iconOnly)} aria-label={t.exporting ? "Exporting…" : "Export video"} disabled={!t.durationMs} data-tip={t.exporting ? "Exporting…" : "Export video: the whole timeline as one file"} onClick={onExport}>
+        <Download size={15} /> <span className={narrow}>{t.exporting ? "Exporting…" : "Export video"}</span>
       </Button>
     </header>
   );
