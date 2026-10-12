@@ -92,7 +92,7 @@ export type EntityView = ReturnType<typeof view>;
 /** What was added to a form for its cast and its style, to show before it is sent. */
 export interface Composed {
   input: Record<string, unknown>;
-  added: { words: Array<{ from: string; text: string }>; loras: Array<{ from: string; file: string }>; references: number; /** The reference pictures added, and whose they are. */ refs: Array<{ asset: string; role: ReferenceRole; from: string }>; voice: string | null; skipped: string[] };
+  added: { words: Array<{ from: string; text: string }>; loras: Array<{ from: string; file: string }>; references: number; /** The reference pictures added, and whose they are. */ refs: Array<{ asset: string; role: ReferenceRole; from: string }>; voice: string | null; /** The voice sample added: the form shows it in its sound field. */ voiceAsset: string | null; skipped: string[] };
 }
 
 /** The files an entity's definition names: its pictures, its outfits' pictures and its voice sample. */
@@ -159,7 +159,7 @@ export function withMood(recipe: Recipe<any>, input: Record<string, unknown>, mo
  */
 export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, unknown>, look: Look | null | undefined): Promise<Composed> {
   const input = { ...raw };
-  const added: Composed["added"] = { words: [], loras: [], references: 0, refs: [], voice: null, skipped: [] };
+  const added: Composed["added"] = { words: [], loras: [], references: 0, refs: [], voice: null, voiceAsset: null, skipped: [] };
   if (emptyLook(look)) return { input, added };
   const ids = [...look!.cast.map((c) => c.id), ...(look!.style ? [look!.style] : []), ...(look!.snippets ?? [])];
   const rows = ids.length ? await db.selectFrom("entities").selectAll().where("id", "in", ids).execute() : [];
@@ -245,6 +245,7 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
     if (sound) {
       input[voiceSpec.id] = voice.asset;
       added.voice = voice.from;
+      added.voiceAsset = voice.asset;
     }
   }
 

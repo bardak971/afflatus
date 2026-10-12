@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { pickChoice, RANDOM_SEED, type ClipValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import type { FamilyInfo } from "./api";
-import { useCastPictures } from "./castPictures";
+import { useCastPictures, useCastVoice } from "./castPictures";
 import { FileSelect, FOLDER_OF } from "./fields/FileSelect";
 import { Label } from "./fields/Label";
 import { Loras, type MainText } from "./fields/Loras";
@@ -55,6 +55,8 @@ export function Field({ spec, value, values, options, family, model, onChange, o
   const id = useId();
   // the pictures the form's cast adds to this reference input when it is sent
   const cast = useCastPictures(spec.id);
+  // and the voice sample it adds, when the form has none of its own
+  const castVoice = useCastVoice(spec.id);
   switch (spec.type) {
     case "prompt":
       return <PromptField spec={spec} id={id} value={String(value ?? "")} values={values} onChange={onChange} bare={bare} />;
@@ -152,6 +154,7 @@ export function Field({ spec, value, values, options, family, model, onChange, o
             start: Number(values?.[spec.window.start] ?? 0), seconds: Number(values?.[spec.window.seconds] ?? 8),
             onStart: (v) => onValue(spec.window!.start, v), onSeconds: (v) => onValue(spec.window!.seconds, v),
           } : undefined}
+          cast={castVoice}
         />
       );
 

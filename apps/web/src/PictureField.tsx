@@ -10,7 +10,7 @@ import { Keys } from "./Keys";
 import { HoverVideo } from "./HoverVideo";
 import { useAsset, useAssets } from "./data";
 import { Viewer } from "./viewer/LazyViewer";
-import type { CastPicture } from "./castPictures";
+import type { CastPicture, CastVoice } from "./castPictures";
 import { useSettled } from "./hooks";
 import { projectForNew, useProject } from "./project";
 import { clock } from "./format";
@@ -432,7 +432,7 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
 }
 
 /** A slot for one sound (a voice to speak with): pick it from the library, or bring one in. */
-export function SoundField({ label, note, optional, value, onChange, part }: {
+export function SoundField({ label, note, optional, value, onChange, part, cast }: {
   label: string;
   note?: string;
   optional: boolean;
@@ -440,8 +440,13 @@ export function SoundField({ label, note, optional, value, onChange, part }: {
   onChange(value: string | undefined): void;
   /** Only a part of the sound is used: where it starts and how long it is, in seconds. */
   part?: { start: number; seconds: number; onStart(seconds: number): void; onSeconds(seconds: number): void };
+  /** The cast's voice sample, used when the form is sent without one of its own: shown, and a sample chosen here wins. */
+  cast?: CastVoice;
 }) {
-  const asset = useAsset(value);
+  // the form's own sample, or else the cast's: what the render will speak with
+  const fromCast = !value && cast ? cast : null;
+  const shown = value ?? fromCast?.asset ?? null;
+  const asset = useAsset(shown);
   const total = asset.data?.durationMs ? asset.data.durationMs / 1000 : null;
   // the part as it will be cut: from where it was asked as long as two seconds are left, ending where the sound ends
   const from = part ? (total === null ? part.start : Math.max(0, Math.min(part.start, total - 2))) : 0;
@@ -451,12 +456,17 @@ export function SoundField({ label, note, optional, value, onChange, part }: {
     <Slot
       label={label} note={note} aside={optional ? "optional" : undefined} kind="audio" drags={[DRAG_SOUND, DRAG_HAS_SOUND]} onAsset={onChange}
       empty={{ icon: <Music size={15} />, text: "Choose an audio file, or drop one here", says: `Drop to use as ${label.toLowerCase()}` }}
-      filled={value ? {
+      filled={shown ? {
         className: "flex flex-col gap-2",
         body: (pick) => (
           <>
             {/* with a part set, the player plays that part */}
-            <AudioPlayer asset={value} name={asset.data?.name || "Audio"} range={part ? { from, to: from + lasts } : undefined} bare className="px-0.5 pt-0.5" />
+            <AudioPlayer asset={shown} name={asset.data?.name || "Audio"} range={part ? { from, to: from + lasts } : undefined} bare className="px-0.5 pt-0.5" />
+            {fromCast && (
+              <span className="px-0.5 text-xs text-ink-2" data-tip={`Added from the cast when the form is sent. Choose a sample here to use another, or take ${fromCast.from} out of the cast.`}>
+                <span className="font-semibold text-ink">{fromCast.from}</span>'s voice · from the cast
+              </span>
+            )}
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-line pt-2 text-xs text-ink-2">
               {part && (
                 <>
@@ -468,9 +478,10 @@ export function SoundField({ label, note, optional, value, onChange, part }: {
                 </>
               )}
               <span className="ml-auto flex gap-1.5">
-                <Button size="sm" onClick={pick}>Change</Button>
-                {/* as on a picture: a sound the form must have can be emptied too, the form then says what is missing */}
-                <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>
+                <Button size="sm" onClick={pick}>{fromCast ? "Use another" : "Change"}</Button>
+                {/* as on a picture: a sound the form must have can be emptied too, the form then says what is missing; the cast's
+                    is not the form's to remove (take the person out of the cast) */}
+                {!fromCast && <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>}
               </span>
             </div>
           </>

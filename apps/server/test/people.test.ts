@@ -138,7 +138,7 @@ describe("people, places and styles", () => {
     // how she looks goes where the recipe asks for it; the place and the look go around what happens
     expect(made.input.subject).toBe("She has brown hair and green eyes. She wears a white summer dress.");
     expect(made.input.description).toBe("A terrace above a bay. She waves at a boat. Shot on film, warm light.");
-    expect(made.added).toMatchObject({ references: 4, voice: "Her" });
+    expect(made.added).toMatchObject({ references: 4, voice: "Her", voiceAsset: c.voice });
     // and whose each one is, for the form to show them in the reference field
     expect(made.added.refs).toEqual([
       { asset: c.front, role: "person", from: "Her" }, { asset: c.side, role: "person", from: "Her" }, { asset: c.dress, role: "clothing", from: "Her" }, { asset: c.terrace, role: "place", from: "The terrace" },
