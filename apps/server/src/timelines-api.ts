@@ -1,7 +1,10 @@
+import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { RANDOM_SEED, hiddenRunUp, movedSeed, resamplesLatent, typedSeed } from "@afflatus/core";
 import { nameOf } from "./autoName";
+import { VERSION } from "./config";
+import { CutError, musicTrack } from "./cut";
 import { httpError } from "./errors";
 import { compose, lookSchema, withMood } from "./entities";
 import { askedOf } from "./jobs-api";
@@ -12,6 +15,8 @@ import { finishForecast } from "./queueTools";
 import { rootFolderOf } from "./projects";
 import { inUse } from "./sweep";
 import { folderOfTimeline } from "./timelineFolder";
+import { fcp7Xml, otioJson, projectPlan, projectReadme } from "./timelineProject";
+import { ZipStream } from "./zipStream";
 import type { Services } from "./services";
 import { clockOf, FROM_PREVIOUS, type CutOptions, type Timelines } from "./timelines";
 
@@ -108,6 +113,13 @@ const renderBody = z.strictObject({
     }))
     .min(1)
     .max(100),
+});
+
+/** What the timeline for a video editor is asked with: the music (on unless "0"), and a range from In to Out. */
+const projectQuery = z.strictObject({
+  music: z.enum(["0", "1"]).optional(),
+  in: z.coerce.number().min(0).optional(),
+  out: z.coerce.number().min(0).optional(),
 });
 
 const exportBody = z.strictObject({
@@ -223,6 +235,54 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
       if (view.exporting) return { id: view.exporting.id };
       return { id: await s.queue.enqueueExport({ timeline: view.id, scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range, blend: opts.blend, match: opts.match, fit: opts.fit, webMb: opts.webMb }, `${view.name} · ${opts.webMb ? "web copy" : "export"}`) };
     });
+  });
+
+  /**
+   * The timeline for a video editor, as a download: a zip of its clips' files, the music as heard, and the project files
+   * DaVinci Resolve, Premiere Pro and Kdenlive rebuild it from (timelineProject.ts). Nothing is rendered again: the files
+   * are copied as they are, the music alone is mixed. Streamed, never held whole in memory.
+   */
+  app.get<{ Params: { id: string } }>("/api/timelines/:id/project.zip", async (req, reply) => {
+    const q = projectQuery.parse(req.query);
+    const range = q.in !== undefined && q.out !== undefined ? { inMs: q.in, outMs: q.out } : undefined;
+    // what can be said before the download starts is said as an error (nothing to export, an empty range): after, only a stopped download
+    const layout = await t.exporter.layout(req.params.id, { music: q.music !== "0", range }).catch((err: Error) => {
+      throw err instanceof CutError ? httpError(err.message) : err;
+    });
+    const plan = projectPlan(layout.t.name, { ...layout, music: Boolean(layout.music) });
+    const music = layout.music ? await musicTrack(layout.music, layout.totalMs) : null;
+    const zip = new ZipStream();
+    const name = `${layout.t.name.replace(/[^\w .-]+/g, "_").trim() || "timeline"}${range ? " range" : ""} for an editor.zip`;
+    reply.header("Content-Type", "application/zip").header("Content-Disposition", `attachment; filename="${name}"`).header("Cache-Control", "no-store");
+    void (async () => {
+      try {
+        const text = async (path: string, body: string) => {
+          const bytes = Buffer.from(body, "utf8");
+          await zip.add(path, Readable.from([bytes]), new Date(), bytes.length);
+        };
+        await text("README.txt", projectReadme(plan, VERSION));
+        await text("project.xml", fcp7Xml(plan));
+        await text("project.otio", otioJson(plan));
+        // each file once, however often it plays
+        const files = new Map<string, string>();
+        for (const i of plan.items) {
+          files.set(i.file, i.key);
+          if (i.soundFile) files.set(i.soundFile.file, i.soundFile.key);
+        }
+        for (const [path, key] of files) {
+          if (req.raw.destroyed) break;
+          const f = await s.storage.open(key);
+          await zip.add(path, f.stream, new Date(), f.size);
+        }
+        if (music) await zip.add("media/music.wav", Readable.from([Buffer.from(music)]), new Date(), music.length);
+        await zip.finish();
+      } catch (err) {
+        // the browser going away is the usual way out and no news; anything else is said, since the user only sees a download that stopped
+        if (!req.raw.destroyed) console.warn(`[project] given up: ${(err as Error).message}`);
+        zip.abort(err as Error);
+      }
+    })();
+    return reply.send(zip.out);
   });
 
   /**

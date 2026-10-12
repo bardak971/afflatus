@@ -33,6 +33,19 @@ export class TimelineExport {
    * With a range: only that part, as a copy in the library (the music is left out).
    */
   async export(id: string, opts: ExportAsk = {}) {
+    const { t, shown, win, frame, fps, music } = await this.layout(id, opts);
+    const parts: ExportPart[] = [];
+    for (const [i, l] of shown.entries()) parts.push(await this.partFor(l, partWindow(l, win), parts.at(-1), shown[i - 1]?.p, opts.blend !== false, fps));
+    const joinOpts = { scale: opts.scale ?? 1, music, smoothTo: opts.smooth ? 48 : undefined, match: opts.match !== false, webMb: opts.webMb, signal: opts.signal };
+    // stored from where ffmpeg wrote it: the export is never held whole in memory
+    return joinVideosInto(parts, frame, fps, joinOpts, (file) => this.storeExport(t, file, frame, fps, win, Boolean(opts.webMb)));
+  }
+
+  /**
+   * What an export starts from, the video's and an editor's alike: the timeline, its clips that play (those in the range,
+   * with a range), the frame and the speed it is made at, and the music as the player plays it (none with a range).
+   */
+  async layout(id: string, opts: Pick<ExportAsk, "music" | "range" | "fit"> = {}) {
     const t = await this.core.row(id);
     const laid = laidOut(await this.core.placed(id));
     const total = laid.length ? laid.at(-1)!.atMs + laid.at(-1)!.lengthMs : 0;
@@ -43,13 +56,6 @@ export class TimelineExport {
     if (!all.length) throw new CutError("There is nothing to export yet: no clip of this timeline has a take.");
     const frame = exportFrame(t, all, opts.fit);
     const fps = Math.round(Math.max(...all.map((p) => p.active?.asset.fps ?? 24), 1));
-    const parts: ExportPart[] = [];
-    for (const [i, l] of shown.entries()) {
-      // within the window: the part of the clip that falls in it
-      const from = win ? Math.max(0, win.a - l.atMs) : 0;
-      const to = win ? Math.min(l.lengthMs, win.b - l.atMs) : l.lengthMs;
-      parts.push(await this.partFor(l, { from, to }, parts.at(-1), shown[i - 1]?.p, opts.blend !== false, fps));
-    }
     const track = opts.music === false || win ? undefined : await this.core.assetRow(t.music_asset_id);
     // the plan the player follows too: the part of the song, from which clip, each clip's level under it
     const plan = track ? musicPlan(musicBaseOf(t, track), musicClipsOf(laid)) : null;
@@ -59,9 +65,7 @@ export class TimelineExport {
           duck: plan.spans.some((s) => s.duckDb > 0) ? await duckCurve(laid, (asset) => this.core.motion(asset), plan) : null,
         }
       : undefined;
-    const joinOpts = { scale: opts.scale ?? 1, music, smoothTo: opts.smooth ? 48 : undefined, match: opts.match !== false, webMb: opts.webMb, signal: opts.signal };
-    // stored from where ffmpeg wrote it: the export is never held whole in memory
-    return joinVideosInto(parts, frame, fps, joinOpts, (file) => this.storeExport(t, file, frame, fps, win, Boolean(opts.webMb)));
+    return { t, shown, win, frame, fps, music, totalMs: win ? win.b - win.a : total };
   }
 
   /**
@@ -139,6 +143,11 @@ export class TimelineExport {
     events.emit("timeline");
     return assetView(await db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirstOrThrow());
   }
+}
+
+/** The part of a clip that falls in the window, in the clip's own time (all of it without a window). */
+export function partWindow(l: Laid, win: { a: number; b: number } | null): { from: number; to: number } {
+  return { from: win ? Math.max(0, win.a - l.atMs) : 0, to: win ? Math.min(l.lengthMs, win.b - l.atMs) : l.lengthMs };
 }
 
 /**

@@ -72,6 +72,7 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     "render-clips": [`${said(c)} of ${t}`, c.cmd === "render-clips" ? `${plural(c.clips.length, "clip")} · they go to the end of the queue · Ctrl+Enter: to the top` : ""],
     "render-missing": [`Render missing clips of ${t}`, "Clips with no take yet, or whose join went stale · Ctrl+Enter: at the top of the queue"],
     export: [`Export ${t}`, "The export dialog opens on it"],
+    "export-editor": [`Export ${t} for a video editor`, "The export dialog opens on For an editor: its clips and a project file for Resolve, Premiere or Kdenlive"],
     finish: [`Finish ${t}…`, "The Finish dialog: every take upscaled to its final quality"],
     "fix-all": [`Fix all in ${t}`, "What Needs attention lists, mended as its Fix all"],
     generate: ["Generate", "The open draft, as its Generate button"],

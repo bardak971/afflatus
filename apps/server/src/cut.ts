@@ -673,12 +673,8 @@ function fadeRuns(parts: ExportPart[], fps: number, chains: string[]): { outs: s
   return { outs, total };
 }
 
-/**
- * The music under the joined sound (`voices`, made `a`): the part of the song the plan says, from where it starts on the
- * video's clock to where it stops, multiplied by its gain (`gainInput`, musicGainWav): its volume and fades, each clip's
- * level, mute and fades, the ducking. Exported for the tests.
- */
-export function musicChain(plan: MusicPlan, input: { index: number }, gainInput: { index: number }): string[] {
+/** The music as heard under the video, `[under]`: its part of the song, from where it starts, multiplied by its gain curve (ducked where people speak). */
+function musicUnder(plan: MusicPlan, input: { index: number }, gainInput: { index: number }): string[] {
   const heard = Math.max(0, plan.endMs - plan.startMs);
   return [
     `[${input.index}:a]${STEREO},atrim=${plan.fromMs > 0 ? `start=${sec(plan.fromMs)}:` : ""}duration=${sec(heard)},asetpts=PTS-STARTPTS` +
@@ -686,8 +682,31 @@ export function musicChain(plan: MusicPlan, input: { index: number }, gainInput:
       "[music]",
     `[${gainInput.index}:a]${STEREO}[gain]`,
     "[music][gain]amultiply[under]",
-    "[voices][under]amix=inputs=2:duration=first:normalize=0[a]",
   ];
+}
+
+/**
+ * The music under the joined sound (`voices`, made `a`): the part of the song the plan says, from where it starts on the
+ * video's clock to where it stops, multiplied by its gain (`gainInput`, musicGainWav): its volume and fades, each clip's
+ * level, mute and fades, the ducking. Exported for the tests.
+ */
+export function musicChain(plan: MusicPlan, input: { index: number }, gainInput: { index: number }): string[] {
+  return [...musicUnder(plan, input, gainInput), "[voices][under]amix=inputs=2:duration=first:normalize=0[a]"];
+}
+
+/**
+ * The music alone, as it is heard under the video (the same part of the song, the same ducking), as long as the video:
+ * a WAV for an editor's music track, laid at its start.
+ */
+export async function musicTrack(music: ExportMusic, totalMs: number, signal?: AbortSignal): Promise<Uint8Array> {
+  return inTemp(async (dir) => {
+    const inputs = new Inputs(dir);
+    const track = await inputs.add(`music.${music.ext}`, music.source);
+    const chains = [...musicUnder(music.plan, track, await inputs.add("gain.wav", musicGainWav(music, totalMs))), `[under]apad=whole_dur=${sec(totalMs)}[a]`];
+    const out = join(dir, "music.wav");
+    await must(tools.ffmpeg, ["-y", "-loglevel", "error", ...inputs.args, "-filter_complex", chains.join(";"), "-map", "[a]", "-t", sec(totalMs), "-c:a", "pcm_s16le", out], { timeout: 10 * 60_000, signal });
+    return new Uint8Array(await readFile(out));
+  });
 }
 
 /** The music's gain along the video, as the player sets it (musicGainAt), as a WAV the music is multiplied by. */
