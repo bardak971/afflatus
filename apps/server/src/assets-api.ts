@@ -1,13 +1,14 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { toEditor } from "@afflatus/workflows";
+import { fromRender, markPng } from "./aiMark";
 import { fromName, nameOf, shownNames, soundName } from "./autoName";
 import { registerAssetSearch, withShownName } from "./assetSearch";
 import { registerAssetsBin } from "./assetsBin";
 import { registerAssetUpload } from "./assetUpload";
 import { openInComfy } from "./comfyOpen";
 import { tagMatches } from "./compress";
-import { silentOf, soundOf } from "./cut";
+import { markedVideo, silentOf, soundOf } from "./cut";
 import { newId, now, type Tables } from "./db";
 import { httpError, notFound } from "./errors";
 import type { LibraryChange } from "./events";
@@ -209,8 +210,13 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     return tagMatches(ifNoneMatch, tag);
   };
 
-  app.get<{ Params: { id: string } }>("/api/assets/:id/file", async (req, reply) => {
+  app.get<{ Params: { id: string }; Querystring: { download?: string } }>("/api/assets/:id/file", async (req, reply) => {
     const a = await asset(req.params.id);
+    // saved to the user's disk (not played here): a render goes out marked as made by a model (aiMark.ts), whole
+    if (req.query.download === "1" && (a.mime === "image/png" || a.kind === "video") && (await fromRender(s.db, a))) {
+      const marked = a.kind === "video" ? await markedVideo(await sourceOf(s.storage, a.file_key), extOf(a.mime)) : markPng(await s.storage.get(a.file_key));
+      return reply.header("Content-Type", a.mime).header("Cache-Control", "no-store").header("Content-Length", marked.length).send(Buffer.from(marked.buffer, marked.byteOffset, marked.byteLength));
+    }
     const size = await s.storage.size(a.file_key);
     reply.header("Content-Type", a.mime).header("Accept-Ranges", "bytes");
     if (cachedAs(reply, req.headers["if-none-match"], (await s.storage.version?.(a.file_key)) ?? null)) return reply.status(304).send();

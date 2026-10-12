@@ -7,6 +7,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 ### Added
 - **Export for a video editor:** the Export dialog's For switch (Video file / A video editor), or `export for resolve` in Ctrl+K. A zip of every clip's whole file with its in and out points, its sound, the music as heard (ducked), and project files for DaVinci Resolve and Premiere Pro (FCP 7 XML) and Kdenlive (OpenTimelineIO). Seamless joins stay seamless as plain cuts; nothing is rendered again.
 - **Remove sound** from a video: a copy without its sound beside it in the library, the video itself untouched; nothing encoded again, no GPU. In every place that lists a video's tools, beside Extract audio.
+- **Renders say they are AI-made:** a picture or video downloaded from the library, a timeline export and the zip for a video editor carry a machine-readable mark when they come from a render (or a frame, cut or copy of one): IPTC's digital source type "trained algorithmic media" in a picture's XMP and an "AI-generated (Afflatus)" comment in pictures and videos. What you brought in is never marked. The library's own files stay as ComfyUI wrote them, and a marked video holds the same frames.
 
 ## [0.4.0] - 2026-10-12
 

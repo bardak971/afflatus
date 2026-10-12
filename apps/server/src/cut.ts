@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { factsOf, localInputs, tools, type ProbeInfo, type VideoFacts } from "./video";
 import { ffmpegPool } from "./pool";
+import { aiVideoArgs } from "./aiMark";
 
 /**
  * Cutting videos: the few frames a new clip joins onto, one frame as a picture, a strip of frames for
@@ -479,6 +480,8 @@ export interface JoinOptions {
   match?: boolean;
   /** A copy to share on the web: at most this many megabytes, its long edge at most 1280 and 30 pictures a second (webCut). */
   webMb?: number;
+  /** It holds a render: marked as made by a model (aiMark.ts). */
+  fromRender?: boolean;
   signal?: AbortSignal;
 }
 
@@ -537,6 +540,7 @@ export async function joinVideosInto<T>(parts: ExportPart[], frame: { width: num
         // a size to keep: a mean bitrate, capped so no stretch overshoots it, and the slower preset for more picture per byte
         ? ["-c:v", "libx264", "-preset", "slow", "-b:v", `${web.videoKbps}k`, "-maxrate", `${Math.round(web.videoKbps * 1.5)}k`, "-bufsize", `${web.videoKbps * 2}k`, "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", `${web.audioKbps}k`]
         : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k"]),
+      ...(opts.fromRender ? aiVideoArgs : []),
       "-movflags", "+faststart", out,
     ], { timeout: 3 * 60 * 60_000, signal: opts.signal });
     return use(out);
@@ -1063,6 +1067,19 @@ export async function silentOf(source: Media, ext: string): Promise<Uint8Array> 
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, `silent.${ext}`);
     await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, "-map", "0:v", "-c", "copy", "-an", "-movflags", "+faststart", out]);
+    return new Uint8Array(await readFile(out));
+  });
+}
+
+/**
+ * The same video marked as made by a model (aiMark.ts): every stream copied as it is, frames and timestamps untouched,
+ * only the container's comment added. An editor counts the same frames in it as in the library's file.
+ */
+export async function markedVideo(source: Media, ext: string): Promise<Uint8Array> {
+  return inTemp(async (dir) => {
+    const input = await onDisk(dir, `in.${ext}`, source);
+    const out = join(dir, `marked.${ext}`);
+    await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, "-map", "0", "-c", "copy", "-map_metadata", "0", ...aiVideoArgs, ...(ext === "webm" ? [] : ["-movflags", "+faststart"]), out], { timeout: 10 * 60_000 });
     return new Uint8Array(await readFile(out));
   });
 }
