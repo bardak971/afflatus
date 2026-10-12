@@ -8,6 +8,7 @@ import { plural, size } from "../../format";
 import { rowKeys } from "../../keys/table";
 import { projectForNew, useProject } from "../../project";
 import { unloadBlock } from "../../queueRules";
+import { machineByName, machineLabel, machineUnloadBlock } from "../../machines";
 import type { Target } from "../../projects/tree";
 import { kitHref } from "../../screens/kit/link";
 import { useBanners } from "../../store";
@@ -129,6 +130,13 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       return [{ label: `Load ${recipe.title}`, icon: <MemoryStick size={14} />, note: "into ComfyUI, ahead of a render", run: () => run().catch(failed(`${recipe.title} could not be loaded`)) }];
     }
     case "unload": {
+      if (c.machine) {
+        // one machine of several, by its name: its lane's Unload, on the same conditions
+        const m = machineByName(queue?.machines, c.machine);
+        if (!m) return [{ label: `No ComfyUI called ${c.machine}`, icon: <MemoryStick size={14} />, disabled: true, run: () => {} }];
+        const why = machineUnloadBlock(m);
+        return [{ label: `Unload ${machineLabel(m)}`, icon: <MemoryStick size={14} />, disabled: Boolean(why), note: why ?? "its next render loads what it needs", run: () => ops.unload.mutate(m.id) }];
+      }
       // the Queue page's button, on the same conditions
       const why = unloadBlock(queue);
       return [{ label: "Unload models", icon: <MemoryStick size={14} />, disabled: Boolean(why), note: why ?? "the next render loads what it needs", run: () => ops.unload.mutate() }];
@@ -194,9 +202,21 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
         run: () => ops.reconnect.mutate(),
       }];
     case "pause":
-      return [{ label: "Pause queue", icon: <Pause size={14} />, disabled: queue?.paused, note: queue?.paused ? "already paused" : undefined, run: () => ops.pause.mutate() }];
     case "resume":
+    case "use-only": {
+      // one machine of several, by its name: its lane's Pause, Resume or Use only
+      if (c.machine) {
+        const m = machineByName(queue?.machines, c.machine);
+        const Icon = c.cmd === "resume" ? Play : Pause;
+        if (!m) return [{ label: `No ComfyUI called ${c.machine}`, icon: <Icon size={14} />, disabled: true, run: () => {} }];
+        const name = machineLabel(m);
+        if (c.cmd === "use-only") return [{ label: `Use only ${name}`, icon: <Play size={14} />, note: "every other ComfyUI paused", run: () => ops.useOnly.mutate(m.id) }];
+        if (c.cmd === "pause") return [{ label: `Pause ${name}`, icon: <Pause size={14} />, disabled: m.paused, note: m.paused ? "already paused" : "finishes what it runs", run: () => ops.pause.mutate(m.id) }];
+        return [{ label: `Resume ${name}`, icon: <Play size={14} />, disabled: !m.paused, note: m.paused ? undefined : "it is not paused", run: () => ops.resume.mutate(m.id) }];
+      }
+      if (c.cmd === "pause") return [{ label: "Pause queue", icon: <Pause size={14} />, disabled: queue?.paused, note: queue?.paused ? "already paused" : undefined, run: () => ops.pause.mutate() }];
       return [{ label: "Resume queue", icon: <Play size={14} />, disabled: queue ? !queue.paused : false, note: queue && !queue.paused ? "it is running" : undefined, run: () => ops.resume.mutate() }];
+    }
     // the bin's own Empty the bin and Put all back (binActions.ts, as its strip over the grid), off while it is empty
     case "empty-bin":
       return [{

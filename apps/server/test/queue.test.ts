@@ -139,7 +139,7 @@ describe("a job from start to finish", () => {
     await until(async () => (await statusOf(again)).status === "done");
     await until(() => frees() === loaded + 1);
     // once is enough: nothing is loaded any more, so no unload is armed to come after it
-    const idle = t.services.queue as unknown as { holds: boolean; unloadTimer: unknown };
+    const idle = (t.services.queue as unknown as { lanes: Map<string, { holds: boolean; unloadTimer: unknown }> }).lanes.get("m1")!;
     await until(() => !idle.holds && idle.unloadTimer === null);
     expect(frees()).toBe(loaded + 1);
   });

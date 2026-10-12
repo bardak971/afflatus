@@ -62,6 +62,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
   const queue = useQueueOf((q) => ({
     paused: q.paused, online: q.online, rendering: q.running?.kind === "render", running: Boolean(q.running),
     waiting: q.waiting.map((w) => ({ id: w.id })), failed: q.recent.filter((j) => j.status === "failed").map((j) => j.id),
+    machines: q.machines.map((m) => ({ id: m.id, name: m.name, url: m.url, paused: m.paused, online: m.online, running: Boolean(m.running) })),
   }));
   const bulk = useQueueBulk();
   const ops = useQueueOps();

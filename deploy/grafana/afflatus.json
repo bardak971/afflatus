@@ -24,6 +24,29 @@
         "label": "Prometheus",
         "current": {},
         "hide": 0
+      },
+      {
+        "name": "machine",
+        "label": "Machine",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "query": "label_values(afflatus_comfy_online, machine)",
+          "refId": "machines"
+        },
+        "definition": "label_values(afflatus_comfy_online, machine)",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "hide": 0
       }
     ]
   },
@@ -61,7 +84,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max(afflatus_comfy_online)",
+          "expr": "max(afflatus_comfy_online{machine=~\"$machine\"})",
           "legendFormat": "on",
           "range": true,
           "datasource": {
@@ -166,7 +189,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "avg_over_time(max(afflatus_gpu_busy)[24h:1m]) or vector(0)",
+          "expr": "avg_over_time(max(afflatus_gpu_busy{machine=~\"$machine\"})[24h:1m]) or vector(0)",
           "legendFormat": "busy",
           "range": true,
           "datasource": {
@@ -740,8 +763,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "afflatus_gpu_memory_percent",
-          "legendFormat": "memory",
+          "expr": "afflatus_gpu_memory_percent{machine=~\"$machine\"}",
+          "legendFormat": "memory {{machine}}",
           "range": true,
           "datasource": {
             "type": "prometheus",
@@ -795,8 +818,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "afflatus_gpu_temperature_celsius",
-          "legendFormat": "heat",
+          "expr": "afflatus_gpu_temperature_celsius{machine=~\"$machine\"}",
+          "legendFormat": "heat {{machine}}",
           "range": true,
           "datasource": {
             "type": "prometheus",
@@ -852,8 +875,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "afflatus_gpu_load_percent",
-          "legendFormat": "load",
+          "expr": "afflatus_gpu_load_percent{machine=~\"$machine\"}",
+          "legendFormat": "load {{machine}}",
           "range": true,
           "datasource": {
             "type": "prometheus",
@@ -891,6 +914,271 @@
           "sort": "desc"
         }
       }
+    },
+    {
+      "id": 19,
+      "type": "row",
+      "title": "Machines",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 20,
+      "type": "state-timeline",
+      "title": "Answering",
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "afflatus_comfy_online{machine=~\"$machine\"}",
+          "legendFormat": "{{machine}} {{name}}",
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "away",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "answers",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "legend": {
+          "showLegend": false
+        }
+      },
+      "description": "Each ComfyUI of Settings › ComfyUI: whether it answered when Afflatus asked (the Machine variable picks which)."
+    },
+    {
+      "id": 21,
+      "type": "state-timeline",
+      "title": "Rendering",
+      "gridPos": {
+        "x": 12,
+        "y": 39,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "afflatus_gpu_busy{machine=~\"$machine\"}",
+          "legendFormat": "{{machine}} {{name}}",
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "idle"
+                },
+                "1": {
+                  "text": "rendering",
+                  "color": "orange"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "legend": {
+          "showLegend": false
+        }
+      },
+      "description": "Each machine while an Afflatus render holds its GPU: how the line is shared between them."
+    },
+    {
+      "id": 22,
+      "type": "bargauge",
+      "title": "Learned pace (1 = the common pace, 2 = half as fast)",
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "afflatus_machine_pace{machine=~\"$machine\"}",
+          "legendFormat": "{{machine}} {{name}}",
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "min": 0,
+          "color": {
+            "mode": "continuous-GrYlRd"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "description": "Each machine's time per step against all of them, on the same model and settings rendered on several machines. Nothing to compare yet: not shown."
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "VRAM in use, by machine",
+      "gridPos": {
+        "x": 12,
+        "y": 46,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "afflatus_gpu_memory_percent{machine=~\"$machine\"}",
+          "legendFormat": "{{machine}} {{name}}",
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "lineInterpolation": "smooth",
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max",
+            "last"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "Each machine's GPU memory in use, side by side."
     }
   ]
 }

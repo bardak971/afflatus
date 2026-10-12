@@ -1,5 +1,6 @@
 import type { Db, Tables } from "./db";
 import type { Registry } from "./registry";
+import { machinePaces } from "./forecast";
 import { cellOf, DAY, dayOf, dayStart, digestedThrough, digestOf, groupKey, median, merge, parseDigest, real, spilled, sum, WHOLE_DAY, BUCKETS, type Cell, type Digest, type Line, type RenderRow, type Setting } from "./renderDigests";
 
 /**
@@ -54,7 +55,7 @@ const nameOf = (registry: Registry, recipeId: string) => {
 /** The parts of a render's time, as they are drawn. */
 const parts = (c: Cell) => ({ loading: c.loadMs, sampling: c.sampleMs, refining: c.refineMs, finishing: c.finishMs });
 
-export async function summary(db: Db, registry: Registry, period: Period | Window, keepDays: number, when = Date.now()) {
+export async function summary(db: Db, registry: Registry, period: Period | Window, keepDays: number, when = Date.now(), machine: string | null = null) {
   const first = (await db.selectFrom("render_stats").select((eb) => eb.fn.min("created_at").as("at")).executeTakeFirst())?.at ?? null;
   const firstDay = (await db.selectFrom("render_days").select((eb) => eb.fn.min("day").as("day")).executeTakeFirst())?.day ?? null;
   const since = firstDay ? `${firstDay}T00:00:00.000Z` : first;
@@ -64,11 +65,15 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
 
   // cut into days, the days over are read from their digests, and only the rows after them (today's) are read whole;
   // bounded at the end too: a window in the past counts nothing that came after it
-  const through = step === DAY ? await digestedThrough(db) : null;
+  // one machine's figures (settings.ts `machines`): from its renders one by one, as long as they are kept so (the days'
+  // digests and folded figures are of every machine together)
+  const through = step === DAY && !machine ? await digestedThrough(db) : null;
   const rowsFrom = through ? Math.max(start, Date.parse(dayStart(through)) + DAY) : start;
-  const rows = rowsFrom < end ? await db.selectFrom("render_stats").selectAll().where("created_at", ">=", iso(rowsFrom)).where("created_at", "<", iso(end)).orderBy("created_at", "desc").execute() : [];
+  let rowsOf = db.selectFrom("render_stats").selectAll().where("created_at", ">=", iso(rowsFrom)).where("created_at", "<", iso(end));
+  if (machine) rowsOf = rowsOf.where("machine_id", "=", machine);
+  const rows = rowsFrom < end ? await rowsOf.orderBy("created_at", "desc").execute() : [];
   const digested = rowsFrom > start ? await db.selectFrom("render_digests").selectAll().where("day", ">=", dayOf(iso(start))).where("day", "<", dayOf(iso(Math.min(rowsFrom, end)))).execute() : [];
-  const folded = step === DAY ? await db.selectFrom("render_days").selectAll().where("day", ">=", dayOf(iso(start))).execute() : [];
+  const folded = step === DAY && !machine ? await db.selectFrom("render_days").selectAll().where("day", ">=", dayOf(iso(start))).execute() : [];
 
   // each stretch: the digest of its rows, and the figures of days that are no longer rows
   const ownRows = times.map(() => [] as RenderRow[]);
@@ -121,7 +126,8 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   const digestsOf = digests.filter((d): d is Digest => d !== null);
 
   // the jobs that failed or were stopped before they reached ComfyUI: no render row, but the Queue lists them, so the counts do too
-  const unsent = await notRendered(db, start, end, keepDays, when);
+  // (they reached no machine: counted with every machine, not with one)
+  const unsent = machine ? [] : await notRendered(db, start, end, keepDays, when);
   const unsentAt = times.map(() => ({ failed: 0, cancelled: 0 }));
   for (const j of unsent) { const at = unsentAt[index(Date.parse(j.finished_at))]; if (at) at[j.status] += 1; }
   const unsentCount = { failed: sum(unsentAt.map((u) => u.failed)), cancelled: sum(unsentAt.map((u) => u.cancelled)) };
@@ -151,10 +157,18 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   const upscale = upscalePaces(registry, digests);
   // the period before, as long, for "Δ vs prior": none for "all", nor when the record covers less than nine tenths of it
   const priorFrom = start - (end - start);
-  const prior = period !== "all" && since && Date.parse(since) <= priorFrom + Math.max(step, (end - start) / 10) ? await totals(db, priorFrom, start, step === DAY, keepDays, when) : null;
+  const prior = !machine && period !== "all" && since && Date.parse(since) <= priorFrom + Math.max(step, (end - start) / 10) ? await totals(db, priorFrom, start, step === DAY, keepDays, when) : null;
+  // each machine's share of the window and its learned pace, from the renders kept one by one
+  const shares = await db.selectFrom("render_stats").select(["machine_id", (eb) => eb.fn.countAll<number>().as("n"), (eb) => eb.fn.sum<number>("total_ms").as("ms")])
+    .where("created_at", ">=", iso(start)).where("created_at", "<", iso(end)).groupBy("machine_id").execute();
+  const paces = await machinePaces(db);
 
   return {
     period: typeof period === "string" ? period : ("window" as const), from: start, to: end, step, times, keepDays, since, buckets,
+    /** The machine the figures are of; null: every machine. */
+    machine,
+    /** Each machine that rendered in the window: how many renders, their GPU time, and its learned pace (1 the common pace, 2 half as fast; null: nothing to compare yet). */
+    machines: shares.filter((m) => m.machine_id).map((m) => ({ id: m.machine_id!, renders: Number(m.n), gpuMs: Number(m.ms ?? 0), pace: paces.get(m.machine_id!) ?? null })),
     upscale,
     /**
      * The stretch of time the figures cover: the period, or since the first render when that is later. In whole minutes:
@@ -330,18 +344,20 @@ function upscalePaces(registry: Registry, digests: Array<Digest | null>) {
 }
 
 /** The renders that are still rows, newest first: one page of them. */
-export async function list(db: Db, registry: Registry, opts: { recipe?: string; trouble?: boolean; before?: string; limit?: number; from?: number; to?: number }) {
+export async function list(db: Db, registry: Registry, opts: { recipe?: string; trouble?: boolean; before?: string; limit?: number; from?: number; to?: number; machine?: string }) {
   const limit = Math.max(1, Math.min(500, opts.limit ?? 50));
   let q = db.selectFrom("render_stats").selectAll();
   if (opts.recipe) q = q.where("recipe_id", "=", opts.recipe);
   if (opts.trouble) q = q.where("status", "!=", "done");
   if (opts.from) q = q.where("created_at", ">=", new Date(opts.from).toISOString());
   if (opts.to) q = q.where("created_at", "<", new Date(opts.to).toISOString());
+  if (opts.machine) q = q.where("machine_id", "=", opts.machine);
   let counted = db.selectFrom("render_stats").select((eb) => eb.fn.countAll<number>().as("n"));
   if (opts.recipe) counted = counted.where("recipe_id", "=", opts.recipe);
   if (opts.trouble) counted = counted.where("status", "!=", "done");
   if (opts.from) counted = counted.where("created_at", ">=", new Date(opts.from).toISOString());
   if (opts.to) counted = counted.where("created_at", "<", new Date(opts.to).toISOString());
+  if (opts.machine) counted = counted.where("machine_id", "=", opts.machine);
   const total = Number((await counted.executeTakeFirst())?.n ?? 0);
   if (opts.before) q = q.where("created_at", "<", opts.before);
   const rows = await q.orderBy("created_at", "desc").limit(limit + 1).execute();
@@ -358,6 +374,8 @@ export async function list(db: Db, registry: Registry, opts: { recipe?: string; 
       phases: { loading: r.load_ms, sampling: r.sample_ms, refining: r.refine_ms, finishing: r.finish_ms },
       totalMs: r.total_ms, expectedMs: r.expected_ms, cold: Boolean(r.cold), whole: Boolean(r.whole), waitedMs: r.waited_ms, vram: r.vram_peak, heat: r.heat_peak, status: r.status,
       spilled: spilled(r),
+      /** The machine it ran on (settings.ts `machines`); null for a render from before there could be several that was not filed under the first. */
+      machine: r.machine_id ?? null,
       oom: oom.has(r.id),
       assetId: r.asset_id && alive.has(r.asset_id) ? r.asset_id : null,
     })),

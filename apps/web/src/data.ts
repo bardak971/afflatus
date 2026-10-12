@@ -121,10 +121,10 @@ export const useFolders = () => useQuery({ queryKey: queryKeys.folders(), queryF
  * The record of render times for a period: one ending now (a preset, "all") or a window of its own. A
  * preset's window is worked out when it is read, so that it still ends now when it is read again.
  */
-export const useRenderTimes = (range: { preset: string; ms: number | null } | TimesPeriod | TimesWindow) =>
+export const useRenderTimes = (range: { preset: string; ms: number | null } | TimesPeriod | TimesWindow, machine: string | null = null) =>
   useQuery({
-    queryKey: queryKeys.renders.summary(typeof range === "string" ? range : "preset" in range ? range.preset : `${Math.round(range.from)}-${Math.round(range.to)}`),
-    queryFn: ({ signal }) => api.renderTimes(windowOf(range), { signal }),
+    queryKey: queryKeys.renders.summary(typeof range === "string" ? range : "preset" in range ? range.preset : `${Math.round(range.from)}-${Math.round(range.to)}`, machine),
+    queryFn: ({ signal }) => api.renderTimes(windowOf(range), { signal, machine }),
     placeholderData: keepPreviousData,
   });
 /** What to ask the server for: a preset's window ends now, at the moment it is asked. */

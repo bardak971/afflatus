@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { allowedHosts, hostAllowed } from "./hostCheck";
 import { BUCKETS } from "./renderDigests";
+import { machinePaces } from "./forecast";
 import { tallyByRecipe, type RecipeSum } from "./rendersRead";
 import type { Services } from "./services";
 
@@ -52,24 +53,40 @@ export function registerMetrics(app: FastifyInstance, s: Services): void {
     head("afflatus_queue_jobs", "gauge", "Jobs in Afflatus's queue, by state");
     put("afflatus_queue_jobs", { state: "queued" }, q.waiting.length);
     put("afflatus_queue_jobs", { state: "running" }, q.running ? 1 : 0);
-    // asked now: the queue only knows ComfyUI is away once a job found it so
-    const load = await (await s.comfy()).load().catch(() => null);
-    head("afflatus_comfy_online", "gauge", "1 when ComfyUI answers");
-    put("afflatus_comfy_online", {}, load ? 1 : 0);
-    head("afflatus_gpu_busy", "gauge", "1 while a Afflatus render holds the GPU");
-    put("afflatus_gpu_busy", {}, q.running && q.running.kind !== "export" ? 1 : 0);
-    const gpu = load?.gpus[0];
-    if (gpu) {
-      head("afflatus_gpu_memory_percent", "gauge", "Share of the GPU's memory in use, as ComfyUI's machine reports it");
-      put("afflatus_gpu_memory_percent", {}, gpu.vramPercent);
-      if (gpu.temperature !== undefined) {
-        head("afflatus_gpu_temperature_celsius", "gauge", "The GPU's temperature");
-        put("afflatus_gpu_temperature_celsius", {}, gpu.temperature);
-      }
-      if (gpu.load !== undefined) {
-        head("afflatus_gpu_load_percent", "gauge", "The GPU's load");
-        put("afflatus_gpu_load_percent", {}, gpu.load);
-      }
+    // each ComfyUI asked now (the queue only knows one is away once a job found it so), labelled by its machine: its id,
+    // and its name only when asked by the server's own name (a name is the user's words). With one ComfyUI the series
+    // are those of before, with machine="m1"
+    head("afflatus_comfy_online", "gauge", "1 when a ComfyUI answers");
+    head("afflatus_gpu_busy", "gauge", "1 while an Afflatus render holds a machine's GPU");
+    const gauges: Array<[string, string, (l: NonNullable<Awaited<ReturnType<Awaited<ReturnType<typeof s.comfy>>["load"]>>>) => number | undefined]> = [
+      ["afflatus_gpu_memory_percent", "Share of the GPU's memory in use, as the machine reports it", (l) => l.gpus[0]?.vramPercent],
+      ["afflatus_gpu_temperature_celsius", "The GPU's temperature", (l) => l.gpus[0]?.temperature],
+      ["afflatus_gpu_load_percent", "The GPU's load", (l) => l.gpus[0]?.load],
+    ];
+    const paces = await machinePaces(s.db);
+    const rows: string[][] = gauges.map(() => []);
+    const paced: string[] = [];
+    for (const { machine, comfy } of await s.machines()) {
+      const l = { machine: machine.id, name: own ? machine.name : "" };
+      const load = await comfy.load().catch(() => null);
+      put("afflatus_comfy_online", l, load ? 1 : 0);
+      const state = q.machines.find((m) => m.id === machine.id);
+      put("afflatus_gpu_busy", l, state?.running && state.running.kind !== "export" ? 1 : 0);
+      gauges.forEach(([name, , read], i) => {
+        const v = load ? read(load) : undefined;
+        if (v !== undefined) rows[i]!.push(`${name}${labels(l)} ${v}`);
+      });
+      const pace = paces.get(machine.id);
+      if (pace !== undefined) paced.push(`afflatus_machine_pace${labels(l)} ${pace}`);
+    }
+    gauges.forEach(([name, help], i) => {
+      if (!rows[i]!.length) return;
+      head(name, "gauge", help);
+      lines.push(...rows[i]!);
+    });
+    if (paced.length) {
+      head("afflatus_machine_pace", "gauge", "A machine's learned pace against the others on the same model and settings: 1 the common pace, 2 half as fast");
+      lines.push(...paced);
     }
 
     // ---- the record, folded days included: by recipe

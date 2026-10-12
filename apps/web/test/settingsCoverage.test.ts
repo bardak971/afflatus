@@ -21,6 +21,7 @@ const files = (dir: string): string[] =>
 
 /** The server's settings, by field: the index key of the row that sets it, or why it has none. */
 const SERVER: Record<string, string> = {
+  machines: "comfy.machines",
   comfyUrl: "comfy.url",
   comfyDir: "comfy.folder",
   unloadAfterMinutes: "comfy.unload",

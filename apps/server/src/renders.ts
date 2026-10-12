@@ -29,6 +29,8 @@ import { cellOf, DAY, dayOf, digestDays, median, merge, WHOLE_DAY, type Cell, ty
 export async function record(
   db: Db, row: Pick<JobRow, "id" | "created_at">, recipe: Recipe<any>, resume: Pick<Resume, "timing" | "totalSteps" | "startedAt">, measured: Measured | null,
   status: "done" | "failed" | "cancelled", whole: boolean, totalMs: number, generationId?: string,
+  /** The machine it ran on, and its GPU's name: each machine's speed is learned from its own rows. */
+  where: { machine: string | null; gpu: string | null } = { machine: null, gpu: null },
 ): Promise<void> {
   const made = generationId ? await db.selectFrom("assets").select(["id", "kind", "width", "height", "duration_ms"]).where("generation_id", "=", generationId).orderBy("created_at").executeTakeFirst() : undefined;
   const spent = measured?.phases ?? {};
@@ -50,7 +52,7 @@ export async function record(
       waited_ms: Math.max(0, resume.startedAt - new Date(row.created_at).getTime()),
       total_ms: Math.round(totalMs), load_ms: load, sample_ms: sample, refine_ms: refine, finish_ms: finish,
       step_ms: measured?.stepMs ?? null, expected_ms: resume.timing?.expectedMs ?? null, work: resume.timing?.work ?? null,
-      vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made?.id ?? null, created_at: at,
+      vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made?.id ?? null, machine_id: where.machine, gpu: where.gpu, created_at: at,
     })
     .onConflict((oc) => oc.column("id").doNothing())
     .execute();
@@ -64,7 +66,7 @@ export async function record(
 export async function recordTool(
   db: Db, row: { id: string; created_at: string; startedAt: number }, what: { recipe: string; model: string; timeKey: string },
   measured: Measured | null, status: "done" | "failed" | "cancelled", totalMs: number, made: { assetId: string | null; width: number | null; height: number | null; durationMs: number | null },
-  work: number | null, expectedMs: number | null,
+  work: number | null, expectedMs: number | null, machine: string | null = null,
 ): Promise<void> {
   const spent = measured?.phases ?? {};
   const of = (...phases: string[]) => Math.round(phases.reduce((n, p) => n + (spent[p] ?? 0), 0));
@@ -79,7 +81,7 @@ export async function recordTool(
       kind: "video", width: made.width, height: made.height, duration_ms: made.durationMs, steps: 0, status, whole: measured ? 1 : 0, cold: 0,
       waited_ms: Math.max(0, row.startedAt - new Date(row.created_at).getTime()),
       total_ms: Math.round(totalMs), load_ms: load, sample_ms: 0, refine_ms: refine, finish_ms: finish, step_ms: null, expected_ms: expectedMs, work,
-      vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made.assetId, created_at: at,
+      vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made.assetId, machine_id: machine, created_at: at,
     })
     .onConflict((oc) => oc.column("id").doNothing())
     .execute();

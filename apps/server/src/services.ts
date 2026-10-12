@@ -1,4 +1,4 @@
-import { Comfy } from "./comfy";
+import { Comfy, type MachineComfy } from "./comfy";
 import { join } from "node:path";
 import type { Db, DbKind } from "./db";
 import type { LibraryChange } from "./events";
@@ -6,7 +6,7 @@ import { Downloads } from "./downloads";
 import { ShippedPresets, shippedPresetsDir } from "./presetFiles";
 import { DEFAULT_QUEUE_OPTIONS, Queue, type QueueOptions } from "./queue";
 import { Registry } from "./registry";
-import { readSettings } from "./settings";
+import { readSettings, type Machine } from "./settings";
 import { Linked, RoutedStorage } from "./linked";
 import type { Storage } from "./storage";
 import { keepOf, sweep } from "./sweep";
@@ -28,8 +28,12 @@ export interface Services {
   linked: Linked;
   /** The built-in recipes and the imported workflows. */
   registry: Registry;
-  /** The ComfyUI at the address in the settings. A new one is made when the address changes. */
+  /** The first ComfyUI of the settings: the one the setup, downloads, node packs and "open in ComfyUI" talk to. A new one is made when its address changes. */
   comfy(): Promise<Comfy>;
+  /** Every ComfyUI of the settings, the first first, each with its client (made again when its address changes). */
+  machines(): Promise<MachineComfy[]>;
+  /** The ComfyUI of this machine id; the first one for an id that is gone. */
+  comfyOf(id: string | null | undefined): Promise<Comfy>;
   queue: Queue;
   timelines: Timelines;
   /** Model files being fetched into ComfyUI. */
@@ -53,8 +57,9 @@ export async function createServices(
   // Afflatus's own files and the files of linked folders are read through the same door
   const storage = new RoutedStorage(own);
   const registry = new Registry(db);
-  let current: Comfy | null = null;
-  registry.onChange = () => current?.forgetScan();
+  /** One client per machine id, made again when that machine's address changes; a machine taken out of the settings is closed. */
+  const pool = new Map<string, Comfy>();
+  registry.onChange = () => pool.forEach((c) => c.forgetScan());
   await registry.load();
   // what was read off the model files, parsed once: read again after something is written to it (a "models" event)
   let info: Promise<InfoLookup> | null = null;
@@ -69,17 +74,32 @@ export async function createServices(
     });
     return info;
   };
-  const comfy = async () => {
-    const { comfyUrl } = await readSettings(db);
-    if (current?.url !== comfyUrl) {
-      current?.close();
-      current = new Comfy(comfyUrl, registry);
-      current.overrides = async () => (await readSettings(db)).slotFiles;
-      current.infoOf = infoOf;
+  const clientOf = (m: Machine): Comfy => {
+    let c = pool.get(m.id);
+    if (c?.url !== m.url) {
+      c?.close();
+      c = new Comfy(m.url, registry);
+      c.overrides = async () => (await readSettings(db)).slotFiles;
+      c.infoOf = infoOf;
+      pool.set(m.id, c);
     }
-    return current;
+    return c;
   };
-  const queue = new Queue(db, storage, comfy, registry, queueOptions);
+  const machines = async (): Promise<MachineComfy[]> => {
+    const s = await readSettings(db);
+    for (const [id, c] of pool) {
+      if (s.machines.some((m) => m.id === id)) continue;
+      c.close();
+      pool.delete(id);
+    }
+    return s.machines.map((machine) => ({ machine, comfy: clientOf(machine) }));
+  };
+  const comfy = async () => (await machines())[0]!.comfy;
+  const comfyOf = async (id: string | null | undefined) => {
+    const all = await machines();
+    return (all.find((x) => x.machine.id === id) ?? all[0]!).comfy;
+  };
+  const queue = new Queue(db, storage, machines, registry, queueOptions);
   queue.events.on("models", () => {
     info = null;
   });
@@ -104,7 +124,7 @@ export async function createServices(
   sweeper.unref();
   const swept = runSweep();
   const services: Services = {
-    db, dbKind, storage, linked, registry, comfy, queue, timelines, downloads: new Downloads(queue.events, dirs.dataDir ? join(dirs.dataDir, "downloads.json") : undefined),
+    db, dbKind, storage, linked, registry, comfy, machines, comfyOf, queue, timelines, downloads: new Downloads(queue.events, dirs.dataDir ? join(dirs.dataDir, "downloads.json") : undefined),
     shippedPresets: new ShippedPresets(dirs.shippedPresets === undefined ? shippedPresetsDir() : dirs.shippedPresets),
     updates: null as unknown as Updates,
     started: swept.then(() => undefined),
@@ -114,7 +134,7 @@ export async function createServices(
       await precompute?.stop();
       queue.stop();
       await queue.idle();
-      current?.close();
+      pool.forEach((c) => c.close());
       await db.destroy();
     },
   };

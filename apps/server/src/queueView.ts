@@ -6,6 +6,7 @@ import type { CutOptions } from "./timelines";
 import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
 import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel";
 import type { Db } from "./db";
+import type { Machine } from "./settings";
 
 /** What the queue screen shows: the line as it stands with the running job's progress, the history of finished jobs, and a live preview. */
 
@@ -39,7 +40,22 @@ const FINISHED = ["done", "failed", "cancelled"] as const;
  */
 const statusOf = (db: Db): Expression<string> => (db.getExecutor().adapter instanceof SqliteAdapter ? sql<string>`+status` : sql.ref<string>("status"));
 
-export async function status(core: QueueCore) {
+/** A number of milliseconds as said: rounded, null when not known (or after a job whose end cannot be told). */
+const finite = (ms: number | undefined): number | null => (ms !== undefined && Number.isFinite(ms) ? Math.round(ms) : null);
+
+/** A lane as the screens read it: its machine (null for the lane of the jobs that need no ComfyUI), its queue, whether it is paused on its own and answered when last asked. */
+export interface LaneView {
+  machine: Machine | null;
+  core: QueueCore;
+  paused: boolean;
+  reachable: boolean | null;
+}
+
+export async function status(
+  core: QueueCore, lanes: LaneView[] = [{ machine: null, core, paused: false, reachable: null }], paused = core.paused,
+  /** Where each waiting job will probably run and when it starts (schedule.ts plan), and each machine's learned pace. */
+  planned: ReadonlyMap<string, { lane: string; startsInMs: number }> = new Map(), paces: ReadonlyMap<string, number> = new Map(),
+) {
   const rows = await core.db
     .selectFrom("jobs")
     .selectAll()
@@ -56,7 +72,13 @@ export async function status(core: QueueCore) {
     .execute();
   const finishes = await finishesWaiting(core, rows);
   const renders = await rendersWaiting(core, rows);
-  const brief = (r: JobRow) => ({ ...plain(r), estimateMs: (r.status === "queued" && (finishes.get(r.id) ?? renders.get(r.id))) || null });
+  // a waiting job's forecast at the pace of the machine it will probably run on
+  const estimate = (r: JobRow) => {
+    const ms = (r.status === "queued" && (finishes.get(r.id) ?? renders.get(r.id))) || null;
+    const on = planned.get(r.id)?.lane;
+    return ms && on ? Math.round(ms * (paces.get(on) ?? 1)) : ms;
+  };
+  const brief = (r: JobRow) => ({ ...plain(r), estimateMs: estimate(r) });
   /** How a clip render joins the clip before, once its graph is built: in the latent, or on pinned frames; null when it starts on its own or is not a clip. */
   const joinOf = (r: JobRow): JoinKind | null => {
     if (!r.clip_id || !r.resume) return null;
@@ -69,23 +91,55 @@ export async function status(core: QueueCore) {
     // what a failed job was asked: a retry can change it (a smaller size after running out of memory)
     input: r.status === "failed" && kindOf(r) !== "export" && kindOf(r) !== "cut" ? inputsOf(r) : null,
     createdAt: r.created_at, startedAt: r.started_at, finishedAt: r.finished_at,
+    /** The machine it runs or ran on, or for a waiting job the one it will probably run on; the one it was pinned to by hand (null: whichever the queue picks). */
+    machine: r.machine_id ?? planned.get(r.id)?.lane ?? null,
+    pinned: r.pin_machine ?? null,
+    /** Of a waiting job: in about how long it starts, when that can be told. */
+    startsInMs: r.status === "queued" ? finite(planned.get(r.id)?.startsInMs) : null,
   });
-  const run = rows.find((r) => r.status === "running");
-  let running = null;
-  if (run) {
-    const own = core.running?.id === run.id ? core.running : null;
-    const monitor = (await core.comfy()).monitor;
+  const idle = (r: JobRow) => (r.recipe_id === EXPORT_JOB ? ("exporting" as const) : r.recipe_id === CUT_JOB ? ("cutting" as const) : ("waiting" as const));
+  /** A running job with its figures, from its lane's monitor; a job a ComfyUI had when this process last stopped, not picked up again yet, has none. */
+  const card = async (r: JobRow, lane: LaneView | null) => {
+    const own = lane?.core.running?.id === r.id ? lane.core.running : null;
+    const monitor = own && lane ? (await lane.core.comfy()).monitor : null;
     // the seed it was built with, once sent: from memory, or from the job when another process sent it
-    const seed = own?.seed ?? readJson<Partial<Resume>>(run.resume, {}).seed ?? null;
-    running = { ...brief(run), seed, ...figures(monitor, own, own?.promptId, run.recipe_id === EXPORT_JOB ? "exporting" : run.recipe_id === CUT_JOB ? "cutting" : "waiting"), spilling: await spillingNow(core) };
-  }
+    const seed = own?.seed ?? readJson<Partial<Resume>>(r.resume, {}).seed ?? null;
+    return { ...brief(r), seed, ...figures(monitor, own, own?.promptId, idle(r)), spilling: own && lane ? await spillingNow(lane.core) : false };
+  };
+  const ran = rows.filter((r) => r.status === "running");
+  const cards = await Promise.all(lanes.map((l) => {
+    const r = l.core.running ? ran.find((x) => x.id === l.core.running!.id) : undefined;
+    return r ? card(r, l) : null;
+  }));
+  const shown = cards.find((c) => c !== null) ?? null;
+  const stray = ran.find((r) => !cards.some((c) => c?.id === r.id));
+  const running = shown ?? (stray ? await card(stray, null) : null);
+  const machines = lanes.flatMap((l, i) => {
+    if (!l.machine) return [];
+    const c = l.core;
+    return [{
+      id: l.machine.id, name: l.machine.name, url: l.machine.url, takes: l.machine.takes,
+      paused: l.paused,
+      /** Whether it answered when last asked (null before it was asked: nothing was waiting for it). */
+      online: l.reachable ?? (core.offlineSince === null ? null : false),
+      model: c.lastLoads === null ? null : c.lastModel,
+      /** Its learned pace against the others (1 the common pace, 2 half as fast); null with nothing to compare yet. */
+      pace: paces.get(l.machine.id) ?? null,
+      running: cards[i] ?? null,
+    }];
+  });
   return {
-    paused: core.paused,
-    /** The model ComfyUI was last asked to load, by name. Null when none is, or when it is not known. */
+    /** Pause all; each machine says its own in `machines`. */
+    paused,
+    /** The model the first ComfyUI was last asked to load, by name. Null when none is, or when it is not known. */
     model: core.lastLoads === null ? null : core.lastModel,
     online: core.offlineSince === null,
     offlineForMs: core.offlineSince ? Date.now() - core.offlineSince : 0,
+    /** The first running job (the screens that show one); every machine's is in `machines`. */
     running,
+    machines,
+    /** The job that needs no ComfyUI running beside them (an export, a cut by ffmpeg), when one is. */
+    tool: lanes.flatMap((l, i) => (l.machine ? [] : [cards[i] ?? null])).find(Boolean) ?? null,
     waiting: rows.filter((r) => r.status === "queued").map(brief),
     recent: recent.map(brief),
   };
@@ -128,15 +182,17 @@ async function finishesWaiting(core: QueueCore, rows: JobRow[]): Promise<Map<str
 }
 
 /** The running job's progress, its preview and what it showed on the way: from the monitor, by its prompt; `idle` names its phase while it has none. */
-function figures(monitor: Comfy["monitor"], running: QueueCore["running"], promptId: string | undefined, idle: "exporting" | "cutting" | "waiting") {
+function figures(monitor: Comfy["monitor"] | null, running: QueueCore["running"], promptId: string | undefined, idle: "exporting" | "cutting" | "waiting") {
+  // no monitor (a job this process does not follow yet) or no prompt: nothing to read but its phase
+  const m = promptId && monitor ? { monitor, promptId } : null;
   return {
     // a tool on ComfyUI (a finish, a slow motion): which step runs, not a step count (its one-step passes would read 99 % at once)
     // its ETA what its own record expected of it (finishForecast for a finish), less the time it has run
-    ...(promptId && idle === "cutting" ? { ...monitor.progress(promptId), progress: 0, eta: toolEta(running), step: 0, steps: 0 } : promptId ? monitor.progress(promptId) : { progress: 0, eta: 0, phase: idle, step: 0, steps: 0 }),
-    previewSeq: promptId ? monitor.preview(promptId).seq : 0,
-    previewMime: promptId ? monitor.preview(promptId).mime ?? null : null,
+    ...(m && idle === "cutting" ? { ...m.monitor.progress(m.promptId), progress: 0, eta: toolEta(running), step: 0, steps: 0 } : m ? m.monitor.progress(m.promptId) : { progress: 0, eta: 0, phase: idle, step: 0, steps: 0 }),
+    previewSeq: m ? m.monitor.preview(m.promptId).seq : 0,
+    previewMime: m ? m.monitor.preview(m.promptId).mime ?? null : null,
     // what the workflow showed on the way (its Preview nodes), oldest first; the title comes from the graph it was built with
-    stages: (promptId ? monitor.stages(promptId) : []).map((st, n) => ({ n, node: st.node, title: running?.titles?.[st.node] ?? null, count: st.files.length })),
+    stages: (m ? m.monitor.stages(m.promptId) : []).map((st, n) => ({ n, node: st.node, title: running?.titles?.[st.node] ?? null, count: st.files.length })),
   };
 }
 
@@ -144,13 +200,17 @@ function figures(monitor: Comfy["monitor"], running: QueueCore["running"], promp
 const toolEta = (r: QueueCore["running"]) => (r?.expectedMs && r.startedAt ? Math.max(0, Math.round((r.expectedMs - (Date.now() - r.startedAt)) / 1000)) : 0);
 
 /**
- * The running job's figures alone, read from memory and the monitor (no query): what each progress event
- * carries, up to four times a second. Null when nothing runs.
+ * The running jobs' figures alone, read from memory and the monitors (no query): what each progress event carries, up to
+ * four times a second. The first running job's at the top (the screens that show one), every one's in `all`. Null when nothing runs.
  */
-export async function progress(core: QueueCore) {
-  const run = core.running;
-  if (!run) return null;
-  return { id: run.id, ...figures((await core.comfy()).monitor, run, run.promptId, run.tool ?? "waiting"), seed: run.seed ?? null, spilling: await spillingNow(core) };
+export async function progress(lanes: LaneView[]) {
+  const all = [];
+  for (const lane of lanes) {
+    const run = lane.core.running;
+    if (!run) continue;
+    all.push({ id: run.id, machine: lane.machine?.id ?? null, ...figures((await lane.core.comfy()).monitor, run, run.promptId, run.tool ?? "waiting"), seed: run.seed ?? null, spilling: await spillingNow(lane.core) });
+  }
+  return all.length ? { ...all[0]!, all } : null;
 }
 
 /** One picture a node of the running job showed on the way (stage `n`, its first file), fetched from ComfyUI. */

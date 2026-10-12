@@ -55,8 +55,31 @@ const barSchema = z.object({
   cast: z.boolean().default(false),
 });
 
+/**
+ * One ComfyUI the queue sends work to: a GPU of this computer (one ComfyUI per GPU, `--cuda-device N`), another computer,
+ * or a rented instance. `id` stays when the address changes, so that what was learned of it (its speed, what it holds) stays.
+ */
+export const machineSchema = z.object({
+  id: z.string().regex(/^[a-z0-9-]{1,24}$/, "a machine id is lower-case letters, digits and dashes"),
+  /** What the user calls it ("Studio PC", "Second GPU"); empty: its address is shown. */
+  name: z.string().trim().max(40).default(""),
+  url: httpUrl,
+  /** Its ComfyUI folder on this computer, when they share a disk (the node pack is written there); empty otherwise. */
+  dir: z.string().max(400).default(""),
+  /** What the queue gives it: everything, pictures only or videos only (a clip, a sound, a finish). */
+  takes: z.enum(["all", "image", "video"]).default("all"),
+});
+export type Machine = z.infer<typeof machineSchema>;
+
+/** The id the first ComfyUI has had since before there could be several: what it learned is filed under it. */
+export const FIRST_MACHINE = "m1";
 
 export const settingsSchema = z.object({
+  /**
+   * The ComfyUIs, the first one first: it is the one the setup, the downloads, the node packs and "open in ComfyUI" talk
+   * to. `comfyUrl` and `comfyDir` below are the first one's address and folder, kept in step with it (older callers read them).
+   */
+  machines: z.array(machineSchema).max(12).default([]),
   comfyUrl: httpUrl.default("http://127.0.0.1:8188"),
   /**
    * ComfyUI's own folder on the computer Afflatus runs on (the one with main.py), when they share a disk.
@@ -153,12 +176,22 @@ async function load(db: Db): Promise<Settings> {
   const { llm: one, ...rest } = raw;
   if (rest.llms === undefined && one && typeof one === "object" && (one as { baseUrl?: string }).baseUrl) rest.llms = [{ id: "main", ...one }];
   const parsed = settingsSchema.safeParse(rest);
-  if (parsed.success) return parsed.data;
+  if (parsed.success) return inStep(parsed.data);
   // a stored value the schema no longer takes (an address without its scheme, say) falls back to its default rather than locking every setting
   const broken = new Set(parsed.error.issues.map((i) => String(i.path[0] ?? "")));
   console.warn(`[settings] stored values that are no longer valid were set aside: ${[...broken].join(", ")}`);
   for (const key of broken) delete rest[key];
-  return settingsSchema.parse(rest);
+  return inStep(settingsSchema.parse(rest));
+}
+
+/**
+ * The machines and the first one's address and folder said the same way: settings from before there could be several
+ * have only `comfyUrl` and `comfyDir`, which become the first machine; otherwise the first machine says them.
+ */
+function inStep(s: Settings): Settings {
+  if (!s.machines.length) return { ...s, machines: [{ id: FIRST_MACHINE, name: "", url: s.comfyUrl, dir: s.comfyDir, takes: "all" }] };
+  const [first] = s.machines;
+  return { ...s, comfyUrl: first!.url, comfyDir: first!.dir };
 }
 
 const KEYS = [...Object.keys(settingsSchema.shape), "llm"];
@@ -221,9 +254,23 @@ async function written(db: Db, patch: unknown): Promise<Settings> {
     sent.llms = (sent.llms as Array<{ id?: string; baseUrl?: unknown; apiKey?: string }>).map((l) => (l.apiKey === undefined ? { ...l, apiKey: keptKey(current.llms.find((c) => c.id === l.id), l.baseUrl) } : l));
   }
   delete sent.llm;
+  // the first machine and `comfyUrl` / `comfyDir` are one setting said two ways: whichever was sent, both are written
+  if (Array.isArray(sent.machines)) {
+    if (!sent.machines.length) throw httpError("at least one ComfyUI is needed");
+    const first = sent.machines[0] as { url?: unknown; dir?: unknown };
+    sent.comfyUrl = first.url;
+    sent.comfyDir = first.dir ?? "";
+  } else if ("comfyUrl" in sent || "comfyDir" in sent) {
+    const [first, ...others] = current.machines;
+    sent.machines = [{ ...first!, ...("comfyUrl" in sent ? { url: sent.comfyUrl } : {}), ...("comfyDir" in sent ? { dir: sent.comfyDir } : {}) }, ...others];
+    sent.comfyUrl ??= current.comfyUrl;
+    sent.comfyDir ??= current.comfyDir;
+  }
   const next = settingsSchema.parse({ ...current, ...sent });
   const ids = new Set(next.llms.map((l) => l.id));
   if (ids.size !== next.llms.length) throw httpError("two language models have the same id");
+  if (new Set(next.machines.map((m) => m.id)).size !== next.machines.length) throw httpError("two ComfyUIs have the same id");
+  if (new Set(next.machines.map((m) => m.url.replace(/\/+$/, ""))).size !== next.machines.length) throw httpError("two ComfyUIs have the same address");
   const now = new Date().toISOString();
   try {
     for (const key of Object.keys(sent) as Array<keyof Settings>) {
@@ -238,7 +285,7 @@ async function written(db: Db, patch: unknown): Promise<Settings> {
     // what was read before is stale now, whether or not every key got written
     cached.delete(db);
   }
-  return next;
+  return inStep(next);
 }
 
 /** What the browser may see: secrets are replaced by whether they are set. */
@@ -246,6 +293,7 @@ export function publicSettings(s: Settings) {
   const open = ({ apiKey, ...l }: Llm) => ({ ...l, hasApiKey: Boolean(apiKey) });
   const used = llmInUse(s);
   return {
+    machines: s.machines,
     comfyUrl: s.comfyUrl,
     comfyDir: s.comfyDir,
     unloadAfterMinutes: s.unloadAfterMinutes,

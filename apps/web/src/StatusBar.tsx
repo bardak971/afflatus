@@ -10,12 +10,14 @@ import { BAR_DEFAULT } from "./keys/barDefault";
 import { useDownloads } from "./useGetFile";
 import { elapsed, gb, phaseLabel, timeLeft, when } from "./format";
 import { StripModel, StripPlace, stripGhost } from "./ModelLoad";
+import { MachineChips } from "./MachineChips";
+import { machineLabel, severalMachines } from "./machines";
 import { lazyPart, loadExpiringPanel } from "./lazyParts";
 import { useProject } from "./project";
 import { useQueueOps } from "./queueOps";
 import { expiringSaid, useExpiring, useExpiringOnly, useKeepAllExpiring } from "./screens/studio/expiring";
 import { unkeptMs, useKeepFor } from "./keepFor";
-import { useLive, useStudio, useSystem } from "./store";
+import { useLive, useMeteredMachine, useStudio, useSystem } from "./store";
 import { Chip, cx } from "./ui";
 
 // the viewer is fetched the first time the last result is opened from here
@@ -37,7 +39,13 @@ const lastMade = (q: QueueStatus | undefined) => q?.recent.find((j) => j.status 
 export function StatusBar() {
   const queue = useQueue();
   const q = queue.data;
-  const load = useSystem((s) => s.load);
+  // with several ComfyUIs the meters are one machine's, named before them: the one of the render shown, else the first
+  const several = severalMachines(q);
+  const picked = useMeteredMachine((s) => s.id);
+  const metered = several.length ? several.find((m) => m.id === picked) ?? several.find((m) => m.id === q?.running?.machine) ?? several[0]! : null;
+  const loads = useSystem((s) => s.loads);
+  const first = useSystem((s) => s.load);
+  const load = metered ? loads[metered.id] ?? null : first;
   const gpu = load?.gpus[0];
   const cpu = load?.cpu;
   const ram = load?.ram;
@@ -56,6 +64,9 @@ export function StatusBar() {
   return (
     <footer className="flex h-10 shrink-0 items-center gap-2.5 overflow-hidden border-t border-line bg-panel px-3 text-xs">
       {run ? <Running run={run} /> : q?.online === false ? <Offline q={q} /> : q?.paused ? <Paused waiting={waiting} /> : <Idle last={lastMade(q)} />}
+      {several.filter((m) => m.running).length > 1 && (
+        <Link href="/queue" className={cx(stripGhost, "shrink-0")} data-tip="Renders running on the other ComfyUIs: the Queue shows each one's">+{several.filter((m) => m.running).length - 1} rendering</Link>
+      )}
       {run && q?.paused ? <Paused waiting={waiting} /> : waiting > 0 && (run || q?.online !== false) && !q?.paused && (
         <Link href="/queue" className={cx(stripGhost, "shrink-0")} data-tip="Jobs waiting their turn: open the Queue to reorder or cancel them">+{waiting} queued</Link>
       )}
@@ -76,6 +87,7 @@ export function StatusBar() {
         <span className="m-fade inline-flex min-w-0 items-center gap-2.5 overflow-hidden max-md:hidden">
           <StripPlace />
           <StripModel />
+          <MachineChips />
         </span>
       )}
       {/* the meters before the machine's first figures: their room kept, unseen, so the chips beside them do not move when they come */}
@@ -92,6 +104,7 @@ export function StatusBar() {
         // when the machine's figures first come. On a narrow window they leave the room to what runs (the Queue shows them)
         <span className="m-fade inline-flex shrink-0 items-center gap-2.5 max-sm:hidden">
           <Sep />
+          {metered && <span className="max-w-28 shrink-0 truncate text-ink-2" data-tip={`The meters are ${machineLabel(metered)}'s: the machine whose chip you clicked last, else the one of the render shown, else the first. Each machine's are in the Queue.`}>{machineLabel(metered)}</span>}
           {/* the CPU only while it is busy: otherwise its figure is in the GPU meter's tip */}
           {cpu !== undefined && cpu >= 70 && <Meter label="CPU" value={cpu} warn={cpu >= 90} className="max-[1440px]:hidden" />}
           {gpu.load !== undefined && <Meter label="GPU" value={gpu.load} fill={run ? "bg-accent" : undefined} tip={gpuTip(gpu, cpu)} />}

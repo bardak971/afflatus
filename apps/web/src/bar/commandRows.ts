@@ -21,6 +21,8 @@ interface QueueNow {
   failed: number;
   /** The model loads that grouping the queue by model would save. */
   saves: number;
+  /** With several ComfyUIs, each one by the name it is shown under: the bar offers Pause, Resume, Use only and Unload for each. */
+  machines: Array<{ id: string; label: string; paused: boolean; online: boolean | null; running: boolean }>;
 }
 
 /** What the command rows say of the moment: the timeline aimed at, the queue, the selected clip, what Undo would undo, the bin. */
@@ -78,7 +80,7 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     generate: ["Generate", "The open draft, as its Generate button"],
     preset: [`Apply ${preset?.name ?? named}`, preset ? `Preset${preset.source === "shipped" ? " · built in" : ""} · on the open draft` : "No preset by that name"],
     "save-preset": [`Save as preset “${named}”`, "The open draft's model, form and cast"],
-    unload: ["Unload models", upper(unloadBlock(queueNow)) ?? "ComfyUI's models out of memory · the next render loads them again"],
+    unload: c.cmd === "unload" && c.machine ? [`Unload ${c.machine}`, `${machineSaid(queueNow, c.machine)} · its models out of memory`] : ["Unload models", upper(unloadBlock(queueNow)) ?? "ComfyUI's models out of memory · the next render loads them again"],
     "new-timeline": [named ? `New timeline “${named}”` : "New timeline", "In the project you work in · opens in the editor"],
     "new-folder": [`New folder “${named}”`, "At the top of the project you work in"],
     "new-person": kitNew("new-person"),
@@ -96,8 +98,9 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     length: [`Length ${c.cmd === "length" ? `${c.seconds} s` : ""}`, "In the open draft's form"],
     load: [`Load ${recipe?.title ?? (c.cmd === "load" ? c.model : "")}`, recipe ? `${recipe.family.toUpperCase()} · its models into ComfyUI, ahead of a render` : "No model by that name"],
     "new-draft": [`New draft on ${recipe?.title ?? (c.cmd === "new-draft" ? c.recipe : "")}`, recipe ? `${recipe.family.toUpperCase()} · opens in the Studio` : "No model by that name"],
-    pause: ["Pause queue", queueNow ? `${queueNow.running ? "1 running" : "nothing running"}, ${queueNow.waiting} waiting · what runs finishes` : "What runs finishes; nothing new starts"],
-    resume: ["Resume queue", `${queueNow?.waiting ?? 0} waiting`],
+    pause: c.cmd === "pause" && c.machine ? [`Pause ${c.machine}`, `${machineSaid(queueNow, c.machine)} · it finishes what it runs, then takes nothing new`] : [queueNow?.machines.length ? "Pause all ComfyUIs" : "Pause queue", queueNow ? `${queueNow.running ? "running" : "nothing running"}, ${queueNow.waiting} waiting · what runs finishes` : "What runs finishes; nothing new starts"],
+    resume: c.cmd === "resume" && c.machine ? [`Resume ${c.machine}`, `${machineSaid(queueNow, c.machine)} · it takes work again`] : [queueNow?.machines.length ? "Resume all ComfyUIs" : "Resume queue", `${queueNow?.waiting ?? 0} waiting`],
+    "use-only": [`Use only ${c.cmd === "use-only" ? c.machine : ""}`, `${c.cmd === "use-only" ? machineSaid(queueNow, c.machine) : ""} · every other ComfyUI paused: everything waiting goes to this one`],
     "empty-bin": ["Empty the bin…", binEmpty ? "The bin is empty" : `${binSaid} · asked first · cannot be undone`],
     "put-back-all": ["Put all back", binEmpty ? "The bin is empty" : `${binSaid} · each back where it was`],
     "bin-unused": [`Bin unused takes of ${t}…`, aim?.entry ? (aim.entry.unusedTakes ? `${plural(aim.entry.unusedTakes, "take")} · asked first` : "It has none") : "Asked first"],
@@ -133,6 +136,26 @@ const applies = (x: CommandCtx, id: CommandId): boolean =>
   : id === "unload" ? Boolean(x.queue?.online)
   : true;
 
+/** A machine's state in a word, for its rows ("rendering", "paused"); "not found" for a name no machine has. */
+function machineSaid(q: QueueNow | null, label: string): string {
+  const m = q?.machines.find((x) => x.label.toLowerCase() === label.toLowerCase()) ?? q?.machines.find((x) => x.label.toLowerCase().startsWith(label.toLowerCase()));
+  if (!m) return "no ComfyUI by that name";
+  return m.paused ? "paused" : m.online === false ? "offline" : m.running ? "rendering" : "idle";
+}
+
+/**
+ * With several ComfyUIs, each one's own rows, ready to run: Pause or Resume it, Use only it, Unload it. Typing "pause" lists
+ * every machine that can be paused, "use only" every machine, a machine's name all it can do.
+ */
+const machineRows = (x: CommandCtx): Item[] =>
+  (x.queue?.machines ?? []).flatMap((m) => {
+    const own = (c: Command) => {
+      const row = commandRow(x, c);
+      return { ...row, key: `${row.key}:${m.id}`, p: prepare(`${row.label} ${c.cmd === "use-only" ? "use only" : c.cmd} ${m.label}`) };
+    };
+    return [own(m.paused ? { cmd: "resume", machine: m.label } : { cmd: "pause", machine: m.label }), own({ cmd: "use-only", machine: m.label }), ...(m.online !== false && !m.running ? [own({ cmd: "unload", machine: m.label })] : [])];
+  });
+
 /** A command that needs no figures, as a row ready to run (its clip and counts said), when it applies. */
 export const liveRow = (x: CommandCtx, id: CommandId): Item[] => (applies(x, id) ? [commandRow(x, { cmd: id } as Command)] : []);
 
@@ -144,10 +167,12 @@ export const templateItems = (): Item[] =>
  * The commands as the bar offers them now: those that depend on the moment with what they act on, and only when they
  * apply; one that needs no figures is ready as it stands (Enter on "Pause queue" pauses it), one that does completes the bar.
  */
-export const commandTemplates = (x: CommandCtx): Item[] =>
-  templateItems().flatMap((t) => {
+export const commandTemplates = (x: CommandCtx): Item[] => [
+  ...templateItems().flatMap((t) => {
     const id = t.key.slice(4) as CommandId;
     if (LIVE.includes(id)) return liveRow(x, id).map((r) => ({ ...r, p: t.p }));
     const ready = t.complete ? null : parseCommand(COMMANDS.find((c) => c.id === id)?.typed ?? "");
     return [ready ? { ...commandRow(x, ready), p: t.p } : t];
-  });
+  }),
+  ...machineRows(x),
+];

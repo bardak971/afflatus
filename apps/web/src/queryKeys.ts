@@ -25,7 +25,10 @@ export const queryKeys = {
   downloads: () => ["downloads"] as const,
   presetFiles: () => ["preset-files"] as const,
   backupPlan: () => ["backup-plan"] as const,
-  comfyLog: () => ["comfy-log"] as const,
+  /** The ComfyUI log, of the first machine or of the one named. */
+  comfyLog: (machine?: string) => (machine ? (["comfy-log", machine] as const) : (["comfy-log"] as const)),
+  /** Each ComfyUI asked now (Settings › ComfyUI's cards). */
+  machines: () => ["machines"] as const,
   nodePack: (comfyDir: string | undefined) => ["node-pack", comfyDir] as const,
   packs: {
     all: () => ["packs"] as const,
@@ -82,9 +85,10 @@ export const queryKeys = {
   /** The record of render times, and what is read from it. */
   renders: {
     all: () => ["renders"] as const,
-    summary: (range: string) => ["renders", "summary", range] as const,
-    list: (model: string | null, only: string, window: string) => ["renders", "list", model, only, window] as const,
-    lanes: (window: string) => ["renders", "lanes", window] as const,
+    /** With several ComfyUIs, `machine` names the one the figures are of (left out: every machine). */
+    summary: (range: string, machine?: string | null) => (machine ? (["renders", "summary", range, machine] as const) : (["renders", "summary", range] as const)),
+    list: (model: string | null, only: string, window: string, machine?: string | null) => (machine ? (["renders", "list", model, only, window, machine] as const) : (["renders", "list", model, only, window] as const)),
+    lanes: (window: string, machine?: string | null) => (machine ? (["renders", "lanes", window, machine] as const) : (["renders", "lanes", window] as const)),
     size: () => ["renders", "size"] as const,
   },
   modelUpdates: () => ["model-updates"] as const,

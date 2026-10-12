@@ -48,7 +48,7 @@ const rowAt = (offsets: number[], y: number) => {
   return Math.max(0, lo);
 };
 
-export function ComfyLog({ online }: { online: boolean }) {
+export function ComfyLog({ online, machine }: { online: boolean; /** With several ComfyUIs, whose log (a Machine's id); left out, the first one's. */ machine?: string }) {
   const [paused, setPaused] = useState(false);
   const [filter, setFilter] = useState("");
   const [onlyTrouble, setOnlyTrouble] = useState(false);
@@ -60,7 +60,7 @@ export function ComfyLog({ online }: { online: boolean }) {
   // the stamp of the last line read: the next read asks only for what came from then on
   const cursor = useRef<string | undefined>(undefined);
   // a read is appended once: not kept once the tab is left, or coming back would start with an old read's tail
-  const log = useQuery({ queryKey: queryKeys.comfyLog(), queryFn: () => api.comfyLogs(cursor.current), refetchInterval: paused ? false : 2000, enabled: online, retry: 0, gcTime: 0 });
+  const log = useQuery({ queryKey: queryKeys.comfyLog(machine), queryFn: () => api.comfyLogs(cursor.current, { machine }), refetchInterval: paused ? false : 2000, enabled: online, retry: 0, gcTime: 0 });
   // the jobs a prompt may have run for: the one running and the recent ones; drawn again when they change, not at each progress event
   const jobs = useQueueOf((q) => [...(q.running ? [q.running] : []), ...q.recent].map((j) => ({ id: j.id, label: j.label, startedAt: j.startedAt ?? null }))) ?? NO_JOBS;
   const [onlyJob, setOnlyJob] = useState<{ id: string; label: string } | null>(null);

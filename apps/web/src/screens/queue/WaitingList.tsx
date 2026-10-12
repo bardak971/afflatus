@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { ArrowDownToLine, ArrowUpToLine, Layers, Trash2, X } from "lucide-react";
-import type { Job, RunningJob } from "../../api";
+import { ArrowDownToLine, ArrowUpToLine, Layers, Pin, Server, Trash2, X } from "lucide-react";
+import type { Job, MachineState, RunningJob } from "../../api";
+import { machineLabel } from "../../machines";
+import { JOB_DRAG } from "./MachineLanes";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { aboutMs, est, plural, when } from "../../format";
 import { Button, Chip, cx, SectionTitle } from "../../ui";
@@ -41,8 +43,15 @@ function WaitingHead({ waiting, running }: { waiting: Job[]; running: RunningJob
   );
 }
 
-/** What comes next, as compact numbered rows: dragged up and down, or moved and removed from its menu. The first few show; the rest unfold. */
-export function WaitingList({ waiting, running, onOrder, onRemove }: { waiting: Job[]; running: RunningJob | null; onOrder(ids: string[]): void; onRemove(id: string): void }) {
+/**
+ * What comes next, as compact numbered rows: dragged up and down, or moved and removed from its menu. The first few show;
+ * the rest unfold. With several ComfyUIs (`machines`), each row says the machine it will probably run on and when, or the
+ * one it is pinned to; a row dropped on a machine's lane (MachineLanes.tsx), or "Run on" in its menu, pins it there.
+ */
+export function WaitingList({ waiting, running, machines = [], onOrder, onRemove, onPin }: {
+  waiting: Job[]; running: RunningJob | null; machines?: MachineState[];
+  onOrder(ids: string[]): void; onRemove(id: string): void; onPin?(job: string, machine: string | null): void;
+}) {
   const [dragged, setDragged] = useState<string | null>(null);
   const [over, setOver] = useState<number | null>(null);
   const [all, setAll] = useState(false);
@@ -54,10 +63,23 @@ export function WaitingList({ waiting, running, onOrder, onRemove }: { waiting: 
   const saves = groupingSaves(waiting, running);
   /** The model each row loads first (the running job counts as the one before the first): one chip per switch the head counts. */
   const loads = loadsAt(waiting, running);
+  /** A machine free now that could start it, when the plan keeps it for another one (a faster one, one that holds its model). */
+  const freeNow = (w: Job) => (w.pinned || !w.machine || !w.startsInMs ? undefined : machines.find((m) => m.id !== w.machine && !m.running && !m.paused && m.online !== false));
   const itemsOf = (j: { id: string; index: number }): MenuItem[] => {
     const place = betterPlace(waiting, j.id, running);
+    const w = waiting.find((x) => x.id === j.id);
     return [
       { label: "Run next", icon: <ArrowUpToLine size={14} />, disabled: j.index === 0, run: () => onOrder(moved(ids, j.id, 0)) },
+      ...(machines.length && onPin && w
+        ? [{
+            label: "Run on", icon: <Server size={14} />, note: w.pinned ? machineLabel(machines.find((m) => m.id === w.pinned) ?? { name: w.pinned, url: "" }) : "any machine",
+            items: [
+              { label: "Any machine", note: "the one that ends it soonest", checked: !w.pinned, run: () => onPin(w.id, null) },
+              "—" as const,
+              ...machines.map((m): MenuItem => ({ label: machineLabel(m), note: m.paused ? "paused" : m.online === false ? "offline" : undefined, checked: w.pinned === m.id, run: () => onPin(w.id, m.id) })),
+            ],
+          } satisfies MenuItem]
+        : []),
       ...(place ? [{ label: `Move after the ${modelOf(place.after).split(" · ")[0]} jobs`, icon: <ArrowDownToLine size={14} />, note: `saves ${plural(place.saves, "load")}`, run: () => onOrder(moved(ids, j.id, place.to)) }] : []),
       { label: "Group by model", icon: <Layers size={14} />, note: saves ? `saves ${plural(saves, "load")}` : undefined, disabled: !saves, run: () => void bulk.groupQueueByModel() },
       "—",
@@ -96,6 +118,8 @@ export function WaitingList({ waiting, running, onOrder, onRemove }: { waiting: 
           draggable
           onDragStart={(e) => {
             e.dataTransfer.effectAllowed = "move";
+            // dropped on a machine's lane, it is pinned there
+            e.dataTransfer.setData(JOB_DRAG, w.id);
             setDragged(w.id);
           }}
           onDragEnd={() => {
@@ -119,7 +143,22 @@ export function WaitingList({ waiting, running, onOrder, onRemove }: { waiting: 
           <span className="w-[18px] shrink-0 font-mono text-ink-3">{i + 1}</span>
           <span className="min-w-0 grow truncate font-semibold">{w.label}</span>
           <span className="max-w-[40%] shrink-0 truncate text-ink-2">{w.kind === "load" ? `load · ${modelOf(w)}` : modelOf(w)}</span>
-          {loads[i] && <Chip tone="warn" tip={`ComfyUI loads ${modelOf(w)} before this one`}>loads {modelOf(w).split(" · ")[0]}</Chip>}
+          {loads[i] && !machines.length && <Chip tone="warn" tip={`ComfyUI loads ${modelOf(w)} before this one`}>loads {modelOf(w).split(" · ")[0]}</Chip>}
+          {machines.length > 0 && w.pinned && (
+            <Chip tip="Pinned to this machine: it runs there. Drag it onto another lane, or Run on in its menu, to move it.">
+              <Pin size={11} className="shrink-0" /> {machineLabel(machines.find((m) => m.id === w.pinned) ?? { name: w.pinned, url: "" })}
+            </Chip>
+          )}
+          {machines.length > 0 && !w.pinned && w.machine && (
+            <span className="shrink-0 text-xs text-ink-2" data-tip="The machine that would end it soonest: the model already loaded there, its own learned speed, how soon it is free">
+              → {machineLabel(machines.find((m) => m.id === w.machine) ?? { name: w.machine, url: "" })}{w.startsInMs ? ` · in ${est(w.startsInMs)}` : ""}
+            </span>
+          )}
+          {onPin && freeNow(w) && (
+            <button type="button" className="shrink-0 text-xs font-semibold text-accent hover:underline" data-tip="It waits for a machine that ends it sooner; this one is free now" onClick={() => onPin(w.id, freeNow(w)!.id)}>
+              Run on {machineLabel(freeNow(w)!)} now
+            </button>
+          )}
           <span className="w-[70px] shrink-0 text-right font-mono text-ink-2">{est(w.estimateMs) || "—"}</span>
           <button type="button" aria-label={`Cancel ${w.label}`} data-tip="Cancel this one (Del)" onClick={() => onRemove(w.id)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-raised hover:text-ink focus-visible:opacity-100">
             <X size={14} />

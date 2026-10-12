@@ -2,6 +2,7 @@ import { ComfyClient, Monitor, scan, systemLoadFromStatus, type InfoLookup, type
 import type { NodeCatalog } from "@afflatus/core";
 import { fileName } from "./media";
 import type { Registry } from "./registry";
+import type { Machine } from "./settings";
 
 const SCAN_TTL_MS = 60_000;
 const CATALOG_TTL_MS = 10 * 60_000;
@@ -93,6 +94,12 @@ export class Comfy {
   close(): void {
     this.monitor.close();
   }
+}
+
+/** A machine of the settings and the client of its ComfyUI. */
+export interface MachineComfy {
+  machine: Machine;
+  comfy: Comfy;
 }
 
 /** ComfyUI's model folders and the files in each, with a lookup by file name. */
