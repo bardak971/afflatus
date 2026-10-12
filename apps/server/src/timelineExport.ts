@@ -1,3 +1,4 @@
+import { fromRender } from "./aiMark";
 import { BLEND_MS, CutError, DISSOLVE_MS, type ExportMusic, type ExportPart, joinVideosInto } from "./cut";
 import { newId, now } from "./db";
 import type { LibraryChange } from "./events";
@@ -36,7 +37,7 @@ export class TimelineExport {
     const { t, shown, win, frame, fps, music } = await this.layout(id, opts);
     const parts: ExportPart[] = [];
     for (const [i, l] of shown.entries()) parts.push(await this.partFor(l, partWindow(l, win), parts.at(-1), shown[i - 1]?.p, opts.blend !== false, fps));
-    const joinOpts = { scale: opts.scale ?? 1, music, smoothTo: opts.smooth ? 48 : undefined, match: opts.match !== false, webMb: opts.webMb, signal: opts.signal };
+    const joinOpts = { scale: opts.scale ?? 1, music, smoothTo: opts.smooth ? 48 : undefined, match: opts.match !== false, webMb: opts.webMb, fromRender: await this.holdsRender(shown), signal: opts.signal };
     // stored from where ffmpeg wrote it: the export is never held whole in memory
     return joinVideosInto(parts, frame, fps, joinOpts, (file) => this.storeExport(t, file, frame, fps, win, Boolean(opts.webMb)));
   }
@@ -114,6 +115,15 @@ export class TimelineExport {
       // decoded as one piece with the clip before: a plain cut is the whole chain decoded at once, nothing to fade or match
       ...(seam ? { sameLook: true } : beforeAsset && !sameMaking(beforeAsset, x.asset) ? { noMatch: true } : {}),
     };
+  }
+
+  /** Whether any clip that plays shows a render (or a frame, cut or edit of one): the export is then marked as made by a model. */
+  private async holdsRender(shown: Laid[]): Promise<boolean> {
+    for (const l of shown) {
+      const seen = l.p.clip.kind === "still" ? l.p.still : l.p.active?.asset;
+      if (seen && (await fromRender(this.core.db, seen))) return true;
+    }
+    return false;
   }
 
   /** The export put in the library (and its storage), named after the timeline (and the range), as the timeline's last export, in the timeline's folder (folderOfTimeline). */

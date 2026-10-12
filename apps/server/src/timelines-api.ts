@@ -2,13 +2,15 @@ import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { RANDOM_SEED, hiddenRunUp, movedSeed, resamplesLatent, typedSeed } from "@afflatus/core";
+import { fromRender, markPng } from "./aiMark";
 import { nameOf } from "./autoName";
 import { VERSION } from "./config";
-import { CutError, musicTrack } from "./cut";
+import { CutError, markedVideo, musicTrack } from "./cut";
 import { httpError } from "./errors";
 import { compose, lookSchema, withMood } from "./entities";
 import { askedOf } from "./jobs-api";
-import { assetView } from "./media";
+import { assetView, extOf } from "./media";
+import { sourceOf } from "./storage";
 import { rifeModelIn } from "./queue";
 import { inARow } from "./forecast";
 import { finishForecast } from "./queueTools";
@@ -270,8 +272,17 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
           files.set(i.file, i.key);
           if (i.soundFile) files.set(i.soundFile.file, i.soundFile.key);
         }
+        // a render (or a frame, cut or edit of one) goes in marked as made by a model, its frames as they are (aiMark.ts)
+        const rows = await s.db.selectFrom("assets").select(["file_key", "kind", "mime", "origin", "source_id"]).where("file_key", "in", [...files.values()]).execute();
+        const byKey = new Map(rows.map((r) => [r.file_key, r]));
         for (const [path, key] of files) {
           if (req.raw.destroyed) break;
+          const a = byKey.get(key);
+          if (a && (a.kind === "video" || a.mime === "image/png") && (await fromRender(s.db, a))) {
+            const marked = a.kind === "video" ? await markedVideo(await sourceOf(s.storage, key), extOf(a.mime)) : markPng(await s.storage.get(key));
+            await zip.add(path, Readable.from([Buffer.from(marked.buffer, marked.byteOffset, marked.byteLength)]), new Date(), marked.length);
+            continue;
+          }
           const f = await s.storage.open(key);
           await zip.add(path, f.stream, new Date(), f.size);
         }

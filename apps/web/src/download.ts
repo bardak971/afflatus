@@ -15,8 +15,8 @@ function saveAs(href: string, name: string): void {
   a.click();
 }
 
-/** An item of the library, saved. */
-export const saveAsset = (asset: Pick<Asset, "id" | "name" | "mime">) => saveAs(fileUrl(asset.id), downloadName(asset));
+/** An item of the library, saved: a render comes marked as made by a model (the server's aiMark.ts). */
+export const saveAsset = (asset: Pick<Asset, "id" | "name" | "mime">) => saveAs(`${fileUrl(asset.id)}?download=1`, downloadName(asset));
 
 /** Something made in the page (a JSON file), saved. Its address is let go a moment later: at once, some browsers save nothing. */
 function saveBlob(blob: Blob, name: string): void {
