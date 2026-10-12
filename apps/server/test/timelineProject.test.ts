@@ -83,3 +83,17 @@ describe.skipIf(!ffmpegThere)("a timeline for a video editor", { timeout: FFMPEG
     expect((await download(id, "?in=1000&out=1000")).statusCode).toBe(400);
   });
 });
+
+describe("a clip in frames", () => {
+  it("keeps the clips end to end and never ends past its file", async () => {
+    const { framesOf } = await import("../src/timelineProject");
+    // clip 4 of a real export: in 896 ms, 4979 ms long, in a take of 5854 ms at 48 fps (281 frames): rounded apart it ended on 282
+    const f = framesOf(48, { atMs: 15062, lengthMs: 4979, inMs: 896, fileMs: 5854.167 });
+    expect(f.out).toBeLessThanOrEqual(281);
+    expect(f.out - f.in).toBe(f.end - f.start);
+    // the clip before ends where this one starts, each end rounded on its own
+    expect(framesOf(48, { atMs: 10104, lengthMs: 4958, inMs: 896, fileMs: 5854.167 }).end).toBe(f.start);
+    // a picture has no end to keep to
+    expect(framesOf(24, { atMs: 0, lengthMs: 2000, inMs: 0, fileMs: null })).toEqual({ start: 0, end: 48, in: 0, out: 48 });
+  });
+});

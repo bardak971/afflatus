@@ -246,7 +246,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     const q = projectQuery.parse(req.query);
     const range = q.in !== undefined && q.out !== undefined ? { inMs: q.in, outMs: q.out } : undefined;
     // what can be said before the download starts is said as an error (nothing to export, an empty range): after, only a stopped download
-    const layout = await t.exporter.layout(req.params.id, { music: q.music !== "0", range }).catch((err: Error) => {
+    // at the finished size: the takes as they are, a draft enlarged to it by the editor (the video export's Finished size)
+    const layout = await t.exporter.layout(req.params.id, { music: q.music !== "0", range, fit: "largest" }).catch((err: Error) => {
       throw err instanceof CutError ? httpError(err.message) : err;
     });
     const plan = projectPlan(layout.t.name, { ...layout, music: Boolean(layout.music) });
