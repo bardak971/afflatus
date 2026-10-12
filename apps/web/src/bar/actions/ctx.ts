@@ -63,7 +63,11 @@ export interface BarCtx {
   projects: BarCtx["allProjects"];
   pins: ReturnType<typeof usePins>;
   /** What the queue rows need of the queue: not its progress, which changes at every step. */
-  queue: { paused: boolean; online: boolean; rendering: boolean; running: boolean; waiting: Array<{ id: string }>; failed: string[] } | undefined;
+  queue: {
+    paused: boolean; online: boolean; rendering: boolean; running: boolean; waiting: Array<{ id: string }>; failed: string[];
+    /** With several ComfyUIs, each one as the per-machine commands read it ("pause studio pc"). */
+    machines: Array<{ id: string; name: string; url: string; paused: boolean; online: boolean | null; running: boolean }>;
+  } | undefined;
   /** The queue's pause, resume, unload and reconnect, as the Queue screen and the status bar have them. */
   ops: ReturnType<typeof useQueueOps>;
   bulk: ReturnType<typeof useQueueBulk>;

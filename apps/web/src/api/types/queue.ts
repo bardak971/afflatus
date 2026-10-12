@@ -34,9 +34,15 @@ export interface Job {
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+  /** The machine it runs or ran on (a Machine's id), or for a waiting job the one it will probably run on; null for a job that needs no ComfyUI. */
+  machine: string | null;
+  /** The machine it was pinned to by hand; null: whichever the queue picks. */
+  pinned: string | null;
+  /** Of a waiting job: in about how long it starts, when that can be told. */
+  startsInMs: number | null;
 }
 /** A finished job as the queue's history shows it: with what it made and how. (Not how long it would take, nor how a clip joined: GET /api/jobs leaves those out.) */
-export interface HistoryJob extends Omit<Job, "estimateMs" | "join"> {
+export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" | "pinned" | "startsInMs"> {
   tookMs: number | null;
   /** Of a job that failed in a ComfyUI node: the end of its Python traceback; null otherwise. */
   trace?: string | null;
@@ -76,14 +82,34 @@ export interface RunningJob extends Job {
  * the queue on screen is changed in place with them (live.ts), so a render that reports every step
  * costs no request. The id is the job's, not ComfyUI's prompt id.
  */
-export type ProgressUpdate = Pick<RunningJob, "id" | "progress" | "eta" | "phase" | "step" | "steps" | "previewSeq" | "stages" | "previewMime" | "spilling" | "seed">;
-export interface QueueStatus {
+export type ProgressUpdate = Pick<RunningJob, "id" | "progress" | "eta" | "phase" | "step" | "steps" | "previewSeq" | "stages" | "previewMime" | "spilling" | "seed" | "machine">;
+/** A ComfyUI as the queue sees it: its settings, whether it answered, whether it is paused on its own, what it holds and runs. */
+export interface MachineState {
+  id: string;
+  name: string;
+  url: string;
+  takes: "all" | "image" | "video";
   paused: boolean;
-  /** The model ComfyUI was last asked to load, by name. Null when none is, or when it is not known. */
+  /** Whether it answered when last asked; null before it was asked (nothing waited for it). */
+  online: boolean | null;
+  /** The model it was last asked to load, by name; null when none is, or it is not known. */
+  model: string | null;
+  /** Its learned pace against the others (1 the common pace, 2 half as fast); null with nothing to compare yet. */
+  pace: number | null;
+  running: RunningJob | null;
+}
+export interface QueueStatus {
+  /** Pause all; each machine says its own in `machines`. */
+  paused: boolean;
+  /** The model the first ComfyUI was last asked to load, by name. Null when none is, or when it is not known. */
   model: string | null;
   online: boolean;
   offlineForMs: number;
+  /** The first running job (the screens that show one); every machine's is in `machines`. */
   running: RunningJob | null;
+  machines: MachineState[];
+  /** The job that needs no ComfyUI running beside them (an export, a cut by ffmpeg), when one is. */
+  tool: RunningJob | null;
   waiting: Job[];
   recent: Job[];
 }
@@ -121,6 +147,10 @@ export interface TimesSummary {
   keepDays: number;
   since: string | null;
   spanMs: number;
+  /** The machine the figures are of (a Machine's id); null: every machine. One machine's are read from its renders kept one by one. */
+  machine?: string | null;
+  /** Each machine that rendered in the window: renders, GPU time, and its learned pace (1 the common pace, 2 half as fast; null: nothing to compare). */
+  machines?: Array<{ id: string; renders: number; gpuMs: number; pace: number | null }>;
   tiles: {
     done: number; images: number; videos: number; failed: number; cancelled: number;
     videoMs: number; lostMs: number; gpuMs: number; longestMs: number;
@@ -188,6 +218,8 @@ export interface RenderItem {
   assetId: string | null;
   /** It ran out of video memory, as far as the figures tell (memory full, twice what was expected). */
   spilled?: boolean;
+  /** The machine it ran on (a Machine's id); null when not known. */
+  machine?: string | null;
   /** It failed out of memory (OOM). */
   oom?: boolean;
 }

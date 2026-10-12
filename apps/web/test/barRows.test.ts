@@ -7,7 +7,7 @@ import { modeOf, parseCommand } from "../src/bar/parse";
 const timeline = (id: string, label: string, updatedAt: string): CommandEntry => ({ kind: "timeline", id, label, project: null, folder: null, updatedAt, clips: 6, durationMs: 12_000, plannedMs: 12_000, exported: false, unusedTakes: 0, unusedBytes: 0 });
 const draft = (id: string, label: string, updatedAt: string): CommandEntry => ({ kind: "draft", id, label, project: null, updatedAt, recipe: "sdxl", renders: 2 });
 
-const CALM: CommandCtx = { aim: null, queue: { paused: false, online: true, rendering: false, running: false, waiting: 0, failed: 0, saves: 0 }, selectedClip: null, bannerUndo: null, editorUndo: null, binEmpty: true, binSaid: "" };
+const CALM: CommandCtx = { aim: null, queue: { paused: false, online: true, rendering: false, running: false, waiting: 0, failed: 0, saves: 0, machines: [] }, selectedClip: null, bannerUndo: null, editorUndo: null, binEmpty: true, binSaid: "" };
 
 /** The bar's rows for what is typed, with an index of two timelines and a draft, and nothing learned. */
 function rows(typed: string, over: Partial<RowsData> = {}, command: Partial<CommandCtx> = {}) {
@@ -88,5 +88,20 @@ describe("the bar's rows, mode by mode (rowsFor)", () => {
     expect(calc!.group).toBe("Calculator");
     expect(calc!.rows.length).toBeGreaterThan(0);
     expect(calc!.rows.every((r) => r.kind === "calc" && r.card)).toBe(true);
+  });
+});
+
+describe("several ComfyUIs in the bar", () => {
+  it("lists each machine's Pause, Use only and Unload as ready rows, by its name", () => {
+    const machines = [
+      { id: "m1", label: "Studio PC", paused: false, online: true, running: true },
+      { id: "m2", label: "Second GPU", paused: true, online: true, running: false },
+    ];
+    const rows = commandTemplates({ ...CALM, queue: { ...CALM.queue!, machines } });
+    const labels = rows.map((r) => r.label);
+    expect(labels).toEqual(expect.arrayContaining(["Pause Studio PC", "Resume Second GPU", "Use only Studio PC", "Use only Second GPU", "Unload Second GPU", "Pause all ComfyUIs"]));
+    // a machine that renders keeps its model: no Unload row for it
+    expect(labels).not.toContain("Unload Studio PC");
+    expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length);
   });
 });

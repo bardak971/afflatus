@@ -6,7 +6,7 @@ import type { Advice, HistoryPage, QueueStatus, TimesPeriod, TimesWindow, TimesS
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView } from "./api/types/designer";
-import type { Health, FinishSettings, Settings, SettingsPatch } from "./api/types/settings";
+import type { Health, FinishSettings, MachineProbe, Settings, SettingsPatch } from "./api/types/settings";
 import type { UpdatesView } from "./api/types/updates";
 import type { CommandEntry, CommandEstimate, CommandIndex, PromptHistoryItem } from "./api/types/bar";
 import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, HuggingFaceFind, CivitaiFind } from "./api/types/models";
@@ -149,15 +149,23 @@ export const api = {
   /** `after`: the page after the one whose `next` it is; the first page without it. */
   jobs: (filter: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; after?: string; limit?: number }, o?: Asked) =>
     call<HistoryPage>("GET", `/jobs?${new URLSearchParams(Object.fromEntries(Object.entries(filter).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)])))}`, undefined, o?.signal),
-  pause: () => call<QueueStatus>("POST", "/queue/pause"),
-  resume: () => call<QueueStatus>("POST", "/queue/resume"),
+  /** Pause or go on: all of them, or one machine (a Machine's id), which finishes what it runs and takes nothing new. */
+  pause: (machine?: string) => call<QueueStatus>("POST", "/queue/pause", machine ? { machine } : {}),
+  resume: (machine?: string) => call<QueueStatus>("POST", "/queue/resume", machine ? { machine } : {}),
+  /** Every other machine paused, this one going: everything waiting goes to it. */
+  useOnly: (machine: string) => call<QueueStatus>("POST", "/queue/use-only", { machine }),
+  /** A waiting job pinned to a machine, or back to whichever the queue picks (null). */
+  pinJob: (id: string, machine: string | null) => call<QueueStatus>("POST", `/jobs/${id}/machine`, { machine }),
+  /** Each ComfyUI asked now: whether it answers, its version, its GPU and the node pack it loaded. */
+  machines: (o?: Asked) => call<MachineProbe[]>("GET", "/machines", undefined, o?.signal),
   /** `into`: the draft it is sent from, and the folder that is open, where its results are filed. */
   enqueue: (recipe: string, input: Record<string, unknown>, count: number, look?: Look | null, into?: { draft?: string; folder?: string; seedMode?: "up" | "down" }) =>
     call<{ ids: string[] }>("POST", "/jobs", { recipe, input, count, ...(lookAdds(look) ? { look } : {}), ...(into?.draft ? { draft: into.draft } : {}), ...(into?.folder ? { folder: into.folder } : {}), ...(into?.seedMode ? { seedMode: into.seedMode } : {}) }),
   /** Load the models this form would render with, ahead of the render. A job in the queue that makes nothing. */
-  warm: (recipe: string, input: Record<string, unknown>, look?: Look | null) => call<{ id: string }>("POST", "/jobs/warm", { recipe, input, ...(lookAdds(look) ? { look } : {}) }),
+  /** A form's models loaded ahead: on `machine` (a Machine's id), else where its render would run. */
+  warm: (recipe: string, input: Record<string, unknown>, look?: Look | null, machine?: string) => call<{ id: string }>("POST", "/jobs/warm", { recipe, input, ...(lookAdds(look) ? { look } : {}), ...(machine ? { machine } : {}) }),
   /** Whether the models this form would render with are the ones ComfyUI was last asked to load. Null: it cannot be told. */
-  loaded: (recipe: string, input: Record<string, unknown>, look?: Look | null) => call<{ loaded: boolean | null }>("POST", "/comfy/loaded", { recipe, input, ...(lookAdds(look) ? { look } : {}) }),
+  loaded: (recipe: string, input: Record<string, unknown>, look?: Look | null) => call<{ loaded: boolean | null; on: string | null }>("POST", "/comfy/loaded", { recipe, input, ...(lookAdds(look) ? { look } : {}) }),
   entities: (o?: Asked) => call<{ items: Entity[] }>("GET", "/entities", undefined, o?.signal),
   createEntity: (kind: Entity["kind"], name: string, def?: unknown) => call<Entity>("POST", "/entities", def === undefined ? { kind, name } : { kind, name, def }),
   saveEntity: (id: string, patch: { name?: string; def?: unknown }) => call<Entity>("PUT", `/entities/${id}`, patch),
@@ -175,13 +183,14 @@ export const api = {
   dismissJobs: (ids: string[]) => call<{ dismissed: number }>("POST", "/jobs/dismiss", { ids }),
   /** Finished jobs again, several in one request ("Retry all"), in the order given; with `dismiss`, the ones queued again leave the history. */
   retryJobs: (ids: string[], dismiss = false) => call<{ ids: string[]; failed: number }>("POST", "/jobs/retry", { ids, dismiss }),
-  renderTimes: (range: TimesPeriod | TimesWindow, o?: Asked) => call<TimesSummary>("GET", typeof range === "string" ? `/renders/summary?period=${range}` : `/renders/summary?from=${Math.round(range.from)}&to=${Math.round(range.to)}`, undefined, o?.signal),
-  renders: (opts: { recipe?: string; trouble?: boolean; before?: string; limit?: number; from?: number; to?: number }, o?: Asked) =>
-    call<{ total: number; more: boolean; items: RenderItem[] }>("GET", `/renders?${new URLSearchParams({ ...(opts.recipe ? { recipe: opts.recipe } : {}), ...(opts.trouble ? { only: "trouble" } : {}), ...(opts.before ? { before: opts.before } : {}), ...(opts.from ? { from: String(Math.round(opts.from)) } : {}), ...(opts.to ? { to: String(Math.round(opts.to)) } : {}), limit: String(opts.limit ?? 50) })}`, undefined, o?.signal),
+  /** The render times of a period or a window; of one machine (a Machine's id) when one is named. */
+  renderTimes: (range: TimesPeriod | TimesWindow, o?: Asked & { machine?: string | null }) => call<TimesSummary>("GET", `${typeof range === "string" ? `/renders/summary?period=${range}` : `/renders/summary?from=${Math.round(range.from)}&to=${Math.round(range.to)}`}${o?.machine ? `&machine=${encodeURIComponent(o.machine)}` : ""}`, undefined, o?.signal),
+  renders: (opts: { recipe?: string; trouble?: boolean; before?: string; limit?: number; from?: number; to?: number; machine?: string | null }, o?: Asked) =>
+    call<{ total: number; more: boolean; items: RenderItem[] }>("GET", `/renders?${new URLSearchParams({ ...(opts.recipe ? { recipe: opts.recipe } : {}), ...(opts.trouble ? { only: "trouble" } : {}), ...(opts.before ? { before: opts.before } : {}), ...(opts.from ? { from: String(Math.round(opts.from)) } : {}), ...(opts.to ? { to: String(Math.round(opts.to)) } : {}), ...(opts.machine ? { machine: opts.machine } : {}), limit: String(opts.limit ?? 50) })}`, undefined, o?.signal),
   renderRecordSize: (o?: Asked) => call<{ renders: number; days: number; bytes: number }>("GET", "/renders/size", undefined, o?.signal),
   /** ComfyUI's terminal log, the last few hundred lines (`t`: when, `m`: the line). */
   /** ComfyUI's log; `since`: the stamp of the last line had, for the lines from then on only. */
-  comfyLogs: (since?: string, o?: Asked) => call<{ lines: Array<{ t: string; m: string }> }>("GET", `/comfy/logs${since ? `?since=${encodeURIComponent(since)}` : ""}`, undefined, o?.signal),
+  comfyLogs: (since?: string, o?: Asked & { machine?: string }) => call<{ lines: Array<{ t: string; m: string }> }>("GET", `/comfy/logs?${new URLSearchParams({ ...(since ? { since } : {}), ...(o?.machine ? { machine: o.machine } : {}) })}`, undefined, o?.signal),
   clearRenderRecord: () => call<{ ok: true }>("DELETE", "/renders"),
   /** Everything the command bar can find, in one answer. */
   /** `items`: the library's items to hold beside the newest few (those the bar used lately). */
@@ -291,8 +300,8 @@ export const api = {
   findModelPage: (folder: string, file: string) => call<{ page: ModelPage | null; candidates: PageCandidate[]; lookups: boolean }>("POST", `/models/${folder}/page`, { file }),
   /** Say which page is the file's; null forgets it. */
   setModelPage: (folder: string, file: string, url: string | null, title = "") => call<{ page: ModelPage | null }>("PUT", `/models/${folder}/page`, { file, url, title }),
-  /** Unload ComfyUI's models now. */
-  freeMemory: () => call<{ ok: true }>("POST", "/comfy/free"),
+  /** Unload the models now: on one machine, or on every one that is not rendering. */
+  freeMemory: (machine?: string) => call<{ ok: true }>("POST", "/comfy/free", machine ? { machine } : {}),
   designerTest: (id?: string) => call<{ ok: true; model: string; answer: string; ms: number; thinks: boolean; vision: { ok: boolean; answer: string } | null }>("POST", "/designer/test", id ? { id } : {}),
   /** Every conversation with the designer, in drafts and on timelines, is forgotten. */
   forgetConversations: () => call<{ forgotten: number }>("DELETE", "/designer/conversations"),
@@ -338,7 +347,7 @@ export const api = {
   /** Have ComfyUI-Manager install the packs the missing node types come from; `packs` is what the workflow says about them. */
   installPacks: (body: { classes: string[]; packs: Record<string, string> }) => call<PacksStarted>("POST", "/workflows/packs", body),
   /** Have ComfyUI-Manager restart ComfyUI (after a pack install); refused while a render runs. */
-  restartComfy: () => call<{ ok: true }>("POST", "/comfy/restart"),
+  restartComfy: (machine?: string) => call<{ ok: true }>("POST", "/comfy/restart", machine ? { machine } : {}),
   /** Where the queued installs stand. */
   packsStatus: (ids: string[]) => call<{ items: PackState[]; installed: number }>("GET", `/workflows/packs?ids=${encodeURIComponent(ids.join(","))}`),
   deleteWorkflow: (id: string) => call<{ ok: true }>("DELETE", `/workflows/${id}`),

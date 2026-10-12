@@ -3,13 +3,26 @@ import type { Job, ProgressUpdate, QueueStatus } from "./api";
 /** The pure parts of the live events (live.ts): kept apart so that they can be tested without a page. */
 
 /**
- * A progress event worked into the queue on screen: the running job with the event's figures. Null when
- * that cannot be done (no figures, or a job the queue does not show as running yet): the queue is read.
+ * A progress event worked into the queue on screen: each running job with its figures (the event carries every running
+ * job's in `all`, the first one's at its top), the one the screens that show one read and each machine's. Null when that
+ * cannot be done (no figures, or a job the queue does not show as running yet): the queue is read.
  */
-export function mergeProgress(q: QueueStatus | undefined, data: Partial<ProgressUpdate> | null): QueueStatus | null {
-  if (!data || typeof data.id !== "string" || !q?.running || q.running.id !== data.id) return null;
-  const { id: _id, ...figures } = data;
-  return { ...q, running: { ...q.running, ...figures } };
+export function mergeProgress(q: QueueStatus | undefined, data: (Partial<ProgressUpdate> & { all?: Array<Partial<ProgressUpdate>> }) | null): QueueStatus | null {
+  if (!data || !q) return null;
+  const updates = (data.all ?? [data]).filter((u): u is Partial<ProgressUpdate> & { id: string } => typeof u.id === "string");
+  const figuresOf = (id: string) => {
+    const u = updates.find((x) => x.id === id);
+    if (!u) return null;
+    const { id: _id, ...figures } = u;
+    return figures;
+  };
+  const top = q.running ? figuresOf(q.running.id) : null;
+  const machines = (q.machines ?? []).map((m) => {
+    const f = m.running ? figuresOf(m.running.id) : null;
+    return f ? { ...m, running: { ...m.running!, ...f } } : m;
+  });
+  if (!top && !machines.some((m, i) => m !== q.machines?.[i])) return null;
+  return { ...q, running: top && q.running ? { ...q.running, ...top } : q.running, machines };
 }
 
 const ENDED = new Set<Job["status"]>(["done", "failed", "cancelled"]);

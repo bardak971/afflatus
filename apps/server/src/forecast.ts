@@ -262,3 +262,40 @@ export function said(f: Forecast, shape: { pixels: number; frames: number }): { 
   if (!f.fitsUpTo) return { text: `About ${dur}, from your renders of this kind.`, hint: null };
   return { text: `About ${dur}, from your renders with this model.`, hint: null };
 }
+
+/**
+ * Each machine's pace against all of them (settings.ts `machines`), learned from its own renders: for every model and set
+ * of settings rendered on more than one machine, a machine's usual step against the usual step of all, and the middle of
+ * those. 1 is the common pace, 2 half as fast; a machine with nothing to compare is taken at 1. The forecasts are read from
+ * every machine's renders together, and a machine's is that times its pace.
+ */
+export async function machinePaces(db: Db): Promise<Map<string, number>> {
+  const rows = await db
+    .selectFrom("render_stats")
+    .select(["machine_id", "model_file", "time_key", "step_ms"])
+    .where("status", "=", "done")
+    .where("whole", "=", 1)
+    .where("step_ms", "is not", null)
+    .where("machine_id", "is not", null)
+    .where("model_file", "!=", "")
+    .orderBy("created_at", "desc")
+    .limit(600)
+    .execute();
+  const byKey = new Map<string, Map<string, number[]>>();
+  for (const r of rows) {
+    const key = `${r.model_file}\n${r.time_key}`;
+    const machines = byKey.get(key) ?? new Map<string, number[]>();
+    byKey.set(key, machines);
+    const steps = machines.get(r.machine_id!) ?? [];
+    steps.push(r.step_ms!);
+    machines.set(r.machine_id!, steps);
+  }
+  const ratios = new Map<string, number[]>();
+  for (const machines of byKey.values()) {
+    if (machines.size < 2) continue;
+    const all = median([...machines.values()].flat());
+    if (!(all > 0)) continue;
+    for (const [machine, steps] of machines) ratios.set(machine, [...(ratios.get(machine) ?? []), median(steps) / all]);
+  }
+  return new Map([...ratios].map(([machine, rs]) => [machine, median(rs)]));
+}

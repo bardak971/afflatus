@@ -7,6 +7,8 @@ import { Slider } from "../../Slider";
 import { Button, ButtonLink, cx, ErrorNote, fieldClass } from "../../ui";
 import { Block, Card, Fact, Row, Status } from "./Rows";
 import { queryKeys } from "../../queryKeys";
+import { useQueue } from "../../data";
+import { AddMachineCard, MachineCards, MachinesHead, useMachineProbes } from "./MachinesCard";
 
 const WHY_PACK = "It lets MiniMax H3 clips on a timeline continue from the clip before's own latent (the motion, the look and the voice carry across the join), and lets Afflatus read model files' headers through ComfyUI when it cannot read its disk.";
 
@@ -49,9 +51,16 @@ function NodePackRow() {
   );
 }
 
-/** ComfyUI's address and folder, the test, and when its models are unloaded. */
+/**
+ * ComfyUI's address and folder, the test, and when its models are unloaded. With several ComfyUIs, a card for each
+ * (MachinesCard.tsx) in place of the one Connection card; one more is added by its address.
+ */
 export function ComfyCard() {
   const settings = useSettings();
+  const machines = settings.data?.machines ?? [];
+  const several = machines.length > 1;
+  const probes = useMachineProbes(several);
+  const queue = useQueue();
   const setup = useSetup();
   const client = useQueryClient();
   const [url, setUrl] = useState("");
@@ -90,7 +99,9 @@ export function ComfyCard() {
   const comfy = setup.data?.comfy;
   return (
     <div className="flex flex-col gap-4">
-      <Card id="comfyui" title="Connection" status={comfy && <Status ok={comfy.online}>{comfy.online ? "Connected" : "Not answering"}</Status>}>
+      {several && <MachinesHead />}
+      {several && <MachineCards machines={machines} probes={probes.data} states={queue.data?.machines} />}
+      {!several && <Card id="comfyui" title="Connection" status={comfy && <Status ok={comfy.online}>{comfy.online ? "Connected" : "Not answering"}</Status>}>
         <Row setting="comfy.url" label="ComfyUI URL" htmlFor="comfy-url" help="The address ComfyUI listens on (8188 unless started with --port). Test again saves it first when it changed. Testing only reads what ComfyUI has: it never starts a render or loads a model.">
           <input id="comfy-url" value={url} onChange={(e) => setUrl(e.target.value)} spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
           <Button onClick={() => test.mutate()} disabled={test.isPending}>{test.isPending ? "Connecting…" : url !== settings.data?.comfyUrl ? "Save and test" : "Test again"}</Button>
@@ -114,11 +125,12 @@ export function ComfyCard() {
         </Row>
         {saveDir.isError && <Block><ErrorNote>{saveDir.error.message}</ErrorNote></Block>}
         <NodePackRow />
-      </Card>
+      </Card>}
+      <AddMachineCard />
 
       {settings.data && (
         <Card title="VRAM">
-          <Row setting="comfy.unload" label="Unload models after" help={`Minutes without a render, then ComfyUI's models are unloaded and the VRAM is freed; the next render loads them again. 0 = never: they stay loaded until something else needs the VRAM. "Unload models" in the Queue does it by hand.`}>
+          <Row setting="comfy.unload" label="Unload models after" help={`Minutes without a render, then ComfyUI's models are unloaded and the VRAM is freed; the next render loads them again. 0 = never: they stay loaded until something else needs the VRAM. "Unload models" in the Queue does it by hand. With several ComfyUIs, each counts from its own last render.`}>
             {/* a stepped scale: the slider walks the stops, what is saved is the stop's minutes */}
             <Slider label="Minutes without a render before ComfyUI's models are unloaded" value={stopOf(minutes)} min={0} max={UNLOAD.length - 1} box={false} format={(i) => unloadSaid(UNLOAD[i]!)} onChange={(i) => setMinutes(UNLOAD[i]!)} onCommit={(i) => unload.mutate(UNLOAD[i]!)} className="max-w-[320px] grow" />
             <span className="w-16 shrink-0 text-right font-mono text-xs text-ink">{unloadSaid(minutes)}</span>

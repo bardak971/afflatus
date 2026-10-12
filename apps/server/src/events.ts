@@ -86,12 +86,14 @@ export function registerEvents(app: FastifyInstance, s: Services, version: strin
     }
     rest();
   };
-  // what it finds of ComfyUI goes to the queue too: an idle queue asks ComfyUI nothing, and kept saying it was online
+  // what it finds of the ComfyUIs goes to the queue too: an idle queue asks them nothing, and kept saying they were online.
+  // `load` is the first machine's (the screens that show one), `loads` every machine's by id
   const sendSystem = async () => {
-    const comfy = await s.comfy();
-    const load = await comfy.load().catch(() => null);
-    if (comfy.answered !== null) s.queue.noteReachable(comfy.answered);
-    send("system", { load });
+    const all = await s.machines();
+    const read = await Promise.all(all.map(async ({ machine, comfy }) => ({ id: machine.id, load: await comfy.load().catch(() => null), answered: comfy.answered })));
+    const heard = read.filter((r) => r.answered !== null);
+    if (heard.length) s.queue.noteReachable(heard.some((r) => r.answered));
+    send("system", { load: read[0]?.load ?? null, loads: Object.fromEntries(read.map((r) => [r.id, r.load])) });
   };
 
   // every connection used to add its own listeners: the limit that warns about a leak does not apply to a fan-out

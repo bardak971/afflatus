@@ -1,6 +1,8 @@
 import { lazy, Suspense, useMemo, useState, type ComponentProps } from "react";
 import type { TimesSummary, TopRender } from "../../api";
-import { useAsset } from "../../data";
+import { useAsset, useQueue } from "../../data";
+import { machineLabel, severalMachines } from "../../machines";
+import { Select } from "../../Select";
 import { brief, long, plural, took, UI_LOCALE } from "../../format";
 import { cx, Empty, ErrorNote, Segmented } from "../../ui";
 import { TimeChart, useChartColors } from "./Chart";
@@ -15,6 +17,30 @@ import { DAY, HOUR, useTimesView } from "./useTimesView";
 import { WindowBar } from "./WindowBar";
 import { scrollInside } from "../../scrollInside";
 
+/**
+ * With several ComfyUIs and every machine shown: each machine's share of the window and its learned pace, against the
+ * fastest ("×2.9": nearly three times its time for the same model and settings). A click shows that machine alone.
+ */
+function MachineShares({ d, names, onPick }: { d: TimesSummary; names: Record<string, string>; onPick(id: string): void }) {
+  const machines = d.machines ?? [];
+  const fastest = Math.min(...machines.map((m) => m.pace ?? Infinity));
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {machines.map((m) => (
+        <button
+          key={m.id} type="button" onClick={() => onPick(m.id)}
+          data-tip={m.pace !== null && Number.isFinite(fastest) ? `Learned from the same model and settings rendered on several machines: ${m.pace / fastest < 1.05 ? "the fastest" : `${(m.pace / fastest).toFixed(1)} times the fastest one's time`}. Click: this machine alone.` : "Nothing rendered on it that another machine rendered too: no pace to compare yet. Click: this machine alone."}
+          className="inline-flex items-center gap-2 rounded-[10px] border border-line bg-panel px-3 py-1.5 text-xs hover:bg-hover"
+        >
+          <span className="font-semibold">{names[m.id] ?? m.id}</span>
+          <span className="text-ink-2">{plural(m.renders, "render")} · {took(m.gpuMs)}</span>
+          {m.pace !== null && Number.isFinite(fastest) && <span className="font-mono text-ink-2">×{(m.pace / fastest).toFixed(1)}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // the viewer is fetched the first time a render's result is opened here
 const Viewer = lazy(() => import("../../Viewer").then((m) => ({ default: m.Viewer })));
 
@@ -28,7 +54,8 @@ const Viewer = lazy(() => import("../../Viewer").then((m) => ({ default: m.Viewe
 type ChartBase = Pick<ComponentProps<typeof TimeChart>, "times" | "timeLabel" | "step" | "onBrush" | "detail">;
 
 export function RenderTimes() {
-  const { view, typed, setTyped, model, setModel, only, setOnly, times, renders, lanes, zoom, pick } = useTimesView();
+  const { view, typed, setTyped, model, setModel, only, setOnly, machine, setMachine, times, renders, lanes, zoom, pick } = useTimesView();
+  const several = severalMachines(useQueue().data);
   const [openedId, setOpenedId] = useState<string | null>(null);
   const opened = useAsset(openedId);
   const tones = useChartColors();
@@ -65,8 +92,19 @@ export function RenderTimes() {
         </span>
         {d.since && <span className="text-xs text-ink-3" data-tip="First render on record">since {new Date(d.since).toLocaleDateString(UI_LOCALE, { day: "numeric", month: "short", year: "numeric" })}</span>}
         <span className="grow" />
+        {/* with several ComfyUIs, which one the tab is of, as a dashboard's variable: All, or one machine */}
+        {several.length > 0 && (
+          <div className="w-52 shrink-0">
+            <Select
+              size="sm" label="Machine" value={machine ?? "all"} onChange={(v) => setMachine(v === "all" ? null : v)}
+              options={[{ value: "all", label: "All machines" }, ...several.map((m) => ({ value: m.id, label: machineLabel(m) }))]}
+            />
+          </div>
+        )}
         <span className="text-xs text-ink-3">drag a chart: zoom</span>
       </div>
+      {machine && <p className="-mt-3 text-xs text-ink-3">One machine's figures come from its renders kept one by one ({d.keepDays ? `the last ${d.keepDays} days, Settings › Storage` : "all of them"}); the days before are kept only as totals of every machine.</p>}
+      {!machine && several.length > 0 && (d.machines?.length ?? 0) > 1 && <MachineShares d={d} names={Object.fromEntries(several.map((m) => [m.id, machineLabel(m)]))} onPick={setMachine} />}
 
       {!d.since && (
         <Empty title="No render history yet" help="Recorded for every render from now on: total, per phase (model load, sampling, VAE decode), VRAM, GPU temp. The ETAs come from it." />

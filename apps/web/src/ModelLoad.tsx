@@ -9,6 +9,7 @@ import { useQueue, useRecipes } from "./data";
 import { cx } from "./ui";
 import { queryKeys } from "./queryKeys";
 import { useSettled } from "./hooks";
+import { machineName, severalMachines } from "./machines";
 
 const ModelMenuBody = lazyPart(loadModelMenu, (m) => m.ModelMenuBody);
 
@@ -108,6 +109,8 @@ export function StripModel() {
   const form = useStrip((s) => s.form);
   const queue = useQueue();
   if (queue.data?.online === false) return null;
+  // with several ComfyUIs each one's chip names what it holds (MachineChips): here only a form's own model, and where it is
+  if (severalMachines(queue.data).length) return form ? <OfForm {...form} /> : null;
   // a render still bringing its model in: the model is named as it will be held, but it is not in yet
   if (queue.data?.running?.phase === "loading" && queue.data.model) return <ModelMenu><Loading name={queue.data.model} /></ModelMenu>;
   return <ModelMenu>{form ? <OfForm {...form} /> : <Held name={queue.data?.model ?? null} />}</ModelMenu>;
@@ -204,8 +207,19 @@ function OfForm({ recipe, input, look }: OpenForm) {
   const stop = useStop();
   const running = queue.data?.running?.kind === "load" ? queue.data.running : null;
   const waiting = (queue.data?.waiting ?? []).find((j) => j.kind === "load");
-  const state = loaded.data?.loaded;
-  const held = queue.data?.model ?? null;
+  const several = severalMachines(queue.data);
+  // with several, what counts is whether any of them holds it; one that cannot be told for the first cannot for the others either
+  const state = several.length && loaded.data && loaded.data.loaded !== null ? Boolean(loaded.data.on) : loaded.data?.loaded;
+  // with several ComfyUIs: the one that holds it, named; none holding it is said for all of them
+  const on = several.length ? machineName(queue.data, loaded.data?.on) : null;
+  const held = several.length ? null : queue.data?.model ?? null;
+  if (on && !running && !waiting) {
+    return (
+      <span className={cx(stripGhost, "min-w-0 hover:bg-transparent")} data-tip={`This form's model is loaded on ${on}: the render goes there and starts sampling at once.`}>
+        <Light on /> <span className="truncate">Model loaded on {on}</span>
+      </span>
+    );
+  }
   // it cannot be told for this form (not complete enough to build its graph): what is loaded is still named
   if (!running && !waiting && (state === undefined || state === null) && !load.isError) return <Held name={held} sure={false} />;
   if (!running && !waiting && state) {
@@ -227,7 +241,7 @@ function OfForm({ recipe, input, look }: OpenForm) {
         <>
           <span className="flex min-w-0 items-center gap-1" data-tip={held ? `${held} is the model ComfyUI has loaded. This form renders with another model: Load swaps it in now.` : "ComfyUI has no model loaded by Afflatus."}>
             {/* short of room the name goes, and the words say it alone */}
-            {held ? <><span className="shrink-0 max-xl:hidden">Loaded:</span><span className={cx("max-w-56", nameClass)}>{held}</span><span className="shrink-0 max-xl:hidden">· another model</span><span className="hidden shrink-0 max-xl:inline">Another model loaded</span></> : "Model not loaded"}
+            {held ? <><span className="shrink-0 max-xl:hidden">Loaded:</span><span className={cx("max-w-56", nameClass)}>{held}</span><span className="shrink-0 max-xl:hidden">· another model</span><span className="hidden shrink-0 max-xl:inline">Another model loaded</span></> : several.length ? "Not loaded on any ComfyUI" : "Model not loaded"}
           </span>
           <button
             type="button"

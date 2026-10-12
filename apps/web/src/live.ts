@@ -173,8 +173,8 @@ export function useLiveEvents(): void {
         if (!view || readsAgain(view.flow, flow)) void client.invalidateQueries({ queryKey: queryKeys.updates() });
       },
       system: (data) => {
-        const got = parse(data) as { load: SystemLoad | null } | null;
-        if (got) useSystem.getState().set(got.load);
+        const got = parse(data) as { load: SystemLoad | null; loads?: Record<string, SystemLoad | null> } | null;
+        if (got) useSystem.getState().set(got.load, got.loads);
       },
       hello: (data) => {
         const version = (parse(data) as { version?: string } | null)?.version;

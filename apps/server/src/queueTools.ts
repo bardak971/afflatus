@@ -61,7 +61,7 @@ export async function finishForecast(
 /** Put a tool's run on the record (never lets a failure here reach the job). */
 async function noteTool(core: QueueCore, note: ToolNote, status: "done" | "failed" | "cancelled", made: { id: string; width: number | null; height: number | null; duration_ms: number | null } | null) {
   await recordTool(core.db, { id: note.row.id, created_at: note.row.created_at, startedAt: note.startedAt }, note, note.measured, status, Date.now() - note.startedAt,
-    { assetId: made?.id ?? null, width: made?.width ?? null, height: made?.height ?? null, durationMs: made?.duration_ms ?? null }, note.work, note.expectedMs).catch(() => {});
+    { assetId: made?.id ?? null, width: made?.width ?? null, height: made?.height ?? null, durationMs: made?.duration_ms ?? null }, note.work, note.expectedMs, core.machineId).catch(() => {});
 }
 
 /**

@@ -2,7 +2,7 @@ import { expandWildcards, movedSeed, typedSeed, type InputSpec, type Recipe } fr
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { compose, lookSchema } from "./entities";
-import { notFound } from "./errors";
+import { httpError, notFound } from "./errors";
 import type { Services } from "./services";
 import { draftLabel, promptOf } from "./autoName";
 import { findDraft, writeDraft } from "./drafts";
@@ -24,7 +24,8 @@ const jobBody = z.strictObject({
   folder: z.string().max(64).optional(),
 });
 /** A form as it stands, to load its models ahead or to ask whether they are loaded. */
-const warmBody = z.strictObject({ recipe: z.string().min(1), input: z.record(z.string(), z.unknown()), look: lookSchema.optional() });
+/** A form whose models are loaded ahead: on the machine named (a Machine's id), else where its render would run. */
+const warmBody = z.strictObject({ recipe: z.string().min(1), input: z.record(z.string(), z.unknown()), look: lookSchema.optional(), machine: z.string().min(1).max(40).optional() });
 
 /** A form's texts with their {a|b|c} choices settled. */
 function settledTexts(recipe: Recipe<any>, input: Record<string, unknown>): Record<string, unknown> {
@@ -79,13 +80,16 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
   };
   app.post("/api/jobs/warm", async (req) => {
     const body = warmBody.parse(req.body);
-    return { id: await s.queue.enqueue(body.recipe, await withCast(body), { label: `Load the model: ${s.registry.recipe(body.recipe)?.title ?? body.recipe}`, warm: true }) };
+    return { id: await s.queue.enqueue(body.recipe, await withCast(body), { label: `Load the model: ${s.registry.recipe(body.recipe)?.title ?? body.recipe}`, warm: true, machine: body.machine ?? null }) };
   });
 
   /** Whether the models a form would render with are the ones ComfyUI was last asked to load. */
   app.post("/api/comfy/loaded", async (req) => {
     const body = warmBody.parse(req.body);
-    return { loaded: await s.queue.isLoaded(body.recipe, await withCast(body)) };
+    const input = await withCast(body);
+    // with several ComfyUIs, which of them holds it (`on`); `loaded` stays the first one's, as the screens that know one read it
+    const [loaded, on] = await Promise.all([s.queue.isLoaded(body.recipe, input), s.queue.loadedOn(body.recipe, input)]);
+    return { loaded, on };
   });
 
   app.get("/api/queue", async () => s.queue.status());
@@ -101,18 +105,31 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
     }).parse(req.query);
     return s.queue.history(q);
   });
-  app.post("/api/queue/pause", async () => {
-    await s.queue.setPaused(true);
+  /** Pause or go on: all of them, or one machine on its own (`machine`, a machine's id), which finishes what it runs and takes nothing new. */
+  const onMachine = z.strictObject({ machine: z.string().min(1).max(40).optional() });
+  app.post("/api/queue/pause", async (req) => {
+    await s.queue.setPaused(true, onMachine.parse(req.body ?? {}).machine);
     return s.queue.status();
   });
-  app.post("/api/queue/resume", async () => {
-    await s.queue.setPaused(false);
+  app.post("/api/queue/resume", async (req) => {
+    await s.queue.setPaused(false, onMachine.parse(req.body ?? {}).machine);
+    return s.queue.status();
+  });
+  /** Every other machine paused, this one going: everything waiting goes to it. */
+  app.post("/api/queue/use-only", async (req) => {
+    await s.queue.useOnly(z.strictObject({ machine: z.string().min(1).max(40) }).parse(req.body).machine);
+    return s.queue.status();
+  });
+  /** A waiting job pinned to a machine (dragged onto its lane, "Run on"), or back to whichever the queue picks (`machine: null`). */
+  app.post<{ Params: { id: string } }>("/api/jobs/:id/machine", async (req) => {
+    const ok = await s.queue.pin(req.params.id, z.strictObject({ machine: z.string().min(1).max(40).nullable() }).parse(req.body).machine);
+    if (!ok) throw httpError("only a waiting job can be moved to another machine");
     return s.queue.status();
   });
 
-  /** Unload ComfyUI's models now: the GPU's memory is wanted for something else. */
-  app.post("/api/comfy/free", async () => {
-    await s.queue.freeMemory();
+  /** Unload the models now (the GPU's memory is wanted for something else): on one machine, or on every one that is not rendering. */
+  app.post("/api/comfy/free", async (req) => {
+    await s.queue.freeMemory(onMachine.parse(req.body ?? {}).machine);
     return { ok: true };
   });
 

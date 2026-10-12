@@ -28,8 +28,9 @@ export type Command =
   | { cmd: "length"; seconds: number }
   | { cmd: "load"; model: string }
   | { cmd: "new-draft"; recipe: string }
-  | { cmd: "pause" }
-  | { cmd: "resume" }
+  | { cmd: "pause"; machine?: string }
+  | { cmd: "resume"; machine?: string }
+  | { cmd: "use-only"; machine: string }
   | { cmd: "empty-bin" }
   | { cmd: "put-back-all" }
   | { cmd: "bin-unused" }
@@ -43,7 +44,7 @@ export type Command =
   | { cmd: "retry-failed" }
   | { cmd: "dismiss-failed" }
   | { cmd: "group-queue" }
-  | { cmd: "unload" }
+  | { cmd: "unload"; machine?: string }
   | { cmd: "generate" }
   | { cmd: "new-timeline"; name: string }
   | { cmd: "new-folder"; name: string }
@@ -100,6 +101,7 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "link-folder", name: "Link folder…", typed: "link folder ", example: "link folder D:\\shoots", what: "Used in place, nothing copied" },
   { id: "pause", name: "Pause queue", typed: "pause queue", example: "pause queue", what: "What runs finishes; nothing new starts" },
   { id: "resume", name: "Resume queue", typed: "resume queue", example: "resume queue", what: "What waits starts again" },
+  { id: "use-only", name: "Use only…", typed: "use only ", example: "use only second gpu", what: "With several ComfyUIs: every other one paused, everything waiting goes to this one", needs: true },
   { id: "empty-bin", name: "Empty the bin…", typed: "empty the bin", example: "empty the bin", what: "Erases what is in the bin, asked first" },
   { id: "put-back-all", name: "Put all back", typed: "put all back", example: "put all back", what: "Everything in the bin back where it was, as the bin's Put all back" },
   { id: "bin-unused", name: "Bin unused takes…", typed: "bin unused takes", example: "bin unused takes", what: "Of the open timeline, asked first" },
@@ -179,8 +181,12 @@ export function parseCommand(input: string): Command | null {
   if ((m = new RegExp(`^(?:length|duration|seconds) ${NUMBER} ?(?:s|sec|secs|seconds?)?$`).exec(low))) return num(m[1]!) > 0 ? { cmd: "length", seconds: num(m[1]!) } : null;
   if ((m = /^load (.+)$/i.exec(t))) return { cmd: "load", model: m[1]!.trim() };
   if ((m = /^new draft (.+)$/i.exec(t))) return { cmd: "new-draft", recipe: m[1]!.trim() };
-  if (/^pause(?: (?:the )?queue)?$/.test(low)) return { cmd: "pause" };
-  if (/^(?:resume|unpause)(?: (?:the )?queue)?$/.test(low)) return { cmd: "resume" };
+  if (/^pause(?: (?:the )?queue| all)?$/.test(low)) return { cmd: "pause" };
+  if (/^(?:resume|unpause)(?: (?:the )?queue| all)?$/.test(low)) return { cmd: "resume" };
+  // one ComfyUI of several, by its name: "pause studio pc", "use only second gpu"
+  if ((m = /^use only (.+)$/i.exec(t))) return { cmd: "use-only", machine: m[1]!.trim() };
+  if ((m = /^pause (.+)$/i.exec(t))) return { cmd: "pause", machine: m[1]!.trim() };
+  if ((m = /^(?:resume|unpause) (.+)$/i.exec(t))) return { cmd: "resume", machine: m[1]!.trim() };
   if (/^empty (?:the )?(?:bin|trash)$/.test(low)) return { cmd: "empty-bin" };
   if (/^(?:put (?:all|everything) back|put back (?:all|everything)|restore (?:the )?(?:bin|trash|all))$/.test(low)) return { cmd: "put-back-all" };
   if (/^bin (?:the )?unused(?: takes)?$/.test(low)) return { cmd: "bin-unused" };
@@ -198,6 +204,7 @@ export function parseCommand(input: string): Command | null {
   if (/^dismiss (?:all )?(?:the )?failed(?: jobs)?$/.test(low)) return { cmd: "dismiss-failed" };
   if (/^group (?:the )?(?:queue )?by model$/.test(low)) return { cmd: "group-queue" };
   if (/^(?:unload|free)(?: (?:the )?models?)?$/.test(low) || /^free (?:the )?vram$/.test(low)) return { cmd: "unload" };
+  if ((m = /^unload (.+)$/i.exec(t))) return { cmd: "unload", machine: m[1]!.trim() };
   if (/^gen(?:erate)?(?: (?:the )?(?:open )?draft)?$/.test(low)) return { cmd: "generate" };
   if ((m = /^new timeline(?: (.+))?$/i.exec(t))) return { cmd: "new-timeline", name: (m[1] ?? "").trim().slice(0, 120) };
   if ((m = /^new folder (.+)$/i.exec(t))) return { cmd: "new-folder", name: m[1]!.trim().slice(0, 120) };

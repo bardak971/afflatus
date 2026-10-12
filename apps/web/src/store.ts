@@ -4,10 +4,17 @@ import type { SystemLoad } from "./api";
 import { useProject, type ProjectChoice } from "./project";
 import type { GroupBy } from "./screens/studio/grouping";
 
-/** The machine's load, pushed by the server about every two seconds. */
-export const useSystem = create<{ load: SystemLoad | null; set(load: SystemLoad | null): void }>((set) => ({
+/** The machine's load, pushed by the server about every two seconds: the first ComfyUI's, and every one's by machine id. */
+export const useSystem = create<{ load: SystemLoad | null; loads: Record<string, SystemLoad | null>; set(load: SystemLoad | null, loads?: Record<string, SystemLoad | null>): void }>((set) => ({
   load: null,
-  set: (load) => set({ load }),
+  loads: {},
+  set: (load, loads = {}) => set({ load, loads }),
+}));
+
+/** With several ComfyUIs, the machine whose meters the status bar shows: the one whose chip was last clicked (null: the one of the render shown, else the first). */
+export const useMeteredMachine = create<{ id: string | null; set(id: string | null): void }>((set) => ({
+  id: null,
+  set: (id) => set({ id }),
 }));
 
 /** Whether the live connection (live.ts) has been down for a few seconds: the status bar says so until it is back. */

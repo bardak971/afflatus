@@ -80,7 +80,7 @@ const folderPaths = process.env.DEMO_MANAGER === "1" ? undefined : Object.fromEn
   }),
 );
 
-const fake = await startFakeComfy({
+const pretendComfy = () => startFakeComfy({
   catalog,
   // a pretend ComfyUI-Manager: "Download" in the demo fetches from the pretend site below
   manager: true,
@@ -96,6 +96,9 @@ const fake = await startFakeComfy({
   },
   simulate: { stepMs: Number(process.env.DEMO_STEP_MS) || 220, video: pretendClip },
 });
+const fake = await pretendComfy();
+// DEMO_MACHINES=2 (up to 8): as many pretend ComfyUIs, as if this computer had that many GPUs (Settings › ComfyUI, the queue's lanes)
+const others = await Promise.all(Array.from({ length: Math.min(7, Math.max(0, (Number(process.env.DEMO_MACHINES) || 1) - 1)) }, () => pretendComfy()));
 
 /**
  * A pretend language model for the designer: it answers in the designer's format with what it was told,
@@ -195,11 +198,16 @@ process.env.AFFLATUS_PRETEND_SITES = "1";
 // version (DEMO_SECURITY=1 marks it a security fix); without it the updates check asks nothing
 if (process.env.DEMO_RELEASE) process.env.UPDATES_URL = `http://127.0.0.1:${(pretendSite.address() as AddressInfo).port}/releases/latest`;
 
-const dataDir = join(root, "data-demo");
+// DEMO_DATA=data-demo-2: a data folder of its own, for a second demo beside the first (two on one folder take it from each other)
+const dataDir = join(root, process.env.DEMO_DATA ?? "data-demo");
 mkdirSync(dataDir, { recursive: true });
 const db = openSqlite(takeOver(dataDir));
 await migrate(db);
 await writeSettings(db, { comfyUrl: fake.url, llm: { baseUrl: llmUrl, model: "pretend-designer", apiKey: "", vision: false } });
+if (others.length) {
+  const names = ["Studio PC", "Second GPU", "Garage PC", "Cloud", "Office PC", "Laptop", "Rack 1", "Rack 2"];
+  await writeSettings(db, { machines: [fake, ...others].map((f, i) => ({ id: `m${i + 1}`, name: names[i]!, url: f.url, dir: "", takes: "all" as const })) });
+}
 
 // a few months of pretend render times, so that the "Render times" tab has something to show
 await seedRenderTimes(db);
@@ -214,13 +222,14 @@ const app = buildApp(services, { webDir: existsSync(join(dist, "index.html")) ? 
 const port = Number(process.env.PORT) || 8720;
 await app.listen({ host: "127.0.0.1", port });
 await services.queue.start();
-console.log(`Afflatus demo on http://127.0.0.1:${port}  (pretend ComfyUI at ${fake.url}, pretend designer at ${llmUrl}, data in data-demo/)`);
+console.log(`Afflatus demo on http://127.0.0.1:${port}  (pretend ComfyUI at ${fake.url}, pretend designer at ${llmUrl}, data in ${process.env.DEMO_DATA ?? "data-demo"}/)`);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, async () => {
     await app.close();
     await services.close();
     await fake.close();
+    await Promise.all(others.map((o) => o.close()));
     pretendLlm.close();
     pretendSite.close();
     process.exit(0);

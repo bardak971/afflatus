@@ -5,7 +5,7 @@ node_modules/
 dist/
 dist-demo/
 data/
-data-demo/
+data-demo*/
 *.log
 .env
 .env.*

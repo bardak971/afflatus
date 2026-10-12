@@ -51,7 +51,7 @@ describe("ComfyUI's memory is cleared for another base model only", () => {
 
 describe("loading a model ahead of the render", () => {
   it("runs the render's graph up to one step of its first pass, makes nothing, and the render that follows keeps the model", async () => {
-    expect((await post(t.app, "/api/comfy/loaded", form())).json()).toEqual({ loaded: false });
+    expect((await post(t.app, "/api/comfy/loaded", form())).json()).toEqual({ loaded: false, on: null });
     expect((await get(t.app, "/api/queue")).json().model).toBeNull();
 
     // the prompt is not written yet: no reason to refuse
@@ -77,14 +77,14 @@ describe("loading a model ahead of the render", () => {
     expect((await get(t.app, "/api/assets")).json().items).toEqual([]);
     expect(await t.db.selectFrom("generations").selectAll().execute()).toEqual([]);
 
-    expect((await post(t.app, "/api/comfy/loaded", form())).json()).toEqual({ loaded: true });
+    expect((await post(t.app, "/api/comfy/loaded", form())).json()).toEqual({ loaded: true, on: "m1" });
     // the queue says which model that is, by its name
     expect((await get(t.app, "/api/queue")).json().model).toBe("illustrious");
-    expect((await post(t.app, "/api/comfy/loaded", form({ loras: [{ file: "a.safetensors", weight: 1 }] }))).json()).toEqual({ loaded: true });
-    expect((await post(t.app, "/api/comfy/loaded", form({ checkpoint: "other.safetensors" }))).json()).toEqual({ loaded: false });
+    expect((await post(t.app, "/api/comfy/loaded", form({ loras: [{ file: "a.safetensors", weight: 1 }] }))).json()).toEqual({ loaded: true, on: "m1" });
+    expect((await post(t.app, "/api/comfy/loaded", form({ checkpoint: "other.safetensors" }))).json()).toEqual({ loaded: false, on: null });
     // a form without its picture yet (a redraw): its models are what is asked about, so it is answered like any other
-    expect((await post(t.app, "/api/comfy/loaded", { recipe: "sdxl.redraw", input: { checkpoint: "other.safetensors" } })).json()).toEqual({ loaded: false });
-    expect((await post(t.app, "/api/comfy/loaded", { recipe: "sdxl.redraw", input: { checkpoint: CHECKPOINT } })).json()).toEqual({ loaded: true });
+    expect((await post(t.app, "/api/comfy/loaded", { recipe: "sdxl.redraw", input: { checkpoint: "other.safetensors" } })).json()).toEqual({ loaded: false, on: null });
+    expect((await post(t.app, "/api/comfy/loaded", { recipe: "sdxl.redraw", input: { checkpoint: CHECKPOINT } })).json()).toEqual({ loaded: true, on: "m1" });
 
     await render({ prompt: "a dog" });
     expect(frees()).toBe(1);
@@ -102,12 +102,12 @@ describe("loading a model ahead of the render", () => {
     const look = { cast: [{ id: her.id }], style: null, snippets: [] };
     const asked = await post(t.app, "/api/comfy/loaded", { ...form(), look });
     expect(asked.statusCode).toBe(200);
-    expect(asked.json()).toEqual({ loaded: false });
+    expect(asked.json()).toEqual({ loaded: false, on: null });
     const id = (await post(t.app, "/api/jobs/warm", { ...form(), look })).json().id as string;
     await until(() => submitted().length === 1);
     done(submitted()[0]!);
     await until(async () => (await statusOf(id)) === "done");
-    expect((await post(t.app, "/api/comfy/loaded", { ...form(), look })).json()).toEqual({ loaded: true });
+    expect((await post(t.app, "/api/comfy/loaded", { ...form(), look })).json()).toEqual({ loaded: true, on: "m1" });
   });
 
   it("is stopped like any job, and says what is missing when the form cannot be built", async () => {
@@ -119,7 +119,7 @@ describe("loading a model ahead of the render", () => {
     // a checkpoint this ComfyUI does not have
     const bad = (await post(t.app, "/api/jobs/warm", form({ checkpoint: "gone.safetensors" }))).json().id as string;
     await until(async () => (await statusOf(bad)) === "failed");
-    expect((await post(t.app, "/api/comfy/loaded", { recipe: "nothing.like-it", input: {} })).json()).toEqual({ loaded: null });
+    expect((await post(t.app, "/api/comfy/loaded", { recipe: "nothing.like-it", input: {} })).json()).toEqual({ loaded: null, on: null });
   });
 });
 

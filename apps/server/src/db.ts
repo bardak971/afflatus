@@ -143,6 +143,9 @@ export interface Tables {
     heat_peak: number | null;
     /** What it made (the first of them), to show beside its figures while it is still in the library. */
     asset_id: string | null;
+    /** The machine it ran on (settings.ts `machines`), and its GPU's name as ComfyUI gave it: each machine's speed is learned from its own rows. */
+    machine_id: string | null;
+    gpu: string | null;
     created_at: string;
   };
   /** The renders of one model on one day (UTC), folded: what the charts are drawn from once the rows are gone. Recipe "*" is the day as a whole. */
@@ -199,6 +202,10 @@ export interface Tables {
     /** The draft it was sent from, and the folder its results go to: the one that was open when it was sent. */
     draft_id: string | null;
     folder_id: string | null;
+    /** The machine (settings.ts `machines`) it runs or ran on, set when it is claimed; null for a job that needs no ComfyUI. */
+    machine_id?: string | null;
+    /** The machine it was pinned to by hand; null: whichever the queue picks. */
+    pin_machine?: string | null;
     created_at: string;
     started_at: string | null;
     finished_at: string | null;

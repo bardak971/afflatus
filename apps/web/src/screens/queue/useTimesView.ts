@@ -44,7 +44,9 @@ export function useTimesView() {
   const [typed, setTyped] = useState<{ from: string; to: string } | null>(null);
   const [model, setModel] = useState<string | null>(null);
   const [only, setOnly] = useState<"all" | "trouble">("all");
-  const times = useRenderTimes("from" in view ? { from: view.from, to: view.to } : { preset: view.preset, ms: presetOf(view.preset).ms });
+  /** With several ComfyUIs, the machine the tab is of (null: every machine), as a dashboard's variable. */
+  const [machine, setMachine] = useState<string | null>(null);
+  const times = useRenderTimes("from" in view ? { from: view.from, to: view.to } : { preset: view.preset, ms: presetOf(view.preset).ms }, machine);
   // the list and the lanes are keyed on the preset (or the typed or dragged window), not on the window the figures
   // were read with: a preset's window moves on each read, and a new key read everything twice and blanked the list.
   // A preset's window is worked out when each is read, as the figures' is (windowOf); "All" asks for no bounds
@@ -56,16 +58,16 @@ export function useTimesView() {
     return ms === null ? {} : { from: now - ms, to: now };
   };
   const renders = useInfiniteQuery({
-    queryKey: queryKeys.renders.list(model, only, key),
-    queryFn: ({ pageParam, signal }) => api.renders({ recipe: model ?? undefined, trouble: only === "trouble", before: pageParam, limit: 30, ...bounds() }, { signal }),
+    queryKey: queryKeys.renders.list(model, only, key, machine),
+    queryFn: ({ pageParam, signal }) => api.renders({ recipe: model ?? undefined, trouble: only === "trouble", before: pageParam, limit: 30, machine, ...bounds() }, { signal }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => (last.more ? last.items.at(-1)?.at : undefined),
     placeholderData: keepPreviousData,
   });
   // every render of the window, for the lanes (up to five hundred: the longest keep their place in the chart either way)
   const lanes = useQuery({
-    queryKey: queryKeys.renders.lanes(key),
-    queryFn: ({ signal }) => api.renders({ ...bounds(), limit: 500 }, { signal }),
+    queryKey: queryKeys.renders.lanes(key, machine),
+    queryFn: ({ signal }) => api.renders({ ...bounds(), limit: 500, machine }, { signal }),
     placeholderData: keepPreviousData,
   });
   const zoom = (from: number, to: number) => {
@@ -76,5 +78,5 @@ export function useTimesView() {
     setTyped(null);
     setView({ preset });
   };
-  return { view, typed, setTyped, model, setModel, only, setOnly, times, renders, lanes, zoom, pick };
+  return { view, typed, setTyped, model, setModel, only, setOnly, machine, setMachine, times, renders, lanes, zoom, pick };
 }

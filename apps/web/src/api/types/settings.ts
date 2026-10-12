@@ -47,7 +47,32 @@ export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiK
   llms?: LlmPatch[];
   llm?: Partial<Omit<LlmPatch, "id">>;
 };
+/** One ComfyUI the queue sends work to (a GPU of this computer, another computer, a rented instance). */
+export interface Machine {
+  /** Stays when its address changes: what was learned of it stays with it. */
+  id: string;
+  /** What the user calls it; empty: its address is shown. */
+  name: string;
+  url: string;
+  /** Its ComfyUI folder on Afflatus's computer, when they share a disk; empty otherwise. */
+  dir: string;
+  /** What the queue gives it. */
+  takes: "all" | "image" | "video";
+}
+/** A ComfyUI asked now (GET /api/machines): whether it answers (and why not), its version, its GPU and the Afflatus node pack it loaded. */
+export interface MachineProbe {
+  id: string;
+  online: boolean;
+  error: string | null;
+  version: string | null;
+  device: string | null;
+  vramTotal: number | null;
+  vramFree: number | null;
+  pack: string | null;
+}
 export interface Settings {
+  /** The ComfyUIs, the first first (the one the setup, downloads and node packs talk to); `comfyUrl` and `comfyDir` are the first one's. */
+  machines: Machine[];
   comfyUrl: string;
   /** ComfyUI's folder on Afflatus's computer, when they share one; empty otherwise. */
   comfyDir: string;

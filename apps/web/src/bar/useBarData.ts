@@ -17,6 +17,7 @@ import { TABS, tabHref } from "../screens/settings/settingsIndex";
 import { isUnder, queryKeys } from "../queryKeys";
 import { type Grid } from "./calc";
 import { commandTemplates, type CommandCtx } from "./commandRows";
+import { machineLabel, severalMachines } from "../machines";
 import { indexItems, navItems, rowsFor, settingItems, usedItems, withItems, type Item, type Section } from "./items";
 import { prepare } from "./match";
 import { COMMANDS, parseCommand, type Command, type Mode } from "./parse";
@@ -136,7 +137,7 @@ export function useBarData({ open, mode, text, ranks, picked, learn, foundEntrie
   const binSaid = binNow ? `${itemsWord(binNow.count)} · ${size(binNow.bytes)}` : "";
   // the queue only while open, and in full only in the queue mode (its jobs live): the bar does not draw again
   // at every sampler step for the counts it says elsewhere
-  const queueNow = useQueueOf((q) => (open ? { paused: q.paused, online: q.online, rendering: q.running?.kind === "render", running: Boolean(q.running), waiting: q.waiting.length, failed: q.recent.filter((j) => j.status === "failed").length, saves: groupingSaves(q.waiting, q.running) } : null));
+  const queueNow = useQueueOf((q) => (open ? { paused: q.paused, online: q.online, rendering: q.running?.kind === "render", running: Boolean(q.running), waiting: q.waiting.length, failed: q.recent.filter((j) => j.status === "failed").length, saves: groupingSaves(q.waiting, q.running), machines: severalMachines(q).map((m) => ({ id: m.id, label: machineLabel(m), paused: m.paused, online: m.online, running: Boolean(m.running) })) } : null));
   const queueFull = useQueueOf((q) => (open && mode === "queue" ? q : null));
 
   // the timeline a command acts on: the one open in the editor, else the one last opened from here, else the last changed

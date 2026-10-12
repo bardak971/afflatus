@@ -370,7 +370,7 @@ describe.skipIf(!ffmpegThere)("how long a finish takes", { timeout: FFMPEG_TIMEO
     id, owner_id: OWNER, recipe_id: "tool.finish.seedvr", family: "tools", model: "SeedVR2", model_file: "", time_key: "route=seedvr;by=2;frames=0",
     kind: "video", width: 384, height: 640, duration_ms: 3000, steps: 0, status: "done", whole: 1, cold: 0, waited_ms: 0,
     total_ms: totalMs, load_ms: 0, sample_ms: 0, refine_ms: totalMs, finish_ms: 0, step_ms: null, expected_ms: null, work,
-    vram_peak: 60, heat_peak: 60, asset_id: null, created_at: new Date().toISOString(),
+    vram_peak: 60, heat_peak: 60, asset_id: null, machine_id: null, gpu: null, created_at: new Date().toISOString(),
   }).execute();
 
   it("is one figure from the server: the dialog's total is what the waiting list says job by job, none before the route has run", async () => {

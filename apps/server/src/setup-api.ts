@@ -49,10 +49,26 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
    * `since`: the stamp of the last line the page has; only the lines from that moment on come back (that one again
    * among them, as lines can share a stamp: the page drops what it has).
    */
+  /**
+   * Each ComfyUI of the settings asked now, side by side: whether it answers (and why not), its version, its GPU and the
+   * Afflatus node pack it loaded. Read-only: what Settings › ComfyUI shows on each machine's card.
+   */
+  app.get("/api/machines", async () => {
+    const all = await s.machines();
+    return Promise.all(all.map(async ({ machine, comfy }) => {
+      try {
+        const [st, pack] = await Promise.all([comfy.client.status(), comfy.client.packVersion().catch(() => null)]);
+        return { id: machine.id, online: true as const, error: null, version: st.version, device: st.device, vramTotal: st.vramTotal, vramFree: st.vramFree, pack };
+      } catch (e) {
+        return { id: machine.id, online: false as const, error: e instanceof Error ? e.message : String(e), version: null, device: null, vramTotal: null, vramFree: null, pack: null };
+      }
+    }));
+  });
+
   app.get("/api/comfy/logs", async (req) => {
-    const { since } = z.object({ since: z.string().max(64).optional() }).parse(req.query ?? {});
+    const { since, machine } = z.object({ since: z.string().max(64).optional(), machine: z.string().max(40).optional() }).parse(req.query ?? {});
     const from = since ? Date.parse(since) : Number.NaN;
-    const comfy = await s.comfy();
+    const comfy = await s.comfyOf(machine);
     try {
       const lines = await comfy.client.logs();
       // a line whose stamp does not read is kept
@@ -67,9 +83,12 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
    * line): after node packs were installed, which ComfyUI only loads at start. Refused while a render
    * runs. What was learned of ComfyUI is forgotten: the new node types show at the next read.
    */
-  app.post("/api/comfy/restart", async () => {
-    if ((await s.queue.status()).running) throw httpError("A render is running: restart ComfyUI once it is done.", 409);
-    const comfy = await s.comfy();
+  app.post("/api/comfy/restart", async (req) => {
+    const { machine } = z.object({ machine: z.string().max(40).optional() }).parse(req.body ?? {});
+    const all = await s.machines();
+    const on = all.find((m) => m.machine.id === machine) ?? all[0]!;
+    if ((await s.queue.status()).machines.find((m) => m.id === on.machine.id)?.running) throw httpError("A render is running: restart ComfyUI once it is done.", 409);
+    const comfy = on.comfy;
     let res: Response | null = null;
     try {
       res = await fetch(comfy.client.baseUrl + "/v2/manager/reboot", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: AbortSignal.timeout(15_000) });

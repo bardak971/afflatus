@@ -31,6 +31,8 @@ export const SHUTDOWN = "shutting down";
 /** The job under way: its abort switch, the prompt ComfyUI knows it by once it has one, and whether it holds the GPU. */
 export interface Running {
   id: string;
+  /** The machine it runs on; null for a job that needs no ComfyUI. */
+  machine: string | null;
   abort: AbortController;
   promptId?: string;
   gpu: boolean;
@@ -116,6 +118,8 @@ export interface QueueCore {
   registry: Registry;
   events: EventEmitter;
   opts: QueueOptions;
+  /** The machine (settings.ts `machines`) this core is the queue of: its ComfyUI, its running job, what it holds. Null for the lane of the jobs that need no ComfyUI. */
+  readonly machineId: string | null;
   comfy(): Promise<Comfy>;
   /** The timelines, for jobs that render a clip of one (set once both exist). */
   readonly clips: Timelines | null;

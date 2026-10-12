@@ -158,6 +158,12 @@ describe("modes and commands", () => {
     expect(parseCommand("new draft klein")).toEqual({ cmd: "new-draft", recipe: "klein" });
     expect(parseCommand("pause queue")).toEqual({ cmd: "pause" });
     expect(parseCommand("resume")).toEqual({ cmd: "resume" });
+    // one ComfyUI of several, by its name; "all" is every one
+    expect(parseCommand("pause all")).toEqual({ cmd: "pause" });
+    expect(parseCommand("pause Studio PC")).toEqual({ cmd: "pause", machine: "Studio PC" });
+    expect(parseCommand("resume second gpu")).toEqual({ cmd: "resume", machine: "second gpu" });
+    expect(parseCommand("use only Second GPU")).toEqual({ cmd: "use-only", machine: "Second GPU" });
+    expect(parseCommand("unload garage")).toEqual({ cmd: "unload", machine: "garage" });
     expect(parseCommand("empty the bin")).toEqual({ cmd: "empty-bin" });
     expect(parseCommand("bin unused takes")).toEqual({ cmd: "bin-unused" });
     expect(parseCommand("link folder D:\\shoots")).toEqual({ cmd: "link-folder", path: "D:\\shoots" });
