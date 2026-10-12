@@ -20,6 +20,7 @@ export type Command =
   | { cmd: "render-clips"; clips: number[] }
   | { cmd: "render-missing" }
   | { cmd: "export" }
+  | { cmd: "export-editor" }
   | { cmd: "seed"; value: number }
   | { cmd: "steps"; value: number }
   | { cmd: "cfg"; value: number }
@@ -73,6 +74,7 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "render-clips", name: "Render clips…", typed: "render clips ", example: "render clips 3-5", what: "Clips of the open timeline, by their number", needs: true },
   { id: "render-missing", name: "Render missing clips", typed: "render missing", example: "render missing", what: "The clips of the open timeline that have no take" },
   { id: "export", name: "Export timeline", typed: "export", example: "export", what: "The open timeline as one video" },
+  { id: "export-editor", name: "Export for a video editor", typed: "export for editor", example: "export for resolve", what: "The open timeline as its clips and a project file for DaVinci Resolve, Premiere Pro or Kdenlive" },
   { id: "finish", name: "Finish timeline…", typed: "finish", example: "finish", what: "The Finish dialog on the open timeline: every take upscaled to its final quality" },
   { id: "fix-all", name: "Fix all", typed: "fix all", example: "fix all", what: "What the open timeline's Needs attention lists, mended as its Fix all does" },
   { id: "generate", name: "Generate", typed: "generate", example: "generate", what: "The open draft, as its Generate button" },
@@ -163,6 +165,7 @@ export function parseCommand(input: string): Command | null {
   }
   if (/^render (?:the )?missing(?: clips)?$/.test(low)) return { cmd: "render-missing" };
   if (/^export(?: (?:the )?timeline)?$/.test(low)) return { cmd: "export" };
+  if (/^export(?: (?:the )?timeline)? for (?:an? )?(?:video )?(?:editor|resolve|davinci|premiere|kdenlive|nle)$/.test(low)) return { cmd: "export-editor" };
   if ((m = new RegExp(`^seed (\\d{1,10})$`).exec(low))) {
     const value = Number(m[1]);
     return value <= 2 ** 32 - 1 ? { cmd: "seed", value } : null;

@@ -419,6 +419,9 @@ export const api = {
 };
 
 export const fileUrl = (id: string) => `/api/assets/${id}/file`;
+/** A timeline for a video editor, as a zip to download: its clips' files, the music as heard, and the project files. */
+export const projectUrl = (timeline: string, o: { music: boolean; range?: { inMs: number; outMs: number } }) =>
+  `/api/timelines/${timeline}/project.zip?music=${o.music ? 1 : 0}${o.range ? `&in=${Math.round(o.range.inMs)}&out=${Math.round(o.range.outMs)}` : ""}`;
 export const thumbUrl = (id: string) => `/api/assets/${id}/thumb`;
 /**
  * The thumbnail's two sizes for a srcset, of a thumbUrl: the 256 px one for a tile that small on a screen of one pixel

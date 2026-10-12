@@ -43,6 +43,11 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
         { label: `Export ${aim.name}…`, icon: <FileOutput size={14} />, note: "the export dialog opens", run: () => askTimeline(aim, { timeline: aim.id, do: "export" }) },
         { label: `Open ${aim.name}`, icon: <Film size={14} />, run: () => go(`/timelines/${aim.id}`) },
       ] : [noTimeline];
+    case "export-editor":
+      return aim ? [
+        { label: `Export ${aim.name} for a video editor…`, icon: <FileOutput size={14} />, note: "the export dialog opens on For an editor", run: () => askTimeline(aim, { timeline: aim.id, do: "export", editor: true }) },
+        { label: `Open ${aim.name}`, icon: <Film size={14} />, run: () => go(`/timelines/${aim.id}`) },
+      ] : [noTimeline];
     case "finish":
       return aim ? [
         { label: `Finish ${aim.name}…`, icon: <Sparkles size={14} />, note: "the Finish dialog opens", run: () => askTimeline(aim, { timeline: aim.id, do: "finish" }) },

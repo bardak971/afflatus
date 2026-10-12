@@ -5,6 +5,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 ## [Unreleased]
 
 ### Added
+- **Export for a video editor:** the Export dialog's For switch (Video file / A video editor), or `export for resolve` in Ctrl+K. A zip of every clip's whole file with its in and out points, its sound, the music as heard (ducked), and project files for DaVinci Resolve and Premiere Pro (FCP 7 XML) and Kdenlive (OpenTimelineIO). Seamless joins stay seamless as plain cuts; nothing is rendered again.
 - **Remove sound** from a video: a copy without its sound beside it in the library, the video itself untouched; nothing encoded again, no GPU. In every place that lists a video's tools, beside Extract audio.
 
 ## [0.4.0] - 2026-10-12

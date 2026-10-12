@@ -243,14 +243,14 @@ export function useTimelineEditor(id: string) {
     setMusicOpen(false);
     if (plan && !fix.isPending && !render.isPending) fix.mutate(plan);
   };
-  const exportNow = (t: Timeline) => setExp({ scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), blend: true, match: true, fit: finishedSize ? "largest" : "timeline", web: 0, before: t.exported?.id ?? null, asked: Boolean(t.exporting) });
+  const exportNow = (t: Timeline, editor = false) => setExp({ for: editor ? "editor" : "video", scale: 1, music: true, smooth: false, range: Boolean(range && !emptyRange), blend: true, match: true, fit: finishedSize ? "largest" : "timeline", web: 0, before: t.exported?.id ?? null, asked: Boolean(t.exporting) });
   // the keys' and the command bar's actions that need the timeline read
   if (t && shown) {
     renderNow.current = () => {
       const c = clips.find((x) => x.id === selectedNow.current);
       if (c && c.kind === "video" && !c.job && !render.isPending) render.mutate({ clips: [c] });
     };
-    openExport.current = () => exportNow(t);
+    openExport.current = (editor) => exportNow(t, editor);
   }
 
   return {

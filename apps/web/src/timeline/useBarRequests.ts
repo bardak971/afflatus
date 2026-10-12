@@ -40,7 +40,7 @@ export function useBarRequests({ id, t, shown, clips, slots, missing, ready, ren
   splitNow: RefObject<(only?: string | null) => void>;
   takeNow: RefObject<(by: -1 | 1) => void>;
 }) {
-  const openExport = useRef<(() => void) | null>(null);
+  const openExport = useRef<((editor?: boolean) => void) | null>(null);
   const request = useTimelineRequest((r) => r.request);
   useEffect(() => {
     if (!request || request.timeline !== id || !t || !shown) return;
@@ -53,7 +53,7 @@ export function useBarRequests({ id, t, shown, clips, slots, missing, ready, ren
     }
     if (request.do === "export") {
       asked?.reply(null);
-      return openExport.current?.();
+      return openExport.current?.(request.editor);
     }
     // the Finish dialog, as the Finish button opens it
     if (request.do === "finish") {

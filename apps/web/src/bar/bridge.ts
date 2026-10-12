@@ -13,7 +13,8 @@ import type { PinMirror } from "../timeline/model";
 export type TimelineRequest =
   | { timeline: string; do: "render"; clips: number[]; top?: boolean }
   | { timeline: string; do: "render-missing"; top?: boolean }
-  | { timeline: string; do: "export" }
+  /** The export dialog; `editor`: open on "For an editor". */
+  | { timeline: string; do: "export"; editor?: boolean }
   /** The selected clip split at the playhead (S); said in the editor's note when the playhead is not inside it. */
   | { timeline: string; do: "split" }
   /** The selected clip plays its take before (-1) or after (1): Alt+[ and Alt+]; at either end it stays. */

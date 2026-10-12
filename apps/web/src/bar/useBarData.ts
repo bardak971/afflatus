@@ -62,7 +62,7 @@ export function commandExtra(shown: Item | null, estimate: CommandEstimate | und
     facts: [
       ...(estimate ? [{ k: "estimate", v: estimate.ms !== null ? `${aboutMs(estimate.ms)} (learned)` : "not learned yet" }, { k: "queue ahead", v: String(estimate.ahead) }] : []),
       ...(shown.command.cmd === "render-clips" ? [{ k: "clips", v: shown.command.clips.join(", ") }] : []),
-      ...(aim && ["render-clips", "render-missing", "export", "bin-unused"].includes(shown.command.cmd) ? [{ k: "timeline", v: aim.name }] : []),
+      ...(aim && ["render-clips", "render-missing", "export", "export-editor", "bin-unused"].includes(shown.command.cmd) ? [{ k: "timeline", v: aim.name }] : []),
     ],
   };
   if (!shown.complete) return undefined;
