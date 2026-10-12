@@ -265,7 +265,8 @@ export function summariesOf(recipe: RecipeInfo, layout: FormLayout, values: Reco
     }),
   ].filter(Boolean);
   const kind = recipe.output === "video" ? "vid" : recipe.output === "image" ? "img" : "audio";
-  const framesSaid = framesChosen.length ? framesChosen.map((i) => i.label.toLowerCase()).join(", ") : missing ? "nothing chosen yet" : frames.length ? `txt2${kind}` : "";
+  // "txt2vid" only when the render starts from words alone: with references or a cast it is made from those too
+  const framesSaid = framesChosen.length ? framesChosen.map((i) => i.label.toLowerCase()).join(", ") : missing ? "nothing chosen yet" : frames.length && !refsSaid.length ? `txt2${kind}` : "";
   const outSaid = out.map((i) => {
     const v = values[i.id];
     if (i.type === "size") {

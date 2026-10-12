@@ -53,6 +53,21 @@ describe("which input goes in which part of a form", () => {
   });
 });
 
+describe("what a video form's inputs say", () => {
+  const video = recipe([
+    { id: "prompt", type: "prompt", label: "Prompt", style: "sentences" },
+    { id: "start", type: "image", label: "First frame", role: "start", optional: true },
+    { id: "references", type: "references", label: "Reference images", max: 6, roles: ["person"] },
+  ], "video");
+  const said = (values: Record<string, unknown>, extra: { lookSummary?: string } = {}) => summariesOf(video, layoutOf(video, values, ""), values, extra).inputsSaid;
+  it("is txt2vid from words alone, and not once references or a cast are given", () => {
+    expect(said({})).toBe("txt2vid");
+    expect(said({ references: [{ asset: "zz-test", role: "person" }] })).toBe("1 reference image");
+    expect(said({}, { lookSummary: "Lina" })).toBe("Lina");
+    expect(said({ start: "zz-test", references: [{ asset: "zz-test-2", role: "person" }] })).toBe("first frame · 1 reference image");
+  });
+});
+
 describe("what a form asks the server what it will take with", () => {
   it("is its settings: no text, nothing unset, and no value of an input the recipe no longer has", () => {
     expect(settingsOnly(picture, { prompt: "a cat", steps: 30, gone: 1, crf: undefined })).toEqual({ steps: 30 });
