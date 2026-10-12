@@ -161,6 +161,8 @@ Bug reports, fixes and new model families are welcome. See [CONTRIBUTING.md](CON
 
 Afflatus is under [AGPL-3.0](LICENSE). Its node pack for ComfyUI in [comfy-nodes](comfy-nodes) is MIT.
 
+You are responsible for what you make with Afflatus, and for following the law where you live, the licences of the models you use and the terms of any GPU provider you rent from.
+
 - [ComfyUI](https://github.com/Comfy-Org/ComfyUI), which does all the rendering.
 - The node pack vendors the MIT continuation nodes of ttulttul's [ComfyUI-Minimax-H3-Continuation](https://github.com/ttulttul/ComfyUI-Minimax-H3-Continuation), with one small change (a guarded import).
 - The authors of the node packs listed in [ComfyUI setup](docs/comfyui-setup.md#node-packs).
