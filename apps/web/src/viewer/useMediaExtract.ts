@@ -27,6 +27,7 @@ export function useMediaExtract({ asset, trim, player, onOpened }: { asset: Asse
   // (the library refreshes on the server's own word, its `library` event)
   const saveFrame = useMutation({ mutationFn: () => api.frame(asset.id, Math.round((player.current?.currentTime ?? 0) * 1000)), onSuccess: onOpened });
   const takeSound = useMutation({ mutationFn: () => api.takeSound(asset.id), onSuccess: onOpened });
+  const silence = useMutation({ mutationFn: () => api.silence(asset.id), onSuccess: onOpened });
   // a picture mirrored: the copy opens in the viewer, beside the original in its folder
   const mirror = useMutation({ mutationFn: (axis: "horizontal" | "vertical") => api.mirror(asset.id, axis), onSuccess: onOpened });
   // the range as new videos: a job of the queue; the library shows them when it is done
@@ -42,5 +43,5 @@ export function useMediaExtract({ asset, trim, player, onOpened }: { asset: Asse
       say({ id: `cut:${Date.now()}`, tone: "good", title: v.action === "copy" ? "Copying the range to your library" : v.action === "split" ? "Splitting the video" : "Removing the range", text: `In the queue; it needs no GPU. The new video${v.action === "split" ? "s show" : " shows"} in the library when it is done${v.action === "copy" ? "" : "; this one goes to the bin then"}.`, href: "/queue", go: "Open queue" });
     },
   });
-  return { scenes, everyScene, saveFrame, takeSound, cutRange, mirror };
+  return { scenes, everyScene, saveFrame, takeSound, silence, cutRange, mirror };
 }

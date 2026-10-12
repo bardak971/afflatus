@@ -1038,6 +1038,16 @@ export async function soundOf(source: Media, ext: string): Promise<Uint8Array> {
   });
 }
 
+/** The same video without its sound: the picture copied as it is, nothing encoded again. */
+export async function silentOf(source: Media, ext: string): Promise<Uint8Array> {
+  return inTemp(async (dir) => {
+    const input = await onDisk(dir, `in.${ext}`, source);
+    const out = join(dir, `silent.${ext}`);
+    await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, "-map", "0:v", "-c", "copy", "-an", "-movflags", "+faststart", out]);
+    return new Uint8Array(await readFile(out));
+  });
+}
+
 /** The part of a sound that is used, given how long the sound is: see soundPart. */
 function partOf(start: number, seconds: number, total: number | null): { start: number; seconds: number } {
   if (total === null) return { start: Math.max(0, start), seconds };

@@ -244,6 +244,8 @@ export const api = {
   findModelWords: (folder: string, files: string[]) => call<{ items: Record<string, ModelWords>; lookups: boolean }>("POST", `/models/${folder}/words/find`, { files }),
   /** The sound of a video, as a sound of its own in the library. */
   takeSound: (video: string) => call<Asset>("POST", `/assets/${video}/sound`),
+  /** The video again without its sound, a new item beside it. */
+  silence: (video: string) => call<Asset>("POST", `/assets/${video}/silent`),
   assets: (opts: AssetFilter, o?: Asked) =>
     call<{ items: Asset[]; next: string | null; prev: string | null }>("GET", `/assets?${assetParams(opts)}`, undefined, o?.signal),
   /** The items not kept of a list (its filters; the page and the order do not count): how many, when the countdown of the first and of the last started, their ids with `ids`. */

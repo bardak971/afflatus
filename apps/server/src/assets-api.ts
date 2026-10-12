@@ -1,13 +1,13 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { toEditor } from "@afflatus/workflows";
-import { nameOf, shownNames, soundName } from "./autoName";
+import { fromName, nameOf, shownNames, soundName } from "./autoName";
 import { registerAssetSearch, withShownName } from "./assetSearch";
 import { registerAssetsBin } from "./assetsBin";
 import { registerAssetUpload } from "./assetUpload";
 import { openInComfy } from "./comfyOpen";
 import { tagMatches } from "./compress";
-import { soundOf } from "./cut";
+import { silentOf, soundOf } from "./cut";
 import { newId, now, type Tables } from "./db";
 import { httpError, notFound } from "./errors";
 import type { LibraryChange } from "./events";
@@ -32,6 +32,32 @@ function assetLookup(s: Services) {
     return a;
   };
 
+  /**
+   * An item made here from another one (a mirrored picture, a video's sound, the video without it): its file stored,
+   * kept, in the same folder as its source, the source remembered, and the open pages told. What it is (kind, name,
+   * size, length) is the caller's.
+   */
+  const addBeside = async (
+    from: Pick<Tables["assets"], "id" | "folder_id">,
+    file: { bytes: Uint8Array; ext: string; thumb: Uint8Array | null },
+    made: Pick<Parameters<typeof newAssetRow>[0], "kind" | "origin" | "name" | "mime" | "width" | "height" | "duration_ms" | "fps" | "has_sound">,
+  ) => {
+    const id = newId();
+    const key = `assets/${id.slice(0, 2)}/${id}.${file.ext}`;
+    await s.storage.put(key, file.bytes);
+    if (file.thumb) await s.storage.put(thumbKey(id), file.thumb);
+    const at = now();
+    await s.db
+      .insertInto("assets")
+      .values(newAssetRow({
+        ...made, id, file_key: key, thumb_key: file.thumb ? thumbKey(id) : null, bytes: file.bytes.length,
+        folder_id: from.folder_id, generation_id: null, source_id: from.id, kept_at: at, created_at: at,
+      }))
+      .execute();
+    s.queue.events.emit("library", { change: "added", items: [id], folders: [from.folder_id] } satisfies LibraryChange);
+    return assetView(await asset(id));
+  };
+
   /** An item of Afflatus's own storage that sits in a linked folder becomes a file of that folder's directory. */
   const fileInLinked = async (id: string) => {
     const a = await asset(id);
@@ -39,7 +65,7 @@ function assetLookup(s: Services) {
     const folder = await s.db.selectFrom("folders").selectAll().where("id", "=", a.folder_id).executeTakeFirst();
     if (folder?.path) await s.linked.into(a, folder);
   };
-  return { asset, fileInLinked };
+  return { asset, fileInLinked, addBeside };
 }
 export type AssetLookup = ReturnType<typeof assetLookup>;
 
@@ -112,7 +138,7 @@ export async function assetDetail(s: Services, a: Tables["assets"]) {
 
 export function registerAssets(app: FastifyInstance, s: Services): void {
   const lookup = assetLookup(s);
-  const { asset } = lookup;
+  const { asset, addBeside } = lookup;
   registerAssetSearch(app, s);
   registerAssetUpload(app, s, lookup);
   registerAssetsBin(app, s, lookup);
@@ -137,25 +163,13 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     if (a.kind !== "image") throw httpError("only a picture can be mirrored");
     const bytes = await mirrorPicture(await s.storage.get(a.file_key), axis);
     if (!bytes) throw httpError("this picture could not be mirrored: it could not be read, or the image library did not load on this machine");
-    const id = newId();
-    const key = `assets/${id.slice(0, 2)}/${id}.png`;
-    await s.storage.put(key, bytes);
-    const thumb = await makeThumb(bytes);
-    if (thumb) await s.storage.put(thumbKey(id), thumb);
-    const at = now();
     // its size read from what was made: a picture taken sideways was turned upright first
     const size = await readPicture(bytes);
     const source = await nameOf(s.db, a);
-    await s.db
-      .insertInto("assets")
-      .values(newAssetRow({
-        id, kind: "image", origin: "edited", name: source ? `${source}, mirrored` : "", file_key: key, thumb_key: thumb ? thumbKey(id) : null,
-        mime: "image/png", bytes: bytes.length, width: size?.width ?? a.width, height: size?.height ?? a.height,
-        duration_ms: null, fps: null, has_sound: 0, folder_id: a.folder_id, generation_id: null, source_id: a.id, kept_at: at, created_at: at,
-      }))
-      .execute();
-    s.queue.events.emit("library", { change: "added", items: [id], folders: [a.folder_id] } satisfies LibraryChange);
-    return assetView(await asset(id));
+    return addBeside(a, { bytes, ext: "png", thumb: await makeThumb(bytes) }, {
+      kind: "image", origin: "edited", name: source ? fromName(source, ", mirrored") : "", mime: "image/png",
+      width: size?.width ?? a.width, height: size?.height ?? a.height, duration_ms: null, fps: null, has_sound: 0,
+    });
   });
 
   /**
@@ -267,21 +281,26 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     const video = await asset(req.params.id);
     if (video.kind !== "video" || !video.has_sound) throw httpError("This video has no audio to extract.");
     const bytes = await soundOf(await s.storage.get(video.file_key), extOf(video.mime));
-    const id = newId();
-    const key = `assets/${id.slice(0, 2)}/${id}.m4a`;
-    await s.storage.put(key, bytes);
-    const at = now();
     // "Big Air · c2 · t5 · audio": after the name the video goes by (worked out from where it came from when it has none)
     const source = await nameOf(s.db, video);
-    await s.db
-      .insertInto("assets")
-      .values(newAssetRow({
-        id, kind: "audio", origin: "imported", name: source ? soundName(source) : "Audio extracted from a video", file_key: key, thumb_key: null,
-        mime: "audio/mp4", bytes: bytes.length, width: null, height: null, duration_ms: video.duration_ms, fps: null, has_sound: 1,
-        folder_id: video.folder_id, generation_id: null, source_id: video.id, kept_at: at, created_at: at,
-      }))
-      .execute();
-    s.queue.events.emit("library", { change: "added", items: [id], folders: [video.folder_id] } satisfies LibraryChange);
-    return assetView(await asset(id));
+    return addBeside(video, { bytes, ext: "m4a", thumb: null }, {
+      kind: "audio", origin: "imported", name: source ? soundName(source) : "Audio extracted from a video", mime: "audio/mp4",
+      width: null, height: null, duration_ms: video.duration_ms, fps: null, has_sound: 1,
+    });
+  });
+
+  /** A video without its sound: a new video beside it in the same folder, kept, its source untouched. */
+  app.post<{ Params: { id: string } }>("/api/assets/:id/silent", async (req) => {
+    const video = await asset(req.params.id);
+    if (video.kind !== "video" || !video.has_sound) throw httpError("This video has no sound to remove.");
+    const ext = extOf(video.mime);
+    const bytes = await silentOf(await s.storage.get(video.file_key), ext);
+    // the same frames: the source's thumbnail serves the copy too
+    const thumb = video.thumb_key ? await s.storage.get(video.thumb_key).catch(() => null) : null;
+    const source = await nameOf(s.db, video);
+    return addBeside(video, { bytes, ext, thumb }, {
+      kind: "video", origin: "edited", name: source ? fromName(source, ", no sound") : "Video without its sound", mime: video.mime,
+      width: video.width, height: video.height, duration_ms: video.duration_ms, fps: video.fps, has_sound: 0,
+    });
   });
 }

@@ -24,7 +24,7 @@ const lines = (items: MenuItem[]): string[] => items.flatMap((it) => (it === "â€
 describe("the item's list", () => {
   it("holds each media type's actions in the spec's order", () => {
     expect(actionIds("image")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "i2v", "upscale", "face", "hand", "background", "inpaint", "edit", "outpaint", "mirror-h", "mirror-v", "compare", "details", "copy-seed", "comfy", "timeline", "move", "bin"]);
-    expect(actionIds("video")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "extend", "trim", "save-frame", "extract-audio", "voice", "compare", "details", "copy-seed", "comfy", "timeline", "move", "bin"]);
+    expect(actionIds("video")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "extend", "trim", "save-frame", "extract-audio", "remove-sound", "voice", "compare", "details", "copy-seed", "comfy", "timeline", "move", "bin"]);
     expect(actionIds("audio")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "voice", "details", "copy-seed", "comfy", "timeline", "move", "bin"]);
   });
 
@@ -61,7 +61,7 @@ describe("the item's list", () => {
     const list = itemActions(facts("video", { hasSound: false, carrier: false, comfyOnline: false }), runs);
     expect(list.map((a) => a.id)).toEqual(actionIds("video"));
     const off = Object.fromEntries(list.filter((a) => a.disabled).map((a) => [a.id, a.note]));
-    expect(off).toEqual({ extend: "no video model carries a clip on", "extract-audio": "it has no sound", voice: "it has no sound", comfy: "ComfyUI is offline" });
+    expect(off).toEqual({ extend: "no video model carries a clip on", "extract-audio": "it has no sound", "remove-sound": "it has no sound", voice: "it has no sound", comfy: "ComfyUI is offline" });
   });
 
   it("lists only the bin's own in the bin: Put back and Delete now first, then Open, Download and Compare", () => {
@@ -146,7 +146,7 @@ describe("every place shows the same list", () => {
 
   it("leaves no place a list of its own: the places' files write none of the list's labels", () => {
     const places = ["TileMenu.tsx", "Viewer.tsx", "viewer/ViewerSidebar.tsx", "viewer/ViewerHeader.tsx", "viewer/useViewerActions.tsx", "projects/useItemMenu.tsx", "bar/useActions.tsx", "screens/queue/History.tsx", "timeline/MediaOverlay.tsx", "screens/studio/DraftResults.tsx"];
-    const ids: ActionId[] = ["download", "reuse-same", "reuse-new", "variation", "i2v", "extend", "upscale", "face", "hand", "background", "inpaint", "edit", "outpaint", "trim", "save-frame", "extract-audio", "voice", "compare", "details"];
+    const ids: ActionId[] = ["download", "reuse-same", "reuse-new", "variation", "i2v", "extend", "upscale", "face", "hand", "background", "inpaint", "edit", "outpaint", "trim", "save-frame", "extract-audio", "remove-sound", "voice", "compare", "details"];
     const found = places.flatMap((file) => {
       const code = readFileSync(join(SRC, file), "utf8");
       return ids.filter((id) => code.includes(`label: "${ACTIONS[id].label}"`) || code.includes(`label="${ACTIONS[id].label}"`)).map((id) => `${file}: ${ACTIONS[id].label}`);

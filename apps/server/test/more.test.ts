@@ -328,4 +328,17 @@ describe.skipIf(!clip)("the sound of a video", () => {
     // the first video put on an empty timeline gave it its frame
     expect((await get(t.app, `/api/timelines/${tl.id}`)).json()).toMatchObject({ width: 192, height: 320 });
   });
+
+  it("can be removed: a copy without it beside the video, the video untouched", async () => {
+    const video = (await t.app.inject({ method: "POST", url: "/api/assets?name=walk.mp4", headers: { "content-type": "video/mp4" }, payload: Buffer.from(clip!) })).json();
+    const silent = (await post(t.app, `/api/assets/${video.id}/silent`)).json();
+    expect(silent).toMatchObject({ kind: "video", mime: "video/mp4", name: "walk, no sound", hasSound: false, kept: true, width: 192, height: 320 });
+    expect(silent.id).not.toBe(video.id);
+    expect(silent.durationMs).toBeGreaterThan(1900);
+    // the file itself has no sound left, and the source keeps its own
+    expect((await post(t.app, `/api/assets/${silent.id}/sound`)).statusCode).toBe(400);
+    expect((await get(t.app, `/api/assets/${video.id}`)).json()).toMatchObject({ hasSound: true, inBin: false });
+    // a video with no sound has nothing to remove
+    expect((await post(t.app, `/api/assets/${silent.id}/silent`)).statusCode).toBe(400);
+  });
 });

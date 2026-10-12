@@ -114,7 +114,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     busy: {
       "reuse-same": reuse.isPending, "reuse-new": reuse.isPending, variation: queued.isPending, i2v: animate.isPending, extend: carryOn.isPending,
       upscale: queued.isPending, face: queued.isPending, hand: queued.isPending, background: queued.isPending, inpaint: openTool.isPending, edit: openTool.isPending, outpaint: openTool.isPending,
-      "mirror-h": media.mirror.isPending, "mirror-v": media.mirror.isPending, "save-frame": media.saveFrame.isPending, "extract-audio": media.takeSound.isPending, voice: follow.isPending,
+      "mirror-h": media.mirror.isPending, "mirror-v": media.mirror.isPending, "save-frame": media.saveFrame.isPending, "extract-audio": media.takeSound.isPending, "remove-sound": media.silence.isPending, voice: follow.isPending,
       comfy: mutations.openInComfy.isPending,
     },
     ...more,
@@ -145,6 +145,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     "mirror-v": () => media.mirror.mutate("vertical", said("Could not mirror it")),
     "save-frame": () => media.saveFrame.mutate(undefined, said("Could not save the frame")),
     "extract-audio": () => media.takeSound.mutate(undefined, said("Could not extract the audio")),
+    "remove-sound": () => media.silence.mutate(undefined, said("Could not remove the sound")),
     voice: () => follow.mutate(undefined, said("Could not open it in a form")),
     "copy-seed": () => seed !== null && mutations.copySeed(seed),
     comfy: () => mutations.openInComfy.mutate(a),
