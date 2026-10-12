@@ -196,10 +196,14 @@ describe("h3.video", () => {
     // left alone: what suits a turbo's few steps, and what suits full steps
     expect(of(build({ fast: true }))).toEqual({ sampler: "euler", scheduler: "simple", video: 12, audio: 3 });
     expect(of(build({ fast: false }))).toEqual({ sampler: "res_multistep", scheduler: "simple", video: 11, audio: 4 });
-    // a 4-step LoRA: the shifts it was trained at, and its steps read from its name
+    // the usual turbo LoRA follows the form's numbers, whatever its name says (a reference clip's own LoRA does not)
     const four = build({ fast: true }, { slots: { ...slots, turbo: "minimax_h3_fl2v_turbo_4step_v1.0_768p.safetensors" } });
-    expect(of(four)).toMatchObject({ video: 6, audio: 3 });
-    expect(one(four, "BasicScheduler")[0]!.inputs.steps).toBe(4);
+    expect(of(four)).toMatchObject({ video: 12, audio: 3 });
+    expect(one(four, "BasicScheduler")[0]!.inputs.steps).toBe(8);
+    // 0, from drafts saved before the form showed the numbers: the recipe's, read from the LoRA's name
+    const old = build({ fast: true, turboSteps: 0, shiftVideo: 0 }, { slots: { ...slots, turbo: "minimax_h3_fl2v_turbo_4step_v1.0_768p.safetensors" } });
+    expect(of(old)).toMatchObject({ video: 6 });
+    expect(one(old, "BasicScheduler")[0]!.inputs.steps).toBe(4);
     // set in the form: used as they are, with Turbo or without
     const own = { sampler: "dpmpp_2m", scheduler: "beta", shiftVideo: 9, shiftAudio: 3.5 };
     expect(of(build({ fast: true, ...own }))).toEqual({ sampler: "dpmpp_2m", scheduler: "beta", video: 9, audio: 3.5 });
@@ -305,6 +309,10 @@ describe("h3.video with references", () => {
     const own = build({}, { slots: { ...slots, refTurbo: "rt.safetensors" } });
     expect(one(own, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name)).toEqual(["rt.safetensors"]);
     expect(one(own, "MiniMaxH3SigmaShift")[0]!.inputs).toMatchObject({ shift_video: 12, shift_audio: 3 });
+    // its own 4-step LoRA runs the steps and the shifts it was made for, not the form's (which are the usual LoRA's)
+    const four = build({ turboSteps: 8, shiftVideo: 12 }, { slots: { ...slots, refTurbo: "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors" } });
+    expect(four.totalSteps).toBe(4);
+    expect(one(four, "MiniMaxH3SigmaShift")[0]!.inputs).toMatchObject({ shift_video: 6, shift_audio: 3 });
   });
 
   it("says who each picture is, and pins the opening picture at the first frame", () => {

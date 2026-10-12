@@ -9,7 +9,7 @@ import { finish, H3_SAVE_LATENT } from "./finish";
 import { h3Inputs, type H3Video } from "./inputs";
 import { frameFor, H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_LANDING, H3_SEAM, H3_TRIM, resolveJoin } from "./join";
 import { H3_LATENT_ENLARGE_NODES, H3_LATENT_UPSCALE_NODES, latentUpscalePass, latentUpscaleRounds } from "./latent-upscale";
-import { AUTO_SAMPLER, loadH3Model, modelOf, uses } from "./model";
+import { AUTO_SAMPLER, loadH3Model, modelOf, namedFor, uses } from "./model";
 
 // the recipe's parts live beside it (inputs, join, condition, latent-upscale, finish); its input type is still had from here
 export type { H3Video } from "./inputs";
@@ -26,6 +26,12 @@ export const h3Video = defineRecipe<H3Video>({
     fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM,
   },
   inputs: h3Inputs,
+  // a distilled file (DaSiWa's …TurboV3) is made for few steps: it starts on Turbo, which runs them without a LoRA
+  presets: [
+    { match: "(^|[^0-9])4[ _-]?steps?([^a-z]|$)", values: { turboSteps: 4, shiftVideo: 6, shiftAudio: 3 }, note: "a 4-step file: 4 steps, shift 6 / 3" },
+    // 8 / 4: what DaSiWa gives for his 8-step Turbo files (MiniMax's 12 / 3 are its LoRA's)
+    { match: namedFor.turbo.source, values: { fast: true, turboSteps: 8, shiftVideo: 8, shiftAudio: 4 }, note: "a distilled file: Turbo, 8 steps without a LoRA, shift 8 / 4" },
+  ],
 
   nodes(input) {
     const how = uses(input);

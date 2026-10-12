@@ -40,6 +40,18 @@ describe("what a form starts from", () => {
     expect(d.defaults).toMatchObject({ steps: 8, cfg: 1, prompt: "score_9" });
     expect(d.preset).toBe("few steps · Pony's CFG");
   });
+  it("moves what a switch moves when it is on (Turbo: the turbo LoRA's shift), unless the model's line sets it", () => {
+    const turbo: InputSpec[] = [
+      { id: "model", type: "model", label: "Model", folder: "diffusion_models" },
+      { id: "fast", type: "toggle", label: "Turbo", default: false, whenOn: { shift: 12 }, perModel: true },
+      { id: "shift", type: "number", label: "Shift", min: 0, max: 30, step: 0.5, default: 11, perModel: true },
+    ];
+    expect(formDefaults(recipe(turbo), { model: ["h3.safetensors"] }, [], undefined).defaults.shift).toBe(11);
+    expect(formDefaults(recipe(turbo), { model: ["h3.safetensors"] }, [], { fast: true }).defaults.shift).toBe(12);
+    // a distilled file's own shift, from its line, stays
+    const lined = recipe(turbo, [{ match: "turbo", note: "a distilled file", values: { fast: true, shift: 8 } }]);
+    expect(formDefaults(lined, { model: ["h3_turboV3.safetensors"] }, [], undefined).defaults).toMatchObject({ fast: true, shift: 8 });
+  });
 });
 
 describe("a preset's model files, as this ComfyUI names them", () => {

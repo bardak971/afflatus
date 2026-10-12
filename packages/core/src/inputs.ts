@@ -114,6 +114,11 @@ interface ToggleInput extends Base {
   default: boolean;
   /** When the switch is a choice between two named things rather than on and off. */
   captions?: { on: string; off: string };
+  /**
+   * Other settings that start elsewhere while the switch is on, as `whenChosen` does for a choice: Turbo moves the
+   * shift to what the turbo LoRA was trained at. A setting changed on purpose keeps its value.
+   */
+  whenOn?: Record<string, unknown>;
 }
 export interface ChoiceInput extends Base {
   type: "choice";
@@ -310,13 +315,14 @@ export function pickChoice(spec: ChoiceInput, offered: string[] | undefined): st
 }
 
 /**
- * The starting values the choices made move (`whenChosen`), for the inputs of the list only: of each choice, the
- * first entry whose pattern matches the value it holds.
+ * The starting values the choices made move (`whenChosen`, a switch's `whenOn`), for the inputs of the list only: of
+ * each choice, the first entry whose pattern matches the value it holds.
  */
 export function chosenDefaults(specs: readonly InputSpec[], values: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const spec of specs) {
     const value = values[spec.id];
+    if (spec.type === "toggle" && spec.whenOn && value === true) Object.assign(out, spec.whenOn);
     if (spec.type !== "choice" || !spec.whenChosen || typeof value !== "string") continue;
     const hit = spec.whenChosen.find((w) => new RegExp(w.match, "i").test(value));
     if (hit) Object.assign(out, hit.values);

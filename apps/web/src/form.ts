@@ -107,8 +107,10 @@ export function formDefaults(
   const notes = matched.map((p) => p.note).filter(Boolean);
   const layered = { ...base, ...lined, ...perModel };
   // last, what the choices made move (a hand detector picked: the denoise, crop and prompt start on hands); what the
-  // draft holds is its own and stays, so only the settings still at their starting values follow the choice
-  return { defaults: { ...layered, ...chosenDefaults(recipe.inputs, { ...layered, ...stored }) }, file, hasSaved, preset: notes.length ? notes.join(" · ") : undefined };
+  // draft holds is its own and stays, so only the settings still at their starting values follow the choice. What the
+  // model's line or the values saved for it set stays too: a distilled H3 file's own shifts, not Turbo's usual ones
+  const moved = Object.entries(chosenDefaults(recipe.inputs, { ...layered, ...stored })).filter(([id]) => !(id in lined) && !(id in perModel));
+  return { defaults: { ...layered, ...Object.fromEntries(moved) }, file, hasSaved, preset: notes.length ? notes.join(" · ") : undefined };
 }
 
 /**

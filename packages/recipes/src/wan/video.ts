@@ -232,7 +232,10 @@ export const wanVideo = defineRecipe<WanVideo>({
     },
     ...upscaleInputs(),
     ...COLOUR_MATCH_INPUTS,
-    { id: "fast", type: "toggle", label: "Turbo", note: "4 steps at CFG 1, for drafts: with the lightx2v LoRAs (one click in Settings → Models), or as it is with a model made for it. Quicker, with less motion than the full steps", default: false, advanced: true, perModel: true },
+    { id: "fast", type: "toggle", label: "Turbo", note: "4 steps at CFG 1, for drafts: with the lightx2v LoRAs (one click in Settings → Models), or as it is with a model made for it. Quicker, with less motion than the full steps", default: false, advanced: true, perModel: true,
+      // the shift the lightx2v LoRAs are made for
+      whenOn: { shift: 5 },
+    },
     {
       id: "turboIn", type: "choice", label: "Distilled model", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
       note: "made for a few steps: no turbo LoRA is added. Auto reads it from the file name",
@@ -263,8 +266,8 @@ export const wanVideo = defineRecipe<WanVideo>({
     { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSamplerAdvanced", input: "sampler_name" }, default: "euler", advanced: true, perModel: true },
     { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "KSamplerAdvanced", input: "scheduler" }, default: "simple", advanced: true, perModel: true },
     {
-      id: "shift", type: "number", label: "Shift", min: 0, max: 20, step: 0.5, default: 0, advanced: true, perModel: true,
-      note: "0 picks it: 8 at full steps (ComfyUI's template: with it the half-way handover meets the noise level the two models were split at), 5 with Turbo (what the lightx2v LoRAs are made for). Higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail)",
+      id: "shift", type: "number", label: "Shift", min: 0, max: 20, step: 0.5, default: 8, advanced: true, perModel: true,
+      note: "8 at full steps (ComfyUI's template: with it the half-way handover meets the noise level the two models were split at), 5 with Turbo (what the lightx2v LoRAs are made for). Higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail)",
     },
     {
       id: "negative", type: "prompt", label: "Negative prompt", style: "sentences", optional: true, default: WAN_NEGATIVE, advanced: true, perModel: true,

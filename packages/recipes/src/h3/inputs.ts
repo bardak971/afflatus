@@ -153,10 +153,14 @@ export const h3Inputs: InputSpec[] = [
   { id: "upscaleTile", type: "number", label: "Upscale tile size", min: 256, max: 1024, step: 32, default: 512, unit: " px", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "the frame is re-sampled one tile at a time: smaller tiles need less memory" },
   { id: "upscaleOverlap", type: "number", label: "Upscale tile overlap", min: 32, max: 256, step: 32, default: 128, unit: " px", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true },
   { id: "upscaleChunk", type: "number", label: "Upscale temporal chunk", min: 17, max: 255, step: 17, default: 85, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "the clip is re-sampled in stretches of this many frames, overlapping by 17" },
-  { id: "fast", type: "toggle", label: "Turbo", note: "a few steps, about twice as fast, for drafts: with the turbo LoRA (one click in Settings → Models), or as it is with a turbo model. Without either, the full steps run", default: false, advanced: true, perModel: true },
   {
-    id: "turboSteps", type: "number", label: "Turbo steps", min: 0, max: 16, step: 1, default: 0, showWhen: "fast", advanced: true, perModel: true,
-    note: "0 reads it from the LoRA's name (8step, 4step), else 8. ComfyUI's own template runs the 8-step LoRA at 6",
+    id: "fast", type: "toggle", label: "Turbo", note: "a few steps, about twice as fast, for drafts: with the turbo LoRA (one click in Settings → Models), or as it is with a turbo model. Without either, the full steps run", default: false, advanced: true, perModel: true,
+    // the shifts the turbo LoRAs were trained at
+    whenOn: { shiftVideo: 12, shiftAudio: 3 },
+  },
+  {
+    id: "turboSteps", type: "number", label: "Turbo steps", min: 0, max: 16, step: 1, default: 8, showWhen: "fast", advanced: true, perModel: true,
+    note: "8 for the 8-step turbo LoRA and the distilled files; 4 for a 4-step one. ComfyUI's own template runs the 8-step LoRA at 6",
   },
   { id: "steps", type: "number", label: "Steps", note: "20 is ComfyUI's own template; 15 is a little quicker, 25 a little finer", min: 4, max: 50, step: 1, default: 20, showWhen: { input: "fast", in: [false] }, advanced: true, perModel: true },
   {
@@ -165,12 +169,12 @@ export const h3Inputs: InputSpec[] = [
   },
   { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "BasicScheduler", input: "scheduler" }, default: "simple", advanced: true, perModel: true },
   {
-    id: "shiftVideo", type: "number", label: "Shift (video)", min: 0, max: 30, step: 0.5, default: 0, advanced: true, perModel: true,
-    note: "0 picks it: 11 at full steps, 12 with the 8-step turbo LoRA and 6 with a 4-step one (what they were trained at). Higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail). The model's own, when no shift is set at all, is 12",
+    id: "shiftVideo", type: "number", label: "Shift (video)", min: 0, max: 30, step: 0.5, default: 11, advanced: true, perModel: true,
+    note: "11 at full steps, 12 with the 8-step turbo LoRA and 6 with a 4-step one (what they were trained at). Higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail). The model's own, when no shift is set at all, is 12",
   },
   {
-    id: "shiftAudio", type: "number", label: "Shift (sound)", min: 0, max: 30, step: 0.5, default: 0, advanced: true, perModel: true,
-    note: "0 picks it: 4 at full steps, 3 with Turbo (the turbo LoRAs were trained at 3)",
+    id: "shiftAudio", type: "number", label: "Shift (sound)", min: 0, max: 30, step: 0.5, default: 4, advanced: true, perModel: true,
+    note: "4 at full steps, 3 with Turbo (the turbo LoRAs were trained at 3)",
   },
   {
     id: "turboIn", type: "choice", label: "Distilled model", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,

@@ -7,7 +7,7 @@ import type { H3Video } from "./inputs";
 export const AUTO_SAMPLER = "Auto";
 
 /** What a model other than the usual one is, as far as its file name says: fine-tunes are named for it ("…HybridTurboV3"). */
-const namedFor = { turbo: /turbo|distill|lightning|(^|[^a-z0-9])\d+[ _-]?steps?/i, hybrid: /hybrid/i };
+export const namedFor = { turbo: /turbo|distill|lightning|(^|[^a-z0-9])\d+[ _-]?steps?/i, hybrid: /hybrid/i };
 
 /**
  * The model the clip is made with, and what it is. The usual files are MiniMax's own: one model for
@@ -56,9 +56,12 @@ export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, 
   const distilled = own ? picked.turbo : namedFor.turbo.test(unet?.split(/[\\/]/).pop() ?? "");
   const lora = input.fast && !distilled ? turboFile : undefined;
   const turbo = distilled || Boolean(lora);
-  // how many steps a turbo render takes: typed, else what the LoRA (or a distilled model) is named for, else 8
+  // how many steps a turbo render takes: the form's, which are for the usual turbo LoRA and the distilled files. A
+  // reference clip's own LoRA (MiniMax's 4-step one) is not the form's: its steps and shifts are the ones it is named for
   const namedSteps = /(\d+)[ _-]?step/i.exec((lora ?? (distilled ? unet : "") ?? "").split(/[\\/]/).pop() ?? "");
-  const turboSteps = input.turboSteps > 0 ? input.turboSteps : namedSteps ? Number(namedSteps[1]) : 8;
+  const ruled = Boolean(lora && lora !== slots.turbo && namedSteps);
+  // 0 is how drafts and saved settings from before the form showed the numbers say "the recipe's"
+  const turboSteps = input.turboSteps > 0 && !ruled ? input.turboSteps : namedSteps ? Number(namedSteps[1]) : 8;
   let model = loadUnet(g, ctx, unet);
   // the step cache is for full renders: with the turbo LoRA's 8 steps there is nothing to skip, and it hurts
   if (input.cache && !turbo && ctx.has("MiniMaxH3Cache")) {
@@ -69,7 +72,7 @@ export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, 
   if (lora) model = g.out("LoraLoaderModelOnly", { model, lora_name: lora, strength_model: 1 });
   model = applyLoras(g, model, input.loras);
   // the shifts typed in, else the ones that suit the steps: the turbo LoRAs were trained at 12/3 (8 steps) and 6/3 (4 steps)
-  model = g.out("MiniMaxH3SigmaShift", { model, shift_video: input.shiftVideo > 0 ? input.shiftVideo : turbo ? (turboSteps <= 4 ? 6 : 12) : 11, shift_audio: input.shiftAudio > 0 ? input.shiftAudio : turbo ? 3 : 4 });
+  model = g.out("MiniMaxH3SigmaShift", { model, shift_video: input.shiftVideo > 0 && !ruled ? input.shiftVideo : turbo ? (turboSteps <= 4 ? 6 : 12) : 11, shift_audio: input.shiftAudio > 0 && !ruled ? input.shiftAudio : turbo ? 3 : 4 });
   // the live preview, with the sound so far, sent to whoever queued the prompt: what ComfyUI itself shows
   model = livePreview(g, ctx, model, input.livePreview, audioVae);
   // a turbo model with Fast off takes the steps typed (4 to 8 are what it is made for)

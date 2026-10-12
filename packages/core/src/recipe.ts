@@ -1,7 +1,7 @@
 import type { FrameGrid } from "./frameGrid";
 import type { LintInput, PromptLine } from "./promptLint";
 import type { BuiltGraph } from "./graph";
-import { schemaFor, type InputSpec } from "./inputs";
+import { chosenDefaults, schemaFor, type InputSpec } from "./inputs";
 import { folderOfFileInput } from "./models";
 
 /** A file a family needs, wherever the user keeps it: found by pattern, overridable on the setup page. */
@@ -183,7 +183,11 @@ export const defineRecipe = <In>(r: Recipe<In>): Recipe<In> => r;
 
 /** Raw inputs (from the browser, a draft, a variant) → validated values with defaults filled in. */
 export function parseInput<In>(recipe: Recipe<In>, raw: unknown): In {
-  return schemaFor(recipe.inputs).parse(raw) as In;
+  const parsed = schemaFor(recipe.inputs).parse(raw) as Record<string, unknown>;
+  // what was left out starts where the choices made move it, as the form starts it (Turbo on: the turbo LoRA's shifts)
+  const given = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const moved = Object.entries(chosenDefaults(recipe.inputs, parsed)).filter(([id]) => given[id] === undefined);
+  return { ...parsed, ...Object.fromEntries(moved) } as In;
 }
 
 /** A context for building without a ComfyUI: every optional node is "installed", nothing was uploaded. */
