@@ -308,8 +308,8 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     },
     { id: "refineSteps", type: "number", label: "Refine steps", note: "3 is LTX's own", min: 1, max: 8, step: 1, default: 3, showWhen: "twoPass", advanced: true },
     {
-      id: "turboIn", type: "choice", label: "Distilled model", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
-      note: "made for 8 steps as it is: no distilled LoRA is added. Auto reads it from the file name",
+      id: "turboIn", type: "choice", label: "Distilled model", options: ["From the name", "Yes", "No"], renamed: { Auto: "From the name" }, default: "From the name", advanced: true, section: "rare", perModel: true,
+      note: "made for 8 steps as it is: no distilled LoRA is added. From the name: when it says distilled, turbo, lightning or a step count",
     },
     {
       id: "schedule", type: "choice", label: "Schedule", options: [OWN_SCHEDULE, BY_STEPS], default: OWN_SCHEDULE, advanced: true, perModel: true,

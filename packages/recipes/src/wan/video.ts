@@ -237,8 +237,8 @@ export const wanVideo = defineRecipe<WanVideo>({
       whenOn: { shift: 5 },
     },
     {
-      id: "turboIn", type: "choice", label: "Distilled model", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
-      note: "made for a few steps: no turbo LoRA is added. Auto reads it from the file name",
+      id: "turboIn", type: "choice", label: "Distilled model", options: ["From the name", "Yes", "No"], renamed: { Auto: "From the name" }, default: "From the name", advanced: true, section: "rare", perModel: true,
+      note: "made for a few steps: no turbo LoRA is added. From the name: when it says turbo, distill, lightning or a step count",
     },
     { id: "turboSteps", type: "number", label: "Turbo steps", note: "4 is what the turbo LoRAs are made for; some fine-tunes ask for 6 or 8", min: 2, max: 12, step: 1, default: 4, showWhen: "fast", advanced: true, perModel: true },
     {

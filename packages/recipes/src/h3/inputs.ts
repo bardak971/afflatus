@@ -4,7 +4,6 @@ import { UPSCALE, upscaleInputs } from "../video/upscale";
 import { COLOUR_MATCH_INPUTS, type ColourMatch } from "../shared/finish";
 import { H3_REFERENCES, H3_REFERENCE_VIDEOS } from "./condition";
 import { H3_JOIN_FRAMES, H3_LANDINGS } from "./join";
-import { AUTO_SAMPLER } from "./model";
 
 export interface H3Video extends ColourMatch {
   model?: string;
@@ -95,8 +94,8 @@ export const h3Inputs: InputSpec[] = [
     note: "pinned at the start as the run-up: 5 is a position, 22 brings its motion and voice too, 39 a long run-in. When the join jumps, try another count",
   },
   {
-    id: "joinFrom", type: "choice", label: "Continue from", options: ["Auto", "Frames"], renamed: { Latent: "Auto", Hybrid: "Auto" }, default: "Auto", showWhen: "previous", advanced: true, section: "rare",
-    note: "what of the clip before guides this one. Auto: its exact latent (picture, motion and sound as the model made them), decoded as one piece with it so that the join is a plain cut, like the whole chain decoded at once (needs the Afflatus node pack and the clip before's saved latent; without them, frames). Frames: its last frames and sound re-encoded and pinned, as ComfyUI alone does it; a chain of these softens clip after clip",
+    id: "joinFrom", type: "choice", label: "Continue from", options: ["Latent", "Frames"], renamed: { Auto: "Latent", Hybrid: "Latent" }, default: "Latent", showWhen: "previous", advanced: true, section: "rare",
+    note: "what of the clip before guides this one. Latent: its exact latent (picture, motion and sound as the model made them), decoded as one piece with it so that the join is a plain cut, like the whole chain decoded at once (needs the Afflatus node pack and the clip before's saved latent; without them, frames). Frames: its last frames and sound re-encoded and pinned, as ComfyUI alone does it; a chain of these softens clip after clip",
   },
   {
     id: "next", type: "clip", role: "next", label: "Next clip", optional: true, frames: H3_JOIN_FRAMES, framesFrom: "landing", fps: H3_FPS, advanced: true,
@@ -147,8 +146,8 @@ export const h3Inputs: InputSpec[] = [
   },
   { id: "upscaleSteps", type: "number", label: "Upscale steps", min: 1, max: 6, step: 1, default: 2, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "steps of the re-sampling: 1 only sharpens, 2 adds detail, more is rarely worth it; each step is a pass over the whole clip" },
   {
-    id: "upscaleWith", type: "choice", label: "Latent upscaler", options: ["Auto", "H3's latent upscaler", "Plain resize"], default: "Auto", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
-    note: "H3's own 3D upscaler model when its file is found (Auto), else a bicubic resize of the latent, which is soft unless the re-sampling has steps and denoise to work with. The file is one click in Settings → Models, under MiniMax H3",
+    id: "upscaleWith", type: "choice", label: "Latent upscaler", options: ["H3's latent upscaler", "Plain resize"], renamed: { Auto: "H3's latent upscaler" }, default: "H3's latent upscaler", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
+    note: "H3's own 3D upscaler model; while its file is not in ComfyUI, a plain resize is used instead: a bicubic resize of the latent, which is soft unless the re-sampling has steps and denoise to work with. The file is one click in Settings → Models, under MiniMax H3",
   },
   { id: "upscaleTile", type: "number", label: "Upscale tile size", min: 256, max: 1024, step: 32, default: 512, unit: " px", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "the frame is re-sampled one tile at a time: smaller tiles need less memory" },
   { id: "upscaleOverlap", type: "number", label: "Upscale tile overlap", min: 32, max: 256, step: 32, default: 128, unit: " px", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true },
@@ -156,7 +155,7 @@ export const h3Inputs: InputSpec[] = [
   {
     id: "fast", type: "toggle", label: "Turbo", note: "a few steps, about twice as fast, for drafts: with the turbo LoRA (one click in Settings → Models), or as it is with a turbo model. Without either, the full steps run", default: false, advanced: true, perModel: true,
     // the shifts the turbo LoRAs were trained at
-    whenOn: { shiftVideo: 12, shiftAudio: 3 },
+    whenOn: { shiftVideo: 12, shiftAudio: 3, sampler: "euler" },
   },
   {
     id: "turboSteps", type: "number", label: "Turbo steps", min: 0, max: 16, step: 1, default: 8, showWhen: "fast", advanced: true, perModel: true,
@@ -164,8 +163,8 @@ export const h3Inputs: InputSpec[] = [
   },
   { id: "steps", type: "number", label: "Steps", note: "20 is ComfyUI's own template; 15 is a little quicker, 25 a little finer", min: 4, max: 50, step: 1, default: 20, showWhen: { input: "fast", in: [false] }, advanced: true, perModel: true },
   {
-    id: "sampler", type: "choice", label: "Sampler", options: { node: "KSamplerSelect", input: "sampler_name" }, extra: [AUTO_SAMPLER], default: AUTO_SAMPLER, advanced: true, perModel: true,
-    note: "Auto: euler with Turbo, res_multistep without (ComfyUI's own template uses res_multistep for both)",
+    id: "sampler", type: "choice", label: "Sampler", options: { node: "KSamplerSelect", input: "sampler_name" }, default: "res_multistep", advanced: true, perModel: true,
+    note: "res_multistep at full steps, euler with Turbo (ComfyUI's own template uses res_multistep for both)",
   },
   { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "BasicScheduler", input: "scheduler" }, default: "simple", advanced: true, perModel: true },
   {
@@ -177,12 +176,12 @@ export const h3Inputs: InputSpec[] = [
     note: "4 at full steps, 3 with Turbo (the turbo LoRAs were trained at 3)",
   },
   {
-    id: "turboIn", type: "choice", label: "Distilled model", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
-    note: "made for 4 to 8 steps: no turbo LoRA is added. Auto reads it from the file name",
+    id: "turboIn", type: "choice", label: "Distilled model", options: ["From the name", "Yes", "No"], renamed: { Auto: "From the name" }, default: "From the name", advanced: true, section: "rare", perModel: true,
+    note: "made for 4 to 8 steps: no turbo LoRA is added. From the name: when it says turbo, distill, lightning or a step count",
   },
   {
-    id: "hybrid", type: "choice", label: "Hybrid model", options: ["Auto", "Yes", "No"], default: "Auto", advanced: true, perModel: true,
-    note: "it follows reference pictures and voices itself; otherwise those clips use MiniMax's reference model. Auto reads it from the file name",
+    id: "hybrid", type: "choice", label: "Hybrid model", options: ["From the name", "Yes", "No"], renamed: { Auto: "From the name" }, default: "From the name", advanced: true, section: "rare", perModel: true,
+    note: "it follows reference pictures and voices itself; otherwise those clips use MiniMax's reference model. From the name: when it says hybrid",
   },
   { id: "smooth", type: "toggle", label: "RIFE ×2", note: "frame interpolation: frames interpolated with RIFE, from 24 to 48 a second", default: true, advanced: true },
   { id: "sharpRefs", type: "toggle", label: "Full-res references", note: "holds a face better, several times slower", default: false, advanced: true },

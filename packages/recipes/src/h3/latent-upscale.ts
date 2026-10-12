@@ -37,8 +37,8 @@ export function latentUpscalePass(g: GraphBuilder, ctx: BuildContext, input: H3V
   // the queue refuses up front on nodes(); this is for a build that reaches here with the pack gone
   if (H3_LATENT_UPSCALE_NODES.some((n) => !ctx.has(n))) throw new Error(NO_PACK);
   const big = latentUpscaleSize({ width, height }, input.upscaleBy);
+  // H3's own upscaler while its file is there, else a plain resize, as the form's note says
   const withModel = input.upscaleWith !== "Plain resize" && Boolean(slots.latentUpscaler) && ctx.has("MMH3LatentUpscaleWithModelParams");
-  if (input.upscaleWith === "H3's latent upscaler" && !withModel) throw new Error("H3's latent upscaler was not found: put minimax_h3_latent_upscaler_3d_*.safetensors in ComfyUI's models/latent_upscale_models folder, or set the upscale pass to a plain resize.");
   if (!withModel && !ctx.has("MMH3LatentUpscaleParams")) throw new Error(NO_PACK);
   g.phase("upscaling");
   const enlarge = withModel

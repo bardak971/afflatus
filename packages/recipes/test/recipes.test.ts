@@ -1450,12 +1450,14 @@ describe("H3's upscale pass", () => {
     expect(b.phases[upId]).toBe("refining");
   });
 
-  it("uses H3's own upscaler when its file is there, and says so when it is asked for but missing", () => {
+  it("uses H3's own upscaler when its file is there, and a plain resize while it is missing", () => {
     const b = build({ upscale: "Latent: re-sampled", upscaleBy: 1.5 }, { latentUpscaler: "minimax_h3_latent_upscaler_3d.safetensors" });
     expect(node(b, "MMH3LatentUpscaleWithModelParams")[0]!.inputs).toMatchObject({ model_name: "minimax_h3_latent_upscaler_3d.safetensors", width: 864, height: 1536, offload_model: true });
     expect(node(b, "MMH3LatentUpscaleParams")).toHaveLength(0);
     expect(node(build({ upscale: "Latent: re-sampled", upscaleWith: "Plain resize" }, { latentUpscaler: "x.safetensors" }), "MMH3LatentUpscaleParams")).toHaveLength(1);
-    expect(() => build({ upscale: "Latent: re-sampled", upscaleWith: "H3's latent upscaler" })).toThrow(/latent_upscale_models/);
+    expect(node(build({ upscale: "Latent: re-sampled", upscaleWith: "H3's latent upscaler" }), "MMH3LatentUpscaleParams")).toHaveLength(1);
+    // a draft saved with the old "Auto" is H3's own upscaler
+    expect(parseInput(h3Video, { description: "a", upscaleWith: "Auto" }).upscaleWith).toBe("H3's latent upscaler");
     // without the node pack, the pass is refused, not quietly left out: the form announced an enlarged frame
     expect(() => build({ upscale: "Latent: re-sampled" }, {}, (c) => !c.startsWith("MMH3"))).toThrow(/Comfyui-MMH3-UltimateUpscale/);
     expect(() => build({ upscale: "Latent: re-sampled", upscaleWith: "Plain resize" }, {}, (c) => c !== "MMH3LatentUpscaleParams")).toThrow(/Comfyui-MMH3-UltimateUpscale/);

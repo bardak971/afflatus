@@ -3,7 +3,7 @@ import { applyLoras, livePreview } from "../shared/model";
 import { loadUnet } from "../shared/unet";
 import type { H3Video } from "./inputs";
 
-/** The sampler left to the recipe: the one that suits the steps (euler for a turbo's few, res_multistep otherwise). */
+/** The sampler drafts saved before the form showed it said "Auto" with: the one that suits the steps (euler for a turbo's few, res_multistep otherwise). */
 export const AUTO_SAMPLER = "Auto";
 
 /** What a model other than the usual one is, as far as its file name says: fine-tunes are named for it ("…HybridTurboV3"). */
