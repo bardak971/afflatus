@@ -23,6 +23,9 @@ export interface ProjectItem {
   inMs: number;
   /** How long its file is: the room the editor has around the cut. Null for a picture. */
   fileMs: number | null;
+  /** Its file's own size (a finished take is larger than a draft): what the editor is told the file is. */
+  width: number | null;
+  height: number | null;
   /** What is heard: its own sound, nothing, or a sound file from the clip's start. */
   sound: "own" | "muted" | "file";
   hasSound: boolean;
@@ -69,7 +72,7 @@ export function projectPlan(name: string, layout: { shown: Laid[]; win: { a: num
     const atMs = l.atMs + from - at0;
     if (p.clip.kind === "still") {
       if (!p.still) continue;
-      items.push({ kind: "still", file: fileFor(p.still, `clip-${clip}-still`), key: p.still.file_key, atMs, lengthMs: to - from, inMs: 0, fileMs: null, hasSound: false, clip, ...sound });
+      items.push({ kind: "still", file: fileFor(p.still, `clip-${clip}-still`), key: p.still.file_key, atMs, lengthMs: to - from, inMs: 0, fileMs: null, width: p.still.width, height: p.still.height, hasSound: false, clip, ...sound });
       continue;
     }
     const x = p.active!;
@@ -77,11 +80,25 @@ export function projectPlan(name: string, layout: { shown: Laid[]; win: { a: num
     const fade = before?.kind === "video" && from === 0 ? joinFade(x, p.clip.joined === "continue") : null;
     items.push({
       kind: "video", file: fileFor(x.asset, `clip-${clip}-take`), key: x.asset.file_key, atMs, lengthMs: to - from,
-      inMs: visible(x).start + from, fileMs: x.asset.duration_ms, hasSound: Boolean(x.asset.has_sound), clip, ...sound,
+      inMs: visible(x).start + from, fileMs: x.asset.duration_ms, width: x.asset.width, height: x.asset.height, hasSound: Boolean(x.asset.has_sound), clip, ...sound,
       ...(fade ? { dissolveMs: fade.ms } : {}),
     });
   }
   return { name, width: layout.frame.width, height: layout.frame.height, fps: layout.fps, totalMs: layout.totalMs, items, music: layout.music };
+}
+
+/**
+ * A clip in frames, for both writers: where it starts and ends on the timeline (each end rounded on its own, so the clips
+ * stay end to end), and where in its file. The in point and the length rounded apart could end a frame past the file
+ * (a take of 281 frames played to 282): the in point then steps back, never past the file's end.
+ */
+export function framesOf(fps: number, at: { atMs: number; lengthMs: number; inMs: number; fileMs: number | null }) {
+  const fr = (ms: number) => Math.round((ms * fps) / 1000);
+  const start = fr(at.atMs);
+  const end = fr(at.atMs + at.lengthMs);
+  const last = at.fileMs !== null ? Math.floor((at.fileMs * fps) / 1000 + 1e-6) : Infinity;
+  const inF = Math.max(0, Math.min(fr(at.inMs), last - (end - start)));
+  return { start, end, in: inF, out: Math.min(inF + end - start, last) };
 }
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -97,22 +114,24 @@ export function fcp7Xml(plan: ProjectPlan): string {
   const seen = new Set<string>();
   let n = 0;
   // a file is described once, where it is first used; after that it is named by its id
-  const file = (path: string, fileMs: number | null, video: boolean, audio: boolean) => {
+  const file = (path: string, fileMs: number | null, video: boolean, audio: boolean, size: { width: number | null; height: number | null } = { width: null, height: null }) => {
     const id = `file-${path}`;
     if (seen.has(id)) return `<file id="${esc(id)}"/>`;
     seen.add(id);
     const name = path.split("/").pop()!;
-    return `<file id="${esc(id)}"><name>${esc(name)}</name><pathurl>${esc(path)}</pathurl>${rate}${fileMs !== null ? `<duration>${fr(fileMs)}</duration>` : ""}<media>${video ? `<video><samplecharacteristics><width>${plan.width}</width><height>${plan.height}</height></samplecharacteristics></video>` : ""}${audio ? "<audio><channelcount>2</channelcount></audio>" : ""}</media></file>`;
+    return `<file id="${esc(id)}"><name>${esc(name)}</name><pathurl>${esc(path)}</pathurl>${rate}${fileMs !== null ? `<duration>${Math.floor((fileMs * plan.fps) / 1000 + 1e-6)}</duration>` : ""}<media>${video ? `<video><samplecharacteristics><width>${size.width ?? plan.width}</width><height>${size.height ?? plan.height}</height></samplecharacteristics></video>` : ""}${audio ? "<audio><channelcount>2</channelcount></audio>" : ""}</media></file>`;
   };
   const level = (v: number) => (v === 1 ? "" : `<filter><effect><name>Audio Levels</name><effectid>audiolevels</effectid><effectcategory>audiolevels</effectcategory><effecttype>audiolevels</effecttype><mediatype>audio</mediatype><parameter><parameterid>level</parameterid><name>Level</name><valuemin>0</valuemin><valuemax>3.98109</valuemax><value>${v.toFixed(3)}</value></parameter></effect></filter>`);
-  const item = (name: string, startMs: number, lengthMs: number, inMs: number, fileXml: string, extra = "") =>
-    `<clipitem id="clipitem-${++n}"><name>${esc(name)}</name>${rate}<start>${fr(startMs)}</start><end>${fr(startMs + lengthMs)}</end><in>${fr(inMs)}</in><out>${fr(inMs + lengthMs)}</out>${fileXml}${extra}</clipitem>`;
-  const video = plan.items.map((i) => item(`clip ${i.clip}`, i.atMs, i.lengthMs, i.inMs, file(i.file, i.fileMs, true, i.kind === "video" && i.hasSound)));
+  const item = (name: string, at: { atMs: number; lengthMs: number; inMs: number; fileMs: number | null }, fileXml: string, extra = "") => {
+    const f = framesOf(plan.fps, at);
+    return `<clipitem id="clipitem-${++n}"><name>${esc(name)}</name>${rate}<start>${f.start}</start><end>${f.end}</end><in>${f.in}</in><out>${f.out}</out>${fileXml}${extra}</clipitem>`;
+  };
+  const video = plan.items.map((i) => item(`clip ${i.clip}`, i, file(i.file, i.fileMs, true, i.kind === "video" && i.hasSound, i)));
   const own = plan.items.filter((i) => i.kind === "video" && i.sound === "own" && i.hasSound && i.volume > 0)
-    .map((i) => item(`clip ${i.clip} sound`, i.atMs, i.lengthMs, i.inMs, file(i.file, i.fileMs, true, true), `<sourcetrack><mediatype>audio</mediatype><trackindex>1</trackindex></sourcetrack>${level(i.volume)}`));
+    .map((i) => item(`clip ${i.clip} sound`, i, file(i.file, i.fileMs, true, true, i), `<sourcetrack><mediatype>audio</mediatype><trackindex>1</trackindex></sourcetrack>${level(i.volume)}`));
   const files = plan.items.filter((i) => i.sound === "file" && i.soundFile && i.volume > 0)
-    .map((i) => item(`clip ${i.clip} sound file`, i.atMs, Math.min(i.lengthMs, i.soundFile!.fileMs ?? i.lengthMs), 0, file(i.soundFile!.file, i.soundFile!.fileMs, false, true), level(i.volume)));
-  const music = plan.music ? [item("music", 0, plan.totalMs, 0, file("media/music.wav", plan.totalMs, false, true))] : [];
+    .map((i) => item(`clip ${i.clip} sound file`, { atMs: i.atMs, lengthMs: Math.min(i.lengthMs, i.soundFile!.fileMs ?? i.lengthMs), inMs: 0, fileMs: i.soundFile!.fileMs }, file(i.soundFile!.file, i.soundFile!.fileMs, false, true), level(i.volume)));
+  const music = plan.music ? [item("music", { atMs: 0, lengthMs: plan.totalMs, inMs: 0, fileMs: plan.totalMs }, file("media/music.wav", plan.totalMs, false, true))] : [];
   const markers = plan.items.filter((i) => i.dissolveMs).map((i) => `<marker><name>${esc(`dissolve ${(i.dissolveMs! / 1000).toFixed(2)} s`)}</name><comment>${esc(`Afflatus's video export dissolves clip ${i.clip} in over the clip before here.`)}</comment><in>${fr(i.atMs)}</in><out>-1</out></marker>`);
   const track = (items: string[]) => `<track>${items.join("")}</track>`;
   return [
@@ -134,35 +153,40 @@ export function fcp7Xml(plan: ProjectPlan): string {
  * a track has nothing, the dissolves as markers. Volumes are kept in each clip's metadata (OpenTimelineIO has no level).
  */
 export function otioJson(plan: ProjectPlan): string {
-  const rt = (ms: number) => ({ OTIO_SCHEMA: "RationalTime.1", rate: plan.fps, value: Math.round((ms * plan.fps) / 1000) });
-  const range = (startMs: number, lengthMs: number) => ({ OTIO_SCHEMA: "TimeRange.1", start_time: rt(startMs), duration: rt(lengthMs) });
-  const clip = (name: string, path: string, inMs: number, lengthMs: number, fileMs: number | null, metadata: Record<string, unknown> = {}) => ({
-    OTIO_SCHEMA: "Clip.1", name, metadata, effects: [], markers: [], source_range: range(inMs, lengthMs),
-    media_reference: { OTIO_SCHEMA: "ExternalReference.1", name: path.split("/").pop(), metadata: {}, target_url: path, available_range: fileMs !== null ? range(0, fileMs) : null },
-  });
-  const gap = (lengthMs: number) => ({ OTIO_SCHEMA: "Gap.1", name: "", metadata: {}, effects: [], markers: [], source_range: range(0, lengthMs) });
-  // a track's clips in order, with gaps between them where it is silent
-  const laidTrack = (name: string, kind: "Video" | "Audio", parts: Array<{ atMs: number; lengthMs: number; make: () => object }>) => {
+  const rt = (frames: number) => ({ OTIO_SCHEMA: "RationalTime.1", rate: plan.fps, value: frames });
+  const range = (start: number, frames: number) => ({ OTIO_SCHEMA: "TimeRange.1", start_time: rt(start), duration: rt(frames) });
+  type At = { atMs: number; lengthMs: number; inMs: number; fileMs: number | null };
+  const clip = (name: string, path: string, at: At, metadata: Record<string, unknown> = {}) => {
+    const f = framesOf(plan.fps, at);
+    const last = at.fileMs !== null ? Math.floor((at.fileMs * plan.fps) / 1000 + 1e-6) : null;
+    return {
+      OTIO_SCHEMA: "Clip.1", name, metadata, effects: [], markers: [], source_range: range(f.in, f.out - f.in),
+      media_reference: { OTIO_SCHEMA: "ExternalReference.1", name: path.split("/").pop(), metadata: {}, target_url: path, available_range: last !== null ? range(0, last) : null },
+    };
+  };
+  const gap = (frames: number) => ({ OTIO_SCHEMA: "Gap.1", name: "", metadata: {}, effects: [], markers: [], source_range: range(0, frames) });
+  // a track's clips in order, with gaps between them where it is silent, placed in frames as the XML places them
+  const laidTrack = (name: string, kind: "Video" | "Audio", parts: Array<{ at: At; make: () => object }>) => {
     const children: object[] = [];
     let at = 0;
     for (const p of parts) {
-      if (p.atMs > at) children.push(gap(p.atMs - at));
+      const f = framesOf(plan.fps, p.at);
+      if (f.start > at) children.push(gap(f.start - at));
       children.push(p.make());
-      at = p.atMs + p.lengthMs;
+      at = f.start + (f.out - f.in);
     }
     return { OTIO_SCHEMA: "Track.1", name, kind, metadata: {}, effects: [], markers: [], source_range: null, children };
   };
   const markers = plan.items.filter((i) => i.dissolveMs).map((i) => ({
-    OTIO_SCHEMA: "Marker.2", name: `dissolve ${(i.dissolveMs! / 1000).toFixed(2)} s`, color: "ORANGE", metadata: { afflatus: { clip: i.clip } }, marked_range: range(i.atMs, 0), comment: `Afflatus's video export dissolves clip ${i.clip} in over the clip before here.`,
+    OTIO_SCHEMA: "Marker.2", name: `dissolve ${(i.dissolveMs! / 1000).toFixed(2)} s`, color: "ORANGE", metadata: { afflatus: { clip: i.clip } }, marked_range: range(framesOf(plan.fps, i).start, 0), comment: `Afflatus's video export dissolves clip ${i.clip} in over the clip before here.`,
   }));
+  const soundFileAt = (i: ProjectItem): At => ({ atMs: i.atMs, lengthMs: Math.min(i.lengthMs, i.soundFile!.fileMs ?? i.lengthMs), inMs: 0, fileMs: i.soundFile!.fileMs });
+  const musicAt: At = { atMs: 0, lengthMs: plan.totalMs, inMs: 0, fileMs: plan.totalMs };
   const tracks = [
-    laidTrack("V1", "Video", plan.items.map((i) => ({ atMs: i.atMs, lengthMs: i.lengthMs, make: () => clip(`clip ${i.clip}`, i.file, i.inMs, i.lengthMs, i.fileMs) }))),
-    laidTrack("A1 clip sound", "Audio", plan.items.filter((i) => i.kind === "video" && i.sound === "own" && i.hasSound && i.volume > 0).map((i) => ({ atMs: i.atMs, lengthMs: i.lengthMs, make: () => clip(`clip ${i.clip} sound`, i.file, i.inMs, i.lengthMs, i.fileMs, { afflatus: { volume: i.volume } }) }))),
-    laidTrack("A2 sound files", "Audio", plan.items.filter((i) => i.sound === "file" && i.soundFile && i.volume > 0).map((i) => {
-      const lengthMs = Math.min(i.lengthMs, i.soundFile!.fileMs ?? i.lengthMs);
-      return { atMs: i.atMs, lengthMs, make: () => clip(`clip ${i.clip} sound file`, i.soundFile!.file, 0, lengthMs, i.soundFile!.fileMs, { afflatus: { volume: i.volume } }) };
-    })),
-    ...(plan.music ? [laidTrack("A3 music", "Audio", [{ atMs: 0, lengthMs: plan.totalMs, make: () => clip("music", "media/music.wav", 0, plan.totalMs, plan.totalMs) }])] : []),
+    laidTrack("V1", "Video", plan.items.map((i) => ({ at: i, make: () => clip(`clip ${i.clip}`, i.file, i) }))),
+    laidTrack("A1 clip sound", "Audio", plan.items.filter((i) => i.kind === "video" && i.sound === "own" && i.hasSound && i.volume > 0).map((i) => ({ at: i, make: () => clip(`clip ${i.clip} sound`, i.file, i, { afflatus: { volume: i.volume } }) }))),
+    laidTrack("A2 sound files", "Audio", plan.items.filter((i) => i.sound === "file" && i.soundFile && i.volume > 0).map((i) => ({ at: soundFileAt(i), make: () => clip(`clip ${i.clip} sound file`, i.soundFile!.file, soundFileAt(i), { afflatus: { volume: i.volume } }) }))),
+    ...(plan.music ? [laidTrack("A3 music", "Audio", [{ at: musicAt, make: () => clip("music", "media/music.wav", musicAt) }])] : []),
   ];
   const timeline = {
     OTIO_SCHEMA: "Timeline.1", name: plan.name, metadata: {}, global_start_time: null,
