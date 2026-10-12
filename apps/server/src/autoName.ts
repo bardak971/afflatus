@@ -333,11 +333,12 @@ export async function shownNames(db: AnyDb, rows: NamedRow[], recipeTitle: (id: 
   return out;
 }
 
-/** A nameless item taken out of another, after that one's name: a frame, a sound, a mirrored picture, a range. */
+/** A nameless item taken out of another, after that one's name: a frame, a sound, a mirrored picture, a silent video, a range. */
 function fromSource(r: NamedRow, source: string): string {
   if (r.origin === "frame") return frameName(source);
   if (r.kind === "audio") return soundName(source);
-  if (r.origin === "edited") return fromName(source, ", mirrored");
+  // an edited copy: a picture mirrored, or a video with its sound removed
+  if (r.origin === "edited") return fromName(source, r.kind === "video" ? ", no sound" : ", mirrored");
   const [a, b] = (r.source_range ?? "").split("-").map(Number);
   return r.source_range && Number.isFinite(a) && Number.isFinite(b) ? fromName(source, ` · ${clockOf(a!)}–${clockOf(b!)}`) : "";
 }

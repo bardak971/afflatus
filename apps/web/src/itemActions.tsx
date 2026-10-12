@@ -1,4 +1,4 @@
-import { ArrowRightFromLine, AudioLines, Clapperboard, Columns2, Copy, Download, Eraser, ExternalLink, Eye, Film, FlipHorizontal2, FlipVertical2, FolderKanban, Hand, ImageDown, Info, Maximize2, Mic, Paintbrush, Pencil, PenLine, Scissors, Shuffle, SlidersHorizontal, Smile, SquareDashed, Star, Trash2, Undo2, Wand2, type LucideIcon } from "lucide-react";
+import { ArrowRightFromLine, AudioLines, Clapperboard, Columns2, Copy, Download, Eraser, ExternalLink, Eye, Film, FlipHorizontal2, FlipVertical2, FolderKanban, Hand, ImageDown, Info, Maximize2, Mic, Paintbrush, Pencil, PenLine, Scissors, Shuffle, SlidersHorizontal, Smile, SquareDashed, Star, Trash2, Undo2, VolumeX, Wand2, type LucideIcon } from "lucide-react";
 import type { MenuItem } from "./ContextMenu";
 
 /**
@@ -16,7 +16,7 @@ export type ActionId =
   | "open" | "keep" | "download" | "rename"
   | "reuse-same" | "reuse-new" | "variation" | "i2v" | "extend"
   | "upscale" | "face" | "hand" | "background" | "inpaint" | "edit" | "outpaint" | "mirror-h" | "mirror-v"
-  | "trim" | "save-frame" | "extract-audio" | "voice"
+  | "trim" | "save-frame" | "extract-audio" | "remove-sound" | "voice"
   | "compare" | "details" | "copy-seed" | "comfy"
   | "timeline" | "move"
   | "bin" | "erase";
@@ -60,6 +60,7 @@ export const ACTIONS: Record<ActionId, Spec> = {
   trim: { group: "tools", label: "Trim", key: "T", kinds: ["video"], icon: Scissors, tip: "Pick an in and an out, then copy, split or remove the range, save its frames, or generate between them." },
   "save-frame": { group: "tools", label: "Save frame", key: "G", kinds: ["video"], icon: ImageDown, tip: "Save the frame the video is paused on as a picture in your library." },
   "extract-audio": { group: "tools", label: "Extract audio", kinds: ["video"], icon: AudioLines, tip: "Its audio track as a file of its own in your library: for another clip, or as music." },
+  "remove-sound": { group: "tools", label: "Remove sound", kinds: ["video"], icon: VolumeX, tip: "A copy of the video without its sound, beside it in your library; this one stays as it is." },
   voice: { group: "tools", label: "Use as voice sample", kinds: ["video", "audio"], icon: Mic, tip: "A new draft on a model that speaks with this voice sample." },
   compare: { group: "look", label: "Compare", key: "X", kinds: SEEN, icon: Columns2, tip: "Pin this one and move to another with the arrow keys: side by side, videos in step, two pictures also with a wipe." },
   details: { group: "look", label: "Details", key: "P", kinds: ALL, icon: Info, tip: "The generation parameters: those it was made with, or for a file made elsewhere the ones written in it (PNG info)." },
@@ -164,7 +165,7 @@ export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<Acti
       case "i2v": return f.opener ? undefined : "no video model takes a first frame";
       case "extend": return f.carrier ? undefined : "no video model carries a clip on";
       case "upscale": case "face": case "hand": case "background": case "inpaint": case "edit": case "outpaint": return f.passes[id] ? undefined : "no model for it";
-      case "extract-audio": return f.hasSound ? undefined : "it has no sound";
+      case "extract-audio": case "remove-sound": return f.hasSound ? undefined : "it has no sound";
       case "voice": return f.kind === "video" && !f.hasSound ? "it has no sound" : f.voice ? undefined : "no model takes a voice sample";
       case "compare": return f.compare === true ? undefined : f.compare;
       case "copy-seed": return f.seed !== null ? undefined : f.reading ? "reading…" : "no seed";

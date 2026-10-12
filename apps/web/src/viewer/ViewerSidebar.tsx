@@ -510,7 +510,7 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
             <SectionTitle>Source</SectionTitle>
             <Strip
               items={[
-                ...(detail.data?.source ? [{ asset: detail.data.source.asset, name: detail.data.source.asset.shownName || detail.data.source.asset.name || undefined, caption: detail.data.source.range ? `${clock(detail.data.source.range.startMs)}–${clock(detail.data.source.range.endMs)} of it` : a.origin === "edited" ? "mirrored from it" : a.kind === "image" ? "frame of it" : "cut from it" }] : []),
+                ...(detail.data?.source ? [{ asset: detail.data.source.asset, name: detail.data.source.asset.shownName || detail.data.source.asset.name || undefined, caption: detail.data.source.range ? `${clock(detail.data.source.range.startMs)}–${clock(detail.data.source.range.endMs)} of it` : a.origin === "edited" ? (a.kind === "video" ? "its sound removed" : "mirrored from it") : a.kind === "image" ? "frame of it" : "cut from it" }] : []),
                 ...sources.map((s) => {
                   // a prompt-kit picture says whose it is; any other, its own name
                   const kit = kitNames.get(s.asset.id);

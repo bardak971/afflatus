@@ -4,6 +4,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+- **Remove sound** from a video: a copy without its sound beside it in the library, the video itself untouched; nothing encoded again, no GPU. In every place that lists a video's tools, beside Extract audio.
+
 ## [0.4.0] - 2026-10-12
 
 ### Added

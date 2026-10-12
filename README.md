@@ -26,12 +26,13 @@ It is one small server and a folder of data, on your PC or in a container, talki
 - **Forms instead of noodles.** A clean form per model, with good defaults already in it: prompt, size, steps, done. The graph is still there when you want it.
 - **Your own workflows, as forms.** Drop in a ComfyUI workflow file and Afflatus turns it into a form, keeps the controls its author put forward, and tells you which node packs and models are missing.
 - **Picture to video in one click.** Like a picture? Open it and press **M**. Pin a first frame, a last frame or a keyframe in the middle, and the model fills in the motion.
+- **Tools on any picture or video.** Paint a mask and redraw just that part, outpaint, fix faces and hands, edit by instruction, remove a background or mirror a picture; trim a video, save a frame, take its sound out or remove it. Guide a picture's pose or depth from a reference with ControlNet, on the models that take one.
 - **A timeline for real videos.** Chain clips into one film, with several takes per clip, trims, music that ducks under voices, and one export. MiniMax H3 clips carry on from the previous clip's latent, so motion and sound flow across the cut.
 - **Fix just the part you don't like.** Mark a stretch of the timeline with **I** and **O**, across clips if you like, and regenerate it: a new clip is made between the two frames and takes its place, while everything around it stays. Or loop it, split it, copy it, or play it in slow motion.
 - **It measures what it makes.** Generation is only half the job. Every take is scored on how cleanly it joins the clip before and how its brightness, sharpness and pace compare. The timeline points out the joins that jump; which take makes the better clip stays your call.
 - **It learns your machine.** Before you press Generate, the form tells you how long it will take, learned from your own past renders. While it runs, you watch a live preview.
 - **Keeps itself current.** A dot on Settings says a new version is out; the downloadable bundles update in one click, signed and checked, with a way back.
-- **Everything in reach.** Projects, a bin that cleans itself, a Prompt kit for people and styles, and **Ctrl+K** to find or do anything from the keyboard.
+- **Everything in reach.** Projects, a bin that cleans itself, a Prompt kit for people (their pictures and voice), places and styles that every model uses, and **Ctrl+K** to find or do anything from the keyboard.
 
 ## From download to your first render
 
@@ -109,7 +110,7 @@ Hover a clip, or open its takes, and you see how clean each join is and how its 
 
 <p align="center"><img src="docs/media/themes.webp" alt="The Studio in Studio Light, Catppuccin Mocha, Rosé Pine Dawn and Kanagawa Wave" width="820"><br><sub>Studio Dark by default, plus light and dark themes from Studio, Catppuccin, Rosé Pine, Tokyo Night and Kanagawa.</sub></p>
 
-Also in the app: an optional **prompt designer** that writes prompts following each model's guide, through any OpenAI-style language model (LM Studio, Ollama, llama.cpp or a service).
+Also in the app: an optional **prompt designer** that writes prompts following each model's guide, and can plan a longer video as a series of clips, through any OpenAI-style language model (LM Studio, Ollama, llama.cpp or a service).
 
 ## Built-in model families
 
