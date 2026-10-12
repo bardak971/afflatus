@@ -79,7 +79,9 @@ beforeEach(async () => {
       res.writeHead(from ? 206 : 200, { "content-type": "application/octet-stream", "content-length": body.length, ...(from ? { "content-range": `bytes ${from}-${FILE.length - 1}/${FILE.length}` } : {}) });
       if (cutOnce) return res.end(body);
       cutOnce = true;
-      return res.write(body.subarray(0, 120_000), () => res.socket?.end());
+      // the cut a moment after the first part: closed at once, Linux can hand the client the close before the bytes, and
+      // the download (rightly) starts over instead of picking up where it stopped
+      return res.write(body.subarray(0, 120_000), () => setTimeout(() => res.socket?.end(), 150));
     }
     if (req.url?.startsWith("/files/slow")) {
       // a first part, then nothing more for a long while: a download to stop
