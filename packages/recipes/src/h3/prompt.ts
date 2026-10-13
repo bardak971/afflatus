@@ -100,6 +100,16 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
     : opening
       ? ` ${opening} is the first frame of [Shot 1]: the video opens exactly on it, then the action follows the description.`
       : "";
+  // the reference pictures say who and what, never the scene: a reference given alone was seen re-animated whole as the
+  // clip (a mirror selfie, its phone and its room, the prompt's café ignored: 2026-10-13). The setting comes from the
+  // opening frame, the clip before, a place picture or the description; the swap LoRA's author found saying so helps
+  const hasPlace = ref.roles.includes("place");
+  const notPlace = pics.filter((_p, i) => ref.roles[i] !== "place");
+  // (a place picture is the setting itself: its own line says so)
+  const scene = ref.voiceOnly || !notPlace.length ? "" : ref.continues ? "the given opening frames" : hasPlace ? "" : opening ? opening : "the description of [Shot 1]";
+  const onlyRefs = !ref.voiceOnly && notPlace.length
+    ? ` ${list(notPlace)} ${notPlace.length > 1 ? "are references" : "is a reference"} for who and what appears, not for the scene: ${notPlace.length > 1 ? "their" : "its"} background, framing and pose are not reused, and ${notPlace.length > 1 ? "none of them is" : "it is not"} a frame of the video.`
+    : "";
   const kinds = [opening ? "keyframe completion" : "", "reference generation", vids.length ? "video reference" : "", ref.continues ? "video continuation" : "", voiceTag || soundtracks.length ? "audio reference" : ""].filter(Boolean);
   const defs: string[] = [];
   const uses: string[] = [];
@@ -112,7 +122,7 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
     keeps.push(
       `<Subject 1> (appears in [Shot 1]): fully_preserved - identity and look stay consistent${
         ref.voiceOnly ? ", setting too" : opening ? `; the opening matches ${opening}, then expression and pose follow the description` : "; expression, pose and framing follow the description"
-      }.`,
+      }${ref.voiceOnly ? "" : `; only the identity and look are taken from ${list(people)}, not ${people.length > 1 ? "their" : "its"} background`}.`,
     );
   }
   pics.forEach((tag, i) => {
@@ -142,8 +152,9 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
       soundtracks.map((v) => `\n${v.audio} is the soundtrack of ${v.tag}: the voice of ${who1} (S1).`).join("") +
       (voiceTag ? `\n${voiceTag} is the voice-timbre reference for ${who1} (S1).` : "") +
       (opening ? `\n${opening} is the opening-frame anchor for [Shot 1].` : ""),
-    `summary:\n[${kinds.join(" + ")}] Use ${list(uses) || "the description"}${voiceTag ? ` and the voice character of ${voiceTag}` : ""}.${opens}`,
+    `summary:\n[${kinds.join(" + ")}] Use ${list(uses) || "the description"}${voiceTag ? ` and the voice character of ${voiceTag}` : ""}.${opens}${onlyRefs}`,
     `retention_analysis:\n${keeps.join("\n")}` +
+      (scene ? `\nThe setting of [Shot 1]: comes from ${scene}, never from ${list(notPlace)}.` : "") +
       (opening ? `\n${opening} ([Shot 1] first frame): fully_preserved - opening composition anchor.` : "") +
       soundtracks.map((v) => `\n${v.audio}: reference - the voice timbre is followed without copying the signal.`).join("") +
       (voiceTag ? `\n${voiceTag}: reference - timbre and delivery are followed without copying the signal.` : ""),
