@@ -50,6 +50,12 @@ describe("MiniMax H3 · Swap character", () => {
     expect(of(build({}, part({ width: 352, height: 640 })).graph, "MiniMaxH3ReferenceToVideo")[0]!.inputs.width).toBe(384);
   });
 
+  it("samples as the research graph did: the model's own shifts (12 / 3), no fp16 accumulation patch", () => {
+    const { graph } = build();
+    expect(of(graph, "MiniMaxH3SigmaShift")[0]!.inputs).toMatchObject({ shift_video: 12, shift_audio: 3 });
+    expect(of(graph, "ModelPatchTorchSettings")).toHaveLength(0);
+  });
+
   it("puts the swap LoRA on the model, at its strength", () => {
     const { graph } = build({ swapStrength: 0.8 });
     expect(of(graph, "LoraLoaderModelOnly").map((n) => [n.inputs.lora_name, n.inputs.strength_model])).toContainEqual(["swap.safetensors", 0.8]);
