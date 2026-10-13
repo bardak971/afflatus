@@ -234,6 +234,6 @@ describe("a rented machine", () => {
     expect(pod5090().status).toBe("TERMINATED");
     await t.services.rented.poll();
     expect((await rowOf(id)).rented?.status).toBe("GONE");
-    expect(t.services.queue.unavailable(id)).toBe("deleted on RunPod");
+    expect(t.services.queue.unavailable(id)).toBe("not on RunPod");
   });
 });

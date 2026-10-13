@@ -26,8 +26,11 @@ export interface Pod {
   diskGb: number;
   /** A network volume is mounted: what is on it outlives the pod. */
   networkVolume: boolean;
-  /** Its environment, as set on RunPod: AFFLATUS_TOKEN among it locks its ComfyUI from boot (LOCK_ENV). */
-  env: Record<string, string>;
+  /**
+   * Its environment, as set on RunPod: AFFLATUS_TOKEN among it locks its ComfyUI from boot (LOCK_ENV). Null when RunPod did not
+   * say it: then it is never written, as writing it replaces the whole of it and would wipe what is there.
+   */
+  env: Record<string, string> | null;
   /** Seconds since it started, while it runs. */
   uptime: number | null;
   startedAt: string | null;
@@ -43,6 +46,26 @@ export class RunpodError extends Error {
 
 /** The variable of a pod's environment the node pack locks its ComfyUI with from its start (lock.py AFFLATUS_TOKEN). */
 export const LOCK_ENV = "AFFLATUS_TOKEN";
+/** And the one its watchdog arms itself with from its start, before Afflatus has said anything (watchdog.py). */
+export const WATCHDOG_ENV = "AFFLATUS_WATCHDOG_MINUTES";
+
+/** RunPod answered in a shape Afflatus does not read: said as it is, never taken for "no pods". */
+export class RunpodShape extends Error {}
+
+/**
+ * A date as RunPod gives it, as ms: ISO, or Go's way ("2026-10-13 10:00:00.000 +0000 UTC"). Null when it does not read: a
+ * date taken as NaN would make a run cost nothing, and a cap would never be reached.
+ */
+export function podTime(value: unknown): number | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const direct = Date.parse(value);
+  if (!Number.isNaN(direct)) return direct;
+  const go = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s*([+-]\d{4})?/.exec(value.trim());
+  if (!go) return null;
+  const zone = go[3] ? `${go[3].slice(0, 3)}:${go[3].slice(3)}` : "Z";
+  const parsed = Date.parse(`${go[1]}T${go[2]}${zone}`);
+  return Number.isNaN(parsed) ? null : parsed;
+}
 
 /** The ComfyUI port a pod must expose over HTTP for Afflatus to reach it. */
 export const COMFY_PORT = 8188;
@@ -79,9 +102,9 @@ const podOf = (p: RawPod): Pod => ({
   ports: Array.isArray(p.ports) ? p.ports : [],
   diskGb: p.mounts?.persistent?.size ?? 0,
   networkVolume: Boolean(p.mounts?.network?.length),
-  env: p.env && typeof p.env === "object" ? { ...p.env } : {},
+  env: p.env && typeof p.env === "object" && !Array.isArray(p.env) ? { ...p.env } : null,
   uptime: p.runtime?.uptime ?? null,
-  startedAt: p.startedAt ?? null,
+  startedAt: podTime(p.startedAt) === null ? null : new Date(podTime(p.startedAt)!).toISOString(),
   actions: (p.actions ?? []).filter((a): a is PodAction => ["start", "stop", "restart", "terminate"].includes(a)),
 });
 
@@ -99,7 +122,7 @@ export class Runpod {
     if (res.status === 204) return undefined as T;
     const body = (await res.json().catch(() => null)) as { detail?: string; title?: string } | null;
     if (!res.ok) {
-      const said = res.status === 401 ? "RunPod refused the API key: check it in Settings › ComfyUI." : res.status === 409 ? "RunPod says the pod cannot do that now." : body?.detail ?? body?.title ?? `RunPod answered ${res.status}`;
+      const said = res.status === 429 ? "RunPod asks to slow down (too many requests): Afflatus asks it less often for a while." : res.status === 401 ? "RunPod refused the API key: check it in Settings › ComfyUI." : res.status === 409 ? "RunPod says the pod cannot do that now." : body?.detail ?? body?.title ?? `RunPod answered ${res.status}`;
       throw new RunpodError(said, res.status);
     }
     return body as T;
@@ -111,7 +134,10 @@ export class Runpod {
     let cursor: string | null = null;
     for (let page = 0; page < 20; page++) {
       const got: { pods?: RawPod[]; pagination?: { nextCursor?: string | null; hasNextPage?: boolean } } = await this.call(`/v2/pods?limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
-      all.push(...(got.pods ?? []).map(podOf));
+      // a shape not read here is said, never taken for "no pods" (which would make every pod look deleted, its cost nothing)
+      if (!got || !Array.isArray(got.pods)) throw new RunpodShape("RunPod answered the list of pods in a shape Afflatus does not know: nothing is stopped or counted until it is read again. Tell us if it lasts.");
+      for (const p of got.pods) if (!p || typeof p.id !== "string" || typeof p.status !== "string") throw new RunpodShape("RunPod listed a pod without its id or its status: Afflatus does not know this answer's shape.");
+      all.push(...got.pods.map(podOf));
       if (!got.pagination?.hasNextPage || !got.pagination.nextCursor) break;
       cursor = got.pagination.nextCursor;
     }

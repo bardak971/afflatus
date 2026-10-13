@@ -86,3 +86,15 @@ def test_without_a_way_to_stop_it_says_so_and_does_nothing():
     assert dog.alive(5)["can"] is False
     clock.t += 3600
     assert dog.check() is False
+
+
+def test_armed_from_its_start_when_the_pods_environment_says_so():
+    clock = Clock()
+    stops = []
+    dog = W.armed_at_start(W.Watchdog(("runpodctl", "pod1"), now=clock, stop=lambda way: stops.append(way) or True), env={"AFFLATUS_WATCHDOG_MINUTES": "15"})
+    assert dog.view()["watching"] is True and dog.minutes == 15
+    # Afflatus never says anything (the PC went to sleep after Start): stopped all the same
+    clock.t += 15 * 60
+    assert dog.check() is True and stops == [("runpodctl", "pod1")]
+    for env in ({}, {"AFFLATUS_WATCHDOG_MINUTES": "0"}, {"AFFLATUS_WATCHDOG_MINUTES": "soon"}):
+        assert W.armed_at_start(W.Watchdog(("runpodctl", "pod1"), now=clock), env=env).view()["watching"] is False

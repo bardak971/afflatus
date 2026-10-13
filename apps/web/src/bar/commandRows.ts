@@ -6,6 +6,7 @@ import { COMMANDS, KIT_OF, parseCommand, type Command, type CommandId, type KitN
 import type { TimelineAim } from "./actions/ctx";
 import { plural } from "../format";
 import { unloadBlock } from "../queueRules";
+import { rateSaid, rentedSaid } from "../machines";
 
 const upper = (s: string | null) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : null);
 
@@ -97,8 +98,8 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     size: [`Size ${c.cmd === "size" ? `${c.width}×${c.height}` : ""}`, "In the open draft's form"],
     length: [`Length ${c.cmd === "length" ? `${c.seconds} s` : ""}`, "In the open draft's form"],
     machines: ["Show the ComfyUIs", queueNow?.machines.length ? `${queueNow.machines.length} ComfyUIs · their figures, pause and menu` : "With several ComfyUIs: each one's figures and actions"],
-    "start-pod": [`Start ${c.cmd === "start-pod" ? c.machine : ""}`, `${c.cmd === "start-pod" ? machineSaid(queueNow, c.machine) : ""} · billed from now; it stops by itself when idle`],
-    "stop-pod": [`Stop ${c.cmd === "stop-pod" ? c.machine : ""}`, `${c.cmd === "stop-pod" ? machineSaid(queueNow, c.machine) : ""} · the GPU stops billing, its disk goes on`],
+    "start-pod": [`Start ${c.cmd === "start-pod" ? podOf(queueNow, c.machine)?.label ?? c.machine : ""}`, c.cmd === "start-pod" ? startSaid(podOf(queueNow, c.machine)?.rented) : ""],
+    "stop-pod": [`Stop ${c.cmd === "stop-pod" ? podOf(queueNow, c.machine)?.label ?? c.machine : ""}`, `${c.cmd === "stop-pod" ? machineSaid(queueNow, c.machine) : ""} · the GPU stops billing, its disk goes on`],
     "open-comfy": [c.cmd === "open-comfy" && c.machine ? `Open ComfyUI on ${c.machine}` : "Open ComfyUI", c.cmd === "open-comfy" && c.machine ? `${machineSaid(queueNow, c.machine)} · its own page, in a new tab` : "ComfyUI's own page, in a new tab"],
     "machine-log": [`ComfyUI log of ${c.cmd === "machine-log" ? c.machine : ""}`, `${c.cmd === "machine-log" ? machineSaid(queueNow, c.machine) : ""} · its console, in the Queue`],
     "machine-times": [`Render times of ${c.cmd === "machine-times" ? c.machine : ""}`, `${c.cmd === "machine-times" ? machineSaid(queueNow, c.machine) : ""} · what it rendered and how long it took`],
@@ -145,10 +146,24 @@ const applies = (x: CommandCtx, id: CommandId): boolean =>
   : true;
 
 /** A machine's state in a word, for its rows ("rendering", "paused"); "not found" for a name no machine has. */
+/** A machine by the name typed: the same name, else the first that begins with it. */
+function podOf(q: QueueNow | null, label: string) {
+  return q?.machines.find((x) => x.label.toLowerCase() === label.toLowerCase()) ?? q?.machines.find((x) => x.label.toLowerCase().startsWith(label.toLowerCase()));
+}
+
 function machineSaid(q: QueueNow | null, label: string): string {
-  const m = q?.machines.find((x) => x.label.toLowerCase() === label.toLowerCase()) ?? q?.machines.find((x) => x.label.toLowerCase().startsWith(label.toLowerCase()));
+  const m = podOf(q, label);
   if (!m) return "no ComfyUI by that name";
+  // a rented pod says its own state: stopped is not offline
+  if (m.rented && m.rented.status !== "RUNNING") return rentedSaid(m.rented);
   return m.paused ? "paused" : m.online === false ? "offline" : m.running ? "rendering" : "idle";
+}
+
+/** What a Start of a rented pod says before it is chosen: its rate, or that it cannot. */
+function startSaid(r: RentedState | null | undefined): string {
+  if (!r) return "no rented pod by that name";
+  if (r.capped) return "a spending cap is reached";
+  return r.status === "EXITED" || r.status === "ERROR" ? rateSaid(r) : rentedSaid(r);
 }
 
 /**
@@ -166,8 +181,8 @@ const machineRows = (x: CommandCtx): Item[] =>
     // a rented pod: Start while it is stopped, Stop while it runs
     const r = m.rented;
     const pod = r ? (r.status === "EXITED" || r.status === "ERROR" ? [own({ cmd: "start-pod", machine: m.label })] : r.status === "RUNNING" ? [own({ cmd: "stop-pod", machine: m.label })] : []) : [];
+    // Start last: a pod's name typed and Enter pressed shows it, it does not start it
     return [
-      ...pod,
       own(m.paused ? { cmd: "resume", machine: m.label } : { cmd: "pause", machine: m.label }), own({ cmd: "use-only", machine: m.label }),
       ...(m.online !== false && !m.running ? [own({ cmd: "unload", machine: m.label })] : []),
       ...(m.online !== false ? [own({ cmd: "load-panel", machine: m.label })] : []),
@@ -175,6 +190,7 @@ const machineRows = (x: CommandCtx): Item[] =>
       ...(m.online !== false ? [own({ cmd: "generate", machine: m.label })] : []),
       // with a timeline open: its clips with no take, rendered on this machine
       ...(m.online !== false && x.aim ? [own({ cmd: "render-missing", machine: m.label })] : []),
+      ...pod,
     ];
   });
 

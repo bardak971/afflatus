@@ -6,7 +6,7 @@ import type { MachineState } from "./api";
 import { useQueue } from "./data";
 import { openLoadPanel } from "./LoadPanel";
 import { usd } from "./format";
-import { machineLabel, machineUnloadBlock, rentedSaid } from "./machines";
+import { machineLabel, machineUnloadBlock, rateSaid, rentedSaid } from "./machines";
 import { RUNPOD_CONSOLE, useRentedOps } from "./rentedOps";
 import { useQueueOps } from "./queueOps";
 
@@ -39,7 +39,7 @@ export function MachineMenuBody({ at, machine, onClose }: { at: Parameters<typeo
     if (r && r.status !== "RUNNING") {
       const stopped = r.status === "EXITED" || r.status === "ERROR";
       return [
-        ...(stopped ? [{ label: `Start ${name}`, icon: <Power size={14} />, note: r.capped ? "a spending cap is reached" : r.rate ? `${usd(r.rate)} / h from now` : "billed from now", disabled: r.capped, run: () => rented.start.mutate(m.id) }] : []),
+        ...(stopped ? [{ label: `Start ${name}`, icon: <Power size={14} />, note: r.capped ? "a spending cap is reached" : rateSaid(r), disabled: r.capped, run: () => rented.start.mutate(m.id) }] : []),
         ...(r.status === "STARTING" || r.status === "PROVISIONING" ? [{ label: `Stop ${name}`, icon: <PowerOff size={14} />, note: "before it is up", run: () => rented.stop.mutate({ machine: m.id, how: "stop" }) }] : []),
         ...(r.status !== "GONE" && r.status !== "TERMINATED" ? [{ label: "Delete the pod…", icon: <Trash2 size={14} />, note: "asked in its card", run: () => go(`/settings?machine=${encodeURIComponent(m.id)}`) }] : []),
         onRunpod,

@@ -9,8 +9,9 @@ How it stops the pod: on RunPod (RUNPOD_POD_ID set in the pod), with `runpodctl 
 RUNPOD_API_KEY of the pod when runpodctl is not there. Elsewhere it cannot, and says so (`can` false): Afflatus then says
 "no watchdog" on the machine. A stop that fails is tried again every few minutes, and said in ComfyUI's console.
 
-Nothing is armed until Afflatus says "still here" with minutes: installing the pack on a ComfyUI of one's own changes
-nothing. {"minutes": 0} disarms it.
+Nothing is armed until Afflatus says "still here" with minutes, or the pod's environment says AFFLATUS_WATCHDOG_MINUTES (set by
+Afflatus before it starts the pod): then it is armed from ComfyUI's start, so that a PC gone silent right after pressing Start
+still has the pod stop. Installing the pack on a ComfyUI of one's own changes nothing. {"minutes": 0} disarms it.
 
 Routes (through the lock when there is one; a JSON body only):
   POST /afflatus/alive {minutes}  → {watching, minutes, can}
@@ -108,8 +109,21 @@ class Watchdog:
                 print(f"[afflatus-nodes] watchdog: {err}")
 
 
+def armed_at_start(dog, env=None):
+    """Armed from ComfyUI's start when the pod's environment gives the minutes (AFFLATUS_WATCHDOG_MINUTES): the silence counts
+    from now, as if Afflatus had just said "still here"."""
+    env = os.environ if env is None else env
+    try:
+        minutes = int((env.get("AFFLATUS_WATCHDOG_MINUTES") or "0").strip())
+    except ValueError:
+        minutes = 0
+    if 0 < minutes <= 24 * 60:
+        dog.alive(minutes)
+    return dog
+
+
 def register(routes, web, dog=None):
-    dog = dog or Watchdog(how_to_stop())
+    dog = armed_at_start(dog or Watchdog(how_to_stop()))
 
     @routes.get("/afflatus/alive")
     async def _afflatus_alive_state(request):

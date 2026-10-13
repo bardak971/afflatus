@@ -14,7 +14,7 @@ export function machineLabel(m: { name: string; url: string }): string {
 }
 
 /** The machines of the queue, when there are several; empty with one (the screens then stay as they were). */
-export const severalMachines = (q: QueueStatus | undefined): MachineState[] => (q?.machines && q.machines.length > 1 ? q.machines : []);
+export const severalMachines = (q: QueueStatus | undefined): MachineState[] => (q?.machines && (q.machines.length > 1 || q.machines.some((m) => m.rented)) ? q.machines : []);
 
 /** A machine of the queue by id, as the screens name it; the id itself when the queue does not have it (one removed since). */
 export function machineName(q: QueueStatus | undefined, id: string | null | undefined): string | null {
@@ -54,10 +54,14 @@ export function familyOnFor(own: Readonly<Record<string, boolean>>, said: Readon
  */
 export function rentedSaid(r: RentedState, now = Date.now()): string {
   switch (r.status) {
-    case "RUNNING": return r.since ? `running ${long(now - r.since)} · ${usd(rentedSpent(r, now), true)}` : "running";
+    case "RUNNING": {
+      // billed from its start, whether its ComfyUI answers yet or not
+      const what = r.stopping ? "stopping" : r.answers === false ? "running, ComfyUI not up yet" : "running";
+      return r.since ? `${what} ${long(now - r.since)} · ${usd(rentedSpent(r, now), true)}` : what;
+    }
     case "STARTING": case "PROVISIONING": return "starting";
     case "EXITED": return r.diskPerDay > 0.005 ? `stopped · disk ${usd(r.diskPerDay)}/day` : "stopped";
-    case "GONE": case "TERMINATED": return "deleted on RunPod";
+    case "GONE": case "TERMINATED": return "not on RunPod";
     case "ERROR": return "in error on RunPod";
     default: return r.error ? "RunPod not answering" : "…";
   }
@@ -67,6 +71,9 @@ export function rentedSaid(r: RentedState, now = Date.now()): string {
 export function rentedSpent(r: RentedState, now = Date.now()): number {
   return r.status === "RUNNING" && r.since && r.rate ? (Math.max(0, now - r.since) / 3_600_000) * r.rate : r.spent;
 }
+
+/** A rented pod's rate as Start says it: RunPod says it only once the pod has run (it says 0 while it is stopped). */
+export const rateSaid = (r: RentedState) => (r.rate ? `${usd(r.rate)} / h from now` : "rate known once it has run · billed from now");
 
 /** Whether a rented pod takes work now: only while it runs. A machine of one's own always may. */
 export const rentedUp = (m: { rented?: RentedState | null }) => !m.rented || m.rented.status === "RUNNING";

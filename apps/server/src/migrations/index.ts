@@ -59,6 +59,7 @@ import m0057 from "./0057-kit-cutouts";
 import m0058 from "./0058-no-cutouts";
 import m0059 from "./0059-rent-sessions";
 import m0060 from "./0060-drop-kit-for";
+import m0061 from "./0061-rent-seen";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -126,4 +127,5 @@ export const migrations: Record<string, Migration> = {
   "0058_no_cutouts": m0058,
   "0059_rent_sessions": m0059,
   "0060_drop_kit_for": m0060,
+  "0061_rent_seen": m0061,
 };

@@ -30,6 +30,14 @@ export interface FakeRunpod {
   balance: number;
   /** How long a started pod is STARTING before it runs. */
   bootMs: number;
+  /** Misbehaving as the real one can, for a test: an action refused with this status, by pod id; the env change refused;
+   * the env left out of the list; the list refused with this status, or answered in a shape of another API; actions slow. */
+  failAction: Record<string, number>;
+  failPatch: number | null;
+  hideEnv: boolean;
+  failList: number | null;
+  oddList: boolean;
+  actionDelayMs: number;
   close(): Promise<void>;
 }
 
@@ -55,7 +63,10 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
     p.comfy.down = status !== "RUNNING";
     return { ...p, env: p.env ?? {}, id: new URL(p.comfy.url).port, status, startedAt: status === "RUNNING" ? new Date().toISOString() : null };
   });
-  const fake: Omit<FakeRunpod, "url" | "close"> = { key: o.key, pods, calls: [], balance: o.balance ?? 23.4, bootMs: o.bootMs ?? 1500 };
+  const fake: Omit<FakeRunpod, "url" | "close"> = {
+    key: o.key, pods, calls: [], balance: o.balance ?? 23.4, bootMs: o.bootMs ?? 1500,
+    failAction: {}, failPatch: null, hideEnv: false, failList: null, oddList: false, actionDelayMs: 0,
+  };
   const timers = new Set<NodeJS.Timeout>();
   /** What the pods have cost: the stretches that ended, and what runs now. */
   let ended = 0;
@@ -74,10 +85,21 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
     if (req.headers.authorization !== `Bearer ${fake.key}`) return json(401, { title: "Unauthorized", status: 401, detail: "invalid api key" });
     // the balance goes down as the pods run, by the second, as RunPod's does
     if (req.method === "POST" && url.pathname === "/graphql") return json(200, { data: { myself: { clientBalance: fake.balance - spent() } } });
-    if (req.method === "GET" && url.pathname === "/v2/pods") return json(200, { pods: fake.pods.filter((p) => p.status !== "TERMINATED").map(raw), pagination: { nextCursor: null, hasNextPage: false } });
+    if (req.method === "GET" && url.pathname === "/v2/pods") {
+      if (fake.failList) return json(fake.failList, { title: "Error", status: fake.failList, detail: fake.failList === 429 ? "rate limited" : "unavailable" });
+      const listed = fake.pods.filter((p) => p.status !== "TERMINATED").map((p) => {
+        const r = raw(p) as Record<string, unknown>;
+        if (fake.hideEnv) delete r.env;
+        return r;
+      });
+      // another API's shape: a bare array of pods with other names
+      if (fake.oddList) return json(200, listed.map((r) => ({ id: r.id, desiredStatus: r.status, costPerHr: r.cost })));
+      return json(200, { pods: listed, pagination: { nextCursor: null, hasNextPage: false } });
+    }
     // a pod's environment, replaced whole, for its next start
     const one = /^\/v2\/pods\/([^/]+)$/.exec(url.pathname);
     if (req.method === "PATCH" && one) {
+      if (fake.failPatch) return json(fake.failPatch, { title: "Refused", status: fake.failPatch, detail: "update refused" });
       const target = fake.pods.find((p) => p.id === decodeURIComponent(one[1]!) && p.status !== "TERMINATED");
       if (!target) return json(404, { title: "Not Found", status: 404, detail: "pod not found" });
       if (body.env && typeof body.env === "object") target.env = { ...(body.env as Record<string, string>) };
@@ -87,6 +109,9 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
     const pod = act ? fake.pods.find((p) => p.id === decodeURIComponent(act[1]!) && p.status !== "TERMINATED") : undefined;
     if (req.method === "POST" && act) {
       if (!pod) return json(404, { title: "Not Found", status: 404, detail: "pod not found" });
+      if (fake.actionDelayMs) await new Promise((r) => setTimeout(r, fake.actionDelayMs));
+      const failing = fake.failAction[pod.id];
+      if (failing) return json(failing, { title: "Refused", status: failing, detail: "action refused" });
       const action = body.action;
       const allowed = raw(pod).actions;
       if (typeof action !== "string" || !allowed.includes(action)) return json(409, { title: "Conflict", status: 409, detail: `cannot ${String(action)} a ${pod.status.toLowerCase()} pod` });

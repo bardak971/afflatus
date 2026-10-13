@@ -108,7 +108,7 @@ export function AccessRow({ id, label, probe, url, rented = false }: { id: strin
             {access.off
               ? "Started with AFFLATUS_LOCK=off: start it without it to lock it."
               : rented && !access.canLock
-                ? "No Afflatus node pack on this pod: anything that finds its address can use it while it runs. Put the pack on it (or use the Afflatus template) to have it locked."
+                ? `${probe.pack ? `The Afflatus node pack on this pod is ${probe.pack}, too old to lock it` : "No Afflatus node pack on this pod"}: anything that finds its address can use it while it runs. Put the pack (0.13 or newer) on it, or use the Afflatus template, to have it locked.`
                 : access.canLock
                 ? "Anything that reaches this address can use this ComfyUI."
                 : probe.pack ? `The Afflatus node pack 0.12 locks it; this one is ${probe.pack}: update it, then restart ComfyUI.` : "The Afflatus node pack locks it: install it, then restart ComfyUI."}
@@ -116,7 +116,7 @@ export function AccessRow({ id, label, probe, url, rented = false }: { id: strin
         </span>
         {access.canLock && !access.off
           ? <Button tone="primary" onClick={() => lock.mutate({})} disabled={busy}>Lock it</Button>
-          : !access.off && <ButtonLink href="/api/comfy/node-pack.zip" download size="sm">Download the pack</ButtonLink>}
+          : !access.off && !rented && <ButtonLink href="/api/comfy/node-pack.zip" download size="sm">Download the pack</ButtonLink>}
       </>
     );
   }

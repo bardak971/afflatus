@@ -280,10 +280,14 @@ export interface RentedState {
   diskPerDay: number;
   /** The node pack's watchdog on it. */
   watchdog: "on" | "none" | "unknown";
+  /** Its ComfyUI answers, while it runs: false while it boots, or when it went down on the pod. */
+  answers: boolean | null;
   /** Time left before it stops for being idle, while it runs idle. */
   idleLeftMs: number | null;
   /** A spending cap is reached: it stops once its render ends. */
   capped: boolean;
+  /** Afflatus is stopping it now: it takes no new work. */
+  stopping: boolean;
   /** Why Afflatus stopped or deleted it last. */
   stoppedBy: "idle" | "cap" | "you" | null;
   error: string | null;

@@ -60,7 +60,8 @@ function NodePackRow() {
 export function ComfyCard() {
   const settings = useSettings();
   const machines = settings.data?.machines ?? [];
-  const several = machines.length > 1;
+  // a lone rented pod has its own card too (Start, Stop, idle, Delete), not the one Connection card
+  const several = machines.length > 1 || machines.some((m) => m.rented);
   // with one ComfyUI too: its Access line reads its lock from there
   const probes = useMachineProbes();
   const queue = useQueue();
