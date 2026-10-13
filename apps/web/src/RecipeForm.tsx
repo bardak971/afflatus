@@ -134,7 +134,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
       <Field
         bare={bare === true}
         standard={defaults[i.id]}
-        spec={i} value={values[i.id]} values={values} options={status?.options[i.id]} family={family} model={inUse}
+        spec={i} value={values[i.id]} values={values} specs={recipe.inputs} options={status?.options[i.id]} family={family} model={inUse}
         onChange={(v) => onChange(i.id, v)}
         onValue={onChange}
         main={mainText?.type === "prompt" ? { text: String(values[mainText.id] ?? ""), style: mainText.style, set: (text) => onChange(mainText.id, text) } : undefined}

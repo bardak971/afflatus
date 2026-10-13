@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { pickChoice, RANDOM_SEED, type ClipValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
+import { pickChoice, RANDOM_SEED, soundFit, type ClipValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import type { FamilyInfo } from "./api";
 import { useCastPictures, useCastVoice } from "./castPictures";
 import { FileSelect, FOLDER_OF } from "./fields/FileSelect";
@@ -30,11 +30,13 @@ export { sameValue } from "./form";
 // the row is a file of its own: the dialogs that use it alone (a new project) do not take every field with it
 export { FieldRow } from "./fields/FieldRow";
 
-export function Field({ spec, value, values, options, family, model, onChange, onValue, main, bare, standard }: {
+export function Field({ spec, value, values, specs, options, family, model, onChange, onValue, main, bare, standard }: {
   spec: InputSpec;
   value: unknown;
   /** The whole form, for a field that goes with another one (the part painted over a picture). */
   values?: Record<string, unknown>;
+  /** The form's inputs: a sound's part reads its limits off its length input, and what one clip holds off the clips it joins. */
+  specs?: InputSpec[];
   /** What this ComfyUI offers for a model, LoRA or ComfyUI-backed choice input. */
   options: string[] | undefined;
   /** The model family the form is for: LoRAs made for it are listed first. */
@@ -146,17 +148,26 @@ export function Field({ spec, value, values, options, family, model, onChange, o
     case "references":
       return <ReferencesField label={spec.label} note={spec.note} max={spec.max} roles={spec.roles} video={spec.media === "video"} value={(value as ReferenceValue[] | undefined) ?? []} onChange={onChange} cast={cast} />;
 
-    case "audio":
+    case "audio": {
+      const w = spec.window;
+      // the part's limits are its length input's: every sound field keeps to its own recipe's
+      const length = specs?.find((s) => s.id === w?.seconds);
+      const limits = length?.type === "number" ? { min: length.min ?? 1, max: length.max ?? 15, usual: Number(length.default ?? 8) } : { min: 1, max: 15, usual: 8 };
       return (
         <SoundField
           label={spec.label} note={spec.note} optional={Boolean(spec.optional)} value={typeof value === "string" ? value : null} onChange={onChange}
-          part={spec.window && onValue ? {
-            start: Number(values?.[spec.window.start] ?? 0), seconds: Number(values?.[spec.window.seconds] ?? 8),
-            onStart: (v) => onValue(spec.window!.start, v), onSeconds: (v) => onValue(spec.window!.seconds, v),
+          part={w && onValue ? {
+            start: Number(values?.[w.start] ?? 0), seconds: Number(values?.[w.seconds] ?? limits.usual), ...limits,
+            fit: w.fits ? soundFit(w.fits, specs ?? [], values ?? {}) : undefined,
+            set: (start, seconds) => {
+              onValue(w.start, start);
+              onValue(w.seconds, seconds);
+            },
           } : undefined}
           cast={castVoice}
         />
       );
+    }
 
     case "clip":
       return <ClipField label={spec.label} note={spec.note} role={spec.role} optional={Boolean(spec.optional)} value={(value as ClipValue | undefined) ?? null} onChange={onChange} />;

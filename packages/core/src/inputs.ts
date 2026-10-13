@@ -211,8 +211,38 @@ interface AudioInput extends Base {
    * Only a part of the sound is used: the ids of the two number inputs that say where it starts and how
    * long it is, in seconds. The recipe is handed that part alone. The form shows them with the sound.
    * `even`: the id of a toggle that evens out the part's loudness as it is cut (a quiet take guides a model weakly).
+   * `after`: seconds of the sound handed over after the part, for a clip that outlasts the part to end on: the sound's
+   * own pause when there is one, else the part's end faded out in 0.15 s, then silence (the server's soundPart).
+   * `fits`: how much of the sound one clip can hold (see SoundFit); without it, the length input's own max.
    */
-  window?: { start: string; seconds: string; even?: string };
+  window?: { start: string; seconds: string; even?: string; after?: number; fits?: SoundFit };
+}
+
+/**
+ * How long a part of a sound one clip can hold: the clip's most frames at `fps`, less the frames of the clips it
+ * joins (each clip input that is set: its count from its `framesFrom` input, else its first), less `pad` seconds
+ * after the part, less the seconds of the `less` number inputs (a moment before the words). The clip's own part
+ * lasts the sound's part plus those, `min` seconds at least: what the form says the part makes.
+ */
+export interface SoundFit {
+  frames: number;
+  fps: number;
+  pad: number;
+  min: number;
+  less?: string[];
+}
+
+/** What a sound's part makes with the form's values: the longest part one clip holds, and the clip's own length for a part of `seconds`. */
+export function soundFit(fit: SoundFit, specs: InputSpec[], values: Record<string, unknown>): { most: number; clip(seconds: number): number } {
+  let frames = fit.frames;
+  for (const spec of specs) {
+    if (spec.type !== "clip" || spec.role === "source" || !values[spec.id]) continue;
+    const wanted = spec.framesFrom ? Number(values[spec.framesFrom]) : NaN;
+    frames -= Number.isFinite(wanted) && wanted > 0 ? wanted : spec.frames[0] ?? 0;
+  }
+  const before = (fit.less ?? []).reduce((sum, id) => sum + (Number(values[id]) || 0), 0);
+  const most = Math.max(0, Math.floor((frames / fit.fps - fit.pad - before) * 10) / 10);
+  return { most, clip: (seconds) => Math.max(fit.min, before + seconds + fit.pad) };
 }
 
 export type InputSpec =

@@ -9,8 +9,8 @@ import { queryKeys } from "./queryKeys";
 /** A reference picture the cast adds when the form is sent: whose it is. */
 /** A picture the cast adds; `cutout`: a person's own, without its background (the server's kitCutouts.ts). */
 export interface CastPicture { asset: string; role: ReferenceRole; from: string; cutout?: boolean }
-/** The voice sample the cast adds when the form is sent (a person's own), and whose it is. */
-export interface CastVoice { asset: string; from: string }
+/** The voice sample the cast adds when the form is sent (a person's own), whose it is, and the part of it set on them. */
+export interface CastVoice { asset: string; from: string; part?: { start: number; seconds: number } }
 
 const Ctx = createContext<{ pictures: Record<string, CastPicture[]>; voices: Record<string, CastVoice> }>({ pictures: {}, voices: {} });
 
@@ -38,7 +38,7 @@ export function CastPictures({ recipe, input, look, children }: { recipe: Recipe
   const value = useMemo(() => ({
     pictures: spec && added?.refs ? { [spec.id]: added.refs } : {},
     // asked without the form's own sample: the field shows it only while the form has none, as the send then uses it
-    voices: voiceSpec && added?.voiceAsset && added.voice ? { [voiceSpec.id]: { asset: added.voiceAsset, from: added.voice } } : {},
+    voices: voiceSpec && added?.voiceAsset && added.voice ? { [voiceSpec.id]: { asset: added.voiceAsset, from: added.voice, part: added.voicePart ?? undefined } } : {},
   }), [spec, voiceSpec, added]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

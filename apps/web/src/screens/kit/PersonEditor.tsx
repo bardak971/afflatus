@@ -4,6 +4,7 @@ import { Music, Plus, Trash2, X } from "lucide-react";
 import { LIMITS, REMOVE_BACKGROUND } from "@afflatus/core";
 import { api, thumbUrl, type Outfit, type PersonDef, type PlaceDef } from "../../api";
 import { AudioPlayer } from "../../AudioPlayer";
+import { SoundRange } from "../../SoundRange";
 import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, useDropZone } from "../../dragging";
 import { useAsset, useRecipes, useSetup } from "../../data";
 import { Viewer } from "../../viewer/LazyViewer";
@@ -160,10 +161,26 @@ function Pictures({ value, onChange, what, sent, face }: { value: string[]; onCh
   );
 }
 
-/** The voice sample, as one row: its player with Change and Remove, or a slot to choose or drop one in. */
-function Voice({ value, onChange }: { value: string | null; onChange(value: string | null): void }) {
+/**
+ * The part of a voice sample a model takes: 2 to 15 seconds (H3's voice sample, the only model that takes one yet), 8 when
+ * none is set (the form's usual length; the owner's 8 s vs 15 s test will say which is better).
+ */
+const VOICE_PART = { min: 2, most: 15, usual: 8 };
+
+/**
+ * The voice sample, as one row: its player with Change and Remove, or a slot to choose or drop one in; under it, the part
+ * the models are given, on its waveform.
+ */
+function Voice({ value, part, onChange, onPart }: {
+  value: string | null;
+  part: { start: number; seconds: number } | null;
+  onChange(value: string | null): void;
+  onPart(part: { start: number; seconds: number }): void;
+}) {
   const [picking, setPicking] = useState(false);
   const asset = useAsset(value);
+  const total = asset.data?.durationMs ? asset.data.durationMs / 1000 : null;
+  const shown = part ?? { start: 0, seconds: Math.min(VOICE_PART.usual, total ?? VOICE_PART.usual) };
   // a sound file from the computer is kept with the person, as their pictures are: not put in the library
   const upload = useMutation({
     mutationFn: (file: File) => api.upload(file, { kit: true }),
@@ -175,7 +192,7 @@ function Voice({ value, onChange }: { value: string | null; onChange(value: stri
     <div className="flex min-w-0 grow flex-col gap-1">
       {value ? (
         <div {...drop.props} className={cx("flex min-w-0 items-center gap-2 rounded-xl border bg-raised py-1 pr-1.5 pl-2", drop.over ? "border-accent bg-accent-wash" : drop.wanted ? "border-dashed border-accent" : "border-line")}>
-          <AudioPlayer asset={value} name={asset.data?.name || "Audio"} bare className="min-w-0 grow" />
+          <AudioPlayer asset={value} name={asset.data?.name || "Audio"} range={{ from: shown.start, to: shown.start + shown.seconds }} bare className="min-w-0 grow" />
           <Button size="sm" onClick={() => setPicking(true)}>Change</Button>
           <Button size="sm" onClick={() => onChange(null)}>Remove</Button>
         </div>
@@ -184,6 +201,9 @@ function Voice({ value, onChange }: { value: string | null; onChange(value: stri
           <Music size={14} className="shrink-0" />
           <span className="truncate">{upload.isPending ? "Adding…" : "Choose or drop an audio file"}</span>
         </button>
+      )}
+      {value && total !== null && total > VOICE_PART.min && (
+        <SoundRange asset={value} total={total} start={shown.start} seconds={shown.seconds} min={VOICE_PART.min} most={VOICE_PART.most} label="Voice sample: the part used" onCommit={(start, seconds) => onPart({ start, seconds })} />
       )}
       {upload.isError && <span className="text-xs text-warn-ink">{upload.error.message}</span>}
       {picking && <Picker title="Voice sample" kind="audio" onClose={() => setPicking(false)} onPick={(id) => { onChange(id); setPicking(false); }} />}
@@ -256,11 +276,11 @@ function CutoutRow({ def, name, onChange }: { def: PersonDef; name: string; onCh
   const said = !on || !def.pictures.length ? "" : made === def.pictures.length ? "all cut out" : !remover ? "needs the background removal model (Settings › Models)" : made ? `${made} of ${plural(def.pictures.length, "picture")} cut out` : "being cut out";
   return (
     <Row
-      label="Send without background"
+      label="Remove background"
       help={`${name}'s pictures go to the models on plain grey: only who ${name} is is taken from them, not the room they were taken in (a model may otherwise re-animate a photo whole). Each picture is cut out once, as a job in the queue; until it is, the picture goes as it is.`}
     >
       <div className="flex items-center gap-2.5">
-        <Toggle bare on={on} onChange={(cutout) => onChange({ ...def, cutout })} label="Send without background" />
+        <Toggle bare on={on} onChange={(cutout) => onChange({ ...def, cutout })} label="Remove background" />
         {said && <span className="text-xs text-ink-3">{said}</span>}
       </div>
     </Row>
@@ -282,8 +302,9 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
       <div className="flex min-w-0 flex-col gap-3">
         <Card dense title={`Reference images · ${def.pictures.length}`} status={def.pictures.length > 1 && <span className="text-[11.5px] text-ink-3">drag to reorder</span>} help={`Used by models that take reference images: the first ${LIMITS.sentPictures.person} are sent, the first being the face. Two or three angles hold a face better than one. Drop pictures on the row, from the computer or the library; drag one, or Alt + ← → on a focused one, to change the order.`}>
           <Pictures value={def.pictures} onChange={(pictures) => onChange({ ...def, pictures })} what={name} sent={LIMITS.sentPictures.person} face />
-          <Row label="Voice sample" help="A few seconds of them speaking. Models that generate audio give the person this voice. Optional.">
-            <Voice value={def.voice} onChange={(voice) => onChange({ ...def, voice })} />
+          <Row label="Voice sample" help="A few seconds of them speaking. Models that generate audio give the person this voice. Under it, the part they are given: its ends snap to the pauses (Alt + drag: anywhere). Optional.">
+            {/* the part belongs to the sample: another sample starts from the form's own part again */}
+            <Voice value={def.voice} part={def.voicePart ?? null} onChange={(voice) => onChange({ ...def, voice, voicePart: null })} onPart={(voicePart) => onChange({ ...def, voicePart })} />
           </Row>
           <CutoutRow def={def} name={name} onChange={onChange} />
         </Card>

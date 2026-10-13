@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { snapTo } from "./snap";
 import { cx } from "./ui";
 
@@ -8,9 +8,11 @@ import { cx } from "./ui";
  * `gap` apart (one step when left out). The arrow keys move the focused knob one step (Shift: ten), Home and
  * End as far as it goes.
  *
- * `onChange` hears every move while dragging; `onCommit`, when given, only the pair let go on.
+ * `onChange` hears every move while dragging; `onCommit`, when given, only the pair let go on. A part of a sound
+ * (SoundRange) draws its waveform as the `track`, keeps the knobs at most `most` apart and snaps them to its pauses
+ * (`snapAt`, not while Alt is held).
  */
-export function RangeSlider({ from, to, min, max, step = 1, gap, onChange, onCommit, label, format, className }: {
+export function RangeSlider({ from, to, min, max, step = 1, gap, most, snapAt, track: drawn, onChange, onCommit, label, format, className }: {
   from: number;
   to: number;
   min: number;
@@ -18,6 +20,12 @@ export function RangeSlider({ from, to, min, max, step = 1, gap, onChange, onCom
   step?: number;
   /** The least the two keep apart. */
   gap?: number;
+  /** The most the two keep apart: a knob dragged further stops there. */
+  most?: number;
+  /** Where a dragged knob lands near `v` (a pause in a sound): asked for a drag without Alt, not for the keys. */
+  snapAt?(knob: "from" | "to", v: number): number;
+  /** Drawn in place of the thin track and its fill (a waveform), as tall as it is. */
+  track?: ReactNode;
   onChange(from: number, to: number): void;
   onCommit?(from: number, to: number): void;
   label: string;
@@ -37,8 +45,12 @@ export function RangeSlider({ from, to, min, max, step = 1, gap, onChange, onCom
   const say = (v: number) => (format ? format(v) : v.toFixed(decimals));
 
   /** The pair with one knob moved to `v`, held off the other. */
-  const moved = (knob: "from" | "to", v: number, a = from, b = to) =>
-    knob === "from" ? { from: Math.max(min, Math.min(snap(v), b - apart)), to: b } : { from: a, to: Math.min(max, Math.max(snap(v), a + apart)) };
+  const moved = (knob: "from" | "to", v: number, a = from, b = to) => {
+    const wide = most ?? max - min;
+    return knob === "from"
+      ? { from: Math.max(min, b - wide, Math.min(snap(v), b - apart)), to: b }
+      : { from: a, to: Math.min(max, a + wide, Math.max(snap(v), a + apart)) };
+  };
 
   const valueAt = (e: PointerEvent<HTMLElement>) => {
     const r = track.current!.getBoundingClientRect();
@@ -49,8 +61,8 @@ export function RangeSlider({ from, to, min, max, step = 1, gap, onChange, onCom
   useEffect(() => {
     last.current = { from, to };
   }, [from, to]);
-  const move = (knob: "from" | "to", v: number) => {
-    const next = moved(knob, v);
+  const move = (knob: "from" | "to", v: number, free = false) => {
+    const next = moved(knob, snapAt && !free ? snapAt(knob, v) : v);
     last.current = next;
     setDrag({ knob, ...next });
     if (next.from !== from || next.to !== to) onChange(next.from, next.to);
@@ -115,10 +127,10 @@ export function RangeSlider({ from, to, min, max, step = 1, gap, onChange, onCom
           const which = hit ?? (Math.abs(v - from) < Math.abs(v - to) || v < from ? "from" : "to");
           track.current!.querySelector<HTMLElement>(`[data-knob=${which}]`)?.focus();
           e.currentTarget.setPointerCapture(e.pointerId);
-          move(which, v);
+          move(which, v, e.altKey);
         }}
         onPointerMove={(e) => {
-          if (drag && e.currentTarget.hasPointerCapture(e.pointerId)) move(drag.knob, valueAt(e));
+          if (drag && e.currentTarget.hasPointerCapture(e.pointerId)) move(drag.knob, valueAt(e), e.altKey);
         }}
         onPointerUp={(e) => {
           if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
@@ -126,10 +138,14 @@ export function RangeSlider({ from, to, min, max, step = 1, gap, onChange, onCom
           onCommit?.(last.current.from, last.current.to);
         }}
         onPointerCancel={() => setDrag(null)}
-        className="group/slider relative flex h-[22px] min-w-[60px] grow cursor-pointer touch-none items-center"
+        className={cx("group/slider relative flex min-w-[60px] grow cursor-pointer touch-none items-center", !drawn && "h-[22px]")}
       >
-        <span aria-hidden className={cx("absolute inset-x-0 rounded-full transition-[height,background-color]", drag ? "h-1.5 bg-ink-3" : "h-1 bg-line-strong group-hover/slider:h-1.5 group-hover/slider:bg-ink-3")} />
-        <span aria-hidden style={{ left: `${at(shownFrom)}%`, width: `${at(shownTo) - at(shownFrom)}%` }} className={cx("absolute rounded-full bg-accent", drag ? "h-1.5" : "h-1 group-hover/slider:h-1.5")} />
+        {drawn ?? (
+          <>
+            <span aria-hidden className={cx("absolute inset-x-0 rounded-full transition-[height,background-color]", drag ? "h-1.5 bg-ink-3" : "h-1 bg-line-strong group-hover/slider:h-1.5 group-hover/slider:bg-ink-3")} />
+            <span aria-hidden style={{ left: `${at(shownFrom)}%`, width: `${at(shownTo) - at(shownFrom)}%` }} className={cx("absolute rounded-full bg-accent", drag ? "h-1.5" : "h-1 group-hover/slider:h-1.5")} />
+          </>
+        )}
         {knob("from")}
         {knob("to")}
       </span>
