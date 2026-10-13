@@ -419,11 +419,11 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
         </div>
       ))}
       {cast.map((c) => (
-        <div key={`cast:${c.asset}`} className="flex items-center gap-2.5 rounded-lg border border-dashed border-line-strong p-1.5" data-tip={`Added from the cast when the form is sent. Take ${c.from} out of the cast to leave it out; your own images come first.`}>
+        <div key={`cast:${c.asset}`} className="flex items-center gap-2.5 rounded-lg border border-dashed border-line-strong p-1.5" data-tip={`Added from the cast when the form is sent. Take ${c.from} out of the cast to leave it out; your own images come first.${c.cutout ? ` Sent without its background (on grey), so that only who ${c.from} is is taken, not the room: switch it off in the Prompt kit.` : ""}`}>
           <button type="button" aria-label={`Show ${c.from}'s reference large`} onClick={() => setOpen(c.asset)} className="shrink-0 cursor-zoom-in rounded-[3px]">
             <img src={thumbUrl(c.asset)} alt="" className="h-12 w-12 rounded-[3px] object-cover opacity-90" />
           </button>
-          <span className="min-w-0 grow text-ink-2"><span className="font-semibold text-ink">{c.from}</span> · {ROLE_WORDS[c.role].label.toLowerCase()}<span className="block text-xs text-ink-3">from the cast</span></span>
+          <span className="min-w-0 grow text-ink-2"><span className="font-semibold text-ink">{c.from}</span> · {ROLE_WORDS[c.role].label.toLowerCase()}<span className="block text-xs text-ink-3">from the cast{c.cutout ? " · background removed" : ""}</span></span>
         </div>
       ))}
       {shown.data && <Viewer asset={shown.data} onClose={() => setOpen(null)} />}

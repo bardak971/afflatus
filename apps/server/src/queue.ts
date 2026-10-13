@@ -267,7 +267,7 @@ export class Queue {
 
   // ---------------------------------------------------------------- enqueue / cancel / pause
 
-  async enqueue(recipeId: string, rawInput: unknown, opts: { label?: string; dependsOn?: string; clip?: { id: string; fit: boolean; mirror?: readonly string[] }; draft?: string | null; folder?: string | null; warm?: boolean; look?: unknown; finishedFrom?: string | null; asked?: Record<string, unknown>; machine?: string | null } = {}): Promise<string> {
+  async enqueue(recipeId: string, rawInput: unknown, opts: { label?: string; dependsOn?: string; clip?: { id: string; fit: boolean; mirror?: readonly string[] }; draft?: string | null; folder?: string | null; warm?: boolean; look?: unknown; finishedFrom?: string | null; asked?: Record<string, unknown>; machine?: string | null; kitFor?: { person: string; picture: string } } = {}): Promise<string> {
     const recipe = this.registry.recipe(recipeId);
     if (!recipe) throw httpError(`there is no model or operation called ${recipeId}`);
     // loading the models is asked for while the form is still being filled in: a text not written yet is no reason to refuse
@@ -287,6 +287,7 @@ export class Queue {
         status: "queued", warm: opts.warm ? 1 : 0, look: opts.look ? JSON.stringify(opts.look) : null, priority: recipe.output === "image" ? 0 : 10, depends_on: opts.dependsOn ?? null,
         attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip?.id ?? null, clip_fit: opts.clip?.fit ? 1 : 0, clip_mirror: opts.clip?.mirror?.length ? JSON.stringify(opts.clip.mirror) : null,
         draft_id: opts.draft ?? null, folder_id: opts.folder ?? null, finished_from: opts.finishedFrom ?? null, pin_machine: opts.machine ?? null,
+        kit_for: opts.kitFor ? JSON.stringify(opts.kitFor) : null,
         created_at: at, started_at: null, finished_at: null, updated_at: at,
       })
       .execute();

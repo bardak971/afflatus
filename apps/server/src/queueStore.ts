@@ -7,7 +7,8 @@ import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { latentDriftOf } from "./latentStats";
 import { precomputeOf } from "./precompute";
 import { extOf, mimeOfFile, newAssetRow, pngSize } from "./media";
-import { makeThumb, thumbKey } from "./thumbs";
+import { attachCutout, kitForOf } from "./kitCutouts";
+import { makeThumb, onGrey, thumbKey } from "./thumbs";
 import { readVideo } from "./video";
 import type { JobRow, QueueCore, Resume } from "./queueModel";
 
@@ -63,9 +64,11 @@ export const draftOf = (db: Db, asset: Tables["assets"]) => walkFinished(db, ass
 export async function store(
   core: QueueCore, comfy: Comfy, recipe: Recipe<any>, input: Record<string, unknown>, resume: Resume,
   outputs: Outputs,
-  row: Pick<JobRow, "id" | "draft_id" | "folder_id" | "look" | "asked"> & { clip_id?: string | null; label?: string | null },
+  row: Pick<JobRow, "id" | "draft_id" | "folder_id" | "look" | "asked"> & { clip_id?: string | null; label?: string | null; kit_for?: string | null },
 ): Promise<string> {
   const { db, storage } = core;
+  // a Prompt-kit person's picture with its background taken out: laid on grey, filed with the person, not in the library
+  const kit = kitForOf(row.kit_for);
   const files = collectOutputs(resume, outputs);
   if (!files.length) throw new Error("ComfyUI finished but returned no output");
   const sides = sideFiles(resume, outputs);
@@ -85,14 +88,17 @@ export async function store(
   try {
     const rows: AssetRow[] = [];
     for (const { file, kind } of files) {
-      const filed = await fileOne(core, comfy, recipe, input, resume, { file, kind }, sides, written);
+      const filed = await fileOne(core, comfy, recipe, input, resume, { file, kind }, sides, written, { onGrey: Boolean(kit) });
       // in its own column for the timelines, and in resolved as before (the asset API hands resolved out whole)
       if (filed.measure) resolved.measure = filed.measure;
-      rows.push(newAssetRow({ ...filed.row, folder_id: folder, generation_id: generationId, created_at: at }));
+      const own = kit ? { origin: "kit" as const, name: "cut-out", source_id: kit.picture, kept_at: at } : {};
+      rows.push(newAssetRow({ ...filed.row, ...own, folder_id: kit ? null : folder, generation_id: generationId, created_at: at }));
     }
     // what a draft made is named after it, numbered on; a timeline clip's take is named once it is placed (autoName.ts)
     const prompts = recipe.inputs.filter((s) => s.type === "prompt" && !s.optional).map((s) => s.id);
-    if (row.draft_id && !row.clip_id) {
+    if (kit) {
+      // named with the person when it is attached to them
+    } else if (row.draft_id && !row.clip_id) {
       const names = await draftNames(db, row.draft_id, rows.length, { prompt: promptOf(input, prompts), recipe: recipe.title });
       names?.forEach((name, i) => (rows[i]!.name ||= name));
     } else if (!row.draft_id && !row.clip_id) {
@@ -109,6 +115,7 @@ export async function store(
       }
     }
     await writeRows(db, { id: generationId, recipe, input, resolved, genMs: Date.now() - resume.startedAt, at }, row, sourcesOf(recipe, input, resume), rows);
+    if (kit && rows[0]) await attachCutout(core, kit, rows[0].id);
   } catch (err) {
     for (const key of written) await storage.delete(key).catch(() => {});
     throw err;
@@ -157,14 +164,16 @@ function sideFiles(resume: Resume, outputs: Outputs): Sides {
 /** One result into storage, with its thumbnail, its side files and what is read off it; `written` gathers every key put. */
 async function fileOne(
   { db, storage }: QueueCore, comfy: Comfy, recipe: Recipe<any>, input: Record<string, unknown>, resume: Resume,
-  { file, kind }: { file: OutputFile; kind: "image" | "video" | "audio" }, sides: Sides, written: string[],
+  { file, kind }: { file: OutputFile; kind: "image" | "video" | "audio" }, sides: Sides, written: string[], how: { onGrey?: boolean } = {},
 ): Promise<{ row: Omit<Parameters<typeof newAssetRow>[0], "folder_id" | "generation_id" | "created_at">; measure: Measure | null }> {
   const put = async (key: string, bytes: Uint8Array) => {
     written.push(key);
     await storage.put(key, bytes);
   };
   let bytes = await comfy.client.view(file);
-  const mime = mimeOfFile(file.filename);
+  // a cut-out laid on grey: ComfyUI's loader would drop its transparency and bring back the room under it
+  if (how.onGrey && kind === "image") bytes = (await onGrey(bytes)) ?? bytes;
+  const mime = how.onGrey && kind === "image" ? "image/png" : mimeOfFile(file.filename);
   // a clip continued in the latent: the sound's hole at the hand-over is closed (see repairJoinAudio)
   if (kind === "video" && resume.overlap?.latent && resume.overlap.headMs > 0) {
     bytes = await repairJoinAudio(bytes, extOf(mime), resume.overlap.headMs).catch((err: Error) => {

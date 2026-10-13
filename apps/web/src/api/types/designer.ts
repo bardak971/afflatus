@@ -116,6 +116,10 @@ export interface PersonDef {
   /** Per model family: this person's LoRA, its strength, the word that calls it up. */
   models: Record<string, { lora: string | null; weight: number; trigger: string }>;
   outfits: Outfit[];
+  /** Their pictures are sent without their background (the server makes each cut-out once). */
+  cutout: boolean;
+  /** Picture → its cut-out; written by the server alone. */
+  cutouts: Record<string, string>;
 }
 export interface PlaceDef {
   pictures: string[];
@@ -150,7 +154,7 @@ export type Entity =
 /** What a form becomes once its cast and style are worked in. */
 export interface Composed {
   input: Record<string, unknown>;
-  added: { words: Array<{ from: string; text: string }>; loras: Array<{ from: string; file: string }>; references: number; /** The reference pictures added, and whose they are. */ refs: Array<{ asset: string; role: import("@afflatus/core").ReferenceRole; from: string }>; voice: string | null; /** The voice sample added: the form shows it in its sound field. */ voiceAsset: string | null; skipped: string[] };
+  added: { words: Array<{ from: string; text: string }>; loras: Array<{ from: string; file: string }>; references: number; /** The reference pictures added, and whose they are. */ refs: Array<{ asset: string; role: import("@afflatus/core").ReferenceRole; from: string; cutout?: boolean }>; voice: string | null; /** The voice sample added: the form shows it in its sound field. */ voiceAsset: string | null; skipped: string[] };
 }
 /** One model file a preset is made for, and where it is had. */
 export interface PresetFile {

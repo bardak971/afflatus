@@ -204,6 +204,8 @@ export interface Tables {
     folder_id: string | null;
     /** The machine (settings.ts `machines`) it runs or ran on, set when it is claimed; null for a job that needs no ComfyUI. */
     machine_id?: string | null;
+    /** A Prompt-kit cut-out (kitCutouts.ts): the person and the picture it is made of (JSON); its result is filed with them, not in the library. */
+    kit_for?: string | null;
     /** The machine it was pinned to by hand; null: whichever the queue picks. */
     pin_machine?: string | null;
     created_at: string;

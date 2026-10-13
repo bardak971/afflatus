@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Music, Plus, Trash2, X } from "lucide-react";
-import { LIMITS } from "@afflatus/core";
+import { LIMITS, REMOVE_BACKGROUND } from "@afflatus/core";
 import { api, thumbUrl, type Outfit, type PersonDef, type PlaceDef } from "../../api";
 import { AudioPlayer } from "../../AudioPlayer";
 import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, useDropZone } from "../../dragging";
@@ -14,7 +14,7 @@ import { ModelLink } from "../../ModelLink";
 import { Card, Row } from "../../Rows";
 import { Select } from "../../Select";
 import { localId } from "../../secureContext";
-import { AutoText, Button, cx, NumberBox } from "../../ui";
+import { AutoText, Button, cx, NumberBox, Toggle } from "../../ui";
 import { Slider } from "../../Slider";
 import { dropped, moved } from "../queue/order";
 import { useFlip } from "../../useFlip";
@@ -243,6 +243,30 @@ function OutfitPicture({ value, onChange, what }: { value: string | null; onChan
   );
 }
 
+/**
+ * Whether the person's pictures go to the models without their background: each is cut out once (a "Cut-out" job in the
+ * queue), and the reference images then show the cut-out. A person kept before there was a switch has it on.
+ */
+function CutoutRow({ def, name, onChange }: { def: PersonDef; name: string; onChange(def: PersonDef): void }) {
+  const on = def.cutout !== false;
+  const made = def.pictures.filter((p) => def.cutouts?.[p]).length;
+  // no ComfyUI with the background remover's model: nothing is being made, and the pictures go as they are
+  const setup = useSetup();
+  const remover = setup.data?.recipes.find((r) => r.id === REMOVE_BACKGROUND)?.ready ?? true;
+  const said = !on || !def.pictures.length ? "" : made === def.pictures.length ? "all cut out" : !remover ? "needs the background removal model (Settings › Models)" : made ? `${made} of ${plural(def.pictures.length, "picture")} cut out` : "being cut out";
+  return (
+    <Row
+      label="Send without background"
+      help={`${name}'s pictures go to the models on plain grey: only who ${name} is is taken from them, not the room they were taken in (a model may otherwise re-animate a photo whole). Each picture is cut out once, as a job in the queue; until it is, the picture goes as it is.`}
+    >
+      <div className="flex items-center gap-2.5">
+        <Toggle bare on={on} onChange={(cutout) => onChange({ ...def, cutout })} label="Send without background" />
+        {said && <span className="text-xs text-ink-3">{said}</span>}
+      </div>
+    </Row>
+  );
+}
+
 export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: string; onChange(def: PersonDef): void }) {
   const recipes = useRecipes();
   const setup = useSetup();
@@ -261,6 +285,7 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
           <Row label="Voice sample" help="A few seconds of them speaking. Models that generate audio give the person this voice. Optional.">
             <Voice value={def.voice} onChange={(voice) => onChange({ ...def, voice })} />
           </Row>
+          <CutoutRow def={def} name={name} onChange={onChange} />
         </Card>
 
         <Words tags={def.tags} sentence={def.sentence} onChange={(p) => onChange({ ...def, ...p })} />

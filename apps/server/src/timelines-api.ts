@@ -7,6 +7,7 @@ import { nameOf } from "./autoName";
 import { VERSION } from "./config";
 import { CutError, markedVideo, musicTrack } from "./cut";
 import { httpError } from "./errors";
+import { askCutouts } from "./kitCutouts";
 import { compose, lookSchema, withMood } from "./entities";
 import { askedOf } from "./jobs-api";
 import { assetView, extOf } from "./media";
@@ -448,7 +449,10 @@ async function renderClips(s: Services, timeline: string, clips: z.infer<typeof 
     const own = new Set(recipe.inputs.filter((x) => x.type !== "clip").map((x) => x.id));
     // the cast and the style: the clip's own, else the timeline's, worked into its form
     const typed = Object.fromEntries(Object.entries(ask.input).filter(([k]) => own.has(k)));
-    const input = withMood(recipe, (await compose(s.db, recipe, typed, clip.look ?? view.look)).input, view.mood);
+    const look = clip.look ?? view.look;
+    const input = withMood(recipe, (await compose(s.db, recipe, typed, look)).input, view.mood);
+    // the cast's cut-outs not made yet are asked for (kitCutouts.ts): this clip sends the pictures as they are
+    if (look?.cast.length) void askCutouts(s, look.cast.map((c) => c.id)).catch((err: Error) => console.warn(`[kit] cut-outs not asked for: ${err.message}`));
     const before = view.clips[i - 1];
     // a recipe that picks up from the last frame of the clip before: that frame is its opening picture, taken when the job starts
     const opening = recipe.inputs.find((x) => x.type === "image" && x.role === "start");
