@@ -163,6 +163,8 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
     if (req.method === "POST" && url.pathname === "/graphql") return json(200, { data: { myself: { clientBalance: fake.balance - spent(), currentSpendPerHr: fake.pods.filter((p) => p.status === "RUNNING" || p.status === "STARTING" || p.status === "PROVISIONING").reduce((sum, p) => sum + p.rate, 0) } } });
     if (req.method === "GET" && url.pathname === "/v2/billing/pods") {
       if (!fake.bill) return json(403, { title: "Forbidden", status: 403, detail: "this key cannot read billing" });
+      // as RunPod: both ends of the period, or neither
+      if (url.searchParams.has("startTime") !== url.searchParams.has("endTime")) return json(400, { title: "Bad Request", status: 400, detail: "startTime and endTime must be provided together" });
       const from = Date.parse(url.searchParams.get("startTime") ?? "") || 0;
       return json(200, { records: fake.bill.filter((r) => Date.parse(r.endTime) > from).map((r) => ({ ...r, gpuAmount: r.totalAmount, cpuAmount: 0, diskAmount: 0 })), metadata: {} });
     }
