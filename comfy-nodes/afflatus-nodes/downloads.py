@@ -5,8 +5,14 @@ of several gigabytes failed half way. Here the pack fetches the file to disk as 
 where it goes, asks again from the byte it had when the connection is cut (a Range request), and gives the file its
 name only once all of it is there: ComfyUI never lists half a model.
 
-The address is always Afflatus's own one-time address for that download (`/api/downloads/fetch/<id>?t=<token>`),
-which Afflatus streams from Civitai or Hugging Face: a Civitai key never reaches ComfyUI. Only that shape of address
+The address is Afflatus's own one-time address for that download (`/api/downloads/fetch/<id>?t=<token>`), which
+Afflatus streams from Civitai or Hugging Face, or (0.12.0) the source's own signed download link: Afflatus asks the site
+with its key, at home, and hands over only the temporary link the site answers with, which holds no key. Then the file
+comes straight from the site's servers, never through Afflatus's computer and its upload: what a rented ComfyUI needs,
+which cannot reach Afflatus at all. Only https links on Hugging Face's and Civitai's download hosts (DIRECT_HOSTS) are
+taken that way. A signed link lasts an hour or so: when it is refused half way, the download waits for Afflatus to send
+a fresh one (POST /afflatus/download/<id>/url) and carries on from the byte it had, its .part kept. A Civitai key never
+reaches ComfyUI either way. Only that shape of address
 is taken, redirects are not followed, the file goes only into the first path ComfyUI reads a model folder from
 (never custom_nodes, never outside it), and only under a model file's name. Nothing fetched is ever sent back: the
 caller learns how far it is, never what it got. (Checking that the address is the caller's own was weighed and
@@ -15,7 +21,8 @@ left: an Afflatus in a container or behind a proxy calls from another address th
 Routes (registered by __init__.py on ComfyUI's server; a JSON body only, which a page of another site cannot send
 without asking first):
   POST   /afflatus/download {url, folder, filename, total}  → {id, path}
-  GET    /afflatus/download/<id>  → {state: downloading|done|error|stopped, bytes, total, error, note}
+  GET    /afflatus/download/<id>  → {state: downloading|done|error|stopped, bytes, total, error, note, expired}
+  POST   /afflatus/download/<id>/url {url}  → a fresh signed link for a download whose link expired (`expired` true)
   DELETE /afflatus/download/<id>  → stops it, and removes its .part
 
 Afflatus always says the file's size (the one-time address answers with its length): a download whose size is not
@@ -38,6 +45,10 @@ BAD_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 # a model download's .part: this pack's (with its download's id) or Afflatus's own
 PART = re.compile(r"\.(safetensors|ckpt|gguf|sft|pt|pth|bin|onnx)(\.[0-9a-f]{8})?\.part$", re.I)
 RELAY = re.compile(r"^/api/downloads/fetch/[\w-]{1,64}$")
+# the hosts a signed download link of Hugging Face or Civitai is on (Civitai's files are served from Cloudflare R2)
+DIRECT_HOSTS = ("huggingface.co", "hf.co", "civitai.com", "r2.cloudflarestorage.com")
+# how long a download whose link expired waits for Afflatus to send a fresh one
+RENEW_WAIT_S = 120
 # folders ComfyUI lists that hold code or settings, not models
 NOT_MODELS = {"custom_nodes", "configs"}
 # finished downloads are forgotten after an hour
@@ -61,6 +72,18 @@ def relay_ok(url) -> bool:
     except ValueError:
         return False
     return at.scheme in ("http", "https") and bool(at.hostname) and bool(RELAY.match(at.path)) and bool(urllib.parse.parse_qs(at.query).get("t"))
+
+
+def direct_ok(url) -> bool:
+    """Whether `url` is a download link of Hugging Face or Civitai themselves: https, on one of DIRECT_HOSTS (or under one)."""
+    if not isinstance(url, str) or len(url) > 4000:
+        return False
+    try:
+        at = urllib.parse.urlsplit(url)
+    except ValueError:
+        return False
+    host = (at.hostname or "").lower()
+    return at.scheme == "https" and not at.username and not at.password and any(host == h or host.endswith("." + h) for h in DIRECT_HOSTS)
 
 
 def model_dir(folder, folder_paths):
@@ -110,6 +133,10 @@ class Job:
     def __init__(self, url, path, total=0):
         self.id = uuid.uuid4().hex
         self.url = url
+        # a signed link of the source itself (not Afflatus's address): it may expire half way, and be sent again
+        self.direct = direct_ok(url)
+        self.expired = False
+        self.renewed = threading.Event()
         self.path = path
         self.total = int(total) if isinstance(total, (int, float)) and total > 0 else 0
         self.bytes = 0
@@ -125,7 +152,27 @@ class Job:
         return f"{self.path}.{self.id[:8]}.part"
 
     def view(self):
-        return {"state": self.state, "bytes": self.bytes, "total": self.total, "error": self.error, "note": self.note}
+        return {"state": self.state, "bytes": self.bytes, "total": self.total, "error": self.error, "note": self.note, "expired": self.expired}
+
+    def renew(self, url):
+        """A fresh link for a download whose link expired: it carries on from the byte it had."""
+        self.url = url
+        self.renewed.set()
+
+    def wait_renewed(self, wait):
+        """Wait for a fresh link, `wait` seconds at most: True when one came, False when none did; a stop ends the wait."""
+        self.expired = True
+        self.note = "The download link expired: waiting for Afflatus to send a fresh one."
+        ends = time.time() + wait
+        while time.time() < ends:
+            if self.cancelled.is_set():
+                raise _Stopped()
+            if self.renewed.wait(min(1.0, max(0.0, ends - time.time()))):
+                self.renewed.clear()
+                self.expired = False
+                self.note = "Carrying on with a fresh link."
+                return True
+        return False
 
     def stop(self):
         """Stopped as soon as it is asked: said so at once, and a retry of the same file is not turned away while the thread lets go."""
@@ -146,7 +193,7 @@ def _remove(path):
         pass
 
 
-def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeout=60):
+def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeout=60, renew_wait=RENEW_WAIT_S):
     """Fetch `job.url` into `job.path`, through `<path>.part`: picked up with a Range after a cut, tried again with a
     growing wait, named only once whole. Sets job.state to done, error or stopped; the .part never outlives a failure."""
     part = job.part
@@ -201,9 +248,17 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
             except urllib.error.HTTPError as e:
                 if e.code == 416 and job.total and have == job.total:
                     break
+                # a signed link refused: it expired. Afflatus is asked for a fresh one, and what is on disk stays
+                if job.direct and e.code in (401, 403, 410):
+                    if not job.wait_renewed(renew_wait):
+                        raise Refused("the download link expired, and Afflatus sent no fresh one")
+                    have = os.path.getsize(part) if os.path.exists(part) else 0
+                    job.bytes = have
+                    continue
+                where = "the source" if job.direct else "Afflatus"
                 if e.code < 500 and e.code != 429:
-                    raise Refused(f"Afflatus answered {e.code}: the download is no longer there")
-                why = f"Afflatus answered {e.code}"
+                    raise Refused(f"{where} answered {e.code}: the download is no longer there")
+                why = f"{where} answered {e.code}"
             except Exception as e:  # a cut, a timeout, a reset: tried again
                 why = str(e) or type(e).__name__
             # what is on disk is what counts: a write cut half way leaves less than was read
@@ -287,8 +342,8 @@ def register(routes, web, folder_paths):
             body = None
         if not isinstance(body, dict):
             return web.Response(status=400, text="a JSON object is expected")
-        if not relay_ok(body.get("url")):
-            return web.Response(status=400, text="only Afflatus's one-time download addresses are fetched")
+        if not relay_ok(body.get("url")) and not direct_ok(body.get("url")):
+            return web.Response(status=400, text="only Afflatus's one-time download addresses, and Hugging Face's and Civitai's own download links, are fetched")
         try:
             _root, path = target(body.get("folder"), body.get("filename"), folder_paths)
         except Refused as e:
@@ -307,6 +362,23 @@ def register(routes, web, folder_paths):
     async def _afflatus_download_state(request):
         job = jobs.get(request.match_info.get("id", ""))
         return web.Response(status=404) if job is None else web.json_response(job.view())
+
+    @routes.post("/afflatus/download/{id}/url")
+    async def _afflatus_download_renew(request):
+        job = jobs.get(request.match_info.get("id", ""))
+        if job is None:
+            return web.Response(status=404)
+        if request.content_type != "application/json":
+            return web.Response(status=415, text="a JSON body is expected")
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        url = body.get("url") if isinstance(body, dict) else None
+        if not job.direct or not direct_ok(url):
+            return web.Response(status=400, text="only a download that came from a source's own link takes a fresh one, and only another such link")
+        job.renew(url)
+        return web.json_response({"ok": True})
 
     @routes.delete("/afflatus/download/{id}")
     async def _afflatus_download_stop(request):

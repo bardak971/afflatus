@@ -12,7 +12,7 @@ import types
 import pytest
 
 from afflatus_nodes import downloads
-from afflatus_nodes.downloads import Job, Refused, relay_ok, run, target
+from afflatus_nodes.downloads import Job, Refused, direct_ok, relay_ok, run, target
 
 SIZE = 3 * 2**20
 FILE = bytes(((i * 31) + (i >> 12)) & 255 for i in range(SIZE))
@@ -22,8 +22,11 @@ RELAY = "/api/downloads/fetch/abc-123"
 class _Site:
     """Afflatus's one-time address: the file from the byte asked for, cut short `cuts` times; `ranges` ignores Range when false."""
 
-    def __init__(self, cuts=0, ranges=True, status=200, length=True, extra=0):
+    def __init__(self, cuts=0, ranges=True, status=200, length=True, extra=0, expires=False):
         self.cuts = cuts
+        # a signed link that expires at its first cut: every request after it is refused (403)
+        self.expires = expires
+        self.expired = False
         self.ranges = ranges
         self.status = status
         # without a length, the end of the body is the end of the connection; `extra` bytes more than the file
@@ -38,6 +41,10 @@ class _Site:
 
             def do_GET(self):
                 site.asked.append(self.headers.get("Range"))
+                if site.expired:
+                    self.send_response(403)
+                    self.end_headers()
+                    return
                 if site.status != 200:
                     self.send_response(site.status)
                     self.end_headers()
@@ -53,6 +60,7 @@ class _Site:
                 self.end_headers()
                 if site.cuts > 0:
                     site.cuts -= 1
+                    site.expired = site.expires
                     self.wfile.write(body[: SIZE // 3])
                     self.wfile.flush()
                     self.connection.shutdown(2)
@@ -286,3 +294,62 @@ def test_at_most_two_at_once_and_a_stop_is_said_at_once(tmp_path, site):
             break
         threading.Event().wait(0.01)
     assert jobs[again.body["id"]].state == "done"
+
+
+def test_only_the_sources_own_download_links():
+    for url in (
+        "https://huggingface.co/org/model/resolve/main/model.safetensors",
+        "https://us.aws.cdn.hf.co/xet-bridge-us/abc?X-Xet-Signed=1",
+        "https://cas-bridge.xethub.hf.co/xet-bridge-us/abc?sig=1",
+        "https://civitai-delivery-worker-prod.abc123.r2.cloudflarestorage.com/1/model/x.safetensors?X-Amz-Signature=1",
+    ):
+        assert direct_ok(url), url
+    for url in (
+        "http://huggingface.co/x.safetensors",  # not https
+        "https://huggingface.co.evil.example/x",  # only looks like it
+        "https://evilhuggingface.co/x",
+        "https://user:pass@huggingface.co/x",
+        "https://example.com/x.safetensors",
+        "file:///etc/passwd",
+        None,
+        "https://huggingface.co/" + "a" * 4000,
+    ):
+        assert not direct_ok(url), url
+
+
+def test_an_expired_link_waits_for_a_fresh_one_and_carries_on(tmp_path, site):
+    first = site(cuts=1, expires=True)
+    fresh = site()
+    job = Job(first.url, str(tmp_path / "loras" / "model.safetensors"))
+    # the stand-in sites are local http; a real signed link is https on the source's host
+    job.direct = True
+    t = threading.Thread(target=run, args=(job,), kwargs={"backoff": 0.01, "renew_wait": 5})
+    t.start()
+    for _ in range(500):
+        if job.expired:
+            break
+        threading.Event().wait(0.01)
+    assert job.expired and "expired" in job.note and job.view()["expired"] is True
+    job.renew(fresh.url)
+    t.join(10)
+    assert (job.state, job.error, job.expired) == ("done", None, False)
+    with open(job.path, "rb") as f:
+        assert f.read() == FILE
+    # the fresh link was asked from the byte the first left off at: the .part was kept
+    assert fresh.asked == [f"bytes={SIZE // 3}-"]
+
+
+def test_an_expired_link_without_a_fresh_one_gives_up_and_leaves_nothing(tmp_path, site):
+    first = site(cuts=1, expires=True)
+    job = Job(first.url, str(tmp_path / "loras" / "model.safetensors"))
+    job.direct = True
+    run(job, backoff=0.01, renew_wait=0.2)
+    assert job.state == "error" and "expired" in job.error
+    assert os.listdir(tmp_path / "loras") == []
+
+
+def test_afflatus_own_address_refused_is_still_gone(tmp_path, site):
+    # Afflatus's one-time address answering 403 is not a link to renew: the download is over
+    s = site(status=403)
+    job = _fetch(tmp_path, s.url)
+    assert job.state == "error" and "Afflatus answered 403" in job.error
