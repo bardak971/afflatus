@@ -81,7 +81,7 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
           {r?.error && <span className="text-xs text-warn-ink">{r.error}</span>}
           {gone && (
             <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-warn-ink">
-              {r?.stoppedBy === "idle" ? `Terminated after ${minutesSaid(rented.idleMinutes)} idle: nothing billed any more.` : "Not on RunPod: terminated there, or the key is another account's."}
+              {r?.stoppedBy === "idle" ? `Terminated after ${minutesSaid(rented.idleMinutes)} idle: nothing billed any more.` : r?.stoppedBy === "boot" ? "Terminated: its ComfyUI never answered (its container did not start). Nothing billed any more." : "Not on RunPod: terminated there, or the key is another account's."}
               <Button size="sm" onClick={remove}>Remove from Afflatus</Button>
             </span>
           )}

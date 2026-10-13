@@ -273,6 +273,38 @@ describe("what a real pod showed", () => {
   });
 });
 
+describe("what the second real test showed", () => {
+  it("a pod whose container never starts: said on its card, then its idle action at 10 min, never taken for answering", async () => {
+    podB().diskGb = 0;
+    const id = await add(podB().id);
+    expect((await post(t.app, `/api/machines/${id}/start`, {})).statusCode).toBe(200);
+    // RunPod has it running, but its container never came up: its proxy answers for every address, nothing behind it
+    await until(() => podB().status === "RUNNING");
+    b.down = true;
+    await t.services.rented.poll();
+    const real = Date.now;
+    later(3 * 60_000);
+    await t.services.rented.poll();
+    const row = await rowOf(id);
+    expect(row.rented).toMatchObject({ status: "RUNNING", answers: false, watchdog: "unknown" });
+    expect(row.rented?.error).toMatch(/nothing answers on 8188 after 3 min: its container may not have started/);
+    t.services.rented.now = () => real() + 11 * 60_000;
+    await t.services.rented.poll();
+    expect(podB().status).toBe("TERMINATED");
+  });
+
+  it("a Start pressed while RunPod still says it is stopping waits, then prepares it", async () => {
+    runpod.stopMs = 300;
+    t.services.rented.settleEveryMs = 50;
+    const id = await add(podA().id);
+    await started(id, podA);
+    await post(t.app, `/api/machines/${id}/stop`, { how: "stop" });
+    expect(podA().status).toBe("RUNNING");
+    expect((await post(t.app, `/api/machines/${id}/start`, {})).statusCode).toBe(200);
+    expect(podA().env.AFFLATUS_TOKEN).toBe(`{{ RUNPOD_SECRET_afflatus-${podA().id} }}`);
+  });
+});
+
 describe("RunPod's dates", () => {
   it("reads ISO and Go's way, and nothing else", () => {
     expect(podTime("2026-10-13T10:00:00.000Z")).toBe(Date.parse("2026-10-13T10:00:00.000Z"));

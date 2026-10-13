@@ -148,6 +148,21 @@ export class Runpod {
     return all;
   }
 
+  /**
+   * One pod, read on its own: the whole of its environment (the list may leave out what has no value), for writing it back.
+   * Null when there is no such pod; from the list when RunPod does not answer for one pod.
+   */
+  async pod(id: string): Promise<Pod | null> {
+    try {
+      const got = await this.call<RawPod>(`/v2/pods/${encodeURIComponent(id)}`);
+      if (!got || typeof got.id !== "string" || typeof got.status !== "string") throw new RunpodShape("RunPod answered one pod in a shape Afflatus does not know");
+      return got.status === "TERMINATED" ? null : podOf(got);
+    } catch (err) {
+      if ((err as RunpodError).status === 404) return null;
+      return (await this.pods()).find((p) => p.id === id && p.status !== "TERMINATED") ?? null;
+    }
+  }
+
   /** Start, stop or delete (terminate) a pod. The pod as it is after, but for a delete. */
   async act(id: string, action: Exclude<PodAction, "restart">): Promise<Pod | null> {
     const got = await this.call<RawPod | undefined>(`/v2/pods/${encodeURIComponent(id)}/action`, { method: "POST", body: JSON.stringify({ action }) });
