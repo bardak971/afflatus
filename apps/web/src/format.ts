@@ -227,7 +227,11 @@ export function notReady(status: RecipeStatus | undefined, comfyOnline: boolean,
   return "Not ready.";
 }
 
-/** An amount in US dollars, as a rented GPU's cost is said: cents under $100 ("$0.69", "$12.40"), whole dollars past it. */
-export function usd(n: number): string {
+/**
+ * An amount in US dollars, as a rented GPU's cost is said: cents under $100 ("$0.69", "$12.40"), whole dollars past it.
+ * `fine`: a cost that runs (a pod's, by the second), to a tenth of a cent under a dollar ("$0.012"), so that it is seen to move.
+ */
+export function usd(n: number, fine = false): string {
+  if (fine && n > 0 && n < 1) return `$${n.toFixed(3)}`;
   return n < 100 ? `$${n.toFixed(2)}` : `$${Math.round(n)}`;
 }

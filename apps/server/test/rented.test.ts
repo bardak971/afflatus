@@ -113,6 +113,29 @@ describe("a rented machine", () => {
     expect((await sessions())[0]!.ended_at).not.toBeNull();
   });
 
+  it("is locked from its first second: the token in its environment before it starts, nobody can lock it first", async () => {
+    await setKey();
+    const id = await add();
+    podComfy.packVersion = "0.13.0";
+    await post(t.app, `/api/machines/${id}/start`, {});
+    const token = (await readSettings(t.db)).machines.find((m) => m.id === id)!.token;
+    expect(token.length).toBeGreaterThan(40);
+    expect(runpod.calls).toContain(`PATCH /v2/pods/${pod5090().id}`);
+    expect(pod5090().env.AFFLATUS_TOKEN).toBe(token);
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
+    // up already locked, with a lock its routes cannot change: nothing was locked after the fact, and a stranger is refused
+    expect(podComfy.lock).toEqual({ token, local: false, fixed: true });
+    expect(podComfy.calls).not.toContain("POST /afflatus/lock");
+    const stranger = await fetch(`${podComfy.url}/afflatus/lock`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: "a-stranger-token-0123456789" }) });
+    expect(stranger.status).toBe(401);
+    await t.services.rented.poll();
+    expect((await rowOf(id)).online).not.toBe(false);
+    // started again: the token already there is not written twice
+    await post(t.app, `/api/machines/${id}/stop`, { how: "stop" });
+    await post(t.app, `/api/machines/${id}/start`, {});
+    expect(runpod.calls.filter((c) => c.startsWith("PATCH")).length).toBe(1);
+  });
+
   it("has work while a job it could take waits or runs there, none once it is done or the queue is paused", async () => {
     await setKey();
     const id = await add();
@@ -146,7 +169,10 @@ describe("a rented machine", () => {
     expect(again.statusCode).toBe(409);
     expect(again.json().error).toMatch(/spending cap/);
     const spending = (await get(t.app, "/api/rented/spending")).json().spending;
-    expect(spending).toMatchObject({ caps: { day: 0.0000001, month: 0 }, balance: 23.4, lowBalance: false });
+    expect(spending).toMatchObject({ caps: { day: 0.0000001, month: 0 }, lowBalance: false });
+    // the balance went down while the pod ran, as RunPod's does
+    expect(spending.balance).toBeLessThan(23.4);
+    expect(spending.balance).toBeGreaterThan(23.39);
     expect(spending.today).toBeGreaterThan(0);
   });
 

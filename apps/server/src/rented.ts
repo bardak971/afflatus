@@ -3,8 +3,9 @@ import type { EventEmitter } from "node:events";
 import type { Comfy } from "./comfy";
 import type { Db } from "./db";
 import { httpError } from "./errors";
-import { exposesComfy, Runpod, STOPPED_DISK_PER_GB_MONTH, type Pod, type PodStatus } from "./runpod";
-import { readSettings, type Machine } from "./settings";
+import { newToken } from "./lock-api";
+import { exposesComfy, LOCK_ENV, Runpod, STOPPED_DISK_PER_GB_MONTH, type Pod, type PodStatus } from "./runpod";
+import { readSettings, updateSettings, type Machine } from "./settings";
 
 /**
  * Rented machines: pods the user made on RunPod and added to Afflatus as machines. Afflatus never starts one on its own:
@@ -292,7 +293,8 @@ export class Rented {
     const s = await readSettings(this.db);
     const spent = await this.spent();
     let balance = this.balanceSeen?.value ?? null;
-    if (s.runpodKey && (!this.balanceSeen || this.now() - this.balanceSeen.at > 5 * 60_000)) {
+    // RunPod is asked at most once a minute: the card reads this every 10 s while a pod runs
+    if (s.runpodKey && (!this.balanceSeen || this.now() - this.balanceSeen.at > 60_000)) {
       balance = await this.client(s.runpodKey).balance().catch(() => null);
       this.balanceSeen = { at: this.now(), value: balance };
     }
@@ -308,8 +310,34 @@ export class Rented {
     if ((s.rentCaps.day > 0 && spent.today >= s.rentCaps.day) || (s.rentCaps.month > 0 && spent.month >= s.rentCaps.month)) {
       throw httpError("A spending cap is reached: raise it in Settings › ComfyUI › Rented GPUs to start it.", 409);
     }
+    await this.lockFromBoot(m, s.runpodKey);
     await this.act(m, "start", null);
     return this.view(m)!;
+  }
+
+  /**
+   * Locked from its first second: the machine's token (made now if it has none) in the pod's environment, which the node pack
+   * reads as it starts (lock.py AFFLATUS_TOKEN). Then nobody reaches it open while it boots, and nobody can lock it first with
+   * a token of their own. Without the pack the variable does nothing, and the pod runs open (its card's Access line says so).
+   * RunPod refusing the change is said in the log, and the pod is started all the same: it is then locked once it is up.
+   */
+  private async lockFromBoot(m: Machine, key: string): Promise<void> {
+    let token = m.token;
+    if (!token) {
+      token = newToken();
+      const made = token;
+      await updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id ? { ...x, token: made } : x)) }));
+      m.token = token;
+    }
+    try {
+      const client = this.client(key);
+      const pod = this.seen.get(m.id)?.pod ?? (await client.pods()).find((p) => p.id === m.rented!.pod) ?? null;
+      if (!pod || pod.env[LOCK_ENV] === token) return;
+      await client.setEnv(pod.id, { ...pod.env, [LOCK_ENV]: token });
+      pod.env = { ...pod.env, [LOCK_ENV]: token };
+    } catch (err) {
+      console.warn(`[rented] ${m.name || m.id}: its lock could not be set for its start (${(err as Error).message}); it is locked once it is up`);
+    }
   }
 
   /** The user's Stop or Delete. */

@@ -47,7 +47,8 @@ export function fakeLock(fake: FakeState) {
         fake.refused.push(`${method} ${path}`);
         return r.json(401, { error: "locked", by: "afflatus" }, { "x-afflatus-lock": "on" });
       }
-      if (path === "/afflatus/lock" && method === "GET") return r.json(200, { locked: Boolean(fake.lock), local: Boolean(fake.lock?.local), fixed: false, off: false });
+      if (path === "/afflatus/lock" && method === "GET") return r.json(200, { locked: Boolean(fake.lock), local: Boolean(fake.lock?.local), fixed: Boolean(fake.lock?.fixed), off: false });
+      if ((path === "/afflatus/lock" || path === "/afflatus/unlock") && method === "POST" && fake.lock?.fixed) return r.plain(409, "locked by its start settings (AFFLATUS_TOKEN)");
       if (path === "/afflatus/lock" && method === "POST") {
         if (!isJson(r)) return r.json(415, { error: "a JSON body is expected" });
         const sent = JSON.parse(r.raw.toString("utf-8") || "{}") as { token?: unknown; local?: unknown };

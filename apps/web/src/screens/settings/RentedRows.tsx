@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 import type { Machine, MachineState, RentedMachine } from "../../api";
 import { usd } from "../../format";
+import { useNow } from "../../hooks";
 import { rentedSaid } from "../../machines";
 import { RUNPOD_CONSOLE, useRentedOps } from "../../rentedOps";
 import { Select } from "../../Select";
@@ -14,10 +16,20 @@ const minutesSaid = (n: number) => (n === 0 ? "never" : n < 60 ? `${n} min` : `$
 const WHY_IDLE = "Idle: nothing rendering on it and nothing waiting that it could take. A job waiting for it keeps it on. Stop: the GPU stops billing, its disk goes on (cheap, and it starts again in a minute). Delete the pod: nothing is billed after, and it is gone from RunPod with its disk: a new one is set up next time.";
 const WHY_WATCH = "Afflatus runs on this PC, which can crash, sleep or lose its internet: then nothing here can stop the pod. The Afflatus node pack on the pod hears from Afflatus every minute; silent this long, it stops the pod by itself. It needs the pack on the pod (0.13 or newer).";
 
+/** "Stops in 4 min", counting down between two reads of the queue (from when it was read). */
+function IdleLeft({ ms }: { ms: number }) {
+  const [from] = useState(() => Date.now());
+  const now = useNow(5000);
+  const left = Math.max(0, ms - (now - from));
+  return <span className="text-ink-3">· stops in {left < 60_000 ? "under a minute" : `${Math.ceil(left / 60_000)} min`}</span>;
+}
+
 /** A rented machine's state for its card's head: its words, and Start or Stop. Start is the user's, its rate said first. */
 export function RentedHead({ machine, state }: { machine: Machine; state: MachineState | undefined }) {
   const ops = useRentedOps();
   const r = state?.rented;
+  // its running time and cost count by the second while it runs
+  const now = useNow(1000, r?.status === "RUNNING");
   if (!r) return null;
   const label = machine.name || "the pod";
   const running = r.status === "RUNNING";
@@ -25,7 +37,7 @@ export function RentedHead({ machine, state }: { machine: Machine; state: Machin
   const busy = ops.start.isPending || ops.stop.isPending;
   return (
     <span className="flex items-center gap-2">
-      <span className={cx("text-[12.5px] font-semibold", running ? "text-good" : r.status === "STARTING" || r.status === "PROVISIONING" ? "text-warn-ink" : "text-ink-2")}>{rentedSaid(r)}</span>
+      <span className={cx("text-[12.5px] font-semibold", running ? "text-good" : r.status === "STARTING" || r.status === "PROVISIONING" ? "text-warn-ink" : "text-ink-2")}>{rentedSaid(r, now)}</span>
       {stopped && (
         <TwoStep
           label="Start…" title={`Start ${label}?`} yes="Start" disabled={busy || r.capped}
@@ -64,7 +76,7 @@ export function RentedRows({ machine, state, put }: { machine: Machine; state: M
           <span className="text-ink-2">after</span>
           <span className="w-[104px] shrink-0"><Select size="sm" label="Minutes idle before" value={String(rented.idleMinutes)} onChange={(v) => set({ idleMinutes: Number(v) })} options={IDLE.map((n) => ({ value: String(n), label: minutesSaid(n) }))} /></span>
           <span className="w-[150px] shrink-0"><Select size="sm" label="What then" value={rented.idleDo} onChange={(v) => set({ idleDo: v as RentedMachine["idleDo"] })} options={[{ value: "stop", label: "Stop it", note: "the disk keeps billing" }, { value: "terminate", label: "Delete the pod", note: "nothing billed, set up again next time" }]} /></span>
-          {r?.idleLeftMs != null && <span className="text-ink-3">· stops in {Math.ceil(r.idleLeftMs / 60_000)} min</span>}
+          {r?.idleLeftMs != null && <IdleLeft ms={r.idleLeftMs} />}
         </span>
       </Row>
       <Row label="Watchdog" help={WHY_WATCH}>
