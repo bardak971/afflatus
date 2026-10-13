@@ -46,8 +46,11 @@ export function InputsPart({ frames, refs, framesChosen, refsCount, chosen, summ
   // something dragged in: the tab that takes it comes forward
   const refsTake = refs.some(takes);
   const framesTake = frames.some(takes);
+  // a tab clicked wins over the one brought forward for a missing input: a lip sync's recording, which the form must
+  // have, held the Frames tab, and its References could not be opened at all
+  const [picked, setPicked] = useState<"frames" | "references" | null>(null);
   // a picture the form must have is not there yet (an Inpaint's mask): its tab comes forward, as the part opens
-  const shownTab = framesTake ? "frames" : refsTake ? "references" : missing && hasFrames ? "frames" : tab;
+  const shownTab = framesTake ? "frames" : refsTake ? "references" : (picked ?? (missing && hasFrames ? "frames" : tab));
   // The part opens by itself while a picture is missing or something it takes is dragged. When that ends because a
   // picture was put in (dropped, picked), it stays open on the tab it was put in: folding away the slot just filled
   // hid the picture with its Change and Remove (and a reference dropped from the Frames tab went back behind it).
@@ -80,7 +83,10 @@ export function InputsPart({ frames, refs, framesChosen, refsCount, chosen, summ
               { value: "frames", label: framesChosen ? `Frames · ${framesChosen}` : "Frames" },
               { value: "references", label: refsCount ? `References · ${refsCount}` : "References" },
             ]}
-            onChange={(v) => setPart("inputs:references", v === "references")}
+            onChange={(v) => {
+              setPicked(v);
+              setPart("inputs:references", v === "references");
+            }}
           />
         </div>
       )}
