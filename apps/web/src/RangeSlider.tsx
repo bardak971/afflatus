@@ -10,9 +10,11 @@ import { cx } from "./ui";
  *
  * `onChange` hears every move while dragging; `onCommit`, when given, only the pair let go on. A part of a sound
  * (SoundRange) draws its waveform as the `track`, keeps the knobs at most `most` apart and snaps them to its pauses
- * (`snapAt`, not while Alt is held).
+ * (`snapAt`, not while Alt is held). With `onPick`, a press on the track itself is no longer a knob's: a click picks
+ * that moment (to play from), a drag draws a new stretch from it. `quiet`: the knobs show on hover, focus or a drag
+ * only (always on a touch screen).
  */
-export function RangeSlider({ from, to, min, max, step = 1, gap, most, snapAt, track: drawn, onChange, onCommit, label, format, className }: {
+export function RangeSlider({ from, to, min, max, step = 1, gap, most, snapAt, track: drawn, onPick, quiet, onChange, onCommit, label, format, className }: {
   from: number;
   to: number;
   min: number;
@@ -26,6 +28,10 @@ export function RangeSlider({ from, to, min, max, step = 1, gap, most, snapAt, t
   snapAt?(knob: "from" | "to", v: number): number;
   /** Drawn in place of the thin track and its fill (a waveform), as tall as it is. */
   track?: ReactNode;
+  /** A click on the track, off the knobs: the value there. */
+  onPick?(v: number): void;
+  /** The knobs hidden until the slider is hovered, focused or dragged. */
+  quiet?: boolean;
   onChange(from: number, to: number): void;
   onCommit?(from: number, to: number): void;
   label: string;
@@ -56,6 +62,8 @@ export function RangeSlider({ from, to, min, max, step = 1, gap, most, snapAt, t
     const r = track.current!.getBoundingClientRect();
     return min + ((e.clientX - r.left) / Math.max(1, r.width)) * (max - min);
   };
+  // a press on the track with onPick: where it was, and whether it has become a drag that draws a new stretch
+  const press = useRef<{ x: number; v: number; drawing: boolean } | null>(null);
   // the pair let go on is the one committed
   const last = useRef({ from, to });
   useEffect(() => {
@@ -66,6 +74,30 @@ export function RangeSlider({ from, to, min, max, step = 1, gap, most, snapAt, t
     last.current = next;
     setDrag({ knob, ...next });
     if (next.from !== from || next.to !== to) onChange(next.from, next.to);
+  };
+  /** A new stretch drawn from `anchor` to `v`, its ends snapped, held between gap and most. */
+  const draw = (anchor: number, v: number, free: boolean) => {
+    const wide = most ?? max - min;
+    const right = v >= anchor;
+    let lo = right ? anchor : v;
+    let hi = right ? v : anchor;
+    if (snapAt && !free) {
+      lo = snapAt("from", lo);
+      hi = snapAt("to", hi);
+    }
+    lo = Math.max(min, snap(lo));
+    hi = Math.min(max, snap(hi));
+    if (hi - lo > wide) {
+      if (right) hi = lo + wide;
+      else lo = hi - wide;
+    }
+    if (hi - lo < apart) {
+      if (right) hi = Math.min(max, lo + apart);
+      else lo = Math.max(min, hi - apart);
+    }
+    last.current = { from: lo, to: hi };
+    setDrag({ knob: right ? "to" : "from", from: lo, to: hi });
+    onChange(lo, hi);
   };
   const onKeys = (knob: "from" | "to") => (e: KeyboardEvent<HTMLSpanElement>) => {
     const by = (e.shiftKey ? 10 : 1) * step;
@@ -96,7 +128,10 @@ export function RangeSlider({ from, to, min, max, step = 1, gap, most, snapAt, t
         aria-valuetext={say(v)}
         onKeyDown={onKeys(which)}
         style={{ left: `${at(v)}%` }}
-        className="group/knob absolute flex h-[22px] w-5 -translate-x-1/2 items-center justify-center outline-none"
+        className={cx(
+          "group/knob absolute flex h-[22px] w-5 -translate-x-1/2 items-center justify-center outline-none",
+          quiet && !drag && "opacity-0 transition-opacity group-hover/slider:opacity-100 group-focus-within/slider:opacity-100 pointer-coarse:opacity-100",
+        )}
       >
         <span
           aria-hidden
@@ -124,20 +159,39 @@ export function RangeSlider({ from, to, min, max, step = 1, gap, most, snapAt, t
           const v = valueAt(e);
           // the knob pressed on, else the nearer one (on a tie: the side the press is on)
           const hit = (e.target as HTMLElement).closest<HTMLElement>("[data-knob]")?.dataset.knob as "from" | "to" | undefined;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          if (!hit && onPick) {
+            press.current = { x: e.clientX, v, drawing: false };
+            return;
+          }
           const which = hit ?? (Math.abs(v - from) < Math.abs(v - to) || v < from ? "from" : "to");
           track.current!.querySelector<HTMLElement>(`[data-knob=${which}]`)?.focus();
-          e.currentTarget.setPointerCapture(e.pointerId);
           move(which, v, e.altKey);
         }}
         onPointerMove={(e) => {
-          if (drag && e.currentTarget.hasPointerCapture(e.pointerId)) move(drag.knob, valueAt(e), e.altKey);
+          if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+          const p = press.current;
+          if (p) {
+            // a few pixels of slack: a click that shakes is still a click
+            if (!p.drawing && Math.abs(e.clientX - p.x) < 4) return;
+            p.drawing = true;
+            draw(p.v, valueAt(e), e.altKey);
+            return;
+          }
+          if (drag) move(drag.knob, valueAt(e), e.altKey);
         }}
         onPointerUp={(e) => {
           if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+          const p = press.current;
+          press.current = null;
+          if (p && !p.drawing) return onPick?.(p.v);
           setDrag(null);
           onCommit?.(last.current.from, last.current.to);
         }}
-        onPointerCancel={() => setDrag(null)}
+        onPointerCancel={() => {
+          press.current = null;
+          setDrag(null);
+        }}
         className={cx("group/slider relative flex min-w-[60px] grow cursor-pointer touch-none items-center", !drawn && "h-[22px]")}
       >
         {drawn ?? (

@@ -195,8 +195,8 @@ function Voice({ value, part, onChange, onPart }: {
           {/* the part the models are given, played on the whole sample's waveform where it is chosen */}
           <AudioPlayer
             asset={value} name={asset.data?.name || "Audio"} range={{ from: shown.start, to: shown.start + shown.seconds }} bare className="min-w-0 grow"
-            strip={total !== null && total > VOICE_PART.min ? (now) => (
-              <SoundRange asset={value} total={total} start={shown.start} seconds={shown.seconds} min={VOICE_PART.min} most={VOICE_PART.most} label="Voice sample: the part used" playhead={now} onCommit={(start, seconds) => onPart({ start, seconds })} />
+            strip={total !== null && total > VOICE_PART.min ? (now, playFrom) => (
+              <SoundRange asset={value} total={total} start={shown.start} seconds={shown.seconds} min={VOICE_PART.min} most={VOICE_PART.most} label="Voice sample: the part used" playhead={now} onSeek={playFrom} onCommit={(start, seconds) => onPart({ start, seconds })} />
             ) : undefined}
           >
             <Button size="sm" onClick={() => setPicking(true)}>Change</Button>
@@ -306,7 +306,7 @@ export function PersonEditor({ def, name, onChange }: { def: PersonDef; name: st
       <div className="flex min-w-0 flex-col gap-3">
         <Card dense title={`Reference images · ${def.pictures.length}`} status={def.pictures.length > 1 && <span className="text-[11.5px] text-ink-3">drag to reorder</span>} help={`Used by models that take reference images: the first ${LIMITS.sentPictures.person} are sent, the first being the face. Two or three angles hold a face better than one. Drop pictures on the row, from the computer or the library; drag one, or Alt + ← → on a focused one, to change the order.`}>
           <Pictures value={def.pictures} onChange={(pictures) => onChange({ ...def, pictures })} what={name} sent={LIMITS.sentPictures.person} face />
-          <Row label="Voice sample" help="A few seconds of them speaking. Models that generate audio give the person this voice. Under it, the part they are given: its ends snap to the pauses (Alt + drag: anywhere). Optional.">
+          <Row label="Voice sample" help="A few seconds of them speaking. Models that generate audio give the person this voice. Under it, the part they are given, in the accent: drag on the waveform for another part, its ends snap to the pauses (Alt: anywhere); a click plays from there. Optional.">
             {/* the part belongs to the sample: another sample starts from the form's own part again */}
             <Voice value={def.voice} part={def.voicePart ?? null} onChange={(voice) => onChange({ ...def, voice, voicePart: null })} onPart={(voicePart) => onChange({ ...def, voicePart })} />
           </Row>

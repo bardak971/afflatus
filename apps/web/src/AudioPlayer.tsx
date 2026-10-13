@@ -24,8 +24,8 @@ export function AudioPlayer({ asset, src, name, range, strip, bare, className, o
   name?: string;
   /** Only a part is played, in seconds of the sound: the waveform and the time are those of the part. */
   range?: { from: number; to: number };
-  /** Drawn under the player in place of its waveform: given where the sound is, in seconds of it (null: not started). */
-  strip?(now: number | null): ReactNode;
+  /** Drawn under the player in place of its waveform: given where the sound is, in seconds of it (null: not started), and a way to play from a moment. */
+  strip?(now: number | null, playFrom: (at: number) => void): ReactNode;
   /** Inside a card of its own: no border and no ground. */
   bare?: boolean;
   className?: string;
@@ -105,6 +105,15 @@ export function AudioPlayer({ asset, src, name, range, strip, bare, className, o
     el.currentTime = t;
     setNow(t);
   };
+  /** Plays from a moment of the sound, within the part played. */
+  const playFrom = (t: number) => {
+    const el = audio.current;
+    if (!el) return;
+    el.currentTime = Math.max(from, to === null ? t : Math.min(t, to - 0.05));
+    setNow(el.currentTime);
+    claimPlayback(el);
+    void el.play().catch(() => setOn(false));
+  };
   const setVolume = (v: number) => {
     const next = Math.round(Math.max(0, Math.min(1, v)) * 100) / 100;
     setVolumeState(next);
@@ -175,7 +184,7 @@ export function AudioPlayer({ asset, src, name, range, strip, bare, className, o
   return (
     <div className={cx("flex min-w-0 flex-col gap-2", !bare && "rounded-[14px] border border-line bg-raised px-3.5 py-2.5", className)}>
       {player}
-      {strip(on || now > from ? now : null)}
+      {strip(on || now > from ? now : null, playFrom)}
     </div>
   );
 }

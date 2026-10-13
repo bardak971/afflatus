@@ -6,12 +6,15 @@ import { pausesIn } from "./pauses";
 import { queryKeys } from "./queryKeys";
 import { RangeSlider } from "./RangeSlider";
 import { barsOf } from "./screens/library/SoundWave";
+import { cx } from "./ui";
 
 /**
  * A part of a sound, chosen on the whole of it: its waveform, its pauses marked over it, and the part as a stretch
  * between two knobs (the app's RangeSlider, the timeline takes' slider). A knob dragged near a pause lands in it, so
  * that no word is cut; with Alt it goes where it is let go. The knobs keep at most `most` apart: what one clip holds
- * (a recording) or a model takes (a voice sample), and the sound past that is hatched.
+ * (a recording) or a model takes (a voice sample), and the sound past that is hatched. At rest only the part's bars
+ * are in the accent; its frame and knobs show on hover, focus or a drag. A click on the waveform plays from there
+ * (`onSeek`); a drag on it draws a new part.
  */
 
 /** How many bars the waveform has across the whole sound. */
@@ -47,7 +50,7 @@ export function firstPart(total: number, pauses: Pause[], longest: number): { st
   return { start: 0, seconds: tenth(ends.length ? Math.max(...ends) : longest) };
 }
 
-export function SoundRange({ asset, total, start, seconds, min, most, label, playhead, onCommit }: {
+export function SoundRange({ asset, total, start, seconds, min, most, label, playhead, onSeek, onCommit }: {
   asset: string;
   /** The whole sound, in seconds. */
   total: number;
@@ -59,6 +62,8 @@ export function SoundRange({ asset, total, start, seconds, min, most, label, pla
   label: string;
   /** Where the part being played is, in seconds of the sound: a line over the waveform. */
   playhead?: number | null;
+  /** A click on the waveform: play from there, in seconds of the sound. */
+  onSeek?(at: number): void;
   onCommit(start: number, seconds: number): void;
 }) {
   const marks = useSoundMarks(asset);
@@ -107,7 +112,10 @@ export function SoundRange({ asset, total, start, seconds, min, most, label, pla
           <span className="absolute inset-y-0 right-0 bg-[repeating-linear-gradient(135deg,var(--color-ground)_0_5px,transparent_5px_10px)] opacity-60" style={{ left: pct(from + most) }} />
         )}
       </span>
-      <span aria-hidden className="absolute top-2.5 -bottom-0.5 rounded-lg border-2 border-accent" style={{ left: pct(from), width: pct(to - from) }} />
+      <span
+        aria-hidden style={{ left: pct(from), width: pct(to - from) }}
+        className={cx("absolute top-2.5 -bottom-0.5 rounded-lg border-2 border-accent", !moving && "opacity-0 transition-opacity group-hover/slider:opacity-100 group-focus-within/slider:opacity-100 pointer-coarse:opacity-100")}
+      />
       {playhead != null && !moving && <span aria-hidden className="absolute top-2 -bottom-1 w-0.5 -translate-x-1/2 rounded-full bg-ink" style={{ left: pct(playhead) }} />}
     </span>
   );
@@ -116,7 +124,7 @@ export function SoundRange({ asset, total, start, seconds, min, most, label, pla
     <div className="flex flex-col gap-1">
       <RangeSlider
         from={from} to={to} min={0} max={total} step={0.1} gap={Math.min(min, total)} most={most} snapAt={snapAt} track={track}
-        label={label} format={(v) => `${v.toFixed(1)} s`}
+        label={label} format={(v) => `${v.toFixed(1)} s`} quiet onPick={onSeek}
         onChange={(a, b) => setMoving({ from: a, to: b })}
         onCommit={(a, b) => {
           setMoving(null);
@@ -125,7 +133,7 @@ export function SoundRange({ asset, total, start, seconds, min, most, label, pla
       />
       <span className="flex justify-between font-mono text-[10.5px] text-ink-3">
         <span>0:00</span>
-        <span>{marks.pauses.length ? "Alt + drag: anywhere, not only in a pause" : ""}</span>
+        <span>{marks.pauses.length ? "click: play from there · drag: a new part · Alt: not only in a pause" : ""}</span>
         <span>{clock(total * 1000, { decimals: 1 })}</span>
       </span>
     </div>

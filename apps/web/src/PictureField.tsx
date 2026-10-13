@@ -497,8 +497,8 @@ export function SoundField({ label, note, optional, value, onChange, part, cast 
             {/* with a part set, the player plays that part, on the whole sound's waveform where it is chosen */}
             <AudioPlayer
               asset={shown} name={asset.data?.name || "Audio"} range={part ? { from, to: from + lasts } : undefined} bare className="px-0.5 pt-0.5"
-              strip={part && total !== null ? (now) => (
-                <SoundRange asset={shown} total={total} start={from} seconds={lasts} min={Math.min(part.min, total)} most={longest} label={`${label}: the part used`} playhead={now} onCommit={setPart} />
+              strip={part && total !== null ? (now, playFrom) => (
+                <SoundRange asset={shown} total={total} start={from} seconds={lasts} min={Math.min(part.min, total)} most={longest} label={`${label}: the part used`} playhead={now} onSeek={playFrom} onCommit={setPart} />
               ) : undefined}
             />
             {fromCast && (
