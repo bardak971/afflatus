@@ -1,6 +1,8 @@
 import { useCallback, type RefObject } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type Asset, type Clip, type RecipeInfo, type Timeline, type TimelinePatch } from "../api";
+import { api, type Asset, type Clip, type QueueStatus, type RecipeInfo, type Timeline, type TimelinePatch } from "../api";
+import { timelineKey, useDraftMachine } from "../draftMachine";
+import { severalMachines } from "../machines";
 import { movingSeed, seedAfter, useSeedMode } from "../seedMode";
 import type { Fix } from "./attention";
 import type { ExportOptions } from "./ExportDialog";
@@ -44,12 +46,15 @@ export function useTimelineMutations(id: string, o: {
     void client.invalidateQueries({ queryKey: queryKeys.queue() });
   };
   const render = useMutation({
-    mutationFn: async (v: { clips: Clip[]; takes?: number }) => {
+    mutationFn: async (v: { clips: Clip[]; takes?: number; machine?: string }) => {
       await save();
       // a seed meant to move: the takes go out with the next seeds in a row, and the clip's form shows the one after them
       const mode = useSeedMode.getState().mode;
       const sent = v.clips.map((c) => ({ clip: c, input: ready(c).input ?? {} })).map((x) => ({ ...x, seedMode: movingSeed(x.input.seed, mode) }));
-      const made = await api.renderClips(id, sent.map(({ clip, input, seedMode }) => ({ id: clip.id, input, ...(v.takes && v.takes > 1 ? { takes: v.takes } : {}), ...(seedMode ? { seedMode } : {}) })));
+      // with several ComfyUIs, the machine picked for this timeline (New take's slice), or the one asked this once (Ctrl+K)
+      const asked = v.machine ?? useDraftMachine.getState().of[timelineKey(id)];
+      const machine = asked && severalMachines(client.getQueryData<QueueStatus>(queryKeys.queue())).some((m) => m.id === asked) ? asked : undefined;
+      const made = await api.renderClips(id, sent.map(({ clip, input, seedMode }) => ({ id: clip.id, input, ...(v.takes && v.takes > 1 ? { takes: v.takes } : {}), ...(seedMode ? { seedMode } : {}) })), machine);
       for (const x of sent) {
         if (!x.seedMode) continue;
         const inputs = { ...inputsOf(x.clip), seed: seedAfter(x.input.seed as number, mode, v.takes ?? 1) };

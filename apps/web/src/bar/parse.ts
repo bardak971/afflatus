@@ -17,8 +17,8 @@ export function modeOf(typed: string, optional: { history: boolean; cast: boolea
 }
 
 export type Command =
-  | { cmd: "render-clips"; clips: number[] }
-  | { cmd: "render-missing" }
+  | { cmd: "render-clips"; clips: number[]; machine?: string }
+  | { cmd: "render-missing"; machine?: string }
   | { cmd: "export" }
   | { cmd: "export-editor" }
   | { cmd: "seed"; value: number }
@@ -171,6 +171,11 @@ export function parseCommand(input: string): Command | null {
   const t = input.trim().replace(/\s+/g, " ");
   const low = t.toLowerCase();
   let m: RegExpExecArray | null;
+  // a render on one ComfyUI of several, this once: "render missing on second gpu", "render clips 3-5 on studio"
+  if ((m = /^(render .+?) on (.+)$/i.exec(t))) {
+    const head = parseCommand(m[1]!);
+    if (head && (head.cmd === "render-clips" || head.cmd === "render-missing")) return { ...head, machine: m[2]!.trim() };
+  }
   if ((m = /^render (?:clips?|c) ?(.+)$/i.exec(t)) || (m = /^render ([\d][\d\s,;.\-–—to]*)$/i.exec(t))) {
     const clips = clipList(m[1]!);
     return clips ? { cmd: "render-clips", clips } : null;

@@ -92,7 +92,7 @@ export function useBarRequests({ id, t, shown, clips, slots, missing, ready, ren
       return;
     }
     // (the promise, not the mutation's own callbacks: those are dropped when the editor is left before the answer)
-    render.mutateAsync({ clips: list }).then(
+    render.mutateAsync({ clips: list, machine: request.machine }).then(
       (made) => {
         asked?.reply(made.ids);
         // sent to the top of the queue: the bar says so once they are there

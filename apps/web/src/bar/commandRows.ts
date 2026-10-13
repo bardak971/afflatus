@@ -71,8 +71,8 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
   const kitNew = (cmd: KitNew): [string, string] => [`New ${KIT_OF[cmd]} “${named}”`, "In the Prompt kit, opened there"];
   const mirrorWords = c.cmd === "mirror-pin" && c.off ? "Mirror off" : "Mirror pinned frame";
   const words: Record<Command["cmd"], [string, string]> = {
-    "render-clips": [`${said(c)} of ${t}`, c.cmd === "render-clips" ? `${plural(c.clips.length, "clip")} · they go to the end of the queue · Ctrl+Enter: to the top` : ""],
-    "render-missing": [`Render missing clips of ${t}`, "Clips with no take yet, or whose join went stale · Ctrl+Enter: at the top of the queue"],
+    "render-clips": [`${said(c)} of ${t}${"machine" in c && c.machine ? ` on ${c.machine}` : ""}`, c.cmd === "render-clips" ? `${plural(c.clips.length, "clip")} · they go to the end of the queue · Ctrl+Enter: to the top` : ""],
+    "render-missing": [`Render missing clips of ${t}${"machine" in c && c.machine ? ` on ${c.machine}` : ""}`, "Clips with no take yet, or whose join went stale · Ctrl+Enter: at the top of the queue"],
     export: [`Export ${t}`, "The export dialog opens on it"],
     "export-editor": [`Export ${t} for a video editor`, "The export dialog opens on For an editor: its clips and a project file for Resolve, Premiere or Kdenlive"],
     finish: [`Finish ${t}…`, "The Finish dialog: every take upscaled to its final quality"],
@@ -150,14 +150,14 @@ function machineSaid(q: QueueNow | null, label: string): string {
 
 /**
  * With several ComfyUIs, each one's own rows, ready to run: Pause or Resume it, Use only it, Unload it, Load a model on it,
- * its log, its render times and its models, and Generate on it. Typing "pause" lists
+ * its log, its render times and its models, Generate on it, and with a timeline open, Render missing on it. Typing "pause" lists
  * every machine that can be paused, "use only" every machine, a machine's name all it can do.
  */
 const machineRows = (x: CommandCtx): Item[] =>
   (x.queue?.machines ?? []).flatMap((m) => {
     const own = (c: Command) => {
       const row = commandRow(x, c);
-      const said = { "use-only": "use only", "load-panel": "load a model on", "machine-log": "comfyui log console", "machine-times": "render times", "machine-models": "models on", generate: "generate on" } as Partial<Record<Command["cmd"], string>>;
+      const said = { "use-only": "use only", "load-panel": "load a model on", "machine-log": "comfyui log console", "machine-times": "render times", "machine-models": "models on", generate: "generate on", "render-missing": "render missing on" } as Partial<Record<Command["cmd"], string>>;
       return { ...row, key: `${row.key}:${m.id}`, p: prepare(`${row.label} ${said[c.cmd] ?? c.cmd} ${m.label}`) };
     };
     return [
@@ -166,6 +166,8 @@ const machineRows = (x: CommandCtx): Item[] =>
       ...(m.online !== false ? [own({ cmd: "load-panel", machine: m.label })] : []),
       own({ cmd: "machine-log", machine: m.label }), own({ cmd: "machine-times", machine: m.label }), own({ cmd: "machine-models", machine: m.label }),
       ...(m.online !== false ? [own({ cmd: "generate", machine: m.label })] : []),
+      // with a timeline open: its clips with no take, rendered on this machine
+      ...(m.online !== false && x.aim ? [own({ cmd: "render-missing", machine: m.label })] : []),
     ];
   });
 

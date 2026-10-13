@@ -3,7 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Music } from "lucide-react";
 import { api, thumbUrl, type Asset, type Clip, type RecipeInfo, type Take, type Timeline } from "../api";
-import { useRecipes, useSetup } from "../data";
+import { useQueue, useRecipes, useSetup } from "../data";
+import { timelineKey } from "../draftMachine";
+import { GenerateOn, shortName, usePickedMachine } from "../GenerateOn";
+import { severalMachines } from "../machines";
 import { FormModel } from "../ModelLoad";
 import { phaseLabel, timeLeft } from "../format";
 import { Picker } from "../PictureField";
@@ -90,6 +93,9 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
     }
   };
   const takesTotal = takesMs === null ? null : takesMs * count;
+  // with several ComfyUIs: the machine picked for this timeline, said on the button with its own pace
+  const several = severalMachines(useQueue().data).length > 0;
+  const picked = usePickedMachine(timelineKey(timeline.id));
   // what a render of it is called, the same in the broken-join banner and the foot: a clip with a take gets a new take
   const renderWords = count > 1 ? `Render ${count} takes` : clip.take ? "New take" : "Render this clip";
   const [picking, setPicking] = useState<"sound" | "start" | "end" | "mid" | null>(null);
@@ -253,11 +259,15 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
           {clip.job ? (
             <RenderProgress clip={clip.id} onStop={onStop} />
           ) : (
-            <Button tone="primary" className="h-11 text-sm" disabled={Boolean(why) || busy} onClick={() => onRender(count)} data-tip={count > 1 ? "The first take keeps the form's seed; the others get a fresh seed each. Pick the best in Takes." : undefined}>
-              {busy ? "Sending…" : <>{renderWords}<Estimate ms={takesTotal} /></>}
-              {/* Ctrl+Enter renders one take: said only when that is what the button does */}
-              {!busy && count === 1 && <Keys keys="Ctrl+Enter" size="sm" />}
-            </Button>
+            <div className="flex">
+              <Button tone="primary" className={cx("h-11 min-w-0 grow text-sm", several && "rounded-r-none")} disabled={Boolean(why) || busy} onClick={() => onRender(count)} data-tip={count > 1 ? "The first take keeps the form's seed; the others get a fresh seed each. Pick the best in Takes." : undefined}>
+                {busy ? "Sending…" : <>{picked ? `${renderWords} on ${shortName(picked)}` : renderWords}<Estimate ms={takesTotal === null ? null : takesTotal * (picked?.pace ?? 1)} /></>}
+                {/* Ctrl+Enter renders one take: said only when that is what the button does */}
+                {!busy && count === 1 && <Keys keys="Ctrl+Enter" size="sm" />}
+              </Button>
+              {/* with several ComfyUIs, the machine this timeline's clips render on (GenerateOn.tsx) */}
+              {several && recipe && whole && <GenerateOn recipe={recipe} pickKey={timelineKey(timeline.id)} whole={whole} look={clip.look ?? timeline.look} ms={takesTotal} of="timeline" />}
+            </div>
           )}
         </div>
       )}

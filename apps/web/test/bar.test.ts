@@ -176,6 +176,9 @@ describe("modes and commands", () => {
     expect(parseCommand("show the machines")).toEqual({ cmd: "machines" });
     expect(parseCommand("generate on second gpu")).toEqual({ cmd: "generate", machine: "second gpu" });
     expect(parseCommand("generate")).toEqual({ cmd: "generate" });
+    expect(parseCommand("render missing on second gpu")).toEqual({ cmd: "render-missing", machine: "second gpu" });
+    expect(parseCommand("render clips 3-5 on studio")).toEqual({ cmd: "render-clips", clips: [3, 4, 5], machine: "studio" });
+    expect(parseCommand("render missing")).toEqual({ cmd: "render-missing" });
     expect(parseCommand("unload garage")).toEqual({ cmd: "unload", machine: "garage" });
     expect(parseCommand("empty the bin")).toEqual({ cmd: "empty-bin" });
     expect(parseCommand("bin unused takes")).toEqual({ cmd: "bin-unused" });
@@ -197,6 +200,9 @@ describe("modes and commands", () => {
     expect(parseCommand("unload models")).toEqual({ cmd: "unload" });
     expect(parseCommand("free vram")).toEqual({ cmd: "unload" });
     expect(parseCommand("generate")).toEqual({ cmd: "generate" });
+    expect(parseCommand("render missing on second gpu")).toEqual({ cmd: "render-missing", machine: "second gpu" });
+    expect(parseCommand("render clips 3-5 on studio")).toEqual({ cmd: "render-clips", clips: [3, 4, 5], machine: "studio" });
+    expect(parseCommand("render missing")).toEqual({ cmd: "render-missing" });
     expect(parseCommand("new timeline")).toEqual({ cmd: "new-timeline", name: "" });
     expect(parseCommand("new timeline Harbor cut")).toEqual({ cmd: "new-timeline", name: "Harbor cut" });
     expect(parseCommand("new folder shots")).toEqual({ cmd: "new-folder", name: "shots" });
