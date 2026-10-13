@@ -403,7 +403,9 @@ export const api = {
   deleteTake: (id: string) => call<{ ok: true }>("DELETE", `/takes/${id}`),
   /** The designer writes a clip put between two others: what takes the action from the one to the other. `was` is what the form held when it was asked. */
   writeBetween: (clip: string, arrive?: string) => call<{ changes: Record<string, string>; note: string; was: Record<string, string> }>("POST", `/clips/${clip}/between`, arrive ? { arrive } : undefined),
-  renderClips: (timeline: string, clips: Array<{ id: string; input: Record<string, unknown>; fit?: boolean; takes?: number; seedMode?: "up" | "down" }>) => call<{ ids: string[] }>("POST", `/timelines/${timeline}/render`, { clips }),
+  /** `machine`: every job pinned to that ComfyUI (a Machine's id); left out, whichever would end each first. */
+  renderClips: (timeline: string, clips: Array<{ id: string; input: Record<string, unknown>; fit?: boolean; takes?: number; seedMode?: "up" | "down" }>, machine?: string) =>
+    call<{ ids: string[] }>("POST", `/timelines/${timeline}/render`, { clips, ...(machine ? { machine } : {}) }),
   /** Asks for the export: it runs in the queue, and the timeline says when it is there. */
   exportTimeline: (id: string, opts: { scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range?: { inMs: number; outMs: number }; blend?: boolean; match?: boolean; fit?: "timeline" | "largest"; webMb?: 10 | 25 }) => call<{ id: string }>("POST", `/timelines/${id}/export`, opts),
   /** Every clip's selected take brought to its final quality by an upscale route, as a new take each; the drafts stay. */

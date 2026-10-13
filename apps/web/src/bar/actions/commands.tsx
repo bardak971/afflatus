@@ -30,17 +30,21 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
   const noTimeline: Action = { label: "No timeline to do it on", disabled: true, run: () => {} };
   switch (c.cmd) {
     case "render-clips":
-      return aim ? [
-        { label: `Render clip${c.clips.length > 1 ? "s" : ""} ${c.clips.join(", ")} of ${aim.name}`, icon: <Play size={14} />, note: "at the end of the queue", run: () => askTimeline(aim, { timeline: aim.id, do: "render", clips: c.clips }) },
-        atTopAction(aim, { timeline: aim.id, do: "render", clips: c.clips }),
+    case "render-missing": {
+      if (!aim) return [noTimeline];
+      // on one ComfyUI of several this once, by its name: the request carries it to the editor
+      const m = c.machine ? machineByName(queue?.machines, c.machine) : undefined;
+      if (c.machine && !m) return [{ label: `No ComfyUI called ${c.machine}`, icon: <Play size={14} />, disabled: true, run: () => {} }];
+      const on = m ? { machine: m.id } : {};
+      const where = m ? ` on ${machineLabel(m)}` : "";
+      const ask = c.cmd === "render-clips" ? { timeline: aim.id, do: "render" as const, clips: c.clips, ...on } : { timeline: aim.id, do: "render-missing" as const, ...on };
+      const what = c.cmd === "render-clips" ? `Render clip${c.clips.length > 1 ? "s" : ""} ${c.clips.join(", ")} of ${aim.name}` : `Render missing clips of ${aim.name}`;
+      return [
+        { label: `${what}${where}`, icon: <Play size={14} />, note: "at the end of the queue", run: () => askTimeline(aim, ask) },
+        atTopAction(aim, ask),
         { label: `Open ${aim.name}`, icon: <Film size={14} />, run: () => go(`/timelines/${aim.id}`) },
-      ] : [noTimeline];
-    case "render-missing":
-      return aim ? [
-        { label: `Render missing clips of ${aim.name}`, icon: <Play size={14} />, note: "at the end of the queue", run: () => askTimeline(aim, { timeline: aim.id, do: "render-missing" }) },
-        atTopAction(aim, { timeline: aim.id, do: "render-missing" }),
-        { label: `Open ${aim.name}`, icon: <Film size={14} />, run: () => go(`/timelines/${aim.id}`) },
-      ] : [noTimeline];
+      ];
+    }
     case "export":
       return aim ? [
         { label: `Export ${aim.name}…`, icon: <FileOutput size={14} />, note: "the export dialog opens", run: () => askTimeline(aim, { timeline: aim.id, do: "export" }) },

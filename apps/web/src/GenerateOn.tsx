@@ -2,19 +2,19 @@ import { useRef, useState } from "react";
 import { Link } from "wouter";
 import { Server } from "lucide-react";
 import { modelName, roughly } from "@afflatus/core";
-import type { Draft, MachineState, RecipeInfo } from "../../api";
-import { useQueue } from "../../data";
-import { useDraftMachine } from "../../draftMachine";
-import { useLoadChoices } from "../../loadChoices";
-import { machineLabel, severalMachines } from "../../machines";
-import { Popover } from "../../Popover";
-import { settingHref } from "../settings/settingsIndex";
-import { cx } from "../../ui";
+import type { api, MachineState, RecipeInfo } from "./api";
+import { useQueue } from "./data";
+import { useDraftMachine } from "./draftMachine";
+import { useLoadChoices } from "./loadChoices";
+import { machineLabel, severalMachines } from "./machines";
+import { Popover } from "./Popover";
+import { settingHref } from "./screens/settings/settingsIndex";
+import { cx } from "./ui";
 
-/** The draft's machine, when one is picked and still there; undefined: Auto. */
-export function usePickedMachine(draft: Draft | null): MachineState | undefined {
+/** The machine picked for a draft or a timeline (draftMachine.ts), when one is and it is still there; undefined: Auto. */
+export function usePickedMachine(key: string | null | undefined): MachineState | undefined {
   const queue = useQueue();
-  const id = useDraftMachine((s) => (draft ? s.of[draft.id] : undefined));
+  const id = useDraftMachine((s) => (key ? s.of[key] : undefined));
   return id ? severalMachines(queue.data).find((m) => m.id === id) : undefined;
 }
 
@@ -31,19 +31,29 @@ function said(m: MachineState, waiting: number, holds: boolean): string {
 }
 
 /**
- * Generate's last slice, with several ComfyUIs: a machine icon that picks where this draft renders. A small list above
- * it: Auto (the button as it always was: the machine that would end it first), then each machine with what it does,
- * what it holds and how long this would take there; one that lacks the form's model, is away, or does not take this kind
- * of render cannot be picked. The pick stays with the draft (draftMachine.ts). With one ComfyUI, nothing.
+ * The last slice of Generate (a draft) and of New take (a timeline's clips), with several ComfyUIs: a machine icon that
+ * picks where they render. A small list above it: Auto (the button as it always was: the machine that would end it
+ * first), then each machine with what it does, what it holds and how long this would take there; one that lacks the
+ * form's model, is away, or does not take this kind of render cannot be picked. The pick stays with the draft or the
+ * timeline (draftMachine.ts). With one ComfyUI, nothing.
  */
-export function GenerateOn({ recipe, draft, whole, ms }: { recipe: RecipeInfo; draft: Draft; whole: Record<string, unknown>; ms: number | null }) {
+export function GenerateOn({ recipe, pickKey, whole, look, ms, of }: {
+  recipe: RecipeInfo;
+  /** Where the pick is kept: a draft's id, or a timeline's key (draftMachine.ts). */
+  pickKey: string;
+  whole: Record<string, unknown>;
+  look: Parameters<typeof api.warm>[2];
+  ms: number | null;
+  /** What the pick is kept for, as the list says it. */
+  of: "draft" | "timeline";
+}) {
   const queue = useQueue();
   const several = severalMachines(queue.data);
-  const picked = usePickedMachine(draft);
+  const picked = usePickedMachine(pickKey);
   const set = useDraftMachine((s) => s.set);
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
-  const { lacksOn } = useLoadChoices({ recipe, input: whole, look: draft.look });
+  const { lacksOn } = useLoadChoices({ recipe, input: whole, look });
   if (!several.length) return null;
   const spec = recipe.inputs.find((i) => i.type === "model");
   const file = spec && typeof whole[spec.id] === "string" ? modelName(whole[spec.id] as string) : null;
@@ -55,7 +65,7 @@ export function GenerateOn({ recipe, draft, whole, ms }: { recipe: RecipeInfo; d
     : m.takes !== "all" && m.takes !== makes ? `takes ${m.takes === "image" ? "pictures" : "videos"} only`
     : null;
   const pick = (id: string | null) => {
-    set(draft.id, id);
+    set(pickKey, id);
     setOpen(false);
   };
   return (
@@ -65,19 +75,19 @@ export function GenerateOn({ recipe, draft, whole, ms }: { recipe: RecipeInfo; d
         type="button"
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label="Generate on a machine of your choosing"
-        data-tip={picked ? `Generates on ${machineLabel(picked)}: click to pick another, or Auto` : "Generate on a machine of your choosing"}
+        aria-label={of === "draft" ? "Generate on a machine of your choosing" : "Render on a machine of your choosing"}
+        data-tip={picked ? `${of === "draft" ? "Generates" : "Its clips render"} on ${machineLabel(picked)}: click to pick another, or Auto` : `${of === "draft" ? "Generate" : "Render"} on a machine of your choosing`}
         onClick={() => setOpen(!open)}
         className={cx("flex h-11 w-11 shrink-0 items-center justify-center rounded-r-lg border-l border-accent-ink/25 bg-accent text-accent-ink hover:brightness-95", open && "brightness-90")}
       >
         <Server size={16} />
       </button>
       {open && (
-        <Popover anchor={anchor} onClose={() => setOpen(false)} label="Generate on" width={440} height={80 + (several.length + 1) * 52}>
+        <Popover anchor={anchor} onClose={() => setOpen(false)} label={of === "draft" ? "Generate on" : "Render on"} width={440} height={80 + (several.length + 1) * 52}>
           <div className="flex flex-col text-[13px]">
             <div className="flex items-baseline gap-2 px-3.5 py-2.5">
-              <span className="font-semibold">Generate on</span>
-              <span className="text-xs text-ink-3">this draft</span>
+              <span className="font-semibold">{of === "draft" ? "Generate on" : "Render on"}</span>
+              <span className="text-xs text-ink-3">{of === "draft" ? "this draft" : "every clip of this timeline"}</span>
             </div>
             {[null, ...several].map((m) => {
               const off = m ? why(m) : null;
@@ -106,7 +116,7 @@ export function GenerateOn({ recipe, draft, whole, ms }: { recipe: RecipeInfo; d
               );
             })}
             <div className="border-t border-line px-3.5 py-2 text-[11.5px] text-ink-3">
-              Kept for this draft until you set Auto again. <Link href={settingHref("comfy.machines")} onClick={() => setOpen(false)} className="hover:text-ink hover:underline">Machines ›</Link>
+              Kept for this {of} until you set Auto again. <Link href={settingHref("comfy.machines")} onClick={() => setOpen(false)} className="hover:text-ink hover:underline">Machines ›</Link>
             </div>
           </div>
         </Popover>

@@ -10,7 +10,7 @@ import { Button, cx, ErrorNote, Help } from "../../ui";
 import { useQueue } from "../../data";
 import { aboutMs } from "../../format";
 import { severalMachines } from "../../machines";
-import { GenerateOn, shortName, usePickedMachine } from "./GenerateOn";
+import { GenerateOn, shortName, usePickedMachine } from "../../GenerateOn";
 import { inputMissing } from "./missing";
 import type { useGenerate } from "./useGenerate";
 
@@ -31,7 +31,7 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCou
   // the form's own forecast, the one its Output line says (advice.ts): the button says it for the whole batch, at the pace
   // of the machine picked for this draft when there is one (with several ComfyUIs, GenerateOn.tsx)
   const estimate = useAdvice(recipe, whole).data?.estimate;
-  const picked = usePickedMachine(draft);
+  const picked = usePickedMachine(draft?.id);
   const total = estimate ? (estimate.ms - estimate.loadMs) * count + estimate.loadMs : null;
   const about = picked && total !== null ? aboutMs(total * (picked.pace ?? 1)) : batchAbout(estimate, count);
   const missing = inputMissing(recipe, whole);
@@ -71,7 +71,7 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCou
             )}
             <Keys keys="Ctrl+Enter" size="sm" className="@max-[30rem]:hidden" />
           </Button>
-          {recipe && draft && several && <GenerateOn recipe={recipe} draft={draft} whole={whole} ms={total} />}
+          {recipe && draft && several && <GenerateOn recipe={recipe} pickKey={draft.id} whole={whole} look={draft.look} ms={total} of="draft" />}
         </div>
       </div>
     </div>

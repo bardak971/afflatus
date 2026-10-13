@@ -116,6 +116,8 @@ const renderBody = z.strictObject({
     }))
     .min(1)
     .max(100),
+  /** The machine they render on (a Machine's id), each job pinned there; left out, whichever would end each first (New take's machine slice). */
+  machine: z.string().min(1).max(40).optional(),
 });
 
 /** What the timeline for a video editor is asked with: the music (on unless "0"), and a range from In to Out. */
@@ -212,7 +214,10 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
    * waits for that one when it is being rendered too: it picks up from the take that comes out.
    */
   app.post<{ Params: { id: string } }>("/api/timelines/:id/render", async (req) => {
-    const ids = await renderClips(s, req.params.id, renderBody.parse(req.body).clips);
+    const body = renderBody.parse(req.body);
+    // a job pinned to a machine there is not would wait for ever
+    if (body.machine && !(await s.machines()).some((m) => m.machine.id === body.machine)) throw httpError("there is no ComfyUI with that id");
+    const ids = await renderClips(s, req.params.id, body.clips, body.machine);
     s.queue.events.emit("timeline");
     return { ids };
   });
@@ -433,7 +438,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
  * The jobs that render clips of a timeline, queued in the order the clips play: each with its own form worked through the
  * cast and the mood, a clip that carries on from one being rendered too waiting for that one. Their ids.
  */
-async function renderClips(s: Services, timeline: string, clips: z.infer<typeof renderBody>["clips"]): Promise<string[]> {
+async function renderClips(s: Services, timeline: string, clips: z.infer<typeof renderBody>["clips"], machine?: string): Promise<string[]> {
   const view = await s.timelines.view(timeline);
   const wanted = new Map(clips.map((c) => [c.id, c]));
   const ids: string[] = [];
@@ -473,6 +478,7 @@ async function renderClips(s: Services, timeline: string, clips: z.infer<typeof 
         asked: askedOf(typed, input),
         // the render lands in the timeline's folder: its own, else its project's root
         folder: (await folderOfTimeline(s.db, { folder_id: view.folderId, project_id: view.projectId })) ?? undefined,
+        machine: machine ?? null,
       });
       pending.set(clip.id, id);
       ids.push(id);

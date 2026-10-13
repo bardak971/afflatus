@@ -11,8 +11,9 @@ import type { PinMirror } from "../timeline/model";
  * adds no behaviour: it presses the editor's own buttons.
  */
 export type TimelineRequest =
-  | { timeline: string; do: "render"; clips: number[]; top?: boolean }
-  | { timeline: string; do: "render-missing"; top?: boolean }
+  /** `machine`: on that ComfyUI this once (a Machine's id); left out, the timeline's own pick, else Auto. */
+  | { timeline: string; do: "render"; clips: number[]; top?: boolean; machine?: string }
+  | { timeline: string; do: "render-missing"; top?: boolean; machine?: string }
   /** The export dialog; `editor`: open on "For an editor". */
   | { timeline: string; do: "export"; editor?: boolean }
   /** The selected clip split at the playhead (S); said in the editor's note when the playhead is not inside it. */
