@@ -49,6 +49,8 @@ With the pack loaded, ComfyUI answers:
 - `GET` and `POST /afflatus/alive` (0.13.0): the watchdog of a rented machine. Afflatus says "still here" with
   `{"minutes": 15}` every minute or so; silent that long, the pod stops itself (on RunPod: `runpodctl stop pod`, or
   RunPod's API with the pod's `RUNPOD_API_KEY`). Nothing is armed until Afflatus says it; `{"minutes": 0}` disarms it.
+  With `AFFLATUS_WATCHDOG_ACTION=terminate` in the pod's environment (0.13.1: Afflatus sets it for a pod without a
+  volume, which keeps nothing when stopped), it terminates the pod instead.
 - `GET` and `POST /afflatus/lock`, `POST /afflatus/unlock`, `POST /afflatus/login-code`, `/afflatus/login` (0.12.0):
   the lock. Once Afflatus locks a ComfyUI (Settings → ComfyUI → Access), every route of its server needs the machine's
   token: `Authorization: Bearer <token>`, `?token=` on the websocket, or the cookie the login page sets. The lock is kept

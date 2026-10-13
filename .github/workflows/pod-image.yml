@@ -1,6 +1,6 @@
 # The Afflatus pod image (deploy/runpod): ComfyUI, its Manager and the node pack, for a GPU deployed from Afflatus.
-# On a pod-v* tag it is pushed to GHCR (pod-v0.1.0 → ghcr.io/<owner>/afflatus-pod:0.1.0); from the Actions tab it is
-# built only, as a dry run. Its own tags, apart from the app's v*: the image changes with ComfyUI and the node pack, not
+# On a pod-v* tag it is pushed to GHCR in two builds of the same PyTorch: for CUDA 13.0 (pod-v0.1.2 →
+# ghcr.io/<owner>/afflatus-pod:0.1.2) and 12.8 (…:0.1.2-cu128); from the Actions tab they are built only, as a dry run. Its own tags, apart from the app's v*: the image changes with ComfyUI and the node pack, not
 # with every release of Afflatus. The version Afflatus deploys is the one it names (apps/server/src/runpod.ts POD_IMAGE).
 #
 # The first push makes the package private on GitHub: set it public once (the package's settings, Change visibility),
@@ -24,6 +24,12 @@ env:
 jobs:
   image:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { cuda: cu130, suffix: "" }
+          - { cuda: cu128, suffix: "-cu128" }
     permissions:
       contents: read
       packages: write
@@ -55,5 +61,7 @@ jobs:
           # RunPod's GPUs are on x86 hosts
           platforms: linux/amd64
           push: ${{ env.PUBLISH == 'true' }}
-          tags: ${{ env.IMAGE }}:${{ steps.version.outputs.tag }}
+          tags: ${{ env.IMAGE }}:${{ steps.version.outputs.tag }}${{ matrix.suffix }}
+          build-args: |
+            TORCH_CUDA=${{ matrix.cuda }}
           provenance: false
