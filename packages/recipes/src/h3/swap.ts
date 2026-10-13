@@ -27,6 +27,8 @@ const SWAP_LEAST = 39;
 
 /** H3's inputs a swap does not take: its prompt is the caption, its length the source's part, its shape the source's. */
 const NOT_TAKEN = new Set([
+  // the model is the reference model the LoRA was trained on (the swapUnet slot): a hybrid fine-tune redrew the room
+  "model", "hybrid", "turboIn",
   "description", "soundscape", "music", "start", "end", "mid", "midAt", "previous", "handover", "context", "joinFrom", "next", "landing",
   "refVideos", "voice", "voiceStart", "voiceSeconds", "voiceEven", "subject", "seconds", "shape",
   // H3's colour match pulls towards a start picture, which a swap has not
@@ -77,10 +79,17 @@ const picturesSaid = (n: number) => {
 /** The caption it was trained on: "Swap the man in the purple shirt in <Video 1> with the character in <Picture 1>." */
 export const swapCaption = (who: string, pictures: number) => `Swap ${who} in <Video 1> with the character in ${picturesSaid(pictures)}.`;
 
-/** The swap as an H3 clip: the source's part as its one reference video, the swap LoRA first among the LoRAs, its size and length the part's. */
-function asClip(input: H3Swap, swapLora: string, frames: number, size?: { width: number; height: number }): H3Video {
+/**
+ * The swap as an H3 clip: MiniMax's reference model as it is (`unet`), the source's part as its one reference video, the
+ * swap LoRA first among the LoRAs, its length the part's, its shape the source's and its size the source's own up to the
+ * resolution asked: with the hybrid Turbo fine-tune at 1024 × 576 the room was redrawn 3 times of 3, with ref2va at the
+ * source's 864 × 480 it was kept as it was (2026-10-13).
+ */
+function asClip(input: H3Swap, swapLora: string, frames: number, unet?: string, size?: { width: number; height: number }): H3Video {
   return {
     ...input,
+    model: unet, hybrid: "Yes", turboIn: "No",
+    short: size ? Math.min(input.short, Math.min(size.width, size.height)) : input.short,
     description: "", soundscape: "", music: "", subject: "", midAt: 0,
     start: undefined, end: undefined, mid: undefined, previous: undefined, next: undefined, voice: undefined,
     colourMatch: false, handover: false, context: "22", joinFrom: "Latent", landing: "22", voiceStart: 0, voiceSeconds: 15, voiceEven: false,
@@ -102,22 +111,24 @@ export const h3Swap = defineRecipe<H3Swap>({
   traits: { startFrame: false, endFrame: false, midFrames: false, continues: false, endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID },
   inputs: swapInputs,
   presets: h3Video.presets,
-  needs: ["swapLora"],
-  nodes: (input) => [...new Set([...h3Video.nodes(asClip(input, "swap.safetensors", SWAP_FRAMES)), "LoraLoaderModelOnly", ...(input.keepSound ? ["TrimAudioDuration"] : [])])],
+  needs: ["swapLora", "swapUnet"],
+  nodes: (input) => [...new Set([...h3Video.nodes(asClip(input, "swap.safetensors", SWAP_FRAMES, "minimax_h3_ref2va.safetensors")), "LoraLoaderModelOnly", ...(input.keepSound ? ["TrimAudioDuration"] : [])])],
   optionalNodes: h3Video.optionalNodes,
-  finishing: (input) => h3Video.finishing!(asClip(input, "swap.safetensors", SWAP_FRAMES)),
+  finishing: (input) => h3Video.finishing!(asClip(input, "swap.safetensors", SWAP_FRAMES, "minimax_h3_ref2va.safetensors")),
 
   build(input, ctx) {
     if (!input.source || !ctx.uploads.source) throw new Error("A swap needs its source video.");
     const swapLora = ctx.slots.swapLora;
     if (!swapLora) throw new Error("The swap needs the Character-Swap LoRA: h3_character_swap_pro4500_1000.safetensors in ComfyUI's models/loras folder (Settings › Models has it).");
+    const unet = ctx.slots.swapUnet;
+    if (!unet) throw new Error("The swap needs MiniMax H3's reference model, the one its LoRA was trained on: minimax_h3_ref2va_*.safetensors in ComfyUI's models/diffusion_models folder (Settings › Models has it).");
     const frames = framesOf(input, ctx);
     const source = ctx.media.source;
     // the source's part is the reference video; its own sound is kept out of the references when the file gets it anyway
     const keep = input.keepSound && Boolean(source?.hasSound);
     const asRef = { ...ctx, uploads: { ...ctx.uploads, "refVideos.0": ctx.uploads.source }, media: { ...ctx.media, "refVideos.0": { ...(source ?? { width: 0, height: 0 }), hasSound: Boolean(source?.hasSound) && !keep } } };
     const size = source?.width && source.height ? { width: source.width, height: source.height } : undefined;
-    return buildH3(asClip(input, swapLora, frames, size), asRef, {
+    return buildH3(asClip(input, swapLora, frames, unet, size), asRef, {
       prompt: (pictures) => swapCaption(whoOf(input), pictures),
       // the file's sound: the source's own over the window, cut to the clip's length
       ...(keep ? {
@@ -130,7 +141,7 @@ export const h3Swap = defineRecipe<H3Swap>({
     const all = {
       unet: "minimax_h3_fl2va.safetensors", clip: "qwen3vl_minimax_h3.safetensors", videoVae: "minimax_h3_video_vae.safetensors", audioVae: "minimax_h3_audio_vae.safetensors",
       turbo: "minimax_h3_turbo.safetensors", rife: "rife49.pth", refUnet: "minimax_h3_ref2va.safetensors", refTurbo: "minimax_h3_ref2v_turbo.safetensors",
-      swapLora: "h3_character_swap_pro4500_1000.safetensors",
+      swapLora: "h3_character_swap_pro4500_1000.safetensors", swapUnet: "minimax_h3_ref2va_pruned.safetensors",
     };
     const part = { width: 864, height: 480, frames: 141, fps: H3_FPS, hasSound: true };
     return [

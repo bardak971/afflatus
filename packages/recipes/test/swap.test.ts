@@ -6,7 +6,7 @@ import { H3_FPS } from "../src/h3/family";
 type Node = { class_type: string; inputs: Record<string, unknown> };
 type Graph = Record<string, Node>;
 const of = (graph: Graph, type: string) => Object.values(graph).filter((n) => n.class_type === type);
-const slots = { unet: "u.safetensors", clip: "c.safetensors", videoVae: "v.safetensors", audioVae: "a.safetensors", refUnet: "r.safetensors", swapLora: "swap.safetensors" };
+const slots = { unet: "u.safetensors", clip: "c.safetensors", videoVae: "v.safetensors", audioVae: "a.safetensors", refUnet: "hybrid_turbo.safetensors", swapLora: "swap.safetensors", swapUnet: "minimax_h3_ref2va.safetensors" };
 const part = (over: Partial<MediaFacts> = {}): MediaFacts => ({ width: 864, height: 480, frames: 141, fps: H3_FPS, hasSound: true, ...over });
 
 const build = (over: Record<string, unknown> = {}, source: MediaFacts = part()) => {
@@ -35,6 +35,16 @@ describe("MiniMax H3 · Swap character", () => {
     expect(ref.inputs.width as number).toBeGreaterThan(ref.inputs.height as number);
     // its sound is not handed over as a voice when the file keeps the source's own anyway
     expect(Object.keys(ref.inputs).some((k) => k.startsWith("ref_video_audios."))).toBe(false);
+  });
+
+  it("runs on MiniMax's reference model the LoRA was trained on, at the source's own size, whatever H3 model is picked elsewhere", () => {
+    const { graph } = build();
+    expect(of(graph, "UNETLoader").map((n) => n.inputs.unet_name)).toEqual(["minimax_h3_ref2va.safetensors"]);
+    const ref = of(graph, "MiniMaxH3ReferenceToVideo")[0]!;
+    expect([ref.inputs.width, ref.inputs.height]).toEqual([864, 480]);
+    // a larger source: the resolution asked for (576p), not more
+    const big = of(build({}, part({ width: 1920, height: 1080 })).graph, "MiniMaxH3ReferenceToVideo")[0]!;
+    expect(big.inputs.height).toBe(576);
   });
 
   it("puts the swap LoRA on the model, at its strength", () => {
