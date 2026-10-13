@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { api } from "../../api";
 import { useQueue, useSettings } from "../../data";
-import { usd } from "../../format";
+import { est, usd } from "../../format";
 import { queryKeys } from "../../queryKeys";
 import { Button, cx, ErrorNote, fieldClass } from "../../ui";
 import { Block, Card, Row } from "./Rows";
@@ -116,7 +116,7 @@ function RunpodAccount() {
   return (
     <Card
       title="RunPod"
-      help="What your rented pods cost: each one's running time × its rate, as Afflatus counts it (RunPod's bill is the reference). A stopped pod's disk is billed too, and is not in these figures: its card says what it costs a day."
+      help="What your rented pods cost, every pod of the account, its GPU and its disk: RunPod's own bill. RunPod writes it some hours after the fact, so the last hours are Afflatus's count (each pod's time × its rate, from its deploy), the higher of the two while a pod runs, so that a cap is never reached late. A network volume is billed apart, every month."
       status={s && s.balance !== null ? <span className={cx("text-[12.5px]", s.lowBalance ? "font-semibold text-warn-ink" : "text-ink-2")}>balance <span className="font-mono">{usd(s.balance)}</span></span> : undefined}
     >
       {!has || changing
@@ -127,8 +127,13 @@ function RunpodAccount() {
             <Button size="sm" tone="quiet" onClick={() => setChanging(true)}>Change key</Button>
           </Row>
         )}
-      {s && <Row label="Today"><Against value={s.today} cap={caps.day} sub="every pod's GPU time" /></Row>}
+      {s && <Row label="Today"><Against value={s.today} cap={caps.day} sub={s.billed ? "RunPod's bill, the last hours counted here" : "counted here (RunPod's bill not read)"} /></Row>}
       {s && <Row label="This month"><Against value={s.month} cap={caps.month} /></Row>}
+      {s && s.runwayMs !== null && s.spendPerHr !== null && (
+        <Row label="Balance lasts" help="At what the account spends now on RunPod (every pod and volume): at zero RunPod stops every pod, and terminates those without a volume. A render that would end after it is not sent to a rented pod.">
+          <span className={cx("text-[12.5px]", s.runwayMs < 3_600_000 ? "font-semibold text-warn-ink" : "text-ink-2")}>{est(s.runwayMs)} at {usd(s.spendPerHr)}/h</span>
+        </Row>
+      )}
       {has && (
         <Row setting="comfy.rentcaps" label="Caps" help="At a cap, the render running finishes, then the pods stop; what waits goes to your other machines, and Start says the cap is reached. Empty: no cap.">
           <CapBox label="a day" value={caps.day} onSave={(day) => saveCaps.mutate({ ...caps, day })} />

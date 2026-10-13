@@ -48,6 +48,11 @@ export class RunpodError extends Error {
 export const LOCK_ENV = "AFFLATUS_TOKEN";
 /** And the one its watchdog arms itself with from its start, before Afflatus has said anything (watchdog.py). */
 export const WATCHDOG_ENV = "AFFLATUS_WATCHDOG_MINUTES";
+/**
+ * What the watchdog does when this PC goes silent (watchdog.py): "terminate" for a pod that keeps nothing when stopped (no
+ * volume: its container disk is erased, its GPU may be taken), so that nothing is left of it on the account; "stop" otherwise.
+ */
+export const WATCHDOG_ACTION_ENV = "AFFLATUS_WATCHDOG_ACTION";
 
 /** The secret of the account a pod's token is kept in (encrypted at RunPod, given to the pod at boot), and its reference. */
 export const tokenSecret = (pod: string) => `afflatus-${pod.toLowerCase().replace(/[^a-z0-9_.-]/g, "")}`;
@@ -85,10 +90,17 @@ export const STOPPED_DISK_PER_GB_MONTH = 0.2;
  * Each pinned to one version, so that a deploy runs what Afflatus was tested with.
  */
 export const POD_IMAGES = {
-  afflatus: () => envSaid.podImage()?.trim() || "ghcr.io/bardak971/afflatus-pod:0.1.1",
+  afflatus: () => envSaid.podImage()?.trim() || "ghcr.io/bardak971/afflatus-pod:0.1.2",
   runpod: () => "runpod/comfyui:1.4.0-comfyuiv0.35.0-cuda12.8",
 } as const;
-/** Both images run PyTorch built for CUDA 12.8: a host with an older driver cannot run them. */
+/**
+ * The Afflatus image comes in two builds of the same PyTorch (2.10): for CUDA 13.0, the default (as most ComfyUIs at home run
+ * it now, and faster on recent cards), and for CUDA 12.8 ("-cu128"), for a GPU whose hosts do not offer 13. A host runs an
+ * image whose CUDA is not newer than its driver's.
+ */
+export const imageFor = (template: keyof typeof POD_IMAGES, cuda13: boolean): { image: string; minCuda: string } =>
+  template === "afflatus" ? (cuda13 ? { image: POD_IMAGES.afflatus(), minCuda: "13.0" } : { image: `${POD_IMAGES.afflatus()}-cu128`, minCuda: MIN_CUDA }) : { image: POD_IMAGES.runpod(), minCuda: MIN_CUDA };
+/** The oldest CUDA a pod's host may have for either image (12.8): the list of GPUs is read for it. */
 export const MIN_CUDA = "12.8";
 
 /** How free a GPU is, as RunPod says it: overall and by data center. */
@@ -103,6 +115,17 @@ export interface GpuOffer {
   price: number;
   availability: Availability;
   dataCenters: Array<{ id: string; availability: Availability }>;
+  /** Its hosts offer CUDA 13 (the Afflatus image's default build); without, the CUDA 12.8 build runs there. */
+  cuda13: boolean;
+}
+
+/** What RunPod billed one pod for an hour (GET /v2/billing/pods): its GPU, its disk, in USD. */
+export interface BillRecord {
+  pod: string;
+  /** The hour it covers (ms). */
+  start: number;
+  end: number;
+  amount: number;
 }
 
 /** A network volume of the account: what is on it outlives any pod, and a pod using it runs in its data center. */
@@ -122,6 +145,8 @@ export interface PodSpec {
   dataCenter: string | null;
   /** Its container disk, GB: erased when it stops or is terminated. */
   disk: number;
+  /** The oldest CUDA its host may have: the image's (imageFor). */
+  minCuda: string;
   volume: string | null;
   ports: string[];
   env: Record<string, string>;
@@ -274,7 +299,10 @@ export class Runpod {
       const price = (g.price as Record<string, unknown> | undefined)?.[key];
       if (typeof g.id !== "string" || typeof price !== "number" || price <= 0) return [];
       const dataCenters = Array.isArray(g.dataCenters) ? (g.dataCenters as Array<Record<string, unknown>>).filter((d) => typeof d.id === "string").map((d) => ({ id: d.id as string, availability: availabilityOf(d.availability) })) : [];
-      return [{ id: g.id, name: typeof g.name === "string" && g.name ? g.name : g.id, memory: typeof g.memory === "number" ? g.memory : 0, price, availability: availabilityOf(g.availability), dataCenters }];
+      // a GPU that is not NVIDIA's (RunPod lists AMD's too) runs neither image
+      if (typeof g.manufacturer === "string" && g.manufacturer && !/nvidia/i.test(g.manufacturer)) return [];
+      const cuda13 = Array.isArray(g.cudaVersions) && (g.cudaVersions as Array<{ version?: unknown; available?: unknown }>).some((c) => c.available !== false && typeof c.version === "string" && Number.parseFloat(c.version) >= 13);
+      return [{ id: g.id, name: typeof g.name === "string" && g.name ? g.name : g.id, memory: typeof g.memory === "number" ? g.memory : 0, price, availability: availabilityOf(g.availability), dataCenters, cuda13 }];
     });
   }
 
@@ -290,7 +318,7 @@ export class Runpod {
     const body = {
       name: spec.name,
       image: spec.image,
-      gpu: { id: spec.gpu, count: 1, minCudaVersion: MIN_CUDA },
+      gpu: { id: spec.gpu, count: 1, minCudaVersion: spec.minCuda },
       cloud: spec.cloud,
       ...(spec.dataCenter ? { dataCenterIds: [spec.dataCenter] } : {}),
       disk: spec.disk,
@@ -304,16 +332,34 @@ export class Runpod {
     return podOf(got);
   }
 
-  /** The account's balance in USD, from RunPod's GraphQL; null when it does not say. */
-  async balance(): Promise<number | null> {
+  /**
+   * The account's balance in USD and what it spends an hour now (every pod and volume of the account), from RunPod's
+   * GraphQL; null where it does not say. At zero RunPod stops every pod, and terminates those without a volume.
+   */
+  async balance(): Promise<{ balance: number | null; spendPerHr: number | null }> {
     const res = await this.fetcher(`${apiBase()}/graphql`, {
       method: "POST",
       headers: { Authorization: `Bearer ${this.key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ query: "query { myself { clientBalance } }" }),
+      body: JSON.stringify({ query: "query { myself { clientBalance currentSpendPerHr } }" }),
       signal: AbortSignal.timeout(15_000),
     }).catch(() => null);
-    const body = res?.ok ? ((await res.json().catch(() => null)) as { data?: { myself?: { clientBalance?: number } } } | null) : null;
-    const value = body?.data?.myself?.clientBalance;
-    return typeof value === "number" ? value : null;
+    const body = res?.ok ? ((await res.json().catch(() => null)) as { data?: { myself?: { clientBalance?: number; currentSpendPerHr?: number } } } | null) : null;
+    const me = body?.data?.myself;
+    return { balance: typeof me?.clientBalance === "number" ? me.clientBalance : null, spendPerHr: typeof me?.currentSpendPerHr === "number" ? me.currentSpendPerHr : null };
+  }
+
+  /**
+   * What RunPod billed each pod, hour by hour, since `from` (ms): the reference for what the rented GPUs cost (its GPU and its
+   * disk, every pod of the account). RunPod writes these some hours after the fact: the latest hours may be missing yet.
+   */
+  async billing(from: number): Promise<BillRecord[]> {
+    const got = await this.call<{ records?: unknown }>(`/v2/billing/pods?bucketSize=hour&startTime=${encodeURIComponent(new Date(from).toISOString())}`);
+    if (!got || !Array.isArray(got.records)) throw new RunpodShape("RunPod answered its billing in a shape Afflatus does not know.");
+    return (got.records as Array<Record<string, unknown>>).flatMap((r) => {
+      const start = typeof r.startTime === "string" ? Date.parse(r.startTime) : Number.NaN;
+      const end = typeof r.endTime === "string" ? Date.parse(r.endTime) : Number.NaN;
+      if (typeof r.podId !== "string" || typeof r.totalAmount !== "number" || !Number.isFinite(start) || !Number.isFinite(end)) return [];
+      return [{ pod: r.podId, start, end, amount: r.totalAmount }];
+    });
   }
 }

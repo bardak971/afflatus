@@ -4,7 +4,7 @@ import type { Comfy } from "./comfy";
 import type { Db } from "./db";
 import { httpError } from "./errors";
 import { newToken } from "./lock-api";
-import { COMFY_PORT, exposesComfy, LOCK_ENV, noCapacity, POD_IMAGES, podMachineId, podUrl, Runpod, RunpodError, RunpodShape, secretRef, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ENV, type GpuOffer, type NetworkVolume, type Pod, type PodSpec, type PodStatus } from "./runpod";
+import { COMFY_PORT, exposesComfy, imageFor, LOCK_ENV, noCapacity, POD_IMAGES, podMachineId, podUrl, Runpod, RunpodError, RunpodShape, secretRef, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ACTION_ENV, WATCHDOG_ENV, type BillRecord, type GpuOffer, type NetworkVolume, type Pod, type PodSpec, type PodStatus } from "./runpod";
 import { imagePublic } from "./podImage";
 import { readSettings, updateSettings, type DeployAsk, type Machine, type Settings } from "./settings";
 
@@ -51,8 +51,11 @@ export interface RentedView {
   capped: boolean;
   /** Afflatus is stopping it now (idle, a cap, or the user): it takes no new work. */
   stopping: boolean;
-  /** Why Afflatus stopped or terminated it last, when it did: "boot" when its ComfyUI never answered; "gpu" when the pod said its GPU does not work. */
-  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | null;
+  /**
+   * Why Afflatus stopped or terminated it last, when it did: "boot" when its ComfyUI never answered; "gpu" when the pod said its
+   * GPU does not work; "watchdog" when its watchdog stopped it while Afflatus was away, and Afflatus terminated what was left.
+   */
+  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | null;
   /** Deployed and on its first start (its image pulled, ComfyUI starting): a normal step, said as one, not as an error. */
   booting: boolean;
   /** What went wrong with this pod, or asking RunPod, when something did. */
@@ -67,10 +70,31 @@ export interface Spending {
   balance: number | null;
   /** Under this, the card says the balance is low: RunPod stops pods at zero. */
   lowBalance: boolean;
+  /** What the account spends an hour now on RunPod (every pod and volume), when it says it. */
+  spendPerHr: number | null;
+  /** How long the balance lasts at that spend (ms); null when nothing is spent, or RunPod did not say. */
+  runwayMs: number | null;
+  /** Today and this month are RunPod's own bill (with Afflatus's count for the hours RunPod has not billed yet); false: Afflatus's count alone. */
+  billed: boolean;
 }
+
+/** What a pod cost as Afflatus counts it (rent_sessions), today and this month, and whether a run of it is still open. */
+type Counted = { today: number; month: number; open: boolean; lastEnd: number };
 
 const LOW_BALANCE = 5;
 const HOUR = 3_600_000;
+/** How often RunPod's bill is read again: it is written some hours after the fact, nothing is lost reading it seldom. */
+const BILL_EVERY_MS = 5 * 60_000;
+/**
+ * A pod whose last run ended this long ago is billed in full by RunPod: its bill is its cost. Before, the higher of RunPod's
+ * bill and Afflatus's count (which counts from the deploy, and to the latest a pod could have run), so that a cap is never
+ * reached late.
+ */
+const BILL_SETTLED_MS = 6 * HOUR;
+/** A pod not seen for longer than this was run while Afflatus was away (asleep, closed): when it stopped is not known. */
+const AWAY_MS = 90_000;
+/** What is kept back of the balance when a job's length is weighed against it: a render is not started into the last minutes. */
+const RUNWAY_MARGIN_MS = 10 * 60_000;
 const TRANSITIONAL: ReadonlySet<string> = new Set(["PROVISIONING", "STARTING"]);
 /**
  * Billed by RunPod: running, and on its way up (a pod provisioning or starting holds its GPU). Counted from then, so that a
@@ -154,7 +178,9 @@ export class Rented {
   private stopped = false;
   /** A deploy under way: a second one (another tab, Deploy again pressed twice) waits for it to end. */
   private deploying = false;
-  private balanceSeen: { at: number; value: number | null } | null = null;
+  private balanceSeen: { at: number; value: number | null; spendPerHr: number | null } | null = null;
+  /** RunPod's bill since the start of the month, as last read (null: RunPod did not give it). */
+  private billSeen: { at: number; from: number; records: BillRecord[] | null } | null = null;
   /** RunPod said to slow down: not asked again before this (ms). */
   private quietUntil = 0;
   /** How often RunPod is read: every `everyMs`, every `fastMs` while a pod is starting or stopping. */
@@ -315,9 +341,6 @@ export class Rented {
       throw httpError("A spending cap is reached: raise it in Settings › Rented GPUs to deploy.", 409);
     }
     // an image RunPod could not pull would leave a pod provisioning, billed, until its boot limit: asked of its registry first
-    if ((await this.imageReady(POD_IMAGES[ask.template]())) === false) {
-      throw httpError(ask.template === "afflatus" ? "The Afflatus image is not published yet, or not public: nothing was deployed. Deploy with RunPod's ComfyUI meanwhile." : "RunPod's ComfyUI image cannot be pulled from Docker Hub now: nothing was deployed.", 409);
-    }
     const client = this.client(s.runpodKey);
     const [offers, volumes] = await Promise.all([client.gpus(ask.cloud), ask.volume ? client.volumes() : Promise.resolve([])]).catch((err: Error) => {
       throw httpError(err.message, 502);
@@ -331,6 +354,15 @@ export class Rented {
     const places: Array<string | null> = listed.length || volume || offer.dataCenters.length || offer.availability === "NONE" ? listed : [null];
     const none = volume ? `No ${offer.name} free in ${volume.dataCenter}, where the volume "${volume.name}" is: pick another GPU, or deploy without the volume.` : `No ${offer.name} free any more: it was taken since the list was read. Pick another GPU.`;
     if (!places.length) throw httpError(none, 409);
+    // the image's build for this GPU: CUDA 13 where its hosts offer it, else 12.8 (and 12.8 again where no host of 13 is free);
+    // each asked of its registry first: one RunPod could not pull would leave a pod billed until its boot limit
+    const builds = [];
+    for (const build of ask.template === "afflatus" && offer.cuda13 ? [imageFor("afflatus", true), imageFor("afflatus", false)] : [imageFor(ask.template, false)]) {
+      if ((await this.imageReady(build.image)) !== false) builds.push(build);
+    }
+    if (!builds.length) {
+      throw httpError(ask.template === "afflatus" ? "The Afflatus image is not published yet, or not public: nothing was deployed. Deploy with RunPod's ComfyUI meanwhile." : "RunPod's ComfyUI image cannot be pulled from Docker Hub now: nothing was deployed.", 409);
+    }
     // its token kept as a secret of the account, named now (the pod has no id yet); in its environment when the key cannot
     // make secrets, as for a pod added
     const token = newToken();
@@ -340,25 +372,30 @@ export class Rented {
       console.warn(`[rented] deploy: its token kept in its environment, RunPod made no secret of it (${err.message})`);
       return false;
     });
+    // without a volume a stop keeps nothing: the watchdog terminates it, as its idle does
+    const end = volume ? ask.idleDo : "terminate";
     const spec: PodSpec = {
-      name: `Afflatus ${offer.name} ${tag}`, image: POD_IMAGES[ask.template](), gpu: offer.id, cloud: ask.cloud, dataCenter: null, disk: volume ? Math.min(ask.disk, 40) : ask.disk,
-      volume: volume?.id ?? null, ports: [`${COMFY_PORT}/http`], env: { [LOCK_ENV]: kept ? secretRef(secret) : token, [WATCHDOG_ENV]: String(ask.watchdogMinutes) },
+      name: `Afflatus ${offer.name} ${tag}`, image: builds[0]!.image, minCuda: builds[0]!.minCuda, gpu: offer.id, cloud: ask.cloud, dataCenter: null, disk: volume ? Math.min(ask.disk, 40) : ask.disk,
+      volume: volume?.id ?? null, ports: [`${COMFY_PORT}/http`], env: { [LOCK_ENV]: kept ? secretRef(secret) : token, [WATCHDOG_ENV]: String(ask.watchdogMinutes), [WATCHDOG_ACTION_ENV]: end },
     };
     let pod: Pod | null = null;
     try {
       // one data center after the other, the freest first: RunPod takes one GPU type and one place at a time, and says only
       // in words that none was free there
-      for (const place of places) {
-        pod = await client.create({ ...spec, dataCenter: place }).catch(async (err: unknown) => {
-          if (noCapacity(err)) return null;
-          // no answer, a 5xx or an answer not read: RunPod may have made it all the same. Looked for by its name, it is
-          // kept (a machine, watched like any) rather than left billing with nothing to stop it
-          const status = (err as RunpodError).status;
-          if (!(err instanceof RunpodShape) && status !== 0 && !(status >= 500)) throw err;
-          const made = await client.pods().then((all) => all.find((p) => p.name === spec.name && p.status !== "TERMINATED") ?? null, () => null);
-          if (made) return made;
-          throw err;
-        });
+      for (const build of builds) {
+        for (const place of places) {
+          pod = await client.create({ ...spec, ...build, dataCenter: place }).catch(async (err: unknown) => {
+            if (noCapacity(err)) return null;
+            // no answer, a 5xx or an answer not read: RunPod may have made it all the same. Looked for by its name, it is
+            // kept (a machine, watched like any) rather than left billing with nothing to stop it
+            const status = (err as RunpodError).status;
+            if (!(err instanceof RunpodShape) && status !== 0 && !(status >= 500)) throw err;
+            const made = await client.pods().then((all) => all.find((p) => p.name === spec.name && p.status !== "TERMINATED") ?? null, () => null);
+            if (made) return made;
+            throw err;
+          });
+          if (pod) break;
+        }
         if (pod) break;
       }
     } catch (err) {
@@ -459,6 +496,7 @@ export class Rented {
       return;
     }
     await this.sweepSecrets(settings, pods);
+    await this.readBalance(settings.runpodKey);
     let changed = false;
     for (const m of rented) {
       const s = this.seenOf(m.id);
@@ -482,6 +520,41 @@ export class Rented {
         this.announcing = false;
       }
     }
+  }
+
+  /**
+   * How long RunPod's balance lasts at what the account spends now (ms), as last read; null when it is not known (a job is
+   * not held back then). At zero RunPod stops every pod: a render longer than this is not sent to a rented one.
+   */
+  runwayMs(): number | null {
+    const b = this.balanceSeen;
+    if (!b || b.value === null || !b.spendPerHr || b.spendPerHr <= 0) return null;
+    return Math.max(0, (b.value / b.spendPerHr) * HOUR - (this.now() - b.at));
+  }
+
+  /** Whether a job of this length may be sent to a rented pod now: it ends before the balance does, with a margin. */
+  fitsBalance(ms: number | null): { ok: boolean; leftMs: number | null } {
+    const left = this.runwayMs();
+    if (left === null || ms === null) return { ok: true, leftMs: left };
+    return { ok: ms + RUNWAY_MARGIN_MS <= left, leftMs: left };
+  }
+
+  /** The balance and what is spent an hour, read again at most once a minute. */
+  private async readBalance(key: string): Promise<void> {
+    if (this.now() < this.quietUntil || (this.balanceSeen && this.now() - this.balanceSeen.at <= 60_000)) return;
+    const got = await this.client(key).balance().catch(() => ({ balance: null, spendPerHr: null }));
+    this.balanceSeen = { at: this.now(), value: got.balance, spendPerHr: got.spendPerHr };
+  }
+
+  /** RunPod's bill since `from` (ms), read again every few minutes; null when RunPod does not give it. */
+  private async bill(key: string, from: number): Promise<BillRecord[] | null> {
+    if (this.billSeen && this.billSeen.from === from && (this.now() - this.billSeen.at < BILL_EVERY_MS || this.now() < this.quietUntil)) return this.billSeen.records;
+    const records = await this.client(key).billing(from).catch((err: Error) => {
+      console.warn(`[rented] RunPod's bill not read: ${err.message}`);
+      return null;
+    });
+    this.billSeen = { at: this.now(), from, records };
+    return records;
   }
 
   /** The secrets of pods removed from Afflatus (leftSecrets) whose pod is gone from RunPod now: deleted, and forgotten. */
@@ -522,7 +595,7 @@ export class Rented {
    * did not answer. Asked again after a minute (one not there yet may be published meanwhile), ten when it is there.
    */
   async images(): Promise<Record<keyof typeof POD_IMAGES, boolean | null>> {
-    const [afflatus, runpod] = await Promise.all([this.imageReady(POD_IMAGES.afflatus()), this.imageReady(POD_IMAGES.runpod())]);
+    const [afflatus, runpod] = await Promise.all([this.imageReady(imageFor("afflatus", true).image), this.imageReady(POD_IMAGES.runpod())]);
     return { afflatus, runpod };
   }
 
@@ -565,6 +638,12 @@ export class Rented {
     const deployedAt = m.rented!.deployedAt ? Date.parse(m.rented!.deployedAt) : Number.NaN;
     if (pod && TRANSITIONAL.has(pod.status) && Number.isFinite(deployedAt) && this.now() - deployedAt >= DEPLOYED_BOOT_LIMIT_MS) {
       await this.act(m, "terminate", "boot");
+      return true;
+    }
+    // a deployed pod without a volume found stopped (its watchdog stopped it while Afflatus was away, or RunPod did): it keeps
+    // nothing and its GPU may be taken, so nothing is left of it on the account. A stop of the user's own is left as it is
+    if (pod?.status === "EXITED" && m.rented!.deployed && !pod.networkVolume && pod.diskGb === 0 && s.stoppedBy !== "you" && !s.stopping) {
+      await this.act(m, "terminate", "watchdog");
       return true;
     }
     if (pod?.status !== "RUNNING") {
@@ -631,14 +710,20 @@ export class Rented {
         await this.db.updateTable("rent_sessions").set({ seen_at: iso }).where("id", "=", open.id).execute();
         return;
       }
-      // from when the pod says it started, but never over a session already counted
+      // from when the pod says it started, but never over a session already counted; a deployed pod's first run from its
+      // deploy, when the money starts
       const last = await this.db.selectFrom("rent_sessions").select("ended_at").where("machine_id", "=", m.id).orderBy("ended_at", "desc").executeTakeFirst();
-      const from = Math.max(pod.startedAt ? Date.parse(pod.startedAt) : now, last?.ended_at ? Date.parse(last.ended_at) : 0);
+      const deployedAt = m.rented!.deployedAt ? Date.parse(m.rented!.deployedAt) : Number.NaN;
+      const started = pod.startedAt ? Date.parse(pod.startedAt) : now;
+      const from = Math.max(!last && Number.isFinite(deployedAt) ? Math.min(started, deployedAt) : started, last?.ended_at ? Date.parse(last.ended_at) : 0);
       await this.db.insertInto("rent_sessions").values({ id: randomUUID(), machine_id: m.id, pod: pod.id, rate: pod.cost || s.rate || 0, started_at: new Date(Math.min(from, now)).toISOString(), ended_at: null, seen_at: iso }).execute();
     } else if (open) {
-      // closed where it was last seen running: a run that ended while Afflatus was away (off, asleep) does not count the hours
-      // until it came back
-      const end = s.seenRunningAt ?? (open.seen_at ? Date.parse(open.seen_at) : now);
+      // closed now when it was seen running a moment ago. One that ended while Afflatus was away (off, asleep) is closed at
+      // the latest it could have run: its watchdog stops it that long after the last "still here" (RunPod's bill, once
+      // written, is the reference: spent() takes it)
+      const seen = s.seenRunningAt ?? (open.seen_at ? Date.parse(open.seen_at) : now);
+      const watch = m.rented!.watchdogMinutes;
+      const end = now - seen <= AWAY_MS ? now : watch > 0 ? Math.min(now, seen + (watch + 2) * 60_000) : now;
       await this.db.updateTable("rent_sessions").set({ ended_at: new Date(Math.min(end, now)).toISOString() }).where("id", "=", open.id).execute();
       s.seenRunningAt = null;
     }
@@ -709,35 +794,66 @@ export class Rented {
   }
 
   /** What the rented GPUs cost from `from` until now: each session's time in it, at its rate. */
-  private async costSince(from: number): Promise<number> {
-    const since = new Date(from).toISOString();
-    const rows = await this.db.selectFrom("rent_sessions").selectAll().where((eb) => eb.or([eb("ended_at", "is", null), eb("ended_at", ">", since)])).execute();
+  /** What each pod cost since `month` as Afflatus counts it, and since `today` (rent_sessions). */
+  private async counted(month: number, today: number): Promise<Map<string, Counted>> {
+    const rows = await this.db.selectFrom("rent_sessions").selectAll().where((eb) => eb.or([eb("ended_at", "is", null), eb("ended_at", ">", new Date(month).toISOString())])).execute();
     const now = this.now();
-    return rows.reduce((sum, r) => {
-      const a = Math.max(from, Date.parse(r.started_at));
-      const b = r.ended_at ? Date.parse(r.ended_at) : now;
-      return sum + (Number.isFinite(a) && Number.isFinite(b) && b > a ? ((b - a) / HOUR) * r.rate : 0);
-    }, 0);
+    const out = new Map<string, Counted>();
+    for (const r of rows) {
+      const start = Date.parse(r.started_at);
+      const end = r.ended_at ? Date.parse(r.ended_at) : now;
+      if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+      const part = (from: number) => (end > Math.max(from, start) ? ((end - Math.max(from, start)) / HOUR) * r.rate : 0);
+      const c = out.get(r.pod) ?? { today: 0, month: 0, open: false, lastEnd: 0 };
+      c.month += part(month);
+      c.today += part(today);
+      c.open ||= !r.ended_at;
+      c.lastEnd = Math.max(c.lastEnd, end);
+      out.set(r.pod, c);
+    }
+    return out;
   }
 
-  private async spent(): Promise<{ today: number; month: number }> {
+  /**
+   * Today's and this month's cost of the rented GPUs: RunPod's own bill (its GPU and its disk, every pod of the account) for a
+   * pod it has billed in full; for one that runs, or ran a short while ago, the higher of RunPod's bill so far and Afflatus's
+   * count. A cap is never reached late, and the figures end as RunPod's. Afflatus's count alone when RunPod's bill is not read.
+   */
+  private async spent(): Promise<{ today: number; month: number; billed: boolean }> {
     const d = new Date(this.now());
     const today = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const month = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
-    return { today: await this.costSince(today), month: await this.costSince(month) };
+    const counted = await this.counted(month, today);
+    const key = (await readSettings(this.db)).runpodKey;
+    const records = key ? await this.bill(key, month) : null;
+    const billed = new Map<string, { today: number; month: number }>();
+    for (const r of records ?? []) {
+      if (r.end <= month) continue;
+      const b = billed.get(r.pod) ?? { today: 0, month: 0 };
+      b.month += r.amount;
+      if (r.start >= today) b.today += r.amount;
+      billed.set(r.pod, b);
+    }
+    let sumToday = 0;
+    let sumMonth = 0;
+    for (const pod of new Set([...counted.keys(), ...billed.keys()])) {
+      const c = counted.get(pod);
+      const b = billed.get(pod);
+      const settled = b && (!c || (!c.open && this.now() - c.lastEnd > BILL_SETTLED_MS));
+      sumToday += settled ? b.today : Math.max(b?.today ?? 0, c?.today ?? 0);
+      sumMonth += settled ? b.month : Math.max(b?.month ?? 0, c?.month ?? 0);
+    }
+    return { today: sumToday, month: sumMonth, billed: records !== null };
   }
 
   /** Today's and this month's cost, the caps, and RunPod's balance. */
   async spending(): Promise<Spending> {
     const s = await readSettings(this.db);
     const spent = await this.spent();
-    let balance = this.balanceSeen?.value ?? null;
     // RunPod is asked at most once a minute: the card reads this every 10 s while a pod runs
-    if (s.runpodKey && this.now() >= this.quietUntil && (!this.balanceSeen || this.now() - this.balanceSeen.at > 60_000)) {
-      balance = await this.client(s.runpodKey).balance().catch(() => null);
-      this.balanceSeen = { at: this.now(), value: balance };
-    }
-    return { ...spent, caps: s.rentCaps, balance, lowBalance: balance !== null && balance < LOW_BALANCE };
+    if (s.runpodKey) await this.readBalance(s.runpodKey);
+    const balance = this.balanceSeen?.value ?? null;
+    return { ...spent, caps: s.rentCaps, balance, lowBalance: balance !== null && balance < LOW_BALANCE, spendPerHr: this.balanceSeen?.spendPerHr ?? null, runwayMs: this.runwayMs() };
   }
 
   /** The user's Start: refused at a cap. */
@@ -802,8 +918,10 @@ export class Rented {
       const closed = m.rented!.closedPorts;
       const ports = m.rented!.openPorts ? [...new Set([...pod.ports, ...closed])] : pod.ports.filter((p) => p === comfy);
       const portsChange = ports.length !== pod.ports.length || ports.some((p) => !pod.ports.includes(p));
-      if (pod.env[LOCK_ENV] === token && pod.env[WATCHDOG_ENV] === minutes && !portsChange) return null;
-      await client.update(pod.id, { env: { ...pod.env, [LOCK_ENV]: token, [WATCHDOG_ENV]: minutes }, ...(portsChange ? { ports } : {}) });
+      // what its watchdog does, as its idle does: terminate a pod that keeps nothing when stopped
+      const end = pod.networkVolume || pod.diskGb > 0 ? m.rented!.idleDo : "terminate";
+      if (pod.env[LOCK_ENV] === token && pod.env[WATCHDOG_ENV] === minutes && pod.env[WATCHDOG_ACTION_ENV] === end && !portsChange) return null;
+      await client.update(pod.id, { env: { ...pod.env, [LOCK_ENV]: token, [WATCHDOG_ENV]: minutes, [WATCHDOG_ACTION_ENV]: end }, ...(portsChange ? { ports } : {}) });
       if (portsChange) {
         const nowClosed = m.rented!.openPorts ? [] : [...new Set([...closed, ...pod.ports.filter((p) => p !== comfy)])];
         await updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id && x.rented ? { ...x, rented: { ...x.rented, closedPorts: nowClosed } } : x)) }));
@@ -870,11 +988,12 @@ export class Rented {
     }
     // a deployed pod terminated by its idle time, a cap or a boot that never came: nothing is left of it, its machine goes too
     // (the user's own Terminate removes it in stopBy)
-    if (action === "terminate" && m.rented!.deployed && (why === "idle" || why === "cap")) {
+    if (action === "terminate" && m.rented!.deployed && (why === "idle" || why === "cap" || why === "watchdog")) {
       await updateSettings(this.db, (current) => ({ machines: current.machines.filter((x) => x.id !== m.id) }));
       this.seen.delete(m.id);
       this.events.emit("setup");
     }
+    if (why === "watchdog") console.log(`[rented] ${m.name || m.id}: found stopped by its watchdog, terminated (it kept nothing)`);
     if (why === "idle" || why === "cap" || why === "boot" || why === "gpu") console.log(`[rented] ${m.name || m.id}: ${action === "terminate" ? "terminated" : "stopped"} (${why === "idle" ? `idle ${m.rented!.idleMinutes} min` : why === "boot" ? `its ComfyUI never answered in ${bootLimit(m) / 60_000} min` : why === "gpu" ? "its GPU did not work on that host" : "a spending cap"})`);
     this.events.emit("queue");
     // read again soon, then at the fast pace while it moves

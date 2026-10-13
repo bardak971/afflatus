@@ -62,6 +62,8 @@ function filesAsked(recipe: Pick<Recipe<any>, "inputs">, input: Record<string, u
 export interface Lack {
   off: boolean;
   files: Array<{ file: string; folder: string; url?: string }>;
+  /** A rented pod whose RunPod balance runs out before this job would end there: how long it lasts, how long the job takes (ms). */
+  balance?: { leftMs: number; needMs: number };
 }
 
 /**

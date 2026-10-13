@@ -42,14 +42,22 @@ def how_to_stop(env=None):
     return ("api", pod, key) if key else None
 
 
-def stop_pod(way, run=subprocess.run, opener=urllib.request.urlopen):
-    """Stop the pod this runs on, the way `how_to_stop` found: True when the provider took it."""
+def pod_end(env=None):
+    """What stopping it means (AFFLATUS_WATCHDOG_ACTION, set by Afflatus): "terminate" for a pod that keeps nothing when
+    stopped (no volume: its container disk is erased, its GPU may be taken), so that nothing is left of it; "stop" otherwise."""
+    env = os.environ if env is None else env
+    return "terminate" if (env.get("AFFLATUS_WATCHDOG_ACTION") or "").strip().lower() == "terminate" else "stop"
+
+
+def stop_pod(way, run=subprocess.run, opener=urllib.request.urlopen, end=None):
+    """Stop (or terminate, as pod_end says) the pod this runs on, the way `how_to_stop` found: True when the provider took it."""
+    end = end or pod_end()
     if way[0] == "runpodctl":
-        done = run(["runpodctl", "stop", "pod", way[1]], capture_output=True, text=True, timeout=60)
+        done = run(["runpodctl", "remove" if end == "terminate" else "stop", "pod", way[1]], capture_output=True, text=True, timeout=60)
         return done.returncode == 0
     req = urllib.request.Request(
         f"https://api.runpod.io/v2/pods/{way[1]}/action",
-        data=json.dumps({"action": "stop"}).encode("utf-8"),
+        data=json.dumps({"action": end}).encode("utf-8"),
         headers={"Authorization": f"Bearer {way[2]}", "Content-Type": "application/json"},
         method="POST",
     )
@@ -89,7 +97,7 @@ class Watchdog:
             if self.tried is not None and self.now() - self.tried < RETRY_S:
                 return False
             self.tried = self.now()
-        print(f"[afflatus-nodes] Afflatus has been silent for {self.minutes} min: the watchdog stops this pod.")
+        print(f"[afflatus-nodes] Afflatus has been silent for {self.minutes} min: the watchdog {'terminates' if pod_end() == 'terminate' else 'stops'} this pod.")
         try:
             ok = bool(self.stop(self.way))
         except Exception as err:

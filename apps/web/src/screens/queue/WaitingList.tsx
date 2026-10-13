@@ -198,6 +198,7 @@ export function WaitingList({ waiting, running, machines = [], onOrder, onRemove
 /** What keeps a waiting job off a machine, in a few words for its "Run on" menu; null when nothing does. */
 function lackSaid(lack: MachineLack | undefined): string | null {
   if (!lack) return null;
+  if (lack.balance) return `its RunPod balance lasts ${est(lack.balance.leftMs)}, this takes ${est(lack.balance.needMs)}`;
   if (lack.off) return "its family is off there";
   return lack.files.length ? `lacks ${plural(lack.files.length, "file")}` : "cannot run it";
 }
@@ -210,7 +211,11 @@ function PinnedLacks({ machine, id, lack }: { machine: string; id: string; lack:
   return (
     <DownloadTo.Provider value={id}>
       <div className="mb-1 ml-[44px] flex flex-col gap-1.5 rounded-[10px] border border-line bg-raised px-3 py-2 text-xs text-ink-2">
-        {lack.off ? (
+        {lack.balance ? (
+          <span>
+            Waits: the RunPod balance lasts {est(lack.balance.leftMs)} at what the account spends now, and this takes {est(lack.balance.needMs)} on {machine}. At zero RunPod stops every pod and the render is lost: add credit on RunPod, or run it on another machine.
+          </span>
+        ) : lack.off ? (
           <span>
             Waits: its family is off on {machine}.{" "}
             <Link href={settingHref("models.families")} className="font-semibold text-accent hover:underline">Settings › Models</Link>

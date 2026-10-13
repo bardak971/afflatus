@@ -44,7 +44,7 @@ export function RentedHead({ machine, state, ops }: { machine: Machine; state: M
   const busy = ops.start.isPending || ops.stop.isPending || r.stopping;
   return (
     <span className="flex items-center gap-2">
-      <span className={cx("text-[12.5px] font-semibold", running ? "text-good" : r.status === "STARTING" || r.status === "PROVISIONING" ? "text-warn-ink" : "text-ink-2")}>{rentedSaid(r, now)}</span>
+      <span className={cx("text-[12.5px] font-semibold", r.booting ? "text-ink-2" : running ? "text-good" : r.status === "STARTING" || r.status === "PROVISIONING" ? "text-warn-ink" : "text-ink-2")}>{rentedSaid(r, now)}</span>
       {stopped && (
         <TwoStep
           label="Start…" title={`Start ${label}?`} yes="Start" disabled={busy || r.capped}
@@ -82,7 +82,7 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
           {r?.error && <span className="text-xs text-warn-ink">{r.error}</span>}
           {gone && (
             <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-warn-ink">
-              {r?.stoppedBy === "idle" ? `Terminated after ${minutesSaid(rented.idleMinutes)} idle: nothing billed any more.` : r?.stoppedBy === "boot" ? (rented.deployed ? "Terminated: it did not come up in 20 min (its image did not pull, or its container did not start). Nothing billed any more." : "Terminated: its ComfyUI never answered (its container did not start). Nothing billed any more.") : r?.stoppedBy === "gpu" ? "Terminated: its GPU did not work on that host. Nothing billed any more; deploy again, RunPod picks another host." : "Not on RunPod: terminated there, or the key is another account's."}
+              {r?.stoppedBy === "idle" ? `Terminated after ${minutesSaid(rented.idleMinutes)} idle: nothing billed any more.` : r?.stoppedBy === "boot" ? (rented.deployed ? "Terminated: it did not come up in 20 min (its image did not pull, or its container did not start). Nothing billed any more." : "Terminated: its ComfyUI never answered (its container did not start). Nothing billed any more.") : r?.stoppedBy === "gpu" ? "Terminated: its GPU did not work on that host. Nothing billed any more; deploy again, RunPod picks another host." : r?.stoppedBy === "watchdog" ? "Stopped by its watchdog while Afflatus was away, then terminated: it kept nothing. Nothing billed any more." : "Not on RunPod: terminated there, or the key is another account's."}
               <Button size="sm" onClick={remove}>Remove from Afflatus</Button>
             </span>
           )}

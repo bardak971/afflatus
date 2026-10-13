@@ -113,6 +113,7 @@ export async function createServices(
   const rented = new Rented(db, queue, queue.events, async (id) => (await machines()).find((m) => m.machine.id === id)?.comfy ?? null);
   queue.unavailable = (id) => rented.unavailable(id);
   queue.rentedOf = (m) => rented.view(m);
+  queue.fitsBalance = (ms) => rented.fitsBalance(ms);
   // a pod up and not locked is locked (its address is public)
   rented.lockPod = (id) => lockMachine({ db, queue, machines }, id, { local: false, renew: false });
   rented.run();

@@ -193,11 +193,11 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
         <Button onClick={() => test.mutate()} disabled={test.isPending}>{test.isPending ? "Connecting…" : url.trim() !== machine.url ? "Save and test" : "Test again"}</Button>
       </Row>}
       {/* a rented pod that is not running does not answer: its head says so, not a failure here */}
-      {(test.isError || save.isError || (probe?.online === false && (!rented || state?.rented?.status === "RUNNING")) || (!rented && publicPlainHttp(machine.url))) && (
+      {(test.isError || save.isError || (probe?.online === false && (!rented || (state?.rented?.status === "RUNNING" && !state.rented.booting))) || (!rented && publicPlainHttp(machine.url))) && (
         <Block>
           {test.isError && <ErrorNote>{test.error.message}</ErrorNote>}
           {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
-          {probe?.online === false && probe.error && <ErrorNote>{probe.error}</ErrorNote>}
+          {probe?.online === false && probe.error && !state?.rented?.booting && <ErrorNote>{probe.error}</ErrorNote>}
           {publicPlainHttp(machine.url) && <ErrorNote>A public address over plain http: anyone who finds it can run code on this ComfyUI. Reach it through Tailscale or an SSH tunnel, or put it behind a proxy that asks for a password.</ErrorNote>}
         </Block>
       )}

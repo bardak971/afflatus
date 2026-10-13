@@ -80,6 +80,28 @@ def test_how_it_stops_the_pod():
     assert asked[0].full_url == "https://api.runpod.io/v2/pods/abc/action" and asked[0].headers["Authorization"] == "Bearer rpa_key"
 
 
+def test_a_pod_that_keeps_nothing_is_terminated_not_stopped():
+    import json as J
+    assert W.pod_end({}) == "stop"
+    assert W.pod_end({"AFFLATUS_WATCHDOG_ACTION": "terminate"}) == "terminate"
+    ran = []
+    W.stop_pod(("runpodctl", "abc"), run=lambda cmd, **kw: ran.append(cmd) or types.SimpleNamespace(returncode=0), end="terminate")
+    assert ran == [["runpodctl", "remove", "pod", "abc"]]
+    asked = []
+
+    class Res:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    W.stop_pod(("api", "abc", "rpa_key"), opener=lambda req, timeout: asked.append(req) or Res(), end="terminate")
+    assert J.loads(asked[0].data) == {"action": "terminate"}
+
+
 def test_without_a_way_to_stop_it_says_so_and_does_nothing():
     clock = Clock()
     dog = W.Watchdog(None, now=clock, stop=lambda way: True)

@@ -170,6 +170,9 @@ describe("a rented machine", () => {
     const again = await post(t.app, `/api/machines/${id}/start`, {});
     expect(again.statusCode).toBe(409);
     expect(again.json().error).toMatch(/spending cap/);
+    // the balance is read again a minute after the last time
+    const real = Date.now;
+    t.services.rented.now = () => real() + 61_000;
     const spending = (await get(t.app, "/api/rented/spending")).json().spending;
     expect(spending).toMatchObject({ caps: { day: 0.0000001, month: 0 }, lowBalance: false });
     // the balance went down while the pod ran, as RunPod's does
