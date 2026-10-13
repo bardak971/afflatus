@@ -2,6 +2,19 @@ import { chosenDefaults, frameOf, fuzzyScore, isShown, latentUpscaleSize, megapi
 import type { ModelSettings, RecipeInfo } from "./api";
 import { fileLabel, plural } from "./format";
 
+/**
+ * The inputs chosen that the Inputs part's folded line shows as small pictures: the frames and clips, by their library
+ * item. A sound the result is made from (a lip sync's recording) has no picture: its name in the line says it is there.
+ */
+export function thumbsOf(chosen: InputSpec[], values: Record<string, unknown>): Array<{ key: string; id: string; label: string }> {
+  return chosen.flatMap((i) => {
+    if (i.type !== "image" && i.type !== "clip") return [];
+    const v = values[i.id];
+    const id = typeof v === "string" ? v : v && typeof v === "object" && typeof (v as { asset?: unknown }).asset === "string" ? (v as { asset: string }).asset : null;
+    return id ? [{ key: i.id, id, label: i.label }] : [];
+  });
+}
+
 /** The value an input starts with, given what this ComfyUI offers for it. */
 function defaultOf(spec: InputSpec, options: string[] | undefined): unknown {
   switch (spec.type) {
