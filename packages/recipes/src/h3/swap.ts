@@ -50,7 +50,8 @@ const swapInputs: InputSpec[] = [
   ...h3Inputs.flatMap((spec): InputSpec[] => {
     if (NOT_TAKEN.has(spec.id)) return [];
     if (spec.id === "references" && spec.type === "references") {
-      return [{ ...spec, label: "Who goes in", max: 3, roles: ["person"], note: "pictures of the person who takes their place: the cast fills it. One clear picture of the face is enough" }];
+      // one: the LoRA was trained on one <Picture 1>, and with three of the cast's photos H3 took one's room for the scene (2026-10-13)
+      return [{ ...spec, label: "Who goes in", max: 1, roles: ["person"], note: "a picture of the person who takes their place: the cast's first (the face). The scene stays the video's: a second photo brought its own room in" }];
     }
     return [spec];
   }),
@@ -139,9 +140,9 @@ export const h3Swap = defineRecipe<H3Swap>({
         slots: all, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: part },
       },
       {
-        name: "three pictures, a short part, Turbo, the sound H3 makes",
-        input: { who: "the woman on the left.", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }, { asset: "r2", role: "person" }, { asset: "r3", role: "person" }], keepSound: false },
-        slots: all, uploads: { source: "v.mp4", "references.0": "r1.png", "references.1": "r2.png", "references.2": "r3.png" }, media: { source: { ...part, frames: 90, hasSound: false } },
+        name: "a short part, Turbo, the sound H3 makes",
+        input: { who: "the woman on the left.", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], keepSound: false },
+        slots: all, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: { ...part, frames: 90, hasSound: false } },
       },
     ];
   })(),

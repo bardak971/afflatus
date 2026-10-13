@@ -186,7 +186,8 @@ describe("people, places and styles", () => {
     const c = await cast();
     const made = (await post(t.app, "/api/compose", { recipe: "h3.swap", input: { who: "the man in the grey t-shirt" }, look: { cast: [{ id: c.her }] } })).json();
     expect(made.input.who).toBe("the man in the grey t-shirt");
-    expect(made.input.references).toEqual([{ asset: c.front, role: "person" }, { asset: c.side, role: "person" }]);
+    // one picture, the cast's first (the face): the LoRA was trained on one, and a second brought its own room in
+    expect(made.input.references).toEqual([{ asset: c.front, role: "person" }]);
   });
 
   it("say what did not fit, and leave out what is gone", async () => {

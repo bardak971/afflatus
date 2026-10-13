@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, mainModel, missingNodesSaid, modelFileName, modelOf, onGrid, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
-import { ComfyCancelled } from "@afflatus/comfy";
+import { ComfyCancelled, ComfyUnreachable } from "@afflatus/comfy";
 import { forecast, fromRates, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
 import { cutFrames, partOf, rangeKeep, referenceClip, soundPart } from "./cut";
@@ -415,7 +415,11 @@ async function promptOf(comfy: Comfy, built: BuiltGraph, warm: boolean, cut: Ret
 /** The files a family's recipes need, as this ComfyUI has them. */
 async function slots(core: QueueCore, comfy: Comfy, recipe: Recipe<any>): Promise<Record<string, string>> {
   const slots: Record<string, string> = {};
-  const scanned = (await comfy.scan()).families.find((f) => f.id === recipe.family);
+  const scan = await comfy.scan();
+  // not reached: no file can be told missing, and the job waits for ComfyUI as a lost one does (a swap's retry once said its
+  // LoRA was missing while ComfyUI had stopped answering on 127.0.0.1, 2026-10-13)
+  if (!scan.comfy.online) throw new ComfyUnreachable(`ComfyUI did not answer at ${comfy.client.baseUrl}`);
+  const scanned = scan.families.find((f) => f.id === recipe.family);
   for (const s of scanned?.slots ?? []) {
     if (s.file) slots[s.id] = s.file;
     else if (!s.optional) throw new Error(`a model file ${core.registry.family(recipe.family)?.name ?? recipe.family} needs was not found. ${s.hint}`);
