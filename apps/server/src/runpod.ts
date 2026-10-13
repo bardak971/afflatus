@@ -49,6 +49,10 @@ export const LOCK_ENV = "AFFLATUS_TOKEN";
 /** And the one its watchdog arms itself with from its start, before Afflatus has said anything (watchdog.py). */
 export const WATCHDOG_ENV = "AFFLATUS_WATCHDOG_MINUTES";
 
+/** The secret of the account a pod's token is kept in (encrypted at RunPod, given to the pod at boot), and its reference. */
+export const tokenSecret = (pod: string) => `afflatus-${pod.toLowerCase().replace(/[^a-z0-9_.-]/g, "")}`;
+export const secretRef = (name: string) => `{{ RUNPOD_SECRET_${name} }}`;
+
 /** RunPod answered in a shape Afflatus does not read: said as it is, never taken for "no pods". */
 export class RunpodShape extends Error {}
 
@@ -150,9 +154,37 @@ export class Runpod {
     return got ? podOf(got) : null;
   }
 
-  /** A pod's environment set (the whole of it: what is not in it goes), for its next start. */
-  async setEnv(id: string, env: Record<string, string>): Promise<void> {
-    await this.call(`/v2/pods/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ env }) });
+  /**
+   * A pod's environment and exposed ports set, for its next start: each one given replaces the whole of it (what is not in
+   * it goes), what is not given stays as it is.
+   */
+  async update(id: string, change: { env?: Record<string, string>; ports?: string[] }): Promise<void> {
+    await this.call(`/v2/pods/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change) });
+  }
+
+  /** The account's secrets, by name: id only (RunPod never gives a secret's value back). */
+  private async secrets(): Promise<Array<{ id: string; name: string }>> {
+    const got = await this.call<unknown>("/v2/account/secrets");
+    const list = Array.isArray(got) ? got : Array.isArray((got as { secrets?: unknown })?.secrets) ? (got as { secrets: unknown[] }).secrets : [];
+    return list.filter((x): x is { id: string; name: string } => Boolean(x && typeof (x as { id?: unknown }).id === "string" && typeof (x as { name?: unknown }).name === "string"));
+  }
+
+  /** A secret of the account set to `value`: made, or its value replaced when it is there already. */
+  async putSecret(name: string, value: string, description: string): Promise<void> {
+    try {
+      await this.call("/v2/account/secrets", { method: "POST", body: JSON.stringify({ name, value, description }) });
+    } catch (err) {
+      if ((err as RunpodError).status !== 409) throw err;
+      const found = (await this.secrets()).find((x) => x.name === name);
+      if (!found) throw err;
+      await this.call(`/v2/account/secrets/${encodeURIComponent(found.id)}`, { method: "PATCH", body: JSON.stringify({ value }) });
+    }
+  }
+
+  /** A secret of the account deleted; nothing when there is none by that name. */
+  async deleteSecret(name: string): Promise<void> {
+    const found = (await this.secrets()).find((x) => x.name === name);
+    if (found) await this.call(`/v2/account/secrets/${encodeURIComponent(found.id)}`, { method: "DELETE" });
   }
 
   /** The account's balance in USD, from RunPod's GraphQL; null when it does not say. */

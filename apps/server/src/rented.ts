@@ -4,7 +4,7 @@ import type { Comfy } from "./comfy";
 import type { Db } from "./db";
 import { httpError } from "./errors";
 import { newToken } from "./lock-api";
-import { exposesComfy, LOCK_ENV, Runpod, RunpodError, STOPPED_DISK_PER_GB_MONTH, WATCHDOG_ENV, type Pod, type PodStatus } from "./runpod";
+import { COMFY_PORT, exposesComfy, LOCK_ENV, Runpod, RunpodError, secretRef, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ENV, type Pod, type PodStatus } from "./runpod";
 import { readSettings, updateSettings, type Machine } from "./settings";
 
 /**
@@ -34,6 +34,12 @@ export interface RentedView {
   spent: number;
   /** What its own disk costs a day while it is stopped (USD); 0 without one. */
   diskPerDay: number;
+  /** It has a volume (its own disk, or a network volume): a stop keeps something. Without, a stop keeps nothing. */
+  volume: boolean;
+  /** Its public ports besides ComfyUI's ("8080/http", "22/tcp"): reached by anyone who finds them, outside the lock. */
+  otherPorts: string[];
+  /** The ports Afflatus closed on it: put back at a Start when they are to be kept open. */
+  closedPorts: string[];
   /** The node pack's watchdog on it: on, none (no pack, or one too old), or unknown (not running). */
   watchdog: "on" | "none" | "unknown";
   /** Its ComfyUI answers (while it runs): false while it boots, or when it went down on the pod. */
@@ -90,11 +96,13 @@ interface Seen {
   error: string | null;
   /** Its lock and watchdog could not be set for this start: said on its card for the run (it may have run open until locked). */
   bootNote: string | null;
+  /** Its secret on RunPod was deleted (the pod is gone): not asked again at every read. */
+  secretDropped: boolean;
 }
 
 const fresh = (): Seen => ({
   pod: null, rate: null, watchdog: "unknown", answers: null, busyAt: null, stoppedBy: null, stopAfter: false, cappedAt: null,
-  stopping: false, lockTried: false, seenRunningAt: null, epoch: 0, error: null, bootNote: null,
+  stopping: false, lockTried: false, seenRunningAt: null, epoch: 0, error: null, bootNote: null, secretDropped: false,
 });
 
 export class Rented {
@@ -186,6 +194,9 @@ export class Rented {
       provider: "runpod", pod: machine.rented.pod, status, rate, gpu: pod?.gpu ?? null, dataCenter: pod?.dataCenter ?? null,
       since, spent: since && rate ? ((this.now() - since) / HOUR) * rate : 0,
       diskPerDay: pod ? (pod.diskGb * STOPPED_DISK_PER_GB_MONTH) / 30 : 0,
+      volume: Boolean(pod && (pod.networkVolume || pod.diskGb > 0)),
+      otherPorts: pod ? pod.ports.filter((p) => p !== `${COMFY_PORT}/http`) : [],
+      closedPorts: machine.rented.closedPorts,
       watchdog: status === "RUNNING" ? s?.watchdog ?? "unknown" : "unknown",
       answers: status === "RUNNING" ? s?.answers ?? null : null,
       idleLeftMs: status === "RUNNING" && !s?.stopping && idleMs > 0 && s?.busyAt && !this.queue.runningOn(machine.id) ? Math.max(0, idleMs - (this.now() - s.busyAt)) : null,
@@ -253,7 +264,7 @@ export class Rented {
       const s = this.seenOf(m.id);
       if (s.epoch !== epochs.get(m.id)) continue;
       try {
-        changed = (await this.follow(m, s, pods.find((p) => p.id === m.rented!.pod && p.status !== "TERMINATED") ?? null, settings.rentCaps)) || changed;
+        changed = (await this.follow(m, s, pods.find((p) => p.id === m.rented!.pod && p.status !== "TERMINATED") ?? null, settings.rentCaps, settings.runpodKey)) || changed;
         s.error = null;
       } catch (err) {
         // one pod RunPod refuses something for says so on its card; the others go on being watched
@@ -268,9 +279,21 @@ export class Rented {
     }
   }
 
+  /** The pod's secret (its token) deleted on RunPod, once: the pod is gone. */
+  private async dropSecret(m: Machine, s: Seen, key: string): Promise<void> {
+    if (s.secretDropped) return;
+    s.secretDropped = true;
+    await this.client(key).deleteSecret(tokenSecret(m.rented!.pod)).catch((err: Error) => {
+      s.secretDropped = false;
+      console.warn(`[rented] ${m.name || m.id}: its secret on RunPod not deleted (${err.message})`);
+    });
+  }
+
   /** One machine's pod as just read: its session, "still here", its lock, idle and caps. Says whether anything changed. */
-  private async follow(m: Machine, s: Seen, pod: Pod | null, caps: { day: number; month: number }): Promise<boolean> {
+  private async follow(m: Machine, s: Seen, pod: Pod | null, caps: { day: number; month: number }, key: string): Promise<boolean> {
     const before = s.pod;
+    // gone from RunPod (terminated there, or by its idle): its secret goes too
+    if (!pod) await this.dropSecret(m, s, key);
     const changed = !before || before.status !== pod?.status || Boolean(pod?.cost && pod.cost !== s.rate);
     s.pod = pod;
     if (pod?.cost) s.rate = pod.cost;
@@ -432,7 +455,13 @@ export class Rented {
       throw httpError("A spending cap is reached: raise it in Settings › ComfyUI › Rented GPUs to start it.", 409);
     }
     const unprepared = await this.prepareBoot(m, s.runpodKey);
-    await this.act(m, "start", null);
+    await this.act(m, "start", null).catch((err: Error & { statusCode?: number }) => {
+      // its GPU was taken while it was stopped: a stopped pod is bound to its host, and RunPod has none free there
+      if (/not enough free gpus|no longer available|no gpus? (are )?available|insufficient (gpu )?capacity/i.test(err.message)) {
+        throw httpError("Start refused: its GPU was taken while it was stopped (no free GPU on its host). Terminate it and deploy a new pod, or Start again later.", 409);
+      }
+      throw err;
+    });
     // said on its card for the run: it may run open until it is up and locked
     this.seenOf(m.id).bootNote = unprepared;
     return this.view(m)!;
@@ -458,8 +487,25 @@ export class Rented {
       if (!pod || (pod.status !== "EXITED" && pod.status !== "ERROR")) return null;
       if (!pod.env) throw new Error("RunPod did not say the pod's environment, which Afflatus does not overwrite blind");
       const minutes = String(m.rented!.watchdogMinutes);
-      if (pod.env[LOCK_ENV] === m.token && pod.env[WATCHDOG_ENV] === minutes) return null;
-      await client.setEnv(pod.id, { ...pod.env, [LOCK_ENV]: m.token, [WATCHDOG_ENV]: minutes });
+      // the token kept as a secret of the account (encrypted at RunPod, given to the pod at boot): its environment, which
+      // anyone with access to the account reads in the clear, holds only the reference. Plain when the key cannot make one
+      const secret = tokenSecret(pod.id);
+      const token = await client.putSecret(secret, m.token, `Afflatus: the lock of ${m.name || pod.id}'s ComfyUI`).then(() => secretRef(secret), (err: Error) => {
+        console.warn(`[rented] ${m.name || m.id}: its token kept in its environment, RunPod made no secret of it (${err.message})`);
+        return m.token;
+      });
+      // its other public ports closed (a template's FileBrowser, JupyterLab, SSH: logins of their own, outside the lock), and
+      // remembered: kept open, those Afflatus closed are put back
+      const comfy = `${COMFY_PORT}/http`;
+      const closed = m.rented!.closedPorts;
+      const ports = m.rented!.openPorts ? [...new Set([...pod.ports, ...closed])] : pod.ports.filter((p) => p === comfy);
+      const portsChange = ports.length !== pod.ports.length || ports.some((p) => !pod.ports.includes(p));
+      if (pod.env[LOCK_ENV] === token && pod.env[WATCHDOG_ENV] === minutes && !portsChange) return null;
+      await client.update(pod.id, { env: { ...pod.env, [LOCK_ENV]: token, [WATCHDOG_ENV]: minutes }, ...(portsChange ? { ports } : {}) });
+      if (portsChange) {
+        const nowClosed = m.rented!.openPorts ? [] : [...new Set([...closed, ...pod.ports.filter((p) => p !== comfy)])];
+        await updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id && x.rented ? { ...x, rented: { ...x.rented, closedPorts: nowClosed } } : x)) }));
+      }
       return null;
     } catch (err) {
       const said = `Its lock and watchdog could not be set for its start (${(err as Error).message}): it is locked once it is up.`;
@@ -468,13 +514,17 @@ export class Rented {
     }
   }
 
-  /** The user's Stop or Delete. */
-  async stopBy(machine: string, how: "stop" | "terminate"): Promise<RentedView> {
+  /** The user's Stop, or Terminate: then the machine goes from Afflatus too (nothing is left to do with it), and its secret. */
+  async stopBy(machine: string, how: "stop" | "terminate"): Promise<RentedView | null> {
     const s = await readSettings(this.db);
     const m = s.machines.find((x) => x.id === machine);
     if (!m?.rented) throw httpError("That machine is not a rented pod.", 404);
     await this.act(m, how, "you");
-    return this.view(m)!;
+    if (how !== "terminate") return this.view(m)!;
+    await updateSettings(this.db, (current) => ({ machines: current.machines.filter((x) => x.id !== m.id) }));
+    this.seen.delete(m.id);
+    this.events.emit("setup");
+    return null;
   }
 
   private async act(m: Machine, action: "start" | "stop" | "terminate", why: RentedView["stoppedBy"]): Promise<void> {
@@ -507,6 +557,8 @@ export class Rented {
       throw httpError((err as Error).message, status === 409 ? 409 : 502);
     }
     s.pod = action === "terminate" ? null : after ?? s.pod;
+    // terminated, whoever asked: its secret goes too (nothing left on RunPod that was the pod's)
+    if (action === "terminate") await this.dropSecret(m, s, settings.runpodKey);
     s.stoppedBy = action === "start" ? null : why;
     s.error = null;
     if (action !== "start") {

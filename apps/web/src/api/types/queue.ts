@@ -267,7 +267,7 @@ export interface RentedSpending {
 export interface RentedState {
   provider: "runpod";
   pod: string;
-  /** As RunPod says it; GONE: deleted on RunPod; UNKNOWN: not read yet, or RunPod did not answer. */
+  /** As RunPod says it; GONE: not on RunPod (terminated there, or another account's key); UNKNOWN: not read yet, or RunPod did not answer. */
   status: "PROVISIONING" | "STARTING" | "RUNNING" | "EXITED" | "ERROR" | "TERMINATED" | "GONE" | "UNKNOWN";
   /** USD an hour while it runs (the last rate seen). */
   rate: number | null;
@@ -278,6 +278,12 @@ export interface RentedState {
   spent: number;
   /** What its own disk costs a day while it is stopped (USD). */
   diskPerDay: number;
+  /** It has a volume: a stop keeps something. Without, a stop keeps nothing. */
+  volume: boolean;
+  /** Its public ports besides ComfyUI's ("8080/http", "22/tcp"), outside the lock. */
+  otherPorts: string[];
+  /** The ports Afflatus closed on it. */
+  closedPorts: string[];
   /** The node pack's watchdog on it. */
   watchdog: "on" | "none" | "unknown";
   /** Its ComfyUI answers, while it runs: false while it boots, or when it went down on the pod. */

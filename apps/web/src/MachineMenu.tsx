@@ -33,7 +33,7 @@ export function MachineMenuBody({ at, machine, onClose }: { at: Parameters<typeo
   /** One machine's own items. */
   const itemsOf = (m: MachineState): MenuItem[] => {
     const name = machineLabel(m);
-    // a rented pod that is not running: Start (the user's, its rate said), Delete (asked in its card), its page on RunPod; nothing else applies
+    // a rented pod that is not running: Start (the user's, its rate said), Terminate (asked in its card), its page on RunPod; nothing else applies
     const r = m.rented;
     const onRunpod: MenuItem = { label: "Open on RunPod", icon: <ExternalLink size={14} />, run: () => void window.open(RUNPOD_CONSOLE, "_blank", "noopener") };
     if (r && r.status !== "RUNNING") {
@@ -41,13 +41,13 @@ export function MachineMenuBody({ at, machine, onClose }: { at: Parameters<typeo
       return [
         ...(stopped ? [{ label: `Start ${name}`, icon: <Power size={14} />, note: r.capped ? "a spending cap is reached" : rateSaid(r), disabled: r.capped, run: () => rented.start.mutate(m.id) }] : []),
         ...(r.status === "STARTING" || r.status === "PROVISIONING" ? [{ label: `Stop ${name}`, icon: <PowerOff size={14} />, note: "before it is up", run: () => rented.stop.mutate({ machine: m.id, how: "stop" }) }] : []),
-        ...(r.status !== "GONE" && r.status !== "TERMINATED" ? [{ label: "Delete the pod…", icon: <Trash2 size={14} />, note: "asked in its card", run: () => go(`/settings?machine=${encodeURIComponent(m.id)}`) }] : []),
+        ...(r.status !== "GONE" && r.status !== "TERMINATED" ? [{ label: "Terminate…", icon: <Trash2 size={14} />, note: "asked in its card", run: () => go(`/settings?machine=${encodeURIComponent(m.id)}`) }] : []),
         onRunpod,
       ];
     }
     const stopRented: MenuItem[] = r ? [
       { label: `Stop ${name}`, icon: <PowerOff size={14} />, note: r.diskPerDay > 0.005 ? `the disk keeps billing ${usd(r.diskPerDay)}/day` : "the GPU stops billing", run: () => rented.stop.mutate({ machine: m.id, how: "stop" }) },
-      { label: "Delete the pod…", icon: <Trash2 size={14} />, note: "asked in its card", run: () => go(`/settings?machine=${encodeURIComponent(m.id)}`) },
+      { label: "Terminate…", icon: <Trash2 size={14} />, note: "asked in its card", run: () => go(`/settings?machine=${encodeURIComponent(m.id)}`) },
       onRunpod,
     ] : [];
     const why = machineUnloadBlock(m);

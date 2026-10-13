@@ -6,14 +6,21 @@ import { useNow } from "../../hooks";
 import { rateSaid, rentedSaid } from "../../machines";
 import { RUNPOD_CONSOLE, type useRentedOps } from "../../rentedOps";
 import { Select } from "../../Select";
-import { ButtonLink, cx, TwoStep } from "../../ui";
-import { Row } from "./Rows";
+import { Button, ButtonLink, Checkbox, cx, TwoStep } from "../../ui";
+import { Block, Row } from "./Rows";
 
 const IDLE = [0, 5, 10, 15, 30, 60, 120];
 const WATCH = [0, 5, 10, 15, 30, 60];
+/** A port as the card says it: what a template usually runs on it. */
+const portSaid = (p: string) => {
+  const [port, kind] = p.split("/");
+  const what: Record<string, string> = { "8080": "FileBrowser", "8888": "JupyterLab", "22": "SSH", "3000": "web UI", "7860": "web UI" };
+  return `${port}${what[port!] ? ` ${what[port!]}` : ""}${kind === "tcp" ? " (TCP)" : ""}`;
+};
 const minutesSaid = (n: number) => (n === 0 ? "never" : n < 60 ? `${n} min` : `${n / 60} h`);
 
-const WHY_IDLE = "Idle: nothing rendering on it and nothing waiting that it could take. A job waiting for it keeps it on. Stop: the GPU stops billing, its disk goes on (cheap, and it starts again in a minute). Delete the pod: nothing is billed after, and it is gone from RunPod with its disk: a new one is set up next time.";
+const WHY_IDLE = "Idle: nothing rendering on it and nothing waiting that it could take; a job waiting for it keeps it on. Stop: the GPU stops billing, its volume is kept (and billed), its container disk is erased; its GPU may be taken meanwhile, and then it cannot start again. Terminate: nothing billed after, the pod gone from RunPod: deploy a new one next time. Without a volume a stop keeps nothing: terminate.";
+const WHY_PORTS = "What a pod's template opens besides ComfyUI: FileBrowser (8080), JupyterLab (8888), SSH (22). They have logins of their own, outside Afflatus's lock, some with a default password printed in the template's page: anyone who finds the pod's address can try them, and with FileBrowser reach its files, ComfyUI's custom nodes included. Closed, Afflatus takes them off the pod at each Start (RunPod's exposed ports), and only ComfyUI is reached, locked. Open them to use one (FileBrowser to put the Afflatus pack on it).";
 const WHY_WATCH = "Afflatus runs on this PC, which can crash, sleep or lose its internet: then nothing here can stop the pod. The Afflatus node pack on the pod hears from Afflatus every minute; silent this long, it stops the pod by itself. It needs the pack on the pod (0.13 or newer).";
 
 /** "Stops in 4 min", counting down between two reads of the queue (from when it was read). */
@@ -60,7 +67,7 @@ export function RentedHead({ machine, state, ops }: { machine: Machine; state: M
  * A rented machine's own rows on its card: the pod (its GPU, rate, address, its page on RunPod), what happens when it sits
  * idle, the watchdog, and deleting the pod on RunPod. `put` saves a change of its rented settings.
  */
-export function RentedRows({ machine, state, put, ops }: { machine: Machine; state: MachineState | undefined; put(rented: RentedMachine): void; ops: ReturnType<typeof useRentedOps> }) {
+export function RentedRows({ machine, state, put, ops, remove }: { machine: Machine; state: MachineState | undefined; put(rented: RentedMachine): void; ops: ReturnType<typeof useRentedOps>; /** Takes it out of Afflatus. */ remove(): void }) {
   const rented = machine.rented!;
   const r = state?.rented;
   const set = (change: Partial<RentedMachine>) => put({ ...rented, ...change });
@@ -72,7 +79,12 @@ export function RentedRows({ machine, state, put, ops }: { machine: Machine; sta
           <span>{[r?.gpu?.replace(/^NVIDIA (GeForce )?/, ""), r?.dataCenter, r?.rate ? `${usd(r.rate)} / h` : null].filter(Boolean).join(" · ") || "…"}</span>
           <span className="truncate font-mono text-[11.5px] text-ink-3">{machine.url}</span>
           {r?.error && <span className="text-xs text-warn-ink">{r.error}</span>}
-          {gone && <span className="text-xs text-warn-ink">RunPod does not list it with this key: deleted there, or the key is another account's. Remove it here, or set back the key.</span>}
+          {gone && (
+            <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-warn-ink">
+              {r?.stoppedBy === "idle" ? `Terminated after ${minutesSaid(rented.idleMinutes)} idle: nothing billed any more.` : "Not on RunPod: terminated there, or the key is another account's."}
+              <Button size="sm" onClick={remove}>Remove from Afflatus</Button>
+            </span>
+          )}
         </span>
         <ButtonLink href={RUNPOD_CONSOLE} target="_blank" rel="noreferrer" size="sm"><ExternalLink size={13} /> RunPod</ButtonLink>
       </Row>
@@ -80,10 +92,13 @@ export function RentedRows({ machine, state, put, ops }: { machine: Machine; sta
         <span className="flex grow flex-wrap items-center justify-end gap-2 text-[12.5px]">
           <span className="text-ink-2">after</span>
           <span className="w-[104px] shrink-0"><Select size="sm" label="Minutes idle before" value={String(rented.idleMinutes)} onChange={(v) => set({ idleMinutes: Number(v) })} options={IDLE.map((n) => ({ value: String(n), label: minutesSaid(n) }))} /></span>
-          <span className="w-[150px] shrink-0"><Select size="sm" label="What then" value={rented.idleDo} onChange={(v) => set({ idleDo: v as RentedMachine["idleDo"] })} options={[{ value: "stop", label: "Stop it", note: "the disk keeps billing" }, { value: "terminate", label: "Delete the pod", note: "nothing billed, set up again next time" }]} /></span>
+          <span className="w-[150px] shrink-0"><Select size="sm" label="What then" value={rented.idleDo} onChange={(v) => set({ idleDo: v as RentedMachine["idleDo"] })} options={[{ value: "stop", label: "Stop it", note: "its volume kept and billed" }, { value: "terminate", label: "Terminate it", note: "nothing billed, deploy a new one next time" }]} /></span>
           {r?.idleLeftMs != null && <IdleLeft key={r.idleLeftMs} ms={r.idleLeftMs} />}
         </span>
       </Row>
+      {rented.idleDo === "stop" && r && !r.volume && r.status !== "GONE" && (
+        <Block><span className="text-xs text-warn-ink">No volume on this pod: a stop keeps nothing (its container disk is erased), and its GPU can be taken meanwhile. Terminate costs the same and leaves nothing billed.</span></Block>
+      )}
       <Row label="Watchdog" help={WHY_WATCH}>
         <span className="flex grow flex-wrap items-center justify-end gap-2 text-[12.5px]">
           <span className="text-ink-2">stops it if this PC is silent for</span>
@@ -93,10 +108,21 @@ export function RentedRows({ machine, state, put, ops }: { machine: Machine; sta
             : r.watchdog === "none" ? <span className="text-warn-ink">· no watchdog: the Afflatus node pack 0.13 is not on the pod</span> : null)}
         </span>
       </Row>
+      {r && (r.otherPorts.length > 0 || rented.closedPorts.length > 0) && (
+        <Row label="Public ports" help={WHY_PORTS}>
+          <span className="flex min-w-0 grow flex-col gap-1 text-[12.5px]">
+            <span className="font-mono text-xs text-ink-2">{[...new Set([...r.otherPorts, ...rented.closedPorts])].map(portSaid).join(" · ")}</span>
+            {rented.openPorts
+              ? <span className="text-xs text-warn-ink">{r.otherPorts.length ? "Open, outside the lock: anyone who finds the pod's address can try their logins." : "Put back at its next Start, then open outside the lock."}</span>
+              : <span className="text-xs text-ink-3">{r.otherPorts.length ? (r.status === "RUNNING" ? "Open now, outside the lock: closed at its next Start." : "Closed at its next Start.") : "Closed: only ComfyUI is reached, locked."}</span>}
+          </span>
+          <Checkbox checked={rented.openPorts} onChange={(openPorts) => set({ openPorts })}>Keep them open</Checkbox>
+        </Row>
+      )}
       {!gone && (
-        <Row label="Delete the pod" help="On RunPod: the pod and its disk go, with what is on them; nothing is billed after. Your renders are all here already. A network volume, if it has one, stays.">
-          <span className="grow text-xs text-ink-2">Nothing billed after; set up again next time.</span>
-          <TwoStep tone="danger" label="Delete the pod…" title={`Delete ${machine.name || "the pod"} on RunPod`} note={`${state?.running ? "its render is lost · " : ""}its disk and what is on it go`} yes="Delete" disabled={ops.stop.isPending} onYes={() => ops.stop.mutate({ machine: machine.id, how: "terminate" })} />
+        <Row label="Terminate" help="On RunPod: the pod and its disk go, with what is on them; nothing is billed after. It goes from Afflatus too. Your renders are all here already. A network volume, if it has one, stays.">
+          <span className="grow text-xs text-ink-2">Nothing billed after; deploy a new one next time.</span>
+          <TwoStep tone="danger" label="Terminate…" title={`Terminate ${machine.name || "the pod"}`} note={`${state?.running ? "its render is lost · " : ""}gone from RunPod and from Afflatus, its disk with it`} yes="Terminate" disabled={ops.stop.isPending} onYes={() => ops.stop.mutate({ machine: machine.id, how: "terminate" })} />
         </Row>
       )}
     </>
