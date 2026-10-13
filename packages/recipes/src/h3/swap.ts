@@ -57,6 +57,9 @@ const swapInputs: InputSpec[] = [
   { id: "sourceSeconds", type: "number", label: "Source: length", min: 1.675, max: SWAP_FRAMES / H3_FPS, step: 0.1, default: SWAP_FRAMES / H3_FPS, unit: " s", showWhen: "source" },
   ...h3Inputs.flatMap((spec): InputSpec[] => {
     if (NOT_TAKEN.has(spec.id)) return [];
+    // the model's own shifts, as the swap was tested and its LoRA's author ran it (12 / 3), not H3's full-step 11 / 4
+    if (spec.id === "shiftVideo" && spec.type === "number") return [{ ...spec, default: 12 }];
+    if (spec.id === "shiftAudio" && spec.type === "number") return [{ ...spec, default: 3 }];
     if (spec.id === "references" && spec.type === "references") {
       // one: the LoRA was trained on one <Picture 1>, and with three of the cast's photos H3 took one's room for the scene (2026-10-13)
       return [{ ...spec, label: "Who goes in", max: 1, roles: ["person"], note: "a picture of the person who takes their place: the cast's first (the face). The scene stays the video's: a second photo brought its own room in" }];
@@ -143,7 +146,8 @@ export const h3Swap = defineRecipe<H3Swap>({
     const source = ctx.media.source;
     // the source's part is the reference video; its own sound is kept out of the references when the file gets it anyway
     const keep = input.keepSound && Boolean(source?.hasSound);
-    const asRef = { ...ctx, uploads: { ...ctx.uploads, "refVideos.0": ctx.uploads.source }, media: { ...ctx.media, "refVideos.0": { ...(source ?? { width: 0, height: 0 }), hasSound: Boolean(source?.hasSound) && !keep } } };
+    // as the research graph that swapped 3 times of 3 (S1): without H3's fp16 accumulation patch, which trades precision for speed
+    const asRef = { ...ctx, has: (cls: string) => cls !== "ModelPatchTorchSettings" && ctx.has(cls), uploads: { ...ctx.uploads, "refVideos.0": ctx.uploads.source }, media: { ...ctx.media, "refVideos.0": { ...(source ?? { width: 0, height: 0 }), hasSound: Boolean(source?.hasSound) && !keep } } };
     const size = source?.width && source.height ? { width: source.width, height: source.height } : undefined;
     return buildH3(asClip(input, swapLora, frames, unet, size), asRef, {
       prompt: (pictures) => swapCaption(whoOf(input), pictures),
