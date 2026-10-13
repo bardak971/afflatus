@@ -54,9 +54,10 @@ const defs = {
     outfits: z.array(outfit).max(LIMITS.outfits).default([]),
     /**
      * Their pictures are sent to a model without their background (kitCutouts.ts): only who they are, never the room they
-     * were taken in, which H3 was seen re-animating whole (2026-10-13). On unless switched off.
+     * were taken in, which H3 was seen re-animating whole (2026-10-13). Off unless switched on: on grey, H3 painted a grey
+     * mesh over the scene behind the person (the owner's renders, 2026-10-13); the reference prompt alone keeps the room out.
      */
-    cutout: z.boolean().default(true),
+    cutout: z.boolean().default(false),
     /** Picture → its cut-out (a kit file laid on grey), made once each. Written by the server alone: a save keeps what it has. */
     cutouts: z.record(z.string(), z.string()).default({}),
   }),

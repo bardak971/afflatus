@@ -269,10 +269,10 @@ function OutfitPicture({ value, onChange, what }: { value: string | null; onChan
 
 /**
  * Whether the person's pictures go to the models without their background: each is cut out once (a "Cut-out" job in the
- * queue), and the reference images then show the cut-out. A person kept before there was a switch has it on.
+ * queue), and the reference images then show the cut-out. Off unless switched on (on grey, H3 painted a grey mesh behind the person).
  */
 function CutoutRow({ def, name, onChange }: { def: PersonDef; name: string; onChange(def: PersonDef): void }) {
-  const on = def.cutout !== false;
+  const on = def.cutout === true;
   const made = def.pictures.filter((p) => def.cutouts?.[p]).length;
   // no ComfyUI with the background remover's model: nothing is being made, and the pictures go as they are
   const setup = useSetup();

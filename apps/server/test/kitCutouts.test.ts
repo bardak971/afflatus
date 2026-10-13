@@ -55,7 +55,7 @@ describe("a person's pictures without their background", () => {
     await start(true);
     const [front, side] = [await picture("front.png"), await picture("side.png")];
     const nico = (await post(t.app, "/api/entities", { kind: "person", name: "Nico" })).json();
-    await put(`/api/entities/${nico.id}`, { def: { pictures: [front, side] } });
+    await put(`/api/entities/${nico.id}`, { def: { pictures: [front, side], cutout: true } });
     // two jobs, one per picture, named for the queue
     await until(async () => (await cutoutJobs()).length === 2);
     expect((await cutoutJobs()).map((j) => j.label)).toEqual(["Cut-out · Nico", "Cut-out · Nico"]);
@@ -84,7 +84,7 @@ describe("a person's pictures without their background", () => {
     await start(true);
     const [front, side] = [await picture("front.png"), await picture("side.png")];
     const nico = (await post(t.app, "/api/entities", { kind: "person", name: "Nico" })).json();
-    await put(`/api/entities/${nico.id}`, { def: { pictures: [front, side] } });
+    await put(`/api/entities/${nico.id}`, { def: { pictures: [front, side], cutout: true } });
     await until(async () => (answer(), Object.keys((await person(nico.id)).cutouts).length === 2), 20_000);
     const before = (await person(nico.id)).cutouts;
     // the page's copy, older than the cut-outs: they are kept all the same
@@ -111,9 +111,12 @@ describe("a person's pictures without their background", () => {
   it("are asked for at start for the people kept before there were cut-outs, once", async () => {
     await start(true);
     const front = await picture("front.png");
-    // kept by an older Afflatus: no switch, no cut-outs, nothing asked when it was saved
+    // kept by an older Afflatus, without a switch: off, nothing asked
     const at = new Date().toISOString();
-    await t.db.insertInto("entities").values({ id: "old", owner_id: "local", kind: "person", name: "Old Nico", def: JSON.stringify({ pictures: [front], voice: null, tags: "", sentence: "", models: {}, outfits: [] }), created_at: at, updated_at: at }).execute();
+    await t.db.insertInto("entities").values({ id: "older", owner_id: "local", kind: "person", name: "Older Nico", def: JSON.stringify({ pictures: [front], voice: null, tags: "", sentence: "", models: {}, outfits: [] }), created_at: at, updated_at: at }).execute();
+    expect(await askEveryCutout(t.services)).toBe(0);
+    // switched on, with no cut-outs and nothing asked when it was saved
+    await t.db.insertInto("entities").values({ id: "old", owner_id: "local", kind: "person", name: "Old Nico", def: JSON.stringify({ pictures: [front], voice: null, tags: "", sentence: "", models: {}, outfits: [], cutout: true }), created_at: at, updated_at: at }).execute();
     expect(await askEveryCutout(t.services)).toBe(1);
     expect((await cutoutJobs()).map((j) => j.label)).toEqual(["Cut-out · Old Nico"]);
     // the next start, while it is still on its way: nothing more
@@ -124,7 +127,7 @@ describe("a person's pictures without their background", () => {
   it("are not asked for when no ComfyUI can remove a background: the pictures go as they are", async () => {
     await start(false);
     const front = await picture("front.png");
-    const nico = (await post(t.app, "/api/entities", { kind: "person", name: "Nico", def: { pictures: [front] } })).json();
+    const nico = (await post(t.app, "/api/entities", { kind: "person", name: "Nico", def: { pictures: [front], cutout: true } })).json();
     expect(await askCutouts(t.services, [nico.id])).toBe(0);
     expect(await cutoutJobs()).toEqual([]);
   });

@@ -22,7 +22,7 @@ function personOf(def: string): { pictures: string[]; cutout: boolean; cutouts: 
   const d = JSON.parse(def) as { pictures?: unknown; cutout?: unknown; cutouts?: unknown };
   const pictures = Array.isArray(d.pictures) ? d.pictures.filter((x): x is string => typeof x === "string") : [];
   const cutouts = d.cutouts && typeof d.cutouts === "object" ? Object.fromEntries(Object.entries(d.cutouts).filter((e): e is [string, string] => typeof e[1] === "string")) : {};
-  return { pictures, cutout: d.cutout !== false, cutouts };
+  return { pictures, cutout: d.cutout === true, cutouts };
 }
 
 /** The person and the picture a cut-out job is for, from its row; null for every other job. */
