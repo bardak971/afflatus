@@ -88,6 +88,10 @@ input:not([type="checkbox"], [type="radio"], [type="range"]):focus-visible,
 textarea:focus-visible {
   outline: none;
 }
+/* a two-knob slider's knob (RangeSlider) marks its own focus, a ring around the dot: no square around it as well */
+[data-knob]:focus-visible {
+  outline: none;
+}
 input[type="range"] {
   accent-color: var(--color-accent);
 }
