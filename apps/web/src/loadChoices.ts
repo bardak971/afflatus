@@ -23,6 +23,9 @@ export interface LoadChoice {
   /** Where it comes from: "this form", or the draft's name. */
   note?: string;
   ofForm: boolean;
+  /** Its family's name, and the file it loads (by name) or, when its form picks none, its operation's usual one. */
+  family: string;
+  file: string;
 }
 
 /** How many recent drafts' models are offered. */
@@ -47,6 +50,7 @@ export function useLoadChoices(form?: LoadForm | null) {
     const r = recipes.data?.recipes.find((x) => x.id === recipe);
     return { r, family: recipes.data?.families.find((f) => f.id === r?.family)?.name };
   };
+  const fileOf = (recipe: string, model: string | null | undefined) => model ?? `${familyOf(recipe).r?.title ?? recipe} · its usual model`;
   const labelOf = (recipe: string, model: string | null | undefined) => {
     const { r, family } = familyOf(recipe);
     if (model) return family ? `${family} · ${model}` : model;
@@ -64,14 +68,14 @@ export function useLoadChoices(form?: LoadForm | null) {
   if (form) {
     const key = keyOf(form.recipe.id, formModel);
     seen.add(key);
-    choices.push({ key, label: labelOf(form.recipe.id, formModel), note: "this form", ofForm: true });
+    choices.push({ key, label: labelOf(form.recipe.id, formModel), note: "this form", ofForm: true, family: familyOf(form.recipe.id).family ?? "", file: fileOf(form.recipe.id, formModel) });
   }
   for (const d of drafts.data?.items ?? []) {
     if (choices.length >= RECENT + (form ? 1 : 0)) break;
     const key = keyOf(d.recipe, d.model);
     if (seen.has(key)) continue;
     seen.add(key);
-    choices.push({ key, label: labelOf(d.recipe, d.model), note: d.name || d.title || undefined, ofForm: false, draft: d.id });
+    choices.push({ key, label: labelOf(d.recipe, d.model), note: d.name || d.title || undefined, ofForm: false, draft: d.id, family: familyOf(d.recipe).family ?? "", file: fileOf(d.recipe, d.model) });
   }
 
   /** Whether a machine has not the form's files: its recipe not ready there, or the model the form picks not listed there. */

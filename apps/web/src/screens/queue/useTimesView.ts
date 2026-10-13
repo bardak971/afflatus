@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearch } from "wouter";
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { api } from "../../api";
 import { useRenderTimes } from "../../data";
@@ -46,6 +47,11 @@ export function useTimesView() {
   const [only, setOnly] = useState<"all" | "trouble">("all");
   /** With several ComfyUIs, the machine the tab is of (null: every machine), as a dashboard's variable. */
   const [machine, setMachine] = useState<string | null>(null);
+  // a machine asked for in the address (the command bar's "render times second gpu"): the tab opens on it
+  const askedMachine = new URLSearchParams(useSearch()).get("machine");
+  useEffect(() => {
+    if (askedMachine) setMachine(askedMachine);
+  }, [askedMachine]);
   const times = useRenderTimes("from" in view ? { from: view.from, to: view.to } : { preset: view.preset, ms: presetOf(view.preset).ms }, machine);
   // the list and the lanes are keyed on the preset (or the typed or dragged window), not on the window the figures
   // were read with: a preset's window moves on each read, and a new key read everything twice and blanked the list.

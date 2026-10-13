@@ -10,6 +10,7 @@ import { BAR_DEFAULT } from "./keys/barDefault";
 import { useDownloads } from "./useGetFile";
 import { elapsed, gb, phaseLabel, timeLeft, when } from "./format";
 import { StripModel, StripPlace, stripGhost } from "./ModelLoad";
+import { LoadPanelHost } from "./LoadPanel";
 import { MachinesPill, OPEN_MACHINES } from "./MachinesPill";
 import { machineName, severalMachines } from "./machines";
 import { lazyPart, loadExpiringPanel } from "./lazyParts";
@@ -58,77 +59,84 @@ export function StatusBar() {
   const waiting = q?.waiting.length ?? 0;
   const liveDown = useLive((s) => s.down);
   const barKey = useSettings().data?.bar?.shortcut ?? BAR_DEFAULT;
+  const loadAt = useRef<HTMLSpanElement>(null);
   return (
-    <footer className="flex h-10 shrink-0 items-center gap-2.5 overflow-hidden border-t border-line bg-panel px-3 text-xs">
-      {run ? <Running run={run} /> : q?.online === false ? <Offline q={q} /> : q?.paused ? <Paused waiting={waiting} /> : <Idle last={lastMade(q)} />}
-      {several.filter((m) => m.running).length > 1 && (
-        <button type="button" className="inline-flex h-6 shrink-0 items-center rounded-full border border-line px-2 text-xs hover:bg-hover" data-tip="Renders running on the other ComfyUIs: click for each machine" onClick={() => window.dispatchEvent(new Event(OPEN_MACHINES))}>
-          +{several.filter((m) => m.running).length - 1}
+    <>
+      <LoadPanelHost anchor={loadAt} />
+      <footer className="flex h-10 shrink-0 items-center gap-2.5 overflow-hidden border-t border-line bg-panel px-3 text-xs">
+        {run ? <Running run={run} /> : q?.online === false ? <Offline q={q} /> : q?.paused ? <Paused waiting={waiting} /> : <Idle last={lastMade(q)} />}
+        {several.filter((m) => m.running).length > 1 && (
+          <button type="button" className="inline-flex h-6 shrink-0 items-center rounded-full border border-line px-2 text-xs hover:bg-hover" data-tip="Renders running on the other ComfyUIs: click for each machine" onClick={() => window.dispatchEvent(new Event(OPEN_MACHINES))}>
+            +{several.filter((m) => m.running).length - 1}
+          </button>
+        )}
+        {run && q?.paused ? <Paused waiting={waiting} /> : waiting > 0 && (run || q?.online !== false) && !q?.paused && (
+          <Link href="/queue" className={cx(stripGhost, "shrink-0")} data-tip="Jobs waiting their turn: open the Queue to reorder or cancel them">+{waiting} queued</Link>
+        )}
+        <Expiring />
+        {fetching.length > 0 && (
+          <Link href="/settings/models" className={cx(stripGhost, "min-w-0")} data-tip="A model file is being downloaded into ComfyUI. It goes on if this page is closed. Open Settings to see it or cancel it.">
+            <Download size={13} className="shrink-0" />
+            <span className="truncate">{fetching.length === 1 ? fetching[0]!.file.split(/[\\/]/).pop() : `${fetching.length} files`}</span>
+            {/* with several ComfyUIs, which one it goes to */}
+            {fetching.length === 1 && several.length > 0 && fetching[0]!.machine && <span className="shrink-0 text-ink-2">→ {machineName(q, fetching[0]!.machine)}</span>}
+            {fetching.length === 1 && fetching[0]!.total > 0 && <span className="font-mono whitespace-pre">{pad(Math.floor((fetching[0]!.bytes / fetching[0]!.total) * 100))} %</span>}
+          </Link>
+        )}
+        {/* the server's events stopped coming (a restart, a proxy between): what is shown may be old until they are back */}
+        {liveDown && <Chip tone="warn" tip="The connection that brings live updates from the server dropped. It is being opened again; what is shown here may be out of date until then, and is read again once it is back.">live updates lost · reconnecting</Chip>}
+        <span className="grow" />
+        {/* the place and the model come with the first answers: they fade in rather than pop (the model waits for the queue's).
+            Clipped when short of room, and left out on a narrow window: they spilled over the meters there */}
+        {/* where "Load a model…" opens (LoadPanel.tsx): above the strip, by the model it changes; the bar's full height, so
+            that the panel stands clear of it */}
+        <span ref={loadAt} aria-hidden className="h-10 w-0 shrink-0" />
+        {!queue.isPending && (
+          <span className="m-fade inline-flex min-w-0 items-center gap-2.5 overflow-hidden max-md:hidden">
+            <StripPlace />
+            <StripModel />
+          </span>
+        )}
+        {several.length > 0 && (
+          <span className="m-fade inline-flex shrink-0 items-center gap-2.5 max-sm:hidden">
+            <Sep />
+            <MachinesPill />
+          </span>
+        )}
+        {/* the meters before the machine's first figures: their room kept, unseen, so the chips beside them do not move when they come */}
+        {!load && !several.length && (
+          <span aria-hidden className="invisible inline-flex shrink-0 items-center gap-2.5 max-sm:hidden">
+            <Sep />
+            <Meter label="GPU" value={0} />
+            <Meter label="VRAM" value={0} />
+            <Meter label="RAM" value={0} />
+          </span>
+        )}
+        {gpu && (
+          // every number keeps the room of three digits: what is beside it does not move when they change; they fade in
+          // when the machine's figures first come. On a narrow window they leave the room to what runs (the Queue shows them)
+          <span className="m-fade inline-flex shrink-0 items-center gap-2.5 max-sm:hidden">
+            <Sep />
+            {/* the CPU only while it is busy: otherwise its figure is in the GPU meter's tip */}
+            {cpu !== undefined && cpu >= 70 && <Meter label="CPU" value={cpu} warn={cpu >= 90} className="max-[1440px]:hidden" />}
+            {gpu.load !== undefined && <Meter label="GPU" value={gpu.load} fill={run ? "bg-accent" : undefined} tip={gpuTip(gpu, cpu)} />}
+            {/* 90 %: little room left before a render spills out of VRAM */}
+            <Meter label="VRAM" value={gpu.vramPercent} warn={gpu.vramPercent >= 90} />
+            {ram && <Meter label="RAM" value={ram.percent} warn={ram.percent >= 90} tip={`System RAM: ${gb(ram.used)} of ${gb(ram.total)}. When VRAM is full, ComfyUI moves models here; when this fills too, everything slows down.`} />}
+            {/* 80 °C: a temperature, the same for every card, not a figure of one card */}
+            {gpu.temperature !== undefined && <span className={cx("shrink-0 font-mono whitespace-pre text-ink-2", gpu.temperature >= 80 && "text-warn-ink")}>{pad(gpu.temperature)}°</span>}
+          </span>
+        )}
+        <Sep />
+        {/* the command bar opened with the mouse: its own key, the one set in Settings › Command bar, drawn as the chip */}
+        <button type="button" data-tip={`Command bar (${barKey})`} aria-label="Command bar" onClick={() => window.dispatchEvent(new CustomEvent("afflatus:bar", { detail: {} }))} className={cx(stripGhost, "shrink-0 px-1.5")}>
+          <Keys keys={barKey} size="sm" />
         </button>
-      )}
-      {run && q?.paused ? <Paused waiting={waiting} /> : waiting > 0 && (run || q?.online !== false) && !q?.paused && (
-        <Link href="/queue" className={cx(stripGhost, "shrink-0")} data-tip="Jobs waiting their turn: open the Queue to reorder or cancel them">+{waiting} queued</Link>
-      )}
-      <Expiring />
-      {fetching.length > 0 && (
-        <Link href="/settings/models" className={cx(stripGhost, "min-w-0")} data-tip="A model file is being downloaded into ComfyUI. It goes on if this page is closed. Open Settings to see it or cancel it.">
-          <Download size={13} className="shrink-0" />
-          <span className="truncate">{fetching.length === 1 ? fetching[0]!.file.split(/[\\/]/).pop() : `${fetching.length} files`}</span>
-          {/* with several ComfyUIs, which one it goes to */}
-          {fetching.length === 1 && several.length > 0 && fetching[0]!.machine && <span className="shrink-0 text-ink-2">→ {machineName(q, fetching[0]!.machine)}</span>}
-          {fetching.length === 1 && fetching[0]!.total > 0 && <span className="font-mono whitespace-pre">{pad(Math.floor((fetching[0]!.bytes / fetching[0]!.total) * 100))} %</span>}
-        </Link>
-      )}
-      {/* the server's events stopped coming (a restart, a proxy between): what is shown may be old until they are back */}
-      {liveDown && <Chip tone="warn" tip="The connection that brings live updates from the server dropped. It is being opened again; what is shown here may be out of date until then, and is read again once it is back.">live updates lost · reconnecting</Chip>}
-      <span className="grow" />
-      {/* the place and the model come with the first answers: they fade in rather than pop (the model waits for the queue's).
-          Clipped when short of room, and left out on a narrow window: they spilled over the meters there */}
-      {!queue.isPending && (
-        <span className="m-fade inline-flex min-w-0 items-center gap-2.5 overflow-hidden max-md:hidden">
-          <StripPlace />
-          <StripModel />
-        </span>
-      )}
-      {several.length > 0 && (
-        <span className="m-fade inline-flex shrink-0 items-center gap-2.5 max-sm:hidden">
-          <Sep />
-          <MachinesPill />
-        </span>
-      )}
-      {/* the meters before the machine's first figures: their room kept, unseen, so the chips beside them do not move when they come */}
-      {!load && !several.length && (
-        <span aria-hidden className="invisible inline-flex shrink-0 items-center gap-2.5 max-sm:hidden">
-          <Sep />
-          <Meter label="GPU" value={0} />
-          <Meter label="VRAM" value={0} />
-          <Meter label="RAM" value={0} />
-        </span>
-      )}
-      {gpu && (
-        // every number keeps the room of three digits: what is beside it does not move when they change; they fade in
-        // when the machine's figures first come. On a narrow window they leave the room to what runs (the Queue shows them)
-        <span className="m-fade inline-flex shrink-0 items-center gap-2.5 max-sm:hidden">
-          <Sep />
-          {/* the CPU only while it is busy: otherwise its figure is in the GPU meter's tip */}
-          {cpu !== undefined && cpu >= 70 && <Meter label="CPU" value={cpu} warn={cpu >= 90} className="max-[1440px]:hidden" />}
-          {gpu.load !== undefined && <Meter label="GPU" value={gpu.load} fill={run ? "bg-accent" : undefined} tip={gpuTip(gpu, cpu)} />}
-          {/* 90 %: little room left before a render spills out of VRAM */}
-          <Meter label="VRAM" value={gpu.vramPercent} warn={gpu.vramPercent >= 90} />
-          {ram && <Meter label="RAM" value={ram.percent} warn={ram.percent >= 90} tip={`System RAM: ${gb(ram.used)} of ${gb(ram.total)}. When VRAM is full, ComfyUI moves models here; when this fills too, everything slows down.`} />}
-          {/* 80 °C: a temperature, the same for every card, not a figure of one card */}
-          {gpu.temperature !== undefined && <span className={cx("shrink-0 font-mono whitespace-pre text-ink-2", gpu.temperature >= 80 && "text-warn-ink")}>{pad(gpu.temperature)}°</span>}
-        </span>
-      )}
-      <Sep />
-      {/* the command bar opened with the mouse: its own key, the one set in Settings › Command bar, drawn as the chip */}
-      <button type="button" data-tip={`Command bar (${barKey})`} aria-label="Command bar" onClick={() => window.dispatchEvent(new CustomEvent("afflatus:bar", { detail: {} }))} className={cx(stripGhost, "shrink-0 px-1.5")}>
-        <Keys keys={barKey} size="sm" />
-      </button>
-      <button type="button" data-tip="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts" onClick={() => window.dispatchEvent(new Event("afflatus:keys"))} className={cx(stripGhost, "shrink-0 px-1.5")}>
-        <Keys keys="?" size="sm" />
-      </button>
-    </footer>
+        <button type="button" data-tip="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts" onClick={() => window.dispatchEvent(new Event("afflatus:keys"))} className={cx(stripGhost, "shrink-0 px-1.5")}>
+          <Keys keys="?" size="sm" />
+        </button>
+      </footer>
+    </>
   );
 }
 

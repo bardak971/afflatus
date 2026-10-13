@@ -92,7 +92,7 @@ export function registerEvents(app: FastifyInstance, s: Services, version: strin
     const all = await s.machines();
     const read = await Promise.all(all.map(async ({ machine, comfy }) => ({ id: machine.id, load: await comfy.load().catch(() => null), answered: comfy.answered })));
     const heard = read.filter((r) => r.answered !== null);
-    if (heard.length) s.queue.noteReachable(heard.some((r) => r.answered));
+    if (heard.length) s.queue.noteReachable(heard.some((r) => r.answered), new Map(heard.map((r) => [r.id, r.answered!])));
     send("system", { load: read[0]?.load ?? null, loads: Object.fromEntries(read.map((r) => [r.id, r.load])) });
   };
 

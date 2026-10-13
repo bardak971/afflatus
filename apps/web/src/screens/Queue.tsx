@@ -63,7 +63,13 @@ export function Queue() {
   const [logOf, setLogOf] = useState<string>("");
   const [refused, setRefused] = useState(false);
   // a view asked for in the address (the command bar's "Queue › Render times"): opened on it, and again when it changes
-  const asked = new URLSearchParams(useSearch()).get("view");
+  const params = new URLSearchParams(useSearch());
+  const asked = params.get("view");
+  // a machine asked for too (the command bar's "log second gpu"): its log shown
+  const askedMachine = params.get("machine");
+  useEffect(() => {
+    if (askedMachine) setLogOf(askedMachine);
+  }, [askedMachine]);
   const [tab, setTab] = useState<"queue" | "times" | "log">(asked === "times" || asked === "log" ? asked : "queue");
   useEffect(() => {
     if (asked === "times" || asked === "log" || asked === "queue") setTab(asked);

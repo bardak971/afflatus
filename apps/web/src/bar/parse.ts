@@ -27,6 +27,11 @@ export type Command =
   | { cmd: "size"; width: number; height: number }
   | { cmd: "length"; seconds: number }
   | { cmd: "load"; model: string }
+  | { cmd: "load-panel"; machine?: string }
+  | { cmd: "machines" }
+  | { cmd: "machine-log"; machine: string }
+  | { cmd: "machine-times"; machine: string }
+  | { cmd: "machine-models"; machine: string }
   | { cmd: "new-draft"; recipe: string }
   | { cmd: "pause"; machine?: string }
   | { cmd: "resume"; machine?: string }
@@ -86,6 +91,7 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "length", name: "Set length…", typed: "length ", example: "length 5s", what: "Of the open draft, in seconds", needs: true },
   { id: "preset", name: "Apply preset…", typed: "preset ", example: "preset night street", what: "A preset of the Prompt kit, on the open draft", needs: true },
   { id: "save-preset", name: "Save as preset…", typed: "save as preset ", example: "save as preset night street", what: "The open draft's model, form and cast, under a name", needs: true },
+  { id: "load-panel", name: "Load a model…", typed: "load a model", example: "load a model on second gpu", what: "The Load a model panel: this form's model, a recent draft's, or any by name; on Auto or a machine" },
   { id: "load", name: "Load model…", typed: "load ", example: "load h3", what: "Its models into ComfyUI, ahead of a render", needs: true },
   { id: "unload", name: "Unload models", typed: "unload models", example: "unload models", what: "ComfyUI's models out of memory, as the Queue's button; not while a render runs" },
   { id: "new-draft", name: "New draft…", typed: "new draft ", example: "new draft klein", what: "On a model of your choice", needs: true },
@@ -101,6 +107,10 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "link-folder", name: "Link folder…", typed: "link folder ", example: "link folder D:\\shoots", what: "Used in place, nothing copied" },
   { id: "pause", name: "Pause queue", typed: "pause queue", example: "pause queue", what: "What runs finishes; nothing new starts" },
   { id: "resume", name: "Resume queue", typed: "resume queue", example: "resume queue", what: "What waits starts again" },
+  { id: "machines", name: "Show the ComfyUIs", typed: "machines", example: "comfyuis", what: "With several ComfyUIs: the status bar's panel of every machine, its figures, its pause and its menu" },
+  { id: "machine-log", name: "ComfyUI log of…", typed: "log ", example: "log second gpu", what: "With several ComfyUIs: that machine's console, in the Queue", needs: true },
+  { id: "machine-times", name: "Render times of…", typed: "render times ", example: "render times second gpu", what: "With several ComfyUIs: what that machine rendered and how long it took", needs: true },
+  { id: "machine-models", name: "Models on…", typed: "models on ", example: "models on second gpu", what: "With several ComfyUIs: Settings › Models, that machine's tab: what it has, its switches, downloads to it", needs: true },
   { id: "use-only", name: "Use only…", typed: "use only ", example: "use only second gpu", what: "With several ComfyUIs: every other one paused, everything waiting goes to this one", needs: true },
   { id: "empty-bin", name: "Empty the bin…", typed: "empty the bin", example: "empty the bin", what: "Erases what is in the bin, asked first" },
   { id: "put-back-all", name: "Put all back", typed: "put all back", example: "put all back", what: "Everything in the bin back where it was, as the bin's Put all back" },
@@ -179,12 +189,18 @@ export function parseCommand(input: string): Command | null {
     return s ? { cmd: "size", ...s } : null;
   }
   if ((m = new RegExp(`^(?:length|duration|seconds) ${NUMBER} ?(?:s|sec|secs|seconds?)?$`).exec(low))) return num(m[1]!) > 0 ? { cmd: "length", seconds: num(m[1]!) } : null;
+  // the panel ("load a model", "load a model on second gpu") before a model by its name ("load h3")
+  if ((m = /^load(?: a)? models?(?: on (.+))?$/i.exec(t))) return m[1] ? { cmd: "load-panel", machine: m[1].trim() } : { cmd: "load-panel" };
   if ((m = /^load (.+)$/i.exec(t))) return { cmd: "load", model: m[1]!.trim() };
   if ((m = /^new draft (.+)$/i.exec(t))) return { cmd: "new-draft", recipe: m[1]!.trim() };
   if (/^pause(?: (?:the )?queue| all)?$/.test(low)) return { cmd: "pause" };
   if (/^(?:resume|unpause)(?: (?:the )?queue| all)?$/.test(low)) return { cmd: "resume" };
   // one ComfyUI of several, by its name: "pause studio pc", "use only second gpu"
   if ((m = /^use only (.+)$/i.exec(t))) return { cmd: "use-only", machine: m[1]!.trim() };
+  if (/^(?:show (?:the )?)?(?:machines|comfyuis|gpus)$/.test(low)) return { cmd: "machines" };
+  if ((m = /^(?:comfyui )?(?:log|console) (?:of |on )?(.+)$/i.exec(t))) return { cmd: "machine-log", machine: m[1]!.trim() };
+  if ((m = /^render times (?:of |on )?(.+)$/i.exec(t))) return { cmd: "machine-times", machine: m[1]!.trim() };
+  if ((m = /^models (?:on|of) (.+)$/i.exec(t))) return { cmd: "machine-models", machine: m[1]!.trim() };
   if ((m = /^pause (.+)$/i.exec(t))) return { cmd: "pause", machine: m[1]!.trim() };
   if ((m = /^(?:resume|unpause) (.+)$/i.exec(t))) return { cmd: "resume", machine: m[1]!.trim() };
   if (/^empty (?:the )?(?:bin|trash)$/.test(low)) return { cmd: "empty-bin" };

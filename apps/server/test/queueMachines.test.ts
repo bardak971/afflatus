@@ -212,3 +212,15 @@ describe("each machine's files", () => {
     expect((await row(b)).machine_id).toBe("m1");
   });
 });
+
+describe("each machine's answer", () => {
+  it("is what the status poll heard, paused or not, and says so the moment it changes", async () => {
+    await post(t.app, "/api/queue/pause", { machine: "m2" });
+    const online = async () => Object.fromEntries(((await queue()).machines as Array<{ id: string; online: boolean | null }>).map((m) => [m.id, m.online]));
+    // a paused machine is asked nothing by the queue: before, its ComfyUI could stop and it still read as online
+    t.services.queue.noteReachable(true, new Map([["m1", true], ["m2", false]]));
+    expect(await online()).toEqual({ m1: true, m2: false });
+    t.services.queue.noteReachable(true, new Map([["m2", true]]));
+    expect((await online()).m2).toBe(true);
+  });
+});

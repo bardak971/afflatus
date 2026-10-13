@@ -96,6 +96,11 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     cfg: [`CFG ${c.cmd === "cfg" ? c.value : ""}`, "In the open draft's form"],
     size: [`Size ${c.cmd === "size" ? `${c.width}×${c.height}` : ""}`, "In the open draft's form"],
     length: [`Length ${c.cmd === "length" ? `${c.seconds} s` : ""}`, "In the open draft's form"],
+    machines: ["Show the ComfyUIs", queueNow?.machines.length ? `${queueNow.machines.length} ComfyUIs · their figures, pause and menu` : "With several ComfyUIs: each one's figures and actions"],
+    "machine-log": [`ComfyUI log of ${c.cmd === "machine-log" ? c.machine : ""}`, `${c.cmd === "machine-log" ? machineSaid(queueNow, c.machine) : ""} · its console, in the Queue`],
+    "machine-times": [`Render times of ${c.cmd === "machine-times" ? c.machine : ""}`, `${c.cmd === "machine-times" ? machineSaid(queueNow, c.machine) : ""} · what it rendered and how long it took`],
+    "machine-models": [`Models on ${c.cmd === "machine-models" ? c.machine : ""}`, `${c.cmd === "machine-models" ? machineSaid(queueNow, c.machine) : ""} · Settings › Models, its tab`],
+    "load-panel": [c.cmd === "load-panel" && c.machine ? `Load a model on ${c.machine}…` : "Load a model…", c.cmd === "load-panel" && c.machine ? `${machineSaid(queueNow, c.machine)} · this form's model, a draft's, or any by name` : "This form's model, a recent draft's, or any by name"],
     load: [`Load ${recipe?.title ?? (c.cmd === "load" ? c.model : "")}`, recipe ? `${recipe.family.toUpperCase()} · its models into ComfyUI, ahead of a render` : "No model by that name"],
     "new-draft": [`New draft on ${recipe?.title ?? (c.cmd === "new-draft" ? c.recipe : "")}`, recipe ? `${recipe.family.toUpperCase()} · opens in the Studio` : "No model by that name"],
     pause: c.cmd === "pause" && c.machine ? [`Pause ${c.machine}`, `${machineSaid(queueNow, c.machine)} · it finishes what it runs, then takes nothing new`] : [queueNow?.machines.length ? "Pause all ComfyUIs" : "Pause queue", queueNow ? `${queueNow.running ? "running" : "nothing running"}, ${queueNow.waiting} waiting · what runs finishes` : "What runs finishes; nothing new starts"],
@@ -144,16 +149,23 @@ function machineSaid(q: QueueNow | null, label: string): string {
 }
 
 /**
- * With several ComfyUIs, each one's own rows, ready to run: Pause or Resume it, Use only it, Unload it. Typing "pause" lists
+ * With several ComfyUIs, each one's own rows, ready to run: Pause or Resume it, Use only it, Unload it, Load a model on it,
+ * and its log, its render times and its models. Typing "pause" lists
  * every machine that can be paused, "use only" every machine, a machine's name all it can do.
  */
 const machineRows = (x: CommandCtx): Item[] =>
   (x.queue?.machines ?? []).flatMap((m) => {
     const own = (c: Command) => {
       const row = commandRow(x, c);
-      return { ...row, key: `${row.key}:${m.id}`, p: prepare(`${row.label} ${c.cmd === "use-only" ? "use only" : c.cmd} ${m.label}`) };
+      const said = { "use-only": "use only", "load-panel": "load a model on", "machine-log": "comfyui log console", "machine-times": "render times", "machine-models": "models on" } as Partial<Record<Command["cmd"], string>>;
+      return { ...row, key: `${row.key}:${m.id}`, p: prepare(`${row.label} ${said[c.cmd] ?? c.cmd} ${m.label}`) };
     };
-    return [own(m.paused ? { cmd: "resume", machine: m.label } : { cmd: "pause", machine: m.label }), own({ cmd: "use-only", machine: m.label }), ...(m.online !== false && !m.running ? [own({ cmd: "unload", machine: m.label })] : [])];
+    return [
+      own(m.paused ? { cmd: "resume", machine: m.label } : { cmd: "pause", machine: m.label }), own({ cmd: "use-only", machine: m.label }),
+      ...(m.online !== false && !m.running ? [own({ cmd: "unload", machine: m.label })] : []),
+      ...(m.online !== false ? [own({ cmd: "load-panel", machine: m.label })] : []),
+      own({ cmd: "machine-log", machine: m.label }), own({ cmd: "machine-times", machine: m.label }), own({ cmd: "machine-models", machine: m.label }),
+    ];
   });
 
 /** A command that needs no figures, as a row ready to run (its clip and counts said), when it applies. */
