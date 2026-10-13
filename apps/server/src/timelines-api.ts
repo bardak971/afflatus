@@ -399,29 +399,33 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
 
   /**
    * A range of a video kept as new videos: copied, split out, or removed (see Timelines.cutRange). Done
-   * in the queue, by ffmpeg; the job's label says what it does.
+   * in the queue, by ffmpeg; the job's label says what it does. A sound the same way (not slowed), `even` evening out
+   * the loudness of what it makes.
    */
   app.post<{ Params: { id: string } }>("/api/assets/:id/range", async (req) => {
     // `timeline`: the timeline it is cut in, whose folder the new videos land in (see folderForMade)
-    const body = z.strictObject({ startMs: z.number().min(0), endMs: z.number().min(0), action: z.enum(["copy", "split", "remove", "slow"]), crf: z.number().int().min(0).max(40).optional(), factor: z.union([z.literal(2), z.literal(4)]).optional(), timeline: z.string().optional() }).parse(req.body);
+    const body = z.strictObject({ startMs: z.number().min(0), endMs: z.number().min(0), action: z.enum(["copy", "split", "remove", "slow"]), crf: z.number().int().min(0).max(40).optional(), factor: z.union([z.literal(2), z.literal(4)]).optional(), even: z.boolean().optional(), timeline: z.string().optional() }).parse(req.body);
     const video = await s.db.selectFrom("assets").selectAll().where("id", "=", req.params.id).executeTakeFirst();
-    if (!video || video.kind !== "video") throw httpError("this video was not found", 404);
-    if (body.endMs - body.startMs < 20) throw httpError("That range is too short: pick at least one frame.");
-    if (body.action !== "slow" && video.duration_ms && body.startMs <= 0 && body.endMs >= video.duration_ms - 2) throw httpError("That is the whole video: there is nothing to cut.");
+    const sound = video?.kind === "audio";
+    if (!video || (video.kind !== "video" && !sound)) throw httpError("this video was not found", 404);
+    const what = sound ? "sound" : "video";
+    if (sound && body.action === "slow") throw httpError("A sound is not slowed: copy, split or remove a range of it.");
+    if (body.endMs - body.startMs < 20) throw httpError(`That range is too short: pick at least ${sound ? "a moment" : "one frame"}.`);
+    if (body.action !== "slow" && video.duration_ms && body.startMs <= 0 && body.endMs >= video.duration_ms - 2) throw httpError(`That is the whole ${what}: there is nothing to cut.`);
     // split and remove take the source to the bin: not one that something still uses (see inUse), which the sweep would erase
     if (body.action === "split" || body.action === "remove") {
-      const what = (await inUse(s.db)).get(video.id);
-      if (what) throw httpError(`This video is still used by ${what}: ${body.action === "split" ? "a split" : "a remove"} takes it to the bin. Use Copy to library instead, or take it out of there first.`, 409);
+      const user = (await inUse(s.db)).get(video.id);
+      if (user) throw httpError(`This ${what} is still used by ${user}: ${body.action === "split" ? "a split" : "a remove"} takes it to the bin. Use Copy to library instead, or take it out of there first.`, 409);
     }
     // the job says what it is on by the name the video goes by (a nameless take: its timeline, clip and take)
-    const name = (await nameOf(s.db, video)) || "video";
+    const name = (await nameOf(s.db, video)) || what;
     if (body.action === "slow") {
       const factor = body.factor ?? 2;
       const engine = await slowEngine(s);
       return { id: await s.queue.enqueueCut({ asset: video.id, startMs: body.startMs, endMs: body.endMs, action: "slow", factor, engine, crf: body.crf, timeline: body.timeline }, `${name} · slow ×${factor} ${clockOf(body.startMs)}–${clockOf(body.endMs)}`), engine };
     }
     const said = body.action === "copy" ? `${name} · ${clockOf(body.startMs)}–${clockOf(body.endMs)} → library` : body.action === "split" ? `${name} · split at ${clockOf(body.startMs)} and ${clockOf(body.endMs)}` : `${name} · remove ${clockOf(body.startMs)}–${clockOf(body.endMs)}`;
-    return { id: await s.queue.enqueueCut({ asset: video.id, startMs: body.startMs, endMs: body.endMs, action: body.action, crf: body.crf, timeline: body.timeline }, said) };
+    return { id: await s.queue.enqueueCut({ asset: video.id, startMs: body.startMs, endMs: body.endMs, action: body.action, crf: body.crf, ...(sound && body.even ? { even: true } : {}), timeline: body.timeline }, said) };
   });
 
   /** One frame of a video, as a picture in the library: to open another clip on, or to keep. `timeline`: the one it is saved from (its folder, see folderForMade). */

@@ -57,7 +57,7 @@ export const ACTIONS: Record<ActionId, Spec> = {
   outpaint: { group: "passes", label: "Outpaint…", key: "R", kinds: ["image"], icon: SquareDashed, tip: "Outpaint: a new draft in the form, the picture on a larger canvas." },
   "mirror-h": { group: "passes", label: "Mirror ↔", key: "Shift+H", kinds: ["image"], icon: FlipHorizontal2, tip: "A mirrored copy, left and right swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU." },
   "mirror-v": { group: "passes", label: "Mirror ↕", key: "Shift+V", kinds: ["image"], icon: FlipVertical2, tip: "A mirrored copy, top and bottom swapped: a new picture beside this one, kept, its source remembered. Instant, no GPU." },
-  trim: { group: "tools", label: "Trim", key: "T", kinds: ["video"], icon: Scissors, tip: "Pick an in and an out, then copy, split or remove the range, save its frames, or generate between them." },
+  trim: { group: "tools", label: "Trim", key: "T", kinds: ["video", "audio"], icon: Scissors, tip: "Pick an in and an out, then copy, split or remove the range (a video: save its frames, or generate between them; a sound: its loudness evened out)." },
   "save-frame": { group: "tools", label: "Save frame", key: "G", kinds: ["video"], icon: ImageDown, tip: "Save the frame the video is paused on as a picture in your library." },
   "extract-audio": { group: "tools", label: "Extract audio", kinds: ["video"], icon: AudioLines, tip: "Its audio track as a file of its own in your library: for another clip, or as music." },
   "remove-sound": { group: "tools", label: "Remove sound", kinds: ["video"], icon: VolumeX, tip: "A copy of the video without its sound, beside it in your library; this one stays as it is." },
@@ -260,8 +260,10 @@ export const placeMenu = (own: MenuItem[], list: ItemAction[], place: Place): Me
  * but the row's, which "Passes" lists again with its own group.
  */
 export function stageBar(list: ItemAction[]): { row: ItemAction[]; passes: ItemAction[]; more: ItemAction[]; bin: ItemAction | undefined } {
-  const kind: Kind = list.some((a) => a.id === "upscale") ? "image" : list.some((a) => a.id === "trim") ? "video" : "audio";
-  const rowIds: ActionId[] = kind === "image" ? ["keep", "variation", "upscale", "compare"] : kind === "video" ? ["keep", "variation", "trim", "compare"] : ["keep", "variation"];
+  // told by an action only that kind has (Trim is a video's and a sound's)
+  const only = (k: Kind) => list.some((a) => ACTIONS[a.id].kinds.length === 1 && ACTIONS[a.id].kinds[0] === k);
+  const kind: Kind = list.some((a) => a.id === "upscale") ? "image" : only("video") ? "video" : "audio";
+  const rowIds: ActionId[] = kind === "image" ? ["keep", "variation", "upscale", "compare"] : kind === "video" ? ["keep", "variation", "trim", "compare"] : ["keep", "variation", "trim"];
   const folded: GroupId[] = kind === "audio" ? [] : ["make", "passes", "tools"];
   const row = rowIds.flatMap((id) => list.filter((a) => a.id === id));
   const passes = list.filter((a) => folded.includes(a.group));

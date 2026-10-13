@@ -134,13 +134,14 @@ export function runCut(core: QueueCore, row: JobRow): Promise<void> {
     const clips = core.clips;
     if (!clips) throw new Error("timelines are not available");
     const video = await core.db.selectFrom("assets").selectAll().where("id", "=", opts.asset).executeTakeFirst();
-    if (!video || video.kind !== "video") throw new Error("that video is no longer in your library");
+    // a sound is cut too (copy, split, remove)
+    if (!video || (video.kind !== "video" && !(video.kind === "audio" && (opts.action === "copy" || opts.action === "split" || opts.action === "remove")))) throw new Error("that video is no longer in your library");
     // what it makes lands in the folder of the timeline it is made in: its clip's, the one named, else see folderForMade
     const folder = await folderForMade(core.db, video, (await timelineOfClip(core.db, opts.clip)) ?? opts.timeline);
     if (opts.action === "finish") await runFinish(core, row, run, clips, video, opts, folder);
     else if (opts.action === "slow" && opts.engine === "rife") await runSlowRife(core, row, run, clips, video, opts, folder);
     else if (opts.action === "slow") await runSlowFfmpeg(core, row, run, clips, video, opts, folder);
-    else await clips.range.cutRange(video, opts.startMs, opts.endMs, opts.action, { crf: opts.crf, signal: run.abort.signal, folder });
+    else await clips.range.cutRange(video, opts.startMs, opts.endMs, opts.action, { crf: opts.crf, even: opts.even, signal: run.abort.signal, folder });
   });
 }
 

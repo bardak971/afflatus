@@ -10,6 +10,8 @@ import { VideoPlayer } from "../VideoPlayer";
 // Trim is a chunk of its own: fetched the first time a video is trimmed
 const Trim = lazy(() => import("../Trim").then((m) => ({ default: m.Trim })));
 const RangeFrames = lazy(() => import("../Trim").then((m) => ({ default: m.RangeFrames })));
+// and a sound's, the first time a sound is trimmed
+const AudioTrim = lazy(() => import("../trim/AudioTrim").then((m) => ({ default: m.AudioTrim })));
 
 /** The item shown large, dragged like a tile: onto a folder, a form's picture field, a timeline. */
 const dragOf = (a: Asset) => (e: React.DragEvent) => {
@@ -20,7 +22,7 @@ const dragOf = (a: Asset) => (e: React.DragEvent) => {
 };
 
 /**
- * The item itself, large: a picture, a video with Trim under it, or a sound. In place, the picture is a
+ * The item itself, large: a picture, a video with Trim under it, or a sound (in Trim: over its waveform). In place, the picture is a
  * button that opens the details; over the screen, a click beside the item closes the viewer.
  */
 export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, onTrimRange: setTrimRange, onMenu, overlay, onDetails, onClose }: {
@@ -71,7 +73,13 @@ export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, on
       )}
       {a.kind === "audio" && (
         <div className="flex w-full justify-center" onContextMenu={onMenu}>
-          <AudioPlayer key={a.id} asset={a.id} name={a.name || "Audio"} className="w-full max-w-[640px]" onClick={overlay ? (e) => e.stopPropagation() : undefined} />
+          {trim ? (
+            <Suspense fallback={null}>
+              <AudioTrim key={a.id} asset={a} busy={cutRange.isPending} onCut={(range, action, even) => cutRange.mutate({ range, action, crf: 10, even })} onClose={() => setTrim(false)} />
+            </Suspense>
+          ) : (
+            <AudioPlayer key={a.id} asset={a.id} name={a.name || "Audio"} className="w-full max-w-[640px]" onClick={overlay ? (e) => e.stopPropagation() : undefined} />
+          )}
         </div>
       )}
       {a.kind === "video" && trim && (

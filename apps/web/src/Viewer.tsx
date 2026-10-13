@@ -129,7 +129,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   const [compareAsked, setCompareAsked] = useState(false);
   useEffect(() => {
     const what = takeViewerAsk(first.id);
-    if (what === "trim" && first.kind === "video" && !first.inBin) setTrim(true);
+    if (what === "trim" && (first.kind === "video" || first.kind === "audio") && !first.inBin) setTrim(true);
     else if (what === "compare") setCompareAsked(true);
     else if (what === "details") setDetailsAsked(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per item: the ask is taken, not watched

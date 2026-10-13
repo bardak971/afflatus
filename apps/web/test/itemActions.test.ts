@@ -25,7 +25,7 @@ describe("the item's list", () => {
   it("holds each media type's actions in the spec's order", () => {
     expect(actionIds("image")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "i2v", "upscale", "face", "hand", "background", "inpaint", "edit", "outpaint", "mirror-h", "mirror-v", "compare", "details", "copy-seed", "comfy", "timeline", "move", "bin"]);
     expect(actionIds("video")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "extend", "trim", "save-frame", "extract-audio", "remove-sound", "voice", "compare", "details", "copy-seed", "comfy", "timeline", "move", "bin"]);
-    expect(actionIds("audio")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "voice", "details", "copy-seed", "comfy", "timeline", "move", "bin"]);
+    expect(actionIds("audio")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "trim", "voice", "details", "copy-seed", "comfy", "timeline", "move", "bin"]);
   });
 
   it("gives each action one label, used by no other", () => {
@@ -135,7 +135,7 @@ describe("every place shows the same list", () => {
     }
     expect(stageBar(itemActions(facts("image"), runs)).row.map((a) => a.label)).toEqual(["Keep", "Variation", "Upscale 2x", "Compare"]);
     expect(stageBar(itemActions(facts("video"), runs)).row.map((a) => a.label)).toEqual(["Keep", "Variation", "Trim", "Compare"]);
-    expect(stageBar(itemActions(facts("audio"), runs)).row.map((a) => a.label)).toEqual(["Keep", "Variation"]);
+    expect(stageBar(itemActions(facts("audio"), runs)).row.map((a) => a.label)).toEqual(["Keep", "Variation", "Trim"]);
     expect(stageBar(itemActions(facts("audio"), runs)).passes).toEqual([]);
   });
 

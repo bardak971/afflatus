@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Clapperboard, Copy, Gauge, Link2, Pause, Play, Repeat, Scissors, Split, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Clapperboard, Gauge, Link2, Pause, Play, Repeat, Scissors, Split, X, ZoomIn, ZoomOut } from "lucide-react";
 import type { Asset } from "./api";
 import { clock, plural } from "./format";
 import { Kbd } from "./Keys";
@@ -13,6 +13,7 @@ import { useFrameLoop } from "./trim/useFrameLoop";
 import { usePeek } from "./trim/usePeek";
 import { useTrimKeys } from "./trim/useTrimKeys";
 import { useWheelZoom } from "./trim/useWheelZoom";
+import { CutButtons } from "./trim/CutButtons";
 
 export type { Range } from "./trim/range";
 
@@ -229,11 +230,8 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
         </div>
       ) : (
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-line pt-2">
-        <div role="group" aria-label="Cut" className="flex items-center gap-1">
-          {/* the main action only when it can act: off, it reads as off, not as a faded call to action */}
-          <Button size="sm" tone={busy || whole ? "plain" : "primary"} disabled={busy || whole} data-tip={whole ? "The whole video: there is nothing to cut." : "The range as a new video in your library; this one stays."} onClick={() => onCopy?.(range, crfN)}><Copy size={13} /> Copy to library</Button>
-          <Button size="sm" disabled={busy || whole} data-tip={whole ? "The whole video: there is nothing to cut." : "Three videos: before the range, the range, after it. This one goes to the bin."} onClick={() => onSplit?.(range, crfN)}><Split size={13} /> Split</Button>
-          <Button size="sm" disabled={busy || whole} data-tip={whole ? "The whole video: there is nothing to cut." : "One video without the range. This one goes to the bin."} onClick={() => onRemove?.(range, crfN)}><Scissors size={13} /> Remove range</Button>
+        <div role="group" aria-label="Cut and scenes" className="flex items-center gap-1">
+          <CutButtons what="video" busy={Boolean(busy)} whole={whole} onCopy={() => onCopy?.(range, crfN)} onSplit={() => onSplit?.(range, crfN)} onRemove={() => onRemove?.(range, crfN)} />
           {onEveryScene && scenes && scenes.length > 0 && (
             <Button size="sm" disabled={busy} data-tip={`${scenes.length + 1} shots found by their cuts: each copied out as its own video. This one stays.`} onClick={() => onEveryScene(scenes, crfN)}><Split size={13} /> Extract scenes ({scenes.length + 1})</Button>
           )}

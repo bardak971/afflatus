@@ -46,6 +46,8 @@ export interface CutOptions {
    */
   action: "copy" | "split" | "remove" | "slow" | "finish";
   crf?: number;
+  /** A sound's cut: its loudness evened out (EBU R128, -16 LUFS). */
+  even?: boolean;
   factor?: 2 | 4;
   /** How the frames in between are made: RIFE on the GPU through ComfyUI, or ffmpeg on the processor. */
   engine?: "rife" | "ffmpeg";
