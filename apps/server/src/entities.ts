@@ -6,7 +6,6 @@ import { oneAtATime } from "./keyedLock";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { SHIPPED } from "./presetFiles";
 import type { Services } from "./services";
-import { askCutouts } from "./kitCutouts";
 import { dropFromUnwritten } from "./unwrittenDrafts";
 
 /**
@@ -52,14 +51,6 @@ const defs = {
     /** Per model family: the LoRA of this person, its strength and the word that calls it up. */
     models: z.record(z.string(), z.strictObject({ lora: z.string().nullable().default(null), weight: z.number().min(-4).max(4).default(0.8), trigger: z.string().max(200).default("") })).default({}),
     outfits: z.array(outfit).max(LIMITS.outfits).default([]),
-    /**
-     * Their pictures are sent to a model without their background (kitCutouts.ts): only who they are, never the room they
-     * were taken in, which H3 was seen re-animating whole (2026-10-13). Off unless switched on: on grey, H3 painted a grey
-     * mesh over the scene behind the person (the owner's renders, 2026-10-13); the reference prompt alone keeps the room out.
-     */
-    cutout: z.boolean().default(false),
-    /** Picture → its cut-out (a kit file laid on grey), made once each. Written by the server alone: a save keeps what it has. */
-    cutouts: z.record(z.string(), z.string()).default({}),
   }),
   place: z.strictObject({
     pictures: z.array(z.string()).max(LIMITS.pictures).default([]),
@@ -106,25 +97,14 @@ export type EntityView = ReturnType<typeof view>;
 /** What was added to a form for its cast and its style, to show before it is sent. */
 export interface Composed {
   input: Record<string, unknown>;
-  added: { words: Array<{ from: string; text: string }>; loras: Array<{ from: string; file: string }>; references: number; /** The reference pictures added, and whose they are (a person's own without their background: cutout). */ refs: Array<{ asset: string; role: ReferenceRole; from: string; cutout?: boolean }>; voice: string | null; /** The voice sample added: the form shows it in its sound field. */ voiceAsset: string | null; /** The part of it set on the person. */ voicePart?: { start: number; seconds: number }; skipped: string[] };
+  added: { words: Array<{ from: string; text: string }>; loras: Array<{ from: string; file: string }>; references: number; /** The reference pictures added, and whose they are. */ refs: Array<{ asset: string; role: ReferenceRole; from: string }>; voice: string | null; /** The voice sample added: the form shows it in its sound field. */ voiceAsset: string | null; /** The part of it set on the person. */ voicePart?: { start: number; seconds: number }; skipped: string[] };
 }
 
 /** The files an entity's definition names: its pictures, its outfits' pictures and its voice sample. */
 const filesOf = (def: string): string[] => {
-  const d = JSON.parse(def) as { pictures?: string[]; voice?: string | null; outfits?: Array<{ picture?: string | null }>; cutouts?: Record<string, string> };
-  return [...(d.pictures ?? []), d.voice, ...(d.outfits ?? []).map((o) => o.picture), ...Object.values(d.cutouts ?? {})].filter((x): x is string => Boolean(x));
+  const d = JSON.parse(def) as { pictures?: string[]; voice?: string | null; outfits?: Array<{ picture?: string | null }> };
+  return [...(d.pictures ?? []), d.voice, ...(d.outfits ?? []).map((o) => o.picture)].filter((x): x is string => Boolean(x));
 };
-
-/**
- * The cut-outs a person keeps after a save: the ones the server made (the page's copy is not trusted: it may be older
- * than a cut-out that came in meanwhile), for the pictures they still have. A picture taken off drops its cut-out, which
- * then goes to the bin with it.
- */
-function keptCutouts(before: string, next: Record<string, unknown>): Record<string, unknown> {
-  const had = (JSON.parse(before) as { cutouts?: Record<string, string> }).cutouts ?? {};
-  const pictures = new Set(Array.isArray(next.pictures) ? (next.pictures as string[]) : []);
-  return { ...next, cutouts: Object.fromEntries(Object.entries(had).filter(([picture]) => pictures.has(picture))) };
-}
 
 /** Files uploaded for the Prompt kit (pictures, voice samples) that no person or place names any more: to the bin (the library never shows them). */
 async function binUnwantedKit(db: Db, ids: string[]): Promise<void> {
@@ -202,7 +182,7 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
   const places: string[] = [];
   const looks: string[] = [];
   const bits: string[] = [];
-  const refs: Array<ReferenceValue & { from: string; cutout?: boolean }> = [];
+  const refs: Array<ReferenceValue & { from: string }> = [];
   const loras: Array<LoraValue & { from: string }> = [];
   let voice: { asset: string; from: string; part: { start: number; seconds: number } | null } | null = null;
 
@@ -219,11 +199,7 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
         added.words.push({ from: row.name, text: words });
       }
       if (m?.lora) loras.push({ file: m.lora, weight: m.weight, from: row.name });
-      // without their background when they have it (a cut-out made once per picture), else the picture as it is
-      for (const picture of p.pictures.slice(0, PICTURES.person)) {
-        const cut = p.cutout ? p.cutouts[picture] : undefined;
-        refs.push({ asset: cut ?? picture, role: "person", from: row.name, ...(cut ? { cutout: true } : {}) });
-      }
+      for (const asset of p.pictures.slice(0, PICTURES.person)) refs.push({ asset, role: "person", from: row.name });
       if (worn?.picture) refs.push({ asset: worn.picture, role: "clothing", from: row.name });
       if (p.voice && !voice) voice = { asset: p.voice, from: row.name, part: p.voicePart };
     } else if (row.kind === "place") {
@@ -366,23 +342,16 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
    */
   const inTurn = <T>(work: () => Promise<T>) => oneAtATime(s.db, "kit", work);
 
-  // a person's cut-outs (kitCutouts.ts) are asked for once they are saved: their pictures may be new, or the switch on
-  const askFor = (view: { id: string; kind: string }) => {
-    if (view.kind === "person") void askCutouts(s, [view.id]).catch((err: Error) => console.warn(`[kit] cut-outs not asked for: ${err.message}`));
-    return view;
-  };
-
-  app.post("/api/entities", async (req) => askFor(await inTurn(async () => {
+  app.post("/api/entities", async (req) => inTurn(async () => {
     const b = body.parse(req.body);
-    // (a person's cut-outs are the server's to write: a new one has none yet)
-    const def = b.kind === "person" ? { ...defs.person.parse(b.def ?? {}), cutouts: {} } : defs[b.kind].parse(b.def ?? {});
+    const def = defs[b.kind].parse(b.def ?? {});
     const at = now();
     const row: Tables["entities"] = { id: newId(), owner_id: OWNER, kind: b.kind, name: b.name, def: JSON.stringify(def), created_at: at, updated_at: at };
     await s.db.insertInto("entities").values(row).execute();
     await keepTheirs(row.kind, row.def);
     changed();
     return view(row);
-  })));
+  }));
 
   /** Their pictures and voices are wanted: they never go to the bin on their own. */
   const keepTheirs = async (kind: string, def: string) => {
@@ -394,20 +363,19 @@ export function registerEntities(app: FastifyInstance, s: Services): void {
 
   const builtIn = () => httpError("a built-in preset cannot be changed: copy it to your presets first");
 
-  app.put<{ Params: { id: string } }>("/api/entities/:id", async (req) => askFor(await inTurn(async () => {
+  app.put<{ Params: { id: string } }>("/api/entities/:id", async (req) => inTurn(async () => {
     if (req.params.id.startsWith(SHIPPED)) throw builtIn();
     const b = patch.parse(req.body);
     const row = await s.db.selectFrom("entities").selectAll().where("id", "=", req.params.id).executeTakeFirst();
     if (!row) throw missing();
-    const parsed = b.def === undefined ? null : (defs[row.kind].parse(b.def) as Record<string, unknown>);
-    const next = { name: b.name ?? row.name, def: parsed === null ? row.def : JSON.stringify(row.kind === "person" ? keptCutouts(row.def, parsed) : parsed), updated_at: now() };
+    const next = { name: b.name ?? row.name, def: b.def === undefined ? row.def : JSON.stringify(defs[row.kind].parse(b.def)), updated_at: now() };
     await s.db.updateTable("entities").set(next).where("id", "=", row.id).execute();
     // a picture uploaded for them and taken off again, wanted by no one else: to the bin
     if (b.def !== undefined) await binUnwantedKit(s.db, filesOf(row.def).filter((id) => !filesOf(next.def).includes(id)));
     if (b.def !== undefined) await keepTheirs(row.kind, next.def);
     changed();
     return view({ ...row, ...next });
-  })));
+  }));
 
   app.delete<{ Params: { id: string } }>("/api/entities/:id", async (req) => inTurn(async () => {
     if (req.params.id.startsWith(SHIPPED)) throw builtIn();

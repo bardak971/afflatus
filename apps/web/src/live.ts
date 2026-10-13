@@ -160,8 +160,7 @@ export function useLiveEvents(): void {
       models: on(queryKeys.modelInfo.all()),
       // a timeline changed: its card, and the Projects panel's tree when it is open (its clips, its size)
       timeline: () => refetch(client, [queryKeys.timelines.all(), queryKeys.projects.trees()]),
-      // a person changed, or one of their cut-outs came in: the kit, and the cast's pictures shown in the forms
-      entities: () => refetch(client, [queryKeys.entities(), queryKeys.compose.all()]),
+      entities: on(queryKeys.entities()),
       downloads: on(queryKeys.downloads()),
       // ComfyUI has a file it did not have: what is ready may have changed
       setup: on(queryKeys.setup()),
