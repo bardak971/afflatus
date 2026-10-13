@@ -11,7 +11,7 @@ import { useNow } from "./hooks";
 import { Keys } from "./Keys";
 import { queryKeys } from "./queryKeys";
 import { Select } from "./Select";
-import { Button, cx, ErrorNote, Help, Segmented } from "./ui";
+import { Button, cx, ErrorNote, fieldClass, Help, Segmented } from "./ui";
 
 /** What a first deploy opens with: Afflatus's image, Secure Cloud, no volume, terminated after 10 min idle. */
 const FIRST: Omit<DeployAsk, "gpu"> = { cloud: "SECURE", template: "afflatus", volume: "", disk: 120, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15 };
@@ -77,7 +77,10 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
     price: (a, b) => a.price - b.price,
   };
   // the cheapest first, unless a column says otherwise; equal ones by price, then the larger first
-  const offers = (gpus.data?.gpus ?? []).map((g) => ({ ...g, places: placesOf(g) })).filter((g) => g.places.length)
+  // what is typed narrows the list: a GPU's name or its VRAM ("5090", "48 gb")
+  const [q, setQ] = useState("");
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const offers = (gpus.data?.gpus ?? []).map((g) => ({ ...g, places: placesOf(g) })).filter((g) => g.places.length && words.every((w) => `${g.name} ${g.memory}gb ${g.memory} gb`.toLowerCase().includes(w)))
     .sort((a, b) => (sort.up ? 1 : -1) * byKey[sort.key](a, b) || a.price - b.price || b.memory - a.memory);
   const sortBy = (key: SortKey) => setSort((s) => (s.key === key ? { key, up: !s.up } : { key, up: key !== "memory" }));
   // how long ago RunPod's stock was read (it is read again every 15 s, or now)
@@ -107,13 +110,15 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
               <RotateCw size={12} className={cx(gpus.isFetching && "animate-spin")} />
             </button>
             <span className="grow" />
+            <input aria-label="Find a GPU" placeholder="Find: 5090, 48 GB…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape" && q) { e.stopPropagation(); setQ(""); } }} className={cx(fieldClass, "h-7 w-36 px-2 text-xs font-normal")} />
             <Segmented<DeployAsk["cloud"]> size="sm" label="Cloud" value={want.cloud} options={[{ value: "SECURE", label: "Secure" }, { value: "COMMUNITY", label: "Community" }]} onChange={(cloud) => set({ cloud })} />
             <Help text={WHY_CLOUD} />
           </span>
-          {gpus.isError && <ErrorNote>{gpus.error.message}</ErrorNote>}
-          {gpus.isPending && <span className="px-1 py-2 text-xs text-ink-3">Asking RunPod…</span>}
-          {gpus.isSuccess && !offers.length && <span className="px-1 py-2 text-xs text-ink-2">Nothing free {volume ? `in ${volume.dataCenter}, where the volume is` : "on this cloud"} now. RunPod's stock moves by the minute: this list is read again every 15 s.</span>}
-          <div role="radiogroup" aria-label="GPU" className="flex max-h-[300px] flex-col overflow-y-auto rounded-xl border border-line">
+          {/* one height whatever the cloud, the stock or the answer: the dialog does not move under the pointer */}
+          <div role="radiogroup" aria-label="GPU" className="flex h-[300px] flex-col overflow-y-auto rounded-xl border border-line">
+            {gpus.isError && <div className="p-3"><ErrorNote>{gpus.error.message}</ErrorNote></div>}
+            {gpus.isPending && <span className="px-3 py-2.5 text-xs text-ink-3">Asking RunPod…</span>}
+            {gpus.isSuccess && !offers.length && <span className="px-3 py-2.5 text-xs text-ink-2">{words.length && gpus.data?.gpus.some((g) => placesOf(g).length) ? `No GPU in stock matches “${q}”.` : `Nothing in stock ${volume ? `in ${volume.dataCenter}, where the volume is` : "on this cloud"} now. RunPod's stock moves by the minute: this list is read again every 15 s.`}</span>}
             {offers.length > 0 && (
               <div className="sticky top-0 z-10 grid grid-cols-[minmax(0,1fr)_64px_90px_70px_76px] items-center gap-3 border-b border-line bg-panel px-3 py-1.5 text-[11px] font-semibold text-ink-3">
                 {SORTS.map((c) => (
@@ -143,12 +148,6 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
               </button>
             ))}
           </div>
-          {gone && (
-            <span className="flex flex-wrap items-center gap-2 rounded-lg bg-warn-wash px-3 py-2 text-xs text-warn-ink">
-              <span className="grow">{gone.name} is not free {volume ? `in ${volume.dataCenter}` : ""} now{instead ? `: the ${instead.name} is, at ${usd(instead.price)}/h` : ""}.</span>
-              {instead && <Button size="sm" onClick={() => set({ gpu: instead.id })}>Pick the {instead.name}</Button>}
-            </span>
-          )}
         </section>
 
         <section className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-x-3 gap-y-3 text-[13px]">
@@ -182,7 +181,12 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
         {want.template === "runpod" && <ErrorNote>RunPod's ComfyUI has no Afflatus pack: it is not locked, so anyone who finds its address can run work on it, and nothing stops it if this PC goes silent.</ErrorNote>}
         {deploy.isError && <ErrorNote>{deploy.error.message}</ErrorNote>}
       </div>
-      <DialogFoot info={picked ? `Billed from deploy · ${picked.name} in ${picked.places[0]!.id}` : "Pick a GPU"}>
+      <DialogFoot info={picked
+        ? `Billed from deploy · ${picked.name} ${picked.places[0]!.id === "any" ? "on Community Cloud" : `in ${picked.places[0]!.id}`}`
+        : gone
+          // the one picked last time, not in stock on this cloud now: said where the choice is made, nothing moves above
+          ? <span className="inline-flex items-center gap-2 text-warn-ink">{gone.name} not in stock {volume ? `in ${volume.dataCenter} ` : ""}now{instead ? `; the ${instead.name} is, at ${usd(instead.price)}/h` : ""}{instead && <Button size="sm" onClick={() => set({ gpu: instead.id })}>Pick it</Button>}</span>
+          : "Pick a GPU"}>
         <Button tone="quiet" onClick={onClose}>Cancel <Keys keys="Esc" size="sm" /></Button>
         <Button tone="primary" onClick={() => deploy.mutate()} disabled={!picked || imageMissing || deploy.isPending}>{deploy.isPending ? "Deploying…" : picked ? `Deploy · ${usd(picked.price)}/h` : "Deploy"}</Button>
       </DialogFoot>
