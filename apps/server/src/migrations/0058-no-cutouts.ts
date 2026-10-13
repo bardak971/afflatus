@@ -3,7 +3,7 @@ import type { Migration } from "kysely/migration";
 /**
  * The Prompt kit's cut-outs are gone (2026-10-13: on grey, H3 painted a grey mesh behind the person in 2 of 4 renders,
  * and no likeness was gained). A person's `cutout` switch and `cutouts` map come out of their definition (which no
- * longer takes them), and the cut-out pictures go to the bin. jobs.kit_for (0057) stays, unused.
+ * longer takes them), and the cut-out pictures go to the bin. jobs.kit_for (0057) goes in 0060.
  */
 const migration: Migration = {
   async up(db) {
