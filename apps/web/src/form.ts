@@ -205,7 +205,10 @@ export function layoutOf(recipe: RecipeInfo, seen: Record<string, unknown>, q: s
   // a setting up front that only shows with a picture (how a guide picture is followed) sits under that picture
   const mediaIds = new Set(rest.filter(isMedia).map((i) => i.id));
   const withMedia = (i: InputSpec) => !i.advanced && typeof i.showWhen === "string" && mediaIds.has(i.showWhen);
-  const pictures = rest.filter((i) => i.type === "image" || i.type === "clip");
+  // a sound the result is made from (a lip sync's recording, an imported workflow's sound) is an input like a frame, not
+  // a reference: it sits first with them, and a missing one opens the part. A voice sample stays with the references
+  const builtOn = (i: InputSpec): i is Extract<InputSpec, { type: "image" | "clip" | "audio" }> => i.type === "image" || i.type === "clip" || (i.type === "audio" && i.role === "sound");
+  const pictures = rest.filter(builtOn);
   // an advanced setting filed under Output (a pass's denoise, a colour match) goes to the Output chapter's upscale
   // group by groupOf; only the shapes, the seed and the length stay out of the groups, on the Output shelf
   const tuning = sought(rest.filter((i) => i.advanced && !underPrompt(i) && !isMedia(i) && (!isOut(i) || i.section === "out")));
@@ -223,7 +226,7 @@ export function layoutOf(recipe: RecipeInfo, seen: Record<string, unknown>, q: s
     frames: sought(pictures.flatMap((i) => [i, ...rest.filter((o) => withMedia(o) && o.showWhen === i.id)])),
     /** The picture and clip slots alone, without the settings that sit under them. */
     pictures: sought(pictures),
-    refs: sought(rest.filter((i) => i.type === "references" || i.type === "audio")),
+    refs: sought(rest.filter((i) => i.type === "references" || (i.type === "audio" && !builtOn(i)))),
     loras: sought(front.filter((i) => i.type === "loras")),
     out: sought(front.filter(isOut)),
     // the model's file and the operation's own settings (how much an img2img may redraw, which upscaler)
