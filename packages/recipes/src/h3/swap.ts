@@ -67,8 +67,9 @@ const swapInputs: InputSpec[] = [
     return [spec];
   }),
   {
-    id: "swapSize", type: "choice", label: "Size", options: [...SWAP_SIZES], default: "Source",
-    note: "the source's own size, or a height to render at: a small phone clip can be made larger. The shape is always the source's",
+    // 576p: small phone clips swapped at their own 352 px held 0 of 4, at 576p 2 of 4 (Marvyn's clips, 2026-10-13)
+    id: "swapSize", type: "choice", label: "Size", options: [...SWAP_SIZES], default: "576p",
+    note: "the height it renders at, in the source's shape: 576p by default (a small phone clip swapped better made larger), or the source's own size",
   },
   { id: "swapStrength", type: "number", label: "Swap LoRA strength", min: 0, max: 2, step: 0.05, default: 1, advanced: true, note: "its author's 1.0" },
   { id: "keepSound", type: "toggle", label: "Keep the source's sound", default: true, advanced: true, note: "the file carries the source video's own sound; off, the sound H3 makes" },

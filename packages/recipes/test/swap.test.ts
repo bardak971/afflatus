@@ -41,13 +41,16 @@ describe("MiniMax H3 · Swap character", () => {
     const { graph } = build();
     expect(of(graph, "UNETLoader").map((n) => n.inputs.unet_name)).toEqual(["minimax_h3_ref2va.safetensors"]);
     const ref = of(graph, "MiniMaxH3ReferenceToVideo")[0]!;
-    expect([ref.inputs.width, ref.inputs.height]).toEqual([864, 480]);
+    // 576p by default, in the source's shape
+    expect([ref.inputs.width, ref.inputs.height]).toEqual([1024, 576]);
+    const own = of(build({ swapSize: "Source" }).graph, "MiniMaxH3ReferenceToVideo")[0]!;
+    expect([own.inputs.width, own.inputs.height]).toEqual([864, 480]);
     // a size asked for: a small phone clip made larger, in its own shape
     const phone = of(build({ swapSize: "576p" }, part({ width: 352, height: 640 })).graph, "MiniMaxH3ReferenceToVideo")[0]!;
     expect(phone.inputs.width).toBe(576);
     expect(phone.inputs.height as number).toBeGreaterThan(1000);
     // at its own size, a source smaller than H3 takes is brought to its smallest (384)
-    expect(of(build({}, part({ width: 352, height: 640 })).graph, "MiniMaxH3ReferenceToVideo")[0]!.inputs.width).toBe(384);
+    expect(of(build({ swapSize: "Source" }, part({ width: 352, height: 640 })).graph, "MiniMaxH3ReferenceToVideo")[0]!.inputs.width).toBe(384);
   });
 
   it("samples as the research graph did: the model's own shifts (12 / 3), no fp16 accumulation patch", () => {
