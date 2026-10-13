@@ -111,6 +111,8 @@ export interface Outfit {
 export interface PersonDef {
   pictures: string[];
   voice: string | null;
+  /** The part of the voice sample the models are given, in seconds (null: the form's own, from the start). */
+  voicePart?: { start: number; seconds: number } | null;
   tags: string;
   sentence: string;
   /** Per model family: this person's LoRA, its strength, the word that calls it up. */
@@ -154,7 +156,7 @@ export type Entity =
 /** What a form becomes once its cast and style are worked in. */
 export interface Composed {
   input: Record<string, unknown>;
-  added: { words: Array<{ from: string; text: string }>; loras: Array<{ from: string; file: string }>; references: number; /** The reference pictures added, and whose they are. */ refs: Array<{ asset: string; role: import("@afflatus/core").ReferenceRole; from: string; cutout?: boolean }>; voice: string | null; /** The voice sample added: the form shows it in its sound field. */ voiceAsset: string | null; skipped: string[] };
+  added: { words: Array<{ from: string; text: string }>; loras: Array<{ from: string; file: string }>; references: number; /** The reference pictures added, and whose they are. */ refs: Array<{ asset: string; role: import("@afflatus/core").ReferenceRole; from: string; cutout?: boolean }>; voice: string | null; /** The voice sample added: the form shows it in its sound field. */ voiceAsset: string | null; /** The part of it set on the person. */ voicePart?: { start: number; seconds: number } | null; skipped: string[] };
 }
 /** One model file a preset is made for, and where it is had. */
 export interface PresetFile {

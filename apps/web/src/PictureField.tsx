@@ -1,5 +1,5 @@
 import { useExplain } from "./store";
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Film, ImagePlus, Music, Search, Upload, X } from "lucide-react";
 import type { ClipValue, ReferenceRole, ReferenceValue } from "@afflatus/core";
@@ -18,6 +18,7 @@ import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, LEAN_MOTION, useD
 import { Button, cx, Empty, ErrorNote, fieldClass, NumberBox, Help, Note, Segmented } from "./ui";
 import { LoadMore } from "./LoadMore";
 import { AudioPlayer } from "./AudioPlayer";
+import { firstPart, SoundRange, useSoundMarks } from "./SoundRange";
 import { VideoPlayer } from "./VideoPlayer";
 import { queryKeys } from "./queryKeys";
 
@@ -432,14 +433,23 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
 }
 
 /** A slot for one sound (a voice to speak with): pick it from the library, or bring one in. */
+const tenth = (v: number) => Math.round(v * 10) / 10;
+
 export function SoundField({ label, note, optional, value, onChange, part, cast }: {
   label: string;
   note?: string;
   optional: boolean;
   value: string | null;
   onChange(value: string | undefined): void;
-  /** Only a part of the sound is used: where it starts and how long it is, in seconds. */
-  part?: { start: number; seconds: number; onStart(seconds: number): void; onSeconds(seconds: number): void };
+  /**
+   * Only a part of the sound is used: where it starts and how long it is, in seconds, within its recipe's limits (the
+   * length input's min, max and default). `fit`: what one clip holds and makes of a part (a recording a clip is made around).
+   */
+  part?: {
+    start: number; seconds: number; min: number; max: number; usual: number;
+    fit?: { most: number; clip(seconds: number): number };
+    set(start: number, seconds: number): void;
+  };
   /** The cast's voice sample, used when the form is sent without one of its own: shown, and a sample chosen here wins. */
   cast?: CastVoice;
 }) {
@@ -447,43 +457,82 @@ export function SoundField({ label, note, optional, value, onChange, part, cast 
   const fromCast = !value && cast ? cast : null;
   const shown = value ?? fromCast?.asset ?? null;
   const asset = useAsset(shown);
+  const marks = useSoundMarks(part ? shown : null);
   const total = asset.data?.durationMs ? asset.data.durationMs / 1000 : null;
+  // the longest part: what one clip holds, within the length input's own max
+  const longest = part ? Math.min(part.max, part.fit?.most ?? part.max) : 0;
+  // the cast's sample is sent with the part set on the person, when one is
+  const asked = part ? (fromCast?.part ?? { start: part.start, seconds: part.seconds }) : null;
   // the part as it will be cut: from where it was asked as long as two seconds are left, ending where the sound ends
-  const from = part ? (total === null ? part.start : Math.max(0, Math.min(part.start, total - 2))) : 0;
-  const lasts = part ? (total === null ? part.seconds : Math.max(0.1, Math.min(part.seconds, total - from))) : 0;
+  const from = asked ? (total === null ? asked.start : Math.max(0, Math.min(asked.start, total - 2))) : 0;
+  const lasts = asked ? (total === null ? asked.seconds : Math.max(0.1, Math.min(asked.seconds, total - from))) : 0;
+  // a part moved on the cast's sample makes it the form's own, with that part: this render only, the person keeps theirs
+  const setPart = (start: number, seconds: number) => {
+    if (fromCast) onChange(fromCast.asset);
+    part?.set(start, seconds);
+  };
+
+  // a sound just chosen starts with its whole length, or up to the last pause that fits (a voice sample: its usual length)
+  const chosen = useRef<string | null>(null);
+  const pick = (id: string | undefined) => {
+    chosen.current = id ?? null;
+    onChange(id);
+  };
+  useEffect(() => {
+    if (!part || !shown || chosen.current !== shown || total === null || !marks.ready) return;
+    chosen.current = null;
+    const first = firstPart(total, marks.pauses, part.fit ? longest : Math.min(longest, part.usual));
+    part.set(first.start, first.seconds);
+  }, [part, shown, total, marks, longest]);
+
   return (
     // a sound of the library, or a video that has sound; a sound file from the computer goes into the library and lands here
     <Slot
-      label={label} note={note} aside={optional ? "optional" : undefined} kind="audio" drags={[DRAG_SOUND, DRAG_HAS_SOUND]} onAsset={onChange}
+      label={label} note={note} aside={optional ? "optional" : undefined} kind="audio" drags={[DRAG_SOUND, DRAG_HAS_SOUND]} onAsset={pick}
       empty={{ icon: <Music size={15} />, text: "Choose an audio file, or drop one here", says: `Drop to use as ${label.toLowerCase()}` }}
       filled={shown ? {
         className: "flex flex-col gap-2",
-        body: (pick) => (
+        body: (choose) => (
           <>
             {/* with a part set, the player plays that part */}
             <AudioPlayer asset={shown} name={asset.data?.name || "Audio"} range={part ? { from, to: from + lasts } : undefined} bare className="px-0.5 pt-0.5" />
             {fromCast && (
               <span className="px-0.5 text-xs text-ink-2" data-tip={`Added from the cast when the form is sent. Choose a sample here to use another, or take ${fromCast.from} out of the cast.`}>
-                <span className="font-semibold text-ink">{fromCast.from}</span>'s voice · from the cast
+                <span className="font-semibold text-ink">{fromCast.from}</span>'s voice · from the cast{fromCast.part ? " · the part set on them" : ""}
               </span>
+            )}
+            {part && total !== null && (
+              <SoundRange asset={shown} total={total} start={from} seconds={lasts} min={Math.min(part.min, total)} most={longest} label={`${label}: the part used`} onCommit={setPart} />
             )}
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-line pt-2 text-xs text-ink-2">
               {part && (
                 <>
-                <span>Use it from</span>
-                <NumberBox label={`${label}: the part used starts at, in seconds`} value={part.start} min={0} max={total ? Math.max(0, Math.floor((total - 2) * 2) / 2) : 600} step={0.5} unit="s" onCommit={part.onStart} />
-                <span>for</span>
-                <NumberBox label={`${label}: the part used lasts, in seconds`} value={part.seconds} min={2} max={15} step={0.5} unit="s" onCommit={part.onSeconds} />
-                {total !== null && lasts < part.seconds && <span>(the audio ends at {total.toFixed(1)} s: {lasts.toFixed(1)} s are used)</span>}
+                  <span>From</span>
+                  <NumberBox label={`${label}: the part used starts at, in seconds`} value={tenth(from)} min={0} max={total ? Math.max(0, Math.floor((total - part.min) * 10) / 10) : 600} step={0.1} unit="s" onCommit={(v) => setPart(v, lasts)} />
+                  <span>to</span>
+                  <NumberBox
+                    label={`${label}: the part used ends at, in seconds`} value={tenth(from + lasts)} min={tenth(from + part.min)} max={tenth(Math.min(total ?? Infinity, from + longest))} step={0.1} unit="s"
+                    onCommit={(v) => setPart(from, tenth(v - from))}
+                  />
                 </>
               )}
               <span className="ml-auto flex gap-1.5">
-                <Button size="sm" onClick={pick}>{fromCast ? "Use another" : "Change"}</Button>
+                <Button size="sm" onClick={choose}>{fromCast ? "Use another" : "Change"}</Button>
                 {/* as on a picture: a sound the form must have can be emptied too, the form then says what is missing; the cast's
                     is not the form's to remove (take the person out of the cast) */}
                 {!fromCast && <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>}
               </span>
             </div>
+            {part?.fit && (
+              <div className="flex flex-col gap-0.5 px-0.5 text-xs text-ink-2">
+                <span><span className="font-semibold text-ink">{lasts.toFixed(1)} s of it</span> → a {part.fit.clip(lasts).toFixed(1)} s clip</span>
+                {lasts > longest + 0.05 ? (
+                  <span className="text-warn-ink">Longer than one clip holds now ({longest.toFixed(1)} s): the clip stops before the part ends. Drag its end in.</span>
+                ) : (
+                  <span>One clip holds {longest.toFixed(1)} s of it, less what comes before the words and the frames of a clip it continues.</span>
+                )}
+              </div>
+            )}
           </>
         ),
       } : undefined}

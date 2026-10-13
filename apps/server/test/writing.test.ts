@@ -213,6 +213,33 @@ describe.skipIf(!hasFfmpeg)("a part of a sound", () => {
     expect(peak(even)).toBeGreaterThan(peak(plain) * 5);
     expect(secondsOf(even)).toBeCloseTo(4, 1);
   });
+
+  it("hands over what comes after the part: its pause as it is, speech faded out, then silence", async () => {
+    // a tone, a second of quiet, a tone again: "words", a pause, "words"
+    const made = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=330:duration=8", "-af", "volume=enable='between(t,3,4)':volume=0", "-f", "wav", "pipe:1"], { maxBuffer: 64 * 1024 * 1024 });
+    const take = new Uint8Array(made.stdout);
+    // the loudest sample between two moments of a 48 kHz stereo 16-bit WAV, as a share of full scale
+    const peakIn = (wav: Uint8Array, from: number, to: number) => {
+      const at = Buffer.from(wav).indexOf("data") + 8;
+      const view = new DataView(wav.buffer, wav.byteOffset + at, wav.length - at - ((wav.length - at) % 2));
+      let most = 0;
+      for (let i = Math.floor(from * 48000) * 4; i < Math.min(view.byteLength, Math.floor(to * 48000) * 4); i += 2) most = Math.max(most, Math.abs(view.getInt16(i, true)));
+      return most / 32768;
+    };
+    // ended in the pause (at 3 s): its second of quiet, then the next words faded out, then silence, 2 s after the part in all
+    const inPause = await soundPart(take, "wav", { start: 0, seconds: 3, durationMs: 8_000, after: 2 });
+    expect(secondsOf(inPause)).toBeCloseTo(5, 1);
+    expect(peakIn(inPause, 1, 2.9)).toBeGreaterThan(0.05);
+    expect(peakIn(inPause, 3.05, 3.95)).toBeLessThan(0.01);
+    expect(peakIn(inPause, 4.25, 5)).toBeLessThan(0.01);
+    // ended in the words (at 2 s): faded out at once
+    const midWord = await soundPart(take, "wav", { start: 0, seconds: 2, durationMs: 8_000, after: 2 });
+    expect(secondsOf(midWord)).toBeCloseTo(4, 1);
+    expect(peakIn(midWord, 2.2, 4)).toBeLessThan(0.01);
+    // past the sound's end: silence to the length handed over
+    const atEnd = await soundPart(take, "wav", { start: 5, seconds: 3, durationMs: 8_000, after: 2 });
+    expect(secondsOf(atEnd)).toBeCloseTo(5, 1);
+  });
 });
 
 describe("what a draft made, and where it lands", () => {

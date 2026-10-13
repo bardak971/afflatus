@@ -354,14 +354,15 @@ async function uploadSound({ db, storage, upload, input, signal, sent }: Up, spe
   going(signal);
   const asked = { start: Number(input[spec.window.start] ?? 0), seconds: Number(input[spec.window.seconds] ?? 8) };
   const even = Boolean(spec.window.even && input[spec.window.even]);
-  const part = await soundPart(whole, extOf(asset.mime), { ...asked, durationMs: asset.duration_ms, even }).catch((err) => {
+  const after = spec.window.after ?? 0;
+  const part = await soundPart(whole, extOf(asset.mime), { ...asked, durationMs: asset.duration_ms, even, after }).catch((err) => {
     sent.warnings.push(`The part of the ${spec.label.toLowerCase()} could not be cut (${(err as Error).message}): the whole sound was used.`);
     return null;
   });
   sent.uploads[spec.id] = part ? await upload(part, "wav") : await upload(whole, extOf(asset.mime));
   // how long the part really is (a sound that ends before the part asked for gives less): a recipe that follows it, a lip sync, is made that long
   const seconds = part ? partOf(asked.start, asked.seconds, asset.duration_ms ? asset.duration_ms / 1000 : null).seconds : asset.duration_ms ? asset.duration_ms / 1000 : undefined;
-  if (seconds) sent.media[spec.id] = { width: 0, height: 0, seconds };
+  if (seconds) sent.media[spec.id] = { width: 0, height: 0, seconds, ...(part && after ? { after } : {}) };
 }
 
 /** A part painted on one picture cannot be put on another one. */

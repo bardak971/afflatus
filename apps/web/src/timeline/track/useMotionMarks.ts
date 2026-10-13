@@ -4,6 +4,7 @@ import { api, type Clip, type Timeline } from "../../api";
 import type { Clock } from "../clock";
 import type { Slot } from "../model";
 import { motionOf } from "../measures";
+import { pausesIn } from "../../pauses";
 import { queryKeys } from "../../queryKeys";
 
 /** How much moves along a video and how loud it is, as the server measures it. */
@@ -73,17 +74,7 @@ export function useMotionMarks({ slots, clips, timeline, playEnd, pps, clock, sn
       if (m.sound && m.sound.length && s.clip.sound === "own") {
         const to = Math.min(m.sound.length - 1, Math.ceil(take.endMs / step));
         const db = m.sound.slice(from, to + 1);
-        const loud = [...db].sort((a, b) => a - b)[Math.floor(db.length * 0.9)] ?? 0;
-        const threshold = Math.min(loud - 20, -25);
-        let run = -1;
-        for (let k = 0; k <= db.length; k++) {
-          const low = k < db.length && db[k]! < threshold;
-          if (low && run < 0) run = k;
-          if (!low && run >= 0) {
-            if (k - run >= 3 && run > 0 && k < db.length) pauses.push(s.clip.atMs + ((from + (run + k) / 2) * step - take.startMs));
-            run = -1;
-          }
-        }
+        for (const p of pausesIn(db)) if (p.from > 0 && p.to < db.length) pauses.push(s.clip.atMs + ((from + (p.from + p.to) / 2) * step - take.startMs));
       }
       return { slot: s, curve, quiet, pauses };
     });

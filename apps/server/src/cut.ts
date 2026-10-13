@@ -1095,15 +1095,46 @@ export function partOf(start: number, seconds: number, total: number | null): { 
  * A part of a sound (or of a video's sound) as a sound of its own: from `start` seconds, `seconds` long.
  * The start is where it was asked, as long as two seconds are left after it; the part ends where the
  * sound ends when that comes first. `even` evens out its loudness (EBU R128, to -16 LUFS): a voice recorded
- * quietly (the owner's sample sat at -37 dB) guided H3 weakly.
+ * quietly (the owner's sample sat at -37 dB) guided H3 weakly. `after` hands over that many seconds more, for a
+ * clip that outlasts the part: the sound's own pause after the part as it is (its room tone), and where the sound
+ * speaks again (or was ended mid-word) it is faded out in 0.15 s, then silence, always `after` seconds in all.
  */
-export async function soundPart(source: Media, ext: string, opts: { start: number; seconds: number; durationMs?: number | null; even?: boolean }): Promise<Uint8Array> {
+export async function soundPart(source: Media, ext: string, opts: { start: number; seconds: number; durationMs?: number | null; even?: boolean; after?: number }): Promise<Uint8Array> {
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "part.wav");
     const { start, seconds } = partOf(opts.start, opts.seconds, opts.durationMs ? opts.durationMs / 1000 : null);
-    const even = opts.even ? ["-af", "loudnorm=I=-16:TP=-1.5:LRA=11"] : [];
-    await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-ss", start.toFixed(3), "-t", seconds.toFixed(3), "-i", input, "-vn", ...even, "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", out]);
+    const after = Math.max(0, opts.after ?? 0);
+    const filters = opts.even ? ["loudnorm=I=-16:TP=-1.5:LRA=11"] : [];
+    if (after > 0) {
+      const quiet = await quietAfter(input, start, seconds, after);
+      if (quiet < after - 0.01) filters.push(`afade=t=out:st=${(seconds + quiet).toFixed(3)}:d=0.15`);
+      filters.push(`apad=whole_dur=${(seconds + after).toFixed(3)}`);
+    }
+    const af = filters.length ? ["-af", filters.join(",")] : [];
+    await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-ss", start.toFixed(3), "-t", (seconds + after).toFixed(3), "-i", input, "-vn", ...af, "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", out]);
     return new Uint8Array(await readFile(out));
   });
+}
+
+/** What ffmpeg writes about a sound as it reads it (its own report, on stderr): volumedetect's and silencedetect's figures. */
+function reportOf(args: string[]): Promise<string> {
+  return new Promise<string>((done) => {
+    execFile(tools.ffmpeg, localInputs(["-hide_banner", "-nostats", ...args, "-f", "null", "-"]), { encoding: "utf8", timeout: 60_000, windowsHide: true }, (_err, _stdout, stderr) => done(String(stderr)));
+  });
+}
+
+/**
+ * How long the sound stays quiet right after a part (0 to `most` seconds): quiet is 30 dB under the part's loudest, so a
+ * take recorded quietly has pauses too, and a room's hum is still quiet.
+ */
+async function quietAfter(input: string, start: number, seconds: number, most: number): Promise<number> {
+  const loud = Number(/max_volume:\s*(-?[\d.]+) dB/.exec(await reportOf(["-ss", start.toFixed(3), "-t", seconds.toFixed(3), "-i", input, "-vn", "-af", "volumedetect"]))?.[1] ?? NaN);
+  if (!Number.isFinite(loud)) return 0;
+  const said = await reportOf(["-ss", (start + seconds).toFixed(3), "-t", most.toFixed(3), "-i", input, "-vn", "-af", `silencedetect=noise=${(loud - 30).toFixed(1)}dB:d=0.1`]);
+  const began = Number(/silence_start:\s*(-?[\d.]+)/.exec(said)?.[1] ?? NaN);
+  // quiet from the part's very end, or not at all: speech that goes on and then pauses is no pause to end on
+  if (!Number.isFinite(began) || began > 0.05) return 0;
+  const ended = Number(/silence_end:\s*(-?[\d.]+)/.exec(said)?.[1] ?? NaN);
+  return Math.min(most, Number.isFinite(ended) ? ended : most);
 }

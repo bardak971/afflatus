@@ -42,6 +42,11 @@ const defs = {
   person: z.strictObject({
     pictures: z.array(z.string()).max(LIMITS.pictures).default([]),
     voice: z.string().nullable().default(null),
+    /**
+     * The part of the voice sample a model is given, in seconds (null: the form's own, from the start): set once, every
+     * render of them speaks with the same few seconds.
+     */
+    voicePart: z.strictObject({ start: z.number().min(0).max(3600), seconds: z.number().min(0.5).max(60) }).nullable().default(null),
     tags: z.string().max(4000).default(""),
     sentence: z.string().max(4000).default(""),
     /** Per model family: the LoRA of this person, its strength and the word that calls it up. */
@@ -100,7 +105,7 @@ export type EntityView = ReturnType<typeof view>;
 /** What was added to a form for its cast and its style, to show before it is sent. */
 export interface Composed {
   input: Record<string, unknown>;
-  added: { words: Array<{ from: string; text: string }>; loras: Array<{ from: string; file: string }>; references: number; /** The reference pictures added, and whose they are (a person's own without their background: cutout). */ refs: Array<{ asset: string; role: ReferenceRole; from: string; cutout?: boolean }>; voice: string | null; /** The voice sample added: the form shows it in its sound field. */ voiceAsset: string | null; skipped: string[] };
+  added: { words: Array<{ from: string; text: string }>; loras: Array<{ from: string; file: string }>; references: number; /** The reference pictures added, and whose they are (a person's own without their background: cutout). */ refs: Array<{ asset: string; role: ReferenceRole; from: string; cutout?: boolean }>; voice: string | null; /** The voice sample added: the form shows it in its sound field. */ voiceAsset: string | null; /** The part of it set on the person. */ voicePart?: { start: number; seconds: number }; skipped: string[] };
 }
 
 /** The files an entity's definition names: its pictures, its outfits' pictures and its voice sample. */
@@ -198,7 +203,7 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
   const bits: string[] = [];
   const refs: Array<ReferenceValue & { from: string; cutout?: boolean }> = [];
   const loras: Array<LoraValue & { from: string }> = [];
-  let voice: { asset: string; from: string } | null = null;
+  let voice: { asset: string; from: string; part: { start: number; seconds: number } | null } | null = null;
 
   for (const member of look!.cast) {
     const row = byId.get(member.id);
@@ -219,7 +224,7 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
         refs.push({ asset: cut ?? picture, role: "person", from: row.name, ...(cut ? { cutout: true } : {}) });
       }
       if (worn?.picture) refs.push({ asset: worn.picture, role: "clothing", from: row.name });
-      if (p.voice && !voice) voice = { asset: p.voice, from: row.name };
+      if (p.voice && !voice) voice = { asset: p.voice, from: row.name, part: p.voicePart };
     } else if (row.kind === "place") {
       const p = defs.place.parse(JSON.parse(row.def)) as PlaceDef;
       const words = tags ? p.tags : p.sentence;
@@ -269,6 +274,12 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
       input[voiceSpec.id] = voice.asset;
       added.voice = voice.from;
       added.voiceAsset = voice.asset;
+      // with the part set on the person, in place of the form's (a sample chosen in the form keeps the form's part)
+      if (voice.part && voiceSpec.type === "audio" && voiceSpec.window) {
+        input[voiceSpec.window.start] = voice.part.start;
+        input[voiceSpec.window.seconds] = voice.part.seconds;
+        added.voicePart = voice.part;
+      }
     }
   }
 

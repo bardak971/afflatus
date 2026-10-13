@@ -168,6 +168,20 @@ describe("people, places and styles", () => {
     expect(made.input.references).toEqual([{ asset: close, role: "person" }, { asset: c.side, role: "person" }, { asset: c.front, role: "person" }]);
   });
 
+  it("give their voice with the part set on them, and a lip sync none: the recording is its voice", async () => {
+    const c = await cast();
+    await put(`/api/entities/${c.her}`, { def: { voice: c.voice, voicePart: { start: 1.5, seconds: 9.2 } } });
+    const made = (await post(t.app, "/api/compose", { recipe: "h3.video", input: { description: "x", voiceStart: 0, voiceSeconds: 8 }, look: { cast: [{ id: c.her }] } })).json();
+    expect(made.input).toMatchObject({ voice: c.voice, voiceStart: 1.5, voiceSeconds: 9.2 });
+    expect(made.added.voicePart).toEqual({ start: 1.5, seconds: 9.2 });
+    // a sample chosen in the form keeps the form's part
+    const mine = (await post(t.app, "/api/compose", { recipe: "h3.video", input: { description: "x", voice: "mine", voiceStart: 2, voiceSeconds: 6 }, look: { cast: [{ id: c.her }] } })).json();
+    expect(mine.input).toMatchObject({ voice: "mine", voiceStart: 2, voiceSeconds: 6 });
+    const lipSync = (await post(t.app, "/api/compose", { recipe: "h3.lipsync", input: { description: "x" }, look: { cast: [{ id: c.her }] } })).json();
+    expect(lipSync.input.voice).toBeUndefined();
+    expect(lipSync.added.voice).toBeNull();
+  });
+
   it("say what did not fit, and leave out what is gone", async () => {
     const c = await cast();
     // the library refuses to bin a picture a person still names (409); one gone all the same (a database from before) is left out
