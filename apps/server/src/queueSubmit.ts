@@ -3,7 +3,7 @@ import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, mainMo
 import { ComfyCancelled } from "@afflatus/comfy";
 import { forecast, fromRates, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
-import { cutFrames, rangeKeep, referenceClip, soundPart } from "./cut";
+import { cutFrames, partOf, rangeKeep, referenceClip, soundPart } from "./cut";
 import type { Db, Tables } from "./db";
 import { extOf } from "./media";
 import { usualParts } from "./renders";
@@ -352,11 +352,16 @@ async function uploadSound({ db, storage, upload, input, signal, sent }: Up, spe
   // only the chosen part of it is handed over: a few clean seconds carry a voice better than a long take
   // (a sound ffmpeg cannot cut, or no ffmpeg at all: the whole of it is used, as before there was a part to set)
   going(signal);
-  const part = await soundPart(whole, extOf(asset.mime), { start: Number(input[spec.window.start] ?? 0), seconds: Number(input[spec.window.seconds] ?? 8), durationMs: asset.duration_ms }).catch((err) => {
+  const asked = { start: Number(input[spec.window.start] ?? 0), seconds: Number(input[spec.window.seconds] ?? 8) };
+  const even = Boolean(spec.window.even && input[spec.window.even]);
+  const part = await soundPart(whole, extOf(asset.mime), { ...asked, durationMs: asset.duration_ms, even }).catch((err) => {
     sent.warnings.push(`The part of the ${spec.label.toLowerCase()} could not be cut (${(err as Error).message}): the whole sound was used.`);
     return null;
   });
   sent.uploads[spec.id] = part ? await upload(part, "wav") : await upload(whole, extOf(asset.mime));
+  // how long the part really is (a sound that ends before the part asked for gives less): a recipe that follows it, a lip sync, is made that long
+  const seconds = part ? partOf(asked.start, asked.seconds, asset.duration_ms ? asset.duration_ms / 1000 : null).seconds : asset.duration_ms ? asset.duration_ms / 1000 : undefined;
+  if (seconds) sent.media[spec.id] = { width: 0, height: 0, seconds };
 }
 
 /** A part painted on one picture cannot be put on another one. */

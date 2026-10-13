@@ -210,8 +210,9 @@ interface AudioInput extends Base {
   /**
    * Only a part of the sound is used: the ids of the two number inputs that say where it starts and how
    * long it is, in seconds. The recipe is handed that part alone. The form shows them with the sound.
+   * `even`: the id of a toggle that evens out the part's loudness as it is cut (a quiet take guides a model weakly).
    */
-  window?: { start: string; seconds: string };
+  window?: { start: string; seconds: string; even?: string };
 }
 
 export type InputSpec =

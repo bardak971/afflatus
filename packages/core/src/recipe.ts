@@ -82,6 +82,8 @@ export interface MediaFacts {
   latentCut?: number;
   /** Of the clip before, in a latent re-sample finish: the size of its own re-sampled latent, when it was finished that way (uploaded as "<input>.fine"). */
   fine?: { width: number; height: number };
+  /** Of a sound: how long the part handed over is, in seconds (shorter than asked when the sound ends first). */
+  seconds?: number;
   /** Of a mask: the part that was painted, with room around it, in pixels of the picture it is painted over. */
   box?: { x: number; y: number; width: number; height: number };
 }

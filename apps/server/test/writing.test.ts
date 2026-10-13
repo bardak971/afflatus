@@ -195,6 +195,24 @@ describe.skipIf(!hasFfmpeg)("a part of a sound", () => {
     // a sound shorter than the part: all of it
     expect(secondsOf(await soundPart(tone(3), "wav", { start: 0, seconds: 8, durationMs: 3_000 }))).toBeCloseTo(3, 1);
   });
+
+  it("evens out a quiet take when asked, and leaves it as it is otherwise", async () => {
+    const quiet = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=330:duration=4", "-af", "volume=-36dB", "-f", "wav", "pipe:1"], { maxBuffer: 64 * 1024 * 1024 });
+    const take = new Uint8Array(quiet.stdout);
+    // the loudest sample of a 16-bit WAV, as a share of full scale (its samples start after the "data" chunk's header)
+    const peak = (wav: Uint8Array) => {
+      const at = Buffer.from(wav).indexOf("data") + 8;
+      const view = new DataView(wav.buffer, wav.byteOffset + at, wav.length - at - ((wav.length - at) % 2));
+      let most = 0;
+      for (let i = 0; i < view.byteLength; i += 2) most = Math.max(most, Math.abs(view.getInt16(i, true)));
+      return most / 32768;
+    };
+    const plain = await soundPart(take, "wav", { start: 0, seconds: 4, durationMs: 4_000 });
+    const even = await soundPart(take, "wav", { start: 0, seconds: 4, durationMs: 4_000, even: true });
+    expect(peak(plain)).toBeLessThan(0.03);
+    expect(peak(even)).toBeGreaterThan(peak(plain) * 5);
+    expect(secondsOf(even)).toBeCloseTo(4, 1);
+  });
 });
 
 describe("what a draft made, and where it lands", () => {
