@@ -359,7 +359,9 @@ export class Rented {
       s.watchdog = minutes > 0 && said?.can ? "on" : "none";
       answers = true;
     } else if (res) {
-      if (res.status === 404) {
+      // refused by ComfyUI itself (a 404, or a 405 from an older ComfyUI whose page answers every address): it answers, with
+      // no watchdog; locked against Afflatus's token (401), or the provider's proxy with no ComfyUI behind it (5xx), it does not
+      if (res.status >= 400 && res.status < 500 && res.status !== 401) {
         s.watchdog = "none";
         answers = true;
       }

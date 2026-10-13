@@ -192,6 +192,25 @@ describe("money safety", () => {
   });
 });
 
+describe("what a real pod showed", () => {
+  it("an older ComfyUI without the pack (405 to the watchdog's call) answers: it is up, with no watchdog", async () => {
+    a.packVersion = null;
+    a.oldPage = true;
+    const id = await add(podA().id);
+    await started(id, podA);
+    const row = await rowOf(id);
+    expect(row.rented).toMatchObject({ answers: true, watchdog: "none" });
+  });
+
+  it("a pod's machine id is its own: never an id a removed machine had, the same when added again", async () => {
+    const id = await add(podA().id);
+    expect(id).toBe(`rp-${podA().id}`);
+    const machines = (await get(t.app, "/api/settings")).json().machines.filter((m: { id: string }) => m.id !== id);
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines } });
+    expect(await add(podA().id)).toBe(id);
+  });
+});
+
 describe("RunPod's dates", () => {
   it("reads ISO and Go's way, and nothing else", () => {
     expect(podTime("2026-10-13T10:00:00.000Z")).toBe(Date.parse("2026-10-13T10:00:00.000Z"));
