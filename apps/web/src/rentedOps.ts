@@ -15,7 +15,8 @@ export function useRentedOps() {
   const client = useQueryClient();
   const failed = useSayFailed({ id: "rented", href: "/settings", go: "Open settings" });
   const settle = () => {
-    for (const queryKey of [queryKeys.queue(), queryKeys.rentedSpending(), queryKeys.runpodPods()]) void client.invalidateQueries({ queryKey });
+    // a Terminate takes the machine out of the settings too
+    for (const queryKey of [queryKeys.queue(), queryKeys.rentedSpending(), queryKeys.runpodPods(), queryKeys.settings(), queryKeys.machines()]) void client.invalidateQueries({ queryKey });
   };
   const start = useMutation({ mutationFn: (machine: string) => api.startMachine(machine), onSuccess: settle, onError: failed("Could not start the pod") });
   const stop = useMutation({ mutationFn: (v: { machine: string; how: "stop" | "terminate" }) => api.stopMachine(v.machine, v.how), onSuccess: settle, onError: failed("Could not stop the pod") });

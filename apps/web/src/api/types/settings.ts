@@ -77,6 +77,10 @@ export interface RentedMachine {
   idleDo: "stop" | "terminate";
   /** Minutes this PC may be silent before the pod stops itself; 0: no watchdog. */
   watchdogMinutes: number;
+  /** Its other public ports (FileBrowser, JupyterLab, SSH) kept open at its start; off: closed at each Start. */
+  openPorts: boolean;
+  /** The ports Afflatus closed on it: put back at a Start once they are to be kept open. */
+  closedPorts: string[];
 }
 /** A ComfyUI asked now (GET /api/machines): whether it answers (and why not), its version, its GPU and the Afflatus node pack it loaded. */
 export interface MachineProbe {

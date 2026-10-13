@@ -31,7 +31,10 @@ export function registerRented(app: FastifyInstance, s: Services): void {
       // when the pod is removed and added again, so that it keeps its own history
       id = podMachineId(found.id);
       if (current.machines.some((m) => m.id === id)) throw httpError("This pod is added already.", 409);
-      const rented = { provider: "runpod" as const, pod: found.id, idleMinutes: 10, idleDo: "stop" as const, watchdogMinutes: 15 };
+      // idle: without a volume, a stop keeps nothing (its container disk is erased) and its GPU may be taken meanwhile, so that
+      // it cannot start again: terminated then; with one, stopped (its disk kept, billed)
+      const volume = found.networkVolume || found.diskGb > 0;
+      const rented = { provider: "runpod" as const, pod: found.id, idleMinutes: 10, idleDo: volume ? ("stop" as const) : ("terminate" as const), watchdogMinutes: 15, openPorts: false, closedPorts: [] };
       return { machines: [...current.machines, { id, name: found.name.slice(0, 40), url: podUrl(found.id), dir: "", takes: "all", families: {}, rented }] };
     });
     s.queue.events.emit("setup");
@@ -42,7 +45,7 @@ export function registerRented(app: FastifyInstance, s: Services): void {
   /** The user's Start: refused at a spending cap. Afflatus never starts a pod otherwise. */
   app.post("/api/machines/:id/start", async (req) => s.rented.start(params.parse(req.params).id));
 
-  /** The user's Stop (the disk goes on billing) or Delete (terminate: nothing billed, the pod gone). */
+  /** The user's Stop (the disk goes on billing) or Terminate (nothing billed, the pod gone, and gone from Afflatus too). */
   app.post("/api/machines/:id/stop", async (req) => {
     const { how } = z.object({ how: z.enum(["stop", "terminate"]).default("stop") }).parse(req.body ?? {});
     return s.rented.stopBy(params.parse(req.params).id, how);

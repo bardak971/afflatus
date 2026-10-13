@@ -174,8 +174,8 @@ export const api = {
   addRunpodPod: (pod: string) => call<{ id: string }>("POST", "/runpod/add", { pod }),
   /** The user's Start of a rented machine: refused at a spending cap. */
   startMachine: (id: string) => call<RentedState>("POST", `/machines/${encodeURIComponent(id)}/start`, {}),
-  /** The user's Stop (the disk goes on billing) or Delete (the pod gone on RunPod). */
-  stopMachine: (id: string, how: "stop" | "terminate") => call<RentedState>("POST", `/machines/${encodeURIComponent(id)}/stop`, { how }),
+  /** The user's Stop (the disk goes on billing) or Terminate (the pod gone on RunPod, and from Afflatus). */
+  stopMachine: (id: string, how: "stop" | "terminate") => call<RentedState | null>("POST", `/machines/${encodeURIComponent(id)}/stop`, { how }),
   /** What the rented GPUs cost today and this month, the caps, RunPod's balance; null without a rented machine. */
   rentedSpending: (o?: Asked) => call<{ spending: RentedSpending | null }>("GET", "/rented/spending", undefined, o?.signal),
   /** Where to open ComfyUI's own page: locked, its login with a one-time code. */

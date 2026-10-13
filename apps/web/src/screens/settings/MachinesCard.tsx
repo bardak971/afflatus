@@ -145,7 +145,7 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
   useEffect(() => {
     if (podStatus) void client.invalidateQueries({ queryKey: queryKeys.machines() });
   }, [podStatus, client]);
-  // asked for by its id (?machine=, a menu's "Delete the pod…"): its card is brought into view
+  // asked for by its id (?machine=, a menu's "Terminate…"): its card is brought into view
   const asked = new URLSearchParams(useSearch()).get("machine") === machine.id;
   useEffect(() => {
     if (asked) document.getElementById(`machine-${machine.id}`)?.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -205,7 +205,7 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
       <Row label="Takes" help="What the queue gives this machine. A job pinned to it (dragged onto its lane in the Queue) runs there whatever this says.">
         <Segmented oneLine label={`What ${label} takes`} value={machine.takes} options={TAKES} onChange={(takes) => put({ takes })} />
       </Row>
-      {rented && <RentedRows machine={machine} state={state} put={(r) => put({ rented: r })} ops={rentedOps} />}
+      {rented && <RentedRows machine={machine} state={state} put={(r) => put({ rented: r })} ops={rentedOps} remove={() => save.mutate(all.filter((m) => m.id !== machine.id))} />}
       <AccessRow id={machine.id} label={label} probe={probe} url={machine.url} rented={rented} />
       {all.length > 1 && (
         <Row label="Order and removal" help="The first ComfyUI is the one the setup, the downloads and the node packs talk to. Removing one leaves what it rendered in the library; a job waiting for it goes to another machine.">
@@ -248,7 +248,7 @@ export function MachineCards({ machines, probes, states }: { machines: Machine[]
   // the machine asked for by its id (?machine=) opens as a card, past four as well
   const asked = new URLSearchParams(useSearch()).get("machine");
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set(asked ? [asked] : []));
-  // asked again while the page is open (a menu's "Delete the pod…"): its card opens, folded or not
+  // asked again while the page is open (a menu's "Terminate…"): its card opens, folded or not
   useEffect(() => {
     if (asked) setOpen((was) => (was.has(asked) ? was : new Set([...was, asked])));
   }, [asked]);

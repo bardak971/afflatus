@@ -86,7 +86,69 @@ describe("money safety", () => {
     const id = await add(podA().id);
     await post(t.app, `/api/machines/${id}/start`, {});
     const token = (await readSettings(t.db)).machines.find((m) => m.id === id)!.token;
-    expect(podA().env).toEqual({ HF_TOKEN: "hf_keep_me", AFFLATUS_TOKEN: token, AFFLATUS_WATCHDOG_MINUTES: "15" });
+    expect(podA().env).toEqual({ HF_TOKEN: "hf_keep_me", AFFLATUS_TOKEN: `{{ RUNPOD_SECRET_afflatus-${podA().id} }}`, AFFLATUS_WATCHDOG_MINUTES: "15" });
+    expect(runpod.secrets[`afflatus-${podA().id}`]).toBe(token);
+  });
+
+  it("keeps the token in its environment when the key cannot make secrets, and the pod is locked all the same", async () => {
+    runpod.failSecrets = true;
+    const id = await add(podA().id);
+    await started(id, podA);
+    const token = (await readSettings(t.db)).machines.find((m) => m.id === id)!.token;
+    expect(podA().env.AFFLATUS_TOKEN).toBe(token);
+    expect(a.lock).toEqual({ token, local: false, fixed: true });
+  });
+
+  it("closes its other public ports at Start, unless asked to keep them", async () => {
+    podA().ports = ["8188/http", "8080/http", "8888/http", "22/tcp"];
+    const id = await add(podA().id);
+    await t.services.rented.poll();
+    expect((await rowOf(id)).rented?.otherPorts).toEqual(["8080/http", "8888/http", "22/tcp"]);
+    await post(t.app, `/api/machines/${id}/start`, {});
+    expect(podA().ports).toEqual(["8188/http"]);
+    // remembered: the card still says them, closed
+    expect((await readSettings(t.db)).machines.find((m) => m.id === id)?.rented?.closedPorts).toEqual(["8080/http", "8888/http", "22/tcp"]);
+    // kept open: the next Start puts back those it closed
+    await post(t.app, `/api/machines/${id}/stop`, { how: "stop" });
+    const machines = (await readSettings(t.db)).machines.map(({ token: _token, ...m }) => (m.id === id ? { ...m, rented: { ...m.rented!, openPorts: true } } : m));
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines } });
+    await post(t.app, `/api/machines/${id}/start`, {});
+    expect(podA().ports).toEqual(["8188/http", "8080/http", "8888/http", "22/tcp"]);
+    expect((await readSettings(t.db)).machines.find((m) => m.id === id)?.rented?.closedPorts).toEqual([]);
+  });
+
+  it("deletes the pod's secret however it is terminated: by its idle, or on RunPod", async () => {
+    podB().diskGb = 0;
+    const ia = await add(podA().id);
+    const ib = await add(podB().id);
+    await started(ia, podA);
+    await started(ib, podB);
+    expect(Object.keys(runpod.secrets).sort()).toEqual([`afflatus-${podA().id}`, `afflatus-${podB().id}`].sort());
+    // pod B (no volume) terminated by its idle; pod A terminated on RunPod's site
+    podA().status = "TERMINATED";
+    later(11 * 60_000);
+    await t.services.rented.poll();
+    await t.services.rented.poll();
+    expect(podB().status).toBe("TERMINATED");
+    expect(runpod.secrets).toEqual({});
+  });
+
+  it("says plainly that its GPU was taken while it was stopped", async () => {
+    const id = await add(podA().id);
+    runpod.failAction[podA().id] = 400;
+    runpod.failDetail = "There are not enough free GPUs on the host machine to start this pod.";
+    const res = await post(t.app, `/api/machines/${id}/start`, {});
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toMatch(/^Start refused: its GPU was taken while it was stopped/);
+  });
+
+  it("is terminated when idle by default without a volume, stopped with one", async () => {
+    podB().diskGb = 0;
+    const ia = await add(podA().id);
+    const ib = await add(podB().id);
+    const machines = (await readSettings(t.db)).machines;
+    expect(machines.find((m) => m.id === ia)?.rented?.idleDo).toBe("stop");
+    expect(machines.find((m) => m.id === ib)?.rented?.idleDo).toBe("terminate");
   });
 
   it("never writes the environment when RunPod did not say it, says so, and locks the pod once it is up", async () => {

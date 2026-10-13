@@ -121,7 +121,9 @@ describe("a rented machine", () => {
     const token = (await readSettings(t.db)).machines.find((m) => m.id === id)!.token;
     expect(token.length).toBeGreaterThan(40);
     expect(runpod.calls).toContain(`PATCH /v2/pods/${pod5090().id}`);
-    expect(pod5090().env.AFFLATUS_TOKEN).toBe(token);
+    // kept as a secret of the account, its environment holding only the reference
+    expect(pod5090().env.AFFLATUS_TOKEN).toBe(`{{ RUNPOD_SECRET_afflatus-${pod5090().id} }}`);
+    expect(runpod.secrets[`afflatus-${pod5090().id}`]).toBe(token);
     await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
     // up already locked, with a lock its routes cannot change: nothing was locked after the fact, and a stranger is refused
     expect(podComfy.lock).toEqual({ token, local: false, fixed: true });
@@ -133,7 +135,7 @@ describe("a rented machine", () => {
     // started again: the token already there is not written twice
     await post(t.app, `/api/machines/${id}/stop`, { how: "stop" });
     await post(t.app, `/api/machines/${id}/start`, {});
-    expect(runpod.calls.filter((c) => c.startsWith("PATCH")).length).toBe(1);
+    expect(runpod.calls.filter((c) => c.startsWith("PATCH /v2/pods")).length).toBe(1);
   });
 
   it("has work while a job it could take waits or runs there, none once it is done or the queue is paused", async () => {
@@ -227,11 +229,21 @@ describe("a rented machine", () => {
     expect((await t.services.rented.spending()).today).toBeCloseTo(before, 6);
   });
 
-  it("is deleted when asked, and then said gone", async () => {
+  it("is terminated when asked: gone from RunPod and from Afflatus, its secret with it", async () => {
     await setKey();
     const id = await add();
+    await post(t.app, `/api/machines/${id}/start`, {});
+    expect(Object.keys(runpod.secrets)).toHaveLength(1);
     expect((await post(t.app, `/api/machines/${id}/stop`, { how: "terminate" })).statusCode).toBe(200);
     expect(pod5090().status).toBe("TERMINATED");
+    expect((await readSettings(t.db)).machines.some((m) => m.id === id)).toBe(false);
+    expect(runpod.secrets).toEqual({});
+  });
+
+  it("terminated on RunPod's side: said not on RunPod", async () => {
+    await setKey();
+    const id = await add();
+    pod5090().status = "TERMINATED";
     await t.services.rented.poll();
     expect((await rowOf(id)).rented?.status).toBe("GONE");
     expect(t.services.queue.unavailable(id)).toBe("not on RunPod");

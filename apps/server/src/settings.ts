@@ -72,6 +72,13 @@ export const rentedSchema = z.object({
   idleDo: z.enum(["stop", "terminate"]).default("stop"),
   /** Minutes this PC may be silent before the pod stops itself (the node pack's watchdog); 0: no watchdog. */
   watchdogMinutes: z.number().int().min(0).max(24 * 60).default(15),
+  /**
+   * Its other public ports (a template's FileBrowser, JupyterLab, SSH) kept open at its start. Off: closed at each Start, only
+   * ComfyUI's (locked) reached: those others have their own logins, some with a default password printed in the template.
+   */
+  openPorts: z.boolean().default(false),
+  /** The ports Afflatus closed on it ("8080/http"): put back at a Start once they are to be kept open. */
+  closedPorts: z.array(z.string().max(40)).max(20).default([]),
 });
 
 
