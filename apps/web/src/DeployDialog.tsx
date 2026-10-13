@@ -29,7 +29,7 @@ const WHY_PLACE = "The data center the pod would run in: the one with the highes
 type SortKey = "name" | "memory" | "place" | "stock" | "price";
 const SORTS: Array<{ key: SortKey; label: string; help?: string; className?: string }> = [
   { key: "name", label: "GPU" },
-  { key: "memory", label: "VRAM", className: "text-right" },
+  { key: "memory", label: "VRAM", className: "justify-end" },
   { key: "place", label: "Data center", help: WHY_PLACE },
   { key: "stock", label: "Stock", help: WHY_STOCK },
   { key: "price", label: "$/h", className: "justify-end" },
