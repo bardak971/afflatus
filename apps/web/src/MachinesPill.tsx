@@ -1,12 +1,15 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, MoreHorizontal, Pause, Play } from "lucide-react";
 import { Link } from "wouter";
 import type { MachineState } from "./api";
 import { useMenu } from "./ContextMenu";
 import { useQueue } from "./data";
 import { gb, usd } from "./format";
-import { machineLabel, rentedSaid, rentedUp, severalMachines } from "./machines";
+import { useNow } from "./hooks";
+import { machineLabel, rentedSaid, rentedSpent, rentedUp, severalMachines } from "./machines";
 import { Popover } from "./Popover";
+import { queryKeys } from "./queryKeys";
 import { useQueueOps } from "./queueOps";
 import { useMeteredMachine, useSystem } from "./store";
 import { cx } from "./ui";
@@ -55,10 +58,10 @@ function busiest(machines: MachineState[]): string {
 }
 
 /** What a machine does, in a few words, for its row. */
-function doing(m: MachineState): string {
+function doing(m: MachineState, now: number): string {
   // a rented pod: its own state first (stopped, starting), its cost while it runs
-  if (m.rented && m.rented.status !== "RUNNING") return rentedSaid(m.rented);
-  const cost = m.rented?.since ? ` · ${usd(m.rented.spent)}` : "";
+  if (m.rented && m.rented.status !== "RUNNING") return rentedSaid(m.rented, now);
+  const cost = m.rented?.since ? ` · ${usd(rentedSpent(m.rented, now), true)}` : "";
   if (m.online === false) return m.locked ? "locked: its token is wrong" : "offline";
   if (m.running) return `${m.running.label}${m.running.steps ? ` · ${m.running.step}/${m.running.steps}` : ` · ${Math.round(m.running.progress * 100)} %`}${cost}`;
   const state = m.paused ? "paused" : "idle";
@@ -83,6 +86,16 @@ export function MachinesPill() {
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const menu = useMenu<string | null>();
+  const client = useQueryClient();
+  // a rented pod that runs (or starts) costs by the second: its row counts while the popover is open, and the queue is read
+  // again every so often beside the live events, so that a stop by idle or by a cap is never missed
+  const rentedOn = machines.some((m) => m.rented && m.rented.status !== "EXITED" && m.rented.status !== "GONE" && m.rented.status !== "TERMINATED");
+  const now = useNow(1000, open && rentedOn);
+  useEffect(() => {
+    if (!rentedOn) return;
+    const t = setInterval(() => void client.invalidateQueries({ queryKey: queryKeys.queue(), exact: true }), 15_000);
+    return () => clearInterval(t);
+  }, [rentedOn, client]);
   useEffect(() => {
     const show = () => setOpen(true);
     window.addEventListener(OPEN_MACHINES, show);
@@ -102,7 +115,7 @@ export function MachinesPill() {
         aria-expanded={open}
         onClick={() => setOpen(!open)}
         onContextMenu={(e) => { setOpen(false); menu.open(e, null); }}
-        data-tip={`${machines.map((m) => `${machineLabel(m)}: ${doing(m)}`).join("\n")}\nClick for each machine's figures and actions.`}
+        data-tip={`${machines.map((m) => `${machineLabel(m)}: ${doing(m, now)}`).join("\n")}\nClick for each machine's figures and actions.`}
         className={cx("inline-flex h-7 min-w-0 shrink-0 items-center gap-2 rounded-full border border-line px-2.5 text-xs whitespace-nowrap hover:bg-hover", open && "ring-1 ring-accent")}
       >
         <span className="inline-flex shrink-0 items-center gap-1">
@@ -151,7 +164,7 @@ export function MachinesPill() {
                 >
                   <Dot m={m} />
                   <span className="flex min-w-0 flex-col gap-1">
-                    <span className="truncate"><span className="font-semibold">{machineLabel(m)}</span> <span className="text-ink-2">· {doing(m)}</span></span>
+                    <span className="truncate"><span className="font-semibold">{machineLabel(m)}</span> <span className="text-ink-2">· {doing(m, now)}</span></span>
                     {g ? (
                       <span className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11.5px] text-ink-2">
                         {g.load !== undefined && <span className="inline-flex items-center gap-1.5"><Bar label="GPU" value={g.load} hot={Boolean(m.running)} />{Math.round(g.load)} %</span>}

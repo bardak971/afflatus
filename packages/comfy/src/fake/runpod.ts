@@ -13,6 +13,8 @@ export interface FakePod {
   dataCenterId: string;
   ports: string[];
   diskGb: number;
+  /** Its environment: AFFLATUS_TOKEN in it locks its ComfyUI from its start, as the node pack does (a fixed lock). */
+  env: Record<string, string>;
   startedAt: string | null;
   comfy: FakeComfy;
 }
@@ -24,6 +26,7 @@ export interface FakeRunpod {
   pods: FakePod[];
   /** Every call, as "METHOD /path [action]". */
   calls: string[];
+  /** The account's balance at the start: what the GraphQL says is this, less what the pods have run since. */
   balance: number;
   /** How long a started pod is STARTING before it runs. */
   bootMs: number;
@@ -35,6 +38,7 @@ const raw = (p: FakePod) => ({
   actions: p.status === "RUNNING" ? ["stop", "restart", "terminate"] : p.status === "EXITED" || p.status === "ERROR" ? ["start", "terminate"] : ["stop", "terminate"],
   gpu: { id: p.gpu, count: 1 }, dataCenterId: p.dataCenterId, ports: p.ports, cloud: "SECURE", image: "runpod/comfyui:latest",
   mounts: { persistent: { size: p.diskGb, path: "/workspace" } },
+  env: p.env,
   runtime: p.status === "RUNNING" && p.startedAt ? { uptime: Math.round((Date.now() - Date.parse(p.startedAt)) / 1000) } : null,
   startedAt: p.startedAt,
 });
@@ -45,14 +49,18 @@ const raw = (p: FakePod) => ({
  * stopped one EXITED; a deleted one gone. Each pod's id is its ComfyUI's port, so that "http://127.0.0.1:{id}" (RUNPOD_PROXY)
  * reaches it as RunPod's proxy would.
  */
-export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod, "id" | "startedAt" | "status"> & { status?: FakePod["status"] }>; balance?: number; bootMs?: number }): Promise<FakeRunpod> {
+export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod, "id" | "startedAt" | "status" | "env"> & { status?: FakePod["status"]; env?: Record<string, string> }>; balance?: number; bootMs?: number }): Promise<FakeRunpod> {
   const pods: FakePod[] = o.pods.map((p) => {
     const status = p.status ?? "EXITED";
     p.comfy.down = status !== "RUNNING";
-    return { ...p, id: new URL(p.comfy.url).port, status, startedAt: status === "RUNNING" ? new Date().toISOString() : null };
+    return { ...p, env: p.env ?? {}, id: new URL(p.comfy.url).port, status, startedAt: status === "RUNNING" ? new Date().toISOString() : null };
   });
   const fake: Omit<FakeRunpod, "url" | "close"> = { key: o.key, pods, calls: [], balance: o.balance ?? 23.4, bootMs: o.bootMs ?? 1500 };
   const timers = new Set<NodeJS.Timeout>();
+  /** What the pods have cost: the stretches that ended, and what runs now. */
+  let ended = 0;
+  const running = (p: FakePod) => (p.status === "RUNNING" && p.startedAt ? ((Date.now() - Date.parse(p.startedAt)) / 3_600_000) * p.rate : 0);
+  const spent = () => ended + fake.pods.reduce((sum, p) => sum + running(p), 0);
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
@@ -64,8 +72,17 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
       res.end(value === undefined ? undefined : JSON.stringify(value));
     };
     if (req.headers.authorization !== `Bearer ${fake.key}`) return json(401, { title: "Unauthorized", status: 401, detail: "invalid api key" });
-    if (req.method === "POST" && url.pathname === "/graphql") return json(200, { data: { myself: { clientBalance: fake.balance } } });
+    // the balance goes down as the pods run, by the second, as RunPod's does
+    if (req.method === "POST" && url.pathname === "/graphql") return json(200, { data: { myself: { clientBalance: fake.balance - spent() } } });
     if (req.method === "GET" && url.pathname === "/v2/pods") return json(200, { pods: fake.pods.filter((p) => p.status !== "TERMINATED").map(raw), pagination: { nextCursor: null, hasNextPage: false } });
+    // a pod's environment, replaced whole, for its next start
+    const one = /^\/v2\/pods\/([^/]+)$/.exec(url.pathname);
+    if (req.method === "PATCH" && one) {
+      const target = fake.pods.find((p) => p.id === decodeURIComponent(one[1]!) && p.status !== "TERMINATED");
+      if (!target) return json(404, { title: "Not Found", status: 404, detail: "pod not found" });
+      if (body.env && typeof body.env === "object") target.env = { ...(body.env as Record<string, string>) };
+      return json(200, raw(target));
+    }
     const act = /^\/v2\/pods\/([^/]+)\/action$/.exec(url.pathname);
     const pod = act ? fake.pods.find((p) => p.id === decodeURIComponent(act[1]!) && p.status !== "TERMINATED") : undefined;
     if (req.method === "POST" && act) {
@@ -73,6 +90,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
       const action = body.action;
       const allowed = raw(pod).actions;
       if (typeof action !== "string" || !allowed.includes(action)) return json(409, { title: "Conflict", status: 409, detail: `cannot ${String(action)} a ${pod.status.toLowerCase()} pod` });
+      ended += running(pod);
       if (action === "terminate") {
         pod.status = "TERMINATED";
         pod.comfy.down = true;
@@ -89,6 +107,9 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
           if (pod.status !== "STARTING") return;
           pod.status = "RUNNING";
           pod.startedAt = new Date().toISOString();
+          // the node pack reads AFFLATUS_TOKEN as ComfyUI starts: locked from its first second, a lock the routes cannot change
+          const token = pod.env.AFFLATUS_TOKEN;
+          if (token && pod.comfy.packVersion) pod.comfy.lock = { token, local: false, fixed: true };
           pod.comfy.down = false;
         }, fake.bootMs);
         timers.add(t);

@@ -26,6 +26,8 @@ export interface Pod {
   diskGb: number;
   /** A network volume is mounted: what is on it outlives the pod. */
   networkVolume: boolean;
+  /** Its environment, as set on RunPod: AFFLATUS_TOKEN among it locks its ComfyUI from boot (LOCK_ENV). */
+  env: Record<string, string>;
   /** Seconds since it started, while it runs. */
   uptime: number | null;
   startedAt: string | null;
@@ -38,6 +40,9 @@ export class RunpodError extends Error {
     super(message);
   }
 }
+
+/** The variable of a pod's environment the node pack locks its ComfyUI with from its start (lock.py AFFLATUS_TOKEN). */
+export const LOCK_ENV = "AFFLATUS_TOKEN";
 
 /** The ComfyUI port a pod must expose over HTTP for Afflatus to reach it. */
 export const COMFY_PORT = 8188;
@@ -59,6 +64,7 @@ type RawPod = {
   id: string; name?: string; status?: string; cost?: number; actions?: string[];
   gpu?: { id?: string; count?: number } | null; dataCenterId?: string | null; ports?: string[];
   mounts?: { persistent?: { size?: number } | null; network?: unknown[] | null } | null;
+  env?: Record<string, string> | null;
   runtime?: { uptime?: number } | null; startedAt?: string | null;
 };
 
@@ -73,6 +79,7 @@ const podOf = (p: RawPod): Pod => ({
   ports: Array.isArray(p.ports) ? p.ports : [],
   diskGb: p.mounts?.persistent?.size ?? 0,
   networkVolume: Boolean(p.mounts?.network?.length),
+  env: p.env && typeof p.env === "object" ? { ...p.env } : {},
   uptime: p.runtime?.uptime ?? null,
   startedAt: p.startedAt ?? null,
   actions: (p.actions ?? []).filter((a): a is PodAction => ["start", "stop", "restart", "terminate"].includes(a)),
@@ -115,6 +122,11 @@ export class Runpod {
   async act(id: string, action: Exclude<PodAction, "restart">): Promise<Pod | null> {
     const got = await this.call<RawPod | undefined>(`/v2/pods/${encodeURIComponent(id)}/action`, { method: "POST", body: JSON.stringify({ action }) });
     return got ? podOf(got) : null;
+  }
+
+  /** A pod's environment set (the whole of it: what is not in it goes), for its next start. */
+  async setEnv(id: string, env: Record<string, string>): Promise<void> {
+    await this.call(`/v2/pods/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ env }) });
   }
 
   /** The account's balance in USD, from RunPod's GraphQL; null when it does not say. */

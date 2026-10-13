@@ -46,7 +46,8 @@ export interface Access {
   managerOld: boolean;
 }
 
-const newToken = () => randomBytes(32).toString("base64url");
+/** A machine's token: 32 random bytes, as base64url. */
+export const newToken = () => randomBytes(32).toString("base64url");
 const plain = (v: string) => v.replace(/^v/i, "").trim();
 
 async function packLock(comfy: Comfy): Promise<PackLock | null> {

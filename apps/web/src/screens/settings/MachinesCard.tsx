@@ -202,7 +202,7 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
         <Segmented oneLine label={`What ${label} takes`} value={machine.takes} options={TAKES} onChange={(takes) => put({ takes })} />
       </Row>
       {rented && <RentedRows machine={machine} state={state} put={(r) => put({ rented: r })} />}
-      <AccessRow id={machine.id} label={label} probe={probe} url={machine.url} />
+      <AccessRow id={machine.id} label={label} probe={probe} url={machine.url} rented={rented} />
       {all.length > 1 && (
         <Row label="Order and removal" help="The first ComfyUI is the one the setup, the downloads and the node packs talk to. Removing one leaves what it rendered in the library; a job waiting for it goes to another machine.">
           {index > 0 && <Button size="sm" onClick={() => save.mutate([machine, ...all.filter((m) => m.id !== machine.id)])}>Make it the first</Button>}

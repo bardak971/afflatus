@@ -171,8 +171,9 @@ export function useLiveEvents(): void {
       timeline: () => refetch(client, [queryKeys.timelines.all(), queryKeys.projects.trees()]),
       entities: on(queryKeys.entities()),
       downloads: on(queryKeys.downloads()),
-      // ComfyUI has a file it did not have: what is ready may have changed
-      setup: on(queryKeys.setup()),
+      // ComfyUI has a file it did not have: what is ready may have changed; or the machines changed (one added, a rented pod
+      // that came up or went, a lock): the settings that list them too
+      setup: () => refetch(client, [queryKeys.setup(), queryKeys.settings()]),
       // an update's flow: its progress written in place, the whole view read again when its phase changes (updates.ts)
       updates: (data) => {
         const flow = (parse(data) as { flow?: UpdateFlow | null } | null)?.flow ?? null;

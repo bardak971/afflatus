@@ -45,3 +45,15 @@ export function useCopied(ms = 1500): { copied: boolean; copy(text: string): voi
   const copy = useCallback((text: string) => void copyText(text).then(() => flash(true), () => {}), [flash]);
   return { copied, copy };
 }
+
+/** The time now, read again every `ms` while `on`: for what counts on screen by itself (a rented pod's running time and cost). */
+export function useNow(ms = 1000, on = true): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!on) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(t);
+  }, [ms, on]);
+  return now;
+}

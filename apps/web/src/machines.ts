@@ -52,15 +52,20 @@ export function familyOnFor(own: Readonly<Record<string, boolean>>, said: Readon
  * A rented pod's state in a few words, for its row, the pill and the menus: "starting", "stopped · disk $0.33/day",
  * "running · $0.83". What it costs is Afflatus's figure (its time × its rate), said as it is: RunPod's bill is the reference.
  */
-export function rentedSaid(r: RentedState): string {
+export function rentedSaid(r: RentedState, now = Date.now()): string {
   switch (r.status) {
-    case "RUNNING": return r.since ? `running ${long(Date.now() - r.since)} · ${usd(r.spent)}` : "running";
+    case "RUNNING": return r.since ? `running ${long(now - r.since)} · ${usd(rentedSpent(r, now), true)}` : "running";
     case "STARTING": case "PROVISIONING": return "starting";
     case "EXITED": return r.diskPerDay > 0.005 ? `stopped · disk ${usd(r.diskPerDay)}/day` : "stopped";
     case "GONE": case "TERMINATED": return "deleted on RunPod";
     case "ERROR": return "in error on RunPod";
     default: return r.error ? "RunPod not answering" : "…";
   }
+}
+
+/** What a running pod has cost so far, worked out here from its start and its rate: it counts on screen between two reads. */
+export function rentedSpent(r: RentedState, now = Date.now()): number {
+  return r.status === "RUNNING" && r.since && r.rate ? (Math.max(0, now - r.since) / 3_600_000) * r.rate : r.spent;
 }
 
 /** Whether a rented pod takes work now: only while it runs. A machine of one's own always may. */

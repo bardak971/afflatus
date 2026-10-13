@@ -38,7 +38,7 @@ function Pill({ locked, children }: { locked: boolean; children: string }) {
  * A machine's Access line (Settings › ComfyUI): whether its ComfyUI is locked to Afflatus (the node pack's lock), and the
  * buttons for it; under it, ComfyUI-Manager when it is too old. Nothing while it does not answer and is not locked.
  */
-export function AccessRow({ id, label, probe, url }: { id: string; label: string; probe: MachineProbe | undefined; url: string }) {
+export function AccessRow({ id, label, probe, url, rented = false }: { id: string; label: string; probe: MachineProbe | undefined; url: string; /** A rented pod: its address is public, and its lock is set in its environment from its start. */ rented?: boolean }) {
   const client = useQueryClient();
   const [checked, flashChecks] = useFlash(false, 2400);
   const [pasted, setPasted] = useState("");
@@ -80,7 +80,7 @@ export function AccessRow({ id, label, probe, url }: { id: string; label: string
           <span className="flex flex-wrap items-center gap-2.5">
             <Pill locked>Locked</Pill>
             {access.fixed
-              ? <span className="text-xs text-ink-2">by its start settings (AFFLATUS_TOKEN)</span>
+              ? <span className="text-xs text-ink-2">{rented ? "from its first second: Afflatus set it in the pod's environment" : "by its start settings (AFFLATUS_TOKEN)"}</span>
               : probe.tokenEnd && <span className="rounded-md border border-line bg-hover px-2 py-0.5 font-mono text-[11.5px] text-ink-2" data-tip="The token's end: the token itself stays in Afflatus">••••••••••••{probe.tokenEnd}</span>}
             {probe.tokenEnd && <button type="button" className="text-xs font-semibold text-ink-2 hover:text-ink" onClick={() => copyToken.mutate()}>{copied ? "Copied" : "Copy token"}</button>}
           </span>
@@ -107,7 +107,9 @@ export function AccessRow({ id, label, probe, url }: { id: string; label: string
           <span className="text-xs text-ink-2">
             {access.off
               ? "Started with AFFLATUS_LOCK=off: start it without it to lock it."
-              : access.canLock
+              : rented && !access.canLock
+                ? "No Afflatus node pack on this pod: anything that finds its address can use it while it runs. Put the pack on it (or use the Afflatus template) to have it locked."
+                : access.canLock
                 ? "Anything that reaches this address can use this ComfyUI."
                 : probe.pack ? `The Afflatus node pack 0.12 locks it; this one is ${probe.pack}: update it, then restart ComfyUI.` : "The Afflatus node pack locks it: install it, then restart ComfyUI."}
           </span>
