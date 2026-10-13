@@ -103,6 +103,8 @@ export interface MachineState {
   online: boolean | null;
   /** Offline because it is locked against the token Afflatus has for it (Settings › ComfyUI: paste its token), not because it is away. */
   locked: boolean;
+  /** A rented pod: started, stopped, what it has cost; null for a ComfyUI of its own. */
+  rented: RentedState | null;
   /** The model it was last asked to load, by name; null when none is, or it is not known. */
   model: string | null;
   /** Its learned pace against the others (1 the common pace, 2 half as fast); null with nothing to compare yet. */
@@ -233,4 +235,56 @@ export interface RenderItem {
   machine?: string | null;
   /** It failed out of memory (OOM). */
   oom?: boolean;
+}
+
+/** A pod of the user's on RunPod, as the list for adding one says it. */
+export interface RunpodPod {
+  id: string;
+  name: string;
+  status: RentedState["status"];
+  /** USD an hour while it runs (RunPod says 0 while it is stopped). */
+  cost: number;
+  gpu: string | null;
+  gpuCount: number;
+  dataCenter: string | null;
+  diskGb: number;
+  /** It exposes ComfyUI's port (8188, HTTP): it can be added. */
+  comfy: boolean;
+  /** The machine it is added as, when it is. */
+  added: string | null;
+}
+
+/** What the rented GPUs cost (Afflatus's figures: their time × their rate), the caps, and RunPod's balance. */
+export interface RentedSpending {
+  today: number;
+  month: number;
+  caps: { day: number; month: number };
+  balance: number | null;
+  lowBalance: boolean;
+}
+
+/** What a machine row says of a rented pod. Afflatus never starts one on its own. */
+export interface RentedState {
+  provider: "runpod";
+  pod: string;
+  /** As RunPod says it; GONE: deleted on RunPod; UNKNOWN: not read yet, or RunPod did not answer. */
+  status: "PROVISIONING" | "STARTING" | "RUNNING" | "EXITED" | "ERROR" | "TERMINATED" | "GONE" | "UNKNOWN";
+  /** USD an hour while it runs (the last rate seen). */
+  rate: number | null;
+  gpu: string | null;
+  dataCenter: string | null;
+  /** When the running session began (ms), and what it has cost so far (USD). */
+  since: number | null;
+  spent: number;
+  /** What its own disk costs a day while it is stopped (USD). */
+  diskPerDay: number;
+  /** The node pack's watchdog on it. */
+  watchdog: "on" | "none" | "unknown";
+  /** Time left before it stops for being idle, while it runs idle. */
+  idleLeftMs: number | null;
+  /** A spending cap is reached: it stops once its render ends. */
+  capped: boolean;
+  /** Why Afflatus stopped or deleted it last. */
+  stoppedBy: "idle" | "cap" | "you" | null;
+  error: string | null;
 }

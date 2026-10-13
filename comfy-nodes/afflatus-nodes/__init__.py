@@ -140,6 +140,8 @@ def clean_output(output_dir: str, hours: float) -> int:
 #       instead, output/Afflatus/video_<n>_.mp4 only, by the same rules.
 #   POST /afflatus/download, GET and DELETE /afflatus/download/<id>  → a model file fetched from Afflatus's one-time
 #       address into a model folder, to disk as it comes and picked up again after a cut (downloads.py says how).
+#   GET and POST /afflatus/alive  → the watchdog of a rented machine: "still here" from Afflatus; silent past its minutes,
+#       the pod stops itself (watchdog.py says how).
 #   GET and POST /afflatus/lock, POST /afflatus/unlock, POST /afflatus/login-code, /afflatus/login  → the lock: once set,
 #       every route of ComfyUI's server needs this machine's token (lock.py says how, and how to take it off by hand).
 # The first two are read-only, the first bytes of a file only, nothing loaded. ComfyUI's own /view_metadata gives the metadata alone.
@@ -195,6 +197,10 @@ try:
     from .downloads import register as _register_downloads
 
     _register_downloads(PromptServer.instance.routes, web, folder_paths)
+
+    from .watchdog import register as _register_watchdog
+
+    _register_watchdog(PromptServer.instance.routes, web)
 
     from .lock import install as _install_lock
 

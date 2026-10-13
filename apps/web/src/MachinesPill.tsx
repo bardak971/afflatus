@@ -4,8 +4,8 @@ import { Link } from "wouter";
 import type { MachineState } from "./api";
 import { useMenu } from "./ContextMenu";
 import { useQueue } from "./data";
-import { gb } from "./format";
-import { machineLabel, severalMachines } from "./machines";
+import { gb, usd } from "./format";
+import { machineLabel, rentedSaid, rentedUp, severalMachines } from "./machines";
 import { Popover } from "./Popover";
 import { useQueueOps } from "./queueOps";
 import { useMeteredMachine, useSystem } from "./store";
@@ -19,6 +19,11 @@ export const OPEN_MACHINES = "afflatus:machines";
 
 /** A machine's dot, in its state: filled in the accent while it renders, a green ring idle, grey paused, amber away. */
 function Dot({ m }: { m: MachineState }) {
+  // a rented pod that is not running: a grey ring while stopped, amber and pulsing while it starts
+  if (m.rented && m.rented.status !== "RUNNING") {
+    const starting = m.rented.status === "STARTING" || m.rented.status === "PROVISIONING";
+    return <span aria-hidden className={cx("size-[7px] shrink-0 rounded-full", starting ? "animate-pulse bg-warn" : "border-[1.5px] border-ink-3")} />;
+  }
   if (m.online === false) return <span aria-hidden className="size-[7px] shrink-0 rounded-full bg-warn" />;
   if (m.paused) return <span aria-hidden className="size-[7px] shrink-0 rounded-full bg-ink-3" />;
   return <span aria-hidden className={cx("size-[7px] shrink-0 rounded-full", m.running ? "bg-accent" : "border-[1.5px] border-good")} />;
@@ -39,9 +44,11 @@ function Bar({ label, value, warn, hot, tip }: { label: string; value: number; w
 /** The word for the machines together: the busiest thing they do. */
 function busiest(machines: MachineState[]): string {
   const rendering = machines.filter((m) => m.running).length;
-  const away = machines.filter((m) => m.online === false).length;
+  const away = machines.filter((m) => m.online === false && rentedUp(m)).length;
+  const starting = machines.filter((m) => m.rented?.status === "STARTING" || m.rented?.status === "PROVISIONING").length;
   const paused = machines.filter((m) => m.paused).length;
   if (rendering) return `${rendering} rendering`;
+  if (starting) return `${starting} starting`;
   if (away) return `${away} offline`;
   if (paused) return paused === machines.length ? "all paused" : `${paused} paused`;
   return "all idle";
@@ -49,10 +56,13 @@ function busiest(machines: MachineState[]): string {
 
 /** What a machine does, in a few words, for its row. */
 function doing(m: MachineState): string {
+  // a rented pod: its own state first (stopped, starting), its cost while it runs
+  if (m.rented && m.rented.status !== "RUNNING") return rentedSaid(m.rented);
+  const cost = m.rented?.since ? ` · ${usd(m.rented.spent)}` : "";
   if (m.online === false) return m.locked ? "locked: its token is wrong" : "offline";
-  if (m.running) return `${m.running.label}${m.running.steps ? ` · ${m.running.step}/${m.running.steps}` : ` · ${Math.round(m.running.progress * 100)} %`}`;
+  if (m.running) return `${m.running.label}${m.running.steps ? ` · ${m.running.step}/${m.running.steps}` : ` · ${Math.round(m.running.progress * 100)} %`}${cost}`;
   const state = m.paused ? "paused" : "idle";
-  return m.model ? `${state} · holds ${m.model}` : state;
+  return `${m.model ? `${state} · holds ${m.model}` : state}${cost}`;
 }
 
 /**

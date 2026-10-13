@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
+import { useSearch } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, MoreHorizontal } from "lucide-react";
 import { api, type Machine, type MachineProbe, type MachineState } from "../../api";
@@ -10,6 +11,8 @@ import { useQueueOps } from "../../queueOps";
 import { queryKeys } from "../../queryKeys";
 import { Button, ButtonLink, cx, ErrorNote, fieldClass, Segmented, TwoStep } from "../../ui";
 import { AccessRow } from "./AccessRow";
+import { RunpodAdd } from "./RentedCard";
+import { RentedHead, RentedRows } from "./RentedRows";
 import { Block, Card, Fact, Row, Status } from "./Rows";
 
 const MachineMenuBody = lazy(() => import("../../MachineMenu").then((m) => ({ default: m.MachineMenuBody })));
@@ -79,6 +82,7 @@ export function AddMachineCard() {
         <input id="comfy-add" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="http://127.0.0.1:8189  —  another GPU, another computer, a rented instance" spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
         <Button onClick={add} disabled={!url.trim() || save.isPending}>Add</Button>
       </Row>
+      <RunpodAdd />
       {(exposed || save.isError) && (
         <Block>
           {exposed && <ErrorNote>A public address over plain http: anyone who finds it can run code on that ComfyUI. Reach it through Tailscale or an SSH tunnel, or put it behind a proxy that asks for a password.</ErrorNote>}
@@ -131,11 +135,24 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
     onSuccess: (probes) => client.setQueryData(queryKeys.machines(), probes),
   });
   const label = machineLabel(machine);
-  const status = !probe ? null : state?.paused
+  const rented = Boolean(machine.rented);
+  // a rented pod that came up or went: what was asked of it a moment ago (not answering) no longer holds
+  const podStatus = state?.rented?.status;
+  useEffect(() => {
+    if (podStatus) void client.invalidateQueries({ queryKey: queryKeys.machines() });
+  }, [podStatus, client]);
+  // asked for by its id (?machine=, a menu's "Delete the pod…"): its card is brought into view
+  const asked = new URLSearchParams(useSearch()).get("machine") === machine.id;
+  useEffect(() => {
+    if (asked) document.getElementById(`machine-${machine.id}`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [asked, machine.id]);
+  // a rented pod's head says its own state (stopped, starting, running and its cost), with Start or Stop
+  const status = rented ? <RentedHead machine={machine} state={state} /> : !probe ? null : state?.paused
     ? <span className="text-[12.5px] font-semibold text-ink-2">Ⅱ Paused</span>
     : <Status ok={probe.online}>{probe.online ? `${state?.running ? "Rendering" : "Answering"}${probe.device ? ` · ${probe.device}` : ""}` : "Not answering"}</Status>;
   return (
     <Card
+      id={`machine-${machine.id}`}
       title={(
         <span className="flex items-baseline gap-2">
           {onFold && <button type="button" aria-label={`Fold ${label}`} className="self-center text-ink-3 hover:text-ink" onClick={onFold}><ChevronDown size={14} /></button>}
@@ -157,11 +174,12 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
       <Row label="Name" htmlFor={`comfy-name-${machine.id}`} help="What the status bar, the Queue and the menus call it. Empty: its address.">
         <input id={`comfy-name-${machine.id}`} value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name.trim() !== machine.name && put({ name: name.trim() })} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} placeholder={label} maxLength={40} className={cx("h-10 min-w-0 grow text-sm", fieldClass)} />
       </Row>
-      <Row label="ComfyUI URL" htmlFor={`comfy-url-${machine.id}`} help="The address this ComfyUI listens on. Test again saves it first when it changed; it only reads what ComfyUI has.">
+      {!rented && <Row label="ComfyUI URL" htmlFor={`comfy-url-${machine.id}`} help="The address this ComfyUI listens on. Test again saves it first when it changed; it only reads what ComfyUI has.">
         <input id={`comfy-url-${machine.id}`} value={url} onChange={(e) => setUrl(e.target.value)} spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
         <Button onClick={() => test.mutate()} disabled={test.isPending}>{test.isPending ? "Connecting…" : url.trim() !== machine.url ? "Save and test" : "Test again"}</Button>
-      </Row>
-      {(test.isError || save.isError || probe?.online === false || publicPlainHttp(machine.url)) && (
+      </Row>}
+      {/* a rented pod that is not running does not answer: its head says so, not a failure here */}
+      {(test.isError || save.isError || (probe?.online === false && (!rented || state?.rented?.status === "RUNNING")) || (!rented && publicPlainHttp(machine.url))) && (
         <Block>
           {test.isError && <ErrorNote>{test.error.message}</ErrorNote>}
           {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
@@ -176,18 +194,19 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
           {probe.pack ? <Fact tip="The Afflatus node pack this ComfyUI loaded">node pack {probe.pack}</Fact> : <ButtonLink href="/api/comfy/node-pack.zip" download tone="danger" size="sm">Node pack not loaded: download it</ButtonLink>}
         </Row>
       )}
-      <Row label="Folder on this computer" htmlFor={`comfy-dir-${machine.id}`} help="Optional: this ComfyUI's own folder (the one with main.py), when it is on this computer. Leave it empty for another computer or a rented instance.">
+      {!rented && <Row label="Folder on this computer" htmlFor={`comfy-dir-${machine.id}`} help="Optional: this ComfyUI's own folder (the one with main.py), when it is on this computer. Leave it empty for another computer or a rented instance.">
         <input id={`comfy-dir-${machine.id}`} value={dir} onChange={(e) => setDir(e.target.value)} placeholder="empty when it runs elsewhere" spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
         <Button onClick={() => put({ dir: dir.trim() })} disabled={save.isPending || dir.trim() === machine.dir}>Save</Button>
-      </Row>
+      </Row>}
       <Row label="Takes" help="What the queue gives this machine. A job pinned to it (dragged onto its lane in the Queue) runs there whatever this says.">
         <Segmented oneLine label={`What ${label} takes`} value={machine.takes} options={TAKES} onChange={(takes) => put({ takes })} />
       </Row>
-      <AccessRow id={machine.id} label={label} probe={probe} />
+      {rented && <RentedRows machine={machine} state={state} put={(r) => put({ rented: r })} />}
+      <AccessRow id={machine.id} label={label} probe={probe} url={machine.url} />
       {all.length > 1 && (
         <Row label="Order and removal" help="The first ComfyUI is the one the setup, the downloads and the node packs talk to. Removing one leaves what it rendered in the library; a job waiting for it goes to another machine.">
           {index > 0 && <Button size="sm" onClick={() => save.mutate([machine, ...all.filter((m) => m.id !== machine.id)])}>Make it the first</Button>}
-          <TwoStep tone="danger" label="Remove" title={`Remove ${label}`} note="what it rendered stays; waiting jobs go elsewhere" yes="Remove" onYes={() => save.mutate(all.filter((m) => m.id !== machine.id))} />
+          <TwoStep tone="danger" label="Remove" title={`Remove ${label}`} note={rented ? "from Afflatus only: the pod stays on RunPod, as it is" : "what it rendered stays; waiting jobs go elsewhere"} yes="Remove" onYes={() => save.mutate(all.filter((m) => m.id !== machine.id))} />
         </Row>
       )}
     </Card>
@@ -221,7 +240,9 @@ function MachineLine({ machine, index, probe, state, onOpen }: { machine: Machin
 
 /** The machines' cards; past four, a line each, a card opening on a click. */
 export function MachineCards({ machines, probes, states }: { machines: Machine[]; probes: MachineProbe[] | undefined; states: MachineState[] | undefined }) {
-  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  // the machine asked for by its id (?machine=) opens as a card, past four as well
+  const asked = new URLSearchParams(useSearch()).get("machine");
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set(asked ? [asked] : []));
   const toggle = (id: string) => setOpen((was) => {
     const next = new Set(was);
     if (!next.delete(id)) next.add(id);

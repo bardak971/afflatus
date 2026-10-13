@@ -94,8 +94,8 @@ describe("the bar's rows, mode by mode (rowsFor)", () => {
 describe("several ComfyUIs in the bar", () => {
   it("lists each machine's Pause, Use only and Unload as ready rows, by its name", () => {
     const machines = [
-      { id: "m1", label: "Studio PC", paused: false, online: true, running: true },
-      { id: "m2", label: "Second GPU", paused: true, online: true, running: false },
+      { id: "m1", label: "Studio PC", paused: false, online: true, running: true, rented: null },
+      { id: "m2", label: "Second GPU", paused: true, online: true, running: false, rented: null },
     ];
     const rows = commandTemplates({ ...CALM, queue: { ...CALM.queue!, machines } });
     const labels = rows.map((r) => r.label);

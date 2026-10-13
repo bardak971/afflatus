@@ -1,15 +1,18 @@
-import { ExternalLink, ListOrdered, MemoryStick, Pause, Play, Settings as Gear, Target } from "lucide-react";
+import { ExternalLink, ListOrdered, MemoryStick, Pause, Play, Power, PowerOff, Settings as Gear, Target, Trash2 } from "lucide-react";
 import { useOpenComfyUI } from "./actions";
 import { useLocation } from "wouter";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import type { MachineState } from "./api";
 import { useQueue } from "./data";
 import { openLoadPanel } from "./LoadPanel";
-import { machineLabel, machineUnloadBlock } from "./machines";
+import { usd } from "./format";
+import { machineLabel, machineUnloadBlock, rentedSaid } from "./machines";
+import { RUNPOD_CONSOLE, useRentedOps } from "./rentedOps";
 import { useQueueOps } from "./queueOps";
 
 /** A machine's state in a few words: what the status bar's summary and a menu's head say of it. */
 export function machineSaid(m: MachineState): string {
+  if (m.rented && m.rented.status !== "RUNNING") return rentedSaid(m.rented);
   const state = m.paused ? "paused" : m.online === false ? (m.locked ? "locked" : "offline") : m.running ? `rendering ${Math.round(m.running.progress * 100)} %` : "idle";
   return m.model ? `${state} · holds ${m.model}` : state;
 }
@@ -25,10 +28,28 @@ export function MachineMenuBody({ at, machine, onClose }: { at: Parameters<typeo
   const [, go] = useLocation();
   const ops = useQueueOps();
   const openComfy = useOpenComfyUI();
+  const rented = useRentedOps();
   const all = queue.data?.machines ?? [];
   /** One machine's own items. */
   const itemsOf = (m: MachineState): MenuItem[] => {
     const name = machineLabel(m);
+    // a rented pod that is not running: Start (the user's, its rate said), Delete (asked in its card), its page on RunPod; nothing else applies
+    const r = m.rented;
+    const onRunpod: MenuItem = { label: "Open on RunPod", icon: <ExternalLink size={14} />, run: () => void window.open(RUNPOD_CONSOLE, "_blank", "noopener") };
+    if (r && r.status !== "RUNNING") {
+      const stopped = r.status === "EXITED" || r.status === "ERROR";
+      return [
+        ...(stopped ? [{ label: `Start ${name}`, icon: <Power size={14} />, note: r.capped ? "a spending cap is reached" : r.rate ? `${usd(r.rate)} / h from now` : "billed from now", disabled: r.capped, run: () => rented.start.mutate(m.id) }] : []),
+        ...(r.status === "STARTING" || r.status === "PROVISIONING" ? [{ label: `Stop ${name}`, icon: <PowerOff size={14} />, note: "before it is up", run: () => rented.stop.mutate({ machine: m.id, how: "stop" }) }] : []),
+        ...(r.status !== "GONE" && r.status !== "TERMINATED" ? [{ label: "Delete the pod…", icon: <Trash2 size={14} />, note: "asked in its card", run: () => go(`/settings?machine=${encodeURIComponent(m.id)}`) }] : []),
+        onRunpod,
+      ];
+    }
+    const stopRented: MenuItem[] = r ? [
+      { label: `Stop ${name}`, icon: <PowerOff size={14} />, note: r.diskPerDay > 0.005 ? `the disk keeps billing ${usd(r.diskPerDay)}/day` : "the GPU stops billing", run: () => rented.stop.mutate({ machine: m.id, how: "stop" }) },
+      { label: "Delete the pod…", icon: <Trash2 size={14} />, note: "asked in its card", run: () => go(`/settings?machine=${encodeURIComponent(m.id)}`) },
+      onRunpod,
+    ] : [];
     const why = machineUnloadBlock(m);
     const onlyAlready = !m.paused && all.every((x) => x.id === m.id || x.paused);
     return [
@@ -41,6 +62,7 @@ export function MachineMenuBody({ at, machine, onClose }: { at: Parameters<typeo
       { label: `Load a model on ${name}…`, icon: <Play size={14} />, disabled: m.online === false, run: () => openLoadPanel(m.id) },
       // its own page; locked, the tab lands logged in (lock-api.ts pageUrl)
       { label: "Open ComfyUI", icon: <ExternalLink size={14} />, disabled: m.online === false && !m.locked, note: m.online === false && !m.locked ? "it does not answer" : undefined, run: () => openComfy.mutate(m.id) },
+      ...(stopRented.length ? ["—" as const, ...stopRented] : []),
     ];
   };
   const shared: MenuItem[] = [

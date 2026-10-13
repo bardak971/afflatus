@@ -1,3 +1,5 @@
+import { lockMachine } from "./lock-api";
+import { Rented } from "./rented";
 import { Comfy, type MachineComfy } from "./comfy";
 import { join } from "node:path";
 import type { Db, DbKind } from "./db";
@@ -38,6 +40,8 @@ export interface Services {
   timelines: Timelines;
   /** Model files being fetched into ComfyUI. */
   downloads: Downloads;
+  /** Rented machines: pods on RunPod, read, started and stopped (rented.ts). */
+  rented: Rented;
   /** The presets that ship with Afflatus (the repository's `presets/` folder). */
   shippedPresets: ShippedPresets;
   /** Newer versions of the model files on Civitai. */
@@ -105,6 +109,13 @@ export async function createServices(
   queue.events.on("models", () => {
     info = null;
   });
+  // a rented pod that is not running takes no work, and its row says what it is and costs
+  const rented = new Rented(db, queue, queue.events, async (id) => (await machines()).find((m) => m.machine.id === id)?.comfy ?? null);
+  queue.unavailable = (id) => rented.unavailable(id);
+  queue.rentedOf = (m) => rented.view(m);
+  // a pod up and not locked is locked (its address is public)
+  rented.lockPod = (id) => lockMachine({ db, queue, machines }, id, { local: false, renew: false });
+  rented.run();
   const timelines = new Timelines(db, storage, registry, queue.events);
   queue.clips = timelines;
   const precompute = dirs.precompute === false ? null : new Precompute(db, timelines.media, dirs.precompute);
@@ -126,13 +137,14 @@ export async function createServices(
   sweeper.unref();
   const swept = runSweep();
   const services: Services = {
-    db, dbKind, storage, linked, registry, comfy, machines, comfyOf, queue, timelines, downloads: new Downloads(queue.events, dirs.dataDir ? join(dirs.dataDir, "downloads.json") : undefined),
+    db, dbKind, storage, linked, registry, comfy, machines, comfyOf, queue, timelines, rented, downloads: new Downloads(queue.events, dirs.dataDir ? join(dirs.dataDir, "downloads.json") : undefined),
     shippedPresets: new ShippedPresets(dirs.shippedPresets === undefined ? shippedPresetsDir() : dirs.shippedPresets),
     updates: null as unknown as Updates,
     started: swept.then(() => undefined),
     precompute,
     async close() {
       clearInterval(sweeper);
+      rented.stop();
       await precompute?.stop();
       queue.stop();
       await queue.idle();

@@ -6,11 +6,11 @@ import { emptyAll, restoreAll } from "../../binActions";
 import { snapEdge } from "../../fields/SizeField";
 import { wholeForm } from "../../form";
 import { useFormTarget } from "../../formTarget";
-import { plural, size } from "../../format";
+import { plural, size, usd } from "../../format";
 import { rowKeys } from "../../keys/table";
 import { projectForNew, useProject } from "../../project";
 import { unloadBlock } from "../../queueRules";
-import { machineByName, machineLabel, machineUnloadBlock } from "../../machines";
+import { machineByName, machineLabel, machineUnloadBlock, rentedSaid } from "../../machines";
 import type { Target } from "../../projects/tree";
 import { kitHref } from "../../screens/kit/link";
 import { useBanners } from "../../store";
@@ -26,7 +26,7 @@ const KIT_WORD = { person: "person", place: "place", style: "style", preset: "pr
 
 /** A command with its figures: what it does, then (Ctrl + Enter) where it does it. */
 export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, preset?: Preset): Action[] {
-  const { aim, client, go, say, good, failed, form, noDraft, askTimeline, atTopAction, tree, queue, ops, openComfy } = x;
+  const { aim, client, go, say, good, failed, form, noDraft, askTimeline, atTopAction, tree, queue, ops, openComfy, rented } = x;
   const noTimeline: Action = { label: "No timeline to do it on", disabled: true, run: () => {} };
   switch (c.cmd) {
     case "render-clips":
@@ -152,6 +152,19 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       if (c.cmd === "machine-log") return [{ label: `ComfyUI log of ${name}`, icon: <Server size={14} />, note: m.online === false ? "it does not answer" : "its console", run: () => go(`/queue?view=log&machine=${id}`) }];
       if (c.cmd === "machine-times") return [{ label: `Render times of ${name}`, icon: <Server size={14} />, run: () => go(`/queue?view=times&machine=${id}`) }];
       return [{ label: `Models on ${name}`, icon: <Server size={14} />, note: "Settings › Models, its tab", run: () => go(`/settings/models?machine=${id}`) }];
+    }
+    case "start-pod":
+    case "stop-pod": {
+      // a rented pod, by its name: Start (the user's own, its rate said) or Stop, as its card and menu do
+      const m = machineByName(queue?.machines, c.machine);
+      const r = m?.rented;
+      if (!m || !r) return [{ label: `No rented pod called ${c.machine}`, icon: <Server size={14} />, disabled: true, run: () => {} }];
+      const name = machineLabel(m);
+      if (c.cmd === "start-pod") {
+        const can = r.status === "EXITED" || r.status === "ERROR";
+        return [{ label: `Start ${name}`, icon: <Server size={14} />, note: r.capped ? "a spending cap is reached" : !can ? rentedSaid(r) : r.rate ? `${usd(r.rate)} / h from now` : "billed from now", disabled: !can || r.capped, run: () => rented.start.mutate(m.id) }];
+      }
+      return [{ label: `Stop ${name}`, icon: <Server size={14} />, note: r.status !== "RUNNING" ? rentedSaid(r) : r.diskPerDay > 0.005 ? `the disk keeps billing ${usd(r.diskPerDay)}/day` : "the GPU stops billing", disabled: r.status !== "RUNNING", run: () => rented.stop.mutate({ machine: m.id, how: "stop" }) }];
     }
     case "open-comfy": {
       // the first ComfyUI, or the one named: its own page (locked, through its login: lock-api.ts pageUrl)

@@ -5,6 +5,7 @@ import { ComfyClient, LOCKED_HEADER } from "@afflatus/comfy";
 import type { Comfy, MachineComfy } from "./comfy";
 import { httpError } from "./errors";
 import type { Services } from "./services";
+import { fromThisComputer } from "./updates-api";
 import { readSettings, updateSettings } from "./settings";
 import { olderThan } from "./version";
 
@@ -103,8 +104,38 @@ async function post(comfy: Comfy, path: string, body: unknown): Promise<Response
   return res;
 }
 
-async function keepToken(s: Services, id: string, token: string): Promise<void> {
+async function keepToken(s: Pick<Services, "db">, id: string, token: string): Promise<void> {
   await updateSettings(s.db, (current) => ({ machines: current.machines.map((m) => (m.id === id ? { ...m, token } : m)) }));
+}
+
+/**
+ * Lock a machine's ComfyUI, or change its lock: a new token (`renew`, or the first lock) and whether calls from its own
+ * computer need one. Checked before it counts: a call without the token is refused, and one with it gets in. A lock that
+ * does not hold is taken off again, never left half done. Said by Lock it, and by a rented pod coming up (rented.ts).
+ */
+export async function lockMachine(s: Pick<Services, "machines" | "db" | "queue">, id: string, body: { local: boolean; renew: boolean }): Promise<{ tokenEnd: string }> {
+  const one = (await s.machines()).find((m) => m.machine.id === id);
+  if (!one) throw httpError("there is no ComfyUI with that id", 404);
+  const { machine, comfy } = one;
+  const pack = await comfy.client.packVersion().catch(() => null);
+  if (!pack || olderThan(pack, PACK_LOCK)) throw httpError(`The Afflatus node pack ${PACK_LOCK} or newer locks a ComfyUI: update the pack, restart ComfyUI, then lock it.`, 409);
+  const before = machine.token;
+  const token = before && !body.renew ? before : newToken();
+  await post(comfy, "/afflatus/lock", { token, local: body.local });
+  comfy.client.token = token;
+  const refused = await refusedWithout(comfy);
+  const works = refused && (await comfy.client.status().then(() => true, () => false));
+  if (!works) {
+    // taken off again: a lock Afflatus cannot get through, or one that lets strangers in, is worse than none
+    await post(comfy, "/afflatus/unlock", {}).catch(() => {});
+    comfy.client.token = "";
+    await keepToken(s, id, "");
+    s.queue.events.emit("setup");
+    throw httpError(refused ? "ComfyUI was locked, but did not answer with the token: it was opened again. Look at ComfyUI's console." : "ComfyUI still answered without the token, so it was opened again: is something in front of it (a proxy) that adds its own access?", 502);
+  }
+  await keepToken(s, id, token);
+  s.queue.events.emit("setup");
+  return { tokenEnd: token.slice(-4) };
 }
 
 export function registerLock(app: FastifyInstance, s: Services): void {
@@ -124,26 +155,8 @@ export function registerLock(app: FastifyInstance, s: Services): void {
   app.post("/api/machines/:id/lock", async (req) => {
     const { id } = params.parse(req.params);
     const body = z.object({ local: z.boolean().default(false), renew: z.boolean().default(false) }).parse(req.body ?? {});
-    const { machine, comfy } = await machineOf(id);
-    const pack = await comfy.client.packVersion().catch(() => null);
-    if (!pack || olderThan(pack, PACK_LOCK)) throw httpError(`The Afflatus node pack ${PACK_LOCK} or newer locks a ComfyUI: update the pack, restart ComfyUI, then lock it.`, 409);
-    const before = machine.token;
-    const token = before && !body.renew ? before : newToken();
-    await post(comfy, "/afflatus/lock", { token, local: body.local });
-    comfy.client.token = token;
-    const refused = await refusedWithout(comfy);
-    const works = refused && (await comfy.client.status().then(() => true, () => false));
-    if (!works) {
-      // taken off again: a lock Afflatus cannot get through, or one that lets strangers in, is worse than none
-      await post(comfy, "/afflatus/unlock", {}).catch(() => {});
-      comfy.client.token = "";
-      await keepToken(s, id, "");
-      told();
-      throw httpError(refused ? "ComfyUI was locked, but did not answer with the token: it was opened again. Look at ComfyUI's console." : "ComfyUI still answered without the token, so it was opened again: is something in front of it (a proxy) that adds its own access?", 502);
-    }
-    await keepToken(s, id, token);
-    told();
-    return { ok: true, checks: ["made", "locked", "refused", "answers"], tokenEnd: token.slice(-4) };
+    const { tokenEnd } = await lockMachine(s, id, body);
+    return { ok: true, checks: ["made", "locked", "refused", "answers"], tokenEnd };
   });
 
   /** Open it again: the lock taken off, the token forgotten. */
@@ -170,8 +183,12 @@ export function registerLock(app: FastifyInstance, s: Services): void {
     return { ok: true, tokenEnd: token.slice(-4) };
   });
 
-  /** The token itself, asked for on purpose (Copy token): for another tool that calls this ComfyUI. */
+  /**
+   * The token itself, asked for on purpose (Copy token): for another tool that calls this ComfyUI. Only to a page on the
+   * computer Afflatus runs on: Afflatus reached from another one (a LAN, a proxy) does not hand out the keys of its machines.
+   */
   app.post("/api/machines/:id/token/copy", async (req) => {
+    if (!fromThisComputer(req)) throw httpError("The token is copied on the computer Afflatus runs on, not from another one.", 403);
     const { id } = params.parse(req.params);
     const machine = (await readSettings(s.db)).machines.find((m) => m.id === id);
     if (!machine) throw httpError("there is no ComfyUI with that id", 404);

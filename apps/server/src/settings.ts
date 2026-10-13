@@ -59,6 +59,22 @@ const barSchema = z.object({
  * One ComfyUI the queue sends work to: a GPU of this computer (one ComfyUI per GPU, `--cuda-device N`), another computer,
  * or a rented instance. `id` stays when the address changes, so that what was learned of it (its speed, what it holds) stays.
  */
+/**
+ * A machine that is a rented pod (rented.ts): the provider and the pod's id there, and what happens when it sits idle. Its
+ * address (`url`) is the pod's ComfyUI, worked out when it was added. Afflatus never starts one on its own.
+ */
+export const rentedSchema = z.object({
+  provider: z.literal("runpod"),
+  pod: z.string().min(1).max(80),
+  /** Minutes with nothing rendering there and nothing waiting that it could take, then `idleDo`; 0: never. */
+  idleMinutes: z.number().int().min(0).max(24 * 60).default(10),
+  /** stop: the GPU stops billing, its disk goes on; terminate: the pod is deleted on the provider, nothing billed. */
+  idleDo: z.enum(["stop", "terminate"]).default("stop"),
+  /** Minutes this PC may be silent before the pod stops itself (the node pack's watchdog); 0: no watchdog. */
+  watchdogMinutes: z.number().int().min(0).max(24 * 60).default(15),
+});
+
+
 export const machineSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]{1,24}$/, "a machine id is lower-case letters, digits and dashes"),
   /** What the user calls it ("Studio PC", "Second GPU"); empty: its address is shown. */
@@ -78,6 +94,8 @@ export const machineSchema = z.object({
    * to the page (it is told the last four characters), never in a log. Empty: not locked, or locked by another Afflatus.
    */
   token: z.string().max(200).default(""),
+  /** A rented pod (rentedSchema); absent for a ComfyUI of its own. */
+  rented: rentedSchema.optional(),
 });
 export type Machine = z.infer<typeof machineSchema>;
 
@@ -116,6 +134,10 @@ export const settingsSchema = z.object({
    */
   families: z.record(z.string().max(120), z.boolean()).default({}),
   civitaiKey: z.string().default(""),
+  /** The RunPod API key, for rented machines (runpod.ts): a secret, never given to the page. */
+  runpodKey: z.string().default(""),
+  /** What the rented GPUs may cost, in USD, today and this month (rented.ts); 0: no cap. At a cap the running render ends, then they stop. */
+  rentCaps: z.object({ day: z.number().min(0).max(100_000).default(0), month: z.number().min(0).max(1_000_000).default(0) }).default({ day: 0, month: 0 }),
   /** Missing model files may be looked for on Civitai. Off: Afflatus never contacts Civitai. */
   civitaiLookups: z.boolean().default(false),
   /** Once a day, Civitai is asked whether it has newer versions of the models here (only with lookups on; hashes of the files are sent). */
@@ -329,6 +351,8 @@ export function publicSettings(s: Settings) {
     tagCheck: s.tagCheck,
     families: s.families,
     hasCivitaiKey: Boolean(s.civitaiKey),
+    hasRunpodKey: Boolean(s.runpodKey),
+    rentCaps: s.rentCaps,
     finish: s.finish,
     slotFiles: s.slotFiles,
     acceptedPresets: s.acceptedPresets,

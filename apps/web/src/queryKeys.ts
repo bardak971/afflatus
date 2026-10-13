@@ -31,6 +31,9 @@ export const queryKeys = {
   comfyLog: (machine?: string) => (machine ? (["comfy-log", machine] as const) : (["comfy-log"] as const)),
   /** Each ComfyUI asked now (Settings › ComfyUI's cards). */
   machines: () => ["machines"] as const,
+  /** The user's pods on RunPod (adding one), and what the rented GPUs cost. */
+  runpodPods: () => ["runpod-pods"] as const,
+  rentedSpending: () => ["rented-spending"] as const,
   nodePack: (comfyDir: string | undefined) => ["node-pack", comfyDir] as const,
   packs: {
     all: () => ["packs"] as const,

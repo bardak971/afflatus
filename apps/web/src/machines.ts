@@ -1,4 +1,5 @@
-import type { MachineState, QueueStatus } from "./api";
+import type { MachineState, QueueStatus, RentedState } from "./api";
+import { long, usd } from "./format";
 
 /** Several ComfyUIs (Settings › ComfyUI): how a machine is named on screen, and what the screens read of them. */
 
@@ -46,3 +47,21 @@ export function machineUnloadBlock(m: { online: boolean | null; running: unknown
 export function familyOnFor(own: Readonly<Record<string, boolean>>, said: Readonly<Record<string, boolean>>, family: string, found: boolean): boolean {
   return own[family] ?? said[family] ?? found;
 }
+
+/**
+ * A rented pod's state in a few words, for its row, the pill and the menus: "starting", "stopped · disk $0.33/day",
+ * "running · $0.83". What it costs is Afflatus's figure (its time × its rate), said as it is: RunPod's bill is the reference.
+ */
+export function rentedSaid(r: RentedState): string {
+  switch (r.status) {
+    case "RUNNING": return r.since ? `running ${long(Date.now() - r.since)} · ${usd(r.spent)}` : "running";
+    case "STARTING": case "PROVISIONING": return "starting";
+    case "EXITED": return r.diskPerDay > 0.005 ? `stopped · disk ${usd(r.diskPerDay)}/day` : "stopped";
+    case "GONE": case "TERMINATED": return "deleted on RunPod";
+    case "ERROR": return "in error on RunPod";
+    default: return r.error ? "RunPod not answering" : "…";
+  }
+}
+
+/** Whether a rented pod takes work now: only while it runs. A machine of one's own always may. */
+export const rentedUp = (m: { rented?: RentedState | null }) => !m.rented || m.rented.status === "RUNNING";

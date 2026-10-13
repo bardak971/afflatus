@@ -344,6 +344,8 @@ export interface Tables {
   };
   /** What suits one model file: the values that replace a recipe's defaults when that file is picked (JSON: input id → value). */
   model_settings: { owner_id: string; family: string; file: string; values: string; updated_at: string };
+  /** A rented machine's stretches of running (rented.ts): its pod, the rate it ran at, from when to when (null: running). */
+  rent_sessions: { id: string; machine_id: string; pod: string; rate: number; started_at: string; ended_at: string | null };
   /** Unfinished work, saved as it is typed. */
   drafts: {
     id: string;

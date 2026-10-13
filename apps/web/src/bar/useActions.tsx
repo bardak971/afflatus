@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { ArrowUpToLine, Copy, Keyboard, Navigation, RotateCcw, Settings2, Square } from "lucide-react";
 import { useOpenComfyUI, useOpenInComfy } from "../actions";
+import { useRentedOps } from "../rentedOps";
 import { api, type Asset, type CommandEntry } from "../api";
 import { useAsset, useEntities, useModelSettings, useProjects, useRecipes, useSetup, useStorage } from "../data";
 import { itemsWord } from "../assetCache";
@@ -62,7 +63,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
   const queue = useQueueOf((q) => ({
     paused: q.paused, online: q.online, rendering: q.running?.kind === "render", running: Boolean(q.running),
     waiting: q.waiting.map((w) => ({ id: w.id })), failed: q.recent.filter((j) => j.status === "failed").map((j) => j.id),
-    machines: q.machines.map((m) => ({ id: m.id, name: m.name, url: m.url, paused: m.paused, online: m.online, locked: m.locked, running: Boolean(m.running) })),
+    machines: q.machines.map((m) => ({ id: m.id, name: m.name, url: m.url, paused: m.paused, online: m.online, locked: m.locked, running: Boolean(m.running), rented: m.rented })),
   }));
   const bulk = useQueueBulk();
   const ops = useQueueOps();
@@ -89,6 +90,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
     onError: (err) => failed("Could not open it in ComfyUI")(err),
   });
   const openComfy = useOpenComfyUI();
+  const rented = useRentedOps();
   // "Import a folder here…": the computer's folder picker, and where what it picks goes (as the Projects panel does it)
   const picker = useRef<HTMLInputElement>(null);
   const importTo = useRef<Target | null>(null);
@@ -132,7 +134,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
   const x: BarCtx = {
     go, client, say, tree, kinds, allProjects, projects: allProjects.filter((p) => !p.archivedAt), pins, queue, ops, bulk, jobs, setup,
     binEmpty: bin ? !bin.count : false, binSaid: bin ? `${itemsWord(bin.count)} · ${size(bin.bytes)}` : "",
-    recipes, entities, modelSettings, openNew, selectedClip, draftOpen, aim, subject, item, formTarget, openWorkflow, openComfy, settingCtx, onCopied, setViewing,
+    recipes, entities, modelSettings, openNew, selectedClip, draftOpen, aim, subject, item, formTarget, openWorkflow, openComfy, rented, settingCtx, onCopied, setViewing,
     importInto,
     failed,
     good,

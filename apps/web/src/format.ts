@@ -226,3 +226,8 @@ export function notReady(status: RecipeStatus | undefined, comfyOnline: boolean,
   if (status.problems?.length) return problemSaid(status.problems[0]!);
   return "Not ready.";
 }
+
+/** An amount in US dollars, as a rented GPU's cost is said: cents under $100 ("$0.69", "$12.40"), whole dollars past it. */
+export function usd(n: number): string {
+  return n < 100 ? `$${n.toFixed(2)}` : `$${Math.round(n)}`;
+}

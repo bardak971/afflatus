@@ -13,8 +13,10 @@ Three ways in:
   - `Authorization: Bearer <token>`, which Afflatus sends on every call;
   - `?token=<token>` on /ws only (a WebSocket made by Node or a browser cannot carry a header);
   - the `afflatus_lock_<port>` cookie the login page sets: a value made from the token, never the token, HttpOnly and
-    SameSite=Lax (a page of another site cannot send it with a request of its own, but a link from Afflatus lands
-    logged in).
+    SameSite=Lax; and taken only from ComfyUI's own page. SameSite does not tell ports apart: a page served by any other
+    program of the same computer (localhost:3000) is the "same site" as localhost:8188, and its browser would send the
+    cookie with a request of that page's own (a plain-text POST to /prompt needs no preflight). So the cookie counts only
+    on a request the browser says is same-origin (Sec-Fetch-Site), or one whose Origin is ComfyUI's own address.
 And, when the lock says so ("no token needed from this PC"), a call made on this computer: from a loopback address,
 through no proxy (a proxy on the same machine would make the whole internet "this computer"), and not sent by a page of
 another site (a page open in this computer's browser calls from loopback too).
@@ -152,15 +154,30 @@ def cookie_name(request):
     return f"afflatus_lock_{port}"
 
 
+def own_page(request):
+    """Whether a request comes from ComfyUI's own page (or the address bar), not from a page of another origin. The
+    browser says which (Sec-Fetch-Site); without that, the Origin must be ComfyUI's own host and port; a caller that sends
+    neither is no page at all (a script with the cookie has what the cookie gives anyway)."""
+    site = request.headers.get("Sec-Fetch-Site")
+    if site is not None:
+        return site in ("same-origin", "none")
+    origin = request.headers.get("Origin")
+    if not origin:
+        return True
+    # the host and port only: a proxy in front (RunPod's) takes https and speaks http here
+    return origin != "null" and (urllib.parse.urlsplit(origin).netloc or "").lower() == (request.host or "").lower()
+
+
 def let_in(request, state):
-    """Whether a request gets through the lock: by the token, the login cookie, or (said so) as a call from this computer."""
+    """Whether a request gets through the lock: by the token, the login cookie (from ComfyUI's own page only), or (said so)
+    as a call from this computer."""
     digest = state["hash"]
     auth = request.headers.get("Authorization", "")
     if auth[:7].lower() == "bearer " and same(hash_of(auth[7:].strip()), digest):
         return True
     if request.path == "/ws" and same(hash_of(request.rel_url.query.get("token", "")), digest):
         return True
-    if same(request.cookies.get(cookie_name(request), ""), cookie_of(digest)):
+    if same(request.cookies.get(cookie_name(request), ""), cookie_of(digest)) and own_page(request):
         return True
     return bool(state.get("local")) and from_this_pc(request)
 
@@ -211,8 +228,15 @@ def landing(request):
     return want if want.startswith("/") and not want.startswith("//") and "\\" not in want else "/"
 
 
+ONWARD = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url={url}">
+<title>ComfyUI</title></head><body style="background:#202020"><script>location.replace({js})</script></body></html>"""
+
+
 def logged_in(web, request, state):
-    res = to(web, landing(request))
+    """The cookie set, and on to ComfyUI's page from a page of ComfyUI's own: a redirect would go on in the name of the page
+    that sent the browser here (Afflatus's), and the cookie, taken only from ComfyUI's own page, would not count."""
+    where = landing(request)
+    res = web.Response(text=ONWARD.format(url=html.escape(where, quote=True), js=json.dumps(where).replace("<", "\\u003c")), content_type="text/html", headers={"Cache-Control": "no-store"})
     res.set_cookie(cookie_name(request), cookie_of(state["hash"]), httponly=True, samesite="Lax", path="/", secure=request.scheme == "https")
     return res
 

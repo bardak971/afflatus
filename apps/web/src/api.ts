@@ -2,7 +2,7 @@ import { projectForNew, projectParam } from "./project";
 import { unlistOptions, type ListedOptions, type ModelInfo } from "@afflatus/core";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
-import type { Advice, HistoryPage, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem } from "./api/types/queue";
+import type { Advice, HistoryPage, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView } from "./api/types/designer";
@@ -168,6 +168,16 @@ export const api = {
   machineToken: (id: string, token: string) => call<{ ok: true; tokenEnd: string }>("POST", `/machines/${encodeURIComponent(id)}/token`, { token }),
   /** The token itself, asked for on purpose (Copy token). */
   copyMachineToken: (id: string) => call<{ token: string }>("POST", `/machines/${encodeURIComponent(id)}/token/copy`, {}),
+  /** The user's pods on RunPod, read with the key: which expose ComfyUI, which are added already. */
+  runpodPods: (o?: Asked) => call<{ pods: RunpodPod[] }>("GET", "/runpod/pods", undefined, o?.signal),
+  /** A pod added as a machine, as it is: nothing is started. */
+  addRunpodPod: (pod: string) => call<{ id: string }>("POST", "/runpod/add", { pod }),
+  /** The user's Start of a rented machine: refused at a spending cap. */
+  startMachine: (id: string) => call<RentedState>("POST", `/machines/${encodeURIComponent(id)}/start`, {}),
+  /** The user's Stop (the disk goes on billing) or Delete (the pod gone on RunPod). */
+  stopMachine: (id: string, how: "stop" | "terminate") => call<RentedState>("POST", `/machines/${encodeURIComponent(id)}/stop`, { how }),
+  /** What the rented GPUs cost today and this month, the caps, RunPod's balance; null without a rented machine. */
+  rentedSpending: (o?: Asked) => call<{ spending: RentedSpending | null }>("GET", "/rented/spending", undefined, o?.signal),
   /** Where to open ComfyUI's own page: locked, its login with a one-time code. */
   openMachine: (id: string) => call<{ url: string }>("POST", `/machines/${encodeURIComponent(id)}/open`, {}),
   /** `into`: the draft it is sent from, the folder that is open (where its results are filed), and the machine it is pinned to. */

@@ -95,6 +95,13 @@ export function fakeRoutes(fake: FakeState, hooks: { queued(promptId: string, cl
       const field = (key: string) => new RegExp(`name="${key}"\\r\\n\\r\\n([^\\r]*)`).exec(raw.toString("latin1"))?.[1] ?? "";
       return json(200, { name, subfolder: field("subfolder"), type: field("type") || "temp" });
     }
+    if (path === "/afflatus/alive") {
+      // the node pack's watchdog (0.13.0): "still here", with the minutes it may be silent
+      if (!fake.packVersion || !/^0\.(1[3-9]|[2-9]\d)\.|^[1-9]/.test(fake.packVersion)) return json(404, {});
+      const minutes = Number((JSON.parse(raw.toString("utf8") || "{}") as { minutes?: unknown }).minutes ?? 0);
+      fake.alive.push({ at: Date.now(), minutes });
+      return json(200, { watching: minutes > 0, minutes, can: true });
+    }
     if (path === "/afflatus/clean-input") {
       // as the pack does: only a JSON body, which a page of another site cannot send without asking first
       if (!/^application\/json\b/.test(String(headers["content-type"] ?? ""))) return json(415, { error: "a JSON body is expected" });
