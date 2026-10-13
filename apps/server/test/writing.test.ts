@@ -226,12 +226,13 @@ describe.skipIf(!hasFfmpeg)("a part of a sound", () => {
       for (let i = Math.floor(from * 48000) * 4; i < Math.min(view.byteLength, Math.floor(to * 48000) * 4); i += 2) most = Math.max(most, Math.abs(view.getInt16(i, true)));
       return most / 32768;
     };
-    // ended in the pause (at 3 s): its second of quiet, then the next words faded out, then silence, 2 s after the part in all
+    // ended in the pause (at 3 s): its second of quiet, then silence, 2 s after the part in all
     const inPause = await soundPart(take, "wav", { start: 0, seconds: 3, durationMs: 8_000, after: 2 });
     expect(secondsOf(inPause)).toBeCloseTo(5, 1);
     expect(peakIn(inPause, 1, 2.9)).toBeGreaterThan(0.05);
     expect(peakIn(inPause, 3.05, 3.95)).toBeLessThan(0.01);
-    expect(peakIn(inPause, 4.25, 5)).toBeLessThan(0.01);
+    // faded out by the pause's end: nothing of the next words
+    expect(peakIn(inPause, 3.95, 5)).toBeLessThan(0.01);
     // ended in the words (at 2 s): faded out at once
     const midWord = await soundPart(take, "wav", { start: 0, seconds: 2, durationMs: 8_000, after: 2 });
     expect(secondsOf(midWord)).toBeCloseTo(4, 1);

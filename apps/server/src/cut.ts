@@ -1096,8 +1096,8 @@ export function partOf(start: number, seconds: number, total: number | null): { 
  * The start is where it was asked, as long as two seconds are left after it; the part ends where the
  * sound ends when that comes first. `even` evens out its loudness (EBU R128, to -16 LUFS): a voice recorded
  * quietly (the owner's sample sat at -37 dB) guided H3 weakly. `after` hands over that many seconds more, for a
- * clip that outlasts the part: the sound's own pause after the part as it is (its room tone), and where the sound
- * speaks again (or was ended mid-word) it is faded out in 0.15 s, then silence, always `after` seconds in all.
+ * clip that outlasts the part: the sound's own pause after the part (its room tone), faded out in its last 0.15 s
+ * before the sound speaks again (at once when the part was ended mid-word), then silence, `after` seconds in all.
  */
 export async function soundPart(source: Media, ext: string, opts: { start: number; seconds: number; durationMs?: number | null; even?: boolean; after?: number }): Promise<Uint8Array> {
   return inTemp(async (dir) => {
@@ -1108,7 +1108,8 @@ export async function soundPart(source: Media, ext: string, opts: { start: numbe
     const filters = opts.even ? ["loudnorm=I=-16:TP=-1.5:LRA=11"] : [];
     if (after > 0) {
       const quiet = await quietAfter(input, start, seconds, after);
-      if (quiet < after - 0.01) filters.push(`afade=t=out:st=${(seconds + quiet).toFixed(3)}:d=0.15`);
+      // faded out by the end of the pause, so that the next word's first sound is not handed over with it
+      if (quiet < after - 0.01) filters.push(`afade=t=out:st=${(seconds + Math.max(0, quiet - 0.15)).toFixed(3)}:d=0.15`);
       filters.push(`apad=whole_dur=${(seconds + after).toFixed(3)}`);
     }
     const af = filters.length ? ["-af", filters.join(",")] : [];
