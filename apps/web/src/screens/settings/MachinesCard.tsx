@@ -6,15 +6,17 @@ import { api, type Machine, type MachineProbe, type MachineState } from "../../a
 import { useMenu } from "../../ContextMenu";
 import { useQueue, useSettings } from "../../data";
 import { gb, plural } from "../../format";
+import { useMedia } from "../../hooks";
 import { machineLabel, rentedSaid, rentedUp } from "../../machines";
 import { useQueueOps } from "../../queueOps";
 import { queryKeys } from "../../queryKeys";
 import { Button, ButtonLink, cx, ErrorNote, fieldClass, Segmented, TwoStep } from "../../ui";
 import { AccessRow } from "./AccessRow";
 import { useRentedOps } from "../../rentedOps";
-import { RunpodAdd } from "./RentedCard";
+import { RentRow } from "./RentedCard";
 import { RentedHead, RentedRows } from "./RentedRows";
 import { Block, Card, Fact, Row, Status } from "./Rows";
+import { COLUMNS, WIDE } from "./wide";
 
 const MachineMenuBody = lazy(() => import("../../MachineMenu").then((m) => ({ default: m.MachineMenuBody })));
 
@@ -83,7 +85,7 @@ export function AddMachineCard() {
         <input id="comfy-add" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="http://127.0.0.1:8189  —  another GPU, another computer, a rented instance" spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
         <Button onClick={add} disabled={!url.trim() || save.isPending}>Add</Button>
       </Row>
-      <RunpodAdd />
+      <RentRow />
       {(exposed || save.isError) && (
         <Block>
           {exposed && <ErrorNote>A public address over plain http: anyone who finds it can run code on that ComfyUI. Reach it through Tailscale or an SSH tunnel, or put it behind a proxy that asks for a password.</ErrorNote>}
@@ -257,8 +259,20 @@ export function MachineCards({ machines, probes, states }: { machines: Machine[]
     if (!next.delete(id)) next.add(id);
     return next;
   });
+  const wide = useMedia(WIDE);
   const card = (m: Machine, i: number, onFold?: () => void) => <MachineCard key={m.id} machine={m} index={i} probe={probes?.find((p) => p.id === m.id)} state={states?.find((x) => x.id === m.id)} onFold={onFold} />;
-  if (machines.length <= LINES_PAST) return <>{machines.map((m, i) => card(m, i))}</>;
+  if (machines.length <= LINES_PAST) {
+    const cards = machines.map((m, i) => card(m, i));
+    if (!wide || cards.length < 2) return <>{cards}</>;
+    // side by side in a wide window, in turn (the first and third left, the second and fourth right), each column as
+    // tall as its own cards: a rented pod's card is longer than one at home
+    return (
+      <div className={COLUMNS}>
+        <div className="flex min-w-0 flex-col gap-4">{cards.filter((_, i) => i % 2 === 0)}</div>
+        <div className="flex min-w-0 flex-col gap-4">{cards.filter((_, i) => i % 2 === 1)}</div>
+      </div>
+    );
+  }
   // the lines in one list, broken where a card is open
   const runs: Array<{ open: boolean; items: Array<{ m: Machine; i: number }> }> = [];
   machines.forEach((m, i) => {
@@ -267,8 +281,9 @@ export function MachineCards({ machines, probes, states }: { machines: Machine[]
     if (last && !last.open && !isOpen) last.items.push({ m, i });
     else runs.push({ open: isOpen, items: [{ m, i }] });
   });
+  // one column of lines, however wide the window: a line's few words do not fill twice that
   return (
-    <>
+    <div className="flex max-w-[860px] flex-col gap-4">
       {runs.map((run) => (run.open
         ? card(run.items[0]!.m, run.items[0]!.i, () => toggle(run.items[0]!.m.id))
         : (
@@ -276,6 +291,6 @@ export function MachineCards({ machines, probes, states }: { machines: Machine[]
             {run.items.map(({ m, i }) => <MachineLine key={m.id} machine={m} index={i} probe={probes?.find((p) => p.id === m.id)} state={states?.find((x) => x.id === m.id)} onOpen={() => toggle(m.id)} />)}
           </section>
         )))}
-    </>
+    </div>
   );
 }

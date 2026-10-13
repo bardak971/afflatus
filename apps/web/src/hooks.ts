@@ -46,6 +46,20 @@ export function useCopied(ms = 1500): { copied: boolean; copy(text: string): voi
   return { copied, copy };
 }
 
+/** Whether a media query matches, followed as the window changes: for a layout CSS cannot make alone (two lists of cards, or one). */
+export function useMedia(query: string): boolean {
+  const [on, setOn] = useState(() => typeof matchMedia === "function" && matchMedia(query).matches);
+  useEffect(() => {
+    if (typeof matchMedia !== "function") return;
+    const media = matchMedia(query);
+    const follow = () => setOn(media.matches);
+    follow();
+    media.addEventListener("change", follow);
+    return () => media.removeEventListener("change", follow);
+  }, [query]);
+  return on;
+}
+
 /** The time now, read again every `ms` while `on`: for what counts on screen by itself (a rented pod's running time and cost). */
 export function useNow(ms = 1000, on = true): number {
   const [now, setNow] = useState(() => Date.now());
