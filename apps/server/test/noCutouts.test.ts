@@ -26,3 +26,15 @@ describe("migration 0058, no more cut-outs", () => {
     await db.destroy();
   });
 });
+
+describe("migration 0060, jobs.kit_for dropped", () => {
+  it("takes the column off the jobs, which keep everything else", async () => {
+    const db = openSqlite(":memory:");
+    await migrate(db, "0058_no_cutouts");
+    expect(await migrate(db)).toContain("0060_drop_kit_for");
+    const columns = (await db.introspection.getTables()).find((t) => t.name === "jobs")!.columns.map((c) => c.name);
+    expect(columns).not.toContain("kit_for");
+    expect(columns).toContain("recipe_id");
+    await db.destroy();
+  });
+});
