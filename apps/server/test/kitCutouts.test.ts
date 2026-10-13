@@ -4,7 +4,7 @@ import { makePng, startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing
 import { REMOVE_BACKGROUND } from "@afflatus/core";
 import { h3Video } from "@afflatus/recipes";
 import { compose } from "../src/entities";
-import { askCutouts } from "../src/kitCutouts";
+import { askCutouts, askEveryCutout } from "../src/kitCutouts";
 import { get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
 let fake: FakeComfy;
@@ -106,6 +106,19 @@ describe("a person's pictures without their background", () => {
     const composed = await compose(t.db, h3Video, { description: "a" }, { cast: [{ id: nico.id }], snippets: [] });
     expect(composed.input.references).toEqual([{ asset: front, role: "person" }]);
     expect(composed.added.refs[0]!.cutout).toBeUndefined();
+  });
+
+  it("are asked for at start for the people kept before there were cut-outs, once", async () => {
+    await start(true);
+    const front = await picture("front.png");
+    // kept by an older Afflatus: no switch, no cut-outs, nothing asked when it was saved
+    const at = new Date().toISOString();
+    await t.db.insertInto("entities").values({ id: "old", owner_id: "local", kind: "person", name: "Old Nico", def: JSON.stringify({ pictures: [front], voice: null, tags: "", sentence: "", models: {}, outfits: [] }), created_at: at, updated_at: at }).execute();
+    expect(await askEveryCutout(t.services)).toBe(1);
+    expect((await cutoutJobs()).map((j) => j.label)).toEqual(["Cut-out · Old Nico"]);
+    // the next start, while it is still on its way: nothing more
+    expect(await askEveryCutout(t.services)).toBe(0);
+    await until(async () => (answer(), Object.keys((await person("old")).cutouts ?? {}).length === 1), 20_000);
   });
 
   it("are not asked for when no ComfyUI can remove a background: the pictures go as they are", async () => {

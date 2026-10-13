@@ -88,6 +88,16 @@ export async function askCutouts(s: Pick<Services, "db" | "queue" | "machines">,
   return todo.length;
 }
 
+/**
+ * At start: the cut-outs every person wants and has not (people kept before there were cut-outs, a picture added while
+ * ComfyUI was away), asked for in the background, so that the first render with them does not go out with the pictures
+ * as they are while their cut-outs are made behind it (seen 2026-10-13). Answers how many were queued.
+ */
+export async function askEveryCutout(s: Pick<Services, "db" | "queue" | "machines">): Promise<number> {
+  const people = await s.db.selectFrom("entities").select("id").where("kind", "=", "person").execute();
+  return askCutouts(s, people.map((p) => p.id));
+}
+
 /** The background removal model a machine that can run the tool has (the tool's own preference: lucida, birefnet, rmbg), or null when none can. */
 async function removerModel(s: Pick<Services, "machines">): Promise<string | null> {
   const scans = await Promise.all((await s.machines()).map(({ comfy }) => comfy.scan(false).catch(() => null)));
