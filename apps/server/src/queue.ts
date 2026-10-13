@@ -610,8 +610,8 @@ ${JSON.stringify(input)}`;
     const lanes = await this.refresh();
     const tools = this.lane(TOOLS);
     return [
-      ...lanes.map((l) => ({ machine: l.machine, core: l.core, paused: l.paused, reachable: l.reachable })),
-      { machine: null, core: tools.core, paused: false, reachable: null },
+      ...lanes.map((l) => ({ machine: l.machine, core: l.core, paused: l.paused, reachable: l.reachable, locked: l.comfy?.locked ?? false })),
+      { machine: null, core: tools.core, paused: false, reachable: null, locked: false },
     ];
   }
 

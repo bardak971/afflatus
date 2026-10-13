@@ -1,4 +1,5 @@
-import { ListOrdered, MemoryStick, Pause, Play, Settings as Gear, Target } from "lucide-react";
+import { ExternalLink, ListOrdered, MemoryStick, Pause, Play, Settings as Gear, Target } from "lucide-react";
+import { useOpenComfyUI } from "./actions";
 import { useLocation } from "wouter";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import type { MachineState } from "./api";
@@ -9,13 +10,13 @@ import { useQueueOps } from "./queueOps";
 
 /** A machine's state in a few words: what the status bar's summary and a menu's head say of it. */
 export function machineSaid(m: MachineState): string {
-  const state = m.paused ? "paused" : m.online === false ? "offline" : m.running ? `rendering ${Math.round(m.running.progress * 100)} %` : "idle";
+  const state = m.paused ? "paused" : m.online === false ? (m.locked ? "locked" : "offline") : m.running ? `rendering ${Math.round(m.running.progress * 100)} %` : "idle";
   return m.model ? `${state} · holds ${m.model}` : state;
 }
 
 /**
  * One machine's menu, when there are several ComfyUIs (its chip in the status bar, its card in Settings, its lane in the
- * Queue): Use only it, Pause or Resume it, Unload it, load a model on it (LoadPanel.tsx), the Queue and its settings.
+ * Queue): Use only it, Pause or Resume it, Unload it, load a model on it (LoadPanel.tsx), open its ComfyUI, the Queue and its settings.
  * Without `machine`, every machine with its own items as a submenu (the status bar's summary chip on a narrow window).
  * Each item mirrors a button that exists elsewhere (the Queue's lanes, Settings' cards).
  */
@@ -23,6 +24,7 @@ export function MachineMenuBody({ at, machine, onClose }: { at: Parameters<typeo
   const queue = useQueue();
   const [, go] = useLocation();
   const ops = useQueueOps();
+  const openComfy = useOpenComfyUI();
   const all = queue.data?.machines ?? [];
   /** One machine's own items. */
   const itemsOf = (m: MachineState): MenuItem[] => {
@@ -37,6 +39,8 @@ export function MachineMenuBody({ at, machine, onClose }: { at: Parameters<typeo
       { label: `Unload ${name}`, icon: <MemoryStick size={14} />, disabled: Boolean(why), note: why ?? "free its VRAM", run: () => ops.unload.mutate(m.id) },
       // a panel by the status bar (LoadPanel.tsx), that machine picked: a submenu of a submenu cut every name
       { label: `Load a model on ${name}…`, icon: <Play size={14} />, disabled: m.online === false, run: () => openLoadPanel(m.id) },
+      // its own page; locked, the tab lands logged in (lock-api.ts pageUrl)
+      { label: "Open ComfyUI", icon: <ExternalLink size={14} />, disabled: m.online === false && !m.locked, note: m.online === false && !m.locked ? "it does not answer" : undefined, run: () => openComfy.mutate(m.id) },
     ];
   };
   const shared: MenuItem[] = [

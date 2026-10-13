@@ -1,4 +1,4 @@
-import { ComfyClient, Monitor, scan, systemLoadFromStatus, type InfoLookup, type Scan, type SystemLoad } from "@afflatus/comfy";
+import { ComfyClient, ComfyLocked, Monitor, scan, systemLoadFromStatus, type InfoLookup, type Scan, type SystemLoad } from "@afflatus/comfy";
 import type { NodeCatalog } from "@afflatus/core";
 import { fileName } from "./media";
 import type { Registry } from "./registry";
@@ -17,8 +17,8 @@ export class Comfy {
   private lastScan: { at: number; value: Promise<Scan> } | null = null;
   private lastCatalog: { at: number; value: Promise<NodeCatalog> } | null = null;
 
-  constructor(readonly url: string, private readonly registry: Registry) {
-    this.client = new ComfyClient(url);
+  constructor(readonly url: string, private readonly registry: Registry, token = "") {
+    this.client = new ComfyClient(url, undefined, token);
     this.monitor = new Monitor(this.client);
     // the socket opening again means ComfyUI was restarted (or came back): its nodes and files may have
     // changed, a node pack just written among them, so nothing kept about it holds
@@ -72,6 +72,8 @@ export class Comfy {
 
   /** Whether ComfyUI answered the last `load()`: null before the first. A null load alone does not say (it may have no GPU figures). */
   answered: boolean | null = null;
+  /** Whether the last `load()` found it locked against Afflatus's token: there, but a token to paste rather than a ComfyUI to start. */
+  locked = false;
 
   /** The machine's load: the monitor extension's latest broadcast if it is fresh, else ComfyUI's memory numbers. */
   async load(): Promise<SystemLoad | null> {
@@ -79,14 +81,17 @@ export class Comfy {
     const live = this.monitor.system;
     if (live && Date.now() - live.at < 5_000) {
       this.answered = true;
+      this.locked = false;
       return live;
     }
     try {
       const load = systemLoadFromStatus(await this.client.status());
       this.answered = true;
+      this.locked = false;
       return load;
-    } catch {
+    } catch (err) {
       this.answered = false;
+      this.locked = err instanceof ComfyLocked;
       return null;
     }
   }

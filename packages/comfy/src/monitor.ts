@@ -131,7 +131,7 @@ export class Monitor {
     if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) return;
     this.cancelRetry("own");
     try {
-      const ws = new WebSocket(`${this.client.baseUrl.replace(/^http/i, "ws")}/ws?clientId=${this.client.clientId}`);
+      const ws = new WebSocket(this.client.socketUrl(this.client.clientId));
       ws.binaryType = "arraybuffer";
       ws.onopen = () => {
         this.retries.delete("own");
@@ -222,7 +222,7 @@ export class Monitor {
    */
   private listenAs(clientId: string, promptId: string): void {
     try {
-      const ws = new WebSocket(`${this.client.baseUrl.replace(/^http/i, "ws")}/ws?clientId=${encodeURIComponent(clientId)}`);
+      const ws = new WebSocket(this.client.socketUrl(clientId));
       ws.binaryType = "arraybuffer";
       // what arrives here without a prompt id (the "you are on this node" greeting, previews) is about that prompt
       ws.onmessage = (ev) => this.onMessage(ev.data, promptId);

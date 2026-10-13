@@ -39,7 +39,7 @@ function target(pack: string) {
 }
 
 const call = (comfy: Comfy, path: string, body?: unknown) =>
-  fetch(comfy.client.baseUrl + path, body === undefined
+  comfy.client.raw(path, body === undefined
     ? { signal: AbortSignal.timeout(15_000) }
     : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
 

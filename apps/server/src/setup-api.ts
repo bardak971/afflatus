@@ -3,8 +3,10 @@ import type { FastifyInstance } from "fastify";
 import { said } from "./forecast";
 import { allowedHosts, hostAllowed } from "./hostCheck";
 import { z } from "zod";
+import { ComfyLocked } from "@afflatus/comfy";
 import { describeRecipe, listOptions } from "@afflatus/core";
 import { mergeScans } from "./machineScans";
+import { accessOf } from "./lock-api";
 import { installNodePack } from "./nodePack";
 import { preflight } from "./preflight";
 import type { Services } from "./services";
@@ -78,9 +80,11 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
     return Promise.all(all.map(async ({ machine, comfy }) => {
       try {
         const [st, pack] = await Promise.all([comfy.client.status(), comfy.client.packVersion().catch(() => null)]);
-        return { id: machine.id, online: true as const, error: null, version: st.version, device: st.device, vramTotal: st.vramTotal, vramFree: st.vramFree, pack };
+        return { id: machine.id, online: true as const, error: null, version: st.version, device: st.device, vramTotal: st.vramTotal, vramFree: st.vramFree, pack, access: await accessOf(comfy, true, false, pack), tokenEnd: machine.token.slice(-4) };
       } catch (e) {
-        return { id: machine.id, online: false as const, error: e instanceof Error ? e.message : String(e), version: null, device: null, vramTotal: null, vramFree: null, pack: null };
+        // locked against Afflatus's token: it answered, so the access line says so (a token to paste), not "not answering"
+        const locked = e instanceof ComfyLocked;
+        return { id: machine.id, online: false as const, error: e instanceof Error ? e.message : String(e), version: null, device: null, vramTotal: null, vramFree: null, pack: null, access: await accessOf(comfy, false, locked, null), tokenEnd: machine.token.slice(-4) };
       }
     }));
   });
@@ -111,7 +115,7 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
     const comfy = on.comfy;
     let res: Response | null = null;
     try {
-      res = await fetch(comfy.client.baseUrl + "/v2/manager/reboot", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: AbortSignal.timeout(15_000) });
+      res = await comfy.client.raw("/v2/manager/reboot", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: AbortSignal.timeout(15_000) });
     } catch {
       // the process replaces itself as it answers: a dropped connection is the restart under way
     }

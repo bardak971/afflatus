@@ -21,8 +21,11 @@ import { renameOver } from "./storage";
  *   modelDownload.ts writes the file as it comes, picks it up where it stopped after a cut, and names it only
  *   once it is whole.
  * - The Afflatus node pack ("pack"), on a ComfyUI on another machine that has a pack recent enough: it fetches
- *   a one-time address on Afflatus to disk the same way, and asks again from where it stopped (serve() answers
- *   a Range).
+ *   the file to disk the same way, and asks again from where it stopped. From the source's own signed link when
+ *   the source gives one (signedLink, pack 0.12.0): Afflatus asks Hugging Face or Civitai with its key, here, and
+ *   hands over only the temporary link they answer with, so the file comes straight from their servers, never
+ *   through this computer's upload, and a rented ComfyUI that cannot reach Afflatus gets it all the same; a link
+ *   that expires half way is sent again. Else from a one-time address on Afflatus (serve() answers a Range).
  * - ComfyUI-Manager ("manager"), the last resort: handed a one-time address on Afflatus, or a public Hugging Face
  *   address it reads itself. Manager reads any other address whole into memory before it writes the file: a
  *   file of several gigabytes may fail, and the download says so.
@@ -82,6 +85,11 @@ interface Download extends DownloadView {
   upstream?: AbortController;
   /** Manager reads a Hugging Face address itself: no bytes pass through Afflatus. */
   direct?: boolean;
+  /** The pack fetches the source's own signed link (signedLink): no bytes pass through Afflatus; a fresh link is sent when it expires. */
+  signed?: boolean;
+  /** How many fresh links were sent, and when the last was. */
+  renewals?: number;
+  renewedAt?: number;
   /** How many times the connection was cut, and the byte it was picked up from last. */
   cuts?: number;
   resumedFrom?: number;
@@ -105,6 +113,56 @@ const STARTS_WITHIN_MS = 90_000;
 export const AT_ONCE = 2;
 /** The first node pack that downloads (POST /afflatus/download). */
 export const PACK_DOWNLOADS = "0.11.0";
+/** The first node pack that downloads from a source's own signed link, and takes a fresh one when it expires. */
+export const PACK_SIGNED = "0.12.0";
+/** The hosts a signed download link of Hugging Face or Civitai is on: the pack takes no other (downloads.py DIRECT_HOSTS). */
+const DIRECT_HOSTS = ["huggingface.co", "hf.co", "civitai.com", "r2.cloudflarestorage.com"];
+/** The sites' own pages, which may send a request on to another of their hosts before the file: asked again, not handed over. */
+const API_HOSTS = ["huggingface.co", "civitai.com"];
+/** Past this many fresh links, a source that keeps refusing its own links from ComfyUI's machine is given up on. */
+const MAX_RENEWALS = 4;
+
+const hostIs = (url: URL, hosts: string[]) => hosts.some((h) => url.hostname === h || url.hostname.endsWith(`.${h}`));
+
+/** Whether an address is one of Hugging Face's or Civitai's own download links: https, on one of their download hosts. */
+export function directOk(address: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(address);
+  } catch {
+    return false;
+  }
+  return url.protocol === "https:" && !url.username && !url.password && address.length <= 4000 && hostIs(url, DIRECT_HOSTS);
+}
+
+/**
+ * The source's own temporary download link, asked for here with the key: Hugging Face and Civitai answer a download with
+ * a redirect to a signed link on their file servers, which holds no key and lasts an hour or so. The redirects are read,
+ * not followed into the file: a page of theirs that sends it on to another of their pages is asked again (the key only to
+ * the host first asked), and the first link on a file server is the one. Null when the source answers otherwise, or the
+ * link would carry a secret: then the pack fetches through Afflatus, as before.
+ */
+export async function signedLink(source: string, headers: Record<string, string>, fetcher: typeof fetch = fetch): Promise<string | null> {
+  const first = new URL(source).host;
+  const secrets = Object.values(headers).map((v) => v.replace(/^bearer\s+/i, "").trim()).filter((v) => v.length >= 8);
+  let at = source;
+  for (let hop = 0; hop < 4; hop++) {
+    const res = await fetcher(at, { method: "HEAD", headers: { "User-Agent": "afflatus", ...(new URL(at).host === first ? headers : {}) }, redirect: "manual", signal: AbortSignal.timeout(15_000) });
+    await res.body?.cancel().catch(() => {});
+    const location = res.headers.get("location");
+    if (res.status >= 300 && res.status < 400 && location) {
+      const next = new URL(location, at);
+      if (!directOk(next.href) || secrets.some((s) => next.href.includes(s))) return null;
+      // a file server's link is the one; a page of theirs is asked again
+      if (!hostIs(next, API_HOSTS) || hostIs(next, ["cdn.hf.co", "xethub.hf.co"])) return next.href;
+      at = next.href;
+      continue;
+    }
+    // the file itself, with no key needed: the address is a download link as it is
+    return res.ok && hop === 0 && !Object.keys(headers).length && directOk(source) ? source : null;
+  }
+  return null;
+}
 /** Past this, ComfyUI-Manager reading the file whole into memory is a real risk. */
 export const BIG = 2 ** 30;
 export const MANAGER_BIG =
@@ -145,6 +203,8 @@ export class Downloads {
   listedEveryMs = 3000;
   /** How often the node pack is asked how its download goes, and how long it may say nothing before the download is given up. */
   packEveryMs = 1000;
+  /** Where a source's own signed link is asked for (signedLink): a test's stand-in. */
+  signer: (source: string, headers: Record<string, string>) => Promise<string | null> = signedLink;
   packSilentMs = 120_000;
   /** Tries in a row that gain nothing before Afflatus gives a download up, and the first wait between them (shorter in tests). */
   attempts = 5;
@@ -263,7 +323,7 @@ export class Downloads {
       delete d.note;
       d.abort.abort();
       // the pack is told too, and removes its .part
-      if (d.packId) void fetch(`${d.comfy.client.baseUrl}/afflatus/download/${encodeURIComponent(d.packId)}`, { method: "DELETE", signal: AbortSignal.timeout(5000) }).catch(() => {});
+      if (d.packId) void d.comfy.client.raw(`/afflatus/download/${encodeURIComponent(d.packId)}`, { method: "DELETE", signal: AbortSignal.timeout(5000) }).catch(() => {});
       this.pump();
     } else this.all.delete(id);
     this.tell(true);
@@ -278,7 +338,7 @@ export class Downloads {
     if (seen && seen.url === comfy.client.baseUrl && Date.now() - seen.at < 30_000) return seen.value;
     let value: { found: boolean; version?: string };
     try {
-      const res = await fetch(`${comfy.client.baseUrl}/v2/manager/version`, { signal: AbortSignal.timeout(5000) });
+      const res = await comfy.client.raw("/v2/manager/version", { signal: AbortSignal.timeout(5000) });
       value = res.ok ? { found: true, version: (await res.text()).trim().slice(0, 40) } : { found: false };
     } catch {
       value = { found: false };
@@ -303,7 +363,7 @@ export class Downloads {
     const key = `${comfy.client.baseUrl}|${comfyDir}`;
     const seen = this.routeSeen;
     if (seen && seen.key === key && Date.now() - seen.at < 30_000) return seen.value;
-    const paths = await comfyFolderPaths(comfy.client.baseUrl);
+    const paths = await comfyFolderPaths(comfy.client);
     let value: Via | "none" = "none";
     for (const folder of ["checkpoints", "loras", "diffusion_models"]) if (value === "none" && (await modelRoot(paths, folder, comfy.client.baseUrl, comfyDir))) value = "afflatus";
     if (value === "none" && (await this.packCan(comfy))) value = "pack";
@@ -330,7 +390,7 @@ export class Downloads {
     if (busy) return this.view(busy);
 
     const headers = want.headers ?? {};
-    const root = await modelRoot(await comfyFolderPaths(comfy.client.baseUrl), want.folder, comfy.client.baseUrl, want.comfyDir ?? "");
+    const root = await modelRoot(await comfyFolderPaths(comfy.client), want.folder, comfy.client.baseUrl, want.comfyDir ?? "");
     const route = chooseRoute({ root, pack: !root && (await this.packCan(comfy)), source: want.source, headers, total: want.total ?? 0 });
     const d: Download = {
       id: randomUUID(), token: randomBytes(24).toString("hex"), comfy, source: want.source, headers,
@@ -365,7 +425,7 @@ export class Downloads {
     const comfy = d.comfy;
     if (route.note) d.note = route.note;
     const post = (path: string, body: unknown) =>
-      fetch(comfy.client.baseUrl + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
+      comfy.client.raw(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
     const type = MANAGER_TYPE[d.folder];
     try {
       const res = await post("/v2/manager/queue/install_model", {
@@ -398,7 +458,7 @@ export class Downloads {
       let queued = false;
       if (!other) {
         try {
-          const res = await fetch(comfy.client.baseUrl + "/v2/manager/queue/status", { signal: AbortSignal.timeout(5_000) });
+          const res = await comfy.client.raw("/v2/manager/queue/status", { signal: AbortSignal.timeout(5_000) });
           const q = res.ok ? ((await res.json()) as { in_progress_count?: number; pending_count?: number }) : null;
           // a task under way that is not ours (ours would be fetching already), or more than ours pending
           queued = Boolean(q && ((q.in_progress_count ?? 0) > 0 || (q.pending_count ?? 0) > 1));
@@ -486,20 +546,22 @@ export class Downloads {
     }
   }
 
-  /** The node pack downloads it from the one-time address, and is asked how it goes until it is done. */
+  /** The node pack downloads it, from the source's own signed link when there is one, else from the one-time address; it is asked how it goes until it is done. */
   private async runPack(d: Download): Promise<void> {
-    const base = d.comfy.client.baseUrl;
     try {
-      const res = await fetch(`${base}/afflatus/download`, {
+      const version = await d.comfy.client.packVersion().catch(() => null);
+      const signed = version && !olderThan(version, PACK_SIGNED) ? await this.signer(d.source, d.headers).catch(() => null) : null;
+      d.signed = Boolean(signed);
+      const res = await d.comfy.client.raw("/afflatus/download", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(15_000),
-        body: JSON.stringify({ url: this.oneTime(d.self!, d), folder: d.folder, filename: d.file.replace(/\\/g, "/"), total: d.total }),
+        body: JSON.stringify({ url: signed ?? this.oneTime(d.self!, d), folder: d.folder, filename: d.file.replace(/\\/g, "/"), total: d.total }),
       });
       if (!res.ok) throw new Error(`The Afflatus node pack refused the download (${res.status}: ${(await res.text()).slice(0, 200)})`);
       const got = (await res.json()) as { id: string; path?: string };
       d.packId = got.id;
       if (got.path) d.into = got.path.replace(/[\\/][^\\/]*$/, "");
       if (!running(d)) {
-        void fetch(`${base}/afflatus/download/${encodeURIComponent(got.id)}`, { method: "DELETE" }).catch(() => {});
+        void d.comfy.client.raw(`/afflatus/download/${encodeURIComponent(got.id)}`, { method: "DELETE" }).catch(() => {});
         return;
       }
       this.tell(true);
@@ -507,11 +569,11 @@ export class Downloads {
       while (running(d)) {
         await new Promise((r) => setTimeout(r, this.packEveryMs));
         if (!running(d)) return;
-        const asked = await fetch(`${base}/afflatus/download/${encodeURIComponent(got.id)}`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
+        const asked = await d.comfy.client.raw(`/afflatus/download/${encodeURIComponent(got.id)}`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
         if (asked?.status === 404) throw new Error("ComfyUI no longer knows the download: was it restarted? Press Download again.");
         // an answer that says nothing (a 5xx, a page instead of the state, a body cut short) counts as no answer: two
         // minutes of them and the download is given up, never left "downloading" for good
-        const s = asked?.ok ? ((await asked.json().catch(() => null)) as { state?: string; bytes?: number; error?: string; note?: string } | null) : null;
+        const s = asked?.ok ? ((await asked.json().catch(() => null)) as { state?: string; bytes?: number; error?: string; note?: string; expired?: boolean } | null) : null;
         if (!s || typeof s !== "object") {
           await asked?.body?.cancel().catch(() => {});
           if (++silent * this.packEveryMs > this.packSilentMs) throw new Error(asked ? `The Afflatus node pack says nothing usable about the download (HTTP ${asked.status}): look at ComfyUI's own window.` : "ComfyUI is not answering.");
@@ -519,6 +581,14 @@ export class Downloads {
         }
         silent = 0;
         if (s.note) d.note = s.note;
+        // its signed link expired half way: a fresh one, asked for here with the key as the first was; the pack carries on
+        if (s.expired && d.signed && Date.now() - (d.renewedAt ?? 0) > 10_000) {
+          d.renewals = (d.renewals ?? 0) + 1;
+          if (d.renewals > MAX_RENEWALS) throw new Error("The source kept refusing its own download links on ComfyUI's machine: press Download again.");
+          d.renewedAt = Date.now();
+          const fresh = await this.signer(d.source, d.headers).catch(() => null);
+          if (fresh) await d.comfy.client.raw(`/afflatus/download/${encodeURIComponent(got.id)}/url`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: fresh }), signal: AbortSignal.timeout(10_000) }).catch(() => null);
+        }
         if (s.state === "error") throw new Error(`The Afflatus node pack could not download it: ${s.error ?? "no reason given"}`);
         if (s.state === "done") {
           d.bytes = s.bytes ?? d.bytes;

@@ -1,5 +1,5 @@
 import { checkGraph, choicesOf, dryContext, folderOfFileInput, parseInput, sameBase, sameFile, type Family, type ModelInfo, type NodeCatalog, type Recipe } from "@afflatus/core";
-import type { ComfyClient, ComfyStatus } from "./client";
+import { ComfyLocked, type ComfyClient, type ComfyStatus } from "./client";
 
 /**
  * What this ComfyUI can do, per family and per recipe. One answer, read by the setup page (what is
@@ -49,7 +49,8 @@ export interface RecipeStatus {
 
 export interface Scan {
   at: string;
-  comfy: ({ online: true } & ComfyStatus & { url: string; nodes: number }) | { online: false; url: string; error: string };
+  /** Offline: `locked` when it answered, but Afflatus's node pack refused the token (a token to paste, not a ComfyUI to start). */
+  comfy: ({ online: true } & ComfyStatus & { url: string; nodes: number }) | { online: false; url: string; error: string; locked?: boolean };
   families: Array<{ id: string; slots: SlotStatus[] }>;
   recipes: RecipeStatus[];
 }
@@ -190,7 +191,7 @@ export async function scan(
   try {
     [status, catalog] = await Promise.all([client.status(), client.catalog()]);
   } catch (err) {
-    return { at, comfy: { online: false, url: client.baseUrl, error: (err as Error).message }, families: [], recipes: [] };
+    return { at, comfy: { online: false, url: client.baseUrl, error: (err as Error).message, ...(err instanceof ComfyLocked ? { locked: true } : {}) }, families: [], recipes: [] };
   }
 
   // each folder is listed once, whoever asks for it

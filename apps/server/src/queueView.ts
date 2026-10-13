@@ -50,10 +50,12 @@ export interface LaneView {
   core: QueueCore;
   paused: boolean;
   reachable: boolean | null;
+  /** Its ComfyUI answered, but locked against the token Afflatus has for it. */
+  locked: boolean;
 }
 
 export async function status(
-  core: QueueCore, lanes: LaneView[] = [{ machine: null, core, paused: false, reachable: null }], paused = core.paused,
+  core: QueueCore, lanes: LaneView[] = [{ machine: null, core, paused: false, reachable: null, locked: false }], paused = core.paused,
   /** Where each waiting job will probably run and when it starts (schedule.ts plan), and each machine's learned pace. */
   planned: ReadonlyMap<string, { lane: string; startsInMs: number }> = new Map(), paces: ReadonlyMap<string, number> = new Map(),
   /** With several machines, the machines that can run each waiting render (queue.ts ableOf). */
@@ -135,6 +137,8 @@ export async function status(
       paused: l.paused,
       /** Whether it answered when last asked (null before it was asked: nothing was waiting for it). */
       online: l.reachable ?? (core.offlineSince === null ? null : false),
+      /** Offline because it is locked against Afflatus's token (Settings › ComfyUI: paste its token), not because it is away. */
+      locked: l.locked,
       model: c.lastLoads === null ? null : c.lastModel,
       /** Its learned pace against the others (1 the common pace, 2 half as fast); null with nothing to compare yet. */
       pace: paces.get(l.machine.id) ?? null,

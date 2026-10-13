@@ -32,22 +32,36 @@ function filesUnder(dir: string): string[] {
   return out;
 }
 
-type Job = { id: string; state: "downloading" | "done" | "error" | "stopped"; bytes: number; total: number; error?: string; path: string; stop: AbortController };
+type Job = { id: string; state: "downloading" | "done" | "error" | "stopped"; bytes: number; total: number; error?: string; path: string; stop: AbortController; url: string; expired: boolean };
 
 /**
  * ComfyUI's model folders on a real disk (init.folderPaths): what /internal/folder_paths says (unless
  * `hideFolderPaths`, as an older ComfyUI), the files a model folder lists besides the pretend ones, and the
  * Afflatus node pack's download (POST /afflatus/download, from 0.11.0): it fetches the address it is given
  * into the folder's first path, asking again from where it stopped when the connection is cut, as the pack does.
+ * A source's own link (not Afflatus's one-time address) refused half way has expired: the download waits for a
+ * fresh one (POST /afflatus/download/<id>/url, 0.12.0) and carries on from where it was.
  */
 export function fakeFolders(fake: FakeState): (r: FakeRequest) => boolean {
   const jobs = new Map<string, Job>();
-  const run = async (job: Job, url: string) => {
+  const relay = (url: string) => /\/api\/downloads\/fetch\//.test(url);
+  const run = async (job: Job) => {
     const part = `${job.path}.part`;
     let have = 0;
     for (let tries = 0; tries < 5 && job.state === "downloading"; tries++) {
       try {
+        const url = job.url;
+        fake.packFetched.push(url);
         const res = await fetch(url, { headers: have ? { Range: `bytes=${have}-` } : {}, signal: job.stop.signal });
+        if (res.status === 403 && !relay(url)) {
+          await res.body?.cancel();
+          job.expired = true;
+          for (let waited = 0; job.url === url && waited < 5000 && job.state === "downloading"; waited += 20) await new Promise((r) => setTimeout(r, 20));
+          job.expired = false;
+          if (job.url === url) throw new Error("the download link expired, and no fresh one came");
+          tries--;
+          continue;
+        }
         if (!res.ok || !res.body) throw new Error(`answered ${res.status}`);
         if (res.status !== 206) have = 0;
         const total = res.status === 206 ? Number(/\/(\d+)$/.exec(res.headers.get("content-range") ?? "")?.[1]) : Number(res.headers.get("content-length"));
@@ -92,14 +106,21 @@ export function fakeFolders(fake: FakeState): (r: FakeRequest) => boolean {
       if (!root || !body.url || !body.filename || /(^|[\\/])\.\.([\\/]|$)/.test(body.filename)) return plain(400, "refused");
       const target = resolve(root, body.filename);
       mkdirSync(dirname(target), { recursive: true });
-      const job: Job = { id: randomUUID(), state: "downloading", bytes: 0, total: 0, path: target, stop: new AbortController() };
+      const job: Job = { id: randomUUID(), state: "downloading", bytes: 0, total: 0, path: target, stop: new AbortController(), url: body.url, expired: false };
       jobs.set(job.id, job);
-      void run(job, body.url);
+      void run(job);
       return json(200, { id: job.id, path: target });
+    }
+    const renew = /^\/afflatus\/download\/([^/]+)\/url$/.exec(path);
+    if (renew && method === "POST") {
+      const job = jobs.get(decodeURIComponent(renew[1]!));
+      if (!job) return json(404, {});
+      job.url = (JSON.parse(raw.toString("utf8") || "{}") as { url: string }).url;
+      return json(200, { ok: true });
     }
     const job = jobs.get(decodeURIComponent(path.slice("/afflatus/download/".length)));
     if (!job) return json(404, {});
-    if (method === "GET") return json(200, { state: job.state, bytes: job.bytes, total: job.total, error: job.state === "error" ? job.error : undefined });
+    if (method === "GET") return json(200, { state: job.state, bytes: job.bytes, total: job.total, error: job.state === "error" ? job.error : undefined, expired: job.expired });
     if (method === "DELETE") {
       job.state = "stopped";
       job.stop.abort();

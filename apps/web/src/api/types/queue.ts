@@ -101,6 +101,8 @@ export interface MachineState {
   paused: boolean;
   /** Whether it answered when last asked; null before it was asked (nothing waited for it). */
   online: boolean | null;
+  /** Offline because it is locked against the token Afflatus has for it (Settings › ComfyUI: paste its token), not because it is away. */
+  locked: boolean;
   /** The model it was last asked to load, by name; null when none is, or it is not known. */
   model: string | null;
   /** Its learned pace against the others (1 the common pace, 2 half as fast); null with nothing to compare yet. */

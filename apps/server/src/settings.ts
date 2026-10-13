@@ -73,6 +73,11 @@ export const machineSchema = z.object({
    * below): off, the queue sends it nothing of that family. One not named follows that switch, then its files there.
    */
   families: z.record(z.string().max(120), z.boolean()).default({}),
+  /**
+   * Its token when its ComfyUI is locked (Afflatus's node pack, lock.py): sent on every call to it. A secret: never given
+   * to the page (it is told the last four characters), never in a log. Empty: not locked, or locked by another Afflatus.
+   */
+  token: z.string().max(200).default(""),
 });
 export type Machine = z.infer<typeof machineSchema>;
 
@@ -194,7 +199,7 @@ async function load(db: Db): Promise<Settings> {
  * have only `comfyUrl` and `comfyDir`, which become the first machine; otherwise the first machine says them.
  */
 function inStep(s: Settings): Settings {
-  if (!s.machines.length) return { ...s, machines: [{ id: FIRST_MACHINE, name: "", url: s.comfyUrl, dir: s.comfyDir, takes: "all", families: {} }] };
+  if (!s.machines.length) return { ...s, machines: [{ id: FIRST_MACHINE, name: "", url: s.comfyUrl, dir: s.comfyDir, takes: "all", families: {}, token: "" }] };
   const [first] = s.machines;
   return { ...s, comfyUrl: first!.url, comfyDir: first!.dir };
 }
@@ -219,6 +224,13 @@ function keptKey(stored: Llm | undefined, baseUrl: unknown): string {
   if (!stored) return "";
   if (typeof baseUrl === "string" && originOf(baseUrl) !== originOf(stored.baseUrl)) return "";
   return stored.apiKey;
+}
+
+/** The token a machine keeps when an update does not send one: dropped with a move to another server, as an LLM's key is. */
+function keptToken(stored: Machine | undefined, url: unknown): string {
+  if (!stored) return "";
+  if (typeof url === "string" && originOf(url) !== originOf(stored.url)) return "";
+  return stored.token;
 }
 
 /**
@@ -261,13 +273,17 @@ async function written(db: Db, patch: unknown): Promise<Settings> {
   delete sent.llm;
   // the first machine and `comfyUrl` / `comfyDir` are one setting said two ways: whichever was sent, both are written
   if (Array.isArray(sent.machines)) {
-    if (!sent.machines.length) throw httpError("at least one ComfyUI is needed");
-    const first = sent.machines[0] as { url?: unknown; dir?: unknown };
+    // a machine's token is not sent back by the page, which never has it: it stays, as long as the machine keeps its address
+    const list = (sent.machines as Array<{ id?: unknown; url?: unknown; dir?: unknown; token?: unknown }>).map((m) => (m && typeof m === "object" && m.token === undefined ? { ...m, token: keptToken(current.machines.find((c) => c.id === m.id), m.url) } : m));
+    if (!list.length) throw httpError("at least one ComfyUI is needed");
+    sent.machines = list;
+    const first = list[0]!;
     sent.comfyUrl = first.url;
     sent.comfyDir = first.dir ?? "";
   } else if ("comfyUrl" in sent || "comfyDir" in sent) {
     const [first, ...others] = current.machines;
-    sent.machines = [{ ...first!, ...("comfyUrl" in sent ? { url: sent.comfyUrl } : {}), ...("comfyDir" in sent ? { dir: sent.comfyDir } : {}) }, ...others];
+    const url = "comfyUrl" in sent ? sent.comfyUrl : first!.url;
+    sent.machines = [{ ...first!, ...("comfyUrl" in sent ? { url: sent.comfyUrl } : {}), ...("comfyDir" in sent ? { dir: sent.comfyDir } : {}), token: keptToken(first, url) }, ...others];
     sent.comfyUrl ??= current.comfyUrl;
     sent.comfyDir ??= current.comfyDir;
   }
@@ -298,7 +314,8 @@ export function publicSettings(s: Settings) {
   const open = ({ apiKey, ...l }: Llm) => ({ ...l, hasApiKey: Boolean(apiKey) });
   const used = llmInUse(s);
   return {
-    machines: s.machines,
+    // a machine's token stays here: the page is told whether there is one, and its end, to tell two apart
+    machines: s.machines.map(({ token, ...m }) => ({ ...m, tokenEnd: token ? token.slice(-4) : "" })),
     comfyUrl: s.comfyUrl,
     comfyDir: s.comfyDir,
     unloadAfterMinutes: s.unloadAfterMinutes,

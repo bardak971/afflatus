@@ -9,6 +9,7 @@ import { machineLabel } from "../../machines";
 import { useQueueOps } from "../../queueOps";
 import { queryKeys } from "../../queryKeys";
 import { Button, ButtonLink, cx, ErrorNote, fieldClass, Segmented, TwoStep } from "../../ui";
+import { AccessRow } from "./AccessRow";
 import { Block, Card, Fact, Row, Status } from "./Rows";
 
 const MachineMenuBody = lazy(() => import("../../MachineMenu").then((m) => ({ default: m.MachineMenuBody })));
@@ -69,7 +70,7 @@ export function AddMachineCard() {
     const ids = new Set(all.map((m) => m.id));
     let n = all.length + 1;
     while (ids.has(`m${n}`)) n++;
-    save.mutate([...all, { id: `m${n}`, name: "", url: url.trim(), dir: "", takes: "all", families: {} }], { onSuccess: () => setUrl("") });
+    save.mutate([...all, { id: `m${n}`, name: "", url: url.trim(), dir: "", takes: "all", families: {}, tokenEnd: "" }], { onSuccess: () => setUrl("") });
   };
   const exposed = url.trim() !== "" && publicPlainHttp(url.trim());
   return (
@@ -182,6 +183,7 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
       <Row label="Takes" help="What the queue gives this machine. A job pinned to it (dragged onto its lane in the Queue) runs there whatever this says.">
         <Segmented oneLine label={`What ${label} takes`} value={machine.takes} options={TAKES} onChange={(takes) => put({ takes })} />
       </Row>
+      <AccessRow id={machine.id} label={label} probe={probe} />
       {all.length > 1 && (
         <Row label="Order and removal" help="The first ComfyUI is the one the setup, the downloads and the node packs talk to. Removing one leaves what it rendered in the library; a job waiting for it goes to another machine.">
           {index > 0 && <Button size="sm" onClick={() => save.mutate([machine, ...all.filter((m) => m.id !== machine.id)])}>Make it the first</Button>}

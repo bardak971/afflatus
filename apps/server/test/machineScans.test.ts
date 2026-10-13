@@ -3,7 +3,7 @@ import type { RecipeStatus, Scan } from "@afflatus/comfy";
 import { familyOn, lackOn, mergeScans } from "../src/machineScans";
 import type { Machine } from "../src/settings";
 
-const machine = (id: string, families: Record<string, boolean> = {}): Machine => ({ id, name: id, url: `http://${id}:8188`, dir: "", takes: "all", families });
+const machine = (id: string, families: Record<string, boolean> = {}): Machine => ({ id, name: id, url: `http://${id}:8188`, dir: "", takes: "all", families, token: "" });
 const recipe = (id: string, ready: boolean, options: Record<string, string[]> = {}): RecipeStatus => ({
   id, ready, missingNodes: [], missingSlots: ready ? [] : ["model"], emptyInputs: [], missingFiles: [], missing: [], problems: [], limitedBy: [], options,
 });

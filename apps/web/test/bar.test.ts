@@ -170,6 +170,9 @@ describe("modes and commands", () => {
     // one machine's views, and every machine's panel
     expect(parseCommand("log second gpu")).toEqual({ cmd: "machine-log", machine: "second gpu" });
     expect(parseCommand("comfyui log of Studio PC")).toEqual({ cmd: "machine-log", machine: "Studio PC" });
+    expect(parseCommand("open comfyui")).toEqual({ cmd: "open-comfy" });
+    expect(parseCommand("open comfyui on Garage PC")).toEqual({ cmd: "open-comfy", machine: "Garage PC" });
+    expect(parseCommand("open comfy of second gpu")).toEqual({ cmd: "open-comfy", machine: "second gpu" });
     expect(parseCommand("render times garage")).toEqual({ cmd: "machine-times", machine: "garage" });
     expect(parseCommand("models on second gpu")).toEqual({ cmd: "machine-models", machine: "second gpu" });
     expect(parseCommand("comfyuis")).toEqual({ cmd: "machines" });

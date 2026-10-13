@@ -30,6 +30,7 @@ export type Command =
   | { cmd: "load-panel"; machine?: string }
   | { cmd: "machines" }
   | { cmd: "machine-log"; machine: string }
+  | { cmd: "open-comfy"; machine?: string }
   | { cmd: "machine-times"; machine: string }
   | { cmd: "machine-models"; machine: string }
   | { cmd: "new-draft"; recipe: string }
@@ -108,6 +109,7 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "pause", name: "Pause queue", typed: "pause queue", example: "pause queue", what: "What runs finishes; nothing new starts" },
   { id: "resume", name: "Resume queue", typed: "resume queue", example: "resume queue", what: "What waits starts again" },
   { id: "machines", name: "Show the ComfyUIs", typed: "machines", example: "comfyuis", what: "With several ComfyUIs: the status bar's panel of every machine, its figures, its pause and its menu" },
+  { id: "open-comfy", name: "Open ComfyUI", typed: "open comfyui", example: "open comfyui on second gpu", what: "ComfyUI's own page in a new tab, the first ComfyUI or the one named; locked, the tab lands logged in" },
   { id: "machine-log", name: "ComfyUI log of…", typed: "log ", example: "log second gpu", what: "With several ComfyUIs: that machine's console, in the Queue", needs: true },
   { id: "machine-times", name: "Render times of…", typed: "render times ", example: "render times second gpu", what: "With several ComfyUIs: what that machine rendered and how long it took", needs: true },
   { id: "machine-models", name: "Models on…", typed: "models on ", example: "models on second gpu", what: "With several ComfyUIs: Settings › Models, that machine's tab: what it has, its switches, downloads to it", needs: true },
@@ -203,6 +205,7 @@ export function parseCommand(input: string): Command | null {
   // one ComfyUI of several, by its name: "pause studio pc", "use only second gpu"
   if ((m = /^use only (.+)$/i.exec(t))) return { cmd: "use-only", machine: m[1]!.trim() };
   if (/^(?:show (?:the )?)?(?:machines|comfyuis|gpus)$/.test(low)) return { cmd: "machines" };
+  if ((m = /^open comfy(?:ui)?(?: (?:on|of) (.+))?$/i.exec(t))) return m[1] ? { cmd: "open-comfy", machine: m[1].trim() } : { cmd: "open-comfy" };
   if ((m = /^(?:comfyui )?(?:log|console) (?:of |on )?(.+)$/i.exec(t))) return { cmd: "machine-log", machine: m[1]!.trim() };
   if ((m = /^render times (?:of |on )?(.+)$/i.exec(t))) return { cmd: "machine-times", machine: m[1]!.trim() };
   if ((m = /^models (?:on|of) (.+)$/i.exec(t))) return { cmd: "machine-models", machine: m[1]!.trim() };

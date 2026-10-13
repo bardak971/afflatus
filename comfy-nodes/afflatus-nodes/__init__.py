@@ -140,6 +140,8 @@ def clean_output(output_dir: str, hours: float) -> int:
 #       instead, output/Afflatus/video_<n>_.mp4 only, by the same rules.
 #   POST /afflatus/download, GET and DELETE /afflatus/download/<id>  → a model file fetched from Afflatus's one-time
 #       address into a model folder, to disk as it comes and picked up again after a cut (downloads.py says how).
+#   GET and POST /afflatus/lock, POST /afflatus/unlock, POST /afflatus/login-code, /afflatus/login  → the lock: once set,
+#       every route of ComfyUI's server needs this machine's token (lock.py says how, and how to take it off by hand).
 # The first two are read-only, the first bytes of a file only, nothing loaded. ComfyUI's own /view_metadata gives the metadata alone.
 # The disk is read and written off ComfyUI's event loop, which the progress of a render goes through.
 try:
@@ -193,6 +195,15 @@ try:
     from .downloads import register as _register_downloads
 
     _register_downloads(PromptServer.instance.routes, web, folder_paths)
+
+    from .lock import install as _install_lock
+
+    try:
+        _install_lock(PromptServer.instance, web, folder_paths)
+    except Exception as err:
+        # said in ComfyUI's console: Afflatus checks a lock took (a call without the token must be refused), so a lock that
+        # could not be put in is found there too, never taken for one that works
+        print(f"[afflatus-nodes] the lock could not be put in front of ComfyUI's server: {err}")
 except Exception:
     # outside ComfyUI's server (a bare import, a test): the nodes still load, the routes are simply not there
     pass

@@ -4,6 +4,7 @@ import { ComfyUnreachable } from "@afflatus/comfy";
 import type { Services } from "./services";
 import { httpError } from "./errors";
 import { isNetworkPath } from "./linked";
+import { pageUrl } from "./lock-api";
 import { readSettings } from "./settings";
 
 /**
@@ -40,7 +41,7 @@ export async function openInComfy(s: Services, name: string, title: string, file
   };
   const { comfyDir } = await readSettings(s.db);
   // ComfyUI's folder on a network share is never reached for (see isNetworkPath): the file goes through ComfyUI itself
-  if (!comfyDir.trim() || isNetworkPath(comfyDir)) return { url: comfy.url, direct: false, path: await toSidebar() };
+  if (!comfyDir.trim() || isNetworkPath(comfyDir)) return { url: await pageUrl(comfy), direct: false, path: await toSidebar() };
 
   const dir = comfyDir.trim();
   if (!(await exists(join(dir, "custom_nodes")))) throw httpError(`"${dir}" is not a ComfyUI folder: it has no custom_nodes folder. Check the ComfyUI folder in Settings.`);
@@ -53,6 +54,7 @@ export async function openInComfy(s: Services, name: string, title: string, file
     if (err instanceof ComfyUnreachable) throw httpError("ComfyUI has to be running to open a workflow in it.", 503);
     throw err;
   });
-  if (served) return { url: `${comfy.url}/?template=${encodeURIComponent(name)}&source=${PACK}`, direct: true };
-  return { url: comfy.url, direct: false, path: await toSidebar(), restart: true };
+  // locked (the node pack's lock): through its login, landing on the workflow
+  if (served) return { url: await pageUrl(comfy, `/?template=${encodeURIComponent(name)}&source=${PACK}`), direct: true };
+  return { url: await pageUrl(comfy), direct: false, path: await toSidebar(), restart: true };
 }

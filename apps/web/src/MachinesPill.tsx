@@ -49,7 +49,7 @@ function busiest(machines: MachineState[]): string {
 
 /** What a machine does, in a few words, for its row. */
 function doing(m: MachineState): string {
-  if (m.online === false) return "offline";
+  if (m.online === false) return m.locked ? "locked: its token is wrong" : "offline";
   if (m.running) return `${m.running.label}${m.running.steps ? ` · ${m.running.step}/${m.running.steps}` : ` · ${Math.round(m.running.progress * 100)} %`}`;
   const state = m.paused ? "paused" : "idle";
   return m.model ? `${state} · holds ${m.model}` : state;
@@ -150,7 +150,7 @@ export function MachinesPill() {
                         {g.temperature !== undefined && <span className={cx(g.temperature >= 80 && "text-warn-ink")}>{Math.round(g.temperature)}°</span>}
                       </span>
                     ) : (
-                      <span className="text-[11.5px] text-ink-3">{m.online === false ? "not answering" : "no figures yet"}</span>
+                      <span className="text-[11.5px] text-ink-3">{m.online === false ? (m.locked ? "locked against Afflatus's token" : "not answering") : "no figures yet"}</span>
                     )}
                   </span>
                   <span className="flex items-center gap-1.5">

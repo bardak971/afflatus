@@ -97,6 +97,7 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     size: [`Size ${c.cmd === "size" ? `${c.width}×${c.height}` : ""}`, "In the open draft's form"],
     length: [`Length ${c.cmd === "length" ? `${c.seconds} s` : ""}`, "In the open draft's form"],
     machines: ["Show the ComfyUIs", queueNow?.machines.length ? `${queueNow.machines.length} ComfyUIs · their figures, pause and menu` : "With several ComfyUIs: each one's figures and actions"],
+    "open-comfy": [c.cmd === "open-comfy" && c.machine ? `Open ComfyUI on ${c.machine}` : "Open ComfyUI", c.cmd === "open-comfy" && c.machine ? `${machineSaid(queueNow, c.machine)} · its own page, in a new tab` : "ComfyUI's own page, in a new tab"],
     "machine-log": [`ComfyUI log of ${c.cmd === "machine-log" ? c.machine : ""}`, `${c.cmd === "machine-log" ? machineSaid(queueNow, c.machine) : ""} · its console, in the Queue`],
     "machine-times": [`Render times of ${c.cmd === "machine-times" ? c.machine : ""}`, `${c.cmd === "machine-times" ? machineSaid(queueNow, c.machine) : ""} · what it rendered and how long it took`],
     "machine-models": [`Models on ${c.cmd === "machine-models" ? c.machine : ""}`, `${c.cmd === "machine-models" ? machineSaid(queueNow, c.machine) : ""} · Settings › Models, its tab`],
@@ -157,14 +158,14 @@ const machineRows = (x: CommandCtx): Item[] =>
   (x.queue?.machines ?? []).flatMap((m) => {
     const own = (c: Command) => {
       const row = commandRow(x, c);
-      const said = { "use-only": "use only", "load-panel": "load a model on", "machine-log": "comfyui log console", "machine-times": "render times", "machine-models": "models on", generate: "generate on", "render-missing": "render missing on" } as Partial<Record<Command["cmd"], string>>;
+      const said = { "use-only": "use only", "load-panel": "load a model on", "machine-log": "comfyui log console", "open-comfy": "open comfyui on", "machine-times": "render times", "machine-models": "models on", generate: "generate on", "render-missing": "render missing on" } as Partial<Record<Command["cmd"], string>>;
       return { ...row, key: `${row.key}:${m.id}`, p: prepare(`${row.label} ${said[c.cmd] ?? c.cmd} ${m.label}`) };
     };
     return [
       own(m.paused ? { cmd: "resume", machine: m.label } : { cmd: "pause", machine: m.label }), own({ cmd: "use-only", machine: m.label }),
       ...(m.online !== false && !m.running ? [own({ cmd: "unload", machine: m.label })] : []),
       ...(m.online !== false ? [own({ cmd: "load-panel", machine: m.label })] : []),
-      own({ cmd: "machine-log", machine: m.label }), own({ cmd: "machine-times", machine: m.label }), own({ cmd: "machine-models", machine: m.label }),
+      own({ cmd: "open-comfy", machine: m.label }), own({ cmd: "machine-log", machine: m.label }), own({ cmd: "machine-times", machine: m.label }), own({ cmd: "machine-models", machine: m.label }),
       ...(m.online !== false ? [own({ cmd: "generate", machine: m.label })] : []),
       // with a timeline open: its clips with no take, rendered on this machine
       ...(m.online !== false && x.aim ? [own({ cmd: "render-missing", machine: m.label })] : []),

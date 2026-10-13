@@ -6,6 +6,7 @@ import { isAbsolute, join, relative } from "node:path";
 import { isNetworkPath } from "./linked";
 import { modelDirs } from "./modelFiles";
 import { cannotReach, failCode, fetchFailure, fetchPublic } from "./outbound";
+import type { ComfyClient } from "@afflatus/comfy";
 
 /**
  * Afflatus downloading a model file itself, straight into one of ComfyUI's model folders, when it can write
@@ -273,9 +274,9 @@ const OTHER_NAME: Record<string, string> = { unet: "diffusion_models", clip: "te
  * The paths ComfyUI reads a model folder from, as it says them on /internal/folder_paths (extra_model_paths.yaml
  * counted). Null when this ComfyUI does not say (an older one): then the folder set in Settings is read instead.
  */
-export async function comfyFolderPaths(comfyUrl: string): Promise<Record<string, string[]> | null> {
+export async function comfyFolderPaths(client: Pick<ComfyClient, "raw">): Promise<Record<string, string[]> | null> {
   try {
-    const res = await fetch(`${comfyUrl.replace(/\/+$/, "")}/internal/folder_paths`, { signal: AbortSignal.timeout(5000) });
+    const res = await client.raw("/internal/folder_paths", { signal: AbortSignal.timeout(5000) });
     if (!res.ok) return null;
     const all = (await res.json()) as Record<string, unknown>;
     if (!all || typeof all !== "object") return null;
