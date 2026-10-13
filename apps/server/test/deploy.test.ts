@@ -183,6 +183,8 @@ describe("a deploy", () => {
   });
 
   it("a pod gone from RunPod is said once, not at every read", async () => {
+    // one that never came up: its machine stays, said gone (one that came up goes from Afflatus: see below)
+    runpod.comfyStaysDown = true;
     await deploy();
     await t.services.rented.poll();
     runpod.pods[0]!.status = "TERMINATED";
@@ -381,6 +383,34 @@ describe("a render longer than the balance lasts", () => {
     expect(t.services.queue.runningOn(id)).toBe(false);
     const row = (await t.services.queue.status()).waiting.find((w) => w.id === queued.ids[0]);
     expect(row?.lacks?.[id]?.balance?.needMs).toBe(30 * 60_000);
+  });
+});
+
+describe("a deployed pod gone from RunPod", () => {
+  it("that came up once: taken out of Afflatus at the second read that misses it, never at the first", async () => {
+    const id = (await deploy()).json().id as string;
+    const pod = runpod.pods[0]!;
+    await until(() => pod.status === "RUNNING");
+    await until(async () => (await t.services.rented.poll(), !(await readSettings(t.db)).machines.find((m) => m.id === id)?.rented?.deployedAt));
+    // terminated by its watchdog while Afflatus was away
+    pod.status = "TERMINATED";
+    await t.services.rented.poll();
+    expect((await readSettings(t.db)).machines.some((m) => m.id === id)).toBe(true);
+    await t.services.rented.poll();
+    expect((await readSettings(t.db)).machines.some((m) => m.id === id)).toBe(false);
+    expect(runpod.secrets).toEqual({});
+  });
+
+  it("that never came up: kept, so that its card says why", async () => {
+    runpod.comfyStaysDown = true;
+    const id = (await deploy()).json().id as string;
+    const pod = runpod.pods[0]!;
+    await until(() => pod.status === "RUNNING");
+    await t.services.rented.poll();
+    pod.status = "TERMINATED";
+    await t.services.rented.poll();
+    await t.services.rented.poll();
+    expect((await readSettings(t.db)).machines.some((m) => m.id === id)).toBe(true);
   });
 });
 
