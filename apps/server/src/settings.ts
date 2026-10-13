@@ -79,7 +79,33 @@ export const rentedSchema = z.object({
   openPorts: z.boolean().default(false),
   /** The ports Afflatus closed on it ("8080/http"): put back at a Start once they are to be kept open. */
   closedPorts: z.array(z.string().max(40)).max(20).default([]),
+  /** The RunPod secret its token is kept in, when Afflatus named it (a deployed pod's); empty: "afflatus-<pod>" (tokenSecret). */
+  secret: z.string().max(80).default(""),
+  /** Deployed from Afflatus (its image is pulled at its first start, which may take long): not a pod added as it was. */
+  deployed: z.boolean().default(false),
+  /**
+   * When it was deployed (ISO), until its ComfyUI first answered: its boot limit counts from then, whatever RunPod says
+   * meanwhile (an image that never pulls keeps a pod provisioning, billed). Emptied once it answered.
+   */
+  deployedAt: z.string().max(40).default(""),
 });
+
+/** What a GPU is deployed with (Settings › Rented GPUs › Deploy a GPU): the dialog's choices. */
+export const deploySchema = z.object({
+  /** RunPod's id of the GPU ("NVIDIA A40"). */
+  gpu: z.string().min(1).max(120),
+  cloud: z.enum(["SECURE", "COMMUNITY"]).default("SECURE"),
+  /** afflatus: ComfyUI with the node pack, locked from its first second; runpod: RunPod's own ComfyUI image (runpod.ts POD_IMAGES). */
+  template: z.enum(["afflatus", "runpod"]).default("afflatus"),
+  /** A network volume's id (the models kept between deploys; the pod then runs in its data center); empty: none. */
+  volume: z.string().max(80).default(""),
+  /** Its container disk, GB: the models when there is no volume. */
+  disk: z.number().int().min(20).max(2000).default(120),
+  idleMinutes: z.number().int().min(0).max(24 * 60).default(10),
+  idleDo: z.enum(["stop", "terminate"]).default("terminate"),
+  watchdogMinutes: z.number().int().min(0).max(24 * 60).default(15),
+});
+export type DeployAsk = z.infer<typeof deploySchema>;
 
 
 export const machineSchema = z.object({
@@ -145,6 +171,13 @@ export const settingsSchema = z.object({
   runpodKey: z.string().default(""),
   /** What the rented GPUs may cost, in USD, today and this month (rented.ts); 0: no cap. At a cap the running render ends, then they stop. */
   rentCaps: z.object({ day: z.number().min(0).max(100_000).default(0), month: z.number().min(0).max(1_000_000).default(0) }).default({ day: 0, month: 0 }),
+  /** The last deploy's choices: the Deploy dialog opens with them, and "Deploy again" repeats them. Null before the first. */
+  lastDeploy: deploySchema.nullable().default(null),
+  /**
+   * The RunPod secrets of pods removed from Afflatus while they still were on RunPod: each pod reads its own at its start,
+   * so it stays as long as the pod does, and is deleted once the pod is gone (rented.ts). Never given to the page.
+   */
+  leftSecrets: z.array(z.object({ secret: z.string().max(80), pod: z.string().max(80) })).max(500).default([]),
   /** Missing model files may be looked for on Civitai. Off: Afflatus never contacts Civitai. */
   civitaiLookups: z.boolean().default(false),
   /** Once a day, Civitai is asked whether it has newer versions of the models here (only with lookups on; hashes of the files are sent). */
@@ -268,7 +301,7 @@ function keptToken(stored: Machine | undefined, url: unknown): string {
  * between that reading and the writing was undone by it.
  */
 export function writeSettings(db: Db, patch: unknown): Promise<Settings> {
-  return oneAtATime(db, "settings", () => written(db, patch));
+  return oneAtATime(db, "settings", () => written(db, patch, true));
 }
 
 /**
@@ -283,7 +316,13 @@ export function updateSettings(db: Db, change: (current: Settings) => Record<str
   });
 }
 
-async function written(db: Db, patch: unknown): Promise<Settings> {
+/**
+ * `fromPage`: a write from the page (PUT /api/settings), whose list of machines may be older than the server's. A rented
+ * machine it leaves out is kept (removed only through its own route: a pod dropped by a stale list would bill with
+ * nothing watching it), and what only the server knows of one (its pod, its secret, its deploy, the ports it closed) is
+ * the server's: the page sets only its idle, its end, its watchdog and whether its ports stay open.
+ */
+async function written(db: Db, patch: unknown, fromPage = false): Promise<Settings> {
   // which keys were sent is read from the body itself: parsing it would fill in every default
   const sent = { ...z.record(z.string(), z.unknown()).parse(patch) };
   const unknown = Object.keys(sent).filter((k) => !KEYS.includes(k));
@@ -305,6 +344,17 @@ async function written(db: Db, patch: unknown): Promise<Settings> {
     // a machine's token is not sent back by the page, which never has it: it stays, as long as the machine keeps its address
     const list = (sent.machines as Array<{ id?: unknown; url?: unknown; dir?: unknown; token?: unknown }>).map((m) => (m && typeof m === "object" && m.token === undefined ? { ...m, token: keptToken(current.machines.find((c) => c.id === m.id), m.url) } : m));
     if (!list.length) throw httpError("at least one ComfyUI is needed");
+    if (fromPage) {
+      const own = (m: { id?: unknown; rented?: unknown }) => {
+        const was = current.machines.find((c) => c.id === m.id);
+        if (!was?.rented) return m;
+        const asked = (m.rented && typeof m.rented === "object" ? m.rented : {}) as Record<string, unknown>;
+        const pick = Object.fromEntries(["idleMinutes", "idleDo", "watchdogMinutes", "openPorts"].filter((k) => k in asked).map((k) => [k, asked[k]]));
+        return { ...m, rented: { ...was.rented, ...pick } };
+      };
+      const kept = current.machines.filter((c) => c.rented && !list.some((m) => m.id === c.id));
+      list.splice(0, list.length, ...list.map(own), ...kept);
+    }
     sent.machines = list;
     const first = list[0]!;
     sent.comfyUrl = first.url;
@@ -360,6 +410,7 @@ export function publicSettings(s: Settings) {
     hasCivitaiKey: Boolean(s.civitaiKey),
     hasRunpodKey: Boolean(s.runpodKey),
     rentCaps: s.rentCaps,
+    lastDeploy: s.lastDeploy,
     finish: s.finish,
     slotFiles: s.slotFiles,
     acceptedPresets: s.acceptedPresets,

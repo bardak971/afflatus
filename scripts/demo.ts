@@ -109,11 +109,15 @@ const others = await Promise.all(Array.from({ length: Math.min(7, Math.max(0, (N
 const PACK = /^version\s*=\s*"([^"]+)"/m.exec(readFileSync(join(root, "comfy-nodes", "afflatus-nodes", "pyproject.toml"), "utf-8"))?.[1] ?? null;
 for (const f of [fake, ...others]) f.packVersion = PACK;
 // DEMO_RUNPOD=1: a pretend RunPod with three pods (two with a pretend ComfyUI and the node pack, one without ComfyUI's
-// port), for adding a rented machine in Settings › ComfyUI with the key said at start. A started pod takes 8 s to come up
+// port), for adding a rented machine or deploying a GPU in Settings › Rented GPUs with the key said at start. A started or
+// deployed pod takes 8 s to come up
 const RUNPOD_KEY = "demo-runpod-key";
 const pod = async () => Object.assign(await pretendComfy(), { packVersion: PACK });
 const pretendRunpod = process.env.DEMO_RUNPOD === "1" ? await startFakeRunpod({
   key: RUNPOD_KEY, bootMs: 8000,
+  // Deploy a GPU: a new pod is a new pretend ComfyUI with the node pack, up 8 s after it is made; one network volume
+  spawn: pod,
+  volumes: [{ id: "demo-volume", name: "afflatus-models", size: 100, dataCenter: "EU-RO-1" }],
   pods: [
     { name: "comfy-5090", rate: 0.69, gpu: "NVIDIA GeForce RTX 5090", dataCenterId: "EU-RO-1", ports: ["8188/http", "22/tcp"], diskGb: 50, comfy: await pod() },
     { name: "a100-tests", rate: 1.64, gpu: "NVIDIA A100", dataCenterId: "US-TX-3", ports: ["8188/http"], diskGb: 80, comfy: await pod() },

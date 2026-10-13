@@ -237,6 +237,28 @@ export interface RenderItem {
   oom?: boolean;
 }
 
+/** How free a GPU is on RunPod, overall or in a data center. */
+export type Availability = "HIGH" | "MEDIUM" | "LOW" | "NONE";
+
+/** A GPU a pod can be deployed on now: its price an hour on the cloud asked, and where it is free. */
+export interface GpuOffer {
+  id: string;
+  name: string;
+  /** Its memory, GB. */
+  memory: number;
+  price: number;
+  availability: Availability;
+  dataCenters: Array<{ id: string; availability: Availability }>;
+}
+
+/** A network volume of the RunPod account: the models kept between deploys, in one data center. */
+export interface NetworkVolume {
+  id: string;
+  name: string;
+  size: number;
+  dataCenter: string;
+}
+
 /** A pod of the user's on RunPod, as the list for adding one says it. */
 export interface RunpodPod {
   id: string;

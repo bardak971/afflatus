@@ -4,7 +4,8 @@ import { ChevronDown, MoreHorizontal, Pause, Play } from "lucide-react";
 import { Link } from "wouter";
 import type { MachineState } from "./api";
 import { useMenu } from "./ContextMenu";
-import { useQueue } from "./data";
+import { useQueue, useSettings } from "./data";
+import { lastSaid, openDeploy, useDeployAgain } from "./deploy";
 import { gb, plural, usd } from "./format";
 import { useNow } from "./hooks";
 import { machineLabel, rentedSaid, rentedSpent, rentedUp, severalMachines } from "./machines";
@@ -83,6 +84,9 @@ export function MachinesPill() {
   const pick = useMeteredMachine((s) => s.set);
   const loads = useSystem((s) => s.loads);
   const ops = useQueueOps();
+  // with a RunPod key: one more GPU, from what is free now, or the last one again
+  const canDeploy = Boolean(useSettings().data?.hasRunpodKey);
+  const again = useDeployAgain();
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const menu = useMenu<string | null>();
@@ -138,7 +142,7 @@ export function MachinesPill() {
         <ChevronDown size={12} className={cx("shrink-0 text-ink-3 transition-transform", open && "rotate-180")} />
       </button>
       {open && (
-        <Popover anchor={anchor} onClose={() => setOpen(false)} label="ComfyUIs" width={520} height={120 + machines.length * 64}>
+        <Popover anchor={anchor} onClose={() => setOpen(false)} label="ComfyUIs" width={520} height={120 + machines.length * 64 + (canDeploy ? 44 : 0)}>
           <div className="flex flex-col text-[12.5px]">
             <div className="flex items-center gap-2.5 px-3.5 py-3">
               <span className="font-bold">{plural(machines.length, "ComfyUI")}</span>
@@ -198,6 +202,16 @@ export function MachinesPill() {
                 </div>
               );
             })}
+            {canDeploy && (
+              <div className="flex items-center gap-2 border-t border-line px-3.5 py-2">
+                <button type="button" className="rounded-md border border-line px-2.5 py-1 text-xs font-semibold hover:bg-hover" onClick={() => { setOpen(false); openDeploy(); }}>Deploy a GPU…</button>
+                {again.last && (
+                  <button type="button" disabled={again.run.isPending} data-tip="Its rate is asked first" className="min-w-0 truncate rounded-md px-2 py-1 text-left text-xs text-ink-2 hover:bg-hover hover:text-ink" onClick={() => { setOpen(false); again.run.mutate(); }}>
+                    Deploy again: {lastSaid(again.last)}
+                  </button>
+                )}
+              </div>
+            )}
             <div className="flex items-center gap-3 border-t border-line px-3.5 py-2.5 text-xs text-ink-2">
               <span>Click a row: its GPU and VRAM go in the pill</span>
               <span className="grow" />

@@ -9,6 +9,7 @@ import { DropTray } from "./DropTray";
 import { useLiveEvents } from "./live";
 import { Studio } from "./screens/Studio";
 import { ConfirmHost } from "./Confirm";
+import { DeployHost } from "./deploy";
 import { UpdateNews } from "./UpdateNews";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { FolderImportNote } from "./folderImport";
@@ -106,6 +107,7 @@ export function App() {
       <BarHost />
       <UpdateNews />
       <ConfirmHost />
+      <DeployHost />
       <Suspense fallback={null}><KeysHelp /></Suspense>
       <TabProgress />
       <Tips />

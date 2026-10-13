@@ -16,6 +16,7 @@ describe("a rented pod's words", () => {
     const now = 1_800_000_000_000;
     expect(rentedSaid(pod())).toBe("stopped · disk $0.33/day");
     expect(rentedSaid(pod({ status: "STARTING" }))).toBe("starting");
+    expect(rentedSaid(pod({ status: "PROVISIONING" }))).toBe("deploying · pulling its image");
     expect(rentedSaid(pod({ status: "GONE" }))).toBe("not on RunPod");
     const running = pod({ status: "RUNNING", since: now - 120_000, answers: true });
     expect(rentedSpent(running, now)).toBeCloseTo((2 / 60) * 0.69, 6);

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import type { useOpenInComfy } from "../../actions";
 import type { useRentedOps } from "../../rentedOps";
+import type { useDeployAgain } from "../../deploy";
 import type { Asset, CommandEntry, Entity, RecipeInfo, RentedState } from "../../api";
 import type { useModelSettings, useProjects, useSetup } from "../../data";
 import type { useOpenNewDraft } from "../../draft";
@@ -90,6 +91,8 @@ export interface BarCtx {
   openWorkflow: ReturnType<typeof useOpenInComfy<{ id: string; title: string }>>;
   /** A rented pod's Start and Stop (rentedOps.ts). */
   rented: ReturnType<typeof useRentedOps>;
+  /** The last deploy, repeated after its rate is asked (deploy.tsx). */
+  deployAgain: ReturnType<typeof useDeployAgain>;
   /** One machine's ComfyUI page, by its id (actions.ts useOpenComfyUI). */
   openComfy: ReturnType<typeof useOpenInComfy<string>>;
   settingCtx: SettingCtx;

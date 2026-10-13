@@ -2,11 +2,11 @@ import { projectForNew, projectParam } from "./project";
 import { unlistOptions, type ListedOptions, type ModelInfo } from "@afflatus/core";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
-import type { Advice, HistoryPage, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
+import type { Advice, GpuOffer, HistoryPage, NetworkVolume, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView } from "./api/types/designer";
-import type { Health, FinishSettings, MachineProbe, Settings, SettingsPatch } from "./api/types/settings";
+import type { DeployAsk, Health, FinishSettings, MachineProbe, Settings, SettingsPatch } from "./api/types/settings";
 import type { UpdatesView } from "./api/types/updates";
 import type { CommandEntry, CommandEstimate, CommandIndex, PromptHistoryItem } from "./api/types/bar";
 import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, HuggingFaceFind, CivitaiFind } from "./api/types/models";
@@ -170,6 +170,16 @@ export const api = {
   copyMachineToken: (id: string) => call<{ token: string }>("POST", `/machines/${encodeURIComponent(id)}/token/copy`, {}),
   /** The user's pods on RunPod, read with the key: which expose ComfyUI, which are added already. */
   runpodPods: (o?: Asked) => call<{ pods: RunpodPod[] }>("GET", "/runpod/pods", undefined, o?.signal),
+  /** The GPUs a pod can be deployed on now, on that cloud: price, and where they are free. */
+  runpodGpus: (cloud: DeployAsk["cloud"], o?: Asked) => call<{ gpus: GpuOffer[] }>("GET", `/runpod/gpus?cloud=${cloud}`, undefined, o?.signal),
+  /** The RunPod account's network volumes. */
+  runpodVolumes: (o?: Asked) => call<{ volumes: NetworkVolume[] }>("GET", "/runpod/volumes", undefined, o?.signal),
+  /** A GPU deployed, as the dialog asked: billed from now. Its machine's id. */
+  deployGpu: (ask: DeployAsk) => call<{ id: string }>("POST", "/runpod/deploy", ask),
+  /** A machine removed from Afflatus: a rented pod is left on RunPod as it is (its secret goes once the pod does). */
+  removeMachine: (id: string) => call<{ ok: true }>("POST", `/machines/${encodeURIComponent(id)}/remove`, {}),
+  /** Whether each image a deploy may run can be pulled now (null: its registry did not answer). */
+  runpodImages: (o?: Asked) => call<{ afflatus: boolean | null; runpod: boolean | null }>("GET", "/runpod/images", undefined, o?.signal),
   /** A pod added as a machine, as it is: nothing is started. */
   addRunpodPod: (pod: string) => call<{ id: string }>("POST", "/runpod/add", { pod }),
   /** The user's Start of a rented machine: refused at a spending cap. */

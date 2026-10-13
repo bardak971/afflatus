@@ -1,4 +1,5 @@
 import { Bookmark, ChevronLeft, ChevronRight, Clapperboard, Eye, FileOutput, FileUp, Film, FlipHorizontal2, FolderPlus, Layers, Link2, MemoryStick, Pause, PenLine, Play, Plug, RotateCcw, Server, Sparkles, Split, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { openDeploy } from "../../deploy";
 import { openLoadPanel } from "../../LoadPanel";
 import { OPEN_MACHINES } from "../../MachinesPill";
 import { api, type RecipeInfo } from "../../api";
@@ -26,7 +27,7 @@ const KIT_WORD = { person: "person", place: "place", style: "style", preset: "pr
 
 /** A command with its figures: what it does, then (Ctrl + Enter) where it does it. */
 export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, preset?: Preset): Action[] {
-  const { aim, client, go, say, good, failed, form, noDraft, askTimeline, atTopAction, tree, queue, ops, openComfy, rented } = x;
+  const { aim, client, go, say, good, failed, form, noDraft, askTimeline, atTopAction, tree, queue, ops, openComfy, rented, deployAgain } = x;
   const noTimeline: Action = { label: "No timeline to do it on", disabled: true, run: () => {} };
   switch (c.cmd) {
     case "render-clips":
@@ -166,6 +167,11 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       }
       return [{ label: `Stop ${name}`, icon: <Server size={14} />, note: r.status !== "RUNNING" ? rentedSaid(r) : r.diskPerDay > 0.005 ? `the disk keeps billing ${usd(r.diskPerDay)}/day` : "the GPU stops billing", disabled: r.status !== "RUNNING", run: () => rented.stop.mutate({ machine: m.id, how: "stop" }) }];
     }
+    case "deploy-gpu":
+      // the dialog: what RunPod has free now; nothing is billed before its Deploy
+      return [{ label: "Deploy a GPU…", icon: <Server size={14} />, note: "RunPod · what is free now", run: openDeploy }];
+    case "deploy-again":
+      return [{ label: "Deploy again", icon: <Server size={14} />, note: deployAgain.last ? "its rate asked first" : "nothing deployed yet: the dialog opens", disabled: deployAgain.run.isPending, run: () => (deployAgain.last ? deployAgain.run.mutate() : openDeploy()) }];
     case "open-comfy": {
       // the first ComfyUI, or the one named: its own page (locked, through its login: lock-api.ts pageUrl)
       const m = c.machine ? machineByName(queue?.machines, c.machine) : queue?.machines[0];
