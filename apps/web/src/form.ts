@@ -197,8 +197,8 @@ export function matchesText(text: string, q: string): boolean {
  * stay (the import screen's preview, while sections are arranged).
  */
 export function layoutOf(recipe: RecipeInfo, seen: Record<string, unknown>, q: string, keepEmpty = false) {
-  // the two numbers that say which part of a sound is used are drawn with the sound, not as fields of their own
-  const tucked = new Set(recipe.inputs.flatMap((i) => (i.type === "audio" && i.window ? [i.window.start, i.window.seconds] : [])));
+  // the two numbers that say which part of a sound (or of a source video) is used are drawn with it, not as fields of their own
+  const tucked = new Set(recipe.inputs.flatMap((i) => ((i.type === "audio" || i.type === "clip") && i.window ? [i.window.start, i.window.seconds] : [])));
   const shown = recipe.inputs.filter((i) => isShown(i, seen, recipe.inputs) && !tucked.has(i.id));
   // the chapters the recipe arranges itself (an imported workflow's sections): their inputs show there and nowhere else
   const chapters = (recipe.chapters ?? []).map((ch) => ({ ...ch, items: shown.filter((i) => i.chapter === ch.id) })).filter((ch) => ch.items.length || keepEmpty || ch.id === "advanced" || ch.id === "prompt");

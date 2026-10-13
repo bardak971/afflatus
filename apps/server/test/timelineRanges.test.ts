@@ -50,6 +50,12 @@ describe.skipIf(!ffmpegThere)("a video of a person as a reference", { timeout: F
     expect((await referenceClip(silent!, "mp4", { seconds: 3, fps: 24, short: 384 })).hasSound).toBe(false);
   });
 
+  it("of a swap's source: the part asked for, from where it starts, at the model's speed", async () => {
+    // 2 s from 1.5 s of a 5 s video: 48 frames at 24, the source's own size kept
+    const part = await referenceClip(big, "mp4", { start: 1.5, seconds: 2, fps: 24, short: 640 });
+    expect(part).toMatchObject({ width: 640, frames: 48, hasSound: true });
+  });
+
   it("goes up to ComfyUI as that short clip when a render names it, and is part of how the result was made", async () => {
     await t.close();
     await fake.close().catch(() => {});

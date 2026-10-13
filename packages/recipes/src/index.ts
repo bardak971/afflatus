@@ -2,6 +2,7 @@ import type { Family, Recipe } from "@afflatus/core";
 import { flux, fluxEdit, fluxFixFace, fluxOutpaint, fluxPaintOver, fluxPicture, fluxRedraw, fluxSharper } from "./flux";
 import { h3 } from "./h3/family";
 import { h3LipSync } from "./h3/lipsync";
+import { h3Swap } from "./h3/swap";
 import { h3Video } from "./h3/video";
 import { klein } from "./klein/family";
 import { ltx } from "./ltx/family";
@@ -32,6 +33,7 @@ export const recipes: Recipe<any>[] = [
   zimagePicture, zimageRedraw, zimagePaintOver, zimageOutpaint, zimageSharper, zimageFixFace,
   h3Video,
   h3LipSync,
+  h3Swap,
   wanVideo,
   ltxVideo,
   removeBackground, seedvrPicture,

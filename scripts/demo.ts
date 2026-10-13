@@ -90,7 +90,7 @@ const pretendComfy = (lacks?: RegExp) => startFakeComfy({
   folderPaths,
   models: lacking({
     checkpoints, upscale_models: upscalers,
-    loras: ["demo-watercolour.safetensors", "demo-film-grain.safetensors", "demo-detail.safetensors", "minimax_h3_turbo_demo.safetensors", "minimax_h3_ref2v_turbo_demo.safetensors"],
+    loras: ["demo-watercolour.safetensors", "demo-film-grain.safetensors", "demo-detail.safetensors", "minimax_h3_turbo_demo.safetensors", "minimax_h3_ref2v_turbo_demo.safetensors", "h3_character_swap_demo.safetensors"],
     // the built-in video recipe finds its files by name: these make it ready in the demo
     diffusion_models: ["minimax_h3_fl2va_demo.safetensors", "minimax_h3_ref2va_demo.safetensors", "SomeoneMinimaxH3_hybridTurboV3_demo.safetensors", "flux-2-klein-base-4b-demo.safetensors", "wan2.2_i2v_high_noise_14B_demo.safetensors", "wan2.2_i2v_low_noise_14B_demo.safetensors"],
     text_encoders: ["qwen3vl_32b_minimax_h3_demo.safetensors", "qwen_3_4b_demo.safetensors", "umt5_xxl_demo.safetensors"],

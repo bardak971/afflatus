@@ -19,6 +19,7 @@ import { Button, cx, Empty, ErrorNote, fieldClass, NumberBox, Help, Note, Segmen
 import { LoadMore } from "./LoadMore";
 import { AudioPlayer } from "./AudioPlayer";
 import { firstPart, SoundRange, useSoundMarks } from "./SoundRange";
+import { VideoRange } from "./VideoRange";
 import { VideoPlayer } from "./VideoPlayer";
 import { queryKeys } from "./queryKeys";
 
@@ -308,17 +309,37 @@ const moment = (ms: number) => clock(ms, { decimals: 1 });
  * (or arrives at it): pause the video where the join should be and say so; untouched, it is the video's
  * end (or its start).
  */
-export function ClipField({ label, note, role, optional, value, onChange }: {
+export function ClipField({ label, note, role, optional, value, onChange, part }: {
   label: string;
   note?: string;
   role: "previous" | "next" | "source";
   optional: boolean;
   value: ClipValue | null;
   onChange(value: ClipValue | undefined): void;
+  /** A source video of which only a part is worked on (a swap): chosen on a strip of its frames. */
+  part?: PartProps;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const asset = useAsset(value?.asset ?? null);
   const length = asset.data?.durationMs ?? 0;
+  const total = length / 1000;
+  const longest = part ? Math.min(part.max, part.fit?.most ?? part.max) : 0;
+  // a video just chosen starts with its whole length, up to what one clip holds
+  const chosen = useRef<string | null>(null);
+  useEffect(() => {
+    if (!part || !value || chosen.current !== value.asset || !total) return;
+    chosen.current = null;
+    part.set(0, Math.min(total, longest));
+  }, [part, value, total, longest]);
+  // the part as it will be cut: within the video
+  const from = part ? Math.max(0, Math.min(part.start, Math.max(0, total - part.min))) : 0;
+  const lasts = part ? Math.max(0.1, Math.min(part.seconds, total ? total - from : part.seconds)) : 0;
+  const seekTo = (t: number) => {
+    const el = video.current;
+    if (!el) return;
+    el.currentTime = t;
+    void el.play().catch(() => {});
+  };
   const edge = role === "previous" ? "its end" : "its start";
   const says = role === "previous" ? "Drop to continue from this video" : role === "next" ? "Drop to flow into this video" : `Drop to use as ${label.toLowerCase()}`;
   // a video put in after the slot was drawn fades in
@@ -326,7 +347,11 @@ export function ClipField({ label, note, role, optional, value, onChange }: {
   return (
     // a video from the computer goes into the library and lands here
     <Slot
-      label={label} note={note} aside={optional ? "optional" : undefined} kind="video" drags={[DRAG_VIDEO]} onAsset={(id) => onChange({ asset: id })}
+      label={label} note={note} aside={optional ? "optional" : undefined} kind="video" drags={[DRAG_VIDEO]}
+      onAsset={(id) => {
+        chosen.current = id;
+        onChange({ asset: id });
+      }}
       empty={{ icon: <Film size={17} />, text: "Choose a video, or drop one here", says, tall: true }}
       filled={value ? {
         className: "flex flex-col gap-2",
@@ -336,9 +361,9 @@ export function ClipField({ label, note, role, optional, value, onChange }: {
               <VideoPlayer asset={value.asset} video={video} compact className="w-full" videoClassName="max-h-56 w-full rounded-md bg-ground" />
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
-              {/* a source video is worked on whole: no moment to pick */}
+              {/* a source video is worked on whole, or its part chosen below: no moment to pick */}
               {role === "source" ? (
-                <span className="grow text-xs text-ink-2">The whole video{length ? `, ${clock(length)}` : ""}</span>
+                <span className="grow text-xs text-ink-2">{part ? (asset.data?.name || "Video") : "The whole video"}{length ? `, ${clock(length)}` : ""}</span>
               ) : (
                 <>
                   <span className="grow text-xs text-ink-2">
@@ -354,6 +379,22 @@ export function ClipField({ label, note, role, optional, value, onChange }: {
               {/* as on a picture: a video the form must have can be emptied too, the form then says what is missing */}
               <Button size="sm" onClick={() => onChange(undefined)}>Remove</Button>
             </div>
+            {part && total > 0 && (
+              <>
+                <VideoRange asset={value.asset} total={total} start={from} seconds={lasts} min={Math.min(part.min, total)} most={longest} label={`${label}: the part used`} onSeek={seekTo} onCommit={(start, seconds) => part.set(start, seconds)} />
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-ink-2">
+                  <span>From</span>
+                  <NumberBox label={`${label}: the part used starts at, in seconds`} value={tenth(from)} min={0} max={Math.max(0, tenth(total - part.min))} step={0.1} unit="s" onCommit={(v) => part.set(v, lasts)} />
+                  <span>to</span>
+                  <NumberBox label={`${label}: the part used ends at, in seconds`} value={tenth(from + lasts)} min={tenth(from + part.min)} max={tenth(Math.min(total, from + longest))} step={0.1} unit="s" onCommit={(v) => part.set(from, Math.min(longest, v - from))} />
+                </div>
+                {part.fit && (
+                  <span className="px-0.5 text-xs text-ink-2">
+                    <span className="font-semibold text-ink">{part.fit.clip(lasts).toFixed(1)} s</span> · one render holds {longest.toFixed(1)} s of it; a longer video goes on a timeline, part by part.
+                  </span>
+                )}
+              </>
+            )}
           </>
         ),
       } : undefined}
@@ -435,21 +476,25 @@ export function ReferencesField({ label, note, max, roles, video, value, onChang
 /** A slot for one sound (a voice to speak with): pick it from the library, or bring one in. */
 const tenth = (v: number) => Math.round(v * 10) / 10;
 
+/**
+ * The part of a sound or a source video that is used: where it starts and how long it is, in seconds, within its recipe's
+ * limits (the length input's min, max and default). `fit`: what one clip holds and makes of a part (a recording a clip is
+ * made around, a swap's window).
+ */
+export interface PartProps {
+  start: number; seconds: number; min: number; max: number; usual: number;
+  fit?: { most: number; clip(seconds: number): number };
+  set(start: number, seconds: number): void;
+}
+
 export function SoundField({ label, note, optional, value, onChange, part, cast }: {
   label: string;
   note?: string;
   optional: boolean;
   value: string | null;
   onChange(value: string | undefined): void;
-  /**
-   * Only a part of the sound is used: where it starts and how long it is, in seconds, within its recipe's limits (the
-   * length input's min, max and default). `fit`: what one clip holds and makes of a part (a recording a clip is made around).
-   */
-  part?: {
-    start: number; seconds: number; min: number; max: number; usual: number;
-    fit?: { most: number; clip(seconds: number): number };
-    set(start: number, seconds: number): void;
-  };
+  /** Only a part of the sound is used (PartProps). */
+  part?: PartProps;
   /** The cast's voice sample, used when the form is sent without one of its own: shown, and a sample chosen here wins. */
   cast?: CastVoice;
 }) {

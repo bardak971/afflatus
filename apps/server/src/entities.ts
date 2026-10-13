@@ -150,7 +150,8 @@ function withWords(own: string, before: string[], after: string[], tags: boolean
 export function withMood(recipe: Recipe<any>, input: Record<string, unknown>, mood: string | null | undefined): Record<string, unknown> {
   const words = mood?.trim();
   const specs = recipe.inputs as InputSpec[];
-  const main = specs.find((i) => i.type === "prompt" && !i.optional) ?? specs.find((i) => i.type === "prompt");
+  // (nor a text the recipe builds its own prompt from: a swap's "who to replace")
+  const main = specs.find((i) => i.type === "prompt" && !i.optional && !i.noCast) ?? specs.find((i) => i.type === "prompt" && !i.noCast);
   if (!words || !main) return input;
   const own = String(input[main.id] ?? "");
   if (own.includes(words)) return input;
@@ -171,7 +172,8 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
   const byId = new Map(rows.map((r) => [r.id, r]));
 
   const specs = recipe.inputs as InputSpec[];
-  const main = specs.find((i) => i.type === "prompt" && !i.optional) ?? specs.find((i) => i.type === "prompt");
+  // (a text the recipe builds its own prompt from takes no words of the cast: a swap's "who to replace")
+  const main = specs.find((i) => i.type === "prompt" && !i.optional && !i.noCast) ?? specs.find((i) => i.type === "prompt" && !i.noCast);
   const tags = main?.type === "prompt" && main.style === "tags";
   const subjectSpec = specs.find((i) => i.type === "prompt" && i.holds === "subject");
   const refSpec = specs.find((i) => i.type === "references" && !i.media);

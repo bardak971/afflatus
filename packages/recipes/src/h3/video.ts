@@ -145,6 +145,8 @@ export const h3Video = defineRecipe<H3Video>({
  * `head` is how many frames of the clip before open the clip.
  */
 export interface H3Extra {
+  /** The reference model's whole prompt, for the number of pictures it is given, in place of the one written from the form (a swap's caption). */
+  prompt?(pictures: number): string;
   guide?(g: GraphBuilder, at: { positive: Ref; latent: Ref; vae: Ref; audioVae: Ref; head: number; frames: number }): Ref;
   sound?(g: GraphBuilder, decoded: Ref, at: { head: number; frames: number }): Ref;
 }
@@ -164,7 +166,7 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   const audioVae = g.out("VAELoader", { vae_name: slots.audioVae });
   const vae = g.out("VAELoader", { vae_name: slots.videoVae });
   const { model, turbo, steps, lora, unet } = loadH3Model(g, ctx, input, picked, how, audioVae);
-  const { positive, latent, previous, plain } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae });
+  const { positive, latent, previous, plain } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae }, extra.prompt);
 
   // a finish by the latent re-sample starts from the draft's own sampled latent (uploaded as "self.latent"): rendered again, even
   // with its seed, H3 does not make the same frames (measured 2026-10-08: 20 to 30 dB from the draft, the motion drifting)

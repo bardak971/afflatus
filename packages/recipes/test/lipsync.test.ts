@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dryContext, parseInput, soundFit, type InputSpec, type MediaFacts } from "@afflatus/core";
+import { dryContext, parseInput, partFit, type InputSpec, type MediaFacts } from "@afflatus/core";
 import { h3LipSync } from "../src/h3/lipsync";
 import { H3_FPS } from "../src/h3/family";
 
@@ -34,7 +34,7 @@ describe("MiniMax H3 · Lip sync", () => {
 
   it("says how much of the recording one clip holds: 14.8 s, less the moment before the words and the clip before's frames", () => {
     const spec = h3LipSync.inputs.find((i) => i.id === "recording") as Extract<InputSpec, { type: "audio" }>;
-    const fit = (values: Record<string, unknown>) => soundFit(spec.window!.fits!, h3LipSync.inputs, values);
+    const fit = (values: Record<string, unknown>) => partFit(spec.window!.fits!, h3LipSync.inputs, values);
     expect(fit({}).most).toBe(14.8);
     expect(fit({ speechAt: 1 }).most).toBe(13.8);
     // continuing a clip: its 22 frames (0.92 s) are this clip's too

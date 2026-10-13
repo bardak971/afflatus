@@ -104,14 +104,16 @@ export async function probeMediaFile(file: string): Promise<ProbedMedia | null> 
  * (a reference is read at every step: a small one costs less), and whether its sound is more than
  * silence, in which case it can stand for the person's voice.
  */
-export async function referenceClip(source: Media, ext: string, opts: { seconds: number; fps: number; short: number }): Promise<{ bytes: Uint8Array; hasSound: boolean; width: number; height: number; frames: number }> {
+export async function referenceClip(source: Media, ext: string, opts: { seconds: number; fps: number; short: number; start?: number }): Promise<{ bytes: Uint8Array; hasSound: boolean; width: number; height: number; frames: number }> {
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "ref.mp4");
     const streams = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", input]);
     const audio = /audio/.test(streams);
+    // `start`: from there rather than from the start (a source video's part, a swap)
+    const from = opts.start ? ["-ss", opts.start.toFixed(3)] : [];
     await must(tools.ffmpeg, [
-      "-y", "-loglevel", "error", "-i", input, "-t", String(opts.seconds),
+      "-y", "-loglevel", "error", ...from, "-i", input, "-t", String(opts.seconds),
       "-vf", `fps=${opts.fps},scale='if(lt(iw,ih),min(${opts.short},iw),-2)':'if(lt(iw,ih),-2,min(${opts.short},ih))',setsar=1`,
       "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
       ...(audio ? ["-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"] : ["-an"]),
