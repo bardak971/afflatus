@@ -29,6 +29,7 @@ export interface H3Video extends ColourMatch {
   voice?: string;
   voiceStart: number;
   voiceSeconds: number;
+  voiceEven: boolean;
   subject: string;
   sharpRefs: boolean;
   seconds: number;
@@ -114,11 +115,16 @@ export const h3Inputs: InputSpec[] = [
     note: "short videos of the person: how they look, move and sound. The first 3 seconds of each are used; a video's own sound is taken as their voice unless a voice sample is given",
   },
   {
-    id: "voice", type: "audio", role: "voice", label: "Voice sample", optional: true, window: { start: "voiceStart", seconds: "voiceSeconds" },
-    note: "someone speaking: the person in the clip speaks with that voice. Only the part you set is used: 5 to 10 seconds of clean speech carry a voice best",
+    id: "voice", type: "audio", role: "voice", label: "Voice sample", optional: true, window: { start: "voiceStart", seconds: "voiceSeconds", even: "voiceEven" },
+    note: "someone speaking: the person in the clip speaks with that voice. Only the part you set is used: the longer the better, up to 15 seconds of clean speech",
   },
   { id: "voiceStart", type: "number", label: "Voice sample: start", min: 0, max: 600, step: 0.5, default: 0, unit: " s", showWhen: "voice" },
-  { id: "voiceSeconds", type: "number", label: "Voice sample: length", min: 2, max: 15, step: 0.5, default: 8, unit: " s", showWhen: "voice" },
+  // 15 s carried his voice better than 8 s, at the same render time (3 seeds each, evened: 0.805 against 0.781, 2026-10-13)
+  { id: "voiceSeconds", type: "number", label: "Voice sample: length", min: 2, max: 15, step: 0.5, default: 15, unit: " s", showWhen: "voice" },
+  {
+    id: "voiceEven", type: "toggle", label: "Even out the voice's loudness", default: true, showWhen: "voice", advanced: true,
+    note: "the part is brought to a usual speaking level (EBU R128, -16 LUFS) before it is used: a quiet sample carries a voice weakly",
+  },
   {
     id: "subject", type: "prompt", weights: false, label: "Subject description", style: "sentences", optional: true, showWhen: "references", holds: "subject",
     placeholder: "brown hair, green eyes, freckles", note: "in a few words, to help the pictures",
