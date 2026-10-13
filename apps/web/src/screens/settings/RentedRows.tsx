@@ -78,10 +78,11 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
         <span className="flex min-w-0 grow flex-col gap-0.5 text-[12.5px]">
           <span>{[r?.gpu?.replace(/^NVIDIA (GeForce )?/, ""), r?.dataCenter, r?.rate ? `${usd(r.rate)} / h` : null].filter(Boolean).join(" · ") || "…"}</span>
           <span className="truncate font-mono text-[11.5px] text-ink-3">{machine.url}</span>
+          {r?.booting && !r.error && <span className="text-xs text-ink-3">First start: its image pulled onto the host, then ComfyUI starts · a few minutes, billed · terminated by itself if not up in 20 min</span>}
           {r?.error && <span className="text-xs text-warn-ink">{r.error}</span>}
           {gone && (
             <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-warn-ink">
-              {r?.stoppedBy === "idle" ? `Terminated after ${minutesSaid(rented.idleMinutes)} idle: nothing billed any more.` : r?.stoppedBy === "boot" ? "Terminated: its ComfyUI never answered (its container did not start). Nothing billed any more." : "Not on RunPod: terminated there, or the key is another account's."}
+              {r?.stoppedBy === "idle" ? `Terminated after ${minutesSaid(rented.idleMinutes)} idle: nothing billed any more.` : r?.stoppedBy === "boot" ? (rented.deployed ? "Terminated: it did not come up in 20 min (its image did not pull, or its container did not start). Nothing billed any more." : "Terminated: its ComfyUI never answered (its container did not start). Nothing billed any more.") : r?.stoppedBy === "gpu" ? "Terminated: its GPU did not work on that host. Nothing billed any more; deploy again, RunPod picks another host." : "Not on RunPod: terminated there, or the key is another account's."}
               <Button size="sm" onClick={remove}>Remove from Afflatus</Button>
             </span>
           )}

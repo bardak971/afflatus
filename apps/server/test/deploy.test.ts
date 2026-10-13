@@ -151,7 +151,7 @@ describe("a deploy", () => {
     expect(runpod.secrets[machine.rented!.secret]).toBe(machine.token);
   });
 
-  it("an image that never pulls: terminated 20 min after the deploy, its machine and its secret gone", async () => {
+  it("an image that never pulls: terminated 20 min after the deploy, said on its card, its secret gone", async () => {
     runpod.bootMs = 10_000_000;
     const id = (await deploy()).json().id as string;
     await t.services.rented.poll();
@@ -163,7 +163,8 @@ describe("a deploy", () => {
     t.services.rented.now = () => real() + 21 * 60_000;
     await t.services.rented.poll();
     expect(runpod.pods[0]!.status).toBe("TERMINATED");
-    expect((await readSettings(t.db)).machines.some((m) => m.id === id)).toBe(false);
+    // a failure stays said on its card, the machine kept until removed
+    expect((await t.services.queue.status()).machines.find((m) => m.id === id)?.rented?.stoppedBy).toBe("boot");
     expect(runpod.secrets).toEqual({});
   });
 
@@ -217,6 +218,36 @@ describe("a deploy", () => {
     await t.services.rented.poll();
     expect(runpod.pods[0]!.status).toBe("PROVISIONING");
     expect(await t.db.selectFrom("rent_sessions").selectAll().execute()).toHaveLength(1);
+  });
+
+  it("a GPU that does not work on its host: terminated at once, said on its card, its secret gone", async () => {
+    const id = (await deploy()).json().id as string;
+    const pod = runpod.pods[0]!;
+    await until(() => pod.status === "RUNNING");
+    // the Afflatus image's GPU check failed: broken.py answers on 8188 in ComfyUI's place
+    pod.comfy.podBroken = "RuntimeError: CUDA unknown error";
+    await t.services.rented.poll();
+    expect(pod.status).toBe("TERMINATED");
+    const row = (await t.services.queue.status()).machines.find((m) => m.id === id);
+    expect(row?.rented).toMatchObject({ stoppedBy: "gpu", status: "GONE" });
+    expect(row?.rented?.error).toMatch(/its GPU did not work on that host \(RuntimeError: CUDA unknown error\)/);
+    expect(runpod.secrets).toEqual({});
+  });
+
+  it("its first start is said as a step, not an error, until it drags", async () => {
+    const id = (await deploy()).json().id as string;
+    const pod = runpod.pods[0]!;
+    await until(() => pod.status === "RUNNING");
+    pod.comfy.down = true;
+    await t.services.rented.poll();
+    const real = Date.now;
+    t.services.rented.now = () => real() + 5 * 60_000;
+    let row = (await t.services.queue.status()).machines.find((m) => m.id === id)!;
+    expect(row.rented).toMatchObject({ booting: true, error: null });
+    t.services.rented.now = () => real() + 13 * 60_000;
+    await t.services.rented.poll();
+    row = (await t.services.queue.status()).machines.find((m) => m.id === id)!;
+    expect(row.rented?.error).toMatch(/^Its first start is taking long/);
   });
 
   it("RunPod's ComfyUI image when asked for", async () => {

@@ -8,7 +8,7 @@ import { rateSaid, rentedSaid, rentedSpent, rentedUp, severalMachines } from "..
 const pod = (over: Partial<RentedState> = {}): RentedState => ({
   provider: "runpod", pod: "p1", status: "EXITED", rate: 0.69, gpu: "NVIDIA GeForce RTX 5090", dataCenter: "EU-RO-1",
   since: null, spent: 0, diskPerDay: 0.33, volume: false, otherPorts: [], closedPorts: [], watchdog: "unknown", answers: null, idleLeftMs: null, capped: false, stopping: false,
-  stoppedBy: null, error: null, ...over,
+  stoppedBy: null, booting: false, error: null, ...over,
 });
 
 describe("a rented pod's words", () => {
@@ -17,6 +17,8 @@ describe("a rented pod's words", () => {
     expect(rentedSaid(pod())).toBe("stopped · disk $0.33/day");
     expect(rentedSaid(pod({ status: "STARTING" }))).toBe("starting");
     expect(rentedSaid(pod({ status: "PROVISIONING" }))).toBe("deploying · pulling its image");
+    // a deployed pod's first start is a normal step, said as one
+    expect(rentedSaid(pod({ status: "RUNNING", booting: true, answers: false, since: null }))).toBe("deploying");
     expect(rentedSaid(pod({ status: "GONE" }))).toBe("not on RunPod");
     const running = pod({ status: "RUNNING", since: now - 120_000, answers: true });
     expect(rentedSpent(running, now)).toBeCloseTo((2 / 60) * 0.69, 6);

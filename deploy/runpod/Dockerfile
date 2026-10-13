@@ -18,6 +18,8 @@ FROM python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3
 ARG COMFYUI_VERSION=v0.37.0
 
 ENV PIP_NO_CACHE_DIR=1 PYTHONUNBUFFERED=1 DEBIAN_FRONTEND=noninteractive
+# what NVIDIA's own CUDA images set: the GPU and its compute libraries handed to the container by the host's runtime
+ENV NVIDIA_VISIBLE_DEVICES=all NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
 # git for the Manager (it clones node packs), ffmpeg for the video nodes, the GL and GLib libraries OpenCV wants
 RUN apt-get update \
@@ -35,6 +37,7 @@ RUN pip install --index-url https://download.pytorch.org/whl/cu128 torch torchvi
 
 COPY comfy-nodes/afflatus-nodes /opt/afflatus-nodes
 COPY deploy/runpod/start.sh /start.sh
+COPY deploy/runpod/broken.py /opt/afflatus-pod/broken.py
 # a checkout on Windows may hand the script over with CRLF: sh would not read its first line
 RUN sed -i 's/\r$//' /start.sh && chmod +x /start.sh && rm -rf /opt/afflatus-nodes/tests
 

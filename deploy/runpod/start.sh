@@ -12,6 +12,13 @@ if [ -d /workspace ] && touch /workspace/.afflatus-check 2>/dev/null; then
 else
   BASE=/comfyui
 fi
+# the GPU first: on a host whose driver or GPU is in a bad state ("CUDA unknown error") ComfyUI would crash at every start,
+# billed for nothing. Said on ComfyUI's port instead (broken.py), and Afflatus terminates the pod at once
+if ! python -c "import torch; torch.cuda.init(); torch.zeros(1, device='cuda')" 2>/tmp/afflatus-gpu.txt; then
+  cat /tmp/afflatus-gpu.txt
+  exec python /opt/afflatus-pod/broken.py /tmp/afflatus-gpu.txt
+fi
+
 mkdir -p "$BASE/custom_nodes" "$BASE/models" "$BASE/user" "$BASE/input" "$BASE/output"
 echo "[afflatus-pod] ComfyUI's files in $BASE"
 

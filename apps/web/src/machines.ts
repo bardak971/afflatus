@@ -55,8 +55,8 @@ export function familyOnFor(own: Readonly<Record<string, boolean>>, said: Readon
 export function rentedSaid(r: RentedState, now = Date.now()): string {
   switch (r.status) {
     case "RUNNING": {
-      // billed from its start, whether its ComfyUI answers yet or not
-      const what = r.stopping ? "stopping" : r.answers === false ? "running, ComfyUI not up yet" : "running";
+      // billed from its start, whether its ComfyUI answers yet or not; a deployed pod's first start is a step of its own
+      const what = r.stopping ? "stopping" : r.booting ? "deploying" : r.answers === false ? "running, ComfyUI not up yet" : "running";
       return r.since ? `${what} ${long(now - r.since)} · ${usd(rentedSpent(r, now), true)}` : what;
     }
     case "STARTING": return "starting";

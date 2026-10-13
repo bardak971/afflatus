@@ -2,5 +2,6 @@
 *
 !comfy-nodes/afflatus-nodes
 !deploy/runpod/start.sh
+!deploy/runpod/broken.py
 comfy-nodes/afflatus-nodes/tests
 **/__pycache__

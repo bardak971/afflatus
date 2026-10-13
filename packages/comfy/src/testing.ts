@@ -70,6 +70,8 @@ export interface FakeComfy {
   oldPage: boolean;
   /** Down, as the ComfyUI of a stopped pod (fake/runpod.ts): every call answered 502 by the provider's proxy, no socket. */
   down: boolean;
+  /** The Afflatus pod image on a host whose GPU does not work (deploy/runpod/broken.py): GET /afflatus/pod says this error, all else 503. */
+  podBroken: string | null;
   /** The node pack's watchdog (0.13.0): each "still here" it heard, with the minutes it was given. */
   alive: Array<{ at: number; minutes: number }>;
   /** Every address the pretend node pack fetched a download from, in order (a fresh link after one expired among them). */
@@ -137,7 +139,7 @@ const body = async (req: IncomingMessage) => {
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: FakeState = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], managerVersion: "V4.2.1", oldPage: false, down: false, alive: [],
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, alive: [],
     folderPaths: init.folderPaths ?? null, hideFolderPaths: init.hideFolderPaths ?? false,
     catalog: init.catalog ?? {},
     models: init.models ?? {},
@@ -171,6 +173,7 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
     };
     // a stopped pod's ComfyUI: the provider's proxy answers for it, and says it is not there
     if (fake.down) return r.plain(502, "Bad Gateway: the pod is not running", "text/plain");
+    if (fake.podBroken !== null) return url.pathname === "/afflatus/pod" ? r.json(200, { afflatus_pod: "gpu_failed", error: fake.podBroken }) : r.json(503, { afflatus_pod: "gpu_failed", error: fake.podBroken });
     if (url.pathname === "/upload/image" && fake.uploadDelayMs) await new Promise((resolve) => setTimeout(resolve, fake.uploadDelayMs));
     for (const part of parts) if (await part(r)) return;
     r.json(404, { error: `fake ComfyUI has no ${method} ${url.pathname}` });
