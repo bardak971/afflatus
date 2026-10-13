@@ -154,6 +154,8 @@ interface Seen {
   answered: boolean;
   /** The pod said its GPU does not work on its host (the Afflatus image, broken.py), with torch's words. */
   gpuFailed: string | null;
+  /** How many reads in a row found no such pod on RunPod. */
+  missing: number;
   /** Read at least once: what a later read finds is a change only when it differs. */
   read: boolean;
 }
@@ -161,7 +163,7 @@ interface Seen {
 const fresh = (): Seen => ({
   pod: null, rate: null, watchdog: "unknown", answers: null, busyAt: null, stoppedBy: null, stopAfter: false, cappedAt: null,
   stopping: false, lockTried: false, seenRunningAt: null, epoch: 0, error: null, bootNote: null, secretDropped: false, upAt: null, answered: false,
-  read: false, gpuFailed: null,
+  read: false, gpuFailed: null, missing: 0,
 });
 
 export class Rented {
@@ -626,6 +628,16 @@ export class Rented {
     const before = s.pod;
     // gone from RunPod (terminated there, or by its idle): its secret goes too
     if (!pod) await this.dropSecret(m, s, key);
+    s.missing = pod ? 0 : s.missing + 1;
+    // a deployed pod that came up once (its ComfyUI answered) and is gone from RunPod at two reads in a row (its watchdog
+    // terminated it while Afflatus was away, or it was terminated on RunPod's site): nothing is left of it, its machine goes
+    // too. Never on one read (RunPod's list may lag a pod just made), never for one that did not come up (its card says why)
+    if (!pod && s.missing >= 2 && m.rented!.deployed && !m.rented!.deployedAt && s.stoppedBy !== "gpu" && s.stoppedBy !== "boot") {
+      await updateSettings(this.db, (current) => ({ machines: current.machines.filter((x) => x.id !== m.id) }));
+      this.seen.delete(m.id);
+      console.log(`[rented] ${m.name || m.id}: gone from RunPod, taken out of Afflatus`);
+      return true;
+    }
     // a pod gone stays gone: said once, not at every read
     const changed = !s.read || (before?.status ?? null) !== (pod?.status ?? null) || Boolean(pod?.cost && pod.cost !== s.rate);
     s.read = true;
