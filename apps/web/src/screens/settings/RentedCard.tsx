@@ -128,7 +128,7 @@ export function RentedCard() {
       help="What your rented pods cost: each one's running time × its rate, as Afflatus counts it (RunPod's bill is the reference). A stopped pod's disk is billed too, and is not in these figures: its card says what it costs a day."
       status={s.balance !== null ? <span className={cx("text-[12.5px]", s.lowBalance ? "font-semibold text-warn-ink" : "text-ink-2")}>RunPod balance <span className="font-mono">{usd(s.balance)}</span></span> : undefined}
     >
-      <Row label="Today"><Against value={s.today} cap={s.caps.day} sub="GPU time" /></Row>
+      <Row label="Today"><Against value={s.today} cap={s.caps.day} sub="every pod's GPU time" /></Row>
       <Row label="This month"><Against value={s.month} cap={s.caps.month} /></Row>
       <Row setting="comfy.rentcaps" label="Caps" help="At a cap, the render running finishes, then the pods stop; what waits goes to your other machines, and Start says the cap is reached. Empty: no cap.">
         <CapBox label="a day" value={s.caps.day} onSave={(day) => caps.mutate({ ...s.caps, day })} />

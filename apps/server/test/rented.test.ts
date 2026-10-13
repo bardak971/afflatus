@@ -209,6 +209,24 @@ describe("a rented machine", () => {
     }
   });
 
+  it("closes the run of a pod removed from Afflatus while it ran: today's cost stops counting it", async () => {
+    await setKey();
+    const id = await add();
+    await post(t.app, `/api/machines/${id}/start`, {});
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
+    await t.services.rented.poll();
+    expect((await sessions()).filter((r) => !r.ended_at)).toHaveLength(1);
+    const machines = (await get(t.app, "/api/settings")).json().machines.filter((m: { id: string }) => m.id !== id);
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines } });
+    await t.services.rented.poll();
+    expect((await sessions()).filter((r) => !r.ended_at)).toEqual([]);
+    // what it ran stays counted, and no more is added
+    const real = Date.now;
+    const before = (await t.services.rented.spending()).today;
+    t.services.rented.now = () => real() + 60 * 60_000;
+    expect((await t.services.rented.spending()).today).toBeCloseTo(before, 6);
+  });
+
   it("is deleted when asked, and then said gone", async () => {
     await setKey();
     const id = await add();
