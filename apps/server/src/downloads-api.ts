@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { modelIndex } from "./comfy";
 import { httpError, notFound } from "./errors";
-import { beginDownload, downloadBody } from "./fetchFile";
+import { beginDownload, downloadBody, downloadTarget } from "./fetchFile";
 import { resolveLink } from "./fromLink";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
@@ -10,12 +10,13 @@ import { readSettings } from "./settings";
 /** The downloads of model files into ComfyUI (downloads.ts, fetchFile.ts), and reading a link to a model. */
 export function registerDownloads(app: FastifyInstance, s: Services): void {
   /** Model files being fetched into ComfyUI, whether that is turned on, and whether this ComfyUI can do it. */
-  app.get("/api/downloads", async () => {
+  app.get("/api/downloads", async (req) => {
     const settings = await readSettings(s.db);
     if (!settings.downloadModels) return { on: false, items: s.downloads.list(), manager: { found: false }, via: "none" };
-    const comfy = await s.comfy();
+    // `machine`: asked of that ComfyUI (Settings › Models, its tab); the first one otherwise
+    const { comfy, dir } = await downloadTarget(s, settings, z.object({ machine: z.string().max(40).optional() }).parse(req.query).machine);
     // who would download: Afflatus itself (it can write ComfyUI's model folders), the node pack, ComfyUI-Manager, or nobody
-    const [manager, via] = await Promise.all([s.downloads.manager(comfy), s.downloads.route(comfy, settings.comfyDir)]);
+    const [manager, via] = await Promise.all([s.downloads.manager(comfy), s.downloads.route(comfy, dir)]);
     return { on: true, items: s.downloads.list(), manager, via };
   });
 

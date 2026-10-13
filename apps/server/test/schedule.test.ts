@@ -47,3 +47,11 @@ describe("the plan", () => {
     expect(takes({ id: "m2", takes: "image" }, { makes: "video", pin: "m2" })).toBe(true);
   });
 });
+
+describe("a job's files", () => {
+  it("go only to the machines that have them; a job pinned to one without them waits", () => {
+    expect(where([lane("m1", { busyForMs: 60_000 }), lane("m2")], [job("a", { can: new Set(["m1"]) })])).toEqual({ a: "m1" });
+    expect(where([lane("m1"), lane("m2")], [job("a", { can: new Set(["m1"]), pin: "m2" })])).toEqual({});
+    expect(takes({ id: "m2", takes: "all" }, { makes: "image", pin: null, can: new Set() })).toBe(false);
+  });
+});

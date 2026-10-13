@@ -40,9 +40,18 @@ export interface Job {
   pinned: string | null;
   /** Of a waiting job: in about how long it starts, when that can be told. */
   startsInMs: number | null;
+  /** Of a waiting render, when not every machine can run it: the machines that have its files, with its family on (empty: none). */
+  runsOn: string[] | null;
+  /** Of such a render: what keeps it off each other machine, by machine id (its family off there, the files it lacks there). */
+  lacks: Record<string, MachineLack> | null;
+}
+/** What keeps a waiting render off a machine: its family switched off there, and the files it lacks there (with where to get each, when known). */
+export interface MachineLack {
+  off: boolean;
+  files: Array<{ file: string; folder: string; url?: string }>;
 }
 /** A finished job as the queue's history shows it: with what it made and how. (Not how long it would take, nor how a clip joined: GET /api/jobs leaves those out.) */
-export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" | "pinned" | "startsInMs"> {
+export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" | "pinned" | "startsInMs" | "runsOn" | "lacks"> {
   tookMs: number | null;
   /** Of a job that failed in a ComfyUI node: the end of its Python traceback; null otherwise. */
   trace?: string | null;

@@ -38,3 +38,11 @@ export function machineUnloadBlock(m: { online: boolean | null; running: unknown
   if (m.running) return "not while it renders";
   return null;
 }
+
+/**
+ * Whether a family is on for one machine: switched there by hand, else by the switch of every machine, else by its files
+ * there. The server's rule (machineScans.ts familyOn): what the queue sends a machine is what this says.
+ */
+export function familyOnFor(own: Readonly<Record<string, boolean>>, said: Readonly<Record<string, boolean>>, family: string, found: boolean): boolean {
+  return own[family] ?? said[family] ?? found;
+}

@@ -11,7 +11,7 @@ import { useDownloads } from "./useGetFile";
 import { elapsed, gb, phaseLabel, timeLeft, when } from "./format";
 import { StripModel, StripPlace, stripGhost } from "./ModelLoad";
 import { MachineChips } from "./MachineChips";
-import { machineLabel, severalMachines } from "./machines";
+import { machineLabel, machineName, severalMachines } from "./machines";
 import { lazyPart, loadExpiringPanel } from "./lazyParts";
 import { useProject } from "./project";
 import { useQueueOps } from "./queueOps";
@@ -75,6 +75,8 @@ export function StatusBar() {
         <Link href="/settings/models" className={cx(stripGhost, "min-w-0")} data-tip="A model file is being downloaded into ComfyUI. It goes on if this page is closed. Open Settings to see it or cancel it.">
           <Download size={13} className="shrink-0" />
           <span className="truncate">{fetching.length === 1 ? fetching[0]!.file.split(/[\\/]/).pop() : `${fetching.length} files`}</span>
+          {/* with several ComfyUIs, which one it goes to */}
+          {fetching.length === 1 && several.length > 0 && fetching[0]!.machine && <span className="shrink-0 text-ink-2">→ {machineName(q, fetching[0]!.machine)}</span>}
           {fetching.length === 1 && fetching[0]!.total > 0 && <span className="font-mono whitespace-pre">{pad(Math.floor((fetching[0]!.bytes / fetching[0]!.total) * 100))} %</span>}
         </Link>
       )}

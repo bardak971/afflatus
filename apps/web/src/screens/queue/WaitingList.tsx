@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
+import { Link } from "wouter";
 import { ArrowDownToLine, ArrowUpToLine, Layers, Pin, Server, Trash2, X } from "lucide-react";
-import type { Job, MachineState, RunningJob } from "../../api";
+import type { Job, MachineLack, MachineState, RunningJob } from "../../api";
+import { GetFile } from "../../GetFile";
 import { machineLabel } from "../../machines";
 import { JOB_DRAG } from "./MachineLanes";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
@@ -9,6 +11,8 @@ import { Button, Chip, cx, SectionTitle } from "../../ui";
 import { useQueueBulk } from "./bulk";
 import { useModelName } from "./modelName";
 import { betterPlace, dropped, groupingSaves, loadsAt, modelSwitches, moved } from "./order";
+import { settingHref } from "../settings/settingsIndex";
+import { DownloadTo } from "../../useGetFile";
 
 /** How many waiting jobs show before the rest fold into "and N more". */
 const SHOWN = 3;
@@ -64,7 +68,7 @@ export function WaitingList({ waiting, running, machines = [], onOrder, onRemove
   /** The model each row loads first (the running job counts as the one before the first): one chip per switch the head counts. */
   const loads = loadsAt(waiting, running);
   /** A machine free now that could start it, when the plan keeps it for another one (a faster one, one that holds its model). */
-  const freeNow = (w: Job) => (w.pinned || !w.machine || !w.startsInMs ? undefined : machines.find((m) => m.id !== w.machine && !m.running && !m.paused && m.online !== false));
+  const freeNow = (w: Job) => (w.pinned || !w.machine || !w.startsInMs ? undefined : machines.find((m) => m.id !== w.machine && !m.running && !m.paused && m.online !== false && (!w.runsOn || w.runsOn.includes(m.id))));
   const itemsOf = (j: { id: string; index: number }): MenuItem[] => {
     const place = betterPlace(waiting, j.id, running);
     const w = waiting.find((x) => x.id === j.id);
@@ -76,7 +80,7 @@ export function WaitingList({ waiting, running, machines = [], onOrder, onRemove
             items: [
               { label: "Any machine", note: "the one that ends it soonest", checked: !w.pinned, run: () => onPin(w.id, null) },
               "—" as const,
-              ...machines.map((m): MenuItem => ({ label: machineLabel(m), note: m.paused ? "paused" : m.online === false ? "offline" : undefined, checked: w.pinned === m.id, run: () => onPin(w.id, m.id) })),
+              ...machines.map((m): MenuItem => ({ label: machineLabel(m), note: lackSaid(w.lacks?.[m.id]) ?? (m.paused ? "paused" : m.online === false ? "offline" : undefined), checked: w.pinned === m.id, run: () => onPin(w.id, m.id) })),
             ],
           } satisfies MenuItem]
         : []),
@@ -106,64 +110,71 @@ export function WaitingList({ waiting, running, machines = [], onOrder, onRemove
     <div className="flex flex-col" onDragOver={(e) => dragged && e.preventDefault()} onDrop={() => over !== null && drop(over)}>
       <WaitingHead waiting={waiting} running={running} />
       {shown.map((w, i) => (
-        <div
-          key={w.id}
-          tabIndex={0}
-          onContextMenu={(e) => menu.open(e, { id: w.id, label: w.label, index: i })}
-          onKeyDown={(e) => {
-            if (e.target !== e.currentTarget || e.key !== "Delete") return;
-            e.preventDefault();
-            onRemove(w.id);
-          }}
-          draggable
-          onDragStart={(e) => {
-            e.dataTransfer.effectAllowed = "move";
-            // dropped on a machine's lane, it is pinned there
-            e.dataTransfer.setData(JOB_DRAG, w.id);
-            setDragged(w.id);
-          }}
-          onDragEnd={() => {
-            setDragged(null);
-            setOver(null);
-          }}
-          onDragOver={(e) => {
-            if (!dragged) return;
-            e.preventDefault();
-            const r = e.currentTarget.getBoundingClientRect();
-            setOver(e.clientY < r.top + r.height / 2 ? i : i + 1);
-          }}
-          data-tip={w.kind === "export" || w.kind === "cut" ? `${w.kind} · no GPU needed` : w.kind === "load" ? "loads the model, renders nothing" : `queued ${when(w.createdAt)}`}
-          className={cx(
-            "group flex cursor-grab items-center gap-3.5 rounded-[10px] border-y-2 border-transparent py-px pr-1 pl-3 text-[13px] hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent",
-            dragged === w.id && "opacity-50",
-            dragged && over === i && "border-t-accent",
-            dragged && over === i + 1 && i === shown.length - 1 && "border-b-accent",
-          )}
-        >
-          <span className="w-[18px] shrink-0 font-mono text-ink-3">{i + 1}</span>
-          <span className="min-w-0 grow truncate font-semibold">{w.label}</span>
-          <span className="max-w-[40%] shrink-0 truncate text-ink-2">{w.kind === "load" ? `load · ${modelOf(w)}` : modelOf(w)}</span>
-          {loads[i] && !machines.length && <Chip tone="warn" tip={`ComfyUI loads ${modelOf(w)} before this one`}>loads {modelOf(w).split(" · ")[0]}</Chip>}
-          {machines.length > 0 && w.pinned && (
-            <Chip tip="Pinned to this machine: it runs there. Drag it onto another lane, or Run on in its menu, to move it.">
-              <Pin size={11} className="shrink-0" /> {machineLabel(machines.find((m) => m.id === w.pinned) ?? { name: w.pinned, url: "" })}
-            </Chip>
-          )}
-          {machines.length > 0 && !w.pinned && w.machine && (
-            <span className="shrink-0 text-xs text-ink-2" data-tip="The machine that would end it soonest: the model already loaded there, its own learned speed, how soon it is free">
-              → {machineLabel(machines.find((m) => m.id === w.machine) ?? { name: w.machine, url: "" })}{w.startsInMs ? ` · in ${est(w.startsInMs)}` : ""}
-            </span>
-          )}
-          {onPin && freeNow(w) && (
-            <button type="button" className="shrink-0 text-xs font-semibold text-accent hover:underline" data-tip="It waits for a machine that ends it sooner; this one is free now" onClick={() => onPin(w.id, freeNow(w)!.id)}>
-              Run on {machineLabel(freeNow(w)!)} now
+        <Fragment key={w.id}>
+          <div
+            tabIndex={0}
+            onContextMenu={(e) => menu.open(e, { id: w.id, label: w.label, index: i })}
+            onKeyDown={(e) => {
+              if (e.target !== e.currentTarget || e.key !== "Delete") return;
+              e.preventDefault();
+              onRemove(w.id);
+            }}
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.effectAllowed = "move";
+              // dropped on a machine's lane, it is pinned there
+              e.dataTransfer.setData(JOB_DRAG, w.id);
+              setDragged(w.id);
+            }}
+            onDragEnd={() => {
+              setDragged(null);
+              setOver(null);
+            }}
+            onDragOver={(e) => {
+              if (!dragged) return;
+              e.preventDefault();
+              const r = e.currentTarget.getBoundingClientRect();
+              setOver(e.clientY < r.top + r.height / 2 ? i : i + 1);
+            }}
+            data-tip={w.kind === "export" || w.kind === "cut" ? `${w.kind} · no GPU needed` : w.kind === "load" ? "loads the model, renders nothing" : `queued ${when(w.createdAt)}`}
+            className={cx(
+              "group flex cursor-grab items-center gap-3.5 rounded-[10px] border-y-2 border-transparent py-px pr-1 pl-3 text-[13px] hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent",
+              dragged === w.id && "opacity-50",
+              dragged && over === i && "border-t-accent",
+              dragged && over === i + 1 && i === shown.length - 1 && "border-b-accent",
+            )}
+          >
+            <span className="w-[18px] shrink-0 font-mono text-ink-3">{i + 1}</span>
+            <span className="min-w-0 grow truncate font-semibold">{w.label}</span>
+            <span className="max-w-[40%] shrink-0 truncate text-ink-2">{w.kind === "load" ? `load · ${modelOf(w)}` : modelOf(w)}</span>
+            {loads[i] && !machines.length && <Chip tone="warn" tip={`ComfyUI loads ${modelOf(w)} before this one`}>loads {modelOf(w).split(" · ")[0]}</Chip>}
+            {machines.length > 0 && w.pinned && (
+              <Chip tip="Pinned to this machine: it runs there. Drag it onto another lane, or Run on in its menu, to move it.">
+                <Pin size={11} className="shrink-0" /> {machineLabel(machines.find((m) => m.id === w.pinned) ?? { name: w.pinned, url: "" })}
+              </Chip>
+            )}
+            {machines.length > 0 && !w.pinned && w.machine && (
+              <span className="shrink-0 text-xs text-ink-2" data-tip={w.runsOn?.length === 1 ? "The only machine that can run it: the others lack its files or have its family off (Run on in its menu says what each lacks)" : "The machine that would end it soonest: the model already loaded there, its own learned speed, how soon it is free"}>
+                → {machineLabel(machines.find((m) => m.id === w.machine) ?? { name: w.machine, url: "" })}{w.startsInMs ? ` · in ${est(w.startsInMs)}` : ""}{w.runsOn?.length === 1 ? " · only there" : ""}
+              </span>
+            )}
+            {machines.length > 0 && !w.pinned && w.runsOn?.length === 0 && (
+              <Link href={settingHref("models.families")} className="shrink-0">
+                <Chip tone="warn" tip="No machine has its files, or its family is off on every one. Settings › Models says what each machine has; or pin it to one (Run on) to download what it lacks there.">no machine can run it</Chip>
+              </Link>
+            )}
+            {onPin && freeNow(w) && (
+              <button type="button" className="shrink-0 text-xs font-semibold text-accent hover:underline" data-tip="It waits for a machine that ends it sooner; this one is free now" onClick={() => onPin(w.id, freeNow(w)!.id)}>
+                Run on {machineLabel(freeNow(w)!)} now
+              </button>
+            )}
+            <span className="w-[70px] shrink-0 text-right font-mono text-ink-2">{est(w.estimateMs) || "—"}</span>
+            <button type="button" aria-label={`Cancel ${w.label}`} data-tip="Cancel this one (Del)" onClick={() => onRemove(w.id)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-raised hover:text-ink focus-visible:opacity-100">
+              <X size={14} />
             </button>
-          )}
-          <span className="w-[70px] shrink-0 text-right font-mono text-ink-2">{est(w.estimateMs) || "—"}</span>
-          <button type="button" aria-label={`Cancel ${w.label}`} data-tip="Cancel this one (Del)" onClick={() => onRemove(w.id)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-raised hover:text-ink focus-visible:opacity-100">
-            <X size={14} />
-          </button>
-        </div>
+          </div>
+          {w.pinned && w.lacks?.[w.pinned] && <PinnedLacks machine={machineLabel(machines.find((m) => m.id === w.pinned) ?? { name: w.pinned, url: "" })} id={w.pinned} lack={w.lacks[w.pinned]!} />}
+        </Fragment>
       ))}
       <div className="flex items-center gap-1 px-3 pt-1 text-xs text-ink-3">
         {more > 0 && <button type="button" onClick={() => setAll(true)} className="underline-offset-2 hover:text-ink hover:underline">and {more} more</button>}
@@ -172,5 +183,43 @@ export function WaitingList({ waiting, running, machines = [], onOrder, onRemove
       </div>
       {menu.menu && <ContextMenu at={menu.menu.at} label={`Actions on ${menu.menu.subject.label}`} head={waitingHead(menu.menu.subject)} items={itemsOf(menu.menu.subject)} onClose={menu.close} />}
     </div>
+  );
+}
+
+/** What keeps a waiting job off a machine, in a few words for its "Run on" menu; null when nothing does. */
+function lackSaid(lack: MachineLack | undefined): string | null {
+  if (!lack) return null;
+  if (lack.off) return "its family is off there";
+  return lack.files.length ? `lacks ${plural(lack.files.length, "file")}` : "cannot run it";
+}
+
+/**
+ * A job pinned to a machine that lacks what it needs waits there: what it lacks, under its row, each file with its download
+ * to that machine. It starts once they are there (the queue looks again when a download ends).
+ */
+function PinnedLacks({ machine, id, lack }: { machine: string; id: string; lack: MachineLack }) {
+  return (
+    <DownloadTo.Provider value={id}>
+      <div className="mb-1 ml-[44px] flex flex-col gap-1.5 rounded-[10px] border border-line bg-raised px-3 py-2 text-xs text-ink-2">
+        {lack.off ? (
+          <span>
+            Waits: its family is off on {machine}.{" "}
+            <Link href={settingHref("models.families")} className="font-semibold text-accent hover:underline">Settings › Models</Link>
+          </span>
+        ) : lack.files.length ? (
+          <>
+            <span>Waits for {plural(lack.files.length, "file")} on {machine}, then runs there:</span>
+            {lack.files.map((f) => (
+              <div key={`${f.folder}/${f.file}`}>
+                <span className="font-semibold text-ink">{f.file}</span> <span className="text-ink-3">· {f.folder}</span>
+                <GetFile file={f.file} folder={f.folder} url={f.url} />
+              </div>
+            ))}
+          </>
+        ) : (
+          <span>Waits: {machine} cannot run it (a custom node it needs is missing there). Run on another machine from its menu.</span>
+        )}
+      </div>
+    </DownloadTo.Provider>
   );
 }

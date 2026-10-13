@@ -69,7 +69,7 @@ export function AddMachineCard() {
     const ids = new Set(all.map((m) => m.id));
     let n = all.length + 1;
     while (ids.has(`m${n}`)) n++;
-    save.mutate([...all, { id: `m${n}`, name: "", url: url.trim(), dir: "", takes: "all" }], { onSuccess: () => setUrl("") });
+    save.mutate([...all, { id: `m${n}`, name: "", url: url.trim(), dir: "", takes: "all", families: {} }], { onSuccess: () => setUrl("") });
   };
   const exposed = url.trim() !== "" && publicPlainHttp(url.trim());
   return (

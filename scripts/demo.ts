@@ -80,12 +80,15 @@ const folderPaths = process.env.DEMO_MANAGER === "1" ? undefined : Object.fromEn
   }),
 );
 
-const pretendComfy = () => startFakeComfy({
+/** The model files of a pretend ComfyUI, less those `lacks` names (a pattern on the file name). */
+const lacking = (models: Record<string, string[]>, lacks?: RegExp) => (lacks ? Object.fromEntries(Object.entries(models).map(([k, v]) => [k, v.filter((f) => !lacks.test(f))])) : models);
+
+const pretendComfy = (lacks?: RegExp) => startFakeComfy({
   catalog,
   // a pretend ComfyUI-Manager: "Download" in the demo fetches from the pretend site below
   manager: true,
   folderPaths,
-  models: {
+  models: lacking({
     checkpoints, upscale_models: upscalers,
     loras: ["demo-watercolour.safetensors", "demo-film-grain.safetensors", "demo-detail.safetensors", "minimax_h3_turbo_demo.safetensors", "minimax_h3_ref2v_turbo_demo.safetensors"],
     // the built-in video recipe finds its files by name: these make it ready in the demo
@@ -93,12 +96,15 @@ const pretendComfy = () => startFakeComfy({
     text_encoders: ["qwen3vl_32b_minimax_h3_demo.safetensors", "qwen_3_4b_demo.safetensors", "umt5_xxl_demo.safetensors"],
     vae: ["minimax_h3_video_vae_demo.safetensors", "minimax_h3_audio_vae_demo.safetensors", "flux2-vae-demo.safetensors", "wan_2.1_vae_demo.safetensors"],
     frame_interpolation: ["rife_demo.pth"],
-  },
+  }, lacks),
   simulate: { stepMs: Number(process.env.DEMO_STEP_MS) || 220, video: pretendClip },
 });
 const fake = await pretendComfy();
 // DEMO_MACHINES=2 (up to 8): as many pretend ComfyUIs, as if this computer had that many GPUs (Settings › ComfyUI, the queue's lanes)
-const others = await Promise.all(Array.from({ length: Math.min(7, Math.max(0, (Number(process.env.DEMO_MACHINES) || 1) - 1)) }, () => pretendComfy()));
+// each with files of its own, so that Settings › Models shows a difference: the second has none of MiniMax H3's models nor
+// the Pony checkpoint, the third none of Wan's; the others have everything
+const OTHERS_LACK = [/minimax|pony/i, /wan/i];
+const others = await Promise.all(Array.from({ length: Math.min(7, Math.max(0, (Number(process.env.DEMO_MACHINES) || 1) - 1)) }, (_x, i) => pretendComfy(OTHERS_LACK[i])));
 
 /**
  * A pretend language model for the designer: it answers in the designer's format with what it was told,

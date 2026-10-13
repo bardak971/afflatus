@@ -424,3 +424,22 @@ describe("who downloads", () => {
     expect(fake.installAsked.at(-1)!.url).toMatch(/\/api\/downloads\/fetch\//);
   });
 });
+
+describe("fetching a model file into one of several ComfyUIs", () => {
+  it("goes to the machine asked for, and says so", async () => {
+    await start(true);
+    const second = await startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: [], loras: [] }, manager: true });
+    try {
+      await on();
+      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ id: "m1", url: fake.url }, { id: "m2", name: "Second GPU", url: second.url }] } });
+      expect((await post(t.app, "/api/downloads", { file: "soft_light-v2.safetensors", folder: "loras", civitai: 42, machine: "m9" })).statusCode).toBe(404);
+      const d = (await post(t.app, "/api/downloads", { file: "soft_light-v2.safetensors", folder: "loras", civitai: 42, machine: "m2" })).json();
+      expect(d.machine).toBe("m2");
+      await done(d.id);
+      expect(second.installed).toEqual([{ folder: "loras", file: "soft_light-v2.safetensors", bytes: FILE.length }]);
+      expect(fake.installed).toEqual([]);
+    } finally {
+      await second.close().catch(() => {});
+    }
+  });
+});

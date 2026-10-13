@@ -3,102 +3,23 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ChevronDown, X } from "lucide-react";
 import { folderOfFileInput } from "@afflatus/core";
-import { api, type RecipeInfo } from "../../api";
+import { api, type Machine, type RecipeInfo } from "../../api";
 import { useFamilies, useRecipes, useSettings, useSetup } from "../../data";
 import { fileLabel, plural, problemSaid } from "../../format";
 import { GetFile } from "../../GetFile";
+import { machineLabel } from "../../machines";
+import { DownloadTo } from "../../useGetFile";
 import { Select } from "../../Select";
 import { Chip, cx, ErrorNote, Help, Toggle } from "../../ui";
 import { Block, Card } from "./Rows";
 import { queryKeys } from "../../queryKeys";
 
 /**
- * One switch per model: whether it is offered in the lists to choose from (the model list in Studio, a
- * clip's model on a timeline, the tools under a picture). Left alone a model follows its files; set by
- * hand it stays as set. Nothing made with a model that is off is touched.
- */
-export function ModelSwitches() {
-  const recipes = useRecipes();
-  const settings = useSettings();
-  const setup = useSetup();
-  const families = useFamilies();
-  const [needs, setNeeds] = useState<string | null>(null);
-  const client = useQueryClient();
-  const save = useMutation({
-    mutationFn: (next: Record<string, boolean>) => api.saveSettings({ families: next }),
-    onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved),
-  });
-  if (!recipes.data || !settings.data) return null;
-  const said = settings.data.families;
-  const shown = recipes.data.families.filter((f) => recipes.data.recipes.some((r) => r.family === f.id));
-  const names = new Set<string>();
-  const twice = new Set(shown.map((f) => f.name).filter((n) => (names.has(n) ? true : (names.add(n), false))));
-  const offCount = shown.filter((f) => !families.isOn(f.id)).length;
-  return (
-    <Card
-      id="model-switches"
-      setting="models.families"
-      title={<span className="flex items-center gap-1.5">Models <Help title="Models" text="One switch per model family: off, it is left out of the model lists (Studio, a clip's model on a timeline, the tools under a picture). What you generated with it stays. Left alone a family follows its model files; set by hand it stays as set." /></span>}
-      status={<span className="font-mono text-xs text-ink-3">{shown.length - offCount} of {shown.length} on</span>}
-    >
-        {shown.map((f) => {
-          const mine = recipes.data.recipes.filter((r) => r.family === f.id);
-          const found = families.found(f.id);
-          const on = families.isOn(f.id);
-          const byHand = f.id in said;
-          const imported = Boolean(f.imported);
-          const name = `${f.name}${imported && twice.has(f.name) ? " (your workflows)" : ""}`;
-          // its files are not there: what it needs is said here, once, with the way to get each file
-          const slots = found || imported ? [] : (setup.data?.families.find((x) => x.id === f.id)?.slots ?? []).filter((x) => !x.optional && !x.file);
-          const open = needs === f.id;
-          return (
-            <div key={f.id} className="flex flex-col">
-              <div className="flex min-h-[52px] items-center gap-3 px-[18px]">
-                <span className={cx("truncate font-semibold", !on && "text-ink-2")}>{name}</span>
-                <span className="shrink-0 text-xs text-ink-3">{imported ? `${plural(mine.length, "workflow")}` : `${plural(mine.length, "operation")}`}</span>
-                <span className="grow" />
-                {!found && (slots.length ? (
-                  <button type="button" aria-expanded={open} data-tip="The model files it needs, and where to get them" onClick={() => setNeeds(open ? null : f.id)} className="flex shrink-0 items-center gap-1 text-xs font-semibold text-warn-ink hover:underline">
-                    {plural(slots.length, "model file")} missing <ChevronDown size={13} className={cx("transition-transform", open && "rotate-180")} />
-                  </button>
-                ) : (
-                  <span className="shrink-0 text-xs text-warn-ink" data-tip="No model of this family was found in ComfyUI. Put one in its models folder (an SDXL checkpoint goes in models/checkpoints); it is listed as soon as ComfyUI sees it.">no model file yet</span>
-                ))}
-                {byHand && (
-                  <Chip
-                    tone="link"
-                    tip="Set manually. Click to let it follow its model files again: on when they are in ComfyUI, off when they are not."
-                    onClick={() => save.mutate(Object.fromEntries(Object.entries(said).filter(([id]) => id !== f.id)))}
-                  >
-                    manual <X size={12} aria-hidden />
-                  </Chip>
-                )}
-                <Toggle bare on={on} onChange={(next) => save.mutate({ ...said, [f.id]: next })} label={`${name} in the model lists`} />
-              </div>
-              {open && slots.length > 0 && (
-                <div className="flex flex-col gap-2 border-t border-line bg-raised px-[18px] py-2.5 text-xs text-ink-2">
-                  {slots.map((x) => (
-                    <div key={x.id}>
-                      <span className="font-semibold text-ink">{x.label}</span>: {x.hint}
-                      {x.get && <GetFile file={x.get.file} folder={x.folder} url={x.get.url} hints={[f.name]} />}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      {save.isError && <Block><ErrorNote>{save.error.message}</ErrorNote></Block>}
-    </Card>
-  );
-}
-
-/**
  * The family's files where more than one fits (two SeedVR2 models, two turbo LoRAs): which one is used,
  * chosen by hand or left to the patterns. Nothing shown for a family whose files are all one of a kind.
  */
-function SlotChoices({ family }: { family: string }) {
-  const setup = useSetup();
+function SlotChoices({ family, machine }: { family: string; machine?: string }) {
+  const setup = useSetup(machine);
   const settings = useSettings();
   const client = useQueryClient();
   const slots = (setup.data?.families.find((f) => f.id === family)?.slots ?? []).filter((s) => s.choices.length > 1 || s.chosen);
@@ -138,8 +59,8 @@ function SlotChoices({ family }: { family: string }) {
 }
 
 /** One recipe: ready, or what it lacks and how to get it. */
-function ReadyRow({ r }: { r: RecipeInfo }) {
-  const setup = useSetup();
+function ReadyRow({ r, machine }: { r: RecipeInfo; machine?: string }) {
+  const setup = useSetup(machine);
   const recipes = useRecipes();
   const s = setup.data?.recipes.find((x) => x.id === r.id);
   const family = recipes.data?.families.find((f) => f.id === r.family);
@@ -206,73 +127,142 @@ function ReadyRow({ r }: { r: RecipeInfo }) {
   );
 }
 
+
 /**
- * The head of "What is ready": what it counts, said. A bare "15 of 15 ready" under a list of families that
- * are off with files missing read as "everything is fine"; the count is of the operations of the families on.
+ * The card's head: what it counts, said. A bare "15 of 15 ready" read as "everything is fine" under families that were
+ * off with files missing; the count is of the operations of the families on.
  */
 function readySaid(families: number, ready: number, operations: number): string {
-  const on = `${families} famil${families === 1 ? "y" : "ies"} on`;
+  const on = `${families} on`;
   return ready === operations ? `${on} · all ready` : `${on} · ${ready} of ${operations} operations ready`;
 }
 
+/** What a family that is off says of its files: a fact, not a warning (a family left off is not a problem). */
+const offSaid = (found: boolean) => (found ? "has its files" : "files missing");
+
 /**
- * What is ready, by model family: one line per family that says how many of its operations can run,
- * open when something is missing, folded when all is well. Only the families that are on are listed.
+ * The model families, one row each: the switch (whether it is offered in the lists to choose from: the model list in
+ * Studio, a clip's model on a timeline, the tools under a picture), whether its operations are ready, and opened, its
+ * operations and files. The families that are on come first and only they warn of what is missing; those that are off
+ * are folded below in grey, what they lack said as a fact, since leaving a family off is a choice. Left alone a family
+ * follows its files; set by hand it stays as set. Nothing made with a family that is off is touched.
+ *
+ * `machine`: the same for one of several ComfyUIs (Settings › Models, its tab): what is ready there, its switch is whether
+ * the queue sends that machine the family's jobs (over the switch of every machine), and Download goes to it.
  */
-export function ReadyList() {
-  const setup = useSetup();
+export function ModelsCard({ machine }: { machine?: Machine }) {
   const recipes = useRecipes();
-  const families = useFamilies();
+  const settings = useSettings();
+  const setup = useSetup(machine?.id);
+  const families = useFamilies(machine?.id);
   const [opened, setOpened] = useState<Record<string, boolean>>({});
-  const listed = (recipes.data?.recipes ?? []).filter((r) => families.isOn(r.family));
+  const [offOpen, setOffOpen] = useState(false);
+  const client = useQueryClient();
+  const save = useMutation({
+    mutationFn: (next: Record<string, boolean>) =>
+      machine
+        ? api.saveSettings({ machines: (settings.data?.machines ?? []).map((m) => (m.id === machine.id ? { ...m, families: next } : m)) })
+        : api.saveSettings({ families: next }),
+    onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved),
+  });
+  if (!recipes.data || !settings.data) return null;
+  // the switches set by hand that this card shows: the machine's own, or those of every machine
+  const said = machine ? families.own : settings.data.families;
+  const where = machine ? machineLabel(machine) : null;
+  const shown = recipes.data.families.filter((f) => recipes.data.recipes.some((r) => r.family === f.id));
+  const names = new Set<string>();
+  const twice = new Set(shown.map((f) => f.name).filter((n) => (names.has(n) ? true : (names.add(n), false))));
   const readyOf = (id: string) => setup.data?.recipes.find((x) => x.id === id)?.ready ?? false;
+  const on = shown.filter((f) => families.isOn(f.id));
+  const off = shown.filter((f) => !families.isOn(f.id));
+  const listed = recipes.data.recipes.filter((r) => families.isOn(r.family));
   const ready = listed.filter((r) => readyOf(r.id)).length;
-  const groups = (recipes.data?.families ?? []).map((f) => ({ family: f, recipes: listed.filter((r) => r.family === f.id) })).filter((g) => g.recipes.length);
+
+  const row = (f: (typeof shown)[number]) => {
+    const mine = recipes.data.recipes.filter((r) => r.family === f.id);
+    const isOn = families.isOn(f.id);
+    const imported = Boolean(f.imported);
+    const found = imported || families.found(f.id);
+    const name = `${f.name}${imported && twice.has(f.name) ? " (your workflows)" : ""}`;
+    const good = mine.filter((r) => readyOf(r.id)).length;
+    const all = good === mine.length;
+    // files the family does not need, but some option of it would use: said as what they are
+    const extras = (setup.data?.families.find((x) => x.id === f.id)?.slots ?? []).filter((x) => x.optional && !x.file && x.get).length;
+    // a family that is on with something missing starts open; the rest start folded
+    const open = opened[f.id] ?? (isOn && setup.data ? !all : false);
+    return (
+      <div key={f.id} className="flex flex-col">
+        <div className="flex min-h-[52px] items-center gap-3 pr-[18px] hover:bg-hover">
+          <button type="button" aria-expanded={open} onClick={() => setOpened({ ...opened, [f.id]: !open })} className="flex min-h-[52px] min-w-0 grow items-center gap-3 pl-[18px] text-left">
+            <ChevronDown size={14} className={cx("shrink-0 text-ink-3 transition-transform", !open && "-rotate-90")} />
+            <span className={cx("truncate font-semibold", !isOn && "text-ink-2")}>{name}</span>
+            <span className="shrink-0 text-xs text-ink-3">{plural(mine.length, imported ? "workflow" : "operation")}</span>
+            <span className="grow" />
+            {setup.data && (isOn ? (
+              <span className="flex shrink-0 items-baseline gap-2 text-xs">
+                {all && extras > 0 && <span className="text-ink-3">{plural(extras, "optional file")} to add</span>}
+                <span className={cx("font-semibold", all ? "text-good" : "text-warn-ink")}>{all ? "ready" : `${good} of ${mine.length} ready`}</span>
+              </span>
+            ) : (
+              <span className="shrink-0 text-xs text-ink-3" data-tip={found ? undefined : `Its model files are not in ${where ?? "ComfyUI"}. Open it for what it needs and where to get each file; it turns on by itself once they are there, unless switched off by hand.`}>
+                {offSaid(found)}
+              </span>
+            ))}
+          </button>
+          {f.id in said && (
+            <Chip
+              tone="link"
+              tip={machine ? "Set by hand on this machine. Click to let it follow the switch of every machine (All), then its files here." : "Set by hand. Click to let it follow its model files again: on when they are in ComfyUI, off when they are not."}
+              onClick={() => save.mutate(Object.fromEntries(Object.entries(said).filter(([id]) => id !== f.id)))}
+            >
+              {isOn ? "on" : "off"} by hand <X size={12} aria-hidden />
+            </Chip>
+          )}
+          <Toggle bare on={isOn} onChange={(next) => save.mutate({ ...said, [f.id]: next })} label={where ? `${name} on ${where}` : `${name} in the model lists`} />
+        </div>
+        {open && (
+          <div className="flex flex-col divide-y divide-line border-t border-line bg-raised">
+            <SlotChoices family={f.id} machine={machine?.id} />
+            {mine.map((r) => <ReadyRow key={r.id} r={r} machine={machine?.id} />)}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
-    <Card
-      id="ready"
-      setting="models.ready"
-      title={<span className="flex items-center gap-1.5">What is ready <Help title="What is ready" text="Every operation of the families that are on, by family: open when something is missing (files, custom nodes), folded when all is well. Models that are off are not listed." /></span>}
-      status={setup.isLoading ? <span className="text-xs text-ink-3">Asking ComfyUI…</span> : setup.data && listed.length ? <span className={cx("font-mono text-xs", ready === listed.length ? "text-good" : "text-warn-ink")}>{readySaid(groups.length, ready, listed.length)}</span> : null}
-    >
-      {setup.isError && <Block><ErrorNote>{setup.error.message}</ErrorNote></Block>}
-      {setup.data && !listed.length && (
-        <Block className="flex-row items-center gap-1.5 text-ink-2">
-          No model found in ComfyUI
-          <Help text="Put the files in, or download them: each family turns on by itself. A switch under Models forces one on or off." />
-        </Block>
-      )}
-        {groups.map(({ family, recipes: mine }) => {
-          const good = mine.filter((r) => readyOf(r.id)).length;
-          const all = good === mine.length;
-          // a family with something missing starts open; one that is all ready starts folded
-          const open = opened[family.id] ?? (setup.data ? !all : false);
-          return (
-            <div key={family.id} className="flex flex-col">
-              <button type="button" aria-expanded={open} onClick={() => setOpened({ ...opened, [family.id]: !open })} className="flex min-h-[52px] items-center gap-3 px-[18px] text-left hover:bg-hover">
-                <span className="truncate font-semibold">{family.name}</span>
-                <span className="grow" />
-                {(() => {
-                  // files the family does not need, but some option of it would use: said as what they are
-                  const extras = (setup.data?.families.find((x) => x.id === family.id)?.slots ?? []).filter((x) => x.optional && !x.file && x.get).length;
-                  return (
-                    <span className="flex shrink-0 items-baseline gap-2 text-xs">
-                      {setup.data && all && extras > 0 && <span className="text-ink-3">{plural(extras, "optional file")} to add</span>}
-                      <span className={cx("font-semibold", !setup.data ? "text-ink-3" : all ? "text-good" : "text-warn-ink")}>{setup.data ? (all ? `${mine.length} ready` : `${good} of ${mine.length} ready`) : `${plural(mine.length, "operation")}`}</span>
-                    </span>
-                  );
-                })()}
-                <ChevronDown size={14} className={cx("shrink-0 text-ink-2 transition-transform", open && "rotate-180")} />
-              </button>
-              {open && (
-                <div className="flex flex-col divide-y divide-line border-t border-line bg-raised">
-                  <SlotChoices family={family.id} />
-                  {mine.map((r) => <ReadyRow key={r.id} r={r} />)}
-                </div>
-              )}
-            </div>
-          );
-        })}
-    </Card>
+    <DownloadTo.Provider value={machine?.id}>
+      <Card
+        id={machine ? undefined : "models"}
+        setting={machine ? undefined : "models.families"}
+        title={
+          <span className="flex items-center gap-1.5">
+            {where ? `Models on ${where}` : "Models"}
+            <Help title="Models" text={machine ? `One row per model family, as ${where} has it. The switch: off, the queue sends ${where} nothing of that family; set here it wins over the switch of every machine (All). Open a family for its operations, the files they need, and a download to ${where}.` : "One row per model family. The switch: off, it is left out of the model lists (Studio, a clip's model on a timeline, the tools under a picture); what you made with it stays. Left alone a family follows its model files; set by hand it stays as set. Open a family for its operations, the files they need and where to get them. Only the families that are on warn of what is missing."} />
+          </span>
+        }
+        status={setup.isLoading ? <span className="text-xs text-ink-3">Asking ComfyUI…</span> : setup.data && listed.length ? <span className={cx("font-mono text-xs", ready === listed.length ? "text-good" : "text-warn-ink")}>{readySaid(on.length, ready, listed.length)}</span> : null}
+      >
+        {setup.isError && <Block><ErrorNote>{setup.error.message}</ErrorNote></Block>}
+        {setup.data && !setup.data.comfy.online && where && <Block className="text-ink-2">{where} does not answer: what it has is not known now.</Block>}
+        {setup.data && !on.length && (
+          <Block className="flex-row items-center gap-1.5 text-ink-2">
+            No model found in {where ?? "ComfyUI"}
+            <Help text="Put the files in, or download them (open a family below): each family turns on by itself. Its switch forces it on or off." />
+          </Block>
+        )}
+        {on.map(row)}
+        {off.length > 0 && (
+          <button type="button" aria-expanded={offOpen} onClick={() => setOffOpen(!offOpen)} className="flex min-h-[40px] items-center gap-3 bg-raised px-[18px] text-left text-xs text-ink-3 hover:bg-hover">
+            <span className="font-bold tracking-[0.08em] uppercase">{where ? "Off here" : "Off"} · {off.length}</span>
+            <span className="grow" />
+            <span>{where ? `the queue sends ${where} none of these` : "not in the model lists"}</span>
+            <ChevronDown size={14} className={cx("shrink-0 transition-transform", offOpen && "rotate-180")} />
+          </button>
+        )}
+        {offOpen && off.map(row)}
+        {save.isError && <Block><ErrorNote>{save.error.message}</ErrorNote></Block>}
+      </Card>
+    </DownloadTo.Provider>
   );
 }

@@ -1,6 +1,7 @@
 import { SqliteAdapter, sql, type Expression } from "kysely";
 import { modelName, modelOf, type JoinKind, joinKindOf } from "@afflatus/core";
 import type { Comfy } from "./comfy";
+import type { Lack } from "./machineScans";
 import { finishForecast, usesGpu } from "./queueTools";
 import type { CutOptions } from "./timelines";
 import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
@@ -55,6 +56,8 @@ export async function status(
   core: QueueCore, lanes: LaneView[] = [{ machine: null, core, paused: false, reachable: null }], paused = core.paused,
   /** Where each waiting job will probably run and when it starts (schedule.ts plan), and each machine's learned pace. */
   planned: ReadonlyMap<string, { lane: string; startsInMs: number }> = new Map(), paces: ReadonlyMap<string, number> = new Map(),
+  /** With several machines, the machines that can run each waiting render (queue.ts ableOf). */
+  able: ReadonlyMap<string, { can: ReadonlySet<string>; lacks: Record<string, Lack> }> = new Map(),
 ) {
   const rows = await core.db
     .selectFrom("jobs")
@@ -79,6 +82,12 @@ export async function status(
     return ms && on ? Math.round(ms * (paces.get(on) ?? 1)) : ms;
   };
   const brief = (r: JobRow) => ({ ...plain(r), estimateMs: estimate(r) });
+  /** The machines that can run a waiting render, when that is not all of them; null when every one can. */
+  const machineIds = lanes.flatMap((l) => (l.machine ? [l.machine.id] : []));
+  const onlyOn = (id: string): string[] | null => {
+    const can = able.get(id)?.can;
+    return can && machineIds.some((m) => !can.has(m)) ? machineIds.filter((m) => can.has(m)) : null;
+  };
   /** How a clip render joins the clip before, once its graph is built: in the latent, or on pinned frames; null when it starts on its own or is not a clip. */
   const joinOf = (r: JobRow): JoinKind | null => {
     if (!r.clip_id || !r.resume) return null;
@@ -96,6 +105,10 @@ export async function status(
     pinned: r.pin_machine ?? null,
     /** Of a waiting job: in about how long it starts, when that can be told. */
     startsInMs: r.status === "queued" ? finite(planned.get(r.id)?.startsInMs) : null,
+    /** Of a waiting render, when not every machine can run it: the ones that have its files (empty: none). */
+    runsOn: r.status === "queued" ? onlyOn(r.id) : null,
+    /** Of such a render: what keeps it off each other machine (its family off there, the files it lacks there), by machine id. */
+    lacks: r.status === "queued" && onlyOn(r.id) ? able.get(r.id)?.lacks ?? null : null,
   });
   const idle = (r: JobRow) => (r.recipe_id === EXPORT_JOB ? ("exporting" as const) : r.recipe_id === CUT_JOB ? ("cutting" as const) : ("waiting" as const));
   /** A running job with its figures, from its lane's monitor; a job a ComfyUI had when this process last stopped, not picked up again yet, has none. */

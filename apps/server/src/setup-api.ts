@@ -4,6 +4,7 @@ import { said } from "./forecast";
 import { allowedHosts, hostAllowed } from "./hostCheck";
 import { z } from "zod";
 import { describeRecipe, listOptions } from "@afflatus/core";
+import { mergeScans } from "./machineScans";
 import { installNodePack } from "./nodePack";
 import { preflight } from "./preflight";
 import type { Services } from "./services";
@@ -28,7 +29,9 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
   app.put("/api/settings", async (req) => {
     const saved = await writeSettings(s.db, req.body);
     // a file chosen by hand for a family: what is ready is worked out again
-    if (req.body && typeof req.body === "object" && "slotFiles" in req.body) (await s.comfy()).forgetScan();
+    if (req.body && typeof req.body === "object" && "slotFiles" in req.body) for (const { comfy } of await s.machines()) comfy.forgetScan();
+    // a family switched, on every machine or on one: what each machine may run changed (the queue looks again, the pages read it again)
+    if (req.body && typeof req.body === "object" && ("families" in req.body || "machines" in req.body)) s.queue.events.emit("setup");
     // ComfyUI's folder set: Afflatus's node pack goes into its custom_nodes (ComfyUI loads it at its next start)
     if (req.body && typeof req.body === "object" && "comfyDir" in req.body && saved.comfyDir.trim()) {
       await installNodePack(saved.comfyDir).catch((err: Error) => console.warn(`[node-pack] not written: ${err.message}`));
@@ -38,11 +41,28 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
 
   /**
    * What ComfyUI can do: the setup page, and what the composer offers. Read-only on ComfyUI. Each list of what an input
-   * offers is sent once (core's listOptions), and each recipe names the ones it offers.
+   * offers is sent once (core's listOptions), and each recipe names the ones it offers. `machine`: that ComfyUI's alone
+   * (Settings › Models, its tab); without, what every machine together can do (machineScans.ts), with one the same.
    */
-  app.get("/api/setup", async () => listOptions(await (await s.comfy()).scan()));
+  const setupOf = async (machine: string | undefined, fresh: boolean) => {
+    const all = await s.machines();
+    if (machine) {
+      const one = all.find((m) => m.machine.id === machine);
+      if (!one) throw httpError("there is no ComfyUI with that id");
+      return listOptions(await one.comfy.scan(fresh));
+    }
+    const scans = await Promise.all(all.map(async ({ machine: m, comfy }) => ({ machine: m, scan: await comfy.scan(fresh) })));
+    return listOptions(mergeScans(scans, await readSettings(s.db), (id) => s.registry.recipe(id)?.family));
+  };
+  const machineQuery = z.object({ machine: z.string().max(40).optional() });
+  app.get("/api/setup", async (req) => setupOf(machineQuery.parse(req.query).machine, false));
   /** The same, asked of ComfyUI afresh rather than from what was learned a moment ago ("Test" in Settings). */
-  app.post("/api/setup/rescan", async () => listOptions(await (await s.comfy()).scan(true)));
+  app.post("/api/setup/rescan", async (req) => {
+    const fresh = await setupOf(machineQuery.parse(req.query).machine, true);
+    // a file put in by hand is seen now: a job that waited for it may start
+    s.queue.events.emit("setup");
+    return fresh;
+  });
 
   /**
    * ComfyUI's terminal log, the last few hundred lines: the Queue page's log tab reads it every couple of seconds.

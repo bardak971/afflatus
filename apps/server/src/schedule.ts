@@ -15,6 +15,8 @@ export interface Waiting {
   makes: "image" | "video";
   /** The machine it was pinned to by hand; null: any. */
   pin: string | null;
+  /** The machines that have its files, with its family on (machineScans.ts canRun); left out: any. */
+  can?: ReadonlySet<string>;
 }
 
 /** A waiting job with what its forecast says (all null when nothing like it was rendered yet). */
@@ -42,8 +44,12 @@ export interface Lane {
 /** What loading a model is taken to cost when nothing says: enough that a machine holding it is preferred, no more. */
 export const UNKNOWN_LOAD_MS = 20_000;
 
-/** Whether this machine may take this job: the job's pin, and what the machine takes (Settings: everything, pictures, videos). */
-export function takes(machine: Pick<Machine, "id" | "takes">, job: Pick<Waiting, "makes" | "pin">): boolean {
+/**
+ * Whether this machine may take this job: it has the job's files, the job's pin, and what the machine takes (Settings:
+ * everything, pictures, videos). A job pinned to a machine without its files waits there until they come.
+ */
+export function takes(machine: Pick<Machine, "id" | "takes">, job: Pick<Waiting, "makes" | "pin" | "can">): boolean {
+  if (job.can && !job.can.has(machine.id)) return false;
   if (job.pin && job.pin !== machine.id) return false;
   // a job pinned here runs here, whatever the machine is set to take
   if (job.pin === machine.id) return true;
