@@ -50,7 +50,7 @@ export type Command =
   | { cmd: "dismiss-failed" }
   | { cmd: "group-queue" }
   | { cmd: "unload"; machine?: string }
-  | { cmd: "generate" }
+  | { cmd: "generate"; machine?: string }
   | { cmd: "new-timeline"; name: string }
   | { cmd: "new-folder"; name: string }
   | { cmd: "import-workflow" }
@@ -222,6 +222,8 @@ export function parseCommand(input: string): Command | null {
   if (/^(?:unload|free)(?: (?:the )?models?)?$/.test(low) || /^free (?:the )?vram$/.test(low)) return { cmd: "unload" };
   if ((m = /^unload (.+)$/i.exec(t))) return { cmd: "unload", machine: m[1]!.trim() };
   if (/^gen(?:erate)?(?: (?:the )?(?:open )?draft)?$/.test(low)) return { cmd: "generate" };
+  // with several ComfyUIs, on one of them this once: "generate on second gpu"
+  if ((m = /^gen(?:erate)?(?: (?:the )?(?:open )?draft)? on (.+)$/i.exec(t))) return { cmd: "generate", machine: m[1]!.trim() };
   if ((m = /^new timeline(?: (.+))?$/i.exec(t))) return { cmd: "new-timeline", name: (m[1] ?? "").trim().slice(0, 120) };
   if ((m = /^new folder (.+)$/i.exec(t))) return { cmd: "new-folder", name: m[1]!.trim().slice(0, 120) };
   if ((m = /^new (person|place|style|preset|snippet) (.+)$/i.exec(t))) return { cmd: `new-${m[1]!.toLowerCase()}` as KitNew, name: m[2]!.trim().slice(0, 120) };

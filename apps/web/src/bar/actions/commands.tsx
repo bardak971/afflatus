@@ -98,11 +98,15 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       const said = c.cmd === "size" ? `${c.width}×${c.height}` : c.cmd === "length" ? `${c.seconds} s` : String(c.value);
       return [{ label: `Set ${c.cmd === "cfg" ? "CFG" : c.cmd} to ${said}`, icon: <PenLine size={14} />, note: "in the open draft", run: set }];
     }
-    case "generate":
+    case "generate": {
+      // on a machine named this once (with several ComfyUIs), as Generate's machine slice would send it
+      const m = c.machine ? machineByName(queue?.machines, c.machine) : undefined;
+      if (c.machine && !m) return [{ label: `No ComfyUI called ${c.machine}`, icon: <Play size={14} />, disabled: true, run: () => {} }];
       return [{
-        label: "Generate", icon: <Play size={14} />, note: "the open draft, as its Generate button",
-        run: () => form().then((t) => (t?.generate ? t.generate() : noDraft())),
+        label: m ? `Generate on ${machineLabel(m)}` : "Generate", icon: <Play size={14} />, note: m ? "the open draft, on that machine this once" : "the open draft, as its Generate button",
+        run: () => form().then((t) => (t?.generate ? t.generate(m?.id) : noDraft())),
       }];
+    }
     case "preset":
       if (!preset) return [{ label: `No preset called “${c.name}”`, disabled: true, run: () => {} }];
       return [

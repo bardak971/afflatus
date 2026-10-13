@@ -23,6 +23,8 @@ const jobBody = z.strictObject({
   /** The draft it is sent from, and the folder that is open: its results are filed there. */
   draft: z.string().max(64).optional(),
   folder: z.string().max(64).optional(),
+  /** The machine it renders on (a Machine's id), pinned there; left out, whichever would end it first (Generate's machine slice). */
+  machine: z.string().min(1).max(40).optional(),
 });
 /** A form as it stands, to load its models ahead or to ask whether they are loaded. */
 /** A form whose models are loaded ahead: on the machine named (a Machine's id), else where its render would run. */
@@ -48,6 +50,8 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
   app.post("/api/jobs", async (req) => {
     const body = jobBody.parse(req.body);
     const recipe = s.registry.recipe(body.recipe);
+    // a job pinned to a machine there is not would wait for ever
+    if (body.machine && !(await s.machines()).some((m) => m.machine.id === body.machine)) throw httpError("there is no ComfyUI with that id");
     const ids: string[] = [];
     const seed = typedSeed(body.input.seed);
     // sent from a blank draft: it is written now, so that what comes out is filed under it
@@ -65,7 +69,7 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
       const own = recipe && body.look ? settledTexts(recipe, body.input) : body.input;
       const input = recipe && body.look ? (await compose(s.db, recipe, own, body.look)).input : own;
       const each = body.seedMode && seed !== null ? { ...input, seed: movedSeed(seed, body.seedMode, i) } : input;
-      ids.push(await s.queue.enqueue(body.recipe, each, { label, draft: body.draft, folder: body.folder, look: body.look, asked: input === own ? undefined : askedOf(own, input) }));
+      ids.push(await s.queue.enqueue(body.recipe, each, { label, draft: body.draft, folder: body.folder, look: body.look, asked: input === own ? undefined : askedOf(own, input), machine: body.machine ?? null }));
     }
     // the cast's cut-outs not made yet are asked for: this render sends their pictures as they are, the next ones the cut-outs
     if (body.look?.cast.length) void askCutouts(s, body.look.cast.map((c) => c.id)).catch((err: Error) => console.warn(`[kit] cut-outs not asked for: ${err.message}`));

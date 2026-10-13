@@ -17,8 +17,8 @@ interface Target {
   /** Who is in it and how it looks, and the way to change that (the command bar's @ cast). */
   look?: Look | null;
   setLook?(look: Look): void;
-  /** Generate, as its button does (refused as the button is: nothing when it cannot run). */
-  generate?(): void;
+  /** Generate, as its button does (refused as the button is: nothing when it cannot run); on `machine` this once, when named. */
+  generate?(machine?: string): void;
   /** A preset of the Prompt kit applied, as the form's preset menu does it: why it was refused, or null. */
   applyPreset?(id: string): string | null;
   /** The form kept as a preset under a name, as the preset menu's "Save as preset". */

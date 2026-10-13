@@ -5,6 +5,9 @@ import type { useDraft } from "../../draft";
 import { notFilled, sentForm } from "../../form";
 import { movingSeed, seedAfter, useSeedMode } from "../../seedMode";
 import { queryKeys } from "../../queryKeys";
+import { useQueue } from "../../data";
+import { useDraftMachine } from "../../draftMachine";
+import { severalMachines } from "../../machines";
 
 /**
  * What Generate does: the whole form, checked, sent to the queue as many times as the batch says, filed in
@@ -20,8 +23,10 @@ export function useGenerate({ recipe, draft, defaults, folder, d, blocked }: {
   blocked: string | null;
 }) {
   const client = useQueryClient();
+  const queue = useQueue();
   const send = useMutation({
-    mutationFn: async () => {
+    /** `on`: a machine to render on this once (the command bar's "generate on"); left out, the draft's own pick, else Auto. */
+    mutationFn: async (on?: string) => {
       if (!recipe || !draft) return;
       const input = sentForm(recipe, defaults, draft.forms[recipe.id]);
       const missing = notFilled(recipe, input);
@@ -32,7 +37,11 @@ export function useGenerate({ recipe, draft, defaults, folder, d, blocked }: {
       const seedMode = movingSeed(input.seed, mode);
       // the draft it was sent from, whichever is open by the time the queue answers
       const id = draft.id;
-      await api.enqueue(recipe.id, input, count, draft.look, { draft: id, folder, seedMode });
+      // with several ComfyUIs, the machine picked (one removed since is forgotten: Auto)
+      const machines = severalMachines(queue.data);
+      const asked = on ?? useDraftMachine.getState().of[id];
+      const machine = asked && machines.some((m) => m.id === asked) ? asked : undefined;
+      await api.enqueue(recipe.id, input, count, draft.look, { draft: id, folder, seedMode, machine });
       if (seedMode) {
         const next = seedAfter(input.seed as number, mode, count);
         await d.editDraft(id, (x) => ({ ...x, forms: { ...x.forms, [recipe.id]: { ...x.forms[recipe.id], seed: next } } }));

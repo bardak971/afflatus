@@ -6,7 +6,11 @@ import { batchAbout, useAdvice } from "../../advice";
 import { BATCH } from "../../draft";
 import { Keys } from "../../Keys";
 import { FormModel, ResultsPlace } from "../../ModelLoad";
-import { Button, ErrorNote, Help } from "../../ui";
+import { Button, cx, ErrorNote, Help } from "../../ui";
+import { useQueue } from "../../data";
+import { aboutMs } from "../../format";
+import { severalMachines } from "../../machines";
+import { GenerateOn, shortName, usePickedMachine } from "./GenerateOn";
 import { inputMissing } from "./missing";
 import type { useGenerate } from "./useGenerate";
 
@@ -22,9 +26,14 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCou
   onCount(count: number): void;
 }) {
   const count = draft?.count ?? 1;
+  const several = severalMachines(useQueue().data).length > 0;
   const noun = recipe?.output === "image" ? "image" : recipe?.output === "video" ? "video" : "audio clip";
-  // the form's own forecast, the one its Output line says (advice.ts): the button says it for the whole batch
-  const about = batchAbout(useAdvice(recipe, whole).data?.estimate, count);
+  // the form's own forecast, the one its Output line says (advice.ts): the button says it for the whole batch, at the pace
+  // of the machine picked for this draft when there is one (with several ComfyUIs, GenerateOn.tsx)
+  const estimate = useAdvice(recipe, whole).data?.estimate;
+  const picked = usePickedMachine(draft);
+  const total = estimate ? (estimate.ms - estimate.loadMs) * count + estimate.loadMs : null;
+  const about = picked && total !== null ? aboutMs(total * (picked.pace ?? 1)) : batchAbout(estimate, count);
   const missing = inputMissing(recipe, whole);
   return (
     <div className="flex shrink-0 flex-col gap-2 border-t border-line p-3">
@@ -50,17 +59,20 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCou
           <Button tone="quiet" size="sm" className="w-8 rounded-[3px]! px-0!" aria-label="Batch count: one more" disabled={count >= BATCH.most} onClick={() => onCount(count + 1)}><Plus size={14} /></Button>
         </div>
         {/* the label gives way before the panel's edge does: the keys go first, then the estimate is cut, then the rest */}
-        <Button tone="primary" className="h-11 min-w-0 grow text-sm" disabled={!recipe || !draft || Boolean(blocked) || Boolean(missing) || send.isPending} data-tip={missing ?? "Generate"} data-tip-keys="Ctrl+Enter" onClick={() => send.mutate()}>
-          {send.isPending ? (
-            <span className="truncate">Queuing…</span>
-          ) : (
-            <span className="flex min-w-0">
-              <span className="truncate">{`Generate ${plural(count, noun)}`}</span>
-              {about && <span className="min-w-0 shrink-[100] truncate">&nbsp;· {about}</span>}
-            </span>
-          )}
-          <Keys keys="Ctrl+Enter" size="sm" className="@max-[30rem]:hidden" />
-        </Button>
+        <div className="flex min-w-0 grow">
+          <Button tone="primary" className={cx("h-11 min-w-0 grow text-sm", several && "rounded-r-none")} disabled={!recipe || !draft || Boolean(blocked) || Boolean(missing) || send.isPending} data-tip={missing ?? "Generate"} data-tip-keys="Ctrl+Enter" onClick={() => send.mutate()}>
+            {send.isPending ? (
+              <span className="truncate">Queuing…</span>
+            ) : (
+              <span className="flex min-w-0">
+                <span className="truncate">{picked ? `Generate on ${shortName(picked)}` : `Generate ${plural(count, noun)}`}</span>
+                {about && <span className="min-w-0 shrink-[100] truncate">&nbsp;· {about}</span>}
+              </span>
+            )}
+            <Keys keys="Ctrl+Enter" size="sm" className="@max-[30rem]:hidden" />
+          </Button>
+          {recipe && draft && several && <GenerateOn recipe={recipe} draft={draft} whole={whole} ms={total} />}
+        </div>
       </div>
     </div>
   );

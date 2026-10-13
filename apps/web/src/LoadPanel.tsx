@@ -25,12 +25,12 @@ const MANY = 40;
  * A family's plain operation: its first with a model input and nothing it must be given (a picture, a clip, a sound),
  * txt2img or text-to-video. A bare model file is loaded with it.
  */
-function plainOf(recipes: RecipeInfo[], family: string): { recipe: RecipeInfo; input: string } | null {
+function plainOf(recipes: RecipeInfo[], family: string): RecipeInfo | null {
   for (const r of recipes) {
     if (r.family !== family) continue;
-    const model = r.inputs.find((i) => i.type === "model");
+    const model = r.inputs.some((i) => i.type === "model");
     const needs = r.inputs.some((i) => (i.type === "image" || i.type === "clip" || i.type === "audio") && !i.optional);
-    if (model && !needs) return { recipe: r, input: model.id };
+    if (model && !needs) return r;
   }
   return null;
 }
@@ -99,19 +99,29 @@ function LoadDialog({ machine: asked, onClose }: { machine?: string; onClose(): 
       if (!families.isOn(f.id)) continue;
       const plain = plainOf(recipes.data?.recipes ?? [], f.id);
       if (!plain) continue;
-      const spec = plain.recipe.inputs.find((i) => i.id === plain.input && i.type === "model");
-      const slot = spec && "slot" in spec ? spec.slot : undefined;
-      const files = slot
-        ? slotFiles(f.id, slot)
-        : (() => {
-            const others = claimedBy(f.id);
-            return (setup.data?.recipes.find((r) => r.id === plain.recipe.id)?.options[plain.input] ?? []).filter((x) => !others.has(x));
-          })();
-      for (const path of files) {
-        const file = fileLabel(path);
-        if (seen.has(modelName(path)) || !hits(`${f.name} ${file}`)) continue;
-        seen.add(modelName(path));
-        all.push({ kind: "file", key: `file:${path}`, family: f.name, file, from: `${spec && "folder" in spec ? spec.folder : "models"} · loads with ${plain.recipe.title}`, ofForm: false, recipe: plain.recipe.id, input: plain.input, path });
+      // each of its model inputs (Wan has two: high and low noise) with the files that fit it; a file that fits several
+      // goes with the input whose slot picks it on its own (both of Wan's slots list both files, each its own first)
+      const specs = plain.inputs.flatMap((spec) => {
+        if (spec.type !== "model") return [];
+        const slot = "slot" in spec && spec.slot ? setup.data?.families.find((x) => x.id === f.id)?.slots.find((x) => x.id === spec.slot) : undefined;
+        const files = "slot" in spec && spec.slot
+          ? slotFiles(f.id, spec.slot)
+          : (() => {
+              const others = claimedBy(f.id);
+              return (setup.data?.recipes.find((r) => r.id === plain.id)?.options[spec.id] ?? []).filter((x) => !others.has(x));
+            })();
+        return [{ spec, files, own: slot?.auto ?? slot?.file ?? null }];
+      });
+      const twoInputs = specs.length > 1;
+      for (const { spec, files } of specs) {
+        for (const path of files) {
+          const home = specs.find((x) => x.own === path) ?? specs.find((x) => x.files.includes(path));
+          if (home?.spec.id !== spec.id) continue;
+          const file = fileLabel(path);
+          if (seen.has(modelName(path)) || !hits(`${f.name} ${file}`)) continue;
+          seen.add(modelName(path));
+          all.push({ kind: "file", key: `file:${path}`, family: f.name, file, from: `${"folder" in spec ? spec.folder : "models"} · loads with ${plain.title}${twoInputs ? ` (${spec.label})` : ""}`, ofForm: false, recipe: plain.id, input: spec.id, path });
+        }
       }
     }
     return { listed, all: all.slice(0, MANY) };

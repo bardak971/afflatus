@@ -174,6 +174,8 @@ describe("modes and commands", () => {
     expect(parseCommand("models on second gpu")).toEqual({ cmd: "machine-models", machine: "second gpu" });
     expect(parseCommand("comfyuis")).toEqual({ cmd: "machines" });
     expect(parseCommand("show the machines")).toEqual({ cmd: "machines" });
+    expect(parseCommand("generate on second gpu")).toEqual({ cmd: "generate", machine: "second gpu" });
+    expect(parseCommand("generate")).toEqual({ cmd: "generate" });
     expect(parseCommand("unload garage")).toEqual({ cmd: "unload", machine: "garage" });
     expect(parseCommand("empty the bin")).toEqual({ cmd: "empty-bin" });
     expect(parseCommand("bin unused takes")).toEqual({ cmd: "bin-unused" });
