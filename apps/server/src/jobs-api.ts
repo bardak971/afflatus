@@ -6,7 +6,6 @@ import { httpError, notFound } from "./errors";
 import type { Services } from "./services";
 import { draftLabel, promptOf } from "./autoName";
 import { findDraft, writeDraft } from "./drafts";
-import { askCutouts } from "./kitCutouts";
 
 /** The queue: jobs sent to it, models loaded ahead, and the queue's own controls (pause, order, retry, cancel, previews). */
 
@@ -71,8 +70,6 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
       const each = body.seedMode && seed !== null ? { ...input, seed: movedSeed(seed, body.seedMode, i) } : input;
       ids.push(await s.queue.enqueue(body.recipe, each, { label, draft: body.draft, folder: body.folder, look: body.look, asked: input === own ? undefined : askedOf(own, input), machine: body.machine ?? null }));
     }
-    // the cast's cut-outs not made yet are asked for: this render sends their pictures as they are, the next ones the cut-outs
-    if (body.look?.cast.length) void askCutouts(s, body.look.cast.map((c) => c.id)).catch((err: Error) => console.warn(`[kit] cut-outs not asked for: ${err.message}`));
     return { ids };
   });
 

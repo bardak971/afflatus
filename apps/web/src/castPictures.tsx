@@ -7,8 +7,7 @@ import type { RecipeInfo } from "./api/types/models";
 import { queryKeys } from "./queryKeys";
 
 /** A reference picture the cast adds when the form is sent: whose it is. */
-/** A picture the cast adds; `cutout`: a person's own, without its background (the server's kitCutouts.ts). */
-export interface CastPicture { asset: string; role: ReferenceRole; from: string; cutout?: boolean }
+export interface CastPicture { asset: string; role: ReferenceRole; from: string }
 /** The voice sample the cast adds when the form is sent (a person's own), whose it is, and the part of it set on them. */
 export interface CastVoice { asset: string; from: string; part?: { start: number; seconds: number } }
 

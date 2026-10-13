@@ -10,8 +10,6 @@ import { migrate, openDb, type DbKind } from "./db";
 import type { QueueOptions } from "./queue";
 import { createServices, type Services } from "./services";
 import { readSettings } from "./settings";
-import { plural } from "@afflatus/core";
-import { askEveryCutout } from "./kitCutouts";
 import { installNodePack } from "./nodePack";
 import { LocalStorage } from "./storage";
 import { preflight, runPreflight } from "./preflight";
@@ -180,10 +178,6 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<St
     }
     log.log(`Afflatus ${VERSION} on http://${config.host}:${config.port} (${kind})`);
     await services.queue.start();
-    // the people's cut-outs not made yet (kitCutouts.ts), asked for in the background: the start does not wait for ComfyUI
-    void askEveryCutout(services)
-      .then((n) => n && log.log(`[kit] ${plural(n, "cut-out")} asked for`))
-      .catch((err: Error) => log.warn(`[kit] cut-outs not asked for: ${err.message}`));
     // the bundle's launcher learns that this version started: without the file, a version that exits takes it back to the previous one
     const startedFile = envSaid.startedFile()?.trim();
     if (startedFile) {

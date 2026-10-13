@@ -56,6 +56,7 @@ import m0054 from "./0054-pin-mirror";
 import m0055 from "./0055-aggregate-indexes";
 import m0056 from "./0056-machines";
 import m0057 from "./0057-kit-cutouts";
+import m0058 from "./0058-no-cutouts";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -120,4 +121,5 @@ export const migrations: Record<string, Migration> = {
   "0055_aggregate_indexes": m0055,
   "0056_machines": m0056,
   "0057_kit_cutouts": m0057,
+  "0058_no_cutouts": m0058,
 };

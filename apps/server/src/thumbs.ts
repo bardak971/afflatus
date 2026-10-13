@@ -35,24 +35,6 @@ export async function makeThumb(bytes: Uint8Array, edge = EDGE): Promise<Uint8Ar
   }
 }
 
-/** The grey a Prompt-kit cut-out stands on: a plain middle grey says "no place" to a model and takes no colour into the person. */
-export const CUTOUT_GREY = { r: 128, g: 128, b: 128 };
-
-/**
- * A picture with its background made transparent (a cut-out), laid on plain grey, as a PNG. ComfyUI's image loader drops
- * the transparency and keeps the colours under it: a cut-out handed over as it is would bring its room back. Null when it
- * cannot be made (not a picture, no image library).
- */
-export async function onGrey(bytes: Uint8Array): Promise<Uint8Array | null> {
-  const lib = await sharp();
-  if (!lib) return null;
-  try {
-    return new Uint8Array(await lib(bytes).rotate().flatten({ background: CUTOUT_GREY }).png().toBuffer());
-  } catch {
-    return null;
-  }
-}
-
 /**
  * A picture mirrored as it is seen (turned upright first, as its metadata says), as a PNG: left and right swapped
  * ("horizontal") or top and bottom ("vertical"). Null when it cannot be made (not a picture, no image library).
