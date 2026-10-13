@@ -1,10 +1,10 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Range } from "../Trim";
-import { api, type Asset } from "../api";
+import { api, type Asset, type QueueStatus } from "../api";
 import { hearLibrary } from "../live";
 import { useBanners } from "../store";
-import { queryKeys } from "../queryKeys";
+import { isUnder, queryKeys } from "../queryKeys";
 
 /**
  * What a video gives besides itself: the frame it is paused on, its sound, its shots,
@@ -32,28 +32,37 @@ export function useMediaExtract({ asset, trim, player, onOpened }: { asset: Asse
   // a picture mirrored: the copy opens in the viewer, beside the original in its folder
   const mirror = useMutation({ mutationFn: (axis: "horizontal" | "vertical") => api.mirror(asset.id, axis), onSuccess: onOpened });
   // a split or a remove takes this one to the bin: when what it makes comes in, the viewer goes on to it (a split: the range
-  // itself, a remove: what is left), rather than staying on the binned original while the new files land behind it
+  // itself, a remove: what is left), rather than staying on the binned original while the new files land behind it. Heard
+  // until the job leaves the queue: done (its files came in before), failed or cancelled
   const following = useRef<Array<() => void>>([]);
-  useEffect(() => () => following.current.forEach((stop) => stop()), []);
-  const follow = (range: Range) => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
+  const shown = useRef(true);
+  useEffect(() => () => {
+    shown.current = false;
+    following.current.forEach((stop) => stop());
+  }, []);
+  const follow = (range: Range, job: string) => {
     const stop = hearLibrary((c) => {
       if (c.change !== "added" || !c.items?.length) return;
       void Promise.all(c.items.map((id) => api.asset(id).catch(() => null))).then((made) => {
         const ours = made.filter((d) => d?.source?.asset.id === asset.id);
-        if (!ours.length) return;
+        if (!ours.length || !shown.current) return;
         end();
         const piece = ours.find((d) => d!.source!.range && Math.abs(d!.source!.range.startMs - range.startMs) <= 2 && Math.abs(d!.source!.range.endMs - range.endMs) <= 2);
         onOpened((piece ?? ours[0])!);
       });
     });
+    // the queue as read from now on (the job is in it from the moment it was sent): a read without it says it has ended
+    const inQueue = (q: QueueStatus) => q.tool?.id === job || q.running?.id === job || q.machines.some((m) => m.running?.id === job) || q.waiting.some((w) => w.id === job);
+    const unwatch = client.getQueryCache().subscribe((e) => {
+      if (e.type !== "updated" || e.action.type !== "success" || e.query.queryKey.length !== 1 || !isUnder(e.query.queryKey, queryKeys.queue())) return;
+      const q = e.query.state.data as QueueStatus | undefined;
+      if (q && !inQueue(q)) end();
+    });
     const end = () => {
       stop();
-      clearTimeout(timer);
+      unwatch();
       following.current = following.current.filter((f) => f !== end);
     };
-    // a job that never comes back (failed, cancelled) is not waited for forever
-    timer = setTimeout(end, 30 * 60_000);
     following.current.push(end);
   };
   // the range as new videos: a job of the queue; the library shows them when it is done
@@ -68,7 +77,7 @@ export function useMediaExtract({ asset, trim, player, onOpened }: { asset: Asse
       }
       // (a sound is cut the same way: Trim on a sound, trim/AudioTrim.tsx)
       const what = asset.kind === "audio" ? "sound" : "video";
-      if (v.action === "split" || v.action === "remove") follow(v.range);
+      if (v.action === "split" || v.action === "remove") follow(v.range, r.id);
       say({ id: `cut:${Date.now()}`, tone: "good", title: v.action === "copy" ? "Copying the range to your library" : v.action === "split" ? `Splitting the ${what}` : "Removing the range", text: `In the queue; it needs no GPU. The new ${what}${v.action === "split" ? "s show" : " shows"} in the library when it is done${v.action === "copy" ? "" : `; this one goes to the bin then, and the viewer goes on to ${v.action === "split" ? "the range" : "the new one"}`}.`, href: "/queue", go: "Open queue" });
     },
   });
