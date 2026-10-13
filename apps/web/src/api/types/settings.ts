@@ -42,7 +42,9 @@ export type LlmPatch = Omit<LlmInfo, "hasApiKey"> & { apiKey?: string };
  * refused). As the answer says them, but for what the answer hides: the Civitai key itself, the models with their keys,
  * and `llm`, the model in use changed the short way. Held to the server's schema by test/apiTypes.test.ts.
  */
-export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiKey">> & {
+export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiKey" | "machines">> & {
+  /** The machines as the page has them, without what it is only told (a token's end). A token left out stays as it is. */
+  machines?: Array<Omit<Machine, "tokenEnd"> & { token?: string }>;
   civitaiKey?: string;
   llms?: LlmPatch[];
   llm?: Partial<Omit<LlmPatch, "id">>;
@@ -60,6 +62,8 @@ export interface Machine {
   takes: "all" | "image" | "video";
   /** Families switched on or off on this machine by hand, over the switch of every machine (Settings › Models, its tab). */
   families: Record<string, boolean>;
+  /** The last four characters of its token when its ComfyUI is locked (the token itself stays on the server); empty without one. */
+  tokenEnd: string;
 }
 /** A ComfyUI asked now (GET /api/machines): whether it answers (and why not), its version, its GPU and the Afflatus node pack it loaded. */
 export interface MachineProbe {
@@ -71,6 +75,26 @@ export interface MachineProbe {
   vramTotal: number | null;
   vramFree: number | null;
   pack: string | null;
+  /** Its lock (Afflatus's node pack): asked now with the rest. */
+  access: MachineAccess;
+  /** The last four characters of the token Afflatus has for it; empty without one. */
+  tokenEnd: string;
+}
+/** A ComfyUI's access, as its card's Access line says it. */
+export interface MachineAccess {
+  /** open: no lock; locked: locked, and Afflatus's token works; wrong: locked against the token Afflatus has (or has none); unknown: it does not answer. */
+  state: "open" | "locked" | "wrong" | "unknown";
+  /** Its node pack can lock it. */
+  canLock: boolean;
+  /** Calls made on its own computer get in without the token. */
+  local: boolean;
+  /** Locked by its start settings (AFFLATUS_TOKEN): not changed from here. */
+  fixed: boolean;
+  /** Started with AFFLATUS_LOCK=off. */
+  off: boolean;
+  /** ComfyUI-Manager's version when it has one, and whether it is older than the one that closed the way in. */
+  manager: string | null;
+  managerOld: boolean;
 }
 export interface Settings {
   /** The ComfyUIs, the first first (the one the setup, downloads and node packs talk to); `comfyUrl` and `comfyDir` are the first one's. */

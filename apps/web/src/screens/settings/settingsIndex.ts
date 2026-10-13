@@ -33,6 +33,7 @@ export const INDEX: SettingSpot[] = [
   { tab: "comfyui", label: "ComfyUI URL", key: "comfy.url", words: "address connection test port 8188" },
   { tab: "comfyui", label: "Add a ComfyUI", key: "comfy.machines", words: "several machines second gpu another computer rented cloud instance pause use only takes pictures videos" },
   { tab: "comfyui", label: "Folder on this computer", key: "comfy.folder", words: "comfyui folder open in comfyui directory main.py" },
+  { tab: "comfyui", label: "Access", key: "comfy.access", words: "lock locked token password login security botnet listen exposed unlock renew" },
   { tab: "comfyui", label: "Node pack", key: "comfy.pack", words: "custom_nodes afflatus-nodes minimax h3 latent install" },
   { tab: "comfyui", label: "Unload models after", key: "comfy.unload", words: "vram free idle minutes never" },
   { tab: "models", label: "Models", key: "models.families", words: "models on or off in the lists families switch hide ready missing files nodes operations" },

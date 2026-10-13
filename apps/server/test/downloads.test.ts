@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeComfy, type FakeComfy, type FakeInit } from "@afflatus/comfy/testing";
 import { wan } from "../../../packages/workflows/test/fixtures";
 import { get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
+import { directOk, signedLink } from "../src/downloads";
 
 /** A pretend Civitai (and file host): one model version with one file, 300 000 bytes long, which starts as a safetensors file does. */
 const FILE = Buffer.alloc(300_000, 7);
@@ -90,6 +91,17 @@ beforeEach(async () => {
       res.on("close", () => (slowDropped = true));
       return;
     }
+    // a source's own signed links (signedLink): one that has expired, one that serves the file and resumes
+    if (req.url?.startsWith("/signed/gone")) {
+      res.writeHead(403);
+      return res.end();
+    }
+    if (req.url?.startsWith("/signed/ok")) {
+      const from = Number(/^bytes=(\d+)-$/.exec(req.headers.range ?? "")?.[1] ?? 0);
+      const body = FILE.subarray(from);
+      res.writeHead(from ? 206 : 200, { "content-type": "application/octet-stream", "content-length": body.length, ...(from ? { "content-range": `bytes ${from}-${FILE.length - 1}/${FILE.length}` } : {}) });
+      return res.end(body);
+    }
     if (req.url === "/files/login") {
       res.writeHead(200, { "content-type": "text/html" });
       return res.end("<html>sign in</html>");
@@ -128,7 +140,7 @@ describe("fetching a missing model file into ComfyUI", () => {
   it("from Civitai: Manager is handed a one-time address, the bytes are counted, and the file ends up in its folder", async () => {
     await start(true);
     await on();
-    expect(await list()).toMatchObject({ on: true, manager: { found: true, version: "V0.0.0-fake" } });
+    expect(await list()).toMatchObject({ on: true, manager: { found: true, version: "V4.2.1" } });
     const d = (await post(t.app, "/api/downloads", { file: "soft_light-v2.safetensors", folder: "loras", civitai: 42 })).json();
     expect(d).toMatchObject({ file: "soft_light-v2.safetensors", folder: "loras", title: "Soft Light · v2", total: FILE.length, status: "starting" });
     await done(d.id);
@@ -408,6 +420,47 @@ describe("who downloads", () => {
     expect(fake.installAsked).toEqual([]);
   });
 
+  it("is the node pack from the source's own signed link when there is one: nothing passes through Afflatus", async () => {
+    await start(true, { folderPaths: paths(), hideFolderPaths: true });
+    fake.packVersion = "0.12.0";
+    await on();
+    const signedFor: Array<{ source: string; headers: Record<string, string> }> = [];
+    t.services.downloads.signer = async (source, headers) => {
+      signedFor.push({ source, headers });
+      return `${siteUrl}/signed/ok?sig=1`;
+    };
+    const d = (await post(t.app, "/api/downloads", { file: "signed.safetensors", folder: "loras", url: `${siteUrl}/files/plain.safetensors` })).json();
+    await done(d.id);
+    expect(await item(d.id)).toMatchObject({ status: "done", via: "pack" });
+    expect(readFileSync(join(disk, "nowhere", "signed.safetensors")).equals(FILE)).toBe(true);
+    expect(signedFor).toEqual([{ source: `${siteUrl}/files/plain.safetensors`, headers: {} }]);
+    // the pack fetched the signed link, never Afflatus's one-time address; Afflatus never fetched the file itself
+    expect(fake.packFetched).toEqual([`${siteUrl}/signed/ok?sig=1`]);
+    expect(asked.filter((a) => a.url === "/files/plain.safetensors")).toEqual([]);
+  });
+
+  it("sends the pack a fresh signed link when the first expires, and it carries on", async () => {
+    await start(true, { folderPaths: paths(), hideFolderPaths: true });
+    fake.packVersion = "0.12.0";
+    await on();
+    const links = [`${siteUrl}/signed/gone?sig=1`, `${siteUrl}/signed/ok?sig=2`];
+    t.services.downloads.signer = async () => links.shift() ?? null;
+    const d = (await post(t.app, "/api/downloads", { file: "renewed.safetensors", folder: "loras", url: `${siteUrl}/files/plain.safetensors` })).json();
+    await done(d.id);
+    expect(await item(d.id)).toMatchObject({ status: "done" });
+    expect(fake.packFetched).toEqual([`${siteUrl}/signed/gone?sig=1`, `${siteUrl}/signed/ok?sig=2`]);
+  });
+
+  it("is the one-time address with a pack that cannot take a signed link, or when the source gives none", async () => {
+    await start(true, { folderPaths: paths(), hideFolderPaths: true });
+    fake.packVersion = "0.12.0";
+    await on();
+    t.services.downloads.signer = async () => null;
+    const d = (await post(t.app, "/api/downloads", { file: "relayed.safetensors", folder: "loras", url: `${siteUrl}/files/plain.safetensors` })).json();
+    await done(d.id);
+    expect(fake.packFetched).toEqual([expect.stringMatching(/\/api\/downloads\/fetch\//)]);
+  });
+
   it("is ComfyUI-Manager otherwise: a public Hugging Face address handed to it as it is, anything else through Afflatus", async () => {
     await start("refuses");
     fake.packVersion = "0.10.0";
@@ -441,5 +494,55 @@ describe("fetching a model file into one of several ComfyUIs", () => {
     } finally {
       await second.close().catch(() => {});
     }
+  });
+});
+
+
+describe("a source's own signed download link", () => {
+  // the sites as they answer a download: a redirect to their file servers, read here and not followed into the file
+  const site = (answers: Record<string, { status: number; location?: string }>, seen: Array<{ url: string; auth?: string; method?: string }> = []) =>
+    (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      seen.push({ url, auth: headers.Authorization, method: init?.method });
+      const a = answers[url];
+      if (!a) return new Response(null, { status: 404 });
+      return new Response(null, { status: a.status, headers: a.location ? { location: a.location } : {} });
+    }) as typeof fetch;
+
+  it("is the file server's link Hugging Face redirects to", async () => {
+    const seen: Array<{ url: string; auth?: string; method?: string }> = [];
+    const hf = "https://huggingface.co/org/m/resolve/main/m.safetensors";
+    const cdn = "https://us.aws.cdn.hf.co/xet-bridge-us/abc?X-Xet-Signed-Range=1&Expires=2";
+    expect(await signedLink(hf, { Authorization: "Bearer hf_secret_token_1" }, site({ [hf]: { status: 302, location: cdn } }, seen))).toBe(cdn);
+    // asked with HEAD, never the file itself
+    expect(seen).toEqual([{ url: hf, auth: "Bearer hf_secret_token_1", method: "HEAD" }]);
+  });
+
+  it("is the R2 link Civitai redirects to, through a page of theirs, the key only to the host first asked", async () => {
+    const seen: Array<{ url: string; auth?: string; method?: string }> = [];
+    const api = "https://civitai.com/api/download/models/128713";
+    const hop = "https://civitai.com/api/download/models/128713?type=Model&format=SafeTensor";
+    const r2 = "https://civitai-delivery-worker-prod.abc.r2.cloudflarestorage.com/53515/model/x.safetensors?X-Amz-Signature=s";
+    expect(await signedLink(api, { Authorization: "Bearer civitai_key_12345" }, site({ [api]: { status: 307, location: hop }, [hop]: { status: 307, location: r2 } }, seen))).toBe(r2);
+    expect(seen.map((x) => x.url)).toEqual([api, hop]);
+  });
+
+  it("is none for a redirect anywhere else, one that carries the key, or a source that does not redirect", async () => {
+    const api = "https://civitai.com/api/download/models/1";
+    expect(await signedLink(api, {}, site({ [api]: { status: 302, location: "https://evil.example/x.safetensors" } }))).toBeNull();
+    expect(await signedLink(api, {}, site({ [api]: { status: 302, location: "http://us.aws.cdn.hf.co/x" } }))).toBeNull();
+    expect(await signedLink(api, { Authorization: "Bearer civitai_key_12345" }, site({ [api]: { status: 302, location: "https://x.r2.cloudflarestorage.com/f?token=civitai_key_12345" } }))).toBeNull();
+    // the file served as it is: only without a key, and only on a download host
+    const plain = "https://huggingface.co/org/m/resolve/main/README.md";
+    expect(await signedLink(plain, {}, site({ [plain]: { status: 200 } }))).toBe(plain);
+    expect(await signedLink(plain, { Authorization: "Bearer hf_secret_token_1" }, site({ [plain]: { status: 200 } }))).toBeNull();
+    expect(await signedLink("https://example.com/m.safetensors", {}, site({ "https://example.com/m.safetensors": { status: 200 } }))).toBeNull();
+  });
+
+  it("is on the download hosts only", () => {
+    expect(directOk("https://cas-bridge.xethub.hf.co/x")).toBe(true);
+    expect(directOk("https://huggingface.co.evil.example/x")).toBe(false);
+    expect(directOk("https://user:pw@huggingface.co/x")).toBe(false);
   });
 });

@@ -55,7 +55,7 @@ export function fakeManager(fake: FakeState, init: FakeInit): (r: FakeRequest) =
       if (path === "/v2/manager/queue/status") {
         return json(200, { total_count: tasks.length + installs.length, done_count: Object.keys(history).length, in_progress_count: 0, pending_count: tasks.length + installs.length, is_processing: false });
       }
-      if (path === "/v2/manager/version") return plain(200, "V0.0.0-fake", "text/plain");
+      if (path === "/v2/manager/version") return plain(200, fake.managerVersion, "text/plain");
       return false;
     }
     if (method !== "POST") return false;

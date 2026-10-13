@@ -157,7 +157,7 @@ describe("the node pack's answers", () => {
   it("counts a 5xx and a body that is not the state as silence, and gives the download up after a while of it", async () => {
     const baseUrl = `http://127.0.0.1:${(comfy.address() as AddressInfo).port}`;
     // a ComfyUI on another machine with a pack that downloads: no folder of its is written from here
-    const stub = { url: "http://192.0.2.10:8188", client: { baseUrl, packVersion: async () => "0.11.1", models: async () => [] }, forgetAll() {} } as unknown as Comfy;
+    const stub = { url: "http://192.0.2.10:8188", client: { baseUrl, raw: (path: string, init?: RequestInit) => fetch(`${baseUrl}${path}`, init), packVersion: async () => "0.11.1", models: async () => [] }, forgetAll() {} } as unknown as Comfy;
     const downloads = new Downloads(new EventEmitter());
     downloads.packEveryMs = 5;
     downloads.packSilentMs = 100;

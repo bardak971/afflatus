@@ -105,6 +105,9 @@ const fake = await pretendComfy();
 // the Pony checkpoint, the third none of Wan's; the others have everything
 const OTHERS_LACK = [/minimax|pony/i, /wan/i];
 const others = await Promise.all(Array.from({ length: Math.min(7, Math.max(0, (Number(process.env.DEMO_MACHINES) || 1) - 1)) }, (_x, i) => pretendComfy(OTHERS_LACK[i])));
+// the pretend ComfyUIs run this repository's node pack, as one Afflatus wrote it into does: its lock among what can be tried
+const PACK = /^version\s*=\s*"([^"]+)"/m.exec(readFileSync(join(root, "comfy-nodes", "afflatus-nodes", "pyproject.toml"), "utf-8"))?.[1] ?? null;
+for (const f of [fake, ...others]) f.packVersion = PACK;
 
 /**
  * A pretend language model for the designer: it answers in the designer's format with what it was told,

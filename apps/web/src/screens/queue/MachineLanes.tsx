@@ -158,7 +158,7 @@ function useLane(m: MachineState, onPin: (job: string, machine: string) => void)
 }
 
 /** What its row says in the middle when it renders nothing. */
-const quiet = (m: MachineState, state: State) => (state === "paused" ? "takes nothing new until it resumes" : state === "offline" ? "not answering · the others take the line" : "");
+const quiet = (m: MachineState, state: State) => (state === "paused" ? "takes nothing new until it resumes" : state === "offline" ? `${m.locked ? "locked: its token is wrong" : "not answering"} · the others take the line` : "");
 
 /** A machine in one row: its state, what it renders, what it holds, its meters, its actions, and its progress along the bottom. A click opens it. */
 function MachineRow({ m, onPin, onOpen, open }: { m: MachineState; onPin(job: string, machine: string): void; onOpen(): void; open?: boolean }) {

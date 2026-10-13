@@ -35,6 +35,7 @@ import { registerProjects } from "./projects";
 import { registerRenders } from "./renders-api";
 import type { Services } from "./services";
 import { registerSetup } from "./setup-api";
+import { registerLock } from "./lock-api";
 import { registerTags } from "./tags";
 import { registerTimelines } from "./timelines-api";
 import { isUpload, uploadBody } from "./uploadBody";
@@ -133,6 +134,7 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
   });
 
   registerSetup(app, s, VERSION);
+  registerLock(app, s);
   registerDrafts(app, s);
   registerModelSettings(app, s);
   registerPresetFiles(app, s);

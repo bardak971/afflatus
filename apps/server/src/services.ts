@@ -78,11 +78,13 @@ export async function createServices(
     let c = pool.get(m.id);
     if (c?.url !== m.url) {
       c?.close();
-      c = new Comfy(m.url, registry);
+      c = new Comfy(m.url, registry, m.token);
       c.overrides = async () => (await readSettings(db)).slotFiles;
       c.infoOf = infoOf;
       pool.set(m.id, c);
     }
+    // a token set, renewed or taken off goes with the next call; an open socket stays open (the lock let it in)
+    c.client.token = m.token;
     return c;
   };
   const machines = async (): Promise<MachineComfy[]> => {

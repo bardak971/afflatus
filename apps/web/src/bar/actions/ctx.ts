@@ -66,7 +66,7 @@ export interface BarCtx {
   queue: {
     paused: boolean; online: boolean; rendering: boolean; running: boolean; waiting: Array<{ id: string }>; failed: string[];
     /** With several ComfyUIs, each one as the per-machine commands read it ("pause studio pc"). */
-    machines: Array<{ id: string; name: string; url: string; paused: boolean; online: boolean | null; running: boolean }>;
+    machines: Array<{ id: string; name: string; url: string; paused: boolean; online: boolean | null; locked: boolean; running: boolean }>;
   } | undefined;
   /** The queue's pause, resume, unload and reconnect, as the Queue screen and the status bar have them. */
   ops: ReturnType<typeof useQueueOps>;
@@ -87,6 +87,8 @@ export interface BarCtx {
   item: ReturnType<typeof useItemActions>;
   formTarget: FormTarget | null;
   openWorkflow: ReturnType<typeof useOpenInComfy<{ id: string; title: string }>>;
+  /** One machine's ComfyUI page, by its id (actions.ts useOpenComfyUI). */
+  openComfy: ReturnType<typeof useOpenInComfy<string>>;
   settingCtx: SettingCtx;
   onCopied(text: string): void;
   setViewing(a: Asset | null): void;

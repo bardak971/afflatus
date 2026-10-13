@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ComfyClient, ComfyError, ComfyUnreachable } from "../src";
+import { ComfyClient, ComfyError, ComfyLocked, ComfyUnreachable, Monitor } from "../src";
 import { startFakeComfy, type FakeComfy } from "../src/testing";
 
 let fake: FakeComfy;
@@ -171,5 +171,41 @@ describe("ComfyClient, answers that hide a failure", () => {
     const fetcher = (async () =>
       new Response(new ReadableStream({ start: (c) => c.error(new DOMException("The operation was aborted due to timeout", "TimeoutError")) }), { status: 200 })) as typeof fetch;
     await expect(new ComfyClient("http://comfy.test", fetcher).history("p1")).rejects.toBeInstanceOf(ComfyUnreachable);
+  });
+});
+
+describe("ComfyClient, a ComfyUI locked by Afflatus's node pack", () => {
+  const TOKEN = "a-token-of-this-machine-0123456789";
+  beforeEach(() => {
+    fake.packVersion = "0.12.0";
+    fake.lock = { token: TOKEN, local: false };
+  });
+
+  it("is refused without its token, and says it is the lock", async () => {
+    await expect(client.status()).rejects.toBeInstanceOf(ComfyLocked);
+    // locked is out of reach, as away is: a job waits for it the same way
+    await expect(client.status()).rejects.toBeInstanceOf(ComfyUnreachable);
+    await expect(client.status()).rejects.toThrow(/locked: paste its token/);
+  });
+
+  it("gets in with it, on every call, the direct ones too", async () => {
+    client.token = TOKEN;
+    expect((await client.status()).device).toBe("fake gpu");
+    expect((await client.raw("/afflatus/lock")).status).toBe(200);
+    expect(fake.refused).toEqual([]);
+  });
+
+  it("puts it in the websocket's address, which the lock checks before the socket opens", async () => {
+    expect(client.socketUrl("me")).toBe(`${fake.url.replace("http", "ws")}/ws?clientId=me`);
+    client.token = TOKEN;
+    expect(client.socketUrl("me")).toBe(`${fake.url.replace("http", "ws")}/ws?clientId=me&token=${TOKEN}`);
+    const monitor = new Monitor(client);
+    await monitor.ready();
+    expect(fake.sockets).toContain(client.clientId);
+    monitor.close();
+    const outsider = new Monitor(new ComfyClient(fake.url));
+    await outsider.ready();
+    expect(fake.sockets.filter((id) => id !== client.clientId)).toEqual([]);
+    outsider.close();
   });
 });

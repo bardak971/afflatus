@@ -26,7 +26,7 @@ const KIT_WORD = { person: "person", place: "place", style: "style", preset: "pr
 
 /** A command with its figures: what it does, then (Ctrl + Enter) where it does it. */
 export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, preset?: Preset): Action[] {
-  const { aim, client, go, say, good, failed, form, noDraft, askTimeline, atTopAction, tree, queue, ops } = x;
+  const { aim, client, go, say, good, failed, form, noDraft, askTimeline, atTopAction, tree, queue, ops, openComfy } = x;
   const noTimeline: Action = { label: "No timeline to do it on", disabled: true, run: () => {} };
   switch (c.cmd) {
     case "render-clips":
@@ -152,6 +152,12 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       if (c.cmd === "machine-log") return [{ label: `ComfyUI log of ${name}`, icon: <Server size={14} />, note: m.online === false ? "it does not answer" : "its console", run: () => go(`/queue?view=log&machine=${id}`) }];
       if (c.cmd === "machine-times") return [{ label: `Render times of ${name}`, icon: <Server size={14} />, run: () => go(`/queue?view=times&machine=${id}`) }];
       return [{ label: `Models on ${name}`, icon: <Server size={14} />, note: "Settings › Models, its tab", run: () => go(`/settings/models?machine=${id}`) }];
+    }
+    case "open-comfy": {
+      // the first ComfyUI, or the one named: its own page (locked, through its login: lock-api.ts pageUrl)
+      const m = c.machine ? machineByName(queue?.machines, c.machine) : queue?.machines[0];
+      if (c.machine && !m) return [{ label: `No ComfyUI called ${c.machine}`, icon: <Server size={14} />, disabled: true, run: () => {} }];
+      return [{ label: m && c.machine ? `Open ComfyUI on ${machineLabel(m)}` : "Open ComfyUI", icon: <Server size={14} />, note: "its own page, in a new tab", disabled: m?.online === false && !m.locked, run: () => openComfy.mutate(m?.id ?? "m1") }];
     }
     case "load-panel": {
       // the panel by the status bar (LoadPanel.tsx), on the machine named when there is one

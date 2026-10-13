@@ -59,6 +59,15 @@ export function useOpenInComfy<T>(request: (v: T) => Promise<Opened>, opts: { on
   });
 }
 
+/**
+ * One machine's ComfyUI page, in a tab of its own: locked (the node pack's lock), through its login with a one-time code,
+ * so the tab lands logged in and the token is never in its address.
+ */
+export function useOpenComfyUI() {
+  const failed = useSayFailed();
+  return useOpenInComfy((machine: string) => api.openMachine(machine).then(({ url }): Opened => ({ url, direct: true })), { onError: (err) => failed("Could not open ComfyUI")(err) });
+}
+
 /** The timeline an item was last added to, per project (the Inbox under "none"): "Add to <it>" with one key goes there. */
 const useLastTimeline = create<{ by: Record<string, { id: string; name: string }>; set(project: string, t: { id: string; name: string }): void }>()(
   persist((set) => ({ by: {}, set: (project, t) => set((s) => ({ by: { ...s.by, [project]: t } })) }), { name: "afflatus.last-timeline" }),

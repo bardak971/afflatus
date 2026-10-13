@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import type { Graph, NodeCatalog } from "@afflatus/core";
 import type { HistoryEntry } from "./client";
 import { fakeFolders } from "./fake/folders";
+import { fakeLock } from "./fake/lock";
 import { fakeManager } from "./fake/manager";
 import { fakeRoutes } from "./fake/routes";
 import { fakeSimulate } from "./fake/simulate";
@@ -58,6 +59,14 @@ export interface FakeComfy {
   reboots: number;
   /** Files written into ComfyUI's user data, by path ("workflows/afflatus/x.json"). */
   userdata: Record<string, unknown>;
+  /** The node pack's lock (0.12.0 and newer): its token, and whether calls from this machine get in without it. Null: not locked. */
+  lock: { token: string; local: boolean } | null;
+  /** The calls the lock refused, as "METHOD /path". */
+  refused: string[];
+  /** What the pretend ComfyUI-Manager says its version is (GET /v2/manager/version). */
+  managerVersion: string;
+  /** Every address the pretend node pack fetched a download from, in order (a fresh link after one expired among them). */
+  packFetched: string[];
   /**
    * Send a websocket message as ComfyUI does: one about a prompt goes only to the client that queued it (every
    * client when it was queued without a client id, or is not known here); a preview without a prompt id goes to
@@ -82,10 +91,10 @@ export interface FakeRequest {
   headers: IncomingMessage["headers"];
   /** The body, read whole. */
   raw: Buffer;
-  /** Answer it (true: the request is answered). */
-  json(status: number, value: unknown): true;
+  /** Answer it (true: the request is answered), with headers of its own when given. */
+  json(status: number, value: unknown, headers?: Record<string, string>): true;
   /** A plain answer: a status and an optional text. */
-  plain(status: number, text?: string | Uint8Array, type?: string): true;
+  plain(status: number, text?: string | Uint8Array, type?: string, headers?: Record<string, string>): true;
 }
 
 export interface FakeInit extends Partial<Pick<FakeComfy, "catalog" | "models" | "folderPaths" | "hideFolderPaths">> {
@@ -121,14 +130,17 @@ const body = async (req: IncomingMessage) => {
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: FakeState = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {},
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], managerVersion: "V4.2.1",
     folderPaths: init.folderPaths ?? null, hideFolderPaths: init.hideFolderPaths ?? false,
     catalog: init.catalog ?? {},
     models: init.models ?? {},
   };
   // the parts answer in turn: Manager's routes, the model folders on disk, then ComfyUI's own and the node pack's
   let simulate: ReturnType<typeof fakeSimulate> | null = null;
+  const lock = fakeLock(fake);
   const parts = [
+    // the node pack's lock first, in front of everything, as lock.py puts itself first of ComfyUI's middlewares
+    (r: FakeRequest) => lock.route(r),
     fakeManager(fake, init),
     fakeFolders(fake),
     fakeRoutes(fake, { queued: (id, clientId) => { sockets.own(id, clientId); simulate?.start(id); } }),
@@ -139,13 +151,13 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
     fake.calls.push(`${method} ${url.pathname}`);
     const r: FakeRequest = {
       method, path: url.pathname, url, headers: req.headers, raw: await body(req),
-      json: (status, value) => {
-        res.writeHead(status, { "Content-Type": "application/json" });
+      json: (status, value, headers) => {
+        res.writeHead(status, { "Content-Type": "application/json", ...headers });
         res.end(JSON.stringify(value));
         return true;
       },
-      plain: (status, text, type) => {
-        res.writeHead(status, type ? { "Content-Type": type } : {});
+      plain: (status, text, type, headers) => {
+        res.writeHead(status, { ...(type ? { "Content-Type": type } : {}), ...headers });
         res.end(text);
         return true;
       },
@@ -154,7 +166,7 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
     for (const part of parts) if (await part(r)) return;
     r.json(404, { error: `fake ComfyUI has no ${method} ${url.pathname}` });
   });
-  const sockets = fakeSockets(server, fake);
+  const sockets = fakeSockets(server, fake, (req) => lock.letIn(req.headers, new URL(req.url ?? "/", "http://fake")));
   if (init.simulate) simulate = fakeSimulate(fake, init.simulate, sockets);
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

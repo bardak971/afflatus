@@ -5,6 +5,14 @@ import type { Graph, NodeCatalog } from "@afflatus/core";
 export class ComfyUnreachable extends Error {}
 /** ComfyUI answered with an error; the message is safe to show. */
 export class ComfyError extends Error {}
+/**
+ * ComfyUI is locked by Afflatus's node pack and refused the token sent (none, or another machine's, or an old one): it is
+ * there, but out of reach as much as one that does not answer, so a job waits for it the same way. Its message says why.
+ */
+export class ComfyLocked extends ComfyUnreachable {}
+
+/** What the pack's lock answers a call without the right token: a 401 that says it is the lock, not some other server's login. */
+export const LOCKED_HEADER = "x-afflatus-lock";
 
 export interface ComfyStatus {
   version: string;
@@ -50,6 +58,14 @@ function errorSnippet(body: string): string {
   return (body.trim().split(/\r?\n/)[0] ?? "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
 }
 
+/** Headers given any way fetch takes them, as a plain record. */
+function headersOf(h: HeadersInit | undefined): Record<string, string> {
+  if (!h) return {};
+  if (h instanceof Headers) return Object.fromEntries(h.entries());
+  if (Array.isArray(h)) return Object.fromEntries(h);
+  return { ...h };
+}
+
 /** The nodes these come from, themselves included: every node whose output reaches them through the graph's links. */
 export function upstreamOf(graph: Graph, nodes: string[]): Set<string> {
   const seen = new Set<string>();
@@ -83,8 +99,30 @@ export class ComfyClient {
    */
   readonly clientId = `afflatus-${randomUUID().replace(/-/g, "").slice(0, 16)}`;
 
-  constructor(baseUrl: string, private readonly fetcher: typeof fetch = fetch) {
+  /** This ComfyUI's token when it is locked (Afflatus's node pack), sent on every call; empty when it is not. */
+  token = "";
+  private readonly fetcher: typeof fetch;
+
+  /** @param fetcher the fetch to call; without one, the global fetch as it is at each call (a test may stand in for it) */
+  constructor(baseUrl: string, fetcher?: typeof fetch, token = "") {
     this.baseUrl = baseUrl.trim().replace(/\/+$/, "");
+    this.token = token;
+    // every call this client makes carries the token, whichever method makes it: the lock refuses any that does not
+    this.fetcher = (input, init) => (fetcher ?? fetch)(input, this.token ? { ...init, headers: { ...headersOf(init?.headers), Authorization: `Bearer ${this.token}` } } : init);
+  }
+
+  /**
+   * A call to this ComfyUI as it comes, its status not judged: for the callers that read another service's answer through
+   * it (ComfyUI-Manager's, the node pack's downloads), with the token as every call has it.
+   */
+  raw(path: string, init?: RequestInit): Promise<Response> {
+    return this.fetcher(`${this.baseUrl}${path}`, init);
+  }
+
+  /** The websocket's address for a client id: the token goes in the address, as a socket cannot carry a header. */
+  socketUrl(clientId: string): string {
+    const token = this.token ? `&token=${encodeURIComponent(this.token)}` : "";
+    return `${this.baseUrl.replace(/^http/i, "ws")}/ws?clientId=${encodeURIComponent(clientId)}${token}`;
   }
 
   private async request(path: string, init?: RequestInit, timeoutMs = META_TIMEOUT): Promise<Response> {
@@ -93,6 +131,10 @@ export class ComfyClient {
     const res = await this.fetcher(`${this.baseUrl}${path}`, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout }).catch((err) => {
       throw new ComfyUnreachable(`ComfyUI did not answer at ${this.baseUrl}: ${(err as Error).message}`);
     });
+    if (res.status === 401 && res.headers.get(LOCKED_HEADER)) {
+      await res.body?.cancel().catch(() => {});
+      throw new ComfyLocked(this.token ? `ComfyUI at ${this.baseUrl} is locked, and refused the token Afflatus has for it: paste its token in Settings › ComfyUI.` : `ComfyUI at ${this.baseUrl} is locked: paste its token in Settings › ComfyUI.`);
+    }
     if (!res.ok) {
       throw new ComfyError(`ComfyUI ${path.split("?")[0]} failed (${res.status}): ${errorSnippet(await res.text().catch(() => ""))}`);
     }

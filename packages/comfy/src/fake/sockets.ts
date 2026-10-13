@@ -1,4 +1,4 @@
-import type { Server } from "node:http";
+import type { IncomingMessage, Server } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { FakeState } from "../testing";
 
@@ -10,8 +10,9 @@ const PREVIEWS = new Set(["kj_preview_override"]);
  * a prompt does only to the client id it was queued with (to everyone when it was queued without one); a
  * load snapshot or a status goes to everyone.
  */
-export function fakeSockets(server: Server, fake: FakeState) {
-  const wss = new WebSocketServer({ server, path: "/ws" });
+export function fakeSockets(server: Server, fake: FakeState, letIn: (req: IncomingMessage) => boolean = () => true) {
+  // a locked ComfyUI (the node pack's lock) refuses the socket of a caller without its token, before it opens
+  const wss = new WebSocketServer({ server, path: "/ws", verifyClient: ({ req }: { req: IncomingMessage }) => letIn(req) });
   const idOf = new Map<WebSocket, string>();
   wss.on("connection", (socket, req) => {
     const id = new URL(req.url ?? "/", "http://fake").searchParams.get("clientId") ?? "";
