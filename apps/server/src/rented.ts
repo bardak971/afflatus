@@ -549,7 +549,7 @@ export class Rented {
   /** RunPod's bill since `from` (ms), read again every few minutes; null when RunPod does not give it. */
   private async bill(key: string, from: number): Promise<BillRecord[] | null> {
     if (this.billSeen && this.billSeen.from === from && (this.now() - this.billSeen.at < BILL_EVERY_MS || this.now() < this.quietUntil)) return this.billSeen.records;
-    const records = await this.client(key).billing(from).catch((err: Error) => {
+    const records = await this.client(key).billing(from, this.now()).catch((err: Error) => {
       console.warn(`[rented] RunPod's bill not read: ${err.message}`);
       return null;
     });

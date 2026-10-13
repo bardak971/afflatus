@@ -352,8 +352,9 @@ export class Runpod {
    * What RunPod billed each pod, hour by hour, since `from` (ms): the reference for what the rented GPUs cost (its GPU and its
    * disk, every pod of the account). RunPod writes these some hours after the fact: the latest hours may be missing yet.
    */
-  async billing(from: number): Promise<BillRecord[]> {
-    const got = await this.call<{ records?: unknown }>(`/v2/billing/pods?bucketSize=hour&startTime=${encodeURIComponent(new Date(from).toISOString())}`);
+  async billing(from: number, to = Date.now()): Promise<BillRecord[]> {
+    // RunPod takes both ends or neither; the end is snapped up to its hour
+    const got = await this.call<{ records?: unknown }>(`/v2/billing/pods?bucketSize=hour&startTime=${encodeURIComponent(new Date(from).toISOString())}&endTime=${encodeURIComponent(new Date(to).toISOString())}`);
     if (!got || !Array.isArray(got.records)) throw new RunpodShape("RunPod answered its billing in a shape Afflatus does not know.");
     return (got.records as Array<Record<string, unknown>>).flatMap((r) => {
       const start = typeof r.startTime === "string" ? Date.parse(r.startTime) : Number.NaN;
