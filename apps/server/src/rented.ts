@@ -51,8 +51,10 @@ export interface RentedView {
   capped: boolean;
   /** Afflatus is stopping it now (idle, a cap, or the user): it takes no new work. */
   stopping: boolean;
-  /** Why Afflatus stopped or terminated it last, when it did: "boot" when its ComfyUI never answered. */
-  stoppedBy: "idle" | "cap" | "you" | "boot" | null;
+  /** Why Afflatus stopped or terminated it last, when it did: "boot" when its ComfyUI never answered; "gpu" when the pod said its GPU does not work. */
+  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | null;
+  /** Deployed and on its first start (its image pulled, ComfyUI starting): a normal step, said as one, not as an error. */
+  booting: boolean;
   /** What went wrong with this pod, or asking RunPod, when something did. */
   error: string | null;
 }
@@ -86,6 +88,8 @@ const BOOT_LIMIT_MS = 10 * 60_000;
  * on a host that never had it.
  */
 const DEPLOYED_BOOT_LIMIT_MS = 20 * 60_000;
+/** From then a deployed pod's first start is said as slow on its card (before, as a normal step). */
+const DEPLOY_SLOW_MS = 12 * 60_000;
 /** The freest data center first, for a deploy. */
 const FREEST = { HIGH: 0, MEDIUM: 1, LOW: 2, NONE: 3 } as const;
 /** How long a pod may run without its ComfyUI answering before its idle action applies. */
@@ -124,6 +128,8 @@ interface Seen {
   /** When it was first seen running this time (ms), and whether its ComfyUI answered since. */
   upAt: number | null;
   answered: boolean;
+  /** The pod said its GPU does not work on its host (the Afflatus image, broken.py), with torch's words. */
+  gpuFailed: string | null;
   /** Read at least once: what a later read finds is a change only when it differs. */
   read: boolean;
 }
@@ -131,7 +137,7 @@ interface Seen {
 const fresh = (): Seen => ({
   pod: null, rate: null, watchdog: "unknown", answers: null, busyAt: null, stoppedBy: null, stopAfter: false, cappedAt: null,
   stopping: false, lockTried: false, seenRunningAt: null, epoch: 0, error: null, bootNote: null, secretDropped: false, upAt: null, answered: false,
-  read: false,
+  read: false, gpuFailed: null,
 });
 
 export class Rented {
@@ -248,13 +254,22 @@ export class Rented {
       capped: s?.stopAfter ?? false,
       stopping: s?.stopping ?? false,
       stoppedBy: s?.stoppedBy ?? null,
-      error: s?.error ?? this.error ?? s?.bootNote ?? this.unanswered(s ?? null, status, bootLimit(machine)),
+      booting: Boolean(machine.rented.deployedAt) && (status === "RUNNING" || (TRANSITIONAL.has(status) && status !== "UNKNOWN")) && !s?.answered,
+      error: s?.error ?? this.error ?? s?.bootNote ?? (s?.stoppedBy === "gpu" ? s.gpuFailed : null) ?? this.unanswered(machine, s ?? null, status, bootLimit(machine)),
     };
   }
 
   /** What its card says of a pod RunPod has running that nothing answers on: its container may not have started. */
-  private unanswered(s: Seen | null, status: RentedView["status"], limit: number): string | null {
-    if (status !== "RUNNING" || !s?.upAt || s.answered || this.now() - s.upAt < BOOT_SLOW_MS) return null;
+  private unanswered(m: Machine, s: Seen | null, status: RentedView["status"], limit: number): string | null {
+    if (status !== "RUNNING" || !s?.upAt || s.answered) return null;
+    // a deployed pod's first start (its image pulled onto the host, then ComfyUI): a normal step for some minutes, said
+    // as one on its card; only one that drags is said here
+    const deployedAt = m.rented!.deployedAt ? Date.parse(m.rented!.deployedAt) : Number.NaN;
+    if (Number.isFinite(deployedAt)) {
+      const minutes = Math.round((this.now() - deployedAt) / 60_000);
+      return this.now() - deployedAt < DEPLOY_SLOW_MS ? null : `Its first start is taking long: nothing answers on ${COMFY_PORT} after ${minutes} min (an image pull this slow, or a container that does not start: its logs on RunPod). Billed meanwhile; terminated at ${limit / 60_000} min if it is not up.`;
+    }
+    if (this.now() - s.upAt < BOOT_SLOW_MS) return null;
     return `RunPod says it is running, but nothing answers on ${COMFY_PORT} after ${Math.round((this.now() - s.upAt) / 60_000)} min: its image may still be pulling, or its container did not start (look at its logs on RunPod). It is billed meanwhile; with no answer by ${limit / 60_000} min, its idle action applies.`;
   }
 
@@ -567,6 +582,11 @@ export class Rented {
     if (s.stoppedBy && !before) s.stoppedBy = null;
     s.upAt ??= this.now();
     const answers = await this.alive(m, s);
+    // a GPU that does not work on its host never will: terminated at once, not at its boot limit
+    if (s.gpuFailed && !this.queue.runningOn(m.id)) {
+      await this.act(m, "terminate", "gpu");
+      return true;
+    }
     if (answers) s.answered = true;
     // its first answer since it was deployed: later starts count from when it runs
     if (answers && m.rented!.deployedAt) {
@@ -644,9 +664,15 @@ export class Rented {
     // what the watchdog's route answers says only whether the pack is there
     const up = await comfy.client.status().then(() => true, () => false);
     s.answers = up;
-    // its ComfyUI not answering: the pack's watchdog in it is not known to be there either
+    // its ComfyUI not answering: the pack's watchdog in it is not known to be there either. The Afflatus image on a host whose
+    // GPU does not work answers on ComfyUI's port in its place, and says so (deploy/runpod/broken.py)
     if (!up) {
       s.watchdog = "unknown";
+      if (m.rented!.deployed) {
+        const said = await comfy.client.raw("/afflatus/pod", { signal: AbortSignal.timeout(5_000) })
+          .then(async (r) => (r.ok ? ((await r.json()) as { afflatus_pod?: string; error?: string }) : null), () => null);
+        if (said?.afflatus_pod === "gpu_failed") s.gpuFailed = `Terminated: its GPU did not work on that host (${String(said.error ?? "CUDA error").slice(0, 200)}). Nothing billed after; deploy again, RunPod picks another host.`;
+      }
       return false;
     }
     const res = await comfy.client.raw("/afflatus/alive", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ minutes }), signal: AbortSignal.timeout(8000) }).catch(() => null);
@@ -844,12 +870,12 @@ export class Rented {
     }
     // a deployed pod terminated by its idle time, a cap or a boot that never came: nothing is left of it, its machine goes too
     // (the user's own Terminate removes it in stopBy)
-    if (action === "terminate" && m.rented!.deployed && why !== "you") {
+    if (action === "terminate" && m.rented!.deployed && (why === "idle" || why === "cap")) {
       await updateSettings(this.db, (current) => ({ machines: current.machines.filter((x) => x.id !== m.id) }));
       this.seen.delete(m.id);
       this.events.emit("setup");
     }
-    if (why === "idle" || why === "cap" || why === "boot") console.log(`[rented] ${m.name || m.id}: ${action === "terminate" ? "terminated" : "stopped"} (${why === "idle" ? `idle ${m.rented!.idleMinutes} min` : why === "boot" ? `its ComfyUI never answered in ${bootLimit(m) / 60_000} min` : "a spending cap"})`);
+    if (why === "idle" || why === "cap" || why === "boot" || why === "gpu") console.log(`[rented] ${m.name || m.id}: ${action === "terminate" ? "terminated" : "stopped"} (${why === "idle" ? `idle ${m.rented!.idleMinutes} min` : why === "boot" ? `its ComfyUI never answered in ${bootLimit(m) / 60_000} min` : why === "gpu" ? "its GPU did not work on that host" : "a spending cap"})`);
     this.events.emit("queue");
     // read again soon, then at the fast pace while it moves
     this.kick(1500);
