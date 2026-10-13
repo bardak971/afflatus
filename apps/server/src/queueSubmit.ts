@@ -227,7 +227,8 @@ async function uploadImage(up: Up, spec: InputSpec, value: string): Promise<void
  * A video an imported workflow's own loader reads: the file goes up as it is, or, when a moment was chosen
  * (carry on from there, arrive there), the part up to that moment or from it.
  */
-async function uploadWholeClip({ db, storage, upload, signal, sent }: Up, spec: InputSpec, value: ClipValue): Promise<void> {
+async function uploadWholeClip(up: Up, spec: InputSpec, value: ClipValue): Promise<void> {
+  const { db, storage, upload, signal, sent } = up;
   if (spec.type !== "clip") return;
   const { asset: assetId, at } = value;
   const asset = await db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
@@ -238,6 +239,16 @@ async function uploadWholeClip({ db, storage, upload, signal, sent }: Up, spec: 
   // a video that could not be read is refused with why: sent whole at 0×0, the workflow would fail on it with less to go on
   if (!facts) throw new Error(`The ${spec.label.toLowerCase()} could not be read: ${read?.why ?? "ffprobe gave nothing."}`);
   const length = facts.durationMs;
+  // a source video's part (a swap): cut there and re-timed to the recipe's speed, at its own size, with its sound
+  if (spec.role === "source" && spec.window) {
+    const total = length / 1000;
+    const start = Math.max(0, Math.min(Number(up.input[spec.window.start] ?? 0), Math.max(0, total - 0.5)));
+    const seconds = Math.max(0.2, Math.min(Number(up.input[spec.window.seconds] ?? total), total - start));
+    const part = await referenceClip(bytes, extOf(asset.mime), { start, seconds, fps: spec.fps, short: Math.min(facts.width, facts.height) });
+    sent.uploads[spec.id] = await upload(part.bytes, "mp4");
+    sent.media[spec.id] = { width: part.width, height: part.height, hasSound: part.hasSound, frames: part.frames, fps: spec.fps, seconds };
+    return;
+  }
   // a source video is worked on whole: only a clip carried on from or arrived at has a moment
   const cut = spec.role !== "source" && at !== undefined && length > 0 && (spec.role === "previous" ? at < length - FRAME_SLACK_MS : at > FRAME_SLACK_MS);
   const keep: [number, number] = spec.role === "previous" ? [0, at ?? length] : [at ?? 0, length];

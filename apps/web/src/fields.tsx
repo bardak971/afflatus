@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { pickChoice, RANDOM_SEED, soundFit, type ClipValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
+import { pickChoice, RANDOM_SEED, partFit, type PartFit, type ClipValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import type { FamilyInfo } from "./api";
 import { useCastPictures, useCastVoice } from "./castPictures";
 import { FileSelect, FOLDER_OF } from "./fields/FileSelect";
@@ -13,7 +13,7 @@ import { withNote } from "./fieldNotes";
 import { fileLabel } from "./format";
 import { MaskField } from "./MaskField";
 import { Slider } from "./Slider";
-import { ClipField, PictureField, ReferencesField, SoundField } from "./PictureField";
+import { ClipField, PictureField, ReferencesField, SoundField, type PartProps } from "./PictureField";
 import { cx, Segmented, Toggle } from "./ui";
 
 export { useLoraWordsOf } from "./fields/Loras";
@@ -29,6 +29,24 @@ export { useLoraWordsOf } from "./fields/Loras";
 export { sameValue } from "./form";
 // the row is a file of its own: the dialogs that use it alone (a new project) do not take every field with it
 export { FieldRow } from "./fields/FieldRow";
+
+/**
+ * The part of a sound or a source video that is used, as its field shows it: the two number inputs that say it, within its
+ * length input's own limits (every field keeps to its recipe's), and what one clip holds of it when the recipe says.
+ */
+function partProps(w: { start: string; seconds: string; fits?: PartFit } | undefined, specs: InputSpec[] | undefined, values: Record<string, unknown> | undefined, onValue: ((input: string, value: unknown) => void) | undefined): PartProps | undefined {
+  if (!w || !onValue) return undefined;
+  const length = specs?.find((s) => s.id === w.seconds);
+  const limits = length?.type === "number" ? { min: length.min ?? 1, max: length.max ?? 15, usual: Number(length.default ?? 8) } : { min: 1, max: 15, usual: 8 };
+  return {
+    start: Number(values?.[w.start] ?? 0), seconds: Number(values?.[w.seconds] ?? limits.usual), ...limits,
+    fit: w.fits ? partFit(w.fits, specs ?? [], values ?? {}) : undefined,
+    set: (start, seconds) => {
+      onValue(w.start, start);
+      onValue(w.seconds, seconds);
+    },
+  };
+}
 
 export function Field({ spec, value, values, specs, options, family, model, onChange, onValue, main, bare, standard }: {
   spec: InputSpec;
@@ -148,29 +166,22 @@ export function Field({ spec, value, values, specs, options, family, model, onCh
     case "references":
       return <ReferencesField label={spec.label} note={spec.note} max={spec.max} roles={spec.roles} video={spec.media === "video"} value={(value as ReferenceValue[] | undefined) ?? []} onChange={onChange} cast={cast} />;
 
-    case "audio": {
-      const w = spec.window;
-      // the part's limits are its length input's: every sound field keeps to its own recipe's
-      const length = specs?.find((s) => s.id === w?.seconds);
-      const limits = length?.type === "number" ? { min: length.min ?? 1, max: length.max ?? 15, usual: Number(length.default ?? 8) } : { min: 1, max: 15, usual: 8 };
+    case "audio":
       return (
         <SoundField
           label={spec.label} note={spec.note} optional={Boolean(spec.optional)} value={typeof value === "string" ? value : null} onChange={onChange}
-          part={w && onValue ? {
-            start: Number(values?.[w.start] ?? 0), seconds: Number(values?.[w.seconds] ?? limits.usual), ...limits,
-            fit: w.fits ? soundFit(w.fits, specs ?? [], values ?? {}) : undefined,
-            set: (start, seconds) => {
-              onValue(w.start, start);
-              onValue(w.seconds, seconds);
-            },
-          } : undefined}
+          part={partProps(spec.window, specs, values, onValue)}
           cast={castVoice}
         />
       );
-    }
 
     case "clip":
-      return <ClipField label={spec.label} note={spec.note} role={spec.role} optional={Boolean(spec.optional)} value={(value as ClipValue | undefined) ?? null} onChange={onChange} />;
+      return (
+        <ClipField
+          label={spec.label} note={spec.note} role={spec.role} optional={Boolean(spec.optional)} value={(value as ClipValue | undefined) ?? null} onChange={onChange}
+          part={spec.role === "source" ? partProps(spec.window, specs, values, onValue) : undefined}
+        />
+      );
   }
 }
 

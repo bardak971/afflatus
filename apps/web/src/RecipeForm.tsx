@@ -178,12 +178,14 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
     ...(out.length || encoding.length || upscaling.length ? [{ id: "output", label: "Output" }] : []),
     ...(rare.length && !advancedMoved ? [{ id: "advanced", label: "Advanced" }] : []),
   ];
+  // a few words the recipe builds its own prompt from (a swap's "who to replace"): no Designer or Snippets to write a scene into it
+  const ownPrompt = mainText?.type === "prompt" && Boolean(mainText.noCast);
   const promptBlock = mainText && promptHit && (
     // in the Create panel a card like the others, its head (with the Designer and Snippets) given with the helpers; the other texts as rows at its foot
     <div data-part="prompt" className={card ? "flex scroll-mt-12 flex-col rounded-xl border border-line-strong bg-panel" : "flex scroll-mt-12 flex-col gap-1.5"}>
       <div className={card ? "flex flex-col gap-2 px-3 pt-2.5 pb-3" : "contents"}>
-        {(!q || helpersHit) && helpers}
-        {isShown(mainText, seen, recipe.inputs) && (!q || hit(mainText)) && render(mainText, card && !q && mainText.type === "prompt")}
+        {(!q || helpersHit) && !ownPrompt && helpers}
+        {isShown(mainText, seen, recipe.inputs) && (!q || hit(mainText)) && render(mainText, card && !q && mainText.type === "prompt" && !ownPrompt)}
       </div>
       {texts.length > 0 && <div className={card ? "border-t border-line py-0.5" : "-mx-3 flex flex-col"}>{texts.map((i) => <TextFold key={i.id} spec={i} value={String(values[i.id] ?? "")}>{render(i, true)}</TextFold>)}</div>}
     </div>

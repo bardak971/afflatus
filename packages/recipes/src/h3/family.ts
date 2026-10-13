@@ -53,6 +53,11 @@ export const h3 = defineFamily({
       get: { file: "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors", url: `${HF}/loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors` },
     },
     {
+      id: "swapLora", label: "Character-Swap LoRA", folder: "loras", detect: ["character.?swap"], optional: true,
+      hint: "For Swap character: akatz-ai's Character-Swap LoRA for the reference model, in ComfyUI's models/loras folder.",
+      get: { file: "h3_character_swap_pro4500_1000.safetensors", url: "https://huggingface.co/akatz-ai/MiniMax-H3-Character-Swap-LoRA/resolve/main/h3_character_swap_pro4500_1000.safetensors" },
+    },
+    {
       id: "latentUpscaler", label: "Latent upscaler (upscale pass)", folder: "latent_upscale_models", detect: ["minimax.?h3.?latent.?upscaler"], optional: true,
       get: { file: "minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors", url: "https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler/resolve/main/minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors" },
       hint: "Optional: with minimax_h3_latent_upscaler_3d_*.safetensors in ComfyUI's models/latent_upscale_models folder, the refine pass uses H3's own latent upscaler. Without it, the clip is resized and re-sampled, which is still sharper than a pixel upscale.",

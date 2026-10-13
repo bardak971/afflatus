@@ -182,6 +182,13 @@ describe("people, places and styles", () => {
     expect(lipSync.added.voice).toBeNull();
   });
 
+  it("add no words to a text a recipe builds its own prompt from (a swap's who to replace), and still give their pictures", async () => {
+    const c = await cast();
+    const made = (await post(t.app, "/api/compose", { recipe: "h3.swap", input: { who: "the man in the grey t-shirt" }, look: { cast: [{ id: c.her }] } })).json();
+    expect(made.input.who).toBe("the man in the grey t-shirt");
+    expect(made.input.references).toEqual([{ asset: c.front, role: "person" }, { asset: c.side, role: "person" }]);
+  });
+
   it("say what did not fit, and leave out what is gone", async () => {
     const c = await cast();
     // the library refuses to bin a picture a person still names (409); one gone all the same (a database from before) is left out
