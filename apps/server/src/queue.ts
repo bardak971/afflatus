@@ -8,6 +8,7 @@ import { httpError } from "./errors";
 import { machinePaces, rates } from "./forecast";
 import type { Registry } from "./registry";
 import { record } from "./renders";
+import { lackOn, type Lack } from "./machineScans";
 import { plan, type Lane as Schedulable, type Planned, type Waiting } from "./schedule";
 import { FIRST_MACHINE, readSettings, type Machine } from "./settings";
 import type { Storage } from "./storage";
@@ -74,6 +75,9 @@ interface Lane {
   core: QueueCore;
 }
 
+/** Of a waiting render, with several machines: the machines that can run it, and what keeps it off each of the others. */
+type Able = { can: Set<string>; lacks: Record<string, Lack> };
+
 export class Queue {
   /** "queue": jobs changed. "library": an asset was added. "progress": a running job moved. */
   readonly events = new EventEmitter();
@@ -116,6 +120,8 @@ export class Queue {
       retryLater: () => this.retryLater(),
       fail: (r, error) => this.finish(r.id, "failed", { error }, r.status),
     });
+    // a machine got a file, or its families were switched: a job that waited for one may go there now
+    this.events.on("setup", () => void this.pump());
   }
 
   /** The door the submitting, storing, tools and view modules reach the first machine's lane through (queueModel.ts): what screens that know one ComfyUI read. */
@@ -613,7 +619,10 @@ ${JSON.stringify(input)}`;
   async status() {
     const views = await this.views();
     const paused = this.allPaused();
-    return view.status(this.core, views, paused, paused ? new Map() : await this.forecastPlan(await this.refresh()), await this.paces());
+    const lanes = await this.refresh();
+    const rows = await this.db.selectFrom("jobs").selectAll().where("status", "=", "queued").orderBy("priority").orderBy("created_at").execute();
+    const able = await this.ableOf(rows.filter(needsComfy));
+    return view.status(this.core, views, paused, paused ? new Map() : await this.forecastPlan(lanes, rows, able), await this.paces(), able);
   }
   /** The running jobs' figures alone, from memory: what a progress event carries, many times a second. */
   async progress() { return view.progress(await this.views()); }
@@ -687,7 +696,7 @@ ${JSON.stringify(input)}`;
         if (!this.paused && gpuRows.length) {
           // each free machine is asked whether it answers (a busy one does); the plan is made with those that may take work
           for (const l of open) if (free(l)) await answers(l);
-          where = plan(await this.schedulable(open), await this.planned(gpuRows));
+          where = plan(await this.schedulable(open), await this.planned(gpuRows, await this.ableOf(gpuRows)));
           for (const lane of open) {
             if (!free(lane) || lane.reachable === false) continue;
             const next = gpuRows.find((r) => !taken.has(r.id) && where.get(r.id)?.lane === lane.id);
@@ -766,10 +775,40 @@ ${JSON.stringify(input)}`;
     return Math.max(0, ms * pace - ran);
   }
 
-  /** The waiting jobs as the scheduler reads them: what each makes, its pin, its model and its forecast with and without loading it. */
-  private planned(rows: JobRow[]): Promise<Planned[]> {
+  /**
+   * With several machines, the machines that can run each waiting render: its recipe ready there, its family on there, the
+   * files it asks for listed there (machineScans.ts lackOn), and what keeps it off each of the others. A machine known to be
+   * away, or whose scan cannot be read, is not held against a job. Nothing with one machine: it takes everything, as it always did.
+   */
+  private async ableOf(rows: JobRow[]): Promise<Map<string, Able>> {
+    const out = new Map<string, Able>();
+    const lanes = this.machineLanes().filter((l) => l.machine && l.comfy);
+    if (lanes.length < 2 || !rows.length) return out;
+    const settings = await readSettings(this.db).catch(() => null);
+    if (!settings) return out;
+    const machines = new Map(settings.machines.map((m) => [m.id, m]));
+    const scans = await Promise.all(lanes.map(async (l) => ({ lane: l, scan: l.reachable === false ? null : await l.comfy!.scan().catch(() => null) })));
+    const familyOf = (id: string) => this.registry.recipe(id)?.family;
+    for (const r of rows) {
+      const recipe = r.recipe_id === CUT_JOB || r.recipe_id === EXPORT_JOB ? undefined : this.registry.recipe(r.recipe_id);
+      if (!recipe) continue;
+      const input = readJson<Record<string, unknown>>(r.inputs, {});
+      const can = new Set<string>();
+      const lacks: Record<string, Lack> = {};
+      for (const { lane, scan } of scans) {
+        const lack = scan?.comfy.online ? lackOn(recipe, input, scan, settings, machines.get(lane.id) ?? lane.machine!, familyOf) : null;
+        if (lack) lacks[lane.id] = lack;
+        else can.add(lane.id);
+      }
+      out.set(r.id, { can, lacks });
+    }
+    return out;
+  }
+
+  /** The waiting jobs as the scheduler reads them: what each makes, its pin, the machines that can run it, its model and its forecast with and without loading it. */
+  private planned(rows: JobRow[], able: ReadonlyMap<string, Able> = new Map()): Promise<Planned[]> {
     return Promise.all(rows.map(async (r): Promise<Planned> => {
-      const base = { id: r.id, makes: this.makes(r), pin: r.pin_machine ?? null };
+      const base = { id: r.id, makes: this.makes(r), pin: r.pin_machine ?? null, can: able.get(r.id)?.can };
       const recipe = r.recipe_id === CUT_JOB ? undefined : this.registry.recipe(r.recipe_id);
       if (!recipe) return { ...base, model: null, renderMs: null, loadMs: null };
       const input = readJson<Record<string, unknown>>(r.inputs, {});
@@ -787,9 +826,8 @@ ${JSON.stringify(input)}`;
   }
 
   /** Where each waiting job will probably run and when it starts, as the screens show it: the plan of now, no machine asked again. */
-  private async forecastPlan(lanes: Lane[]): Promise<Map<string, { lane: string; startsInMs: number }>> {
-    const rows = await this.db.selectFrom("jobs").selectAll().where("status", "=", "queued").orderBy("priority").orderBy("created_at").execute();
-    return plan(await this.schedulable(lanes.filter((l) => !l.paused && l.machine)), await this.planned(rows.filter(needsComfy)));
+  private async forecastPlan(lanes: Lane[], rows: JobRow[], able: ReadonlyMap<string, Able>): Promise<Map<string, { lane: string; startsInMs: number }>> {
+    return plan(await this.schedulable(lanes.filter((l) => !l.paused && l.machine)), await this.planned(rows.filter(needsComfy), able));
   }
 
   /** What a job makes, as a machine's "takes" reads it: a picture, or a video (a clip, a sound, a finish, a slow motion). */

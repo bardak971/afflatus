@@ -93,6 +93,8 @@ interface PackState { id: string; state: "pending" | "done" | "failed"; message?
 
 /** What a query hands its function: its signal (see call). `queryFn: api.queue` passes it as it is. */
 type Asked = { signal?: AbortSignal };
+/** A machine named in a query (`?machine=`), or nothing. */
+const machineParam = (machine?: string) => (machine ? `?machine=${encodeURIComponent(machine)}` : "");
 
 /** A list of the library: its filters, its page and its order. */
 export type AssetFilter = { kind?: string; bin?: boolean; folder?: string; after?: string; before?: string; q?: string; family?: string; kept?: boolean; /** Only what was not kept (kept wins when both are said). */ unkept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean; /** A page's size: 40 when not said. */ limit?: number; /** The order (newest first when not said); `dir` turns name and size around. */ sort?: "new" | "old" | "name" | "size"; dir?: "asc" | "desc" };
@@ -122,9 +124,10 @@ function assetParams(opts: AssetFilter): URLSearchParams {
 export const api = {
   recipes: (o?: Asked) => call<{ families: FamilyInfo[]; recipes: RecipeInfo[] }>("GET", "/recipes", undefined, o?.signal),
   /** What ComfyUI can do; each recipe's options come as places in a list of lists (core's listOptions), put back here. */
-  setup: (o?: Asked) => call<ListedOptions<RecipeStatus> & Omit<Scan, "recipes">>("GET", "/setup", undefined, o?.signal).then((sent): Scan => unlistOptions(sent)),
+  /** `machine`: that ComfyUI's alone; without, what every machine together can do (the same with one). */
+  setup: (o?: Asked, machine?: string) => call<ListedOptions<RecipeStatus> & Omit<Scan, "recipes">>("GET", `/setup${machineParam(machine)}`, undefined, o?.signal).then((sent): Scan => unlistOptions(sent)),
   /** ComfyUI asked again, now: its address, its files, its nodes. A POST, since it does work on the server. */
-  rescanSetup: () => call<ListedOptions<RecipeStatus> & Omit<Scan, "recipes">>("POST", "/setup/rescan").then((sent): Scan => unlistOptions(sent)),
+  rescanSetup: (machine?: string) => call<ListedOptions<RecipeStatus> & Omit<Scan, "recipes">>("POST", `/setup/rescan${machineParam(machine)}`).then((sent): Scan => unlistOptions(sent)),
   health: (o?: Asked) => call<Health>("GET", "/health", undefined, o?.signal),
   /** The tools Afflatus needs looked for again, now. */
   checkHealth: () => call<Health>("POST", "/health/check"),
@@ -224,11 +227,12 @@ export const api = {
   },
   /** The same for a picture or a video already in the library. */
   assetEmbedded: (id: string, recipe?: string) => call<Embedded>("GET", `/assets/${id}/embedded${recipe ? `?recipe=${encodeURIComponent(recipe)}` : ""}`),
-  downloads: (o?: Asked) => call<{ on: boolean; items: Download[]; manager: { found: boolean; version?: string }; via: DownloadVia | "none" }>("GET", "/downloads", undefined, o?.signal),
+  /** `machine`: who would download into that ComfyUI; the first one otherwise. The list is every download's. */
+  downloads: (o?: Asked, machine?: string) => call<{ on: boolean; items: Download[]; manager: { found: boolean; version?: string }; via: DownloadVia | "none" }>("GET", `/downloads${machineParam(machine)}`, undefined, o?.signal),
   stopDownload: (id: string) => call<{ ok: true }>("DELETE", `/downloads/${id}`),
   /** A failed download's banner was dismissed: not announced again, on any page or device. */
   downloadSeen: (id: string) => call<{ ok: true }>("POST", `/downloads/${id}/seen`),
-  startDownload: (body: { file: string; folder: string; page?: ModelPage } & ({ civitai: number; pick?: string } | { url: string })) => call<Download>("POST", "/downloads", body),
+  startDownload: (body: { file: string; folder: string; page?: ModelPage; machine?: string } & ({ civitai: number; pick?: string } | { url: string })) => call<Download>("POST", "/downloads", body),
   /** What a pasted link leads to: its files, the folder it most likely belongs in, ComfyUI's folders, and what ComfyUI has already. */
   resolveLink: (link: string) => call<LinkFound>("POST", "/downloads/resolve", { link }),
   storage: (o?: Asked) => call<Storage>("GET", "/storage", undefined, o?.signal),

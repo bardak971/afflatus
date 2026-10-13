@@ -176,6 +176,8 @@ export interface Download {
   note?: string;
   /** Its failure was read (its banner dismissed): a page opened later does not announce it again. */
   seen?: boolean;
+  /** The ComfyUI it goes to, by id, when one was asked for (several ComfyUIs). */
+  machine?: string;
 }
 /** Who downloads model files into this ComfyUI ("none": nothing can). */
 export type DownloadVia = "afflatus" | "pack" | "manager";

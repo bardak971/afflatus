@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { createContext, useContext, useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import { useSettings } from "./data";
@@ -6,7 +6,13 @@ import { siteName } from "./format";
 import { queryKeys } from "./queryKeys";
 
 /** Model files being fetched into ComfyUI. Refetched when the server says one of them moved on. */
-export const useDownloads = () => useQuery({ queryKey: queryKeys.downloads(), queryFn: api.downloads, staleTime: 10_000 });
+export const useDownloads = (machine?: string) => useQuery({ queryKey: queryKeys.downloads(machine), queryFn: ({ signal }) => api.downloads({ signal }, machine), staleTime: 10_000 });
+
+/**
+ * The ComfyUI a GetFile below downloads into, with several (Settings › Models on one machine's tab, a waiting job's files
+ * for the machine it is pinned to); none: the first.
+ */
+export const DownloadTo = createContext<string | undefined>(undefined);
 
 export type Find = Awaited<ReturnType<typeof api.civitaiFind>>;
 
@@ -42,16 +48,17 @@ export function useGetFile({ file, folder, url, civitai, pick, hints, auto, sour
   source?: { exact: boolean; file: string };
 }) {
   const settings = useSettings();
-  const downloads = useDownloads();
+  const machine = useContext(DownloadTo);
+  const downloads = useDownloads(machine);
   const client = useQueryClient();
   const lookups = Boolean(settings.data?.civitaiLookups);
   const fetching = Boolean(settings.data?.downloadModels) && Boolean(folder);
   const find = useMutation({ mutationFn: () => api.civitaiFind(file, folder, hints) });
   const start = useMutation({
-    mutationFn: (from: From) => api.startDownload({ file, folder: folder!, ...from, ...("civitai" in from && pick ? { pick } : {}) }),
+    mutationFn: (from: From) => api.startDownload({ file, folder: folder!, ...from, ...("civitai" in from && pick ? { pick } : {}), ...(machine ? { machine } : {}) }),
     onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.downloads() }),
   });
-  const mine = downloads.data?.items.find((d) => d.file === file && d.folder === folder);
+  const mine = downloads.data?.items.find((d) => d.file === file && d.folder === folder && (!machine || d.machine === machine));
   const busy = start.isPending || Boolean(mine && (mine.status === "starting" || mine.status === "downloading" || mine.status === "saving"));
   // Afflatus, its node pack or ComfyUI-Manager does the download: with none of them the button would only fail
   const noRoute = downloads.data?.via === "none";

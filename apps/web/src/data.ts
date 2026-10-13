@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { keepPreviousData, useInfiniteQuery, useQuery, type InfiniteData, type QueryClient } from "@tanstack/react-query";
 import { api, type Asset, type HistoryPage, type Timeline, type TimesPeriod, type TimesWindow } from "./api";
 import { mergeTop } from "./assetCache";
+import { familyOnFor } from "./machines";
 import { withFreshHead } from "./screens/queue/historyHead";
 import { useProject } from "./project";
 import { queryKeys } from "./queryKeys";
@@ -18,7 +19,8 @@ export function useFamilyName(): (id: string) => string {
   const families = useRecipes().data?.families;
   return useMemo(() => (id: string) => families?.find((f) => f.id === id)?.name ?? id, [families]);
 }
-export const useSetup = () => useQuery({ queryKey: queryKeys.setup(), queryFn: api.setup, staleTime: 60_000 });
+/** What ComfyUI can do: every machine together (the lists to choose from), or one machine's (Settings › Models, its tab). */
+export const useSetup = (machine?: string) => useQuery({ queryKey: queryKeys.setup(machine), queryFn: ({ signal }) => api.setup({ signal }, machine), staleTime: 60_000 });
 export const useQueue = () => useQuery({ queryKey: queryKeys.queue(), queryFn: api.queue });
 /**
  * The queue's history, a page at a time (queryKeys.history). Its first page is read again when a job ends (live.ts,
@@ -69,18 +71,28 @@ export const useSettings = () => useQuery({ queryKey: queryKeys.settings(), quer
  * files: on when ComfyUI has what one of its recipes needs, off when it does not. While ComfyUI has not
  * answered, everything is on. Off never hides what already uses a family: only the lists to pick from.
  */
-export function useFamilies() {
+/**
+ * The model families' switches: whether a family is on, and whether its files are there. `machine`: on that machine
+ * (Settings › Models, its tab); without, for the lists to choose from: with several machines, on at least one of them.
+ */
+export function useFamilies(machine?: string) {
   const recipes = useRecipes();
-  const setup = useSetup();
+  const setup = useSetup(machine);
   const settings = useSettings();
   return useMemo(() => {
     const said = settings.data?.families ?? {};
+    const machines = settings.data?.machines ?? [];
+    /** The families switched by hand on the machine asked about. */
+    const own = (machine ? machines.find((m) => m.id === machine)?.families : undefined) ?? {};
     const status = setup.data?.recipes;
     /** Its files (and nodes) are there for at least one of its recipes. */
     const found = (family: string) => !status || (recipes.data?.recipes ?? []).some((r) => r.family === family && status.find((s) => s.id === r.id)?.ready);
-    const isOn = (family: string) => said[family] ?? found(family);
-    return { isOn, found, said };
-  }, [recipes.data, setup.data, settings.data]);
+    const isOn = (family: string) =>
+      machine || machines.length < 2
+        ? familyOnFor(own, said, family, found(family))
+        : machines.some((m) => familyOnFor(m.families ?? {}, said, family, found(family)));
+    return { isOn, found, said, own };
+  }, [recipes.data, setup.data, settings.data, machine]);
 }
 
 /** The timelines of the project the app looks at. Its key starts with "timelines", like each timeline's, so both refetch on a "timeline" event. */

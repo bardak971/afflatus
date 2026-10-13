@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download as DownloadIcon, X } from "lucide-react";
 import { api, type Download } from "./api";
+import { useQueue } from "./data";
 import { about, fileLabel, siteName, size } from "./format";
+import { machineName, severalMachines } from "./machines";
 import { Bar, cx } from "./ui";
 import { count, useDownloads, useGetFile, type Find } from "./useGetFile";
 import { queryKeys } from "./queryKeys";
@@ -51,6 +53,9 @@ export function DownloadRow({ d, named }: { d: Download; named?: boolean }) {
   const client = useQueryClient();
   const stop = useMutation({ mutationFn: () => api.stopDownload(d.id), onSettled: () => client.invalidateQueries({ queryKey: queryKeys.downloads() }) });
   const running = d.status === "starting" || d.status === "downloading";
+  // with several ComfyUIs, the one it goes to
+  const q = useQueue().data;
+  const on = d.machine && severalMachines(q).length ? machineName(q, d.machine) : null;
   return (
     <div className="relative flex flex-col gap-1 rounded-md border border-line bg-raised py-1.5 pr-9 pl-2.5 text-ink">
       {d.status !== "saving" && (
@@ -65,7 +70,7 @@ export function DownloadRow({ d, named }: { d: Download; named?: boolean }) {
           <X size={14} />
         </button>
       )}
-      {named && <span className="font-semibold break-all">{fileLabel(d.file)} <span className="font-normal text-ink-2">into {d.folder}</span></span>}
+      {named && <span className="font-semibold break-all">{fileLabel(d.file)} <span className="font-normal text-ink-2">into {d.folder}{on ? ` on ${on}` : ""}</span></span>}
       {stop.isError && <span className="text-xs text-warn-ink">{stop.error.message}</span>}
       <span className={cx("text-xs", d.status === "error" ? "text-warn-ink" : d.status === "done" ? "text-good" : "text-ink-2")}>
         {says(d)}

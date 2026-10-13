@@ -9,7 +9,8 @@ import type { Clip, Timeline } from "./api";
  */
 export const queryKeys = {
   recipes: () => ["recipes"] as const,
-  setup: () => ["setup"] as const,
+  /** What ComfyUI can do: every machine together, or one machine's (under it, so a "setup" event reads both again). */
+  setup: (machine?: string) => (machine ? (["setup", machine] as const) : (["setup"] as const)),
   /** The queue alone: the history is not under it (see history). */
   queue: () => ["queue"] as const,
   settings: () => ["settings"] as const,
@@ -22,7 +23,8 @@ export const queryKeys = {
   workflowEdit: (id: string) => ["workflow-edit", id] as const,
   folders: () => ["folders"] as const,
   storage: () => ["storage"] as const,
-  downloads: () => ["downloads"] as const,
+  /** The downloads, and who would download into the first ComfyUI or the one named (under it: read again together). */
+  downloads: (machine?: string) => (machine ? (["downloads", machine] as const) : (["downloads"] as const)),
   presetFiles: () => ["preset-files"] as const,
   backupPlan: () => ["backup-plan"] as const,
   /** The ComfyUI log, of the first machine or of the one named. */

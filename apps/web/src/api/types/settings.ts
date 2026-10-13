@@ -58,6 +58,8 @@ export interface Machine {
   dir: string;
   /** What the queue gives it. */
   takes: "all" | "image" | "video";
+  /** Families switched on or off on this machine by hand, over the switch of every machine (Settings › Models, its tab). */
+  families: Record<string, boolean>;
 }
 /** A ComfyUI asked now (GET /api/machines): whether it answers (and why not), its version, its GPU and the Afflatus node pack it loaded. */
 export interface MachineProbe {

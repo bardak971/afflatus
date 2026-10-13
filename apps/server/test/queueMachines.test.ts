@@ -166,3 +166,49 @@ describe("each machine's pace", () => {
     await finishAll([a, b]);
   });
 });
+
+describe("each machine's files", () => {
+  /** The second machine lists the other checkpoint only, and is looked at again now. */
+  const twoLacksIt = async () => {
+    two.models.checkpoints = ["other.safetensors"];
+    await post(t.app, "/api/setup/rescan?machine=m2", {});
+  };
+
+  it("send a job only to a machine that has its model file, and say so on the waiting job", async () => {
+    await twoLacksIt();
+    const a = await enqueue({});
+    const b = await enqueue({});
+    await until(() => sentTo(one).length === 1);
+    const waiting = (await queue()).waiting as Array<{ id: string; runsOn: string[] | null; lacks: unknown }>;
+    expect(waiting.find((w) => w.id === b)).toMatchObject({ runsOn: ["m1"], lacks: { m2: { off: false, files: [{ file: "illustrious.safetensors", folder: "checkpoints" }] } } });
+    await finishAll([a, b]);
+    expect(sentTo(two)).toHaveLength(0);
+  });
+
+  it("keep a job pinned to a machine without its file waiting, and start it there once the file comes", async () => {
+    await twoLacksIt();
+    await post(t.app, "/api/queue/pause", {});
+    const a = await enqueue({});
+    expect((await post(t.app, `/api/jobs/${a}/machine`, { machine: "m2" })).statusCode).toBe(200);
+    await post(t.app, "/api/queue/resume", {});
+    await new Promise((r) => setTimeout(r, 100));
+    expect([...sentTo(one), ...sentTo(two)]).toHaveLength(0);
+    expect(((await queue()).waiting as Array<{ id: string; runsOn: string[] | null }>)[0]?.runsOn).toEqual(["m1"]);
+    // the file arrives (a download, or put in by hand and looked for again): the job goes
+    two.models.checkpoints = ["other.safetensors", "illustrious.safetensors"];
+    await post(t.app, "/api/setup/rescan?machine=m2", {});
+    await until(() => sentTo(two).length === 1);
+    await finishAll([a]);
+    expect((await row(a)).machine_id).toBe("m2");
+  });
+
+  it("give a machine nothing of a family switched off there", async () => {
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ id: "m1", url: one.url }, { id: "m2", url: two.url, families: { sdxl: false } }] } });
+    const a = await enqueue({});
+    const b = await enqueue({});
+    await until(() => sentTo(one).length === 1);
+    await finishAll([a, b]);
+    expect(sentTo(two)).toHaveLength(0);
+    expect((await row(b)).machine_id).toBe("m1");
+  });
+});

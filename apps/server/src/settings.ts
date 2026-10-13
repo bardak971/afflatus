@@ -68,6 +68,11 @@ export const machineSchema = z.object({
   dir: z.string().max(400).default(""),
   /** What the queue gives it: everything, pictures only or videos only (a clip, a sound, a finish). */
   takes: z.enum(["all", "image", "video"]).default("all"),
+  /**
+   * Model families switched on or off on this machine by hand, by family id, over the switch of every machine (`families`
+   * below): off, the queue sends it nothing of that family. One not named follows that switch, then its files there.
+   */
+  families: z.record(z.string().max(120), z.boolean()).default({}),
 });
 export type Machine = z.infer<typeof machineSchema>;
 
@@ -189,7 +194,7 @@ async function load(db: Db): Promise<Settings> {
  * have only `comfyUrl` and `comfyDir`, which become the first machine; otherwise the first machine says them.
  */
 function inStep(s: Settings): Settings {
-  if (!s.machines.length) return { ...s, machines: [{ id: FIRST_MACHINE, name: "", url: s.comfyUrl, dir: s.comfyDir, takes: "all" }] };
+  if (!s.machines.length) return { ...s, machines: [{ id: FIRST_MACHINE, name: "", url: s.comfyUrl, dir: s.comfyDir, takes: "all", families: {} }] };
   const [first] = s.machines;
   return { ...s, comfyUrl: first!.url, comfyDir: first!.dir };
 }

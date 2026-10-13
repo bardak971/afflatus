@@ -59,6 +59,8 @@ export interface DownloadView {
   note?: string;
   /** Its failure was read (the banner dismissed): a page opened later does not announce it again. */
   seen?: boolean;
+  /** The ComfyUI it goes to (settings.ts machines, by id), when it was asked for one. */
+  machine?: string;
 }
 
 interface Download extends DownloadView {
@@ -176,8 +178,8 @@ export class Downloads {
 
   /** What the browser is told of a download: never its source, its key or its one-time address. */
   private view(d: Download): DownloadView {
-    const { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen } = d;
-    const all: DownloadView = { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen };
+    const { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine } = d;
+    const all: DownloadView = { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine };
     for (const k of Object.keys(all) as Array<keyof DownloadView>) if (all[k] === undefined) delete all[k];
     return all;
   }
@@ -315,7 +317,7 @@ export class Downloads {
    * address the pack or Manager fetches); `comfyDir` is ComfyUI's folder from the Settings, read for a ComfyUI
    * too old to say its folders.
    */
-  async start(comfy: Comfy, self: string, want: { file: string; folder: string; title: string; source: string; headers?: Record<string, string>; total?: number; comfyDir?: string }): Promise<DownloadView> {
+  async start(comfy: Comfy, self: string, want: { file: string; folder: string; title: string; source: string; headers?: Record<string, string>; total?: number; comfyDir?: string; machine?: string }): Promise<DownloadView> {
     const name = want.file.split(/[\\/]/).pop() ?? "";
     const sub = want.file.split(/[\\/]/).slice(0, -1).filter(Boolean).join("/");
     if (!isModelFile(name) || want.file.split(/[\\/]/).some((p) => BAD_NAME.test(p))) throw httpError(`"${name}" is not a model file Afflatus can download.`);
@@ -323,7 +325,8 @@ export class Downloads {
     // the source has to be out on the internet, ComfyUI's machine included: the server can reach what a browser on this
     // network cannot (outbound.ts). A pretend Civitai (the tests, the demo) is the one exception, by its host and port
     assertPublicUrl(want.source, civitaiSites());
-    const busy = [...this.all.values()].find((d) => d.file === want.file && d.folder === want.folder && (running(d) || d.status === "saving"));
+    // the same file to the same ComfyUI once at a time; to another machine it is another download
+    const busy = [...this.all.values()].find((d) => d.file === want.file && d.folder === want.folder && d.comfy === comfy && (running(d) || d.status === "saving"));
     if (busy) return this.view(busy);
 
     const headers = want.headers ?? {};
@@ -332,6 +335,7 @@ export class Downloads {
     const d: Download = {
       id: randomUUID(), token: randomBytes(24).toString("hex"), comfy, source: want.source, headers,
       file: want.file, folder: want.folder, title: want.title, bytes: 0, total: want.total ?? 0, status: "starting", abort: new AbortController(), via: route.via,
+      ...(want.machine ? { machine: want.machine } : {}),
     };
     if (route.via === "afflatus") {
       try {

@@ -13,7 +13,7 @@ import { CivitaiCard } from "./settings/CivitaiCard";
 import { ComfyCard } from "./settings/ComfyCard";
 import { DesignerCard } from "./settings/DesignerCard";
 import { LinkCard } from "./settings/LinkCard";
-import { ModelSwitches, ReadyList } from "./settings/ModelsTab";
+import { ModelsByMachine } from "./settings/ModelsMachines";
 import { InterfaceTab } from "./settings/InterfaceTab";
 import { PromptsCard, WritingCard } from "./settings/PromptsCard";
 import { StorageCard } from "./settings/StorageCard";
@@ -157,8 +157,7 @@ export function Setup() {
           {tab === "comfyui" && <ComfyCard />}
           {tab === "models" && (
             <>
-              <ModelSwitches />
-              <ReadyList />
+              <ModelsByMachine />
               <CivitaiCard />
               <LinkCard />
               <UpdatesCard />
