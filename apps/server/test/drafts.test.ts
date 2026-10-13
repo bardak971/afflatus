@@ -58,10 +58,10 @@ describe("drafts", () => {
     const list = (await get(t.app, "/api/drafts")).json().items;
     expect(list.map((d: { id: string }) => d.id)).toEqual([a.id, b.id]);
     expect(list[0].forms).toBeUndefined();
-    // the model its form picks, by name: what the model menus offer to load (none picked: null, the family's usual file)
+    // the model file its form picks, as ComfyUI lists it: what the model menus offer to load (none picked: null, the family's usual file)
     await put(`/api/drafts/${b.id}`, { forms: { [RECIPE]: { prompt: "a quiet harbour at dawn", checkpoint: "sub/zz-test_model.safetensors" } } });
     const models = Object.fromEntries((await get(t.app, "/api/drafts")).json().items.map((d: { id: string; model: string | null }) => [d.id, d.model]));
-    expect(models).toEqual({ [a.id]: null, [b.id]: "zz-test_model" });
+    expect(models).toEqual({ [a.id]: null, [b.id]: "sub/zz-test_model.safetensors" });
 
     expect((await t.app.inject({ method: "DELETE", url: `/api/drafts/${b.id}` })).statusCode).toBe(200);
     expect((await get(t.app, `/api/drafts/${b.id}`)).statusCode).toBe(404);

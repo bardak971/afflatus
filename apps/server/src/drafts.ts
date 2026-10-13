@@ -1,5 +1,5 @@
 import { chatJson } from "./llm";
-import { modelOf, type Recipe } from "@afflatus/core";
+import type { Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { NOT_IN_LIBRARY } from "./library";
@@ -202,12 +202,14 @@ export async function draftsList(s: Services, project: string | undefined, limit
   }
   const unused = await unusedDrafts(s.db, project);
   const idle = new Set(unused.map((d) => d.id));
-  /** The model file its form picks, by its name ("DasiwaMinimaxH3_…"): what loading it ahead loads. Null when it picks none (its family's usual file). */
+  /** The model file its form picks, as ComfyUI lists it ("Krea2\DasiwaMinimaxH3_….safetensors"): what loading it ahead loads. Null when it picks none (its family's usual file). */
   const modelOfDraft = (d: Tables["drafts"]) => {
     const recipe = s.registry.recipe(d.recipe_id);
-    if (!recipe) return null;
+    const input = recipe?.inputs.find((i) => i.type === "model");
+    if (!input) return null;
     try {
-      return modelOf(recipe.inputs, (JSON.parse(d.forms) as Record<string, Record<string, unknown>>)[d.recipe_id] ?? {});
+      const value = (JSON.parse(d.forms) as Record<string, Record<string, unknown>>)[d.recipe_id]?.[input.id];
+      return typeof value === "string" && value ? value : null;
     } catch {
       return null;
     }

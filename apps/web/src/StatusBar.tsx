@@ -59,10 +59,9 @@ export function StatusBar() {
   const waiting = q?.waiting.length ?? 0;
   const liveDown = useLive((s) => s.down);
   const barKey = useSettings().data?.bar?.shortcut ?? BAR_DEFAULT;
-  const loadAt = useRef<HTMLSpanElement>(null);
   return (
     <>
-      <LoadPanelHost anchor={loadAt} />
+      <LoadPanelHost />
       <footer className="flex h-10 shrink-0 items-center gap-2.5 overflow-hidden border-t border-line bg-panel px-3 text-xs">
         {run ? <Running run={run} /> : q?.online === false ? <Offline q={q} /> : q?.paused ? <Paused waiting={waiting} /> : <Idle last={lastMade(q)} />}
         {several.filter((m) => m.running).length > 1 && (
@@ -88,9 +87,6 @@ export function StatusBar() {
         <span className="grow" />
         {/* the place and the model come with the first answers: they fade in rather than pop (the model waits for the queue's).
             Clipped when short of room, and left out on a narrow window: they spilled over the meters there */}
-        {/* where "Load a model…" opens (LoadPanel.tsx): above the strip, by the model it changes; the bar's full height, so
-            that the panel stands clear of it */}
-        <span ref={loadAt} aria-hidden className="h-10 w-0 shrink-0" />
         {!queue.isPending && (
           <span className="m-fade inline-flex min-w-0 items-center gap-2.5 overflow-hidden max-md:hidden">
             <StripPlace />
