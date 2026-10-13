@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Cpu } from "lucide-react";
+import { Cpu, RotateCw } from "lucide-react";
 import { api, type Availability, type DeployAsk, type GpuOffer } from "./api";
 import { useSettings } from "./data";
 import { DEPLOYED_READS } from "./deployReads";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
 import { usd } from "./format";
+import { useNow } from "./hooks";
 import { Keys } from "./Keys";
 import { queryKeys } from "./queryKeys";
 import { Select } from "./Select";
@@ -18,9 +19,21 @@ const IDLE = [5, 10, 15, 30, 60, 120, 0];
 const WATCH = [5, 10, 15, 30, 60, 0];
 const DISKS = [60, 120, 200, 400];
 const minutesSaid = (n: number) => (n === 0 ? "never" : n < 60 ? `${n} min` : `${n / 60} h`);
-/** How free a GPU is, in a word, and the freest first. */
-const FREE_SAID: Record<Availability, string> = { HIGH: "plenty", MEDIUM: "free", LOW: "few left", NONE: "none" };
+/** RunPod's stock of a GPU in a data center, in its words, and the highest first. */
+const STOCK_SAID: Record<Availability, string> = { HIGH: "high", MEDIUM: "medium", LOW: "low", NONE: "none" };
 const FREEST: Record<Availability, number> = { HIGH: 0, MEDIUM: 1, LOW: 2, NONE: 3 };
+const WHY_STOCK = "RunPod's stock: how many of these GPUs are idle in that data center now (high, medium, low). It is not a reservation: one can be taken between this list and your Deploy. Afflatus then tries the GPU's other data centers, and says so when none is left: nothing is made, nothing billed.";
+const WHY_PLACE = "The data center the pod would run in: the one with the highest stock of that GPU. The price is the same in every region; the distance hardly shows (Afflatus sends prompts and gets renders back, models come from Hugging Face and Civitai). A network volume keeps its pods in its own data center.";
+
+/** The columns the list of GPUs sorts by: a click on one sorts by it, a second click the other way. */
+type SortKey = "name" | "memory" | "place" | "stock" | "price";
+const SORTS: Array<{ key: SortKey; label: string; help?: string; className?: string }> = [
+  { key: "name", label: "GPU" },
+  { key: "memory", label: "VRAM", className: "text-right" },
+  { key: "place", label: "Data center", help: WHY_PLACE },
+  { key: "stock", label: "Stock", help: WHY_STOCK },
+  { key: "price", label: "$/h", className: "justify-end" },
+];
 
 const WHY_TEMPLATE = "Afflatus: ComfyUI 0.37 with its Manager and the Afflatus node pack. Its ComfyUI is locked from its first second (its token a RunPod secret), its watchdog armed, only ComfyUI's port open. RunPod's ComfyUI: RunPod's own image, without the Afflatus pack: not locked (anyone with its address can use it), no watchdog, no H3 continuation. Either pulls its image at its first start: a few minutes on a host that never had it.";
 const WHY_CLOUD = "Secure Cloud: RunPod's own data centers. Community Cloud: hosts run by others, cheaper, fewer guarantees: some have a GPU that does not work (the Afflatus image finds it at its start, and the pod is terminated within minutes, its pull time billed). Both bill by the second while the pod exists.";
@@ -55,7 +68,21 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
   // free where it may run: anywhere, or in the volume's data center; the cheapest first. RunPod saying it is free without
   // saying where: wherever it puts it
   const placesOf = (g: GpuOffer) => (!g.dataCenters.length && !volume && g.availability !== "NONE" ? [{ id: "any", availability: g.availability }] : g.dataCenters.filter((d) => d.availability !== "NONE" && (!volume || d.id === volume.dataCenter)).sort((a, b) => FREEST[a.availability] - FREEST[b.availability]));
-  const offers = (gpus.data?.gpus ?? []).map((g) => ({ ...g, places: placesOf(g) })).filter((g) => g.places.length).sort((a, b) => a.price - b.price || b.memory - a.memory);
+  const [sort, setSort] = useState<{ key: SortKey; up: boolean }>({ key: "price", up: true });
+  const byKey: Record<SortKey, (a: GpuOffer & { places: Array<{ id: string; availability: Availability }> }, b: typeof a) => number> = {
+    name: (a, b) => a.name.localeCompare(b.name),
+    memory: (a, b) => a.memory - b.memory,
+    place: (a, b) => a.places[0]!.id.localeCompare(b.places[0]!.id),
+    stock: (a, b) => FREEST[a.places[0]!.availability] - FREEST[b.places[0]!.availability],
+    price: (a, b) => a.price - b.price,
+  };
+  // the cheapest first, unless a column says otherwise; equal ones by price, then the larger first
+  const offers = (gpus.data?.gpus ?? []).map((g) => ({ ...g, places: placesOf(g) })).filter((g) => g.places.length)
+    .sort((a, b) => (sort.up ? 1 : -1) * byKey[sort.key](a, b) || a.price - b.price || b.memory - a.memory);
+  const sortBy = (key: SortKey) => setSort((s) => (s.key === key ? { key, up: !s.up } : { key, up: key !== "memory" }));
+  // how long ago RunPod's stock was read (it is read again every 15 s, or now)
+  const now = useNow(1000);
+  const readAgo = gpus.dataUpdatedAt ? Math.max(0, Math.round((now - gpus.dataUpdatedAt) / 1000)) : null;
   const picked = offers.find((g) => g.id === want.gpu) ?? null;
   // the one picked (or deployed last time) is not free now: said, with the cheapest free one as large
   const gone = !picked && want.gpu && gpus.isSuccess ? gpus.data.gpus.find((g) => g.id === want.gpu) ?? { id: want.gpu, name: want.gpu.replace(/^NVIDIA (GeForce )?/, ""), memory: 0 } : null;
@@ -70,11 +97,15 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
   });
   return (
     <Dialog label="Deploy a GPU" onClose={onClose} className={cx(DIALOG.replace("max-w-md", "max-w-[640px]"), "max-h-[calc(100vh-48px)]")}>
-      <DialogHead icon={<Cpu size={16} />} title="Deploy a GPU" sub="RunPod · what is free now" onClose={onClose} />
+      <DialogHead icon={<Cpu size={16} />} title="Deploy a GPU" sub="RunPod · what is in stock now" onClose={onClose} />
       <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
         <section className="flex flex-col gap-1.5">
           <span className="flex items-center gap-2 text-xs font-semibold text-ink-2">
-            GPU · free now · by price
+            GPU · in stock now
+            {readAgo !== null && <span className="font-normal text-ink-3">read {readAgo} s ago</span>}
+            <button type="button" aria-label="Read RunPod's stock now" data-tip="Read now (every 15 s by itself)" onClick={() => void gpus.refetch()} disabled={gpus.isFetching} className="grid size-6 place-items-center rounded-md text-ink-3 hover:bg-hover hover:text-ink disabled:opacity-50">
+              <RotateCw size={12} className={cx(gpus.isFetching && "animate-spin")} />
+            </button>
             <span className="grow" />
             <Segmented<DeployAsk["cloud"]> size="sm" label="Cloud" value={want.cloud} options={[{ value: "SECURE", label: "Secure" }, { value: "COMMUNITY", label: "Community" }]} onChange={(cloud) => set({ cloud })} />
             <Help text={WHY_CLOUD} />
@@ -82,7 +113,19 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
           {gpus.isError && <ErrorNote>{gpus.error.message}</ErrorNote>}
           {gpus.isPending && <span className="px-1 py-2 text-xs text-ink-3">Asking RunPod…</span>}
           {gpus.isSuccess && !offers.length && <span className="px-1 py-2 text-xs text-ink-2">Nothing free {volume ? `in ${volume.dataCenter}, where the volume is` : "on this cloud"} now. RunPod's stock moves by the minute: this list is read again every 15 s.</span>}
-          <div role="radiogroup" aria-label="GPU" className="flex max-h-[280px] flex-col overflow-y-auto rounded-xl border border-line">
+          <div role="radiogroup" aria-label="GPU" className="flex max-h-[300px] flex-col overflow-y-auto rounded-xl border border-line">
+            {offers.length > 0 && (
+              <div className="sticky top-0 z-10 grid grid-cols-[minmax(0,1fr)_64px_90px_70px_76px] items-center gap-3 border-b border-line bg-panel px-3 py-1.5 text-[11px] font-semibold text-ink-3">
+                {SORTS.map((c) => (
+                  <span key={c.key} className={cx("flex items-center gap-1", c.className)}>
+                    <button type="button" onClick={() => sortBy(c.key)} aria-label={`Sort by ${c.label}`} className={cx("hover:text-ink", sort.key === c.key && "text-ink")}>
+                      {c.label}{sort.key === c.key ? (sort.up ? " ↑" : " ↓") : ""}
+                    </button>
+                    {c.help && <Help text={c.help} />}
+                  </span>
+                ))}
+              </div>
+            )}
             {offers.map((g) => (
               <button
                 key={g.id}
@@ -90,11 +133,12 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
                 role="radio"
                 aria-checked={g.id === want.gpu}
                 onClick={() => set({ gpu: g.id })}
-                className={cx("grid grid-cols-[minmax(0,1fr)_90px_80px_76px] items-center gap-3 border-b border-line/60 px-3 py-2 text-left text-[13px] last:border-b-0", g.id === want.gpu ? "bg-accent-wash" : "hover:bg-hover")}
+                className={cx("grid grid-cols-[minmax(0,1fr)_64px_90px_70px_76px] items-center gap-3 border-b border-line/60 px-3 py-2 text-left text-[13px] last:border-b-0", g.id === want.gpu ? "bg-accent-wash" : "hover:bg-hover")}
               >
-                <span className="min-w-0 truncate"><span className="font-semibold">{g.name}</span> <span className="text-ink-3">· {g.memory} GB</span></span>
+                <span className="min-w-0 truncate font-semibold">{g.name}</span>
+                <span className="text-right font-mono text-xs text-ink-2">{g.memory} GB</span>
                 <span className="truncate text-xs text-ink-2">{g.places[0]!.id}</span>
-                <span className={cx("text-xs", g.places[0]!.availability === "LOW" ? "text-warn-ink" : "text-ink-2")}>{FREE_SAID[g.places[0]!.availability]}</span>
+                <span className="text-xs text-ink-2">{STOCK_SAID[g.places[0]!.availability]}</span>
                 <span className="text-right font-mono text-xs">{usd(g.price)}/h</span>
               </button>
             ))}
