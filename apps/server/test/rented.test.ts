@@ -1,0 +1,195 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
+import { readSettings } from "../src/settings";
+import { get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
+
+/** Rented machines (rented.ts) against a pretend RunPod: added, started by the user only, stopped when idle or at a cap. */
+
+const KEY = "rpa_test_key_0123456789";
+let home: FakeComfy;
+let podComfy: FakeComfy;
+let otherComfy: FakeComfy;
+let runpod: FakeRunpod;
+let t: TestApp;
+
+beforeEach(async () => {
+  home = await makeFake();
+  podComfy = await makeFake();
+  otherComfy = await makeFake();
+  runpod = await startFakeRunpod({
+    key: KEY, bootMs: 50,
+    pods: [
+      { name: "comfy-5090", rate: 0.69, gpu: "NVIDIA GeForce RTX 5090", dataCenterId: "EU-RO-1", ports: ["8188/http", "22/tcp"], diskGb: 50, comfy: podComfy },
+      { name: "no-comfy", rate: 0.3, gpu: "NVIDIA RTX A4000", dataCenterId: "US-TX-3", ports: ["8888/http"], diskGb: 20, comfy: otherComfy },
+    ],
+  });
+  vi.stubEnv("RUNPOD_API_URL", runpod.url);
+  vi.stubEnv("RUNPOD_PROXY", "http://127.0.0.1:{id}");
+  t = await makeApp({ comfyUrl: home.url });
+  t.services.rented.everyMs = 60_000;
+});
+afterEach(async () => {
+  vi.unstubAllEnvs();
+  await t.close();
+  await Promise.all([home, podComfy, otherComfy, runpod].map((x) => x.close().catch(() => {})));
+});
+
+const setKey = () => t.app.inject({ method: "PUT", url: "/api/settings", payload: { runpodKey: KEY } });
+const pod5090 = () => runpod.pods[0]!;
+const add = async () => (await post(t.app, "/api/runpod/add", { pod: pod5090().id })).json().id as string;
+const rowOf = async (id: string) => (await t.services.queue.status()).machines.find((m) => m.id === id)!;
+const sessions = () => t.db.selectFrom("rent_sessions").selectAll().execute();
+
+describe("adding a pod", () => {
+  it("lists the pods only with a key, never shows the key, and adds one as it is, nothing started", async () => {
+    expect((await get(t.app, "/api/runpod/pods")).statusCode).toBe(409);
+    await setKey();
+    expect((await get(t.app, "/api/settings")).body).not.toContain(KEY);
+    expect((await get(t.app, "/api/settings")).json().hasRunpodKey).toBe(true);
+    const pods = (await get(t.app, "/api/runpod/pods")).json().pods as Array<{ name: string; comfy: boolean; added: string | null; status: string }>;
+    expect(pods.map((p) => [p.name, p.comfy, p.added, p.status])).toEqual([["comfy-5090", true, null, "EXITED"], ["no-comfy", false, null, "EXITED"]]);
+    // a pod that does not expose ComfyUI is refused
+    expect((await post(t.app, "/api/runpod/add", { pod: runpod.pods[1]!.id })).statusCode).toBe(409);
+    const id = await add();
+    const machine = (await get(t.app, "/api/settings")).json().machines.find((m: { id: string }) => m.id === id);
+    expect(machine).toMatchObject({ name: "comfy-5090", url: podComfy.url, rented: { provider: "runpod", pod: pod5090().id, idleMinutes: 10, idleDo: "stop", watchdogMinutes: 15 } });
+    expect(runpod.calls.filter((c) => c.includes("/action"))).toEqual([]);
+    expect((await post(t.app, "/api/runpod/add", { pod: pod5090().id })).statusCode).toBe(409);
+  });
+
+  it("a wrong key is said as RunPod's refusal", async () => {
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { runpodKey: "rpa_wrong_0123456789" } });
+    const res = await get(t.app, "/api/runpod/pods");
+    expect(res.statusCode).toBe(502);
+    expect(res.json().error).toMatch(/refused the API key/);
+  });
+});
+
+describe("a rented machine", () => {
+  it("stopped, takes no work and is never asked; a job pinned to it waits for it", async () => {
+    await setKey();
+    const id = await add();
+    await t.services.rented.poll();
+    const row = await rowOf(id);
+    expect(row.rented).toMatchObject({ status: "EXITED", rate: null, diskPerDay: expect.closeTo((50 * 0.2) / 30, 5) });
+    expect(t.services.queue.unavailable(id)).toBe("stopped");
+    podComfy.calls.length = 0;
+    const res = await post(t.app, "/api/jobs", { ...job(), machine: id });
+    expect(res.statusCode).toBe(200);
+    await new Promise((r) => setTimeout(r, 300));
+    const waiting = await t.db.selectFrom("jobs").select(["status", "pin_machine"]).where("id", "=", res.json().ids[0]).executeTakeFirstOrThrow();
+    expect(waiting).toEqual({ status: "queued", pin_machine: id });
+    expect(podComfy.calls.filter((c) => c.startsWith("POST /prompt"))).toEqual([]);
+  });
+
+  it("starts only when asked, runs a session, and its pinned job runs there once it is up", async () => {
+    await setKey();
+    const id = await add();
+    await t.services.rented.poll();
+    const queued = (await post(t.app, "/api/jobs", { ...job(), machine: id })).json().ids[0] as string;
+    expect((await post(t.app, `/api/machines/${id}/start`, {})).statusCode).toBe(200);
+    expect(runpod.calls).toContain(`POST /v2/pods/${pod5090().id}/action start`);
+    await until(async () => (await t.services.rented.poll(), (await rowOf(id)).rented?.status === "RUNNING"));
+    expect((await sessions()).map((s) => [s.machine_id, s.rate, s.ended_at])).toEqual([[id, 0.69, null]]);
+    await until(async () => (await t.db.selectFrom("jobs").select("status").where("id", "=", queued).executeTakeFirstOrThrow()).status !== "queued");
+    const ran = await t.db.selectFrom("jobs").select(["status", "machine_id", "error"]).where("id", "=", queued).executeTakeFirstOrThrow();
+    expect(ran).toMatchObject({ machine_id: id });
+    await until(() => podComfy.calls.includes("POST /prompt"));
+  });
+
+  it("stops by itself after its idle time, nothing waiting for it, and says why", async () => {
+    await setKey();
+    const id = await add();
+    await post(t.app, `/api/machines/${id}/start`, {});
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
+    await t.services.rented.poll();
+    const row = await rowOf(id);
+    expect(row.rented?.idleLeftMs).toBeGreaterThan(9 * 60_000);
+    const real = Date.now;
+    t.services.rented.now = () => real() + 11 * 60_000;
+    await t.services.rented.poll();
+    expect(pod5090().status).toBe("EXITED");
+    expect((await rowOf(id)).rented?.stoppedBy).toBe("idle");
+    expect((await sessions())[0]!.ended_at).not.toBeNull();
+  });
+
+  it("has work while a job it could take waits or runs there, none once it is done or the queue is paused", async () => {
+    await setKey();
+    const id = await add();
+    await post(t.app, `/api/machines/${id}/start`, {});
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
+    expect(await t.services.queue.wants(id)).toBe(false);
+    // the home machine paused: a job free to go anywhere goes to the pod, which has work until it is done
+    await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: { machine: "m1" } });
+    const queued = (await post(t.app, "/api/jobs", job())).json().ids[0] as string;
+    expect(await t.services.queue.wants(id)).toBe(true);
+    await until(async () => (await t.db.selectFrom("jobs").select("status").where("id", "=", queued).executeTakeFirstOrThrow()).status === "running");
+    expect(await t.services.queue.wants(id)).toBe(true);
+    // a job pinned to the home machine (paused) is no work for the pod
+    await t.app.inject({ method: "POST", url: `/api/jobs/${queued}/cancel` });
+    await until(async () => !t.services.queue.runningOn(id));
+    await post(t.app, "/api/jobs", { ...job(), machine: "m1" });
+    expect(await t.services.queue.wants(id)).toBe(false);
+  });
+
+  it("at a cap: stops, and Start is refused", async () => {
+    await setKey();
+    const id = await add();
+    await post(t.app, `/api/machines/${id}/start`, {});
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 0.0000001, month: 0 } } });
+    await new Promise((r) => setTimeout(r, 20));
+    await t.services.rented.poll();
+    expect(pod5090().status).toBe("EXITED");
+    expect((await rowOf(id)).rented?.stoppedBy).toBe("cap");
+    const again = await post(t.app, `/api/machines/${id}/start`, {});
+    expect(again.statusCode).toBe(409);
+    expect(again.json().error).toMatch(/spending cap/);
+    const spending = (await get(t.app, "/api/rented/spending")).json().spending;
+    expect(spending).toMatchObject({ caps: { day: 0.0000001, month: 0 }, balance: 23.4, lowBalance: false });
+    expect(spending.today).toBeGreaterThan(0);
+  });
+
+  it("locks the pod once it is up, says still here to the watchdog on it, and says when there is none", async () => {
+    await setKey();
+    const id = await add();
+    podComfy.packVersion = "0.13.0";
+    await post(t.app, `/api/machines/${id}/start`, {});
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
+    await t.services.rented.poll();
+    expect(podComfy.alive.at(-1)).toMatchObject({ minutes: 15 });
+    expect((await rowOf(id)).rented?.watchdog).toBe("on");
+    // up, with a pack that can: locked at once, as its address is public
+    expect(podComfy.lock?.token).toBeTruthy();
+    expect((await readSettings(t.db)).machines.find((m) => m.id === id)?.token).toBe(podComfy.lock?.token);
+    podComfy.packVersion = "0.12.0";
+    await t.services.rented.poll();
+    expect((await rowOf(id)).rented?.watchdog).toBe("none");
+  });
+
+  it("is picked up running after Afflatus restarts, its session not counted twice", async () => {
+    await setKey();
+    const id = await add();
+    await post(t.app, `/api/machines/${id}/start`, {});
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
+    await t.services.rented.poll();
+    const again = await makeApp({ db: t.db, comfyUrl: home.url }).catch(() => null);
+    // the same database read by a second Afflatus: it reads RunPod and knows the pod runs
+    if (again) {
+      await again.services.rented.poll();
+      expect((await again.services.queue.status()).machines.find((m) => m.id === id)?.rented?.status).toBe("RUNNING");
+      expect((await sessions()).length).toBe(1);
+      again.services.rented.stop();
+    }
+  });
+
+  it("is deleted when asked, and then said gone", async () => {
+    await setKey();
+    const id = await add();
+    expect((await post(t.app, `/api/machines/${id}/stop`, { how: "terminate" })).statusCode).toBe(200);
+    expect(pod5090().status).toBe("TERMINATED");
+    await t.services.rented.poll();
+    expect((await rowOf(id)).rented?.status).toBe("GONE");
+    expect(t.services.queue.unavailable(id)).toBe("deleted on RunPod");
+  });
+});

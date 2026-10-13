@@ -46,6 +46,9 @@ With the pack loaded, ComfyUI answers:
   `.part` files a stopped ComfyUI left are removed at its next start. From 0.12.0: also Hugging Face's and Civitai's own
   signed download links (https, on their download hosts only), which Afflatus asks for with its key and hands over
   without it; `POST /afflatus/download/<id>/url` gives a download whose link expired a fresh one, and it carries on.
+- `GET` and `POST /afflatus/alive` (0.13.0): the watchdog of a rented machine. Afflatus says "still here" with
+  `{"minutes": 15}` every minute or so; silent that long, the pod stops itself (on RunPod: `runpodctl stop pod`, or
+  RunPod's API with the pod's `RUNPOD_API_KEY`). Nothing is armed until Afflatus says it; `{"minutes": 0}` disarms it.
 - `GET` and `POST /afflatus/lock`, `POST /afflatus/unlock`, `POST /afflatus/login-code`, `/afflatus/login` (0.12.0):
   the lock. Once Afflatus locks a ComfyUI (Settings → ComfyUI → Access), every route of its server needs the machine's
   token: `Authorization: Bearer <token>`, `?token=` on the websocket, or the cookie the login page sets. The lock is kept

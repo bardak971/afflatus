@@ -49,7 +49,7 @@ web = types.SimpleNamespace(middleware=lambda f: f, Response=Response, json_resp
 
 
 class Request:
-    def __init__(self, path="/prompt", method="GET", headers=None, query=None, cookies=None, remote="203.0.113.9", port=8188, body=None, form=None):
+    def __init__(self, path="/prompt", method="GET", headers=None, query=None, cookies=None, remote="203.0.113.9", port=8188, body=None, form=None, host=None):
         self.path = path
         self.method = method
         self.headers = Headers(headers)
@@ -57,6 +57,7 @@ class Request:
         self.cookies = cookies or {}
         self.remote = remote
         self.url = types.SimpleNamespace(port=port)
+        self.host = host or f"127.0.0.1:{port}"
         self.scheme = "http"
         self.content_type = "application/json" if body is not None else "text/plain"
         self._body = body
@@ -131,7 +132,8 @@ def test_login_by_form_sets_a_cookie_made_from_the_token(lock, mw):
     wrong = call(mw, Request(L.LOGIN, "POST", form={"token": OTHER}))
     assert wrong.status == 200 and "That is not this ComfyUI" in wrong.text and not wrong.cookies
     went = call(mw, Request(L.LOGIN, "POST", form={"token": TOKEN}))
-    assert went.status == 302 and went.headers["Location"] == "/"
+    # on to ComfyUI's page from a page of its own (a redirect would go on in the name of the page that sent it here)
+    assert went.status == 200 and 'content="0;url=/"' in went.text
     value, opts = went.cookies["afflatus_lock_8188"]
     assert TOKEN not in value and opts["httponly"] and opts["samesite"] == "Lax"
     assert call(mw, Request(cookies={"afflatus_lock_8188": value})).text == "handled"
@@ -151,9 +153,9 @@ def test_a_new_token_ends_the_old_cookie(lock, mw):
 
 def test_a_login_lands_where_asked_and_only_on_this_server(lock, mw):
     lock.write(TOKEN, local=False)
-    assert call(mw, Request(L.LOGIN, query={"code": lock.code(), "next": "/?template=x&source=afflatus"})).headers["Location"] == "/?template=x&source=afflatus"
+    assert 'url=/?template=x&amp;source=afflatus"' in call(mw, Request(L.LOGIN, query={"code": lock.code(), "next": "/?template=x&source=afflatus"})).text
     for away in ("https://evil.example/", "//evil.example/", "/\evil.example"):
-        assert call(mw, Request(L.LOGIN, query={"code": lock.code(), "next": away})).headers["Location"] == "/"
+        assert 'content="0;url=/"' in call(mw, Request(L.LOGIN, query={"code": lock.code(), "next": away})).text
 
 
 def test_a_login_code_works_once_and_for_a_minute(lock, mw):
@@ -258,3 +260,23 @@ def test_install_puts_it_first(tmp_path):
     L.install(server, web, folders)
     assert len(server.app.middlewares) == 3 and server.app.middlewares[1:] == ["cache_control", "origin_only"]
     assert ("POST", "/afflatus/lock") in server.routes.at
+
+
+def test_the_cookie_counts_only_from_comfyuis_own_page(lock, mw):
+    lock.write(TOKEN, local=False)
+    cookie = {"afflatus_lock_8188": call(mw, Request(L.LOGIN, "POST", form={"token": TOKEN})).cookies["afflatus_lock_8188"][0]}
+    # ComfyUI's own page, the address bar, a script with no page
+    assert call(mw, Request(cookies=cookie, headers={"Sec-Fetch-Site": "same-origin"})).text == "handled"
+    assert call(mw, Request(cookies=cookie, headers={"Sec-Fetch-Site": "none"})).text == "handled"
+    assert call(mw, Request(cookies=cookie, headers={"Origin": "http://127.0.0.1:8188"})).text == "handled"
+    assert call(mw, Request(cookies=cookie)).text == "handled"
+    # a page served by another program of the same computer: the same "site" to the browser, which sends the cookie
+    assert call(mw, Request("/prompt", "POST", cookies=cookie, headers={"Sec-Fetch-Site": "same-site", "Origin": "http://127.0.0.1:3000"})).status == 401
+    assert call(mw, Request("/prompt", "POST", cookies=cookie, headers={"Origin": "http://localhost:3000"})).status == 401
+    assert call(mw, Request("/ws", cookies=cookie, headers={"Sec-Fetch-Site": "same-site"})).status == 401
+    assert call(mw, Request(cookies=cookie, headers={"Sec-Fetch-Site": "cross-site"})).status == 401
+    assert call(mw, Request(cookies=cookie, headers={"Origin": "null"})).status == 401
+    # behind a proxy that speaks https outside: the host and port are what count
+    assert call(mw, Request(cookies=cookie, host="pod-8188.proxy.example", headers={"Origin": "https://pod-8188.proxy.example"})).text == "handled"
+    # the token itself goes on working from anywhere
+    assert call(mw, Request(headers={**bearer(TOKEN), "Sec-Fetch-Site": "same-site"})).text == "handled"

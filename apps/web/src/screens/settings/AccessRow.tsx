@@ -13,6 +13,17 @@ const WHY_LOCAL =
   "Calls made on ComfyUI's own computer get in without the token, so your other tools there keep working while other computers stay locked out. A web page open in your browser still cannot use it. Leave it off when nothing else calls this ComfyUI.";
 const CHECKS = ["Token made, kept in Afflatus", "ComfyUI locked", "Refused without the token", "Answering with it"];
 
+/** An address over plain http on another machine (not this computer's loopback): a token sent to it is not encrypted. */
+function plainAway(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^\[|\]$/g, "");
+    return u.protocol === "http:" && !(host === "localhost" || host === "::1" || /^127\./.test(host));
+  } catch {
+    return false;
+  }
+}
+
 /** A small pill: the lock's state at a glance, its icon and word in the state's colour. */
 function Pill({ locked, children }: { locked: boolean; children: string }) {
   return (
@@ -27,7 +38,7 @@ function Pill({ locked, children }: { locked: boolean; children: string }) {
  * A machine's Access line (Settings › ComfyUI): whether its ComfyUI is locked to Afflatus (the node pack's lock), and the
  * buttons for it; under it, ComfyUI-Manager when it is too old. Nothing while it does not answer and is not locked.
  */
-export function AccessRow({ id, label, probe }: { id: string; label: string; probe: MachineProbe | undefined }) {
+export function AccessRow({ id, label, probe, url }: { id: string; label: string; probe: MachineProbe | undefined; url: string }) {
   const client = useQueryClient();
   const [checked, flashChecks] = useFlash(false, 2400);
   const [pasted, setPasted] = useState("");
@@ -111,6 +122,9 @@ export function AccessRow({ id, label, probe }: { id: string; label: string; pro
   return (
     <>
       <Row setting="comfy.access" label="Access" help={WHY_LOCK} start={access.state === "locked" || checked}>{line}</Row>
+      {access.state === "locked" && plainAway(url) && (
+        <Block><span className="text-xs text-ink-2">Reached over plain http: the token crosses the network between here and it as it is. Fine on your own network; anywhere else, reach it over https or through a tunnel (Tailscale, SSH).</span></Block>
+      )}
       {access.managerOld && (
         <Row label="ComfyUI-Manager" tone="warn" help="ComfyUI-Manager before 3.38 let anyone who reached it install a node pack: the way the 2026 botnet got in. Locked, nobody else can reach it anyway; update it all the same.">
           <span className="text-xs text-warn-ink">{access.manager} is too old: update it from ComfyUI's Manager, to 3.38 or later.</span>

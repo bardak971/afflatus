@@ -18,6 +18,8 @@ Set them before starting: in the console on Windows (`set PORT=8730` in cmd, `$e
 | `FFMPEG`, `FFPROBE` | the bundled ones, or the `PATH` | The tools' paths |
 | `AFFLATUS_SQLITE_WORKER` | empty | `1` runs SQLite's statements in a worker thread instead of the server's own: a long read no longer holds the other requests, but a route of many small statements gets slower while ffmpeg takes every core. Off by default |
 | `PRESETS_DIR` | the install's `presets/` folder | Where the shipped presets are read from |
+| `RUNPOD_API_URL` | `https://api.runpod.io` | RunPod's API, for rented machines: a stand-in RunPod (the demo's `DEMO_RUNPOD=1`, the tests) |
+| `RUNPOD_PROXY` | `https://{id}-{port}.proxy.runpod.net` | How a pod's ComfyUI is reached, `{id}` and `{port}` filled in: RunPod's own proxy unless set |
 | `NODE_PACK_DIR` | the install's `comfy-nodes/afflatus-nodes` | Where the Afflatus node pack is installed into ComfyUI from |
 | `CIVITAI_URL` | empty: civitai.com, then civitai.red | One Civitai-compatible site to ask instead (a mirror, a stand-in for tests). It lifts no download rule |
 | `HUGGINGFACE_URL` | `https://huggingface.co` | Hugging Face's address, for a stand-in |

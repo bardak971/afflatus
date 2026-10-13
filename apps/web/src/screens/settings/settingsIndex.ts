@@ -33,6 +33,8 @@ export const INDEX: SettingSpot[] = [
   { tab: "comfyui", label: "ComfyUI URL", key: "comfy.url", words: "address connection test port 8188" },
   { tab: "comfyui", label: "Add a ComfyUI", key: "comfy.machines", words: "several machines second gpu another computer rented cloud instance pause use only takes pictures videos" },
   { tab: "comfyui", label: "Folder on this computer", key: "comfy.folder", words: "comfyui folder open in comfyui directory main.py" },
+  { tab: "comfyui", label: "Or a RunPod pod", key: "comfy.runpod", words: "rented rent runpod cloud gpu pod api key 5090 4090 a100 bigger card hours" },
+  { tab: "comfyui", label: "Rented GPUs: caps", key: "comfy.rentcaps", words: "rented runpod spending cost budget cap limit day month balance money" },
   { tab: "comfyui", label: "Access", key: "comfy.access", words: "lock locked token password login security botnet listen exposed unlock renew" },
   { tab: "comfyui", label: "Node pack", key: "comfy.pack", words: "custom_nodes afflatus-nodes minimax h3 latent install" },
   { tab: "comfyui", label: "Unload models after", key: "comfy.unload", words: "vram free idle minutes never" },

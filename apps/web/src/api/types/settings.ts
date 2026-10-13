@@ -42,10 +42,11 @@ export type LlmPatch = Omit<LlmInfo, "hasApiKey"> & { apiKey?: string };
  * refused). As the answer says them, but for what the answer hides: the Civitai key itself, the models with their keys,
  * and `llm`, the model in use changed the short way. Held to the server's schema by test/apiTypes.test.ts.
  */
-export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiKey" | "machines">> & {
+export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiKey" | "hasRunpodKey" | "machines">> & {
   /** The machines as the page has them, without what it is only told (a token's end). A token left out stays as it is. */
   machines?: Array<Omit<Machine, "tokenEnd"> & { token?: string }>;
   civitaiKey?: string;
+  runpodKey?: string;
   llms?: LlmPatch[];
   llm?: Partial<Omit<LlmPatch, "id">>;
 };
@@ -64,6 +65,18 @@ export interface Machine {
   families: Record<string, boolean>;
   /** The last four characters of its token when its ComfyUI is locked (the token itself stays on the server); empty without one. */
   tokenEnd: string;
+  /** A rented pod: its provider and id, and what happens when it sits idle. Absent for a ComfyUI of its own. */
+  rented?: RentedMachine;
+}
+/** A machine that is a rented pod. Afflatus never starts one on its own. */
+export interface RentedMachine {
+  provider: "runpod";
+  pod: string;
+  /** Minutes idle, then `idleDo`; 0: never. */
+  idleMinutes: number;
+  idleDo: "stop" | "terminate";
+  /** Minutes this PC may be silent before the pod stops itself; 0: no watchdog. */
+  watchdogMinutes: number;
 }
 /** A ComfyUI asked now (GET /api/machines): whether it answers (and why not), its version, its GPU and the Afflatus node pack it loaded. */
 export interface MachineProbe {
@@ -120,6 +133,10 @@ export interface Settings {
   /** Model families switched on or off by hand; one that is not named follows its files. */
   families: Record<string, boolean>;
   hasCivitaiKey: boolean;
+  /** A RunPod API key is set (rented machines). */
+  hasRunpodKey: boolean;
+  /** What the rented GPUs may cost, in USD, today and this month; 0: no cap. */
+  rentCaps: { day: number; month: number };
   /** The user's defaults for "Finish all clips" on a timeline. */
   finish: FinishSettings;
   /** A family's file chosen by hand where several fit: family id → slot id → file. */

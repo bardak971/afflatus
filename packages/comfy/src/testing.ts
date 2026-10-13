@@ -10,6 +10,7 @@ import { fakeSimulate } from "./fake/simulate";
 import { fakeSockets } from "./fake/sockets";
 
 export { makePng } from "./fake/png";
+export { startFakeRunpod, type FakePod, type FakeRunpod } from "./fake/runpod";
 
 /**
  * A stand-in for ComfyUI's HTTP API, for tests: enough of it to exercise the client, the capabilities
@@ -65,6 +66,10 @@ export interface FakeComfy {
   refused: string[];
   /** What the pretend ComfyUI-Manager says its version is (GET /v2/manager/version). */
   managerVersion: string;
+  /** Down, as the ComfyUI of a stopped pod (fake/runpod.ts): every call answered 502 by the provider's proxy, no socket. */
+  down: boolean;
+  /** The node pack's watchdog (0.13.0): each "still here" it heard, with the minutes it was given. */
+  alive: Array<{ at: number; minutes: number }>;
   /** Every address the pretend node pack fetched a download from, in order (a fresh link after one expired among them). */
   packFetched: string[];
   /**
@@ -130,7 +135,7 @@ const body = async (req: IncomingMessage) => {
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: FakeState = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], managerVersion: "V4.2.1",
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], managerVersion: "V4.2.1", down: false, alive: [],
     folderPaths: init.folderPaths ?? null, hideFolderPaths: init.hideFolderPaths ?? false,
     catalog: init.catalog ?? {},
     models: init.models ?? {},
@@ -162,11 +167,13 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
         return true;
       },
     };
+    // a stopped pod's ComfyUI: the provider's proxy answers for it, and says it is not there
+    if (fake.down) return r.plain(502, "Bad Gateway: the pod is not running", "text/plain");
     if (url.pathname === "/upload/image" && fake.uploadDelayMs) await new Promise((resolve) => setTimeout(resolve, fake.uploadDelayMs));
     for (const part of parts) if (await part(r)) return;
     r.json(404, { error: `fake ComfyUI has no ${method} ${url.pathname}` });
   });
-  const sockets = fakeSockets(server, fake, (req) => lock.letIn(req.headers, new URL(req.url ?? "/", "http://fake")));
+  const sockets = fakeSockets(server, fake, (req) => !fake.down && lock.letIn(req.headers, new URL(req.url ?? "/", "http://fake")));
   if (init.simulate) simulate = fakeSimulate(fake, init.simulate, sockets);
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

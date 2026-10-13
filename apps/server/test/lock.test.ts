@@ -48,6 +48,8 @@ describe("locking a ComfyUI", () => {
     expect(settings).not.toContain(token);
     expect(JSON.parse(settings).machines[0].tokenEnd).toBe(token.slice(-4));
     expect((await post(t.app, "/api/machines/m1/token/copy", {})).json()).toEqual({ token });
+    // never to a page on another computer (a proxy says whom it forwards for)
+    expect((await t.app.inject({ method: "POST", url: "/api/machines/m1/token/copy", payload: {}, headers: { "x-forwarded-for": "192.0.2.7" } })).statusCode).toBe(403);
   });
 
   it("keeps the token when the page saves the machines without it, and drops it with a move to another address", async () => {

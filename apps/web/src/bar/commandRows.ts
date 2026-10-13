@@ -1,4 +1,4 @@
-import type { Entity, RecipeInfo } from "../api";
+import type { Entity, RecipeInfo, RentedState } from "../api";
 import { rowKeys, type RowId } from "../keys/table";
 import type { Item } from "./items";
 import { prepare } from "./match";
@@ -22,7 +22,7 @@ interface QueueNow {
   /** The model loads that grouping the queue by model would save. */
   saves: number;
   /** With several ComfyUIs, each one by the name it is shown under: the bar offers Pause, Resume, Use only and Unload for each. */
-  machines: Array<{ id: string; label: string; paused: boolean; online: boolean | null; running: boolean }>;
+  machines: Array<{ id: string; label: string; paused: boolean; online: boolean | null; running: boolean; rented: RentedState | null }>;
 }
 
 /** What the command rows say of the moment: the timeline aimed at, the queue, the selected clip, what Undo would undo, the bin. */
@@ -97,6 +97,8 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     size: [`Size ${c.cmd === "size" ? `${c.width}×${c.height}` : ""}`, "In the open draft's form"],
     length: [`Length ${c.cmd === "length" ? `${c.seconds} s` : ""}`, "In the open draft's form"],
     machines: ["Show the ComfyUIs", queueNow?.machines.length ? `${queueNow.machines.length} ComfyUIs · their figures, pause and menu` : "With several ComfyUIs: each one's figures and actions"],
+    "start-pod": [`Start ${c.cmd === "start-pod" ? c.machine : ""}`, `${c.cmd === "start-pod" ? machineSaid(queueNow, c.machine) : ""} · billed from now; it stops by itself when idle`],
+    "stop-pod": [`Stop ${c.cmd === "stop-pod" ? c.machine : ""}`, `${c.cmd === "stop-pod" ? machineSaid(queueNow, c.machine) : ""} · the GPU stops billing, its disk goes on`],
     "open-comfy": [c.cmd === "open-comfy" && c.machine ? `Open ComfyUI on ${c.machine}` : "Open ComfyUI", c.cmd === "open-comfy" && c.machine ? `${machineSaid(queueNow, c.machine)} · its own page, in a new tab` : "ComfyUI's own page, in a new tab"],
     "machine-log": [`ComfyUI log of ${c.cmd === "machine-log" ? c.machine : ""}`, `${c.cmd === "machine-log" ? machineSaid(queueNow, c.machine) : ""} · its console, in the Queue`],
     "machine-times": [`Render times of ${c.cmd === "machine-times" ? c.machine : ""}`, `${c.cmd === "machine-times" ? machineSaid(queueNow, c.machine) : ""} · what it rendered and how long it took`],
@@ -158,10 +160,14 @@ const machineRows = (x: CommandCtx): Item[] =>
   (x.queue?.machines ?? []).flatMap((m) => {
     const own = (c: Command) => {
       const row = commandRow(x, c);
-      const said = { "use-only": "use only", "load-panel": "load a model on", "machine-log": "comfyui log console", "open-comfy": "open comfyui on", "machine-times": "render times", "machine-models": "models on", generate: "generate on", "render-missing": "render missing on" } as Partial<Record<Command["cmd"], string>>;
+      const said = { "use-only": "use only", "load-panel": "load a model on", "machine-log": "comfyui log console", "open-comfy": "open comfyui on", "start-pod": "start pod", "stop-pod": "stop pod", "machine-times": "render times", "machine-models": "models on", generate: "generate on", "render-missing": "render missing on" } as Partial<Record<Command["cmd"], string>>;
       return { ...row, key: `${row.key}:${m.id}`, p: prepare(`${row.label} ${said[c.cmd] ?? c.cmd} ${m.label}`) };
     };
+    // a rented pod: Start while it is stopped, Stop while it runs
+    const r = m.rented;
+    const pod = r ? (r.status === "EXITED" || r.status === "ERROR" ? [own({ cmd: "start-pod", machine: m.label })] : r.status === "RUNNING" ? [own({ cmd: "stop-pod", machine: m.label })] : []) : [];
     return [
+      ...pod,
       own(m.paused ? { cmd: "resume", machine: m.label } : { cmd: "pause", machine: m.label }), own({ cmd: "use-only", machine: m.label }),
       ...(m.online !== false && !m.running ? [own({ cmd: "unload", machine: m.label })] : []),
       ...(m.online !== false ? [own({ cmd: "load-panel", machine: m.label })] : []),

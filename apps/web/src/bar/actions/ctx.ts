@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import type { useOpenInComfy } from "../../actions";
-import type { Asset, CommandEntry, Entity, RecipeInfo } from "../../api";
+import type { useRentedOps } from "../../rentedOps";
+import type { Asset, CommandEntry, Entity, RecipeInfo, RentedState } from "../../api";
 import type { useModelSettings, useProjects, useSetup } from "../../data";
 import type { useOpenNewDraft } from "../../draft";
 import type { FormTarget } from "../../formTarget";
@@ -66,7 +67,7 @@ export interface BarCtx {
   queue: {
     paused: boolean; online: boolean; rendering: boolean; running: boolean; waiting: Array<{ id: string }>; failed: string[];
     /** With several ComfyUIs, each one as the per-machine commands read it ("pause studio pc"). */
-    machines: Array<{ id: string; name: string; url: string; paused: boolean; online: boolean | null; locked: boolean; running: boolean }>;
+    machines: Array<{ id: string; name: string; url: string; paused: boolean; online: boolean | null; locked: boolean; running: boolean; rented: RentedState | null }>;
   } | undefined;
   /** The queue's pause, resume, unload and reconnect, as the Queue screen and the status bar have them. */
   ops: ReturnType<typeof useQueueOps>;
@@ -87,6 +88,8 @@ export interface BarCtx {
   item: ReturnType<typeof useItemActions>;
   formTarget: FormTarget | null;
   openWorkflow: ReturnType<typeof useOpenInComfy<{ id: string; title: string }>>;
+  /** A rented pod's Start and Stop (rentedOps.ts). */
+  rented: ReturnType<typeof useRentedOps>;
   /** One machine's ComfyUI page, by its id (actions.ts useOpenComfyUI). */
   openComfy: ReturnType<typeof useOpenInComfy<string>>;
   settingCtx: SettingCtx;

@@ -610,8 +610,8 @@ ${JSON.stringify(input)}`;
     const lanes = await this.refresh();
     const tools = this.lane(TOOLS);
     return [
-      ...lanes.map((l) => ({ machine: l.machine, core: l.core, paused: l.paused, reachable: l.reachable, locked: l.comfy?.locked ?? false })),
-      { machine: null, core: tools.core, paused: false, reachable: null, locked: false },
+      ...lanes.map((l) => ({ machine: l.machine, core: l.core, paused: l.paused, reachable: l.reachable, locked: l.comfy?.locked ?? false, rented: l.machine ? this.rentedOf(l.machine) : null })),
+      { machine: null, core: tools.core, paused: false, reachable: null, locked: false, rented: null },
     ];
   }
 
@@ -670,6 +670,8 @@ ${JSON.stringify(input)}`;
         /** Whether a machine's ComfyUI answers, asked once per pass and only when there is a job for it. */
         const asked = new Map<string, boolean>();
         const answers = async (l: Lane) => {
+          // a machine that cannot take work now (a rented pod not running) is not asked: it is not away, it is off
+          if (this.unavailable(l.id)) return false;
           if (!asked.has(l.id)) {
             l.reachable = await l.comfy!.client.status().then(() => true, () => false);
             asked.set(l.id, l.reachable);
@@ -747,7 +749,7 @@ ${JSON.stringify(input)}`;
   private async schedulable(open: Lane[]): Promise<Schedulable[]> {
     const paces = await this.paces();
     return Promise.all(open
-      .filter((l) => l.reachable !== false)
+      .filter((l) => l.reachable !== false && !this.unavailable(l.id))
       .map(async (l) => ({
         id: l.id, takes: l.machine!.takes,
         busyForMs: l.running || l.starting ? remainingOf(l.running) ?? (await this.untilEnd(l, paces.get(l.id) ?? 1)) : 0,
@@ -859,6 +861,34 @@ ${JSON.stringify(input)}`;
   }
 
   /** What the page's status poll (events.ts) found of the ComfyUIs: whether any answered (queueOffline.ts), and each machine's own answer. */
+  /**
+   * A machine that cannot take work now, and why: a rented pod that is not running (rented.ts sets it). It is never asked,
+   * never planned for; what is pinned to it waits for it. Asked at each pass.
+   */
+  unavailable: (machine: string) => string | null = () => null;
+  /** What is said of a rented machine on its row (rented.ts); null for a ComfyUI of its own. */
+  rentedOf: (machine: Machine) => view.RentedRow | null = () => null;
+
+  /** Whether a machine runs a job now, or is starting one. */
+  runningOn(machine: string): boolean {
+    const lane = this.lanes.get(machine);
+    return Boolean(lane?.running || lane?.starting);
+  }
+
+  /**
+   * Whether a machine is at work or has work it could take: a job running or starting there, or a waiting render it can run
+   * (pinned to it, or free to go to any machine that can run it). Paused, it has none. For a rented machine's idle time.
+   */
+  async wants(machine: string): Promise<boolean> {
+    const lane = this.lanes.get(machine);
+    if (lane?.running || lane?.starting) return true;
+    if (this.paused || lane?.paused) return false;
+    const rows = (await this.db.selectFrom("jobs").selectAll().where("status", "=", "queued").execute()).filter(needsComfy);
+    if (!rows.length) return false;
+    const able = await this.ableOf(rows.filter((r) => !r.pin_machine));
+    return rows.some((r) => (r.pin_machine ? r.pin_machine === machine : able.get(r.id)?.can.has(machine) ?? true));
+  }
+
   noteReachable(ok: boolean, each: ReadonlyMap<string, boolean> = new Map()): void {
     // each machine's own answer: a paused or idle machine is asked nothing by the queue, and was shown online after its
     // ComfyUI had stopped (and away after it was back, until a job went to it)

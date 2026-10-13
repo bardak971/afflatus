@@ -34,6 +34,8 @@ const SERVER: Record<string, string> = {
   tagCheck: "server.tagCheck",
   families: "models.families",
   hasCivitaiKey: "models.civitaiKey",
+  hasRunpodKey: "comfy.runpod",
+  rentCaps: "comfy.rentcaps",
   finish: "internal: the Finish dialog's own choices, saved from it as the next time's defaults",
   slotFiles: "models.files",
   acceptedPresets: "internal: a preset's licence, accepted where the preset is applied",

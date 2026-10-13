@@ -8,6 +8,10 @@ import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
 import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel";
 import type { Db } from "./db";
 import type { Machine } from "./settings";
+import type { RentedView } from "./rented";
+
+/** What a machine row says of a rented pod (rented.ts). */
+export type RentedRow = RentedView;
 
 /** What the queue screen shows: the line as it stands with the running job's progress, the history of finished jobs, and a live preview. */
 
@@ -52,10 +56,12 @@ export interface LaneView {
   reachable: boolean | null;
   /** Its ComfyUI answered, but locked against the token Afflatus has for it. */
   locked: boolean;
+  /** A rented pod: its state and cost (rented.ts); null for a ComfyUI of its own. */
+  rented: RentedRow | null;
 }
 
 export async function status(
-  core: QueueCore, lanes: LaneView[] = [{ machine: null, core, paused: false, reachable: null, locked: false }], paused = core.paused,
+  core: QueueCore, lanes: LaneView[] = [{ machine: null, core, paused: false, reachable: null, locked: false, rented: null }], paused = core.paused,
   /** Where each waiting job will probably run and when it starts (schedule.ts plan), and each machine's learned pace. */
   planned: ReadonlyMap<string, { lane: string; startsInMs: number }> = new Map(), paces: ReadonlyMap<string, number> = new Map(),
   /** With several machines, the machines that can run each waiting render (queue.ts ableOf). */
@@ -139,6 +145,8 @@ export async function status(
       online: l.reachable ?? (core.offlineSince === null ? null : false),
       /** Offline because it is locked against Afflatus's token (Settings › ComfyUI: paste its token), not because it is away. */
       locked: l.locked,
+      /** A rented pod: started, stopped, what it has cost; null for a ComfyUI of its own. */
+      rented: l.rented,
       model: c.lastLoads === null ? null : c.lastModel,
       /** Its learned pace against the others (1 the common pace, 2 half as fast); null with nothing to compare yet. */
       pace: paces.get(l.machine.id) ?? null,

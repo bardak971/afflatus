@@ -66,4 +66,8 @@ export const envSaid = {
   systemRoot: () => process.env.SystemRoot,
   /** "1": SQLite's statements run in a worker thread, not on the server's own (db.ts openSqlite). */
   sqliteWorker: () => process.env.AFFLATUS_SQLITE_WORKER === "1",
+  /** RunPod's API, for a pretend RunPod (the demo, the tests). */
+  runpodApi: () => process.env.RUNPOD_API_URL,
+  /** How a pod's ComfyUI is reached, {id} and {port} in it: RunPod's proxy unless set (a pretend RunPod's pods). */
+  runpodProxy: () => process.env.RUNPOD_PROXY,
 };
