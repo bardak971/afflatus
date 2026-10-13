@@ -247,16 +247,24 @@ async function keyframesOf(file: string): Promise<number[]> {
  * else is cut to the frame and encoded again at `crf`. The sound follows the picture.
  */
 export async function rangeKeep(
-  source: Media, ext: string, facts: { durationMs: number; hasSound: boolean }, keep: Array<[number, number]>,
-  opts: { crf?: number; signal?: AbortSignal } = {},
+  source: Media, ext: string, facts: { durationMs: number; hasSound: boolean; soundOnly?: boolean }, keep: Array<[number, number]>,
+  opts: { crf?: number; even?: boolean; signal?: AbortSignal } = {},
 ): Promise<Uint8Array> {
   const parts = keep.map(([a, b]) => [Math.max(0, Math.min(a, b)), Math.min(facts.durationMs, Math.max(a, b))] as [number, number]).filter(([a, b]) => b - a >= 20);
   if (!parts.length) throw new CutError("That range is too short to keep: nothing would be left.");
   const crf = Math.max(0, Math.min(40, Math.round(opts.crf ?? 10)));
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
-    const out = join(dir, "kept.mp4");
     const sec = (ms: number) => (ms / 1000).toFixed(3);
+    // a sound: its parts cut to the millisecond and joined as a WAV (nothing lost to an encoder), its loudness evened out when asked (EBU R128, -16 LUFS)
+    if (facts.soundOnly) {
+      const wav = join(dir, "kept.wav");
+      const chains = parts.map(([a, b], i) => `[0:a]atrim=start=${sec(a)}:end=${sec(b)},asetpts=PTS-STARTPTS[a${i}]`);
+      const joined = `${parts.map((_, i) => `[a${i}]`).join("")}concat=n=${parts.length}:v=0:a=1${opts.even ? ",loudnorm=I=-16:TP=-1.5:LRA=11" : ""}[a]`;
+      await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, "-filter_complex", [...chains, joined].join(";"), "-map", "[a]", "-ar", "48000", "-c:a", "pcm_s16le", wav], { signal: opts.signal });
+      return new Uint8Array(await readFile(wav));
+    }
+    const out = join(dir, "kept.mp4");
     // one part on keyframes: a stream copy
     if (parts.length === 1) {
       const [a, b] = parts[0]!;

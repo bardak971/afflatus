@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { frozenTailAt } from "../src/cut";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
@@ -159,6 +160,33 @@ describe.skipIf(!ffmpegThere)("a range of a video", { timeout: FFMPEG_TIMEOUT },
     expect(slow!.hasSound).toBe(true);
     const detail = (await get(t.app, `/api/assets/${slow!.id}`)).json();
     expect(detail.source).toMatchObject({ asset: { id: video.id }, range: { startMs: 500, endMs: 1500 } });
+  });
+
+  it("of a sound: copied, split and removed as WAVs, its loudness evened out when asked; never slowed", async () => {
+    const made = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=330:duration=3", "-af", "volume=-30dB", "-f", "wav", "pipe:1"], { maxBuffer: 64 * 1024 * 1024 });
+    const sound = (await t.app.inject({ method: "POST", url: "/api/assets?name=take.wav", headers: { "content-type": "audio/wav" }, payload: made.stdout })).json() as { id: string };
+    const copy = (await post(t.app, `/api/assets/${sound.id}/range`, { startMs: 500, endMs: 1500, action: "copy", even: true })).json();
+    expect(await settled(copy.id)).toMatchObject({ status: "done", kind: "cut" });
+    let items = (await get(t.app, "/api/assets")).json().items as Array<{ id: string; kind: string; mime: string; durationMs: number; name: string }>;
+    const cut = items.find((a) => a.id !== sound.id)!;
+    expect(cut).toMatchObject({ kind: "audio", mime: "audio/wav" });
+    expect(cut.durationMs).toBe(1000);
+    expect(cut.name).toContain("0:00.5–0:01.5");
+    // evened out: far louder than the quiet take (its file, read back, peaks well over -30 dB)
+    const bytes = new Uint8Array((await get(t.app, `/api/assets/${cut.id}/file`)).rawPayload);
+    const at = Buffer.from(bytes).indexOf("data") + 8;
+    let peak = 0;
+    for (let i = at; i + 1 < bytes.length; i += 2) peak = Math.max(peak, Math.abs(Buffer.from(bytes.buffer, bytes.byteOffset).readInt16LE(i)));
+    expect(peak / 32768).toBeGreaterThan(0.1);
+    expect((await get(t.app, `/api/assets/${sound.id}`)).json().inBin).toBe(false);
+
+    const before = new Set(items.map((a) => a.id));
+    const remove = (await post(t.app, `/api/assets/${sound.id}/range`, { startMs: 1000, endMs: 2000, action: "remove" })).json();
+    expect((await settled(remove.id)).status).toBe("done");
+    items = (await get(t.app, "/api/assets")).json().items;
+    expect(items.find((a) => !before.has(a.id))).toMatchObject({ kind: "audio", durationMs: 2000 });
+    expect((await get(t.app, `/api/assets/${sound.id}`)).json().inBin).toBe(true);
+    expect((await post(t.app, `/api/assets/${cut.id}/range`, { startMs: 100, endMs: 500, action: "slow", factor: 2 })).statusCode).toBe(400);
   });
 
   it("refuses an empty range and the whole video", async () => {

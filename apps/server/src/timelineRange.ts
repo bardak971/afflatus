@@ -48,16 +48,18 @@ export class TimelineRange {
    * A range of a video, kept as new videos of the library: `copy` = the range as one video (the source
    * stays); `split` = before, range, after as three (the source goes to the bin); `remove` = one video
    * without the range (the source goes to the bin). Each new video remembers its source and its range.
+   * A sound the same way, as WAVs (`even`: their loudness evened out).
    */
-  async cutRange(video: AssetRow, startMs: number, endMs: number, action: "copy" | "split" | "remove", opts: { crf?: number; signal?: AbortSignal; folder?: string | null } = {}): Promise<AssetRow[]> {
+  async cutRange(video: AssetRow, startMs: number, endMs: number, action: "copy" | "split" | "remove", opts: { crf?: number; even?: boolean; signal?: AbortSignal; folder?: string | null } = {}): Promise<AssetRow[]> {
     const { db, events } = this.core;
+    const what = video.kind === "audio" ? "sound" : "video";
     const { source, ext, total } = await this.opened(video);
-    if (!total) throw new CutError("This video could not be read.");
+    if (!total) throw new CutError(`This ${what} could not be read.`);
     const a = Math.max(0, Math.min(startMs, endMs));
     const b = Math.min(total, Math.max(startMs, endMs));
-    if (b - a < 20) throw new CutError("That range is too short: pick at least one frame.");
-    if (a <= 0 && b >= total - 2) throw new CutError("That is the whole video: there is nothing to cut.");
-    const facts = { durationMs: total, hasSound: Boolean(video.has_sound) };
+    if (b - a < 20) throw new CutError(`That range is too short: pick at least ${what === "sound" ? "a moment" : "one frame"}.`);
+    if (a <= 0 && b >= total - 2) throw new CutError(`That is the whole ${what}: there is nothing to cut.`);
+    const facts = { durationMs: total, hasSound: Boolean(video.has_sound) || what === "sound", soundOnly: what === "sound" };
     const pieces: Array<{ keep: Array<[number, number]>; said: string; range: string }> =
       action === "copy" ? [{ keep: [[a, b]], said: `${clockOf(a)}–${clockOf(b)}`, range: `${a}-${b}` }]
       : action === "remove" ? [{ keep: [[0, a], [b, total]], said: `without ${clockOf(a)}–${clockOf(b)}`, range: `${a}-${b}` }]
@@ -72,7 +74,8 @@ export class TimelineRange {
     const rows: AssetRow[] = [];
     for (const piece of pieces) {
       const out = await rangeKeep(source, ext, facts, piece.keep, opts);
-      rows.push(await this.cutRow(video, out, fromName(base, ` · ${piece.said}`), piece.range, opts.folder));
+      const lasts = piece.keep.reduce((sum, [from, to]) => sum + Math.max(0, Math.min(total, to) - from), 0);
+      rows.push(facts.soundOnly ? await this.cutSoundRow(video, out, fromName(base, ` · ${piece.said}`), piece.range, lasts, opts.folder) : await this.cutRow(video, out, fromName(base, ` · ${piece.said}`), piece.range, opts.folder));
     }
     // the source goes to the bin when it was taken apart: a day to change one's mind. Not when something still uses it (a
     // timeline plays it, a draft or a person names it: the route refuses that, and this is for what came to use it since);
@@ -98,7 +101,8 @@ export class TimelineRange {
   private async opened(video: AssetRow) {
     const source = await sourceOf(this.core.storage, video.file_key);
     const ext = extOf(video.mime);
-    const read = video.duration_ms && video.fps ? null : typeof source === "string" ? await videoFacts(source) : (await readVideo(source, ext)).facts;
+    // (a sound's row says its length; it has no speed)
+    const read = video.duration_ms && (video.fps || video.kind === "audio") ? null : typeof source === "string" ? await videoFacts(source) : (await readVideo(source, ext)).facts;
     return { source, ext, total: video.duration_ms ?? read?.durationMs ?? 0, fps: video.fps ?? read?.fps ?? null };
   }
 
@@ -119,6 +123,20 @@ export class TimelineRange {
       id, owner_id: OWNER, kind: "video", origin: "cut", name, file_key: key, thumb_key: thumb ? thumbKey(id) : null, mime: "video/mp4", bytes: out.length,
       width: seen.facts?.width ?? original.width, height: seen.facts?.height ?? original.height,
       duration_ms: seen.facts?.durationMs ?? null, fps: seen.facts?.fps ?? original.fps, has_sound: seen.facts?.hasSound ? 1 : 0,
+      folder_id: folder === undefined ? original.folder_id : folder, generation_id: null, source_id: original.id, source_range: range, raw_key: null, latent_key: null, latent_frames: null, fine_latent_key: null,
+      kept_at: at, countdown_from: null, deleted_at: null, linked_path: null, created_at: at,
+    };
+  }
+
+  /** A sound cut out of another, as cutRow: a WAV `lasts` milliseconds long, without a small picture. */
+  private async cutSoundRow(original: AssetRow, out: Uint8Array, name: string, range: string, lasts: number, folder?: string | null): Promise<AssetRow> {
+    const id = newId();
+    const key = `assets/${id.slice(0, 2)}/${id}.wav`;
+    await this.core.storage.put(key, out);
+    const at = now();
+    return {
+      id, owner_id: OWNER, kind: "audio", origin: "cut", name, file_key: key, thumb_key: null, mime: "audio/wav", bytes: out.length, width: null, height: null,
+      duration_ms: Math.round(lasts), fps: null, has_sound: 1,
       folder_id: folder === undefined ? original.folder_id : folder, generation_id: null, source_id: original.id, source_range: range, raw_key: null, latent_key: null, latent_frames: null, fine_latent_key: null,
       kept_at: at, countdown_from: null, deleted_at: null, linked_path: null, created_at: at,
     };
