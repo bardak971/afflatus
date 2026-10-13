@@ -77,7 +77,7 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     "export-editor": [`Export ${t} for a video editor`, "The export dialog opens on For an editor: its clips and a project file for Resolve, Premiere or Kdenlive"],
     finish: [`Finish ${t}…`, "The Finish dialog: every take upscaled to its final quality"],
     "fix-all": [`Fix all in ${t}`, "What Needs attention lists, mended as its Fix all"],
-    generate: ["Generate", "The open draft, as its Generate button"],
+    generate: c.cmd === "generate" && c.machine ? [`Generate on ${c.machine}`, `${machineSaid(queueNow, c.machine)} · the open draft, on that machine this once`] : ["Generate", "The open draft, as its Generate button"],
     preset: [`Apply ${preset?.name ?? named}`, preset ? `Preset${preset.source === "shipped" ? " · built in" : ""} · on the open draft` : "No preset by that name"],
     "save-preset": [`Save as preset “${named}”`, "The open draft's model, form and cast"],
     unload: c.cmd === "unload" && c.machine ? [`Unload ${c.machine}`, `${machineSaid(queueNow, c.machine)} · its models out of memory`] : ["Unload models", upper(unloadBlock(queueNow)) ?? "ComfyUI's models out of memory · the next render loads them again"],
@@ -150,14 +150,14 @@ function machineSaid(q: QueueNow | null, label: string): string {
 
 /**
  * With several ComfyUIs, each one's own rows, ready to run: Pause or Resume it, Use only it, Unload it, Load a model on it,
- * and its log, its render times and its models. Typing "pause" lists
+ * its log, its render times and its models, and Generate on it. Typing "pause" lists
  * every machine that can be paused, "use only" every machine, a machine's name all it can do.
  */
 const machineRows = (x: CommandCtx): Item[] =>
   (x.queue?.machines ?? []).flatMap((m) => {
     const own = (c: Command) => {
       const row = commandRow(x, c);
-      const said = { "use-only": "use only", "load-panel": "load a model on", "machine-log": "comfyui log console", "machine-times": "render times", "machine-models": "models on" } as Partial<Record<Command["cmd"], string>>;
+      const said = { "use-only": "use only", "load-panel": "load a model on", "machine-log": "comfyui log console", "machine-times": "render times", "machine-models": "models on", generate: "generate on" } as Partial<Record<Command["cmd"], string>>;
       return { ...row, key: `${row.key}:${m.id}`, p: prepare(`${row.label} ${said[c.cmd] ?? c.cmd} ${m.label}`) };
     };
     return [
@@ -165,6 +165,7 @@ const machineRows = (x: CommandCtx): Item[] =>
       ...(m.online !== false && !m.running ? [own({ cmd: "unload", machine: m.label })] : []),
       ...(m.online !== false ? [own({ cmd: "load-panel", machine: m.label })] : []),
       own({ cmd: "machine-log", machine: m.label }), own({ cmd: "machine-times", machine: m.label }), own({ cmd: "machine-models", machine: m.label }),
+      ...(m.online !== false ? [own({ cmd: "generate", machine: m.label })] : []),
     ];
   });
 

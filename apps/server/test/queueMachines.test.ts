@@ -224,3 +224,16 @@ describe("each machine's answer", () => {
     expect((await online()).m2).toBe(true);
   });
 });
+
+describe("a job sent to a machine", () => {
+  it("runs there, the machine that would end it first or not; one there is not is refused", async () => {
+    // the first machine is busy: left to the queue the job would go to the second, sent to the first it waits for it
+    const a = await enqueue({ prompt: "a cat" });
+    await until(() => sentTo(one).length === 1);
+    const b = (await post(t.app, "/api/jobs", { ...job({ prompt: "a dog" }), machine: "m1" })).json().ids[0] as string;
+    expect((await row(b)).pin_machine).toBe("m1");
+    expect((await post(t.app, "/api/jobs", { ...job({}), machine: "m9" })).statusCode).toBe(400);
+    await finishAll([a, b]);
+    expect((await row(b)).machine_id).toBe("m1");
+  });
+});

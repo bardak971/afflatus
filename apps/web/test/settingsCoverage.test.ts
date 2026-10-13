@@ -76,6 +76,7 @@ const BROWSER: Record<string, string> = {
   "afflatus.project": "internal: the project worked in",
   "afflatus.projects.kind": "internal: the Projects panel's filter",
   "afflatus.projects.open": "internal: the Projects panel's open rows",
+  "afflatus.draft-machine": "internal: the machine each draft generates on, set from Generate's machine slice",
   "afflatus.projects.sort": "internal: the Projects panel's sort",
   "afflatus.reloaded-at": "internal: when the app last reloaded itself for a new version",
   "afflatus.seed-mode": "internal: the form's seed mode, set beside the seed",

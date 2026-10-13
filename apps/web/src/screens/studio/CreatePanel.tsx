@@ -53,7 +53,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
   useEffect(() => {
     if (!recipe || !draft) { publish(null); return; }
     publish({
-      recipe, values: { ...formValues }, set: (input, value) => d.setValue(recipe.id, input, value), draftId: draft.id, look: draft.look, setLook: d.setLook, generate: () => makeNow.current(),
+      recipe, values: { ...formValues }, set: (input, value) => d.setValue(recipe.id, input, value), draftId: draft.id, look: draft.look, setLook: d.setLook, generate: (machine) => makeNow.current(machine),
       applyPreset: (id) => presetNow.current(id), savePreset: (name) => savePreset.mutateAsync(name),
     });
     // the form is gone with the panel
@@ -74,9 +74,9 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
   const missing = inputMissing(recipe, whole);
   const send = useGenerate({ recipe, draft, defaults, folder: folder?.id, d, blocked: blocked ?? missing });
   // Generate from elsewhere (the command bar), refused as the button is
-  const makeNow = useRef(() => {});
-  makeNow.current = () => {
-    if (recipe && draft && !blocked && !missing && !send.isPending) send.mutate();
+  const makeNow = useRef((_machine?: string) => {});
+  makeNow.current = (machine) => {
+    if (recipe && draft && !blocked && !missing && !send.isPending) send.mutate(machine);
   };
 
   const pick = useModelPick({ recipe, draft, onPick: d.setRecipe });
