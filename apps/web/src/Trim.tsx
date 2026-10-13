@@ -231,7 +231,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
       ) : (
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-line pt-2">
         <div role="group" aria-label="Cut and scenes" className="flex items-center gap-1">
-          <CutButtons what="video" busy={Boolean(busy)} whole={whole} onCopy={() => onCopy?.(range, crfN)} onSplit={() => onSplit?.(range, crfN)} onRemove={() => onRemove?.(range, crfN)} />
+          <CutButtons what="video" busy={Boolean(busy)} whole={whole} edge={range.startMs <= 0 || range.endMs >= duration} onCopy={() => onCopy?.(range, crfN)} onSplit={() => onSplit?.(range, crfN)} onRemove={() => onRemove?.(range, crfN)} />
           {onEveryScene && scenes && scenes.length > 0 && (
             <Button size="sm" disabled={busy} data-tip={`${scenes.length + 1} shots found by their cuts: each copied out as its own video. This one stays.`} onClick={() => onEveryScene(scenes, crfN)}><Split size={13} /> Extract scenes ({scenes.length + 1})</Button>
           )}

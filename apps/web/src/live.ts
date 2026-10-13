@@ -9,6 +9,14 @@ import { useBar } from "./bar/store";
 import { isUnder, libraryInPlace, libraryReads, queryKeys, RENDER_KEYS, type LibraryChange } from "./queryKeys";
 import { backFromRestart, followRestart, readsAgain, useRestarting } from "./updates";
 
+/** What else hears the library's changes as they come (hearLibrary): a viewer waiting for what its cut makes. */
+const libraryHeard = new Set<(change: LibraryChange) => void>();
+/** Hears every "library" event until the function it gives back is called. */
+export function hearLibrary(heard: (change: LibraryChange) => void): () => void {
+  libraryHeard.add(heard);
+  return () => void libraryHeard.delete(heard);
+}
+
 /** The version this page was built as (vite.config.ts), "dev" from the sources: what the server's hello is held against. */
 const BUILD_VERSION = __AFFLATUS_VERSION__;
 
@@ -106,6 +114,7 @@ export function useLiveEvents(): void {
       if (inPlace) applyChange(client, inPlace);
       libraryWaiting.push(change);
       libraryRead();
+      if (change) for (const heard of libraryHeard) heard(change);
     };
 
     // a job that ended, seen in the queue as it is read: the history and the render times are read again,

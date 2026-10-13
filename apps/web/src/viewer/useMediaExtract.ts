@@ -1,7 +1,8 @@
-import type { RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Range } from "../Trim";
 import { api, type Asset } from "../api";
+import { hearLibrary } from "../live";
 import { useBanners } from "../store";
 import { queryKeys } from "../queryKeys";
 
@@ -30,6 +31,31 @@ export function useMediaExtract({ asset, trim, player, onOpened }: { asset: Asse
   const silence = useMutation({ mutationFn: () => api.silence(asset.id), onSuccess: onOpened });
   // a picture mirrored: the copy opens in the viewer, beside the original in its folder
   const mirror = useMutation({ mutationFn: (axis: "horizontal" | "vertical") => api.mirror(asset.id, axis), onSuccess: onOpened });
+  // a split or a remove takes this one to the bin: when what it makes comes in, the viewer goes on to it (a split: the range
+  // itself, a remove: what is left), rather than staying on the binned original while the new files land behind it
+  const following = useRef<Array<() => void>>([]);
+  useEffect(() => () => following.current.forEach((stop) => stop()), []);
+  const follow = (range: Range) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stop = hearLibrary((c) => {
+      if (c.change !== "added" || !c.items?.length) return;
+      void Promise.all(c.items.map((id) => api.asset(id).catch(() => null))).then((made) => {
+        const ours = made.filter((d) => d?.source?.asset.id === asset.id);
+        if (!ours.length) return;
+        end();
+        const piece = ours.find((d) => d!.source!.range && Math.abs(d!.source!.range.startMs - range.startMs) <= 2 && Math.abs(d!.source!.range.endMs - range.endMs) <= 2);
+        onOpened((piece ?? ours[0])!);
+      });
+    });
+    const end = () => {
+      stop();
+      clearTimeout(timer);
+      following.current = following.current.filter((f) => f !== end);
+    };
+    // a job that never comes back (failed, cancelled) is not waited for forever
+    timer = setTimeout(end, 30 * 60_000);
+    following.current.push(end);
+  };
   // the range as new videos: a job of the queue; the library shows them when it is done
   const cutRange = useMutation({
     mutationFn: (v: { range: Range; action: "copy" | "split" | "remove" | "slow"; crf: number; factor?: 2 | 4; even?: boolean }) => api.range(asset.id, { startMs: Math.round(v.range.startMs), endMs: Math.round(v.range.endMs), action: v.action, crf: v.crf, factor: v.factor, ...(v.even ? { even: true } : {}) }),
@@ -42,7 +68,8 @@ export function useMediaExtract({ asset, trim, player, onOpened }: { asset: Asse
       }
       // (a sound is cut the same way: Trim on a sound, trim/AudioTrim.tsx)
       const what = asset.kind === "audio" ? "sound" : "video";
-      say({ id: `cut:${Date.now()}`, tone: "good", title: v.action === "copy" ? "Copying the range to your library" : v.action === "split" ? `Splitting the ${what}` : "Removing the range", text: `In the queue; it needs no GPU. The new ${what}${v.action === "split" ? "s show" : " shows"} in the library when it is done${v.action === "copy" ? "" : "; this one goes to the bin then"}.`, href: "/queue", go: "Open queue" });
+      if (v.action === "split" || v.action === "remove") follow(v.range);
+      say({ id: `cut:${Date.now()}`, tone: "good", title: v.action === "copy" ? "Copying the range to your library" : v.action === "split" ? `Splitting the ${what}` : "Removing the range", text: `In the queue; it needs no GPU. The new ${what}${v.action === "split" ? "s show" : " shows"} in the library when it is done${v.action === "copy" ? "" : `; this one goes to the bin then, and the viewer goes on to ${v.action === "split" ? "the range" : "the new one"}`}.`, href: "/queue", go: "Open queue" });
     },
   });
   return { scenes, everyScene, saveFrame, takeSound, silence, cutRange, mirror };

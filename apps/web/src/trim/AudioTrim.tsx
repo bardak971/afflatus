@@ -48,7 +48,7 @@ export function AudioTrim({ asset, busy, onCut, onClose }: {
       />
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-line pt-2">
         <span className="font-mono text-xs text-ink-2">{whole ? "the whole sound: drag on it for a range" : `${clock(range.startMs, { decimals: 1 })}–${clock(range.endMs, { decimals: 1 })} · ${(end - part.start).toFixed(1)} s`}</span>
-        <CutButtons what="sound" busy={busy} whole={whole} onCopy={() => onCut(range, "copy", even)} onSplit={() => onCut(range, "split", even)} onRemove={() => onCut(range, "remove", even)} />
+        <CutButtons what="sound" busy={busy} whole={whole} edge={part.start <= 0.01 || end >= total - 0.01} onCopy={() => onCut(range, "copy", even)} onSplit={() => onCut(range, "split", even)} onRemove={() => onCut(range, "remove", even)} />
         <Toggle on={even} onChange={setEven} label="Even loudness" note="what is made is brought to a usual level (EBU R128, -16 LUFS)" />
         <span className="grow" />
         <Button size="sm" aria-label="Close Trim" onClick={onClose} data-tip="Close Trim (Esc)"><X size={13} /></Button>
