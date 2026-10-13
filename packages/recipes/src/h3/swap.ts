@@ -18,7 +18,11 @@ export interface H3Swap extends H3Video {
   who: string;
   swapStrength: number;
   keepSound: boolean;
+  swapSize: string;
 }
+
+/** The sizes a swap renders at: the source's own (its short side), or a set height. */
+const SWAP_SIZES = ["Source", "480p", "576p", "768p"] as const;
 
 /** The longest window one swap makes, in frames (17k + 5): 5.9 s. */
 export const SWAP_FRAMES = 141;
@@ -29,6 +33,8 @@ const SWAP_LEAST = 39;
 const NOT_TAKEN = new Set([
   // the model is the reference model the LoRA was trained on (the swapUnet slot): a hybrid fine-tune redrew the room
   "model", "hybrid", "turboIn",
+  // the size is the swap's own choice (swapSize): the source's, or a height a small phone clip is enlarged to
+  "short",
   "description", "soundscape", "music", "start", "end", "mid", "midAt", "previous", "handover", "context", "joinFrom", "next", "landing",
   "refVideos", "voice", "voiceStart", "voiceSeconds", "voiceEven", "subject", "seconds", "shape",
   // H3's colour match pulls towards a start picture, which a swap has not
@@ -57,6 +63,10 @@ const swapInputs: InputSpec[] = [
     }
     return [spec];
   }),
+  {
+    id: "swapSize", type: "choice", label: "Size", options: [...SWAP_SIZES], default: "Source",
+    note: "the source's own size, or a height to render at: a small phone clip can be made larger. The shape is always the source's",
+  },
   { id: "swapStrength", type: "number", label: "Swap LoRA strength", min: 0, max: 2, step: 0.05, default: 1, advanced: true, note: "its author's 1.0" },
   { id: "keepSound", type: "toggle", label: "Keep the source's sound", default: true, advanced: true, note: "the file carries the source video's own sound; off, the sound H3 makes" },
 ];
@@ -65,6 +75,13 @@ const swapInputs: InputSpec[] = [
 function framesOf(input: H3Swap, ctx: Pick<BuildContext, "media">): number {
   const have = ctx.media.source?.frames ?? Math.round(input.sourceSeconds * H3_FPS);
   return Math.max(SWAP_LEAST, gridAtOrBefore(Math.min(SWAP_FRAMES, have), H3_GRID));
+}
+
+/** The short side a swap renders at: the source's own (within H3's 384 to 1088), or the height asked for. */
+function shortOf(choice: string, size?: { width: number; height: number }): number {
+  const asked = Number.parseInt(choice, 10);
+  if (Number.isFinite(asked)) return asked;
+  return size ? Math.max(384, Math.min(1088, Math.min(size.width, size.height))) : 576;
 }
 
 /** The person picked out in the LoRA's trained caption: the user's few words, without a closing full stop. */
@@ -81,15 +98,15 @@ export const swapCaption = (who: string, pictures: number) => `Swap ${who} in <V
 
 /**
  * The swap as an H3 clip: MiniMax's reference model as it is (`unet`), the source's part as its one reference video, the
- * swap LoRA first among the LoRAs, its length the part's, its shape the source's and its size the source's own up to the
- * resolution asked: with the hybrid Turbo fine-tune at 1024 × 576 the room was redrawn 3 times of 3, with ref2va at the
- * source's 864 × 480 it was kept as it was (2026-10-13).
+ * swap LoRA first among the LoRAs, its length the part's, its shape the source's and its size the one picked (the
+ * source's own by default): with the hybrid Turbo fine-tune at 1024 × 576 the room was redrawn 3 times of 3, with ref2va
+ * at the source's 864 × 480 it was kept as it was (2026-10-13).
  */
 function asClip(input: H3Swap, swapLora: string, frames: number, unet?: string, size?: { width: number; height: number }): H3Video {
   return {
     ...input,
     model: unet, hybrid: "Yes", turboIn: "No",
-    short: size ? Math.min(input.short, Math.min(size.width, size.height)) : input.short,
+    short: shortOf(input.swapSize, size),
     description: "", soundscape: "", music: "", subject: "", midAt: 0,
     start: undefined, end: undefined, mid: undefined, previous: undefined, next: undefined, voice: undefined,
     colourMatch: false, handover: false, context: "22", joinFrom: "Latent", landing: "22", voiceStart: 0, voiceSeconds: 15, voiceEven: false,

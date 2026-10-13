@@ -42,9 +42,12 @@ describe("MiniMax H3 · Swap character", () => {
     expect(of(graph, "UNETLoader").map((n) => n.inputs.unet_name)).toEqual(["minimax_h3_ref2va.safetensors"]);
     const ref = of(graph, "MiniMaxH3ReferenceToVideo")[0]!;
     expect([ref.inputs.width, ref.inputs.height]).toEqual([864, 480]);
-    // a larger source: the resolution asked for (576p), not more
-    const big = of(build({}, part({ width: 1920, height: 1080 })).graph, "MiniMaxH3ReferenceToVideo")[0]!;
-    expect(big.inputs.height).toBe(576);
+    // a size asked for: a small phone clip made larger, in its own shape
+    const phone = of(build({ swapSize: "576p" }, part({ width: 352, height: 640 })).graph, "MiniMaxH3ReferenceToVideo")[0]!;
+    expect(phone.inputs.width).toBe(576);
+    expect(phone.inputs.height as number).toBeGreaterThan(1000);
+    // at its own size, a source smaller than H3 takes is brought to its smallest (384)
+    expect(of(build({}, part({ width: 352, height: 640 })).graph, "MiniMaxH3ReferenceToVideo")[0]!.inputs.width).toBe(384);
   });
 
   it("puts the swap LoRA on the model, at its strength", () => {
