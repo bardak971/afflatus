@@ -21,6 +21,8 @@ export interface DraftBrief {
   bytes?: number;
   /** No prompt, no name, no conversation, nothing made from it: what "Clear unused" deletes. */
   unused?: boolean;
+  /** In the list: the model file its form picks, by name; null when it picks none (its family's usual file). */
+  model?: string | null;
   /** In the list: the model families its outputs were made with, the newest first, and how many each made. */
   models?: Array<{ family: string; outputs: number }>;
 }
