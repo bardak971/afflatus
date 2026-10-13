@@ -10,7 +10,7 @@ import { plural, size, usd } from "../../format";
 import { rowKeys } from "../../keys/table";
 import { projectForNew, useProject } from "../../project";
 import { unloadBlock } from "../../queueRules";
-import { machineByName, machineLabel, machineUnloadBlock, rentedSaid } from "../../machines";
+import { machineByName, machineLabel, machineUnloadBlock, rateSaid, rentedSaid } from "../../machines";
 import type { Target } from "../../projects/tree";
 import { kitHref } from "../../screens/kit/link";
 import { useBanners } from "../../store";
@@ -162,7 +162,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       const name = machineLabel(m);
       if (c.cmd === "start-pod") {
         const can = r.status === "EXITED" || r.status === "ERROR";
-        return [{ label: `Start ${name}`, icon: <Server size={14} />, note: r.capped ? "a spending cap is reached" : !can ? rentedSaid(r) : r.rate ? `${usd(r.rate)} / h from now` : "billed from now", disabled: !can || r.capped, run: () => rented.start.mutate(m.id) }];
+        return [{ label: `Start ${name}`, icon: <Server size={14} />, note: r.capped ? "a spending cap is reached" : !can ? rentedSaid(r) : rateSaid(r), disabled: !can || r.capped, run: () => rented.start.mutate(m.id) }];
       }
       return [{ label: `Stop ${name}`, icon: <Server size={14} />, note: r.status !== "RUNNING" ? rentedSaid(r) : r.diskPerDay > 0.005 ? `the disk keeps billing ${usd(r.diskPerDay)}/day` : "the GPU stops billing", disabled: r.status !== "RUNNING", run: () => rented.stop.mutate({ machine: m.id, how: "stop" }) }];
     }

@@ -64,7 +64,7 @@ export function RunpodAdd() {
             <span aria-hidden className={cx("size-[7px] rounded-full", running ? "bg-good" : "border-[1.5px] border-ink-3")} />
             <span className="min-w-0 truncate"><span className="font-semibold">{p.name}</span> <span className="text-ink-3">· {why ?? (running ? "running" : p.status === "EXITED" ? "stopped" : p.status.toLowerCase())}</span></span>
             <span className="truncate text-ink-2">{[p.gpu?.replace(/^NVIDIA (GeForce )?/, ""), p.dataCenter].filter(Boolean).join(" · ")}</span>
-            <span className="font-mono text-xs text-ink-2">{p.cost ? `${usd(p.cost)}/h` : ""}</span>
+            <span className="font-mono text-xs text-ink-2" data-tip={p.cost ? undefined : "RunPod says a pod's rate only while it runs"}>{p.cost ? `${usd(p.cost)}/h` : "—"}</span>
             {!why ? <Button size="sm" tone="primary" onClick={() => add.mutate(p.id)} disabled={add.isPending}>Add</Button> : <span />}
           </div>
         );
@@ -90,7 +90,13 @@ function CapBox({ label, value, onSave }: { label: string; value: number; onSave
   const [text, setText] = useState(value ? String(value) : "");
   useEffect(() => setText(value ? String(value) : ""), [value]);
   const commit = () => {
-    const n = Math.max(0, Number(text.replace(/[$\s]/g, "")) || 0);
+    const cleaned = text.replace(/[$€\s]/g, "").replace(",", ".");
+    // empty: no cap; anything that does not read as an amount keeps the cap as it was (never a cap silently gone)
+    const n = cleaned === "" ? 0 : Number(cleaned);
+    if (!Number.isFinite(n) || n < 0) {
+      setText(value ? String(value) : "");
+      return;
+    }
     if (n !== value) onSave(n);
   };
   return (
@@ -113,7 +119,7 @@ export function RentedCard() {
   // read again every 10 s while a pod runs (its cost goes on), every minute otherwise
   const running = useQueue().data?.machines.some((m) => m.rented?.status === "RUNNING") ?? false;
   const spending = useQuery({ queryKey: queryKeys.rentedSpending(), queryFn: ({ signal }) => api.rentedSpending({ signal }), enabled: any, refetchInterval: running ? 10_000 : 60_000 });
-  const caps = useMutation({
+  const saveCaps = useMutation({
     mutationFn: (rentCaps: { day: number; month: number }) => api.saveSettings({ rentCaps }),
     onSuccess: (saved) => {
       client.setQueryData(queryKeys.settings(), saved);
@@ -121,21 +127,24 @@ export function RentedCard() {
     },
   });
   const s = spending.data?.spending;
-  if (!any || !s) return null;
+  // the caps as saved (written in at once on a save), not as the spending read some seconds ago: two edits in a row each keep the other
+  const caps = settings.data?.rentCaps ?? s?.caps ?? { day: 0, month: 0 };
+  if (!any) return null;
+  if (!s) return spending.isError ? <Card title="Rented GPUs"><Block><ErrorNote>{spending.error.message}</ErrorNote></Block></Card> : null;
   return (
     <Card
       title="Rented GPUs"
       help="What your rented pods cost: each one's running time × its rate, as Afflatus counts it (RunPod's bill is the reference). A stopped pod's disk is billed too, and is not in these figures: its card says what it costs a day."
       status={s.balance !== null ? <span className={cx("text-[12.5px]", s.lowBalance ? "font-semibold text-warn-ink" : "text-ink-2")}>RunPod balance <span className="font-mono">{usd(s.balance)}</span></span> : undefined}
     >
-      <Row label="Today"><Against value={s.today} cap={s.caps.day} sub="every pod's GPU time" /></Row>
-      <Row label="This month"><Against value={s.month} cap={s.caps.month} /></Row>
+      <Row label="Today"><Against value={s.today} cap={caps.day} sub="every pod's GPU time" /></Row>
+      <Row label="This month"><Against value={s.month} cap={caps.month} /></Row>
       <Row setting="comfy.rentcaps" label="Caps" help="At a cap, the render running finishes, then the pods stop; what waits goes to your other machines, and Start says the cap is reached. Empty: no cap.">
-        <CapBox label="a day" value={s.caps.day} onSave={(day) => caps.mutate({ ...s.caps, day })} />
-        <CapBox label="a month" value={s.caps.month} onSave={(month) => caps.mutate({ ...s.caps, month })} />
+        <CapBox label="a day" value={caps.day} onSave={(day) => saveCaps.mutate({ ...caps, day })} />
+        <CapBox label="a month" value={caps.month} onSave={(month) => saveCaps.mutate({ ...caps, month })} />
       </Row>
       {s.lowBalance && <Block><ErrorNote>Your RunPod balance is low: RunPod stops pods at zero, and may delete their disks after a while.</ErrorNote></Block>}
-      {caps.isError && <Block><ErrorNote>{caps.error.message}</ErrorNote></Block>}
+      {saveCaps.isError && <Block><ErrorNote>{saveCaps.error.message}</ErrorNote></Block>}
     </Card>
   );
 }

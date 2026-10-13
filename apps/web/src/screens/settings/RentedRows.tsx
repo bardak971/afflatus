@@ -3,8 +3,8 @@ import { ExternalLink } from "lucide-react";
 import type { Machine, MachineState, RentedMachine } from "../../api";
 import { usd } from "../../format";
 import { useNow } from "../../hooks";
-import { rentedSaid } from "../../machines";
-import { RUNPOD_CONSOLE, useRentedOps } from "../../rentedOps";
+import { rateSaid, rentedSaid } from "../../machines";
+import { RUNPOD_CONSOLE, type useRentedOps } from "../../rentedOps";
 import { Select } from "../../Select";
 import { ButtonLink, cx, TwoStep } from "../../ui";
 import { Row } from "./Rows";
@@ -25,8 +25,7 @@ function IdleLeft({ ms }: { ms: number }) {
 }
 
 /** A rented machine's state for its card's head: its words, and Start or Stop. Start is the user's, its rate said first. */
-export function RentedHead({ machine, state }: { machine: Machine; state: MachineState | undefined }) {
-  const ops = useRentedOps();
+export function RentedHead({ machine, state, ops }: { machine: Machine; state: MachineState | undefined; ops: ReturnType<typeof useRentedOps> }) {
   const r = state?.rented;
   // its running time and cost count by the second while it runs
   const now = useNow(1000, r?.status === "RUNNING");
@@ -34,18 +33,25 @@ export function RentedHead({ machine, state }: { machine: Machine; state: Machin
   const label = machine.name || "the pod";
   const running = r.status === "RUNNING";
   const stopped = r.status === "EXITED" || r.status === "ERROR";
-  const busy = ops.start.isPending || ops.stop.isPending;
+  const starting = r.status === "STARTING" || r.status === "PROVISIONING";
+  const busy = ops.start.isPending || ops.stop.isPending || r.stopping;
   return (
     <span className="flex items-center gap-2">
       <span className={cx("text-[12.5px] font-semibold", running ? "text-good" : r.status === "STARTING" || r.status === "PROVISIONING" ? "text-warn-ink" : "text-ink-2")}>{rentedSaid(r, now)}</span>
       {stopped && (
         <TwoStep
           label="Start…" title={`Start ${label}?`} yes="Start" disabled={busy || r.capped}
-          note={r.capped ? "a spending cap is reached" : `${r.rate ? `${usd(r.rate)} / h from now` : "billed from now"}${machine.rented?.idleMinutes ? ` · stops after ${minutesSaid(machine.rented.idleMinutes)} idle` : ""}`}
+          note={r.capped ? "a spending cap is reached" : `${rateSaid(r)}${machine.rented?.idleMinutes ? ` · stops after ${minutesSaid(machine.rented.idleMinutes)} idle` : ""}`}
           onYes={() => ops.start.mutate(machine.id)}
         />
       )}
-      {running && <TwoStep label="Stop…" title={`Stop ${label}?`} yes="Stop" disabled={busy} note={r.diskPerDay > 0.005 ? `the GPU stops billing; the disk keeps billing ${usd(r.diskPerDay)}/day` : "the GPU stops billing"} onYes={() => ops.stop.mutate({ machine: machine.id, how: "stop" })} />}
+      {(running || starting) && (
+        <TwoStep
+          label="Stop…" title={`Stop ${label}?`} yes="Stop" disabled={busy}
+          note={`${state?.running ? "its render is lost · " : ""}${r.diskPerDay > 0.005 ? `the GPU stops billing; the disk keeps billing ${usd(r.diskPerDay)}/day` : "the GPU stops billing"}`}
+          onYes={() => ops.stop.mutate({ machine: machine.id, how: "stop" })}
+        />
+      )}
     </span>
   );
 }
@@ -54,8 +60,7 @@ export function RentedHead({ machine, state }: { machine: Machine; state: Machin
  * A rented machine's own rows on its card: the pod (its GPU, rate, address, its page on RunPod), what happens when it sits
  * idle, the watchdog, and deleting the pod on RunPod. `put` saves a change of its rented settings.
  */
-export function RentedRows({ machine, state, put }: { machine: Machine; state: MachineState | undefined; put(rented: RentedMachine): void }) {
-  const ops = useRentedOps();
+export function RentedRows({ machine, state, put, ops }: { machine: Machine; state: MachineState | undefined; put(rented: RentedMachine): void; ops: ReturnType<typeof useRentedOps> }) {
   const rented = machine.rented!;
   const r = state?.rented;
   const set = (change: Partial<RentedMachine>) => put({ ...rented, ...change });
@@ -67,7 +72,7 @@ export function RentedRows({ machine, state, put }: { machine: Machine; state: M
           <span>{[r?.gpu?.replace(/^NVIDIA (GeForce )?/, ""), r?.dataCenter, r?.rate ? `${usd(r.rate)} / h` : null].filter(Boolean).join(" · ") || "…"}</span>
           <span className="truncate font-mono text-[11.5px] text-ink-3">{machine.url}</span>
           {r?.error && <span className="text-xs text-warn-ink">{r.error}</span>}
-          {gone && <span className="text-xs text-warn-ink">It is no longer on RunPod (deleted there): remove it here.</span>}
+          {gone && <span className="text-xs text-warn-ink">RunPod does not list it with this key: deleted there, or the key is another account's. Remove it here, or set back the key.</span>}
         </span>
         <ButtonLink href={RUNPOD_CONSOLE} target="_blank" rel="noreferrer" size="sm"><ExternalLink size={13} /> RunPod</ButtonLink>
       </Row>
@@ -76,7 +81,7 @@ export function RentedRows({ machine, state, put }: { machine: Machine; state: M
           <span className="text-ink-2">after</span>
           <span className="w-[104px] shrink-0"><Select size="sm" label="Minutes idle before" value={String(rented.idleMinutes)} onChange={(v) => set({ idleMinutes: Number(v) })} options={IDLE.map((n) => ({ value: String(n), label: minutesSaid(n) }))} /></span>
           <span className="w-[150px] shrink-0"><Select size="sm" label="What then" value={rented.idleDo} onChange={(v) => set({ idleDo: v as RentedMachine["idleDo"] })} options={[{ value: "stop", label: "Stop it", note: "the disk keeps billing" }, { value: "terminate", label: "Delete the pod", note: "nothing billed, set up again next time" }]} /></span>
-          {r?.idleLeftMs != null && <IdleLeft ms={r.idleLeftMs} />}
+          {r?.idleLeftMs != null && <IdleLeft key={r.idleLeftMs} ms={r.idleLeftMs} />}
         </span>
       </Row>
       <Row label="Watchdog" help={WHY_WATCH}>
@@ -91,7 +96,7 @@ export function RentedRows({ machine, state, put }: { machine: Machine; state: M
       {!gone && (
         <Row label="Delete the pod" help="On RunPod: the pod and its disk go, with what is on them; nothing is billed after. Your renders are all here already. A network volume, if it has one, stays.">
           <span className="grow text-xs text-ink-2">Nothing billed after; set up again next time.</span>
-          <TwoStep tone="danger" label="Delete the pod…" title={`Delete ${machine.name || "the pod"} on RunPod`} note="its disk and what is on it go" yes="Delete" onYes={() => ops.stop.mutate({ machine: machine.id, how: "terminate" })} />
+          <TwoStep tone="danger" label="Delete the pod…" title={`Delete ${machine.name || "the pod"} on RunPod`} note={`${state?.running ? "its render is lost · " : ""}its disk and what is on it go`} yes="Delete" disabled={ops.stop.isPending} onYes={() => ops.stop.mutate({ machine: machine.id, how: "terminate" })} />
         </Row>
       )}
     </>

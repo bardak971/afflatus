@@ -5,7 +5,7 @@ import { Link } from "wouter";
 import type { MachineState } from "./api";
 import { useMenu } from "./ContextMenu";
 import { useQueue } from "./data";
-import { gb, usd } from "./format";
+import { gb, plural, usd } from "./format";
 import { useNow } from "./hooks";
 import { machineLabel, rentedSaid, rentedSpent, rentedUp, severalMachines } from "./machines";
 import { Popover } from "./Popover";
@@ -59,8 +59,8 @@ function busiest(machines: MachineState[]): string {
 
 /** What a machine does, in a few words, for its row. */
 function doing(m: MachineState, now: number): string {
-  // a rented pod: its own state first (stopped, starting), its cost while it runs
-  if (m.rented && m.rented.status !== "RUNNING") return rentedSaid(m.rented, now);
+  // a rented pod: its own state first (stopped, starting, its ComfyUI not up yet), its cost while it runs
+  if (m.rented && (m.rented.status !== "RUNNING" || m.rented.stopping || m.rented.answers === false)) return rentedSaid(m.rented, now);
   const cost = m.rented?.since ? ` · ${usd(rentedSpent(m.rented, now), true)}` : "";
   if (m.online === false) return m.locked ? "locked: its token is wrong" : "offline";
   if (m.running) return `${m.running.label}${m.running.steps ? ` · ${m.running.step}/${m.running.steps}` : ` · ${Math.round(m.running.progress * 100)} %`}${cost}`;
@@ -115,7 +115,7 @@ export function MachinesPill() {
         aria-expanded={open}
         onClick={() => setOpen(!open)}
         onContextMenu={(e) => { setOpen(false); menu.open(e, null); }}
-        data-tip={`${machines.map((m) => `${machineLabel(m)}: ${doing(m, now)}`).join("\n")}\nClick for each machine's figures and actions.`}
+        data-tip={`${machines.map((m) => `${machineLabel(m)}: ${doing(m, Date.now())}`).join("\n")}\nClick for each machine's figures and actions.`}
         className={cx("inline-flex h-7 min-w-0 shrink-0 items-center gap-2 rounded-full border border-line px-2.5 text-xs whitespace-nowrap hover:bg-hover", open && "ring-1 ring-accent")}
       >
         <span className="inline-flex shrink-0 items-center gap-1">
@@ -125,7 +125,7 @@ export function MachinesPill() {
             </span>
           ))}
         </span>
-        <span className="shrink-0 font-semibold text-ink">{machines.length}<span className="max-[1280px]:hidden"> ComfyUIs</span></span>
+        <span className="shrink-0 font-semibold text-ink">{machines.length}<span className="max-[1280px]:hidden"> {machines.length === 1 ? "ComfyUI" : "ComfyUIs"}</span></span>
         <span className="shrink-0 text-ink-2 max-[1440px]:hidden">{busiest(machines)}</span>
         {gpu && (
           <>
@@ -141,7 +141,7 @@ export function MachinesPill() {
         <Popover anchor={anchor} onClose={() => setOpen(false)} label="ComfyUIs" width={520} height={120 + machines.length * 64}>
           <div className="flex flex-col text-[12.5px]">
             <div className="flex items-center gap-2.5 px-3.5 py-3">
-              <span className="font-bold">{machines.length} ComfyUIs</span>
+              <span className="font-bold">{plural(machines.length, "ComfyUI")}</span>
               <span className="text-ink-2">{busiest(machines)}</span>
               <span className="grow" />
               <button type="button" className="rounded-md border border-line px-2.5 py-1 text-xs font-semibold hover:bg-hover" onClick={() => (allPaused ? ops.resume : ops.pause).mutate(undefined)}>

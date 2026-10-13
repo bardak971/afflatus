@@ -5,12 +5,13 @@ import { ChevronDown, ChevronRight, MoreHorizontal } from "lucide-react";
 import { api, type Machine, type MachineProbe, type MachineState } from "../../api";
 import { useMenu } from "../../ContextMenu";
 import { useQueue, useSettings } from "../../data";
-import { gb } from "../../format";
-import { machineLabel } from "../../machines";
+import { gb, plural } from "../../format";
+import { machineLabel, rentedSaid, rentedUp } from "../../machines";
 import { useQueueOps } from "../../queueOps";
 import { queryKeys } from "../../queryKeys";
 import { Button, ButtonLink, cx, ErrorNote, fieldClass, Segmented, TwoStep } from "../../ui";
 import { AccessRow } from "./AccessRow";
+import { useRentedOps } from "../../rentedOps";
 import { RunpodAdd } from "./RentedCard";
 import { RentedHead, RentedRows } from "./RentedRows";
 import { Block, Card, Fact, Row, Status } from "./Rows";
@@ -53,7 +54,7 @@ function useSaveMachines() {
     mutationFn: (machines: Machine[]) => api.saveSettings({ machines }),
     onSuccess: (saved) => {
       client.setQueryData(queryKeys.settings(), saved);
-      for (const queryKey of [queryKeys.machines(), queryKeys.queue(), queryKeys.setup()]) void client.invalidateQueries({ queryKey });
+      for (const queryKey of [queryKeys.machines(), queryKeys.queue(), queryKeys.setup(), queryKeys.runpodPods(), queryKeys.rentedSpending()]) void client.invalidateQueries({ queryKey });
     },
   });
 }
@@ -98,10 +99,10 @@ export function MachinesHead() {
   const queue = useQueue();
   const ops = useQueueOps();
   const machines = queue.data?.machines ?? [];
-  const said = [`${machines.filter((m) => m.running).length} rendering`, `${machines.filter((m) => m.paused).length} paused`, `${machines.filter((m) => m.online === false).length} offline`].filter((x) => !x.startsWith("0 ")).join(" · ");
+  const said = [`${machines.filter((m) => m.running).length} rendering`, `${machines.filter((m) => m.paused).length} paused`, `${machines.filter((m) => m.online === false && rentedUp(m)).length} offline`, `${machines.filter((m) => !rentedUp(m)).length} stopped`].filter((x) => !x.startsWith("0 ")).join(" · ");
   return (
     <div className="flex flex-wrap items-center gap-2.5 px-1">
-      <span className="text-[14px] font-bold">{machines.length} ComfyUIs</span>
+      <span className="text-[14px] font-bold">{plural(machines.length, "ComfyUI")}</span>
       {said && <span className="text-xs text-ink-2">{said}</span>}
       <span className="grow" />
       {queue.data?.paused
@@ -136,6 +137,9 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
   });
   const label = machineLabel(machine);
   const rented = Boolean(machine.rented);
+  // one Start and Stop for the head and the rows: a Delete under way holds Start and Stop too
+  const rentedOps = useRentedOps();
+  const billing = rented && state?.rented && state.rented.status !== "EXITED" && state.rented.status !== "GONE" && state.rented.status !== "TERMINATED";
   // a rented pod that came up or went: what was asked of it a moment ago (not answering) no longer holds
   const podStatus = state?.rented?.status;
   useEffect(() => {
@@ -147,7 +151,7 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
     if (asked) document.getElementById(`machine-${machine.id}`)?.scrollIntoView({ block: "start", behavior: "smooth" });
   }, [asked, machine.id]);
   // a rented pod's head says its own state (stopped, starting, running and its cost), with Start or Stop
-  const status = rented ? <RentedHead machine={machine} state={state} /> : !probe ? null : state?.paused
+  const status = rented ? <RentedHead machine={machine} state={state} ops={rentedOps} /> : !probe ? null : state?.paused
     ? <span className="text-[12.5px] font-semibold text-ink-2">Ⅱ Paused</span>
     : <Status ok={probe.online}>{probe.online ? `${state?.running ? "Rendering" : "Answering"}${probe.device ? ` · ${probe.device}` : ""}` : "Not answering"}</Status>;
   return (
@@ -201,12 +205,12 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
       <Row label="Takes" help="What the queue gives this machine. A job pinned to it (dragged onto its lane in the Queue) runs there whatever this says.">
         <Segmented oneLine label={`What ${label} takes`} value={machine.takes} options={TAKES} onChange={(takes) => put({ takes })} />
       </Row>
-      {rented && <RentedRows machine={machine} state={state} put={(r) => put({ rented: r })} />}
+      {rented && <RentedRows machine={machine} state={state} put={(r) => put({ rented: r })} ops={rentedOps} />}
       <AccessRow id={machine.id} label={label} probe={probe} url={machine.url} rented={rented} />
       {all.length > 1 && (
         <Row label="Order and removal" help="The first ComfyUI is the one the setup, the downloads and the node packs talk to. Removing one leaves what it rendered in the library; a job waiting for it goes to another machine.">
           {index > 0 && <Button size="sm" onClick={() => save.mutate([machine, ...all.filter((m) => m.id !== machine.id)])}>Make it the first</Button>}
-          <TwoStep tone="danger" label="Remove" title={`Remove ${label}`} note={rented ? "from Afflatus only: the pod stays on RunPod, as it is" : "what it rendered stays; waiting jobs go elsewhere"} yes="Remove" onYes={() => save.mutate(all.filter((m) => m.id !== machine.id))} />
+          <TwoStep tone="danger" label="Remove" title={`Remove ${label}`} note={rented ? (billing ? "from Afflatus only: it keeps running and billing on RunPod, and nothing stops it any more" : "from Afflatus only: the pod stays on RunPod, as it is") : "what it rendered stays; waiting jobs go elsewhere"} yes="Remove" onYes={() => save.mutate(all.filter((m) => m.id !== machine.id))} />
         </Row>
       )}
     </Card>
@@ -221,17 +225,18 @@ const TAKES_SAID: Record<Machine["takes"], string> = { all: "takes everything", 
 /** One machine in a line (past four of them): its state, its GPU, what it takes. A click opens its card. */
 function MachineLine({ machine, index, probe, state, onOpen }: { machine: Machine; index: number; probe: MachineProbe | undefined; state: MachineState | undefined; onOpen(): void }) {
   const label = machineLabel(machine);
-  const said = state?.paused ? "paused" : probe && !probe.online ? "not answering" : state?.running ? "rendering" : probe ? "answering" : "…";
+  const said = state?.rented && state.rented.status !== "RUNNING" ? rentedSaid(state.rented) : state?.paused ? "paused" : probe && !probe.online ? "not answering" : state?.running ? "rendering" : probe ? "answering" : "…";
   return (
     <button
       type="button"
       onClick={onOpen}
       aria-label={`${label}: open its settings`}
+      id={`machine-${machine.id}`}
       className="grid w-full min-w-0 grid-cols-[14px_minmax(120px,1fr)_110px_minmax(0,1fr)_120px] items-center gap-3 border-b border-line/60 px-[18px] py-2.5 text-left text-[13px] last:border-b-0 hover:bg-hover"
     >
       <ChevronRight size={13} className="text-ink-3" />
       <span className="flex min-w-0 items-baseline gap-2"><span className="truncate font-semibold">{label}</span>{index === 0 && <span className="shrink-0 text-xs text-ink-3">the first</span>}</span>
-      <span className={cx("text-xs font-semibold", said === "not answering" ? "text-warn-ink" : said === "paused" ? "text-ink-2" : "text-good")}>{said}</span>
+      <span className={cx("truncate text-xs font-semibold", said === "not answering" ? "text-warn-ink" : said === "paused" || (state?.rented && state.rented.status !== "RUNNING") ? "text-ink-2" : "text-good")}>{said}</span>
       <span className="truncate font-mono text-xs text-ink-2">{probe?.device ?? machine.url}</span>
       <span className="text-xs text-ink-2">{TAKES_SAID[machine.takes]}</span>
     </button>
@@ -243,6 +248,10 @@ export function MachineCards({ machines, probes, states }: { machines: Machine[]
   // the machine asked for by its id (?machine=) opens as a card, past four as well
   const asked = new URLSearchParams(useSearch()).get("machine");
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set(asked ? [asked] : []));
+  // asked again while the page is open (a menu's "Delete the pod…"): its card opens, folded or not
+  useEffect(() => {
+    if (asked) setOpen((was) => (was.has(asked) ? was : new Set([...was, asked])));
+  }, [asked]);
   const toggle = (id: string) => setOpen((was) => {
     const next = new Set(was);
     if (!next.delete(id)) next.add(id);
