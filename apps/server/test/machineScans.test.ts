@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
-import { familyOn, mergeScans } from "../src/machineScans";
+import { familyOn, lackOn, mergeScans } from "../src/machineScans";
 import type { Machine } from "../src/settings";
 
 const machine = (id: string, families: Record<string, boolean> = {}): Machine => ({ id, name: id, url: `http://${id}:8188`, dir: "", takes: "all", families });
@@ -44,5 +44,18 @@ describe("mergeScans", () => {
     const c = scan([recipe("h3-i2v", true)], false);
     const off = mergeScans([{ machine: machine("a"), scan: a }, { machine: machine("b", { h3: false }), scan: b }, { machine: machine("c"), scan: c }], { families: {} }, familyOf);
     expect(off.recipes.find((r) => r.id === "h3-i2v")?.ready).toBe(false);
+  });
+});
+
+describe("lackOn", () => {
+  const h3 = { id: "h3-i2v", family: "h3", inputs: [{ id: "unet", type: "model", folder: "diffusion_models", label: "Model" }] } as never;
+  it("says the files a machine lacks, and calls a family off only when it was switched off", () => {
+    const none = scan([recipe("h3-i2v", false, { unet: [] })]);
+    // no H3 file there: the family follows its files, so it is not "off", it lacks the file asked for
+    expect(lackOn(h3, { unet: "h3.safetensors" }, none, { families: {} }, machine("b"), familyOf)).toEqual({ off: false, files: [{ file: "h3.safetensors", folder: "diffusion_models" }] });
+    // switched off on that machine: said so, ready or not
+    const all = scan([recipe("h3-i2v", true, { unet: ["h3.safetensors"] })]);
+    expect(lackOn(h3, { unet: "h3.safetensors" }, all, { families: {} }, machine("b", { h3: false }), familyOf)).toEqual({ off: true, files: [] });
+    expect(lackOn(h3, { unet: "h3.safetensors" }, all, { families: {} }, machine("b"), familyOf)).toBeNull();
   });
 });

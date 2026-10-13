@@ -71,9 +71,12 @@ export interface Lack {
  */
 export function lackOn(recipe: Pick<Recipe<any>, "id" | "family" | "inputs">, input: Record<string, unknown>, scan: Scan, settings: Pick<Settings, "families">, machine: Pick<Machine, "families">, recipeFamily: (id: string) => string | undefined): Lack | null {
   const status = scan.recipes.find((r) => r.id === recipe.id);
-  const off = !familyOn(settings, machine, recipe.family, foundIn(scan, recipe.family, recipeFamily));
+  const on = familyOn(settings, machine, recipe.family, foundIn(scan, recipe.family, recipeFamily));
+  // "off" is said only of a family switched off by hand (there, or on every machine): one off because its files are not
+  // there is said by the files it lacks
+  const off = !on && (machine.families[recipe.family] ?? settings.families[recipe.family]) === false;
   const asked = filesAsked(recipe, input).filter(({ input: id, file }) => status?.options[id] && !status.options[id]!.includes(file));
-  if (status?.ready && !off && !asked.length) return null;
+  if (status?.ready && on && !asked.length) return null;
   const slots = scan.families.find((f) => f.id === recipe.family)?.slots ?? [];
   const files = [
     ...slots.filter((x) => status?.missingSlots.includes(x.id) && x.get).map((x) => ({ file: x.get!.file, folder: x.folder, url: x.get!.url })),

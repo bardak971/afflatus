@@ -163,6 +163,15 @@ export function WaitingList({ waiting, running, machines = [], onOrder, onRemove
                 <Chip tone="warn" tip="No machine has its files, or its family is off on every one. Settings › Models says what each machine has; or pin it to one (Run on) to download what it lacks there.">no machine can run it</Chip>
               </Link>
             )}
+            {/* only some machines can run it and none of those takes work now (paused, away): which, and why */}
+            {machines.length > 0 && !w.pinned && !w.machine && Boolean(w.runsOn?.length) && (
+              <span className="shrink-0 text-xs text-warn-ink" data-tip="Only these machines have its files (with its family on), and none of them takes work now. Resume one, or pin it to another machine (Run on) to download what it lacks there.">
+                waits for {w.runsOn!.map((id) => {
+                  const m = machines.find((x) => x.id === id);
+                  return `${m ? machineLabel(m) : id}${m?.paused ? " (paused)" : m?.online === false ? " (offline)" : ""}`;
+                }).join(", ")}
+              </span>
+            )}
             {onPin && freeNow(w) && (
               <button type="button" className="shrink-0 text-xs font-semibold text-accent hover:underline" data-tip="It waits for a machine that ends it sooner; this one is free now" onClick={() => onPin(w.id, freeNow(w)!.id)}>
                 Run on {machineLabel(freeNow(w)!)} now

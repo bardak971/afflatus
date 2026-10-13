@@ -98,7 +98,7 @@ function AllGrid({ machines, scans, onOpen }: { machines: Machine[]; scans: Arra
       title={<span className="flex items-center gap-1.5">Models <Help title="Models" text="Each model family on each machine: ready, how many of its operations are, off there (switched off, its files there), no files there, or away (not answering). Click a cell for that machine's tab. The switch turns the family off on every machine (out of the model lists), or back on wherever its files are." /></span>}
       status={
         <span className="flex gap-1">
-          {machines.map((m) => <span key={m.id} className="w-24 truncate text-center font-mono text-xs text-ink-3">{machineLabel(m)}</span>)}
+          {machines.map((m) => <span key={m.id} data-tip={machineLabel(m)} className="w-32 truncate text-center font-mono text-xs text-ink-3">{machineLabel(m)}</span>)}
           <span className="w-10" />
         </span>
       }
@@ -117,7 +117,7 @@ function AllGrid({ machines, scans, onOpen }: { machines: Machine[]; scans: Arra
                   onClick={() => onOpen(machines[i]!.id)}
                   data-tip={`${f.name} on ${machineLabel(machines[i]!)}: open its tab`}
                   className={cx(
-                    "h-7 w-24 rounded-md text-center text-xs font-semibold hover:bg-hover",
+                    "h-7 w-32 rounded-md text-center text-xs font-semibold hover:bg-hover",
                     c.kind === "on" ? (c.good === c.of ? "text-good" : "text-warn-ink") : "font-normal text-ink-3",
                   )}
                 >
