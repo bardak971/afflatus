@@ -122,8 +122,8 @@ describe("the web's API types match what the server answers", () => {
   });
 
   it("drafts and the kit", () => {
-    // the list's items add their cover, counts and models to the draft's own fields
-    agree<DraftView, Omit<Draft, "cover" | "coverKind" | "outputs" | "bytes" | "unused" | "models">>().toEqualTypeOf<true>();
+    // the list's items add their cover, counts, model and models to the draft's own fields
+    agree<DraftView, Omit<Draft, "cover" | "coverKind" | "outputs" | "bytes" | "unused" | "model" | "models">>().toEqualTypeOf<true>();
     // a kit item's definition is stored as JSON and sent back as read: the web's per-kind shapes are its only word on it
     agree<EntityView, Omit<Entity, "def" | "source">>().toEqualTypeOf<true>();
     agree<PresetFilesView, WebPresetFiles>().toEqualTypeOf<true>();

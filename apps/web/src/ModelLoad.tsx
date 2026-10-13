@@ -43,6 +43,9 @@ interface OpenForm {
  */
 const useStrip = create<{ form: OpenForm | null; place: { name: string; path: string | null } | "unfiled" | null }>(() => ({ form: null, place: null }));
 
+/** The form on screen, if any: what the machines' menus offer to load first (MachineMenu.tsx). */
+export const useStripForm = () => useStrip((s) => s.form);
+
 /** Put in a form: the strip speaks for it while it is on screen. */
 export function FormModel({ recipe, input, look }: OpenForm) {
   // told again only when something in the form changed: compared value by value, and written out whole only
@@ -113,7 +116,7 @@ export function StripModel() {
   if (severalMachines(queue.data).length) return form ? <ModelMenu form={form}><OfForm {...form} /></ModelMenu> : null;
   // a render still bringing its model in: the model is named as it will be held, but it is not in yet
   if (queue.data?.running?.phase === "loading" && queue.data.model) return <ModelMenu><Loading name={queue.data.model} /></ModelMenu>;
-  return <ModelMenu>{form ? <OfForm {...form} /> : <Held name={queue.data?.model ?? null} />}</ModelMenu>;
+  return <ModelMenu form={form ?? undefined}>{form ? <OfForm {...form} /> : <Held name={queue.data?.model ?? null} />}</ModelMenu>;
 }
 
 /**
