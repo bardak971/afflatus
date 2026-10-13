@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearch } from "wouter";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { api, type Machine, type Scan } from "../../api";
 import { useRecipes, useSettings } from "../../data";
@@ -31,6 +32,11 @@ export function ModelsByMachine() {
   const recipes = useRecipes();
   const machines = settings.data?.machines ?? [];
   const [tab, setTab] = useState("all");
+  // a machine asked for in the address (the command bar's "models on second gpu"): its tab opened
+  const askedMachine = new URLSearchParams(useSearch()).get("machine");
+  useEffect(() => {
+    if (askedMachine) setTab(askedMachine);
+  }, [askedMachine]);
   const scans = useQueries({ queries: machines.map((m) => ({ queryKey: queryKeys.setup(m.id), queryFn: ({ signal }: { signal: AbortSignal }) => api.setup({ signal }, m.id), staleTime: 60_000, enabled: machines.length > 1 })) });
   if (machines.length < 2) return <ModelsCard />;
   const said = settings.data?.families ?? {};

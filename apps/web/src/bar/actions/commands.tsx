@@ -1,4 +1,6 @@
-import { Bookmark, ChevronLeft, ChevronRight, Clapperboard, Eye, FileOutput, FileUp, Film, FlipHorizontal2, FolderPlus, Layers, Link2, MemoryStick, Pause, PenLine, Play, Plug, RotateCcw, Sparkles, Split, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { Bookmark, ChevronLeft, ChevronRight, Clapperboard, Eye, FileOutput, FileUp, Film, FlipHorizontal2, FolderPlus, Layers, Link2, MemoryStick, Pause, PenLine, Play, Plug, RotateCcw, Server, Sparkles, Split, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { openLoadPanel } from "../../LoadPanel";
+import { OPEN_MACHINES } from "../../MachinesPill";
 import { api, type RecipeInfo } from "../../api";
 import { emptyAll, restoreAll } from "../../binActions";
 import { snapEdge } from "../../fields/SizeField";
@@ -128,6 +130,26 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
         good(`${recipe.title}: loading its models`, "A job in the queue that renders nothing.", "/queue", "Open queue");
       };
       return [{ label: `Load ${recipe.title}`, icon: <MemoryStick size={14} />, note: "into ComfyUI, ahead of a render", run: () => run().catch(failed(`${recipe.title} could not be loaded`)) }];
+    }
+    case "machines":
+      return [{ label: "Show the ComfyUIs", icon: <Server size={14} />, note: "the status bar's panel", disabled: !queue?.machines?.length || queue.machines.length < 2, run: () => window.dispatchEvent(new Event(OPEN_MACHINES)) }];
+    case "machine-log":
+    case "machine-times":
+    case "machine-models": {
+      // one machine's view, by its name: the page opened on it (Queue.tsx, useTimesView.ts, ModelsMachines.tsx read it)
+      const m = machineByName(queue?.machines, c.machine);
+      if (!m) return [{ label: `No ComfyUI called ${c.machine}`, icon: <Server size={14} />, disabled: true, run: () => {} }];
+      const name = machineLabel(m);
+      const id = encodeURIComponent(m.id);
+      if (c.cmd === "machine-log") return [{ label: `ComfyUI log of ${name}`, icon: <Server size={14} />, note: m.online === false ? "it does not answer" : "its console", run: () => go(`/queue?view=log&machine=${id}`) }];
+      if (c.cmd === "machine-times") return [{ label: `Render times of ${name}`, icon: <Server size={14} />, run: () => go(`/queue?view=times&machine=${id}`) }];
+      return [{ label: `Models on ${name}`, icon: <Server size={14} />, note: "Settings › Models, its tab", run: () => go(`/settings/models?machine=${id}`) }];
+    }
+    case "load-panel": {
+      // the panel by the status bar (LoadPanel.tsx), on the machine named when there is one
+      const m = c.machine ? machineByName(queue?.machines, c.machine) : undefined;
+      if (c.machine && !m) return [{ label: `No ComfyUI called ${c.machine}`, icon: <MemoryStick size={14} />, disabled: true, run: () => {} }];
+      return [{ label: m ? `Load a model on ${machineLabel(m)}…` : "Load a model…", icon: <MemoryStick size={14} />, note: "this form's, a draft's, any by name", disabled: m?.online === false, run: () => openLoadPanel(m?.id) }];
     }
     case "unload": {
       if (c.machine) {

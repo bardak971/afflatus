@@ -858,9 +858,23 @@ ${JSON.stringify(input)}`;
     }, this.opts.offlineRetryMs);
   }
 
-  /** What the page's status poll (events.ts) found of the ComfyUIs: whether any answered (queueOffline.ts). */
-  noteReachable(ok: boolean): void {
+  /** What the page's status poll (events.ts) found of the ComfyUIs: whether any answered (queueOffline.ts), and each machine's own answer. */
+  noteReachable(ok: boolean, each: ReadonlyMap<string, boolean> = new Map()): void {
+    // each machine's own answer: a paused or idle machine is asked nothing by the queue, and was shown online after its
+    // ComfyUI had stopped (and away after it was back, until a job went to it)
+    let changed = false;
+    for (const lane of this.machineLanes()) {
+      const answered = each.get(lane.id);
+      if (answered === undefined || lane.reachable === answered) continue;
+      lane.reachable = answered;
+      changed = true;
+    }
     this.offline.noteReachable(ok);
+    if (changed) {
+      this.events.emit("queue");
+      // one back: what waited for it may go now
+      void this.pump();
+    }
   }
 
   /** A job ends. `from`: only when it is still in that state (a job that was cancelled meanwhile stays cancelled). */

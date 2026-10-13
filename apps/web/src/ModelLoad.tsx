@@ -113,10 +113,10 @@ export function StripModel() {
   const queue = useQueue();
   if (queue.data?.online === false) return null;
   // with several ComfyUIs the machines' pill says what each holds (MachinesPill): here only a form's own model, and where it is
-  if (severalMachines(queue.data).length) return form ? <ModelMenu form={form}><OfForm {...form} /></ModelMenu> : null;
+  if (severalMachines(queue.data).length) return form ? <ModelMenu><OfForm {...form} /></ModelMenu> : null;
   // a render still bringing its model in: the model is named as it will be held, but it is not in yet
   if (queue.data?.running?.phase === "loading" && queue.data.model) return <ModelMenu><Loading name={queue.data.model} /></ModelMenu>;
-  return <ModelMenu form={form ?? undefined}>{form ? <OfForm {...form} /> : <Held name={queue.data?.model ?? null} />}</ModelMenu>;
+  return <ModelMenu>{form ? <OfForm {...form} /> : <Held name={queue.data?.model ?? null} />}</ModelMenu>;
 }
 
 /**
@@ -124,7 +124,7 @@ export function StripModel() {
  * model of a recent draft ahead, the Queue. Its body is a chunk of its own, fetched while the page is idle: the strip is
  * in the first load, the menu is opened now and then.
  */
-function ModelMenu({ children, form }: { children: React.ReactNode; form?: OpenForm }) {
+function ModelMenu({ children }: { children: React.ReactNode }) {
   const menu = useMenu<true>();
   return (
     <span
@@ -134,7 +134,7 @@ function ModelMenu({ children, form }: { children: React.ReactNode; form?: OpenF
       onClick={(e) => { if (!(e.target as Element).closest("button")) menu.open(e, true); }}
     >
       {children}
-      {menu.menu && <Suspense fallback={null}><ModelMenuBody at={menu.menu.at} onClose={menu.close} form={form} /></Suspense>}
+      {menu.menu && <Suspense fallback={null}><ModelMenuBody at={menu.menu.at} onClose={menu.close} /></Suspense>}
     </span>
   );
 }
@@ -250,7 +250,7 @@ function OfForm({ recipe, input, look }: OpenForm) {
             type="button"
             className="shrink-0 font-bold text-accent hover:underline disabled:text-ink-3 disabled:no-underline"
             data-tip={several.length
-              ? "Load this form's model now, while you write, on the ComfyUI that would render it first (one that has its files). Right-click for the machine of your choosing. One step is run and nothing is saved."
+              ? "Load this form's model now, while you write, on the ComfyUI that would render it first (one that has its files). Right-click to load on a machine of your choosing, or another model. One step is run and nothing is saved."
               : "Load this form's checkpoint (or diffusion model, text encoder and VAE) into VRAM now, while you write. One step is run and nothing is saved; the render then starts at once."}
             disabled={load.isPending}
             onClick={() => load.mutate()}

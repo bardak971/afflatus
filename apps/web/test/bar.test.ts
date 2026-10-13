@@ -163,6 +163,17 @@ describe("modes and commands", () => {
     expect(parseCommand("pause Studio PC")).toEqual({ cmd: "pause", machine: "Studio PC" });
     expect(parseCommand("resume second gpu")).toEqual({ cmd: "resume", machine: "second gpu" });
     expect(parseCommand("use only Second GPU")).toEqual({ cmd: "use-only", machine: "Second GPU" });
+    // the Load a model panel, on a machine or not; a model by its name is still the load of that model
+    expect(parseCommand("load a model")).toEqual({ cmd: "load-panel" });
+    expect(parseCommand("load a model on Second GPU")).toEqual({ cmd: "load-panel", machine: "Second GPU" });
+    expect(parseCommand("load h3")).toEqual({ cmd: "load", model: "h3" });
+    // one machine's views, and every machine's panel
+    expect(parseCommand("log second gpu")).toEqual({ cmd: "machine-log", machine: "second gpu" });
+    expect(parseCommand("comfyui log of Studio PC")).toEqual({ cmd: "machine-log", machine: "Studio PC" });
+    expect(parseCommand("render times garage")).toEqual({ cmd: "machine-times", machine: "garage" });
+    expect(parseCommand("models on second gpu")).toEqual({ cmd: "machine-models", machine: "second gpu" });
+    expect(parseCommand("comfyuis")).toEqual({ cmd: "machines" });
+    expect(parseCommand("show the machines")).toEqual({ cmd: "machines" });
     expect(parseCommand("unload garage")).toEqual({ cmd: "unload", machine: "garage" });
     expect(parseCommand("empty the bin")).toEqual({ cmd: "empty-bin" });
     expect(parseCommand("bin unused takes")).toEqual({ cmd: "bin-unused" });
