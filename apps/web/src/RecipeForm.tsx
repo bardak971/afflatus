@@ -4,7 +4,7 @@ import { useAdvice } from "./advice";
 import { thumbUrl, type RecipeInfo, type RecipeStatus } from "./api";
 import { useModelSettings, useRecipes } from "./data";
 import { Field, sameValue } from "./fields";
-import { changedIn, formDefaults, layoutOf, matchesText, summariesOf } from "./form";
+import { changedIn, formDefaults, layoutOf, matchesText, summariesOf, thumbsOf } from "./form";
 import { InputsPart } from "./recipeForm/InputsPart";
 import { ModelDefaults } from "./recipeForm/ModelDefaults";
 import { OutputPart } from "./recipeForm/OutputPart";
@@ -119,11 +119,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
 
   // the Inputs part's folded line shows the frames chosen as small pictures before their names: a frame handed over
   // is seen at a glance without opening the part
-  const chosenThumbs = said.framesChosen.flatMap((i) => {
-    const v = values[i.id];
-    const id = typeof v === "string" ? v : v && typeof v === "object" && typeof (v as { asset?: unknown }).asset === "string" ? (v as { asset: string }).asset : null;
-    return id ? [{ key: i.id, id, label: i.label }] : [];
-  });
+  const chosenThumbs = thumbsOf(said.framesChosen, values);
   const inputsSummary = chosenThumbs.length ? (
     <span className="flex min-w-0 items-center gap-1.5">
       {chosenThumbs.map((t) => <img key={t.key} src={thumbUrl(t.id)} alt={t.label} draggable={false} className="h-5 w-5 shrink-0 rounded object-cover" />)}
