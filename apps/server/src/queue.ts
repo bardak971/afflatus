@@ -703,6 +703,8 @@ ${JSON.stringify(input)}`;
             if (!free(lane) || lane.reachable === false) continue;
             const next = gpuRows.find((r) => !taken.has(r.id) && where.get(r.id)?.lane === lane.id);
             if (!next) continue;
+            // a rented pod whose balance would run out before it ends (one pinned to it among them): it waits
+            if (await this.balanceLack(next, lane)) continue;
             this.startOn(lane, next);
             taken.add(next.id);
             started = true;
@@ -785,7 +787,8 @@ ${JSON.stringify(input)}`;
   private async ableOf(rows: JobRow[]): Promise<Map<string, Able>> {
     const out = new Map<string, Able>();
     const lanes = this.machineLanes().filter((l) => l.machine && l.comfy);
-    if (lanes.length < 2 || !rows.length) return out;
+    // one machine takes everything, unless it is a rented pod whose balance a job would outlast
+    if ((lanes.length < 2 && !lanes.some((l) => l.machine!.rented)) || !rows.length) return out;
     const settings = await readSettings(this.db).catch(() => null);
     if (!settings) return out;
     const machines = new Map(settings.machines.map((m) => [m.id, m]));
@@ -798,8 +801,9 @@ ${JSON.stringify(input)}`;
       const can = new Set<string>();
       const lacks: Record<string, Lack> = {};
       for (const { lane, scan } of scans) {
-        const lack = scan?.comfy.online ? lackOn(recipe, input, scan, settings, machines.get(lane.id) ?? lane.machine!, familyOf) : null;
-        if (lack) lacks[lane.id] = lack;
+        const lack = lanes.length > 1 && scan?.comfy.online ? lackOn(recipe, input, scan, settings, machines.get(lane.id) ?? lane.machine!, familyOf) : null;
+        const balance = await this.balanceLack(r, lane);
+        if (lack || balance) lacks[lane.id] = { ...(lack ?? { off: false, files: [] }), ...(balance ? { balance } : {}) };
         else can.add(lane.id);
       }
       out.set(r.id, { can, lacks });
@@ -868,6 +872,27 @@ ${JSON.stringify(input)}`;
   unavailable: (machine: string) => string | null = () => null;
   /** What is said of a rented machine on its row (rented.ts); null for a ComfyUI of its own. */
   rentedOf: (machine: Machine) => view.RentedRow | null = () => null;
+  /**
+   * Whether a job this long (ms, null: not known) ends on a rented pod before RunPod's balance does (rented.ts fitsBalance):
+   * at zero RunPod stops every pod, the render lost. One that does not is not sent to a rented pod.
+   */
+  fitsBalance: (ms: number | null) => { ok: boolean; leftMs: number | null } = () => ({ ok: true, leftMs: null });
+
+  /** How long a job would take on this machine, loading its model included, at the machine's learned pace (ms); null: not known. */
+  private async lengthOn(r: JobRow, machine: string): Promise<number | null> {
+    const recipe = r.recipe_id === CUT_JOB || r.recipe_id === EXPORT_JOB ? undefined : this.registry.recipe(r.recipe_id);
+    if (!recipe) return null;
+    const ms = await this.expected(recipe, readJson<Record<string, unknown>>(r.inputs, {}), true, r);
+    return ms === null ? null : ms * ((await this.paces()).get(machine) ?? 1);
+  }
+
+  /** What keeps a job off a rented pod for its balance: null when it ends there before the balance does. */
+  private async balanceLack(r: JobRow, lane: Lane): Promise<Lack["balance"] | null> {
+    if (!lane.machine?.rented) return null;
+    const need = await this.lengthOn(r, lane.id);
+    const fit = this.fitsBalance(need);
+    return fit.ok || need === null || fit.leftMs === null ? null : { leftMs: fit.leftMs, needMs: need };
+  }
 
   /** Whether a machine runs a job now, or is starting one. */
   runningOn(machine: string): boolean {

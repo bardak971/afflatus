@@ -3,7 +3,7 @@ import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comf
 import { imageParts, imagePublic } from "../src/podImage";
 import { POD_IMAGES } from "../src/runpod";
 import { readSettings } from "../src/settings";
-import { get, makeApp, makeFake, post, until, type TestApp } from "./helpers";
+import { get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /**
  * Deploy a GPU (rented.ts deploy) against a pretend RunPod: what is free, a pod made on the user's click only, locked from
@@ -111,7 +111,8 @@ describe("a deploy", () => {
 
   it("is refused at a spending cap without asking RunPod to make anything, and RunPod's balance refusal is said", async () => {
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 1, month: 0 } } });
-    await t.db.insertInto("rent_sessions").values({ id: "s1", machine_id: "rp-x", pod: "x", rate: 1, started_at: new Date(Date.now() - 2 * 3_600_000).toISOString(), ended_at: new Date().toISOString(), seen_at: null }).execute();
+    // $2 spent in the last ten minutes (within today, whatever the hour)
+    await t.db.insertInto("rent_sessions").values({ id: "s1", machine_id: "rp-x", pod: "x", rate: 12, started_at: new Date(Date.now() - 10 * 60_000).toISOString(), ended_at: new Date().toISOString(), seen_at: null }).execute();
     const capped = await deploy();
     expect(capped.statusCode).toBe(409);
     expect(capped.json().error).toMatch(/spending cap/);
@@ -169,11 +170,11 @@ describe("a deploy", () => {
   });
 
   it("is not idle before its ComfyUI first answered, however long its first boot takes", async () => {
+    // up on RunPod's side, its ComfyUI not yet (node packs, models)
+    runpod.comfyStaysDown = true;
     await deploy();
     const pod = runpod.pods[0]!;
     await until(() => pod.status === "RUNNING");
-    // up on RunPod's side, its ComfyUI not yet (node packs, models)
-    pod.comfy.down = true;
     await t.services.rented.poll();
     const real = Date.now;
     t.services.rented.now = () => real() + 15 * 60_000;
@@ -202,7 +203,8 @@ describe("a deploy", () => {
   });
 
   it("is refused before anything is made when its image cannot be pulled, and the dialog is told", async () => {
-    t.services.rented.imageCheck = async (image) => image !== POD_IMAGES.afflatus();
+    // neither build of the Afflatus image published
+    t.services.rented.imageCheck = async (image) => !image.startsWith(POD_IMAGES.afflatus());
     expect((await get(t.app, "/api/runpod/images")).json()).toEqual({ afflatus: false, runpod: true });
     const res = await deploy();
     expect(res.statusCode).toBe(409);
@@ -235,10 +237,10 @@ describe("a deploy", () => {
   });
 
   it("its first start is said as a step, not an error, until it drags", async () => {
+    runpod.comfyStaysDown = true;
     const id = (await deploy()).json().id as string;
     const pod = runpod.pods[0]!;
     await until(() => pod.status === "RUNNING");
-    pod.comfy.down = true;
     await t.services.rented.poll();
     const real = Date.now;
     t.services.rented.now = () => real() + 5 * 60_000;
@@ -300,5 +302,114 @@ describe("whether an image can be pulled", () => {
     expect(await imagePublic("ghcr.io/owner/afflatus-pod:0.1.0", answer(404))).toBe(false);
     expect(await imagePublic("ghcr.io/owner/afflatus-pod:0.1.0", answer(503))).toBeNull();
     expect(await imagePublic("ghcr.io/owner/afflatus-pod:0.1.0", (async () => { throw new Error("offline"); }) as typeof fetch)).toBeNull();
+  });
+});
+
+describe("what the rented GPUs cost: RunPod's bill as the truth", () => {
+  const spending = async () => (await get(t.app, "/api/rented/spending")).json().spending as { today: number; month: number; billed: boolean; runwayMs: number | null; spendPerHr: number | null };
+  const hourAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+
+  it("a pod RunPod has billed in full costs what RunPod billed, higher or lower than Afflatus's count", async () => {
+    // a run of another pod that ended 7 hours ago: Afflatus counted $0.50, RunPod billed $0.62
+    await t.db.insertInto("rent_sessions").values({ id: "old", machine_id: "rp-old", pod: "old", rate: 0.5, started_at: hourAgo(8), ended_at: hourAgo(7), seen_at: null }).execute();
+    runpod.bill = [{ podId: "old", startTime: hourAgo(8), endTime: hourAgo(7), totalAmount: 0.62 }];
+    await deploy();
+    const s = await spending();
+    expect(s.billed).toBe(true);
+    expect(s.month).toBeGreaterThanOrEqual(0.62);
+    expect(s.month).toBeLessThan(0.63);
+  });
+
+  it("a pod that runs counts the higher of RunPod's bill so far and Afflatus's count, from its deploy", async () => {
+    const id = (await deploy()).json().id as string;
+    const pod = runpod.pods[0]!;
+    await until(() => pod.status === "RUNNING");
+    await t.services.rented.poll();
+    expect((await readSettings(t.db)).machines.find((m) => m.id === id)?.rented?.deployed).toBe(true);
+    // RunPod has billed more than Afflatus has counted so far: its figure
+    runpod.bill = [{ podId: pod.id, startTime: hourAgo(1), endTime: new Date().toISOString(), totalAmount: 0.3 }];
+    t.services.rented.now = (() => { const real = Date.now; return () => real() + 6 * 60_000; })();
+    expect((await spending()).month).toBeGreaterThanOrEqual(0.3);
+    // RunPod's bill not readable: Afflatus's count alone, said so
+    runpod.bill = null;
+    t.services.rented.now = (() => { const real = Date.now; return () => real() + 12 * 60_000; })();
+    const s = await spending();
+    expect(s.billed).toBe(false);
+    expect(s.month).toBeGreaterThan(0);
+  });
+
+  it("a deployed pod's run starts at its deploy", async () => {
+    runpod.bootMs = 400;
+    const before = Date.now();
+    await deploy();
+    await until(() => runpod.pods[0]!.status === "RUNNING");
+    await t.services.rented.poll();
+    const run = (await t.db.selectFrom("rent_sessions").selectAll().execute())[0]!;
+    expect(Date.parse(run.started_at) - before).toBeLessThan(300);
+  });
+
+  it("says how long the balance lasts at what the account spends now, and holds back a job longer than that", async () => {
+    await deploy();
+    await until(() => runpod.pods[0]!.status === "RUNNING");
+    runpod.balance = 0.0733; // ten minutes at $0.44/h
+    t.services.rented.now = (() => { const real = Date.now; return () => real() + 61_000; })();
+    const s = await spending();
+    expect(s.spendPerHr).toBeCloseTo(0.44, 5);
+    expect(s.runwayMs).toBeGreaterThan(8 * 60_000);
+    expect(s.runwayMs).toBeLessThan(10 * 60_000);
+    // a 5-minute render does not fit in what is left, with its margin; nothing known of a job's length: not held back
+    expect(t.services.rented.fitsBalance(5 * 60_000).ok).toBe(false);
+    expect(t.services.rented.fitsBalance(null).ok).toBe(true);
+  });
+});
+
+describe("a render longer than the balance lasts", () => {
+  it("is not sent to a rented pod: it waits, and its row says why", async () => {
+    const id = (await deploy()).json().id as string;
+    const pod = runpod.pods[0]!;
+    await until(() => pod.status === "RUNNING");
+    await t.services.rented.poll();
+    // ten minutes of balance at what the pod costs; home paused, so that the pod is the only machine that could take it
+    runpod.balance = 0.0733;
+    t.services.rented.now = (() => { const real = Date.now; return () => real() + 61_000; })();
+    await get(t.app, "/api/rented/spending");
+    await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: { machine: "m1" } });
+    // a render known to take half an hour (its forecast, as learned renders would give it)
+    (t.services.queue as unknown as { expected: () => Promise<number> }).expected = async () => 30 * 60_000;
+    const queued = (await post(t.app, "/api/jobs", job())).json();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(t.services.queue.runningOn(id)).toBe(false);
+    const row = (await t.services.queue.status()).waiting.find((w) => w.id === queued.ids[0]);
+    expect(row?.lacks?.[id]?.balance?.needMs).toBe(30 * 60_000);
+  });
+});
+
+describe("the image's build and the watchdog's end", () => {
+  it("CUDA 13 where the GPU's hosts offer it, 12.8 where not", async () => {
+    await deploy();
+    expect(runpod.pods[0]!.image).toBe(POD_IMAGES.afflatus());
+    runpod.gpus = runpod.gpus.map((g) => (g.id === "NVIDIA L4" ? { ...g, cuda13: false } : g));
+    await deploy({ gpu: "NVIDIA L4" });
+    expect(runpod.pods[1]!.image).toBe(`${POD_IMAGES.afflatus()}-cu128`);
+  });
+
+  it("a pod without a volume: its watchdog terminates it; found stopped while Afflatus was away, Afflatus terminates what is left", async () => {
+    const id = (await deploy()).json().id as string;
+    const pod = runpod.pods[0]!;
+    expect(pod.env.AFFLATUS_WATCHDOG_ACTION).toBe("terminate");
+    await until(() => pod.status === "RUNNING");
+    await t.services.rented.poll();
+    // its watchdog stopped it (an older pack, or RunPod's own stop)
+    pod.status = "EXITED";
+    pod.diskGb = 0;
+    await t.services.rented.poll();
+    expect(pod.status).toBe("TERMINATED");
+    expect((await readSettings(t.db)).machines.some((m) => m.id === id)).toBe(false);
+    expect(runpod.secrets).toEqual({});
+  });
+
+  it("with a volume, its watchdog stops it as its idle does", async () => {
+    await deploy({ volume: "vol-ro", idleDo: "stop" });
+    expect(runpod.pods[0]!.env.AFFLATUS_WATCHDOG_ACTION).toBe("stop");
   });
 });

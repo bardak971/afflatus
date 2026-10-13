@@ -23,9 +23,10 @@ export const OPEN_MACHINES = "afflatus:machines";
 
 /** A machine's dot, in its state: filled in the accent while it renders, a green ring idle, grey paused, amber away. */
 function Dot({ m }: { m: MachineState }) {
-  // a rented pod that is not running: a grey ring while stopped, amber and pulsing while it starts
-  if (m.rented && m.rented.status !== "RUNNING") {
-    const starting = m.rented.status === "STARTING" || m.rented.status === "PROVISIONING";
+  // a rented pod that is not running: a grey ring while stopped, amber and pulsing while it starts (its first start too,
+  // RunPod saying it runs while its image is pulled)
+  if (m.rented && (m.rented.status !== "RUNNING" || m.rented.booting)) {
+    const starting = m.rented.status === "STARTING" || m.rented.status === "PROVISIONING" || m.rented.booting;
     return <span aria-hidden className={cx("size-[7px] shrink-0 rounded-full", starting ? "animate-pulse bg-warn" : "border-[1.5px] border-ink-3")} />;
   }
   if (m.online === false) return <span aria-hidden className="size-[7px] shrink-0 rounded-full bg-warn" />;

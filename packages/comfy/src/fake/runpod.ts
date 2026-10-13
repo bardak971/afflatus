@@ -29,6 +29,8 @@ export interface FakeGpu {
   memory: number;
   price: { secure: number | null; community: number | null };
   dataCenters: Array<{ id: string; availability: "HIGH" | "MEDIUM" | "LOW" | "NONE" }>;
+  /** Its hosts offer CUDA 13 (most do); without, 12.8 only. */
+  cuda13?: boolean;
 }
 
 /** A network volume of the account. */
@@ -77,6 +79,10 @@ export interface FakeRunpod {
   failCreate: number | null;
   /** A create that makes the pod, then answers this status all the same (an answer cut short). */
   createThenFail: number | null;
+  /** A pod comes up with its ComfyUI not answering (a first start pulling, a container that does not start). */
+  comfyStaysDown: boolean;
+  /** What RunPod billed, hour by hour (GET /v2/billing/pods): set by a test, as RunPod writes it some hours late; null: refused (403). */
+  bill: Array<{ podId: string; startTime: string; endTime: string; totalAmount: number }> | null;
   close(): Promise<void>;
 }
 
@@ -117,7 +123,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
   const fake: Omit<FakeRunpod, "url" | "close"> = {
     key: o.key, pods, calls: [], balance: o.balance ?? 23.4, bootMs: o.bootMs ?? 1500,
     failAction: {}, failDetail: null, secrets: {}, failSecrets: false, stopMs: 0, failPatch: null, hideEnv: false, failList: null, oddList: false, actionDelayMs: 0,
-    gpus: o.gpus ?? FAKE_GPUS, volumes: o.volumes ?? [], noCapacity: new Set(), failCreate: null, createThenFail: null,
+    gpus: o.gpus ?? FAKE_GPUS, volumes: o.volumes ?? [], noCapacity: new Set(), failCreate: null, createThenFail: null, bill: [], comfyStaysDown: false,
   };
   const timers = new Set<NodeJS.Timeout>();
   /** What the pods have cost: the stretches that ended, and what runs now. */
@@ -138,7 +144,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
       const ref = said ? /^\{\{\s*RUNPOD_SECRET_(.+?)\s*\}\}$/.exec(said) : null;
       const token = ref ? fake.secrets[ref[1]!] : said;
       if (token && pod.comfy.packVersion) pod.comfy.lock = { token, local: false, fixed: true };
-      pod.comfy.down = false;
+      pod.comfy.down = fake.comfyStaysDown;
     }, fake.bootMs);
     timers.add(t);
   };
@@ -154,13 +160,19 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
     };
     if (req.headers.authorization !== `Bearer ${fake.key}`) return json(401, { title: "Unauthorized", status: 401, detail: "invalid api key" });
     // the balance goes down as the pods run, by the second, as RunPod's does
-    if (req.method === "POST" && url.pathname === "/graphql") return json(200, { data: { myself: { clientBalance: fake.balance - spent() } } });
+    if (req.method === "POST" && url.pathname === "/graphql") return json(200, { data: { myself: { clientBalance: fake.balance - spent(), currentSpendPerHr: fake.pods.filter((p) => p.status === "RUNNING" || p.status === "STARTING" || p.status === "PROVISIONING").reduce((sum, p) => sum + p.rate, 0) } } });
+    if (req.method === "GET" && url.pathname === "/v2/billing/pods") {
+      if (!fake.bill) return json(403, { title: "Forbidden", status: 403, detail: "this key cannot read billing" });
+      const from = Date.parse(url.searchParams.get("startTime") ?? "") || 0;
+      return json(200, { records: fake.bill.filter((r) => Date.parse(r.endTime) > from).map((r) => ({ ...r, gpuAmount: r.totalAmount, cpuAmount: 0, diskAmount: 0 })), metadata: {} });
+    }
     // the GPUs a pod can be deployed on, their price on the cloud asked and how free they are, overall and by data center
     if (req.method === "GET" && url.pathname === "/v2/catalog/gpus") {
       const cloud = url.searchParams.get("cloud") === "COMMUNITY" ? "community" : "secure";
       return json(200, {
         gpus: fake.gpus.filter((g) => g.price[cloud] !== null).map((g) => ({
-          id: g.id, name: g.name, memory: g.memory, secure: g.price.secure !== null, community: g.price.community !== null,
+          id: g.id, name: g.name, memory: g.memory, manufacturer: "Nvidia", secure: g.price.secure !== null, community: g.price.community !== null,
+          cudaVersions: [{ version: "12.8", available: true }, { version: "13.0", available: g.cuda13 !== false }],
           price: { secure: g.price.secure, community: g.price.community },
           availability: g.dataCenters.reduce<FakeGpu["dataCenters"][number]["availability"]>((best, d) => (WORSE[d.availability] < WORSE[best] ? d.availability : best), "NONE"),
           dataCenters: g.dataCenters.map((d) => ({ id: d.id, name: d.id, availability: d.availability })),

@@ -49,6 +49,8 @@ export interface Job {
 export interface MachineLack {
   off: boolean;
   files: Array<{ file: string; folder: string; url?: string }>;
+  /** A rented pod whose RunPod balance runs out before the job would end there: how long it lasts, how long the job takes (ms). */
+  balance?: { leftMs: number; needMs: number };
 }
 /** A finished job as the queue's history shows it: with what it made and how. (Not how long it would take, nor how a clip joined: GET /api/jobs leaves those out.) */
 export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" | "pinned" | "startsInMs" | "runsOn" | "lacks"> {
@@ -283,6 +285,12 @@ export interface RentedSpending {
   caps: { day: number; month: number };
   balance: number | null;
   lowBalance: boolean;
+  /** What the account spends an hour now on RunPod (every pod and volume). */
+  spendPerHr: number | null;
+  /** How long the balance lasts at that spend (ms); null when nothing is spent, or not known. */
+  runwayMs: number | null;
+  /** Today and this month are RunPod's own bill (the last hours counted by Afflatus); false: Afflatus's count alone. */
+  billed: boolean;
 }
 
 /** What a machine row says of a rented pod. Afflatus never starts one on its own. */
@@ -317,7 +325,7 @@ export interface RentedState {
   /** Afflatus is stopping it now: it takes no new work. */
   stopping: boolean;
   /** Why Afflatus stopped or terminated it last: "boot" when its ComfyUI never answered. */
-  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | null;
+  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | null;
   /** Deployed and on its first start (its image pulled, ComfyUI starting): a normal step. */
   booting: boolean;
   error: string | null;

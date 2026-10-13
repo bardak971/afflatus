@@ -86,7 +86,7 @@ describe("money safety", () => {
     const id = await add(podA().id);
     await post(t.app, `/api/machines/${id}/start`, {});
     const token = (await readSettings(t.db)).machines.find((m) => m.id === id)!.token;
-    expect(podA().env).toEqual({ HF_TOKEN: "hf_keep_me", AFFLATUS_TOKEN: `{{ RUNPOD_SECRET_afflatus-${podA().id} }}`, AFFLATUS_WATCHDOG_MINUTES: "15" });
+    expect(podA().env).toEqual({ HF_TOKEN: "hf_keep_me", AFFLATUS_TOKEN: `{{ RUNPOD_SECRET_afflatus-${podA().id} }}`, AFFLATUS_WATCHDOG_MINUTES: "15", AFFLATUS_WATCHDOG_ACTION: "stop" });
     expect(runpod.secrets[`afflatus-${podA().id}`]).toBe(token);
   });
 
@@ -208,7 +208,7 @@ describe("money safety", () => {
     expect(row.rented?.error).toMatch(/shape Afflatus does not know/);
   });
 
-  it("closes a run that ended while Afflatus was away where it was last seen running", async () => {
+  it("closes a run that ended while Afflatus was away at the latest it could have run: its watchdog's minutes after it was last seen", async () => {
     const id = await add(podA().id);
     await started(id, podA);
     const seen = (await sessions())[0]!.seen_at!;
@@ -221,7 +221,8 @@ describe("money safety", () => {
     again.services.rented.now = () => real() + 10 * 3_600_000;
     await again.services.rented.poll();
     const closed = (await sessions())[0]!;
-    expect(Date.parse(closed.ended_at!) - Date.parse(seen)).toBeLessThan(5_000);
+    // its watchdog (15 min) stopped it at the latest that long after the last "still here", give or take its checks
+    expect(Date.parse(closed.ended_at!) - Date.parse(seen)).toBe(17 * 60_000);
     again.services.rented.stop();
   });
 
