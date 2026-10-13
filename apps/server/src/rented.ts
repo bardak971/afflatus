@@ -175,6 +175,11 @@ export class Rented {
     const settings = await readSettings(this.db);
     const rented = settings.machines.filter((m) => m.rented);
     for (const id of this.seen.keys()) if (!rented.some((m) => m.id === id)) this.seen.delete(id);
+    // a run still open for a machine that is no longer this pod (removed from Afflatus while it ran, or added again as
+    // another pod) is closed now: nothing would ever close it, and today's cost would go on counting it
+    const open = await this.db.selectFrom("rent_sessions").select(["id", "machine_id", "pod"]).where("ended_at", "is", null).execute();
+    const stray = open.filter((r) => !rented.some((m) => m.id === r.machine_id && m.rented!.pod === r.pod)).map((r) => r.id);
+    if (stray.length) await this.db.updateTable("rent_sessions").set({ ended_at: new Date(this.now()).toISOString() }).where("id", "in", stray).execute();
     if (!rented.length) return;
     if (!settings.runpodKey) {
       this.error = "No RunPod API key: set it in Settings › ComfyUI.";
