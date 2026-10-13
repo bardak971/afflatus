@@ -4,7 +4,7 @@ import { useLocation, useParams, useSearch } from "wouter";
 import { Search, X } from "lucide-react";
 import { fuzzyScore } from "@afflatus/core";
 import { api } from "../api";
-import { useFamilies, useRecipes, useSetup, useStorage } from "../data";
+import { useFamilies, useQueue, useRecipes, useSettings, useSetup, useStorage } from "../data";
 import { size } from "../format";
 import { scrollInside } from "../scrollInside";
 import { cx, Segmented } from "../ui";
@@ -19,6 +19,7 @@ import { PromptsCard, WritingCard } from "./settings/PromptsCard";
 import { StorageCard } from "./settings/StorageCard";
 import { UpdatesCard } from "./settings/UpdatesCard";
 import { BarCard } from "./settings/BarCard";
+import { RentedTab } from "./settings/RentedCard";
 import { INDEX, MOVED, settingHref, spotOf, tabHref, TABS, type Tab } from "./settings/settingsIndex";
 import { queryKeys } from "../queryKeys";
 
@@ -31,10 +32,15 @@ function useTabMarks(): Partial<Record<Tab, ReactNode>> {
   // the same query as About's: read once, kept
   const health = useQuery({ queryKey: queryKeys.health(), queryFn: () => api.health(), staleTime: Infinity });
   const comfy = setup.data?.comfy;
+  const podRunning = useQueue().data?.machines.some((m) => m.rented?.status === "RUNNING") ?? false;
+  // RunPod's balance low (RunPod stops pods at zero): said on the tab, as the Rented GPUs card's own read finds it
+  const anyRented = useSettings().data?.machines.some((m) => m.rented) ?? false;
+  const lowBalance = useQuery({ queryKey: queryKeys.rentedSpending(), queryFn: ({ signal }) => api.rentedSpending({ signal }), enabled: anyRented, staleTime: 60_000 }).data?.spending?.lowBalance ?? false;
   // operations of the families that are on that cannot run: a family turned off is a choice, not a problem
   const notReady = setup.data ? (recipes.data?.recipes ?? []).filter((r) => families.isOn(r.family) && !setup.data!.recipes.find((x) => x.id === r.id)?.ready).length : 0;
   return {
     comfyui: comfy && <span aria-label={comfy.online ? "connected" : "not answering"} className={cx("h-[7px] w-[7px] rounded-full", comfy.online ? "bg-good" : "bg-warn")} />,
+    rented: lowBalance ? <span className="rounded-md bg-warn-wash px-1.5 font-mono text-[10.5px] text-warn-ink">balance low</span> : podRunning && <span aria-label="a pod running" className="h-[7px] w-[7px] rounded-full bg-good" />,
     models: notReady > 0 && <span className="rounded-md bg-warn-wash px-1.5 font-mono text-[10.5px] text-warn-ink">{notReady} not ready</span>,
     storage: storage.data && <span className="font-mono text-[10.5px] font-normal text-ink-3">{size(storage.data.total)}</span>,
     about: health.data && <span className="font-mono text-[10.5px] font-normal text-ink-3">{/^\d/.test(health.data.version) ? `v${health.data.version}` : health.data.version}</span>,
@@ -99,6 +105,9 @@ export function Setup() {
     if (moved) go(`/settings/${moved}`, { replace: true });
   }, [moved, go]);
   const marks = useTabMarks();
+  // Rented GPUs once there is a RunPod key (its address opens it all the same, to type one)
+  const hasKey = Boolean(useSettings().data?.hasRunpodKey);
+  const tabs = TABS.filter((t) => t.id !== "rented" || hasKey || tab === "rented");
   const scroller = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   useFind(scroller, tab);
@@ -128,7 +137,7 @@ export function Setup() {
         <h1 className="shrink-0 text-xl font-semibold">Settings</h1>
         {/* in a narrow window the tabs scroll sideways and the search box gives up some width: both stay reachable */}
         <div className="min-w-0 shrink overflow-x-auto">
-          <Segmented<Tab> oneLine className="w-max" label="Settings" value={tab} options={TABS.map((t) => ({ value: t.id, label: marks[t.id] ? <span className="inline-flex items-center gap-1.5">{t.label}{marks[t.id]}</span> : t.label }))} onChange={open} />
+          <Segmented<Tab> oneLine className="w-max" label="Settings" value={tab} options={tabs.map((t) => ({ value: t.id, label: marks[t.id] ? <span className="inline-flex items-center gap-1.5">{t.label}{marks[t.id]}</span> : t.label }))} onChange={open} />
         </div>
         <span className="grow" />
         <div className="relative w-64 min-w-40 shrink">
@@ -151,10 +160,11 @@ export function Setup() {
         </div>
       </header>
 
-      {/* one column of cards, every setting one row */}
+      {/* one column of cards, every setting one row; ComfyUI and Rented GPUs take two in a wide window */}
       <div ref={scroller} className="min-h-0 grow overflow-y-auto pb-4">
-        <div className="flex max-w-[860px] flex-col gap-4">
+        <div className={cx("flex flex-col gap-4", tab === "comfyui" || tab === "rented" ? "max-w-[860px] min-[1600px]:max-w-[1736px]" : "max-w-[860px]")}>
           {tab === "comfyui" && <ComfyCard />}
+          {tab === "rented" && <RentedTab />}
           {tab === "models" && (
             <>
               <ModelsByMachine />
