@@ -162,10 +162,10 @@ function Pictures({ value, onChange, what, sent, face }: { value: string[]; onCh
 }
 
 /**
- * The part of a voice sample a model takes: 2 to 15 seconds (H3's voice sample, the only model that takes one yet), 8 when
- * none is set (the form's usual length; the owner's 8 s vs 15 s test will say which is better).
+ * The part of a voice sample a model takes: 2 to 15 seconds (H3's voice sample, the only model that takes one yet), the
+ * whole sample up to 15 s when none is set (15 s carried his voice better than 8 s, 2026-10-13).
  */
-const VOICE_PART = { min: 2, most: 15, usual: 8 };
+const VOICE_PART = { min: 2, most: 15, usual: 15 };
 
 /**
  * The voice sample, as one row: its player with Change and Remove, or a slot to choose or drop one in; under it, the part
