@@ -50,8 +50,8 @@ export interface RentedView {
   capped: boolean;
   /** Afflatus is stopping it now (idle, a cap, or the user): it takes no new work. */
   stopping: boolean;
-  /** Why Afflatus stopped or deleted it last, when it did. */
-  stoppedBy: "idle" | "cap" | "you" | null;
+  /** Why Afflatus stopped or terminated it last, when it did: "boot" when its ComfyUI never answered. */
+  stoppedBy: "idle" | "cap" | "you" | "boot" | null;
   /** What went wrong with this pod, or asking RunPod, when something did. */
   error: string | null;
 }
@@ -73,6 +73,12 @@ const TRANSITIONAL: ReadonlySet<string> = new Set(["PROVISIONING", "STARTING"]);
 const CAP_GRACE_MS = 60 * 60_000;
 /** How long RunPod is asked less often after it said to slow down (429). */
 const BACK_OFF_MS = 60_000;
+/** A pod running this long without its ComfyUI ever answering did not come up (its container failed): its idle action applies. */
+const BOOT_LIMIT_MS = 10 * 60_000;
+/** After this long running without an answer, its card says so (it is billed meanwhile). */
+const BOOT_SLOW_MS = 2 * 60_000;
+/** How long a Start waits for a pod just stopped to be stopped on RunPod's side before preparing it. */
+const SETTLE_MS = 30_000;
 
 interface Seen {
   pod: Pod | null;
@@ -98,11 +104,14 @@ interface Seen {
   bootNote: string | null;
   /** Its secret on RunPod was deleted (the pod is gone): not asked again at every read. */
   secretDropped: boolean;
+  /** When it was first seen running this time (ms), and whether its ComfyUI answered since. */
+  upAt: number | null;
+  answered: boolean;
 }
 
 const fresh = (): Seen => ({
   pod: null, rate: null, watchdog: "unknown", answers: null, busyAt: null, stoppedBy: null, stopAfter: false, cappedAt: null,
-  stopping: false, lockTried: false, seenRunningAt: null, epoch: 0, error: null, bootNote: null, secretDropped: false,
+  stopping: false, lockTried: false, seenRunningAt: null, epoch: 0, error: null, bootNote: null, secretDropped: false, upAt: null, answered: false,
 });
 
 export class Rented {
@@ -122,6 +131,8 @@ export class Rented {
    * unlocked (RunPod did not take the token for its start) is locked as soon as it is up, when its node pack can.
    */
   lockPod: ((machine: string) => Promise<unknown>) | null = null;
+  /** How often a Start asks RunPod whether a pod just stopped is stopped yet. */
+  settleEveryMs = 2_000;
   /** Where RunPod is asked, for a key: a test's stand-in. */
   client: (key: string) => Runpod = (key) => new Runpod(key);
   now: () => number = Date.now;
@@ -203,8 +214,14 @@ export class Rented {
       capped: s?.stopAfter ?? false,
       stopping: s?.stopping ?? false,
       stoppedBy: s?.stoppedBy ?? null,
-      error: s?.error ?? this.error ?? s?.bootNote ?? null,
+      error: s?.error ?? this.error ?? s?.bootNote ?? this.unanswered(s ?? null, status),
     };
+  }
+
+  /** What its card says of a pod RunPod has running that nothing answers on: its container may not have started. */
+  private unanswered(s: Seen | null, status: RentedView["status"]): string | null {
+    if (status !== "RUNNING" || !s?.upAt || s.answered || this.now() - s.upAt < BOOT_SLOW_MS) return null;
+    return `RunPod says it is running, but nothing answers on ${COMFY_PORT} after ${Math.round((this.now() - s.upAt) / 60_000)} min: its container may not have started (look at its logs on RunPod). It is billed meanwhile; with no answer by ${BOOT_LIMIT_MS / 60_000} min, its idle action applies.`;
   }
 
   /** The user's pods on RunPod, for adding one (Settings › ComfyUI): which expose ComfyUI, which are added already. */
@@ -306,12 +323,21 @@ export class Rented {
       s.cappedAt = null;
       s.lockTried = false;
       s.answers = null;
+      s.upAt = null;
+      s.answered = false;
       if (s.stopping && pod?.status !== "STARTING") s.stopping = false;
       if (!pod || !TRANSITIONAL.has(pod.status)) s.bootNote = null;
       return changed;
     }
     if (s.stoppedBy && !before) s.stoppedBy = null;
+    s.upAt ??= this.now();
     const answers = await this.alive(m, s);
+    if (answers) s.answered = true;
+    // up this long and its ComfyUI never answered: its container failed to start, or ComfyUI on it did; billed for nothing
+    if (!s.answered && this.now() - s.upAt >= BOOT_LIMIT_MS && !this.queue.runningOn(m.id)) {
+      await this.act(m, m.rented!.idleDo, "boot");
+      return true;
+    }
     // up and open (RunPod did not take its token for the start, or it was added running): locked now, once a session
     if (answers && !s.lockTried && this.lockPod && (await this.isOpen(m))) {
       s.lockTried = true;
@@ -373,25 +399,26 @@ export class Rented {
     const minutes = m.rented!.watchdogMinutes;
     const comfy = await this.comfyOf(m.id);
     if (!comfy) return false;
+    // whether ComfyUI answers is its own status: the provider's proxy answers too (a 404 when no container is behind it), and
+    // what the watchdog's route answers says only whether the pack is there
+    const up = await comfy.client.status().then(() => true, () => false);
+    s.answers = up;
+    // its ComfyUI not answering: the pack's watchdog in it is not known to be there either
+    if (!up) {
+      s.watchdog = "unknown";
+      return false;
+    }
     const res = await comfy.client.raw("/afflatus/alive", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ minutes }), signal: AbortSignal.timeout(8000) }).catch(() => null);
-    // no answer: ComfyUI still starting on it, or down; a 404: no pack, or one without the watchdog (ComfyUI answers all the
-    // same); a 401: locked against Afflatus's token; `can` false: the pack has no way to stop this pod
-    let answers = false;
+    // `can` false: the pack has no way to stop this pod; refused (a 404, or a 405 from an older ComfyUI whose page answers every
+    // address): no pack, or one without the watchdog
     if (res?.ok) {
       const said = (await res.json().catch(() => null)) as { can?: boolean } | null;
       s.watchdog = minutes > 0 && said?.can ? "on" : "none";
-      answers = true;
     } else if (res) {
-      // refused by ComfyUI itself (a 404, or a 405 from an older ComfyUI whose page answers every address): it answers, with
-      // no watchdog; locked against Afflatus's token (401), or the provider's proxy with no ComfyUI behind it (5xx), it does not
-      if (res.status >= 400 && res.status < 500 && res.status !== 401) {
-        s.watchdog = "none";
-        answers = true;
-      }
+      if (res.status !== 401) s.watchdog = "none";
       await res.body?.cancel().catch(() => {});
     }
-    s.answers = answers;
-    return answers;
+    return true;
   }
 
   /** Idle long enough, or a cap reached once its render ends: stopped (or deleted, as its idle choice says). */
@@ -483,8 +510,15 @@ export class Rented {
     }
     try {
       const client = this.client(key);
-      const pod = (await client.pods()).find((p) => p.id === m.rented!.pod) ?? null;
-      if (!pod || (pod.status !== "EXITED" && pod.status !== "ERROR")) return null;
+      // a pod just stopped is still stopping on RunPod's side for some seconds: waited for, or it would start unprepared
+      let pod: Pod | null = null;
+      for (const ends = this.now() + SETTLE_MS; ; ) {
+        pod = await client.pod(m.rented!.pod);
+        if (!pod || pod.status === "EXITED" || pod.status === "ERROR" || this.now() >= ends) break;
+        await new Promise((r) => setTimeout(r, this.settleEveryMs));
+      }
+      if (!pod) return null;
+      if (pod.status !== "EXITED" && pod.status !== "ERROR") throw new Error(`RunPod still said it was ${pod.status.toLowerCase()} ${SETTLE_MS / 1000} s after it was stopped`);
       if (!pod.env) throw new Error("RunPod did not say the pod's environment, which Afflatus does not overwrite blind");
       const minutes = String(m.rented!.watchdogMinutes);
       // the token kept as a secret of the account (encrypted at RunPod, given to the pod at boot): its environment, which
@@ -566,7 +600,7 @@ export class Rented {
       s.stopping = s.pod?.status === "RUNNING";
       await this.session(m, s.pod, s);
     }
-    if (why === "idle" || why === "cap") console.log(`[rented] ${m.name || m.id}: ${action === "terminate" ? "deleted" : "stopped"} (${why === "idle" ? `idle ${m.rented!.idleMinutes} min` : "a spending cap"})`);
+    if (why === "idle" || why === "cap" || why === "boot") console.log(`[rented] ${m.name || m.id}: ${action === "terminate" ? "terminated" : "stopped"} (${why === "idle" ? `idle ${m.rented!.idleMinutes} min` : why === "boot" ? `its ComfyUI never answered in ${BOOT_LIMIT_MS / 60_000} min` : "a spending cap"})`);
     this.events.emit("queue");
     // read again soon, then at the fast pace while it moves
     this.kick(1500);

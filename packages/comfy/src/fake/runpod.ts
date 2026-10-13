@@ -38,6 +38,8 @@ export interface FakeRunpod {
   /** The account's secrets, by name (their values, which the real one never gives back); `failSecrets`: a key that may not make them. */
   secrets: Record<string, string>;
   failSecrets: boolean;
+  /** How long a stopped pod still says RUNNING (stopping on RunPod's side); 0: at once. */
+  stopMs: number;
   failPatch: number | null;
   hideEnv: boolean;
   failList: number | null;
@@ -70,7 +72,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
   });
   const fake: Omit<FakeRunpod, "url" | "close"> = {
     key: o.key, pods, calls: [], balance: o.balance ?? 23.4, bootMs: o.bootMs ?? 1500,
-    failAction: {}, failDetail: null, secrets: {}, failSecrets: false, failPatch: null, hideEnv: false, failList: null, oddList: false, actionDelayMs: 0,
+    failAction: {}, failDetail: null, secrets: {}, failSecrets: false, stopMs: 0, failPatch: null, hideEnv: false, failList: null, oddList: false, actionDelayMs: 0,
   };
   const timers = new Set<NodeJS.Timeout>();
   /** What the pods have cost: the stretches that ended, and what runs now. */
@@ -124,8 +126,16 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
         return json(204);
       }
     }
-    // a pod's environment, replaced whole, for its next start
+    // one pod, read on its own
     const one = /^\/v2\/pods\/([^/]+)$/.exec(url.pathname);
+    if (req.method === "GET" && one) {
+      const found = fake.pods.find((p) => p.id === decodeURIComponent(one[1]!) && p.status !== "TERMINATED");
+      if (!found) return json(404, { title: "Not Found", status: 404, detail: "pod not found" });
+      const r = raw(found) as Record<string, unknown>;
+      if (fake.hideEnv) delete r.env;
+      return json(200, r);
+    }
+    // a pod's environment, replaced whole, for its next start
     if (req.method === "PATCH" && one) {
       if (fake.failPatch) return json(fake.failPatch, { title: "Refused", status: fake.failPatch, detail: "update refused" });
       const target = fake.pods.find((p) => p.id === decodeURIComponent(one[1]!) && p.status !== "TERMINATED");
@@ -151,9 +161,19 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
         return json(204);
       }
       if (action === "stop") {
-        pod.status = "EXITED";
-        pod.startedAt = null;
-        pod.comfy.down = true;
+        // stopping takes a moment on RunPod's side: the pod still says RUNNING for `stopMs`
+        const stopping = () => {
+          pod.status = "EXITED";
+          pod.startedAt = null;
+          pod.comfy.down = true;
+        };
+        if (fake.stopMs) {
+          const t = setTimeout(() => {
+            timers.delete(t);
+            stopping();
+          }, fake.stopMs);
+          timers.add(t);
+        } else stopping();
       } else if (action === "start") {
         pod.status = "STARTING";
         const t = setTimeout(() => {

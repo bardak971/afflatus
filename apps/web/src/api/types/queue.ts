@@ -294,7 +294,7 @@ export interface RentedState {
   capped: boolean;
   /** Afflatus is stopping it now: it takes no new work. */
   stopping: boolean;
-  /** Why Afflatus stopped or deleted it last. */
-  stoppedBy: "idle" | "cap" | "you" | null;
+  /** Why Afflatus stopped or terminated it last: "boot" when its ComfyUI never answered. */
+  stoppedBy: "idle" | "cap" | "you" | "boot" | null;
   error: string | null;
 }
