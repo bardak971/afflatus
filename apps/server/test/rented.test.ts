@@ -218,8 +218,7 @@ describe("a rented machine", () => {
     await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
     await t.services.rented.poll();
     expect((await sessions()).filter((r) => !r.ended_at)).toHaveLength(1);
-    const machines = (await get(t.app, "/api/settings")).json().machines.filter((m: { id: string }) => m.id !== id);
-    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines } });
+    await post(t.app, `/api/machines/${id}/remove`, {});
     await t.services.rented.poll();
     expect((await sessions()).filter((r) => !r.ended_at)).toEqual([]);
     // what it ran stays counted, and no more is added

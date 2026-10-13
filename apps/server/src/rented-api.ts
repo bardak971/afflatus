@@ -1,22 +1,42 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { httpError } from "./errors";
-import { podUrl } from "./runpod";
+import { podMachineId, podUrl } from "./runpod";
 import type { Services } from "./services";
-import { readSettings, updateSettings } from "./settings";
+import { deploySchema, readSettings, updateSettings } from "./settings";
 
 /**
- * Rented machines (rented.ts): the user's pods on RunPod listed for adding one, a pod added as a machine, Start and Stop (or
- * Delete) by the user, and what they cost. Nothing here starts a pod unless the user asked: Start is a route of its own.
+ * Rented machines (rented.ts): the user's pods on RunPod listed for adding one, a pod added as a machine, a GPU deployed,
+ * Start and Stop (or Terminate) by the user, and what they cost. Nothing here starts or deploys a pod unless the user asked:
+ * Start and Deploy are routes of their own, each a click.
  */
-/** A pod's machine id: "rp-" and its id, as a machine id may be written (lower-case letters, digits, dashes; 24 at most). */
-export const podMachineId = (pod: string) => `rp-${pod.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 21)}`;
 
 export function registerRented(app: FastifyInstance, s: Services): void {
   const params = z.object({ id: z.string().max(40) });
 
   /** The user's pods, read with the key: which expose ComfyUI's port, which are added already. Read-only. */
   app.get("/api/runpod/pods", async () => ({ pods: await s.rented.pods() }));
+
+  /** The GPUs a pod can be deployed on now, on that cloud, with their price and where they are free; read-only. */
+  app.get("/api/runpod/gpus", async (req) => {
+    const { cloud } = z.object({ cloud: z.enum(["SECURE", "COMMUNITY"]).default("SECURE") }).parse(req.query);
+    return { gpus: await s.rented.gpus(cloud) };
+  });
+
+  /** The account's network volumes; read-only. */
+  app.get("/api/runpod/volumes", async () => ({ volumes: await s.rented.volumes() }));
+
+  /** Whether each image a deploy may run can be pulled now: the dialog says which cannot. */
+  app.get("/api/runpod/images", async () => s.rented.images());
+
+  /** A machine removed from Afflatus (its card's Remove): a rented pod is left on RunPod as it is, its secret until it goes. */
+  app.post("/api/machines/:id/remove", async (req) => {
+    await s.rented.remove(params.parse(req.params).id);
+    return { ok: true };
+  });
+
+  /** A GPU deployed, as the dialog asked: billed from now. The user's click only; refused at a spending cap. */
+  app.post("/api/runpod/deploy", async (req) => s.rented.deploy(deploySchema.parse(req.body)));
 
   /** A pod added as a machine, as it is (running or stopped): its ComfyUI's address worked out from it. Nothing is started. */
   app.post("/api/runpod/add", async (req) => {
@@ -34,8 +54,9 @@ export function registerRented(app: FastifyInstance, s: Services): void {
       // idle: without a volume, a stop keeps nothing (its container disk is erased) and its GPU may be taken meanwhile, so that
       // it cannot start again: terminated then; with one, stopped (its disk kept, billed)
       const volume = found.networkVolume || found.diskGb > 0;
-      const rented = { provider: "runpod" as const, pod: found.id, idleMinutes: 10, idleDo: volume ? ("stop" as const) : ("terminate" as const), watchdogMinutes: 15, openPorts: false, closedPorts: [] };
-      return { machines: [...current.machines, { id, name: found.name.slice(0, 40), url: podUrl(found.id), dir: "", takes: "all", families: {}, rented }] };
+      const rented = { provider: "runpod" as const, pod: found.id, idleMinutes: 10, idleDo: volume ? ("stop" as const) : ("terminate" as const), watchdogMinutes: 15, openPorts: false, closedPorts: [], secret: "", deployed: false, deployedAt: "" };
+      // added again: its secret is its own once more, not one to delete when it goes
+      return { machines: [...current.machines, { id, name: found.name.slice(0, 40), url: podUrl(found.id), dir: "", takes: "all", families: {}, rented }], leftSecrets: current.leftSecrets.filter((l) => l.pod !== found.id) };
     });
     s.queue.events.emit("setup");
     await s.rented.poll().catch(() => {});

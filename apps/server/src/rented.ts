@@ -4,8 +4,9 @@ import type { Comfy } from "./comfy";
 import type { Db } from "./db";
 import { httpError } from "./errors";
 import { newToken } from "./lock-api";
-import { COMFY_PORT, exposesComfy, LOCK_ENV, Runpod, RunpodError, secretRef, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ENV, type Pod, type PodStatus } from "./runpod";
-import { readSettings, updateSettings, type Machine } from "./settings";
+import { COMFY_PORT, exposesComfy, LOCK_ENV, noCapacity, POD_IMAGES, podMachineId, podUrl, Runpod, RunpodError, RunpodShape, secretRef, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ENV, type GpuOffer, type NetworkVolume, type Pod, type PodSpec, type PodStatus } from "./runpod";
+import { imagePublic } from "./podImage";
+import { readSettings, updateSettings, type DeployAsk, type Machine, type Settings } from "./settings";
 
 /**
  * Rented machines: pods the user made on RunPod and added to Afflatus as machines. Afflatus never starts one on its own:
@@ -69,12 +70,28 @@ export interface Spending {
 const LOW_BALANCE = 5;
 const HOUR = 3_600_000;
 const TRANSITIONAL: ReadonlySet<string> = new Set(["PROVISIONING", "STARTING"]);
+/**
+ * Billed by RunPod: running, and on its way up (a pod provisioning or starting holds its GPU). Counted from then, so that a
+ * pod slow to come up reaches a cap too; RunPod's bill stays the reference.
+ */
+const BILLED: ReadonlySet<string> = new Set(["RUNNING", "STARTING", "PROVISIONING"]);
 /** After a cap, how long a render that does not end is waited for before the pod is stopped all the same. */
 const CAP_GRACE_MS = 60 * 60_000;
 /** How long RunPod is asked less often after it said to slow down (429). */
 const BACK_OFF_MS = 60_000;
 /** A pod running this long without its ComfyUI ever answering did not come up (its container failed): its idle action applies. */
 const BOOT_LIMIT_MS = 10 * 60_000;
+/**
+ * The same for a pod deployed from Afflatus: its first start pulls its image (several GB), which RunPod says may take long
+ * on a host that never had it.
+ */
+const DEPLOYED_BOOT_LIMIT_MS = 20 * 60_000;
+/** The freest data center first, for a deploy. */
+const FREEST = { HIGH: 0, MEDIUM: 1, LOW: 2, NONE: 3 } as const;
+/** How long a pod may run without its ComfyUI answering before its idle action applies. */
+const bootLimit = (m: Machine) => (m.rented?.deployed ? DEPLOYED_BOOT_LIMIT_MS : BOOT_LIMIT_MS);
+/** The RunPod secret its token is kept in. */
+const secretOf = (m: Machine) => m.rented!.secret || tokenSecret(m.rented!.pod);
 /** After this long running without an answer, its card says so (it is billed meanwhile). */
 const BOOT_SLOW_MS = 2 * 60_000;
 /** How long a Start waits for a pod just stopped to be stopped on RunPod's side before preparing it. */
@@ -107,11 +124,14 @@ interface Seen {
   /** When it was first seen running this time (ms), and whether its ComfyUI answered since. */
   upAt: number | null;
   answered: boolean;
+  /** Read at least once: what a later read finds is a change only when it differs. */
+  read: boolean;
 }
 
 const fresh = (): Seen => ({
   pod: null, rate: null, watchdog: "unknown", answers: null, busyAt: null, stoppedBy: null, stopAfter: false, cappedAt: null,
   stopping: false, lockTried: false, seenRunningAt: null, epoch: 0, error: null, bootNote: null, secretDropped: false, upAt: null, answered: false,
+  read: false,
 });
 
 export class Rented {
@@ -120,6 +140,14 @@ export class Rented {
   private error: string | null = null;
   private timer: NodeJS.Timeout | null = null;
   private polling: Promise<void> | null = null;
+  /** One more read asked for while `polling` runs: it follows that one. */
+  private pollAgain: Promise<void> | null = null;
+  /** A read is saying "setup" itself: not a change to read again for. */
+  private announcing = false;
+  /** Stopped for good (Afflatus shutting down): no read starts, a follow-up read included. */
+  private stopped = false;
+  /** A deploy under way: a second one (another tab, Deploy again pressed twice) waits for it to end. */
+  private deploying = false;
   private balanceSeen: { at: number; value: number | null } | null = null;
   /** RunPod said to slow down: not asked again before this (ms). */
   private quietUntil = 0;
@@ -149,7 +177,11 @@ export class Rented {
     if (this.running) return;
     this.running = true;
     this.kick(0);
-    this.events.on("setup", () => void this.poll().catch(() => {}));
+    // a change of the setup (a machine added, a cap changed) is read at once; never the one a read itself announces, or each
+    // read would start the next
+    this.events.on("setup", () => {
+      if (!this.announcing) void this.poll().catch(() => {});
+    });
   }
 
   private running = false;
@@ -164,12 +196,14 @@ export class Rented {
 
   private async tick(): Promise<void> {
     await this.poll().catch((err: Error) => console.warn(`[rented] ${err.message}`));
-    const fast = [...this.seen.values()].some((s) => s.stopping || (s.pod && TRANSITIONAL.has(s.pod.status)));
+    // a pod starting or stopping moves within seconds; one provisioning pulls its image, minutes: read at the usual pace
+    const fast = [...this.seen.values()].some((s) => s.stopping || s.pod?.status === "STARTING");
     this.kick(fast ? this.fastMs : this.everyMs);
   }
 
   stop(): void {
     this.running = false;
+    this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
   }
@@ -214,17 +248,136 @@ export class Rented {
       capped: s?.stopAfter ?? false,
       stopping: s?.stopping ?? false,
       stoppedBy: s?.stoppedBy ?? null,
-      error: s?.error ?? this.error ?? s?.bootNote ?? this.unanswered(s ?? null, status),
+      error: s?.error ?? this.error ?? s?.bootNote ?? this.unanswered(s ?? null, status, bootLimit(machine)),
     };
   }
 
   /** What its card says of a pod RunPod has running that nothing answers on: its container may not have started. */
-  private unanswered(s: Seen | null, status: RentedView["status"]): string | null {
+  private unanswered(s: Seen | null, status: RentedView["status"], limit: number): string | null {
     if (status !== "RUNNING" || !s?.upAt || s.answered || this.now() - s.upAt < BOOT_SLOW_MS) return null;
-    return `RunPod says it is running, but nothing answers on ${COMFY_PORT} after ${Math.round((this.now() - s.upAt) / 60_000)} min: its container may not have started (look at its logs on RunPod). It is billed meanwhile; with no answer by ${BOOT_LIMIT_MS / 60_000} min, its idle action applies.`;
+    return `RunPod says it is running, but nothing answers on ${COMFY_PORT} after ${Math.round((this.now() - s.upAt) / 60_000)} min: its image may still be pulling, or its container did not start (look at its logs on RunPod). It is billed meanwhile; with no answer by ${limit / 60_000} min, its idle action applies.`;
   }
 
-  /** The user's pods on RunPod, for adding one (Settings › ComfyUI): which expose ComfyUI, which are added already. */
+  /** The GPUs a pod can be deployed on now, on that cloud (Deploy a GPU). */
+  async gpus(cloud: PodSpec["cloud"]): Promise<GpuOffer[]> {
+    const s = await readSettings(this.db);
+    if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
+    return this.client(s.runpodKey).gpus(cloud).catch((err: Error) => {
+      throw httpError(err.message, 502);
+    });
+  }
+
+  /** The account's network volumes (Deploy a GPU). */
+  async volumes(): Promise<NetworkVolume[]> {
+    const s = await readSettings(this.db);
+    if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
+    return this.client(s.runpodKey).volumes().catch((err: Error) => {
+      throw httpError(err.message, 502);
+    });
+  }
+
+  /**
+   * A GPU deployed, as the user asked in the Deploy dialog: a new pod of that GPU, in its freest data center first (in the
+   * volume's, with one), its ComfyUI locked from its first second by a token kept as a RunPod secret, its watchdog armed,
+   * only ComfyUI's port open; added as a machine at once, and the choices kept for the next deploy. Refused at a spending
+   * cap. Billed from now: Afflatus never deploys on its own.
+   */
+  async deploy(ask: DeployAsk): Promise<{ id: string }> {
+    if (this.deploying) throw httpError("A deploy is under way: wait for it to end.", 409);
+    this.deploying = true;
+    try {
+      return await this.deployNow(ask);
+    } finally {
+      this.deploying = false;
+    }
+  }
+
+  private async deployNow(ask: DeployAsk): Promise<{ id: string }> {
+    const s = await readSettings(this.db);
+    if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
+    const spent = await this.spent();
+    if ((s.rentCaps.day > 0 && spent.today >= s.rentCaps.day) || (s.rentCaps.month > 0 && spent.month >= s.rentCaps.month)) {
+      throw httpError("A spending cap is reached: raise it in Settings › Rented GPUs to deploy.", 409);
+    }
+    // an image RunPod could not pull would leave a pod provisioning, billed, until its boot limit: asked of its registry first
+    if ((await this.imageReady(POD_IMAGES[ask.template]())) === false) {
+      throw httpError(ask.template === "afflatus" ? "The Afflatus image is not published yet, or not public: nothing was deployed. Deploy with RunPod's ComfyUI meanwhile." : "RunPod's ComfyUI image cannot be pulled from Docker Hub now: nothing was deployed.", 409);
+    }
+    const client = this.client(s.runpodKey);
+    const [offers, volumes] = await Promise.all([client.gpus(ask.cloud), ask.volume ? client.volumes() : Promise.resolve([])]).catch((err: Error) => {
+      throw httpError(err.message, 502);
+    });
+    const offer = offers.find((g) => g.id === ask.gpu);
+    if (!offer) throw httpError(`RunPod does not offer that GPU on ${ask.cloud === "COMMUNITY" ? "Community" : "Secure"} Cloud now: pick another.`, 409);
+    const volume = ask.volume ? volumes.find((v) => v.id === ask.volume) ?? null : null;
+    if (ask.volume && !volume) throw httpError("That network volume is not on this account any more: pick another, or deploy without one.", 409);
+    const listed = offer.dataCenters.filter((d) => d.availability !== "NONE" && (!volume || d.id === volume.dataCenter)).sort((a, b) => FREEST[a.availability] - FREEST[b.availability]).map((d) => d.id);
+    // RunPod said it is free without saying where: wherever it puts it (never with a volume, which has its own)
+    const places: Array<string | null> = listed.length || volume || offer.dataCenters.length || offer.availability === "NONE" ? listed : [null];
+    const none = volume ? `No ${offer.name} free in ${volume.dataCenter}, where the volume "${volume.name}" is: pick another GPU, or deploy without the volume.` : `No ${offer.name} free any more: it was taken since the list was read. Pick another GPU.`;
+    if (!places.length) throw httpError(none, 409);
+    // its token kept as a secret of the account, named now (the pod has no id yet); in its environment when the key cannot
+    // make secrets, as for a pod added
+    const token = newToken();
+    const tag = randomUUID().slice(0, 8);
+    const secret = `afflatus-${tag}`;
+    const kept = await client.putSecret(secret, token, `Afflatus: the lock of a deployed ${offer.name}'s ComfyUI`).then(() => true, (err: Error) => {
+      console.warn(`[rented] deploy: its token kept in its environment, RunPod made no secret of it (${err.message})`);
+      return false;
+    });
+    const spec: PodSpec = {
+      name: `Afflatus ${offer.name} ${tag}`, image: POD_IMAGES[ask.template](), gpu: offer.id, cloud: ask.cloud, dataCenter: null, disk: volume ? Math.min(ask.disk, 40) : ask.disk,
+      volume: volume?.id ?? null, ports: [`${COMFY_PORT}/http`], env: { [LOCK_ENV]: kept ? secretRef(secret) : token, [WATCHDOG_ENV]: String(ask.watchdogMinutes) },
+    };
+    let pod: Pod | null = null;
+    try {
+      // one data center after the other, the freest first: RunPod takes one GPU type and one place at a time, and says only
+      // in words that none was free there
+      for (const place of places) {
+        pod = await client.create({ ...spec, dataCenter: place }).catch(async (err: unknown) => {
+          if (noCapacity(err)) return null;
+          // no answer, a 5xx or an answer not read: RunPod may have made it all the same. Looked for by its name, it is
+          // kept (a machine, watched like any) rather than left billing with nothing to stop it
+          const status = (err as RunpodError).status;
+          if (!(err instanceof RunpodShape) && status !== 0 && !(status >= 500)) throw err;
+          const made = await client.pods().then((all) => all.find((p) => p.name === spec.name && p.status !== "TERMINATED") ?? null, () => null);
+          if (made) return made;
+          throw err;
+        });
+        if (pod) break;
+      }
+    } catch (err) {
+      if (kept) await client.deleteSecret(secret).catch(() => {});
+      throw httpError((err as Error).message, (err as RunpodError).status === 402 ? 409 : 502);
+    }
+    if (!pod) {
+      if (kept) await client.deleteSecret(secret).catch(() => {});
+      throw httpError(none, 409);
+    }
+    const made = pod;
+    const id = podMachineId(made.id);
+    try {
+      await updateSettings(this.db, (current) => {
+        const names = new Set(current.machines.map((m) => m.name));
+        let name = offer.name.slice(0, 36);
+        for (let n = 2; names.has(name); n++) name = `${offer.name.slice(0, 36)} ${n}`;
+        // without a volume a stop keeps nothing and its GPU may be taken meanwhile: terminated, as for a pod added
+        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString() };
+        return { machines: [...current.machines, { id, name, url: podUrl(made.id), dir: "", takes: "all" as const, families: {}, token, rented }], lastDeploy: ask };
+      });
+    } catch (err) {
+      // not kept as a machine: nothing here would ever stop it, so it goes at once
+      await client.act(made.id, "terminate").catch(() => {});
+      if (kept) await client.deleteSecret(secret).catch(() => {});
+      throw err;
+    }
+    console.log(`[rented] deployed ${offer.name} in ${made.dataCenter ?? "a data center"} (${ask.template}, ${volume ? `volume ${volume.name}` : "no volume"})`);
+    this.events.emit("setup");
+    void this.poll();
+    return { id };
+  }
+
+  /** The user's pods on RunPod, for adding one (Settings › Rented GPUs): which expose ComfyUI, which are added already. */
   async pods(): Promise<Array<Pod & { comfy: boolean; added: string | null }>> {
     const s = await readSettings(this.db);
     if (!s.runpodKey) throw httpError("No RunPod API key: set it first.", 409);
@@ -234,9 +387,22 @@ export class Rented {
     return pods.filter((p) => p.status !== "TERMINATED").map((p) => ({ ...p, comfy: exposesComfy(p), added: s.machines.find((m) => m.rented?.pod === p.id)?.id ?? null }));
   }
 
-  /** Read RunPod now: every rented machine's pod, their sessions, the watchdog's "still here", idle and caps. */
+  /**
+   * Read RunPod now: every rented machine's pod, their sessions, the watchdog's "still here", idle and caps. Asked while a
+   * read runs, one more follows it (shared by everyone who asks meanwhile): the running one read the settings before the
+   * ask, and a cap or an idle time just changed would otherwise wait for the next round.
+   */
   poll(): Promise<void> {
-    this.polling ??= this.pollOnce().finally(() => {
+    // Afflatus shutting down: nothing more is read (the database may be closed already)
+    if (this.stopped) return Promise.resolve();
+    if (this.polling) {
+      this.pollAgain ??= this.polling.then(() => {
+        this.pollAgain = null;
+        return this.poll();
+      });
+      return this.pollAgain;
+    }
+    this.polling = this.pollOnce().finally(() => {
       this.polling = null;
     });
     return this.polling;
@@ -252,9 +418,10 @@ export class Rented {
     for (const r of open.filter((x) => !rented.some((m) => m.id === x.machine_id && m.rented!.pod === x.pod))) {
       await this.db.updateTable("rent_sessions").set({ ended_at: r.seen_at ?? new Date(this.now()).toISOString() }).where("id", "=", r.id).execute();
     }
-    if (!rented.length) return;
+    if (!rented.length && !settings.leftSecrets.length) return;
     if (!settings.runpodKey) {
-      this.error = "No RunPod API key: set it in Settings › ComfyUI.";
+      if (!rented.length) return;
+      this.error = "No RunPod API key: set it in Settings › Rented GPUs.";
       this.events.emit("queue");
       return;
     }
@@ -276,6 +443,7 @@ export class Rented {
       this.events.emit("queue");
       return;
     }
+    await this.sweepSecrets(settings, pods);
     let changed = false;
     for (const m of rented) {
       const s = this.seenOf(m.id);
@@ -285,22 +453,81 @@ export class Rented {
         s.error = null;
       } catch (err) {
         // one pod RunPod refuses something for says so on its card; the others go on being watched
+        changed = changed || s.error !== (err as Error).message;
         s.error = (err as Error).message;
-        changed = true;
       }
     }
     if (changed) {
       this.events.emit("queue");
       // a pod that came up, or went: what waited for it may go, what it held is read again
-      this.events.emit("setup");
+      this.announcing = true;
+      try {
+        this.events.emit("setup");
+      } finally {
+        this.announcing = false;
+      }
     }
+  }
+
+  /** The secrets of pods removed from Afflatus (leftSecrets) whose pod is gone from RunPod now: deleted, and forgotten. */
+  private async sweepSecrets(settings: Settings, pods: Pod[]): Promise<void> {
+    const gone = settings.leftSecrets.filter((l) => !pods.some((p) => p.id === l.pod && p.status !== "TERMINATED"));
+    if (!gone.length) return;
+    const client = this.client(settings.runpodKey);
+    const done: string[] = [];
+    for (const l of gone) {
+      await client.deleteSecret(l.secret).then(() => done.push(l.secret), (err: Error) => console.warn(`[rented] the secret of a removed pod not deleted (${err.message})`));
+    }
+    if (done.length) await updateSettings(this.db, (current) => ({ leftSecrets: current.leftSecrets.filter((l) => !done.includes(l.secret)) }));
+  }
+
+  /**
+   * A machine removed from Afflatus by the user (its card's Remove). A rented pod is left as it is on RunPod, running or not:
+   * its secret stays while the pod does (it reads it at its start), and goes once the pod is gone (sweepSecrets).
+   */
+  async remove(machine: string): Promise<void> {
+    let found = false;
+    await updateSettings(this.db, (current) => {
+      const m = current.machines.find((x) => x.id === machine);
+      if (!m) return null;
+      found = true;
+      if (current.machines.length < 2) throw httpError("at least one ComfyUI is needed", 409);
+      return {
+        machines: current.machines.filter((x) => x.id !== machine),
+        ...(m.rented ? { leftSecrets: [...current.leftSecrets.filter((l) => l.pod !== m.rented!.pod), { secret: secretOf(m), pod: m.rented.pod }] } : {}),
+      };
+    });
+    if (!found) throw httpError("there is no ComfyUI with that id", 404);
+    this.seen.delete(machine);
+    this.events.emit("setup");
+  }
+
+  /**
+   * Whether each image a deploy may run can be pulled now (podImage.ts), as Deploy a GPU shows it; null where the registry
+   * did not answer. Asked again after a minute (one not there yet may be published meanwhile), ten when it is there.
+   */
+  async images(): Promise<Record<keyof typeof POD_IMAGES, boolean | null>> {
+    const [afflatus, runpod] = await Promise.all([this.imageReady(POD_IMAGES.afflatus()), this.imageReady(POD_IMAGES.runpod())]);
+    return { afflatus, runpod };
+  }
+
+  private imagesSeen = new Map<string, { at: number; ready: boolean | null }>();
+  /** The registry's answer for an image (a test's stand-in in place of imagePublic). */
+  imageCheck: (image: string) => Promise<boolean | null> = (image) => imagePublic(image);
+
+  private async imageReady(image: string): Promise<boolean | null> {
+    const seen = this.imagesSeen.get(image);
+    if (seen && this.now() - seen.at < (seen.ready ? 10 * 60_000 : 60_000)) return seen.ready;
+    const ready = await this.imageCheck(image);
+    this.imagesSeen.set(image, { at: this.now(), ready });
+    return ready;
   }
 
   /** The pod's secret (its token) deleted on RunPod, once: the pod is gone. */
   private async dropSecret(m: Machine, s: Seen, key: string): Promise<void> {
     if (s.secretDropped) return;
     s.secretDropped = true;
-    await this.client(key).deleteSecret(tokenSecret(m.rented!.pod)).catch((err: Error) => {
+    await this.client(key).deleteSecret(secretOf(m)).catch((err: Error) => {
       s.secretDropped = false;
       console.warn(`[rented] ${m.name || m.id}: its secret on RunPod not deleted (${err.message})`);
     });
@@ -311,12 +538,20 @@ export class Rented {
     const before = s.pod;
     // gone from RunPod (terminated there, or by its idle): its secret goes too
     if (!pod) await this.dropSecret(m, s, key);
-    const changed = !before || before.status !== pod?.status || Boolean(pod?.cost && pod.cost !== s.rate);
+    // a pod gone stays gone: said once, not at every read
+    const changed = !s.read || (before?.status ?? null) !== (pod?.status ?? null) || Boolean(pod?.cost && pod.cost !== s.rate);
+    s.read = true;
     s.pod = pod;
     if (pod?.cost) s.rate = pod.cost;
     // the rate of its last run here, until RunPod says one (it says 0 while the pod is stopped)
     s.rate ??= (await this.db.selectFrom("rent_sessions").select("rate").where("pod", "=", m.rented!.pod).orderBy("started_at", "desc").executeTakeFirst())?.rate || null;
     await this.session(m, pod, s);
+    // deployed and never up yet, for too long: its image does not pull, or its container does not start; billed for nothing
+    const deployedAt = m.rented!.deployedAt ? Date.parse(m.rented!.deployedAt) : Number.NaN;
+    if (pod && TRANSITIONAL.has(pod.status) && Number.isFinite(deployedAt) && this.now() - deployedAt >= DEPLOYED_BOOT_LIMIT_MS) {
+      await this.act(m, "terminate", "boot");
+      return true;
+    }
     if (pod?.status !== "RUNNING") {
       s.busyAt = null;
       s.stopAfter = false;
@@ -333,9 +568,15 @@ export class Rented {
     s.upAt ??= this.now();
     const answers = await this.alive(m, s);
     if (answers) s.answered = true;
-    // up this long and its ComfyUI never answered: its container failed to start, or ComfyUI on it did; billed for nothing
-    if (!s.answered && this.now() - s.upAt >= BOOT_LIMIT_MS && !this.queue.runningOn(m.id)) {
-      await this.act(m, m.rented!.idleDo, "boot");
+    // its first answer since it was deployed: later starts count from when it runs
+    if (answers && m.rented!.deployedAt) {
+      await updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id && x.rented ? { ...x, rented: { ...x.rented, deployedAt: "" } } : x)) }));
+    }
+    // up this long and its ComfyUI never answered: its container failed to start, or ComfyUI on it did; billed for nothing.
+    // A deployed pod's first boot counts from its deploy (its image pulled first); one that never came up is terminated
+    const bootFrom = Number.isFinite(deployedAt) ? Math.min(deployedAt, s.upAt) : s.upAt;
+    if (!s.answered && this.now() - bootFrom >= bootLimit(m) && !this.queue.runningOn(m.id)) {
+      await this.act(m, Number.isFinite(deployedAt) ? "terminate" : m.rented!.idleDo, "boot");
       return true;
     }
     // up and open (RunPod did not take its token for the start, or it was added running): locked now, once a session
@@ -364,7 +605,7 @@ export class Rented {
     const open = await this.db.selectFrom("rent_sessions").selectAll().where("machine_id", "=", m.id).where("ended_at", "is", null).executeTakeFirst();
     const now = this.now();
     const iso = new Date(now).toISOString();
-    if (pod?.status === "RUNNING") {
+    if (pod && BILLED.has(pod.status)) {
       s.seenRunningAt = now;
       if (open) {
         await this.db.updateTable("rent_sessions").set({ seen_at: iso }).where("id", "=", open.id).execute();
@@ -426,7 +667,8 @@ export class Rented {
     const now = this.now();
     const running = this.queue.runningOn(m.id);
     // work counts only for a pod whose ComfyUI answers: one that went down would otherwise keep a waiting job "for it" forever
-    if (running || (answers && (await this.queue.wants(m.id)))) s.busyAt = now;
+    // not idle before its ComfyUI first answered (a first boot pulling node packs and models): the boot limit covers that
+    if (running || !s.answered || (answers && (await this.queue.wants(m.id)))) s.busyAt = now;
     s.busyAt ??= now;
     const spent = await this.spent();
     s.stopAfter = (caps.day > 0 && spent.today >= caps.day) || (caps.month > 0 && spent.month >= caps.month);
@@ -479,7 +721,7 @@ export class Rented {
     if (!m?.rented) throw httpError("That machine is not a rented pod.", 404);
     const spent = await this.spent();
     if ((s.rentCaps.day > 0 && spent.today >= s.rentCaps.day) || (s.rentCaps.month > 0 && spent.month >= s.rentCaps.month)) {
-      throw httpError("A spending cap is reached: raise it in Settings › ComfyUI › Rented GPUs to start it.", 409);
+      throw httpError("A spending cap is reached: raise it in Settings › Rented GPUs to start it.", 409);
     }
     const unprepared = await this.prepareBoot(m, s.runpodKey);
     await this.act(m, "start", null).catch((err: Error & { statusCode?: number }) => {
@@ -523,7 +765,7 @@ export class Rented {
       const minutes = String(m.rented!.watchdogMinutes);
       // the token kept as a secret of the account (encrypted at RunPod, given to the pod at boot): its environment, which
       // anyone with access to the account reads in the clear, holds only the reference. Plain when the key cannot make one
-      const secret = tokenSecret(pod.id);
+      const secret = secretOf(m);
       const token = await client.putSecret(secret, m.token, `Afflatus: the lock of ${m.name || pod.id}'s ComfyUI`).then(() => secretRef(secret), (err: Error) => {
         console.warn(`[rented] ${m.name || m.id}: its token kept in its environment, RunPod made no secret of it (${err.message})`);
         return m.token;
@@ -578,7 +820,7 @@ export class Rented {
     const settings = await readSettings(this.db);
     if (!settings.runpodKey) {
       s.stopping = false;
-      throw httpError("No RunPod API key: set it in Settings › ComfyUI.", 409);
+      throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
     }
     let after: Pod | null;
     try {
@@ -600,7 +842,14 @@ export class Rented {
       s.stopping = s.pod?.status === "RUNNING";
       await this.session(m, s.pod, s);
     }
-    if (why === "idle" || why === "cap" || why === "boot") console.log(`[rented] ${m.name || m.id}: ${action === "terminate" ? "terminated" : "stopped"} (${why === "idle" ? `idle ${m.rented!.idleMinutes} min` : why === "boot" ? `its ComfyUI never answered in ${BOOT_LIMIT_MS / 60_000} min` : "a spending cap"})`);
+    // a deployed pod terminated by its idle time, a cap or a boot that never came: nothing is left of it, its machine goes too
+    // (the user's own Terminate removes it in stopBy)
+    if (action === "terminate" && m.rented!.deployed && why !== "you") {
+      await updateSettings(this.db, (current) => ({ machines: current.machines.filter((x) => x.id !== m.id) }));
+      this.seen.delete(m.id);
+      this.events.emit("setup");
+    }
+    if (why === "idle" || why === "cap" || why === "boot") console.log(`[rented] ${m.name || m.id}: ${action === "terminate" ? "terminated" : "stopped"} (${why === "idle" ? `idle ${m.rented!.idleMinutes} min` : why === "boot" ? `its ComfyUI never answered in ${bootLimit(m) / 60_000} min` : "a spending cap"})`);
     this.events.emit("queue");
     // read again soon, then at the fast pace while it moves
     this.kick(1500);

@@ -1,10 +1,10 @@
 import { envSaid } from "./config";
 
 /**
- * RunPod, as Afflatus talks to it for a rented machine (rented.ts): the user's pods read with their API key, and a pod
- * started, stopped or deleted when the user asks (or its idle time, its cap or Delete says so). Nothing is ever made here.
- * API v2 (https://api.runpod.io/v2), the account's balance through its GraphQL. RUNPOD_API_URL points it at a pretend
- * RunPod (the demo, the tests); RUNPOD_PROXY says how a pod's ComfyUI is reached.
+ * RunPod, as Afflatus talks to it for a rented machine (rented.ts): the user's pods read with their API key, a pod started,
+ * stopped or deleted when the user asks (or its idle time, its cap or Terminate says so), and one deployed when the user
+ * presses Deploy, never otherwise. API v2 (https://api.runpod.io/v2), the account's balance through its GraphQL.
+ * RUNPOD_API_URL points it at a pretend RunPod (the demo, the tests); RUNPOD_PROXY says how a pod's ComfyUI is reached.
  */
 
 export type PodStatus = "PROVISIONING" | "STARTING" | "RUNNING" | "EXITED" | "ERROR" | "TERMINATED";
@@ -71,10 +71,70 @@ export function podTime(value: unknown): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
+/** A pod's machine id: "rp-" and its id, as a machine id may be written (lower-case letters, digits, dashes; 24 at most). */
+export const podMachineId = (pod: string) => `rp-${pod.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 21)}`;
+
 /** The ComfyUI port a pod must expose over HTTP for Afflatus to reach it. */
 export const COMFY_PORT = 8188;
 /** What a stopped pod's own disk costs, USD per GB and month (RunPod's price for the volume disk of a stopped pod). */
 export const STOPPED_DISK_PER_GB_MONTH = 0.2;
+
+/**
+ * What a GPU deployed from Afflatus runs. "afflatus": ComfyUI, its Manager and the node pack (deploy/runpod), locked from
+ * its first second; "runpod": RunPod's own ComfyUI image, without the node pack (so without the lock and the watchdog).
+ * Each pinned to one version, so that a deploy runs what Afflatus was tested with.
+ */
+export const POD_IMAGES = {
+  afflatus: () => envSaid.podImage()?.trim() || "ghcr.io/bardak971/afflatus-pod:0.1.0",
+  runpod: () => "runpod/comfyui:1.4.0-comfyuiv0.35.0-cuda12.8",
+} as const;
+/** Both images run PyTorch built for CUDA 12.8: a host with an older driver cannot run them. */
+export const MIN_CUDA = "12.8";
+
+/** How free a GPU is, as RunPod says it: overall and by data center. */
+export type Availability = "HIGH" | "MEDIUM" | "LOW" | "NONE";
+
+/** A GPU a pod can be deployed on: its price an hour on the cloud asked, and where it is free. */
+export interface GpuOffer {
+  id: string;
+  name: string;
+  /** Its memory, GB. */
+  memory: number;
+  price: number;
+  availability: Availability;
+  dataCenters: Array<{ id: string; availability: Availability }>;
+}
+
+/** A network volume of the account: what is on it outlives any pod, and a pod using it runs in its data center. */
+export interface NetworkVolume {
+  id: string;
+  name: string;
+  size: number;
+  dataCenter: string;
+}
+
+/** What a pod is deployed with (POST /v2/pods). */
+export interface PodSpec {
+  name: string;
+  image: string;
+  gpu: string;
+  cloud: "SECURE" | "COMMUNITY";
+  dataCenter: string | null;
+  /** Its container disk, GB: erased when it stops or is terminated. */
+  disk: number;
+  volume: string | null;
+  ports: string[];
+  env: Record<string, string>;
+}
+
+const AVAILABILITY = new Set<Availability>(["HIGH", "MEDIUM", "LOW", "NONE"]);
+const availabilityOf = (v: unknown): Availability => (typeof v === "string" && AVAILABILITY.has(v.toUpperCase() as Availability) ? (v.toUpperCase() as Availability) : "NONE");
+
+/**
+ * Whether RunPod refused a deploy for want of a GPU: a 400 with words only (it has no code of its own), the GPU taken
+ * between the list and the deploy. Read loosely, as the words are not documented.
+ */
+export const noCapacity = (err: unknown) => err instanceof RunpodError && err.status === 400 && /no longer any instances|not enough free|no (gpus? |instances? )?(are )?available|insufficient (gpu )?capacity|out of stock/i.test(err.message);
 
 const apiBase = () => (envSaid.runpodApi()?.trim() || "https://api.runpod.io").replace(/\/+$/, "");
 
@@ -115,18 +175,18 @@ const podOf = (p: RawPod): Pod => ({
 export class Runpod {
   constructor(private readonly key: string, private readonly fetcher: typeof fetch = fetch) {}
 
-  private async call<T>(path: string, init: RequestInit = {}): Promise<T> {
+  private async call<T>(path: string, init: RequestInit = {}, timeoutMs = 20_000): Promise<T> {
     const res = await this.fetcher(`${apiBase()}${path}`, {
       ...init,
       headers: { Authorization: `Bearer ${this.key}`, Accept: "application/json", ...(init.body ? { "Content-Type": "application/json" } : {}) },
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(timeoutMs),
     }).catch((err: Error) => {
       throw new RunpodError(`RunPod did not answer: ${err.message}`, 0);
     });
     if (res.status === 204) return undefined as T;
     const body = (await res.json().catch(() => null)) as { detail?: string; title?: string } | null;
     if (!res.ok) {
-      const said = res.status === 429 ? "RunPod asks to slow down (too many requests): Afflatus asks it less often for a while." : res.status === 401 ? "RunPod refused the API key: check it in Settings › ComfyUI." : res.status === 409 ? "RunPod says the pod cannot do that now." : body?.detail ?? body?.title ?? `RunPod answered ${res.status}`;
+      const said = res.status === 429 ? "RunPod asks to slow down (too many requests): Afflatus asks it less often for a while." : res.status === 401 ? "RunPod refused the API key: check it in Settings › Rented GPUs." : res.status === 402 ? "RunPod refused: the balance is too low (it asks for at least an hour of the GPU). Add credit on RunPod, then deploy again." : res.status === 409 ? "RunPod says the pod cannot do that now." : body?.detail ?? body?.title ?? `RunPod answered ${res.status}`;
       throw new RunpodError(said, res.status);
     }
     return body as T;
@@ -200,6 +260,48 @@ export class Runpod {
   async deleteSecret(name: string): Promise<void> {
     const found = (await this.secrets()).find((x) => x.name === name);
     if (found) await this.call(`/v2/account/secrets/${encodeURIComponent(found.id)}`, { method: "DELETE" });
+  }
+
+  /**
+   * The GPUs a pod can be deployed on now, on that cloud: those able to run CUDA 12.8 (MIN_CUDA), with their price an hour
+   * and how free they are, overall and by data center.
+   */
+  async gpus(cloud: PodSpec["cloud"]): Promise<GpuOffer[]> {
+    const got = await this.call<{ gpus?: unknown }>(`/v2/catalog/gpus?include=AVAILABILITY&product=POD&count=1&cloud=${cloud}&minCudaVersion=${MIN_CUDA}`);
+    if (!got || !Array.isArray(got.gpus)) throw new RunpodShape("RunPod answered its list of GPUs in a shape Afflatus does not know.");
+    const key = cloud === "COMMUNITY" ? "community" : "secure";
+    return (got.gpus as Array<Record<string, unknown>>).flatMap((g) => {
+      const price = (g.price as Record<string, unknown> | undefined)?.[key];
+      if (typeof g.id !== "string" || typeof price !== "number" || price <= 0) return [];
+      const dataCenters = Array.isArray(g.dataCenters) ? (g.dataCenters as Array<Record<string, unknown>>).filter((d) => typeof d.id === "string").map((d) => ({ id: d.id as string, availability: availabilityOf(d.availability) })) : [];
+      return [{ id: g.id, name: typeof g.name === "string" && g.name ? g.name : g.id, memory: typeof g.memory === "number" ? g.memory : 0, price, availability: availabilityOf(g.availability), dataCenters }];
+    });
+  }
+
+  /** The account's network volumes. */
+  async volumes(): Promise<NetworkVolume[]> {
+    const got = await this.call<{ networkVolumes?: unknown }>("/v2/network-volumes");
+    const list = Array.isArray(got?.networkVolumes) ? (got.networkVolumes as Array<Record<string, unknown>>) : [];
+    return list.flatMap((v) => (typeof v.id === "string" && typeof v.dataCenter === "string" ? [{ id: v.id, name: typeof v.name === "string" ? v.name : v.id, size: typeof v.size === "number" ? v.size : 0, dataCenter: v.dataCenter }] : []));
+  }
+
+  /** A pod deployed: one GPU type, in that data center (any RunPod picks when null). Billed from now. */
+  async create(spec: PodSpec): Promise<Pod> {
+    const body = {
+      name: spec.name,
+      image: spec.image,
+      gpu: { id: spec.gpu, count: 1, minCudaVersion: MIN_CUDA },
+      cloud: spec.cloud,
+      ...(spec.dataCenter ? { dataCenterIds: [spec.dataCenter] } : {}),
+      disk: spec.disk,
+      ...(spec.volume ? { mounts: { network: [{ volumeId: spec.volume, path: "/workspace" }] } } : {}),
+      ports: spec.ports,
+      env: spec.env,
+    };
+    // given longer than a read: an answer cut short may leave a pod made all the same (rented.ts deploy looks for it by name)
+    const got = await this.call<RawPod>("/v2/pods", { method: "POST", body: JSON.stringify(body) }, 90_000);
+    if (!got || typeof got.id !== "string") throw new RunpodShape("RunPod made the pod but answered in a shape Afflatus does not know: look for it on RunPod, and terminate it there if it is not added here.");
+    return podOf(got);
   }
 
   /** The account's balance in USD, from RunPod's GraphQL; null when it does not say. */

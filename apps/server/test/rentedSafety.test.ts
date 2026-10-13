@@ -267,8 +267,7 @@ describe("what a real pod showed", () => {
   it("a pod's machine id is its own: never an id a removed machine had, the same when added again", async () => {
     const id = await add(podA().id);
     expect(id).toBe(`rp-${podA().id}`);
-    const machines = (await get(t.app, "/api/settings")).json().machines.filter((m: { id: string }) => m.id !== id);
-    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines } });
+    await post(t.app, `/api/machines/${id}/remove`, {});
     expect(await add(podA().id)).toBe(id);
   });
 });
@@ -287,7 +286,7 @@ describe("what the second real test showed", () => {
     await t.services.rented.poll();
     const row = await rowOf(id);
     expect(row.rented).toMatchObject({ status: "RUNNING", answers: false, watchdog: "unknown" });
-    expect(row.rented?.error).toMatch(/nothing answers on 8188 after 3 min: its container may not have started/);
+    expect(row.rented?.error).toMatch(/nothing answers on 8188 after 3 min: its image may still be pulling, or its container did not start/);
     t.services.rented.now = () => real() + 11 * 60_000;
     await t.services.rented.poll();
     expect(podB().status).toBe("TERMINATED");

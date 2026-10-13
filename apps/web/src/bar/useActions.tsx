@@ -4,6 +4,7 @@ import { useLocation } from "wouter";
 import { ArrowUpToLine, Copy, Keyboard, Navigation, RotateCcw, Settings2, Square } from "lucide-react";
 import { useOpenComfyUI, useOpenInComfy } from "../actions";
 import { useRentedOps } from "../rentedOps";
+import { useDeployAgain } from "../deploy";
 import { api, type Asset, type CommandEntry } from "../api";
 import { useAsset, useEntities, useModelSettings, useProjects, useRecipes, useSetup, useStorage } from "../data";
 import { itemsWord } from "../assetCache";
@@ -91,6 +92,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
   });
   const openComfy = useOpenComfyUI();
   const rented = useRentedOps();
+  const deployAgain = useDeployAgain();
   // "Import a folder here…": the computer's folder picker, and where what it picks goes (as the Projects panel does it)
   const picker = useRef<HTMLInputElement>(null);
   const importTo = useRef<Target | null>(null);
@@ -134,7 +136,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
   const x: BarCtx = {
     go, client, say, tree, kinds, allProjects, projects: allProjects.filter((p) => !p.archivedAt), pins, queue, ops, bulk, jobs, setup,
     binEmpty: bin ? !bin.count : false, binSaid: bin ? `${itemsWord(bin.count)} · ${size(bin.bytes)}` : "",
-    recipes, entities, modelSettings, openNew, selectedClip, draftOpen, aim, subject, item, formTarget, openWorkflow, openComfy, rented, settingCtx, onCopied, setViewing,
+    recipes, entities, modelSettings, openNew, selectedClip, draftOpen, aim, subject, item, formTarget, openWorkflow, openComfy, rented, deployAgain, settingCtx, onCopied, setViewing,
     importInto,
     failed,
     good,

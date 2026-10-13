@@ -47,6 +47,8 @@ export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiK
   machines?: Array<Omit<Machine, "tokenEnd"> & { token?: string }>;
   civitaiKey?: string;
   runpodKey?: string;
+  /** The server's own list of secrets to delete once their pods are gone: the page never sends it. */
+  leftSecrets?: Array<{ secret: string; pod: string }>;
   llms?: LlmPatch[];
   llm?: Partial<Omit<LlmPatch, "id">>;
 };
@@ -81,6 +83,28 @@ export interface RentedMachine {
   openPorts: boolean;
   /** The ports Afflatus closed on it: put back at a Start once they are to be kept open. */
   closedPorts: string[];
+  /** The RunPod secret its token is kept in, when Afflatus named it; empty: "afflatus-<pod>". */
+  secret: string;
+  /** Deployed from Afflatus: its first start pulls its image, which may take long. */
+  deployed: boolean;
+  /** When it was deployed, until its ComfyUI first answered; empty after. */
+  deployedAt: string;
+}
+
+/** What a GPU is deployed with: the Deploy dialog's choices, kept as the next deploy's (Settings.lastDeploy). */
+export interface DeployAsk {
+  /** RunPod's id of the GPU ("NVIDIA A40"). */
+  gpu: string;
+  cloud: "SECURE" | "COMMUNITY";
+  /** afflatus: ComfyUI with the node pack, locked from its first second; runpod: RunPod's own ComfyUI, without the pack. */
+  template: "afflatus" | "runpod";
+  /** A network volume's id; empty: none. */
+  volume: string;
+  /** Its container disk, GB. */
+  disk: number;
+  idleMinutes: number;
+  idleDo: "stop" | "terminate";
+  watchdogMinutes: number;
 }
 /** A ComfyUI asked now (GET /api/machines): whether it answers (and why not), its version, its GPU and the Afflatus node pack it loaded. */
 export interface MachineProbe {
@@ -141,6 +165,8 @@ export interface Settings {
   hasRunpodKey: boolean;
   /** What the rented GPUs may cost, in USD, today and this month; 0: no cap. */
   rentCaps: { day: number; month: number };
+  /** The last deploy's choices: the Deploy dialog opens with them, "Deploy again" repeats them. */
+  lastDeploy: DeployAsk | null;
   /** The user's defaults for "Finish all clips" on a timeline. */
   finish: FinishSettings;
   /** A family's file chosen by hand where several fit: family id → slot id → file. */

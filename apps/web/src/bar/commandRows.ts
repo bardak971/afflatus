@@ -89,6 +89,8 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     "new-style": kitNew("new-style"),
     "new-preset": kitNew("new-preset"),
     "new-snippet": kitNew("new-snippet"),
+    "deploy-gpu": ["Deploy a GPU…", "RunPod · what is free now, by price · billed from your Deploy"],
+    "deploy-again": ["Deploy again", "The last deploy's GPU and choices · its rate asked first"],
     "import-workflow": ["Import workflow…", "The Workflows screen's file picker: .json, PNG or MP4"],
     "view-last": ["View last render", "What the last finished job made, in the viewer"],
     reconnect: ["Reconnect to ComfyUI", queueNow && !queueNow.online ? "ComfyUI is offline · asked again now" : "ComfyUI asked again now: its address, its files, its nodes"],

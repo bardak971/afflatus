@@ -59,7 +59,9 @@ export function rentedSaid(r: RentedState, now = Date.now()): string {
       const what = r.stopping ? "stopping" : r.answers === false ? "running, ComfyUI not up yet" : "running";
       return r.since ? `${what} ${long(now - r.since)} · ${usd(rentedSpent(r, now), true)}` : what;
     }
-    case "STARTING": case "PROVISIONING": return "starting";
+    case "STARTING": return "starting";
+    // a pod just deployed: RunPod pulls its image onto the host first, minutes on one that never had it
+    case "PROVISIONING": return "deploying · pulling its image";
     case "EXITED": return r.diskPerDay > 0.005 ? `stopped · disk ${usd(r.diskPerDay)}/day` : "stopped";
     case "GONE": case "TERMINATED": return "not on RunPod";
     case "ERROR": return "in error on RunPod";

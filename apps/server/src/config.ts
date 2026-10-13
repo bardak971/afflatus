@@ -70,4 +70,6 @@ export const envSaid = {
   runpodApi: () => process.env.RUNPOD_API_URL,
   /** How a pod's ComfyUI is reached, {id} and {port} in it: RunPod's proxy unless set (a pretend RunPod's pods). */
   runpodProxy: () => process.env.RUNPOD_PROXY,
+  /** The image a GPU deployed from Afflatus runs with the Afflatus template, when not the one this version names (a test build). */
+  podImage: () => process.env.AFFLATUS_POD_IMAGE,
 };

@@ -34,6 +34,10 @@ export const queryKeys = {
   /** The user's pods on RunPod (adding one), and what the rented GPUs cost. */
   runpodPods: () => ["runpod-pods"] as const,
   rentedSpending: () => ["rented-spending"] as const,
+  /** The GPUs RunPod has free now, by cloud, and the account's network volumes (Deploy a GPU). */
+  runpodGpus: (cloud: string) => ["runpod-gpus", cloud] as const,
+  runpodVolumes: () => ["runpod-volumes"] as const,
+  runpodImages: () => ["runpod-images"] as const,
   nodePack: (comfyDir: string | undefined) => ["node-pack", comfyDir] as const,
   packs: {
     all: () => ["packs"] as const,

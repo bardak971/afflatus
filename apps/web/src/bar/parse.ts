@@ -33,6 +33,8 @@ export type Command =
   | { cmd: "open-comfy"; machine?: string }
   | { cmd: "start-pod"; machine: string }
   | { cmd: "stop-pod"; machine: string }
+  | { cmd: "deploy-gpu" }
+  | { cmd: "deploy-again" }
   | { cmd: "machine-times"; machine: string }
   | { cmd: "machine-models"; machine: string }
   | { cmd: "new-draft"; recipe: string }
@@ -113,6 +115,8 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "machines", name: "Show the ComfyUIs", typed: "machines", example: "comfyuis", what: "With several ComfyUIs: the status bar's panel of every machine, its figures, its pause and its menu" },
   { id: "start-pod", name: "Start pod…", typed: "start pod ", example: "start pod comfy-5090", what: "A rented pod (RunPod), started: billed from then, at its rate; it stops by itself when idle", needs: true },
   { id: "stop-pod", name: "Stop pod…", typed: "stop pod ", example: "stop pod comfy-5090", what: "A rented pod, stopped: the GPU stops billing, its disk goes on", needs: true },
+  { id: "deploy-gpu", name: "Deploy a GPU…", typed: "deploy gpu", example: "deploy gpu", what: "A GPU rented on RunPod, picked from what is free now: billed from your Deploy until it ends, by itself once idle" },
+  { id: "deploy-again", name: "Deploy again", typed: "deploy again", example: "deploy again", what: "The last deploy's GPU and choices, on RunPod: its rate asked first" },
   { id: "open-comfy", name: "Open ComfyUI", typed: "open comfyui", example: "open comfyui on second gpu", what: "ComfyUI's own page in a new tab, the first ComfyUI or the one named; locked, the tab lands logged in" },
   { id: "machine-log", name: "ComfyUI log of…", typed: "log ", example: "log second gpu", what: "With several ComfyUIs: that machine's console, in the Queue", needs: true },
   { id: "machine-times", name: "Render times of…", typed: "render times ", example: "render times second gpu", what: "With several ComfyUIs: what that machine rendered and how long it took", needs: true },
@@ -244,6 +248,8 @@ export function parseCommand(input: string): Command | null {
   if ((m = /^save (?:it )?as (?:a )?preset (.+)$/i.exec(t))) return { cmd: "save-preset", name: m[1]!.trim().slice(0, 120) };
   if ((m = /^(?:apply )?preset (.+)$/i.exec(t))) return { cmd: "preset", name: m[1]!.trim() };
   if (/^import(?: (?:a )?(?:comfyui )?workflow)?$/.test(low)) return { cmd: "import-workflow" };
+  if (/^(?:deploy|rent) (?:it |the (?:last|same) (?:one|gpu) )?again$/.test(low)) return { cmd: "deploy-again" };
+  if (/^(?:deploy|rent)(?: an?)?(?: (?:gpu|pod|runpod))?$/.test(low)) return { cmd: "deploy-gpu" };
   if (/^finish(?: (?:the )?timeline)?$/.test(low)) return { cmd: "finish" };
   if (/^fix(?: all)?$/.test(low)) return { cmd: "fix-all" };
   if (/^(?:(?:view|open|show) )?(?:the )?last render$/.test(low)) return { cmd: "view-last" };

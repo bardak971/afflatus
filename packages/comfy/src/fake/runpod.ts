@@ -17,7 +17,30 @@ export interface FakePod {
   env: Record<string, string>;
   startedAt: string | null;
   comfy: FakeComfy;
+  /** The image it runs (a deployed pod's), and the network volume mounted on it, by id. */
+  image?: string;
+  volumeId?: string | null;
 }
+
+/** A GPU of the pretend catalog: its prices (null: not on that cloud), and where it is free and how much. */
+export interface FakeGpu {
+  id: string;
+  name: string;
+  memory: number;
+  price: { secure: number | null; community: number | null };
+  dataCenters: Array<{ id: string; availability: "HIGH" | "MEDIUM" | "LOW" | "NONE" }>;
+}
+
+/** A network volume of the account. */
+export interface FakeVolume {
+  id: string;
+  name: string;
+  size: number;
+  dataCenter: string;
+}
+
+/** What a deploy refused for want of a GPU says: RunPod's words, a 400 with no code of its own. */
+export const NO_CAPACITY = "There are no longer any instances available with the requested specifications. Please refresh and try again.";
 
 export interface FakeRunpod {
   url: string;
@@ -45,26 +68,47 @@ export interface FakeRunpod {
   failList: number | null;
   oddList: boolean;
   actionDelayMs: number;
+  /** The GPUs a deploy picks from (GET /v2/catalog/gpus), and the account's network volumes. */
+  gpus: FakeGpu[];
+  volumes: FakeVolume[];
+  /** "gpu@dataCenter" (or "gpu" for everywhere) taken between the list and the deploy: its create answers 400. */
+  noCapacity: Set<string>;
+  /** A create refused with this status (402: the balance), whatever is asked. */
+  failCreate: number | null;
+  /** A create that makes the pod, then answers this status all the same (an answer cut short). */
+  createThenFail: number | null;
   close(): Promise<void>;
 }
 
 const raw = (p: FakePod) => ({
   id: p.id, name: p.name, status: p.status, cost: p.status === "RUNNING" || p.status === "STARTING" || p.status === "PROVISIONING" ? p.rate : 0,
   actions: p.status === "RUNNING" ? ["stop", "restart", "terminate"] : p.status === "EXITED" || p.status === "ERROR" ? ["start", "terminate"] : ["stop", "terminate"],
-  gpu: { id: p.gpu, count: 1 }, dataCenterId: p.dataCenterId, ports: p.ports, cloud: "SECURE", image: "runpod/comfyui:latest",
-  mounts: { persistent: { size: p.diskGb, path: "/workspace" } },
+  gpu: { id: p.gpu, count: 1 }, dataCenterId: p.dataCenterId, ports: p.ports, cloud: "SECURE", image: p.image ?? "runpod/comfyui:latest",
+  mounts: p.volumeId ? { network: [{ volumeId: p.volumeId, path: "/workspace" }] } : { persistent: { size: p.diskGb, path: "/workspace" } },
   env: p.env,
   runtime: p.status === "RUNNING" && p.startedAt ? { uptime: Math.round((Date.now() - Date.parse(p.startedAt)) / 1000) } : null,
   startedAt: p.startedAt,
 });
 
+/** The pretend catalog's GPUs, as a test or the demo starts it with none of its own. */
+export const FAKE_GPUS: FakeGpu[] = [
+  { id: "NVIDIA A40", name: "A40", memory: 48, price: { secure: 0.44, community: 0.35 }, dataCenters: [{ id: "EU-RO-1", availability: "HIGH" }, { id: "US-TX-3", availability: "LOW" }] },
+  { id: "NVIDIA L4", name: "L4", memory: 24, price: { secure: 0.43, community: null }, dataCenters: [{ id: "US-TX-3", availability: "MEDIUM" }] },
+  { id: "NVIDIA GeForce RTX 4090", name: "RTX 4090", memory: 24, price: { secure: 0.69, community: 0.34 }, dataCenters: [{ id: "EU-SE-1", availability: "NONE" }] },
+  { id: "NVIDIA RTX 6000 Ada Generation", name: "RTX 6000 Ada", memory: 48, price: { secure: 0.77, community: 0.74 }, dataCenters: [{ id: "US-WA-1", availability: "MEDIUM" }, { id: "EU-RO-1", availability: "LOW" }] },
+  { id: "NVIDIA H100 80GB HBM3", name: "H100 SXM", memory: 80, price: { secure: 2.69, community: null }, dataCenters: [{ id: "US-KS-2", availability: "LOW" }] },
+];
+
+const WORSE = { HIGH: 0, MEDIUM: 1, LOW: 2, NONE: 3 } as const;
+
 /**
  * A pretend RunPod (API v2 as runpod.ts reads it, and its GraphQL balance): the user's pods, each with a pretend ComfyUI
  * inside that answers only while the pod runs (FakeComfy.down). A started pod is STARTING for `bootMs`, then RUNNING; a
  * stopped one EXITED; a deleted one gone. Each pod's id is its ComfyUI's port, so that "http://127.0.0.1:{id}" (RUNPOD_PROXY)
- * reaches it as RunPod's proxy would.
+ * reaches it as RunPod's proxy would. A pod is deployed (POST /v2/pods) on a GPU of `gpus`, with a pretend ComfyUI `spawn`
+ * makes; it is PROVISIONING for `bootMs` (its image pulled), then RUNNING.
  */
-export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod, "id" | "startedAt" | "status" | "env"> & { status?: FakePod["status"]; env?: Record<string, string> }>; balance?: number; bootMs?: number }): Promise<FakeRunpod> {
+export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod, "id" | "startedAt" | "status" | "env"> & { status?: FakePod["status"]; env?: Record<string, string> }>; balance?: number; bootMs?: number; gpus?: FakeGpu[]; volumes?: FakeVolume[]; spawn?: () => Promise<FakeComfy> }): Promise<FakeRunpod> {
   const pods: FakePod[] = o.pods.map((p) => {
     const status = p.status ?? "EXITED";
     p.comfy.down = status !== "RUNNING";
@@ -73,12 +117,31 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
   const fake: Omit<FakeRunpod, "url" | "close"> = {
     key: o.key, pods, calls: [], balance: o.balance ?? 23.4, bootMs: o.bootMs ?? 1500,
     failAction: {}, failDetail: null, secrets: {}, failSecrets: false, stopMs: 0, failPatch: null, hideEnv: false, failList: null, oddList: false, actionDelayMs: 0,
+    gpus: o.gpus ?? FAKE_GPUS, volumes: o.volumes ?? [], noCapacity: new Set(), failCreate: null, createThenFail: null,
   };
   const timers = new Set<NodeJS.Timeout>();
   /** What the pods have cost: the stretches that ended, and what runs now. */
   let ended = 0;
   const running = (p: FakePod) => (p.status === "RUNNING" && p.startedAt ? ((Date.now() - Date.parse(p.startedAt)) / 3_600_000) * p.rate : 0);
   const spent = () => ended + fake.pods.reduce((sum, p) => sum + running(p), 0);
+  /**
+   * A pod up after `bootMs`: RUNNING, its ComfyUI answering. The node pack reads AFFLATUS_TOKEN as ComfyUI starts: locked
+   * from its first second, a lock the routes cannot change. A secret's reference in it is given its value at boot, as RunPod does.
+   */
+  const boot = (pod: FakePod) => {
+    const t = setTimeout(() => {
+      timers.delete(t);
+      if (pod.status !== "STARTING" && pod.status !== "PROVISIONING") return;
+      pod.status = "RUNNING";
+      pod.startedAt = new Date().toISOString();
+      const said = pod.env.AFFLATUS_TOKEN;
+      const ref = said ? /^\{\{\s*RUNPOD_SECRET_(.+?)\s*\}\}$/.exec(said) : null;
+      const token = ref ? fake.secrets[ref[1]!] : said;
+      if (token && pod.comfy.packVersion) pod.comfy.lock = { token, local: false, fixed: true };
+      pod.comfy.down = false;
+    }, fake.bootMs);
+    timers.add(t);
+  };
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
@@ -92,6 +155,46 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
     if (req.headers.authorization !== `Bearer ${fake.key}`) return json(401, { title: "Unauthorized", status: 401, detail: "invalid api key" });
     // the balance goes down as the pods run, by the second, as RunPod's does
     if (req.method === "POST" && url.pathname === "/graphql") return json(200, { data: { myself: { clientBalance: fake.balance - spent() } } });
+    // the GPUs a pod can be deployed on, their price on the cloud asked and how free they are, overall and by data center
+    if (req.method === "GET" && url.pathname === "/v2/catalog/gpus") {
+      const cloud = url.searchParams.get("cloud") === "COMMUNITY" ? "community" : "secure";
+      return json(200, {
+        gpus: fake.gpus.filter((g) => g.price[cloud] !== null).map((g) => ({
+          id: g.id, name: g.name, memory: g.memory, secure: g.price.secure !== null, community: g.price.community !== null,
+          price: { secure: g.price.secure, community: g.price.community },
+          availability: g.dataCenters.reduce<FakeGpu["dataCenters"][number]["availability"]>((best, d) => (WORSE[d.availability] < WORSE[best] ? d.availability : best), "NONE"),
+          dataCenters: g.dataCenters.map((d) => ({ id: d.id, name: d.id, availability: d.availability })),
+        })),
+      });
+    }
+    if (req.method === "GET" && url.pathname === "/v2/network-volumes") return json(200, { networkVolumes: fake.volumes.map((v) => ({ ...v, type: "STANDARD" })) });
+    // a pod deployed: one GPU type, in the first data center asked that has one free (any, when none is asked)
+    if (req.method === "POST" && url.pathname === "/v2/pods") {
+      if (fake.failCreate) return json(fake.failCreate, { title: "Refused", status: fake.failCreate, detail: fake.failCreate === 402 ? "insufficient balance" : "create refused" });
+      const gpuAsked = (body.gpu as { id?: string } | undefined)?.id;
+      const gpu = fake.gpus.find((g) => g.id === gpuAsked);
+      if (!gpu || typeof body.name !== "string" || (typeof body.image !== "string" && typeof body.templateId !== "string")) return json(422, { title: "Unprocessable", status: 422, detail: "invalid request" });
+      const network = (body.mounts as { network?: Array<{ volumeId: string; path: string }> } | undefined)?.network?.[0];
+      const volume = network ? fake.volumes.find((v) => v.id === network.volumeId) : undefined;
+      if (network && !volume) return json(400, { title: "Bad Request", status: 400, detail: "network volume not found" });
+      const asked = Array.isArray(body.dataCenterIds) ? (body.dataCenterIds as string[]) : [];
+      const free = gpu.dataCenters.filter((d) => d.availability !== "NONE" && !fake.noCapacity.has(gpu.id) && !fake.noCapacity.has(`${gpu.id}@${d.id}`) && (!asked.length || asked.includes(d.id)));
+      const at = free.find((d) => !volume || d.id === volume.dataCenter);
+      if (!at) return json(400, { title: "Bad Request", status: 400, detail: NO_CAPACITY });
+      if (!o.spawn) return json(500, { title: "Error", status: 500, detail: "this pretend RunPod deploys nothing (no spawn)" });
+      const comfy = await o.spawn();
+      comfy.down = true;
+      const made: FakePod = {
+        id: new URL(comfy.url).port, name: body.name, status: "PROVISIONING", rate: (body.cloud === "COMMUNITY" ? gpu.price.community : gpu.price.secure) ?? 0,
+        gpu: gpu.id, dataCenterId: at.id, ports: Array.isArray(body.ports) ? (body.ports as string[]) : [], diskGb: typeof body.disk === "number" ? body.disk : 50,
+        env: body.env && typeof body.env === "object" ? { ...(body.env as Record<string, string>) } : {}, startedAt: null, comfy,
+        image: typeof body.image === "string" ? body.image : undefined, volumeId: volume?.id ?? null,
+      };
+      fake.pods.push(made);
+      boot(made);
+      if (fake.createThenFail) return json(fake.createThenFail, { title: "Error", status: fake.createThenFail, detail: "upstream timed out" });
+      return json(201, raw(made));
+    }
     if (req.method === "GET" && url.pathname === "/v2/pods") {
       if (fake.failList) return json(fake.failList, { title: "Error", status: fake.failList, detail: fake.failList === 429 ? "rate limited" : "unavailable" });
       const listed = fake.pods.filter((p) => p.status !== "TERMINATED").map((p) => {
@@ -176,20 +279,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
         } else stopping();
       } else if (action === "start") {
         pod.status = "STARTING";
-        const t = setTimeout(() => {
-          timers.delete(t);
-          if (pod.status !== "STARTING") return;
-          pod.status = "RUNNING";
-          pod.startedAt = new Date().toISOString();
-          // the node pack reads AFFLATUS_TOKEN as ComfyUI starts: locked from its first second, a lock the routes cannot change.
-          // A secret's reference in it is given its value at boot, as RunPod does
-          const said = pod.env.AFFLATUS_TOKEN;
-          const ref = said ? /^\{\{\s*RUNPOD_SECRET_(.+?)\s*\}\}$/.exec(said) : null;
-          const token = ref ? fake.secrets[ref[1]!] : said;
-          if (token && pod.comfy.packVersion) pod.comfy.lock = { token, local: false, fixed: true };
-          pod.comfy.down = false;
-        }, fake.bootMs);
-        timers.add(t);
+        boot(pod);
       }
       return json(200, raw(pod));
     }

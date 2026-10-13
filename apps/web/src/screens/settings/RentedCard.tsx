@@ -9,6 +9,7 @@ import { Button, cx, ErrorNote, fieldClass } from "../../ui";
 import { Block, Card, Row } from "./Rows";
 import { tabHref } from "./settingsIndex";
 import { COLUMNS } from "./wide";
+import { openDeploy } from "../../deploy";
 
 const WHY_RUNPOD = "A pod you made on RunPod, added as a machine: Afflatus reads its state there, starts it only when you press Start, and stops it when it sits idle, at a spending cap, or (with the Afflatus node pack on it) when this PC goes silent. The key is a RunPod API key (RunPod › Settings › API Keys); it stays in Afflatus, never shown again. The pod must expose ComfyUI's port, 8188, over HTTP.";
 
@@ -50,6 +51,7 @@ export function RentRow() {
     <Row setting="comfy.runpod" label="Or a RunPod pod" help={WHY_RUNPOD}>
       <span className="grow text-xs text-ink-2">Your pods, the caps and the key</span>
       <Link href={tabHref("rented")} className="text-[12.5px] font-semibold hover:underline">Rented GPUs ›</Link>
+      <Button size="sm" onClick={openDeploy}>Deploy a GPU…</Button>
     </Row>
   );
 }
@@ -159,7 +161,7 @@ function RunpodPods() {
   });
   const list = pods.data?.pods ?? [];
   return (
-    <Card title="Your pods on RunPod" setting="rented.pods" help="Every pod of the account, made here or on RunPod's site. Add makes one a machine, as it is (its card is in Settings › ComfyUI): Afflatus starts it only when you press Start. A pod must expose ComfyUI's port, 8188, over HTTP to be added.">
+    <Card title="Your pods on RunPod" setting="rented.pods" status={<Button size="sm" tone="primary" onClick={openDeploy}>Deploy a GPU…</Button>} help="Every pod of the account, made here or on RunPod's site. Add makes one a machine, as it is (its card is in Settings › ComfyUI): Afflatus starts it only when you press Start. A pod must expose ComfyUI's port, 8188, over HTTP to be added.">
       {pods.isError && <Block><ErrorNote>{pods.error.message}</ErrorNote></Block>}
       {pods.isSuccess && !list.length && <Block><span className="text-xs text-ink-2">No pods on this account. Make one on RunPod (a ComfyUI template, port 8188 exposed), then it shows here.</span></Block>}
       {list.map((p) => {

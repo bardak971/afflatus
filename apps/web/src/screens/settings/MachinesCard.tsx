@@ -139,6 +139,14 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
   });
   const label = machineLabel(machine);
   const rented = Boolean(machine.rented);
+  // a rented pod is removed by its own route: a list sent whole keeps every rented machine (one dropped by an old list would
+  // bill with nothing watching it)
+  const removeRented = useMutation({
+    mutationFn: () => api.removeMachine(machine.id),
+    onSuccess: () => {
+      for (const queryKey of [queryKeys.settings(), queryKeys.machines(), queryKeys.queue(), queryKeys.setup(), queryKeys.runpodPods(), queryKeys.rentedSpending()]) void client.invalidateQueries({ queryKey });
+    },
+  });
   // one Start and Stop for the head and the rows: a Delete under way holds Start and Stop too
   const rentedOps = useRentedOps();
   const billing = rented && state?.rented && state.rented.status !== "EXITED" && state.rented.status !== "GONE" && state.rented.status !== "TERMINATED";
@@ -212,7 +220,7 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
       {all.length > 1 && (
         <Row label="Order and removal" help="The first ComfyUI is the one the setup, the downloads and the node packs talk to. Removing one leaves what it rendered in the library; a job waiting for it goes to another machine.">
           {index > 0 && <Button size="sm" onClick={() => save.mutate([machine, ...all.filter((m) => m.id !== machine.id)])}>Make it the first</Button>}
-          <TwoStep tone="danger" label="Remove" title={`Remove ${label}`} note={rented ? (billing ? "from Afflatus only: it keeps running and billing on RunPod, and nothing stops it any more" : "from Afflatus only: the pod stays on RunPod, as it is") : "what it rendered stays; waiting jobs go elsewhere"} yes="Remove" onYes={() => save.mutate(all.filter((m) => m.id !== machine.id))} />
+          <TwoStep tone="danger" label="Remove" title={`Remove ${label}`} note={rented ? (billing ? "from Afflatus only: it keeps running and billing on RunPod, and nothing stops it any more" : "from Afflatus only: the pod stays on RunPod, as it is") : "what it rendered stays; waiting jobs go elsewhere"} yes="Remove" onYes={() => (rented ? removeRented.mutate() : save.mutate(all.filter((m) => m.id !== machine.id)))} />
         </Row>
       )}
     </Card>
