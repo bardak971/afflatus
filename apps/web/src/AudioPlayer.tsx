@@ -11,10 +11,11 @@ import { queryKeys } from "./queryKeys";
  * waveform (the loudness the server measures once for the library and the timelines) with what was played
  * in the accent, and the volume. A click or a drag on the waveform goes there; with the focus on the
  * player, Space plays and pauses, and the arrow keys on the waveform go back and forth. A sound that is
- * not in the library (no `asset`) has a plain bar in place of its waveform.
+ * not in the library (no `asset`) has a plain bar in place of its waveform. With `strip`, the place's own waveform is drawn
+ * under the player in place of the small one (a part chosen on the whole sound: SoundRange), with the playhead on it.
  */
 
-export function AudioPlayer({ asset, src, name, range, bare, className, onClick, children }: {
+export function AudioPlayer({ asset, src, name, range, strip, bare, className, onClick, children }: {
   /** The sound (or the video whose sound it is) in the library: its waveform is drawn. */
   asset?: string;
   /** Another address than the asset's file: a sound that is not in the library. */
@@ -23,6 +24,8 @@ export function AudioPlayer({ asset, src, name, range, bare, className, onClick,
   name?: string;
   /** Only a part is played, in seconds of the sound: the waveform and the time are those of the part. */
   range?: { from: number; to: number };
+  /** Drawn under the player in place of its waveform: given where the sound is, in seconds of it (null: not started). */
+  strip?(now: number | null): ReactNode;
   /** Inside a card of its own: no border and no ground. */
   bare?: boolean;
   className?: string;
@@ -117,13 +120,13 @@ export function AudioPlayer({ asset, src, name, range, bare, className, onClick,
     if (!e.repeat) toggle();
   };
   const time = <TimeReadout now={now - from} span={span} />;
-  const wave = <SeekStrip at={at} now={now - from} span={span} bars={bars} playing={on} name={name} onSeek={seek} />;
+  const wave = strip ? null : <SeekStrip at={at} now={now - from} span={span} bars={bars} playing={on} name={name} onSeek={seek} />;
 
-  return (
+  const player = (
     <div
       onKeyDown={onKeys}
       onClick={onClick}
-      className={cx("flex min-w-0 items-center gap-3.5", !bare && "rounded-[14px] border border-line bg-raised px-3.5 py-2.5", className)}
+      className={cx("flex min-w-0 items-center gap-3.5", !bare && !strip && "rounded-[14px] border border-line bg-raised px-3.5 py-2.5", !strip && className)}
     >
       <audio
         key={url}
@@ -165,6 +168,14 @@ export function AudioPlayer({ asset, src, name, range, bare, className, onClick,
       )}
       <VolumeControl volume={volume} muted={muted} onVolume={setVolume} onMuted={setMuted} />
       {children}
+    </div>
+  );
+  if (!strip) return player;
+  // the playhead shows once the part has been played or sought into
+  return (
+    <div className={cx("flex min-w-0 flex-col gap-2", !bare && "rounded-[14px] border border-line bg-raised px-3.5 py-2.5", className)}>
+      {player}
+      {strip(on || now > from ? now : null)}
     </div>
   );
 }

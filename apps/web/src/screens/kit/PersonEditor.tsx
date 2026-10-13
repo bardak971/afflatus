@@ -192,18 +192,22 @@ function Voice({ value, part, onChange, onPart }: {
     <div className="flex min-w-0 grow flex-col gap-1">
       {value ? (
         <div {...drop.props} className={cx("flex min-w-0 items-center gap-2 rounded-xl border bg-raised py-1 pr-1.5 pl-2", drop.over ? "border-accent bg-accent-wash" : drop.wanted ? "border-dashed border-accent" : "border-line")}>
-          <AudioPlayer asset={value} name={asset.data?.name || "Audio"} range={{ from: shown.start, to: shown.start + shown.seconds }} bare className="min-w-0 grow" />
-          <Button size="sm" onClick={() => setPicking(true)}>Change</Button>
-          <Button size="sm" onClick={() => onChange(null)}>Remove</Button>
+          {/* the part the models are given, played on the whole sample's waveform where it is chosen */}
+          <AudioPlayer
+            asset={value} name={asset.data?.name || "Audio"} range={{ from: shown.start, to: shown.start + shown.seconds }} bare className="min-w-0 grow"
+            strip={total !== null && total > VOICE_PART.min ? (now) => (
+              <SoundRange asset={value} total={total} start={shown.start} seconds={shown.seconds} min={VOICE_PART.min} most={VOICE_PART.most} label="Voice sample: the part used" playhead={now} onCommit={(start, seconds) => onPart({ start, seconds })} />
+            ) : undefined}
+          >
+            <Button size="sm" onClick={() => setPicking(true)}>Change</Button>
+            <Button size="sm" onClick={() => onChange(null)}>Remove</Button>
+          </AudioPlayer>
         </div>
       ) : (
         <button type="button" {...drop.props} onClick={() => setPicking(true)} className={cx("flex h-8 min-w-0 items-center gap-2 rounded-[9px] border border-dashed px-2.5 text-[12.5px] text-ink-2 hover:text-ink", drop.zone || "border-line-strong")}>
           <Music size={14} className="shrink-0" />
           <span className="truncate">{upload.isPending ? "Adding…" : "Choose or drop an audio file"}</span>
         </button>
-      )}
-      {value && total !== null && total > VOICE_PART.min && (
-        <SoundRange asset={value} total={total} start={shown.start} seconds={shown.seconds} min={VOICE_PART.min} most={VOICE_PART.most} label="Voice sample: the part used" onCommit={(start, seconds) => onPart({ start, seconds })} />
       )}
       {upload.isError && <span className="text-xs text-warn-ink">{upload.error.message}</span>}
       {picking && <Picker title="Voice sample" kind="audio" onClose={() => setPicking(false)} onPick={(id) => { onChange(id); setPicking(false); }} />}

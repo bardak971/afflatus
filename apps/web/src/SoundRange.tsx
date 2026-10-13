@@ -47,7 +47,7 @@ export function firstPart(total: number, pauses: Pause[], longest: number): { st
   return { start: 0, seconds: tenth(ends.length ? Math.max(...ends) : longest) };
 }
 
-export function SoundRange({ asset, total, start, seconds, min, most, label, onCommit }: {
+export function SoundRange({ asset, total, start, seconds, min, most, label, playhead, onCommit }: {
   asset: string;
   /** The whole sound, in seconds. */
   total: number;
@@ -57,6 +57,8 @@ export function SoundRange({ asset, total, start, seconds, min, most, label, onC
   min: number;
   most: number;
   label: string;
+  /** Where the part being played is, in seconds of the sound: a line over the waveform. */
+  playhead?: number | null;
   onCommit(start: number, seconds: number): void;
 }) {
   const marks = useSoundMarks(asset);
@@ -106,6 +108,7 @@ export function SoundRange({ asset, total, start, seconds, min, most, label, onC
         )}
       </span>
       <span aria-hidden className="absolute top-2.5 -bottom-0.5 rounded-lg border-2 border-accent" style={{ left: pct(from), width: pct(to - from) }} />
+      {playhead != null && !moving && <span aria-hidden className="absolute top-2 -bottom-1 w-0.5 -translate-x-1/2 rounded-full bg-ink" style={{ left: pct(playhead) }} />}
     </span>
   );
 

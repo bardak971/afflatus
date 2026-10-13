@@ -494,15 +494,17 @@ export function SoundField({ label, note, optional, value, onChange, part, cast 
         className: "flex flex-col gap-2",
         body: (choose) => (
           <>
-            {/* with a part set, the player plays that part */}
-            <AudioPlayer asset={shown} name={asset.data?.name || "Audio"} range={part ? { from, to: from + lasts } : undefined} bare className="px-0.5 pt-0.5" />
+            {/* with a part set, the player plays that part, on the whole sound's waveform where it is chosen */}
+            <AudioPlayer
+              asset={shown} name={asset.data?.name || "Audio"} range={part ? { from, to: from + lasts } : undefined} bare className="px-0.5 pt-0.5"
+              strip={part && total !== null ? (now) => (
+                <SoundRange asset={shown} total={total} start={from} seconds={lasts} min={Math.min(part.min, total)} most={longest} label={`${label}: the part used`} playhead={now} onCommit={setPart} />
+              ) : undefined}
+            />
             {fromCast && (
               <span className="px-0.5 text-xs text-ink-2" data-tip={`Added from the cast when the form is sent. Choose a sample here to use another, or take ${fromCast.from} out of the cast.`}>
                 <span className="font-semibold text-ink">{fromCast.from}</span>'s voice · from the cast{fromCast.part ? " · the part set on them" : ""}
               </span>
-            )}
-            {part && total !== null && (
-              <SoundRange asset={shown} total={total} start={from} seconds={lasts} min={Math.min(part.min, total)} most={longest} label={`${label}: the part used`} onCommit={setPart} />
             )}
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-line pt-2 text-xs text-ink-2">
               {part && (
