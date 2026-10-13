@@ -66,6 +66,8 @@ export interface FakeComfy {
   refused: string[];
   /** What the pretend ComfyUI-Manager says its version is (GET /v2/manager/version). */
   managerVersion: string;
+  /** An older ComfyUI whose page answers every address: a POST to a route it does not have is refused 405, not 404. */
+  oldPage: boolean;
   /** Down, as the ComfyUI of a stopped pod (fake/runpod.ts): every call answered 502 by the provider's proxy, no socket. */
   down: boolean;
   /** The node pack's watchdog (0.13.0): each "still here" it heard, with the minutes it was given. */
@@ -135,7 +137,7 @@ const body = async (req: IncomingMessage) => {
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: FakeState = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], managerVersion: "V4.2.1", down: false, alive: [],
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], managerVersion: "V4.2.1", oldPage: false, down: false, alive: [],
     folderPaths: init.folderPaths ?? null, hideFolderPaths: init.hideFolderPaths ?? false,
     catalog: init.catalog ?? {},
     models: init.models ?? {},

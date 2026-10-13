@@ -97,7 +97,8 @@ export function fakeRoutes(fake: FakeState, hooks: { queued(promptId: string, cl
     }
     if (path === "/afflatus/alive") {
       // the node pack's watchdog (0.13.0): "still here", with the minutes it may be silent
-      if (!fake.packVersion || !/^0\.(1[3-9]|[2-9]\d)\.|^[1-9]/.test(fake.packVersion)) return json(404, {});
+      // no pack: not found; an older ComfyUI, whose page answers every address, refuses the method instead (405)
+      if (!fake.packVersion || !/^0\.(1[3-9]|[2-9]\d)\.|^[1-9]/.test(fake.packVersion)) return json(fake.oldPage ? 405 : 404, {});
       const minutes = Number((JSON.parse(raw.toString("utf8") || "{}") as { minutes?: unknown }).minutes ?? 0);
       fake.alive.push({ at: Date.now(), minutes });
       return json(200, { watching: minutes > 0, minutes, can: true });

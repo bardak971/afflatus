@@ -71,10 +71,10 @@ export function AddMachineCard() {
   const [url, setUrl] = useState("");
   const all = settings.data?.machines ?? [];
   const add = () => {
-    const ids = new Set(all.map((m) => m.id));
-    let n = all.length + 1;
-    while (ids.has(`m${n}`)) n++;
-    save.mutate([...all, { id: `m${n}`, name: "", url: url.trim(), dir: "", takes: "all", families: {}, tokenEnd: "" }], { onSuccess: () => setUrl("") });
+    // an id no machine had before: one removed keeps its pause and its learned speed under its id, and a new one taking
+    // that id took them on (the time, to the millisecond, in base 36)
+    const id = `m${Date.now().toString(36)}`;
+    save.mutate([...all, { id, name: "", url: url.trim(), dir: "", takes: "all", families: {}, tokenEnd: "" }], { onSuccess: () => setUrl("") });
   };
   const exposed = url.trim() !== "" && publicPlainHttp(url.trim());
   return (
@@ -195,7 +195,7 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
         <Row label="ComfyUI" start>
           {probe.version && <Fact tip="ComfyUI version">v{probe.version.replace(/^v/, "")}</Fact>}
           {probe.device && <Fact tip={`${probe.device}: ${gb(probe.vramTotal ?? 0)} VRAM, ${gb(probe.vramFree ?? 0)} free`}><span className="max-w-[340px] truncate">{probe.device} · {gb(probe.vramTotal ?? 0)} · {gb(probe.vramFree ?? 0).replace(" GB", "")} free</span></Fact>}
-          {probe.pack ? <Fact tip="The Afflatus node pack this ComfyUI loaded">node pack {probe.pack}</Fact> : <ButtonLink href="/api/comfy/node-pack.zip" download tone="danger" size="sm">Node pack not loaded: download it</ButtonLink>}
+          {probe.pack ? <Fact tip="The Afflatus node pack this ComfyUI loaded">node pack {probe.pack}</Fact> : rented ? <Fact tip="Without the Afflatus node pack, this pod is not locked and has no watchdog: its Access line says how to have it">no node pack</Fact> : <ButtonLink href="/api/comfy/node-pack.zip" download tone="danger" size="sm">Node pack not loaded: download it</ButtonLink>}
         </Row>
       )}
       {!rented && <Row label="Folder on this computer" htmlFor={`comfy-dir-${machine.id}`} help="Optional: this ComfyUI's own folder (the one with main.py), when it is on this computer. Leave it empty for another computer or a rented instance.">

@@ -9,6 +9,9 @@ import { readSettings, updateSettings } from "./settings";
  * Rented machines (rented.ts): the user's pods on RunPod listed for adding one, a pod added as a machine, Start and Stop (or
  * Delete) by the user, and what they cost. Nothing here starts a pod unless the user asked: Start is a route of its own.
  */
+/** A pod's machine id: "rp-" and its id, as a machine id may be written (lower-case letters, digits, dashes; 24 at most). */
+export const podMachineId = (pod: string) => `rp-${pod.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 21)}`;
+
 export function registerRented(app: FastifyInstance, s: Services): void {
   const params = z.object({ id: z.string().max(40) });
 
@@ -24,10 +27,10 @@ export function registerRented(app: FastifyInstance, s: Services): void {
     if (found.added) throw httpError("This pod is added already.", 409);
     let id = "";
     await updateSettings(s.db, (current) => {
-      const ids = new Set(current.machines.map((m) => m.id));
-      let n = current.machines.length + 1;
-      while (ids.has(`m${n}`)) n++;
-      id = `m${n}`;
+      // its id is the pod's: never one a machine had before (whose pause and learned speed it would take on), and the same
+      // when the pod is removed and added again, so that it keeps its own history
+      id = podMachineId(found.id);
+      if (current.machines.some((m) => m.id === id)) throw httpError("This pod is added already.", 409);
       const rented = { provider: "runpod" as const, pod: found.id, idleMinutes: 10, idleDo: "stop" as const, watchdogMinutes: 15 };
       return { machines: [...current.machines, { id, name: found.name.slice(0, 40), url: podUrl(found.id), dir: "", takes: "all", families: {}, rented }] };
     });
