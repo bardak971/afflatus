@@ -151,6 +151,11 @@ def clean_output(output_dir: str, hours: float) -> int:
 try:
     import asyncio
 
+    # on Windows a client gone before its connection was accepted closed ComfyUI's listening socket for good (accept_guard.py)
+    from .accept_guard import install as _guard_accept
+
+    _guard_accept()
+
     import folder_paths
     from aiohttp import web
     from server import PromptServer
