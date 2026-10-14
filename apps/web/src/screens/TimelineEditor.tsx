@@ -5,6 +5,7 @@ import { Inspector } from "../timeline/Inspector";
 import { JoinPanel } from "../timeline/inspector/join";
 import { SourcePanel } from "../timeline/inspector/source";
 import { SourceStage } from "../timeline/SourceStage";
+import { madeFromSource } from "../timeline/track/SourceLane";
 import { MusicPanel } from "../timeline/inspector/music";
 import { Player } from "../timeline/Player";
 import { MediaOverlay } from "../timeline/MediaOverlay";
@@ -48,6 +49,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
   const e = { ...editor, t, shown };
   const { clips, current, musicOpen, range, clipMenu, rangeMenu, exp } = e;
   const pinMenu = pinMenuProps(e);
+  // the clips made from the source: its panel renders those with nothing to play once they are made
+  const fromSource = new Set(madeFromSource(t, e.videoRecipes).map((c) => c.id));
+  const sourceLeft = e.missing.filter((c) => fromSource.has(c.id));
   return (
     <div className="flex min-w-0 grow flex-col">
       <TimelineHeader {...headerProps(e)} />
@@ -107,6 +111,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             onEdit={(source) => e.edit.mutate({ source })}
             onMake={e.makeSource.run}
             making={e.makeSource.pending}
+            made={{ left: sourceLeft.length, queued: clips.filter((c) => fromSource.has(c.id) && c.job).length }}
+            onRender={() => e.render.mutate({ clips: sourceLeft })}
+            rendering={e.render.isPending}
             onClose={() => e.setSourceOpen(false)}
           />
         ) : musicOpen && t.music ? (

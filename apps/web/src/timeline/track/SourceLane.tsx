@@ -20,7 +20,17 @@ export function plannedWindows(source: NonNullable<Timeline["source"]>, recipe: 
   return w ? sourceWindows({ fromMs: source.fromMs, toMs: source.toMs, windowMs: source.windowMs, shape: w.shape }) : [];
 }
 
-export type SourcePlace = { atMs: number; lengthMs: number; made: boolean; windows: SourceWindow[]; replaces: string | null };
+/** The clips made from a timeline's source: those of a window-by-window model driven by its video. */
+export function madeFromSource(t: Timeline, recipes: RecipeInfo[]): Timeline["clips"] {
+  const source = t.source;
+  if (!source) return [];
+  return t.clips.filter((c) => {
+    const b = windowed(recipes.find((r) => r.id === c.recipe));
+    return Boolean(b && (c.inputs[b.driving] as ClipValue | undefined)?.asset === source.asset);
+  });
+}
+
+export type SourcePlace ={ atMs: number; lengthMs: number; made: boolean; windows: SourceWindow[]; replaces: string | null };
 
 /**
  * Where a timeline's source lies on the track (in the track's own time, as the clips are laid out), as the music lies
@@ -30,10 +40,7 @@ export type SourcePlace = { atMs: number; lengthMs: number; made: boolean; windo
 export function sourcePlace(t: Timeline, slots: Slot[], recipes: RecipeInfo[]): SourcePlace | null {
   const source = t.source;
   if (!source) return null;
-  const made = !source.clip && t.clips.some((c) => {
-    const b = windowed(recipes.find((r) => r.id === c.recipe));
-    return Boolean(b && (c.inputs[b.driving] as ClipValue | undefined)?.asset === source.asset);
-  });
+  const made = !source.clip && madeFromSource(t, recipes).length > 0;
   const end = slots.length ? slots.at(-1)!.startMs + slots.at(-1)!.lengthMs : 0;
   const replaced = source.clip ? slots.find((s) => s.clip.id === source.clip) : undefined;
   const anchor = replaced ? replaced.startMs : end;
