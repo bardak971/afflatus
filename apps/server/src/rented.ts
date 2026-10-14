@@ -4,12 +4,12 @@ import type { Comfy } from "./comfy";
 import type { Db } from "./db";
 import { httpError } from "./errors";
 import { newToken } from "./lock-api";
-import { COMFY_PORT, exposesComfy, imageFor, LOCK_ENV, noCapacity, POD_IMAGES, podMachineId, podUrl, Runpod, RunpodError, RunpodShape, secretRef, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ACTION_ENV, WATCHDOG_ENV, type BillRecord, type GpuOffer, type NetworkVolume, type Pod, type PodSpec, type PodStatus } from "./runpod";
+import { COMFY_PORT, exposesComfy, imageFor, LOCK_ENV, noCapacity, POD_IMAGES, podMachineId, podUrl, Runpod, RunpodError, RunpodShape, secretRef, RUNNING_DISK_PER_GB_MONTH, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ACTION_ENV, WATCHDOG_ENV, type BillRecord, type GpuOffer, type NetworkVolume, type Pod, type PodSpec, type PodStatus } from "./runpod";
 import type { PresetFile } from "@afflatus/core";
 import { imagePublic } from "./podImage";
 import { recordMeasure } from "./podMeasures";
 import { SEARCHED_FOLDERS } from "./modelSets";
-import { inUseSaid, keptHoldings, mountedOn, recordHoldings, usedBy, viewVolumes, VOLUME_MAX_GB, VOLUME_MIN_GB, type VolumeView } from "./rentedVolumes";
+import { inUseSaid, keptHoldings, mountedOn, recordHoldings, usedBy, viewVolumes, VOLUME_MAX_GB, VOLUME_MIN_GB, VOLUME_PER_GB_MONTH, type Storage, type VolumeView } from "./rentedVolumes";
 import { MAX_MACHINES, readSettings, updateSettings, type DeployAsk, type Machine, type Settings } from "./settings";
 
 /**
@@ -80,6 +80,8 @@ export interface Spending {
   runwayMs: number | null;
   /** Today and this month are RunPod's own bill (with Afflatus's count for the hours RunPod has not billed yet); false: Afflatus's count alone. */
   billed: boolean;
+  /** What storage costs (volumes, the pods' own disks); null when RunPod was not read. Never counted against the caps. */
+  storage: Storage | null;
 }
 
 /** What a pod cost as Afflatus counts it (rent_sessions), today and this month, and whether a run of it is still open. */
@@ -373,6 +375,7 @@ export class Rented {
       throw httpError(err.message, 502);
     });
     console.log(`[rented] volume ${made.name} made in ${made.dataCenter}, ${made.size} GB`);
+    this.storageSeen = null;
     this.events.emit("setup");
     return made;
   }
@@ -409,6 +412,7 @@ export class Rented {
       throw httpError(err.message, 502);
     });
     console.log(`[rented] volume ${volume.name} deleted`);
+    this.storageSeen = null;
     this.events.emit("setup");
   }
 
@@ -1014,14 +1018,48 @@ export class Rented {
     return { today: sumToday, month: sumMonth, billed: records !== null };
   }
 
-  /** Today's and this month's cost, the caps, and RunPod's balance. */
+  /** Today's and this month's cost, the caps, RunPod's balance, and what storage costs. */
   async spending(): Promise<Spending> {
     const s = await readSettings(this.db);
     const spent = await this.spent();
     // RunPod is asked at most once a minute: the card reads this every 10 s while a pod runs
     if (s.runpodKey) await this.readBalance(s.runpodKey);
     const balance = this.balanceSeen?.value ?? null;
-    return { ...spent, caps: s.rentCaps, balance, lowBalance: balance !== null && balance < LOW_BALANCE, spendPerHr: this.balanceSeen?.spendPerHr ?? null, runwayMs: this.runwayMs() };
+    const storage = s.runpodKey ? await this.storage(s.runpodKey) : null;
+    return { ...spent, caps: s.rentCaps, balance, lowBalance: balance !== null && balance < LOW_BALANCE, spendPerHr: this.balanceSeen?.spendPerHr ?? null, runwayMs: this.runwayMs(), storage };
+  }
+
+  private storageSeen: { at: number; value: Storage | null } | null = null;
+
+  /**
+   * What storage costs on the account: the volumes' bill this month, the pods' own disks within this month's bill, and
+   * what it all costs a month as it stands. Read again every few minutes (it moves by the day); null when RunPod does not
+   * answer.
+   */
+  private async storage(key: string): Promise<Storage | null> {
+    if (this.storageSeen && (this.now() - this.storageSeen.at < BILL_EVERY_MS || this.now() < this.quietUntil)) return this.storageSeen.value;
+    const d = new Date(this.now());
+    const month = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+    const client = this.client(key);
+    const [volumes, pods, volumeBills, podBills] = await Promise.all([
+      client.volumes().catch(() => null),
+      client.pods().catch(() => null),
+      client.volumeBilling(month, this.now()).catch(() => null),
+      this.bill(key, month),
+    ]);
+    let value: Storage | null = null;
+    if (volumes && pods) {
+      const disks = pods.filter((p) => p.status !== "TERMINATED" && p.diskGb > 0);
+      value = {
+        volumesMonth: volumeBills ? volumeBills.filter((b) => b.end > month).reduce((n, b) => n + b.amount, 0) : null,
+        disksMonth: (podBills ?? []).filter((r) => r.end > month).reduce((n, r) => n + r.disk, 0),
+        perMonth: volumes.reduce((n, v) => n + v.size * VOLUME_PER_GB_MONTH, 0) + disks.reduce((n, p) => n + p.diskGb * (p.status === "EXITED" ? STOPPED_DISK_PER_GB_MONTH : RUNNING_DISK_PER_GB_MONTH), 0),
+        volumes: volumes.length,
+        stoppedDisks: disks.filter((p) => p.status === "EXITED").length,
+      };
+    }
+    this.storageSeen = { at: this.now(), value };
+    return value;
   }
 
   /** The user's Start: refused at a cap. */

@@ -42,6 +42,22 @@ export interface VolumeView extends NetworkVolume {
   perMonth: number;
 }
 
+/**
+ * What storage costs on the account: the volumes (billed every month, pod or not) and the pods' own disks (a stopped pod's
+ * still billed). A spending cap stops pods, never storage: only deleting a volume, or terminating a stopped pod, ends it.
+ */
+export interface Storage {
+  /** The volumes' bill this month, as RunPod has written it (a day or so behind); null when RunPod did not give it. */
+  volumesMonth: number | null;
+  /** Of this month's spending, what the pods' own disks cost (in it already: RunPod bills a pod's disk with its GPU). */
+  disksMonth: number;
+  /** What storage costs a month as the account stands now: every volume, every pod's disk at its running or stopped price. */
+  perMonth: number;
+  volumes: number;
+  /** Stopped pods with a disk of their own: billed while they wait. */
+  stoppedDisks: number;
+}
+
 /** RunPod's price of a standard network volume, USD per GB and month (the first TB). */
 export const VOLUME_PER_GB_MONTH = 0.07;
 /** The sizes RunPod takes for a volume, GB. */

@@ -271,12 +271,31 @@ export interface GpuOffer {
   dataCenters: Array<{ id: string; availability: Availability }>;
 }
 
+/** A pod as a volume names it: its machine's name when it is one. */
+export interface PodOn {
+  pod: string;
+  name: string;
+  status: RentedState["status"];
+}
+
 /** A network volume of the RunPod account: the models kept between deploys, in one data center. */
 export interface NetworkVolume {
   id: string;
   name: string;
   size: number;
   dataCenter: string;
+  /** The pod running on it now: no other pod may use it meanwhile. */
+  usedBy: PodOn | null;
+  /** Every pod it is mounted on, stopped ones too: it cannot be deleted while one is. */
+  mountedOn: PodOn[];
+  /** USD a month. */
+  perMonth: number;
+  /** What it holds as the last pod on it listed; null: no pod Afflatus follows ran on it yet. */
+  holds: { count: number; seenAt: string; seenBy: string } | null;
+  /** When a pod last ran on it; null: never seen used. */
+  usedAt: string | null;
+  /** Each Model set as it held it last time a pod ran there: what it lacks (empty when nothing is known). */
+  sets: Array<{ id: string; name: string; missing: { count: number; bytes: number; unknown: number } }>;
 }
 
 /** A pod of the user's on RunPod, as the list for adding one says it. */
@@ -309,6 +328,17 @@ export interface RentedSpending {
   runwayMs: number | null;
   /** Today and this month are RunPod's own bill (the last hours counted by Afflatus); false: Afflatus's count alone. */
   billed: boolean;
+  /** What storage costs (volumes, the pods' own disks); null when RunPod was not read. Never counted against the caps. */
+  storage: {
+    /** The volumes' bill this month, as RunPod has written it; null when it did not give it. */
+    volumesMonth: number | null;
+    /** Of this month's spending, the pods' own disks (in it already). */
+    disksMonth: number;
+    /** What storage costs a month as the account stands now. */
+    perMonth: number;
+    volumes: number;
+    stoppedDisks: number;
+  } | null;
 }
 
 /** What a machine row says of a rented pod. Afflatus never starts one on its own. */

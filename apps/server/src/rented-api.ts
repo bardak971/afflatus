@@ -113,7 +113,8 @@ export function registerRented(app: FastifyInstance, s: Services): void {
   /** What the rented GPUs cost today and this month, the caps, and RunPod's balance; nothing without a rented machine. */
   app.get("/api/rented/spending", async () => {
     const settings = await readSettings(s.db);
-    if (!settings.machines.some((m) => m.rented)) return { spending: null };
+    // with a key and no pod, storage still bills (a volume left behind): read whenever there is a key
+    if (!settings.runpodKey && !settings.machines.some((m) => m.rented)) return { spending: null };
     return { spending: await s.rented.spending() };
   });
 }

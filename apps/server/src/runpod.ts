@@ -83,6 +83,8 @@ export const podMachineId = (pod: string) => `rp-${pod.toLowerCase().replace(/[^
 
 /** The ComfyUI port a pod must expose over HTTP for Afflatus to reach it. */
 export const COMFY_PORT = 8188;
+/** What a running pod's own disk costs, USD per GB and month (RunPod's price for the volume disk of a running pod). */
+export const RUNNING_DISK_PER_GB_MONTH = 0.1;
 /** What a stopped pod's own disk costs, USD per GB and month (RunPod's price for the volume disk of a stopped pod). */
 export const STOPPED_DISK_PER_GB_MONTH = 0.2;
 

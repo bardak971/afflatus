@@ -163,6 +163,21 @@ describe("a deploy", () => {
     expect(after.find((v) => v.id === "vol-se")?.holds).toBeNull();
   });
 
+  it("says what storage costs, with no pod at all: the volumes' bill this month, the pods' disks within it, a month as it stands", async () => {
+    const day = new Date();
+    const start = new Date(day.getFullYear(), day.getMonth(), day.getDate()).toISOString();
+    const end = new Date(Date.parse(start) + 3_600_000).toISOString();
+    runpod.volumeBill = [{ networkVolumeId: "vol-ro", startTime: start, endTime: end, totalAmount: 0.23 }];
+    runpod.bill = [{ podId: "gone-pod", startTime: start, endTime: end, totalAmount: 0.5, diskAmount: 0.02 }];
+    const spending = (await get(t.app, "/api/rented/spending")).json().spending;
+    // a key and no machine: storage still bills, so it is read
+    expect(spending.storage).toMatchObject({ volumesMonth: 0.23, disksMonth: 0.02, volumes: 2, stoppedDisks: 0 });
+    // 150 GB of volumes at $0.07
+    expect(spending.storage.perMonth).toBeCloseTo(10.5, 5);
+    // storage is never counted against the caps: the month is the pods' bill alone
+    expect(spending.month).toBeCloseTo(0.5, 5);
+  });
+
   it("makes, grows and deletes a volume; never smaller, never one a pod is mounted on", async () => {
     const made = await post(t.app, "/api/runpod/volumes", { name: "zz-test volume", size: 20, dataCenter: "EU-RO-1" });
     expect(made.statusCode).toBe(200);
