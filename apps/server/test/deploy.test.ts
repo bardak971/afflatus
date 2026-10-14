@@ -386,6 +386,27 @@ describe("a render longer than the balance lasts", () => {
   });
 });
 
+describe("a deployed pod the user stopped", () => {
+  it("stays stopped across a restart of Afflatus: never taken for one its watchdog stopped, never terminated for it", async () => {
+    const id = (await deploy()).json().id as string;
+    const pod = runpod.pods[0]!;
+    await until(() => pod.status === "RUNNING");
+    await until(async () => (await t.services.rented.poll(), !(await readSettings(t.db)).machines.find((m) => m.id === id)?.rented?.deployedAt));
+    expect((await post(t.app, `/api/machines/${id}/stop`, { how: "stop" })).statusCode).toBe(200);
+    await until(async () => (await t.services.rented.poll(), pod.status === "EXITED"));
+    expect((await readSettings(t.db)).machines.find((m) => m.id === id)?.rented?.userStopped).toBe(true);
+    // Afflatus restarted: what it knew in memory of the pod is gone
+    (t.services.rented as unknown as { seen: Map<string, unknown> }).seen.clear();
+    await t.services.rented.poll();
+    await t.services.rented.poll();
+    expect(pod.status).toBe("EXITED");
+    expect(runpod.calls.filter((c) => c.endsWith("action terminate"))).toEqual([]);
+    // started again: no longer the user's stop
+    await post(t.app, `/api/machines/${id}/start`, {});
+    expect((await readSettings(t.db)).machines.find((m) => m.id === id)?.rented?.userStopped).toBe(false);
+  });
+});
+
 describe("a deployed pod gone from RunPod", () => {
   it("that came up once: taken out of Afflatus at the second read that misses it, never at the first", async () => {
     const id = (await deploy()).json().id as string;
