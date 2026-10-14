@@ -235,3 +235,6 @@ export function usd(n: number, fine = false): string {
   if (fine && n > 0 && n < 1) return `$${n.toFixed(3)}`;
   return n < 100 ? `$${n.toFixed(2)}` : `$${Math.round(n)}`;
 }
+
+/** A count as a list says it short: "412k", "9.1k", "1.4M". */
+export const compact = (n: number) => new Intl.NumberFormat(UI_LOCALE, { notation: "compact", maximumFractionDigits: 1 }).format(n).toLowerCase();

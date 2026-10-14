@@ -34,6 +34,7 @@ const SERVER: Record<string, string> = {
   tagCheck: "server.tagCheck",
   families: "models.families",
   hasCivitaiKey: "models.civitaiKey",
+  hasHuggingFaceToken: "models.huggingFaceToken",
   hasRunpodKey: "comfy.runpod",
   rentCaps: "comfy.rentcaps",
   volumeUnusedDays: "rented.unused",

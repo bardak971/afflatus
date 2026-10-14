@@ -199,3 +199,24 @@ export async function civitaiVersion(id: number, wanted: string, key: string): P
   if (failed) throw failed;
   return null;
 }
+
+/**
+ * The Civitai versions of many files at once, by their SHA-256 (POST /api/v1/model-versions/by-hash/ids: up to 10,000 a
+ * request), as a map from the hash (upper case) to the version's number. A hash Civitai does not know is left out. Null
+ * when no site answered.
+ */
+export async function civitaiVersionsByHash(hashes: string[], key: string): Promise<Map<string, number> | null> {
+  const out = new Map<string, number>();
+  let answered = false;
+  for (const site of civitaiSites()) {
+    for (let at = 0; at < hashes.length; at += 10_000) {
+      const part = hashes.slice(at, at + 10_000);
+      const res = await fetchPublic(`${site}/api/v1/model-versions/by-hash/ids`, { method: "POST", headers: { ...headers(key), "Content-Type": "application/json" }, body: JSON.stringify(part), signal: AbortSignal.timeout(60_000) }, civitaiSites()).catch(() => null);
+      if (!res?.ok) continue;
+      answered = true;
+      const got = (await res.json().catch(() => [])) as Array<{ modelVersionId?: number; hash?: string }>;
+      for (const r of Array.isArray(got) ? got : []) if (r.modelVersionId && r.hash && !out.has(r.hash.toUpperCase())) out.set(r.hash.toUpperCase(), r.modelVersionId);
+    }
+  }
+  return answered ? out : null;
+}

@@ -16,10 +16,12 @@ export function CivitaiCard() {
   const settings = useSettings();
   const client = useQueryClient();
   const [key, setKey] = useState("");
+  const [hfToken, setHfToken] = useState("");
   const save = useMutation({
     mutationFn: (patch: SettingsPatch) => api.saveSettings(patch),
     onSuccess: () => {
       setKey("");
+      setHfToken("");
       // whether ComfyUI-Manager is there is only asked once downloading is turned on
       void client.invalidateQueries({ queryKey: queryKeys.downloads() });
       return client.invalidateQueries({ queryKey: queryKeys.settings() });
@@ -58,7 +60,7 @@ export function CivitaiCard() {
       <Row
         setting="server.civitaiLookups"
         label="Search Hugging Face and Civitai"
-        help={`On: when a model file is missing, "Search" asks Hugging Face for a file of exactly that name, and Civitai (civitai.com and civitai.red) for models with a close name. Only the filename is sent, and only when you press the button. What is found is shown with a link, and with a Download button when downloading is on. Off: Afflatus never contacts Hugging Face or Civitai; missing models still get links that open a search in your browser.`}
+        help={`On: when a model file is missing, "Search" asks Hugging Face for a file of exactly that name, and Civitai (civitai.com and civitai.red) for models with a close name. What is found is shown with a link, and with a Download button when downloading is on. Your own model files are also matched once to the site that has them, so that a rented GPU fetches them from there instead of from this PC: Civitai is sent each file's SHA-256 (a fingerprint of its content, not the file), Hugging Face its name. Off: Afflatus never contacts Hugging Face or Civitai; missing models still get links that open a search in your browser.`}
       >
         <Toggle bare on={on} onChange={(v) => save.mutate({ civitaiLookups: v })} label="Search Hugging Face and Civitai for missing models" />
       </Row>
@@ -68,6 +70,13 @@ export function CivitaiCard() {
           <input type="password" aria-label="Civitai API key" value={key} autoComplete="off" placeholder={settings.data?.hasCivitaiKey ? "•••••••••••••••• · type a new one to replace it" : "none"} onChange={(e) => setKey(e.target.value)} className={cx("h-10 min-w-0 grow font-mono text-xs placeholder:font-sans", fieldClass)} />
           <Button onClick={() => save.mutate({ civitaiKey: key })} disabled={!key || save.isPending}>Save</Button>
           {settings.data?.hasCivitaiKey && <Button onClick={() => save.mutate({ civitaiKey: "" })} disabled={save.isPending}>Remove key</Button>}
+        </Row>
+      )}
+      {on && (
+        <Row setting="models.huggingFaceToken" label="Hugging Face token" sub={settings.data?.hasHuggingFaceToken ? <span className="text-good">✓ saved</span> : undefined} help="Only needed for gated models (Flux dev and others): a Hugging Face access token (huggingface.co › Settings › Access Tokens, read), whose account accepted the model's terms on its page. Kept by Afflatus, never shown again.">
+          <input type="password" aria-label="Hugging Face token" value={hfToken} autoComplete="off" placeholder={settings.data?.hasHuggingFaceToken ? "•••••••••••••••• · type a new one to replace it" : "none"} onChange={(e) => setHfToken(e.target.value)} className={cx("h-10 min-w-0 grow font-mono text-xs placeholder:font-sans", fieldClass)} />
+          <Button onClick={() => save.mutate({ huggingFaceToken: hfToken })} disabled={!hfToken || save.isPending}>Save</Button>
+          {settings.data?.hasHuggingFaceToken && <Button onClick={() => save.mutate({ huggingFaceToken: "" })} disabled={save.isPending}>Remove token</Button>}
         </Row>
       )}
       {save.isError && <Block><ErrorNote>{save.error.message}</ErrorNote></Block>}

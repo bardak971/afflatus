@@ -194,6 +194,8 @@ export const settingsSchema = z.object({
    */
   families: z.record(z.string().max(120), z.boolean()).default({}),
   civitaiKey: z.string().default(""),
+  /** A Hugging Face access token: gated models (Flux dev…) need one whose account accepted their terms. A secret, never given to the page. */
+  huggingFaceToken: z.string().default(""),
   /** The RunPod API key, for rented machines (runpod.ts): a secret, never given to the page. */
   runpodKey: z.string().default(""),
   /** What the rented GPUs may cost, in USD, today and this month (rented.ts); 0: no cap. At a cap the running render ends, then they stop. */
@@ -443,6 +445,7 @@ export function publicSettings(s: Settings) {
     tagCheck: s.tagCheck,
     families: s.families,
     hasCivitaiKey: Boolean(s.civitaiKey),
+    hasHuggingFaceToken: Boolean(s.huggingFaceToken),
     hasRunpodKey: Boolean(s.runpodKey),
     rentCaps: s.rentCaps,
     lastDeploy: s.lastDeploy,

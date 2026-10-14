@@ -10,6 +10,7 @@ import { useLiveEvents } from "./live";
 import { Studio } from "./screens/Studio";
 import { ConfirmHost } from "./Confirm";
 import { DeployHost } from "./deploy";
+import { FindModelsHost } from "./findModels/Host";
 import { UpdateNews } from "./UpdateNews";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { FolderImportNote } from "./folderImport";
@@ -108,6 +109,7 @@ export function App() {
       <UpdateNews />
       <ConfirmHost />
       <DeployHost />
+      <FindModelsHost />
       <Suspense fallback={null}><KeysHelp /></Suspense>
       <TabProgress />
       <Tips />

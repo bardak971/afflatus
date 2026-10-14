@@ -44,6 +44,15 @@ export const queryKeys = {
   runpodImages: () => ["runpod-images"] as const,
   /** The Deploy dialog's Models part, by cloud (the speeds measured on it) and picked set. */
   deployModels: (cloud: string, set: string) => ["deploy-models", cloud, set] as const,
+  /** How far the hashing of this PC's model files is (Settings › Models › Your models online). */
+  modelHashes: () => ["model-hashes"] as const,
+  /** Find models: the filters' choices, a search's pages, a repository's files. */
+  browse: {
+    bases: () => ["browse", "bases"] as const,
+    civitai: (q: object) => ["browse", "civitai", q] as const,
+    huggingFace: (q: object) => ["browse", "huggingface", q] as const,
+    repo: (repo: string) => ["browse", "repo", repo] as const,
+  },
   /** The Model sets, a set's files, and what can be added to one. */
   modelSets: {
     all: () => ["model-sets"] as const,

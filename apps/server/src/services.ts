@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Db, DbKind } from "./db";
 import type { LibraryChange } from "./events";
 import { Downloads } from "./downloads";
+import { ModelHashes } from "./modelHashes";
 import { PodFiles } from "./podFiles";
 import { presetsWithFiles } from "./presetFiles";
 import { ShippedPresets, shippedPresetsDir } from "./presetFiles";
@@ -50,6 +51,8 @@ export interface Services {
   shippedPresets: ShippedPresets;
   /** Newer versions of the model files on Civitai. */
   updates: Updates;
+  /** Every model file of this computer hashed once, and which site has it (modelHashes.ts). */
+  hashes: ModelHashes;
   /** The first sweep done, which runs in the background from the start (the tests wait for it, so that it does not sweep what they set up). */
   started: Promise<void>;
   /** What the timeline editor reads of its clips, measured in the background once stored (null: off, as in most tests). */
@@ -192,6 +195,7 @@ export async function createServices(
     db, dbKind, storage, linked, registry, comfy, machines, comfyOf, queue, timelines, rented, podFiles, downloads,
     shippedPresets,
     updates: null as unknown as Updates,
+    hashes: null as unknown as ModelHashes,
     started: swept.then(() => undefined),
     precompute,
     async close() {
@@ -206,6 +210,11 @@ export async function createServices(
     },
   };
   services.updates = new Updates(services);
+  // every model file hashed once, a minute after the start (and on "Hash now"), waiting while this computer renders
+  services.hashes = new ModelHashes(services);
+  services.hashes.runningOn = (id) => queue.runningOn(id);
+  const firstHashes = setTimeout(() => void services.hashes.run(), 60_000);
+  firstHashes.unref();
   // the daily check for newer model versions rides on the hourly sweep: it only runs when the user asked for it. What
   // goes wrong is logged and kept on the report (daily), never thrown at a timer
   const daily = () => void services.updates.daily().catch((err) => console.warn("[updates]", (err as Error).message));
@@ -217,6 +226,7 @@ export async function createServices(
   services.close = async () => {
     clearInterval(checker);
     clearTimeout(firstCheck);
+    clearTimeout(firstHashes);
     await closeBefore();
   };
   return services;

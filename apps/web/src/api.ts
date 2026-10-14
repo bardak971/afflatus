@@ -9,7 +9,7 @@ import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerRe
 import type { DeployAsk, Health, FinishSettings, MachineProbe, Settings, SettingsPatch } from "./api/types/settings";
 import type { UpdatesView } from "./api/types/updates";
 import type { CommandEntry, CommandEstimate, CommandIndex, PromptHistoryItem } from "./api/types/bar";
-import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, HuggingFaceFind, CivitaiFind, DeployModels, ModelSet, SetFile, SetSearch } from "./api/types/models";
+import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, HuggingFaceFind, CivitaiFind, DeployModels, ModelSet, SetFile, SetSearch, BrowseBases, BrowseCard, BrowseFile, BrowsePage, HashStatus } from "./api/types/models";
 
 /** Shapes of the server's answers. Kept next to the calls so a change on one side is noticed on the other. */
 export * from "./api/types/queue";
@@ -283,6 +283,26 @@ export const api = {
   stopDownload: (id: string) => call<{ ok: true }>("DELETE", `/downloads/${id}`),
   /** A failed download's banner was dismissed: not announced again, on any page or device. */
   downloadSeen: (id: string) => call<{ ok: true }>("POST", `/downloads/${id}/seen`),
+  /** Find models: the filters' choices, Civitai's and Hugging Face's models a page at a time, a repository's files, a link read. */
+  browseBases: (o?: Asked) => call<BrowseBases>("GET", "/browse/bases", undefined, o?.signal),
+  browseCivitai: (q: { q: string; types: string[]; bases: string[]; sort: string; period: string; cursor?: string }, o?: Asked) => {
+    const p = new URLSearchParams({ q: q.q, sort: q.sort, period: q.period });
+    for (const t of q.types) p.append("types", t);
+    for (const b of q.bases) p.append("bases", b);
+    if (q.cursor) p.set("cursor", q.cursor);
+    return call<BrowsePage>("GET", `/browse/civitai?${p}`, undefined, o?.signal);
+  },
+  browseHuggingFace: (q: { q: string; base: string; kind: "comfyui" | "loras" | "all"; sort: string; cursor?: string }, o?: Asked) => {
+    const p = new URLSearchParams({ q: q.q, sort: q.sort, kind: q.kind });
+    if (q.base) p.set("base", q.base);
+    if (q.cursor) p.set("cursor", q.cursor);
+    return call<BrowsePage>("GET", `/browse/huggingface?${p}`, undefined, o?.signal);
+  },
+  browseRepoFiles: (repo: string, o?: Asked) => call<{ files: BrowseFile[] }>("GET", `/browse/huggingface/files?repo=${encodeURIComponent(repo)}`, undefined, o?.signal),
+  /** How far the hashing of this PC's model files is, and which site has each; Hash now. */
+  modelHashes: (o?: Asked) => call<HashStatus>("GET", "/models/hashes", undefined, o?.signal),
+  hashModels: () => call<HashStatus>("POST", "/models/hashes/run", {}),
+  browseLink: (link: string) => call<{ card: BrowseCard }>("POST", "/browse/link", { link }),
   startDownload: (body: { file: string; folder: string; page?: ModelPage; machine?: string } & ({ civitai: number; pick?: string } | { url: string })) => call<Download>("POST", "/downloads", body),
   /** What a pasted link leads to: its files, the folder it most likely belongs in, ComfyUI's folders, and what ComfyUI has already. */
   resolveLink: (link: string) => call<LinkFound>("POST", "/downloads/resolve", { link }),

@@ -18,7 +18,9 @@ describe("the downloads' state file", () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "afflatus-downloads-"));
   });
-  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+  // a state file still being written as a test ends (it is saved in the background) keeps Windows from removing its
+  // folder for a moment: asked again a few times
+  afterEach(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
 
   it("lists an interrupted download as failed at the next start, keeps a finished one, drops an old one, and dismisses on stop", async () => {
     const file = join(dir, "downloads.json");

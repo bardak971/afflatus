@@ -277,3 +277,80 @@ export interface DeployModels {
   speeds: Record<FileVia, MeasuredRange | null>;
   boot: MeasuredRange | null;
 }
+
+/** Find models (the server's browse.ts): where a browsed file comes from. */
+export type BrowseSource = { kind: "civitai"; version: number; pick: string } | { kind: "url"; url: string };
+/** What the user has of a browsed file already: this PC's file (same SHA-256, or name), a Model set holding it. */
+export type BrowseHave = { kind: "pc"; folder: string; file: string } | { kind: "set"; name: string };
+
+export interface BrowseFile {
+  name: string;
+  bytes: number;
+  /** What tells it apart from its version's others ("fp8 · pruned"), or its place in a Hugging Face repository. */
+  note: string;
+  sha256: string | null;
+  /** The ComfyUI folder it goes in; null when not known (the user picks it). */
+  folder: string | null;
+  why?: string;
+  source: BrowseSource;
+  have: BrowseHave[];
+}
+
+export interface BrowseVersion {
+  id: string;
+  name: string;
+  base: string;
+  publishedAt: string | null;
+  trainedWords: string[];
+  files: BrowseFile[];
+}
+
+/** A model of Civitai or a repository of Hugging Face, as the browser shows it. */
+export interface BrowseCard {
+  site: "civitai" | "huggingface";
+  id: string;
+  name: string;
+  type: string;
+  base: string;
+  creator: string;
+  downloads: number;
+  likes: number;
+  updatedAt: string | null;
+  thumb: string | null;
+  page: string;
+  licence: { commercial: boolean | null; credit: boolean; derivatives: boolean | null };
+  fits: string | null;
+  have: boolean;
+  update: { have: string; latest: string } | null;
+  gated: boolean;
+  versions: BrowseVersion[];
+  modelFiles?: number;
+}
+
+export interface BrowsePage {
+  items: BrowseCard[];
+  next: string | null;
+}
+
+/** The browser's filters: the user's families with their base models (Civitai's names, Hugging Face's repositories), the types and sorts. */
+export interface BrowseBases {
+  families: Array<{ id: string; name: string; on: boolean; bases: string[]; hf: string[] }>;
+  types: string[];
+  sorts: string[];
+  periods: string[];
+}
+
+/** How far the hashing of this PC's model files is, and what the sites said of them (the server's modelHashes.ts). */
+export interface HashStatus {
+  files: number;
+  hashed: number;
+  hashing: { folder: string; file: string; bytes: number; total: number } | null;
+  paused: boolean;
+  civitai: number;
+  huggingFace: number;
+  nowhere: number;
+  noFolder: boolean;
+  /** A pass looked at the folders (before, nothing is known yet). */
+  looked: boolean;
+  error: string | null;
+}

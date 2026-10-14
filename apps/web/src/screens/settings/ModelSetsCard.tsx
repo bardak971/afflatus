@@ -6,6 +6,7 @@ import { api, type ModelSet, type PresetFile, type SetFile } from "../../api";
 import { useSettings } from "../../data";
 import { gb, plural, size } from "../../format";
 import { machineLabel } from "../../machines";
+import { openFindModels } from "../../findModels/store";
 import { ModelSearch, ViaChip } from "../../modelFilesUi";
 import { queryKeys } from "../../queryKeys";
 import { Select } from "../../Select";
@@ -126,7 +127,10 @@ function SetEditor({ set, onChanged, onGone }: { set: ModelSet; onChanged(): voi
           {!g.files.length && files.isSuccess && <span className="text-xs text-ink-3">{g.id ? "Its files are in another part of the set, or it names none." : "None: add one below."}</span>}
         </div>
       ))}
-      <ModelSearch presetNote="its files follow it" onPick={(p) => (p.kind === "preset" ? add({ presets: [p.hit.id] }) : add({ files: (p.kind === "file" ? [p.hit] : p.hit.files).map(({ via: _via, ...f }) => f) }))} />
+      <span className="flex items-center gap-2">
+        <span className="min-w-0 grow"><ModelSearch presetNote="its files follow it" onPick={(p) => (p.kind === "preset" ? add({ presets: [p.hit.id] }) : add({ files: (p.kind === "file" ? [p.hit] : p.hit.files).map(({ via: _via, ...f }) => f) }))} /></span>
+        <Button size="sm" onClick={() => openFindModels({ what: latest.current.name, action: "Add to the set", add: (picked) => add({ files: picked.map(({ via: _via, from: _from, size: s, ...f }) => ({ ...f, ...(s ? { size: s } : {}) })) }) })}>Find more…</Button>
+      </span>
       <span className="flex flex-wrap items-center gap-2 text-xs">
         <Button size="sm" onClick={() => get.mutate(false)} disabled={get.isPending}>Get the missing</Button>
         {machines.length > 1 && (

@@ -199,7 +199,7 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
           </span>
         </section>
 
-        <DeployModels want={want} set={set} rate={picked?.price ?? null} onPicked={setModels} />
+        <DeployModels want={want} set={set} rate={picked?.price ?? null} gpu={picked?.name ?? null} onPicked={setModels} />
         {!diskFits && (
           <span className="flex items-center gap-2 text-xs text-warn-ink">
             These files take about {diskNeed - 30} GB, with ComfyUI {diskNeed} GB: its disk of {want.disk} GB is too small.
