@@ -221,6 +221,15 @@ const fresh = (): Seen => ({
 /** A pod still running this long after Afflatus asked RunPod to stop it is asked again (and a stop that keeps nothing, terminated). */
 const STOP_AGAIN_MS = 2 * 60_000;
 
+/**
+ * Why a deploy was refused, for the GPU hunt (hunt.ts), which goes on hunting or gives up by it: no GPU free any more where
+ * asked, another deploy under way, the volume used by another pod, a spending cap, RunPod's balance too low.
+ */
+export type DeployRefusal = "noGpu" | "busy" | "volumeBusy" | "cap" | "balance";
+const refused = (message: string, why: DeployRefusal): Error => Object.assign(httpError(message, 409), { refusal: why });
+/** The refusal a deploy's error carries; null for any other error. */
+export const refusalOf = (err: unknown): DeployRefusal | null => (err as { refusal?: DeployRefusal } | null)?.refusal ?? null;
+
 export class Rented {
   private readonly seen = new Map<string, Seen>();
   /** What went wrong asking RunPod as a whole (the key, an answer not read): said on every rented card. */
@@ -488,10 +497,10 @@ export class Rented {
    * A GPU deployed, as the user asked in the Deploy dialog: a new pod of that GPU, in its freest data center first (in the
    * volume's, with one), its ComfyUI locked from its first second by a token kept as a RunPod secret, its watchdog armed,
    * only ComfyUI's port open; added as a machine at once, and the choices kept for the next deploy. Refused at a spending
-   * cap. Billed from now: Afflatus never deploys on its own.
+   * cap. Billed from now: on the user's click, or by the GPU hunt the user started (hunt.ts), never otherwise.
    */
-  async deploy(ask: DeployAsk, o: { fill?: boolean } = {}): Promise<{ id: string }> {
-    if (this.deploying) throw httpError("A deploy is under way: wait for it to end.", 409);
+  async deploy(ask: DeployAsk, o: { fill?: boolean } = {}): Promise<{ id: string; dataCenter: string | null }> {
+    if (this.deploying) throw refused("A deploy is under way: wait for it to end.", "busy");
     this.deploying = true;
     try {
       return await this.deployNow(ask, o.fill ?? false);
@@ -517,38 +526,35 @@ export class Rented {
    * A pod deployed only to fill a volume with these files (Fill from a set…): the cheapest GPU in stock there, Afflatus's
    * image, no render given to it, terminated once its files are in. Billed from now, as any deploy, on the user's click.
    */
-  async fill(volume: string, set: string, files: PresetFile[]): Promise<{ id: string }> {
+  async fill(volume: string, set: string, files: PresetFile[]): Promise<{ id: string; dataCenter: string | null }> {
     const found = await this.fillGpu(volume);
     if (!found) throw httpError("No GPU is free where that volume is now: try again later.", 409);
     return this.deploy({ gpu: found.gpu.id, cloud: "SECURE", template: "afflatus", volume, disk: 20, idleMinutes: 5, idleDo: "terminate", watchdogMinutes: 15, set, files, leaveOut: [], accept: [], again: false }, { fill: true });
   }
 
-  private async deployNow(ask: DeployAsk, fill = false): Promise<{ id: string }> {
+  private async deployNow(ask: DeployAsk, fill = false): Promise<{ id: string; dataCenter: string | null }> {
     const s = await readSettings(this.db);
     if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
     // a pod made that cannot be kept as a machine would have to be terminated at once, its first seconds billed
     if (s.machines.length >= MAX_MACHINES) throw httpError(`Afflatus keeps ${MAX_MACHINES} ComfyUIs at most: remove one to deploy.`, 409);
-    const spent = await this.spent();
-    if ((s.rentCaps.day > 0 && spent.today >= s.rentCaps.day) || (s.rentCaps.month > 0 && spent.month >= s.rentCaps.month)) {
-      throw httpError("A spending cap is reached: raise it in Settings › Rented GPUs to deploy.", 409);
-    }
+    if (await this.capped()) throw refused("A spending cap is reached: raise it in Settings › Rented GPUs to deploy.", "cap");
     // an image RunPod could not pull would leave a pod provisioning, billed, until its boot limit: asked of its registry first
     const client = this.client(s.runpodKey);
     const [offers, volumes, pods] = await Promise.all([client.gpus(ask.cloud), ask.volume ? client.volumes() : Promise.resolve([]), ask.volume ? client.pods() : Promise.resolve([])]).catch((err: Error) => {
       throw httpError(err.message, 502);
     });
     const offer = offers.find((g) => g.id === ask.gpu);
-    if (!offer) throw httpError(`RunPod does not offer that GPU on ${ask.cloud === "COMMUNITY" ? "Community" : "Secure"} Cloud now: pick another.`, 409);
+    if (!offer) throw refused(`RunPod does not offer that GPU on ${ask.cloud === "COMMUNITY" ? "Community" : "Secure"} Cloud now: pick another.`, "noGpu");
     const volume = ask.volume ? volumes.find((v) => v.id === ask.volume) ?? null : null;
     if (ask.volume && !volume) throw httpError("That network volume is not on this account any more: pick another, or deploy without one.", 409);
     // one running pod per volume: a second would write over what the first keeps there
     const taken = volume ? usedBy(volume.id, pods, s.machines) : null;
-    if (volume && taken) throw httpError(inUseSaid(volume.name, taken), 409);
+    if (volume && taken) throw refused(inUseSaid(volume.name, taken), "volumeBusy");
     const listed = offer.dataCenters.filter((d) => d.availability !== "NONE" && (!volume || d.id === volume.dataCenter)).sort((a, b) => FREEST[a.availability] - FREEST[b.availability]).map((d) => d.id);
     // RunPod said it is free without saying where: wherever it puts it (never with a volume, which has its own)
     const places: Array<string | null> = listed.length || volume || offer.dataCenters.length || offer.availability === "NONE" ? listed : [null];
     const none = volume ? `No ${offer.name} free in ${volume.dataCenter}, where the volume "${volume.name}" is: pick another GPU, or deploy without the volume.` : `No ${offer.name} free any more: it was taken since the list was read. Pick another GPU.`;
-    if (!places.length) throw httpError(none, 409);
+    if (!places.length) throw refused(none, "noGpu");
     // the image's build for this GPU: CUDA 13 where its hosts offer it, else 12.8 (and 12.8 again where no host of 13 is free);
     // each asked of its registry first: one RunPod could not pull would leave a pod billed until its boot limit
     const builds = [];
@@ -598,11 +604,11 @@ export class Rented {
       }
     } catch (err) {
       if (kept) await client.deleteSecret(secret).catch(() => {});
-      throw httpError((err as Error).message, (err as RunpodError).status === 402 ? 409 : 502);
+      throw (err as RunpodError).status === 402 ? refused((err as Error).message, "balance") : httpError((err as Error).message, 502);
     }
     if (!pod) {
       if (kept) await client.deleteSecret(secret).catch(() => {});
-      throw httpError(none, 409);
+      throw refused(none, "noGpu");
     }
     const made = pod;
     const id = podMachineId(made.id);
@@ -628,7 +634,7 @@ export class Rented {
     console.log(`[rented] deployed ${offer.name} in ${made.dataCenter ?? "a data center"} (${ask.template}, ${volume ? `volume ${volume.name}` : "no volume"})`);
     this.events.emit("setup");
     void this.poll();
-    return { id };
+    return { id, dataCenter: made.dataCenter };
   }
 
   /** The user's pods on RunPod, for adding one (Settings › Rented GPUs): which expose ComfyUI, which are added already. */
@@ -1239,6 +1245,19 @@ export class Rented {
       sumMonth += settled ? b.month : Math.max(b?.month ?? 0, c?.month ?? 0);
     }
     return { today: sumToday, month: sumMonth, billed: records !== null };
+  }
+
+  /** Whether a spending cap is reached now: a deploy and a Start are refused, and the GPU hunt ends (hunt.ts). */
+  async capped(): Promise<boolean> {
+    const caps = (await readSettings(this.db)).rentCaps;
+    if (caps.day <= 0 && caps.month <= 0) return false;
+    const spent = await this.spent();
+    return (caps.day > 0 && spent.today >= caps.day) || (caps.month > 0 && spent.month >= caps.month);
+  }
+
+  /** A deploy under way (the user's, a fill's or the GPU hunt's): another is refused until it ends. */
+  get busy(): boolean {
+    return this.deploying;
   }
 
   /** Today's and this month's cost, the caps, RunPod's balance, and what storage costs. */

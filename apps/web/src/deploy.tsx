@@ -1,26 +1,42 @@
 import { lazy, Suspense } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { create } from "zustand";
 import { api, type DeployAsk } from "./api";
 import { ask } from "./Confirm";
 import { useSettings } from "./data";
 import { DEPLOYED_READS } from "./deployReads";
 import { usd } from "./format";
+import { queryKeys } from "./queryKeys";
 import { useSayFailed } from "./sayFailed";
 
 /**
  * Deploy a GPU: the dialog (DeployDialog.tsx), opened from Settings › Rented GPUs, the ComfyUI tab's "Add a ComfyUI", the
  * machines pill and Ctrl+K; one at a time, over everything. Afflatus never deploys on its own: every deploy is a click.
  */
-const useDeploy = create<{ open: boolean }>(() => ({ open: false }));
-export const openDeploy = () => useDeploy.setState({ open: true });
+/**
+ * How it opens: on what is in stock (a GPU picked not free turns it to the hunt), on the hunt ("Hunt a GPU"), or on the
+ * hunt under way's own choices ("Change the hunt…").
+ */
+export type DeployOpening = "deploy" | "hunt" | "change";
+const useDeploy = create<{ open: DeployOpening | null }>(() => ({ open: null }));
+export const openDeploy = (how: DeployOpening = "deploy") => useDeploy.setState({ open: how });
+
+/** What a hunt started, changed or cancelled changes: the queue's status (its summary, the machines it paused) and its own view. */
+export const huntReads = (client: QueryClient) => Promise.all([queryKeys.queue(), queryKeys.hunt()].map((queryKey) => client.invalidateQueries({ queryKey })));
+
+/** The hunt under way cancelled (the card, Ctrl+K, a Resume): the machines it paused go on. */
+export const cancelHunt = async (client: QueryClient) => {
+  await api.cancelHunt();
+  await huntReads(client);
+};
 
 const DeployDialog = lazy(() => import("./DeployDialog").then((m) => ({ default: m.DeployDialog })));
 
 export function DeployHost() {
   const open = useDeploy((s) => s.open);
   if (!open) return null;
-  return <Suspense fallback={null}><DeployDialog onClose={() => useDeploy.setState({ open: false })} /></Suspense>;
+  // a new opening is a new dialog: its choices start again from what it is opened on
+  return <Suspense fallback={null}><DeployDialog key={open} opening={open} onClose={() => useDeploy.setState({ open: null })} /></Suspense>;
 }
 
 /** A last deploy said in a few words: "A40 · Afflatus · no volume". */

@@ -94,7 +94,11 @@ export function useLiveEvents(): void {
 
     // the queue, and the library, are read again at most once a second, with one last read after the last
     // event: a render reporting every step, or a folder of a thousand files coming in, costs a read a second
-    const readQueue = throttle(() => void client.invalidateQueries({ queryKey: queryKeys.queue(), exact: true }), 1000);
+    // the GPU hunt's own view goes with it (its asks, its ranking): read again only where it is on screen (the hunt's card)
+    const readQueue = throttle(() => {
+      void client.invalidateQueries({ queryKey: queryKeys.queue(), exact: true });
+      void client.invalidateQueries({ queryKey: queryKeys.hunt(), refetchType: "active" });
+    }, 1000);
     // each "library" event says what it changed: what it says in full (a new name, a keep) is written in at once, and the
     // changes are gathered until the read, which reads only the queries one of them can touch (queryKeys.ts libraryReads)
     let libraryWaiting: Array<LibraryChange | null> = [];

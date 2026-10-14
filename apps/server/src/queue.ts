@@ -5,6 +5,7 @@ import type { Comfy, MachineComfy } from "./comfy";
 import { newId, now, OWNER, type Db } from "./db";
 import { addedBy } from "./events";
 import { httpError } from "./errors";
+import type { HuntSummary } from "./hunt";
 import { machinePaces, rates } from "./forecast";
 import type { Registry } from "./registry";
 import { record } from "./renders";
@@ -611,9 +612,29 @@ ${JSON.stringify(input)}`;
     } else {
       this.paused = paused;
       await this.setting(PAUSED_KEY, String(paused));
+      // with one ComfyUI, Resume is its switch: a pause of its own (the GPU hunt's, hunt.ts) goes with it, or nothing would start
+      if (!paused) for (const { machine: m } of all) await this.pauseLane(m.id, false);
     }
     this.events.emit("queue");
     if (!paused) void this.pump();
+  }
+
+  /** Whether a machine takes nothing new: paused on its own, or by Pause all. False for a machine that is not there. */
+  async pausedOn(machine: string): Promise<boolean> {
+    if (!(await this.machines()).some((m) => m.machine.id === machine)) return false;
+    const lane = this.lane(machine);
+    await lane.ready;
+    return this.paused || lane.paused;
+  }
+
+  /**
+   * What a waiting render should take on a pod that has its model to load (the forecast at the common pace of the machines),
+   * for the GPU hunt's ranking (hunt.ts); null when it cannot be told.
+   */
+  forecastMs(row: JobRow): Promise<number | null> {
+    const recipe = this.registry.recipe(row.recipe_id);
+    if (!recipe || row.warm) return Promise.resolve(null);
+    return this.expected(recipe, readJson<Record<string, unknown>>(row.inputs, {}), true, row);
   }
 
   /** One machine paused or going, here and in the database. */
@@ -663,8 +684,13 @@ ${JSON.stringify(input)}`;
     const lanes = await this.refresh();
     const rows = await this.db.selectFrom("jobs").selectAll().where("status", "=", "queued").orderBy("priority").orderBy("created_at").execute();
     const able = await this.ableOf(rows.filter(needsComfy));
-    return view.status(this.core, views, paused, paused ? new Map() : await this.forecastPlan(lanes, rows, able), await this.paces(), able);
+    const status = await view.status(this.core, views, paused, paused ? new Map() : await this.forecastPlan(lanes, rows, able), await this.paces(), able);
+    // the GPU hunt under way, for the status bar (hunt.ts); null when there is none
+    return { ...status, hunt: this.huntOf?.(rows.filter(needsComfy).length) ?? null };
   }
+
+  /** The GPU hunt's summary (set by services.ts), given how many renders wait. */
+  huntOf: ((held: number) => HuntSummary | null) | null = null;
   /** The running jobs' figures alone, from memory: what a progress event carries, many times a second. */
   async progress() { return view.progress(await this.views()); }
   /** A running job's latest live preview. */

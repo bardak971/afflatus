@@ -24,6 +24,8 @@ interface QueueNow {
   saves: number;
   /** With several ComfyUIs, each one by the name it is shown under: the bar offers Pause, Resume, Use only and Unload for each. */
   machines: Array<{ id: string; label: string; paused: boolean; online: boolean | null; running: boolean; rented: RentedState | null }>;
+  /** A GPU hunt is under way: Cancel the hunt is offered. */
+  hunting?: boolean;
 }
 
 /** What the command rows say of the moment: the timeline aimed at, the queue, the selected clip, what Undo would undo, the bin. */
@@ -57,7 +59,7 @@ export function commandKeys(c: Command | { cmd: CommandId }): string | undefined
 }
 
 /** The commands offered only where they apply: a clip selected in the open editor, jobs waiting, failures, loads to save. */
-const LIVE: CommandId[] = ["split", "previous-take", "next-take", "mirror-pin", "cancel-waiting", "retry-failed", "dismiss-failed", "group-queue", "unload"];
+const LIVE: CommandId[] = ["split", "previous-take", "next-take", "mirror-pin", "cancel-waiting", "retry-failed", "dismiss-failed", "group-queue", "unload", "cancel-hunt"];
 /** What is done to the whole queue, listed after its jobs in the `!` mode. */
 export const QUEUE_BULK: CommandId[] = ["cancel-waiting", "retry-failed", "dismiss-failed", "group-queue"];
 
@@ -91,6 +93,8 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     "new-snippet": kitNew("new-snippet"),
     "deploy-gpu": ["Deploy a GPU…", "RunPod · what is free now, by price · billed from your Deploy"],
     "deploy-again": ["Deploy again", "The last deploy's GPU and choices · its rate asked first"],
+    "hunt-gpu": ["Hunt a GPU…", "RunPod asked every 30 s · the best GPU that comes free within your price · billed once deployed"],
+    "cancel-hunt": ["Cancel the hunt", "Nothing deployed · the home machines it paused go on"],
     "import-workflow": ["Import workflow…", "The Workflows screen's file picker: .json, PNG or MP4"],
     "view-last": ["View last render", "What the last finished job made, in the viewer"],
     reconnect: ["Reconnect to ComfyUI", queueNow && !queueNow.online ? "ComfyUI is offline · asked again now" : "ComfyUI asked again now: its address, its files, its nodes"],
@@ -145,6 +149,7 @@ const applies = (x: CommandCtx, id: CommandId): boolean =>
   : id === "retry-failed" || id === "dismiss-failed" ? Boolean(x.queue?.failed)
   : id === "group-queue" ? Boolean(x.queue?.saves)
   : id === "unload" ? Boolean(x.queue?.online)
+  : id === "cancel-hunt" ? Boolean(x.queue?.hunting)
   : true;
 
 /** A machine's state in a word, for its rows ("rendering", "paused"); "not found" for a name no machine has. */

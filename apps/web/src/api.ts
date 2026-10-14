@@ -1,8 +1,8 @@
 import { projectForNew, projectParam } from "./project";
-import { unlistOptions, type ListedOptions, type ModelInfo } from "@afflatus/core";
+import { unlistOptions, type ListedOptions, type ModelInfo, type RankedGpu } from "@afflatus/core";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
-import type { Advice, FillPlan, GpuOffer, HistoryPage, NetworkVolume, VolumePlan, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
+import type { Advice, FillPlan, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumePlan, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
@@ -186,6 +186,14 @@ export const api = {
   fillVolume: (id: string, set: string, accept: string[] = []) => call<{ id: string }>("POST", `/runpod/volumes/${encodeURIComponent(id)}/fill`, { set, accept }),
   /** A GPU deployed, as the dialog asked: billed from now. Its machine's id. */
   deployGpu: (ask: DeployAsk) => call<{ id: string }>("POST", "/runpod/deploy", ask),
+  /** The GPU hunt under way (GET /api/hunt): its choices, its last ranking and when RunPod was last asked. */
+  hunt: (o?: Asked) => call<HuntView>("GET", "/hunt", undefined, o?.signal),
+  /** A hunt started with the Deploy dialog's choices but the GPU, which it picks; refused with words (a hunt or a deploy under way, no key, a cap). */
+  startHunt: (ask: HuntAsk & { deploy: Omit<DeployAsk, "gpu"> }) => call<HuntView>("POST", "/hunt", ask),
+  changeHunt: (change: Partial<HuntAsk>) => call<HuntView>("PATCH", "/hunt", change),
+  cancelHunt: () => call<{ ok: true }>("DELETE", "/hunt"),
+  /** The dialog's live ranking for these choices, and how many renders wait; RunPod is read again at most every 20 s. */
+  huntRank: (ask: Omit<HuntAsk, "giveUpMinutes" | "hold"> & { cloud: DeployAsk["cloud"]; volume: string }, o?: Asked) => call<{ ranking: RankedGpu[]; held: number }>("POST", "/hunt/rank", ask, o?.signal),
   /** The Deploy dialog's Models part: the waiting jobs' files, the picked set's, and what earlier deploys measured. */
   deployModels: (cloud: DeployAsk["cloud"], set: string, o?: Asked) => call<DeployModels>("GET", `/runpod/deploy/models?${new URLSearchParams({ cloud, set })}`, undefined, o?.signal),
   /** The Model sets (Settings › Models). */

@@ -215,6 +215,10 @@ describe("modes and commands", () => {
     expect(parseCommand("deploy gpu")).toEqual({ cmd: "deploy-gpu" });
     expect(parseCommand("rent a gpu")).toEqual({ cmd: "deploy-gpu" });
     expect(parseCommand("deploy again")).toEqual({ cmd: "deploy-again" });
+    expect(parseCommand("hunt gpu")).toEqual({ cmd: "hunt-gpu" });
+    expect(parseCommand("hunt for a gpu")).toEqual({ cmd: "hunt-gpu" });
+    expect(parseCommand("cancel the hunt")).toEqual({ cmd: "cancel-hunt" });
+    expect(parseCommand("stop gpu hunt")).toEqual({ cmd: "cancel-hunt" });
     expect(parseCommand("finish")).toEqual({ cmd: "finish" });
     expect(parseCommand("fix all")).toEqual({ cmd: "fix-all" });
     expect(parseCommand("view last render")).toEqual({ cmd: "view-last" });

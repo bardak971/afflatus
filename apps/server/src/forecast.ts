@@ -299,3 +299,39 @@ export async function machinePaces(db: Db): Promise<Map<string, number>> {
   }
   return new Map([...ratios].map(([machine, rs]) => [machine, median(rs)]));
 }
+
+/**
+ * Each GPU's pace against all of them, by its name as ComfyUI gave it (render_stats.gpu), as machinePaces does for the
+ * machines, with how many renders it rests on: what the GPU hunt (hunt.ts) ranks RunPod's GPUs by. With one GPU rendered
+ * on, it is the common pace (1); a GPU with nothing to compare to the others is taken at 1 too.
+ */
+export async function gpuPaces(db: Db): Promise<Array<{ gpu: string; pace: number; renders: number }>> {
+  const rows = await db
+    .selectFrom("render_stats")
+    .select(["gpu", "model_file", "time_key", "step_ms"])
+    .where("status", "=", "done")
+    .where("whole", "=", 1)
+    .where("step_ms", "is not", null)
+    .where("gpu", "is not", null)
+    .where("model_file", "!=", "")
+    .orderBy("created_at", "desc")
+    .limit(600)
+    .execute();
+  const counts = new Map<string, number>();
+  const byKey = new Map<string, Map<string, number[]>>();
+  for (const r of rows) {
+    counts.set(r.gpu!, (counts.get(r.gpu!) ?? 0) + 1);
+    const key = `${r.model_file}\n${r.time_key}`;
+    const gpus = byKey.get(key) ?? new Map<string, number[]>();
+    byKey.set(key, gpus);
+    gpus.set(r.gpu!, [...(gpus.get(r.gpu!) ?? []), r.step_ms!]);
+  }
+  const ratios = new Map<string, number[]>();
+  for (const gpus of byKey.values()) {
+    if (gpus.size < 2) continue;
+    const all = median([...gpus.values()].flat());
+    if (!(all > 0)) continue;
+    for (const [gpu, steps] of gpus) ratios.set(gpu, [...(ratios.get(gpu) ?? []), median(steps) / all]);
+  }
+  return [...counts].map(([gpu, renders]) => ({ gpu, pace: ratios.has(gpu) ? median(ratios.get(gpu)!) : 1, renders }));
+}

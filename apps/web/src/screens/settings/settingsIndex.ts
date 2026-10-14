@@ -96,6 +96,8 @@ export const INDEX: SettingSpot[] = [
   { tab: "interface", label: "Notify: pod stopped", key: "notify.podStopped", near: "notify.what", words: "notifications notify rented runpod pod stopped terminated idle cost" },
   { tab: "interface", label: "Notify: spending cap reached", key: "notify.capReached", near: "notify.what", words: "notifications notify rented runpod cap spending limit money" },
   { tab: "interface", label: "Notify: RunPod balance low", key: "notify.balanceLow", near: "notify.what", words: "notifications notify rented runpod balance low money credit" },
+  { tab: "interface", label: "Notify: GPU found", key: "notify.gpuFound", near: "notify.what", words: "notifications notify rented runpod hunt gpu found deployed free stock" },
+  { tab: "interface", label: "Notify: hunt gave up", key: "notify.huntGaveUp", near: "notify.what", words: "notifications notify rented runpod hunt gpu gave up none free stock" },
   { tab: "interface", label: "Notify: ComfyUI offline", key: "notify.comfyGone", near: "notify.what", words: "notifications notify comfyui offline gone crashed down machine" },
   { tab: "about", label: "About Afflatus", key: "about.version", words: "version about license source github" },
   { tab: "about", label: "Check for new versions", key: "about.updates", words: "updates update new version release upgrade github check daily go back previous security" },

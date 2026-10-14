@@ -21,6 +21,7 @@ import { registerFolders } from "./folders";
 import { registerForecasts } from "./forecasts-api";
 import { allowedHosts, ANY_HOST, crossSite, crossSiteRead, hostAllowed, marked, SAFETY_HEADERS, UPLOAD_TYPE } from "./hostCheck";
 import { registerHistory } from "./history-api";
+import { registerHunt } from "./hunt";
 import { registerJobs } from "./jobs-api";
 import { registerLookup } from "./lookup-api";
 import { registerMeasures } from "./measures-api";
@@ -140,6 +141,7 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
   registerSetup(app, s, VERSION);
   registerLock(app, s);
   registerRented(app, s);
+  registerHunt(app, s);
   registerNotify(app, s.notify);
   registerDrafts(app, s);
   registerModelSettings(app, s);

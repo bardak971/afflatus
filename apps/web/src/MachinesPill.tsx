@@ -110,6 +110,8 @@ export function MachinesPill() {
   const metered = machines.find((m) => m.id === picked) ?? machines.find((m) => m.id === q?.running?.machine) ?? machines[0]!;
   const gpu = loads[metered.id]?.gpus[0];
   const allPaused = machines.every((m) => m.paused);
+  // the GPU a hunt looks for, before it is a machine: a dashed dot of its own (a real one once its pod is made)
+  const hunted = q?.hunt && q.hunt.status !== "up" ? q.hunt : null;
 
   return (
     <>
@@ -129,9 +131,10 @@ export function MachinesPill() {
               <Dot m={m} />
             </span>
           ))}
+          {hunted && <span aria-hidden className="m-px size-[7px] shrink-0 rounded-full border-[1.5px] border-dashed border-accent" />}
         </span>
         <span className="shrink-0 font-semibold text-ink">{machines.length}<span className="max-[1280px]:hidden"> {machines.length === 1 ? "ComfyUI" : "ComfyUIs"}</span></span>
-        <span className="shrink-0 text-ink-2 max-[1440px]:hidden">{busiest(machines)}</span>
+        <span className="shrink-0 text-ink-2 max-[1440px]:hidden">{hunted ? "+ 1 hunted" : busiest(machines)}</span>
         {gpu && (
           <>
             <span className="h-3.5 w-px shrink-0 bg-line" />
