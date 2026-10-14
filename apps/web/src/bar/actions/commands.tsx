@@ -1,4 +1,10 @@
-import { Bookmark, ChevronLeft, ChevronRight, Clapperboard, Eye, FileOutput, FileUp, Film, FlipHorizontal2, FolderPlus, Layers, Link2, MemoryStick, Pause, PenLine, Play, Plug, RotateCcw, Server, Sparkles, Split, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { Bell, Bookmark, ChevronLeft, ChevronRight, Clapperboard, CircleDollarSign, Download, Eye, FileOutput, FileUp, Film, FlipHorizontal2, FolderPlus, Gauge, Layers, Link2, MemoryStick, Pause, PenLine, Play, Plug, RotateCcw, Search, Server, Sparkles, Split, Square, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { TRANSITIONS } from "@afflatus/core";
+import { ask } from "../../Confirm";
+import { getOnPc, openFindModels } from "../../findModels/store";
+import { followRestart, useUpdatesSeen } from "../../updates";
+import { settingHref } from "../../screens/settings/settingsIndex";
+import { billing } from "../commandRows";
 import { cancelHunt, openDeploy } from "../../deploy";
 import { openLoadPanel } from "../../LoadPanel";
 import { OPEN_MACHINES } from "../../MachinesPill";
@@ -378,6 +384,138 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
         note: over ? undefined : "selected, the playhead on its start",
         run: () => askTimeline(aim, { timeline: aim.id, do: "select", clip: n }),
       }];
+    }
+    case "transition": {
+      const clip = x.selectedClip;
+      if (!clip) return [{ label: "No clip selected in an open timeline", disabled: true, run: () => {} }];
+      if (c.kind === undefined) return [{ label: `No transition called “${c.words}”`, disabled: true, run: () => {} }];
+      // the cut into the selected clip, as its join's choice in the column: on a cut only, and none before the first clip
+      const why = clip.cutIn === "none" ? `clip ${clip.number} is the first: no cut before it` : clip.cutIn === "extends" ? `clip ${clip.number} extends clip ${clip.number - 1}: a transition goes on a cut` : null;
+      const label = c.kind ? `Clip ${clip.number}: ${TRANSITIONS[c.kind].label} on its cut` : `Clip ${clip.number}: plain cut`;
+      const same = clip.transition === c.kind;
+      return [{
+        label, icon: <Film size={14} />, disabled: Boolean(why) || same, note: why ?? (same ? "it is already" : "the cut from the clip before · Undo takes it back"),
+        run: () => void clip.setTransition(c.kind!).catch(failed("Could not change the transition")),
+      }];
+    }
+    case "slow-motion": {
+      const clip = x.selectedClip;
+      if (!clip) return [{ label: "No clip selected in an open timeline", disabled: true, run: () => {} }];
+      // its menu's Slow motion ×2 and ×4: a new take of the whole clip, which the editor queues
+      return (c.factor === 4 ? [4, 2] : [2, 4]).map((f) => ({
+        label: `Clip ${clip.number}: slow motion ×${f}`, icon: <Gauge size={14} />, disabled: !clip.slow, note: clip.slow ? (f === 2 ? "half speed, as a new take; sound slowed too" : "a quarter speed, as a new take") : "it has no take to slow",
+        run: () => clip.slow?.(f as 2 | 4),
+      }));
+    }
+    case "motion-windows": {
+      const clip = x.selectedClip;
+      if (!clip) return [{ label: "No clip selected in an open timeline", disabled: true, run: () => {} }];
+      return [{
+        label: `Clip ${clip.number}: Motion transfer in windows`, icon: <Film size={14} />, disabled: !clip.toSource,
+        note: clip.toSource ? "the source lane: what it plays, made into clips" : "only a video brought in (no model of its own)",
+        run: () => clip.toSource?.(),
+      }];
+    }
+    case "stop-all-pods": {
+      // every rented pod that bills now (running or on its way up), stopped as its card's Stop: asked first, since a render on one is lost
+      const pods = (queue?.machines ?? []).filter((m) => billing(m.rented));
+      const rendering = pods.filter((m) => m.running).length;
+      return [{
+        label: pods.length ? `Stop all pods · ${pods.length}…` : "No pod runs or starts", icon: <Square size={14} />, danger: true, disabled: !pods.length,
+        note: pods.length ? `${pods.map(machineLabel).join(", ")}${rendering ? ` · ${rendering === 1 ? "its render is" : `${rendering} renders are`} lost` : ""} · disks go on billing` : undefined,
+        run: async () => {
+          const yes = await ask({
+            title: `Stop ${pods.length === 1 ? machineLabel(pods[0]!) : `all ${pods.length} pods`}?`,
+            text: `${rendering ? `${rendering === 1 ? "The render on it is" : `The ${rendering} renders on them are`} lost. ` : ""}Their GPUs stop billing now; their disks keep billing until they are terminated (Settings › Rented GPUs).`,
+            yes: "Stop",
+          });
+          if (!yes) return;
+          // one at a time: each says what failed in its own banner (useRentedOps), and one refused does not stop the others
+          for (const m of pods) await rented.stop.mutateAsync({ machine: m.id, how: "stop" }).catch(() => {});
+        },
+      }];
+    }
+    case "spending":
+      return [{ label: "Open Settings › Rented GPUs", icon: <CircleDollarSign size={14} />, note: "the bill, the caps and the balance", run: () => go(settingHref("comfy.rentcaps")) }];
+    case "find-models": {
+      // as Settings › Models' Find models…: what is picked downloads onto this PC; online only with lookups on
+      const lookups = Boolean(x.settingCtx.server?.civitaiLookups);
+      return [{
+        label: c.words ? `Find models: “${c.words}”` : "Find models…", icon: <Search size={14} />, disabled: !lookups,
+        note: lookups ? "Civitai, Hugging Face and yours · to download onto this PC" : "turn on Search Hugging Face and Civitai (Settings › Models) first",
+        run: () => openFindModels({
+          what: "this PC", action: "Get on this PC", pc: true,
+          add: async (files) => {
+            await getOnPc(files);
+            void client.invalidateQueries({ queryKey: queryKeys.downloads() });
+          },
+        }, c.words || undefined),
+      }];
+    }
+    case "check-updates":
+      return [{
+        label: "Check for updates", icon: <Download size={14} />, note: "GitHub asked now, as About's Check now",
+        run: async () => {
+          // what it finds is said even with the daily checks off (as About's Check now)
+          useUpdatesSeen.getState().ask();
+          try {
+            const v = await api.checkUpdates();
+            client.setQueryData(queryKeys.updates(), v);
+            if (v.newer && v.latest) say({ id: "bar:updates", tone: "good", title: `Afflatus ${v.latest.version} is out`, text: `You have ${v.version}. > update, or Settings › About.`, href: settingHref("about.updates"), go: "Open About" });
+            else if (v.checkError) failed("Could not ask GitHub")(new Error(v.checkError));
+            // a build that is no release (dev, a checkout) is told the latest release rather than that it is it
+            else good(v.latest && v.latest.version !== v.version ? `The latest release is ${v.latest.version}` : `Afflatus ${v.version} is the latest`, v.latest && v.latest.version !== v.version ? `You run ${v.version}.` : undefined, settingHref("about.updates"), "Open About");
+          } catch (err) {
+            failed("Could not check for updates")(err);
+          }
+        },
+      }];
+    case "update": {
+      const v = x.updates;
+      if (!v?.newer || !v.latest) return [{ label: "Update Afflatus", icon: <Download size={14} />, disabled: true, note: v ? `you have ${v.version}, the latest known` : "not read yet", run: () => {} }];
+      return [
+        {
+          label: `Update to ${v.latest.version}`, icon: <Download size={14} />, disabled: !v.canUpdate, note: v.canUpdate ? "Afflatus restarts once the queue is empty; your library stays as it is" : v.cannot ?? "not from here",
+          // About's Update: the steps go on in the background and the restart is followed as there
+          run: () => api.startUpdate().then((view) => {
+            client.setQueryData(queryKeys.updates(), view);
+            followRestart(view.version, view.flow);
+          }, failed("Could not update")),
+        },
+        { label: "Open Settings › About", icon: <Download size={14} />, note: "the release notes", run: () => go(settingHref("about.updates")) },
+      ];
+    }
+    case "go-back": {
+      const prev = x.updates?.previous;
+      if (!prev) return [{ label: "No previous version kept", icon: <Undo2 size={14} />, disabled: true, run: () => {} }];
+      return [{
+        label: `Go back to ${prev.version}…`, icon: <Undo2 size={14} />, disabled: !x.updates?.here, note: x.updates?.here ? "asked first · Afflatus restarts" : "only on the computer Afflatus runs on",
+        run: async () => {
+          // About's Go back, with its question
+          const yes = await ask({
+            title: `Go back to ${prev.version}?`,
+            text: `Going back restores the library as it was at the update: what was made since stays in the folder, not in the list. Afflatus restarts on ${prev.version}.`,
+            yes: `Go back to ${prev.version}`,
+          });
+          if (!yes) return;
+          await api.goBack().then((view) => {
+            client.setQueryData(queryKeys.updates(), view);
+            followRestart(view.version, view.flow);
+          }, failed("Could not go back"));
+        },
+      }];
+    }
+    case "test-notify": {
+      // as each channel's Send a test: one action a channel set up, the one named first
+      const n = x.settingCtx.server?.notify;
+      const set = { telegram: Boolean(n?.hasTelegramToken && n.telegramChat), discord: Boolean(n?.hasDiscordWebhook) };
+      const send = (ch: "telegram" | "discord") => api.testNotify(ch).then(() => good(`Test sent to ${ch === "telegram" ? "Telegram" : "Discord"}`, "Look for it there.", settingHref(`notify.${ch}`), "Open the settings"), failed(`Could not send to ${ch === "telegram" ? "Telegram" : "Discord"}`));
+      const all = (["telegram", "discord"] as const).map((ch) => ({
+        label: `Send a test to ${ch === "telegram" ? "Telegram" : "Discord"}`, icon: <Bell size={14} />, disabled: !set[ch], note: set[ch] ? undefined : "not set up (Settings › Interface)",
+        run: () => send(ch),
+      }));
+      // the one named alone; else those set up first
+      return c.channel ? all.filter((a) => a.label.endsWith(c.channel === "telegram" ? "Telegram" : "Discord")) : [...all.filter((a) => !a.disabled), ...all.filter((a) => a.disabled)];
     }
     case "new-project":
       return [{

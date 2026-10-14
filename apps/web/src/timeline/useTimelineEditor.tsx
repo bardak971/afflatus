@@ -6,6 +6,7 @@ import type { DesignerTurn } from "../designer/types";
 import { notReady, plural } from "../format";
 import { useBanners, useEditorColumn } from "../store";
 import { useSelectedClip } from "../bar/bridge";
+import { newTransition, TRANSITIONS } from "@afflatus/core";
 import { useQueueOf } from "../screens/studio/queueOf";
 import { useNewClock } from "./clock";
 import { rememberAspect } from "./EditorSkeleton";
@@ -212,6 +213,9 @@ export function useTimelineEditor(id: string) {
     known: !recipes.isPending && !setup.isPending && !settings.isPending,
   };
 
+  // what the bar's clip commands call, read when they run (they are new at every render: kept out of the effect's deps)
+  const barActs = useRef({ rangeAct, edit, openSource });
+  barActs.current = { rangeAct, edit, openSource };
   // the selected clip, for the command bar's `@name`: who is in it and the Inspector's own change of its cast
   const patchNow = patch.mutateAsync;
   const castRecipe = current?.recipe ? recipes.data?.recipes.find((r) => r.id === current.recipe) ?? null : null;
@@ -224,6 +228,18 @@ export function useTimelineEditor(id: string) {
       // its pinned frames' Mirror, for the bar's `> mirror pin`: its form as it stands, the Inspector's edits not yet saved included
       pins: pinMirrors(current, castRecipe ?? undefined, inputsOf(current), castNumber > 1 && current.joined === "continue" && current.kind === "video"),
       mirror: (input, on) => patchNow({ clip: current.id, patch: { pinMirror: { [input]: on } } }),
+      // the join before it, for the bar's `> transition`: what the column's join choice reads and writes
+      cutIn: castNumber <= 1 ? "none" : current.joined === "continue" ? "extends" : "cut",
+      transition: current.transition?.kind ?? null,
+      setTransition: (kind) => patchNow({ clip: current.id, patch: { transition: kind ? (current.transition ? { ...current.transition, kind, ms: TRANSITIONS[kind].ms } : newTransition(kind)) : null } }),
+      // its menu's Slow motion and Motion transfer in windows, on the same conditions (menus.tsx)
+      slow: current.kind === "video" && current.take ? (factor) => barActs.current.rangeAct.mutate({ slow: factor, inMs: current.atMs, outMs: current.atMs + current.lengthMs }) : null,
+      toSource: current.kind === "video" && current.take && !current.recipe ? () => {
+        const take = current.take!;
+        // as the menu does it: the source sits so that what the clip plays stays where it is; the clips made from it take its place
+        barActs.current.edit.mutate({ source: { asset: take.asset.id, atMs: current.atMs - take.startMs, fromMs: take.startMs, toMs: take.endMs, clip: current.id } });
+        barActs.current.openSource();
+      } : null,
     });
   }, [current, t, id, castNumber, castRecipe, patchNow, inputsOf]);
   useEffect(() => () => useSelectedClip.getState().set(null), []);

@@ -3,6 +3,7 @@ import type { Look } from "../api/types/designer";
 import { useFormTarget, type FormTarget } from "../formTarget";
 import type { ClipCast } from "./castTo";
 import type { PinMirror } from "../timeline/model";
+import type { TransitionKind } from "@afflatus/core";
 
 /**
  * What the command bar asks of a screen that does the work itself: the timeline editor renders and exports
@@ -68,6 +69,15 @@ export interface SelectedClip extends ClipCast {
   /** Its pinned frames and what their Mirror says (pinMirrors), and the editor's own switch of one (one step to undo). */
   pins: PinMirror[];
   mirror(input: string, on: boolean): Promise<unknown>;
+  /** The join before it, as its column says it: none (the first clip), it extends the clip before, or a cut; and the cut's transition. */
+  cutIn: "none" | "extends" | "cut";
+  transition: TransitionKind | null;
+  /** The cut's transition set or taken off (null), as the column's join choice: one step to undo. */
+  setTransition(kind: TransitionKind | null): Promise<unknown>;
+  /** Slow motion of the whole clip as a new take, as its menu's ×2 and ×4; null when it has no take to slow. */
+  slow: ((factor: 2 | 4) => void) | null;
+  /** Its menu's Motion transfer in windows (a video brought in, made into the source lane); null when it is not one. */
+  toSource: (() => void) | null;
 }
 export const useSelectedClip = create<{ clip: SelectedClip | null; set(clip: SelectedClip | null): void }>((set) => ({
   clip: null,

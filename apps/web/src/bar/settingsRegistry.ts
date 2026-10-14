@@ -1,6 +1,6 @@
-import type { NotifyKind, Settings } from "../api";
+import type { NotifyKind, Settings, SettingsPatch } from "../api";
 import { INDEX, settingHref, TABS, type Tab } from "../screens/settings/settingsIndex";
-import { allowNotifications, useBanners, useExplain, useHoverPlay, useNotify } from "../store";
+import { allowNotifications, useBanners, useCompareResult, useExplain, useHoverPlay, useNotify } from "../store";
 import { useThemeChoice } from "../theme/store";
 import { THEMES } from "../theme/themes";
 import { ask } from "../Confirm";
@@ -18,7 +18,7 @@ const themeNames = (light: boolean) => THEMES.filter((t) => Boolean(t.light) ===
 
 export interface SettingCtx {
   server: Settings | undefined;
-  save(patch: Partial<Settings>): Promise<void>;
+  save(patch: SettingsPatch): Promise<void>;
 }
 
 export interface SettingEntry {
@@ -92,6 +92,20 @@ export const SETTINGS: SettingEntry[] = [
   { id: "notify.renderDone", label: "Browser notification: render done", page: "interface", words: "notify browser notification each render done finished", scope: "this browser", kind: "switch", about: "A notification of this browser when a render finishes.", get: () => Boolean(useNotify.getState().browser.renderDone), set: (_c, v) => notifySwitch("renderDone", Boolean(v)) },
   { id: "notify.renderFailed", label: "Browser notification: render failed", page: "interface", words: "notify browser notification error failed", scope: "this browser", kind: "switch", about: "A notification of this browser when a render fails, with ComfyUI's reason.", get: () => Boolean(useNotify.getState().browser.renderFailed), set: (_c, v) => notifySwitch("renderFailed", Boolean(v)) },
   { id: "notify.queueEmpty", label: "Browser notification: queue empty", page: "interface", words: "notify browser notification queue empty done batch", scope: "this browser", kind: "switch", about: "A notification of this browser when everything that was waiting is done: how many, how long.", get: () => Boolean(useNotify.getState().browser.queueEmpty), set: (_c, v) => notifySwitch("queueEmpty", Boolean(v)) },
+  { id: "notify.renderStuck", label: "Browser notification: render stuck", page: "interface", words: "notify browser notification stuck hung no progress", scope: "this browser", kind: "switch", about: "A notification of this browser when a render shows no step, node or preview for 20 minutes.", get: () => Boolean(useNotify.getState().browser.renderStuck), set: (_c, v) => notifySwitch("renderStuck", Boolean(v)) },
+  { id: "notify.podStopped", label: "Browser notification: pod stopped", page: "interface", words: "notify browser notification rented runpod pod stopped idle cap watchdog", scope: "this browser", kind: "switch", about: "A notification of this browser when Afflatus stops or terminates a rented pod (idle, a cap, its watchdog…), with why and what the run cost.", get: () => Boolean(useNotify.getState().browser.podStopped), set: (_c, v) => notifySwitch("podStopped", Boolean(v)) },
+  { id: "notify.capReached", label: "Browser notification: spending cap reached", page: "interface", words: "notify browser notification rented runpod cap spending budget limit money", scope: "this browser", kind: "switch", about: "A notification of this browser the first time the day's or the month's spending cap is reached.", get: () => Boolean(useNotify.getState().browser.capReached), set: (_c, v) => notifySwitch("capReached", Boolean(v)) },
+  { id: "notify.balanceLow", label: "Browser notification: RunPod balance low", page: "interface", words: "notify browser notification rented runpod balance low credit money", scope: "this browser", kind: "switch", about: "A notification of this browser when the RunPod balance runs low.", get: () => Boolean(useNotify.getState().browser.balanceLow), set: (_c, v) => notifySwitch("balanceLow", Boolean(v)) },
+  { id: "notify.gpuFound", label: "Browser notification: GPU found", page: "interface", words: "notify browser notification rented runpod hunt gpu found deployed", scope: "this browser", kind: "switch", about: "A notification of this browser when a GPU hunt finds and deploys one.", get: () => Boolean(useNotify.getState().browser.gpuFound), set: (_c, v) => notifySwitch("gpuFound", Boolean(v)) },
+  { id: "notify.huntGaveUp", label: "Browser notification: hunt gave up", page: "interface", words: "notify browser notification rented runpod hunt gave up", scope: "this browser", kind: "switch", about: "A notification of this browser when a GPU hunt gives up.", get: () => Boolean(useNotify.getState().browser.huntGaveUp), set: (_c, v) => notifySwitch("huntGaveUp", Boolean(v)) },
+  { id: "notify.comfyGone", label: "Browser notification: ComfyUI offline", page: "interface", words: "notify browser notification comfyui offline gone crashed", scope: "this browser", kind: "switch", about: "A notification of this browser when a ComfyUI stops answering in the middle of a render.", get: () => Boolean(useNotify.getState().browser.comfyGone), set: (_c, v) => notifySwitch("comfyGone", Boolean(v)) },
+  {
+    id: "notify.picture", label: "Notify with a small picture", page: "interface", words: "notifications telegram discord picture image thumbnail photo still", scope: "Afflatus", kind: "switch",
+    about: "A small picture of what a render made goes with its Telegram or Discord message.",
+    get: (c) => c.server?.notify.picture,
+    set: (c, v) => c.save({ notify: { picture: Boolean(v) } }),
+  },
+  { id: "compare.result", label: "Compare opens on original vs result", page: "interface", words: "compare pass upscale source wipe side by side", scope: "this browser", kind: "switch", about: "On a pass's result, Compare (X) puts its source beside it; on a picture something was made from, the newest result. Off: Compare pins the item and the arrow keys bring the next one.", get: () => useCompareResult.getState().on, set: (_c, v) => useCompareResult.getState().set(Boolean(v)) },
   { id: "notify.banner", label: "Banner when renders finish", page: "interface", words: "toast banner done finished popup announce quiet", scope: "this browser", kind: "switch", about: "A banner over the screen when renders finish while another screen is open. Off: only failures are announced.", get: () => useNotify.getState().banner, set: (_c, v) => useNotify.getState().set({ banner: Boolean(v) }) },
   {
     id: "storage.unkeptDays", label: "Unkept renders go to the bin after", page: "storage", words: "expire expiring countdown not kept auto bin day never keep everything", scope: "Afflatus", kind: "choice",
