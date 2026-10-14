@@ -166,7 +166,7 @@ export function Field({ spec, value, values, specs, options, family, model, onCh
         <>
           <PictureField label={spec.label} note={spec.note} optional={Boolean(spec.optional)} value={typeof value === "string" ? value : null} onChange={onChange} />
           {/* a Motion transfer's picture, made from its driving video (motionPicture.tsx) */}
-          {spec.role === "source" && specs && values && <MakeFromDriving specs={specs} values={values} />}
+          {spec.role === "source" && specs && values && <MakeFromDriving specs={specs} values={values} current={typeof value === "string" ? value : null} onPick={onChange} />}
         </>
       );
 

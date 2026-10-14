@@ -217,8 +217,8 @@ export const api = {
   /** Where to open ComfyUI's own page: locked, its login with a one-time code. */
   openMachine: (id: string) => call<{ url: string }>("POST", `/machines/${encodeURIComponent(id)}/open`, {}),
   /** `into`: the draft it is sent from, the folder that is open (where its results are filed), and the machine it is pinned to. */
-  enqueue: (recipe: string, input: Record<string, unknown>, count: number, look?: Look | null, into?: { draft?: string; folder?: string; seedMode?: "up" | "down"; machine?: string }) =>
-    call<{ ids: string[] }>("POST", "/jobs", { recipe, input, count, ...(lookAdds(look) ? { look } : {}), ...(into?.draft ? { draft: into.draft } : {}), ...(into?.folder ? { folder: into.folder } : {}), ...(into?.seedMode ? { seedMode: into.seedMode } : {}), ...(into?.machine ? { machine: into.machine } : {}) }),
+  enqueue: (recipe: string, input: Record<string, unknown>, count: number, look?: Look | null, into?: { draft?: string; folder?: string; seedMode?: "up" | "down"; machine?: string; label?: string }) =>
+    call<{ ids: string[] }>("POST", "/jobs", { recipe, input, count, ...(lookAdds(look) ? { look } : {}), ...(into?.label ? { label: into.label } : {}), ...(into?.draft ? { draft: into.draft } : {}), ...(into?.folder ? { folder: into.folder } : {}), ...(into?.seedMode ? { seedMode: into.seedMode } : {}), ...(into?.machine ? { machine: into.machine } : {}) }),
   /** Load the models this form would render with, ahead of the render. A job in the queue that makes nothing. */
   /** A form's models loaded ahead: on `machine` (a Machine's id), else where its render would run. */
   warm: (recipe: string, input: Record<string, unknown>, look?: Look | null, machine?: string) => call<{ id: string }>("POST", "/jobs/warm", { recipe, input, ...(lookAdds(look) ? { look } : {}), ...(machine ? { machine } : {}) }),

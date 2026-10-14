@@ -1,19 +1,20 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { ArrowLeft, PersonStanding, Sun, Wand2 } from "lucide-react";
+import { ArrowLeft, PersonStanding, Sun } from "lucide-react";
 import type { ClipValue, InputSpec } from "@afflatus/core";
 import { api, type Asset } from "./api";
 import type { MenuItem } from "./ContextMenu";
-import { useEntities, useRecipes } from "./data";
+import { useRecipes } from "./data";
 import { useOpenNewDraft } from "./draft";
 import { useFormTarget } from "./formTarget";
 import { queryKeys } from "./queryKeys";
 import { useFormAim } from "./recipeForm/formAim";
 import { useSayFailed } from "./sayFailed";
-import { LookBar } from "./LookBar";
-import { Button } from "./ui";
+import { PictureMaker, usePictureSets } from "./pictureMaker";
+import { Slider } from "./Slider";
 
 /**
  * Motion transfer's picture made from its driving video (HANDOVER-swap-lipsync-plan.md §9, the meme test): the frame where the
@@ -79,60 +80,31 @@ function useOpenEditFor() {
 }
 
 /**
- * A timeline source's picture, made as a Motion transfer form's is: the frame at the playhead, with `person` (the timeline
- * cast's first person's picture) put into it, 3 pictures to pick from in Create, tied to the source: the one picked goes
- * into its Picture (Use for Motion transfer), or is relit first.
+ * Under the Picture of a Motion transfer form whose driving video is chosen (SCAIL-2, Wan Animate 2, in Create): the picture
+ * made for the user (pictureMaker.tsx), its frame chosen within the driving video's part, the cast's people offered as who
+ * goes in. Shown while there is no Picture, and after one was made here (to pick another, or reroll).
  */
-export function useMakeSourcePicture() {
-  const openEdit = useOpenEditFor();
-  return async (video: string, atMs: number, person: string | null, name: string, to: { timeline: string; slot: string }) => {
-    const frame = await api.frame(video, Math.round(atMs));
-    await openEdit(to, { source: frame.id, person, prompt: REPLACE, count: 3, name });
-  };
-}
-
-/**
- * Under an empty Picture slot of a Motion transfer form whose driving video is chosen: "Make it from the driving video…".
- * The cast's first person goes into the frame where the part starts; without one, the Edit form opens without a person.
- */
-export function MakeFromDriving({ specs, values }: { specs: readonly InputSpec[]; values: Record<string, unknown> }) {
+export function MakeFromDriving({ specs, values, current, onPick }: { specs: readonly InputSpec[]; values: Record<string, unknown>; current: string | null; onPick(asset: string): void }) {
   const target = useFormTarget((s) => s.target);
-  const entities = useEntities();
-  const openEdit = useOpenEditFor();
-  const failed = useSayFailed({ id: "motion-picture" });
   const slots = motionSlots(specs);
   const driving = slots ? (values[slots.driving.id] as ClipValue | undefined) : undefined;
   const start = slots?.driving.window ? Number(values[slots.driving.window.start] ?? 0) : 0;
-  const first = target?.look?.cast[0];
-  const person = first ? entities.data?.items.find((e) => e.id === first.id && e.kind === "person") : undefined;
-  const face = person && person.kind === "person" ? person.def.pictures[0] ?? null : null;
-  const make = useMutation({
-    mutationFn: async () => {
-      const frame = await api.frame(driving!.asset, Math.round(start * 1000));
-      const motion = target!.draftId!;
-      const own = await api.draft(motion);
-      await openEdit({ motion, slot: slots!.picture.id }, {
-        source: frame.id, person: face, prompt: REPLACE, count: 3,
-        name: `Picture for ${own.name || "Motion transfer"}`,
-      });
-    },
-    onError: failed("The picture could not be started"),
-  });
-  if (!slots || !driving || values[slots.picture.id] || !target?.draftId) return null;
+  const seconds = slots?.driving.window ? Number(values[slots.driving.window.seconds] ?? 5) : 5;
+  const [at, setAt] = useState<number | null>(null);
+  const made = usePictureSets((s) => (target?.draftId ? (s.of[`draft:${target.draftId}`]?.jobs.length ?? 0) > 0 : false));
+  if (!slots || !driving || !target?.draftId || (current && !made)) return null;
+  const frame = Math.max(start, Math.min(start + seconds, at ?? start));
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-dashed border-line-strong px-3 py-2.5">
-      <span className="text-xs font-semibold">No picture yet? Make one from the driving video</span>
-      {/* who goes into it: the only thing the cast is for on this form (the models themselves take no reference picture) */}
-      {target.setLook && <LookBar people look={target.look ?? null} onChange={target.setLook} title="Who goes in" />}
-      <Button size="sm" onClick={() => make.mutate()} disabled={make.isPending} className="self-start">
-        <Wand2 size={14} /> Make it from the driving video…
-      </Button>
-      <span className="text-xs text-ink-2">
-        {face && person
-          ? <>{person.name} put into the frame at <span className="font-semibold text-ink">{start.toFixed(1)} s</span>, where the part starts: 3 pictures with Qwen Image 2.1 · Edit, you pick one.</>
-          : <>The frame at {start.toFixed(1)} s in Qwen Image 2.1 · Edit, opened on its References: drop a photo of who goes in there, or pick them above.</>}
-      </span>
-    </div>
+    <PictureMaker
+      keyId={`draft:${target.draftId}`}
+      video={driving.asset}
+      atMs={frame * 1000}
+      name="Picture for Motion transfer"
+      cast={target.look?.cast.map((c) => c.id)}
+      current={current}
+      onPick={onPick}
+      frameControl={<Slider label="Frame" value={frame} min={start} max={start + seconds} step={0.1} unit=" s" onChange={setAt} />}
+    />
   );
 }
 

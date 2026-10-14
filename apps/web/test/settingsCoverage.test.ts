@@ -85,6 +85,7 @@ const BROWSER: Record<string, string> = {
   "afflatus.draft-machine": "internal: the machine each draft generates on, set from Generate's machine slice",
   "afflatus.find-all": "internal: Find models' All of Civitai switch, remembered in this browser",
   "afflatus.motion-picture": "internal: which Motion transfer draft an Edit draft makes the picture for, set by Make it from the driving video",
+  "afflatus.picture-sets": "internal: the pictures made for each Motion transfer form (its photos of who goes in, Relight, the jobs), kept per draft or timeline source",
   "afflatus.projects.sort": "internal: the Projects panel's sort",
   "afflatus.reloaded-at": "internal: when the app last reloaded itself for a new version",
   "afflatus.seed-mode": "internal: the form's seed mode, set beside the seed",

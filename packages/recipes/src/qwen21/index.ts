@@ -71,6 +71,7 @@ interface Qwen21Base {
 }
 interface Qwen21Picture extends Qwen21Base { prompt: string; size: SizeValue }
 interface Qwen21Edit extends Qwen21Base { source: string; prompt: string; references: ReferenceValue[]; resolution: number }
+interface Qwen21MotionPicture extends Qwen21Base { source: string; people: ReferenceValue[]; relight: boolean; replace: string; relit: string; resolution: number }
 
 const model: InputSpec = { id: "model", type: "model", label: "Model", folder: "diffusion_models", slot: "unet", match: ["qwen.?image.?2[._]1(?!.*vae)"], note: "Qwen Image 2.1, or a fine-tune of it" };
 /** How it samples: the values of ComfyUI's template (25 steps) raised to what Qwen's authors give (about 40 with euler), each kept per model once saved. */
@@ -211,5 +212,76 @@ export const qwen21Edit = defineRecipe<Qwen21Edit>({
       input: { source: "p", prompt: "a", model: "qwen_image_2.1-Q4_K_M.gguf", resolution: 0, references: [{ asset: "a", role: "clothing" }, { asset: "b", role: "place" }] },
       slots: files, uploads: { source: "s.png", "references.0": "a.png", "references.1": "b.png" }, media: { source: { width: 1536, height: 2048 } },
     },
+  ],
+});
+
+/** What puts the person in: the words that kept the face best on the meme test (0.95 to 0.96, HANDOVER-swap-lipsync-plan.md §9). */
+export const MOTION_REPLACE =
+  "Replace the main person in <image1> with the person in <image2>: their face, their hair, their beard and their skin. " +
+  "They are lit exactly like the rest of <image1>: the same light and shadows on the face, the same soft, grainy phone-video look, so that they belong in the picture. " +
+  "Keep everything else in <image1> exactly the same: their clothes, their pose, the people around them and the framing.";
+/** The second pass that brought him into the room's light on the meme (0.87, the best look), on the picture the first made. */
+export const MOTION_RELIGHT =
+  "Relight only the main person in <image1> so that they match the rest of the picture: the same light as on the people and the room around them, " +
+  "the same shadows on their face, less light on their skin where the room is dark, and the same soft, grainy phone-video look. " +
+  "Do not change their face, their hair, their expression or anything else in <image1>.";
+
+/**
+ * The picture a Motion transfer is made from, in one job: a frame of the driving video with the person of the photos put
+ * in (Qwen Image 2.1 · Edit, the first person's photos as <image2>…), then relit into the frame's light by a second Edit
+ * pass on what the first made: the two steps the meme test took by hand (motionPicture.tsx, the picture box of the
+ * Motion transfer forms, runs it three times and lets the user pick). Without relight, the first pass alone.
+ */
+export const qwen21MotionPicture = defineRecipe<Qwen21MotionPicture>({
+  id: "qwen21.motion-picture",
+  family: "qwen21",
+  version: 1,
+  title: "Picture for Motion transfer",
+  summary: "A frame of a video with the person of your photos put in, then relit into its light: the picture a Motion transfer moves.",
+  output: "image",
+  inputs: [
+    model,
+    { id: "source", type: "image", role: "source", label: "Frame", note: "the frame of the driving video the person is put into: <image1>" },
+    {
+      id: "people", type: "references", label: "Who goes in", max: 3, roles: ["person"],
+      note: "photos of the person: one sharp, front-facing and well lit matters most; a second from another angle helps a frame where they are turned",
+    },
+    { id: "relight", type: "toggle", label: "Relight", default: true, note: "a second pass that brings the person into the frame's light and look, the face left as it is" },
+    { id: "replace", type: "prompt", label: "Instruction", style: "sentences", default: MOTION_REPLACE, advanced: true, note: "what the first pass is told; <image2> on are the photos" },
+    { id: "relit", type: "prompt", label: "Relight instruction", style: "sentences", default: MOTION_RELIGHT, advanced: true, showWhen: "relight", note: "what the second pass is told" },
+    { id: "resolution", type: "number", label: "Working size", min: 0, max: 2048, step: 32, default: 1024, unit: " px", advanced: true, note: "the pictures are brought to about this many pixels on a side before the model reads them" },
+    ...sampling,
+  ],
+  nodes: (input) => [...NODES(input), "LoadImage"],
+  optionalNodes: ["LoraLoaderModelOnly"],
+  build(input, ctx) {
+    const g = new GraphBuilder();
+    const k = load(g, input, ctx);
+    const photos = input.people.slice(0, 3).map((_, i) => ctx.uploads[`people.${i}`]);
+    const pass = (prompt: string, images: Ref[], seed: number) => {
+      const read = g.add("TextEncodeQwenImage21", {
+        clip: k.clip, prompt, negative_prompt: input.negative, resolution: input.resolution, vae: k.vae,
+        ...Object.fromEntries(images.map((image, i) => [`images.image_${i + 1}`, image])),
+      });
+      g.phase("sampling");
+      const sampled = g.out("KSampler", {
+        model: k.model, positive: [read, 0], negative: [read, 1], latent_image: [read, 2], seed,
+        steps: input.steps, cfg: input.cfg, sampler_name: input.sampler, scheduler: input.scheduler, denoise: 1,
+      });
+      g.phase("decoding");
+      return { sampled, image: g.out("VAEDecode", { samples: sampled, vae: k.vae }) };
+    };
+    const put = pass(input.replace, [g.out("LoadImage", { image: ctx.uploads.source }), ...photos.map((file) => g.out("LoadImage", { image: file }))], ctx.seed);
+    const lit = input.relight ? pass(input.relit, [put.image], ctx.seed + 1) : null;
+    const out = g.add("PreviewImage", { images: (lit ?? put).image });
+    const passes = [{ node: put.sampled[0], steps: input.steps }, ...(lit ? [{ node: lit.sampled[0], steps: input.steps }] : [])];
+    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: input.steps * passes.length, passes, loads: k.loads };
+  },
+  variants: [
+    {
+      name: "a frame, two photos, relit", input: { source: "f", people: [{ asset: "a", role: "person" }, { asset: "b", role: "person" }] },
+      slots: files, uploads: { source: "f.png", "people.0": "a.png", "people.1": "b.png" }, media: { source: { width: 480, height: 854 } },
+    },
+    { name: "without relight", input: { source: "f", people: [{ asset: "a", role: "person" }], relight: false }, slots: files, uploads: { source: "f.png", "people.0": "a.png" }, media: { source: { width: 480, height: 854 } } },
   ],
 });
