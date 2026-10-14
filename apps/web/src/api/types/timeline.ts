@@ -133,10 +133,9 @@ export interface TimelineSource {
   toMs: number;
   recipe: string | null;
   windowMs: number;
-  picture: string | null;
-  prompt: string;
+  /** The model's form every window is made with (what was touched): its picture, prompt and seed among it. */
+  inputs: Record<string, unknown>;
   snap: boolean;
-  seed: number | null;
   clip: string | null;
 }
 /** A change to the source lane: a new video, or its settings. */

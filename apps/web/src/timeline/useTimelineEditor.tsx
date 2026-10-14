@@ -12,6 +12,7 @@ import { rememberAspect } from "./EditorSkeleton";
 import type { ExportAsk } from "./ExportDialog";
 import type { Checks } from "./EditorColumns";
 import { layout, moveAfter, otherShape, pinMirrors, ZOOM } from "./model";
+import { sourcePlace } from "./track/SourceLane";
 import type { PlayerHandle } from "./Player";
 import { useClipEdits } from "./useClipEdits";
 import { useClipSteps } from "./useClipSteps";
@@ -119,6 +120,8 @@ export function useTimelineEditor(id: string) {
   const renderingAt = running ? clips.findIndex((c) => c.id === running) : -1;
   const liveShown = renderingAt >= 0 && (clips[renderingAt]!.id === selected || !clips.some((c) => c.take || c.still)) ? { clipId: running!, clip: renderingAt + 1 } : null;
   const slots = useMemo(() => layout(clips, pps, videoRecipes), [clips, pps, videoRecipes]);
+  /** Where the source lies on the track (the track's own time), the clips Make will add, whether they are made. */
+  const place = useMemo(() => (t ? sourcePlace(t, slots, videoRecipes) : null), [t, slots, videoRecipes]);
   const total = slots.length ? slots.at(-1)!.startMs + slots.at(-1)!.lengthMs : 0;
 
   const { dropEdits, saveFailed, save, turn, inputsOf, editInputs, savedElsewhere, shown, formOf, ready } = useClipEdits({ timeline: t, clips, recipes, setup, settings, comfyOnline });
@@ -140,7 +143,7 @@ export function useTimelineEditor(id: string) {
     timeline: t, clipsNow, recipes: recipes.data?.recipes ?? [], edits: { save, turn, ready, inputsOf, editInputs, dropEdits, savedElsewhere }, firstRecipe,
     on: { note: setNote, select, unpick: () => setPicked(new Set()), writing: setWriting, open: setOpened },
   });
-  const { after, render, patch, fix, edit, makeSource: makeSourceMut, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
+  const { after, render, patch, fix, edit, makeSource: makeSourceMut, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
   const pickedNow = useRef(picked);
   pickedNow.current = picked;
   const removePicked = useCallback(() => {
@@ -294,7 +297,7 @@ export function useTimelineEditor(id: string) {
 
   return {
     id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, current,
-    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, makeSource, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
+    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, makeSource, splitSource, place, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, inputsOf, editInputs, formOf, ready, sayOf, say, m, range, setRange, loopRange, snapQuiet,
