@@ -14,7 +14,13 @@ import { SHOWS } from "./attention";
  * -15 % reads as slow motion. Colour: the distance moved in U/V (0 to 255 chroma), past 3 a cast shows.
  * Run-up end: past ×3 the model stepped away from its guide, and the join shows (SHOWS, as every join figure).
  */
-export const DRIFT = { luma: -0.08, sharp: -0.15, pace: -0.15, colour: 3, handover: SHOWS } as const;
+export const DRIFT = { luma: -0.08, sharp: -0.15, pace: -0.15, colour: 3, handover: SHOWS, grain: 0.2 } as const;
+
+/**
+ * The sharpness two takes are compared on: without the grain when both were measured that way (grain read as detail,
+ * and a grainier clip looked sharper), else the older figure for both: never one of each.
+ */
+export const sharpOf = (m: Measure, other?: Measure | null) => (m.edges != null && (other === undefined || other?.edges != null) ? m.edges : m.sharp);
 
 type Joined = Pick<Clip, "joined">;
 
@@ -52,6 +58,8 @@ export function colourShift(a: Measure | null | undefined, b: Measure | null | u
 export interface Against {
   luma: number | null;
   sharp: number | null;
+  /** More grain is the warning: +0.30, a third more. */
+  grain: number | null;
   pace: number | null;
   colour: number | null;
 }
@@ -59,7 +67,8 @@ export interface Against {
 function against(m: Measure, other: Measure | null | undefined): Against {
   return {
     luma: change(m.luma, other?.luma),
-    sharp: change(m.sharp, other?.sharp, 0.01),
+    sharp: other ? change(sharpOf(m, other), sharpOf(other, m), 0.01) : null,
+    grain: change(m.grain, other?.grain, 0.1),
     pace: change(m.pace, other?.pace, 0.1),
     colour: colourShift(m, other),
   };
@@ -68,7 +77,7 @@ function against(m: Measure, other: Measure | null | undefined): Against {
 /** A figure past its threshold: a warning. */
 export function past(what: keyof Against, x: number | null): boolean {
   if (x == null) return false;
-  return what === "colour" ? x > DRIFT.colour : x < DRIFT[what];
+  return what === "colour" ? x > DRIFT.colour : what === "grain" ? x > DRIFT.grain : x < DRIFT[what];
 }
 
 export interface Drift {
@@ -104,7 +113,7 @@ export function driftOf(clips: Array<Pick<Clip, "joined" | "take">>, index: numb
 /** The header's warning: "darker, softer than clip 1"; against the run's start first, else against the clip before. Null when nothing is past. */
 export function driftWords(d: Drift | null): string | null {
   if (!d) return null;
-  const words = (a: Against) => [past("luma", a.luma) && "darker", past("sharp", a.sharp) && "softer", past("pace", a.pace) && "slower", past("colour", a.colour) && "tinted"].filter(Boolean).join(", ");
+  const words = (a: Against) => [past("luma", a.luma) && "darker", past("sharp", a.sharp) && "softer", past("grain", a.grain) && "grainier", past("pace", a.pace) && "slower", past("colour", a.colour) && "tinted"].filter(Boolean).join(", ");
   const whole = words(d.whole);
   if (whole) return `${whole} than clip ${d.start + 1}`;
   const hop = words(d.hop);
@@ -116,6 +125,7 @@ export interface RunPoint {
   index: number;
   sharp: number | null;
   luma: number | null;
+  grain: number | null;
 }
 
 /** Every clip of the run `index` is in, its sharpness and brightness against the run's start. Empty when the start was not measured. */
@@ -127,7 +137,12 @@ export function runSeries(clips: Array<Pick<Clip, "joined" | "take">>, index: nu
   const out: RunPoint[] = [];
   for (let i = start; i <= end; i++) {
     const m = clips[i]?.take?.measure;
-    out.push({ index: i, sharp: m ? m.sharp / Math.max(0.01, first.sharp) : null, luma: m ? m.luma / Math.max(1, first.luma) : null });
+    out.push({
+      index: i,
+      sharp: m ? sharpOf(m, first) / Math.max(0.01, sharpOf(first, m)) : null,
+      luma: m ? m.luma / Math.max(1, first.luma) : null,
+      grain: m?.grain != null && first.grain != null ? m.grain / Math.max(0.1, first.grain) : null,
+    });
   }
   return out;
 }

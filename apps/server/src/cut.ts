@@ -354,8 +354,12 @@ export const DISSOLVE_MS = JOIN_FADE_MS;
 export interface Measure {
   /** Mean luma, 0 to 255. */
   luma: number;
-  /** Sharpness: the mean absolute Laplacian of a 256-pixel-wide grey copy. 0 is flat, several units is crisp. */
+  /** Sharpness: the mean absolute Laplacian of a 256-pixel-wide grey copy. 0 is flat, several units is crisp. Grain counts in it. */
   sharp: number;
+  /** Sharpness without the grain: the same Laplacian on the copy cleaned of its fine noise (a 3×3 median). Takes measured before 2026-10-14 have none. */
+  edges?: number;
+  /** Grain: how far the copy's pixels sit from its 3×3 median, in luma steps (0 to 255): the fine noise, not the detail. */
+  grain?: number;
   /** Mean chroma against neutral: U is blue (+) to yellow (−), V red (+) to green (−); −128 to 127. */
   chroma?: { u: number; v: number };
   /** Where the darkest and the brightest tenth of the picture sit in luma (signalstats YLOW and YHIGH). */
@@ -393,6 +397,9 @@ export async function lookOf(source: Media, ext: string, fromMs = 0): Promise<Me
     // the Laplacian around 128, folded to its size: its mean over the frame is the sharpness
     const sharp = pick(await run(["-an", "-vf", "fps=4,scale=256:-2,format=gray,convolution=0m='0 -1 0 -1 4 -1 0 -1 0':0bias=128,lutyuv=y='if(gt(val\\,128)\\,val-128\\,128-val)',signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-"]), "signalstats\\.YAVG");
     if (!sharp.length) return null;
+    // the same without the grain: the copy cleaned of its fine noise first. The grain itself: the copy against its cleaned self
+    const edges = pick(await run(["-an", "-vf", "fps=4,scale=256:-2,format=gray,median=radius=1,convolution=0m='0 -1 0 -1 4 -1 0 -1 0':0bias=128,lutyuv=y='if(gt(val\\,128)\\,val-128\\,128-val)',signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-"]), "signalstats\\.YAVG");
+    const grain = pick(await run(["-an", "-vf", "fps=4,scale=256:-2,format=gray,split[a][b];[b]median=radius=1[c];[a][c]blend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-"]), "signalstats\\.YAVG");
     // the motion, as the ruler measures it (the first sample is a frame against nothing)
     const pace = pick(await run(["-an", "-vf", `fps=${MOTION_RATE},scale=96:-2,format=gray,tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-`]), "signalstats\\.YAVG").slice(1);
     // the sound's spectral centroid; nothing when there is no sound (or no such filter)
@@ -406,6 +413,8 @@ export async function lookOf(source: Media, ext: string, fromMs = 0): Promise<Me
     return {
       luma: r1(luma),
       sharp: r2(mean(sharp)),
+      ...(edges.length ? { edges: r2(mean(edges)) } : {}),
+      ...(grain.length ? { grain: r2(mean(grain)) } : {}),
       ...(u.length && v.length ? { chroma: { u: r1(mean(u) - 128), v: r1(mean(v) - 128) } } : {}),
       ...(low.length && high.length ? { range: { low: r1(mean(low)), high: r1(mean(high)) } } : {}),
       flicker: steps.length ? r2((mean(steps) / Math.max(1, luma)) * 100) : 0,
