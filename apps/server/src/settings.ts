@@ -133,10 +133,7 @@ export const deploySchema = z.object({
 export type DeployAsk = z.infer<typeof deploySchema>;
 
 
-/**
- * What Afflatus tells about, on Telegram, Discord and in the browser (notify.ts). `gpuFound` and `huntGaveUp` are kept for
- * the GPU hunt, which does not exist yet: nothing says them.
- */
+/** What Afflatus tells about, on Telegram, Discord and in the browser (notify.ts); `gpuFound` and `huntGaveUp` are the GPU hunt's (hunt.ts). */
 export const NOTIFY_KINDS = ["renderDone", "renderFailed", "queueEmpty", "renderStuck", "podStopped", "capReached", "balanceLow", "comfyGone", "gpuFound", "huntGaveUp"] as const;
 export type NotifyKind = (typeof NOTIFY_KINDS)[number];
 /** Only a render done is off by default: every other kind is something to act on. */

@@ -11,7 +11,7 @@ import { cellOf, DAY, dayOf, dayStart, digestedThrough, digestOf, groupKey, medi
 
 /** The grain of the stretch the figures cover (`spanMs`). */
 const MINUTE = 60_000;
-const OUT_OF_MEMORY = /out of memory|\boom\b|allocat|not enough memory/i;
+export const OUT_OF_MEMORY = /out of memory|\boom\b|allocat|not enough memory/i;
 /**
  * The failed renders among `rows` that ran out of memory (OOM): their job's error says so. A job no longer kept is
  * not counted: a full memory alone does not say why a render failed. In slices: SQLite takes so many values in one `in`.

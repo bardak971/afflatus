@@ -22,3 +22,4 @@ export * from "./setupLists";
 export * from "./modelFiles";
 export * from "./text";
 export * from "./volumePrice";
+export * from "./gpuRank";

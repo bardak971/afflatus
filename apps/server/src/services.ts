@@ -24,6 +24,7 @@ import { sweepIdleDrafts } from "./drafts";
 import { Updates } from "./modelUpdates";
 import { Precompute, type PrecomputeOptions } from "./precompute";
 import { Notify } from "./notify";
+import { Hunt } from "./hunt";
 
 /** Everything the routes need, built once at start (and once per test). */
 export interface Services {
@@ -48,6 +49,8 @@ export interface Services {
   rented: Rented;
   /** What the user is told of on Telegram, Discord and in the browser (notify.ts). */
   notify: Notify;
+  /** The GPU hunt: a rented GPU deployed the moment one the user wants is free (hunt.ts). */
+  hunt: Hunt;
   /** The model files rented pods are getting (podFiles.ts). */
   podFiles: PodFiles;
   /** The presets that ship with Afflatus (the repository's `presets/` folder). */
@@ -204,9 +207,11 @@ export async function createServices(
     shippedPresets,
     updates: null as unknown as Updates,
     hashes: null as unknown as ModelHashes,
+    hunt: null as unknown as Hunt,
     started: swept.then(() => undefined),
     precompute,
     async close() {
+      services.hunt.stop();
       clearInterval(sweeper);
       clearInterval(podFilesTimer);
       rented.stop();
@@ -219,6 +224,11 @@ export async function createServices(
     },
   };
   services.updates = new Updates(services);
+  // a hunt kept from before carries on; its notices go where the others do, its summary with the queue's status
+  services.hunt = new Hunt(services);
+  services.hunt.tell = (kind, notice) => notify.say(kind, notice);
+  queue.huntOf = (held) => services.hunt.summary(held);
+  await services.hunt.run();
   // every model file hashed once, a minute after the start (and on "Hash now"), waiting while this computer renders
   services.hashes = new ModelHashes(services);
   services.hashes.runningOn = (id) => queue.runningOn(id);
