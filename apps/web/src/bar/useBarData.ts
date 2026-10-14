@@ -2,14 +2,14 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { LATENT_GRID, type FrameGrid } from "@afflatus/core";
-import { api, type AssetDetail, type CommandEntry, type CommandEstimate, type Entity, type PromptHistoryItem, type RecipeInfo, type Settings } from "../api";
+import { api, type AssetDetail, type CommandEntry, type CommandEstimate, type Entity, type PromptHistoryItem, type RecipeInfo, type SettingsPatch } from "../api";
 import { useAsset, useEntities, useFamilies, useRecipes, useSettings, useStorage } from "../data";
 import { itemsWord } from "../assetCache";
 import { groupingSaves } from "../screens/queue/bulk";
 import { useQueueOf } from "../screens/studio/queueOf";
 import { aboutMs, plural, size } from "../format";
 import { useProject } from "../project";
-import { useBanners, useExplain, useHoverPlay, useNotify } from "../store";
+import { useBanners, useCompareResult, useExplain, useHoverPlay, useNotify } from "../store";
 import { useThemeChoice } from "../theme/store";
 import { opened } from "../keys/search";
 import { BAR_DEFAULT } from "../keys/table";
@@ -26,6 +26,7 @@ import { PAGES, SETTINGS, settingKeyNow, type SettingCtx } from "./settingsRegis
 import { useSelectedClip } from "./bridge";
 import { castPlace } from "./castTo";
 import { useBar } from "./store";
+import { useUpdates } from "../updates";
 import type { TimelineAim } from "./actions/ctx";
 
 /** One empty list while the recipes load, so what is worked out from them is not redone at every render. */
@@ -122,13 +123,13 @@ export function useBarData({ open, mode, text, ranks, picked, learn, foundEntrie
 
   const settingCtx: SettingCtx = useMemo(() => ({
     server: settings.data,
-    save: async (patch: Partial<Settings>) => {
+    save: async (patch: SettingsPatch) => {
       const saved = await api.saveSettings(patch);
       client.setQueryData(queryKeys.settings(), saved);
     },
   }), [settings.data, client]);
   // the switches kept in this browser: the bar is drawn again when one changes, so that a switch flipped here shows it
-  const kept = [useHoverPlay(), useExplain(), useThemeChoice(), useNotify()];
+  const kept = [useHoverPlay(), useExplain(), useThemeChoice(), useNotify(), useCompareResult()];
   const bar = settings.data?.bar;
   const selectedClip = useSelectedClip((c) => c.clip);
   // what the bin holds, for Empty the bin and Put all back
@@ -170,8 +171,18 @@ export function useBarData({ open, mode, text, ranks, picked, learn, foundEntrie
   const keysHere = useMemo(() => (open ? opened().here : []), [open]);
   const barKey = bar?.shortcut ?? BAR_DEFAULT;
 
+  // what the rented GPUs cost (`> spending`), read while the bar is open with a RunPod key; Afflatus's own updates
+  const spending = useQuery({ queryKey: queryKeys.rentedSpending(), queryFn: ({ signal }) => api.rentedSpending({ signal }), enabled: open && Boolean(settings.data?.hasRunpodKey), staleTime: 60_000 }).data?.spending ?? null;
+  const updates = useUpdates().data ?? null;
+  const n = settings.data?.notify;
+  const telegram = Boolean(n?.hasTelegramToken && n.telegramChat);
+  const discord = Boolean(n?.hasDiscordWebhook);
+  const lookups = Boolean(settings.data?.civitaiLookups);
   // what the command rows say of the moment (commandRows.ts); the commands offered with it, those that apply now
-  const commandCtx: CommandCtx = useMemo(() => ({ aim, queue: queueNow ?? null, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid }), [aim, queueNow, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid]);
+  const commandCtx: CommandCtx = useMemo(
+    () => ({ aim, queue: queueNow ?? null, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid, spending, updates, channels: { telegram, discord }, lookups }),
+    [aim, queueNow, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid, spending, updates, telegram, discord, lookups],
+  );
   const templates = useMemo(() => commandTemplates(commandCtx), [commandCtx]);
 
   // the render estimate of a render command, learned from this machine's renders (none said when nothing is learned)

@@ -3,7 +3,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { useOpenInComfy } from "../../actions";
 import type { useRentedOps } from "../../rentedOps";
 import type { useDeployAgain } from "../../deploy";
-import type { Asset, CommandEntry, Entity, RecipeInfo, RentedState } from "../../api";
+import type { Asset, CommandEntry, Entity, RecipeInfo, RentedState, UpdatesView } from "../../api";
 import type { useModelSettings, useProjects, useSetup } from "../../data";
 import type { useOpenNewDraft } from "../../draft";
 import type { FormTarget } from "../../formTarget";
@@ -75,6 +75,8 @@ export interface BarCtx {
   bulk: ReturnType<typeof useQueueBulk>;
   jobs: ReturnType<typeof useJobActions>;
   setup: ReturnType<typeof useSetup>;
+  /** Afflatus's own updates (Settings › About), for Update and Go back. */
+  updates: UpdatesView | undefined;
   binEmpty: boolean;
   /** What the bin holds, as its strip says it: "3 items · 12 MB". */
   binSaid: string;

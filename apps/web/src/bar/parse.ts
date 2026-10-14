@@ -3,6 +3,8 @@
  * picks, and in the command mode, which command and its figures. Pure, run at every keystroke.
  */
 
+import { TRANSITION_KINDS, TRANSITIONS, type TransitionKind } from "@afflatus/core";
+
 export type Mode = "all" | "command" | "place" | "setting" | "calc" | "queue" | "keys" | "history" | "cast";
 
 /** The first character of what is typed, and the mode it opens. */
@@ -69,7 +71,18 @@ export type Command =
   | { cmd: "preset"; name: string }
   | { cmd: "save-preset"; name: string }
   | { cmd: "undo" }
-  | { cmd: "clip"; number: number };
+  | { cmd: "clip"; number: number }
+  /** `kind` null: the cut made plain again; undefined: the words name none, or several (the bar lists those they fit). */
+  | { cmd: "transition"; words: string; kind?: TransitionKind | null }
+  | { cmd: "slow-motion"; factor: 2 | 4 }
+  | { cmd: "motion-windows" }
+  | { cmd: "stop-all-pods" }
+  | { cmd: "spending" }
+  | { cmd: "find-models"; words: string }
+  | { cmd: "check-updates" }
+  | { cmd: "update" }
+  | { cmd: "go-back" }
+  | { cmd: "test-notify"; channel?: "telegram" | "discord" };
 export type CommandId = Command["cmd"];
 
 /** A new entry of the Prompt kit, by its kind: `new person Ada`. */
@@ -117,6 +130,8 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "machines", name: "Show the ComfyUIs", typed: "machines", example: "comfyuis", what: "With several ComfyUIs: the status bar's panel of every machine, its figures, its pause and its menu" },
   { id: "start-pod", name: "Start pod…", typed: "start pod ", example: "start pod comfy-5090", what: "A rented pod (RunPod), started: billed from then, at its rate; it stops by itself when idle", needs: true },
   { id: "stop-pod", name: "Stop pod…", typed: "stop pod ", example: "stop pod comfy-5090", what: "A rented pod, stopped: the GPU stops billing, its disk goes on", needs: true },
+  { id: "stop-all-pods", name: "Stop all pods…", typed: "stop all pods", example: "stop all pods", what: "Every rented pod that runs or starts, stopped at once (asked first): their GPUs stop billing, their disks go on" },
+  { id: "spending", name: "Spending", typed: "spending", example: "spending", what: "What the rented GPUs cost today and this month against your caps, and how long the RunPod balance lasts" },
   { id: "deploy-gpu", name: "Deploy a GPU…", typed: "deploy gpu", example: "deploy gpu", what: "A GPU rented on RunPod, picked from what is free now: billed from your Deploy until it ends, by itself once idle" },
   { id: "deploy-again", name: "Deploy again", typed: "deploy again", example: "deploy again", what: "The last deploy's GPU and choices, on RunPod: its rate asked first" },
   { id: "hunt-gpu", name: "Hunt a GPU…", typed: "hunt gpu", example: "hunt gpu", what: "Deploy a GPU on its hunt: RunPod asked every 30 s, the best GPU that comes free within your price deployed for the renders waiting" },
@@ -131,6 +146,9 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "bin-unused", name: "Bin unused takes…", typed: "bin unused takes", example: "bin unused takes", what: "Of the open timeline, asked first" },
   { id: "clip", name: "Go to clip…", typed: "clip ", example: "clip 3", what: "In the open timeline: selected, the playhead on its start", needs: true },
   { id: "undo", name: "Undo", typed: "undo", example: "undo", what: "The open editor's last change, else the move or bin a banner offers to undo" },
+  { id: "transition", name: "Transition…", typed: "transition ", example: "transition dissolve", what: "On the cut into the selected clip, as its join's choice in the column: dissolve, dip to black or white, flash, wipe, slide, circle, zoom; transition off makes it a plain cut", needs: true },
+  { id: "slow-motion", name: "Slow motion", typed: "slow motion", example: "slow motion 4x", what: "The selected clip at half speed (or a quarter: 4x), as a new take, as its menu's Slow motion" },
+  { id: "motion-windows", name: "Motion transfer in windows", typed: "motion transfer in windows", example: "motion transfer in windows", what: "The selected clip, a video brought in, put on the source lane and made into Motion transfer clips window by window, as its menu" },
   { id: "split", name: "Split clip at playhead", typed: "split", example: "split", what: "The clip selected in the open timeline, as its key in the editor" },
   { id: "previous-take", name: "Previous take", typed: "previous take", example: "prev take", what: "The selected clip plays its take before, as its key in the editor" },
   { id: "next-take", name: "Next take", typed: "next take", example: "next take", what: "The selected clip plays its take after, as its key in the editor" },
@@ -139,6 +157,11 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "retry-failed", name: "Retry all failed", typed: "retry failed", example: "retry failed", what: "The failed jobs the queue lists, queued again oldest first" },
   { id: "dismiss-failed", name: "Dismiss all failed…", typed: "dismiss failed", example: "dismiss failed", what: "The failed jobs the queue lists, off the history, asked first" },
   { id: "group-queue", name: "Group by model", typed: "group by model", example: "group by model", what: "Same model together, the loaded one first" },
+  { id: "find-models", name: "Find models…", typed: "find models ", example: "find models wan lightning", what: "Civitai, Hugging Face and your own, in one search, to download onto this PC (with Search Hugging Face and Civitai on)" },
+  { id: "check-updates", name: "Check for updates", typed: "check for updates", example: "check for updates", what: "Is a newer Afflatus out: GitHub asked now, as About's Check now" },
+  { id: "update", name: "Update Afflatus", typed: "update", example: "update", what: "To the latest release, as About's Update: Afflatus restarts once the queue is empty; your library stays as it is" },
+  { id: "go-back", name: "Go back to the previous version…", typed: "go back", example: "go back", what: "The version before the last update, its library as it was then (asked first), as About's Go back" },
+  { id: "test-notify", name: "Send a test notification", typed: "test notification", example: "test notification telegram", what: "A test message to Telegram or Discord, as their card's Send a test" },
   { id: "view-last", name: "View last render", typed: "view last render", example: "last render", what: "What the last finished job made, in the viewer" },
   { id: "reconnect", name: "Reconnect to ComfyUI", typed: "reconnect", example: "reconnect", what: "ComfyUI asked again now: its address, its files, its nodes" },
 ];
@@ -217,6 +240,8 @@ export function parseCommand(input: string): Command | null {
   // one ComfyUI of several, by its name: "pause studio pc", "use only second gpu"
   if ((m = /^use only (.+)$/i.exec(t))) return { cmd: "use-only", machine: m[1]!.trim() };
   if (/^(?:show (?:the )?)?(?:machines|comfyuis|gpus)$/.test(low)) return { cmd: "machines" };
+  // every rented pod at once, before one by its name
+  if (/^stop (?:all|every)(?: the| rented| running)* (?:pods?|gpus?|machines)$|^stop (?:the )?(?:rented |running )?(?:pods|gpus)$/.test(low)) return { cmd: "stop-all-pods" };
   if ((m = /^start pod (.+)$/i.exec(t))) return { cmd: "start-pod", machine: m[1]!.trim() };
   if ((m = /^stop pod (.+)$/i.exec(t))) return { cmd: "stop-pod", machine: m[1]!.trim() };
   if ((m = /^open comfy(?:ui)?(?: (?:on|of) (.+))?$/i.exec(t))) return m[1] ? { cmd: "open-comfy", machine: m[1].trim() } : { cmd: "open-comfy" };
@@ -233,6 +258,18 @@ export function parseCommand(input: string): Command | null {
   if (/^split(?: (?:the )?clip)?(?: at (?:the )?playhead)?$/.test(low)) return { cmd: "split" };
   if ((m = /^(?:(?:go to|select|jump to) )?clip (\d{1,4})$/.exec(low))) return Number(m[1]) >= 1 ? { cmd: "clip", number: Number(m[1]) } : null;
   if (/^undo$/.test(low)) return { cmd: "undo" };
+  if ((m = /^(?:transition|trans)(?: (.*))?$/.exec(low))) return transitionOf((m[1] ?? "").trim());
+  if ((m = /^slow(?:[ -]?mo(?:tion)?)?(?: (?:x|×)?\s?([24])\s?(?:x|×)?)?$/.exec(low))) return { cmd: "slow-motion", factor: m[1] === "4" ? 4 : 2 };
+  if (/^(?:motion transfer(?: in windows)?|(?:to|make) (?:the )?source(?: lane)?|source lane)$/.test(low)) return { cmd: "motion-windows" };
+  if (/^(?:spending|spend|spent|money|costs?|budget|(?:runpod )?balance|(?:spending )?caps?)(?: today)?$/.test(low)) return { cmd: "spending" };
+  if ((m = /^(?:find|browse|search(?: for)?) (?:a )?models?(?: (.+))?$/i.exec(t))) return { cmd: "find-models", words: (m[1] ?? "").trim() };
+  if (/^(?:check (?:for )?(?:updates?|(?:a )?new version)|updates)$/.test(low)) return { cmd: "check-updates" };
+  if (/^(?:update|upgrade)(?: afflatus)?(?: now)?$/.test(low)) return { cmd: "update" };
+  if (/^(?:go back|roll ?back|downgrade)(?: to (?:the )?(?:previous|last|old)(?: version)?| to v?\d[\d.]*)?$/.test(low)) return { cmd: "go-back" };
+  if ((m = /^(?:send (?:a )?)?test (?:notification|message|telegram|discord)(?: (?:on|to|via) (telegram|discord))?$/.exec(low))) {
+    const said = /telegram|discord/.exec(low)?.[0] as "telegram" | "discord" | undefined;
+    return said ? { cmd: "test-notify", channel: said } : { cmd: "test-notify" };
+  }
   if (/^(?:prev|previous) take$/.test(low)) return { cmd: "previous-take" };
   if (/^next take$/.test(low)) return { cmd: "next-take" };
   if ((m = /^(?:mirror|flip) (?:the )?(?:pin(?:ned)?|frame|pinned frame)s?(?: (on|off))?$/.exec(low))) return { cmd: "mirror-pin", off: m[1] === "off" };
@@ -261,4 +298,32 @@ export function parseCommand(input: string): Command | null {
   if (/^(?:(?:view|open|show) )?(?:the )?last render$/.test(low)) return { cmd: "view-last" };
   if (/^(?:reconnect(?: to comfyui)?|test comfyui|test (?:the )?connection)$/.test(low)) return { cmd: "reconnect" };
   return null;
+}
+
+/**
+ * The words a transition is called by, beside its label ("Cross dissolve"): what someone would type for it. Off, none,
+ * cut and plain take the transition off.
+ */
+const TRANSITION_WORDS: Record<TransitionKind, string> = {
+  dissolve: "dissolve cross fade mix", "dip-black": "dip black fade to black", "dip-white": "dip white fade to white whiteout",
+  flash: "flash", "wipe-left": "wipe left", "wipe-right": "wipe right", "slide-left": "slide left push", "slide-right": "slide right push",
+  circle: "circle open iris", zoom: "zoom in",
+};
+const OFF = /^(?:off|none|cut|plain(?: cut)?|remove|no(?:ne)?)$/;
+
+/** The transitions some words name, best first: each word in its label or its other words. */
+export function transitionsNamed(words: string): TransitionKind[] {
+  const w = words.toLowerCase().split(/[\s-]+/).filter(Boolean);
+  if (!w.length) return [...TRANSITION_KINDS];
+  return TRANSITION_KINDS.filter((k) => {
+    const hay = `${TRANSITIONS[k].label} ${TRANSITION_WORDS[k]}`.toLowerCase();
+    return w.every((x) => hay.split(/\s+/).some((h) => h.startsWith(x)));
+  });
+}
+
+/** `transition …`: the kind its words name when they name one alone, null for off, else the words left to list from. */
+function transitionOf(words: string): Command {
+  if (OFF.test(words)) return { cmd: "transition", words, kind: null };
+  const named = transitionsNamed(words);
+  return words && named.length === 1 ? { cmd: "transition", words, kind: named[0]! } : { cmd: "transition", words };
 }

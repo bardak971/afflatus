@@ -28,7 +28,11 @@ export interface FindTarget {
 }
 
 export const useFind = create<{ target: FindTarget | null }>(() => ({ target: null }));
-export const openFindModels = (target: FindTarget) => useFind.setState({ target });
+/** Find models opened for a place; `words`: what to search for (the command bar's `> find models …`), kept as it was otherwise. */
+export const openFindModels = (target: FindTarget, words?: string) => {
+  if (words !== undefined) usePanel.setState({ words, opened: null });
+  useFind.setState({ target });
+};
 export const closeFindModels = () => useFind.setState({ target: null });
 
 /** Where a browsed file comes from, as the rest of the app says it (a chip, a measured speed). */

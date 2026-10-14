@@ -3,7 +3,7 @@ import { aboutMs, clock, plural, size, timeLeft, when } from "../format";
 import { calc, type CalcCard, type Grid } from "./calc";
 import { commandRow, liveRow, QUEUE_BULK, type CommandCtx } from "./commandRows";
 import { highlight, prepare, search, type Prepared } from "./match";
-import type { Command, CommandId, Mode } from "./parse";
+import { transitionsNamed, type Command, type CommandId, type Mode } from "./parse";
 import type { KeyHit } from "../keys/grammar";
 import { allRows, keysOfRow, searchKeys, type Found, type KeysAsk } from "../keys/search";
 import { rowKeys, type PlaceId } from "../keys/table";
@@ -368,6 +368,12 @@ export function rowsFor(mode: Mode, d: RowsData): Section[] {
         const hits = search(d.presetItems, parsed.name, 6).map((x) => x.item.e);
         if (hits.length) for (const p of hits) rows.push(cmd(parsed, undefined, p));
         else rows.push(cmd(parsed));
+      } else if (parsed?.cmd === "transition" && parsed.kind === undefined) {
+        // the transitions the words fit, as the models of `load`; a plain cut too while nothing or its words are typed
+        const kinds = transitionsNamed(parsed.words);
+        for (const k of kinds) rows.push(cmd({ ...parsed, kind: k }));
+        if (!parsed.words || /^(?:o|of|off|n|no|non|none|c|cu|cut|p|pl|pla|plai|plain)$/.test(parsed.words)) rows.push(cmd({ ...parsed, kind: null }));
+        if (!rows.length) rows.push(cmd(parsed));
       } else if (parsed) rows.push({ ...cmd(parsed), meta: [cmd(parsed).meta, d.estimateSaid].filter(Boolean).join(" · ") });
       const named = q ? search(templates, q.split(/\s+\d/)[0]!, LIMIT, learned).map((x) => x.item) : templates;
       const rest = named.filter((t) => !parsed || t.key !== `cmd:${parsed.cmd}`);
