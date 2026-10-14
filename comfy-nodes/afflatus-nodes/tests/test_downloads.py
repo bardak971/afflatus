@@ -224,6 +224,14 @@ def test_a_stop_removes_the_part(tmp_path):
     assert not os.path.exists(job.path + ".part")
 
 
+def test_a_source_saying_more_than_was_declared_is_refused_before_writing(tmp_path, site):
+    s = site()
+    job = Job(s.url, str(tmp_path / "loras" / "model.safetensors"), total=SIZE // 2)
+    run(job, backoff=0.01)
+    assert job.state == "error" and f"{SIZE // 2} were said" in job.error
+    assert not [n for n in os.listdir(tmp_path / "loras")] if os.path.isdir(tmp_path / "loras") else True
+
+
 def test_a_file_of_unknown_size_is_refused(tmp_path, site):
     s = site(length=False)
     job = _fetch(tmp_path, s.url)
