@@ -206,3 +206,16 @@ export function RangeSlider({ from, to, min, max, step = 1, gap, most, snapAt, t
     </span>
   );
 }
+
+/**
+ * A part's strip, hatched past what one clip holds from where the part starts: that is not used. Said on hover, and when it
+ * is only a sliver at the end, why: the model takes frames in steps (4 at a time for Wan), and the last few make no whole step.
+ */
+export function PastWhatFits({ from, most, total }: { from: number; most: number; total: number }) {
+  if (from + most >= total) return null;
+  const left = total - from - most;
+  const tip = left < 0.3
+    ? `The last ${left.toFixed(2)} s are not used: the model takes its frames in steps, and these make no whole step.`
+    : `Past ${most.toFixed(1)} s from where the part starts: one clip holds no more, so this is not used. A longer video goes on a timeline, part by part.`;
+  return <span data-tip={tip} className="absolute inset-y-0 right-0 bg-[repeating-linear-gradient(135deg,var(--color-ground)_0_5px,transparent_5px_10px)] opacity-60" style={{ left: `${((from + most) / total) * 100}%` }} />;
+}

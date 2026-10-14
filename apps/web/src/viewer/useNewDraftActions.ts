@@ -145,9 +145,12 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
     onSuccess: toForm,
   });
   /** The models a submenu offers, the one used last first (marked), then by name; one not ready says so. */
-  const choices = (ways: RecipeInfo[], last: RecipeInfo | undefined) =>
-    [...ways].sort((x, y) => Number(y === last) - Number(x === last) || nameOf(x).localeCompare(nameOf(y)))
-      .map((r) => ({ id: r.id, name: nameOf(r), last: r === last, ready: ready(r) }));
+  const choices = (ways: RecipeInfo[], last: RecipeInfo | undefined) => {
+    // a model with two ways (H3's Video with audio and Lip sync both open on a picture) says which: "MiniMax H3 · Lip sync"
+    const said = (r: RecipeInfo) => (ways.filter((w) => w.family === r.family).length > 1 ? `${nameOf(r)} · ${r.title}` : nameOf(r));
+    return [...ways].sort((x, y) => Number(y === last) - Number(x === last) || said(x).localeCompare(said(y)))
+      .map((r) => ({ id: r.id, name: said(r), last: r === last, ready: ready(r) }));
+  };
 
   const all = (recipes.data?.recipes ?? []).filter((r) => on(r.family));
   /** The recipe for an operation: the one of the model the picture was made with when it has it, else one that is ready, else any. */
