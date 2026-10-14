@@ -1,15 +1,18 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { DesignerSession, Look, RecipeInfo, SourcePatch, Timeline } from "../../api";
 import type { DesignerTurn } from "../../designer/types";
-import { useRecipes, useSetup } from "../../data";
-import { clock as mmss, recipeLabel } from "../../format";
+import { useQueue, useRecipes, useSetup } from "../../data";
+import { timelineKey } from "../../draftMachine";
+import { RenderOn } from "../../GenerateOn";
+import { severalMachines } from "../../machines";
+import { clock as mmss, plural, recipeLabel } from "../../format";
 import { useSettled } from "../../hooks";
 import { PictureMaker, usePictureSets } from "../../pictureMaker";
 import { appendTo } from "../../promptText";
 import { Form, mainTextOf } from "../../RecipeForm";
 import { CardPrompt } from "../../recipeForm/Part";
 import { Select } from "../../Select";
-import { Button, Toggle } from "../../ui";
+import { Button, cx, Toggle } from "../../ui";
 import { WritingHelp } from "../../WritingHelp";
 import { useClock, type Clock } from "../clock";
 import { ColumnEdge, FoldButton, useColumnWidth } from "../column";
@@ -24,7 +27,7 @@ const Designer = lazy(() => import("../../Designer").then((m) => ({ default: m.D
  * first (the stretch, the window, scene cuts); and Make N clips at the foot. The stage plays the source meanwhile, and a
  * picture is made from the frame the playhead stands on. Each made clip keeps its own form afterwards.
  */
-export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, onMake, making, onClose }: {
+export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, onMake, making, made, onRender, rendering, onClose }: {
   timeline: Timeline;
   place: SourcePlace | null;
   /** The video models of this timeline: those that make a source window by window are offered. */
@@ -35,9 +38,15 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, o
   onLook(look: Look): void;
   onMake(): void;
   making: boolean;
+  /** Once made: how many of its clips have nothing to play and wait for no render, and how many are in the queue. */
+  made: { left: number; queued: number };
+  /** Its clips that have nothing to play sent to render, as Render all sends them (where the timeline's slice says). */
+  onRender(): void;
+  rendering: boolean;
   onClose(): void;
 }) {
   const panelWidth = useColumnWidth();
+  const several = severalMachines(useQueue().data).length > 0;
   const all = useRecipes();
   const setup = useSetup();
   const source = timeline.source;
@@ -169,9 +178,20 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, o
       {source && (
         <div className="flex shrink-0 flex-col gap-2 border-t border-line px-3.5 py-3">
           {pictureSpec && !picture && <span className="text-xs text-warn-ink">Choose the {pictureSpec.label.toLowerCase()} first.</span>}
-          <Button tone="primary" className="h-11 text-sm" disabled={making || !recipe || !picture || !windows.length || place?.made} onClick={onMake}>
-            {making ? "Making…" : place?.made ? "Made" : `Make ${windows.length} ${windows.length === 1 ? "clip" : "clips"}`}
-          </Button>
+          {/* once made, it follows the clips: those with nothing to play are rendered from here, with the timeline's machine
+              slice (a "Made" with nothing to press left renders that failed or were cancelled to Render all at the top) */}
+          {place?.made ? (
+            <span className="flex">
+              <Button tone="primary" className={cx("h-11 grow text-sm", several && made.left > 0 && "rounded-r-none!")} disabled={rendering || made.left === 0} onClick={onRender}>
+                {rendering ? "Sending…" : made.left > 0 ? `Render ${plural(made.left, "clip")}` : made.queued > 0 ? `Rendering · ${made.queued} in the queue` : "Made · every clip rendered"}
+              </Button>
+              {made.left > 0 && <RenderOn pickKey={timelineKey(timeline.id)} ms={null} />}
+            </span>
+          ) : (
+            <Button tone="primary" className="h-11 text-sm" disabled={making || !recipe || !picture || !windows.length} onClick={onMake}>
+              {making ? "Making…" : `Make ${plural(windows.length, "clip")}`}
+            </Button>
+          )}
         </div>
       )}
     </aside>
