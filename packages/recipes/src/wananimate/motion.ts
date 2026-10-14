@@ -124,11 +124,11 @@ export const wanAnimateMotion = defineRecipe<WanAnimateMotion>({
     // carrying on from the clip before, its frame at the start (the node says how many) is that clip's: dropped
     const made = before ? g.out("ImageFromBatch", { image: decoded, batch_index: [cond, 4], length: 4096 }) : g.out("ImageFromBatch", { image: decoded, batch_index: 0, length: total });
     const images = matchedToDriving(g, ctx, made, pose, input, frame);
-    const saved = motionSaved(g, ctx, images, input, { frame, fps: WAN_ANIMATE_FPS, frames: total, parts, carried: 1 });
+    const saved = motionSaved(g, ctx, images, input, { frame, fps: WAN_ANIMATE_FPS, frames: total, parts, carried: 1, made: made });
     return {
       graph: g.graph,
       phases: g.phases,
-      outputs: [{ node: saved.out, kind: "video", role: "result" }],
+      outputs: [{ node: saved.out, kind: "video", role: "result" }, ...(saved.raw ? [{ node: saved.raw, kind: "video" as const, role: "raw" as const }] : [])],
       totalSteps: input.steps,
       passes: [{ node: sampled, steps: input.steps }],
       loads: [
