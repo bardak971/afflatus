@@ -394,6 +394,13 @@ export class Rented {
     return made;
   }
 
+  /** The data centers that take a network volume; null when RunPod does not say (Make a volume then offers every place). */
+  async volumeDataCenters(): Promise<string[] | null> {
+    const s = await readSettings(this.db);
+    if (!s.runpodKey) return null;
+    return this.client(s.runpodKey).volumeDataCenters().catch(() => null);
+  }
+
   /** A network volume made larger: RunPod never makes one smaller. */
   async growVolume(id: string, size: number): Promise<void> {
     const s = await readSettings(this.db);

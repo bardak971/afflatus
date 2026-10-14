@@ -348,6 +348,13 @@ export class Runpod {
     return { id: got.id, name: typeof got.name === "string" ? got.name : name, size: typeof got.size === "number" ? got.size : size, dataCenter: typeof got.dataCenter === "string" ? got.dataCenter : dataCenter };
   }
 
+  /** The data centers that take a standard network volume (not every one does), by id. */
+  async volumeDataCenters(): Promise<string[]> {
+    const got = await this.call<{ dataCenters?: unknown }>("/v2/catalog/datacenters?networkVolumeTypes=STANDARD");
+    if (!got || !Array.isArray(got.dataCenters)) throw new RunpodShape("RunPod answered its list of data centers in a shape Afflatus does not know.");
+    return (got.dataCenters as Array<Record<string, unknown>>).filter((d) => typeof d.id === "string" && Array.isArray(d.networkVolumeTypes) && d.networkVolumeTypes.includes("STANDARD")).map((d) => d.id as string);
+  }
+
   /** A network volume made larger (RunPod never makes one smaller). */
   async growVolume(id: string, size: number): Promise<void> {
     await this.call(`/v2/network-volumes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ size }) });

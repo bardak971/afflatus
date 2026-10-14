@@ -188,6 +188,11 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
         })),
       });
     }
+    // every data center of its GPUs takes a volume, but EU-SE-1
+    if (req.method === "GET" && url.pathname === "/v2/catalog/datacenters") {
+      const ids = [...new Set(fake.gpus.flatMap((g) => g.dataCenters.map((d) => d.id)))];
+      return json(200, { dataCenters: ids.map((id) => ({ id, name: id, region: "EUROPE", networkVolumeTypes: id === "EU-SE-1" ? [] : ["STANDARD"], globalNetwork: false, compliance: [] })) });
+    }
     if (req.method === "GET" && url.pathname === "/v2/network-volumes") return json(200, { networkVolumes: fake.volumes.map((v) => ({ ...v, type: "STANDARD" })) });
     // a volume made (10 to 4096 GB, as RunPod), grown (never shrunk), deleted
     if (req.method === "POST" && url.pathname === "/v2/network-volumes") {

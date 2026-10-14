@@ -40,17 +40,19 @@ export const sizeFor = (bytes: number) => Math.min(VOLUME_MAX_GB, Math.max(VOLUM
 
 export async function volumePlan(s: Services, setIds: string[] | null): Promise<VolumePlan> {
   const now = Date.now();
-  const [gpus, pods, allSets, sessions] = await Promise.all([
+  const [gpus, pods, allSets, sessions, takeVolumes] = await Promise.all([
     // network volumes are Secure Cloud's only
     s.rented.gpus("SECURE"),
     s.rented.pods().catch(() => []),
     setsWithFiles(s),
     s.db.selectFrom("rent_sessions").select(["pod", "rate"]).where("started_at", ">", new Date(now - MONTH_MS).toISOString()).execute(),
+    s.rented.volumeDataCenters(),
   ]);
   const byPlace = new Map<string, VolumePlace>();
   for (const g of gpus) {
     for (const d of g.dataCenters) {
-      if (d.availability === "NONE") continue;
+      // in stock, and a place that takes a volume (not every data center does)
+      if (d.availability === "NONE" || (takeVolumes && !takeVolumes.includes(d.id))) continue;
       const place = byPlace.get(d.id) ?? { dataCenter: d.id, gpus: [], pods: 0 };
       place.gpus.push({ name: g.name, price: g.price });
       byPlace.set(d.id, place);
