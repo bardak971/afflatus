@@ -4,7 +4,8 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { ImagePlus, RefreshCw, Sparkles, X } from "lucide-react";
 import { api, thumbUrl } from "./api";
-import { useEntities, useQueue, useRecipes } from "./data";
+import { useAsset, useEntities, useQueue, useRecipes } from "./data";
+import { Viewer } from "./viewer/LazyViewer";
 import { DRAG_TYPE } from "./dragging";
 import { clock } from "./format";
 import { Picker } from "./PictureField";
@@ -84,6 +85,9 @@ export function PictureMaker({ keyId, video, atMs, name, cast, current, onPick, 
   const entities = useEntities();
   const failed = useSayFailed({ id: "picture-maker" });
   const [adding, setAdding] = useState(false);
+  /** A made picture shown large (a click on it); Use picks it. */
+  const [looking, setLooking] = useState<string | null>(null);
+  const shown = useAsset(looking);
   const ready = recipes.data?.recipes.some((r) => r.id === MAKER);
   const people = (cast ?? []).map((id) => entities.data?.items.find((e) => e.id === id && e.kind === "person")).filter((e) => e && e.kind === "person");
   const jobs = useJobsOf(set.jobs);
@@ -163,7 +167,7 @@ export function PictureMaker({ keyId, video, atMs, name, cast, current, onPick, 
           {[...jobs].reverse().map((j) => (
             <div key={j.id} className="flex flex-col gap-1">
               {j.state === "done" && j.picture ? (
-                <button type="button" onClick={() => onPick(j.picture!)} data-tip="Use this one as the Picture" className={cx("overflow-hidden rounded-md border-2", current === j.picture ? "border-accent" : "border-transparent hover:border-line-strong")}>
+                <button type="button" onClick={() => setLooking(j.picture!)} aria-label="Show it large" className={cx("cursor-zoom-in overflow-hidden rounded-md border-2", current === j.picture ? "border-accent" : "border-transparent hover:border-line-strong")}>
                   <img src={thumbUrl(j.picture)} alt="" className="aspect-[9/16] w-full object-cover" />
                 </button>
               ) : (
@@ -171,12 +175,15 @@ export function PictureMaker({ keyId, video, atMs, name, cast, current, onPick, 
                   {j.state === "running" ? <><span>making…</span><Bar value={j.progress * 100} /></> : j.state === "failed" ? <span className="text-warn-ink">failed: {j.why}</span> : <span>queued</span>}
                 </div>
               )}
-              {j.state === "done" && current === j.picture && <span className="text-center text-[10.5px] font-semibold text-accent">the Picture</span>}
+              {j.state === "done" && j.picture && (current === j.picture
+                ? <span className="py-1 text-center text-[11px] font-semibold text-accent">the Picture</span>
+                : <Button size="sm" onClick={() => onPick(j.picture!)} data-tip="This one as the Picture">Use</Button>)}
             </div>
           ))}
         </div>
       )}
       {after}
+      {shown.data && <Viewer asset={shown.data} onClose={() => setLooking(null)} />}
       {adding && <Picker title="A photo of who goes in" onClose={() => setAdding(false)} onPick={(id) => { addPhoto(id); setAdding(false); }} />}
     </div>
   );
