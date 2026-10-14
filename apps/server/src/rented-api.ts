@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { deployFiles, deployModels } from "./deployModels";
+import { setsWithFiles } from "./modelSets";
+import { keptHoldings, missingOn } from "./rentedVolumes";
 import { httpError } from "./errors";
 import { podMachineId, podUrl } from "./runpod";
 import type { Services } from "./services";
@@ -25,7 +27,14 @@ export function registerRented(app: FastifyInstance, s: Services): void {
   });
 
   /** The account's network volumes, each with the pod running on it when one is; read-only. */
-  app.get("/api/runpod/volumes", async () => ({ volumes: await s.rented.volumes() }));
+  app.get("/api/runpod/volumes", async () => {
+    const [volumes, sets, kept] = await Promise.all([s.rented.volumes(), setsWithFiles(s), keptHoldings(s.db)]);
+    // each set as the volume held it last time a pod ran there: all there, or what it lacks
+    return { volumes: volumes.map((v) => {
+      const keys = kept.get(v.id)?.keys;
+      return { ...v, sets: keys ? sets.filter((x) => x.files.length).map((x) => ({ id: x.id, name: x.name, missing: missingOn(x.files, keys) })) : [] };
+    }) };
+  });
 
   /** A network volume made (Make a volume…, its monthly price said on the button): billed every month from now. */
   app.post("/api/runpod/volumes", async (req) => {

@@ -19,8 +19,8 @@ import { readSettings } from "./settings";
  * preset. Kept in Settings › Models, saved as a file and brought in as presets are.
  */
 
-/** The model folders the search looks through on this computer's ComfyUI. */
-const SEARCHED_FOLDERS = ["checkpoints", "diffusion_models", "loras", "vae", "text_encoders", "clip_vision", "upscale_models", "latent_upscale_models", "controlnet", "model_patches", "audio_encoders"];
+/** The model folders the search looks through on this computer's ComfyUI, and that a volume's pod lists (rentedVolumes.ts). */
+export const SEARCHED_FOLDERS = ["checkpoints", "diffusion_models", "loras", "vae", "text_encoders", "clip_vision", "upscale_models", "latent_upscale_models", "controlnet", "model_patches", "audio_encoders"];
 
 /** A file left out of a set's preset, by its folder and name (core fileKey). */
 const keyOf = (folder: string, file: string) => fileKey({ folder, file });
@@ -93,6 +93,12 @@ export interface SetFileExport {
   afflatusModelSet: 1;
   name: string;
   files: Array<PresetFile & { from?: string }>;
+}
+
+/** Every set with the files it brings (left-out ones not), for what a volume holds of each (Settings › Rented GPUs). */
+export async function setsWithFiles(s: Services): Promise<Array<{ id: string; name: string; files: PresetFile[] }>> {
+  const [all, list] = await Promise.all([presetsWithFiles(s), s.db.selectFrom("model_sets").selectAll().where("owner_id", "=", OWNER).orderBy("name").execute()]);
+  return list.map((r) => ({ id: r.id, name: r.name, files: filesOf(parseSetDef(r.def), all).filter((f) => !f.off) }));
 }
 
 export function registerModelSets(app: FastifyInstance, s: Services): void {

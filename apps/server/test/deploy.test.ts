@@ -140,6 +140,29 @@ describe("a deploy", () => {
     runpod.pods.push(...made);
   });
 
+  it("keeps what a volume holds as its pod listed it, and says per Model set what is there, once no pod runs on it", async () => {
+    const set = await post(t.app, "/api/model-sets", { name: "zz-test set", presets: [], off: [], files: [
+      { file: "illustrious.safetensors", folder: "checkpoints", size: 6_000_000_000 },
+      { file: "zz-test-missing.safetensors", folder: "loras", size: 200_000_000 },
+    ] });
+    expect(set.statusCode).toBe(200);
+    expect((await deploy({ volume: "vol-ro", idleDo: "stop" })).statusCode).toBe(200);
+    type Seen = { id: string; holds: { count: number; seenBy: string } | null; usedAt: string | null; sets: Array<{ name: string; missing: { count: number; bytes: number } }> };
+    const ro = async () => ((await get(t.app, "/api/runpod/volumes")).json().volumes as Seen[]).find((v) => v.id === "vol-ro")!;
+    // nothing known before its pod answers
+    expect((await ro()).holds).toBeNull();
+    await until(async () => (await t.services.rented.poll(), (await ro()).holds !== null));
+    const seen = await ro();
+    expect(seen.holds).toMatchObject({ count: 2, seenBy: "A40" });
+    expect(seen.usedAt).not.toBeNull();
+    expect(seen.sets).toEqual([{ id: expect.any(String), name: "zz-test set", missing: { count: 1, bytes: 200_000_000, unknown: 0 } }]);
+    // the pod gone: what the volume holds stays, as last seen
+    runpod.pods.splice(0);
+    const after = (await get(t.app, "/api/runpod/volumes")).json().volumes as Seen[];
+    expect(after.find((v) => v.id === "vol-ro")?.holds?.count).toBe(2);
+    expect(after.find((v) => v.id === "vol-se")?.holds).toBeNull();
+  });
+
   it("makes, grows and deletes a volume; never smaller, never one a pod is mounted on", async () => {
     const made = await post(t.app, "/api/runpod/volumes", { name: "zz-test volume", size: 20, dataCenter: "EU-RO-1" });
     expect(made.statusCode).toBe(200);

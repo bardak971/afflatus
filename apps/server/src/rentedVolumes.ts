@@ -1,3 +1,7 @@
+import { fileKey, type PresetFile } from "@afflatus/core";
+import type { Comfy } from "./comfy";
+import type { Db } from "./db";
+import { fileName } from "./media";
 import type { Machine } from "./settings";
 import type { NetworkVolume, Pod, PodStatus } from "./runpod";
 
@@ -18,7 +22,18 @@ export interface PodOn {
   status: PodStatus;
 }
 
+/** What a volume holds, as the last pod on it listed: how many model files, when, by which pod. */
+export interface Holdings {
+  count: number;
+  seenAt: string;
+  seenBy: string;
+}
+
 export interface VolumeView extends NetworkVolume {
+  /** What it holds as last seen; null: no pod Afflatus follows ran on it yet. */
+  holds: Holdings | null;
+  /** When a pod last ran on it (now, while one does); null: never seen used. */
+  usedAt: string | null;
   /** The pod running on it now, when one is: no other pod may use it meanwhile. */
   usedBy: PodOn | null;
   /** Every pod it is mounted on, stopped ones too: it cannot be deleted while one is. */
@@ -50,11 +65,57 @@ export function usedBy(volume: string, pods: readonly Pod[], machines: readonly 
   return mountedOn(volume, pods, machines).find((p) => HOLDS.has(p.status)) ?? null;
 }
 
-export function viewVolumes(volumes: readonly NetworkVolume[], pods: readonly Pod[], machines: readonly Machine[]): VolumeView[] {
+export function viewVolumes(volumes: readonly NetworkVolume[], pods: readonly Pod[], machines: readonly Machine[], kept: ReadonlyMap<string, KeptHoldings>, now = Date.now()): VolumeView[] {
   return volumes.map((v) => {
     const on = mountedOn(v.id, pods, machines);
-    return { ...v, usedBy: on.find((p) => HOLDS.has(p.status)) ?? null, mountedOn: on, perMonth: Math.round(v.size * VOLUME_PER_GB_MONTH * 100) / 100 };
+    const usedBy = on.find((p) => HOLDS.has(p.status)) ?? null;
+    const k = kept.get(v.id);
+    return {
+      ...v, usedBy, mountedOn: on, perMonth: Math.round(v.size * VOLUME_PER_GB_MONTH * 100) / 100,
+      holds: k ? { count: k.keys.size, seenAt: k.seenAt, seenBy: k.seenBy } : null,
+      usedAt: usedBy ? new Date(now).toISOString() : k?.usedAt ?? null,
+    };
   });
+}
+
+/** What a volume holds as kept: its files' keys (fileKey, by the file's own name), when and by which pod, when last used. */
+export interface KeptHoldings {
+  keys: Set<string>;
+  seenAt: string;
+  seenBy: string;
+  usedAt: string;
+}
+
+/** Every volume's holdings as kept. */
+export async function keptHoldings(db: Db): Promise<Map<string, KeptHoldings>> {
+  const rows = await db.selectFrom("volume_files").selectAll().execute();
+  return new Map(rows.map((r) => [r.volume_id, { keys: new Set(JSON.parse(r.files) as string[]), seenAt: r.seen_at, seenBy: r.seen_by, usedAt: r.used_at }]));
+}
+
+/** A file's key as a volume's listing is kept: its folder and its own name (a subfolder on the pod does not count). */
+const keyOf = (folder: string, file: string) => fileKey({ folder, file: fileName(file) });
+
+/**
+ * What a volume holds, listed through the ComfyUI of the pod running on it, kept with when and by whom. A folder that
+ * does not answer keeps what was seen in it before.
+ */
+export async function recordHoldings(db: Db, volume: string, comfy: Comfy, by: string, folders: readonly string[], now = Date.now()): Promise<void> {
+  const before = (await keptHoldings(db)).get(volume);
+  const lists = await Promise.all(folders.map(async (folder) => ({ folder, names: await comfy.client.models(folder).catch(() => null) })));
+  const keys = new Set<string>();
+  for (const { folder, names } of lists) {
+    if (names) for (const n of names) keys.add(keyOf(folder, n));
+    else for (const k of before?.keys ?? []) if (k.startsWith(`${folder}|`)) keys.add(k);
+  }
+  const at = new Date(now).toISOString();
+  const row = { files: JSON.stringify([...keys].sort()), seen_at: at, seen_by: by, used_at: at };
+  await db.insertInto("volume_files").values({ volume_id: volume, ...row }).onConflict((oc) => oc.column("volume_id").doUpdateSet(row)).execute();
+}
+
+/** Of a set's files, those a volume lacks as last seen: how many, their bytes as far as known. */
+export function missingOn(files: readonly PresetFile[], keys: ReadonlySet<string>): { count: number; bytes: number; unknown: number } {
+  const lacking = files.filter((f) => !keys.has(keyOf(f.folder, f.file)));
+  return { count: lacking.length, bytes: lacking.reduce((n, f) => n + (f.size ?? 0), 0), unknown: lacking.filter((f) => !f.size).length };
 }
 
 /** What the user is told when a volume is taken: by which pod, and what to do. */

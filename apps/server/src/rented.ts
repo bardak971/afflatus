@@ -8,7 +8,8 @@ import { COMFY_PORT, exposesComfy, imageFor, LOCK_ENV, noCapacity, POD_IMAGES, p
 import type { PresetFile } from "@afflatus/core";
 import { imagePublic } from "./podImage";
 import { recordMeasure } from "./podMeasures";
-import { inUseSaid, mountedOn, usedBy, viewVolumes, VOLUME_MAX_GB, VOLUME_MIN_GB, type VolumeView } from "./rentedVolumes";
+import { SEARCHED_FOLDERS } from "./modelSets";
+import { inUseSaid, keptHoldings, mountedOn, recordHoldings, usedBy, viewVolumes, VOLUME_MAX_GB, VOLUME_MIN_GB, type VolumeView } from "./rentedVolumes";
 import { MAX_MACHINES, readSettings, updateSettings, type DeployAsk, type Machine, type Settings } from "./settings";
 
 /**
@@ -104,6 +105,8 @@ const TRANSITIONAL: ReadonlySet<string> = new Set(["PROVISIONING", "STARTING"]);
  * pod slow to come up reaches a cap too; RunPod's bill stays the reference.
  */
 const BILLED: ReadonlySet<string> = new Set(["RUNNING", "STARTING", "PROVISIONING"]);
+/** How often the folders of a volume a pod runs on are listed, to keep what it holds (rentedVolumes.ts). */
+const VOLUME_LIST_MS = 5 * 60_000;
 /** After a cap, how long a render that does not end is waited for before the pod is stopped all the same. */
 const CAP_GRACE_MS = 60 * 60_000;
 /**
@@ -342,7 +345,23 @@ export class Rented {
     const [volumes, pods] = await Promise.all([client.volumes(), client.pods()]).catch((err: Error) => {
       throw httpError(err.message, 502);
     });
-    return viewVolumes(volumes, pods, s.machines);
+    return viewVolumes(volumes, pods, s.machines, await keptHoldings(this.db), this.now());
+  }
+
+  /** When each volume's folders were last listed (ms), so that a pod on it is asked at most every VOLUME_LIST_MS. */
+  private volumeListed = new Map<string, number>();
+
+  /**
+   * What the volume a pod runs on holds, listed through its ComfyUI and kept (what a volume holds once no pod is on it),
+   * at most every few minutes; and that the volume was used now. Never in the way of the poll: a failure is only said.
+   */
+  private async noteVolume(m: Machine, volume: string): Promise<void> {
+    const last = this.volumeListed.get(volume) ?? 0;
+    if (this.now() - last < VOLUME_LIST_MS) return;
+    this.volumeListed.set(volume, this.now());
+    const comfy = await this.comfyOf(m.id);
+    if (!comfy) return;
+    await recordHoldings(this.db, volume, comfy, m.name || m.id, SEARCHED_FOLDERS, this.now()).catch((err: Error) => console.warn(`[rented] what the volume of ${m.name || m.id} holds was not read: ${err.message}`));
   }
 
   /** A network volume made, as the user asked (its monthly price said before): billed every month from now, pod or not. */
@@ -814,6 +833,7 @@ export class Rented {
       s.lockTried = true;
       await this.lockPod(m.id).catch((err: Error) => console.warn(`[rented] ${m.name || m.id} not locked: ${err.message}`));
     }
+    if (answers && pod?.volumeId) void this.noteVolume(m, pod.volumeId);
     await this.keepOrStop(m, s, caps, answers);
     return changed;
   }
