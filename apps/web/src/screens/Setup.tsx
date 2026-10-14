@@ -22,6 +22,8 @@ import { BarCard } from "./settings/BarCard";
 import { RentedTab } from "./settings/RentedCard";
 import { INDEX, MOVED, settingHref, spotOf, tabHref, TABS, type Tab } from "./settings/settingsIndex";
 import { queryKeys } from "../queryKeys";
+import { ModelSetsCard } from "./settings/ModelSetsCard";
+import { COLUMNS } from "./settings/wide";
 
 /** What each tab says at a glance, beside its name: ComfyUI answering, operations not ready, the disk used, the version. */
 function useTabMarks(): Partial<Record<Tab, ReactNode>> {
@@ -160,18 +162,21 @@ export function Setup() {
         </div>
       </header>
 
-      {/* one column of cards, every setting one row; ComfyUI and Rented GPUs take two in a wide window */}
+      {/* one column of cards, every setting one row; ComfyUI, Rented GPUs and Models take two in a wide window */}
       <div ref={scroller} className="min-h-0 grow overflow-y-auto pb-4">
-        <div className={cx("flex flex-col gap-4", tab === "comfyui" || tab === "rented" ? "max-w-[860px] min-[1600px]:max-w-[1736px]" : "max-w-[860px]")}>
+        <div className={cx("flex flex-col gap-4", tab === "comfyui" || tab === "rented" || tab === "models" ? "max-w-[860px] min-[1600px]:max-w-[1736px]" : "max-w-[860px]")}>
           {tab === "comfyui" && <ComfyCard />}
           {tab === "rented" && <RentedTab />}
           {tab === "models" && (
-            <>
-              <ModelsByMachine />
-              <CivitaiCard />
-              <LinkCard />
-              <UpdatesCard />
-            </>
+            <div className={COLUMNS}>
+              <div className="flex flex-col gap-4">
+                <ModelsByMachine />
+                <CivitaiCard />
+                <LinkCard />
+                <UpdatesCard />
+              </div>
+              <ModelSetsCard />
+            </div>
           )}
           {tab === "designer" && <DesignerCard />}
           {/* the settings first: eleven guides above them pushed the tag check below the fold */}
