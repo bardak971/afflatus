@@ -106,3 +106,15 @@ export function complete(fake: FakeComfy, promptId: string, width = 832, height 
 export const post = (app: FastifyInstance, url: string, payload?: unknown) => app.inject({ method: "POST", url, payload: payload as object });
 export const get = (app: FastifyInstance, url: string, headers?: Record<string, string>) => app.inject({ method: "GET", url, headers });
 export const job = (over: Record<string, unknown> = {}) => ({ recipe: "sdxl.text-to-picture", input: { prompt: "a cat", checkpoint: CHECKPOINT, ...over } });
+
+/**
+ * A rented session that cost $2 today, ended now: from ten minutes ago, or from just after midnight when the day began
+ * less than that ago (its rate raised to make up). Ten minutes back from 00:03 is yesterday, and a spending cap of today
+ * was not reached: the cap tests failed every night in the first minutes after midnight.
+ */
+export function costToday(id: string, now = Date.now()) {
+  const midnight = new Date(now).setHours(0, 0, 0, 0);
+  const from = Math.max(midnight + 1, now - 10 * 60_000);
+  const rate = 2 / (Math.max(1000, now - from) / 3_600_000);
+  return { id, machine_id: "rp-x", pod: "x", rate, started_at: new Date(from).toISOString(), ended_at: new Date(now).toISOString(), seen_at: null };
+}

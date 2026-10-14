@@ -3,7 +3,7 @@ import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comf
 import { imageParts, imagePublic } from "../src/podImage";
 import { POD_IMAGES } from "../src/runpod";
 import { readSettings } from "../src/settings";
-import { get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
+import { costToday, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /**
  * Deploy a GPU (rented.ts deploy) against a pretend RunPod: what is free, a pod made on the user's click only, locked from
@@ -276,7 +276,7 @@ describe("a deploy", () => {
   it("is refused at a spending cap without asking RunPod to make anything, and RunPod's balance refusal is said", async () => {
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 1, month: 0 } } });
     // $2 spent in the last ten minutes (within today, whatever the hour)
-    await t.db.insertInto("rent_sessions").values({ id: "s1", machine_id: "rp-x", pod: "x", rate: 12, started_at: new Date(Date.now() - 10 * 60_000).toISOString(), ended_at: new Date().toISOString(), seen_at: null }).execute();
+    await t.db.insertInto("rent_sessions").values(costToday("s1")).execute();
     const capped = await deploy();
     expect(capped.statusCode).toBe(409);
     expect(capped.json().error).toMatch(/spending cap/);
@@ -719,7 +719,7 @@ describe("a fill of a volume always ends, and never says all in when it is not",
     let bytes = 0;
     const { id, rented } = await upFill(() => waiting((bytes += 1000)));
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 1, month: 0 } } });
-    await t.db.insertInto("rent_sessions").values({ id: "s1", machine_id: "rp-x", pod: "x", rate: 12, started_at: new Date(real() - 10 * 60_000).toISOString(), ended_at: new Date(real()).toISOString(), seen_at: null }).execute();
+    await t.db.insertInto("rent_sessions").values(costToday("s1", real())).execute();
     await until(async () => (await rented.poll(), runpod.pods[0]!.status === "TERMINATED"));
     expect(await gone(id)).toBe(true);
     expect((await lastFill())?.interrupted).toBe("a spending cap was reached");
