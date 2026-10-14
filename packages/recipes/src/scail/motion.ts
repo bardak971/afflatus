@@ -17,7 +17,7 @@ import {
  */
 export interface ScailMotion extends MotionValues {
   order: string;
-  person: number;
+  person: string;
   steps: number;
   shift: number;
   cfg: number;
@@ -49,12 +49,13 @@ export const scailMotion = defineRecipe<ScailMotion>({
       note: "SAM 3 finds the people in the picture and in the video; they are paired in this order (the first in the picture moves like the first in the video)",
     },
     {
-      id: "person", type: "number", label: "Only person", min: 0, max: 8, step: 1, default: 0, advanced: true,
-      note: "0: everyone found is moved. 1, 2…: only that one, in the order above",
+      // SAM 3 tracks up to 4 people (max_objects); drafts saved when this was a number keep their choice
+      id: "person", type: "choice", label: "Who is moved", options: ["Everyone", "1", "2", "3", "4"], renamed: { "0": "Everyone", "1": "1", "2": "2", "3": "3", "4": "4" }, default: "Everyone", advanced: true,
+      note: "everyone SAM 3 finds, or only one of them: 1 is the first in the order above",
     },
-    { id: "steps", type: "number", label: "Steps", min: 2, max: 40, step: 1, default: 6, advanced: true, perModel: true, note: "6 with the lightx2v LoRA, as ComfyUI's template. 20 full steps were slower and no better on the tests" },
+    { id: "steps", type: "number", label: "Steps", min: 2, max: 40, step: 1, default: 6, advanced: true, perModel: true, note: "6 with the lightx2v LoRA, as ComfyUI's template. its full-model setting is 40 steps at CFG 5; 20 full steps were slower and no better on the tests" },
     { id: "cfg", type: "number", label: "CFG scale", min: 1, max: 10, step: 0.5, default: 1, advanced: true, perModel: true, note: "1 with the lightx2v LoRA. Above 1 every step takes twice as long" },
-    { id: "shift", type: "number", label: "Shift", min: 0, max: 20, step: 0.5, default: 5, advanced: true, perModel: true },
+    { id: "shift", type: "number", label: "Shift", min: 1, max: 20, step: 0.5, default: 5, advanced: true, perModel: true },
     { id: "poseStrength", type: "number", label: "Pose strength", min: 0, max: 2, step: 0.05, default: 1, advanced: true, note: "how hard the driving video's pose is held to" },
     {
       id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
@@ -96,7 +97,7 @@ export const scailMotion = defineRecipe<ScailMotion>({
     const track = (images: Ref) => g.out("SAM3_VideoTrack", { images, model: [sam, 0], detection_threshold: 0.5, max_objects: 4, detect_interval: 1, conditioning: people });
     const masks = g.add("SCAIL2ColoredMask", {
       driving_track_data: track(pose), ref_track_data: track(picture),
-      object_indices: input.person > 0 ? String(input.person - 1) : "", sort_by: ORDERS[input.order] ?? "left_to_right", replacement_mode: false,
+      object_indices: input.person === "Everyone" ? "" : String(Number(input.person) - 1), sort_by: ORDERS[input.order] ?? "left_to_right", replacement_mode: false,
     });
 
     // as the template: the DPO LoRA, then lightx2v; the scheduler reads the model before the shift, the sampler after it
@@ -180,7 +181,7 @@ export const scailMotion = defineRecipe<ScailMotion>({
       },
       {
         name: "ten seconds in two chunks, one person, biggest first, no match, no RIFE",
-        input: { picture: "p1", driving: { asset: "v1" }, drivingSeconds: 10, order: "Biggest first", person: 1, matchDriving: false, smooth: false, keepSound: false, loras: [{ file: "l.safetensors", weight: 0.7 }] },
+        input: { picture: "p1", driving: { asset: "v1" }, drivingSeconds: 10, order: "Biggest first", person: "1", matchDriving: false, smooth: false, keepSound: false, loras: [{ file: "l.safetensors", weight: 0.7 }] },
         slots, uploads: { picture: "p.png", driving: "d.mp4" }, media: { picture, driving: part(10) },
       },
       {

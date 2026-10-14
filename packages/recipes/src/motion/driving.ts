@@ -59,8 +59,8 @@ export function motionInputs(shape: MotionShape, placeholder = "A man in a black
       note: "what the picture shows, in sentences: optional, it helps the model keep what is there",
     },
     {
-      id: "short", type: "number", label: "Resolution", min: 320, max: 1088, step: 32, default: 576, unit: "p", picks: [480, 576, 720],
-      note: "the short side of the clip, in the picture's shape. 576p held the face better than 480p on the meme test, at nearly twice the time",
+      id: "short", type: "number", label: "Resolution", min: 320, max: 1088, step: 32, default: 576, unit: "p", picks: [480, 576, 704],
+      note: "the short side of the clip, in the picture's shape, on the 32 px grid (704p is SCAIL-2's own high setting). 576p held the face better than 480p on the meme test, at nearly twice the time",
     },
   ];
 }

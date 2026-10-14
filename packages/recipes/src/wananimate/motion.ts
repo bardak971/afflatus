@@ -34,8 +34,8 @@ export interface WanAnimateMotion extends MotionValues {
  */
 const SHAPE: MotionShape = { fps: WAN_ANIMATE_FPS, most: WAN_ANIMATE_WINDOW, least: 9 };
 
-/** Where the reference's cached activations are kept: on the card (the template's), or in RAM when it does not fit. */
-const CACHES: Record<string, { device: string; dtype: string }> = { "On the card, int8": { device: "gpu", dtype: "int8" }, "In RAM, int8": { device: "cpu", dtype: "int8" } };
+/** Where WanAnimate2Cache keeps the motion branch's reading of the driving video: in VRAM (the template's), or in RAM. */
+const CACHES: Record<string, { device: string; dtype: string }> = { "gpu (VRAM), int8": { device: "gpu", dtype: "int8" }, "cpu (RAM), int8": { device: "cpu", dtype: "int8" } };
 
 export const wanAnimateMotion = defineRecipe<WanAnimateMotion>({
   id: "wananimate.motion",
@@ -50,18 +50,19 @@ export const wanAnimateMotion = defineRecipe<WanAnimateMotion>({
     {
       id: "motion", type: "prompt", label: "Motion", style: "sentences", optional: true, noCast: true, designed: true,
       placeholder: "He raps to the camera, moving his hands to the beat.",
-      note: "what the person does, in a sentence: the prompt of the model's motion branch (its template's second text). Empty: it reads the video alone",
+      note: "what the person does, in a sentence: the prompt of the model's motion branch (its template's second text). Empty: that branch takes the main prompt",
     },
     { id: "steps", type: "number", label: "Steps", min: 2, max: 40, step: 1, default: 6, advanced: true, perModel: true, note: "6 with the lightx2v LoRA, as ComfyUI's template" },
     { id: "cfg", type: "number", label: "CFG scale", min: 1, max: 10, step: 0.5, default: 1, advanced: true, perModel: true, note: "1 with the lightx2v LoRA. Above 1 the negative prompt acts and every step takes twice as long" },
-    { id: "shift", type: "number", label: "Shift", min: 0, max: 20, step: 0.5, default: 5, advanced: true, perModel: true },
+    { id: "shift", type: "number", label: "Shift", min: 1, max: 20, step: 0.5, default: 5, advanced: true, perModel: true },
     { id: "poseStrength", type: "number", label: "Pose strength", min: 0, max: 2, step: 0.05, default: 1, advanced: true, note: "how hard the driving video's motion is held to: 1 as trained" },
     { id: "referenceStrength", type: "number", label: "Picture strength", min: 0, max: 2, step: 0.05, default: 1, advanced: true, note: "how hard the frames hold to the picture: below 1 lets the prompt change it, above holds the face against drift" },
     { id: "negative", type: "prompt", label: "Negative prompt", style: "sentences", optional: true, default: WAN_NEGATIVE, advanced: true, perModel: true, note: "acts with a CFG scale above 1. The starting text is Wan's own, in Chinese" },
     {
-      // in RAM by default: on the card (the template's) a 12 GB card ran out of memory at 576p after 28 minutes; in RAM 3.4 s took 3.4 minutes (2026-10-14)
-      id: "cache", type: "choice", label: "Picture cache", options: Object.keys(CACHES), default: "In RAM, int8", advanced: true,
-      note: "where the model's reading of the driving video is kept between steps, so that it is made once: in RAM (about 6 GB at 480p for 81 frames), or on the card, quicker when the card has the room",
+      // in RAM by default: in VRAM (the template's) the owner's card ran out of memory at 576p after 28 minutes; in RAM 3.4 s
+      // took 3.4 minutes (2026-10-14). Drafts saved under the old names keep their choice
+      id: "cache", type: "choice", label: "Pose cache", options: Object.keys(CACHES), renamed: { "In RAM, int8": "cpu (RAM), int8", "On the card, int8": "gpu (VRAM), int8" }, default: "cpu (RAM), int8", advanced: true,
+      note: "WanAnimate2Cache: the motion branch's reading of the driving video, kept between steps so that it is made once. In VRAM it is quicker while there is room for it",
     },
     {
       id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
@@ -98,7 +99,7 @@ export const wanAnimateMotion = defineRecipe<WanAnimateMotion>({
     let model = g.out("UNETLoader", { unet_name: slots.unet, weight_dtype: "default" });
     if (slots.turbo) model = g.out("LoraLoaderModelOnly", { model, lora_name: slots.turbo, strength_model: 1 });
     model = applyLoras(g, model, input.loras);
-    const cache = CACHES[input.cache] ?? CACHES["In RAM, int8"]!;
+    const cache = CACHES[input.cache] ?? CACHES["cpu (RAM), int8"]!;
     model = g.out("WanAnimate2Cache", { model, device: cache.device, dtype: cache.dtype });
     const sigmas = g.out("BasicScheduler", { model, scheduler: "simple", steps: input.steps, denoise: 1 });
     const sampling = livePreview(g, ctx, g.out("ModelSamplingSD3", { model, shift: input.shift }), input.livePreview);
@@ -109,8 +110,9 @@ export const wanAnimateMotion = defineRecipe<WanAnimateMotion>({
       width: frame.width, height: frame.height, length: total, batch_size: 1, video_frame_offset: 0,
       pose_strength: input.poseStrength, pose_start_percent: 0, pose_end_percent: 1, reference_image_strength: input.referenceStrength,
       reference_image: picture, pose_video: pose, clip_vision_output: g.out("CLIPVisionEncode", { clip_vision: vision, image: picture, crop: "none" }),
-      // the motion branch's own prompt (what the person does, not who: empty by default), and the driving video's first frame as its CLIP vision
-      positive_pose: g.out("CLIPTextEncode", { clip, text: input.motion.trim() }),
+      // the motion branch's own prompt (what the person does, not who); left empty, the node gives that branch the main
+      // prompt, as it does when nothing is wired there. The driving video's first frame is that branch's CLIP vision
+      ...(input.motion.trim() ? { positive_pose: g.out("CLIPTextEncode", { clip, text: input.motion.trim() }) } : {}),
       clip_vision_output_pose: g.out("CLIPVisionEncode", { clip_vision: vision, image: g.out("ImageFromBatch", { image: pose, batch_index: 0, length: 1 }), crop: "none" }),
       ...(before ? { continue_motion: before } : {}),
     });

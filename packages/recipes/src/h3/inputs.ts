@@ -123,7 +123,7 @@ export const h3Inputs: InputSpec[] = [
   { id: "voiceSeconds", type: "number", label: "Voice sample: length", min: 2, max: 15, step: 0.5, default: 15, unit: " s", showWhen: "voice" },
   {
     id: "voiceEven", type: "toggle", label: "Even out the voice's loudness", default: true, showWhen: "voice", advanced: true,
-    note: "the part is brought to a usual speaking level (EBU R128, -16 LUFS) before it is used: a quiet sample carries a voice weakly",
+    note: "the part is brought to a usual speaking level (-16 LUFS, measured as EBU R128) before it is used: a quiet sample carries a voice weakly",
   },
   {
     id: "subject", type: "prompt", weights: false, label: "Subject description", style: "sentences", optional: true, showWhen: "references", holds: "subject",

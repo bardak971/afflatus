@@ -51,7 +51,9 @@ Background description: A small kitchen in warm morning light, white tiles, a wi
   lint({ text, main }) {
     if (!text?.trim()) return [];
     const out: PromptLine[] = [];
-    if (!/character description\s*:/i.test(text) || !/background description\s*:/i.test(text)) out.push({ part: main, text: "Wan Animate 2's prompt has two labelled parts, Character Description: and Background description:, as its template writes it." });
+    // the labels as its templates write them ("Character Description", "Character appearance description") and as the
+    // model was trained (人物外观描述, 背景描述)
+    if (!/(character (appearance )?description|人物外观描述)\s*[:：]/i.test(text) || !/(background description|背景描述)\s*[:：]/i.test(text)) out.push({ part: main, text: "Wan Animate 2's prompt has two labelled parts, Character Description: and Background description:, as its template writes it." });
     const n = wordCount(text);
     if (n > 90) out.push({ part: main, text: `${n} words: 30 to 70 are enough, the picture and the video give the rest.` });
     return out;

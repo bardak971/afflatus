@@ -47,7 +47,7 @@ const recordingInputs: InputSpec[] = [
   },
   {
     id: "evenLoudness", type: "toggle", label: "Even out the loudness", default: true, showWhen: "recording", advanced: true,
-    note: "the part is brought to a usual speaking level (EBU R128, -16 LUFS) before it is used: a quiet take guides the mouth weakly",
+    note: "the part is brought to a usual speaking level (-16 LUFS, measured as EBU R128) before it is used: a quiet take guides the mouth weakly",
   },
 ];
 
@@ -92,7 +92,10 @@ export const h3LipSync = defineRecipe<H3LipSync>({
     // one loader, cut to the clip's frames after the words begin, for the guide and the sound
     const loaded = (g: GraphBuilder, at: { head: number; frames: number }) =>
       (recording ??= g.out("TrimAudioDuration", { audio: g.out("LoadAudio", { audio: ctx.uploads.recording }), start_index: 0, duration: (at.frames - at.head - lead) / H3_FPS }));
-    return buildH3({ ...input, voice: undefined, seconds, description }, ctx, {
+    // the cast's videos lend their frames only: their own sound would be a second voice beside the recording, pulling the
+    // timbre away from it as a voice sample would
+    const media = Object.fromEntries(Object.entries(ctx.media).map(([k, m]) => [k, k.startsWith("refVideos.") ? { ...m, hasSound: false } : m]));
+    return buildH3({ ...input, voice: undefined, seconds, description }, { ...ctx, media }, {
       guide: (g, at) => g.out("MiniMaxH3AddGuide", { positive: at.positive, latent: at.latent, vae: at.vae, audio_vae: at.audioVae, audio: loaded(g, at), frame_idx: at.head + lead }),
       // the files' sound: the model's own for the frames before the words (the clip before's, mostly), then the recording
       // itself to the clip's end, the pause the server handed over after the part included (continued clips decode it
