@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
-import { familyOn, lackOn, mergeScans } from "../src/machineScans";
+import { familyOn, filesUsed, lackOn, mergeScans } from "../src/machineScans";
 import type { Machine } from "../src/settings";
 
 const machine = (id: string, families: Record<string, boolean> = {}): Machine => ({ id, name: id, url: `http://${id}:8188`, dir: "", takes: "all", families, token: "" });
@@ -57,6 +57,19 @@ describe("lackOn", () => {
     const all = scan([recipe("h3-i2v", true, { unet: ["h3.safetensors"] })]);
     expect(lackOn(h3, { unet: "h3.safetensors" }, all, { families: {} }, machine("b", { h3: false }), familyOf)).toEqual({ off: true, files: [], onlyFiles: false });
     expect(lackOn(h3, { unet: "h3.safetensors" }, all, { families: {} }, machine("b"), familyOf)).toBeNull();
+  });
+
+  it("never asks for a family's usual file where the job picks its own (a pod would fetch a model it never uses)", () => {
+    // SDXL: its checkpoint picked per render, an input that names no slot; the family's only checkpoint slot has a usual file
+    const sdxl = { id: "sdxl-t2p", family: "sdxl", inputs: [{ id: "checkpoint", type: "model", folder: "checkpoints", label: "Checkpoint" }] } as never;
+    const slot = { id: "checkpoint", label: "Checkpoint", folder: "checkpoints", file: null, choices: [], auto: null, chosen: false, optional: false, hint: "", get: { file: "sd_xl_base_1.0.safetensors", url: "https://huggingface.co/x/sd_xl_base_1.0.safetensors" } };
+    const empty: Scan = { ...scan([{ ...recipe("sdxl-t2p", false, { checkpoint: [] }), missingSlots: ["checkpoint"] }]), families: [{ id: "sdxl", slots: [slot] }] };
+    const lack = lackOn(sdxl, { checkpoint: "illustrious.safetensors" }, empty, { families: {} }, machine("b"), familyOf);
+    expect(lack).toEqual({ off: false, files: [{ file: "illustrious.safetensors", folder: "checkpoints" }], onlyFiles: true });
+    expect(filesUsed(sdxl, { checkpoint: "illustrious.safetensors" }, empty, [slot])).toEqual([{ file: "illustrious.safetensors", folder: "checkpoints" }]);
+    // a family with two required files in one folder: the job's pick fills neither by folder alone, the other is still asked
+    const other = { ...slot, id: "ref", get: { file: "ref.safetensors", url: "https://huggingface.co/x/ref.safetensors" } };
+    expect(filesUsed(sdxl, { checkpoint: "illustrious.safetensors" }, empty, [slot, other]).map((f) => f.file)).toEqual(["illustrious.safetensors", "sd_xl_base_1.0.safetensors", "ref.safetensors"]);
   });
 
   it("says when the files are all a machine lacks: what a rented pod can be sent", () => {
