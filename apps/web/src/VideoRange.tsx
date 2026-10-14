@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { clock } from "./format";
+import { partCommitted } from "./snap";
 import { RangeSlider, PastWhatFits } from "./RangeSlider";
 import { cx } from "./ui";
 
@@ -29,7 +30,6 @@ export function VideoRange({ asset, total, start, seconds, min, most, label, onS
   const from = moving?.from ?? start;
   const to = moving?.to ?? Math.min(total, start + seconds);
   const pct = (t: number) => `${(Math.max(0, Math.min(total, t)) / total) * 100}%`;
-  const tenth = (v: number) => Math.round(v * 10) / 10;
   const at = (i: number) => ((i + 0.5) / TILES) * total;
 
   const track = (
@@ -58,8 +58,9 @@ export function VideoRange({ asset, total, start, seconds, min, most, label, onS
         onChange={(a, b) => setMoving({ from: a, to: b })}
         onCommit={(a, b) => {
           setMoving(null);
-          // the end held to `most` exactly (a window of 141 frames is 5.875 s), not to a tenth
-          onCommit(tenth(a), Math.min(most, tenth(b - a)));
+          // the end held to `most` exactly (a window of 141 frames is 5.875 s), and the video's own end kept, not rounded to a tenth
+          const p = partCommitted(a, b, total, most);
+          onCommit(p.start, p.seconds);
         }}
       />
       <span className="flex justify-between gap-3 font-mono text-[10.5px] text-ink-3">
