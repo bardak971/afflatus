@@ -27,6 +27,18 @@ export function snapReachingEnd(v: number, min: number, max: number, step: numbe
 }
 
 /**
+ * A part as a strip commits it: its start and length to a tenth of a second, but a part that reaches the end keeps the end
+ * exactly. Rounded to a tenth, the end of a 5.04 s video went back to 5.0 when the knob was let go, and could never be taken.
+ * `most`: the longest a part may be.
+ */
+export function partCommitted(from: number, to: number, total: number, most = Infinity): { start: number; seconds: number } {
+  const tenth = (v: number) => Math.round(v * 10) / 10;
+  const start = tenth(from);
+  const seconds = to >= total - 1e-6 ? total - start : tenth(to - from);
+  return { start, seconds: Math.min(most, seconds) };
+}
+
+/**
  * SeedVR2's batch size: 0 is auto, else a count of frames on its 4n + 1 grid (1, 5, 9 … 49). Steps of 4 from 0 gave
  * 4, 8 … 48, which are off that grid, and never reached 49.
  */

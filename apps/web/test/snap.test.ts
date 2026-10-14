@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { schemaFor, type InputSpec } from "@afflatus/core";
 import { recipes } from "@afflatus/recipes";
-import { snapTo, snapReachingEnd } from "../src/snap";
+import { snapTo, snapReachingEnd, partCommitted } from "../src/snap";
 
 type NumberSpec = Extract<InputSpec, { type: "number" }>;
 const takes = (spec: NumberSpec, v: number) => schemaFor([spec]).safeParse({ [spec.id]: v }).success;
@@ -43,5 +43,16 @@ describe("a range's knob reaching its own end", () => {
     expect(snapReachingEnd(2.34, 0, 5.06, 0.1)).toBe(2.3);
     // an end on a step: unchanged
     expect(snapReachingEnd(5, 0, 5, 0.1)).toBe(5);
+  });
+});
+
+describe("a part as its strip commits it", () => {
+  it("keeps the end of the video exactly when the part reaches it, to a tenth elsewhere", () => {
+    // a 5.04 s video: rounded, its end went back to 5.0 when the knob was let go
+    expect(partCommitted(0, 5.04, 5.04)).toEqual({ start: 0, seconds: 5.04 });
+    expect(partCommitted(1.23, 5.04, 5.04)).toEqual({ start: 1.2, seconds: 5.04 - 1.2 });
+    expect(partCommitted(0, 3.27, 5.04)).toEqual({ start: 0, seconds: 3.3 });
+    // held to the longest a part may be
+    expect(partCommitted(0, 5.04, 5.04, 3.375)).toEqual({ start: 0, seconds: 3.375 });
   });
 });

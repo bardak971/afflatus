@@ -4,6 +4,7 @@ import { api } from "./api";
 import { clock } from "./format";
 import { pausesIn } from "./pauses";
 import { queryKeys } from "./queryKeys";
+import { partCommitted } from "./snap";
 import { RangeSlider, PastWhatFits } from "./RangeSlider";
 import { barsOf } from "./screens/library/SoundWave";
 import { cx } from "./ui";
@@ -125,7 +126,9 @@ export function SoundRange({ asset, total, start, seconds, min, most, label, pla
         onChange={(a, b) => setMoving({ from: a, to: b })}
         onCommit={(a, b) => {
           setMoving(null);
-          onCommit(tenth(a), tenth(b - a));
+          // the sound's own end kept, not rounded to a tenth (it could not be reached)
+          const p = partCommitted(a, b, total);
+          onCommit(p.start, p.seconds);
         }}
       />
       <span className="flex justify-between gap-3 font-mono text-[10.5px] text-ink-3">
