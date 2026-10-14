@@ -248,6 +248,19 @@ export class Runpod {
     }
   }
 
+  /**
+   * Whether a pod is still on the account, asked of RunPod for that pod alone: false only when RunPod says there is no such
+   * pod (or it is terminated); null when it does not answer. Before a pod missing from the list is taken for gone.
+   */
+  async exists(id: string): Promise<boolean | null> {
+    try {
+      const got = await this.call<RawPod>(`/v2/pods/${encodeURIComponent(id)}`);
+      return Boolean(got && got.status !== "TERMINATED");
+    } catch (err) {
+      return (err as RunpodError).status === 404 ? false : null;
+    }
+  }
+
   /** Start, stop or delete (terminate) a pod. The pod as it is after, but for a delete. */
   async act(id: string, action: Exclude<PodAction, "restart">): Promise<Pod | null> {
     const got = await this.call<RawPod | undefined>(`/v2/pods/${encodeURIComponent(id)}/action`, { method: "POST", body: JSON.stringify({ action }) });

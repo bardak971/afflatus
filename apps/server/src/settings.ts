@@ -152,12 +152,15 @@ export type Machine = z.infer<typeof machineSchema>;
 /** The id the first ComfyUI has had since before there could be several: what it learned is filed under it. */
 export const FIRST_MACHINE = "m1";
 
+/** How many ComfyUIs Afflatus keeps at most (its own and rented). */
+export const MAX_MACHINES = 12;
+
 export const settingsSchema = z.object({
   /**
    * The ComfyUIs, the first one first: it is the one the setup, the downloads, the node packs and "open in ComfyUI" talk
    * to. `comfyUrl` and `comfyDir` below are the first one's address and folder, kept in step with it (older callers read them).
    */
-  machines: z.array(machineSchema).max(12).default([]),
+  machines: z.array(machineSchema).max(MAX_MACHINES).default([]),
   comfyUrl: httpUrl.default("http://127.0.0.1:8188"),
   /**
    * ComfyUI's own folder on the computer Afflatus runs on (the one with main.py), when they share a disk.
@@ -344,6 +347,8 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
   const sent = { ...z.record(z.string(), z.unknown()).parse(patch) };
   const unknown = Object.keys(sent).filter((k) => !KEYS.includes(k));
   if (unknown.length) throw httpError(`unknown setting: ${unknown.join(", ")}`);
+  // the secrets of pods taken out of Afflatus, deleted on RunPod by name: the server's list, never the page's to write
+  if (fromPage) delete sent.leftSecrets;
   const current = await readSettings(db);
   // "llm" changes the model in use (or makes the first one): the short way, for one model
   if (sent.llm && typeof sent.llm === "object") {
@@ -364,7 +369,11 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
     if (fromPage) {
       const own = (m: { id?: unknown; rented?: unknown }) => {
         const was = current.machines.find((c) => c.id === m.id);
-        if (!was?.rented) return m;
+        // a rented machine is made by Afflatus (add, deploy), never by the page: its pod and secret are not the page's to say
+        if (!was?.rented) {
+          const { rented: _rented, ...rest } = m;
+          return rest;
+        }
         const asked = (m.rented && typeof m.rented === "object" ? m.rented : {}) as Record<string, unknown>;
         const pick = Object.fromEntries(["idleMinutes", "idleDo", "watchdogMinutes", "openPorts"].filter((k) => k in asked).map((k) => [k, asked[k]]));
         return { ...m, rented: { ...was.rented, ...pick } };

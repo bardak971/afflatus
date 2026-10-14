@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
-import { writeSettings } from "../src/settings";
+import { updateSettings, writeSettings } from "../src/settings";
 import { get, makeApp, makeFake, post, type TestApp } from "./helpers";
 
 /** Model sets (modelSets.ts): named lists of model files, presets by reference and files of their own. */
@@ -105,7 +105,8 @@ describe("a model set", () => {
     const pod = await makeFake();
     pod.models.loras = ["have.safetensors"];
     try {
-      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ id: "m1", url: fake.url }, { id: "rp", url: pod.url, rented: { provider: "runpod", pod: "pod-1" } }] } });
+      // a rented machine is made by Afflatus, never by the page: written as Afflatus writes it
+      await updateSettings(t.db, () => ({ machines: [{ id: "m1", url: fake.url }, { id: "rp", url: pod.url, rented: { provider: "runpod", pod: "pod-1" } }] }));
       const set = (await post(t.app, "/api/model-sets", { name: "LoRAs", files: [{ file: "have.safetensors", folder: "loras" }, { ...VAE, folder: "loras" }] })).json();
       expect((await post(t.app, `/api/model-sets/${set.id}/get`, { machine: "rp" })).json()).toEqual({ sent: 1, failed: [], skipped: 0 });
       expect(t.services.podFiles.view("rp")).toEqual([expect.objectContaining({ file: VAE.file, folder: "loras", tier: "ahead", jobs: [] })]);
