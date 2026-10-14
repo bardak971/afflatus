@@ -186,7 +186,7 @@ describe("a deploy", () => {
     expect(plan.places[0]).toMatchObject({ dataCenter: "EU-RO-1", pods: 1, gpus: [{ name: "A40", price: 0.44 }, { name: "RTX 6000 Ada", price: 0.77 }] });
     expect(plan.places.flatMap((p: { gpus: Array<{ name: string }> }) => p.gpus.map((g) => g.name))).not.toContain("RTX 4090");
     // 30 GB and a quarter more, in tens
-    expect(plan).toMatchObject({ sizeGb: 40, perGbMonth: 0.07, sets: [{ name: "zz-test set", bytes: 30_000_000_000 }] });
+    expect(plan).toMatchObject({ sizeGb: 40, sets: [{ name: "zz-test set", bytes: 30_000_000_000 }] });
   });
 
   it("fills a volume from a set: the cheapest GPU there, no render given to it, terminated once its files are in", async () => {
@@ -626,5 +626,146 @@ describe("the image's build and the watchdog's end", () => {
   it("with a volume, its watchdog stops it as its idle does", async () => {
     await deploy({ volume: "vol-ro", idleDo: "stop" });
     expect(runpod.pods[0]!.env.AFFLATUS_WATCHDOG_ACTION).toBe("stop");
+  });
+});
+
+describe("a fill of a volume always ends, and never says all in when it is not", () => {
+  type Left = { left: number; total: number; bytes: number; waiting: string[]; failed: Array<{ file: string; error: string }> };
+  const real = Date.now;
+  const waiting = (bytes = 0): Left => ({ left: 1, total: 1, bytes, waiting: ["zz-test.safetensors"], failed: [] });
+  const nothing: Left = { left: 0, total: 0, bytes: 0, waiting: [], failed: [] };
+
+  /** A fill deployed and up (its first answer seen), its files as the test says: what podFiles would say of them. */
+  async function upFill(left: () => Left) {
+    const set = (await post(t.app, "/api/model-sets", { name: "zz-test set", presets: [], off: [], files: [
+      { file: "zz-test.safetensors", folder: "checkpoints", url: "https://huggingface.co/zz-test/x/resolve/main/zz-test.safetensors", size: 6_000_000_000 },
+    ] })).json().id as string;
+    const rented = t.services.rented;
+    const handed: string[] = [];
+    rented.onUp = (machine) => handed.push(machine);
+    rented.filesLeft = () => left();
+    const id = (await post(t.app, "/api/runpod/volumes/vol-ro/fill", { set })).json().id as string;
+    await until(async () => (await rented.poll(), (await readSettings(t.db)).machines.find((m) => m.id === id)?.rented?.deployedAt === ""));
+    return { id, handed, rented };
+  }
+  const lastFill = async () => ((await get(t.app, "/api/runpod/volumes")).json().volumes as Array<{ id: string; lastFill: { failed: Array<{ file: string; error: string }>; interrupted?: string } | null }>).find((v) => v.id === "vol-ro")!.lastFill;
+  const gone = async (id: string) => !(await readSettings(t.db)).machines.some((m) => m.id === id);
+
+  it("its ComfyUI gone silent: terminated at its idle time, noted cut short with the files not in", async () => {
+    const { id, handed, rented } = await upFill(() => waiting());
+    expect(handed).toEqual([id]);
+    // what it was handed is kept until it ends (handed again after a restart)
+    expect((await readSettings(t.db)).machines.find((m) => m.id === id)?.rented?.files).toHaveLength(1);
+    runpod.pods[0]!.comfy.down = true;
+    rented.now = () => real() + 4 * 60_000;
+    await rented.poll();
+    expect(runpod.pods[0]!.status).toBe("RUNNING");
+    rented.now = () => real() + 6 * 60_000;
+    await rented.poll();
+    expect(runpod.pods[0]!.status).toBe("TERMINATED");
+    expect(await gone(id)).toBe(true);
+    expect(await lastFill()).toMatchObject({ interrupted: "its ComfyUI stopped answering", failed: [{ file: "zz-test.safetensors", error: expect.stringMatching(/not fetched/) }] });
+  });
+
+  it("its files stuck while its ComfyUI answers: cut short after 30 min of nothing", async () => {
+    const { id, rented } = await upFill(() => waiting());
+    rented.now = () => real() + 29 * 60_000;
+    await rented.poll();
+    expect(runpod.pods[0]!.status).toBe("RUNNING");
+    rented.now = () => real() + 31 * 60_000;
+    await rented.poll();
+    expect(runpod.pods[0]!.status).toBe("TERMINATED");
+    expect(await gone(id)).toBe(true);
+    expect((await lastFill())?.interrupted).toBe("nothing came for 30 min");
+  });
+
+  it("moving, but past its time (2 h and its bytes at 10 MB/s): cut short", async () => {
+    let bytes = 0;
+    const { id, rented } = await upFill(() => waiting((bytes += 1000)));
+    // 6 GB: 2 h 10 min
+    rented.now = () => real() + 129 * 60_000;
+    await rented.poll();
+    expect(runpod.pods[0]!.status).toBe("RUNNING");
+    rented.now = () => real() + 131 * 60_000;
+    await rented.poll();
+    expect(runpod.pods[0]!.status).toBe("TERMINATED");
+    expect(await gone(id)).toBe(true);
+    expect((await lastFill())?.interrupted).toMatch(/still not done after 13\d min/);
+  });
+
+  it("after a restart of Afflatus: handed again and carried on; an empty view is never read as all in", async () => {
+    let given = true;
+    const { id, handed, rented } = await upFill(() => (given ? waiting() : nothing));
+    // restarted: podFiles has nothing of the pod, Rented reads it afresh
+    given = false;
+    (rented as unknown as { seen: Map<string, unknown> }).seen.clear();
+    rented.onUp = (machine) => {
+      handed.push(machine);
+      given = true;
+    };
+    await rented.poll();
+    expect(handed).toEqual([id, id]);
+    expect(runpod.pods[0]!.status).toBe("RUNNING");
+    // what it was handed lost again, and handing it brings nothing into view: still not done
+    given = false;
+    rented.onUp = () => {};
+    await rented.poll();
+    await rented.poll();
+    expect(runpod.pods[0]!.status).toBe("RUNNING");
+    expect(await lastFill()).toBeNull();
+  });
+
+  it("at a spending cap: terminated, never left stopped on its volume, and noted cut short", async () => {
+    let bytes = 0;
+    const { id, rented } = await upFill(() => waiting((bytes += 1000)));
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 1, month: 0 } } });
+    await t.db.insertInto("rent_sessions").values({ id: "s1", machine_id: "rp-x", pod: "x", rate: 12, started_at: new Date(real() - 10 * 60_000).toISOString(), ended_at: new Date(real()).toISOString(), seen_at: null }).execute();
+    await until(async () => (await rented.poll(), runpod.pods[0]!.status === "TERMINATED"));
+    expect(await gone(id)).toBe(true);
+    expect((await lastFill())?.interrupted).toBe("a spending cap was reached");
+  });
+});
+
+describe("a volume's pods, one at a time", () => {
+  const real = Date.now;
+  type V = { id: string; usedBy: { name: string } | null; mountedOn: unknown[] };
+  const ro = async () => ((await get(t.app, "/api/runpod/volumes")).json().volumes as V[]).find((v) => v.id === "vol-ro")!;
+
+  it("Start of a stopped pod whose volume another pod now runs on is refused, said by whom", async () => {
+    expect((await deploy({ volume: "vol-ro", idleDo: "stop" })).statusCode).toBe(200);
+    const first = (await readSettings(t.db)).machines.find((m) => m.rented)!;
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]!.status === "RUNNING"));
+    await post(t.app, `/api/machines/${first.id}/stop`, { how: "stop" });
+    await until(async () => runpod.pods[0]!.status === "EXITED");
+    expect((await deploy({ volume: "vol-ro", idleDo: "stop" })).statusCode).toBe(200);
+    const refused = await post(t.app, `/api/machines/${first.id}/start`);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toMatch(/The volume "afflatus-models" is in use by A40 2/);
+    expect(runpod.pods[0]!.status).toBe("EXITED");
+    // the other one terminated: Start goes
+    const second = (await readSettings(t.db)).machines.find((m) => m.rented && m.id !== first.id)!;
+    expect((await post(t.app, `/api/machines/${second.id}/stop`, { how: "terminate" })).statusCode).toBe(200);
+    expect((await post(t.app, `/api/machines/${first.id}/start`)).statusCode).toBe(200);
+  });
+
+  it("a deploy that never came up, or that RunPod stopped listing, no longer holds its volume", async () => {
+    runpod.bootMs = 10_000_000;
+    expect((await deploy({ volume: "vol-ro", idleDo: "stop" })).statusCode).toBe(200);
+    const rented = t.services.rented;
+    rented.now = () => real() + 21 * 60_000;
+    await rented.poll();
+    expect(runpod.pods[0]!.status).toBe("TERMINATED");
+    // its card still says why
+    expect((await t.services.queue.status()).machines.find((m) => m.rented)?.rented?.stoppedBy).toBe("boot");
+    expect(await ro()).toMatchObject({ usedBy: null, mountedOn: [] });
+    // made, then gone from RunPod's list before it ever came up: starting on it until its boot limit, free after
+    expect((await deploy({ volume: "vol-ro", idleDo: "stop" })).statusCode).toBe(200);
+    runpod.pods.splice(runpod.pods.findIndex((p) => p.status !== "TERMINATED"), 1);
+    await rented.poll();
+    expect((await ro()).usedBy).toMatchObject({ name: "A40 2" });
+    rented.now = () => real() + 42 * 60_000;
+    await rented.poll();
+    expect(await ro()).toMatchObject({ usedBy: null, mountedOn: [] });
+    expect((await t.app.inject({ method: "DELETE", url: "/api/runpod/volumes/vol-ro" })).statusCode).toBe(200);
   });
 });

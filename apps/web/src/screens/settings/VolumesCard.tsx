@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { volumePerMonth } from "@afflatus/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HardDrive, Trash2 } from "lucide-react";
 import { api, type NetworkVolume, type VolumePlan } from "../../api";
 import { DEPLOYED_READS } from "../../deployReads";
+import { LicenceChecks } from "../../DeployModels";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../../Dialog";
 import { est, gb, plural, usd, when } from "../../format";
 import { Keys } from "../../Keys";
@@ -11,11 +13,10 @@ import { Select } from "../../Select";
 import { Button, cx, ErrorNote, fieldClass } from "../../ui";
 import { Block, Card } from "./Rows";
 
-const WHY_VOLUMES = "A network volume keeps your models between deploys: a pod on it is up in a minute with what it holds, instead of fetching them each time. It bills every month, with or without a pod ($0.07 per GB), and ties its pods to its data center. One pod at a time on a volume: Afflatus never puts a second one on it. What it holds is read through the last pod that ran on it (nothing can read a volume without a pod).";
+const WHY_VOLUMES = "A network volume keeps your models between deploys: a pod on it is up in a minute with what it holds, instead of fetching them each time. It bills every month, with or without a pod ($0.07 per GB, $0.05 past the first TB), and ties its pods to its data center. One pod at a time on a volume: Afflatus never puts a second one on it. What it holds is read through the last pod that ran on it (nothing can read a volume without a pod).";
 
-/** RunPod's price of a standard volume, a GB and a month (the server's VOLUME_PER_GB_MONTH says the same). */
-const PER_GB = 0.07;
-const perMonth = (gbs: number) => Math.round(gbs * PER_GB * 100) / 100;
+/** What a volume of that size costs a month at RunPod's price, to the cent (core's volumePerMonth, as the server says it). */
+const perMonth = (gbs: number) => Math.round(volumePerMonth(gbs) * 100) / 100;
 
 /** A range of minutes and dollars, as the estimates say it: "~12–18 min · $0.10–0.15". */
 const rangeSaid = (r: { fastMs: number; slowMs: number; lowUsd: number; highUsd: number }) =>
@@ -65,7 +66,9 @@ function VolumeRow({ v, stock, onAct }: { v: NetworkVolume; stock: Array<{ name:
           <span key={s.id}>{i > 0 && " · "}{s.name} {s.missing.count ? <span className="text-warn-ink">{s.missing.bytes ? gb(s.missing.bytes) : plural(s.missing.count, "file")} missing</span> : <span className="text-good">all there</span>}</span>
         ))}</>}
       </span>
-      {v.lastFill && (v.lastFill.failed.length
+      {v.lastFill && (v.lastFill.interrupted
+        ? <span className="text-warn-ink" data-tip={v.lastFill.failed.map((f) => `${f.file}: ${f.error}`).join("\n") || undefined}>Last fill {when(v.lastFill.at)}: cut short, {v.lastFill.interrupted}{v.lastFill.failed.length ? ` (${plural(v.lastFill.failed.length, "file")} not in)` : ""}: fill again</span>
+        : v.lastFill.failed.length
         ? <span className="text-warn-ink" data-tip={v.lastFill.failed.map((f) => `${f.file}: ${f.error}`).join("\n")}>Last fill {when(v.lastFill.at)}: {plural(v.lastFill.failed.length, "file")} failed ({v.lastFill.failed.slice(0, 2).map((f) => f.file).join(", ")}{v.lastFill.failed.length > 2 ? "…" : ""}): fill again, or look at their sources</span>
         : <span className="text-ink-2">Last fill {when(v.lastFill.at)}: all in</span>)}
       {stock !== null && <span className="text-ink-3">{stock.length ? `In stock there now: ${stock.slice(0, 5).map((g) => g.name).join(", ")}${stock.length > 5 ? ` and ${stock.length - 5} more` : ""}` : "No GPU in stock there now"}</span>}
@@ -91,7 +94,8 @@ function MakeVolume({ plan, onClose }: { plan: VolumePlan | null; onClose(): voi
   const make = useMutation({
     mutationFn: () => api.makeVolume({ name: name.trim(), size: gbs, dataCenter: chosen! }),
     onSuccess: () => {
-      for (const queryKey of [queryKeys.runpodVolumes(), queryKeys.rentedSpending()]) void client.invalidateQueries({ queryKey });
+      // the plan counts the user's pods and volumes per data center: read again with the new one
+      for (const queryKey of [queryKeys.runpodVolumes(), queryKeys.rentedSpending(), queryKeys.volumePlan(null)]) void client.invalidateQueries({ queryKey });
       onClose();
     },
   });
@@ -140,8 +144,10 @@ function FillVolume({ volume, onClose }: { volume: NetworkVolume; onClose(): voi
   const [set, setSet] = useState<string>(() => [...volume.sets].sort((a, b) => b.missing.bytes - a.missing.bytes)[0]?.id ?? "");
   const chosen = set || sets.data?.items[0]?.id || "";
   const plan = useQuery({ queryKey: queryKeys.fillPlan(volume.id, chosen), queryFn: ({ signal }) => api.fillPlan(volume.id, chosen, { signal }), enabled: Boolean(chosen), staleTime: 15_000, retry: false });
+  // the set's licences, each accepted here before its files are fetched (the server refuses otherwise)
+  const [accept, setAccept] = useState<Set<string>>(() => new Set());
   const fill = useMutation({
-    mutationFn: () => api.fillVolume(volume.id, chosen),
+    mutationFn: () => api.fillVolume(volume.id, chosen, [...accept]),
     onSuccess: () => {
       for (const queryKey of [...DEPLOYED_READS, queryKeys.runpodVolumes()]) void client.invalidateQueries({ queryKey });
       onClose();
@@ -149,6 +155,7 @@ function FillVolume({ volume, onClose }: { volume: NetworkVolume; onClose(): voi
   });
   const p = plan.data;
   const nothing = p !== undefined && p.missing.count === 0;
+  const accepted = (p?.licences ?? []).every((l) => accept.has(l.id));
   return (
     <Dialog label="Fill a volume from a set" onClose={onClose} className={DIALOG.replace("max-w-md", "max-w-[520px]")}>
       <DialogHead icon={<HardDrive size={16} />} title={`Fill ${volume.name}`} sub={`${volume.dataCenter} · ${volume.size} GB`} onClose={onClose} />
@@ -166,11 +173,17 @@ function FillVolume({ volume, onClose }: { volume: NetworkVolume; onClose(): voi
             {p.gpu && !nothing && <span>{p.estimate ? `About ${rangeSaid(p.estimate)}, its start included, at your measured speeds.` : "How long is said once Afflatus has measured a deploy's fetches."}</span>}
           </span>
         )}
+        {p && !nothing && p.licences.length > 0 && (
+          <span className="flex flex-col gap-1">
+            <LicenceChecks licences={p.licences} accept={accept} onChange={setAccept} />
+            {!accepted && <span className="text-xs text-warn-ink">Accept the licence above to fill with those files.</span>}
+          </span>
+        )}
         {(plan.isError || fill.isError) && <ErrorNote>{(plan.error ?? fill.error)!.message}</ErrorNote>}
       </div>
       <DialogFoot info="Billed from the deploy, as any pod">
         <Button tone="quiet" onClick={onClose}>Cancel <Keys keys="Esc" size="sm" /></Button>
-        <Button tone="primary" onClick={() => fill.mutate()} disabled={!p?.gpu || nothing || fill.isPending}>{fill.isPending ? "Deploying…" : p?.gpu ? `Fill · ${usd(p.gpu.price)}/h` : "Fill"}</Button>
+        <Button tone="primary" onClick={() => fill.mutate()} disabled={!p?.gpu || nothing || !accepted || fill.isPending}>{fill.isPending ? "Deploying…" : p?.gpu ? `Fill · ${usd(p.gpu.price)}/h` : "Fill"}</Button>
       </DialogFoot>
     </Dialog>
   );

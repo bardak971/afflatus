@@ -182,7 +182,8 @@ export async function createServices(
   // a deployed pod up: the files its deploy asked for come after what its jobs wait for; the ones left out never come
   rented.filesLeft = (id) => {
     const files = podFiles.view(id);
-    return { left: files.filter((f) => f.state === "next" || f.state === "fetching").length, total: files.length, failed: files.filter((f) => f.state === "failed").map((f) => ({ file: f.file, error: f.error ?? "failed" })) };
+    const waiting = files.filter((f) => f.state === "next" || f.state === "fetching");
+    return { left: waiting.length, total: files.length, bytes: files.reduce((n, f) => n + f.bytes, 0), waiting: waiting.map((f) => f.file), failed: files.filter((f) => f.state === "failed").map((f) => ({ file: f.file, error: f.error ?? "failed" })) };
   };
   rented.onUp = (id, files, leaveOut) => {
     podFiles.leaveOut(id, leaveOut);

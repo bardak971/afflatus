@@ -1,4 +1,4 @@
-import { fileKey, type PresetFile } from "@afflatus/core";
+import { fileKey, volumePerMonth, type PresetFile } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 import type { Db } from "./db";
 import { fileName } from "./media";
@@ -64,8 +64,6 @@ export interface Storage {
   unused: Array<{ id: string; name: string; perMonth: number; usedAt: string | null }>;
 }
 
-/** RunPod's price of a standard network volume, USD per GB and month (the first TB). */
-export const VOLUME_PER_GB_MONTH = 0.07;
 /** The sizes RunPod takes for a volume, GB. */
 export const VOLUME_MIN_GB = 10;
 export const VOLUME_MAX_GB = 4096;
@@ -96,17 +94,18 @@ export function viewVolumes(volumes: readonly NetworkVolume[], pods: readonly Po
     // never seen used: counted from when Afflatus first saw it (a volume made elsewhere, or before)
     const since = Date.parse(usedAt ?? k?.noticedAt ?? new Date(now).toISOString());
     return {
-      ...v, usedBy, mountedOn: on, perMonth: Math.round(v.size * VOLUME_PER_GB_MONTH * 100) / 100,
+      ...v, usedBy, mountedOn: on, perMonth: Math.round(volumePerMonth(v.size) * 100) / 100,
       holds: k?.keys && k.seenAt && k.seenBy ? { count: k.keys.size, seenAt: k.seenAt, seenBy: k.seenBy } : null,
       usedAt, unused: !usedBy && unusedDays > 0 && now - since >= unusedDays * 86_400_000, lastFill: k?.fill ?? null,
     };
   });
 }
 
-/** How a Fill from a set… ended: when, and the files that failed, with why. */
+/** How a Fill from a set… ended: when, the files that failed, with why, and why it was cut short when it was (not all in then). */
 export interface FillNote {
   at: string;
   failed: Array<{ file: string; error: string }>;
+  interrupted?: string;
 }
 
 /** What a volume holds as kept: its files' keys (fileKey, by the file's own name; null until listed), when and by which pod, when last used, when first seen. */
@@ -153,10 +152,10 @@ export async function recordHoldings(db: Db, volume: string, comfy: Comfy, by: s
   await db.insertInto("volume_files").values({ volume_id: volume, ...row, noticed_at: at }).onConflict((oc) => oc.column("volume_id").doUpdateSet(row)).execute();
 }
 
-/** How a fill of a volume ended, kept with it (said on its row once its pod is gone). */
-export async function noteFill(db: Db, volume: string, failed: FillNote["failed"], now = Date.now()): Promise<void> {
+/** How a fill of a volume ended, kept with it (said on its row once its pod is gone): `interrupted` says why it was cut short. */
+export async function noteFill(db: Db, volume: string, failed: FillNote["failed"], now = Date.now(), interrupted?: string): Promise<void> {
   const at = new Date(now).toISOString();
-  const fill_note = JSON.stringify({ at, failed: failed.slice(0, 50) });
+  const fill_note = JSON.stringify({ at, failed: failed.slice(0, 50), ...(interrupted ? { interrupted } : {}) });
   await db.insertInto("volume_files").values({ volume_id: volume, files: null, seen_at: null, seen_by: null, used_at: at, noticed_at: at, fill_note }).onConflict((oc) => oc.column("volume_id").doUpdateSet({ fill_note })).execute();
 }
 
