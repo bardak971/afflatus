@@ -65,7 +65,7 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
       const status = setup.data?.recipes.find((r) => r.id === recipe.id);
       if (setup.isSuccess && notReady(status, comfyOnline)) return null;
       const stored = inputsOf(c);
-      const input = wholeForm(recipe, status?.options, settings.data?.items ?? [], stored);
+      const input = wholeForm(recipe, status, settings.data?.items ?? [], stored);
       for (const i of recipe.inputs) if (input[i.id] === undefined || (i.type === "clip" && i.role !== "source")) delete input[i.id];
       return input;
     }),
@@ -82,7 +82,7 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
       const blocked = setup.isSuccess ? notReady(status, comfyOnline) : null;
       if (blocked) return { why: blocked };
       const stored = inputsOf(c);
-      const input = wholeForm(recipe, status?.options, settings.data?.items ?? [], stored);
+      const input = wholeForm(recipe, status, settings.data?.items ?? [], stored);
       for (const i of recipe.inputs) if (input[i.id] === undefined || (i.type === "clip" && i.role !== "source")) delete input[i.id];
       const at = clips.findIndex((x) => x.id === c.id);
       const before = at > 0 ? clips[at - 1] : undefined;

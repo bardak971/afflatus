@@ -7,7 +7,7 @@ import type { DesignerTurn } from "../../designer/types";
 import { WritingHelp } from "../../WritingHelp";
 import { useDraft } from "../../draft";
 import { Form, mainTextOf } from "../../RecipeForm";
-import { formDefaults, matchFiles } from "../../form";
+import { formDefaults, matchFiles, ownValues } from "../../form";
 import { takePreset } from "../../handoff";
 import { notReady } from "../../format";
 import { LookBar, lookWords } from "../../LookBar";
@@ -68,8 +68,8 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
 
   // the form as it stands, worked out once per change rather than at every draw (the prompt is typed into it)
   const settings = useModelSettings();
-  const defaults = useMemo(() => (recipe ? formDefaults(recipe, status?.options, settings.data?.items ?? [], formValues).defaults : {}), [recipe, status, settings.data, formValues]);
-  const whole = useMemo(() => (recipe && draft ? { ...defaults, ...formValues } : {}), [recipe, draft, defaults, formValues]);
+  const defaults = useMemo(() => (recipe ? formDefaults(recipe, status, settings.data?.items ?? [], formValues).defaults : {}), [recipe, status, settings.data, formValues]);
+  const whole = useMemo(() => (recipe && draft ? { ...defaults, ...ownValues(recipe, formValues) } : {}), [recipe, draft, defaults, formValues]);
   // a required input still empty (an img2img with no picture, an Inpaint with no mask) waits like a model that is not
   // ready: Ctrl+Enter and the command bar too
   const missing = inputMissing(recipe, whole);

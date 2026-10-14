@@ -14,7 +14,7 @@ const options = { detector: [FACE, HAND], checkpoint: ["mine.safetensors", "othe
 describe("the face detailer's form on a hand detector", () => {
   const fixFace = byId("sdxl.fix-face");
   const start = (stored: Record<string, unknown>) => {
-    const { defaults } = formDefaults(fixFace, options, [], stored);
+    const { defaults } = formDefaults(fixFace, { options }, [], stored);
     return { ...defaults, ...stored };
   };
 

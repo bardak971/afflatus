@@ -139,7 +139,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
         const open = useFormTarget.getState().target;
         const status = x.setup.data?.recipes.find((r) => r.id === recipe.id);
         const stored = open?.recipe.id === recipe.id ? open.values : {};
-        const input = wholeForm(recipe, status?.options, x.modelSettings.data?.items ?? [], stored);
+        const input = wholeForm(recipe, status, x.modelSettings.data?.items ?? [], stored);
         await api.warm(recipe.id, input, open?.recipe.id === recipe.id ? open.look ?? null : null);
         void client.invalidateQueries({ queryKey: queryKeys.queue() });
         good(`${recipe.title}: loading its models`, "A job in the queue that renders nothing.", "/queue", "Open queue");

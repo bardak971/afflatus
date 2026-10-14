@@ -32,7 +32,7 @@ export function PresetEditor({ id, def, onChange }: { id?: string; def: PresetDe
   const held = Object.keys(def.inputs).length;
   const look = (def.look as Look | null | undefined) ?? null;
   // the values the form shows: the model's defaults under what the preset sets
-  const whole = recipe ? wholeForm(recipe, status?.options, settings.data?.items ?? [], def.inputs) : def.inputs;
+  const whole = recipe ? wholeForm(recipe, status, settings.data?.items ?? [], def.inputs) : def.inputs;
   // an emptied text or list is not "set to nothing": it leaves the preset, so that applying it leaves the form's own alone
   const setInputs = (inputs: Record<string, unknown>) => onChange({ ...def, inputs: Object.fromEntries(Object.entries(inputs).filter(([, v]) => !(v === "" || (Array.isArray(v) && v.length === 0)))) });
 

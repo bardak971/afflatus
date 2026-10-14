@@ -1,5 +1,5 @@
 /** Models and recipes: what ComfyUI has, what each recipe needs, imported workflows, and where a missing file can be had. */
-import type { Chapter, InputSpec, VideoTraits } from "@afflatus/core";
+import type { Chapter, InputSpec, StartRule, VideoTraits } from "@afflatus/core";
 import type { Bindings, Wiring, WorkflowDef } from "@afflatus/workflows";
 import type { PresetFile } from "./designer";
 
@@ -21,6 +21,8 @@ export interface RecipeInfo {
   models?: string[];
   /** What a model file starts on the first time it is used, by its name (its line's recommended settings). */
   presets?: Array<{ match: string; values: Record<string, unknown>; note?: string }>;
+  /** Settings whose start depends on the family's files as well as on the form (core's StartRule). */
+  starts?: StartRule[];
 }
 export interface FamilyInfo {
   id: string;
@@ -46,6 +48,8 @@ export interface RecipeStatus {
   problems: string[];
   limitedBy: string[];
   options: Record<string, string[]>;
+  /** The files its family's slots use here (slot id → file), for the settings that start by them. */
+  slots?: Record<string, string>;
 }
 export interface Scan {
   at: string;

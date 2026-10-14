@@ -4,7 +4,7 @@ import { useAdvice } from "./advice";
 import { thumbUrl, type RecipeInfo, type RecipeStatus } from "./api";
 import { useModelSettings, useRecipes } from "./data";
 import { Field, sameValue } from "./fields";
-import { changedIn, formDefaults, layoutOf, matchesText, summariesOf, thumbsOf } from "./form";
+import { changedIn, formDefaults, layoutOf, ownValues, matchesText, summariesOf, thumbsOf } from "./form";
 import { InputsPart } from "./recipeForm/InputsPart";
 import { ModelDefaults } from "./recipeForm/ModelDefaults";
 import { OutputPart } from "./recipeForm/OutputPart";
@@ -62,10 +62,10 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   const family = useRecipes().data?.families.find((f) => f.id === recipe.family);
   const settings = useModelSettings();
   const { defaults, file, hasSaved } = useMemo(
-    () => formDefaults(recipe, status?.options, settings.data?.items ?? [], stored),
+    () => formDefaults(recipe, status, settings.data?.items ?? [], stored),
     [recipe, status, settings.data, stored],
   );
-  const values = useMemo(() => ({ ...defaults, ...stored }), [defaults, stored]);
+  const values = useMemo(() => ({ ...defaults, ...ownValues(recipe, stored) }), [recipe, defaults, stored]);
   // what decides which settings show: the values, plus what the screen will fill in itself
   const seen = given ? { ...values, ...given } : values;
   // what it will take: the same query as the Generate button's (advice.ts)

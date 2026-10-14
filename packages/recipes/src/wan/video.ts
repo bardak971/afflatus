@@ -96,8 +96,8 @@ type WanModels = ReturnType<typeof modelsOf> & { high: string; low: string };
 function wanLoad(g: GraphBuilder, ctx: BuildContext, input: WanVideo, picked: WanModels) {
   const turboLoras = input.fast && !picked.distilled && picked.turboHigh && picked.turboLow ? { high: picked.turboHigh, low: picked.turboLow } : null;
   const turbo = input.fast && (picked.distilled || Boolean(turboLoras));
-  // the shift typed in, else the one that suits the steps: 8 at full steps (the template's), 5 for the turbo LoRAs
-  const shift = input.shift > 0 ? input.shift : turbo ? 5 : 8;
+  // the form's shift: 8 at full steps (the template's), and Turbo starts it on 5, what the lightx2v LoRAs are made for
+  const shift = input.shift;
   // the live preview shows the clip forming; ComfyUI's own preview is the first frame alone: the start image, still
   const finish = (model: Ref): Ref => livePreview(g, ctx, g.out("ModelSamplingSD3", { model: faster(g, model, input, ctx), shift }), input.livePreview);
   /** The model with its LoRAs, and the same model with the user's LoRAs but without the turbo one (for the hybrid pass). */
@@ -266,7 +266,7 @@ export const wanVideo = defineRecipe<WanVideo>({
     { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSamplerAdvanced", input: "sampler_name" }, default: "euler", advanced: true, perModel: true },
     { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "KSamplerAdvanced", input: "scheduler" }, default: "simple", advanced: true, perModel: true },
     {
-      id: "shift", type: "number", label: "Shift", min: 0, max: 20, step: 0.5, default: 8, advanced: true, perModel: true,
+      id: "shift", type: "number", label: "Shift", min: 1, max: 20, step: 0.5, default: 8, oldZero: true, advanced: true, perModel: true,
       note: "8 at full steps (ComfyUI's template: with it the half-way handover meets the noise level the two models were split at), 5 with Turbo (what the lightx2v LoRAs are made for). Higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail)",
     },
     {

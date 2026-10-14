@@ -1,4 +1,4 @@
-import { type BuildContext, type GraphBuilder, type Ref } from "@afflatus/core";
+import { type BuildContext, type GraphBuilder, type Ref, type StartRule } from "@afflatus/core";
 import { applyLoras, livePreview } from "../shared/model";
 import { loadUnet } from "../shared/unet";
 import type { H3Video } from "./inputs";
@@ -22,6 +22,25 @@ export const modelOf = (input: H3Video, slots: Record<string, string>) => {
   return { file, turbo: is(input.turboIn, namedFor.turbo), hybrid: is(input.hybrid, namedFor.hybrid) };
 };
 type H3Model = ReturnType<typeof modelOf>;
+
+/**
+ * Where the form starts Turbo's steps and shifts by the files found: a reference clip (pictures, videos or a voice of
+ * the cast) on MiniMax's reference model, a model that is not a hybrid, takes that model's own turbo LoRA when it is
+ * there, and MiniMax's is made for 4 steps at 6 / 3. The render runs what the form says (loadH3Model).
+ */
+export const H3_STARTS: StartRule[] = [{
+  when: {
+    all: [
+      { input: "fast", is: true },
+      { any: [{ input: "references", filled: true }, { input: "refVideos", filled: true }, { input: "voice", filled: true }] },
+      { any: [{ input: "hybrid", is: "No" }, { all: [{ input: "hybrid", is: "From the name" }, { not: { name: { input: "model", slot: "unet" }, match: namedFor.hybrid.source } }] }] },
+      // a distilled reference model takes no LoRA at all
+      { not: { name: { slot: "refUnet" }, match: namedFor.turbo.source } },
+      { name: { slot: "refTurbo" }, match: "(^|[^0-9])4[ _-]?steps?([^a-z]|$)" },
+    ],
+  },
+  values: { turboSteps: 4, shiftVideo: 6, shiftAudio: 3 },
+}];
 
 /**
  * Which way the clip is made. With reference pictures or a voice, the reference model is used: the
@@ -56,12 +75,8 @@ export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, 
   const distilled = own ? picked.turbo : namedFor.turbo.test(unet?.split(/[\\/]/).pop() ?? "");
   const lora = input.fast && !distilled ? turboFile : undefined;
   const turbo = distilled || Boolean(lora);
-  // how many steps a turbo render takes: the form's, which are for the usual turbo LoRA and the distilled files. A
-  // reference clip's own LoRA (MiniMax's 4-step one) is not the form's: its steps and shifts are the ones it is named for
-  const namedSteps = /(\d+)[ _-]?step/i.exec((lora ?? (distilled ? unet : "") ?? "").split(/[\\/]/).pop() ?? "");
-  const ruled = Boolean(lora && lora !== slots.turbo && namedSteps);
-  // 0 is how drafts and saved settings from before the form showed the numbers say "the recipe's"
-  const turboSteps = input.turboSteps > 0 && !ruled ? input.turboSteps : namedSteps ? Number(namedSteps[1]) : 8;
+  // the steps and shifts are the form's, as it shows them: it starts them on what the LoRA in use was trained at (Turbo:
+  // 12 / 3; a reference clip on MiniMax's 4-step reference LoRA: 4 steps at 6 / 3, see H3_STARTS)
   let model = loadUnet(g, ctx, unet);
   // the step cache is for full renders: with the turbo LoRA's 8 steps there is nothing to skip, and it hurts
   if (input.cache && !turbo && ctx.has("MiniMaxH3Cache")) {
@@ -71,11 +86,10 @@ export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, 
   if (ctx.has("ModelPatchTorchSettings")) model = g.out("ModelPatchTorchSettings", { model, enable_fp16_accumulation: true });
   if (lora) model = g.out("LoraLoaderModelOnly", { model, lora_name: lora, strength_model: 1 });
   model = applyLoras(g, model, input.loras);
-  // the shifts typed in, else the ones that suit the steps: the turbo LoRAs were trained at 12/3 (8 steps) and 6/3 (4 steps)
-  model = g.out("MiniMaxH3SigmaShift", { model, shift_video: input.shiftVideo > 0 && !ruled ? input.shiftVideo : turbo ? (turboSteps <= 4 ? 6 : 12) : 11, shift_audio: input.shiftAudio > 0 && !ruled ? input.shiftAudio : turbo ? 3 : 4 });
+  model = g.out("MiniMaxH3SigmaShift", { model, shift_video: input.shiftVideo, shift_audio: input.shiftAudio });
   // the live preview, with the sound so far, sent to whoever queued the prompt: what ComfyUI itself shows
   model = livePreview(g, ctx, model, input.livePreview, audioVae);
   // a turbo model with Fast off takes the steps typed (4 to 8 are what it is made for)
-  const steps = lora || (distilled && input.fast) ? turboSteps : input.steps;
+  const steps = lora || (distilled && input.fast) ? input.turboSteps : input.steps;
   return { model, turbo, steps, lora, distilled, unet };
 }

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { checkGraph, choicesOf, dryContext, parseInput, pickChoice, schemaFor, type ChoiceInput, type NodeCatalog } from "@afflatus/core";
+import { checkGraph, choicesOf, dryContext, parseInput, pickChoice, ruledDefaults, schemaFor, type ChoiceInput, type NodeCatalog } from "@afflatus/core";
 import { seedvrChunk, familyById, krea2Picture, h3Canvas, h3Frames, h3Prompt, h3Video, introduce, kleinSize, padsFor, recipeById, recipes, sdxlTextToPicture, wanCanvas, wanFrames, wanVideo, ltxCanvas, ltxFrames, ltxVideo, LTX_REFINE_SIGMAS, LTX_SIGMAS, fluxEdit, fluxPicture, qwenEdit, qwenPicture, flux, qwen, wan, ltx, zimage, zimagePicture } from "../src";
 
 const catalog = JSON.parse(
@@ -196,14 +196,15 @@ describe("h3.video", () => {
     // left alone: what suits a turbo's few steps, and what suits full steps
     expect(of(build({ fast: true }))).toEqual({ sampler: "euler", scheduler: "simple", video: 12, audio: 3 });
     expect(of(build({ fast: false }))).toEqual({ sampler: "res_multistep", scheduler: "simple", video: 11, audio: 4 });
-    // the usual turbo LoRA follows the form's numbers, whatever its name says (a reference clip's own LoRA does not)
+    // the turbo LoRA runs the form's numbers, whatever its name says
     const four = build({ fast: true }, { slots: { ...slots, turbo: "minimax_h3_fl2v_turbo_4step_v1.0_768p.safetensors" } });
     expect(of(four)).toMatchObject({ video: 12, audio: 3 });
     expect(one(four, "BasicScheduler")[0]!.inputs.steps).toBe(8);
-    // 0, from drafts saved before the form showed the numbers: the recipe's, read from the LoRA's name
-    const old = build({ fast: true, turboSteps: 0, shiftVideo: 0 }, { slots: { ...slots, turbo: "minimax_h3_fl2v_turbo_4step_v1.0_768p.safetensors" } });
-    expect(of(old)).toMatchObject({ video: 6 });
-    expect(one(old, "BasicScheduler")[0]!.inputs.steps).toBe(4);
+    // 0, from drafts saved before the form showed the numbers: left alone, so what the form starts on (Turbo: 12 / 3)
+    const old = build({ fast: true, turboSteps: 0, shiftVideo: 0, shiftAudio: 0 });
+    expect(of(old)).toMatchObject({ video: 12, audio: 3 });
+    expect(one(old, "BasicScheduler")[0]!.inputs.steps).toBe(8);
+    expect(of(build({ fast: false, shiftVideo: 0 }))).toMatchObject({ video: 11, audio: 4 });
     // set in the form: used as they are, with Turbo or without
     const own = { sampler: "dpmpp_2m", scheduler: "beta", shiftVideo: 9, shiftAudio: 3.5 };
     expect(of(build({ fast: true, ...own }))).toEqual({ sampler: "dpmpp_2m", scheduler: "beta", video: 9, audio: 3.5 });
@@ -309,8 +310,16 @@ describe("h3.video with references", () => {
     const own = build({}, { slots: { ...slots, refTurbo: "rt.safetensors" } });
     expect(one(own, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name)).toEqual(["rt.safetensors"]);
     expect(one(own, "MiniMaxH3SigmaShift")[0]!.inputs).toMatchObject({ shift_video: 12, shift_audio: 3 });
-    // its own 4-step LoRA runs the steps and the shifts it was made for, not the form's (which are the usual LoRA's)
-    const four = build({ turboSteps: 8, shiftVideo: 12 }, { slots: { ...slots, refTurbo: "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors" } });
+    // its own 4-step LoRA: the form starts the steps and shifts on what it was made for, and the render runs them
+    const refFour = "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors";
+    const form = { fast: true, references: [{ asset: "r", role: "person" }], hybrid: "From the name" };
+    expect(ruledDefaults(h3Video.starts, form, { ...slots, refTurbo: refFour })).toEqual({ turboSteps: 4, shiftVideo: 6, shiftAudio: 3 });
+    // not with a hybrid model (it takes the references itself), without references, with Turbo off, or with the usual LoRA alone
+    expect(ruledDefaults(h3Video.starts, form, { ...slots, unet: "dasiwaHybridTurboV3.safetensors", refTurbo: refFour })).toEqual({});
+    expect(ruledDefaults(h3Video.starts, { ...form, references: [] }, { ...slots, refTurbo: refFour })).toEqual({});
+    expect(ruledDefaults(h3Video.starts, { ...form, fast: false }, { ...slots, refTurbo: refFour })).toEqual({});
+    expect(ruledDefaults(h3Video.starts, form, slots)).toEqual({});
+    const four = build({ turboSteps: 4, shiftVideo: 6 }, { slots: { ...slots, refTurbo: refFour } });
     expect(four.totalSteps).toBe(4);
     expect(one(four, "MiniMaxH3SigmaShift")[0]!.inputs).toMatchObject({ shift_video: 6, shift_audio: 3 });
   });
