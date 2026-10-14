@@ -88,7 +88,9 @@ export async function store(
     for (const { file, kind } of files) {
       const filed = await fileOne(core, comfy, recipe, input, resume, { file, kind }, sides, written);
       // in its own column for the timelines, and in resolved as before (the asset API hands resolved out whole)
-      if (filed.measure) resolved.measure = filed.measure;
+      // a clip's face along it goes with its look: the timeline compares it as it does the brightness
+      const faces = faceFigures(resume, outputs);
+      if (filed.measure) resolved.measure = faces ? { ...filed.measure, face: faces.face, ...(faces.low !== null ? { faceLow: faces.low } : {}) } : filed.measure;
       rows.push(newAssetRow({ ...filed.row, folder_id: folder, generation_id: generationId, created_at: at }));
     }
     // what a draft made is named after it, numbered on; a timeline clip's take is named once it is placed (autoName.ts)
@@ -121,10 +123,14 @@ export async function store(
 
 /** How much the face in the result is the person of the photos it was made with (a Face Match node's figure), or null. */
 function faceOf(resume: Resume, outputs: Outputs): number | null {
+  return faceFigures(resume, outputs)?.face ?? null;
+}
+/** The Face Match node's figures: the median over the frames read (a picture: its one), and the lowest. */
+function faceFigures(resume: Resume, outputs: Outputs): { face: number; low: number | null } | null {
   for (const out of resume.outputs) {
     if (out.role !== "score") continue;
-    const said = (outputs[out.node] as { afflatus_face?: Array<{ face?: number | null }> } | undefined)?.afflatus_face?.[0]?.face;
-    if (typeof said === "number" && Number.isFinite(said)) return said;
+    const said = (outputs[out.node] as { afflatus_face?: Array<{ face?: number | null; low?: number | null }> } | undefined)?.afflatus_face?.[0];
+    if (typeof said?.face === "number" && Number.isFinite(said.face)) return { face: said.face, low: typeof said.low === "number" ? said.low : null };
   }
   return null;
 }

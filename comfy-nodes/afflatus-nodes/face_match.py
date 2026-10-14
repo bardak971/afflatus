@@ -25,17 +25,20 @@ def _face_app():
     if _app is None:
         from insightface.app import FaceAnalysis
 
-        root = os.path.join(folder_paths.models_dir, "insightface")
+        # ComfyUI's own models folder (where InstantID, PuLID and the like keep these), else the Afflatus pod's built-in copy;
+        # with neither, InsightFace fetches them into the first the first time
+        roots = [os.path.join(folder_paths.models_dir, "insightface"), "/opt/insightface"]
+        root = next((r for r in roots if os.path.isdir(os.path.join(r, "models", "buffalo_l"))), roots[0])
         _app = FaceAnalysis(name="buffalo_l", root=root, allowed_modules=["detection", "recognition"], providers=["CPUExecutionProvider"])
         _app.prepare(ctx_id=-1, det_size=(640, 640))
     return _app
 
 
-def _faces(image) -> list:
-    """The faces of a ComfyUI image (the first of its batch), each a unit embedding with its width in pixels."""
+def _faces(image, index: int = 0) -> list:
+    """The faces of one picture of a ComfyUI image batch, each a unit embedding with its width in pixels."""
     import numpy as np
 
-    rgb = (image[0].detach().cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+    rgb = (image[index].detach().cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
     out = []
     for f in _face_app().get(rgb[:, :, ::-1].copy()):
         if f.bbox[2] - f.bbox[0] >= 32 and f.det_score >= 0.5:
@@ -51,9 +54,10 @@ class AfflatusFaceMatch(io.ComfyNode):
             node_id="AfflatusFaceMatch",
             display_name="Afflatus: Face Match",
             category="Afflatus",
-            description="How much a face in the image is the person of the photos (ArcFace, InsightFace buffalo_l, on the CPU): the best match, -1 to 1. Handed back to Afflatus with the prompt's outputs.",
+            description="How much a face in the image is the person of the photos (ArcFace, InsightFace buffalo_l, on the CPU): the best match, -1 to 1. A batch of frames (a clip) is read at a few of them, evenly: the median and the lowest. Handed back to Afflatus with the prompt's outputs.",
             inputs=[
-                io.Image.Input("image", tooltip="The picture made: its faces are set against the photos'."),
+                io.Image.Input("image", tooltip="The picture made, or a clip's frames: its faces are set against the photos'."),
+                io.Int.Input("samples", default=8, min=1, max=64, optional=True, tooltip="Of a batch of frames, how many are read, evenly spread."),
                 io.Image.Input("photo_1", tooltip="A photo of the person."),
                 io.Image.Input("photo_2", optional=True, tooltip="Another photo of them."),
                 io.Image.Input("photo_3", optional=True, tooltip="A third."),
@@ -63,7 +67,7 @@ class AfflatusFaceMatch(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, image, photo_1, photo_2=None, photo_3=None) -> io.NodeOutput:
+    def execute(cls, image, photo_1, photo_2=None, photo_3=None, samples: int = 8) -> io.NodeOutput:
         import numpy as np
 
         refs = []
@@ -73,6 +77,14 @@ class AfflatusFaceMatch(io.ComfyNode):
             faces = _faces(photo)
             if faces:
                 refs.append(max(faces, key=lambda f: f[1])[0])
-        made = _faces(image)
-        best = max((float(np.dot(f[0], r)) for f in made for r in refs), default=None)
-        return io.NodeOutput(ui={"afflatus_face": [{"face": None if best is None else round(best, 3), "faces": len(made), "photos": len(refs)}]})
+        n = int(image.shape[0])
+        picked = sorted({round(i * (n - 1) / max(1, samples - 1)) for i in range(min(samples, n))}) if n > 1 else [0]
+        # each frame read: its best match among its faces (the person put in, wherever they stand); none when no face is read
+        found = []
+        for i in picked:
+            scores = [float(np.dot(f[0], r)) for f in _faces(image, i) for r in refs]
+            if scores:
+                found.append(max(scores))
+        face = round(float(np.median(found)), 3) if found else None
+        low = round(float(min(found)), 3) if found else None
+        return io.NodeOutput(ui={"afflatus_face": [{"face": face, "low": low, "frames": len(found), "read": len(picked), "photos": len(refs)}]})

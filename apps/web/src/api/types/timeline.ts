@@ -39,6 +39,9 @@ export interface Measure {
   edges?: number;
   /** The fine noise: how far the pixels sit from their cleaned copy, in luma steps. */
   grain?: number;
+  /** How much the face along the clip is the person it is of (its Picture, its cast), -1 to 1: the median over a few frames, and the lowest. */
+  face?: number;
+  faceLow?: number;
   /** Mean chroma against neutral: U blue (+) to yellow (−), V red (+) to green (−). */
   chroma?: { u: number; v: number };
   /** Where the darkest and the brightest tenth of the picture sit in luma. */

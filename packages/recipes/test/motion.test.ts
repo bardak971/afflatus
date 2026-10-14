@@ -148,7 +148,7 @@ describe("Wan Animate 2 · Motion transfer", () => {
   });
   it("keeps its own frames beside the clip, for the window after to carry on from", () => {
     const wa = wanAnimateMotion.build(parseInput(wanAnimateMotion, { picture: "p1", driving: { asset: "v1" } }), dryContext({ slots: wslots, uploads: { picture: "p.png", driving: "d.mp4" }, media: { picture: { width: 768, height: 1360 }, driving: at24(81 / 24) } }));
-    expect(wa.outputs.map((o) => o.role)).toEqual(["result", "raw"]);
+    expect(wa.outputs.map((o) => o.role)).toEqual(["result", "raw", "score"]);
   });
   it("keeps the sound of the frames it makes: from after the one carried over", () => {
     const input = parseInput(wanAnimateMotion, { picture: "p1", driving: { asset: "v1" }, previous: { asset: "v0" } });
@@ -175,10 +175,19 @@ describe("SCAIL-2 carrying on from the clip before", () => {
   });
   it("keeps the model's own frames beside the clip, for the window after to carry on from (not the finished ones)", () => {
     const sc = scailMotion.build(parseInput(scailMotion, { picture: "p1", driving: { asset: "v1" } }), dryContext({ slots, uploads: { picture: "p.png", driving: "d.mp4" }, media: { picture: { width: 768, height: 1360 }, driving: part(81 / SCAIL_FPS) } }));
-    expect(sc.outputs.map((o) => o.role)).toEqual(["result", "raw"]);
+    expect(sc.outputs.map((o) => o.role)).toEqual(["result", "raw", "score"]);
     const raw = (sc.graph as Graph)[sc.outputs[1]!.node]!;
     // at the model's own speed, not RIFE's doubled one
     expect(JSON.stringify(raw.inputs)).toMatch(/16/);
+  });
+  it("measures the face along the clip against the Picture, with the Face Match node only", () => {
+    const has = (n: string) => n !== "nothing";
+    const { built } = build({}, part(81 / SCAIL_FPS), has);
+    const score = built.outputs.find((o) => o.role === "score");
+    expect(score).toBeDefined();
+    expect((built.graph as Graph)[score!.node]!.class_type).toBe("AfflatusFaceMatch");
+    const without = build({}, part(81 / SCAIL_FPS), (n) => n !== "AfflatusFaceMatch").built;
+    expect(without.outputs.some((o) => o.role === "score")).toBe(false);
   });
   it("says it makes a long source window by window, carrying on from the clip before", () => {
     expect(scailMotion.traits).toMatchObject({ continues: "clip", windows: { most: 321, carried: 5 } });

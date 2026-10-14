@@ -14,7 +14,7 @@ import { SHOWS } from "./attention";
  * -15 % reads as slow motion. Colour: the distance moved in U/V (0 to 255 chroma), past 3 a cast shows.
  * Run-up end: past ×3 the model stepped away from its guide, and the join shows (SHOWS, as every join figure).
  */
-export const DRIFT = { luma: -0.08, sharp: -0.15, pace: -0.15, colour: 3, handover: SHOWS, grain: 0.2 } as const;
+export const DRIFT = { luma: -0.08, sharp: -0.15, pace: -0.15, colour: 3, handover: SHOWS, grain: 0.2, face: -0.2 } as const;
 
 /**
  * The sharpness two takes are compared on: without the grain when both were measured that way (grain read as detail,
@@ -60,6 +60,8 @@ export interface Against {
   sharp: number | null;
   /** More grain is the warning: +0.30, a third more. */
   grain: number | null;
+  /** The face less like the person: −0.40, at 60 % of the likeness it had (on the meme, clips 3 to 6 against clip 1: about −0.45). */
+  face: number | null;
   pace: number | null;
   colour: number | null;
 }
@@ -69,6 +71,7 @@ function against(m: Measure, other: Measure | null | undefined): Against {
     luma: change(m.luma, other?.luma),
     sharp: other ? change(sharpOf(m, other), sharpOf(other, m), 0.01) : null,
     grain: change(m.grain, other?.grain, 0.1),
+    face: change(m.face, other?.face, 0.05),
     pace: change(m.pace, other?.pace, 0.1),
     colour: colourShift(m, other),
   };
@@ -113,7 +116,7 @@ export function driftOf(clips: Array<Pick<Clip, "joined" | "take">>, index: numb
 /** The header's warning: "darker, softer than clip 1"; against the run's start first, else against the clip before. Null when nothing is past. */
 export function driftWords(d: Drift | null): string | null {
   if (!d) return null;
-  const words = (a: Against) => [past("luma", a.luma) && "darker", past("sharp", a.sharp) && "softer", past("grain", a.grain) && "grainier", past("pace", a.pace) && "slower", past("colour", a.colour) && "tinted"].filter(Boolean).join(", ");
+  const words = (a: Against) => [past("luma", a.luma) && "darker", past("sharp", a.sharp) && "softer", past("grain", a.grain) && "grainier", past("face", a.face) && "less alike", past("pace", a.pace) && "slower", past("colour", a.colour) && "tinted"].filter(Boolean).join(", ");
   const whole = words(d.whole);
   if (whole) return `${whole} than clip ${d.start + 1}`;
   const hop = words(d.hop);

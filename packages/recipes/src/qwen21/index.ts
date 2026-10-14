@@ -1,6 +1,7 @@
 import { defineFamily, defineRecipe, GraphBuilder, REFERENCE_ROLES, roundTo, type InputSpec, type LoraValue, type Ref, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { qwenLint } from "../shared/lint";
+import { FACE_NODE, faceScore } from "../shared/face";
 
 const HF = "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main";
 
@@ -253,7 +254,7 @@ export const qwen21MotionPicture = defineRecipe<Qwen21MotionPicture>({
     ...sampling,
   ],
   nodes: (input) => [...NODES(input), "LoadImage"],
-  optionalNodes: ["LoraLoaderModelOnly", "AfflatusFaceMatch"],
+  optionalNodes: ["LoraLoaderModelOnly", FACE_NODE],
   build(input, ctx) {
     const g = new GraphBuilder();
     const k = load(g, input, ctx);
@@ -276,13 +277,11 @@ export const qwen21MotionPicture = defineRecipe<Qwen21MotionPicture>({
     const made = (lit ?? put).image;
     const out = g.add("PreviewImage", { images: made });
     // how much the face in it is the person of the photos (the Afflatus pack's Face Match, with insightface): the box ranks by it
-    const score = ctx.has("AfflatusFaceMatch") && photos.length
-      ? g.add("AfflatusFaceMatch", { image: made, ...Object.fromEntries(photos.map((file, i) => [`photo_${i + 1}`, g.out("LoadImage", { image: file })])) })
-      : null;
+    const score = faceScore(g, ctx, made, photos.map((file) => g.out("LoadImage", { image: file })));
     const passes = [{ node: put.sampled[0], steps: input.steps }, ...(lit ? [{ node: lit.sampled[0], steps: input.steps }] : [])];
     return {
       graph: g.graph, phases: g.phases, totalSteps: input.steps * passes.length, passes, loads: k.loads,
-      outputs: [{ node: out, kind: "image", role: "result" }, ...(score ? [{ node: score, kind: "image" as const, role: "score" as const }] : [])],
+      outputs: [{ node: out, kind: "image", role: "result" }, ...score],
     };
   },
   variants: [
