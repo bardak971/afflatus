@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { MotionPictureBanner } from "../../motionPicture";
+import { MotionPictureBanner, motionSlots } from "../../motionPicture";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Entity } from "../../api";
 import { useEntities, useFamilies, useModelSettings, useRecipes, useSetup } from "../../data";
@@ -150,7 +150,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
             onClear={(inputs) => d.clearValues(recipe.id, inputs)}
             made={<ModelPicker pick={pick} recipe={recipe} presets={<PresetMenu presets={presets} current={{ recipe: recipe.id, values: whole }} onApply={applyPreset} onSave={(name) => savePreset.mutate(name)} error={presetError} />} />}
             madeSummary={pick.group ? `${pick.group.name} · ${recipe.title}` : recipe.title}
-            look={takesLook ? <LookBar look={draft.look} onChange={d.setLook} recipe={recipe} input={whole} /> : undefined}
+            look={takesLook ? <LookBar look={draft.look} onChange={d.setLook} recipe={recipe} input={whole} {...(motionSlots(recipe.inputs) ? { title: "Who goes in" } : {})} /> : undefined}
             lookSummary={takesLook ? lookWords(draft.look, entities.data?.items ?? []) : undefined}
             helpers={
               <WritingHelp
