@@ -142,6 +142,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
           <CardPrompt.Provider value>
           <Form
             key={`${draft.id}:${recipe.id}`}
+            promptInView
             recipe={recipe}
             status={status}
             stored={formValues}

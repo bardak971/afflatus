@@ -81,8 +81,9 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
   );
   // a clip that joins its neighbours and is not rendered yet: what matters for the join first, the whole form folded under it
   const nextJoined = Boolean(after && after.joined === "continue" && after.take);
-  // the Join view is for a clip put between two others: something to arrive at, not merely a clip that extends the one before
-  const joins = !take && (nextJoined || Boolean(ends));
+  // the Join view is for a clip put between two others: something to arrive at, not merely a clip that extends the one before.
+  // A window of a source follows its driving video: nothing is written for what happens between, it lands nowhere
+  const joins = !take && !recipe.traits?.windows && (nextJoined || Boolean(ends));
   const leftFrame = opens ? thumbUrl(opens) : carries && before ? (before.kind === "still" && before.still ? thumbUrl(before.still.id) : before.take ? `/api/assets/${before.take.asset.id}/peek?at=${Math.max(0, Math.round(before.take.endMs - 20))}&h=160&v=${fileVersion(before.take.asset)}` : null) : null;
   const rightFrame = ends ? thumbUrl(ends) : nextJoined && after?.take ? `/api/assets/${after.take.asset.id}/peek?at=${Math.round(after.take.startMs)}&h=160&v=${fileVersion(after.take.asset)}` : null;
   const startsHow = carries ? `Extends clip ${index}: its motion carries in` : opens ? `Opens on a picture` : "Starts on its own";

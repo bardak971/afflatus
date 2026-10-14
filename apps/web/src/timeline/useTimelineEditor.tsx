@@ -186,7 +186,9 @@ export function useTimelineEditor(id: string) {
     run: () => makeSourceMut.mutate(undefined, { onSuccess: (r) => setToRender(r.clips) }),
   };
 
-  const hasRecipe = clips.some((c) => c.recipe);
+  // a window of the source (Motion transfer) is made from its driving video: a clip added by hand, or extending one, takes
+  // the timeline's other model, as the server does (timelinePlan.ts newClip), else the first that can run
+  const hasRecipe = clips.some((c) => c.recipe && !recipes.data?.recipes.find((r) => r.id === c.recipe)?.traits?.windows);
   const newClip = (afterId?: string | null) => add.mutate({ after: afterId, recipe: hasRecipe ? undefined : firstRecipe() });
   /** A clip one place earlier or later on the timeline: one step to undo, as a drag along the track. */
   const move = useCallback((clip: string, by: -1 | 1) => {

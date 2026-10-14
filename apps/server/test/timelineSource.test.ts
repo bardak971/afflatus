@@ -121,6 +121,69 @@ describe("a timeline's source lane", () => {
   });
 });
 
+describe("the windows of a source", () => {
+  /** A source of the meme made into SCAIL windows from 3 s, with this form; the windows' ids. */
+  async function made(tl: { id: string }, inputs: Record<string, unknown>): Promise<string[]> {
+    const meme = await asset("video");
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id } });
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, recipe: "scail.motion", inputs } });
+    return (await call("POST", `/api/timelines/${tl.id}/source/make`)).clips as string[];
+  }
+
+  it("are given no seed of their own when none was typed: each render draws one, and the source's form stays random", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test source" });
+    await made(tl, { prompt: "A man raps.", seed: -1 });
+    const v = await view(tl.id);
+    // one seed drawn for every window was a typed seed to the seed mode: every New take was sent with it again
+    for (const c of v.clips) expect(c.inputs.seed ?? -1).toBe(-1);
+    expect(v.source.inputs.seed).toBe(-1);
+  });
+
+  it("share their prompt as their Picture: written on one, every window and the source take it; the seed and the part stay each one's", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test source" });
+    const ids = await made(tl, { prompt: "A man raps.", seed: 42 });
+    const one = (await view(tl.id)).clips[1];
+    await call("PATCH", `/api/clips/${ids[1]}`, { inputs: { ...one.inputs, prompt: "A woman sings.", seed: 7 } });
+    let v = await view(tl.id);
+    expect(v.clips.map((c: { inputs: { prompt: string } }) => c.inputs.prompt)).toEqual(ids.map(() => "A woman sings."));
+    expect(v.source.inputs.prompt).toBe("A woman sings.");
+    expect(v.clips.map((c: { inputs: { seed: number } }) => c.inputs.seed)).toEqual([42, 7, 42, 42, 42]);
+    expect(new Set(v.clips.map((c: { inputs: { drivingStart: number } }) => c.inputs.drivingStart)).size).toBe(ids.length);
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { inputs: { ...v.source.inputs, prompt: "A man dances." } } });
+    v = await view(tl.id);
+    expect(v.clips.every((c: { inputs: { prompt: string } }) => c.inputs.prompt === "A man dances.")).toBe(true);
+  });
+
+  it("made a cut, no longer start their carried frames early; made to carry on again, they do; a duplicate is a cut too", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test source" });
+    const ids = await made(tl, {});
+    const before = (await view(tl.id)).clips[2].inputs;
+    // SCAIL carries 5 frames at 16 fps
+    await call("PATCH", `/api/clips/${ids[2]}`, { joined: "cut" });
+    const cut = (await view(tl.id)).clips[2].inputs;
+    expect(cut.drivingStart).toBeCloseTo(before.drivingStart + 5 / 16, 3);
+    expect(cut.drivingSeconds).toBeCloseTo(before.drivingSeconds - 5 / 16, 3);
+    await call("PATCH", `/api/clips/${ids[2]}`, { joined: "continue" });
+    const again = (await view(tl.id)).clips[2].inputs;
+    expect(again.drivingStart).toBeCloseTo(before.drivingStart, 3);
+    expect(again.drivingSeconds).toBeCloseTo(before.drivingSeconds, 3);
+    await call("POST", `/api/clips/${ids[3]}/duplicate`);
+    const v = await view(tl.id);
+    expect(v.clips[4].joined).toBe("cut");
+    expect(v.clips[4].inputs.drivingStart).toBeCloseTo(v.clips[3].inputs.drivingStart + 5 / 16, 3);
+  });
+
+  it("are not what a clip added after them is made with: it takes the timeline's other model, else none", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test source" });
+    const ids = await made(tl, {});
+    const alone = (await call("POST", `/api/timelines/${tl.id}/clips`, { after: ids[4] })).clip;
+    expect((await view(tl.id)).clips.find((c: { id: string }) => c.id === alone).recipe).toBeNull();
+    await call("POST", `/api/timelines/${tl.id}/clips`, { after: null, recipe: "h3.video" });
+    const next = (await call("POST", `/api/timelines/${tl.id}/clips`, { after: ids[2] })).clip;
+    expect((await view(tl.id)).clips.find((c: { id: string }) => c.id === next).recipe).toBe("h3.video");
+  });
+});
+
 describe("the Picture of a source's windows", () => {
   it("is one: changed on a window or on the source, every window and the source take it", async () => {
     const tl = await call("POST", "/api/timelines", { name: "zz-test source" });

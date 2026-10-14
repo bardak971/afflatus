@@ -12,6 +12,7 @@ import { inUse } from "./sweep";
 import { readVideo, videoFacts } from "./video";
 import { clockOf, laidOut, landingOnGrid, lengthOf, lengthOnGrid, plays, STILL_MS, visible, type AssetRow, type ClipRow, type Laid, type Placed, type TimelineCore } from "./timelineModel";
 import { precomputeOf } from "./precompute";
+import { windowRunUp } from "./timelineSource";
 
 /**
  * Cuts, on the timeline's clock and in a video's own time: a clip split or duplicated, a range of the
@@ -189,7 +190,7 @@ export class TimelineRange {
       order.splice(index + 1, 0, id);
       await tx
         .insertInto("clips")
-        .values({ ...clip, id, position: index + 1, take_id: clip.take_id ? ids.get(clip.take_id) ?? null : null, joined: "cut", chat: null, created_at: at, updated_at: at })
+        .values({ ...clip, id, position: index + 1, take_id: clip.take_id ? ids.get(clip.take_id) ?? null : null, joined: "cut", inputs: this.cutInputs(clip), chat: null, created_at: at, updated_at: at })
         .execute();
       for (const t of takes) {
         const finished = t.finished_from ? ids.get(t.finished_from) ?? null : null;
@@ -291,7 +292,14 @@ export class TimelineRange {
     if (p.clip.kind === "still") return void (await db.updateTable("clips").set({ still_ms: Math.max(STILL_MS.least, Math.round(p.clip.still_ms - fromMs)), updated_at: now() }).where("id", "=", p.clip.id).execute());
     const x = p.active!;
     await db.updateTable("takes").set({ trim_start_ms: Math.max(0, Math.round(x.take.trim_start_ms + fromMs)) }).where("id", "=", x.take.id).execute();
-    if (p.clip.joined === "continue") await db.updateTable("clips").set({ joined: "cut", updated_at: now() }).where("id", "=", p.clip.id).execute();
+    if (p.clip.joined === "continue") await db.updateTable("clips").set({ joined: "cut", inputs: this.cutInputs(p.clip), updated_at: now() }).where("id", "=", p.clip.id).execute();
+  }
+
+  /** A clip's form once it no longer carries on: a window of a source no longer starts its carried frames early (windowRunUp). */
+  private cutInputs(clip: Pick<ClipRow, "joined" | "recipe_id" | "inputs">): string {
+    if (clip.joined !== "continue" || !clip.recipe_id) return clip.inputs;
+    const moved = windowRunUp(this.core.registry.recipe(clip.recipe_id), JSON.parse(clip.inputs) as Record<string, unknown>, "cut");
+    return moved ? JSON.stringify(moved) : clip.inputs;
   }
 
   /**
@@ -643,10 +651,10 @@ export class TimelineRange {
       }
       // a clip that followed what is now slowed down no longer does
       const next = all[l.index + 1];
-      if (next?.clip.joined === "continue") await db.updateTable("clips").set({ joined: "cut", updated_at: at }).where("id", "=", next.clip.id).execute();
+      if (next?.clip.joined === "continue") await db.updateTable("clips").set({ joined: "cut", inputs: this.cutInputs(next.clip), updated_at: at }).where("id", "=", next.clip.id).execute();
     }
     const first = parts[0];
-    if (first?.p.clip.joined === "continue") await db.updateTable("clips").set({ joined: "cut", updated_at: at }).where("id", "=", first.p.clip.id).execute();
+    if (first?.p.clip.joined === "continue") await db.updateTable("clips").set({ joined: "cut", inputs: this.cutInputs(first.p.clip), updated_at: at }).where("id", "=", first.p.clip.id).execute();
     return jobs;
   }
 }
