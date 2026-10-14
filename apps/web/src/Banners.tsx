@@ -11,6 +11,7 @@ import { OUT_MS } from "./motion";
 import { useBanners, useHandover, useNotify, type Banner } from "./store";
 import { cx } from "./ui";
 import { askViewer, passFrom } from "./viewer/ask";
+import { machineName } from "./machines";
 import { queryKeys } from "./queryKeys";
 
 /**
@@ -62,6 +63,9 @@ export function Banners() {
   const { items, push, dismiss } = useBanners();
   const [path, go] = useLocation();
   const queue = useQueue();
+  // the machines by name for the downloads said below, read as they are then (the downloads, not the queue, say when)
+  const queueNow = useRef(queue.data);
+  queueNow.current = queue.data;
   const client = useQueryClient();
   const downloads = useDownloads();
   // what was already finished when the page opened is old news
@@ -127,7 +131,9 @@ export function Banners() {
       // unread failures of the last day only, so it is news; a dismissed one is marked read there, so a reload does not bring it back)
       if (seenDownloads.current ? seenDownloads.current.get(d.id) === d.status : d.status !== "error" || d.seen) continue;
       const name = d.file.split(/[\\/]/).pop() ?? d.file;
-      if (d.status === "done") push({ id: `download:${d.id}`, tone: "good", title: `${name} installed in ComfyUI`, href: "/settings/models", go: "Open settings" });
+      // on a machine of its own (a rented pod, another ComfyUI): said there, and its card opened, where its files are listed
+      const on = d.machine ? machineName(queueNow.current, d.machine) : null;
+      if (d.status === "done") push({ id: `download:${d.id}`, tone: "good", title: on ? `${name} on ${on}` : `${name} installed in ComfyUI`, ...(on ? { href: `/settings?machine=${encodeURIComponent(d.machine!)}`, go: `Open ${on}` } : { href: "/settings/models", go: "Open settings" }) });
       if (d.status === "error") push({ id: `download:${d.id}`, tone: "bad", title: `Download of ${name} failed`, text: d.error, href: "/settings", go: "Open settings", onDismiss: () => void api.downloadSeen(d.id).catch(() => {}) });
     }
     seenDownloads.current = new Map(list.map((d) => [d.id, d.status]));

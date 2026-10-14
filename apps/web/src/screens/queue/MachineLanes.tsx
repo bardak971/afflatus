@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, MoreHorizontal, Pause, Play } from "lucide-react";
 import { previewUrl, type MachineState, type QueueStatus, type RunningJob, type SystemLoad } from "../../api";
 import { useMenu } from "../../ContextMenu";
-import { gb, phaseLabel, timeLeft } from "../../format";
+import { gb, phaseLabel, plural, timeLeft } from "../../format";
 import { machineLabel } from "../../machines";
 import { useQueueOps } from "../../queueOps";
 import { useSystem } from "../../store";
@@ -229,7 +229,7 @@ function OpenLane({ m, fastest, onStop, onPin, onFold }: { m: MachineState; fast
     >
       <MachineRow m={m} onPin={onPin} onOpen={onFold} open />
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(300px,420px)] gap-4 p-3.5">
-        {m.running ? <RunningCard running={m.running} onStop={onStop} /> : (
+        {m.running ? <RunningCard running={m.running} onStop={onStop} /> : getting(m) ? <Getting m={m} /> : (
           <div className="flex items-center gap-3.5 rounded-[10px] border border-dashed border-line-strong px-4 py-3 text-ink-2">
             <span className="grid size-[34px] shrink-0 place-items-center rounded-full border-[1.5px] border-line-strong"><Dot state={state} /></span>
             <span className="flex min-w-0 flex-col gap-0.5">
@@ -327,6 +327,32 @@ export function MachineLanes({ q, onStop, onPin }: { q: QueueStatus; onStop(id: 
         </>
       )}
       {tool && <RunningCard running={tool} onStop={onStop} />}
+    </div>
+  );
+}
+
+/** The files a rented pod is getting for the jobs waiting for it (those asked ahead are not waited for). */
+const getting = (m: MachineState) => (m.rented?.files ?? []).filter((f) => f.tier === "need" && (f.state === "next" || f.state === "fetching"));
+
+/**
+ * A pod getting the files its waiting jobs need, in place of "Idle": it is not idle, and minutes of downloads said nothing
+ * on the Queue page (the owner: "no download visual cue for a rented pod"). How many, how far, and the file under way.
+ */
+function Getting({ m }: { m: MachineState }) {
+  const files = (m.rented?.files ?? []).filter((f) => f.tier === "need");
+  const left = getting(m);
+  const done = files.reduce((n, f) => n + (f.state === "ready" ? f.total : f.bytes), 0);
+  const total = files.reduce((n, f) => n + f.total, 0);
+  const now = left.find((f) => f.state === "fetching") ?? left[0]!;
+  const share = total > 0 ? Math.min(1, done / total) : 0;
+  return (
+    <div className="flex flex-col justify-center gap-2 rounded-[10px] border border-line-strong px-4 py-3 text-ink-2">
+      <span className="flex items-baseline gap-2">
+        <span className="font-semibold text-ink">Getting {plural(left.length, "file")} for its jobs</span>
+        {total > 0 && <span className="font-mono text-xs">{gb(done)} of {gb(total)}</span>}
+      </span>
+      <span className="h-1.5 overflow-hidden rounded-full bg-line"><span className="block h-full rounded-full bg-accent transition-[width] duration-700" style={{ width: `${Math.round(share * 100)}%` }} /></span>
+      <span className="truncate text-xs">{now.state === "fetching" ? "now" : "next"}: {now.file}{now.via ? ` · from ${now.via === "hf" ? "Hugging Face" : now.via === "civitai" ? "Civitai" : now.via === "upload" ? "this PC" : "its address"}` : ""}</span>
     </div>
   );
 }
