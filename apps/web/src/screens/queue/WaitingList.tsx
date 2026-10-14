@@ -173,6 +173,12 @@ export function WaitingList({ waiting, running, machines = [], onOrder, onRemove
                 }).join(", ")}
               </span>
             )}
+            {/* a machine that takes work now but not this job: what keeps it off there (a pod lacking a node no pack has) */}
+            {machines.length > 0 && !w.pinned && !w.machine && machines.filter((m) => !m.paused && m.online !== false && !w.runsOn?.includes(m.id) && lackSaid(w.lacks?.[m.id])).map((m) => (
+              <span key={m.id} className="min-w-0 truncate text-xs text-ink-2" data-tip={`${machineLabel(m)}: ${lackSaid(w.lacks?.[m.id])}`}>
+                · not on {machineLabel(m)}: {lackSaid(w.lacks?.[m.id])}
+              </span>
+            ))}
             {onPin && freeNow(w) && (
               <button type="button" className="shrink-0 text-xs font-semibold text-accent hover:underline" data-tip="It waits for a machine that ends it sooner; this one is free now" onClick={() => onPin(w.id, freeNow(w)!.id)}>
                 Run on {machineLabel(freeNow(w)!)} now
@@ -231,6 +237,7 @@ function lackSaid(lack: MachineLack | undefined): string | null {
   if (lack.balance) return `its RunPod balance lasts ${est(lack.balance.leftMs)}, this takes ${est(lack.balance.needMs)}`;
   if (lack.failed) return `its file cannot get there: ${lack.failed}`;
   if (lack.off) return "its family is off there";
+  if (lack.why) return lack.why;
   return lack.files.length ? `lacks ${plural(lack.files.length, "file")}` : "cannot run it";
 }
 

@@ -878,7 +878,7 @@ ${JSON.stringify(input)}`;
         // a rented pod whose ComfyUI cannot be read now (booting, restarting for node packs, away) starts with nothing: what
         // it has is not known, so it is not given the job (a ComfyUI of the user's own is not held against a job for that)
         if (lane.machine!.rented && !scan?.comfy.online) {
-          lacks[lane.id] = { off: false, files: [], sendable: false };
+          lacks[lane.id] = { off: false, files: [], sendable: false, why: "its ComfyUI is not answering yet" };
           return;
         }
         // a lone rented pod is asked too: what it lacks may be sent to it

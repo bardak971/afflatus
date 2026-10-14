@@ -123,6 +123,14 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
   const menu = useMenu<true>();
   const all = settings.data?.machines ?? [];
   const [name, setName] = useState(machine.name);
+  // the probe is read now and then; the queue's live state says first that a ComfyUI answers again (a pod up after its
+  // boot): the probe is read again then, and its failure from before is not shown meanwhile (a pod rendering showed the
+  // 404 its proxy gave while ComfyUI was starting)
+  const answers = state?.online !== false && state?.rented?.answers !== false;
+  useEffect(() => {
+    if (answers && probe?.online === false) void client.invalidateQueries({ queryKey: queryKeys.machines() });
+  }, [answers, probe?.online, client]);
+  const failing = probe?.online === false && !answers ? probe : null;
   const [url, setUrl] = useState(machine.url);
   const [dir, setDir] = useState(machine.dir);
   useEffect(() => setName(machine.name), [machine.name]);
@@ -193,11 +201,11 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
         <Button onClick={() => test.mutate()} disabled={test.isPending}>{test.isPending ? "Connecting…" : url.trim() !== machine.url ? "Save and test" : "Test again"}</Button>
       </Row>}
       {/* a rented pod that is not running does not answer: its head says so, not a failure here */}
-      {(test.isError || save.isError || (probe?.online === false && (!rented || (state?.rented?.status === "RUNNING" && !state.rented.booting))) || (!rented && publicPlainHttp(machine.url))) && (
+      {(test.isError || save.isError || (failing && (!rented || (state?.rented?.status === "RUNNING" && !state.rented.booting))) || (!rented && publicPlainHttp(machine.url))) && (
         <Block>
           {test.isError && <ErrorNote>{test.error.message}</ErrorNote>}
           {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
-          {probe?.online === false && probe.error && !state?.rented?.booting && <ErrorNote>{probe.error}</ErrorNote>}
+          {failing?.error && !state?.rented?.booting && <ErrorNote>{failing.error}</ErrorNote>}
           {publicPlainHttp(machine.url) && <ErrorNote>A public address over plain http: anyone who finds it can run code on this ComfyUI. Reach it through Tailscale or an SSH tunnel, or put it behind a proxy that asks for a password.</ErrorNote>}
         </Block>
       )}
