@@ -26,10 +26,35 @@ export function dialogOver(el: Element | null | undefined): boolean {
   return [...document.querySelectorAll("[role=dialog][aria-modal=true]")].some((d) => !el || !d.contains(el));
 }
 
-/** Something open over the dialog that keeps its own keys: a dropdown's list, a menu, a popover. */
+/**
+ * Something open over the dialog that keeps its own keys: a dropdown's list, a menu, a popover, a panel that is not a
+ * Dialog but sits over one (Find models, opened from the Deploy dialog).
+ */
 const OVER = "[role=listbox], [role=menu], [data-floating]";
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Tab (and Shift+Tab) kept inside `el`: from its last stop to its first and back, and from outside it to its first (or
+ * last). A modal panel's own keys call it; a Dialog does.
+ */
+export function keepTabIn(el: HTMLElement, e: KeyboardEvent): void {
+  const all = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.offsetParent !== null || x === document.activeElement);
+  if (!all.length) {
+    e.preventDefault();
+    return;
+  }
+  const first = all[0]!;
+  const last = all[all.length - 1]!;
+  const at = document.activeElement as HTMLElement | null;
+  if (e.shiftKey && (at === first || !el.contains(at))) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && (at === last || !el.contains(at))) {
+    e.preventDefault();
+    first.focus();
+  }
+}
 
 /**
  * Where the focus goes when a dialog opens: its first field, else its first button that is not a "?" (whose tip would
@@ -78,23 +103,7 @@ export function Dialog({ label, onClose, children, className, z = "z-40" }: {
         return;
       }
       // Tab stays inside the dialog (a dropdown or a menu open over it keeps its own keys)
-      if (e.key === "Tab" && !document.querySelector(OVER)) {
-        const all = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.offsetParent !== null || x === document.activeElement);
-        if (!all.length) {
-          e.preventDefault();
-          return;
-        }
-        const first = all[0]!;
-        const last = all[all.length - 1]!;
-        const at = document.activeElement as HTMLElement | null;
-        if (e.shiftKey && (at === first || !el.contains(at))) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && (at === last || !el.contains(at))) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
+      if (e.key === "Tab" && !document.querySelector(OVER)) keepTabIn(el, e);
     };
     window.addEventListener("keydown", onKey, true);
     return () => {

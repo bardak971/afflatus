@@ -46,14 +46,18 @@ export function Tray({ files, target, onRemove, onClear, onDone, dropping, onOve
     },
     onError: sayFailed("Not added to the set"),
   });
-  // onto this PC: the usual downloads (Settings › Models shows them)
+  // onto this PC: the usual downloads (Settings › Models shows them). The ones started leave Picked even when others
+  // were refused, so that a second try does not start them again; the refused stay, named in the banner.
   const download = useMutation({
     mutationFn: () => getOnPc(files),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: queryKeys.downloads() });
-      onDone();
+    onSuccess: (refused) => {
+      if (!refused.length) return onDone();
+      for (const f of files) if (!refused.some((r) => r.file === f)) onRemove(f);
+      const why = refused.map(({ file, error }) => `${file.file}: ${error instanceof Error ? error.message : String(error)}`).join("; ");
+      sayFailed(`${plural(refused.length, "file")} not downloaded`)(new Error(why));
     },
     onError: sayFailed("Not downloaded"),
+    onSettled: () => void client.invalidateQueries({ queryKey: queryKeys.downloads() }),
   });
   return (
     <div
@@ -91,7 +95,7 @@ export function Tray({ files, target, onRemove, onClear, onDone, dropping, onOve
         {estimate && <span className="flex justify-between gap-3"><span className="text-ink-3">time and price</span><span className="text-right font-mono">{estimate}</span></span>}
         <Button tone="primary" disabled={!files.length || add.isPending} onClick={() => add.mutate()} className="justify-center">{target.action}{files.length ? ` · ${files.length}` : ""}</Button>
         <span className="flex items-center gap-2">
-          <span className="w-[150px]"><Select size="sm" label="Add to a Model set" value={toSet} placeholder="Add to a set…" onChange={(id) => { setToSet(id); intoSet.mutate(id); }} options={(sets.data?.items ?? []).map((s) => ({ value: s.id, label: s.name, note: plural(s.count, "file") }))} /></span>
+          <span className="w-[150px]"><Select size="sm" label="Add to a Model set" value={toSet} placeholder="Add to a set…" disabled={!files.length || intoSet.isPending} onChange={(id) => { setToSet(id); intoSet.mutate(id); }} options={(sets.data?.items ?? []).map((s) => ({ value: s.id, label: s.name, note: plural(s.count, "file") }))} /></span>
           {!target.pc && <Button size="sm" tone="quiet" disabled={!files.length || download.isPending} onClick={() => download.mutate()}>Get on this PC</Button>}
         </span>
       </div>

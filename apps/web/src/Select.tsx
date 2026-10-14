@@ -34,7 +34,7 @@ const SHOWN = 150;
  * typos and letters left out. It is drawn over everything else, so it is never cut off by the panel it
  * sits in; it closes on a choice, on Escape and on a click anywhere else.
  */
-export function Select({ value, options, onChange, label, placeholder = "Chooseâ€¦", searchHint, id, size = "md", dashed, icon, className, footer }: {
+export function Select({ value, options, onChange, label, placeholder = "Chooseâ€¦", searchHint, id, size = "md", dashed, icon, className, footer, disabled }: {
   value: string;
   options: Option[];
   onChange(value: string): void;
@@ -51,6 +51,8 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
   className?: string;
   /** Something under the list (a "new folder" row). It is given a function that closes the list. */
   footer?(close: () => void): ReactNode;
+  /** Greyed and not opened: nothing to choose for yet, or a choice still being saved. */
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -169,6 +171,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={`${label}: ${selected?.label ?? placeholder}`}
+        disabled={disabled}
         onClick={() => (open ? close() : setOpen(true))}
         onKeyDown={(e) => {
           if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
@@ -177,7 +180,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
           }
         }}
         className={cx(
-          "flex w-full min-w-0 items-center gap-2 text-left transition-colors",
+          "flex w-full min-w-0 items-center gap-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45",
           size === "md" ? "h-10 rounded-[10px] px-3" : "h-8 rounded-lg px-2.5 text-xs",
           dashed ? "border-[1.5px] border-dashed border-line-strong text-ink-2 hover:text-ink" : open ? "border border-accent bg-accent-wash text-ink" : "border border-line-strong bg-raised text-ink hover:border-ink-3",
           className,

@@ -3,6 +3,7 @@ import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
 import { fileKey } from "@afflatus/core";
 import { api, type BrowseCard } from "./api";
+import { keepTabIn } from "./Dialog";
 import { Card } from "./findModels/Card";
 import { Opened } from "./findModels/Opened";
 import { clearPicked, closeFindModels, pickedOf, useKept, type FindTarget, type PickedFile } from "./findModels/store";
@@ -67,12 +68,19 @@ export function FindModels({ target }: { target: FindTarget }) {
   });
   const results = tab === "civitai" ? civitai : huggingFace;
   const cards = useMemo(() => (results.data?.pages ?? []).flatMap((p) => p.items).filter((c) => !notMine || !c.have), [results.data, notMine]);
-  // a pasted link: read as one card, opened at once
-  const link = useMutation({ mutationFn: (l: string) => api.browseLink(l), onSuccess: ({ card }) => setOpened(card) });
+  // a pasted link: read as one card, opened at once. A reply that comes once the words are something else (another link,
+  // a search) opens nothing, and a search typed after a link that failed clears its failure.
+  const linkAsked = useRef("");
+  const link = useMutation({ mutationFn: (l: string) => api.browseLink(l), onSuccess: ({ card }, l) => { if (linkAsked.current === l) setOpened(card); } });
   useEffect(() => {
+    linkAsked.current = isLink(q) ? q.trim() : "";
     if (isLink(q)) link.mutate(q.trim());
+    else link.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- read once per link typed
   }, [q]);
+  // Civitai is asked once its base models are known: their failure is said, as the search's own would be
+  const failed = results.error ?? (tab === "civitai" ? bases.error : null) ?? link.error;
+  const asking = !isLink(q) && (results.isLoading || (tab === "civitai" && bases.isPending));
 
   // the next page as the end of the list comes into view
   const end = useRef<HTMLDivElement | null>(null);
@@ -86,10 +94,24 @@ export function FindModels({ target }: { target: FindTarget }) {
     return () => seen.disconnect();
   }, [results]);
 
-  // Esc closes (an opened model first)
+  // Over a Dialog (the Deploy dialog's "Find more…"), the panel's data-floating turns the Dialog's own keys off: its Esc
+  // and Tab are this panel's. It takes the focus when it opens and gives it back when it closes, as a Dialog does.
+  const panel = useRef<HTMLDivElement>(null);
+  const [from] = useState(() => document.activeElement as HTMLElement | null);
+  useEffect(() => {
+    const el = panel.current;
+    if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true });
+    return () => {
+      if (from && document.contains(from)) from.focus({ preventScroll: true });
+    };
+  }, [from]);
+  // Esc closes (an opened model first); Tab stays inside. A dropdown or a menu open over it keeps its own keys.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || document.querySelector("[role=listbox]")) return;
+      if (document.querySelector("[role=listbox], [role=menu]")) return;
+      if (e.key === "Tab" && panel.current) keepTabIn(panel.current, e);
+      if (e.key !== "Escape") return;
+      e.preventDefault();
       e.stopPropagation();
       if (opened) setOpened(null);
       else closeFindModels();
@@ -111,8 +133,8 @@ export function FindModels({ target }: { target: FindTarget }) {
 
   return (
     // a click beside it does not close it: Esc or its ✕ do (and what it holds is kept for the next time)
-    <div role="dialog" aria-label="Find models" className="fixed inset-0 z-50 grid place-items-center bg-shade/70 p-4">
-      <div className="flex h-[min(94vh,1180px)] w-[min(96vw,1700px)] flex-col overflow-hidden rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60">
+    <div role="dialog" aria-label="Find models" data-floating="" className="fixed inset-0 z-50 grid place-items-center bg-shade/70 p-4">
+      <div ref={panel} tabIndex={-1} className="flex outline-none h-[min(94vh,1180px)] w-[min(96vw,1700px)] flex-col overflow-hidden rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60">
         <div className="flex items-center gap-3 border-b border-line px-5 py-3.5">
           <span className="text-[17px] font-bold">Find models</span>
           <span className="rounded-full bg-accent-wash px-2.5 py-0.5 text-xs font-semibold text-accent">for: {target.what}</span>
@@ -186,12 +208,13 @@ export function FindModels({ target }: { target: FindTarget }) {
             {tab === "yours" ? (
               <Yours words={words} onWords={setWords} picked={pickedKeys} onPick={add} />
             ) : opened ? (
-              <Opened card={opened} picked={pickedNames} onPick={(files) => { add(files); setOpened(null); }} onBack={() => setOpened(null)} />
+              // keyed: another card opens with its own ticks and folders, not the last one's
+              <Opened key={`${opened.site}:${opened.id}`} card={opened} picked={pickedNames} onPick={(files) => { add(files); setOpened(null); }} onClose={() => setOpened(null)} />
             ) : (
               <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                {(results.isError || link.isError) && <ErrorNote>{(results.error ?? link.error)!.message}</ErrorNote>}
+                {failed && <ErrorNote>{failed.message}</ErrorNote>}
                 {link.isPending && <span className="text-xs text-ink-3">Reading the link…</span>}
-                {results.isPending && !isLink(q) && <span className="text-xs text-ink-3">Asking {tab === "civitai" ? "Civitai" : "Hugging Face"}…</span>}
+                {asking && !failed && <span className="text-xs text-ink-3">Asking {tab === "civitai" ? "Civitai" : "Hugging Face"}…</span>}
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3.5">
                   {cards.map((c) => <Card key={`${c.site}:${c.id}`} card={c} picked={cardPicked(c)} onOpen={() => setOpened(c)} onQuick={() => quick(c)} />)}
                 </div>
