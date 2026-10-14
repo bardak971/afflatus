@@ -78,3 +78,16 @@ export async function findOnHuggingFace(file: string, hints: string[] = []): Pro
   const rank = (i: HuggingFaceFound) => (i.repo.startsWith("Comfy-Org/") ? 1e12 : 0) + i.downloads;
   return { items: items.sort((a, b) => rank(b) - rank(a)).slice(0, 5), answered: answers.some((a) => a !== null) };
 }
+
+/** The SHA-256 of a file of a repository (its LFS id), upper case; null when it is not an LFS file, or Hugging Face did not say. */
+export async function huggingFaceSha256(repo: string, path: string, token = ""): Promise<string | null> {
+  const res = await fetchPublic(`${site()}/api/models/${repo}/paths-info/main`, {
+    method: "POST", body: JSON.stringify({ paths: [path] }),
+    headers: { "User-Agent": "afflatus", "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    signal: AbortSignal.timeout(20_000),
+  }, [site()]).catch(() => null);
+  if (!res?.ok) return null;
+  const got = (await res.json().catch(() => [])) as Array<{ path?: string; lfs?: { oid?: string } }>;
+  const oid = (Array.isArray(got) ? got : []).find((x) => x.path === path)?.lfs?.oid;
+  return oid ? oid.toUpperCase() : null;
+}

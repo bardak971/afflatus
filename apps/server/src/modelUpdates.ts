@@ -166,8 +166,10 @@ export class Updates {
         const fromPage = page ? /modelVersionId=(\d+)/.exec(page.url)?.[1] : undefined;
         let version: ApiVersionBrief | null = null;
         if (fromPage) version = await civitaiGet<ApiVersionBrief>(`/api/v1/model-versions/${fromPage}`, key).catch(() => null);
-        // the file's own hash: the trainer's fingerprint, else the SHA-256 of the file, computed once for a file on this disk
-        let hash = info.fingerprint ?? info.sha256;
+        // the file's own hash: the trainer's fingerprint, else the SHA-256 the background hashing found (modelHashes.ts),
+        // else the SHA-256 of the file, computed once for a file on this disk
+        const background = await db.selectFrom("model_hashes").select("sha256").where("folder", "=", folder).where("file", "=", file.replace(/\\/g, "/")).executeTakeFirst().catch(() => undefined);
+        let hash = info.fingerprint ?? info.sha256 ?? background?.sha256;
         if (!version && !hash && dirs.length) {
           if (hashed < HASHES_PER_CHECK) {
             const header = await readLocalHeader(dirs, file);
@@ -255,6 +257,13 @@ export function registerModelUpdates(app: FastifyInstance, s: Services, updates:
   app.get("/api/models/updates", async () => updates.report());
   /** Check now. Hashes a few more files each time; asks Civitai once per model. */
   app.post("/api/models/updates/check", async () => updates.check());
+  /** How far the hashing of every model file is, and what the sites said of them (Settings › Models › Your models online). */
+  app.get("/api/models/hashes", async () => s.hashes.status());
+  /** Hash now: what is not hashed yet, then what is not matched asked of the sites. Answers at once; the status says how far. */
+  app.post("/api/models/hashes/run", async () => {
+    void s.hashes.run();
+    return s.hashes.status();
+  });
   /** A file's row forgotten: it is matched again at the next check (after the user replaced it, say). */
   app.delete("/api/models/updates/:folder", async (req) => {
     const { folder } = z.object({ folder: z.enum(UPDATE_FOLDERS) }).parse(req.params);

@@ -56,6 +56,12 @@ export async function podSource(l: SourceLookup, want: { file: string; folder: s
     const slot = family.slots.find((x) => x.folder === want.folder && x.get && nameOf(x.get.file) === name);
     if (slot?.get) return { kind: "url", url: slot.get.url };
   }
+  // what this computer's copy of it is, by its hash (modelHashes.ts): the Civitai version it is, else the Hugging Face file
+  // with the same hash. Exact, whatever the file is called here
+  const hashed = await l.db.selectFrom("model_hashes").select(["file", "civitai_version", "hf_url"]).where("folder", "=", want.folder).execute().catch(() => []);
+  const same = hashed.find((r) => r.file.toLowerCase() === want.file.replace(/\\/g, "/").toLowerCase()) ?? hashed.find((r) => nameOf(r.file) === name);
+  if (same && Number(same.civitai_version) > 0) return { kind: "civitai", version: Number(same.civitai_version), pick: want.file.split(/[\\/]/).pop() };
+  if (same?.hf_url) return { kind: "url", url: same.hf_url };
   // the version Afflatus matched the file to on Civitai (model updates): that version's file of that name
   const matched = await l.db.selectFrom("model_updates").select(["version_id", "file"]).where("folder", "=", want.folder).execute().catch(() => []);
   const hit = matched.find((r) => nameOf(r.file) === name);

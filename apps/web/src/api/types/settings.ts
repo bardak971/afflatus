@@ -43,10 +43,11 @@ export type LlmPatch = Omit<LlmInfo, "hasApiKey"> & { apiKey?: string };
  * refused). As the answer says them, but for what the answer hides: the Civitai key itself, the models with their keys,
  * and `llm`, the model in use changed the short way. Held to the server's schema by test/apiTypes.test.ts.
  */
-export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiKey" | "hasRunpodKey" | "machines">> & {
+export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiKey" | "hasHuggingFaceToken" | "hasRunpodKey" | "machines">> & {
   /** The machines as the page has them, without what it is only told (a token's end). A token left out stays as it is. */
   machines?: Array<Omit<Machine, "tokenEnd"> & { token?: string }>;
   civitaiKey?: string;
+  huggingFaceToken?: string;
   runpodKey?: string;
   /** The server's own list of secrets to delete once their pods are gone: the page never sends it. */
   leftSecrets?: Array<{ secret: string; pod: string }>;
@@ -184,6 +185,8 @@ export interface Settings {
   /** Model families switched on or off by hand; one that is not named follows its files. */
   families: Record<string, boolean>;
   hasCivitaiKey: boolean;
+  /** A Hugging Face token is set (gated models). */
+  hasHuggingFaceToken: boolean;
   /** A RunPod API key is set (rented machines). */
   hasRunpodKey: boolean;
   /** What the rented GPUs may cost, in USD, today and this month; 0: no cap. */
