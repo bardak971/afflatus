@@ -136,6 +136,8 @@ export const api = {
   /** "Afflatus: test" sent now to Telegram or Discord, with the saved settings: an error says why it did not go. */
   testNotify: (channel: "telegram" | "discord") => call<{ ok: true }>("POST", "/notify/test", { channel }),
   /** The chats that wrote to the saved bot lately (Telegram's getUpdates, read once). */
+  /** A picture or a video sent as it is to the Telegram chat or Discord channel of the notifications. */
+  shareAsset: (id: string, channel: "telegram" | "discord") => call<{ ok: true }>("POST", `/assets/${id}/share`, { channel }),
   telegramChats: () => call<{ chats: Array<{ id: string; name: string; type: string }> }>("POST", "/notify/telegram-chat"),
   /** Afflatus's own updates: where it stands (the latest release, an update under way, the previous version, the 0.3 move). */
   updates: (o?: Asked) => call<UpdatesView>("GET", "/updates", undefined, o?.signal),

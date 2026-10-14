@@ -1,4 +1,4 @@
-import { ArrowRightFromLine, AudioLines, Clapperboard, Columns2, Copy, Download, Eraser, ExternalLink, Eye, Film, FlipHorizontal2, FlipVertical2, FolderKanban, Hand, ImageDown, Info, Maximize2, Mic, Paintbrush, Pencil, PenLine, PersonStanding, Scissors, Shuffle, SlidersHorizontal, Smile, SquareDashed, Star, Trash2, Undo2, VolumeX, Wand2, type LucideIcon } from "lucide-react";
+import { Send, ArrowRightFromLine, AudioLines, Clapperboard, Columns2, Copy, Download, Eraser, ExternalLink, Eye, Film, FlipHorizontal2, FlipVertical2, FolderKanban, Hand, ImageDown, Info, Maximize2, Mic, Paintbrush, Pencil, PenLine, PersonStanding, Scissors, Shuffle, SlidersHorizontal, Smile, SquareDashed, Star, Trash2, Undo2, VolumeX, Wand2, type LucideIcon } from "lucide-react";
 import type { MenuItem } from "./ContextMenu";
 
 /**
@@ -18,7 +18,7 @@ export type ActionId =
   | "upscale" | "face" | "hand" | "background" | "inpaint" | "edit" | "outpaint" | "mirror-h" | "mirror-v"
   | "trim" | "save-frame" | "extract-audio" | "remove-sound" | "voice"
   | "compare" | "details" | "copy-seed" | "comfy"
-  | "timeline" | "move"
+  | "timeline" | "move" | "send"
   | "bin" | "erase";
 
 export type GroupId = "item" | "make" | "passes" | "tools" | "look" | "put" | "last";
@@ -69,6 +69,7 @@ export const ACTIONS: Record<ActionId, Spec> = {
   comfy: { group: "look", label: "Open in ComfyUI", kinds: ALL, icon: ExternalLink, tip: "Its graph, built again from these parameters, in ComfyUI's editor." },
   timeline: { group: "put", label: "Timeline", kinds: ALL, icon: Film, tip: "At the end of a timeline, or a new one from it; a sound as a timeline's music." },
   move: { group: "put", label: "Move to", kinds: ALL, icon: FolderKanban, tip: "Into a project and a folder, or back to the Inbox." },
+  send: { group: "put", label: "Send to", kinds: SEEN, icon: Send, tip: "The file itself to your Telegram chat or Discord channel (Settings › Notifications), with its name." },
   bin: { group: "last", label: "Move to the bin", key: "Del", kinds: ALL, icon: Trash2, tip: "Move to the bin." },
   // only in the bin, after Put back (see itemActions)
   erase: { group: "last", label: "Delete now…", kinds: ALL, icon: Trash2, tip: "Erased now, file and all, instead of waiting in the bin. Asked first; cannot be undone." },
@@ -90,6 +91,8 @@ export const groupTitle = (group: GroupId, kind: Kind): string =>
 /** What the list is made from: the item, and what is known of it and of the place now. */
 export interface ItemFacts {
   kind: Kind;
+  /** Send to: Telegram, Discord, those set up in Settings › Notifications; none, and Send to is not in the list. */
+  shares?: MenuItem[];
   inBin: boolean;
   kept: boolean;
   hasSound: boolean;
@@ -185,7 +188,7 @@ export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<Acti
   const list = actionIds(f.kind).map((id): ItemAction => {
     const spec = ACTIONS[id];
     const off = why(id);
-    const items = id === "timeline" ? f.timelines : id === "move" ? f.moves : id === "i2v" && (f.openers?.length ?? 0) > 1 ? f.openers : id === "motion" && (f.movers?.length ?? 0) > 1 ? f.movers : undefined;
+    const items = id === "timeline" ? f.timelines : id === "move" ? f.moves : id === "send" ? f.shares : id === "i2v" && (f.openers?.length ?? 0) > 1 ? f.openers : id === "motion" && (f.movers?.length ?? 0) > 1 ? f.movers : undefined;
     const run = runs[id];
     const base: ItemAction = { id, group: spec.group, label: spec.label, key: spec.key, icon: spec.icon, tip: spec.tip, note: off ?? notes[id], disabled: Boolean(off) || Boolean(f.busy?.[id]) || (!run && !items?.length), run, items: off ? undefined : items };
     if (f.queued?.[id] && !off) return { ...base, label: "Queued", done: true };
@@ -202,7 +205,8 @@ export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<Acti
       default: return base;
     }
   });
-  if (!f.inBin) return list;
+  // Send to only where somewhere to send is set up
+  if (!f.inBin) return f.shares?.length ? list : list.filter((x) => x.id !== "send");
   const spec = ACTIONS.erase;
   const erase: ItemAction = { id: "erase", group: spec.group, label: spec.label, icon: spec.icon, tip: spec.tip, danger: true, disabled: !runs.erase, run: runs.erase };
   const pick = (id: ActionId) => list.filter((a) => a.id === id);
@@ -290,7 +294,7 @@ export const sideSlot = (id: ActionId): SideSlot => {
   const group = ACTIONS[id].group;
   if (group === "make" || group === "passes" || group === "tools") return "buttons";
   switch (id) {
-    case "compare": case "details": case "download": return "buttons";
+    case "compare": case "details": case "download": case "send": return "buttons";
     case "keep": return "status";
     case "rename": return "name";
     case "copy-seed": return "seed";

@@ -23,8 +23,8 @@ const lines = (items: MenuItem[]): string[] => items.flatMap((it) => (it === "â€
 
 describe("the item's list", () => {
   it("holds each media type's actions in the spec's order", () => {
-    expect(actionIds("image")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "i2v", "motion", "upscale", "face", "hand", "background", "inpaint", "edit", "outpaint", "mirror-h", "mirror-v", "compare", "details", "copy-seed", "comfy", "timeline", "move", "bin"]);
-    expect(actionIds("video")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "extend", "motion", "trim", "save-frame", "extract-audio", "remove-sound", "voice", "compare", "details", "copy-seed", "comfy", "timeline", "move", "bin"]);
+    expect(actionIds("image")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "i2v", "motion", "upscale", "face", "hand", "background", "inpaint", "edit", "outpaint", "mirror-h", "mirror-v", "compare", "details", "copy-seed", "comfy", "timeline", "move", "send", "bin"]);
+    expect(actionIds("video")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "extend", "motion", "trim", "save-frame", "extract-audio", "remove-sound", "voice", "compare", "details", "copy-seed", "comfy", "timeline", "move", "send", "bin"]);
     expect(actionIds("audio")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "trim", "voice", "details", "copy-seed", "comfy", "timeline", "move", "bin"]);
   });
 
@@ -58,7 +58,7 @@ describe("the item's list", () => {
   });
 
   it("keeps an action that does not apply now in its place, off, with the reason", () => {
-    const list = itemActions(facts("video", { hasSound: false, carrier: false, comfyOnline: false }), runs);
+    const list = itemActions(facts("video", { hasSound: false, carrier: false, comfyOnline: false, shares: [{ label: "Telegram", run: () => {} }] }), runs);
     expect(list.map((a) => a.id)).toEqual(actionIds("video"));
     const off = Object.fromEntries(list.filter((a) => a.disabled).map((a) => [a.id, a.note]));
     expect(off).toEqual({ extend: "no video model carries a clip on", "extract-audio": "it has no sound", "remove-sound": "it has no sound", voice: "it has no sound", comfy: "ComfyUI is offline" });
@@ -179,5 +179,20 @@ describe("a pass just queued", () => {
   it("does not say it where the action is off now (the item went to the bin meanwhile)", () => {
     // in the bin there is no Upscale button at all to say it on
     expect(itemActions(facts("image", { inBin: true, queued: { upscale: true } }), runs).find((a) => a.id === "upscale")).toBeUndefined();
+  });
+});
+
+describe("Send to", () => {
+  const ids = (f: ItemFacts) => itemActions(f, {}).map((a) => a.id);
+  it("is in a picture's and a video's list only when Telegram or Discord is set up", () => {
+    const telegram = [{ label: "Telegram", run: () => {} }];
+    expect(ids(facts("image"))).not.toContain("send");
+    expect(ids(facts("image", { shares: [] }))).not.toContain("send");
+    expect(ids(facts("image", { shares: telegram }))).toContain("send");
+    expect(ids(facts("video", { shares: telegram }))).toContain("send");
+    expect(ids(facts("audio", { shares: telegram }))).not.toContain("send");
+    const send = itemActions(facts("image", { shares: telegram }), {}).find((a) => a.id === "send")!;
+    expect(send.disabled).toBe(false);
+    expect(send.items).toHaveLength(1);
   });
 });

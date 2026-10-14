@@ -260,6 +260,56 @@ export class Notify {
     await res.body?.cancel().catch(() => {});
   }
 
+  /**
+   * A picture or a video of the library sent to one channel, as it is (the file itself, not a thumbnail), with its name: the
+   * library's Send to Telegram / Send to Discord. Past every limit of the notices (asked for by hand). What each service takes:
+   * Telegram's bots upload 10 MB a photo and 50 MB a video (a larger picture goes as a file, kept whole); a Discord webhook
+   * 10 MB a file. Throws the reason, secrets taken out.
+   */
+  async share(channel: Channel, assetId: string): Promise<void> {
+    const n = (await readSettings(this.deps.db)).notify;
+    if (channel === "telegram" && !(n.telegramToken && n.telegramChat)) throw httpError("Telegram is not set up: Settings › Notifications.", 409);
+    if (channel === "discord" && !n.discordWebhook) throw httpError("Discord is not set up: Settings › Notifications.", 409);
+    const a = await this.deps.db.selectFrom("assets").select(["kind", "file_key", "mime", "name", "bytes"]).where("id", "=", assetId).where("deleted_at", "is", null).executeTakeFirst();
+    if (!a || (a.kind !== "image" && a.kind !== "video")) throw httpError("Only a picture or a video of the library can be sent.", 404);
+    const mb = (a.bytes ?? 0) / 1024 / 1024;
+    const most = channel === "discord" ? 10 : 50;
+    if (mb > most) throw httpError(`It is ${mb.toFixed(0)} MB: ${channel === "discord" ? "a Discord webhook" : "a Telegram bot"} takes ${most} MB at most. Export a web copy (the timeline's Export, For the web) and send that.`, 413);
+    const ext = (a.mime.split("/")[1] ?? "bin").replace("jpeg", "jpg").replace("quicktime", "mov");
+    const file = `${(a.name || "afflatus").replace(/[^\w .-]+/g, "").trim().slice(0, 60) || "afflatus"}.${ext}`;
+    const blob = new Blob([(await this.deps.storage.get(a.file_key)) as Uint8Array<ArrayBuffer>], { type: a.mime });
+    const signal = AbortSignal.timeout(Math.max(this.opts.timeoutMs, 120_000));
+    try {
+      if (channel === "telegram") {
+        // a photo over 10 MB is refused by sendPhoto: sent as a file, whole
+        const method = a.kind === "video" ? "sendVideo" : mb > 10 ? "sendDocument" : "sendPhoto";
+        const field = method === "sendVideo" ? "video" : method === "sendDocument" ? "document" : "photo";
+        const body = new FormData();
+        body.set("chat_id", n.telegramChat);
+        if (a.name) body.set("caption", a.name.slice(0, 1000));
+        if (method === "sendVideo") body.set("supports_streaming", "true");
+        body.set(field, blob, file);
+        const res = await fetch(`${telegramBase()}/bot${n.telegramToken}/${method}`, { method: "POST", body, signal });
+        const said = (await res.json().catch(() => null)) as { ok?: boolean; description?: string } | null;
+        if (!res.ok || said?.ok === false) throw new Error(`Telegram refused it: ${said?.description ?? `HTTP ${res.status}`}`);
+        return;
+      }
+      if (!discordHookOk(n.discordWebhook)) throw new Error("the saved webhook is not a Discord webhook");
+      if (envSaid.pretendSites() && !envSaid.discordUrl()) throw new Error("not sent: no site on the internet is asked here");
+      const body = new FormData();
+      body.set("payload_json", JSON.stringify({ content: a.name ? plain(a.name.slice(0, 1800)) : "", allowed_mentions: { parse: [] }, attachments: [{ id: 0, filename: file }] }));
+      body.set("files[0]", blob, file);
+      const res = await fetch(n.discordWebhook, { method: "POST", body, signal });
+      if (!res.ok) {
+        const said = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(`Discord refused it: ${said?.message ?? `HTTP ${res.status}`}`);
+      }
+      await res.body?.cancel().catch(() => {});
+    } catch (err) {
+      throw httpError(redacted(err, secretsOf(n)), 502);
+    }
+  }
+
   /** "Afflatus: test" to one channel, now, past every limit: what Send a test answers. Throws the reason, secrets taken out. */
   async test(channel: Channel): Promise<void> {
     const n = (await readSettings(this.deps.db)).notify;
@@ -380,4 +430,9 @@ export function registerNotify(app: FastifyInstance, notify: Notify): void {
     return { ok: true };
   });
   app.post("/api/notify/telegram-chat", async () => ({ chats: await notify.telegramChats() }));
+  /** A picture or a video of the library sent as it is, by hand (the library's Send to Telegram / Discord). */
+  app.post<{ Params: { id: string } }>("/api/assets/:id/share", async (req) => {
+    await notify.share(channelBody.parse(req.body).channel, req.params.id);
+    return { ok: true };
+  });
 }
