@@ -140,6 +140,8 @@ def clean_output(output_dir: str, hours: float) -> int:
 #       instead, output/Afflatus/video_<n>_.mp4 only, by the same rules.
 #   POST /afflatus/download, GET and DELETE /afflatus/download/<id>  → a model file fetched from Afflatus's one-time
 #       address into a model folder, to disk as it comes and picked up again after a cut (downloads.py says how).
+#   POST /afflatus/upload, PUT, GET and DELETE /afflatus/upload/<id>  → a model file Afflatus sends itself, a piece at a
+#       time, for one no site has (uploads.py says how).
 #   GET and POST /afflatus/alive  → the watchdog of a rented machine: "still here" from Afflatus; silent past its minutes,
 #       the pod stops itself (watchdog.py says how).
 #   GET and POST /afflatus/lock, POST /afflatus/unlock, POST /afflatus/login-code, /afflatus/login  → the lock: once set,
@@ -197,6 +199,10 @@ try:
     from .downloads import register as _register_downloads
 
     _register_downloads(PromptServer.instance.routes, web, folder_paths)
+
+    from .uploads import register as _register_uploads
+
+    _register_uploads(PromptServer.instance.routes, web, folder_paths)
 
     from .watchdog import register as _register_watchdog
 

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import type { FakeRequest, FakeState } from "../testing";
@@ -33,6 +33,7 @@ function filesUnder(dir: string): string[] {
 }
 
 type Job = { id: string; state: "downloading" | "done" | "error" | "stopped"; bytes: number; total: number; error?: string; path: string; stop: AbortController; url: string; expired: boolean };
+type Upload = { id: string; state: "uploading" | "done" | "error" | "stopped"; bytes: number; total: number; error?: string; path: string };
 
 /**
  * ComfyUI's model folders on a real disk (init.folderPaths): what /internal/folder_paths says (unless
@@ -40,10 +41,12 @@ type Job = { id: string; state: "downloading" | "done" | "error" | "stopped"; by
  * Afflatus node pack's download (POST /afflatus/download, from 0.11.0): it fetches the address it is given
  * into the folder's first path, asking again from where it stopped when the connection is cut, as the pack does.
  * A source's own link (not Afflatus's one-time address) refused half way has expired: the download waits for a
- * fresh one (POST /afflatus/download/<id>/url, 0.12.0) and carries on from where it was.
+ * fresh one (POST /afflatus/download/<id>/url, 0.12.0) and carries on from where it was. And the pack's upload (0.14.0):
+ * a file sent a piece at a time (PUT /afflatus/upload/<id>?offset=), at the byte the upload is at, named once whole.
  */
 export function fakeFolders(fake: FakeState): (r: FakeRequest) => boolean {
   const jobs = new Map<string, Job>();
+  const uploads = new Map<string, Upload>();
   const relay = (url: string) => /\/api\/downloads\/fetch\//.test(url);
   const run = async (job: Job) => {
     const part = `${job.path}.part`;
@@ -90,7 +93,7 @@ export function fakeFolders(fake: FakeState): (r: FakeRequest) => boolean {
     if (job.state === "downloading") job.state = "error";
   };
 
-  return ({ method, path, raw, json, plain }) => {
+  return ({ method, path, url, raw, json, plain }) => {
     const paths = fake.folderPaths;
     if (!paths) return false;
     if (method === "GET" && path === "/internal/folder_paths") return fake.hideFolderPaths ? json(404, {}) : json(200, paths);
@@ -98,6 +101,48 @@ export function fakeFolders(fake: FakeState): (r: FakeRequest) => boolean {
       const folder = decodeURIComponent(path.slice(8));
       if (!paths[folder] && !fake.models[folder]) return false;
       return json(200, [...(fake.models[folder] ?? []), ...(paths[folder] ?? []).flatMap(filesUnder)]);
+    }
+    if (path.startsWith("/afflatus/upload") && fake.packVersion && atLeast(fake.packVersion, "0.14.0")) {
+      if (method === "POST" && path === "/afflatus/upload") {
+        const body = JSON.parse(raw.toString("utf8") || "{}") as { folder?: string; filename?: string; total?: number };
+        const root = paths[body.folder ?? ""]?.[0];
+        if (!root || !body.filename || /(^|[\/])\.\.([\/]|$)/.test(body.filename) || !(typeof body.total === "number" && body.total > 0)) return plain(400, "refused");
+        const target = resolve(root, body.filename);
+        if (existsSync(target) || [...uploads.values()].some((u) => u.path === target && u.state === "uploading")) return plain(409, "that file is there already, or being uploaded");
+        if (fake.diskFree !== undefined && fake.diskFree < body.total) return plain(507, `the disk has ${fake.diskFree} bytes free, the file is ${body.total}`);
+        mkdirSync(dirname(target), { recursive: true });
+        const u: Upload = { id: randomUUID(), state: "uploading", bytes: 0, total: body.total, path: target };
+        uploads.set(u.id, u);
+        return json(200, { id: u.id, path: target });
+      }
+      const u = uploads.get(decodeURIComponent(path.slice("/afflatus/upload/".length)));
+      if (!u) return json(404, {});
+      const part = `${u.path}.${u.id.slice(0, 8)}.part`;
+      if (method === "GET") return json(200, { state: u.state, bytes: u.bytes, total: u.total, error: u.error ?? null });
+      if (method === "DELETE") {
+        if (u.state === "uploading") u.state = "stopped";
+        rmSync(part, { force: true });
+        return json(200, { ok: true });
+      }
+      if (method === "PUT") {
+        if (u.state !== "uploading") return plain(409, `the upload is ${u.state}`);
+        const offset = Number(url.searchParams.get("offset"));
+        if (offset !== u.bytes || offset + raw.length > u.total) return plain(409, `the upload is at byte ${u.bytes} of ${u.total}`);
+        fake.packUploaded.push({ file: u.path, offset, bytes: raw.length });
+        if (fake.uploadCut) {
+          // a piece cut on its way: nothing of it is kept
+          fake.uploadCut--;
+          return plain(400, "the piece came short");
+        }
+        appendFileSync(part, raw);
+        u.bytes += raw.length;
+        if (u.bytes === u.total) {
+          renameSync(part, u.path);
+          u.state = "done";
+        }
+        return json(200, { state: u.state, bytes: u.bytes, total: u.total, error: null });
+      }
+      return false;
     }
     if (!path.startsWith("/afflatus/download") || !fake.packVersion || !atLeast(fake.packVersion, "0.11.0")) return false;
     if (method === "POST" && path === "/afflatus/download") {

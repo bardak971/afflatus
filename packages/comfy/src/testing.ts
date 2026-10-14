@@ -76,6 +76,12 @@ export interface FakeComfy {
   alive: Array<{ at: number; minutes: number }>;
   /** Every address the pretend node pack fetched a download from, in order (a fresh link after one expired among them). */
   packFetched: string[];
+  /** The pieces the pack's upload took (0.14.0): into which file, at which byte, how many bytes. */
+  packUploaded: Array<{ file: string; offset: number; bytes: number }>;
+  /** Pieces of an upload cut on their way (each answered 400, nothing kept), counted down. */
+  uploadCut: number;
+  /** The bytes free on the model folders' disk, as an upload is told; left out: room enough. */
+  diskFree?: number;
   /**
    * Send a websocket message as ComfyUI does: one about a prompt goes only to the client that queued it (every
    * client when it was queued without a client id, or is not known here); a preview without a prompt id goes to
@@ -139,7 +145,7 @@ const body = async (req: IncomingMessage) => {
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: FakeState = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, alive: [],
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], packUploaded: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, alive: [],
     folderPaths: init.folderPaths ?? null, hideFolderPaths: init.hideFolderPaths ?? false,
     catalog: init.catalog ?? {},
     models: init.models ?? {},

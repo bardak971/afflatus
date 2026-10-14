@@ -1,7 +1,8 @@
 # The Afflatus pod: ComfyUI, its Manager and the Afflatus node pack, for a GPU deployed from Afflatus (Settings ›
 # Rented GPUs). Nothing else is open on it: one port, 8188, locked from its first second by the node pack, which reads
 # the token Afflatus gives the pod as a RunPod secret (AFFLATUS_TOKEN). The node packs and models a render needs are
-# fetched by Afflatus after it is up, through the Manager and the node pack's downloader.
+# fetched by Afflatus after it is up, through the Manager and the node pack's downloader; the packs most video renders
+# use are built in (below), so that a deploy does not install them and restart ComfyUI on billed time.
 #
 #   built and pushed by .github/workflows/pod-image.yml on a pod-v* tag: ghcr.io/bardak971/afflatus-pod:<version>
 #
@@ -40,6 +41,23 @@ RUN pip install --index-url "https://download.pytorch.org/whl/${TORCH_CUDA}" "to
  && pip install -r requirements.txt \
  && if [ -f manager_requirements.txt ]; then pip install -r manager_requirements.txt; else pip install comfyui_manager; fi \
  && pip freeze | grep -iE '^(torch|torchvision|torchaudio)==' > /constraints.txt
+
+# The node packs the built-in forms use most, built in at the commits Afflatus is tested against (packs.ts names their
+# nodes): DaSiWa's (H3's step cache, the RTX upscale route), VideoHelperSuite, KJNodes and the MMH3 upscale. Their Python
+# packages are installed here, held to the image's torch; DaSiWa's own list is not, as it asks for llama-cpp-python (a
+# compile) and nvidia-vfx for its LLM and RTX nodes, which import them only when used: what it imports at load,
+# ComfyUI brings. start.sh puts them in ComfyUI's custom_nodes, over an older copy a volume holds.
+ARG DASIWA_COMMIT=18ed2d23c36363ead84f35c06bfcc0a5f8b710b2
+ARG VHS_COMMIT=4d907bee61e92c2e65af3bd6383a4e4d356126d1
+ARG KJNODES_COMMIT=d3cfe21625e5170126ce06fbfcfe1d88108688c3
+ARG MMH3_COMMIT=fe6658f6d144066f14150d3526247b417683ff2b
+RUN set -e; mkdir -p /opt/packs; cd /opt/packs; \
+    pin() { git init -q "$1" && git -C "$1" remote add origin "$2" && git -C "$1" fetch -q --depth 1 origin "$3" && git -C "$1" checkout -q FETCH_HEAD && echo "$1" >> /opt/packs/BUILT_IN; }; \
+    pin ComfyUI-DaSiWa-Nodes https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes "${DASIWA_COMMIT}"; \
+    pin ComfyUI-VideoHelperSuite https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite "${VHS_COMMIT}"; \
+    pin ComfyUI-KJNodes https://github.com/kijai/ComfyUI-KJNodes "${KJNODES_COMMIT}"; \
+    pin Comfyui-MMH3-UltimateUpscale https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale "${MMH3_COMMIT}"; \
+    pip install -c /constraints.txt -r ComfyUI-VideoHelperSuite/requirements.txt -r ComfyUI-KJNodes/requirements.txt psutil av nvidia-ml-py
 
 COPY comfy-nodes/afflatus-nodes /opt/afflatus-nodes
 COPY deploy/runpod/start.sh /start.sh
