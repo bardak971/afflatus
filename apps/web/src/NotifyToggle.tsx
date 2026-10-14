@@ -1,23 +1,23 @@
+import type { NotifyKind } from "./api";
 import { allowNotifications, useNotify } from "./store";
 import { Toggle } from "./ui";
 
-/** The notification switches, the same in Settings and in the Queue. */
+/** The Queue's notification switch: the same tick as Settings › Interface › Notifications, in its Browser column. */
 
-type What = "whenEmpty" | "eachRender";
-const LABELS: Record<What, string> = { whenEmpty: "Notify when the queue is empty", eachRender: "Notify when a render finishes" };
+const LABELS: Partial<Record<NotifyKind, string>> = { queueEmpty: "Notify when the queue is empty", renderDone: "Notify when a render finishes" };
 
-/** One notification switch: turned on, it asks the browser for the right first. `onRefused`: whether the browser said no. */
-export function NotifyToggle({ what, onRefused }: { what: What; onRefused(refused: boolean): void }) {
+/** One kind's browser switch: turned on, it asks the browser for the right first. `onRefused`: whether the browser said no. */
+export function NotifyToggle({ kind, onRefused }: { kind: NotifyKind; onRefused(refused: boolean): void }) {
   const notify = useNotify();
   const set = async (on: boolean) => {
     if (on && !(await allowNotifications())) return onRefused(true);
     onRefused(false);
-    notify.set({ [what]: on });
+    notify.set({ browser: { [kind]: on } });
   };
-  return <Toggle on={notify[what]} onChange={(on) => void set(on)} label={LABELS[what]} />;
+  return <Toggle on={Boolean(notify.browser[kind])} onChange={(on) => void set(on)} label={LABELS[kind] ?? kind} />;
 }
 
 /** What the switches do, behind a "?" beside them. */
-export const NOTIFY_HELP = "A notification from your browser, while an Afflatus tab is open in it (one tab says it, however many are open). Nothing leaves your computer. Set per browser.";
+export const NOTIFY_HELP = "A notification from your browser, while an Afflatus tab is open in it (one tab says it, however many are open). Set per browser. Telegram and Discord: Settings › Interface › Notifications.";
 /** Why one did not turn on: said in a few words, the way out behind a "?". */
 export const NOTIFY_REFUSED = { said: "Blocked by the browser", help: "Your browser does not allow notifications from this page. Allow them in its site settings, next to the address." };

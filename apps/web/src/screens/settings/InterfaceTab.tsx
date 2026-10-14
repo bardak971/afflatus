@@ -1,10 +1,8 @@
-import { useState } from "react";
-import { allowNotifications, useCompareResult, useExplain, useHoverPlay, useNotify } from "../../store";
+import { useCompareResult, useExplain, useHoverPlay, useNotify } from "../../store";
 import { ThemeMode, ThemePickers } from "../../theme/Appearance";
 import { Help, Toggle } from "../../ui";
+import { WhatCard, WhereCard } from "./NotifyCards";
 import { Block, Card, Row } from "./Rows";
-
-const BROWSER = "Set per browser, while an Afflatus tab is open in it (one tab says it, however many are open). Nothing leaves your computer.";
 
 /** Settings › Interface: how Afflatus looks and behaves in this browser, and what it tells you about. */
 export function InterfaceTab() {
@@ -12,13 +10,6 @@ export function InterfaceTab() {
   const hover = useHoverPlay();
   const compare = useCompareResult();
   const notify = useNotify();
-  const [refused, setRefused] = useState(false);
-  // turned on, a notification switch asks the browser for the right first (as NotifyToggle in the Queue does)
-  const setNotify = async (what: "whenEmpty" | "eachRender", on: boolean) => {
-    if (on && !(await allowNotifications())) return setRefused(true);
-    setRefused(false);
-    notify.set({ [what]: on });
-  };
   return (
     <div className="flex flex-col gap-4">
       <Card
@@ -40,22 +31,13 @@ export function InterfaceTab() {
         </Row>
       </Card>
 
-      <Card title="Notifications" id="notifications">
+      <Card title="Notifications">
         <Row setting="notify.banner" label="Banner when renders finish" help="A banner over the screen when renders finish while another screen is open (the library and the Queue show them anyway). Off: finished renders are not announced in the app; a failure always is.">
           <Toggle bare on={notify.banner} onChange={(banner) => notify.set({ banner })} label="Banner when renders finish" />
         </Row>
-        <Row setting="notify.each" label="Notify after each render" help={`A browser notification when a render finishes or fails. ${BROWSER}`}>
-          <Toggle bare on={notify.eachRender} onChange={(on) => void setNotify("eachRender", on)} label="Notify when a render finishes" />
-        </Row>
-        <Row setting="notify.empty" label="Notify when the queue is empty" help={`A browser notification when everything that was waiting is done. ${BROWSER}`}>
-          <Toggle bare on={notify.whenEmpty} onChange={(on) => void setNotify("whenEmpty", on)} label="Notify when the queue is empty" />
-        </Row>
-        {refused && (
-          <Row tone="warn" label="Blocked by the browser" help="Allow notifications for this page in the browser's site settings, next to the address, then turn the switch on again.">
-            <span className="text-xs text-warn-ink">allow them next to the address</span>
-          </Row>
-        )}
       </Card>
+      <WhereCard />
+      <WhatCard />
     </div>
   );
 }

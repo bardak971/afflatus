@@ -13,6 +13,7 @@ import { tabHref } from "./settingsIndex";
 import { COLUMNS } from "./wide";
 import { openDeploy } from "../../deploy";
 import { VolumesCard } from "./VolumesCard";
+import { SecretField } from "./SecretField";
 
 /** The days after which a volume no pod ran on is flagged; 0: never. */
 const UNUSED_DAYS = [3, 7, 14, 30, 0];
@@ -22,12 +23,10 @@ const WHY_RUNPOD = "A pod you made on RunPod, added as a machine: Afflatus reads
 /** The RunPod API key typed in and saved: written once, never shown again. */
 function RunpodKey({ setting, label, onSaved, onCancel }: { setting: string; label: string; onSaved?(): void; onCancel?(): void }) {
   const client = useQueryClient();
-  const [key, setKey] = useState("");
   const saveKey = useMutation({
-    mutationFn: () => api.saveSettings({ runpodKey: key.trim() }),
+    mutationFn: (runpodKey: string) => api.saveSettings({ runpodKey }),
     onSuccess: (saved) => {
       client.setQueryData(queryKeys.settings(), saved);
-      setKey("");
       for (const queryKey of [queryKeys.runpodPods(), queryKeys.rentedSpending()]) void client.invalidateQueries({ queryKey });
       onSaved?.();
     },
@@ -35,8 +34,7 @@ function RunpodKey({ setting, label, onSaved, onCancel }: { setting: string; lab
   return (
     <>
       <Row setting={setting} label={label} htmlFor="runpod-key" help={WHY_RUNPOD}>
-        <input id="runpod-key" type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="Your RunPod API key" spellCheck={false} autoComplete="off" className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
-        <Button onClick={() => saveKey.mutate()} disabled={key.trim().length < 10 || saveKey.isPending}>Save</Button>
+        <SecretField id="runpod-key" label="RunPod API key" saved={false} placeholder="Your RunPod API key" valid={(key) => key.length >= 10} busy={saveKey.isPending} onSave={(key) => saveKey.mutateAsync(key)} />
         {onCancel && <Button tone="quiet" onClick={onCancel}>Cancel</Button>}
       </Row>
       {saveKey.isError && <Block><ErrorNote>{saveKey.error.message}</ErrorNote></Block>}

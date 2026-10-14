@@ -43,7 +43,9 @@ export type LlmPatch = Omit<LlmInfo, "hasApiKey"> & { apiKey?: string };
  * refused). As the answer says them, but for what the answer hides: the Civitai key itself, the models with their keys,
  * and `llm`, the model in use changed the short way. Held to the server's schema by test/apiTypes.test.ts.
  */
-export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiKey" | "hasHuggingFaceToken" | "hasRunpodKey" | "machines">> & {
+export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiKey" | "hasHuggingFaceToken" | "hasRunpodKey" | "machines" | "notify">> & {
+  /** Some of the notices' settings: what is sent is put over what is saved. The token and the webhook only when typed ("" takes one off). */
+  notify?: { telegramToken?: string; telegramChat?: string; discordWebhook?: string; picture?: boolean; events?: Partial<Record<NotifyKind, { telegram?: boolean; discord?: boolean }>> };
   /** The machines as the page has them, without what it is only told (a token's end). A token left out stays as it is. */
   machines?: Array<Omit<Machine, "tokenEnd"> & { token?: string }>;
   civitaiKey?: string;
@@ -54,6 +56,23 @@ export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiK
   llms?: LlmPatch[];
   llm?: Partial<Omit<LlmPatch, "id">>;
 };
+/** What Afflatus tells about (the server's notify.ts). `gpuFound` and `huntGaveUp` wait for the GPU hunt: not shown yet. */
+export type NotifyKind = "renderDone" | "renderFailed" | "queueEmpty" | "renderStuck" | "podStopped" | "capReached" | "balanceLow" | "comfyGone" | "gpuFound" | "huntGaveUp";
+/** Where the notices go and which kinds go there. The bot's token and the webhook never come back: only whether one is saved. */
+export interface NotifySettings {
+  hasTelegramToken: boolean;
+  telegramChat: string;
+  hasDiscordWebhook: boolean;
+  /** A small picture of what a render made goes with its message. */
+  picture: boolean;
+  events: Record<NotifyKind, { telegram: boolean; discord: boolean }>;
+}
+/** A notice as the server pushes it to the open pages ("notice"). */
+export interface NoticeEvent {
+  kind: NotifyKind;
+  title: string;
+  body: string;
+}
 /** One ComfyUI the queue sends work to (a GPU of this computer, another computer, a rented instance). */
 export interface Machine {
   /** Stays when its address changes: what was learned of it stays with it. */
@@ -219,4 +238,6 @@ export interface Settings {
   bar: BarSettings;
   /** The projects pinned to the rail under the one worked in, in their order there (four at most). */
   pinnedProjects: string[];
+  /** Notices on Telegram and Discord. */
+  notify: NotifySettings;
 }

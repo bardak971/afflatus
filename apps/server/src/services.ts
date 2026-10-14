@@ -23,6 +23,7 @@ import { Timelines } from "./timelines";
 import { sweepIdleDrafts } from "./drafts";
 import { Updates } from "./modelUpdates";
 import { Precompute, type PrecomputeOptions } from "./precompute";
+import { Notify } from "./notify";
 
 /** Everything the routes need, built once at start (and once per test). */
 export interface Services {
@@ -45,6 +46,8 @@ export interface Services {
   downloads: Downloads;
   /** Rented machines: pods on RunPod, read, started and stopped (rented.ts). */
   rented: Rented;
+  /** What the user is told of on Telegram, Discord and in the browser (notify.ts). */
+  notify: Notify;
   /** The model files rented pods are getting (podFiles.ts). */
   podFiles: PodFiles;
   /** The presets that ship with Afflatus (the repository's `presets/` folder). */
@@ -123,6 +126,10 @@ export async function createServices(
   // a pod up and not locked is locked (its address is public)
   rented.lockPod = (id) => lockMachine({ db, queue, machines }, id, { local: false, renew: false });
   rented.run();
+  // a render's end, a pod stopped, a cap: told where the user asked (notify.ts), never in the way of what it is about
+  const notify = new Notify({ db, storage, registry, events: queue.events, stillFor: () => queue.stillFor(), costBetween: (from, to) => rented.costBetween(from, to) });
+  queue.tell = rented.tell = (kind, notice) => notify.say(kind, notice);
+  notify.watch();
   const timelines = new Timelines(db, storage, registry, queue.events);
   queue.clips = timelines;
   const precompute = dirs.precompute === false ? null : new Precompute(db, timelines.media, dirs.precompute);
@@ -193,7 +200,7 @@ export async function createServices(
   const podFilesTimer = setInterval(() => void podFiles.tick().catch((err) => console.warn("[pod files]", (err as Error).message)), 1000);
   podFilesTimer.unref();
   const services: Services = {
-    db, dbKind, storage, linked, registry, comfy, machines, comfyOf, queue, timelines, rented, podFiles, downloads,
+    db, dbKind, storage, linked, registry, comfy, machines, comfyOf, queue, timelines, rented, notify, podFiles, downloads,
     shippedPresets,
     updates: null as unknown as Updates,
     hashes: null as unknown as ModelHashes,
@@ -203,6 +210,7 @@ export async function createServices(
       clearInterval(sweeper);
       clearInterval(podFilesTimer);
       rented.stop();
+      notify.stop();
       await precompute?.stop();
       queue.stop();
       await queue.idle();

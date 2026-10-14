@@ -109,10 +109,10 @@ describe("a setting picked in the bar", () => {
     const was = (globalThis as { Notification?: unknown }).Notification;
     (globalThis as { Notification?: unknown }).Notification = { permission: "denied" };
     try {
-      const each = SETTINGS.find((s) => s.id === "notify.each")!;
+      const each = SETTINGS.find((s) => s.id === "notify.renderDone")!;
       await each.set!({ server: undefined, save: async () => {} }, true);
-      expect(useNotify.getState().eachRender).toBe(false);
-      expect(useBanners.getState().items.find((b) => b.id === "bar:notify")).toMatchObject({ tone: "bad", href: "/settings/interface?find=notify.each" });
+      expect(useNotify.getState().browser.renderDone).toBeFalsy();
+      expect(useBanners.getState().items.find((b) => b.id === "bar:notify")).toMatchObject({ tone: "bad", href: "/settings/interface?find=notify.renderDone" });
     } finally {
       (globalThis as { Notification?: unknown }).Notification = was;
     }

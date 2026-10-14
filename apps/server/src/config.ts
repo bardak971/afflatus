@@ -43,6 +43,10 @@ export const envSaid = {
   civitaiUrl: () => process.env.CIVITAI_URL,
   /** Hugging Face's address, for a stand-in site. */
   huggingfaceUrl: () => process.env.HUGGINGFACE_URL,
+  /** Telegram's Bot API, for a stand-in site (the tests). */
+  telegramUrl: () => process.env.TELEGRAM_URL,
+  /** The start of a stand-in Discord webhook's address (the tests): a webhook under it is taken as Discord's. */
+  discordUrl: () => process.env.DISCORD_URL,
   /** "1": no site on the internet is asked (the demo, a test); a stand-in set above still is. */
   pretendSites: () => process.env.AFFLATUS_PRETEND_SITES === "1",
   /** ComfyUI-Manager's model list, elsewhere. */

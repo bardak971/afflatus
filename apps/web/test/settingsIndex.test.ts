@@ -18,6 +18,6 @@ describe("settings index", () => {
 
   it("finds the merged tabs' settings on Interface", () => {
     const onInterface = INDEX.filter((i) => i.tab === "interface").map((i) => i.label);
-    expect(onInterface).toEqual(expect.arrayContaining(["Dark theme · Light theme", "Explain every setting in the forms", "Notify after each render", "Notify when the queue is empty"]));
+    expect(onInterface).toEqual(expect.arrayContaining(["Dark theme · Light theme", "Explain every setting in the forms", "Notify: render done", "Notify: queue empty", "Telegram", "Discord"]));
   });
 });

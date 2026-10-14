@@ -36,6 +36,20 @@ export async function makeThumb(bytes: Uint8Array, edge = EDGE): Promise<Uint8Ar
 }
 
 /**
+ * A JPEG of a picture, `edge` at most on its longest side, for a notice (notify.ts): Telegram and Discord show a JPEG
+ * everywhere, a WebP not always. Null when it cannot be made.
+ */
+export async function makeStill(bytes: Uint8Array, edge = 1280): Promise<Uint8Array | null> {
+  const lib = await sharp();
+  if (!lib) return null;
+  try {
+    return new Uint8Array(await lib(bytes).rotate().resize({ width: edge, height: edge, fit: "inside", withoutEnlargement: true }).flatten({ background: "#000" }).jpeg({ quality: 82 }).toBuffer());
+  } catch {
+    return null;
+  }
+}
+
+/**
  * A picture mirrored as it is seen (turned upright first, as its metadata says), as a PNG: left and right swapped
  * ("horizontal") or top and bottom ("vertical"). Null when it cannot be made (not a picture, no image library).
  */

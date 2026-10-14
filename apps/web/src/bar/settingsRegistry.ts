@@ -1,4 +1,4 @@
-import type { Settings } from "../api";
+import type { NotifyKind, Settings } from "../api";
 import { INDEX, settingHref, TABS, type Tab } from "../screens/settings/settingsIndex";
 import { allowNotifications, useBanners, useExplain, useHoverPlay, useNotify } from "../store";
 import { useThemeChoice } from "../theme/store";
@@ -45,12 +45,12 @@ export interface SettingEntry {
  * A notification switch, as Settings › Interface turns it: on asks the browser for the right first, and a refusal is said
  * (the page shows "Blocked by the browser"; the bar has no row for it, so a banner says it).
  */
-async function notifySwitch(what: "eachRender" | "whenEmpty", on: boolean) {
+async function notifySwitch(kind: NotifyKind, on: boolean) {
   if (on && !(await allowNotifications())) {
-    useBanners.getState().push({ id: "bar:notify", tone: "bad", title: "Notifications are blocked by the browser", text: "Allow them for this page next to the address, then switch it on again.", href: settingHref(`notify.${what === "eachRender" ? "each" : "empty"}`), go: "Open Settings › Interface" });
+    useBanners.getState().push({ id: "bar:notify", tone: "bad", title: "Notifications are blocked by the browser", text: "Allow them for this page next to the address, then switch it on again.", href: settingHref(`notify.${kind}`), go: "Open Settings › Interface" });
     return;
   }
-  useNotify.getState().set({ [what]: on });
+  useNotify.getState().set({ browser: { [kind]: on } });
 }
 
 export const pageLabel = (tab: Tab) => TABS.find((t) => t.id === tab)?.label ?? "Settings";
@@ -89,8 +89,9 @@ export const SETTINGS: SettingEntry[] = [
     set: (_c, v) => { const s = useThemeChoice.getState(); s.set({ day: String(v), mode: s.mode === "dark" ? "light" : s.mode }); },
     options: () => THEMES.filter((t) => t.light).map((t) => ({ value: t.id, label: t.name })),
   },
-  { id: "notify.each", label: "Notify after each render", page: "interface", words: "browser notification done finished", scope: "this browser", kind: "switch", about: "A notification of this browser when a render finishes or fails.", get: () => useNotify.getState().eachRender, set: (_c, v) => notifySwitch("eachRender", Boolean(v)) },
-  { id: "notify.empty", label: "Notify when the queue is empty", page: "interface", words: "browser notification done", scope: "this browser", kind: "switch", about: "A notification of this browser when everything that was waiting is done.", get: () => useNotify.getState().whenEmpty, set: (_c, v) => notifySwitch("whenEmpty", Boolean(v)) },
+  { id: "notify.renderDone", label: "Browser notification: render done", page: "interface", words: "notify browser notification each render done finished", scope: "this browser", kind: "switch", about: "A notification of this browser when a render finishes.", get: () => Boolean(useNotify.getState().browser.renderDone), set: (_c, v) => notifySwitch("renderDone", Boolean(v)) },
+  { id: "notify.renderFailed", label: "Browser notification: render failed", page: "interface", words: "notify browser notification error failed", scope: "this browser", kind: "switch", about: "A notification of this browser when a render fails, with ComfyUI's reason.", get: () => Boolean(useNotify.getState().browser.renderFailed), set: (_c, v) => notifySwitch("renderFailed", Boolean(v)) },
+  { id: "notify.queueEmpty", label: "Browser notification: queue empty", page: "interface", words: "notify browser notification queue empty done batch", scope: "this browser", kind: "switch", about: "A notification of this browser when everything that was waiting is done: how many, how long.", get: () => Boolean(useNotify.getState().browser.queueEmpty), set: (_c, v) => notifySwitch("queueEmpty", Boolean(v)) },
   { id: "notify.banner", label: "Banner when renders finish", page: "interface", words: "toast banner done finished popup announce quiet", scope: "this browser", kind: "switch", about: "A banner over the screen when renders finish while another screen is open. Off: only failures are announced.", get: () => useNotify.getState().banner, set: (_c, v) => useNotify.getState().set({ banner: Boolean(v) }) },
   {
     id: "storage.unkeptDays", label: "Unkept renders go to the bin after", page: "storage", words: "expire expiring countdown not kept auto bin day never keep everything", scope: "Afflatus", kind: "choice",

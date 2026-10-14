@@ -196,6 +196,7 @@ describe("settings", () => {
       tagCheck: true, families: {}, hasCivitaiKey: true, hasHuggingFaceToken: false, hasRunpodKey: false, rentCaps: { day: 0, month: 0 }, lastDeploy: null, volumeUnusedDays: 7, civitaiLookups: false, updateChecks: false, afflatusUpdateChecks: true, downloadModels: false, renderHistoryDays: 90, unkeptDays: 1, binDays: 7,
       finish: { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.15, latentSteps: 2, seedvrFrames: 0, sharpen: 0 }, slotFiles: {}, acceptedPresets: [],
       bar: { shortcut: "Ctrl+K", snippets: false, history: false, cast: false }, pinnedProjects: [],
+      notify: { hasTelegramToken: false, telegramChat: "", hasDiscordWebhook: false, picture: true, events: expect.objectContaining({ renderDone: { telegram: false, discord: false }, renderFailed: { telegram: true, discord: true } }) },
     });
     expect(res.body).not.toContain("secret");
     // a family's file chosen by hand where several fit: kept by family and slot; a slot taken back follows its patterns again

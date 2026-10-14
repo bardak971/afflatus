@@ -137,7 +137,7 @@ export function Queue() {
             <SectionTitle>Notify</SectionTitle>
             <div className="mb-3.5 flex flex-col gap-1 rounded-[10px] border border-line px-3 py-2">
               <div className="flex items-center gap-2">
-                <NotifyToggle what="whenEmpty" onRefused={setRefused} />
+                <NotifyToggle kind="queueEmpty" onRefused={setRefused} />
                 <Help text={NOTIFY_HELP} />
               </div>
               {refused && (

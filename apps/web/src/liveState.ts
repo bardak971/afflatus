@@ -59,8 +59,8 @@ export function throttle(run: () => void, ms: number, now: () => number = Date.n
   return call;
 }
 
-/** The tag of a job's notification: one per job, so that tabs that both say it show it once. */
-export const notifyTag = (jobId: string) => `afflatus:${jobId}`;
+/** The tag of a notice's notification: one per notice, so that tabs that both say it show it once. */
+export const notifyTag = (said: string) => `afflatus:${said}`;
 
 /**
  * Whether a hello is a reconnect, after which anything may have changed and everything is read again. The first hello is the
