@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { schemaFor, type InputSpec } from "@afflatus/core";
 import { recipes } from "@afflatus/recipes";
-import { snapTo } from "../src/snap";
+import { snapTo, snapReachingEnd } from "../src/snap";
 
 type NumberSpec = Extract<InputSpec, { type: "number" }>;
 const takes = (spec: NumberSpec, v: number) => schemaFor([spec]).safeParse({ [spec.id]: v }).success;
@@ -31,5 +31,17 @@ describe("the slider's snap", () => {
     expect([0, 3, 4, 40, 81, 99].map((v) => snapTo(v, 1, 81, 4))).toEqual([1, 5, 5, 41, 81, 81]);
     expect(snapTo(0.3, 0, 1, 0.1)).toBe(0.3);
     expect(snapTo(0.55, 0, 1, 0.05)).toBe(0.55);
+  });
+});
+
+describe("a range's knob reaching its own end", () => {
+  it("lands on the end when dragged past the last step's middle, a range of 5.06 s by steps of 0.1", () => {
+    expect(snapReachingEnd(5.06, 0, 5.06, 0.1)).toBe(5.06);
+    expect(snapReachingEnd(5.04, 0, 5.06, 0.1)).toBe(5.06);
+    // short of the middle: the last step, as before
+    expect(snapReachingEnd(5.02, 0, 5.06, 0.1)).toBe(5);
+    expect(snapReachingEnd(2.34, 0, 5.06, 0.1)).toBe(2.3);
+    // an end on a step: unchanged
+    expect(snapReachingEnd(5, 0, 5, 0.1)).toBe(5);
   });
 });

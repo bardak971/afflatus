@@ -11,6 +11,7 @@ import { useFormTarget } from "./formTarget";
 import { queryKeys } from "./queryKeys";
 import { useFormAim } from "./recipeForm/formAim";
 import { useSayFailed } from "./sayFailed";
+import { LookBar } from "./LookBar";
 import { Button } from "./ui";
 
 /**
@@ -101,14 +102,17 @@ export function MakeFromDriving({ specs, values }: { specs: readonly InputSpec[]
   });
   if (!slots || !driving || values[slots.picture.id] || !target?.draftId) return null;
   return (
-    <div className="flex flex-col gap-1.5 rounded-lg border border-dashed border-line-strong px-3 py-2.5">
+    <div className="flex flex-col gap-2 rounded-lg border border-dashed border-line-strong px-3 py-2.5">
+      <span className="text-xs font-semibold">No picture yet? Make one from the driving video</span>
+      {/* who goes into it: the only thing the cast is for on this form (the models themselves take no reference picture) */}
+      {target.setLook && <LookBar people look={target.look ?? null} onChange={target.setLook} title="Who goes in" />}
       <Button size="sm" onClick={() => make.mutate()} disabled={make.isPending} className="self-start">
         <Wand2 size={14} /> Make it from the driving video…
       </Button>
       <span className="text-xs text-ink-2">
         {face && person
-          ? <>{person.name} (the cast) put into the frame at <span className="font-semibold text-ink">{start.toFixed(1)} s</span>, where the part starts: 3 pictures with Qwen Image 2.1 · Edit, you pick one.</>
-          : <>The frame at {start.toFixed(1)} s in Qwen Image 2.1 · Edit, opened on its References: drop a photo of who goes in there (or put them in the cast first, Characters).</>}
+          ? <>{person.name} put into the frame at <span className="font-semibold text-ink">{start.toFixed(1)} s</span>, where the part starts: 3 pictures with Qwen Image 2.1 · Edit, you pick one.</>
+          : <>The frame at {start.toFixed(1)} s in Qwen Image 2.1 · Edit, opened on its References: drop a photo of who goes in there, or pick them above.</>}
       </span>
     </div>
   );

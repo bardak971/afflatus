@@ -21,8 +21,10 @@ const none: Look = { cast: [], style: null, snippets: [] };
  * style. They are written once, in the Prompt kit; here they are only picked. "See what is sent"
  * shows what they add for the model in use: words, LoRAs, reference pictures, a voice.
  */
-export function LookBar({ look, onChange, recipe, input, title = "Characters and styles" }: {
+export function LookBar({ look, onChange, recipe, input, title = "Characters and styles", people }: {
   look: Look | null;
+  /** People only, no places and no style (who goes into a picture a Motion transfer is made from). */
+  people?: boolean;
   onChange(look: Look): void;
   /** With a recipe and its form, "See what is sent" is offered. */
   recipe?: RecipeInfo;
@@ -37,8 +39,8 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
   const all = entities.data?.items ?? [];
   // someone deleted from the kit is left out: not shown, not counted, and gone with the next change
   const now = present(look ?? none, entities.data ? all : null);
-  const castable = all.filter((e) => (e.kind === "person" || e.kind === "place") && !now.cast.some((c) => c.id === e.id)).sort((a, b) => a.kind.localeCompare(b.kind));
-  const styles = all.filter((e) => e.kind === "style");
+  const castable = all.filter((e) => (e.kind === "person" || (!people && e.kind === "place")) && !now.cast.some((c) => c.id === e.id)).sort((a, b) => a.kind.localeCompare(b.kind));
+  const styles = people ? [] : all.filter((e) => e.kind === "style");
   const active = lookAdds(now);
   // asked once the typing has settled, not once per keystroke
   const settled = useSettled(input, 500);
@@ -113,7 +115,7 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
               size="sm"
               className="h-9"
               icon={<Plus size={13} className="shrink-0" />}
-              label="Add a person or a place"
+              label={people ? "Add a person" : "Add a person or a place"}
               placeholder="Add"
               value=""
               onChange={(id) => onChange({ ...now, cast: [...now.cast, { id }] })}

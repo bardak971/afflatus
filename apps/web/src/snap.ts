@@ -18,6 +18,15 @@ export function snapTo(v: number, min: number, max: number, step: number): numbe
 }
 
 /**
+ * As snapTo, but a range's own end is reached as it is when it falls between two steps: a part of a 5.06 s video, by steps of
+ * 0.1, stopped at 5.0 and its last frames could not be taken (a drag past the last step's middle lands on the end).
+ */
+export function snapReachingEnd(v: number, min: number, max: number, step: number): number {
+  const on = snapTo(v, min, max, step);
+  return max - on > 0 && max - on < step && v > (on + max) / 2 ? max : on;
+}
+
+/**
  * SeedVR2's batch size: 0 is auto, else a count of frames on its 4n + 1 grid (1, 5, 9 … 49). Steps of 4 from 0 gave
  * 4, 8 … 48, which are off that grid, and never reached 49.
  */
