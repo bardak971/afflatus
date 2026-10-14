@@ -38,7 +38,8 @@ def _faces(image, index: int = 0) -> list:
     """The faces of one picture of a ComfyUI image batch, each a unit embedding with its width in pixels."""
     import numpy as np
 
-    rgb = (image[index].detach().cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+    # colour only: a picture with a transparency channel (RGBA) is read as its RGB
+    rgb = (image[index, :, :, :3].detach().cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
     out = []
     for f in _face_app().get(rgb[:, :, ::-1].copy()):
         if f.bbox[2] - f.bbox[0] >= 32 and f.det_score >= 0.5:
@@ -68,6 +69,14 @@ class AfflatusFaceMatch(io.ComfyNode):
 
     @classmethod
     def execute(cls, image, photo_1, photo_2=None, photo_3=None, samples: int = 8) -> io.NodeOutput:
+        # a figure beside a render, never its failure: whatever goes wrong here gives no figure, and the render is kept
+        try:
+            return cls._measure(image, photo_1, photo_2, photo_3, samples)
+        except Exception as err:  # noqa: BLE001 — any error of InsightFace or of a picture it cannot read
+            return io.NodeOutput(ui={"afflatus_face": [{"face": None, "error": str(err)[:200]}]})
+
+    @classmethod
+    def _measure(cls, image, photo_1, photo_2, photo_3, samples: int) -> io.NodeOutput:
         import numpy as np
 
         refs = []
