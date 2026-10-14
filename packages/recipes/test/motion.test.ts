@@ -194,3 +194,11 @@ describe("SCAIL-2 carrying on from the clip before", () => {
     expect(wanAnimateMotion.traits).toMatchObject({ continues: "clip", windows: { most: 81, carried: 1 } });
   });
 });
+
+describe("what a motion render is priced on", () => {
+  it("says its own frames, not ImageFromBatch's 'the rest of the batch' (4096)", () => {
+    const input = parseInput(scailMotion, { picture: "p1", driving: { asset: "v1" }, previous: { asset: "v0" } });
+    const built = scailMotion.build(input, dryContext({ slots, uploads: { picture: "p.png", driving: "d.mp4", previous: "prev.mp4" }, media: { picture: { width: 768, height: 1360 }, driving: part(81 / SCAIL_FPS) } }));
+    expect(built.frames).toBe(81);
+  });
+});

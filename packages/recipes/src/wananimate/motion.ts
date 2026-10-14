@@ -136,6 +136,8 @@ export const wanAnimateMotion = defineRecipe<WanAnimateMotion>({
         ...faceScore(g, ctx, images, [g.out("LoadImage", { image: ctx.uploads.picture })]),
       ],
       totalSteps: input.steps,
+      // the frames it makes, said (read off its nodes, ImageFromBatch's "the rest", 4096, was counted: see scail/motion.ts)
+      frames: total,
       passes: [{ node: sampled, steps: input.steps }],
       loads: [
         ...saved.loads, `diffusion_models/${slots.unet}`, `text_encoders/${slots.clip}`, `vae/${slots.vae}`, `clip_vision/${slots.clipVision}`,

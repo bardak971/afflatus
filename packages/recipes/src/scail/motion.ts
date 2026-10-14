@@ -153,6 +153,9 @@ export const scailMotion = defineRecipe<ScailMotion>({
         ...faceScore(g, ctx, images, [picture]),
       ],
       totalSteps: input.steps * lengths.length,
+      // the frames it makes, said: read off its nodes, the "the rest of the batch" of ImageFromBatch (length 4096) counted as
+      // frames, and a timeline's windows were recorded with 30 to 50 times their work (forecasts of 375 and 533 min for 4)
+      frames: total,
       passes,
       loads: [
         ...saved.loads, `diffusion_models/${slots.unet}`, `text_encoders/${slots.clip}`, `vae/${slots.vae}`, `clip_vision/${slots.clipVision}`, `checkpoints/${slots.sam}`,
