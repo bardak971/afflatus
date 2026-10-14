@@ -122,7 +122,14 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
 
   // the hunt: asked for (Ctrl+K, the hunt's card), or the GPU wanted not free. A hunt under way is changed, not started again
   const [huntAsked, setHuntAsked] = useState(opening !== "deploy");
-  const hunting = keyed && (huntAsked || Boolean(gone));
+  // the GPU the dialog turned to a hunt for: it stays a hunt while that GPU is the one wanted, whatever RunPod's next read
+  // says (a GPU that comes and goes from the stock list every 15 s flipped the whole dialog between hunt and deploy)
+  const [huntFor, setHuntFor] = useState<string | null>(null);
+  const goneId = gone?.id ?? null;
+  useEffect(() => {
+    if (keyed && goneId) setHuntFor(goneId);
+  }, [keyed, goneId]);
+  const hunting = keyed && (huntAsked || Boolean(gone) || (huntFor !== null && huntFor === want.gpu));
   const queueHunt = useQueue().data?.hunt ?? null;
   const changing = hunting && (opening === "change" || Boolean(queueHunt));
   const kept = useQuery({ queryKey: queryKeys.hunt(), queryFn: ({ signal }) => api.hunt({ signal }), enabled: changing }).data?.hunt ?? null;
@@ -147,14 +154,16 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
   // hunting for the GPU wanted, those it would be a step down to are left out at first: slower by what was learned, else
   // cheaper an hour. Ticked, the hunt for a 4090 deployed a free L4 at once, as the best value
   const firstRanking = rank.data?.ranking;
-  const goneId = gone?.id ?? null;
   useEffect(() => {
-    if (changing || !goneId || !firstRanking || huntChange.leftOut) return;
-    const wanted = firstRanking.find((g) => g.id === goneId);
+    if (changing || !huntFor || !firstRanking || huntChange.leftOut) return;
+    const wanted = firstRanking.find((g) => g.id === huntFor);
     if (!wanted) return;
     const below = firstRanking.filter((g) => g.id !== wanted.id && (wanted.seconds !== null && g.seconds !== null ? g.seconds > wanted.seconds : g.price < wanted.price));
     setHuntChange((was) => ({ ...was, leftOut: below.map((g) => g.id) }));
-  }, [changing, goneId, firstRanking, huntChange.leftOut]);
+  }, [changing, huntFor, firstRanking, huntChange.leftOut]);
+  // the GPU wanted free by either read of RunPod's stock (the list's, every 15 s, or the ranking's): said once, one way
+  const wantedRow = rank.data?.ranking.find((g) => g.id === want.gpu) ?? null;
+  const wantedFree = picked ?? (wantedRow && wantedRow.stock !== "none free" ? wantedRow : null);
   // the first pick free now: starting the hunt deploys it at once, and the button says so
   const pickNow = !changing && pick && pick.stock !== "none free" ? pick : null;
   // a GPU free now to deploy in place of the hunt: the one picked (the dialog opened on the hunt), else the cheapest as large
@@ -206,8 +215,12 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[10px] bg-warn-wash px-3.5 py-2.5 text-[13px] text-warn-ink">
                 <CircleAlert size={16} className="shrink-0" />
                 <span className="min-w-0 grow">
-                  {gone ? `No ${gone.name} is free ${volume ? `in ${volume.dataCenter} ` : ""}right now. Hunt for one, or for the best GPU that comes free.` : `The best GPU below is deployed the moment one comes free${volume ? ` in ${volume.dataCenter}` : ""}.`}
-                  {alt && ` The ${alt.name} is free now, at ${usd(alt.price)}/h.`}
+                  {wantedFree
+                    ? `The ${wantedFree.name} is free now${volume ? ` in ${volume.dataCenter}` : ""}, at ${usd(wantedFree.price)}/h.`
+                    : gone
+                      ? `No ${gone.name} is free ${volume ? `in ${volume.dataCenter} ` : ""}right now. Hunt for one, or for the best GPU that comes free.`
+                      : `The best GPU below is deployed the moment one comes free${volume ? ` in ${volume.dataCenter}` : ""}.`}
+                  {alt && alt.id !== wantedFree?.id && ` The ${alt.name} is free now, at ${usd(alt.price)}/h.`}
                 </span>
                 {alt && <Button size="sm" onClick={() => { set({ gpu: alt.id }); setHuntAsked(false); }}>Deploy it instead</Button>}
                 <Segmented<DeployAsk["cloud"]> size="sm" label="Cloud" value={want.cloud} options={[{ value: "SECURE", label: "Secure" }, { value: "COMMUNITY", label: "Community" }]} onChange={(cloud) => set({ cloud })} />

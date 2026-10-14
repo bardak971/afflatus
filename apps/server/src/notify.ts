@@ -101,6 +101,8 @@ export class Notify {
   private stuckSaid = new Set<string>();
   private stuckTimer: NodeJS.Timeout | null = null;
   private stopped = false;
+  /** The sends to Telegram and Discord, in order: each starts once the one before ended (sent, failed or timed out). */
+  private sending: Promise<void> = Promise.resolve();
 
   constructor(private readonly deps: NotifyDeps, opts: Partial<NotifyOptions> = {}) {
     this.opts = { ...NOTIFY_DEFAULTS, ...opts };
@@ -163,10 +165,13 @@ export class Notify {
     this.folding = { names: [], timer };
   }
 
-  /** To the open pages at once, and to the channels ticked for its kind in the background. */
+  /**
+   * To the open pages at once, and to the channels ticked for its kind in the background, one after another in the order
+   * they were said: a render's "Done" with its picture took longer to send than the "Queue empty" after it, which came first.
+   */
   private deliver(kind: NotifyKind, notice: Notice): void {
     this.deps.events.emit("notice", { kind, title: notice.title, body: notice.body });
-    void this.toChannels(kind, notice).catch((err: Error) => console.warn(`[notify] ${err.message}`));
+    this.sending = this.sending.then(() => this.toChannels(kind, notice)).catch((err: Error) => console.warn(`[notify] ${err.message}`));
   }
 
   private async toChannels(kind: NotifyKind, notice: Notice): Promise<void> {

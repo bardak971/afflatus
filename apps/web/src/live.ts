@@ -95,9 +95,13 @@ export function useLiveEvents(): void {
     // the queue, and the library, are read again at most once a second, with one last read after the last
     // event: a render reporting every step, or a folder of a thousand files coming in, costs a read a second
     // the GPU hunt's own view goes with it (its asks, its ranking): read again only where it is on screen (the hunt's card)
+    // the Deploy dialog's "Your waiting jobs" follows the queue too while it is open, at most every 5 s (each read scans
+    // ComfyUI's files and asks where each file would come from)
+    const readDeployModels = throttle(() => void client.invalidateQueries({ queryKey: ["deploy-models"], refetchType: "active" }), 5000);
     const readQueue = throttle(() => {
       void client.invalidateQueries({ queryKey: queryKeys.queue(), exact: true });
       void client.invalidateQueries({ queryKey: queryKeys.hunt(), refetchType: "active" });
+      readDeployModels();
     }, 1000);
     // each "library" event says what it changed: what it says in full (a new name, a keep) is written in at once, and the
     // changes are gathered until the read, which reads only the queries one of them can touch (queryKeys.ts libraryReads)
@@ -306,6 +310,7 @@ export function useLiveEvents(): void {
     return () => {
       stop.abort();
       readQueue.cancel();
+      readDeployModels.cancel();
       libraryRead.cancel();
       if (indexWait) clearTimeout(indexWait);
       if (retry) clearTimeout(retry);
