@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { SystemLoad } from "./api";
+import type { NotifyKind, SystemLoad } from "./api";
 import { useProject, type ProjectChoice } from "./project";
 import type { GroupBy } from "./screens/studio/grouping";
 
@@ -23,13 +23,34 @@ export const useLive = create<{ down: boolean; set(down: boolean): void }>((set)
   set: (down) => set({ down }),
 }));
 
+/** The kinds of notice this browser shows as a notification of its own: a kind not named is not shown. */
+export type BrowserTicks = Partial<Record<NotifyKind, boolean>>;
+type NotifyState = { browser: BrowserTicks; banner: boolean };
+
 /**
- * What this browser should tell you about, with a notification of its own (nothing leaves the computer), and whether
- * the app's own banner says when renders finish while another screen is open (`banner`; failures are always said).
- * Kept per browser: a notification is shown by the browser that asked for it.
+ * This browser's notices from before they were per kind (version 0): "after each render" was a render done or failed,
+ * "when the queue is empty" the queue's own; carried over, so that nobody loses their choice.
  */
-export const useNotify = create<{ whenEmpty: boolean; eachRender: boolean; banner: boolean; set(patch: { whenEmpty?: boolean; eachRender?: boolean; banner?: boolean }): void }>()(
-  persist((set) => ({ whenEmpty: false, eachRender: false, banner: true, set: (patch) => set(patch) }), { name: "afflatus.notify" }),
+export function notifyMigrate(old: unknown, version: number): NotifyState {
+  const o = (old && typeof old === "object" ? old : {}) as Partial<NotifyState> & { whenEmpty?: boolean; eachRender?: boolean };
+  if (version >= 1) return { browser: o.browser ?? {}, banner: o.banner ?? true };
+  return { banner: o.banner ?? true, browser: { renderDone: Boolean(o.eachRender), renderFailed: Boolean(o.eachRender), queueEmpty: Boolean(o.whenEmpty) } };
+}
+
+/**
+ * What this browser should tell you about, with a notification of its own (the server's notices, per kind: nothing more
+ * leaves the computer), and whether the app's own banner says when renders finish while another screen is open (`banner`;
+ * failures are always said). Kept per browser: a notification is shown by the browser that asked for it.
+ */
+export const useNotify = create<NotifyState & { set(patch: { browser?: BrowserTicks; banner?: boolean }): void }>()(
+  persist(
+    (set) => ({
+      browser: {},
+      banner: true,
+      set: (patch) => set((s) => ({ ...(patch.banner === undefined ? {} : { banner: patch.banner }), ...(patch.browser ? { browser: { ...s.browser, ...patch.browser } } : {}) })),
+    }),
+    { name: "afflatus.notify", version: 1, migrate: notifyMigrate },
+  ),
 );
 
 /**

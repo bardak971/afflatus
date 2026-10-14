@@ -10,6 +10,7 @@ import { imagePublic } from "./podImage";
 import { recordMeasure } from "./podMeasures";
 import { SEARCHED_FOLDERS } from "./modelSets";
 import { inUseSaid, keptHoldings, noteFill, noticeVolumes, mountedOn, recordHoldings, usedBy, viewVolumes, VOLUME_MAX_GB, VOLUME_MIN_GB, type Storage, type VolumeView } from "./rentedVolumes";
+import { dollars, machineSaid, type Say } from "./notifyWords";
 import { MAX_MACHINES, readSettings, updateSettings, type DeployAsk, type Machine, type Settings } from "./settings";
 
 /**
@@ -89,6 +90,8 @@ export interface Spending {
 type Counted = { today: number; month: number; open: boolean; lastEnd: number };
 
 const LOW_BALANCE = 5;
+/** The balance is told of as low under this at least (notify.ts), and under a day of the last week's spend when that is more. */
+const LOW_LINE = 2;
 const HOUR = 3_600_000;
 /** How often RunPod's bill is read again: it is written some hours after the fact, nothing is lost reading it seldom. */
 const BILL_EVERY_MS = 5 * 60_000;
@@ -254,6 +257,12 @@ export class Rented {
   now: () => number = Date.now;
   /** How long a render on a pod may stay silent past its forecast before it is failed as stuck (shorter in tests). */
   stuckMs = STUCK_MS;
+  /** Where what the user is told of goes (notify.ts; set by services.ts): a pod stopped, a cap reached, the balance low. */
+  tell: Say | null = null;
+  /** The caps already told of as reached, by cap and period ("day:2026-10-14"): once a day, once a month. */
+  private capsTold = new Set<string>();
+  /** The balance was told of as low: not again until it is back over the line. */
+  private lowTold = false;
 
   constructor(
     private readonly db: Db,
@@ -744,6 +753,57 @@ export class Rented {
     if (this.now() < this.quietUntil || (this.balanceSeen && this.now() - this.balanceSeen.at <= 60_000)) return;
     const got = await this.client(key).balance().catch(() => ({ balance: null, spendPerHr: null }));
     this.balanceSeen = { at: this.now(), value: got.balance, spendPerHr: got.spendPerHr };
+    if (got.balance !== null) await this.sayBalance(got.balance).catch((err: Error) => console.warn(`[rented] the balance's line not worked out: ${err.message}`));
+  }
+
+  /**
+   * The balance told of as low once it is under the higher of $2 and a day of the last week's rented spend, on average: what
+   * one more day like those would leave at zero, when RunPod stops every pod. Once, until it is back over the line.
+   */
+  private async sayBalance(balance: number): Promise<void> {
+    if (!this.tell) return;
+    const now = this.now();
+    const line = Math.max(LOW_LINE, (await this.costBetween(now - 7 * 24 * HOUR, now)) / 7);
+    if (balance >= line) {
+      this.lowTold = false;
+      return;
+    }
+    if (this.lowTold) return;
+    this.lowTold = true;
+    this.tell("balanceLow", { title: `RunPod balance low: ${dollars(balance)}`, body: `Under ${dollars(line)}${line > LOW_LINE ? ", a day of the last week's rented GPUs" : ""}. At $0 RunPod stops every pod, a render under way too.`, key: "balance" });
+  }
+
+  /** A day's or a month's cap reached: told once for that day, once for that month. */
+  private sayCap(caps: { day: number; month: number }, spent: { today: number; month: number }): void {
+    if (!this.tell) return;
+    const d = new Date(this.now());
+    const reached = [
+      { key: `day:${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`, cap: caps.day, spent: spent.today, said: "Today's" },
+      { key: `month:${d.getFullYear()}-${d.getMonth() + 1}`, cap: caps.month, spent: spent.month, said: "This month's" },
+    ];
+    for (const r of reached) {
+      if (r.cap <= 0 || r.spent < r.cap || this.capsTold.has(r.key)) continue;
+      this.capsTold.add(r.key);
+      this.tell("capReached", { title: `${r.said} cap reached: ${dollars(r.spent)} of ${dollars(r.cap)}`, body: "The rented GPUs stop once their render ends, and Start is refused until the cap is raised or the period ends.", key: r.key });
+    }
+  }
+
+  /** What the pod's last run cost as Afflatus counts it (its time × its rate), to now while it is still open; null before any. */
+  private async lastRunCost(m: Machine): Promise<number | null> {
+    const r = await this.db.selectFrom("rent_sessions").select(["started_at", "ended_at", "rate"]).where("machine_id", "=", m.id).orderBy("started_at", "desc").executeTakeFirst();
+    if (!r) return null;
+    const end = r.ended_at ? Date.parse(r.ended_at) : this.now();
+    return Math.max(0, ((end - Date.parse(r.started_at)) / HOUR) * r.rate);
+  }
+
+  /** What the rented GPUs cost between two moments (ms), as Afflatus counts it (rent_sessions): a batch of renders' notice says it. */
+  async costBetween(from: number, to: number): Promise<number> {
+    const rows = await this.db.selectFrom("rent_sessions").select(["started_at", "ended_at", "rate"]).where((eb) => eb.or([eb("ended_at", "is", null), eb("ended_at", ">", new Date(from).toISOString())])).where("started_at", "<", new Date(to).toISOString()).execute();
+    return rows.reduce((sum, r) => {
+      const start = Math.max(from, Date.parse(r.started_at));
+      const end = Math.min(to, r.ended_at ? Date.parse(r.ended_at) : to);
+      return Number.isFinite(start) && Number.isFinite(end) && end > start ? sum + ((end - start) / HOUR) * r.rate : sum;
+    }, 0);
   }
 
   /** RunPod's bill since `from` (ms), read again every few minutes; null when RunPod does not give it. */
@@ -896,7 +956,7 @@ export class Rented {
         s.stopping = false;
         s.stoppingSince = null;
         console.warn(`[rented] ${m.name || m.id}: still running ${STOP_AGAIN_MS / 60_000} min after its stop: asked again`);
-        await this.act(m, pod.networkVolume || pod.diskGb > 0 ? m.rented!.idleDo : "terminate", why);
+        await this.act(m, pod.networkVolume || pod.diskGb > 0 ? m.rented!.idleDo : "terminate", why, true);
       }
       return changed;
     }
@@ -1115,6 +1175,7 @@ export class Rented {
     if (running || !s.answered || (answers && (await this.queue.wants(m.id)))) s.busyAt = now;
     s.busyAt ??= now;
     const spent = await (this.spentThisPoll ??= this.spent());
+    this.sayCap(caps, spent);
     s.stopAfter = (caps.day > 0 && spent.today >= caps.day) || (caps.month > 0 && spent.month >= caps.month);
     s.cappedAt = s.stopAfter ? s.cappedAt ?? now : null;
     // at a cap: once its render ends, or an hour after the cap when the render does not end
@@ -1323,6 +1384,22 @@ export class Rented {
     }
   }
 
+  /** A pod Afflatus stopped or terminated on its own: why, and what its run cost. */
+  private async sayStopped(m: Machine, s: Seen, action: "stop" | "terminate", why: Exclude<NonNullable<RentedView["stoppedBy"]>, "you">): Promise<void> {
+    if (!this.tell) return;
+    const because: Record<typeof why, string> = {
+      idle: `idle ${m.rented!.idleMinutes} min`,
+      cap: "a spending cap was reached",
+      boot: `its ComfyUI never answered in ${bootLimit(m) / 60_000} min`,
+      gpu: "its GPU did not work on that host",
+      watchdog: "its watchdog had stopped it while Afflatus was away, and it kept nothing",
+      filled: "its volume is filled",
+      cut: `its fill was cut short: ${s.cutWhy ?? "it stopped moving"}`,
+    };
+    const cost = await this.lastRunCost(m);
+    this.tell("podStopped", { title: `${machineSaid(m)} ${action === "terminate" ? "terminated" : "stopped"}`, body: `Why: ${because[why]}.${cost !== null ? ` This run: ${dollars(cost)}.` : ""}`, key: `${m.id}:${why}` });
+  }
+
   /** The user's Stop, or Terminate: then the machine goes from Afflatus too (nothing is left to do with it), and its secret. */
   async stopBy(machine: string, how: "stop" | "terminate"): Promise<RentedView | null> {
     const s = await readSettings(this.db);
@@ -1347,7 +1424,8 @@ export class Rented {
     this.events.emit("setup");
   }
 
-  private async act(m: Machine, action: "start" | "stop" | "terminate", why: RentedView["stoppedBy"]): Promise<void> {
+  /** `again`: a stop asked again of a pod still running after the first (told of once, at the first). */
+  private async act(m: Machine, action: "start" | "stop" | "terminate", why: RentedView["stoppedBy"], again = false): Promise<void> {
     const s = this.seenOf(m.id);
     // what a fill cut short still waited for, read before its pod goes (podFiles forgets a pod being stopped)
     const fillLeft = action === "terminate" && m.rented!.fill && why !== "filled" ? this.filesLeft?.(m.id) ?? null : undefined;
@@ -1406,6 +1484,8 @@ export class Rented {
     // a deployed pod terminated by its idle time, a cap or a boot that never came: nothing is left of it, its machine goes too
     // (the user's own Terminate removes it in stopBy)
     if (action === "terminate" && m.rented!.deployed && (why === "idle" || why === "cap" || why === "watchdog" || why === "filled" || why === "cut")) await this.forget(m, s);
+    // told when Afflatus stopped it on its own, never for the user's own Stop
+    if (action !== "start" && why && why !== "you" && !again) await this.sayStopped(m, s, action, why).catch((err: Error) => console.warn(`[rented] its stop not told: ${err.message}`));
     if (why === "filled") console.log(`[rented] ${m.name || m.id}: its volume filled, terminated`);
     if (why === "watchdog") console.log(`[rented] ${m.name || m.id}: found stopped by its watchdog, terminated (it kept nothing)`);
     if (why === "idle" || why === "cap" || why === "boot" || why === "gpu") console.log(`[rented] ${m.name || m.id}: ${action === "terminate" ? "terminated" : "stopped"} (${why === "idle" ? `idle ${m.rented!.idleMinutes} min` : why === "boot" ? `its ComfyUI never answered in ${bootLimit(m) / 60_000} min` : why === "gpu" ? "its GPU did not work on that host" : "a spending cap"})`);

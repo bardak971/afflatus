@@ -31,6 +31,7 @@ import { registerModelSettings } from "./modelSettings";
 import { registerModelUpdates } from "./modelUpdates";
 import { registerBrowse } from "./browse";
 import { registerNodePack } from "./nodePack";
+import { registerNotify } from "./notify";
 import { registerModelSets } from "./modelSets";
 import { registerPresetFiles } from "./presetFiles";
 import { registerProjects } from "./projects";
@@ -139,6 +140,7 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
   registerSetup(app, s, VERSION);
   registerLock(app, s);
   registerRented(app, s);
+  registerNotify(app, s.notify);
   registerDrafts(app, s);
   registerModelSettings(app, s);
   registerPresetFiles(app, s);

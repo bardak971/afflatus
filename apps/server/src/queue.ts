@@ -9,6 +9,7 @@ import { machinePaces, rates } from "./forecast";
 import type { Registry } from "./registry";
 import { record } from "./renders";
 import { lackOn, type Lack } from "./machineScans";
+import { machineSaid, type Say } from "./notifyWords";
 import type { PodFiles } from "./podFiles";
 import { plan, type Lane as Schedulable, type Planned, type Waiting } from "./schedule";
 import { FIRST_MACHINE, readSettings, type Machine } from "./settings";
@@ -137,6 +138,10 @@ export class Queue {
   private only: ReadonlySet<string> | null = null;
   /** The timelines, for jobs that render a clip of one (set once both exist). */
   clips: Timelines | null = null;
+  /** Where what the user is told of goes (notify.ts; set by services.ts): a ComfyUI gone mid-render. Null: nothing is said. */
+  tell: Say | null = null;
+  /** The machines a ComfyUI gone mid-render was said of, until they answer again: said once, however it is found out. */
+  private goneSaid = new Set<string>();
   /** How many passes picked another job over a waiting one: a job is passed over a few times at most. */
 
   constructor(
@@ -1001,6 +1006,23 @@ ${JSON.stringify(input)}`;
     return Math.max(0, Math.min(now - run.movedAt, pastForecast));
   }
 
+  /**
+   * The renders under way and how long each has moved by nothing (no step, no node, no preview from ComfyUI, its GPU idle),
+   * on every machine: what a render stuck is told by (notify.ts), well before a rented pod's is failed (rented.ts).
+   */
+  stillFor(): Array<{ job: string; machine: string; ms: number }> {
+    const now = Date.now();
+    return this.machineLanes().flatMap((l) => (l.running?.promptId && l.running.movedAt && l.running.gpu ? [{ job: l.running.id, machine: l.id, ms: now - l.running.movedAt }] : []));
+  }
+
+  /** A machine's ComfyUI went while it rendered: told once, until it answers again. `label`: the render's, when known. */
+  private sayGone(lane: Lane, label: string | null): void {
+    if (!this.tell || this.goneSaid.has(lane.id)) return;
+    this.goneSaid.add(lane.id);
+    const name = lane.machine ? machineSaid(lane.machine) : "ComfyUI";
+    this.tell("comfyGone", { title: `${name} is offline`, body: `It stopped answering while it rendered${label ? ` ${label}` : ""}. The render is queued again while attempts remain.`, key: lane.id });
+  }
+
   /** Fail the render a machine runs as stuck, with what to say, and drop it in its ComfyUI. Whether there was one. */
   async endStuck(machine: string, why: string): Promise<boolean> {
     const lane = this.lanes.get(machine);
@@ -1041,6 +1063,8 @@ ${JSON.stringify(input)}`;
       if (answered === undefined || lane.reachable === answered) continue;
       lane.reachable = answered;
       changed = true;
+      if (answered) this.goneSaid.delete(lane.id);
+      else if (lane.running?.gpu) this.sayGone(lane, null);
     }
     this.offline.noteReachable(ok);
     if (changed) {
@@ -1058,9 +1082,11 @@ ${JSON.stringify(input)}`;
       .set({ status, error: extra.error ?? null, error_trace: extra.trace ?? null, ...(extra.generationId ? { generation_id: extra.generationId } : {}), finished_at: now(), updated_at: now() })
       .where("id", "=", id);
     if (from) q = q.where("status", "=", from);
-    await q.execute();
+    const ended = Number((await q.executeTakeFirst()).numUpdatedRows) > 0;
     if (status !== "done") await this.failDependents(id);
     this.events.emit("queue");
+    // what is told of a job's end (notify.ts): once, by the call that ended it
+    if (ended) this.events.emit("ended", id, status);
     // only a clip's render, a cut or an export changes a timeline: a picture's end does not read them again
     const of = await this.db.selectFrom("jobs").select(["clip_id", "timeline_id"]).where("id", "=", id).executeTakeFirst();
     if (of?.clip_id || of?.timeline_id) this.events.emit("timeline");
@@ -1150,6 +1176,8 @@ ${JSON.stringify(input)}`;
     const running: Running = { id: row.id, machine: lane.id, abort, promptId: resume?.promptId, gpu: true, expectedMs: resume?.timing?.expectedMs ?? null, startedAt: resume?.startedAt ?? Date.now() };
     lane.running = running;
     lane.starting = null;
+    // a job starts there only once its ComfyUI answers: a going away after this one is told again
+    this.goneSaid.delete(lane.id);
     if (lane.unloadTimer) clearTimeout(lane.unloadTimer);
     lane.unloadTimer = null;
     lane.holds = true;
@@ -1294,6 +1322,7 @@ ${JSON.stringify(input)}`;
       await this.finish(row.id, "cancelled", { error: "stopped by you" });
     } else if ((err instanceof ComfyLost || err instanceof ComfyUnreachable) && Math.max(at.attempts, row.attempts + 1) < this.opts.maxAttempts) {
       console.warn(`[queue] job ${row.id} lost (${err.message}), queued again`);
+      if (resume) this.sayGone(lane, row.label);
       // ComfyUI may have the prompt all the same: one sent without an answer (it did not answer in time), and one it finished
       // or still runs while this process lost sight of it (90 s of silence, its file not fetched). Its id is kept, so that the
       // next attempt asks ComfyUI for it (taken) and follows it, instead of rendering again a video that would come out different
@@ -1303,6 +1332,7 @@ ${JSON.stringify(input)}`;
       await this.db.updateTable("jobs").set({ status: "queued", resume: unsent, attempts: Math.max(at.attempts, row.attempts + 1), warning: null, updated_at: now() }).where("id", "=", row.id).where("status", "=", "running").execute();
       this.events.emit("queue");
     } else {
+      if (resume && (err instanceof ComfyLost || err instanceof ComfyUnreachable)) this.sayGone(lane, row.label);
       if (onRecord) await this.note(lane, row, recipe, resume, measured, "failed", whole, Date.now() - resume.startedAt);
       await this.failure(row, resume?.promptId ?? at.held?.promptId, err);
     }

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { presetFileSchema } from "@afflatus/core";
+import { envSaid } from "./config";
 import type { Db } from "./db";
 import { httpError } from "./errors";
 import { oneAtATime } from "./keyedLock";
@@ -132,6 +133,28 @@ export const deploySchema = z.object({
 export type DeployAsk = z.infer<typeof deploySchema>;
 
 
+/**
+ * What Afflatus tells about, on Telegram, Discord and in the browser (notify.ts). `gpuFound` and `huntGaveUp` are kept for
+ * the GPU hunt, which does not exist yet: nothing says them.
+ */
+export const NOTIFY_KINDS = ["renderDone", "renderFailed", "queueEmpty", "renderStuck", "podStopped", "capReached", "balanceLow", "comfyGone", "gpuFound", "huntGaveUp"] as const;
+export type NotifyKind = (typeof NOTIFY_KINDS)[number];
+/** Only a render done is off by default: every other kind is something to act on. */
+const channels = (on: boolean) => z.object({ telegram: z.boolean().default(on), discord: z.boolean().default(on) }).prefault({});
+const notifySchema = z.object({
+  /** The bot's token (@BotFather): a secret, never given to the page, never in a log nor a message. */
+  telegramToken: z.string().trim().max(200).default(""),
+  /** The chat the bot writes to: a user's or a group's id, or a channel's @name. */
+  telegramChat: z.string().trim().max(80).default(""),
+  /** A Discord webhook's address: a secret too (anyone who has it can write to the channel). */
+  discordWebhook: z.string().trim().max(400).default(""),
+  /** A small picture of what a render made goes with its message. */
+  picture: z.boolean().default(true),
+  /** Per kind, the channels it is sent to (the browser's ticks are kept per browser). */
+  events: z.object(Object.fromEntries(NOTIFY_KINDS.map((k) => [k, channels(k !== "renderDone")])) as Record<NotifyKind, ReturnType<typeof channels>>).prefault({}),
+});
+export type NotifySettings = z.infer<typeof notifySchema>;
+
 export const machineSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]{1,24}$/, "a machine id is lower-case letters, digits and dashes"),
   /** What the user calls it ("Studio PC", "Second GPU"); empty: its address is shown. */
@@ -239,6 +262,8 @@ export const settingsSchema = z.object({
    * switches to each. A project deleted or archived is taken out (projects.ts).
    */
   pinnedProjects: z.array(z.string().min(1).max(80)).max(4).refine((ids) => new Set(ids).size === ids.length, "a project is pinned once").default([]),
+  /** Where Afflatus's notices go (Telegram, Discord) and which kinds go there (notify.ts). */
+  notify: notifySchema.prefault({}),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 
@@ -403,6 +428,8 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
     sent.comfyUrl ??= current.comfyUrl;
     sent.comfyDir ??= current.comfyDir;
   }
+  // the page sends what it changed of `notify`, and never the token nor the webhook, which it is not given: merged into what is saved
+  if (sent.notify !== undefined) sent.notify = notifyMerged(current.notify, sent.notify);
   const next = settingsSchema.parse({ ...current, ...sent });
   const ids = new Set(next.llms.map((l) => l.id));
   if (ids.size !== next.llms.length) throw httpError("two language models have the same id");
@@ -423,6 +450,30 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
     cached.delete(db);
   }
   return inStep(next);
+}
+
+/**
+ * Whether an address is a Discord webhook's: Discord's own (https, its domain, /api/webhooks/), or one under DISCORD_URL (a
+ * stand-in in the tests). Anything else is refused: the server would post the user's notices wherever it was pointed.
+ */
+export function discordHookOk(url: string): boolean {
+  const stand = envSaid.discordUrl();
+  if (stand && url.startsWith(stand)) return true;
+  return /^https:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/api\/(?:v\d+\/)?webhooks\/\d+\/[\w-]+$/.test(url);
+}
+
+/** What a Telegram bot's token looks like (@BotFather gives "123456789:AA…"): a typo is said at once, not at the first notice. */
+const TELEGRAM_TOKEN = /^\d{3,}:[\w-]{20,}$/;
+
+/** `notify` as saved, with what was sent of it (some fields, some kinds' channels) put over it; a webhook or a token that cannot be one refused. */
+function notifyMerged(current: NotifySettings, asked: unknown): unknown {
+  if (!asked || typeof asked !== "object") return asked;
+  const a = asked as Partial<Record<keyof NotifySettings, unknown>>;
+  if (typeof a.discordWebhook === "string" && a.discordWebhook.trim() && !discordHookOk(a.discordWebhook.trim())) throw httpError("That is not a Discord webhook: its address starts https://discord.com/api/webhooks/");
+  if (typeof a.telegramToken === "string" && a.telegramToken.trim() && !TELEGRAM_TOKEN.test(a.telegramToken.trim())) throw httpError("That is not a Telegram bot token: @BotFather gives one like 123456789:AAE…");
+  const sentEvents = a.events && typeof a.events === "object" ? (a.events as Record<string, unknown>) : {};
+  const events = Object.fromEntries(NOTIFY_KINDS.map((k) => [k, { ...current.events[k], ...(sentEvents[k] && typeof sentEvents[k] === "object" ? sentEvents[k] : {}) }]));
+  return { ...current, ...a, events };
 }
 
 /** What the browser may see: secrets are replaced by whether they are set. */
@@ -462,5 +513,7 @@ export function publicSettings(s: Settings) {
     binDays: s.binDays,
     bar: s.bar,
     pinnedProjects: s.pinnedProjects,
+    // the bot's token and the webhook stay here: anyone who has either can write as Afflatus
+    notify: { hasTelegramToken: Boolean(s.notify.telegramToken), telegramChat: s.notify.telegramChat, hasDiscordWebhook: Boolean(s.notify.discordWebhook), picture: s.notify.picture, events: s.notify.events },
   };
 }

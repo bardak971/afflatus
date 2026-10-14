@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import type { ProgressUpdate, QueueStatus, SystemLoad, UpdateFlow, UpdatesView } from "./api";
+import type { NoticeEvent, ProgressUpdate, QueueStatus, SystemLoad, UpdateFlow, UpdatesView } from "./api";
 import { readHistoryHead, readLibraryTop } from "./data";
 import { applyChange, readsTop } from "./assetCache";
 import { endedSince, greetings, mergeProgress, notifyTag, throttle } from "./liveState";
@@ -60,7 +60,7 @@ const refetch = (client: QueryClient, keys: ReadonlyArray<readonly string[]>) =>
 };
 
 /** Every event the server sends (events.ts): what the tab with the connection listens for and passes on. */
-const EVENTS = ["hello", "ping", "system", "progress", "queue", "library", "models", "timeline", "entities", "downloads", "setup", "updates"] as const;
+const EVENTS = ["hello", "ping", "system", "progress", "queue", "library", "models", "timeline", "entities", "downloads", "setup", "updates", "notice"] as const;
 /** The events after which the command bar's index is old. */
 const INDEXED = new Set(["library", "timeline", "queue", "entities", "models"]);
 /** The lock of the tab that holds the connection, and the channel it passes the events on over. */
@@ -117,19 +117,16 @@ export function useLiveEvents(): void {
       if (change) for (const heard of libraryHeard) heard(change);
     };
 
-    // a job that ended, seen in the queue as it is read: the history and the render times are read again,
-    // and what was asked to be told is told (a render that finished, the queue running empty)
+    // a job that ended, seen in the queue as it is read: the history and the render times are read again (what is told of
+    // it comes from the server, as a "notice")
     let seen: Set<string> | null = null;
-    let busy = false;
     const unwatch = client.getQueryCache().subscribe((e) => {
       // a read of the queue, not a change made in place (a progress event, a new order)
       if (e.type !== "updated" || e.action.type !== "success" || e.action.manual || e.query.queryKey.length !== 1 || !isUnder(e.query.queryKey, queryKeys.queue())) return;
       const q = e.query.state.data as QueueStatus | undefined;
       if (!q) return;
-      const first = seen === null;
       const now = endedSince(seen, q);
       seen = now.seen;
-      const working = Boolean(q.running) || q.waiting.length > 0;
       // and the timelines when a clip's render, a cut or an export ended: its new take arrives with its job's end, even
       // when the "timeline" event that says so was missed (a dropped connection) or read before the take was in
       const onTimeline = now.ended.some((j) => j.clipId || j.kind === "cut" || j.kind === "export");
@@ -138,12 +135,6 @@ export function useLiveEvents(): void {
         void readHistoryHead(client);
         refetch(client, [...RENDER_KEYS, ...(onTimeline ? [queryKeys.timelines.all()] : [])]);
       }
-      if (!first && notifier.current) {
-        const { whenEmpty, eachRender } = useNotify.getState();
-        for (const j of now.ended) if (eachRender && j.status !== "cancelled" && j.kind !== "load") say(j.status === "done" ? "Finished" : "Failed", j.label, notifyTag(j.id));
-        if (whenEmpty && busy && !working) say("The queue is empty", "Everything that was waiting is done.", "afflatus:empty");
-      }
-      busy = working;
     });
 
     // the command bar's index: marked old a moment after the last of a run of changes, read again at once only while the bar is open
@@ -170,6 +161,11 @@ export function useLiveEvents(): void {
       // a timeline changed: its card, and the Projects panel's tree when it is open (its clips, its size)
       timeline: () => refetch(client, [queryKeys.timelines.all(), queryKeys.projects.trees()]),
       entities: on(queryKeys.entities()),
+      // what the server tells of (notify.ts): a notification of this browser where its kind is ticked here, shown by one tab
+      notice: (data) => {
+        const n = parse(data) as NoticeEvent | null;
+        if (n?.kind && notifier.current && useNotify.getState().browser[n.kind]) say(n.title, n.body, notifyTag(`${n.kind}:${n.title}`));
+      },
       downloads: on(queryKeys.downloads()),
       // ComfyUI has a file it did not have: what is ready may have changed; or the machines changed (one added, a rented pod
       // that came up or went, a lock): the settings that list them too

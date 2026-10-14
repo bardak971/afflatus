@@ -133,6 +133,10 @@ export const api = {
   checkHealth: () => call<Health>("POST", "/health/check"),
   settings: (o?: Asked) => call<Settings>("GET", "/settings", undefined, o?.signal),
   saveSettings: (patch: SettingsPatch) => call<Settings>("PUT", "/settings", patch),
+  /** "Afflatus: test" sent now to Telegram or Discord, with the saved settings: an error says why it did not go. */
+  testNotify: (channel: "telegram" | "discord") => call<{ ok: true }>("POST", "/notify/test", { channel }),
+  /** The chats that wrote to the saved bot lately (Telegram's getUpdates, read once). */
+  telegramChats: () => call<{ chats: Array<{ id: string; name: string; type: string }> }>("POST", "/notify/telegram-chat"),
   /** Afflatus's own updates: where it stands (the latest release, an update under way, the previous version, the 0.3 move). */
   updates: (o?: Asked) => call<UpdatesView>("GET", "/updates", undefined, o?.signal),
   /** The rest only from the computer Afflatus runs on (403 from another): GitHub asked now. */

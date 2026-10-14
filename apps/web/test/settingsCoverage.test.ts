@@ -51,6 +51,7 @@ const SERVER: Record<string, string> = {
   updateChecks: "server.updateChecks",
   bar: "bar.shortcut",
   pinnedProjects: "internal: the rail's pins, set on the rail and in the Projects panel",
+  notify: "notify.telegram",
 };
 
 /** What this browser keeps (localStorage keys and zustand `persist` names): the index key, or why it has none. */
@@ -58,7 +59,7 @@ const BROWSER: Record<string, string> = {
   "afflatus.hover-play": "hover.video",
   "afflatus.compare-result": "compare.result",
   "afflatus.explain": "explain",
-  "afflatus.notify": "notify.each",
+  "afflatus.notify": "notify.browser",
   "afflatus.theme": "interface.theme",
   "afflatus.bar.learn": "bar.learn",
   "afflatus.bar.preview": "bar.preview",
