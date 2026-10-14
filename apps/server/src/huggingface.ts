@@ -79,14 +79,19 @@ export async function findOnHuggingFace(file: string, hints: string[] = []): Pro
   return { items: items.sort((a, b) => rank(b) - rank(a)).slice(0, 5), answered: answers.some((a) => a !== null) };
 }
 
-/** The SHA-256 of a file of a repository (its LFS id), upper case; null when it is not an LFS file, or Hugging Face did not say. */
+/**
+ * The SHA-256 of a file of a repository (its LFS id), upper case; null when it is not an LFS file, or the repository is
+ * not there or not open to this account. Throws when Hugging Face did not answer (away, too many requests, a timeout):
+ * that says nothing of the file, and the caller asks again another time.
+ */
 export async function huggingFaceSha256(repo: string, path: string, token = ""): Promise<string | null> {
   const res = await fetchPublic(`${site()}/api/models/${repo}/paths-info/main`, {
     method: "POST", body: JSON.stringify({ paths: [path] }),
     headers: { "User-Agent": "afflatus", "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     signal: AbortSignal.timeout(20_000),
   }, [site()]).catch(() => null);
-  if (!res?.ok) return null;
+  if (res && [401, 403, 404].includes(res.status)) return null;
+  if (!res?.ok) throw new Error(`Hugging Face did not answer${res ? ` (${res.status})` : ""}`);
   const got = (await res.json().catch(() => [])) as Array<{ path?: string; lfs?: { oid?: string } }>;
   const oid = (Array.isArray(got) ? got : []).find((x) => x.path === path)?.lfs?.oid;
   return oid ? oid.toUpperCase() : null;

@@ -7,7 +7,7 @@ import { now } from "./db";
 import { findOnHuggingFace, huggingFaceSha256 } from "./huggingface";
 import { fileName } from "./media";
 import { MODEL_EXT } from "@afflatus/core";
-import { modelDirs } from "./modelFiles";
+import { modelDirsSaid } from "./modelFiles";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
 
@@ -16,7 +16,8 @@ import { readSettings } from "./settings";
  * whatever it is called: Civitai by the hash itself (all of them in one request), Hugging Face by the file's name and
  * then the hash it lists for that file (it has no search by hash). What is found is the file's source for a rented pod
  * (podSources.ts) and its version for the update check. Hashing reads every file once: in the background, from the
- * start of Afflatus and on the user's "Hash now", paused while this computer renders (the disk is the render's).
+ * start of Afflatus, every hour after (a file added or replaced since), and on the user's "Hash now", paused while this
+ * computer renders (the disk is the render's).
  */
 
 /** The folders whose files are hashed: the model folders a pod is sent files of. */
@@ -55,12 +56,20 @@ interface Found {
   mtime: number;
 }
 
-/** The model files under a folder's directories, sub-folders included. */
-async function filesIn(dirs: string[], folder: string): Promise<Found[]> {
+/**
+ * The model files under a folder's directories, sub-folders included, and whether every directory of it could be read: a
+ * drive away or a folder refused lists nothing, which is not the same as its files being gone.
+ */
+async function filesIn(dirs: string[], folder: string): Promise<{ files: Found[]; whole: boolean }> {
   const out: Found[] = [];
+  let whole = true;
   const walk = async (root: string, dir: string, depth: number): Promise<void> => {
     if (depth > 6) return;
-    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => null);
+    if (!entries) {
+      whole = false;
+      return;
+    }
     for (const e of entries) {
       const path = join(dir, e.name);
       if (e.isDirectory()) await walk(root, path, depth + 1);
@@ -71,7 +80,7 @@ async function filesIn(dirs: string[], folder: string): Promise<Found[]> {
     }
   };
   for (const d of dirs) await walk(d, d, 0);
-  return out;
+  return { files: out, whole };
 }
 
 export class ModelHashes {
@@ -120,26 +129,40 @@ export class ModelHashes {
     this.home = settings.machines.filter((m) => !m.rented).map((m) => m.id);
     const all: Found[] = [];
     let anyDir = false;
+    // the folders whose every directory was read: only their files can be said to be gone
+    const read = new Set<string>();
     for (const folder of HASHED_FOLDERS) {
-      const dirs = await modelDirs(settings.comfyDir, folder);
+      const { dirs, all: named } = await modelDirsSaid(settings.comfyDir, folder);
       anyDir ||= dirs.length > 0;
-      all.push(...(await filesIn(dirs, folder)));
+      const { files, whole } = await filesIn(dirs, folder);
+      all.push(...files);
+      if (dirs.length && named && whole) read.add(folder);
     }
     this.noFolder = !anyDir;
     this.found = all.length;
     this.looked = true;
-    const kept = await this.s.db.selectFrom("model_hashes").select(["folder", "file", "size", "mtime"]).execute();
+    const kept = await this.s.db.selectFrom("model_hashes").selectAll().execute();
     const keyOf = (folder: string, file: string) => `${folder}|${file}`;
     const have = new Map(kept.map((k) => [keyOf(k.folder, k.file), k]));
-    // gone from the disk: forgotten
+    // gone from the disk: forgotten. Only in a folder read whole (an offline drive is not every file deleted), and kept
+    // aside for this pass: a file renamed or moved is the same bytes under another name
     const here = new Set(all.map((f) => keyOf(f.folder, f.file)));
-    for (const k of kept) if (!here.has(keyOf(k.folder, k.file))) await this.s.db.deleteFrom("model_hashes").where("folder", "=", k.folder).where("file", "=", k.file).execute();
+    const gone = kept.filter((k) => read.has(k.folder) && !here.has(keyOf(k.folder, k.file)));
+    for (const k of gone) await this.s.db.deleteFrom("model_hashes").where("folder", "=", k.folder).where("file", "=", k.file).execute();
     // the smallest first: most files are LoRAs, done in moments, before a checkpoint takes a minute
     const todo = all.filter((f) => {
       const k = have.get(keyOf(f.folder, f.file));
       return !k || Number(k.size) !== f.size || Number(k.mtime) !== f.mtime;
     }).sort((a, b) => a.size - b.size);
     for (const f of todo) {
+      // a file just found gone with the same size and time: the same file renamed or moved, its hash and match kept
+      // rather than a checkpoint read again in full
+      const moved = !have.has(keyOf(f.folder, f.file)) ? gone.findIndex((g) => Number(g.size) === f.size && Number(g.mtime) === f.mtime) : -1;
+      if (moved >= 0) {
+        const [g] = gone.splice(moved, 1);
+        await this.s.db.insertInto("model_hashes").values({ ...g!, folder: f.folder, file: f.file }).execute();
+        continue;
+      }
       const sha256 = await this.hashOf(f);
       if (!sha256) continue;
       const row = { size: f.size, mtime: f.mtime, sha256, hashed_at: now(), civitai_version: null, hf_url: null, matched_at: null };
@@ -194,16 +217,23 @@ export class ModelHashes {
     for (const r of due) {
       const version = versions.get(r.sha256) ?? 0;
       let hf: string | null = null;
+      // whether Hugging Face gave a full answer: one away, refusing (429) or slow says nothing of the file, so the file is
+      // left unmatched (asked again at the next pass) rather than taken as found nowhere for a week
+      let answered = true;
       if (!version) {
-        const found = await findOnHuggingFace(fileName(r.file)).catch(() => ({ items: [] }));
+        const found = await findOnHuggingFace(fileName(r.file)).catch(() => ({ items: [], answered: false }));
+        answered = found.answered;
         for (const item of found.items) {
-          if ((await huggingFaceSha256(item.repo, item.path, settings.huggingFaceToken ?? "")) === r.sha256) {
+          const theirs = await huggingFaceSha256(item.repo, item.path, settings.huggingFaceToken ?? "").catch(() => undefined);
+          if (theirs === undefined) answered = false;
+          if (theirs === r.sha256) {
             hf = item.url;
+            answered = true;
             break;
           }
         }
       }
-      await this.s.db.updateTable("model_hashes").set({ civitai_version: version, hf_url: hf, matched_at: now() }).where("folder", "=", r.folder).where("file", "=", r.file).execute();
+      await this.s.db.updateTable("model_hashes").set({ civitai_version: version, hf_url: hf, matched_at: version || hf || answered ? now() : null }).where("folder", "=", r.folder).where("file", "=", r.file).execute();
     }
   }
 }

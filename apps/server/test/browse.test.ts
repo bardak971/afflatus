@@ -84,6 +84,12 @@ describe("find models", () => {
     expect(card.versions[0].trainedWords).toEqual(["handheld"]);
   });
 
+  it("takes a file of the same name here for the site's only when the site says no hash: other bytes are another file", async () => {
+    await t.db.insertInto("model_hashes").values({ folder: "loras", file: "handheld_low.safetensors", size: 1, mtime: 1, sha256: "D".repeat(64), hashed_at: "2026-10-14", civitai_version: 0, hf_url: null, matched_at: "2026-10-14" }).execute();
+    const files = (await get(t.app, "/api/browse/civitai?q=handheld")).json().items[0].versions[0].files;
+    expect(files[1].have).toEqual([{ kind: "set", name: "Video" }]);
+  });
+
   it("says which family a model fits by its base model, and offers the families' base models as filters", async () => {
     const bases = (await get(t.app, "/api/browse/bases")).json();
     expect(bases.families.find((f: { id: string }) => f.id === "wan")).toMatchObject({ bases: expect.arrayContaining(["Wan Video 2.2 I2V-A14B"]), hf: expect.arrayContaining(["Wan-AI/Wan2.2-I2V-A14B"]) });

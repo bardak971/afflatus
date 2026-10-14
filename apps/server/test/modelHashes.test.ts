@@ -24,9 +24,12 @@ let t: TestApp;
 let home: string;
 let site: Server;
 let asked: string[][];
+/** Hugging Face refusing (429), as it does when asked too often. */
+let hfDown: boolean;
 
 beforeEach(async () => {
   asked = [];
+  hfDown = false;
   home = mkdtempSync(join(tmpdir(), "afflatus-hashes-"));
   for (const f of ["loras/style", "vae"]) mkdirSync(join(home, "models", f), { recursive: true });
   writeFileSync(join(home, "models", "loras", "style", "renamed_by_me.safetensors"), LORA);
@@ -41,6 +44,10 @@ beforeEach(async () => {
     if (req.url === "/api/v1/model-versions/by-hash/ids") {
       asked.push(body as string[]);
       return res.end(JSON.stringify((body as string[]).filter((h) => h === sha(LORA)).map((hash) => ({ modelVersionId: 4242, hash }))));
+    }
+    if (hfDown && req.url?.startsWith("/api/models")) {
+      res.statusCode = 429;
+      return res.end("{}");
     }
     if (req.url?.startsWith("/api/models?")) return res.end(JSON.stringify([{ id: "someone/vaes", downloads: 10, siblings: [{ rfilename: "split/the_vae.safetensors" }] }]));
     if (req.url === "/api/models/someone/vaes/paths-info/main") return res.end(JSON.stringify([{ path: "split/the_vae.safetensors", lfs: { oid: sha(VAE).toLowerCase() } }]));
@@ -74,7 +81,7 @@ describe("every model file hashed once", () => {
     expect(asked).toHaveLength(1);
     expect(asked[0]!.sort()).toEqual([sha(LORA), sha(VAE), sha(MINE)].sort());
     // a pod gets each from where it is, whatever it is called here
-    expect(await podSource(lookup(), { file: "style/renamed_by_me.safetensors", folder: "loras" })).toEqual({ kind: "civitai", version: 4242, pick: "renamed_by_me.safetensors" });
+    expect(await podSource(lookup(), { file: "style/renamed_by_me.safetensors", folder: "loras" })).toEqual({ kind: "civitai", version: 4242, pick: "renamed_by_me.safetensors", sha256: sha(LORA) });
     expect(await podSource(lookup(), { file: "the_vae.safetensors", folder: "vae" })).toMatchObject({ kind: "url", url: expect.stringMatching(/someone\/vaes\/resolve\/main\/split\/the_vae\.safetensors$/) });
     expect(await podSource(lookup(), { file: "my_face.safetensors", folder: "loras" })).toMatchObject({ kind: "upload" });
     // a second pass reads nothing again and asks nothing again
@@ -93,6 +100,60 @@ describe("every model file hashed once", () => {
       { folder: "loras", file: "my_face.safetensors", sha256: sha(Buffer.alloc(1500, 4)) },
       { folder: "loras", file: "style/renamed_by_me.safetensors", sha256: sha(LORA) },
     ]);
+  });
+
+  it("takes no hash for a file replaced since it was hashed: this PC's copy is sent until it is hashed again", async () => {
+    await t.services.hashes.run();
+    expect(await podSource(lookup(), { file: "style/renamed_by_me.safetensors", folder: "loras" })).toMatchObject({ kind: "civitai", version: 4242 });
+    // another LoRA saved over it under the same name: its row says the old bytes, which Civitai has; these it may not
+    writeFileSync(join(home, "models", "loras", "style", "renamed_by_me.safetensors"), Buffer.alloc(3500, 7));
+    expect(await podSource(lookup(), { file: "style/renamed_by_me.safetensors", folder: "loras" })).toMatchObject({ kind: "upload" });
+  });
+
+  it("forgets nothing of a folder it could not read (a drive away), nor anything with no ComfyUI folder", async () => {
+    await t.services.hashes.run();
+    // ComfyUI's folder not here (a drive unplugged): its files are not gone
+    await writeSettings(t.db, { comfyDir: join(home, "away") });
+    await t.services.hashes.run();
+    expect((await t.services.hashes.status()).noFolder).toBe(true);
+    expect(await t.db.selectFrom("model_hashes").select("file").execute()).toHaveLength(3);
+    // a folder extra_model_paths.yaml names on a drive away: the LoRAs found elsewhere are kept, not forgotten
+    const extra = join(home, "extra");
+    mkdirSync(join(extra, "loras"), { recursive: true });
+    writeFileSync(join(extra, "loras", "on_the_drive.safetensors"), Buffer.alloc(500, 5));
+    writeFileSync(join(home, "extra_model_paths.yaml"), `drive:\n  base_path: ${extra.replace(/\\/g, "/")}\n  loras: loras\n`);
+    await writeSettings(t.db, { comfyDir: home });
+    await t.services.hashes.run();
+    expect((await t.db.selectFrom("model_hashes").select("file").where("folder", "=", "loras").execute()).map((r) => r.file).sort()).toEqual(["my_face.safetensors", "on_the_drive.safetensors", "style/renamed_by_me.safetensors"]);
+    const { rmSync } = await import("node:fs");
+    rmSync(extra, { recursive: true });
+    await t.services.hashes.run();
+    expect(await t.db.selectFrom("model_hashes").select("file").where("folder", "=", "loras").execute()).toHaveLength(3);
+  });
+
+  it("keeps the hash and match of a file renamed or moved, without reading it again", async () => {
+    await t.services.hashes.run();
+    const before = await t.db.selectFrom("model_hashes").selectAll().where("file", "=", "style/renamed_by_me.safetensors").executeTakeFirstOrThrow();
+    const { renameSync } = await import("node:fs");
+    renameSync(join(home, "models", "loras", "style", "renamed_by_me.safetensors"), join(home, "models", "loras", "moved.safetensors"));
+    await t.services.hashes.run();
+    const after = await t.db.selectFrom("model_hashes").selectAll().where("folder", "=", "loras").orderBy("file").execute();
+    expect(after.map((r) => r.file)).toEqual(["moved.safetensors", "my_face.safetensors"]);
+    // the same row under its new name: hashed when it was, matched as it was, and not asked of the sites again
+    expect(after[0]).toEqual({ ...before, file: "moved.safetensors" });
+    expect(asked).toHaveLength(1);
+  });
+
+  it("leaves a file unmatched when Hugging Face did not answer, and asks it again at the next pass", async () => {
+    hfDown = true;
+    forgetHuggingFace();
+    await t.services.hashes.run();
+    // Civitai answered for the LoRA; the others are not "found nowhere" for a week, only not matched yet
+    expect((await t.services.hashes.status())).toMatchObject({ hashed: 3, civitai: 1, huggingFace: 0, nowhere: 0 });
+    hfDown = false;
+    forgetHuggingFace();
+    await t.services.hashes.run();
+    expect((await t.services.hashes.status())).toMatchObject({ civitai: 1, huggingFace: 1, nowhere: 1 });
   });
 
   it("waits while this computer renders, and goes on after", async () => {

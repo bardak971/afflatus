@@ -157,7 +157,9 @@ async function known(s: Services): Promise<Known> {
 }
 
 const haveOf = (k: Known, name: string, sha: string | null): Have[] => {
-  const pc = (sha ? k.bySha.get(sha.toUpperCase()) : undefined) ?? k.byName.get(name.toLowerCase());
+  // by its hash when the site says one: every file known here is hashed, so one of that name with other bytes is another
+  // file (the fp16 beside an fp8, a stranger's LoRA of the same name). By the name only when the site says no hash
+  const pc = sha ? k.bySha.get(sha.toUpperCase()) : k.byName.get(name.toLowerCase());
   return [...(pc ? [{ kind: "pc" as const, ...pc }] : []), ...(k.inSets.get(name.toLowerCase()) ?? []).map((n) => ({ kind: "set" as const, name: n }))];
 };
 

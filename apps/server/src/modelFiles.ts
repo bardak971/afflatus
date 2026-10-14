@@ -23,17 +23,32 @@ const HEADER_MOST = 64 * 1024 * 1024;
  * network share is never looked at (see isNetworkPath): a stat of it reaches for the share, the files come through ComfyUI.
  */
 export async function modelDirs(comfyDir: string, folder: string): Promise<string[]> {
+  return (await modelDirsSaid(comfyDir, folder)).dirs;
+}
+
+/**
+ * modelDirs, and whether every directory extra_model_paths.yaml names for the folder is there: one that is not may be a
+ * drive unplugged for now, whose files are not gone (modelHashes.ts forgets nothing of such a folder). ComfyUI's own
+ * folders under its directory may be missing for good (the older names), and say nothing.
+ */
+export async function modelDirsSaid(comfyDir: string, folder: string): Promise<{ dirs: string[]; all: boolean }> {
   const base = comfyDir.trim();
-  if (!base || isNetworkPath(base) || !(await isDir(base))) return [];
+  if (!base || isNetworkPath(base) || !(await isDir(base))) return { dirs: [], all: false };
   const dirs = [join(base, "models", folder), ...(LEGACY[folder] ?? []).map((f) => join(base, "models", f))];
+  const own = dirs.length;
   try {
     dirs.push(...extraDirs(await readFile(join(base, "extra_model_paths.yaml"), "utf8"), base, folder));
   } catch {
     // no extra paths file: the default folders are all there is
   }
   const out: string[] = [];
-  for (const d of dirs) if (!out.includes(d) && !isNetworkPath(d) && (await isDir(d))) out.push(d);
-  return out;
+  let all = true;
+  for (const [i, d] of dirs.entries()) {
+    if (out.includes(d) || isNetworkPath(d)) continue;
+    if (await isDir(d)) out.push(d);
+    else if (i >= own) all = false;
+  }
+  return { dirs: out, all };
 }
 
 /**
