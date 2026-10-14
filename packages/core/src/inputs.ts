@@ -47,6 +47,8 @@ interface PromptInput extends Base {
   holds?: "subject";
   /** The cast's words are never added to it: a few words the recipe builds its own prompt from (a swap's "who to replace"). */
   noCast?: boolean;
+  /** With noCast: the Designer still writes it (a Motion transfer's description of its picture), where a swap's few words are the user's own. */
+  designed?: boolean;
   /**
    * The default is somebody else's text (the prompt an imported workflow was saved with): a form starts
    * empty, shows it greyed as an example, and asks for a prompt before anything is made.

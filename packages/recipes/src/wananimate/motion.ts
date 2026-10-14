@@ -11,9 +11,8 @@ import {
 /**
  * Wan Animate 2 · Motion transfer, as ComfyUI's template (video_wan_animate2) runs it: the driving video is the pose input as
  * it is, the picture the reference, the motion branch given an empty prompt of its own, lightx2v at 1 on the int8 model, its
- * cache of the reference's activations, 6 steps of LCM at CFG 1 and shift 5. A part longer than one 81-frame window is
- * sampled in one pass with context windows (21 latent frames, 8 shared), where the template has its loop only for parts
- * past what one pass holds. The latent it returns starts with the reference's own frame, trimmed off before decoding.
+ * cache of the driving video's reading, 6 steps of LCM at CFG 1 and shift 5, one 81-frame window a job (see SHAPE). The
+ * latent it returns starts with the reference's own frame, trimmed off before decoding.
  */
 export interface WanAnimateMotion extends MotionValues {
   steps: number;
@@ -22,11 +21,17 @@ export interface WanAnimateMotion extends MotionValues {
   poseStrength: number;
   referenceStrength: number;
   negative: string;
+  motion: string;
   cache: string;
   livePreview: boolean;
 }
 
-const SHAPE: MotionShape = { fps: WAN_ANIMATE_FPS, most: 481, least: 9 };
+/**
+ * One window a job (81 frames, 3.4 s). The model (16 GB) does not fit a 12 GB card: its weights stream in at every step,
+ * and a longer part in one job, by context windows or windows one after another, took 50 to 80 minutes for 10 s where a
+ * window alone takes about 6 (2026-10-14). Longer: windows on a timeline, each carrying on from the one before (Previous clip).
+ */
+const SHAPE: MotionShape = { fps: WAN_ANIMATE_FPS, most: WAN_ANIMATE_WINDOW, least: 9 };
 
 /** Where the reference's cached activations are kept: on the card (the template's), or in RAM when it does not fit. */
 const CACHES: Record<string, { device: string; dtype: string }> = { "On the card, int8": { device: "gpu", dtype: "int8" }, "In RAM, int8": { device: "cpu", dtype: "int8" } };
@@ -40,7 +45,12 @@ export const wanAnimateMotion = defineRecipe<WanAnimateMotion>({
   output: "video",
   traits: { startFrame: false, endFrame: false, midFrames: false, continues: false, endAnchor: false, sound: true, fps: WAN_ANIMATE_FPS, frameGrid: MOTION_GRID },
   inputs: [
-    ...motionInputs(SHAPE),
+    ...motionInputs(SHAPE, "Character Description: A man in his thirties with short brown hair and a short beard, a black t-shirt and a silver watch.\nBackground description: A crowded room lit by deep red light, people standing behind him."),
+    {
+      id: "motion", type: "prompt", label: "Motion", style: "sentences", optional: true, noCast: true, designed: true,
+      placeholder: "He raps to the camera, moving his hands to the beat.",
+      note: "what the person does, in a sentence: the prompt of the model's motion branch (its template's second text). Empty: it reads the video alone",
+    },
     { id: "steps", type: "number", label: "Steps", min: 2, max: 40, step: 1, default: 6, advanced: true, perModel: true, note: "6 with the lightx2v LoRA, as ComfyUI's template" },
     { id: "cfg", type: "number", label: "CFG scale", min: 1, max: 10, step: 0.5, default: 1, advanced: true, perModel: true, note: "1 with the lightx2v LoRA. Above 1 the negative prompt acts and every step takes twice as long" },
     { id: "shift", type: "number", label: "Shift", min: 0, max: 20, step: 0.5, default: 5, advanced: true, perModel: true },
@@ -60,10 +70,9 @@ export const wanAnimateMotion = defineRecipe<WanAnimateMotion>({
     ...motionOutInputs(WAN_ANIMATE_FPS),
   ],
   needs: ["turbo", "clipVision"],
-  nodes: (input) => [
+  nodes: () => [
     ...MOTION_NODES, "UNETLoader", "LoraLoaderModelOnly", "CLIPLoader", "VAELoader", "CLIPTextEncode", "CLIPVisionLoader", "CLIPVisionEncode", "ImageFromBatch",
     "WanAnimate2ToVideo", "WanAnimate2Cache", "ModelSamplingSD3", "KSamplerSelect", "BasicScheduler", "SamplerCustom", "TrimVideoLatent", "VAEDecode",
-    ...(input.drivingSeconds * WAN_ANIMATE_FPS > WAN_ANIMATE_WINDOW ? ["ContextWindowsManual"] : []),
   ],
   optionalNodes: [...MOTION_OPTIONAL, VHS, ...CORE_VIDEO_OUT, "ModelPreviewOverrideKJ"],
 
@@ -88,13 +97,6 @@ export const wanAnimateMotion = defineRecipe<WanAnimateMotion>({
     let model = g.out("UNETLoader", { unet_name: slots.unet, weight_dtype: "default" });
     if (slots.turbo) model = g.out("LoraLoaderModelOnly", { model, lora_name: slots.turbo, strength_model: 1 });
     model = applyLoras(g, model, input.loras);
-    // past one window, the whole part in one pass by overlapping windows (the template's own values)
-    if (total > WAN_ANIMATE_WINDOW) {
-      model = g.out("ContextWindowsManual", {
-        model, context_length: 21, context_overlap: 8, context_schedule: "standard_static", context_stride: 1, closed_loop: false, fuse_method: "pyramid",
-        dim: 2, freenoise: true, cond_retain_index_list: "0", split_conds_to_windows: false, latent_retain_index_list: "", causal_window_fix: true,
-      });
-    }
     const cache = CACHES[input.cache] ?? CACHES["In RAM, int8"]!;
     model = g.out("WanAnimate2Cache", { model, device: cache.device, dtype: cache.dtype });
     const sigmas = g.out("BasicScheduler", { model, scheduler: "simple", steps: input.steps, denoise: 1 });
@@ -106,8 +108,8 @@ export const wanAnimateMotion = defineRecipe<WanAnimateMotion>({
       width: frame.width, height: frame.height, length: total, batch_size: 1, video_frame_offset: 0,
       pose_strength: input.poseStrength, pose_start_percent: 0, pose_end_percent: 1, reference_image_strength: input.referenceStrength,
       reference_image: picture, pose_video: pose, clip_vision_output: g.out("CLIPVisionEncode", { clip_vision: vision, image: picture, crop: "none" }),
-      // the motion branch's own prompt (empty: it is about the motion, not who), and the driving video's first frame as its CLIP vision
-      positive_pose: g.out("CLIPTextEncode", { clip, text: "" }),
+      // the motion branch's own prompt (what the person does, not who: empty by default), and the driving video's first frame as its CLIP vision
+      positive_pose: g.out("CLIPTextEncode", { clip, text: input.motion.trim() }),
       clip_vision_output_pose: g.out("CLIPVisionEncode", { clip_vision: vision, image: g.out("ImageFromBatch", { image: pose, batch_index: 0, length: 1 }), crop: "none" }),
       ...(before ? { continue_motion: before } : {}),
     });
@@ -148,11 +150,6 @@ export const wanAnimateMotion = defineRecipe<WanAnimateMotion>({
         name: "one window, matched to the driving video, its sound kept",
         input: { picture: "p1", driving: { asset: "v1" }, drivingSeconds: 3.3, prompt: "A man raps to the camera." },
         slots, uploads: { picture: "p.png", driving: "d.mp4" }, media: { picture, driving: part(3.4) },
-      },
-      {
-        name: "ten seconds in context windows, the cache on the card, RIFE, no match",
-        input: { picture: "p1", driving: { asset: "v1" }, drivingSeconds: 10, cache: "On the card, int8", smooth: true, matchDriving: false, loras: [{ file: "l.safetensors", weight: 0.7 }] },
-        slots, uploads: { picture: "p.png", driving: "d.mp4" }, media: { picture, driving: part(10) },
       },
       {
         name: "carrying on from the clip before",
