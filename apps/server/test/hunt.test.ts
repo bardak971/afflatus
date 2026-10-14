@@ -48,8 +48,11 @@ afterEach(async () => {
   t.services.hunt.stop();
   await (t.services.hunt as unknown as { ticking: Promise<void> | null }).ticking;
   t.services.rented.stop();
+  // the pods' pretend ComfyUIs go first: the app's close waits for the queue to be idle, and a job being sent to a pod
+  // (the timer test's pod is up as it ends) waited on a ComfyUI that was only closed after it, past the hook's time
+  await Promise.all(spawned.splice(0).map((x) => x.close().catch(() => {})));
   await t.close();
-  await Promise.all([home, runpod, ...spawned.splice(0)].map((x) => x.close().catch(() => {})));
+  await Promise.all([home, runpod].map((x) => x.close().catch(() => {})));
 });
 
 const DEPLOY = { cloud: "SECURE", template: "afflatus", volume: "", disk: 120, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15 };
