@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { ModelInfo } from "@afflatus/core";
 import { civitaiGet, findOnCivitai } from "./civitai";
-import { now } from "./db";
+import { now, type Db } from "./db";
 import { httpError } from "./errors";
 import { findOnHuggingFace } from "./huggingface";
 import type { Services } from "./services";
@@ -38,10 +38,10 @@ const folderOf = (folder: string) => {
   if (!FOLDER.test(folder)) throw httpError("there is no such model folder");
   return folder;
 };
-const known = async (s: Services, folder: string, name: string): Promise<ModelPage | null> =>
-  (await s.db.selectFrom("model_pages").select(["url", "title"]).where("folder", "=", folder).where("name", "=", name).executeTakeFirst()) ?? null;
-const remember = async (s: Services, folder: string, name: string, page: ModelPage) => {
-  await s.db
+const known = async (db: Db, folder: string, name: string): Promise<ModelPage | null> =>
+  (await db.selectFrom("model_pages").select(["url", "title"]).where("folder", "=", folder).where("name", "=", name).executeTakeFirst()) ?? null;
+const remember = async (db: Db, folder: string, name: string, page: ModelPage) => {
+  await db
     .insertInto("model_pages")
     .values({ folder, name, url: page.url, title: page.title, found_at: now() })
     .onConflict((oc) => oc.columns(["folder", "name"]).doUpdateSet({ url: page.url, title: page.title, found_at: now() }))
@@ -49,11 +49,53 @@ const remember = async (s: Services, folder: string, name: string, page: ModelPa
 };
 
 /** What the file's header gave as its fingerprint, when it was read and has one. The file is found by its path, else by its name. */
-const fingerprintOf = async (s: Services, folder: string, file: string): Promise<string | null> => {
-  const rows = await s.db.selectFrom("model_info").select(["file", "info"]).where("folder", "=", folder).execute();
+const fingerprintOf = async (db: Db, folder: string, file: string): Promise<string | null> => {
+  const rows = await db.selectFrom("model_info").select(["file", "info"]).where("folder", "=", folder).execute();
   const row = rows.find((r) => r.file === file) ?? rows.find((r) => nameOf(r.file) === nameOf(file));
   return row ? (JSON.parse(row.info) as ModelInfo).fingerprint ?? null : null;
 };
+
+/**
+ * Look for a file's page. Known already: that one. Otherwise, when looking things up is turned on in Settings, Civitai by
+ * the file's fingerprint (the same file under any name), then Civitai (both sites) and Hugging Face by its name: a model
+ * with a file of exactly this name is its page and is remembered; the others found are offered. Also what a rented pod
+ * asks before sending a file from this computer: one a site has is fetched from there (podSources.ts).
+ */
+export async function lookUpPage(db: Db, folder: string, file: string): Promise<{ page: ModelPage | null; candidates: PageCandidate[]; lookups: boolean }> {
+  const name = nameOf(file);
+  const page = await known(db, folder, name);
+  if (page) return { page, candidates: [], lookups: true };
+  const settings = await readSettings(db);
+  if (!settings.civitaiLookups) return { page: null, candidates: [], lookups: false };
+
+  // by its fingerprint first: the same file under any name is the same version there
+  const print = await fingerprintOf(db, folder, file);
+  if (print) {
+    const v = await civitaiGet<{ id: number; name?: string; modelId?: number; model?: { name?: string } }>(`/api/v1/model-versions/by-hash/${print}`, settings.civitaiKey).catch(() => null);
+    if (v?.modelId) {
+      const found = { url: `https://civitai.com/models/${v.modelId}?modelVersionId=${v.id}`, title: [v.model?.name, v.name].filter(Boolean).join(" · ") || "On Civitai" };
+      await remember(db, folder, name, found);
+      return { page: found, candidates: [], lookups: true };
+    }
+  }
+
+  const [hf, civitai] = await Promise.all([
+    findOnHuggingFace(name).catch(() => ({ items: [], answered: false })),
+    findOnCivitai(name, folder, settings.civitaiKey).catch(() => ({ items: [], asked: [] as string[], silent: [] as string[] })),
+  ]);
+  const candidates: PageCandidate[] = [
+    ...civitai.items.map((i) => ({
+      url: i.versionId ? `${i.url}?modelVersionId=${i.versionId}` : i.url, title: [i.name, i.version].filter(Boolean).join(" · "),
+      site: i.site, about: [i.kind, i.base].filter(Boolean).join(" · "),
+    })),
+    ...hf.items.map((i) => ({ url: `${i.page}/blob/main/${i.path.split("/").map(encodeURIComponent).join("/")}`, title: i.repo, site: "huggingface.co", about: "has a file of this name" })),
+  ];
+  // a file of exactly this name: on Civitai that is the model it came from; Hugging Face only ever returns such files
+  const exact = civitai.items.findIndex((i) => i.exact);
+  const sure = exact >= 0 ? candidates[exact]! : !civitai.items.length && hf.items.length === 1 ? candidates[0]! : null;
+  if (sure) await remember(db, folder, name, { url: sure.url, title: sure.title });
+  return { page: sure ? { url: sure.url, title: sure.title } : null, candidates: sure ? [] : candidates.slice(0, 8), lookups: true };
+}
 
 /** A file's page: the one known, looked for, or the one the user says. The words that call it up are registerModelWords. */
 export function registerModelPages(app: FastifyInstance, s: Services): void {
@@ -73,39 +115,7 @@ export function registerModelPages(app: FastifyInstance, s: Services): void {
   app.post<{ Params: { folder: string } }>("/api/models/:folder/page", async (req) => {
     const folder = folderOf(req.params.folder);
     const { file } = z.strictObject({ file: z.string().min(1).max(500) }).parse(req.body);
-    const name = nameOf(file);
-    const page = await known(s, folder, name);
-    if (page) return { page, candidates: [] as PageCandidate[], lookups: true };
-    const settings = await readSettings(s.db);
-    if (!settings.civitaiLookups) return { page: null, candidates: [] as PageCandidate[], lookups: false };
-
-    // by its fingerprint first: the same file under any name is the same version there
-    const print = await fingerprintOf(s, folder, file);
-    if (print) {
-      const v = await civitaiGet<{ id: number; name?: string; modelId?: number; model?: { name?: string } }>(`/api/v1/model-versions/by-hash/${print}`, settings.civitaiKey).catch(() => null);
-      if (v?.modelId) {
-        const found = { url: `https://civitai.com/models/${v.modelId}?modelVersionId=${v.id}`, title: [v.model?.name, v.name].filter(Boolean).join(" · ") || "On Civitai" };
-        await remember(s, folder, name, found);
-        return { page: found, candidates: [] as PageCandidate[], lookups: true };
-      }
-    }
-
-    const [hf, civitai] = await Promise.all([
-      findOnHuggingFace(name).catch(() => ({ items: [], answered: false })),
-      findOnCivitai(name, folder, settings.civitaiKey).catch(() => ({ items: [], asked: [] as string[], silent: [] as string[] })),
-    ]);
-    const candidates: PageCandidate[] = [
-      ...civitai.items.map((i) => ({
-        url: i.versionId ? `${i.url}?modelVersionId=${i.versionId}` : i.url, title: [i.name, i.version].filter(Boolean).join(" · "),
-        site: i.site, about: [i.kind, i.base].filter(Boolean).join(" · "),
-      })),
-      ...hf.items.map((i) => ({ url: `${i.page}/blob/main/${i.path.split("/").map(encodeURIComponent).join("/")}`, title: i.repo, site: "huggingface.co", about: "has a file of this name" })),
-    ];
-    // a file of exactly this name: on Civitai that is the model it came from; Hugging Face only ever returns such files
-    const exact = civitai.items.findIndex((i) => i.exact);
-    const sure = exact >= 0 ? candidates[exact]! : !civitai.items.length && hf.items.length === 1 ? candidates[0]! : null;
-    if (sure) await remember(s, folder, name, { url: sure.url, title: sure.title });
-    return { page: sure ? { url: sure.url, title: sure.title } : null, candidates: sure ? [] : candidates.slice(0, 8), lookups: true };
+    return lookUpPage(s.db, folder, file);
   });
 
   /** The page the user says is the file's (one of those offered, or an address of their own); null forgets it. */
@@ -118,7 +128,7 @@ export function registerModelPages(app: FastifyInstance, s: Services): void {
       return { page: null };
     }
     const page = { url: b.url, title: b.title.trim() || new URL(b.url).hostname };
-    await remember(s, folder, name, page);
+    await remember(s.db, folder, name, page);
     return { page };
   });
 }
@@ -185,7 +195,7 @@ function registerModelWords(app: FastifyInstance, s: Services): void {
         }
         if (v?.modelId) {
           found = (v.trainedWords ?? []).map((w) => w.trim()).filter(Boolean).slice(0, 20).join(", ");
-          if (!(await known(s, folder, name))) await remember(s, folder, name, { url: `https://civitai.com/models/${v.modelId}?modelVersionId=${v.id}`, title: [v.model?.name, v.name].filter(Boolean).join(" · ") || "On Civitai" });
+          if (!(await known(s.db, folder, name))) await remember(s.db, folder, name, { url: `https://civitai.com/models/${v.modelId}?modelVersionId=${v.id}`, title: [v.model?.name, v.name].filter(Boolean).join(" · ") || "On Civitai" });
         }
       }
       await s.db

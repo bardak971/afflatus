@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { Comfy } from "../src/comfy";
 import { NO_DIRECT } from "../src/downloads";
@@ -221,6 +221,28 @@ describe("where a pod's file comes from", () => {
     expect(await podSource(lookup(), { file: "paged.safetensors", folder: "loras" })).toEqual({ kind: "civitai", version: 55, pick: "paged.safetensors" });
     expect(await podSource(lookup(), { file: "mine.safetensors", folder: "loras" })).toEqual({ kind: "upload", path: join(home, "models", "loras", "mine.safetensors") });
     expect(await podSource(lookup(), { file: "none.safetensors", folder: "loras" })).toBeNull();
+  });
+
+  it("is the site that has a file of that name, asked before this computer's copy is sent (lookups on); never with them off", async () => {
+    // a pretend Civitai with a model holding a file of exactly that name; a pretend Hugging Face that has none
+    const sites = createServer((req, res) => {
+      res.setHeader("Content-Type", "application/json");
+      if (req.url?.startsWith("/api/v1/models")) return res.end(JSON.stringify({ items: [{ id: 5, name: "Mine", type: "LORA", modelVersions: [{ id: 56, name: "v2", baseModel: "SDXL", files: [{ name: "mine.safetensors", sizeKB: 4, primary: true }] }] }] }));
+      res.end("[]");
+    });
+    await new Promise<void>((r) => sites.listen(0, "127.0.0.1", r));
+    const at = `http://127.0.0.1:${(sites.address() as AddressInfo).port}`;
+    vi.stubEnv("CIVITAI_URL", at);
+    vi.stubEnv("HUGGINGFACE_URL", at);
+    try {
+      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: false } });
+      expect(await podSource(lookup(), { file: "mine.safetensors", folder: "loras" })).toMatchObject({ kind: "upload" });
+      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: true } });
+      expect(await podSource(lookup(), { file: "mine.safetensors", folder: "loras" })).toEqual({ kind: "civitai", version: 56, pick: "mine.safetensors" });
+    } finally {
+      vi.unstubAllEnvs();
+      await new Promise((r) => sites.close(r));
+    }
   });
 
   it("is never a path out of the model folder", async () => {

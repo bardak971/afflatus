@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Family, PresetFile } from "@afflatus/core";
 import type { Db } from "./db";
+import { lookUpPage } from "./modelPages";
 import { modelDirs } from "./modelFiles";
 
 /**
@@ -59,8 +60,10 @@ export async function podSource(l: SourceLookup, want: { file: string; folder: s
   const matched = await l.db.selectFrom("model_updates").select(["version_id", "file"]).where("folder", "=", want.folder).execute().catch(() => []);
   const hit = matched.find((r) => nameOf(r.file) === name);
   if (hit?.version_id) return { kind: "civitai", version: hit.version_id, pick: want.file.split(/[\\/]/).pop() };
-  // its page, when that page names one version on Civitai or is the file on Hugging Face
-  const page = await l.db.selectFrom("model_pages").select("url").where("folder", "=", want.folder).where("name", "=", name).executeTakeFirst().catch(() => undefined);
+  // its page, when that page names one version on Civitai or is the file on Hugging Face: the one known, else looked for
+  // (Civitai by the file's fingerprint, then the sites by its name, when lookups are on): most models a user has are on
+  // one of them, and a site is faster than this computer's upload and spares its line
+  const page = (await lookUpPage(l.db, want.folder, want.file).catch(() => null))?.page;
   if (page) {
     const version = /civitai\.(?:com|red|green)\/models\/\d+[^\s#]*?[?&]modelVersionId=(\d+)/i.exec(page.url)?.[1];
     if (version) return { kind: "civitai", version: Number(version), pick: want.file.split(/[\\/]/).pop() };
