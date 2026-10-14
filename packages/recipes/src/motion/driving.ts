@@ -11,6 +11,8 @@ import { UPSCALE } from "../video/upscale";
 export interface MotionValues {
   picture?: string;
   driving?: ClipValue;
+  /** The clip this one carries on from (on a timeline, the window before): its last frames start this one. */
+  previous?: ClipValue;
   drivingStart: number;
   drivingSeconds: number;
   prompt: string;
@@ -60,9 +62,13 @@ export function motionInputs(shape: MotionShape): InputSpec[] {
   ];
 }
 
-/** How a Motion transfer clip is finished, on every model's form. */
-export const MOTION_OUT_INPUTS: InputSpec[] = [
-  { id: "smooth", type: "toggle", label: "RIFE ×2", default: true, advanced: true, note: "frame interpolation: frames interpolated with RIFE, 32 a second in place of 16" },
+/**
+ * How a Motion transfer clip is finished, on every model's form. `fps`: the model's own rate, which RIFE doubles; at 16 it
+ * is on by default, at a video's own 24 off (the clip already plays as smoothly as the driving video).
+ */
+export function motionOutInputs(fps: number): InputSpec[] {
+  return [
+  { id: "smooth", type: "toggle", label: "RIFE ×2", default: fps < 20, advanced: true, note: `frame interpolation: frames interpolated with RIFE, ${fps * 2} a second in place of ${fps}` },
   {
     id: "matchDriving", type: "toggle", label: "Match the driving video", default: true, advanced: true,
     note: "the clip brought to the driving video's look: its colours and brightness (ComfyUI's ColorTransfer), its size, and a touch of its softness and grain. What makes a phone video's copy look like a phone video and not like a render. Not an upscale: the timeline's Finish is one",
@@ -71,14 +77,33 @@ export const MOTION_OUT_INPUTS: InputSpec[] = [
   { id: "crf", type: "number", label: "CRF", min: 0, max: 40, step: 1, default: 19, advanced: true, note: "how hard the video file is compressed: lower is better and larger" },
   { id: "loras", type: "loras", label: "LoRAs", max: 4 },
   { id: "seed", type: "seed", label: "Seed" },
-];
+  ];
+}
+
+/**
+ * The clip before, which this one carries on from: its last `carried` frames, handed over at the model's speed, start it, and
+ * are dropped from what it makes. Its driving video's part then starts where that clip's ended (the carried frames overlap).
+ */
+export function previousInput(fps: number, carried: number): InputSpec {
+  return {
+    id: "previous", type: "clip", role: "previous", label: "Previous clip", optional: true, frames: [carried], fps, advanced: true,
+    note: `a clip this one carries on from, from its last frame${carried > 1 ? "s" : ""}: on a timeline, the window before. Start the driving video's part where that clip's ended`,
+  };
+}
+
+/** The clip before's frames as handed over, or null without one. */
+export function previousFrames(g: GraphBuilder, ctx: BuildContext): Ref | null {
+  if (!ctx.uploads.previous) return null;
+  return [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.previous }) }), 0];
+}
 
 /** The node classes the shared part needs, and those it uses only when there. */
 export const MOTION_NODES = ["LoadImage", "LoadVideo", "GetVideoComponents", "ImageScale"];
 export const MOTION_OPTIONAL = ["ColorTransfer", "ImageBlur", "ImageAddNoise", "TrimAudioDuration", "FrameInterpolationModelLoader", "FrameInterpolate"];
 
-/** The clip's frame: the picture's shape at `short` on its short side, on the grid the model takes. */
+/** The clip's frame: a timeline's (its clips share one frame), else the picture's shape at `short` on its short side; on the grid the model takes. */
 export function motionCanvas(input: MotionValues, ctx: BuildContext, grid: number): { width: number; height: number } {
+  if (ctx.canvas) return frameOf(ctx.canvas, Math.min(ctx.canvas.width, ctx.canvas.height, input.short), { grid, maxPixels: 1088 * 1920 });
   const picture = ctx.media.picture;
   const shape = picture?.width && picture.height ? picture : { width: 576, height: 1024 };
   return frameOf(shape, input.short, { grid, maxPixels: 1088 * 1920 });
