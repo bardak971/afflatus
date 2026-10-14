@@ -22,7 +22,8 @@ import type { assetView } from "../src/media";
 import type { PresetFilesView } from "../src/presetFiles";
 import type { projectsTree } from "../src/projects";
 import type { PromptHistoryItem } from "../src/promptHistory";
-import type { history, status } from "../src/queueView";
+import type { Queue } from "../src/queue";
+import type { history } from "../src/queueView";
 import type { list, TimesSummary } from "../src/rendersRead";
 import type { llmSchema, publicSettings, settingsSchema } from "../src/settings";
 import type { Timelines } from "../src/timelines";
@@ -113,7 +114,8 @@ describe("the web's API types match what the server answers", () => {
   });
 
   it("the queue, its history and the render times", () => {
-    agree<Awaited<ReturnType<typeof status>>, QueueStatus>().toEqualTypeOf<true>();
+    // the queue's view, with the GPU hunt's summary the queue adds to it
+    agree<Awaited<ReturnType<Queue["status"]>>, QueueStatus>().toEqualTypeOf<true>();
     agree<Awaited<ReturnType<typeof history>>, HistoryPage>().toEqualTypeOf<true>();
     agree<TimesSummary, WebTimes>().toEqualTypeOf<true>();
     agree<Awaited<ReturnType<typeof list>>["items"][number], RenderItem>().toEqualTypeOf<true>();

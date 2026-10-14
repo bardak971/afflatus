@@ -1,15 +1,18 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Bookmark, ChevronDown, Cpu, RotateCw } from "lucide-react";
+import { Bookmark, ChevronDown, CircleAlert, Cpu, RotateCw, Search } from "lucide-react";
 import { ContextMenu, useMenu } from "./ContextMenu";
-import { api, type Availability, type DeployAsk, type GpuOffer, type NetworkVolume } from "./api";
-import { useSettings } from "./data";
+import { api, type Availability, type DeployAsk, type GpuOffer, type HuntAsk, type NetworkVolume } from "./api";
+import { useQueue, useSettings } from "./data";
+import { huntReads, type DeployOpening } from "./deploy";
+import { HuntSection } from "./DeployHunt";
 import { DeployModels, SaveAsSet, type ModelsPicked } from "./DeployModels";
 import { DEPLOYED_READS } from "./deployReads";
 import { Dialog, DialogHead, DIALOG } from "./Dialog";
 import { gb, plural, usd } from "./format";
-import { useNow } from "./hooks";
+import { useDebounced, useNow } from "./hooks";
+import { ceilingFor, firstPick } from "./huntSaid";
 import { Keys } from "./Keys";
 import { queryKeys } from "./queryKeys";
 import { Select } from "./Select";
@@ -42,6 +45,13 @@ const WHY_CLOUD = "Secure Cloud: RunPod's own data centers. Community Cloud: hos
 const WHY_DISK = "No volume: the models are fetched onto the pod's own disk at each deploy, and go with it when it is terminated ($0.10/GB a month while it runs, nothing after). A network volume keeps them between deploys, so a pod is ready in a minute ($0.07/GB a month, billed with or without a pod), and ties the pod to the volume's data center.";
 const WHY_DONE = "Idle: nothing rendering on it and nothing waiting that it could take. Terminate: nothing billed after, nothing left on RunPod (the pod, its secret). Watchdog: if this PC goes silent (crash, sleep, no internet), the node pack on the pod stops it by itself after that long (Afflatus's image only).";
 
+/** The Deploy dialog's choices as a hunt sends them: all but the GPU, which the hunt picks. */
+const withoutGpu = (ask: DeployAsk): Omit<DeployAsk, "gpu"> => {
+  const choices: Partial<DeployAsk> = { ...ask };
+  delete choices.gpu;
+  return choices as Omit<DeployAsk, "gpu">;
+};
+
 /** What a volume holds, as its option says it: the picked set's state on it, or how many files, as last seen. */
 const heldSaid = (v: NetworkVolume, set: string): string | undefined => {
   if (!v.holds) return "what it holds: not known yet";
@@ -53,8 +63,12 @@ const heldSaid = (v: NetworkVolume, set: string): string | undefined => {
 /**
  * Deploy a GPU: what RunPod has free now (read again every 15 s), by price, with the image, the cloud, the disk and what
  * ends it. Deploy is the user's click: billed from then. The choices are kept for the next time ("Deploy again").
+ *
+ * With a RunPod key, a GPU picked that is not free (one out of stock in the list, the last deploy's gone) turns it to the
+ * hunt (DeployHunt.tsx): Afflatus deploys the best GPU that comes free, with these same choices. Opened on "change", or
+ * on the hunt with one under way, it changes that hunt's own choices instead (its deploy choices stay the start's).
  */
-export function DeployDialog({ onClose }: { onClose(): void }) {
+export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void; opening?: DeployOpening }) {
   const settings = useSettings();
   const client = useQueryClient();
   const [, go] = useLocation();
@@ -90,16 +104,49 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
   // what is typed narrows the list: a GPU's name or its VRAM ("5090", "48 gb")
   const [q, setQ] = useState("");
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const offers = (gpus.data?.gpus ?? []).map((g) => ({ ...g, places: placesOf(g) })).filter((g) => g.places.length && words.every((w) => `${g.name} ${g.memory}gb ${g.memory} gb`.toLowerCase().includes(w)))
-    .sort((a, b) => (sort.up ? 1 : -1) * byKey[sort.key](a, b) || a.price - b.price || b.memory - a.memory);
+  const matches = (g: GpuOffer) => words.every((w) => `${g.name} ${g.memory}gb ${g.memory} gb`.toLowerCase().includes(w));
+  // what is free whatever is typed: the GPU picked stays picked while the list is narrowed to others
+  const free = (gpus.data?.gpus ?? []).map((g) => ({ ...g, places: placesOf(g) })).filter((g) => g.places.length);
+  const offers = free.filter(matches).sort((a, b) => (sort.up ? 1 : -1) * byKey[sort.key](a, b) || a.price - b.price || b.memory - a.memory);
   const sortBy = (key: SortKey) => setSort((s) => (s.key === key ? { key, up: !s.up } : { key, up: key !== "memory" }));
   // how long ago RunPod's stock was read (it is read again every 15 s, or now)
   const now = useNow(1000);
   const readAgo = gpus.dataUpdatedAt ? Math.max(0, Math.round((now - gpus.dataUpdatedAt) / 1000)) : null;
-  const picked = offers.find((g) => g.id === want.gpu) ?? null;
+  const picked = free.find((g) => g.id === want.gpu) ?? null;
   // the one picked (or deployed last time) is not free now: said, with the cheapest free one as large
   const gone = !picked && want.gpu && gpus.isSuccess ? gpus.data.gpus.find((g) => g.id === want.gpu) ?? { id: want.gpu, name: want.gpu.replace(/^NVIDIA (GeForce )?/, ""), memory: 0 } : null;
-  const instead = gone ? offers.find((g) => g.memory >= gone.memory) ?? null : null;
+  const instead = gone ? free.slice().sort((a, b) => a.price - b.price).find((g) => g.memory >= gone.memory) ?? null : null;
+  // with a key, the GPUs not free now are listed after the others: one picked is hunted for
+  const keyed = Boolean(settings.data?.hasRunpodKey);
+  const outOfStock = keyed ? (gpus.data?.gpus ?? []).filter((g) => !placesOf(g).length && matches(g)).sort((a, b) => a.price - b.price) : [];
+
+  // the hunt: asked for (Ctrl+K, the hunt's card), or the GPU wanted not free. A hunt under way is changed, not started again
+  const [huntAsked, setHuntAsked] = useState(opening !== "deploy");
+  const hunting = keyed && (huntAsked || Boolean(gone));
+  const queueHunt = useQueue().data?.hunt ?? null;
+  const changing = hunting && (opening === "change" || Boolean(queueHunt));
+  const kept = useQuery({ queryKey: queryKeys.hunt(), queryFn: ({ signal }) => api.hunt({ signal }), enabled: changing }).data?.hunt ?? null;
+  const goneOffer = gone ? gpus.data?.gpus.find((g) => g.id === gone.id) : undefined;
+  const [huntChange, setHuntChange] = useState<Partial<HuntAsk>>({});
+  const huntBase: HuntAsk = changing && kept
+    ? { mode: kept.mode, ceiling: kept.ceiling, leftOut: kept.leftOut, hold: kept.hold, giveUpMinutes: Math.round((Date.parse(kept.giveUpAt) - Date.parse(kept.startedAt)) / 60_000) }
+    : { mode: "value", ceiling: ceilingFor(goneOffer?.price), leftOut: [], hold: "rest", giveUpMinutes: 120 };
+  const huntAsk = { ...huntBase, ...huntChange };
+  // the ranking for these choices, asked once they stop changing (a tick, a price typed); the last one stays shown meanwhile
+  const rankAsk = JSON.stringify({ mode: huntAsk.mode, ceiling: huntAsk.ceiling, leftOut: huntAsk.leftOut, cloud: changing ? kept?.deploy.cloud : want.cloud, volume: changing ? kept?.deploy.volume : want.volume });
+  const rankAsked = useDebounced(rankAsk, 300, true, rankAsk);
+  const rank = useQuery({
+    queryKey: queryKeys.huntRank(rankAsked),
+    queryFn: ({ signal }) => api.huntRank(JSON.parse(rankAsked) as Parameters<typeof api.huntRank>[0], { signal }),
+    enabled: hunting && (!changing || Boolean(kept)),
+    placeholderData: keepPreviousData,
+    refetchInterval: 30_000,
+    retry: false,
+  });
+  const pick = firstPick(rank.data?.ranking);
+  // a GPU free now to deploy in place of the hunt: the one picked (the dialog opened on the hunt), else the cheapest as large
+  const alt = picked ?? instead;
+  const held = rank.data?.held ?? null;
   // the files the Models part ticked, and whether every licence of them was accepted
   const [models, setModels] = useState<ModelsPicked>({ files: [], leaveOut: [], accept: [], ready: true, bytes: 0 });
   // the pod's own disk holds the files (with room for ComfyUI and its packs): a larger one proposed when they would not fit
@@ -113,6 +160,14 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
       go(`/settings?machine=${encodeURIComponent(id)}`);
     },
   });
+  // the hunt started with these choices, or the hunt under way changed (only what was changed here is sent)
+  const huntGo = useMutation({
+    mutationFn: () => (changing ? api.changeHunt(huntChange) : api.startHunt({ ...huntAsk, deploy: { ...withoutGpu(want), files: models.files, leaveOut: models.leaveOut, accept: models.accept, again: false } })),
+    onSuccess: async () => {
+      await huntReads(client);
+      onClose();
+    },
+  });
   const more = useMenu<true>();
   // the choices kept as the next deploy's without deploying (Settings › Rented GPUs › Next deploy); the files are a deploy's own
   const saveNext = useMutation({
@@ -124,8 +179,30 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
   });
   return (
     <Dialog label="Deploy a GPU" onClose={onClose} className={cx(DIALOG.replace("max-w-md", "max-w-[860px]"), "max-h-[calc(100vh-48px)]")}>
-      <DialogHead icon={<Cpu size={16} />} title="Deploy a GPU" sub="RunPod · what is in stock now" onClose={onClose} />
+      <DialogHead icon={<Cpu size={16} />} title="Deploy a GPU" sub={changing ? "RunPod · the hunt under way" : hunting ? `RunPod · ${want.cloud === "SECURE" ? "Secure" : "Community"} Cloud · the best GPU that comes free` : "RunPod · what is in stock now"} onClose={onClose} />
       <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
+        {hunting ? (
+          <HuntSection
+            ask={huntAsk}
+            change={(c) => setHuntChange((was) => ({ ...was, ...c }))}
+            ranking={rank.data?.ranking ?? null}
+            failed={rank.isError ? rank.error.message : null}
+            pending={rank.isFetching}
+            volume={changing ? (kept?.dataCenter ? { name: volumes.data?.volumes.find((v) => v.id === kept.deploy.volume)?.name ?? "its network volume", dataCenter: kept.dataCenter } : null) : volume}
+            warning={changing ? null : (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[10px] bg-warn-wash px-3.5 py-2.5 text-[13px] text-warn-ink">
+                <CircleAlert size={16} className="shrink-0" />
+                <span className="min-w-0 grow">
+                  {gone ? `No ${gone.name} is free ${volume ? `in ${volume.dataCenter} ` : ""}right now. Hunt for one, or for the best GPU that comes free.` : `The best GPU below is deployed the moment one comes free${volume ? ` in ${volume.dataCenter}` : ""}.`}
+                  {alt && ` The ${alt.name} is free now, at ${usd(alt.price)}/h.`}
+                </span>
+                {alt && <Button size="sm" onClick={() => { set({ gpu: alt.id }); setHuntAsked(false); }}>Deploy it instead</Button>}
+                <Segmented<DeployAsk["cloud"]> size="sm" label="Cloud" value={want.cloud} options={[{ value: "SECURE", label: "Secure" }, { value: "COMMUNITY", label: "Community" }]} onChange={(cloud) => set({ cloud })} />
+                <Help text={WHY_CLOUD} />
+              </div>
+            )}
+          />
+        ) : (
         <section className="flex flex-col gap-1.5">
           <span className="flex items-center gap-2 text-xs font-semibold text-ink-2">
             GPU · in stock now
@@ -171,9 +248,26 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
                 <span className="text-right font-mono text-xs">{usd(g.price)}/h</span>
               </button>
             ))}
+            {/* the GPUs RunPod has none of now, after the others: one picked turns the dialog to its hunt */}
+            {outOfStock.length > 0 && (
+              <>
+                <span className="border-b border-line/60 px-3 pt-3 pb-1.5 text-[11px] font-semibold text-ink-3">Not in stock now · pick one to hunt for it</span>
+                {outOfStock.map((g) => (
+                  <button key={g.id} type="button" role="radio" aria-checked={false} onClick={() => set({ gpu: g.id })} className="grid grid-cols-[minmax(0,1fr)_64px_90px_70px_76px] items-center gap-3 border-b border-line/60 px-3 py-2 text-left text-[13px] text-ink-2 last:border-b-0 hover:bg-hover">
+                    <span className="min-w-0 truncate font-semibold">{g.name}</span>
+                    <span className="text-right font-mono text-xs">{g.memory} GB</span>
+                    <span className="text-xs">{volume ? volume.dataCenter : "anywhere"}</span>
+                    <span className="text-xs">none</span>
+                    <span className="text-right font-mono text-xs">{usd(g.price)}/h</span>
+                  </button>
+                ))}
+              </>
+            )}
           </div>
         </section>
+        )}
 
+        {!changing && (
         <section className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-x-3 gap-y-3 text-[13px]">
           <span className="flex items-center gap-1.5 font-semibold text-ink-2">Image <Help text={WHY_TEMPLATE} /></span>
           <Segmented<DeployAsk["template"]> label="Image" value={want.template} options={[{ value: "afflatus", label: images.data?.afflatus === false ? "Afflatus · not published" : "Afflatus · locked" }, { value: "runpod", label: "RunPod's ComfyUI · not locked" }]} onChange={(template) => set({ template })} />
@@ -200,8 +294,14 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
             <span className="w-[92px]"><Select size="sm" label="Watchdog minutes" value={String(want.watchdogMinutes)} onChange={(v) => set({ watchdogMinutes: Number(v) })} options={WATCH.map((n) => ({ value: String(n), label: n === 0 ? "off" : minutesSaid(n) }))} /></span>
           </span>
         </section>
+        )}
 
-        <DeployModels want={want} set={set} rate={picked?.price ?? null} gpu={picked?.name ?? null} onPicked={setModels} />
+        {/* a hunt under way deploys with the choices it was started with: only its own are changed */}
+        {changing ? (
+          <span className="text-xs text-ink-3">It deploys with the choices it was started with (image, disk, when done, models). To change those, cancel it and hunt again.</span>
+        ) : (
+          <>
+        <DeployModels want={want} set={set} rate={(hunting ? pick?.price : picked?.price) ?? null} gpu={(hunting ? pick?.name : picked?.name) ?? null} onPicked={setModels} />
         {!diskFits && (
           <span className="flex items-center gap-2 text-xs text-warn-ink">
             These files take about {diskNeed - 30} GB, with ComfyUI {diskNeed} GB: its disk of {want.disk} GB is too small.
@@ -209,6 +309,8 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
           </span>
         )}
         <SaveAsSet files={models.files} />
+          </>
+        )}
 
         {volume?.usedBy && (
           <span className="flex items-center gap-2 text-xs text-warn-ink">
@@ -219,12 +321,19 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
         {imageMissing && <ErrorNote>{want.template === "afflatus" ? "The Afflatus image is not published yet, or not public: RunPod could not pull it. Deploy with RunPod's ComfyUI meanwhile." : "RunPod's ComfyUI image cannot be pulled from Docker Hub now."}</ErrorNote>}
         {want.template === "runpod" && <ErrorNote>RunPod's ComfyUI has no Afflatus pack: it is not locked, so anyone who finds its address can run work on it, and nothing stops it if this PC goes silent.</ErrorNote>}
         {deploy.isError && <ErrorNote>{deploy.error.message}</ErrorNote>}
+        {huntGo.isError && <ErrorNote>{huntGo.error.message}</ErrorNote>}
         {saveNext.isError && <ErrorNote>{saveNext.error.message}</ErrorNote>}
       </div>
       {/* the note takes what width there is and wraps; the buttons keep their place (they never move under the pointer) */}
       <div className="-mx-5 -mb-5 mt-1 flex items-center gap-3 border-t border-line px-5 py-3.5">
         <span className="min-w-0 grow text-xs text-ink-3">
-          {picked
+          {hunting
+            ? changing
+              ? "Changed at once; RunPod is asked again now. Nothing is billed until a pod is made."
+              : held === 0
+                ? <span className="text-warn-ink">Nothing waits for a GPU: queue the renders first.</span>
+                : `${held === null ? "" : `${plural(held, "render")} waiting. `}RunPod is asked every 30 s; nothing is billed until a pod is made, and none is made when no render waits.`
+            : picked
             ? `Billed from deploy · ${picked.name} ${picked.places[0]!.id === "any" ? "on Community Cloud" : `in ${picked.places[0]!.id}`}`
             : gone
               // the one picked last time, not in stock on this cloud now: said where the choice is made, nothing moves above
@@ -234,10 +343,17 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
         <Button tone="quiet" onClick={onClose} className="shrink-0">Cancel <Keys keys="Esc" size="sm" /></Button>
         {/* Deploy, and on its slice what else can be done with these choices: kept as the next deploy's, without deploying */}
         <span className="flex shrink-0">
+          {hunting ? (
+            <button type="button" onClick={() => huntGo.mutate()} disabled={huntGo.isPending || (changing ? !kept : imageMissing || !models.ready || !diskFits || Boolean(volume?.usedBy) || held === 0)} className="flex h-10 min-w-[150px] items-center justify-center gap-2 rounded-l-lg bg-accent px-4 text-[13px] font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
+              <Search size={15} />
+              {huntGo.isPending ? (changing ? "Changing…" : "Starting…") : `${changing ? "Change" : "Hunt"} · up to ${usd(huntAsk.ceiling)}/h`}
+            </button>
+          ) : (
           <button type="button" onClick={() => deploy.mutate()} disabled={!picked || imageMissing || deploy.isPending || !models.ready || !diskFits || Boolean(volume?.usedBy)} className="flex h-10 min-w-[150px] items-center justify-center rounded-l-lg bg-accent px-4 text-[13px] font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
             {deploy.isPending ? "Deploying…" : picked ? `Deploy · ${usd(picked.price)}/h` : "Deploy"}
           </button>
-          <button type="button" aria-label="More: save as the next deploy" data-tip="Save these choices as the next deploy's, without deploying" onClick={(e) => more.open(e, true)} disabled={!want.gpu} className="flex h-10 w-9 items-center justify-center rounded-r-lg border-l border-accent-ink/25 bg-accent text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
+          )}
+          <button type="button" aria-label="More: save as the next deploy" data-tip="Save these choices as the next deploy's, without deploying" onClick={(e) => more.open(e, true)} disabled={!want.gpu || changing} className="flex h-10 w-9 items-center justify-center rounded-r-lg border-l border-accent-ink/25 bg-accent text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
             <ChevronDown size={15} />
           </button>
         </span>

@@ -37,6 +37,9 @@ export const queryKeys = {
   /** The GPUs RunPod has free now, by cloud, and the account's network volumes (Deploy a GPU). */
   runpodGpus: (cloud: string) => ["runpod-gpus", cloud] as const,
   runpodVolumes: () => ["runpod-volumes"] as const,
+  /** The GPU hunt under way (read again with the queue, as its events come), and the Deploy dialog's ranking for its choices. */
+  hunt: () => ["hunt"] as const,
+  huntRank: (ask: unknown) => ["hunt-rank", ask] as const,
   /** What Make a volume… says first (data centers in stock, sizes, savings), by the sets weighed (null: all). */
   volumePlan: (sets: string[] | null) => ["volume-plan", sets ?? "all"] as const,
   /** What Fill from a set… says first, by volume and set. */

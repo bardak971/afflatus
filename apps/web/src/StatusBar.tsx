@@ -11,6 +11,7 @@ import { useDownloads } from "./useGetFile";
 import { elapsed, gb, phaseLabel, timeLeft, when } from "./format";
 import { StripModel, StripPlace, stripGhost } from "./ModelLoad";
 import { LoadPanelHost } from "./LoadPanel";
+import { HuntStrip } from "./HuntStrip";
 import { MachinesPill, OPEN_MACHINES } from "./MachinesPill";
 import { machineName, severalMachines } from "./machines";
 import { lazyPart, loadExpiringPanel } from "./lazyParts";
@@ -59,19 +60,24 @@ export function StatusBar() {
   const waiting = q?.waiting.length ?? 0;
   const liveDown = useLive((s) => s.down);
   const barKey = useSettings().data?.bar?.shortcut ?? BAR_DEFAULT;
+  // a GPU hunt that holds the renders takes the left slot while nothing renders; otherwise it is a chip after it
+  const hunt = q?.hunt && q.hunt.status !== "up" ? q.hunt : null;
+  const huntSlot = Boolean(hunt && hunt.hold === "rest" && !run);
   return (
     <>
       <LoadPanelHost />
       <footer className="flex h-10 shrink-0 items-center gap-2.5 overflow-hidden border-t border-line bg-panel px-3 text-xs">
-        {run ? <Running run={run} /> : q?.online === false ? <Offline q={q} /> : q?.paused ? <Paused waiting={waiting} /> : <Idle last={lastMade(q)} />}
+        {huntSlot && hunt ? <HuntStrip hunt={hunt} slot /> : run ? <Running run={run} /> : q?.online === false ? <Offline q={q} /> : q?.paused ? <Paused waiting={waiting} /> : <Idle last={lastMade(q)} />}
         {several.filter((m) => m.running).length > 1 && (
           <button type="button" className="inline-flex h-6 shrink-0 items-center rounded-full border border-line px-2 text-xs hover:bg-hover" data-tip="Renders running on the other ComfyUIs: click for each machine" onClick={() => window.dispatchEvent(new Event(OPEN_MACHINES))}>
             +{several.filter((m) => m.running).length - 1}
           </button>
         )}
-        {run && q?.paused ? <Paused waiting={waiting} /> : waiting > 0 && (run || q?.online !== false) && !q?.paused && (
+        {/* paused by the hunt that holds the renders: its own chip says so, and a Resume asks first (queueOps.ts) */}
+        {run && q?.paused ? !(hunt?.hold === "rest") && <Paused waiting={waiting} /> : waiting > 0 && (run || q?.online !== false) && !q?.paused && (
           <Link href="/queue" className={cx(stripGhost, "shrink-0")} data-tip="Jobs waiting their turn: open the Queue to reorder or cancel them">+{waiting} queued</Link>
         )}
+        {hunt && !huntSlot && <HuntStrip hunt={hunt} slot={false} />}
         <Expiring />
         {fetching.length > 0 && (
           <Link href="/settings/models" className={cx(stripGhost, "min-w-0")} data-tip="A model file is being downloaded into ComfyUI. It goes on if this page is closed. Open Settings to see it or cancel it.">

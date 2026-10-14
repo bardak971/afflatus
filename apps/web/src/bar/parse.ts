@@ -35,6 +35,8 @@ export type Command =
   | { cmd: "stop-pod"; machine: string }
   | { cmd: "deploy-gpu" }
   | { cmd: "deploy-again" }
+  | { cmd: "hunt-gpu" }
+  | { cmd: "cancel-hunt" }
   | { cmd: "machine-times"; machine: string }
   | { cmd: "machine-models"; machine: string }
   | { cmd: "new-draft"; recipe: string }
@@ -117,6 +119,8 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "stop-pod", name: "Stop pod…", typed: "stop pod ", example: "stop pod comfy-5090", what: "A rented pod, stopped: the GPU stops billing, its disk goes on", needs: true },
   { id: "deploy-gpu", name: "Deploy a GPU…", typed: "deploy gpu", example: "deploy gpu", what: "A GPU rented on RunPod, picked from what is free now: billed from your Deploy until it ends, by itself once idle" },
   { id: "deploy-again", name: "Deploy again", typed: "deploy again", example: "deploy again", what: "The last deploy's GPU and choices, on RunPod: its rate asked first" },
+  { id: "hunt-gpu", name: "Hunt a GPU…", typed: "hunt gpu", example: "hunt gpu", what: "Deploy a GPU on its hunt: RunPod asked every 30 s, the best GPU that comes free within your price deployed for the renders waiting" },
+  { id: "cancel-hunt", name: "Cancel the hunt", typed: "cancel hunt", example: "cancel hunt", what: "The GPU hunt under way: nothing deployed, the home machines it paused go on" },
   { id: "open-comfy", name: "Open ComfyUI", typed: "open comfyui", example: "open comfyui on second gpu", what: "ComfyUI's own page in a new tab, the first ComfyUI or the one named; locked, the tab lands logged in" },
   { id: "machine-log", name: "ComfyUI log of…", typed: "log ", example: "log second gpu", what: "With several ComfyUIs: that machine's console, in the Queue", needs: true },
   { id: "machine-times", name: "Render times of…", typed: "render times ", example: "render times second gpu", what: "With several ComfyUIs: what that machine rendered and how long it took", needs: true },
@@ -249,6 +253,8 @@ export function parseCommand(input: string): Command | null {
   if ((m = /^(?:apply )?preset (.+)$/i.exec(t))) return { cmd: "preset", name: m[1]!.trim() };
   if (/^import(?: (?:a )?(?:comfyui )?workflow)?$/.test(low)) return { cmd: "import-workflow" };
   if (/^(?:deploy|rent) (?:it |the (?:last|same) (?:one|gpu) )?again$/.test(low)) return { cmd: "deploy-again" };
+  if (/^(?:cancel|stop|end) (?:the )?(?:gpu )?hunt$/.test(low)) return { cmd: "cancel-hunt" };
+  if (/^hunt(?: (?:for )?an?)?(?: (?:gpu|pod))?$/.test(low)) return { cmd: "hunt-gpu" };
   if (/^(?:deploy|rent)(?: an?)?(?: (?:gpu|pod|runpod))?$/.test(low)) return { cmd: "deploy-gpu" };
   if (/^finish(?: (?:the )?timeline)?$/.test(low)) return { cmd: "finish" };
   if (/^fix(?: all)?$/.test(low)) return { cmd: "fix-all" };

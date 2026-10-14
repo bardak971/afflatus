@@ -1,5 +1,5 @@
 import { Bookmark, ChevronLeft, ChevronRight, Clapperboard, Eye, FileOutput, FileUp, Film, FlipHorizontal2, FolderPlus, Layers, Link2, MemoryStick, Pause, PenLine, Play, Plug, RotateCcw, Server, Sparkles, Split, Trash2, Undo2, Wand2, X } from "lucide-react";
-import { openDeploy } from "../../deploy";
+import { cancelHunt, openDeploy } from "../../deploy";
 import { openLoadPanel } from "../../LoadPanel";
 import { OPEN_MACHINES } from "../../MachinesPill";
 import { api, type RecipeInfo } from "../../api";
@@ -169,9 +169,14 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
     }
     case "deploy-gpu":
       // the dialog: what RunPod has free now; nothing is billed before its Deploy
-      return [{ label: "Deploy a GPU…", icon: <Server size={14} />, note: "RunPod · what is free now", run: openDeploy }];
+      return [{ label: "Deploy a GPU…", icon: <Server size={14} />, note: "RunPod · what is free now", run: () => openDeploy() }];
     case "deploy-again":
       return [{ label: "Deploy again", icon: <Server size={14} />, note: deployAgain.last ? "its rate asked first" : "nothing deployed yet: the dialog opens", disabled: deployAgain.run.isPending, run: () => (deployAgain.last ? deployAgain.run.mutate() : openDeploy()) }];
+    case "hunt-gpu":
+      // the Deploy dialog on its hunt; a hunt under way opens on its own choices, to change them
+      return [{ label: "Hunt a GPU…", icon: <Server size={14} />, note: "RunPod · the best GPU that comes free", run: () => openDeploy("hunt") }];
+    case "cancel-hunt":
+      return [{ label: "Cancel the hunt", icon: <X size={14} />, danger: true, note: "the home machines it paused go on", run: () => cancelHunt(client).catch(failed("Could not cancel the hunt")) }];
     case "open-comfy": {
       // the first ComfyUI, or the one named: its own page (locked, through its login: lock-api.ts pageUrl)
       const m = c.machine ? machineByName(queue?.machines, c.machine) : queue?.machines[0];

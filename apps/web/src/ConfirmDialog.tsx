@@ -37,6 +37,20 @@ function TextAsk({ open }: { open: Extract<Open, { kind: "text" }> }) {
 /** The question asked (Confirm.tsx ConfirmHost), drawn. */
 export function ConfirmDialog({ open }: { open: Open }) {
   if (open.kind === "text") return <TextAsk open={open} />;
+  if (open.kind === "choice") {
+    // several ways ahead, none of them undoing anything: the focus starts on the one that does nothing all the same; a
+    // little wider, so that their buttons stay on one line
+    return (
+      <Dialog label={open.title} onClose={() => open.answer(null)} z="z-[95]" className={DIALOG.replace("max-w-md", "max-w-lg")}>
+        <DialogHead icon={<CircleAlert size={16} />} tone="warn" title={open.title} />
+        <p className="m-0 whitespace-pre-line text-ink-2">{open.text}</p>
+        <DialogFoot>
+          <Button autoFocus onClick={() => open.answer(null)}>{open.no} <Keys keys="Esc" size="sm" /></Button>
+          {open.choices.map((c) => <Button key={c.value} onClick={() => open.answer(c.value)}>{c.label}</Button>)}
+        </DialogFoot>
+      </Dialog>
+    );
+  }
   // over every other dialog: Escape answers the question and nothing else. The focus starts on Cancel:
   // an Enter pressed by habit does not go ahead with what cannot be undone
   return (

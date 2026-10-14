@@ -21,8 +21,20 @@ interface TextQuestion {
   /** What the button that goes ahead says. */
   yes: string;
 }
+/** A question with more than one way ahead (Resume while a GPU hunt holds the renders): answered with the choice's value, or null when closed. */
+interface ChoiceQuestion {
+  title: string;
+  text: string;
+  choices: Array<{ value: string; label: string }>;
+  /** What the button that does nothing says. */
+  no: string;
+}
 /** `n`: which question it is, so that a second one asked in the place of the first starts from its own text. */
-export type Open = { n: number } & ((Question & { kind: "yes"; answer(ok: boolean): void }) | (TextQuestion & { kind: "text"; answer(text: string | null): void }));
+export type Open = { n: number } & (
+  | (Question & { kind: "yes"; answer(ok: boolean): void })
+  | (TextQuestion & { kind: "text"; answer(text: string | null): void })
+  | (ChoiceQuestion & { kind: "choice"; answer(value: string | null): void })
+);
 let asked = 0;
 const useConfirm = create<{ open: Open | null }>(() => ({ open: null }));
 const closeOpen = () => {
@@ -43,6 +55,23 @@ export function ask(question: Question): Promise<boolean> {
         answer: (ok) => {
           useConfirm.setState({ open: null });
           done(ok);
+        },
+      },
+    });
+  });
+}
+
+export function askChoice<T extends string>(question: ChoiceQuestion & { choices: Array<{ value: T; label: string }> }): Promise<T | null> {
+  return new Promise((done) => {
+    closeOpen();
+    useConfirm.setState({
+      open: {
+        ...question,
+        n: ++asked,
+        kind: "choice",
+        answer: (value) => {
+          useConfirm.setState({ open: null });
+          done(value as T | null);
         },
       },
     });

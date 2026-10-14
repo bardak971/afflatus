@@ -1,4 +1,6 @@
 /** The queue: jobs as they wait, run and end, the machine's load, and the record of render times. */
+import type { RankedGpu } from "@afflatus/core";
+import type { DeployAsk } from "./settings";
 
 export interface SystemLoad {
   source: "dasiwa" | "crystools" | "comfyui";
@@ -145,6 +147,60 @@ export interface QueueStatus {
   tool: RunningJob | null;
   waiting: Job[];
   recent: Job[];
+  /** The GPU hunt under way, as the status bar says it; null when there is none. */
+  hunt: HuntSummary | null;
+}
+
+/** The GPU hunt in a few figures, with the queue's status (the server's hunt.ts HuntSummary). */
+export interface HuntSummary {
+  /** hunting: RunPod asked every 30 s; deploying: the GPU found is being deployed; up: its pod made, followed until it stops. */
+  status: "hunting" | "deploying" | "up";
+  startedAt: string;
+  giveUpAt: string;
+  /** rest: the home machines paused for it; keep: they go on rendering. */
+  hold: "rest" | "keep";
+  /** The renders waiting for it. */
+  held: number;
+  /** The best-ranked usable GPU, as last ranked; null before the first ask, or with none usable. */
+  firstPick: { name: string; price: number } | null;
+  machine: string | null;
+}
+export type HuntMode = "value" | "fast" | "cheap";
+/** The hunt as kept (GET /api/hunt): its choices and where it is. */
+export interface HuntState {
+  mode: HuntMode;
+  ceiling: number;
+  leftOut: string[];
+  cloud: "SECURE" | "COMMUNITY";
+  /** The data center its network volume pins the pod to; null: any. */
+  dataCenter: string | null;
+  /** The Deploy dialog's choices it deploys with, all but the GPU. */
+  deploy: Omit<DeployAsk, "gpu">;
+  hold: HuntSummary["hold"];
+  startedAt: string;
+  giveUpAt: string;
+  status: HuntSummary["status"];
+  machine: string | null;
+  /** The home machines it paused, resumed when it ends. */
+  pausedByHunt: string[];
+  /** How many times RunPod's stock was asked. */
+  asks: number;
+  lastError: string | null;
+  found: { gpu: string; name: string; price: number; dataCenter: string | null; at: string } | null;
+}
+/** GET /api/hunt: the hunt (null: none), its last ranking and when RunPod was last asked. */
+export interface HuntView {
+  hunt: HuntState | null;
+  ranking: RankedGpu[] | null;
+  askedAt: string | null;
+}
+/** What a hunt is started with, and changed by (PATCH: the deploy choices are the start's). */
+export interface HuntAsk {
+  mode: HuntMode;
+  ceiling: number;
+  leftOut: string[];
+  giveUpMinutes: number;
+  hold: HuntSummary["hold"];
 }
 /**
  * What a form will take, as the server forecasts it from this machine's renders (POST /api/advice): the form's

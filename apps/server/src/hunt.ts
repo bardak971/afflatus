@@ -48,7 +48,15 @@ const askSchema = z.strictObject({
   /** What the Deploy dialog sends to deploy, but the GPU, which the hunt picks. */
   deploy: choicesSchema.prefault({}),
 });
-const changeSchema = askSchema.pick({ mode: true, ceiling: true, leftOut: true, giveUpMinutes: true, hold: true }).partial().strict();
+// its own fields without the start's defaults: a field left out is kept as it is (with .partial() a default still filled
+// it in, and a change of the hold alone set the GPUs left out back to none)
+const changeSchema = z.strictObject({
+  mode: z.enum(["value", "fast", "cheap"]).optional(),
+  ceiling: z.number().positive().max(1000).optional(),
+  leftOut: z.array(z.string().max(120)).max(200).optional(),
+  giveUpMinutes: z.number().int().min(10).max(24 * 60).optional(),
+  hold: z.enum(["rest", "keep"]).optional(),
+});
 const rankSchema = z.strictObject({
   mode: z.enum(["value", "fast", "cheap"]).default("value"),
   ceiling: z.number().positive().max(1000),

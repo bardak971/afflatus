@@ -172,6 +172,11 @@ describe("the hunt", () => {
     const h = await hunt();
     expect(h.ranking!.map((g) => [g.name, g.fits])).toEqual([["A40", "left out by you"], ["RTX 4090", "over your $0.60/h"]]);
     expect((await t.app.inject({ method: "PATCH", url: "/api/hunt", payload: { ceiling: 0 } })).statusCode).toBe(400);
+    // a change of another field keeps them as they are
+    expect((await t.app.inject({ method: "PATCH", url: "/api/hunt", payload: { hold: "keep" } })).statusCode).toBe(200);
+    expect((await hunt()).hunt).toMatchObject({ leftOut: ["NVIDIA A40"], ceiling: 0.6, mode: "value", hold: "keep" });
+    await t.services.hunt.tick();
+    expect(creates()).toBe(0);
     expect((await t.app.inject({ method: "PATCH", url: "/api/hunt", payload: { leftOut: [], ceiling: 0.8, mode: "fast" } })).statusCode).toBe(200);
     // nothing learned: no time, so "fast" orders by the price too
     await t.services.hunt.tick();

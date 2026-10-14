@@ -1,5 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type QueueStatus } from "./api";
+import { askChoice } from "./Confirm";
+import { resumeHoldsHunt } from "./huntSaid";
 import { useSayFailed } from "./sayFailed";
 import { useBanners } from "./store";
 import { queryKeys } from "./queryKeys";
@@ -16,7 +18,27 @@ export function useQueueOps() {
   const failed = useSayFailed({ id: "queue", href: "/queue", go: "Open queue" });
   const settle = (q: QueueStatus) => client.setQueryData(queryKeys.queue(), q);
   const pause = useMutation({ mutationFn: (machine?: string) => api.pause(machine), onSuccess: settle, onError: failed("Could not pause the queue") });
-  const resume = useMutation({ mutationFn: (machine?: string) => api.resume(machine), onSuccess: settle, onError: failed("Could not resume the queue") });
+  // while a GPU hunt holds the renders for its GPU, a Resume of the home machines it paused asks first: the hunt ends, or
+  // goes on with this PC rendering meanwhile (each resumes what the hunt paused); closed, nothing is resumed
+  const resume = useMutation({
+    mutationFn: async (machine?: string) => {
+      if (resumeHoldsHunt(client.getQueryData<QueueStatus>(queryKeys.queue()), machine)) {
+        const how = await askChoice({
+          title: "A GPU hunt holds the renders",
+          text: "This PC rests while Afflatus hunts a GPU for the renders waiting. Cancel the hunt, or let this PC render too: the GPU found then takes its share.",
+          choices: [{ value: "cancel", label: "Cancel the hunt" }, { value: "keep", label: "Let this PC render too" }],
+          no: "Not now",
+        });
+        if (!how) return null;
+        if (how === "cancel") await api.cancelHunt();
+        else await api.changeHunt({ hold: "keep" });
+        void client.invalidateQueries({ queryKey: queryKeys.hunt() });
+      }
+      return api.resume(machine);
+    },
+    onSuccess: (q) => q && settle(q),
+    onError: failed("Could not resume the queue"),
+  });
   const useOnly = useMutation({ mutationFn: (machine: string) => api.useOnly(machine), onSuccess: settle, onError: failed("Could not send the queue to that machine") });
   const unload = useMutation({
     mutationFn: (machine?: string) => api.freeMemory(machine),

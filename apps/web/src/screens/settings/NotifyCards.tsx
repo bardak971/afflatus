@@ -19,7 +19,7 @@ const TELEGRAM_HELP = "A bot of yours writes to you. To make one: in Telegram, m
 const CHAT_HELP = "Who the bot writes to: your own chat with it (a number), a group's (a negative number), or a channel's @name with the bot as an admin. Find my chat id reads the chats that wrote to the bot lately.";
 const DISCORD_HELP = "A channel's webhook: in Discord, Server settings › Integrations › Webhooks › New Webhook, pick the channel, then Copy Webhook URL and paste it here. Anyone who has the address can post to that channel: it stays in Afflatus, never shown again.";
 
-/** The kinds, by what they are about, each with its name and what it says. The GPU hunt's two wait for the hunt. */
+/** The kinds, by what they are about, each with its name and what it says. */
 const GROUPS: Array<{ title: string; kinds: Array<{ kind: NotifyKind; label: string; help: string }> }> = [
   {
     title: "Rented GPUs",
@@ -27,6 +27,8 @@ const GROUPS: Array<{ title: string; kinds: Array<{ kind: NotifyKind; label: str
       { kind: "podStopped", label: "Pod stopped by Afflatus", help: "A rented pod stopped or terminated by Afflatus (idle, a spending cap, it never came up, its GPU failed, its watchdog, a fill done or cut short), with why and what that run cost. Not when you stop it." },
       { kind: "capReached", label: "Spending cap reached", help: "The day's or the month's cap, the first time it is reached: the pods stop once their render ends." },
       { kind: "balanceLow", label: "RunPod balance low", help: "Under $2, or under a day of the last week's rented spend when that is more: at $0 RunPod stops every pod. Once, until it is back above." },
+      { kind: "gpuFound", label: "GPU found", help: "A GPU hunt found one and deployed it: which GPU, where, at what rate, after how long, and how many renders wait for it." },
+      { kind: "huntGaveUp", label: "Hunt gave up", help: "A GPU hunt ended without a GPU: nothing you would take came free in its time, a spending cap or RunPod's balance, or RunPod refusing deploys; the home machines it paused go on." },
     ],
   },
   {
