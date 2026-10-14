@@ -64,6 +64,7 @@ import m0062 from "./0062-pod-measures";
 import m0063 from "./0063-model-sets";
 import m0064 from "./0064-pod-measures-wide";
 import m0065 from "./0065-volume-files";
+import m0067 from "./0067-clip-transition";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -136,4 +137,5 @@ export const migrations: Record<string, Migration> = {
   "0063_model_sets": m0063,
   "0064_pod_measures_wide": m0064,
   "0065_volume_files": m0065,
+  "0067_clip_transition": m0067,
 };

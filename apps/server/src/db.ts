@@ -285,6 +285,8 @@ export interface Tables {
     music?: string | null;
     /** Its pinned pictures flipped left to right at render time (JSON, input id → true), the library's picture left as it is; null = none. */
     pin_mirror?: string | null;
+    /** A cut's transition into this clip (JSON, @afflatus/core's Transition); null = a plain cut. */
+    transition?: string | null;
     created_at: string;
     updated_at: string;
   };

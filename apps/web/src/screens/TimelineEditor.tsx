@@ -2,6 +2,7 @@ import { Link } from "wouter";
 import { clock as mmss } from "../format";
 import { Picker } from "../PictureField";
 import { Inspector } from "../timeline/Inspector";
+import { JoinPanel } from "../timeline/inspector/join";
 import { MusicPanel } from "../timeline/inspector/music";
 import { Player } from "../timeline/Player";
 import { MediaOverlay } from "../timeline/MediaOverlay";
@@ -75,6 +76,17 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
           />
         ) : musicOpen && t.music ? (
           <MusicPanel timeline={t} onEdit={(p) => e.edit.mutate(p)} onClose={() => e.setMusicOpen(false)} />
+        ) : current && e.joinOpen === current.id && clips.indexOf(current) > 0 ? (
+          <JoinPanel
+            key={`join:${current.id}`}
+            clip={current}
+            index={clips.indexOf(current)}
+            before={clips[clips.indexOf(current) - 1]!}
+            recipes={e.videoRecipes}
+            onPatch={(p) => e.patch.mutate({ clip: current.id, patch: p })}
+            onClose={() => e.select(null)}
+            onSelectClip={e.select}
+          />
         ) : current ? (
           <Inspector key={current.id} {...inspectorProps(e, current)} />
         ) : (

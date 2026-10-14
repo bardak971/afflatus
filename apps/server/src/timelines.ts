@@ -1,7 +1,7 @@
 import { chatJson } from "./llm";
 import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
-import { musicPlan, type ClipMusic, type InputSpec } from "@afflatus/core";
+import { musicPlan, type ClipMusic, type InputSpec, type Transition } from "@afflatus/core";
 import { newId, now, OWNER, type Db } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError, notFound } from "./errors";
@@ -20,7 +20,7 @@ import { takeView, TimelineViews } from "./timelineViews";
 import { recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type TakeLinks } from "./timelinePlan";
 import { TimelineTakes } from "./timelineTakes";
 import { unusedSize, unusedTakes } from "./timelineUnused";
-import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, mirroredPins, mirrorJson, mirrorOfRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow } from "./timelineModel";
+import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, mirroredPins, mirrorJson, mirrorOfRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow, transitionJson, transitionOfRow } from "./timelineModel";
 
 /**
  * Timelines: clips played one after the other. A clip is a place on the timeline with a form (what to
@@ -91,6 +91,8 @@ export interface ClipPatch {
   recipe?: string;
   inputs?: Record<string, unknown>;
   joined?: ClipRow["joined"];
+  /** The cut's transition into it; null = a plain cut. Given to a clip that extends (and no `joined`), it makes the join a cut. */
+  transition?: Transition | null;
   take?: string;
   trimStartMs?: number;
   trimEndMs?: number;
@@ -390,6 +392,8 @@ export class Timelines {
         designer: p.clip.designer ? (JSON.parse(p.clip.designer) as { llm?: string; instruction?: string }) : null,
         /** What it asks of the music under it; null = as the rest. */
         music: musicOfRow(p.clip),
+        /** The cut's transition into it, kept while it extends (it plays again once the join is a cut); null = none. */
+        transition: transitionOfRow(p.clip),
         /** Its pinned pictures flipped left to right at render time (Mirror), by input id; and whether the take that plays was rendered otherwise. */
         pinMirror: mirrorOfRow(p.clip),
         mirrorChanged: this.mirrorChanged(all, i, flipped),
@@ -618,7 +622,8 @@ export class Timelines {
         .set({
           ...(patch.recipe !== undefined ? { recipe_id: patch.recipe } : {}),
           ...(patch.inputs !== undefined ? { inputs: JSON.stringify(patch.inputs) } : {}),
-          ...(patch.joined !== undefined ? { joined: patch.joined } : {}),
+          ...(patch.joined !== undefined ? { joined: patch.joined } : patch.transition ? { joined: "cut" as const } : {}),
+          ...(patch.transition !== undefined ? { transition: transitionJson(patch.transition) } : {}),
           ...(patch.take !== undefined ? { take_id: patch.take } : {}),
           ...(patch.soundAsset !== undefined ? { sound_asset_id: patch.soundAsset, sound: patch.sound ?? (patch.soundAsset ? "file" : "own") } : patch.sound !== undefined ? { sound: patch.sound } : {}),
           ...(patch.volume !== undefined ? { volume: Math.max(0, Math.min(100, Math.round(patch.volume))) } : {}),
@@ -883,6 +888,7 @@ function labelOf(patch: ClipPatch): string {
   return patch.after !== undefined ? "the clip moved"
     : patch.take !== undefined ? "the other take"
     : [patch.trimStartMs, patch.trimEndMs, patch.shownFromMs, patch.shownToMs, patch.stillMs].some((v) => v !== undefined) ? "the new duration"
+    : patch.transition !== undefined ? (patch.transition ? "the transition" : "the transition removed")
     : patch.joined !== undefined ? (patch.joined === "cut" ? "the cut" : "the join")
     : patch.animate ? "the image animated (i2v)"
     : patch.sound !== undefined || patch.soundAsset !== undefined || patch.volume !== undefined ? "the audio change"

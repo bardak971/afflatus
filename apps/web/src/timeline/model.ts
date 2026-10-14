@@ -5,6 +5,8 @@ import { clock } from "../format";
 /** What the editor's parts share: how clips are laid out along the track, and a few words about them. */
 
 export const DRAG_CLIP = "application/x-afflatus-clip";
+/** A transition dragged from the track's strip onto a join: its kind (core TRANSITION_KINDS). */
+export const DRAG_TRANSITION = "application/x-afflatus-transition";
 
 /** The track is drawn to scale: this many pixels a second, within these limits. */
 // pixels a second: down to 2 so that a long video (ten minutes on a wide screen) still fits whole (Fit all, a clip added)
@@ -110,6 +112,10 @@ export function otherShape(clip: Clip, frame: { width: number | null; height: nu
 }
 
 /** The recipe inputs that hold a clip's pictures: the one it opens on, the one it ends on, one it passes through (with the input that says when). */
+/** Whether a clip can extend the one before: its model carries a clip on, or opens on a picture after a still. */
+export const canExtend = (c: Clip, prev: Clip | undefined, recipe: RecipeInfo | undefined) =>
+  Boolean(prev) && c.kind === "video" && (Boolean(recipe?.traits?.continues) || (prev?.kind === "still" && Boolean(pinInputs(recipe).start)));
+
 export function pinInputs(recipe: RecipeInfo | undefined) {
   const find = (role: "start" | "end" | "mid") => recipe?.inputs.find((i) => i.type === "image" && i.role === role);
   const mid = find("mid");
@@ -197,5 +203,5 @@ export function moveAfter(clips: Clip[], id: string, by: -1 | 1): string | null 
 export const playSignature = (clips: Clip[]) =>
   clips
     .filter((c) => c.lengthMs > 0 && (c.take || c.still))
-    .map((c) => [c.id, c.take?.id ?? c.still?.id, c.atMs, c.lengthMs, c.take?.startMs, c.take?.headMs, c.take?.trimStartMs, c.take?.landedMs ?? "", c.take?.seamless ? 1 : 0, c.joined, c.sound, c.soundAsset?.id ?? "", c.volume, c.fill ? 1 : 0].join(":"))
+    .map((c) => [c.id, c.take?.id ?? c.still?.id, c.atMs, c.lengthMs, c.take?.startMs, c.take?.headMs, c.take?.trimStartMs, c.take?.landedMs ?? "", c.take?.seamless ? 1 : 0, c.joined, c.transition ? `${c.transition.kind}/${c.transition.ms}/${c.transition.sound}` : "", c.sound, c.soundAsset?.id ?? "", c.volume, c.fill ? 1 : 0].join(":"))
     .join("|");

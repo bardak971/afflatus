@@ -129,6 +129,11 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     },
     onMove: (clip, afterId) => patch.mutate({ clip, patch: { after: afterId } }),
     onJoin: (clip, joined) => patch.mutate({ clip: clip.id, patch: { joined } }),
+    onOpenJoin: (clip) => e.openJoin(clip.id),
+    onTransition: (clip, transition) => {
+      patch.mutate({ clip, patch: { transition } });
+      e.openJoin(clip);
+    },
     onInsert: (asset, afterId) => add.mutate({ after: afterId, asset }),
     onUpload: (file) =>
       api.upload(file, { folder: t.folderId ?? undefined, project: t.projectId ?? null })

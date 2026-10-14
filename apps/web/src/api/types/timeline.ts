@@ -1,6 +1,6 @@
 /** Timelines: clips and their takes, what was measured along them, and the patches that change them. */
 import type { Asset } from "./library";
-import type { ClipMusic } from "@afflatus/core";
+import type { ClipMusic, Transition } from "@afflatus/core";
 import type { DesignerSession, Look } from "./designer";
 
 /** One render of a clip. `startMs` to `endMs` is the part of its video that plays. */
@@ -79,6 +79,8 @@ export interface Clip {
   mirrorChanged: boolean;
   /** How it starts: carrying on from the clip before, or on its own. */
   joined: "continue" | "cut";
+  /** The cut's transition into it (a dissolve, a dip, a flash…), kept while it extends: it plays only on a cut. null = a plain cut. */
+  transition: Transition | null;
   /** Whether it still follows the clip before: null when there is nothing to compare yet. */
   join: "fresh" | "stale" | "cut" | null;
   recipe: string | null;
@@ -145,6 +147,8 @@ export interface ClipPatch {
   recipe?: string;
   inputs?: Record<string, unknown>;
   joined?: "continue" | "cut";
+  /** The cut's transition into it; null = a plain cut. Given to a clip that extends, it makes the join a cut. */
+  transition?: Transition | null;
   take?: string;
   trimStartMs?: number;
   trimEndMs?: number;

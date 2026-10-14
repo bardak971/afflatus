@@ -1,7 +1,8 @@
 import { useState, type DragEvent } from "react";
 import type { Clip, RecipeInfo } from "../../api";
 import { DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, DRAG_VIDEO } from "../../screens/Library";
-import { DRAG_CLIP, pinInputs, type Slot } from "../model";
+import { TRANSITIONS, type TransitionKind } from "@afflatus/core";
+import { DRAG_CLIP, DRAG_TRANSITION, pinInputs, type Slot } from "../model";
 
 /** What is done on the track, as keys and their words: the line under it while nothing is dragged. */
 export const LEGEND: ReadonlyArray<{ keys: string; words: string }> = [
@@ -17,10 +18,12 @@ export type Over =
   | { kind: "insert"; index: number }
   | { kind: "pin"; clip: string; where: "start" | "end" | "mid"; atS?: number }
   | { kind: "sound"; clip: string }
-  | { kind: "music" };
+  | { kind: "music" }
+  /** A transition onto the join before this clip. */
+  | { kind: "join"; clip: string };
 
 /** What is being dragged over the track, and what dropping it here would do. */
-export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic }: {
+export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic, onTransition }: {
   clips: Clip[];
   slots: Slot[];
   /** Where the last clip ends, in pixels. */
@@ -32,10 +35,11 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
   onPin(clip: Clip, where: "start" | "end" | "mid", asset: string, atS?: number): void;
   onClipSound(clip: string, asset: string): void;
   onMusic(asset: string): void;
+  onTransition?(clip: string, kind: TransitionKind): void;
 }) {
 
   const [over, setOver] = useState<Over | null>(null);
-  const [dragging, setDragging] = useState<"clip" | "picture" | "video" | "sound" | null>(null);
+  const [dragging, setDragging] = useState<"clip" | "picture" | "video" | "sound" | "transition" | null>(null);
 
   const recipeOf = (c: Clip) => recipes.find((r) => r.id === c.recipe);
 
@@ -43,7 +47,7 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
   const draggedOf = (e: DragEvent) => {
     const t = e.dataTransfer.types;
     // a file from the computer is taken for a picture while it hovers (its kind is only known on the drop)
-    return t.includes(DRAG_CLIP) ? "clip" : t.includes(DRAG_PICTURE) ? "picture" : t.includes(DRAG_SOUND) ? "sound" : t.includes(DRAG_VIDEO) || t.includes(DRAG_TYPE) ? "video" : onUpload && t.includes("Files") ? "picture" : null;
+    return t.includes(DRAG_TRANSITION) ? (onTransition ? "transition" : null) : t.includes(DRAG_CLIP) ? "clip" : t.includes(DRAG_PICTURE) ? "picture" : t.includes(DRAG_SOUND) ? "sound" : t.includes(DRAG_VIDEO) || t.includes(DRAG_TYPE) ? "video" : onUpload && t.includes("Files") ? "picture" : null;
   };
   const hover = (e: DragEvent, what: Over | null) => {
     const d = draggedOf(e);
@@ -59,6 +63,11 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
     if (d === "sound") return hover(e, s.planned && s.clip.kind !== "still" ? null : { kind: "sound", clip: s.clip.id });
     const r = e.currentTarget.getBoundingClientRect();
     const fx = (e.clientX - r.left) / Math.max(1, r.width);
+    // a transition goes on the nearer join: before this clip, or before the next one
+    if (d === "transition") {
+      const at = fx < 0.5 ? s.index : s.index + 1;
+      return hover(e, at > 0 && at < clips.length ? { kind: "join", clip: clips[at]!.id } : null);
+    }
     const half: Over = { kind: "insert", index: fx < 0.5 ? s.index : s.index + 1 };
     if (d !== "picture" || s.clip.kind === "still") return hover(e, half);
     const pins = pinInputs(recipeOf(s.clip));
@@ -73,6 +82,11 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
     if (fx < 0.5) return hover(e, pins.start && !carries ? { kind: "pin", clip: s.clip.id, where: "start" } : half);
     return hover(e, pins.end ? { kind: "pin", clip: s.clip.id, where: "end" } : half);
   };
+  /** Something is dragged over a join itself (its dot, its transition): a transition goes on that join. */
+  const overJoin = (e: DragEvent, s: Slot) => {
+    if (draggedOf(e) !== "transition") return overClip(e, s);
+    hover(e, s.index > 0 ? { kind: "join", clip: s.clip.id } : null);
+  };
   const drop = (e: DragEvent) => {
     const d = draggedOf(e);
     if (!d) return;
@@ -81,6 +95,11 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
     setOver(null);
     setDragging(null);
     if (!target) return;
+    if (d === "transition") {
+      const kind = e.dataTransfer.getData(DRAG_TRANSITION) as TransitionKind;
+      if (target.kind === "join" && kind in TRANSITIONS) onTransition?.(target.clip, kind);
+      return;
+    }
     const moved = e.dataTransfer.getData(DRAG_CLIP);
     const asset = e.dataTransfer.getData(DRAG_TYPE);
     // a file from the computer: into the library first, then placed as the item it became
@@ -115,13 +134,15 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
       ? LEGEND.map((l) => `${l.keys.replace("+", " + ")} ${l.words}`).join(" · ")
       : "Your clips will line up here, left to right, in the order they play."
     : !over
-      ? dragging === "sound" ? "Drop it on a clip to replace its audio, or on the music track." : "Drop it on the timeline."
+      ? dragging === "sound" ? "Drop it on a clip to replace its audio, or on the music track." : dragging === "transition" ? "Drop it on a join between two clips." : "Drop it on the timeline."
       : over.kind === "insert"
         ? `Drop to ${dragging === "clip" ? "move it" : dragging === "picture" ? "add this image as a still" : "insert it"} ${over.index === 0 ? "at the start" : over.index >= clips.length ? "at the end" : `between clip ${over.index} and clip ${over.index + 1}`}.`
         : over.kind === "pin"
           ? over.where === "mid" ? `Drop to make this image a keyframe of clip ${n(over.clip)} at ${over.atS} s.` : `Drop to make this image the ${over.where === "start" ? "first" : "last"} frame of clip ${n(over.clip)}.`
           : over.kind === "sound"
             ? `Drop to replace the audio of clip ${n(over.clip)}.`
+            : over.kind === "join"
+            ? `Drop to put it on the cut between clip ${n(over.clip) - 1} and clip ${n(over.clip)}${clips[n(over.clip) - 1]?.joined === "continue" ? " (it becomes a cut)" : ""}.`
             : "Drop to play it under the whole video.";
   // nothing dragged and clips on the track: the line is drawn as keys and their words (the LEGEND)
   const legend = !dragging && clips.length > 0;
@@ -132,5 +153,5 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
     setOver(null);
     setDragging(null);
   };
-  return { over, dragging, draggedOf, hover, overClip, drop, hint, legend, lineAt, leave };
+  return { over, dragging, draggedOf, hover, overClip, overJoin, drop, hint, legend, lineAt, leave };
 }

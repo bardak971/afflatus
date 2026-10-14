@@ -64,10 +64,19 @@ export function useTimelineEditor(id: string) {
   const [fin, setFin] = useState(false);
   const [writing, setWriting] = useState<string | null>(null);
   const player = useRef<PlayerHandle>(null);
+  /** The clip whose join with the clip before is open in the column (its dot on the track was clicked). */
+  const [joinOpen, setJoinOpen] = useState<string | null>(null);
   /** A clip selected, its panel open in place of the music's. */
   const select = (clip: string | null) => {
     setSelected(clip);
     setMusicOpen(false);
+    setJoinOpen(null);
+  };
+  /** The join before a clip, opened in the column: the clip is selected with it. */
+  const openJoin = (clip: string) => {
+    setSelected(clip);
+    setMusicOpen(false);
+    setJoinOpen(clip);
   };
 
   const t = timeline.data;
@@ -255,7 +264,7 @@ export function useTimelineEditor(id: string) {
 
   return {
     id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, current,
-    selected, setSelected, select, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
+    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, inputsOf, editInputs, formOf, ready, sayOf, say, m, range, setRange, loopRange, snapQuiet,

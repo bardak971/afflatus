@@ -9,6 +9,7 @@ import { FullscreenBar, type ScreenControls } from "./FullscreenBar";
 import { cx } from "../ui";
 import { playSignature } from "./model";
 import { useHandover } from "./useHandover";
+import { PLAYER_FRAMES } from "./transitionLook";
 import { useRunningOf } from "./useRunning";
 import { useQueueOf } from "../screens/studio/queueOf";
 import { queryKeys } from "../queryKeys";
@@ -97,6 +98,37 @@ export const Player = forwardRef<PlayerHandle, {
   const armed = useRef(false);
   /** The fade of the clip after has begun (from then on it is not moved: a jump would show). */
   const fadedIn = useRef(false);
+  /** The pictures held on screen (stills), by key: a transition plays on them as on the videos. */
+  const pics = useRef(new Map<string, HTMLImageElement>());
+  /** A colour laid over both clips by a dip or a flash. */
+  const veil = useRef<HTMLDivElement>(null);
+  /** The transition into the clip after has begun, and its animations (cancelled by a seek or a pause). */
+  const crossOn = useRef(false);
+  const crossing = useRef<Animation[]>([]);
+  const stopCross = useCallback(() => {
+    for (const a of crossing.current) a.cancel();
+    crossing.current = [];
+  }, []);
+  /** A cut's transition played as the export draws it (transitionLook.ts): keyframes on both clips and on the veil, `intoMs` in. */
+  const cross = useCallback((from: Clip, to: Clip, ms: number, intoMs: number) => {
+    stopCross();
+    if (!to.transition) return;
+    const look = PLAYER_FRAMES[to.transition.kind];
+    const elOf = (c: Clip) => (c.take ? els.current.get(c.take.id) : pics.current.get(`still:${c.id}`));
+    const timing: KeyframeAnimationOptions = { duration: ms, easing: "linear", fill: "none" };
+    const made: Animation[] = [];
+    const a = elOf(from);
+    const b = elOf(to);
+    if (look.from && a) made.push(a.animate(look.from, timing));
+    if (look.to && b) made.push(b.animate(look.to, timing));
+    if (look.veil && veil.current) {
+      veil.current.style.background = look.veil.colour;
+      veil.current.style.mixBlendMode = look.veil.blend ?? "normal";
+      made.push(veil.current.animate(look.veil.frames, timing));
+    }
+    for (const x of made) x.currentTime = Math.max(0, intoMs);
+    crossing.current = made;
+  }, [stopCross]);
 
   // the music's plan, the export's too: the part of the song, the clip it starts with, each clip's level under it
   const plan = useMemo(
@@ -137,12 +169,14 @@ export const Player = forwardRef<PlayerHandle, {
       pos.current = { key: keyOf(c), local, at: performance.now() };
       fadeOn.current = false;
       fadedIn.current = false;
+      crossOn.current = false;
       handReady.current = false;
       armed.current = false;
       // a seek ends a dissolve; the hand-over to the clip after starts one (see step)
       if (!onward) {
         window.clearTimeout(thaw.current);
         setFrozen(null);
+        stopCross();
       }
       setFading(0);
       setCur(index);
@@ -159,7 +193,7 @@ export const Player = forwardRef<PlayerHandle, {
       tuneMusic(c.atMs + local, !onward);
       onTime(c.atMs + local);
     },
-    [seq, onTime, tuneMusic],
+    [seq, onTime, tuneMusic, stopCross],
   );
 
   useImperativeHandle(
@@ -209,6 +243,8 @@ export const Player = forwardRef<PlayerHandle, {
   useEffect(() => {
     for (const [id, el] of els.current) if (id !== now?.take?.id || !playing) el.pause();
     if (!playing) {
+      stopCross();
+      crossOn.current = false;
       clipSound.current?.pause();
       musicEl.current?.pause();
       return;
@@ -229,7 +265,7 @@ export const Player = forwardRef<PlayerHandle, {
   }, [playing, nowKey, onPlaying, Boolean(music)]);
 
   // the frame loop while it plays, and the hand-over from one clip to the next (useHandover.ts)
-  const step = useHandover({ seq, at, playing, els, pos, said, masterRef, fadeOn, fadedIn, handReady, armed, thaw, setFrozen, setFading, place, onPlaying, onTime, tuneMusic, keyOf, startOf });
+  const step = useHandover({ seq, at, playing, els, pos, said, masterRef, fadeOn, fadedIn, handReady, armed, thaw, crossOn, cross, setFrozen, setFading, place, onPlaying, onTime, tuneMusic, keyOf, startOf });
 
   // the screen: as large as fits, in the timeline's shape
   const box = useRef<HTMLDivElement>(null);
@@ -301,6 +337,10 @@ export const Player = forwardRef<PlayerHandle, {
             ) : (
               <img
                 key={`still:${c.id}`}
+                ref={(el) => {
+                  if (el) pics.current.set(`still:${c.id}`, el);
+                  else pics.current.delete(`still:${c.id}`);
+                }}
                 src={fileUrl(c.still!.id)}
                 alt=""
                 onClick={() => onPlaying(!playing)}
@@ -308,6 +348,8 @@ export const Player = forwardRef<PlayerHandle, {
               />
             ),
           )}
+          {/* the colour of a dip or a flash, over both clips while it plays */}
+          <div ref={veil} aria-hidden className="pointer-events-none absolute inset-0 opacity-0" />
           {preview && (
             <>
               <video

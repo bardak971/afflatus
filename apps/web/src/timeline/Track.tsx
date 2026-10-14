@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Minus, Plus } from "lucide-react";
-import type { ClipMusic } from "@afflatus/core";
+import { newTransition, TRANSITIONS, type ClipMusic, type Transition } from "@afflatus/core";
 import type { Clip, RecipeInfo, Timeline, TimelinePatch } from "../api";
 import { Keys } from "../Keys";
 import { useKeysHere } from "../keys/here";
 import { cx } from "../ui";
-import { layout, NEW_CLIP, otherShape, PAD, ZOOM, type PinWhere, type ShownPatch, type TimeRange } from "./model";
+import { DRAG_TRANSITION, layout, NEW_CLIP, otherShape, PAD, ZOOM, type PinWhere, type ShownPatch, type TimeRange } from "./model";
+import { STRIP_KINDS } from "./inspector/join";
+import { SWATCH } from "./transitionLook";
 import type { Clock } from "./clock";
 import { FramePeek } from "./track/FramePeek";
 import type { PinPlace } from "./track/peek";
@@ -30,7 +32,7 @@ const PIN_AFTER_MS = 250;
  * and the music under all of it. Things are dragged onto it (useTrackDrop); a clip's edges shorten it (useStretch); the
  * range is drawn and snapped on it (useRangeDrag); it zooms and fits (useTrackZoom).
  */
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -80,6 +82,10 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onClipMusic?(clip: Clip, music: ClipMusic | null): void;
   /** The join dot before a clip was clicked: it extends the clip before, or is a cut. */
   onJoin?(clip: Clip, joined: "continue" | "cut"): void;
+  /** The join before a clip, opened in the column. */
+  onOpenJoin?(clip: Clip): void;
+  /** A cut's transition into a clip set (dropped from the strip, a length dragged); null = a plain cut. */
+  onTransition?(clip: string, transition: Transition | null): void;
   /** In and Out, on the clock of what plays; null = no range. */
   range: TimeRange | null;
   onRange(range: TimeRange | null): void;
@@ -123,7 +129,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const width = end + NEW_CLIP + PAD * 2 + 40;
   const xOf = (clientX: number) => clientX - (inner.current?.getBoundingClientRect().left ?? 0);
 
-  const { over, dragging, draggedOf, hover, overClip, drop, hint, legend, lineAt, leave } = useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic });
+  const { over, dragging, draggedOf, hover, overClip, overJoin, drop, hint, legend, lineAt, leave } = useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic, onTransition: onTransition ? (clip, kind) => onTransition(clip, newTransition(kind)) : undefined });
 
   // ---- the range: In and Out, swept on the ruler with Shift, or dragged by their brackets; they snap to cuts, to the playhead and to quiet moments
   const { playEnd, measureOf, motion, snapRange, band, rangeMenuAt } = useRangeDrag({ slots, clips, timeline, pps, clock, snapQuiet, range, xOf, onRangeMenu });
@@ -133,7 +139,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   // what the clips do when pressed: read when it happens, so that a clip draws again only when what it shows changes
   const acts = useRef<TrackClipActs>(null!);
   acts.current = {
-    xOf, slots, totalMs, pps, range, leaveTip, restPin, overClip, startPull, movePull, endPull, onSelect, onPick, onRange, onSeek, onMenu, onSoundMenu, onPinMenu, onStop, onJoin,
+    xOf, slots, totalMs, pps, range, leaveTip, restPin, overClip, overJoin, startPull, movePull, endPull, onSelect, onPick, onRange, onSeek, onMenu, onSoundMenu, onPinMenu, onStop, onJoin, onOpenJoin, onTransition,
     render: (c) => renderOf?.(c)?.run(),
   };
 
@@ -148,7 +154,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
         <div
           ref={scroller}
           className="relative min-w-0 grow overflow-x-auto overflow-y-hidden"
-          onDragOver={(e) => hover(e, draggedOf(e) === "sound" ? null : { kind: "insert", index: clips.length })}
+          onDragOver={(e) => hover(e, draggedOf(e) === "sound" || draggedOf(e) === "transition" ? null : { kind: "insert", index: clips.length })}
           onDragLeave={(e) => {
             if (!e.currentTarget.contains(e.relatedTarget as Node | null)) leave();
           }}
@@ -179,6 +185,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                   key={c.id}
                   s={s}
                   prev={clips[s.index - 1]}
+                  prevRecipe={recipes.find((r) => r.id === clips[s.index - 1]?.recipe)}
                   recipe={recipes.find((r) => r.id === c.recipe)}
                   misfit={otherShape(c, timeline)}
                   on={c.id === selected}
@@ -242,6 +249,25 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
           </span>
         ) : (
           <span className={cx("min-w-0 grow truncate", dragging ? "font-semibold text-accent" : "text-ink-3")}>{hint}</span>
+        )}
+        {onTransition && clips.length > 1 && (
+          // the transitions, dragged onto a join (a cut's dot); the rest are in the join's own panel
+          <span className="flex shrink-0 items-center gap-1 border-r border-line pr-2" aria-label="Transitions: drag one onto a join">
+            <span className="mr-0.5 text-[11px] font-semibold text-ink-3">Transitions</span>
+            {STRIP_KINDS.map((k) => (
+              <span
+                key={k}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(DRAG_TRANSITION, k);
+                  e.dataTransfer.effectAllowed = "copy";
+                }}
+                data-tip={`${TRANSITIONS[k].label}: drag it onto a join`}
+                className="h-4 w-6 cursor-grab rounded-[4px] border border-line-strong"
+                style={{ background: SWATCH[k] }}
+              />
+            ))}
+          </span>
         )}
         <button type="button" aria-label="Zoom out" data-tip="Zoom out" data-tip-keys="-" onClick={() => zoomTo(Math.max(ZOOM.least, pps / ZOOM.step))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Minus size={13} /></button>
         <button type="button" aria-label="Zoom in" data-tip="Zoom in" data-tip-keys="=" onClick={() => zoomTo(Math.min(ZOOM.most, pps * ZOOM.step))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Plus size={13} /></button>
