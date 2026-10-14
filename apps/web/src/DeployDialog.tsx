@@ -152,7 +152,7 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
 
         <section className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-x-3 gap-y-3 text-[13px]">
           <span className="flex items-center gap-1.5 font-semibold text-ink-2">Image <Help text={WHY_TEMPLATE} /></span>
-          <Segmented<DeployAsk["template"]> className="w-max" label="Image" value={want.template} options={[{ value: "afflatus", label: images.data?.afflatus === false ? "Afflatus · not published" : "Afflatus · locked" }, { value: "runpod", label: "RunPod's ComfyUI · not locked" }]} onChange={(template) => set({ template })} />
+          <Segmented<DeployAsk["template"]> strip label="Image" value={want.template} options={[{ value: "afflatus", label: images.data?.afflatus === false ? "Afflatus · not published" : "Afflatus · locked" }, { value: "runpod", label: "RunPod's ComfyUI · not locked" }]} onChange={(template) => set({ template })} />
 
           <span className="flex items-center gap-1.5 font-semibold text-ink-2">Disk <Help text={WHY_DISK} /></span>
           <span className="flex flex-wrap items-center gap-2">
