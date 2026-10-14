@@ -97,6 +97,15 @@ describe("a rented pod's model files", () => {
     expect(files.jobState("pod", "other")).toBeNull();
   });
 
+  it("keep each one's speed, a fast one too (done before the next look), from its start to all of it on the pod", async () => {
+    files.measuredFrom = 1;
+    files.want("pod", [{ file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors` }, { file: "mine.safetensors", folder: "loras" }], { tier: "need" });
+    await settle("pod", "a.safetensors");
+    await settle("pod", "mine.safetensors");
+    const kept = await t.services.db.selectFrom("pod_measures").select(["kind", "cloud", "bytes"]).orderBy("kind").execute();
+    expect(kept).toEqual([{ kind: "upload", cloud: "SECURE", bytes: 150_000 }, { kind: "url", cloud: "SECURE", bytes: FILE.length }]);
+  });
+
   it("fail, and their job with them, when the site gives no link of its own: a pod cannot be sent the file through Afflatus", async () => {
     files.want("pod", [{ file: "b.safetensors", folder: "loras", url: `${siteUrl}/nolink/b.safetensors` }], { tier: "need", job: "j1" });
     await settle("pod", "b.safetensors");
