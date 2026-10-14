@@ -364,7 +364,7 @@ export class Rented {
     return viewVolumes(volumes, pods, s.machines, kept, s.volumeUnusedDays, this.now());
   }
 
-  /** When each volume's folders were last listed (ms), so that a pod on it is asked at most every VOLUME_LIST_MS. */
+  /** When each pod last listed its volume's folders (ms), by machine and volume: at most every VOLUME_LIST_MS, a new pod at its first answer. */
   private volumeListed = new Map<string, number>();
 
   /**
@@ -372,9 +372,10 @@ export class Rented {
    * at most every few minutes; and that the volume was used now. Never in the way of the poll: a failure is only said.
    */
   private async noteVolume(m: Machine, volume: string): Promise<void> {
-    const last = this.volumeListed.get(volume) ?? 0;
+    const key = `${m.id}|${volume}`;
+    const last = this.volumeListed.get(key) ?? 0;
     if (this.now() - last < VOLUME_LIST_MS) return;
-    this.volumeListed.set(volume, this.now());
+    this.volumeListed.set(key, this.now());
     const comfy = await this.comfyOf(m.id);
     if (!comfy) return;
     await recordHoldings(this.db, volume, comfy, m.name || m.id, SEARCHED_FOLDERS, this.now()).catch((err: Error) => console.warn(`[rented] what the volume of ${m.name || m.id} holds was not read: ${err.message}`));
@@ -891,7 +892,7 @@ export class Rented {
       const files = this.filesLeft?.(m.id);
       if (answers && !m.rented!.deployedAt && files && files.left === 0) {
         if (pod?.volumeId) {
-          this.volumeListed.delete(pod.volumeId);
+          this.volumeListed.delete(`${m.id}|${pod.volumeId}`);
           await this.noteVolume(m, pod.volumeId);
           // how it ended, kept with the volume: its row says it once the pod is gone (a file that failed, and why)
           await noteFill(this.db, pod.volumeId, files.failed, this.now()).catch(() => {});
