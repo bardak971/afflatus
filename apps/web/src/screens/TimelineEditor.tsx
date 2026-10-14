@@ -76,6 +76,7 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                   return now >= e.place.atMs && now <= e.place.atMs + e.place.lengthMs ? now : e.place.atMs + t.source.fromMs;
                 })()}
                 master={e.muted ? 0 : e.volume}
+                peekMs={e.sourcePeek}
               />
             ) : (
               <Player ref={e.player} {...playerProps(e)} />

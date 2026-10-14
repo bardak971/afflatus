@@ -69,6 +69,8 @@ export function useTimelineEditor(id: string) {
   const [joinOpen, setJoinOpen] = useState<string | null>(null);
   /** The source lane is open in the column. */
   const [sourceOpen, setSourceOpen] = useState(false);
+  /** The moment of the source a drag on its lane stands on: the stage shows it meanwhile. */
+  const [sourcePeek, setSourcePeek] = useState<number | null>(null);
   /** A clip selected, its panel open in place of the music's. */
   const select = (clip: string | null) => {
     setSelected(clip);
@@ -297,7 +299,7 @@ export function useTimelineEditor(id: string) {
 
   return {
     id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, current,
-    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, makeSource, splitSource, place, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
+    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, makeSource, splitSource, place, sourcePeek, setSourcePeek, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, inputsOf, editInputs, formOf, ready, sayOf, say, m, range, setRange, loopRange, snapQuiet,

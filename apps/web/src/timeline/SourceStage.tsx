@@ -22,7 +22,9 @@ export const SourceStage = forwardRef<PlayerHandle, {
   /** Where the playhead stood when the stage turned to the source. */
   startAt: number;
   master?: number;
-}>(function SourceStage({ video, atMs, fromMs, toMs, frame, playing, onPlaying, onTime, startAt, master = 1 }, ref) {
+  /** A moment of the video to show while the source is dragged on its lane (its new start or end); null otherwise. */
+  peekMs?: number | null;
+}>(function SourceStage({ video, atMs, fromMs, toMs, frame, playing, onPlaying, onTime, startAt, master = 1, peekMs = null }, ref) {
   const el = useRef<HTMLVideoElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const [local, setLocal] = useState(Math.max(0, startAt - atMs));
@@ -43,6 +45,20 @@ export const SourceStage = forwardRef<PlayerHandle, {
     // a frame of the source is not a clip's: Save frame and Extend have nothing to act on here
     where: () => null,
   }));
+  // dragged on its lane: the frame where it would start (or stop) shows as it moves, and stays once let go
+  useEffect(() => {
+    if (peekMs === null) return;
+    const v = el.current;
+    // the latest asked wins: a seek under way is taken over by the next one
+    if (v) v.currentTime = peekMs / 1000;
+    setLocal(peekMs);
+  }, [peekMs]);
+  // the video laid elsewhere under the track (its new start kept where the clips go): the playhead follows the frame shown
+  const localNow = useRef(local);
+  localNow.current = local;
+  useEffect(() => {
+    onTime(atMs + localNow.current);
+  }, [atMs]); // eslint-disable-line react-hooks/exhaustive-deps -- when the source moves on the track
   // the playhead stands on the source from the start: where it was, or the stretch's start
   useEffect(() => {
     onTime(atMs + Math.max(0, Math.min(length, startAt - atMs)));

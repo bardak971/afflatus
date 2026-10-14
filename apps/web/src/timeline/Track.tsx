@@ -33,7 +33,7 @@ const PIN_AFTER_MS = 250;
  * and the music under all of it. Things are dragged onto it (useTrackDrop); a clip's edges shorten it (useStretch); the
  * range is drawn and snapped on it (useRangeDrag); it zooms and fits (useTrackZoom).
  */
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, onSource, sourceSelected, onSelectSource, onOpenSource, onRemoveSource, onStretchSource, onSplitSource, sourcePlace, sourceMode, sourceLabel, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, onSource, sourceSelected, onSelectSource, onOpenSource, onRemoveSource, onStretchSource, onSplitSource, onPeekSource, sourcePlace, sourceMode, sourceLabel, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -97,6 +97,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onStretchSource?(fromMs: number, toMs: number): void;
   /** Split the source at the playhead (null: the playhead is not inside its stretch). */
   onSplitSource?: (() => void) | null;
+  /** The moment of the source a drag on its lane stands on (shown in the stage meanwhile); null: the drag is over. */
+  onPeekSource?(ms: number | null): void;
   /** Where the source lies on the track, and whether the stage plays it (the playhead then stands in the track's own time). */
   sourcePlace?: SourcePlace | null;
   sourceMode?: boolean;
@@ -240,6 +242,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                 timeline={timeline}
                 place={sourcePlace ?? null}
                 onSplit={onSplitSource}
+                onPeek={onPeekSource}
                 recipes={recipes}
                 pps={pps}
                 width={width}

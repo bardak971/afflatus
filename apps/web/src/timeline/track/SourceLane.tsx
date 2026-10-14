@@ -52,7 +52,7 @@ export function sourcePlace(t: Timeline, slots: Slot[], recipes: RecipeInfo[]): 
  * under its place), its right end where it stops; once made, the clips made from it are outlined over their parts. Empty: a
  * place to drop one. A click opens it (the stage plays it); right-click: its menu (split at the playhead among it).
  */
-export function SourceLane({ timeline, place, recipes, pps, width, selected, over, onDragOver, onSelect, onOpen, onRemove, onStretch, onSplit }: {
+export function SourceLane({ timeline, place, recipes, pps, width, selected, over, onDragOver, onSelect, onOpen, onRemove, onStretch, onSplit, onPeek }: {
   timeline: Timeline;
   place: SourcePlace | null;
   recipes: RecipeInfo[];
@@ -68,6 +68,8 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
   onRemove?(): void;
   /** Where Motion transfer starts and stops in the video, the lane dragged. */
   onStretch?(fromMs: number, toMs: number): void;
+  /** The moment of the video a drag stands on (its new start, or its new end), to be shown meanwhile; null: the drag is over. */
+  onPeek?(ms: number | null): void;
   /** Split at the playhead: the part before it a clip of its own, played as it is (null: the playhead is not in the stretch). */
   onSplit?: (() => void) | null;
 }) {
@@ -124,11 +126,18 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
     if (held.kind === "slide") {
       // the video slides under the place where the clips go, as the music's song does: left, Motion transfer starts later
       // in it (where it stops stays)
-      setHeld({ ...held, moved: true, fromMs: Math.max(0, Math.min(held.to - 1000, held.from - dms)) });
-    } else setHeld({ ...held, moved: true, toMs: Math.max(held.from + 1000, Math.min(length, held.to + dms)) });
+      const from = Math.max(0, Math.min(held.to - 1000, held.from - dms));
+      setHeld({ ...held, moved: true, fromMs: from });
+      onPeek?.(from);
+    } else {
+      const to = Math.max(held.from + 1000, Math.min(length, held.to + dms));
+      setHeld({ ...held, moved: true, toMs: to });
+      onPeek?.(to);
+    }
   };
   const up = () => {
     if (held?.moved && (held.fromMs !== source.fromMs || held.toMs !== source.toMs)) onStretch?.(held.fromMs, held.toMs);
+    if (held?.moved) onPeek?.(null);
     else if (held && !held.moved) onSelect();
     setHeld(null);
   };

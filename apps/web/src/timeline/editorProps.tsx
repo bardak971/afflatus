@@ -145,6 +145,11 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     onRemoveSource: () => edit.mutate({ source: null }),
     onStretchSource: (fromMs, toMs) => edit.mutate({ source: { fromMs, toMs } }),
     sourcePlace: e.place,
+    onPeekSource: (ms) => {
+      // the stage turns to the source as soon as it is dragged: its frame there shows as it moves
+      if (ms !== null && !e.sourceOpen) e.openSource();
+      e.setSourcePeek(ms);
+    },
     sourceMode: e.sourceOpen && Boolean(e.place),
     sourceLabel: (() => {
       const r = e.videoRecipes.find((x) => x.id === e.t.source?.recipe);
