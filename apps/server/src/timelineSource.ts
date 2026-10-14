@@ -1,4 +1,4 @@
-import { sourceWindows, type Recipe, type SourceWindow } from "@afflatus/core";
+import { gridAtOrBefore, sourceWindows, type Recipe, type SourceWindow } from "@afflatus/core";
 import { z } from "zod";
 import { scenesOf } from "./cut";
 import { httpError } from "./errors";
@@ -91,20 +91,32 @@ export function windowsOf(recipe: Recipe<any> | undefined) {
 /**
  * A window's part of its driving video once its join changes (`joined`, what it becomes): one that carries on starts its
  * carried frames early (they are the clip before's last ones, dropped from what it makes, sourceWindows.ts); made a cut it
- * starts that much later and is that much shorter, so it shows the same stretch and does not play the run-up again over
- * the clip before (nor its sound). Made to carry on again, they come back. Null for a recipe not made window by window, or
- * a part that would start before the video.
+ * starts later and is shorter, so that it does not play the run-up again over the clip before (nor its sound). Made to carry
+ * on again, it comes back as it was. Null for a recipe not made window by window, or a part that would start before the video.
+ *
+ * What it makes is on the model's grid (4k + 1), which the frames it shows once the carried ones are gone are not: made a
+ * cut, it makes the grid's count that follows them (SCAIL-2: 5 carried, 4 frames later and 4 fewer; Wan Animate 2: 1
+ * carried, the same part), held to end where the window ends, as the window after carries on from there. The frame more
+ * goes at its start, on the cut: ended a frame late, the window after played that frame again. Its length holds that count
+ * and half a frame (sourceWindows.ts), not the window's length less the carried frames, which made a frame more or three
+ * fewer as ffmpeg rounded the half frame.
  */
 export function windowRunUp(recipe: Recipe<any> | undefined, inputs: Record<string, unknown>, joined: "cut" | "continue"): Record<string, unknown> | null {
   const shape = windowsOf(recipe);
+  const grid = recipe?.traits?.frameGrid;
   const driving = recipe?.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window);
-  if (!shape || !shape.carried || !driving || driving.type !== "clip" || !driving.window) return null;
+  if (!shape || !shape.carried || !grid || !driving || driving.type !== "clip" || !driving.window) return null;
   const { start, seconds } = driving.window;
   if (typeof inputs[start] !== "number" || typeof inputs[seconds] !== "number") return null;
-  const by = (joined === "cut" ? 1 : -1) * (shape.carried / shape.fps);
-  const at = round4((inputs[start] as number) + by);
+  const { fps } = shape;
+  // the frames the part holds now, as the job takes them: on the grid
+  const now = gridAtOrBefore(Math.floor((inputs[seconds] as number) * fps + 0.01), grid);
+  // the grid's steps within the carried frames: what a cut takes off its start, and carrying on again puts back
+  const steps = grid.step * Math.floor(shape.carried / grid.step);
+  const frames = joined === "cut" ? now - steps : Math.min(now + steps, gridAtOrBefore(shape.most, grid));
+  const at = round4((inputs[start] as number) + (now - frames) / fps);
   if (at < 0) return null;
-  return { ...inputs, [start]: at, [seconds]: round4((inputs[seconds] as number) - by) };
+  return { ...inputs, [start]: at, [seconds]: round4((frames + 0.5) / fps) };
 }
 
 const round4 = (s: number) => Math.round(s * 10_000) / 10_000;

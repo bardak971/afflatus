@@ -3,7 +3,7 @@ import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, mainMo
 import { ComfyCancelled, ComfyUnreachable } from "@afflatus/comfy";
 import { forecast, fromRates, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
-import { cutFrames, partOf, rangeKeep, referenceClip, soundPart } from "./cut";
+import { cutFrames, frameAt, partOf, rangeKeep, referenceClip, soundPart } from "./cut";
 import type { Db, Tables } from "./db";
 import { extOf } from "./media";
 import { usualParts } from "./renders";
@@ -288,7 +288,26 @@ async function uploadJoinClip(up: Up, spec: InputSpec, value: ClipValue): Promis
   const cut = await cutFrames(bytes, extOf(asset.mime), facts, { counts, fps: spec.fps, side: spec.role === "previous" ? "before" : "after", at, signal });
   sent.uploads[spec.id] = await upload(cut.bytes, "mp4");
   sent.media[spec.id] = { width: facts.width, height: facts.height, frames: cut.frames, fps: spec.fps, hasSound: facts.hasSound };
+  if (spec.look && spec.role === "previous") await uploadLook(up, spec, asset, rawRead?.facts ? null : bytes, at);
   await finishLatent(up, spec, asset, shown, { at, counts, durationMs: facts.durationMs ?? 0 });
+}
+
+/**
+ * The clip before's last frame as it was filed, under "<input>.look": half a frame of the model's before where it stops. Not
+ * read, it is said, and the recipe matches as it does without one (Motion transfer: to its own driving video).
+ */
+async function uploadLook(up: Up, spec: InputSpec & { type: "clip" }, asset: Pick<Tables["assets"], "file_key" | "mime" | "duration_ms">, finished: Uint8Array | null, at: number | undefined): Promise<void> {
+  const { storage, upload, signal, sent } = up;
+  try {
+    going(signal);
+    const bytes = finished ?? (await storage.get(asset.file_key));
+    const end = at ?? asset.duration_ms ?? 0;
+    const frame = await frameAt(bytes, extOf(asset.mime), Math.max(0, end - 500 / spec.fps), asset.duration_ms ?? undefined);
+    sent.uploads[`${spec.id}.look`] = await upload(frame, "png");
+  } catch (err) {
+    going(signal);
+    sent.warnings.push(`The last frame of the clip before, as it was finished, could not be read (${(err as Error).message}): this clip was matched to its own driving video.`);
+  }
 }
 
 /**

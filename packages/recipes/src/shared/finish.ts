@@ -39,7 +39,13 @@ export function colourMatched(g: GraphBuilder, ctx: BuildContext, images: Ref, i
  */
 export function finishFrames(
   g: GraphBuilder, ctx: BuildContext, images: Ref, input: UpscaleValues & { crf: number },
-  opts: { frame: { width: number; height: number }; rife: boolean; fps: number; audio?: Ref; doubled?: boolean },
+  opts: {
+    frame: { width: number; height: number }; rife: boolean; fps: number; audio?: Ref; doubled?: boolean;
+    /** RIFE's 2n − 1 frames given the last one again: 2n, as long as the n it was given (Motion transfer's windows). */
+    holdLast?: boolean;
+    /** What is done to the final frames before they are saved (Motion transfer's grain). */
+    last?: (images: Ref) => Ref;
+  },
 ): { images: Ref; out: string; loads: string[]; smooth: boolean } {
   const { slots } = ctx;
   const early = input.upscale === UPSCALE.seedvr || input.upscale === UPSCALE.model;
@@ -49,6 +55,7 @@ export function finishFrames(
   if (smooth) {
     g.phase("interpolating");
     images = g.out("FrameInterpolate", { interp_model: g.out("FrameInterpolationModelLoader", { model_name: slots.rife }), images, multiplier: 2 });
+    if (opts.holdLast) images = g.out("ImageBatch", { image1: images, image2: g.out("ImageFromBatch", { image: images, batch_index: -1, length: 1 }) });
   }
   const late = pixel ?? pixelUpscale(g, images, input, opts.frame, ctx);
   // the route ran before the interpolation already: its frames were interpolated above (taken again here, the interpolation was
@@ -56,6 +63,7 @@ export function finishFrames(
   if (!pixel) images = late.images;
   // once, on the final frames, whichever side of the interpolation the route ran: RIFE's made-up frames are sharpened as their neighbours are
   images = sharpened(g, ctx, images, input);
+  if (opts.last) images = opts.last(images);
   g.phase("encoding");
   const out = saveVideo(g, ctx, { images, ...(opts.audio ? { audio: opts.audio } : {}), fps: smooth || opts.doubled ? opts.fps * 2 : opts.fps, crf: input.crf });
   return { images, out, loads: late.loads, smooth };

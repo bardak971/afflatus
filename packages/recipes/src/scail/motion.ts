@@ -4,7 +4,7 @@ import { SCAIL_CARRIED, SCAIL_CHUNK, SCAIL_FPS } from "./family";
 import { applyLoras, livePreview, loraLoads } from "../shared/model";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import {
-  chunkLengths, drivingFrames, previousFrames, previousInput, matchedToDriving, MOTION_GRID, MOTION_NODES, MOTION_OPTIONAL, motionOutInputs, motionCanvas, motionFrames, motionInputs,
+  chunkLengths, drivingFrames, previousFrames, previousInput, matchedToDriving, motionBatchNodes, MOTION_GRID, MOTION_NODES, MOTION_OPTIONAL, motionOutInputs, motionCanvas, motionFrames, motionInputs,
   motionSaved, type MotionShape, type MotionValues,
 } from "../motion/driving";
 
@@ -55,7 +55,7 @@ export const scailMotion = defineRecipe<ScailMotion>({
     },
     { id: "steps", type: "number", label: "Steps", min: 2, max: 40, step: 1, default: 6, advanced: true, perModel: true, note: "6 with the lightx2v LoRA, as ComfyUI's template. its full-model setting is 40 steps at CFG 5; 20 full steps were slower and no better on the tests" },
     { id: "cfg", type: "number", label: "CFG scale", min: 1, max: 10, step: 0.5, default: 1, advanced: true, perModel: true, note: "1 with the lightx2v LoRA. Above 1 every step takes twice as long" },
-    { id: "shift", type: "number", label: "Shift", min: 1, max: 20, step: 0.5, default: 5, advanced: true, perModel: true },
+    { id: "shift", type: "number", label: "Shift", min: 0, max: 20, step: 0.5, default: 8, advanced: true, perModel: true, note: "8, SCAIL-2's own" },
     { id: "poseStrength", type: "number", label: "Pose strength", min: 0, max: 2, step: 0.05, default: 1, advanced: true, note: "how hard the driving video's pose is held to" },
     {
       id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
@@ -68,7 +68,7 @@ export const scailMotion = defineRecipe<ScailMotion>({
   nodes: (input) => [
     ...MOTION_NODES, "UNETLoader", "LoraLoaderModelOnly", "CLIPLoader", "VAELoader", "CLIPTextEncode", "CLIPVisionLoader", "CLIPVisionEncode",
     "CheckpointLoaderSimple", "SAM3_VideoTrack", "SCAIL2ColoredMask", "WanSCAILToVideo", "ModelSamplingSD3", "KSamplerSelect", "BasicScheduler", "SamplerCustom", "VAEDecode",
-    ...(input.drivingSeconds * SCAIL_FPS > SCAIL_CHUNK ? ["ImageFromBatch", "ImageBatch"] : input.previous ? ["ImageFromBatch"] : []),
+    ...(input.drivingSeconds * SCAIL_FPS > SCAIL_CHUNK ? ["ImageFromBatch", "ImageBatch"] : input.previous ? ["ImageFromBatch"] : []), ...motionBatchNodes(input),
   ],
   optionalNodes: [...MOTION_OPTIONAL, VHS, ...CORE_VIDEO_OUT, "ModelPreviewOverrideKJ", FACE_NODE],
 
@@ -100,13 +100,15 @@ export const scailMotion = defineRecipe<ScailMotion>({
       object_indices: input.person === "Everyone" ? "" : String(Number(input.person) - 1), sort_by: ORDERS[input.order] ?? "left_to_right", replacement_mode: false,
     });
 
-    // as the template: the DPO LoRA, then lightx2v; the scheduler reads the model before the shift, the sampler after it
+    // as the template: the DPO LoRA, then lightx2v. The scheduler reads the shifted model: reading the one before it (as the
+    // template), the sigmas took the model's own shift (8) and the form's Shift did nothing; its default is that 8
     let model = g.out("UNETLoader", { unet_name: slots.unet, weight_dtype: "default" });
     if (slots.dpo) model = g.out("LoraLoaderModelOnly", { model, lora_name: slots.dpo, strength_model: 1 });
     if (slots.turbo) model = g.out("LoraLoaderModelOnly", { model, lora_name: slots.turbo, strength_model: TURBO_STRENGTH });
     model = applyLoras(g, model, input.loras);
-    const shifted = livePreview(g, ctx, g.out("ModelSamplingSD3", { model, shift: input.shift }), input.livePreview);
-    const sigmas = g.out("BasicScheduler", { model, scheduler: "simple", steps: input.steps, denoise: 1 });
+    const sampling = g.out("ModelSamplingSD3", { model, shift: input.shift });
+    const shifted = livePreview(g, ctx, sampling, input.livePreview);
+    const sigmas = g.out("BasicScheduler", { model: sampling, scheduler: "simple", steps: input.steps, denoise: 1 });
     const sampler = g.out("KSamplerSelect", { sampler_name: "euler" });
 
     const lengths = chunkLengths(total, SCAIL_CHUNK, SCAIL_CARRIED);
@@ -130,15 +132,18 @@ export const scailMotion = defineRecipe<ScailMotion>({
       g.phase("decoding");
       const decoded = g.out("VAEDecode", { samples: [sampled, 1], vae });
       let fresh = decoded;
+      const held = Boolean(previous) && ctx.has("ColorTransfer");
       if (previous) {
         // its first frames are the ones carried over: dropped, and its colours held to where the chunk before ended
         fresh = g.out("ImageFromBatch", { image: decoded, batch_index: SCAIL_CARRIED, length: 4096 });
-        if (ctx.has("ColorTransfer")) {
+        if (held) {
           fresh = g.out("ColorTransfer", { image_target: fresh, image_ref: g.out("ImageFromBatch", { image: previous, batch_index: -1, length: 1 }), method: "reinhard_lab", source_stats: "per_frame", strength: 1 });
         }
       }
       made = made ? g.out("ImageBatch", { image1: made, image2: fresh }) : fresh;
-      previous = decoded;
+      // the chunk after anchors on this one as it is kept: its colours held, once they were (as the template's Extend hands on
+      // ColorTransfer's frames); from the third chunk on, each was held to the chunk before's raw frames, not its held ones
+      previous = held ? fresh : decoded;
       offset = [cond, 3];
     });
 
@@ -187,7 +192,7 @@ export const scailMotion = defineRecipe<ScailMotion>({
       {
         name: "carrying on from the clip before",
         input: { picture: "p1", driving: { asset: "v1" }, previous: { asset: "v0" }, drivingSeconds: 5 },
-        slots, uploads: { picture: "p.png", driving: "d.mp4", previous: "prev.mp4" }, media: { picture, driving: part(5), previous: { width: 480, height: 854, frames: 5, fps: SCAIL_FPS } },
+        slots, uploads: { picture: "p.png", driving: "d.mp4", previous: "prev.mp4", "previous.look": "prev.png" }, media: { picture, driving: part(5), previous: { width: 480, height: 854, frames: 5, fps: SCAIL_FPS } },
       },
     ];
   })(),
