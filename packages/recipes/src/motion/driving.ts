@@ -35,7 +35,7 @@ export interface MotionShape {
 }
 
 /** The inputs every Motion transfer form opens with: the picture, the driving video and its part, the prompt, the size. */
-export function motionInputs(shape: MotionShape): InputSpec[] {
+export function motionInputs(shape: MotionShape, placeholder = "A man in a black t-shirt and a silver watch stands in a crowded room lit by red light. He raps to the camera, moving his hands to the beat."): InputSpec[] {
   const most = shape.most / shape.fps;
   return [
     {
@@ -51,8 +51,8 @@ export function motionInputs(shape: MotionShape): InputSpec[] {
     { id: "drivingSeconds", type: "number", label: "Driving video: length", min: 1, max: Math.floor(most * 10) / 10, step: 0.1, default: 5, unit: " s", showWhen: "driving" },
     {
       // the cast is not written into it: on this form the cast is who goes into a picture made from the video (motionPicture.tsx)
-      id: "prompt", type: "prompt", label: "Prompt", style: "sentences", optional: true, noCast: true,
-      placeholder: "A man in a black t-shirt raps to the camera in a crowded room lit by red light, moving his hands to the beat.",
+      id: "prompt", type: "prompt", label: "Prompt", style: "sentences", optional: true, noCast: true, designed: true,
+      placeholder,
       note: "what the picture shows, in sentences: optional, it helps the model keep what is there",
     },
     {

@@ -179,7 +179,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
     ...(rare.length && !advancedMoved ? [{ id: "advanced", label: "Advanced" }] : []),
   ];
   // a few words the recipe builds its own prompt from (a swap's "who to replace"): no Designer or Snippets to write a scene into it
-  const ownPrompt = mainText?.type === "prompt" && Boolean(mainText.noCast);
+  const ownPrompt = mainText?.type === "prompt" && Boolean(mainText.noCast) && !mainText.designed;
   const promptBlock = mainText && promptHit && (
     // in the Create panel a card like the others, its head (with the Designer and Snippets) given with the helpers; the other texts as rows at its foot
     <div data-part="prompt" className={card ? "flex scroll-mt-12 flex-col rounded-xl border border-line-strong bg-panel" : "flex scroll-mt-12 flex-col gap-1.5"}>
