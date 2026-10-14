@@ -120,3 +120,24 @@ describe("a timeline's source lane", () => {
     await expect(call("POST", `/api/timelines/${tl.id}/source/make`)).rejects.toThrow(/window by window/);
   });
 });
+
+describe("the Picture of a source's windows", () => {
+  it("is one: changed on a window or on the source, every window and the source take it", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test source" });
+    const meme = await asset("video");
+    const first = await asset("image");
+    const second = await asset("image");
+    const third = await asset("image");
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id } });
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { recipe: "scail.motion", inputs: { picture: first.id } } });
+    const made = (await call("POST", `/api/timelines/${tl.id}/source/make`)).clips as string[];
+    const one = (await view(tl.id)).clips[2];
+    await call("PATCH", `/api/clips/${made[2]}`, { inputs: { ...one.inputs, picture: second.id } });
+    let v = await view(tl.id);
+    expect(v.clips.map((c: { inputs: { picture: string } }) => c.inputs.picture)).toEqual(made.map(() => second.id));
+    expect(v.source.inputs.picture).toBe(second.id);
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { inputs: { ...v.source.inputs, picture: third.id } } });
+    v = await view(tl.id);
+    expect(v.clips.every((c: { inputs: { picture: string } }) => c.inputs.picture === third.id)).toBe(true);
+  });
+});

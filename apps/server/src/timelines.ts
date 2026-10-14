@@ -492,6 +492,7 @@ export class Timelines {
         })
         .where("id", "=", id)
         .execute();
+      if (patch.source?.inputs) await this.samePicture(id, null, patch.source.inputs, tx);
       // what it made follows it to its new folder
       if (moved) await timelineMediaFollows(tx, id);
     });
@@ -501,6 +502,37 @@ export class Timelines {
     if (patch.source?.asset) await this.keep(patch.source.asset);
     this.changed();
     return this.view(id);
+  }
+
+  /**
+   * The Picture of a source's windows is one: changed on one of the clips made from the source (or given with the source's
+   * form, `inputs` of the source's own), it is set on the source and on every clip made from it. A clip of another video, or
+   * of another model, is left alone. Its takes stay; its next take is made with it.
+   */
+  private async samePicture(timelineId: string, from: Pick<ClipRow, "id" | "recipe_id" | "inputs"> | null, inputs: Record<string, unknown>, tx: Db) {
+    const t = await tx.selectFrom("timelines").select(["source"]).where("id", "=", timelineId).executeTakeFirst();
+    const plan = sourceOfRow(t?.source);
+    if (!plan?.recipe) return;
+    const recipe = this.registry.recipe(plan.recipe);
+    const spec = recipe?.inputs.find((i) => i.type === "image" && i.role === "source");
+    const driving = recipe?.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window);
+    if (!recipe || !spec || !driving) return;
+    const bound = (inp: Record<string, unknown>) => (inp[driving.id] as { asset?: string } | undefined)?.asset === plan.asset;
+    if (from && (from.recipe_id !== recipe.id || !bound(inputs))) return;
+    const picture = inputs[spec.id];
+    // only a Picture set (not one taken away), and on a clip only when it changed there
+    if (typeof picture !== "string" || (from && (JSON.parse(from.inputs) as Record<string, unknown>)[spec.id] === picture)) return;
+    const clips = await tx.selectFrom("clips").select(["id", "inputs"]).where("timeline_id", "=", timelineId).where("recipe_id", "=", recipe.id).execute();
+    for (const c of clips) {
+      if (from && c.id === from.id) continue;
+      const own = JSON.parse(c.inputs) as Record<string, unknown>;
+      if (!bound(own) || own[spec.id] === picture) continue;
+      await tx.updateTable("clips").set({ inputs: JSON.stringify({ ...own, [spec.id]: picture }), updated_at: now() }).where("id", "=", c.id).execute();
+    }
+    if (from && plan.inputs[spec.id] !== picture) {
+      await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, inputs: { ...plan.inputs, [spec.id]: picture } }) }).where("id", "=", timelineId).execute();
+    }
+    if (typeof picture === "string") await this.keep(picture, tx);
   }
 
   /**
@@ -749,6 +781,8 @@ export class Timelines {
       if (trims) await tx.updateTable("takes").set({ trim_start_ms: trims.start, trim_end_ms: trims.end }).where("id", "=", trims.take).execute();
       if (order) await this.renumber(clip.timeline_id, order, tx);
       if (patch.soundAsset) await this.keep(patch.soundAsset, tx);
+      // a window of the source's: its Picture changed is the source's and every window's (the same person in every one)
+      if (patch.inputs !== undefined) await this.samePicture(clip.timeline_id, clip, patch.inputs, tx);
     });
     // a picture pinned on the clip: the timeline takes its folder, as a drop would (within the step just kept)
     if (checked.pinnedNow) {
