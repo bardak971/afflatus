@@ -17,8 +17,12 @@ export function fakeManager(fake: FakeState, init: FakeInit): (r: FakeRequest) =
   let installs: Install[] = [];
   let tasks: Task[] = [];
   const history: Record<string, { ui_id: string; client_id: string; kind: string; timestamp: string; result: string; status: { status_str: string; completed: boolean; messages: string[] } }> = {};
+  // a pack its list does not have yet (a Manager just started, still loading it): not found that many times first
+  const late = { ...(init.packsLate ?? {}) };
   const runTask = (t: Task) => {
-    const failed = init.packsFail?.includes(t.params.id);
+    const notYet = (late[t.params.id] ?? 0) > 0;
+    if (notYet) late[t.params.id]!--;
+    const failed = notYet || init.packsFail?.includes(t.params.id);
     if (!failed) fake.packs.push(t.params);
     history[t.ui_id] = {
       ui_id: t.ui_id, client_id: t.client_id, kind: t.kind, timestamp: new Date().toISOString(),

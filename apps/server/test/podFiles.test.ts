@@ -235,8 +235,8 @@ describe("what pods were measured at", () => {
 
 describe("a rented pod's node packs", () => {
   /** A pod with ComfyUI-Manager, and the pod files of it; `busy` says whether a job runs there. */
-  async function withManager(fail: string[] = []) {
-    const pm = await startFakeComfy({ catalog: referenceCatalog(), models: { loras: [] }, manager: true, packsFail: fail, afterReboot: { FaceDetailer: { input: { required: {} }, output: [], output_name: [], name: "FaceDetailer", category: "x" } as never } });
+  async function withManager(fail: string[] = [], late: Record<string, number> = {}) {
+    const pm = await startFakeComfy({ catalog: referenceCatalog(), models: { loras: [] }, manager: true, packsFail: fail, packsLate: late, afterReboot: { FaceDetailer: { input: { required: {} }, output: [], output_name: [], name: "FaceDetailer", category: "x" } as never } });
     pm.packVersion = "0.14.0";
     const comfy = new Comfy(pm.url, t.services.registry);
     let busy = false;
@@ -245,6 +245,7 @@ describe("a rented pod's node packs", () => {
       lookup: { db: t.services.db, presets: async () => [], families: () => [], comfyDir: async () => home },
       settings: async () => ({ civitaiKey: "", downloadModels: true, civitaiLookups: true }),
     });
+    pf.packRetryMs = 10;
     return { pm, pf, setBusy: (b: boolean) => (busy = b) };
   }
 
@@ -263,6 +264,18 @@ describe("a rented pod's node packs", () => {
       await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "ready"));
       expect(pm.reboots).toBe(1);
       expect(pf.jobState("pod", "j1")?.state).toBe("ready");
+    } finally {
+      await pm.close();
+    }
+  });
+
+  it("that a Manager just started cannot find yet are asked again, and come", async () => {
+    const { pm, pf } = await withManager([], { "comfyui-detail-daemon": 2 });
+    try {
+      pf.wantPacks("pod", ["comfyui-detail-daemon"], "j1");
+      await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "ready"));
+      expect(pm.packs.map((p) => p.id)).toEqual(["comfyui-detail-daemon"]);
+      expect(pm.reboots).toBe(1);
     } finally {
       await pm.close();
     }

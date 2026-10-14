@@ -133,6 +133,11 @@ export class PodFiles {
     return this.packs.failed(machine, names);
   }
 
+  /** How long a node pack Manager cannot find yet waits before it is asked again (podPacks.ts; shorter in tests). */
+  set packRetryMs(ms: number) {
+    this.packs.retryMs = ms;
+  }
+
   /** The node packs a pod is getting, for its row. */
   packsView(machine: string): PodPackView[] {
     return this.packs.view(machine);
@@ -213,7 +218,7 @@ export class PodFiles {
    * source at all: the pod is then never the sooner place for its job.
    */
   async untilThere(machine: string, files: PodFileWant[], packs: string[] = []): Promise<number> {
-    // its node packs installed and ComfyUI restarted: about two minutes, beside the files
+    // its node packs installed and ComfyUI restarted: about four minutes on a pod just up, beside the files
     let ms = packs.length && !this.packs.ready(machine, packs) ? PACKS_MS : 0;
     for (const f of files) {
       const e = this.pods.get(machine)?.get(keyOf(f.folder, f.file));

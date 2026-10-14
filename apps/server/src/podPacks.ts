@@ -20,6 +20,9 @@ export interface PodPackView {
 
 interface Entry extends PodPackView {
   task?: string;
+  /** Asked again after Manager could not find it yet (its list of packs still loading on a pod just up): how many times, and not before when. */
+  tries?: number;
+  notBefore?: number;
 }
 
 export interface PodPacksDeps {
@@ -32,14 +35,19 @@ export interface PodPacksDeps {
 const CLIENT = "afflatus";
 /** How long a restart may take to answer again before the packs are said failed. */
 const RESTART_MS = 5 * 60_000;
+/** Manager's list of packs loads in the background on a pod just up (2 to 3 min on the real test): a pack it cannot find yet is asked again this often, so many times (5 min). */
+const RETRY_MS = 20_000;
+const TRIES = 15;
 /** What installing and a restart are planned to take, before a pack is there (queue.ts's plan). */
-export const PACKS_MS = 2 * 60_000;
+export const PACKS_MS = 4 * 60_000;
 
 export class PodPacks {
   private readonly pods = new Map<string, Map<string, Entry>>();
   /** A restart asked for, by machine: since when. */
   private readonly restarting = new Map<string, number>();
   private seq = 0;
+  /** How long a pack Manager cannot find yet waits before it is asked again (shorter in tests). */
+  retryMs = RETRY_MS;
 
   constructor(private readonly d: PodPacksDeps) {}
 
@@ -121,12 +129,19 @@ export class PodPacks {
       for (const e of all.filter((x) => x.state === "installing" && x.task && history[x.task!])) {
         const h = history[e.task!]!;
         const ok = h.result === "success" || h.status?.status_str === "success";
+        // not in Manager's list of packs yet: it is still loading it on a pod just up, asked again in a moment
+        if (!ok && /Cannot resolve install target/.test(h.result ?? "") && (e.tries ?? 0) + 1 < TRIES) {
+          Object.assign(e, { state: "next", tries: (e.tries ?? 0) + 1, notBefore: Date.now() + this.retryMs });
+          delete e.task;
+          changed = true;
+          continue;
+        }
         Object.assign(e, ok ? { state: "installed" } : { state: "failed", error: !h.result || h.result === "failed" ? "ComfyUI-Manager did not install it (its security level, or the pack's own install failed: the pod's log says)" : h.result.slice(0, 200) });
         changed = true;
       }
     }
     // the next ones asked for, all at once: one restart loads them all
-    const next = all.filter((e) => e.state === "next");
+    const next = all.filter((e) => e.state === "next" && (e.notBefore ?? 0) <= Date.now());
     if (next.length && !all.some((e) => e.state === "installing")) {
       for (const e of next) {
         const task = `afflatus-pack-${++this.seq}-${Date.now()}`;
