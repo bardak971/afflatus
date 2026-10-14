@@ -1,4 +1,4 @@
-import { ArrowRightFromLine, AudioLines, Clapperboard, Columns2, Copy, Download, Eraser, ExternalLink, Eye, Film, FlipHorizontal2, FlipVertical2, FolderKanban, Hand, ImageDown, Info, Maximize2, Mic, Paintbrush, Pencil, PenLine, Scissors, Shuffle, SlidersHorizontal, Smile, SquareDashed, Star, Trash2, Undo2, VolumeX, Wand2, type LucideIcon } from "lucide-react";
+import { ArrowRightFromLine, AudioLines, Clapperboard, Columns2, Copy, Download, Eraser, ExternalLink, Eye, Film, FlipHorizontal2, FlipVertical2, FolderKanban, Hand, ImageDown, Info, Maximize2, Mic, Paintbrush, Pencil, PenLine, PersonStanding, Scissors, Shuffle, SlidersHorizontal, Smile, SquareDashed, Star, Trash2, Undo2, VolumeX, Wand2, type LucideIcon } from "lucide-react";
 import type { MenuItem } from "./ContextMenu";
 
 /**
@@ -14,7 +14,7 @@ export type Kind = "image" | "video" | "audio";
 
 export type ActionId =
   | "open" | "keep" | "download" | "rename"
-  | "reuse-same" | "reuse-new" | "variation" | "i2v" | "extend"
+  | "reuse-same" | "reuse-new" | "variation" | "i2v" | "extend" | "motion"
   | "upscale" | "face" | "hand" | "background" | "inpaint" | "edit" | "outpaint" | "mirror-h" | "mirror-v"
   | "trim" | "save-frame" | "extract-audio" | "remove-sound" | "voice"
   | "compare" | "details" | "copy-seed" | "comfy"
@@ -48,6 +48,7 @@ export const ACTIONS: Record<ActionId, Spec> = {
   variation: { group: "make", label: "Variation", key: "V", kinds: ALL, icon: Shuffle, tip: "Same parameters, new seed: queued at once." },
   i2v: { group: "make", label: "Image to video (i2v)", key: "M", kinds: ["image"], icon: Clapperboard, tip: "A new video with this picture as the first frame, on the video model used last." },
   extend: { group: "make", label: "Extend", key: "C", kinds: ["video"], icon: ArrowRightFromLine, tip: "A new clip that carries on from the end of this one, same model and parameters." },
+  motion: { group: "make", label: "Motion transfer…", kinds: SEEN, icon: PersonStanding, tip: "A new draft of Motion transfer with this in its place: a picture is what moves, a video is how it moves (the driving video)." },
   upscale: { group: "passes", label: "Upscale 2x", key: "U", kinds: ["image"], icon: Maximize2, tip: "Upscale 2x: queued at once with the picture's generation parameters." },
   face: { group: "passes", label: "Face detailer", key: "F", kinds: ["image"], icon: Smile, tip: "Face detailer: queued at once with the picture's generation parameters." },
   hand: { group: "passes", label: "Hand detailer", key: "H", kinds: ["image"], icon: Hand, tip: "Hand detailer: the face detailer on the hand detector (hand_yolov8s), at denoise 0.35, crop factor 2, a prompt about hands; queued at once with the picture's generation parameters." },
@@ -101,6 +102,8 @@ export interface ItemFacts {
   seed: number | null;
   /** The video model a picture would open (i2v), by name; null: none takes a first frame. */
   opener: string | null;
+  /** The model a Motion transfer would open on, by name; null or absent: none is installed. */
+  mover?: string | null;
   /** A model can carry a clip on (Extend). */
   carrier: boolean;
   /** The recipe each pass would use, by its title; absent: none is installed for it. */
@@ -164,6 +167,7 @@ export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<Acti
       case "reuse-same": case "reuse-new": case "variation": return f.generated ? undefined : notMade;
       case "i2v": return f.opener ? undefined : "no video model takes a first frame";
       case "extend": return f.carrier ? undefined : "no video model carries a clip on";
+      case "motion": return f.mover ? undefined : "no model does motion transfer";
       case "upscale": case "face": case "hand": case "background": case "inpaint": case "edit": case "outpaint": return f.passes[id] ? undefined : "no model for it";
       case "extract-audio": case "remove-sound": return f.hasSound ? undefined : "it has no sound";
       case "voice": return f.kind === "video" && !f.hasSound ? "it has no sound" : f.voice ? undefined : "no model takes a voice sample";
@@ -191,6 +195,7 @@ export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<Acti
       case "compare": return { ...base, pressed: Boolean(f.comparing) };
       case "copy-seed": return { ...base, note: off ?? (f.seed !== null ? String(f.seed) : undefined) };
       case "i2v": return { ...base, note: off ?? f.opener ?? undefined };
+      case "motion": return { ...base, note: off ?? f.mover ?? undefined };
       default: return base;
     }
   });
