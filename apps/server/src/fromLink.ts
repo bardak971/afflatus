@@ -51,6 +51,22 @@ type ApiModel = { id: number; name: string; type?: string; modelVersions?: ApiVe
 
 const bad = (message: string) => httpError(message);
 
+/**
+ * The ComfyUI folder a Civitai model's file most likely goes in, by what Civitai says it is and the model it is for: a
+ * "checkpoint" of a family whose files are the diffusion model alone goes in diffusion_models (with why).
+ */
+export function folderFor(kind: string, base: string, name: string): { folder: string | null; why?: string } {
+  const alone = kind === "Checkpoint" && ALONE.test(`${base} ${name}`);
+  if (alone) return { folder: "diffusion_models", why: `Civitai calls it a checkpoint, but models for ${base || "this family"} are usually the diffusion model alone, which ComfyUI loads from diffusion_models. A full checkpoint goes in checkpoints.` };
+  return { folder: FOLDER_OF_KIND[kind] ?? null };
+}
+
+/** The ComfyUI folder a file on Hugging Face goes in, by the folder names in its path ("split_files/vae/x" → vae). */
+export function folderOfPath(path: string): string | null {
+  const folder = path.split("/").slice(0, -1).reverse().find((part) => KNOWN_FOLDERS.includes(part.toLowerCase()))?.toLowerCase() ?? null;
+  return folder === "unet" ? "diffusion_models" : folder === "clip" ? "text_encoders" : folder;
+}
+
 export async function resolveLink(link: string, key: string): Promise<LinkFound> {
   let at: URL;
   try {
@@ -86,13 +102,12 @@ async function fromCivitai(at: URL, key: string): Promise<LinkFound> {
     note: [f.metadata?.fp, f.metadata?.size, f.metadata?.format && f.metadata.format !== "SafeTensor" ? f.metadata.format : ""].filter(Boolean).join(" · "),
   }));
   if (!files.length) throw httpError("That version has no model file to download.", 404);
-  const alone = kind === "Checkpoint" && ALONE.test(`${base} ${name}`);
+  const place = folderFor(kind, base, name);
   return {
     source: "civitai", title: [name, version.name].filter(Boolean).join(" · "), about: [kind, base].filter(Boolean).join(" · "),
     page: `https://civitai.com/models/${model?.id ?? version.modelId ?? modelId}?modelVersionId=${version.id}`,
     version: version.id, versions: (model?.modelVersions ?? []).map((v) => ({ id: v.id, name: v.name ?? String(v.id) })),
-    files, folder: alone ? "diffusion_models" : FOLDER_OF_KIND[kind] ?? null,
-    ...(alone ? { why: `Civitai calls it a checkpoint, but models for ${base || "this family"} are usually the diffusion model alone, which ComfyUI loads from diffusion_models. A full checkpoint goes in checkpoints.` } : {}),
+    files, folder: place.folder, ...(place.why ? { why: place.why } : {}),
   };
 }
 
@@ -103,10 +118,10 @@ async function fromHuggingFace(at: URL): Promise<LinkFound> {
   if (!m || !isModelFile(name)) throw bad("On Hugging Face, open the file itself (in \"Files and versions\") and copy its address: it ends in the file's name.");
   const [, owner, repo, revision, path] = m;
   const url = `https://huggingface.co/${owner}/${repo}/resolve/${revision}/${path}`;
-  const folder = decodeURIComponent(path!).split("/").slice(0, -1).reverse().find((part) => KNOWN_FOLDERS.includes(part.toLowerCase()))?.toLowerCase() ?? null;
+  const folder = folderOfPath(decodeURIComponent(path!));
   return {
     source: "huggingface", title: name, about: `${owner}/${repo}`, page: `https://huggingface.co/${owner}/${repo}/blob/${revision}/${path}`, url,
-    files: [{ name, bytes: await sizeOf(url), note: "" }], folder: folder === "unet" ? "diffusion_models" : folder === "clip" ? "text_encoders" : folder,
+    files: [{ name, bytes: await sizeOf(url), note: "" }], folder,
   };
 }
 
