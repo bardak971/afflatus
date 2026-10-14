@@ -105,6 +105,11 @@ const TRANSITIONAL: ReadonlySet<string> = new Set(["PROVISIONING", "STARTING"]);
 const BILLED: ReadonlySet<string> = new Set(["RUNNING", "STARTING", "PROVISIONING"]);
 /** After a cap, how long a render that does not end is waited for before the pod is stopped all the same. */
 const CAP_GRACE_MS = 60 * 60_000;
+/**
+ * How long a render on a pod may go past its forecast with ComfyUI silent (no step, no node, no preview) before it is
+ * failed as stuck: a render that hangs would otherwise keep its pod billed for ever (idle never comes while it runs).
+ */
+const STUCK_MS = 30 * 60_000;
 /** How long RunPod is asked less often after it said to slow down (429). */
 const BACK_OFF_MS = 60_000;
 /** A pod running this long without its ComfyUI ever answering did not come up (its container failed): its idle action applies. */
@@ -211,10 +216,12 @@ export class Rented {
   /** Where RunPod is asked, for a key: a test's stand-in. */
   client: (key: string) => Runpod = (key) => new Runpod(key);
   now: () => number = Date.now;
+  /** How long a render on a pod may stay silent past its forecast before it is failed as stuck (shorter in tests). */
+  stuckMs = STUCK_MS;
 
   constructor(
     private readonly db: Db,
-    private readonly queue: { wants(machine: string): Promise<boolean>; runningOn(machine: string): boolean },
+    private readonly queue: { wants(machine: string): Promise<boolean>; runningOn(machine: string): boolean; quietFor(machine: string): number; endStuck(machine: string, why: string): Promise<boolean> },
     private readonly events: EventEmitter,
     private readonly comfyOf: (machine: string) => Promise<Comfy | null>,
   ) {}
@@ -857,6 +864,12 @@ export class Rented {
   /** Idle long enough, or a cap reached once its render ends: stopped (or deleted, as its idle choice says). */
   private async keepOrStop(m: Machine, s: Seen, caps: { day: number; month: number }, answers: boolean): Promise<void> {
     const now = this.now();
+    // a render ComfyUI has said nothing of for long, past its forecast: failed, so that the pod is free for the next job or
+    // its idle time, instead of billed for a render that never ends
+    const quiet = this.queue.quietFor(m.id);
+    if (quiet >= this.stuckMs && (await this.queue.endStuck(m.id, `Stuck: no progress from ComfyUI for ${Math.round(quiet / 60_000)} min past its forecast on the rented GPU ${m.name || m.id}; failed so that the pod is not billed for a render that never ends`))) {
+      console.log(`[rented] ${m.name || m.id}: a render stuck for ${Math.round(quiet / 60_000)} min failed`);
+    }
     const running = this.queue.runningOn(m.id);
     // work counts only for a pod whose ComfyUI answers: one that went down would otherwise keep a waiting job "for it" forever
     // not idle before its ComfyUI first answered (a first boot pulling node packs and models): the boot limit covers that
