@@ -152,7 +152,8 @@ describe("each machine's pace", () => {
       refine_ms: 0, finish_ms: 0, step_ms: stepMs, expected_ms: null, work: 832 * 1216, vram_peak: null, heat_peak: null, asset_id: null, machine_id: machine, gpu: null, created_at: at,
     });
     // the second machine takes three times as long per step; a model rendered on one machine only says nothing
-    await t.db.insertInto("render_stats").values([stat("a", "m1", 500), stat("b", "m1", 500), stat("c", "m2", 1500), stat("d", "m2", 1500), stat("e", "m2", 900, "steps=30")]).execute();
+    await t.db.insertInto("render_stats").values([stat("a", "m1", 500), stat("b", "m1", 500), stat("b2", "m1", 500), stat("c", "m2", 1500), stat("d", "m2", 1500), stat("d2", "m2", 1500), stat("e", "m2", 900, "steps=30"), stat("f", "m1", 400, "steps=40")]).execute();
+    // one render of the second settings on m1 says nothing of its pace (a cold load, the card busy elsewhere)
     const paces = await machinePaces(t.db);
     expect(paces.get("m2")! / paces.get("m1")!).toBeCloseTo(3, 1);
 

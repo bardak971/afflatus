@@ -200,5 +200,9 @@ describe("what a motion render is priced on", () => {
     const input = parseInput(scailMotion, { picture: "p1", driving: { asset: "v1" }, previous: { asset: "v0" } });
     const built = scailMotion.build(input, dryContext({ slots, uploads: { picture: "p.png", driving: "d.mp4", previous: "prev.mp4" }, media: { picture: { width: 768, height: 1360 }, driving: part(81 / SCAIL_FPS) } }));
     expect(built.frames).toBe(81);
+    // a longer part: the steps counted per chunk, the frames a step samples are one chunk
+    const long = scailMotion.build(parseInput(scailMotion, { picture: "p1", driving: { asset: "v1" }, drivingSeconds: 20 }), dryContext({ slots, uploads: { picture: "p.png", driving: "d.mp4" }, media: { picture: { width: 768, height: 1360 }, driving: part(20) } }));
+    expect(long.frames).toBe(81);
+    expect(long.totalSteps).toBe(6 * 5);
   });
 });
