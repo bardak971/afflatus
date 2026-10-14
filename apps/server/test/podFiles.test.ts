@@ -135,7 +135,8 @@ describe("a rented pod's model files", () => {
     // the needed one first in the list, and fetched first
     expect(files.view("pod").map((f) => f.file)).toEqual(["now.safetensors", "later.safetensors"]);
     await settle("pod", "later.safetensors");
-    expect(pod.packFetched[0]).toContain("/now.safetensors");
+    // started first (two come at once: which reaches the site first is the network's)
+    expect(t.services.downloads.list().map((d) => d.file).reverse()).toEqual(["now.safetensors", "later.safetensors"]);
     expect(files.view("pod").every((f) => f.state === "ready")).toBe(true);
   });
 

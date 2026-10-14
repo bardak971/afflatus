@@ -8,7 +8,7 @@ import { rateSaid, rentedSaid, rentedSpent, rentedUp, severalMachines } from "..
 const pod = (over: Partial<RentedState> = {}): RentedState => ({
   provider: "runpod", pod: "p1", status: "EXITED", rate: 0.69, gpu: "NVIDIA GeForce RTX 5090", dataCenter: "EU-RO-1",
   since: null, spent: 0, diskPerDay: 0.33, volume: false, otherPorts: [], closedPorts: [], watchdog: "unknown", answers: null, idleLeftMs: null, capped: false, stopping: false,
-  stoppedBy: null, booting: false, error: null, ...over,
+  stoppedBy: null, booting: false, error: null, files: [], ...over,
 });
 
 describe("a rented pod's words", () => {

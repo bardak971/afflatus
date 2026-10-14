@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 import type { Machine, MachineState, RentedMachine } from "../../api";
-import { usd } from "../../format";
+import type { PodFile } from "../../api";
+import { plural, size, usd } from "../../format";
 import { useNow } from "../../hooks";
 import { rateSaid, rentedSaid } from "../../machines";
 import { RUNPOD_CONSOLE, type useRentedOps } from "../../rentedOps";
@@ -22,6 +23,33 @@ const minutesSaid = (n: number) => (n === 0 ? "never" : n < 60 ? `${n} min` : `$
 const WHY_IDLE = "Idle: nothing rendering on it and nothing waiting that it could take; a job waiting for it keeps it on. Stop: the GPU stops billing, its volume is kept (and billed), its container disk is erased; its GPU may be taken meanwhile, and then it cannot start again. Terminate: nothing billed after, the pod gone from RunPod: deploy a new one next time. Without a volume a stop keeps nothing: terminate.";
 const WHY_PORTS = "What a pod's template opens besides ComfyUI: FileBrowser (8080), JupyterLab (8888), SSH (22). They have logins of their own, outside Afflatus's lock, some with a default password printed in the template's page: anyone who finds the pod's address can try them, and with FileBrowser reach its files, ComfyUI's custom nodes included. Closed, Afflatus takes them off the pod at each Start (RunPod's exposed ports), and only ComfyUI is reached, locked. Open them to use one (FileBrowser to put the Afflatus pack on it).";
 const WHY_WATCH = "Afflatus runs on this PC, which can crash, sleep or lose its internet: then nothing here can stop the pod. The Afflatus node pack on the pod hears from Afflatus every minute; silent this long, it stops the pod by itself. It needs the pack on the pod (0.13 or newer).";
+
+const VIA_SAID: Record<NonNullable<PodFile["via"]>, string> = { hf: "Hugging Face", civitai: "Civitai", url: "its address", upload: "this PC" };
+const WHY_FILES = "The model files the pod gets: what its waiting jobs need first, in the order the queue needs them (a job starts as soon as its own files are there), then the ones asked ahead (its deploy's set, a job that ran at home this time). Straight from Hugging Face or Civitai; a file no site is known for comes from this PC. A file never keeps the pod: with nothing to render it goes idle and ends on time.";
+
+/** The files a pod is getting, each with how far it is: ready, a share, next, or why it failed. */
+export function PodFiles({ files }: { files: PodFile[] }) {
+  const ready = files.filter((f) => f.state === "ready").length;
+  return (
+    <span className="flex min-w-0 grow flex-col gap-1 text-[12.5px]">
+      <span className="text-xs text-ink-3">{ready} of {files.length} there</span>
+      {files.map((f) => {
+        const share = f.total ? Math.min(100, Math.round((f.bytes / f.total) * 100)) : 0;
+        return (
+          <span key={`${f.folder}|${f.file}`} className="grid grid-cols-[minmax(0,1fr)_90px_110px] items-center gap-3" data-tip={f.error ?? (f.via ? `from ${VIA_SAID[f.via]}` : undefined)}>
+            <span className={cx("min-w-0 truncate", f.state === "next" && f.tier === "ahead" && "text-ink-2")}>
+              {f.file}<span className="text-ink-3"> · {f.tier === "need" ? `for ${plural(Math.max(1, f.jobs.length), "job")}` : "ahead"}{f.via === "upload" ? " · from this PC" : ""}</span>
+            </span>
+            <span className="h-1 overflow-hidden rounded-full bg-hover"><span className={cx("block h-1", f.state === "ready" ? "bg-good" : f.state === "failed" ? "bg-warn" : f.tier === "ahead" ? "bg-ink-3" : "bg-accent")} style={{ width: `${f.state === "ready" ? 100 : share}%` }} /></span>
+            <span className={cx("text-right text-xs", f.state === "ready" ? "text-good" : f.state === "failed" ? "text-warn-ink" : "text-ink-3")}>
+              {f.state === "ready" ? "ready" : f.state === "failed" ? "failed" : f.state === "next" ? "next" : f.total ? `${share} % of ${size(f.total)}` : "starting"}
+            </span>
+          </span>
+        );
+      })}
+    </span>
+  );
+}
 
 /** "Stops in 4 min", counting down between two reads of the queue (from when it was read). */
 function IdleLeft({ ms }: { ms: number }) {
@@ -89,6 +117,11 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
         </span>
         <ButtonLink href={RUNPOD_CONSOLE} target="_blank" rel="noreferrer" size="sm"><ExternalLink size={13} /> RunPod</ButtonLink>
       </Row>
+      {r && r.files.length > 0 && (
+        <Row label="Models" help={WHY_FILES}>
+          <PodFiles files={r.files} />
+        </Row>
+      )}
       <Row label="When it is idle" help={WHY_IDLE}>
         <span className="flex grow flex-wrap items-center justify-end gap-2 text-[12.5px]">
           <span className="text-ink-2">after</span>

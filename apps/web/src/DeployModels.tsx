@@ -200,10 +200,10 @@ export function SaveAsSet({ files }: { files: PresetFile[] }) {
   const [name, setName] = useState<string | null>(null);
   const [saved, setSaved] = useState("");
   if (!files.length) return null;
-  if (saved) return <span className="text-xs text-good">Saved as “{saved}”</span>;
-  if (name === null) return <Button size="sm" tone="quiet" onClick={() => setName("")}>Save these as a set…</Button>;
+  if (saved) return <span className="self-start text-xs text-good">Saved as “{saved}”</span>;
+  if (name === null) return <Button size="sm" tone="quiet" onClick={() => setName("")} className="self-start">Save these as a set…</Button>;
   return (
-    <form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (name.trim()) void api.saveModelSet(null, { name: name.trim(), presets: [], files, off: [] }).then(() => setSaved(name.trim())); }}>
+    <form className="flex items-center gap-2 self-start" onSubmit={(e) => { e.preventDefault(); if (name.trim()) void api.saveModelSet(null, { name: name.trim(), presets: [], files, off: [] }).then(() => setSaved(name.trim())); }}>
       <input autoFocus aria-label="The set's name" placeholder="Name of the set" value={name} onChange={(e) => setName(e.target.value)} className={cx(fieldClass, "h-7 w-40 px-2 text-xs")} />
       <Button size="sm" type="submit" disabled={!name.trim()}>Save</Button>
     </form>

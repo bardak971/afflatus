@@ -4,7 +4,7 @@ import { endedSince, greetings, mergeProgress, notifyTag, throttle } from "../sr
 import { mayReload, RELOAD_GAP_MS } from "../src/reload";
 
 const job = (id: string, status: Job["status"], kind: Job["kind"] = "render"): Job => ({
-  id, recipe: "r", label: id, status, error: null, generationId: null, clipId: null, draftId: null, join: null, kind, estimateMs: null, input: null, createdAt: "", startedAt: null, finishedAt: null, machine: null, pinned: null, startsInMs: null, runsOn: null, lacks: null,
+  id, recipe: "r", label: id, status, error: null, generationId: null, clipId: null, draftId: null, join: null, kind, estimateMs: null, input: null, createdAt: "", startedAt: null, finishedAt: null, machine: null, pinned: null, startsInMs: null, runsOn: null, lacks: null, fetch: null,
 });
 const queue = (over: Partial<QueueStatus> = {}): QueueStatus => ({ paused: false, model: null, online: true, offlineForMs: 0, running: null, machines: [], tool: null, waiting: [], recent: [], ...over });
 const running = (id: string): RunningJob => ({ ...job(id, "running"), progress: 0.1, eta: 30, phase: "sampling", step: 1, steps: 10, previewSeq: 0 });
