@@ -26,6 +26,8 @@ export interface Pod {
   diskGb: number;
   /** A network volume is mounted: what is on it outlives the pod. */
   networkVolume: boolean;
+  /** Which one, by id: one running pod per volume (two writing on one would spoil what it holds). */
+  volumeId: string | null;
   /**
    * Its environment, as set on RunPod: AFFLATUS_TOKEN among it locks its ComfyUI from boot (LOCK_ENV). Null when RunPod did not
    * say it: then it is never written, as writing it replaces the whole of it and would wipe what is there.
@@ -126,6 +128,16 @@ export interface BillRecord {
   start: number;
   end: number;
   amount: number;
+  /** Of it, its own disk's: what a stopped pod still costs. */
+  disk: number;
+}
+
+/** What RunPod billed one network volume for a stretch (GET /v2/billing/network-volumes), in USD. */
+export interface VolumeBill {
+  volume: string;
+  start: number;
+  end: number;
+  amount: number;
 }
 
 /** A network volume of the account: what is on it outlives any pod, and a pod using it runs in its data center. */
@@ -175,7 +187,7 @@ export const exposesComfy = (pod: Pick<Pod, "ports">) => pod.ports.some((p) => p
 type RawPod = {
   id: string; name?: string; status?: string; cost?: number; actions?: string[];
   gpu?: { id?: string; count?: number } | null; dataCenterId?: string | null; ports?: string[];
-  mounts?: { persistent?: { size?: number } | null; network?: unknown[] | null } | null;
+  mounts?: { persistent?: { size?: number } | null; network?: Array<{ volumeId?: unknown } | null> | null } | null;
   env?: Record<string, string> | null;
   runtime?: { uptime?: number } | null; startedAt?: string | null;
 };
@@ -191,6 +203,7 @@ const podOf = (p: RawPod): Pod => ({
   ports: Array.isArray(p.ports) ? p.ports : [],
   diskGb: p.mounts?.persistent?.size ?? 0,
   networkVolume: Boolean(p.mounts?.network?.length),
+  volumeId: typeof p.mounts?.network?.[0]?.volumeId === "string" ? (p.mounts.network[0].volumeId as string) : null,
   env: p.env && typeof p.env === "object" && !Array.isArray(p.env) ? { ...p.env } : null,
   uptime: p.runtime?.uptime ?? null,
   startedAt: podTime(p.startedAt) === null ? null : new Date(podTime(p.startedAt)!).toISOString(),
@@ -326,6 +339,35 @@ export class Runpod {
     return list.flatMap((v) => (typeof v.id === "string" && typeof v.dataCenter === "string" ? [{ id: v.id, name: typeof v.name === "string" ? v.name : v.id, size: typeof v.size === "number" ? v.size : 0, dataCenter: v.dataCenter }] : []));
   }
 
+  /** A network volume made in a data center: billed every month from now, pod or not, until it is deleted. */
+  async createVolume(name: string, size: number, dataCenter: string): Promise<NetworkVolume> {
+    const got = await this.call<Record<string, unknown>>("/v2/network-volumes", { method: "POST", body: JSON.stringify({ name, size, dataCenter }) });
+    if (!got || typeof got.id !== "string") throw new RunpodShape("RunPod made the volume but answered in a shape Afflatus does not know: look for it on RunPod.");
+    return { id: got.id, name: typeof got.name === "string" ? got.name : name, size: typeof got.size === "number" ? got.size : size, dataCenter: typeof got.dataCenter === "string" ? got.dataCenter : dataCenter };
+  }
+
+  /** A network volume made larger (RunPod never makes one smaller). */
+  async growVolume(id: string, size: number): Promise<void> {
+    await this.call(`/v2/network-volumes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ size }) });
+  }
+
+  /** A network volume deleted, with all it holds: its billing ends. */
+  async deleteVolume(id: string): Promise<void> {
+    await this.call(`/v2/network-volumes/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+
+  /** What RunPod billed each network volume, day by day, since `from` (ms); as the pods' bill, the last hours may be missing. */
+  async volumeBilling(from: number, to = Date.now()): Promise<VolumeBill[]> {
+    const got = await this.call<{ records?: unknown }>(`/v2/billing/network-volumes?bucketSize=day&startTime=${encodeURIComponent(new Date(from).toISOString())}&endTime=${encodeURIComponent(new Date(to).toISOString())}`);
+    if (!got || !Array.isArray(got.records)) throw new RunpodShape("RunPod answered its billing of volumes in a shape Afflatus does not know.");
+    return (got.records as Array<Record<string, unknown>>).flatMap((r) => {
+      const start = typeof r.startTime === "string" ? Date.parse(r.startTime) : Number.NaN;
+      const end = typeof r.endTime === "string" ? Date.parse(r.endTime) : Number.NaN;
+      if (typeof r.networkVolumeId !== "string" || typeof r.totalAmount !== "number" || !Number.isFinite(start) || !Number.isFinite(end)) return [];
+      return [{ volume: r.networkVolumeId, start, end, amount: r.totalAmount }];
+    });
+  }
+
   /** A pod deployed: one GPU type, in that data center (any RunPod picks when null). Billed from now. */
   async create(spec: PodSpec): Promise<Pod> {
     const body = {
@@ -373,7 +415,7 @@ export class Runpod {
       const start = typeof r.startTime === "string" ? Date.parse(r.startTime) : Number.NaN;
       const end = typeof r.endTime === "string" ? Date.parse(r.endTime) : Number.NaN;
       if (typeof r.podId !== "string" || typeof r.totalAmount !== "number" || !Number.isFinite(start) || !Number.isFinite(end)) return [];
-      return [{ pod: r.podId, start, end, amount: r.totalAmount }];
+      return [{ pod: r.podId, start, end, amount: r.totalAmount, disk: typeof r.diskAmount === "number" ? r.diskAmount : 0 }];
     });
   }
 }

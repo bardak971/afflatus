@@ -109,6 +109,61 @@ describe("a deploy", () => {
     expect((await deploy({ volume: "vol-gone" })).statusCode).toBe(409);
   });
 
+  it("one pod at a time on a volume: another deploy on it is refused while it runs, said by whom; free again once it stops", async () => {
+    expect((await deploy({ volume: "vol-ro", idleDo: "stop" })).statusCode).toBe(200);
+    const volumes = () => get(t.app, "/api/runpod/volumes").then((r) => r.json().volumes as Array<{ id: string; usedBy: { name: string; status: string } | null; mountedOn: unknown[]; perMonth: number }>);
+    expect((await volumes()).find((v) => v.id === "vol-ro")).toMatchObject({ usedBy: { name: "A40" }, perMonth: 7 });
+    expect((await volumes()).find((v) => v.id === "vol-se")?.usedBy).toBeNull();
+    const again = await deploy({ volume: "vol-ro", idleDo: "stop" });
+    expect(again.statusCode).toBe(409);
+    expect(again.json().error).toMatch(/The volume "afflatus-models" is in use by A40/);
+    expect(creates()).toBe(1);
+    // stopped: mounted still (it cannot be deleted), but free for another pod
+    const machine = (await readSettings(t.db)).machines.find((m) => m.rented)!;
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]!.status === "RUNNING"));
+    await post(t.app, `/api/machines/${machine.id}/stop`, { how: "stop" });
+    await until(async () => runpod.pods[0]!.status === "EXITED");
+    const after = (await volumes()).find((v) => v.id === "vol-ro")!;
+    expect(after.usedBy).toBeNull();
+    expect(after.mountedOn).toHaveLength(1);
+    expect((await deploy({ volume: "vol-ro", idleDo: "stop" })).statusCode).toBe(200);
+  });
+
+  it("a pod RunPod does not list yet holds its volume: two deploys in a row never take one", async () => {
+    expect((await deploy({ volume: "vol-ro", idleDo: "stop" })).statusCode).toBe(200);
+    runpod.failList = null;
+    // RunPod's list a moment behind: the pod just made is not in it
+    const made = runpod.pods.splice(0, 1);
+    const again = await deploy({ volume: "vol-ro", idleDo: "stop" });
+    expect(again.statusCode).toBe(409);
+    expect(again.json().error).toMatch(/in use by A40 \(starting\)/);
+    runpod.pods.push(...made);
+  });
+
+  it("makes, grows and deletes a volume; never smaller, never one a pod is mounted on", async () => {
+    const made = await post(t.app, "/api/runpod/volumes", { name: "zz-test volume", size: 20, dataCenter: "EU-RO-1" });
+    expect(made.statusCode).toBe(200);
+    const id = made.json().volume.id as string;
+    expect(runpod.volumes.find((v) => v.id === id)).toMatchObject({ name: "zz-test volume", size: 20, dataCenter: "EU-RO-1" });
+    expect((await post(t.app, "/api/runpod/volumes", { name: "too small", size: 5, dataCenter: "EU-RO-1" })).statusCode).toBe(400);
+    const grow = (size: number) => t.app.inject({ method: "PATCH", url: `/api/runpod/volumes/${id}`, payload: { size } });
+    expect((await grow(30)).statusCode).toBe(200);
+    expect(runpod.volumes.find((v) => v.id === id)?.size).toBe(30);
+    expect((await grow(25)).statusCode).toBe(400);
+    // a pod on it, even stopped, keeps it from being deleted
+    expect((await deploy({ volume: id, idleDo: "stop" })).statusCode).toBe(200);
+    const del = () => t.app.inject({ method: "DELETE", url: `/api/runpod/volumes/${id}` });
+    const refused = await del();
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toMatch(/mounted on A40/);
+    // terminated on RunPod's side (its machine up and answering first: no longer a deploy under way)
+    await until(async () => (await t.services.rented.poll(), (await readSettings(t.db)).machines.find((m) => m.rented)?.rented?.deployedAt === ""));
+    runpod.pods.splice(0);
+    expect((await del()).statusCode).toBe(200);
+    expect(runpod.volumes.find((v) => v.id === id)).toBeUndefined();
+    expect((await del()).statusCode).toBe(404);
+  });
+
   it("is refused at a spending cap without asking RunPod to make anything, and RunPod's balance refusal is said", async () => {
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 1, month: 0 } } });
     // $2 spent in the last ten minutes (within today, whatever the hour)

@@ -92,6 +92,8 @@ export interface RentedMachine {
   deployedAt: string;
   /** The user stopped it, until it is started again. */
   userStopped: boolean;
+  /** The network volume it was deployed on, by id ("" for none). */
+  volume: string;
   /** RunPod's cloud it was deployed on, when Afflatus deployed it. */
   cloud?: "SECURE" | "COMMUNITY";
   /** The files its deploy asked for, until its first answer hands them to it. */

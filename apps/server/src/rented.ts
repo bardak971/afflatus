@@ -8,6 +8,7 @@ import { COMFY_PORT, exposesComfy, imageFor, LOCK_ENV, noCapacity, POD_IMAGES, p
 import type { PresetFile } from "@afflatus/core";
 import { imagePublic } from "./podImage";
 import { recordMeasure } from "./podMeasures";
+import { inUseSaid, mountedOn, usedBy, viewVolumes, VOLUME_MAX_GB, VOLUME_MIN_GB, type VolumeView } from "./rentedVolumes";
 import { MAX_MACHINES, readSettings, updateSettings, type DeployAsk, type Machine, type Settings } from "./settings";
 
 /**
@@ -333,13 +334,63 @@ export class Rented {
     });
   }
 
-  /** The account's network volumes (Deploy a GPU). */
-  async volumes(): Promise<NetworkVolume[]> {
+  /** The account's network volumes (Deploy a GPU, Settings): each with the pod running on it, when one is. */
+  async volumes(): Promise<VolumeView[]> {
     const s = await readSettings(this.db);
     if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
-    return this.client(s.runpodKey).volumes().catch((err: Error) => {
+    const client = this.client(s.runpodKey);
+    const [volumes, pods] = await Promise.all([client.volumes(), client.pods()]).catch((err: Error) => {
       throw httpError(err.message, 502);
     });
+    return viewVolumes(volumes, pods, s.machines);
+  }
+
+  /** A network volume made, as the user asked (its monthly price said before): billed every month from now, pod or not. */
+  async makeVolume(name: string, size: number, dataCenter: string): Promise<NetworkVolume> {
+    const s = await readSettings(this.db);
+    if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
+    if (!Number.isInteger(size) || size < VOLUME_MIN_GB || size > VOLUME_MAX_GB) throw httpError(`A volume is ${VOLUME_MIN_GB} to ${VOLUME_MAX_GB} GB.`);
+    const made = await this.client(s.runpodKey).createVolume(name, size, dataCenter).catch((err: Error) => {
+      throw httpError(err.message, 502);
+    });
+    console.log(`[rented] volume ${made.name} made in ${made.dataCenter}, ${made.size} GB`);
+    this.events.emit("setup");
+    return made;
+  }
+
+  /** A network volume made larger: RunPod never makes one smaller. */
+  async growVolume(id: string, size: number): Promise<void> {
+    const s = await readSettings(this.db);
+    if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
+    const client = this.client(s.runpodKey);
+    const volume = (await client.volumes().catch((err: Error) => {
+      throw httpError(err.message, 502);
+    })).find((v) => v.id === id);
+    if (!volume) throw httpError("That network volume is not on this account any more.", 404);
+    if (!Number.isInteger(size) || size <= volume.size || size > VOLUME_MAX_GB) throw httpError(`A volume only grows: more than ${volume.size} GB, ${VOLUME_MAX_GB} at most.`);
+    await client.growVolume(id, size).catch((err: Error) => {
+      throw httpError(err.message, 502);
+    });
+    this.events.emit("setup");
+  }
+
+  /** A network volume deleted with all it holds (its billing ends): never while a pod is mounted on it, stopped ones too. */
+  async deleteVolume(id: string): Promise<void> {
+    const s = await readSettings(this.db);
+    if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
+    const client = this.client(s.runpodKey);
+    const [volumes, pods] = await Promise.all([client.volumes(), client.pods()]).catch((err: Error) => {
+      throw httpError(err.message, 502);
+    });
+    const volume = volumes.find((v) => v.id === id);
+    if (!volume) throw httpError("That network volume is not on this account any more.", 404);
+    const on = mountedOn(id, pods, s.machines);
+    if (on.length) throw httpError(`The volume "${volume.name}" is mounted on ${on.map((p) => `${p.name} (${p.status === "EXITED" ? "stopped" : p.status.toLowerCase()})`).join(", ")}: terminate ${on.length === 1 ? "that pod" : "those pods"} first.`, 409);
+    await client.deleteVolume(id).catch((err: Error) => {
+      throw httpError(err.message, 502);
+    });
+    console.log(`[rented] volume ${volume.name} deleted`);
+    this.events.emit("setup");
   }
 
   /**
@@ -369,13 +420,16 @@ export class Rented {
     }
     // an image RunPod could not pull would leave a pod provisioning, billed, until its boot limit: asked of its registry first
     const client = this.client(s.runpodKey);
-    const [offers, volumes] = await Promise.all([client.gpus(ask.cloud), ask.volume ? client.volumes() : Promise.resolve([])]).catch((err: Error) => {
+    const [offers, volumes, pods] = await Promise.all([client.gpus(ask.cloud), ask.volume ? client.volumes() : Promise.resolve([]), ask.volume ? client.pods() : Promise.resolve([])]).catch((err: Error) => {
       throw httpError(err.message, 502);
     });
     const offer = offers.find((g) => g.id === ask.gpu);
     if (!offer) throw httpError(`RunPod does not offer that GPU on ${ask.cloud === "COMMUNITY" ? "Community" : "Secure"} Cloud now: pick another.`, 409);
     const volume = ask.volume ? volumes.find((v) => v.id === ask.volume) ?? null : null;
     if (ask.volume && !volume) throw httpError("That network volume is not on this account any more: pick another, or deploy without one.", 409);
+    // one running pod per volume: a second would write over what the first keeps there
+    const taken = volume ? usedBy(volume.id, pods, s.machines) : null;
+    if (volume && taken) throw httpError(inUseSaid(volume.name, taken), 409);
     const listed = offer.dataCenters.filter((d) => d.availability !== "NONE" && (!volume || d.id === volume.dataCenter)).sort((a, b) => FREEST[a.availability] - FREEST[b.availability]).map((d) => d.id);
     // RunPod said it is free without saying where: wherever it puts it (never with a volume, which has its own)
     const places: Array<string | null> = listed.length || volume || offer.dataCenters.length || offer.availability === "NONE" ? listed : [null];
@@ -444,7 +498,7 @@ export class Rented {
         let name = offer.name.slice(0, 36);
         for (let n = 2; names.has(name); n++) name = `${offer.name.slice(0, 36)} ${n}`;
         // without a volume a stop keeps nothing and its GPU may be taken meanwhile: terminated, as for a pod added
-        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString(), cloud: ask.cloud, files: ask.files, leaveOut: ask.leaveOut };
+        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString(), cloud: ask.cloud, volume: volume?.id ?? "", files: ask.files, leaveOut: ask.leaveOut };
         // the next deploy starts from the same choices; the files are this one's
         return { machines: [...current.machines, { id, name, url: podUrl(made.id), dir: "", takes: "all" as const, families: {}, token, rented }], lastDeploy: { ...ask, files: [], leaveOut: [], accept: [] } };
       });

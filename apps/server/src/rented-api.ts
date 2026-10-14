@@ -24,8 +24,27 @@ export function registerRented(app: FastifyInstance, s: Services): void {
     return { gpus: await s.rented.gpus(cloud) };
   });
 
-  /** The account's network volumes; read-only. */
+  /** The account's network volumes, each with the pod running on it when one is; read-only. */
   app.get("/api/runpod/volumes", async () => ({ volumes: await s.rented.volumes() }));
+
+  /** A network volume made (Make a volume…, its monthly price said on the button): billed every month from now. */
+  app.post("/api/runpod/volumes", async (req) => {
+    const { name, size, dataCenter } = z.strictObject({ name: z.string().trim().min(1).max(60), size: z.number().int(), dataCenter: z.string().min(1).max(40) }).parse(req.body);
+    return { volume: await s.rented.makeVolume(name, size, dataCenter) };
+  });
+
+  /** A network volume made larger (Grow…). */
+  app.patch("/api/runpod/volumes/:id", async (req) => {
+    const { size } = z.strictObject({ size: z.number().int() }).parse(req.body);
+    await s.rented.growVolume(z.object({ id: z.string().max(80) }).parse(req.params).id, size);
+    return { ok: true };
+  });
+
+  /** A network volume deleted with what it holds (Delete…): refused while a pod is mounted on it. */
+  app.delete("/api/runpod/volumes/:id", async (req) => {
+    await s.rented.deleteVolume(z.object({ id: z.string().max(80) }).parse(req.params).id);
+    return { ok: true };
+  });
 
   /** Whether each image a deploy may run can be pulled now: the dialog says which cannot. */
   app.get("/api/runpod/images", async () => s.rented.images());
