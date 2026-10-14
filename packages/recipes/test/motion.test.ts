@@ -3,6 +3,7 @@ import { dryContext, parseInput, type MediaFacts } from "@afflatus/core";
 import { scailMotion } from "../src/scail/motion";
 import { chunkLengths } from "../src/motion/driving";
 import { SCAIL_FPS } from "../src/scail/family";
+import { wanAnimateMotion } from "../src/wananimate/motion";
 
 type Node = { class_type: string; inputs: Record<string, unknown> };
 type Graph = Record<string, Node>;
@@ -49,6 +50,13 @@ describe("SCAIL-2 · Motion transfer", () => {
     expect(of(graph, "BasicScheduler")[0]!.inputs.steps).toBe(6);
   });
 
+  it("takes a timeline's frame when it is on one, whatever the picture's shape", () => {
+    const input = parseInput(scailMotion, { picture: "p1", driving: { asset: "v1" } });
+    const graph = scailMotion.build(input, dryContext({ slots, uploads: { picture: "p.png", driving: "d.mp4" }, media: { picture: { width: 768, height: 1360 }, driving: part(81 / SCAIL_FPS) }, canvas: { width: 1024, height: 576 } })).graph as Graph;
+    const cond = of(graph, "WanSCAILToVideo")[0]!;
+    expect((cond.inputs.width as number) > (cond.inputs.height as number)).toBe(true);
+  });
+
   it("makes a longer part in chunks inside the job, joined without their carried frames", () => {
     const { graph, built } = build({ drivingSeconds: 10 }, part(10));
     const conds = of(graph, "WanSCAILToVideo");
@@ -92,5 +100,51 @@ describe("SCAIL-2 · Motion transfer", () => {
     expect(() => scailMotion.build(parseInput(scailMotion, { driving: { asset: "v1" } }), dryContext({ slots, uploads: { driving: "d.mp4" } }))).toThrow(/picture/);
     // without a driving video the form is not valid: parseInput refuses it before any build
     expect(() => parseInput(scailMotion, { picture: "p1" })).toThrow();
+  });
+});
+
+describe("Wan Animate 2 · Motion transfer", () => {
+  const wslots = { unet: "wan_animate_2_int8_convrot.safetensors", turbo: "lightx2v.safetensors", clip: "umt5.safetensors", vae: "wan_2.1_vae.safetensors", clipVision: "clip_vision_h.safetensors", rife: "rife49.pth" };
+  const at24 = (seconds: number): MediaFacts => ({ width: 480, height: 854, frames: Math.round(seconds * 24), fps: 24, hasSound: true });
+  const wbuild = (over: Record<string, unknown> = {}, driving: MediaFacts = at24(81 / 24)) => {
+    const input = parseInput(wanAnimateMotion, { picture: "p1", driving: { asset: "v1" }, ...over });
+    return wanAnimateMotion.build(input, dryContext({ slots: wslots, uploads: { picture: "p.png", driving: "d.mp4" }, media: { picture: { width: 768, height: 1360 }, driving } })).graph as Graph;
+  };
+
+  it("runs as ComfyUI's template: the driving video as it is, lightx2v at 1, 6 steps of LCM at CFG 1, the reference's frame trimmed", () => {
+    const graph = wbuild();
+    const cond = of(graph, "WanAnimate2ToVideo")[0]!;
+    expect(cond.inputs).toMatchObject({ length: 81, width: 576, height: 1024, pose_strength: 1, reference_image_strength: 1 });
+    expect(of(graph, "LoraLoaderModelOnly")[0]!.inputs).toMatchObject({ lora_name: "lightx2v.safetensors", strength_model: 1 });
+    expect(of(graph, "KSamplerSelect")[0]!.inputs.sampler_name).toBe("lcm");
+    expect(of(graph, "WanAnimate2Cache")[0]!.inputs).toMatchObject({ device: "cpu", dtype: "int8" });
+    expect(of(graph, "TrimVideoLatent")).toHaveLength(1);
+    // one window: no context windows
+    expect(of(graph, "ContextWindowsManual")).toHaveLength(0);
+  });
+
+  it("keeps the driving video's pace (24 a second, as H3's), RIFE off by default, and takes a longer part in one pass by context windows", () => {
+    const graph = wbuild({ drivingSeconds: 10 }, at24(10));
+    expect(of(graph, "WanAnimate2ToVideo")[0]!.inputs.length).toBe(237);
+    expect(of(graph, "ContextWindowsManual")[0]!.inputs).toMatchObject({ context_length: 21, context_overlap: 8, dim: 2 });
+    expect(of(graph, "FrameInterpolate")).toHaveLength(0);
+    expect(of(graph, "TrimAudioDuration")[0]!.inputs.duration).toBeCloseTo(237 / 24);
+  });
+
+  it("carries on from the clip before: its last frame starts the clip, and is dropped from it", () => {
+    const input = parseInput(wanAnimateMotion, { picture: "p1", driving: { asset: "v1" }, previous: { asset: "v0" } });
+    const graph = wanAnimateMotion.build(input, dryContext({ slots: wslots, uploads: { picture: "p.png", driving: "d.mp4", previous: "prev.mp4" }, media: { picture: { width: 768, height: 1360 }, driving: at24(81 / 24) } })).graph as Graph;
+    expect(of(graph, "WanAnimate2ToVideo")[0]!.inputs.continue_motion).toBeDefined();
+    expect(of(graph, "LoadVideo").map((n) => n.inputs.file)).toContain("prev.mp4");
+    expect(of(graph, "ImageFromBatch").some((n) => Array.isArray(n.inputs.batch_index))).toBe(true);
+  });
+});
+
+describe("SCAIL-2 carrying on from the clip before", () => {
+  it("anchors its first chunk on that clip's last 5 frames, dropped and colour-held as a chunk's", () => {
+    const input = parseInput(scailMotion, { picture: "p1", driving: { asset: "v1" }, previous: { asset: "v0" } });
+    const graph = scailMotion.build(input, dryContext({ slots, uploads: { picture: "p.png", driving: "d.mp4", previous: "prev.mp4" }, media: { picture: { width: 768, height: 1360 }, driving: part(81 / SCAIL_FPS) } })).graph as Graph;
+    expect(of(graph, "WanSCAILToVideo")[0]!.inputs.previous_frames).toBeDefined();
+    expect(of(graph, "ImageFromBatch").some((n) => n.inputs.batch_index === 5)).toBe(true);
   });
 });

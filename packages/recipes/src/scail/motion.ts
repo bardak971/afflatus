@@ -3,7 +3,7 @@ import { SCAIL_CARRIED, SCAIL_CHUNK, SCAIL_FPS } from "./family";
 import { applyLoras, livePreview, loraLoads } from "../shared/model";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import {
-  chunkLengths, drivingFrames, matchedToDriving, MOTION_GRID, MOTION_NODES, MOTION_OPTIONAL, MOTION_OUT_INPUTS, motionCanvas, motionFrames, motionInputs,
+  chunkLengths, drivingFrames, previousFrames, previousInput, matchedToDriving, MOTION_GRID, MOTION_NODES, MOTION_OPTIONAL, motionOutInputs, motionCanvas, motionFrames, motionInputs,
   motionSaved, type MotionShape, type MotionValues,
 } from "../motion/driving";
 
@@ -59,13 +59,14 @@ export const scailMotion = defineRecipe<ScailMotion>({
       id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
       note: "while it renders, a short clip of what is forming, each step. Without it the preview is one still frame. A small cost per step. Needs the KJNodes pack",
     },
-    ...MOTION_OUT_INPUTS,
+    previousInput(SCAIL_FPS, SCAIL_CARRIED),
+    ...motionOutInputs(SCAIL_FPS),
   ],
   needs: ["dpo", "turbo", "clipVision", "sam"],
   nodes: (input) => [
     ...MOTION_NODES, "UNETLoader", "LoraLoaderModelOnly", "CLIPLoader", "VAELoader", "CLIPTextEncode", "CLIPVisionLoader", "CLIPVisionEncode",
     "CheckpointLoaderSimple", "SAM3_VideoTrack", "SCAIL2ColoredMask", "WanSCAILToVideo", "ModelSamplingSD3", "KSamplerSelect", "BasicScheduler", "SamplerCustom", "VAEDecode",
-    ...(input.drivingSeconds * SCAIL_FPS > SCAIL_CHUNK ? ["ImageFromBatch", "ImageBatch"] : []),
+    ...(input.drivingSeconds * SCAIL_FPS > SCAIL_CHUNK ? ["ImageFromBatch", "ImageBatch"] : input.previous ? ["ImageFromBatch"] : []),
   ],
   optionalNodes: [...MOTION_OPTIONAL, VHS, ...CORE_VIDEO_OUT, "ModelPreviewOverrideKJ"],
 
@@ -108,7 +109,8 @@ export const scailMotion = defineRecipe<ScailMotion>({
 
     const lengths = chunkLengths(total, SCAIL_CHUNK, SCAIL_CARRIED);
     let made: Ref | null = null;
-    let previous: Ref | null = null;
+    // the clip before, when there is one, anchors the first chunk as a chunk before it would: its frames dropped, its colours held
+    let previous: Ref | null = previousFrames(g, ctx);
     let offset: Ref | number = 0;
     const passes: Array<{ node: string; steps: number }> = [];
     lengths.forEach((length, i) => {
@@ -170,6 +172,11 @@ export const scailMotion = defineRecipe<ScailMotion>({
         name: "ten seconds in two chunks, one person, biggest first, no match, no RIFE",
         input: { picture: "p1", driving: { asset: "v1" }, drivingSeconds: 10, order: "Biggest first", person: 1, matchDriving: false, smooth: false, keepSound: false, loras: [{ file: "l.safetensors", weight: 0.7 }] },
         slots, uploads: { picture: "p.png", driving: "d.mp4" }, media: { picture, driving: part(10) },
+      },
+      {
+        name: "carrying on from the clip before",
+        input: { picture: "p1", driving: { asset: "v1" }, previous: { asset: "v0" }, drivingSeconds: 5 },
+        slots, uploads: { picture: "p.png", driving: "d.mp4", previous: "prev.mp4" }, media: { picture, driving: part(5), previous: { width: 480, height: 854, frames: 5, fps: SCAIL_FPS } },
       },
     ];
   })(),
