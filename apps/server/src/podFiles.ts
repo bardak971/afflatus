@@ -333,7 +333,7 @@ export class PodFiles {
     return value;
   }
 
-  /** A file's size before it is fetched: this computer's copy's, a preset's that names it, else a cautious guess. */
+  /** A file's size before it is fetched: this computer's copy's, a preset's that names it, the site's, else a cautious guess. */
   private async readSize(f: PodFileWant, src: PodSource): Promise<number> {
     const path = src.kind === "upload" ? src.path : await localCopy(await this.d.lookup.comfyDir(), f.folder, f.file);
     const size = path ? (await stat(path).catch(() => null))?.size : undefined;
@@ -342,6 +342,19 @@ export class PodFiles {
     for (const p of await this.d.lookup.presets().catch(() => [])) {
       const named = p.files.find((x) => x.folder === f.folder && fileName(x.file).toLowerCase() === name && x.size);
       if (named?.size) return named.size;
+    }
+    // the site asked, when looking things up is on: Hugging Face says a file's size on its address (X-Linked-Size, on the
+    // redirect to its storage, whose own length is the redirect's), Civitai with the version's files
+    const settings = await this.d.settings().catch(() => null);
+    if (settings?.civitaiLookups) {
+      if (src.kind === "civitai") {
+        const found = await civitaiVersion(src.version, src.pick ?? fileName(f.file), settings.civitaiKey).catch(() => null);
+        if (found?.file.sizeKB) return Math.round(found.file.sizeKB * 1024);
+      } else if (src.kind === "url" && measureKind(src) === "hf") {
+        const res = await fetch(src.url, { method: "HEAD", redirect: "manual", signal: AbortSignal.timeout(10_000) }).catch(() => null);
+        const said = Number(res?.headers.get("x-linked-size") ?? 0);
+        if (said > 0) return said;
+      }
     }
     return ASSUMED_BYTES;
   }

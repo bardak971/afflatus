@@ -262,8 +262,13 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
     const all = await presets();
     const presetHits = all.filter((p) => hit(`${p.name} ${p.files.map((f) => f.file).join(" ")}`)).slice(0, 12)
       .map((p) => ({ id: p.id, name: p.name, files: p.files.map(withVia), bytes: p.files.reduce((n, f) => n + (f.size ?? 0), 0) }));
-    const familyHits = s.registry.families().filter((f) => !f.imported && hit(`${f.name} ${f.id}`)).slice(0, 8)
-      .map((f) => ({ id: f.id, name: f.name, files: f.slots.filter((x) => x.get && !x.optional).map((x) => withVia({ file: x.get!.file, folder: x.folder, url: x.get!.url })) }))
+    // a family's usual files name their address only: their size asked of the site (kept, as the pod's files' are)
+    const familyHits = (await Promise.all(s.registry.families().filter((f) => !f.imported && hit(`${f.name} ${f.id}`)).slice(0, 8)
+      .map(async (f) => ({ id: f.id, name: f.name, files: await Promise.all(f.slots.filter((x) => x.get && !x.optional).map(async (x) => {
+        const file = withVia({ file: x.get!.file, folder: x.folder, url: x.get!.url });
+        const size = (await s.podFiles.about(file).catch(() => null))?.size;
+        return size ? { ...file, size } : file;
+      })) }))))
       .filter((f) => f.files.length);
     const files: Array<{ file: string; folder: string; size?: number; via: SetFileView["via"] }> = [];
     if (words.length) {
