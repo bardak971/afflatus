@@ -43,6 +43,11 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
+  // the hunt's own timer stopped and its round under way ended before the app goes: one left running into the close (the
+  // timer test's) held the close past its time under a loaded run, and the next test read no ranking
+  t.services.hunt.stop();
+  await (t.services.hunt as unknown as { ticking: Promise<void> | null }).ticking;
+  t.services.rented.stop();
   await t.close();
   await Promise.all([home, runpod, ...spawned.splice(0)].map((x) => x.close().catch(() => {})));
 });
@@ -167,9 +172,14 @@ describe("the hunt", () => {
     await start({ ceiling: 0.6, leftOut: ["NVIDIA A40"] });
     free("NVIDIA A40");
     free("NVIDIA GeForce RTX 4090");
-    await t.services.hunt.tick();
+    // a round whose read of RunPod failed (a loaded run) ranks nothing and is asked again at the next: a few rounds at most
+    let h = await hunt();
+    for (let i = 0; i < 5 && !h.ranking; i++) {
+      await t.services.hunt.tick();
+      h = await hunt();
+    }
     expect(creates()).toBe(0);
-    const h = await hunt();
+    expect(h.ranking, JSON.stringify(h.hunt)).not.toBeNull();
     expect(h.ranking!.map((g) => [g.name, g.fits])).toEqual([["A40", "left out by you"], ["RTX 4090", "over your $0.60/h"]]);
     expect((await t.app.inject({ method: "PATCH", url: "/api/hunt", payload: { ceiling: 0 } })).statusCode).toBe(400);
     // a change of another field keeps them as they are
