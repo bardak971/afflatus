@@ -62,6 +62,11 @@ function filesAsked(recipe: Pick<Recipe<any>, "inputs">, input: Record<string, u
 export interface Lack {
   off: boolean;
   files: Array<{ file: string; folder: string; url?: string }>;
+  /**
+   * The files are all it lacks there: with them in its folders, it runs (no node missing, nothing else refused, no other
+   * input with nothing to pick). A rented pod can be sent them (podFiles.ts).
+   */
+  onlyFiles: boolean;
   /** A rented pod whose RunPod balance runs out before this job would end there: how long it lasts, how long the job takes (ms). */
   balance?: { leftMs: number; needMs: number };
 }
@@ -77,7 +82,8 @@ export function lackOn(recipe: Pick<Recipe<any>, "id" | "family" | "inputs">, in
   // "off" is said only of a family switched off by hand (there, or on every machine): one off because its files are not
   // there is said by the files it lacks
   const off = !on && (machine.families[recipe.family] ?? settings.families[recipe.family]) === false;
-  const asked = filesAsked(recipe, input).filter(({ input: id, file }) => status?.options[id] && !status.options[id]!.includes(file));
+  const wanted = filesAsked(recipe, input);
+  const asked = wanted.filter(({ input: id, file }) => status?.options[id] && !status.options[id]!.includes(file));
   if (status?.ready && on && !asked.length) return null;
   const slots = scan.families.find((f) => f.id === recipe.family)?.slots ?? [];
   const files = [
@@ -85,5 +91,13 @@ export function lackOn(recipe: Pick<Recipe<any>, "id" | "family" | "inputs">, in
     ...(status?.missing ?? []).flatMap((m) => (m.folder ? [{ file: m.file, folder: m.folder, ...(m.url ? { url: m.url } : {}) }] : [])),
     ...asked.map(({ file, folder }) => ({ file, folder })),
   ];
-  return { off, files: files.filter((f, i) => files.findIndex((g) => g.file === f.file && g.folder === f.folder) === i) };
+  const unique = files.filter((f, i) => files.findIndex((g) => g.file === f.file && g.folder === f.folder) === i);
+  // with these files there it runs: a family file missing is one of them (its usual file) or the file of an input that
+  // stands for it, an input with nothing to pick is filled by a file it asks for (any other, a choice among files no job
+  // names, is not), and nothing else keeps it from running. A family switched off by hand is never sent files.
+  const filled = new Set(wanted.map((w) => w.input));
+  const slotFilled = (id: string) => slots.some((x) => x.id === id && x.get) || recipe.inputs.some((i) => i.type === "model" && i.slot === id && filled.has(i.id));
+  const onlyFiles = Boolean(status) && !off && unique.length > 0 && !status!.missingNodes.length && !status!.problems.length
+    && status!.emptyInputs.every((id) => filled.has(id)) && status!.missingSlots.every(slotFilled);
+  return { off, files: unique, onlyFiles };
 }

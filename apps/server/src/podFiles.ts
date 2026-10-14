@@ -3,8 +3,9 @@ import { civitaiVersion } from "./civitai";
 import type { Comfy } from "./comfy";
 import type { Db } from "./db";
 import type { Downloads } from "./downloads";
-import { recordMeasure } from "./podMeasures";
-import { measureKind, podSource, type PodSource, type SourceLookup } from "./podSources";
+import { stat } from "node:fs/promises";
+import { measuredRange, recordMeasure, type MeasureKind, type Range } from "./podMeasures";
+import { localCopy, measureKind, podSource, type PodSource, type SourceLookup } from "./podSources";
 import { PACK_UPLOADS, uploadFile } from "./podUpload";
 import type { Settings } from "./settings";
 import { olderThan } from "./version";
@@ -15,9 +16,10 @@ import { olderThan } from "./version";
  * Each comes from its site straight onto the pod (the node pack's download, from the site's own link: the pod cannot reach
  * Afflatus), or, for a file no site is known for, is sent from this computer (podUpload.ts).
  *
- * The money rule: a file ahead never keeps a pod. It starts only while the pod has work (a job running there or waiting
- * for it); a pod with none goes idle on time and ends as its idle action says, whatever it was getting. A file that
- * cannot be had is said once and stays failed for that pod: its jobs go elsewhere (queue.ts).
+ * The money rule: a download is never work. Files ahead come in the time the pod is billed for anyway (after what a job
+ * waits for), and a pod with nothing to render goes idle on time and ends as its idle action says, whatever it was still
+ * getting (with a volume, what came stays for the next deploy). A file that cannot be had is said once and stays failed
+ * for that pod: its jobs go elsewhere (queue.ts).
  */
 
 export type PodFileState = "next" | "fetching" | "ready" | "failed";
@@ -65,15 +67,27 @@ export interface PodFilesDeps {
   downloads: Downloads;
   /** The machine's ComfyUI, while there is one to reach. */
   comfyOf(machine: string): Promise<Comfy | null>;
-  /** Whether the pod has work: a job running there or waiting for it. Files ahead start only then. */
-  working(machine: string): boolean;
   /** Its cloud (RunPod's secure or community), for the speeds measured on it. */
   cloudOf(machine: string): Promise<string | null>;
   lookup: SourceLookup;
   settings(): Promise<Pick<Settings, "civitaiKey" | "downloadModels" | "civitaiLookups">>;
+  /** Whether the machine's pod runs now: what a pod no longer running was getting is forgotten (its container went with it). */
+  alive(machine: string): boolean;
   /** Something changed: the pod's row says it. */
   changed?(): void;
+  /** A file came to a pod, or failed there: what lists the pod's files is read again, and the queue looks at its jobs again. */
+  settled?(machine: string): void;
 }
+
+/**
+ * What the queue plans with before a source was ever measured: the slow end of what is usual, bytes a second (a pod's
+ * line to Hugging Face and Civitai, this computer's upload). Never said to the user: a speed is said only once measured.
+ */
+const ASSUMED: Record<Exclude<MeasureKind, "boot">, number> = { hf: 30 * 2 ** 20, civitai: 20 * 2 ** 20, url: 20 * 2 ** 20, upload: 3 * 2 ** 20 };
+/** A file whose size nothing says yet is planned as this large. */
+const ASSUMED_BYTES = 8 * 2 ** 30;
+/** How long a source found for a file, and a range measured, are kept before being asked again (the queue asks often). */
+const KEEP_MS = 60_000;
 
 /** How many of a pod's files come at once: two downloads share its line well, and one upload this computer's. */
 const DOWNLOADS_AT_ONCE = 2;
@@ -137,6 +151,59 @@ export class PodFiles {
     return e?.state === "failed" ? e.error ?? "it could not be had" : null;
   }
 
+  /**
+   * How long until these files are on the pod (ms), for the queue's plan: what is left of each, at the slow end of the
+   * speeds measured from its source (or a cautious guess before any was), one after the other. Infinity when one has no
+   * source at all: the pod is then never the sooner place for its job.
+   */
+  async untilThere(machine: string, files: PodFileWant[]): Promise<number> {
+    let ms = 0;
+    for (const f of files) {
+      const e = this.pods.get(machine)?.get(keyOf(f.folder, f.file));
+      if (e?.state === "ready") continue;
+      const src = e?.source !== undefined ? e.source : await this.sourceOf(f);
+      if (!src) return Infinity;
+      const kind = measureKind(src);
+      const left = e?.total ? e.total - e.bytes : f.size ?? (await this.sizeOf(f, src));
+      const range = await this.rangeOf(kind, await this.d.cloudOf(machine));
+      ms += (left / (range?.low ?? ASSUMED[kind])) * 1000;
+    }
+    return ms;
+  }
+
+  private readonly sources = new Map<string, { at: number; value: Promise<PodSource | null> }>();
+  private sourceOf(f: PodFileWant): Promise<PodSource | null> {
+    const key = keyOf(f.folder, f.file);
+    const kept = this.sources.get(key);
+    if (kept && Date.now() - kept.at < KEEP_MS) return kept.value;
+    const value = podSource(this.d.lookup, { file: f.file, folder: f.folder, ...(f.url ? { url: f.url } : {}), ...(f.civitai ? { civitai: f.civitai } : {}) }).catch(() => null);
+    this.sources.set(key, { at: Date.now(), value });
+    return value;
+  }
+
+  private readonly ranges = new Map<string, { at: number; value: Promise<Range | null> }>();
+  private rangeOf(kind: Exclude<MeasureKind, "boot">, cloud: string | null): Promise<Range | null> {
+    const key = `${kind}|${cloud ?? ""}`;
+    const kept = this.ranges.get(key);
+    if (kept && Date.now() - kept.at < KEEP_MS) return kept.value;
+    const value = measuredRange(this.d.db, kind, cloud).catch(() => null);
+    this.ranges.set(key, { at: Date.now(), value });
+    return value;
+  }
+
+  /** A file's size before it is fetched: this computer's copy's, a preset's that names it, else a cautious guess. */
+  private async sizeOf(f: PodFileWant, src: PodSource): Promise<number> {
+    const path = src.kind === "upload" ? src.path : await localCopy(await this.d.lookup.comfyDir(), f.folder, f.file);
+    const size = path ? (await stat(path).catch(() => null))?.size : undefined;
+    if (size) return size;
+    const name = fileName(f.file).toLowerCase();
+    for (const p of await this.d.lookup.presets().catch(() => [])) {
+      const named = p.files.find((x) => x.folder === f.folder && fileName(x.file).toLowerCase() === name && x.size);
+      if (named?.size) return named.size;
+    }
+    return ASSUMED_BYTES;
+  }
+
   /** A pod's files as its row lists them: needed ones in the order they are fetched, then the ones ahead. */
   view(machine: string): PodFileView[] {
     return this.ordered(machine).map((e) => this.viewOf(e));
@@ -173,23 +240,30 @@ export class PodFiles {
   private async pass(): Promise<void> {
     let changed = false;
     for (const machine of [...this.pods.keys()]) {
+      // a pod stopped or gone: its container's files went with it (a volume's stay, and its scan says so at its next start)
+      if (!this.d.alive(machine)) {
+        this.forget(machine);
+        continue;
+      }
       for (const e of this.ordered(machine)) if (e.state === "fetching" && e.downloadId && this.follow(machine, e)) changed = true;
       const under = this.ordered(machine).filter((e) => e.state === "fetching");
       let downloads = under.filter((e) => e.via !== "upload").length;
       let uploads = under.filter((e) => e.via === "upload").length;
       for (const e of this.ordered(machine)) {
         if (e.state !== "next") continue;
-        // a file ahead takes only what the line has left, and only while the pod has work
-        if (e.tier === "ahead" && (!this.d.working(machine) || this.ordered(machine).some((o) => o.tier === "need" && o.state === "next"))) continue;
+        // a file ahead takes only what the line has left once every file a job waits for has started
+        if (e.tier === "ahead" && this.ordered(machine).some((o) => o.tier === "need" && o.state === "next")) continue;
         if (e.source === undefined) {
-          e.source = await podSource(this.d.lookup, { file: e.file, folder: e.folder, ...(e.url ? { url: e.url } : {}), ...(e.civitai ? { civitai: e.civitai } : {}) }).catch(() => null);
+          e.source = await this.sourceOf(e);
           if (e.source) e.via = measureKind(e.source);
         }
         if (!e.source) {
-          this.fail(e, "no site is known for it, and this computer's ComfyUI has no copy to send");
+          this.fail(machine, e, "no site is known for it, and this computer's ComfyUI has no copy to send");
           changed = true;
           continue;
         }
+        // asked again: a file a job waits for may have been asked for while this one's source was looked up
+        if (e.tier === "ahead" && this.ordered(machine).some((o) => o.tier === "need" && o.state === "next")) continue;
         if (e.via === "upload" ? uploads >= UPLOADS_AT_ONCE : downloads >= DOWNLOADS_AT_ONCE) continue;
         if (e.via === "upload") uploads++;
         else downloads++;
@@ -204,7 +278,7 @@ export class PodFiles {
   /** How a download goes, from the download list: true when its state changed. */
   private follow(machine: string, e: Entry): boolean {
     const v = this.d.downloads.get(e.downloadId!);
-    if (!v) return this.fail(e, "its download was lost: Afflatus was restarted, or it was taken off the list");
+    if (!v) return this.fail(machine, e, "its download was lost: Afflatus was restarted, or it was taken off the list");
     if (v.status === "downloading" && !e.flowingAt) e.flowingAt = Date.now();
     const moved = v.bytes !== e.bytes || (v.total || e.total) !== e.total;
     e.bytes = v.bytes;
@@ -218,7 +292,7 @@ export class PodFiles {
       void this.ready(machine, e, false);
       return true;
     }
-    if (v.status === "error" || v.status === "stopped") return this.fail(e, v.error ?? "it was stopped");
+    if (v.status === "error" || v.status === "stopped") return this.fail(machine, e, v.error ?? "it was stopped");
     return moved;
   }
 
@@ -248,7 +322,7 @@ export class PodFiles {
     } catch (err) {
       const message = (err as Error).message;
       if (THERE.test(message)) await this.ready(machine, e, false);
-      else this.fail(e, message);
+      else this.fail(machine, e, message);
       this.d.changed?.();
     }
   }
@@ -271,7 +345,7 @@ export class PodFiles {
       });
       await this.ready(machine, e);
     } catch (err) {
-      if (!stop.signal.aborted) this.fail(e, (err as Error).message);
+      if (!stop.signal.aborted) this.fail(machine, e, (err as Error).message);
     } finally {
       delete e.upload;
       void this.tick();
@@ -283,16 +357,18 @@ export class PodFiles {
     e.state = "ready";
     if (e.total) e.bytes = e.total;
     this.d.changed?.();
+    this.d.settled?.(machine);
     if (measured && e.flowingAt && e.via) {
       await recordMeasure(this.d.db, { kind: e.via, cloud: await this.d.cloudOf(machine), bytes: e.total || e.bytes, ms: Date.now() - e.flowingAt }).catch(() => {});
     }
     void this.tick();
   }
 
-  private fail(e: Entry, error: string): true {
+  private fail(machine: string, e: Entry, error: string): true {
     e.state = "failed";
     e.error = error;
-    console.warn(`[pod files] ${e.file} (${e.folder}) failed: ${error}`);
+    console.warn(`[pod files] ${e.file} (${e.folder}) failed on ${machine}: ${error}`);
+    this.d.settled?.(machine);
     return true;
   }
 }

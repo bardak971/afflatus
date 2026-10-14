@@ -17,6 +17,8 @@ export interface Waiting {
   pin: string | null;
   /** The machines that have its files, with its family on (machineScans.ts canRun); left out: any. */
   can?: ReadonlySet<string>;
+  /** Of those, the rented pods it can run on once its files come there, with how long until they are there (ms). */
+  fetchMs?: ReadonlyMap<string, number>;
 }
 
 /** A waiting job with what its forecast says (all null when nothing like it was rendered yet). */
@@ -65,7 +67,8 @@ export function plan(lanes: readonly Lane[], jobs: readonly Planned[]): Map<stri
     let best: { lane: Lane; starts: number; ends: number } | null = null;
     for (const lane of lanes) {
       if (!takes(lane, job)) continue;
-      const starts = at.get(lane.id)!;
+      // on a pod still getting its files, it starts once they are there (they come while the pod renders what is before it)
+      const starts = Math.max(at.get(lane.id)!, job.fetchMs?.get(lane.id) ?? 0);
       const cold = Boolean(job.model && !held.get(lane.id)!.has(job.model));
       const ends = starts + (cold ? job.loadMs ?? UNKNOWN_LOAD_MS : 0) + (job.renderMs ?? 0) * lane.pace;
       // the first machine that ends it soonest: ties go to the one named first

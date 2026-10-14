@@ -48,14 +48,28 @@ describe("mergeScans", () => {
 });
 
 describe("lackOn", () => {
-  const h3 = { id: "h3-i2v", family: "h3", inputs: [{ id: "unet", type: "model", folder: "diffusion_models", label: "Model" }] } as never;
+  const h3 = { id: "h3-i2v", family: "h3", inputs: [{ id: "unet", type: "model", folder: "diffusion_models", label: "Model", slot: "model" }] } as never;
   it("says the files a machine lacks, and calls a family off only when it was switched off", () => {
     const none = scan([recipe("h3-i2v", false, { unet: [] })]);
     // no H3 file there: the family follows its files, so it is not "off", it lacks the file asked for
-    expect(lackOn(h3, { unet: "h3.safetensors" }, none, { families: {} }, machine("b"), familyOf)).toEqual({ off: false, files: [{ file: "h3.safetensors", folder: "diffusion_models" }] });
+    expect(lackOn(h3, { unet: "h3.safetensors" }, none, { families: {} }, machine("b"), familyOf)).toEqual({ off: false, files: [{ file: "h3.safetensors", folder: "diffusion_models" }], onlyFiles: true });
     // switched off on that machine: said so, ready or not
     const all = scan([recipe("h3-i2v", true, { unet: ["h3.safetensors"] })]);
-    expect(lackOn(h3, { unet: "h3.safetensors" }, all, { families: {} }, machine("b", { h3: false }), familyOf)).toEqual({ off: true, files: [] });
+    expect(lackOn(h3, { unet: "h3.safetensors" }, all, { families: {} }, machine("b", { h3: false }), familyOf)).toEqual({ off: true, files: [], onlyFiles: false });
     expect(lackOn(h3, { unet: "h3.safetensors" }, all, { families: {} }, machine("b"), familyOf)).toBeNull();
+  });
+
+  it("says when the files are all a machine lacks: what a rented pod can be sent", () => {
+    const status = (over: Partial<RecipeStatus>) => scan([{ ...recipe("h3-i2v", false, { unet: [] }), ...over }]);
+    const lack = (s: Scan, h = h3) => lackOn(h, { unet: "h3.safetensors" }, s, { families: {} }, machine("b"), familyOf);
+    expect(lack(status({}))?.onlyFiles).toBe(true);
+    // a node missing too, or something else ComfyUI would refuse: files alone would not make it run
+    expect(lack(status({ missingNodes: ["MiniMaxH3Cache"] }))?.onlyFiles).toBe(false);
+    expect(lack(status({ problems: ["sampler x is not offered"] }))?.onlyFiles).toBe(false);
+    // a family file no input stands for and no address is known for
+    expect(lack(status({ missingSlots: ["model", "vae"] }))?.onlyFiles).toBe(false);
+    // an input with nothing to pick that no job file fills (a choice among files)
+    expect(lack(status({ emptyInputs: ["upscaler"] }))?.onlyFiles).toBe(false);
+    expect(lack(status({ emptyInputs: ["unet"] }))?.onlyFiles).toBe(true);
   });
 });
