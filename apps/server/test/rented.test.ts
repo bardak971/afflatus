@@ -170,16 +170,20 @@ describe("a rented machine", () => {
     // silent, but not for long yet: it runs on
     await t.services.rented.poll();
     expect((await row()).status).toBe("running");
-    // silent, but its GPU at work (a node that says nothing on the way): it runs on
-    t.services.rented.stuckMs = 400;
-    for (let i = 0; i < 6; i++) {
-      podComfy.send("crystools.monitor", { cpu_utilization: 10, gpus: [{ gpu_utilization: 95, vram_used: 20, vram_total: 24 }] });
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    await t.services.rented.poll();
-    expect((await row()).status).toBe("running");
-    // its GPU idle and ComfyUI silent: stuck
-    await new Promise((r) => setTimeout(r, 450));
+    // silent, but its GPU at work (a node that says nothing on the way): its silence starts again. Read off the clock, not
+    // raced against it: a timer in a busy test run can be late by more than any limit a test would set
+    await new Promise((r) => setTimeout(r, 300));
+    const before = t.services.queue.quietFor(id);
+    expect(before).toBeGreaterThanOrEqual(250);
+    podComfy.send("crystools.monitor", { cpu_utilization: 10, gpus: [{ gpu_utilization: 95, vram_used: 20, vram_total: 24 }] });
+    await until(() => t.services.queue.quietFor(id) < before);
+    // an idle GPU does not: the silence goes on
+    const idleFrom = t.services.queue.quietFor(id);
+    podComfy.send("crystools.monitor", { cpu_utilization: 10, gpus: [{ gpu_utilization: 2, vram_used: 20, vram_total: 24 }] });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(t.services.queue.quietFor(id)).toBeGreaterThanOrEqual(idleFrom);
+    // silent past the limit: stuck
+    t.services.rented.stuckMs = 1;
     await t.services.rented.poll();
     await until(async () => (await row()).status === "failed");
     expect((await row()).error).toMatch(/^Stuck: no progress from ComfyUI/);
