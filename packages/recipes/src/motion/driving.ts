@@ -36,16 +36,17 @@ export interface MotionShape {
 
 /** The inputs every Motion transfer form opens with: the picture, the driving video and its part, the prompt, the size. */
 export function motionInputs(shape: MotionShape, placeholder = "A man in a black t-shirt and a silver watch stands in a crowded room lit by red light. He raps to the camera, moving his hands to the beat."): InputSpec[] {
-  const most = shape.most / shape.fps;
+  // the most one job takes, in tenths of a second as the field says it (Wan Animate's one window: 3.3 s)
+  const most = Math.floor((shape.most / shape.fps) * 10) / 10;
   return [
     // the driving video first: it says where the clip starts, and which of its frames a picture is made from
     {
       id: "driving", type: "clip", role: "source", label: "Driving video", frames: [shape.most], fps: shape.fps, whole: true,
       window: { start: "drivingStart", seconds: "drivingSeconds", fits: { frames: shape.most, fps: shape.fps, pad: 0, min: shape.least / shape.fps, grid: MOTION_GRID } },
-      note: `how it moves: the body, the hands, the face. One job takes ${Math.floor(most)} s of it; a longer video goes on a timeline, part by part`,
+      note: `how it moves: the body, the hands, the face. One job takes ${most} s of it; a longer video goes on a timeline, part by part`,
     },
     { id: "drivingStart", type: "number", label: "Driving video: start", min: 0, max: 3600, step: 0.1, default: 0, unit: " s", showWhen: "driving" },
-    { id: "drivingSeconds", type: "number", label: "Driving video: length", min: 1, max: Math.floor(most * 10) / 10, step: 0.1, default: 5, unit: " s", showWhen: "driving" },
+    { id: "drivingSeconds", type: "number", label: "Driving video: length", min: 1, max: most, step: 0.1, default: Math.min(5, most), unit: " s", showWhen: "driving" },
     {
       id: "picture", type: "image", role: "source", label: "Picture",
       note: "what moves. Its room, its light and its people are kept: only the motion comes from the video. Front-facing works best",
