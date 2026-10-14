@@ -2,10 +2,11 @@ import { useRef, type RefObject } from "react";
 import { RANDOM_SEED, typedSeed } from "@afflatus/core";
 import { useQueueVariation } from "./queueVariation";
 import type { Asset } from "./api";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { api } from "./api";
 import { eraseNow } from "./binActions";
 import { askAboutDisk } from "./Confirm";
-import { useSetup, type useAsset } from "./data";
+import { useSettings, useSetup, type useAsset } from "./data";
 import { saveAsset } from "./download";
 import { itemActions, PASS_KEYS, type ActionId, type ItemFacts, type Runs } from "./itemActions";
 import { useItemMutations, useTimelineSubmenu } from "./itemMutations";
@@ -57,6 +58,17 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
   const say = useBanners((b) => b.push);
   const { a, g, recipe, reuse, carrier, carryOn, opener, openerName, animate, mover, moverName, transfer, openerChoices, moverChoices, follower, follow, toolFor, toolInput, openTool } = drafts;
   const said = (title: string) => (sayErrors ? { onError: mutations.failed(title) } : undefined);
+  // Send to: the file itself, to the Telegram chat and the Discord channel set up for the notifications
+  const notify = useSettings().data?.notify;
+  const channels = [
+    ...(notify?.hasTelegramToken && notify.telegramChat ? [{ id: "telegram" as const, name: "Telegram" }] : []),
+    ...(notify?.hasDiscordWebhook ? [{ id: "discord" as const, name: "Discord" }] : []),
+  ];
+  const share = useMutation({
+    mutationFn: (v: { id: string; channel: "telegram" | "discord"; name: string }) => api.shareAsset(v.id, v.channel).then(() => v),
+    onSuccess: (v) => say({ id: `share:${v.id}:${v.channel}`, tone: "good", title: `Sent to ${v.name}` }),
+    onError: mutations.failed("It could not be sent"),
+  });
 
   // the button of a pass just queued says so for a moment ("Queued", the ok look), on the item it was queued for: the
   // job shows in the queue only once the server has it, and a click with nothing on screen reads as one that missed
@@ -113,6 +125,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     compare: "open it from a list",
     timelines: a.id ? timeline.items(a) : [],
     moves: a.id ? mutations.moves(a) : [],
+    shares: a.id && (a.kind === "image" || a.kind === "video") ? channels.map((c) => ({ label: c.name, disabled: share.isPending, note: share.isPending ? "sending…" : undefined, run: () => share.mutate({ id: a.id, channel: c.id, name: c.name }) })) : [],
     queued: done && done.id === a.id ? { [done.action]: true } : undefined,
     busy: {
       "reuse-same": reuse.isPending, "reuse-new": reuse.isPending, variation: queued.isPending, i2v: animate.isPending, extend: carryOn.isPending, motion: transfer.isPending,

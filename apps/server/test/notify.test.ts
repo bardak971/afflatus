@@ -313,3 +313,27 @@ describe("what the rented GPUs tell", () => {
     expect(texts().find((x) => x.includes("RunPod balance low"))).toMatch(/Under \$2\.00\. At \$0 RunPod stops every pod/);
   });
 });
+
+describe("a picture or a video sent by hand (Send to)", () => {
+  const uploadPng = async () => {
+    const png = await sharp({ create: { width: 64, height: 48, channels: 3, background: "#c33" } }).png().toBuffer();
+    const res = await t.app.inject({ method: "POST", url: "/api/assets?name=zz-test.png", headers: { "content-type": "image/png", "x-afflatus": "1" }, payload: png });
+    return res.json().id as string;
+  };
+  it("goes to Telegram and to Discord as the file itself, with its name", async () => {
+    await setUp();
+    const id = await uploadPng();
+    expect((await post(t.app, `/api/assets/${id}/share`, { channel: "telegram" })).statusCode).toBe(200);
+    const sent = telegram.heard.find((h) => h.url.includes("/sendPhoto"));
+    expect(sent?.url).toContain(`/bot${TOKEN}/sendPhoto`);
+    expect(sent?.body.toString("latin1")).toMatch(/name="photo"; filename="zz-test/);
+    expect((await post(t.app, `/api/assets/${id}/share`, { channel: "discord" })).statusCode).toBe(200);
+    expect(discord.heard.at(-1)?.body.toString("latin1")).toMatch(/name="files\[0\]"; filename="zz-test/);
+  });
+  it("is refused where nothing is set up, or for what is not in the library", async () => {
+    const id = await uploadPng();
+    expect((await post(t.app, `/api/assets/${id}/share`, { channel: "telegram" })).statusCode).toBe(409);
+    await setUp();
+    expect((await post(t.app, `/api/assets/nothere/share`, { channel: "discord" })).statusCode).toBe(404);
+  });
+});
