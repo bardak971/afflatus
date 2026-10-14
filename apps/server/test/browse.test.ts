@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { thumbOf } from "../src/browse";
+import { forAdults, thumbOf } from "../src/browse";
 import { forgetHuggingFace } from "../src/huggingface";
 import { writeSettings } from "../src/settings";
 import { get, makeApp, post, type TestApp } from "./helpers";
@@ -88,6 +88,27 @@ describe("find models", () => {
     await t.db.insertInto("model_hashes").values({ folder: "loras", file: "handheld_low.safetensors", size: 1, mtime: 1, sha256: "D".repeat(64), hashed_at: "2026-10-14", civitai_version: 0, hf_url: null, matched_at: "2026-10-14" }).execute();
     const files = (await get(t.app, "/api/browse/civitai?q=handheld")).json().items[0].versions[0].files;
     expect(files[1].have).toEqual([{ kind: "set", name: "Video" }]);
+  });
+
+  it("with All of Civitai off, leaves out a model for adults by its flag, its name or its explicit tags, not a checkpoint merely tagged nsfw", async () => {
+    expect(forAdults({ name: "NSFW Master" })).toBe(true);
+    expect(forAdults({ name: "Breast size slider" })).toBe(true);
+    expect(forAdults({ name: "Styles pack", tags: ["anime", "hentai"] })).toBe(true);
+    expect(forAdults({ name: "Plain", nsfw: true })).toBe(true);
+    expect(forAdults({ name: "Juggernaut XL", tags: ["photorealistic", "nsfw"] })).toBe(false);
+    expect(forAdults({ name: "Hairstyles Collection", tags: ["woman", "sexy"] })).toBe(false);
+    expect(forAdults({ name: "Essex landscapes", tags: ["sussex"] })).toBe(false);
+    const flagged = { ...civModel, id: 78, name: "Nude Pack" };
+    site.removeAllListeners("request");
+    site.on("request", (req, res) => {
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ items: [civModel, flagged], metadata: { nextCursor: "c2" } }));
+    });
+    const off = (await get(t.app, "/api/browse/civitai?q=x")).json();
+    expect(off.items.map((c: { id: string }) => c.id)).toEqual(["77"]);
+    expect(off.next).toBe("c2");
+    const on = (await get(t.app, "/api/browse/civitai?q=x&all=1")).json();
+    expect(on.items.map((c: { id: string }) => c.id)).toEqual(["77", "78"]);
   });
 
   it("says which family a model fits by its base model, and offers the families' base models as filters", async () => {
