@@ -29,6 +29,12 @@ export interface Family {
   id: string;
   name: string;
   summary: string;
+  /**
+   * What the "?" beside the model says (the form, the model list, Settings › Models): what it makes, what it is best and
+   * weak at, in plain words. Measured by Afflatus's own tests or said by the model's authors; nothing that reads as an
+   * invitation to misuse (an edit "guided by reference pictures", not who it can put where).
+   */
+  help?: { what: string; best: string; weak: string };
   promptStyle: "tags" | "sentences" | "sections";
   /** The family of workflows the user imported (Workflows) under one model name, not a built-in one. */
   imported?: true;

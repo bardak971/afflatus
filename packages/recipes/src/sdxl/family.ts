@@ -8,6 +8,11 @@ export const sdxl = defineFamily({
   id: "sdxl",
   name: "SDXL",
   summary: "Illustrious, NoobAI, Pony and other SDXL checkpoints. Prompts are danbooru tags.",
+  help: {
+    what: "Pictures from tags: the large family of community checkpoints (Illustrious, NoobAI, Pony).",
+    best: "anime and illustration styles; the most community checkpoints and LoRAs",
+    weak: "prompts written as sentences, readable text",
+  },
   promptStyle: "tags",
   // the checkpoint is picked per generation, so it is an input of each recipe; this slot only says, on the setup page,
   // where one goes and offers the official base model as a start (any file in the folder satisfies it)

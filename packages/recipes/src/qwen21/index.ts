@@ -15,6 +15,11 @@ export const qwen21 = defineFamily({
   id: "qwen21",
   name: "Qwen Image 2.1",
   summary: "txt2img and instruction-based editing in one model, up to 10 reference images, native 2K. Weights under the Qwen Research License (research use).",
+  help: {
+    what: "Pictures and edits in one model, guided by up to 9 reference pictures, native 2K.",
+    best: "edits guided by reference pictures that leave the rest of the picture as it was",
+    weak: "research-use licence; lights what it adds evenly unless asked for the scene's light",
+  },
   promptStyle: "sentences",
   slots: [
     {

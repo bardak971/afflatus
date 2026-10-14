@@ -15,6 +15,11 @@ export const scail = defineFamily({
   id: "scail",
   name: "SCAIL-2",
   summary: "Motion transfer: a picture moved like a driving video, body, hands and mouth. On Wan 2.1 14B, 16 fps.",
+  help: {
+    what: "A picture moved like a driving video, its room, its light and its people kept.",
+    best: "several people, each paired with who drives them; holding the face",
+    weak: "16 frames a second (RIFE doubles them), no sound of its own; complex motion and long clips can lose quality",
+  },
   promptStyle: "sentences",
   slots: [
     {

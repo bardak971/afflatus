@@ -141,11 +141,12 @@ export function Toggle({ on, onChange, label, note, bare, disabled }: { on: bool
  * A small ? that tells something on hover or focus: where a line of explanation would be noise. What it says
  * is the app's tooltip (Tip.tsx), with its arrow; `title` is a bold first line over it.
  */
-export function Help({ text, title, className }: { text: string; title?: string; className?: string }) {
+export function Help({ text, title, className, inside }: { text: string; title?: string; className?: string; /** Within a button of its own (a row that opens): a mark that tells on hover, not a button in a button. */ inside?: boolean }) {
+  const Mark = inside ? "span" : "button";
   return (
     <span className={cx("inline-flex shrink-0 items-center", className)}>
-      <button
-        type="button"
+      <Mark
+        {...(inside ? {} : { type: "button" as const })}
         data-help=""
         aria-label={title ? `${title}: ${text}` : text}
         data-tip={text}
@@ -153,7 +154,7 @@ export function Help({ text, title, className }: { text: string; title?: string;
         className="flex h-4 w-4 items-center justify-center rounded-full bg-accent-wash text-[10px] leading-none font-bold text-accent hover:brightness-125 focus-visible:brightness-125"
       >
         ?
-      </button>
+      </Mark>
     </span>
   );
 }

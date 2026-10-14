@@ -13,6 +13,11 @@ export const h3 = defineFamily({
   id: "h3",
   name: "MiniMax H3",
   summary: "Video with audio. i2v from a first frame, first and last frame, or extending a previous clip.",
+  help: {
+    what: "Video with its sound, made together: speech, voices, ambience.",
+    best: "talking scenes, dialogue in many languages, the cast from pictures, clips that join on a timeline",
+    weak: "4 to 15 s a clip; longer goes on a timeline",
+  },
   promptStyle: "sections",
   slots: [
     {

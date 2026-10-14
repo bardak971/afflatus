@@ -15,6 +15,11 @@ export const qwen = defineFamily({
   id: "qwen",
   name: "Qwen Image",
   summary: "txt2img from natural-language prompts, with legible text rendering. Qwen Image Edit is the edit model: instruction-based image editing.",
+  help: {
+    what: "Pictures from sentences, with readable text; Qwen Image Edit edits by instruction.",
+    best: "text in pictures, in English and Chinese; long, detailed prompts",
+    weak: "edits need the Edit model, a model of its own",
+  },
   promptStyle: "sentences",
   slots: [
     {
