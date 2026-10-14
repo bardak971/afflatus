@@ -269,6 +269,9 @@ export function said(f: Forecast, shape: { pixels: number; frames: number }): { 
  * those. 1 is the common pace, 2 half as fast; a machine with nothing to compare is taken at 1. The forecasts are read from
  * every machine's renders together, and a machine's is that times its pace.
  */
+/** How many renders of the same settings a machine needs before its pace is set against another's. */
+const PACE_RENDERS = 3;
+
 export async function machinePaces(db: Db): Promise<Map<string, number>> {
   const rows = await db
     .selectFrom("render_stats")
@@ -290,6 +293,9 @@ export async function machinePaces(db: Db): Promise<Map<string, number>> {
     steps.push(r.step_ms!);
     machines.set(r.machine_id!, steps);
   }
+  // a machine is compared on the settings it rendered a few times: one render (a model loaded cold, the card busy elsewhere)
+  // made the owner's own PC read 1.8 times slower than a pod and every estimate on it nearly doubled
+  for (const machines of byKey.values()) for (const [machine, steps] of machines) if (steps.length < PACE_RENDERS) machines.delete(machine);
   const ratios = new Map<string, number[]>();
   for (const machines of byKey.values()) {
     if (machines.size < 2) continue;
