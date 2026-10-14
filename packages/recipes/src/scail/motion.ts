@@ -39,7 +39,7 @@ export const scailMotion = defineRecipe<ScailMotion>({
   title: "Motion transfer",
   summary: "A picture moved like a driving video: body, hands and mouth. The picture's room, light and people are kept; the motion is the video's.",
   output: "video",
-  // a video of its own, made from a picture and another video: no join with the clips around it
+  // made from a picture and another video; on a timeline, a window of a long source carrying on from the window before (its last frames)
   traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: SCAIL_FPS, frameGrid: MOTION_GRID, windows: { most: SHAPE.most, least: SHAPE.least, carried: SCAIL_CARRIED } },
   inputs: [
     ...motionInputs(SHAPE),
@@ -141,11 +141,11 @@ export const scailMotion = defineRecipe<ScailMotion>({
     });
 
     const images = matchedToDriving(g, ctx, made!, pose, input, frame);
-    const saved = motionSaved(g, ctx, images, input, { frame, fps: SCAIL_FPS, frames: total, parts, carried: SCAIL_CARRIED });
+    const saved = motionSaved(g, ctx, images, input, { frame, fps: SCAIL_FPS, frames: total, parts, carried: SCAIL_CARRIED, made: made! });
     return {
       graph: g.graph,
       phases: g.phases,
-      outputs: [{ node: saved.out, kind: "video", role: "result" }],
+      outputs: [{ node: saved.out, kind: "video", role: "result" }, ...(saved.raw ? [{ node: saved.raw, kind: "video" as const, role: "raw" as const }] : [])],
       totalSteps: input.steps * lengths.length,
       passes,
       loads: [

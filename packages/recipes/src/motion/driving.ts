@@ -1,5 +1,6 @@
 import { frameOf, gridAtOrBefore, type BuildContext, type ClipValue, type FrameGrid, type GraphBuilder, type InputSpec, type LoraValue, type Ref } from "@afflatus/core";
 import { finishFrames } from "../shared/finish";
+import { saveVideo } from "../shared/out";
 import { UPSCALE } from "../video/upscale";
 
 /**
@@ -161,12 +162,17 @@ export function matchedToDriving(g: GraphBuilder, ctx: BuildContext, images: Ref
 }
 
 /** The clip saved: RIFE ×2 when asked, with the driving video's own sound over its part when kept and it has some. */
-export function motionSaved(g: GraphBuilder, ctx: BuildContext, images: Ref, input: MotionValues, at: { frame: { width: number; height: number }; fps: number; frames: number; parts: string; carried?: number }) {
+export function motionSaved(g: GraphBuilder, ctx: BuildContext, images: Ref, input: MotionValues, at: { frame: { width: number; height: number }; fps: number; frames: number; parts: string; carried?: number; made?: Ref }) {
   // carrying on from a clip before, its first `carried` frames are that clip's and are dropped: the sound starts after them,
   // so that windows of one source play its sound end to end
   const skip = ctx.uploads.previous ? at.carried ?? 0 : 0;
   const sound = input.keepSound && Boolean(ctx.media.driving?.hasSound) && ctx.has("TrimAudioDuration")
     ? g.out("TrimAudioDuration", { audio: [at.parts, 1], start_index: skip / at.fps, duration: (at.frames - skip) / at.fps })
     : undefined;
-  return finishFrames(g, ctx, images, { upscale: UPSCALE.off, upscaleBy: 1, upscaleModel: "", crf: input.crf }, { frame: at.frame, rife: input.smooth, fps: at.fps, ...(sound ? { audio: sound } : {}) });
+  const done = finishFrames(g, ctx, images, { upscale: UPSCALE.off, upscaleBy: 1, upscaleModel: "", crf: input.crf }, { frame: at.frame, rife: input.smooth, fps: at.fps, ...(sound ? { audio: sound } : {}) });
+  // the model's own frames, kept beside the clip: the window after carries on from them, not from the finished ones (matched to
+  // the driving video, softened, grained, interpolated and compressed: each join started softer than the clip before ended, the
+  // loss stacking window after window, seen on the meme 2026-10-14). As H3 keeps its own (h3/finish.ts), nearly lossless
+  const raw = at.made ? saveVideo(g, ctx, { images: at.made, fps: at.fps, crf: 10 }) : null;
+  return { ...done, raw };
 }
