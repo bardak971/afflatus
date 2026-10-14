@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { api } from "../../api";
@@ -113,6 +113,20 @@ function RunpodAccount() {
   const s = spending.data?.spending;
   // the caps as saved (written in at once on a save), not as the spending read some seconds ago: two edits in a row each keep the other
   const caps = settings.data?.rentCaps ?? s?.caps ?? { day: 0, month: 0 };
+  // each edit made on the caps as the edits before it left them, and sent after them: a second edit within one round trip
+  // never brings the first one's old value back (a cap is money)
+  const latestCaps = useRef<{ day: number; month: number } | null>(null);
+  const capsQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const changeCaps = (change: Partial<{ day: number; month: number }>) => {
+    const next = { ...(latestCaps.current ?? caps), ...change };
+    latestCaps.current = next;
+    capsQueue.current = capsQueue.current
+      .then(() => saveCaps.mutateAsync(next))
+      .catch(() => {})
+      .finally(() => {
+        if (latestCaps.current === next) latestCaps.current = null;
+      });
+  };
   return (
     <Card
       title="RunPod"
@@ -136,8 +150,8 @@ function RunpodAccount() {
       )}
       {has && (
         <Row setting="comfy.rentcaps" label="Caps" help="At a cap, the render running finishes, then the pods stop; what waits goes to your other machines, and Start says the cap is reached. Empty: no cap.">
-          <CapBox label="a day" value={caps.day} onSave={(day) => saveCaps.mutate({ ...caps, day })} />
-          <CapBox label="a month" value={caps.month} onSave={(month) => saveCaps.mutate({ ...caps, month })} />
+          <CapBox label="a day" value={caps.day} onSave={(day) => changeCaps({ day })} />
+          <CapBox label="a month" value={caps.month} onSave={(month) => changeCaps({ month })} />
         </Row>
       )}
       {(s?.lowBalance || spending.isError || saveCaps.isError) && (

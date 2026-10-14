@@ -90,6 +90,8 @@ export interface RentedMachine {
   deployed: boolean;
   /** When it was deployed, until its ComfyUI first answered; empty after. */
   deployedAt: string;
+  /** The user stopped it, until it is started again. */
+  userStopped: boolean;
   /** RunPod's cloud it was deployed on, when Afflatus deployed it. */
   cloud?: "SECURE" | "COMMUNITY";
   /** The files its deploy asked for, until its first answer hands them to it. */

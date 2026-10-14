@@ -693,7 +693,7 @@ export class Rented {
     }
     // a deployed pod without a volume found stopped (its watchdog stopped it while Afflatus was away, or RunPod did): it keeps
     // nothing and its GPU may be taken, so nothing is left of it on the account. A stop of the user's own is left as it is
-    if (pod?.status === "EXITED" && m.rented!.deployed && !pod.networkVolume && pod.diskGb === 0 && s.stoppedBy !== "you" && !s.stopping) {
+    if (pod?.status === "EXITED" && m.rented!.deployed && !pod.networkVolume && pod.diskGb === 0 && s.stoppedBy !== "you" && !m.rented!.userStopped && !s.stopping) {
       await this.act(m, "terminate", "watchdog");
       return true;
     }
@@ -1078,6 +1078,11 @@ export class Rented {
     if (action === "terminate") await this.dropSecret(m, s, settings.runpodKey);
     s.stoppedBy = action === "start" ? null : why;
     s.error = null;
+    // the user's own stop, kept with the machine (read again after a restart of Afflatus); any start ends it
+    const userStopped = action === "stop" && why === "you";
+    if (action !== "terminate" && Boolean(m.rented!.userStopped) !== userStopped) {
+      await updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id && x.rented ? { ...x, rented: { ...x.rented, userStopped } } : x)) }));
+    }
     if (action !== "start") {
       s.busyAt = null;
       s.stopping = s.pod?.status === "RUNNING";

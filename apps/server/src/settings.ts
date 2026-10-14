@@ -89,6 +89,9 @@ export const rentedSchema = z.object({
    * meanwhile (an image that never pulls keeps a pod provisioning, billed). Emptied once it answered.
    */
   deployedAt: z.string().max(40).default(""),
+  /** The user stopped it (their Stop), until it is started again: kept across a restart of Afflatus, so that a pod the user
+   *  stopped is never taken for one its watchdog stopped (a deployed one that keeps nothing is then terminated). */
+  userStopped: z.boolean().default(false),
   /** RunPod's cloud it was deployed on, when Afflatus deployed it: the speeds its files came at are kept per cloud (podMeasures.ts). */
   cloud: z.enum(["SECURE", "COMMUNITY"]).optional(),
   /** The files its deploy asked for, handed to it at its first answer (podFiles.ts), then emptied. */
