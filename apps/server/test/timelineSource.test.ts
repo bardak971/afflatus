@@ -158,19 +158,20 @@ describe("the windows of a source", () => {
     const tl = await call("POST", "/api/timelines", { name: "zz-test source" });
     const ids = await made(tl, {});
     const before = (await view(tl.id)).clips[2].inputs;
-    // SCAIL carries 5 frames at 16 fps
+    // SCAIL carries 5 frames at 16 fps: a cut makes the 4k + 1 that follow the 80 it shows, 81, ending where it ended
     await call("PATCH", `/api/clips/${ids[2]}`, { joined: "cut" });
     const cut = (await view(tl.id)).clips[2].inputs;
-    expect(cut.drivingStart).toBeCloseTo(before.drivingStart + 5 / 16, 3);
-    expect(cut.drivingSeconds).toBeCloseTo(before.drivingSeconds - 5 / 16, 3);
+    expect(cut.drivingStart).toBeCloseTo(before.drivingStart + 4 / 16, 4);
+    expect(cut.drivingSeconds).toBeCloseTo(81.5 / 16, 4);
+    expect(cut.drivingStart + 81 / 16).toBeCloseTo(before.drivingStart + 85 / 16, 4);
     await call("PATCH", `/api/clips/${ids[2]}`, { joined: "continue" });
     const again = (await view(tl.id)).clips[2].inputs;
-    expect(again.drivingStart).toBeCloseTo(before.drivingStart, 3);
-    expect(again.drivingSeconds).toBeCloseTo(before.drivingSeconds, 3);
+    expect(again.drivingStart).toBe(before.drivingStart);
+    expect(again.drivingSeconds).toBe(before.drivingSeconds);
     await call("POST", `/api/clips/${ids[3]}/duplicate`);
     const v = await view(tl.id);
     expect(v.clips[4].joined).toBe("cut");
-    expect(v.clips[4].inputs.drivingStart).toBeCloseTo(v.clips[3].inputs.drivingStart + 5 / 16, 3);
+    expect(v.clips[4].inputs.drivingStart).toBeCloseTo(v.clips[3].inputs.drivingStart + 4 / 16, 4);
   });
 
   it("are not what a clip added after them is made with: it takes the timeline's other model, else none", async () => {
