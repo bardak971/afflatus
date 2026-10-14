@@ -30,7 +30,8 @@ function FileRow({ f, on, onChange, note, dim, disabled }: { f: DeployFile; on: 
   return (
     <div className={cx("grid grid-cols-[minmax(0,1fr)_auto_64px] items-center gap-3 py-1 text-[13px]", dim && "opacity-55")}>
       <Checkbox checked={on} disabled={disabled || !onChange} onChange={(v) => onChange?.(v)} className="min-w-0">
-        <span className="min-w-0 truncate">{f.file}<span className="text-ink-3"> · {f.folder}{note ? ` · ${note}` : ""}</span></span>
+        {/* the whole name: a model's variants often differ only at its end */}
+        <span className="min-w-0 break-all">{f.file}<span className="text-ink-3"> · {f.folder}{note ? ` · ${note}` : ""}</span></span>
       </Checkbox>
       <ViaChip via={f.via} />
       <span className="text-right font-mono text-xs text-ink-3">{f.size ? size(f.size) : "–"}</span>
@@ -166,6 +167,8 @@ export function DeployModels({ want, set, rate, gpu, onPicked }: { want: DeployA
           ))}
 
           <div className="flex flex-col gap-0.5 border-t border-line pt-2 text-xs text-ink-2">
+            {/* nothing picked: nothing to time or price */}
+            {!picked.all.length ? <span>Nothing to fetch: the pod starts with what its image holds, and gets a job's files when it takes one.</span> : (
             <span>
               <b className="font-mono text-ink">{gb(bytes)}</b> to fetch
               {uploadBytes > 0 && ` · ${size(uploadBytes)} from this PC`}
@@ -174,7 +177,7 @@ export function DeployModels({ want, set, rate, gpu, onPicked }: { want: DeployA
               {time && rate !== null
                 ? <>{est(time.fast)}–{est(time.slow).replace(/^~/, "")} · <b className="text-ink">{usd((time.fast / 3_600_000) * rate, true)}–{usd((time.slow / 3_600_000) * rate, true)}</b> at {usd(rate)}/h</>
                 : "time and price not known yet: measured from your first deploy"}
-            </span>
+            </span>)}
             {v.boot && first && rate !== null && firstFiles.length > 0 && (
               <span>Before your first render: up in {est(v.boot.high)}, then its {gb(firstFiles.reduce((n, f) => n + (f.size ?? 0), 0))} · <b className="text-ink">{est(v.boot.high + first.slow)} · ~{usd(((v.boot.high + first.slow) / 3_600_000) * rate, true)}</b></span>
             )}
