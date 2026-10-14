@@ -341,6 +341,8 @@ describe("Monitor: what a prompt shows on the way", () => {
     await until(() => monitor.stages("p1").length === 1);
     // a node with nothing to show (a text output) adds nothing; a video node's gifs count as its pictures
     fake.send("executed", { prompt_id: "p1", node: "12", output: { text: ["hello"] } });
+    // nor a loader showing what it was given, from the input folder (LoadVideo, a Motion transfer's driving video)
+    fake.send("executed", { prompt_id: "p1", node: "1", output: { images: [{ filename: "drive.mp4", subfolder: "", type: "input" }], animated: [true] } });
     fake.send("executed", { prompt_id: "p1", node: "14", output: { gifs: [{ filename: "clip.mp4", subfolder: "video", type: "output" }] } });
     await until(() => monitor.stages("p1").length === 2);
     expect(monitor.stages("p1")).toEqual([
