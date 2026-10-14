@@ -17,7 +17,7 @@ import { FIRST_MACHINE, readSettings, type Machine } from "./settings";
 import type { Storage } from "./storage";
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
-import { DEFAULT_QUEUE_OPTIONS, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type QueueOptions, type Resume, type Running, type Usual } from "./queueModel";
+import { CAP_REACHED, DEFAULT_QUEUE_OPTIONS, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type QueueOptions, type Resume, type Running, type Usual } from "./queueModel";
 import * as bulk from "./queueBulk";
 import { needsComfy, Offline } from "./queueOffline";
 import * as submitting from "./queueSubmit";
@@ -736,9 +736,11 @@ ${JSON.stringify(input)}`;
         const free = (l: Lane) => !l.running && !l.starting;
         /** Whether a machine's ComfyUI answers, asked once per pass and only when there is a job for it. */
         const asked = new Map<string, boolean>();
-        const answers = async (l: Lane) => {
+        const answers = async (l: Lane, sent = false) => {
           // a machine that cannot take work now (a rented pod not running) is not asked: it is not away, it is off
-          if (this.unavailable(l.id)) return false;
+          // A pod at a spending cap takes nothing new, but a render already sent there is followed: the pod stops after it
+          const off = this.unavailable(l.id);
+          if (off && !(sent && off === CAP_REACHED)) return false;
           if (!asked.has(l.id)) {
             l.reachable = await l.comfy!.client.status().then(() => true, () => false);
             asked.set(l.id, l.reachable);
@@ -751,7 +753,7 @@ ${JSON.stringify(input)}`;
         for (const r of active) {
           if (r.status !== "running" || taken.has(r.id) || !needsComfy(r)) continue;
           const lane = lanes.find((l) => l.id === (r.machine_id ?? this.firstId)) ?? lanes[0]!;
-          if (!free(lane) || !(await answers(lane))) continue;
+          if (!free(lane) || !(await answers(lane, Boolean(r.resume)))) continue;
           this.startOn(lane, r);
           taken.add(r.id);
           started = true;
@@ -877,8 +879,9 @@ ${JSON.stringify(input)}`;
       await Promise.all(scans.map(async ({ lane, scan }) => {
         // a rented pod whose ComfyUI cannot be read now (booting, restarting for node packs, away) starts with nothing: what
         // it has is not known, so it is not given the job (a ComfyUI of the user's own is not held against a job for that)
+        // A pod at a spending cap says so beside the job: it takes nothing new, and stops once its render ends
         if (lane.machine!.rented && !scan?.comfy.online) {
-          lacks[lane.id] = { off: false, files: [], sendable: false, why: "its ComfyUI is not answering yet" };
+          lacks[lane.id] = { off: false, files: [], sendable: false, why: this.unavailable(lane.id) === CAP_REACHED ? CAP_REACHED : "its ComfyUI is not answering yet" };
           return;
         }
         // a lone rented pod is asked too: what it lacks may be sent to it

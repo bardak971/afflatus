@@ -29,6 +29,12 @@ export function readJson<T>(text: string | null | undefined, fallback: T): T {
 export const SHUTDOWN = "shutting down";
 
 /**
+ * Why a rented pod takes no new job once a spending cap is reached (rented.ts unavailable): the render it runs goes on and
+ * the pod stops after it, so nothing new may start there. A render it already has is still followed (an Afflatus restart).
+ */
+export const CAP_REACHED = "a spending cap is reached";
+
+/**
  * The reason a render is aborted with when ComfyUI said nothing of it for too long on a rented GPU (rented.ts): it fails
  * with this message, and the pod, billed meanwhile, is free again for its next job or its idle time.
  */

@@ -12,6 +12,7 @@ import { SEARCHED_FOLDERS } from "./modelSets";
 import { inUseSaid, keptHoldings, noteFill, noticeVolumes, mountedOn, recordHoldings, usedBy, viewVolumes, VOLUME_MAX_GB, VOLUME_MIN_GB, type Storage, type VolumeView } from "./rentedVolumes";
 import { dollars, machineSaid, type Say } from "./notifyWords";
 import { MAX_MACHINES, readSettings, updateSettings, type DeployAsk, type Machine, type Settings } from "./settings";
+import { CAP_REACHED } from "./queueModel";
 
 /**
  * Rented machines: pods the user made on RunPod and added to Afflatus as machines. Afflatus never starts one on its own:
@@ -337,10 +338,14 @@ export class Rented {
   /** Machines deployed only to fill their volume: they take no render. */
   private filling = new Set<string>();
 
-  /** Whether a machine can take work: a rented one only while its pod runs and is not being stopped, never one filling its volume. Null: it can. */
+  /**
+   * Whether a machine can take work: a rented one only while its pod runs and is not being stopped, never one filling its
+   * volume, and none at a spending cap: the render it runs ends, then it stops, and a job started meanwhile (the queue
+   * starts the next one as soon as a render ends, before the next read) would be billed past the cap. Null: it can.
+   */
   unavailable(machine: string): string | null {
     if (this.filling.has(machine)) return "filling its volume";
-    return this.podDown(machine);
+    return this.podDown(machine) ?? (this.seen.get(machine)?.stopAfter ? CAP_REACHED : null);
   }
 
   /** Whether a machine's pod is down: not running, or being stopped. Null: up (or not a rented machine). Its files follow this. */
@@ -1186,7 +1191,8 @@ export class Rented {
     s.cappedAt = s.stopAfter ? s.cappedAt ?? now : null;
     // at a cap: once its render ends, or an hour after the cap when the render does not end
     // A fill pod is terminated: stopped, it would keep its volume mounted (never deleted then) and fill nothing
-    if (s.stopAfter && (!running || now - s.cappedAt! > CAP_GRACE_MS)) {
+    // Whether it renders is read again here, the cap now set: a render that ended while the bill was read is not waited for
+    if (s.stopAfter && (!this.queue.runningOn(m.id) || now - s.cappedAt! > CAP_GRACE_MS)) {
       await this.act(m, m.rented!.fill ? "terminate" : "stop", "cap");
       return;
     }

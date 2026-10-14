@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
 import { podTime } from "../src/runpod";
 import { readSettings } from "../src/settings";
-import { get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
+import { complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /**
  * Rented machines where money is at stake (rented.ts), against a pretend RunPod that misbehaves as the real one can: one pod
@@ -54,6 +54,7 @@ const later = (ms: number) => {
 };
 const rowOf = async (id: string) => (await t.services.queue.status()).machines.find((m) => m.id === id)!;
 const sessions = () => t.db.selectFrom("rent_sessions").selectAll().execute();
+const statusOf = async (job: string) => (await t.db.selectFrom("jobs").select("status").where("id", "=", job).executeTakeFirstOrThrow()).status;
 
 describe("money safety", () => {
   it("one pod RunPod refuses a stop for does not keep the others from being watched and stopped", async () => {
@@ -238,6 +239,52 @@ describe("money safety", () => {
     expect(podA().status).toBe("RUNNING");
     expect((await rowOf(id)).rented?.capped).toBe(true);
     later(61 * 60_000);
+    await t.services.rented.poll();
+    expect(podA().status).toBe("EXITED");
+  });
+
+  it("at a cap, starts nothing new on the pod: the render running ends, the next one waits with why, and the pod stops", async () => {
+    const id = await add(podA().id);
+    await started(id, podA);
+    // the pod alone takes work: the home machine paused
+    await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: { machine: "m1" } });
+    const first = (await post(t.app, "/api/jobs", job())).json().ids[0] as string;
+    await until(() => t.services.queue.runningOn(id) && a.prompts.size === 1);
+    const next = (await post(t.app, "/api/jobs", job({ prompt: "a dog" }))).json().ids[0] as string;
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 0.0000001, month: 0 } } });
+    await t.services.rented.poll();
+    expect(podA().status).toBe("RUNNING");
+    // the job waiting says why it is not sent to the pod
+    expect((await t.services.queue.status()).waiting.find((w) => w.id === next)?.lacks?.[id]?.why).toBe("a spending cap is reached");
+    // the render running ends: the queue looks at once for the next job, before RunPod is read again
+    complete(a, [...a.prompts.keys()][0]!);
+    await until(async () => (await statusOf(first)) === "done");
+    await new Promise((r) => setTimeout(r, 300));
+    expect(a.prompts.size).toBe(1);
+    expect(await statusOf(next)).toBe("queued");
+    await t.services.rented.poll();
+    expect(podA().status).toBe("EXITED");
+    expect(await statusOf(next)).toBe("queued");
+  });
+
+  it("at a cap, what waits goes to another machine once the pod's render ends", async () => {
+    const id = await add(podA().id);
+    await started(id, podA);
+    // each machine renders one that never ends by itself: the home machine stays busy, the pod is free first
+    await post(t.app, "/api/jobs", { ...job(), machine: "m1" });
+    await post(t.app, "/api/jobs", { ...job({ prompt: "a dog" }), machine: id });
+    await until(() => home.prompts.size === 1 && a.prompts.size === 1);
+    const next = (await post(t.app, "/api/jobs", job({ prompt: "a bird" }))).json().ids[0] as string;
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 0.0000001, month: 0 } } });
+    await t.services.rented.poll();
+    complete(a, [...a.prompts.keys()][0]!);
+    await until(() => !t.services.queue.runningOn(id));
+    await new Promise((r) => setTimeout(r, 300));
+    expect(a.prompts.size).toBe(1);
+    // the home machine's render ends: the job waiting goes there
+    complete(home, [...home.prompts.keys()][0]!);
+    await until(() => home.prompts.size === 2);
+    expect((await t.db.selectFrom("jobs").select("machine_id").where("id", "=", next).executeTakeFirstOrThrow()).machine_id).toBe("m1");
     await t.services.rented.poll();
     expect(podA().status).toBe("EXITED");
   });
