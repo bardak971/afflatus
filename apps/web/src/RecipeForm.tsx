@@ -164,7 +164,9 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
 
   const hasFrames = frames.length > 0 || Boolean(frameExtra);
   // while searching, what a screen adds (the model picker, the cast, the designer) steps aside: it is not a setting
-  const hasRefs = refs.length > 0 || (Boolean(look) && (!q || lookHit));
+  // no reference input and no text the cast writes into: the cast is only who goes into a picture (Motion transfer's)
+  const lookWithFrames = refs.length === 0 && recipe.inputs.every((i) => i.type !== "prompt" || Boolean(i.noCast));
+  const hasRefs = refs.length > 0 || (Boolean(look) && !lookWithFrames && (!q || lookHit));
   const promptHit = Boolean(mainText) && (!q || hit(mainText as InputSpec) || texts.length > 0 || helpersHit);
   const found = Number(helpersHit) + Number(madeHit) + Number(lookHit) + knobs.length + loras.length + texts.length + (mainText && hit(mainText) ? 1 : 0) + frames.length + refs.length + sampling.length + upscaling.length + out.length + encoding.length + rare.length + hidden.length;
 
@@ -212,7 +214,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
       {!promptMoved && promptBlock}
       <InputsPart
         frames={frames} refs={refs} framesChosen={said.framesChosen.length} refsCount={said.refsCount} chosen={JSON.stringify([...frames, ...refs].map((i) => values[i.id] ?? null))} summary={inputsSummary} missing={said.missing}
-        look={look} lookHit={lookHit} frameExtra={frameExtra} q={q} render={render}
+        look={look} lookHit={lookHit} lookWithFrames={lookWithFrames} frameExtra={frameExtra} q={q} render={render}
       />
       {chapters.map((ch) => {
         if (ch.id === "advanced") return <div key="advanced" className="contents">{advancedPart}</div>;

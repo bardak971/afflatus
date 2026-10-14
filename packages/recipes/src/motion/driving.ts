@@ -38,10 +38,7 @@ export interface MotionShape {
 export function motionInputs(shape: MotionShape, placeholder = "A man in a black t-shirt and a silver watch stands in a crowded room lit by red light. He raps to the camera, moving his hands to the beat."): InputSpec[] {
   const most = shape.most / shape.fps;
   return [
-    {
-      id: "picture", type: "image", role: "source", label: "Picture",
-      note: "what moves. Its room, its light and its people are kept: only the motion comes from the video. Front-facing works best",
-    },
+    // the driving video first: it says where the clip starts, and which of its frames a picture is made from
     {
       id: "driving", type: "clip", role: "source", label: "Driving video", frames: [shape.most], fps: shape.fps, whole: true,
       window: { start: "drivingStart", seconds: "drivingSeconds", fits: { frames: shape.most, fps: shape.fps, pad: 0, min: shape.least / shape.fps, grid: MOTION_GRID } },
@@ -49,6 +46,10 @@ export function motionInputs(shape: MotionShape, placeholder = "A man in a black
     },
     { id: "drivingStart", type: "number", label: "Driving video: start", min: 0, max: 3600, step: 0.1, default: 0, unit: " s", showWhen: "driving" },
     { id: "drivingSeconds", type: "number", label: "Driving video: length", min: 1, max: Math.floor(most * 10) / 10, step: 0.1, default: 5, unit: " s", showWhen: "driving" },
+    {
+      id: "picture", type: "image", role: "source", label: "Picture",
+      note: "what moves. Its room, its light and its people are kept: only the motion comes from the video. Front-facing works best",
+    },
     {
       // the cast is not written into it: on this form the cast is who goes into a picture made from the video (motionPicture.tsx)
       id: "prompt", type: "prompt", label: "Prompt", style: "sentences", optional: true, noCast: true, designed: true,
