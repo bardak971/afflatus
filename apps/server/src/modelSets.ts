@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { fileKey, presetFileSchema, type PresetFile } from "@afflatus/core";
+import { fileKey, fuzzyFilter, presetFileSchema, type PresetFile } from "@afflatus/core";
 import { now, OWNER } from "./db";
 import { httpError, notFound } from "./errors";
 import { beginDownload } from "./fetchFile";
@@ -252,18 +252,18 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
    */
   app.get("/api/model-sets/search", async (req) => {
     const { q } = z.object({ q: z.string().max(200).default("") }).parse(req.query);
-    const words = q.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
-    const hit = (text: string) => words.every((w) => text.toLowerCase().includes(w));
+    // matched as every list of the app is (core fuzzy): a typo, a letter left out, words in any order; the best first
+    const words = q.trim();
     // each file with where it comes from, as the server judges it (a preset's own address or version)
     const withVia = <F extends PresetFile>(f: F) => {
       const src = presetSource(f);
       return { ...f, via: src ? measureKind(src) : null };
     };
     const all = await presets();
-    const presetHits = all.filter((p) => hit(`${p.name} ${p.files.map((f) => f.file).join(" ")}`)).slice(0, 12)
+    const presetHits = fuzzyFilter(all, words, (p) => `${p.name} ${p.files.map((f) => f.file).join(" ")}`).slice(0, 12)
       .map((p) => ({ id: p.id, name: p.name, files: p.files.map(withVia), bytes: p.files.reduce((n, f) => n + (f.size ?? 0), 0) }));
     // a family's usual files name their address only: their size asked of the site (kept, as the pod's files' are)
-    const familyHits = (await Promise.all(s.registry.families().filter((f) => !f.imported && hit(`${f.name} ${f.id}`)).slice(0, 8)
+    const familyHits = (await Promise.all(fuzzyFilter(s.registry.families().filter((f) => !f.imported), words, (f) => `${f.name} ${f.id}`).slice(0, 8)
       .map(async (f) => ({ id: f.id, name: f.name, files: await Promise.all(f.slots.filter((x) => x.get && !x.optional).map(async (x) => {
         const file = withVia({ file: x.get!.file, folder: x.folder, url: x.get!.url });
         const size = (await s.podFiles.about(file).catch(() => null))?.size;
@@ -271,12 +271,12 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
       })) }))))
       .filter((f) => f.files.length);
     const files: Array<{ file: string; folder: string; size?: number; via: SetFileView["via"] }> = [];
-    if (words.length) {
+    if (words) {
       const comfy = await s.comfy();
       const dir = (await readSettings(s.db)).comfyDir;
       // every folder asked at once; at most 30 files found, each looked for on this computer at once
       const lists = await Promise.all(SEARCHED_FOLDERS.map(async (folder) => ({ folder, names: await comfy.client.models(folder).catch(() => [] as string[]) })));
-      const found = lists.flatMap(({ folder, names }) => names.filter(hit).map((file) => ({ file, folder }))).slice(0, 30);
+      const found = fuzzyFilter(lists.flatMap(({ folder, names }) => names.map((file) => ({ file, folder }))), words, (f) => f.file).slice(0, 30);
       // where a pod would get each, as the pod does: a site that knows it (a preset's, a family's, the Civitai version it was
       // matched to) before an upload from this computer, which is only for a file no site has
       files.push(...(await Promise.all(found.map(async (f) => {

@@ -120,6 +120,8 @@ describe("a model set", () => {
     await preset([UNET, VAE]);
     const found = (await get(t.app, "/api/model-sets/search?q=h3")).json();
     expect(found.presets.map((p: { name: string }) => p.name)).toContain("My H3");
+    // as every list of the app: words in another order, a letter left out
+    for (const typed of ["h3 my", "my h"]) expect((await get(t.app, `/api/model-sets/search?q=${encodeURIComponent(typed)}`)).json().presets.map((p: { name: string }) => p.name)).toContain("My H3");
     expect(found.families.map((f: { id: string }) => f.id)).toContain("h3");
     expect(found.families.find((f: { id: string }) => f.id === "h3").files[0]).toMatchObject({ folder: expect.any(String), url: expect.stringMatching(/^https:\/\//) });
     const mine = (await get(t.app, "/api/model-sets/search?q=mine")).json();
