@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { ImagePlus, RefreshCw, Sparkles, X } from "lucide-react";
+import { ImagePlus, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
 import { api, thumbUrl } from "./api";
 import { useAsset, useEntities, useQueue, useRecipes } from "./data";
 import { Viewer } from "./viewer/LazyViewer";
@@ -103,6 +103,14 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
   });
   const addPhoto = (id: string) => !set.people.includes(id) && set.people.length < 3 && change(keyId, { people: [...set.people, id] });
   const busy = jobs.some((j) => j.state === "waiting" || j.state === "running");
+  /** A made picture let go: out of the box, and to the library's bin (back from there for a week); a failed one only out of the box. */
+  const drop = useMutation({
+    mutationFn: async (j: (typeof jobs)[number]) => {
+      if (j.state === "done" && j.picture && j.picture !== current) await api.bin(j.picture);
+      change(keyId, { jobs: set.jobs.filter((id) => id !== j.id) });
+    },
+    onError: failed("The picture could not be deleted"),
+  });
   // the made ones best first by how much the face is the person (when measured), the others after, newest first
   const faceOf = (j: (typeof jobs)[number]) => (j.state === "done" ? j.face : null);
   const ordered = [...jobs].reverse().sort((a, b) => (faceOf(b) ?? -2) - (faceOf(a) ?? -2));
@@ -192,7 +200,13 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
               )}
               {j.state === "done" && j.picture && (current === j.picture
                 ? <span className="py-1 text-center text-[11px] font-semibold text-accent">the Picture</span>
-                : <Button size="sm" onClick={() => onPick(j.picture!)} data-tip="This one as the Picture">Use</Button>)}
+                : (
+                  <span className="flex gap-1">
+                    <Button size="sm" className="grow" onClick={() => onPick(j.picture!)} data-tip="This one as the Picture">Use</Button>
+                    <Button size="sm" aria-label="Delete this picture" data-tip="Delete it: out of here and to the bin (back from there for a week)" disabled={drop.isPending} onClick={() => drop.mutate(j)}><Trash2 size={13} /></Button>
+                  </span>
+                ))}
+              {j.state === "failed" && <Button size="sm" onClick={() => drop.mutate(j)} data-tip="Take it out of here">Dismiss</Button>}
             </div>
           ))}
         </div>
