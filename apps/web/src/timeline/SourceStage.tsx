@@ -1,0 +1,109 @@
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import { fileUrl, type Asset } from "../api";
+import { clock } from "../format";
+import type { PlayerHandle } from "./Player";
+
+/**
+ * The source lane in the stage: its video shown where the playhead stands on it (the track's own time; `atMs` is where the
+ * video's start sits), played and scrubbed with the timeline's own transport, as a clip is. Before its start and past its end:
+ * its first or last frame. A badge says where in the video it stands, and whether that is inside the stretch made into clips.
+ */
+export const SourceStage = forwardRef<PlayerHandle, {
+  video: Asset;
+  atMs: number;
+  fromMs: number;
+  toMs: number;
+  /** The timeline's frame, the stage's shape. */
+  frame: { width: number; height: number } | null;
+  playing: boolean;
+  onPlaying(playing: boolean): void;
+  /** Where it stands, in the track's own time. */
+  onTime(ms: number): void;
+  /** Where the playhead stood when the stage turned to the source. */
+  startAt: number;
+  master?: number;
+}>(function SourceStage({ video, atMs, fromMs, toMs, frame, playing, onPlaying, onTime, startAt, master = 1 }, ref) {
+  const el = useRef<HTMLVideoElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const [local, setLocal] = useState(Math.max(0, startAt - atMs));
+  const length = video.durationMs ?? toMs;
+  const put = (trackMs: number) => {
+    const v = el.current;
+    const ms = Math.max(0, Math.min(length, trackMs - atMs));
+    if (v) v.currentTime = ms / 1000;
+    setLocal(ms);
+    onTime(atMs + ms);
+  };
+  useImperativeHandle(ref, () => ({
+    seek: put,
+    fullscreen() {
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+      else void box.current?.requestFullscreen().catch(() => {});
+    },
+    // a frame of the source is not a clip's: Save frame and Extend have nothing to act on here
+    where: () => null,
+  }));
+  // the playhead stands on the source from the start: where it was, or the stretch's start
+  useEffect(() => {
+    onTime(atMs + Math.max(0, Math.min(length, startAt - atMs)));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once, as the stage turns to the source
+    // played with the transport: the playhead follows it, on every frame
+  useEffect(() => {
+    const v = el.current;
+    if (!v) return;
+    if (!playing) {
+      v.pause();
+      return;
+    }
+    if (v.currentTime * 1000 >= length - 40) v.currentTime = 0;
+    void v.play().catch(() => onPlaying(false));
+    let id = 0;
+    const tick = () => {
+      const ms = v.currentTime * 1000;
+      setLocal(ms);
+      onTime(atMs + ms);
+      if (v.ended) onPlaying(false);
+      else id = requestAnimationFrame(tick);
+    };
+    id = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(id);
+  }, [playing, atMs, length]); // eslint-disable-line react-hooks/exhaustive-deps -- the loop starts again only when what plays changes
+  useEffect(() => {
+    if (el.current) el.current.volume = Math.max(0, Math.min(1, master));
+  }, [master]);
+
+  const [room, setRoom] = useState({ w: 0, h: 0 });
+  useLayoutEffect(() => {
+    const b = box.current;
+    if (!b) return;
+    const read = () => setRoom({ w: b.clientWidth, h: b.clientHeight });
+    read();
+    const watch = new ResizeObserver(read);
+    watch.observe(b);
+    return () => watch.disconnect();
+  }, []);
+  const shape = frame ?? (video.width && video.height ? { width: video.width, height: video.height } : { width: 9, height: 16 });
+  const ratio = shape.width / shape.height;
+  const w = Math.min(room.w, room.h * ratio);
+  const inside = local >= fromMs && local <= toMs;
+  return (
+    <div ref={box} data-stage className="relative flex min-h-0 grow items-center justify-center bg-stage">
+      <div className="relative overflow-hidden bg-black" style={{ width: w, height: ratio ? w / ratio : 0 }}>
+        <video
+          key={video.id}
+          ref={el}
+          src={fileUrl(video.id)}
+          preload="auto"
+          playsInline
+          onLoadedMetadata={(e) => (e.currentTarget.currentTime = local / 1000)}
+          onClick={() => onPlaying(!playing)}
+          className="absolute inset-0 h-full w-full object-contain"
+        />
+      </div>
+      <span className="absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-ground/85 px-3 py-1 text-xs font-semibold whitespace-nowrap">
+        Source · {clock(local, { decimals: 1 })} of {clock(length)}
+        <span className={inside ? "text-accent" : "text-ink-3"}>{inside ? "· in the stretch" : local < fromMs ? "· before the stretch" : "· past the stretch"}</span>
+      </span>
+    </div>
+  );
+});

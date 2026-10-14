@@ -15,7 +15,7 @@ import { PinPeek, type PinOver } from "./track/PinPeek";
 import { Playhead } from "./track/Playhead";
 import { MusicLane } from "./track/MusicLane";
 import { HEIGHT, MUSIC, ROW, SOUND, SOURCE } from "./track/rows";
-import { SourceLane } from "./track/SourceLane";
+import { SourceLane, ToCome, type SourcePlace } from "./track/SourceLane";
 import { TrackClip, type TrackClipActs } from "./track/TrackClip";
 import { TrackRuler } from "./track/TrackRuler";
 import { useRangeDrag } from "./track/useRangeDrag";
@@ -33,7 +33,7 @@ const PIN_AFTER_MS = 250;
  * and the music under all of it. Things are dragged onto it (useTrackDrop); a clip's edges shorten it (useStretch); the
  * range is drawn and snapped on it (useRangeDrag); it zooms and fits (useTrackZoom).
  */
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, onSource, sourceSelected, onSelectSource, onOpenSource, onRemoveSource, onStretchSource, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, onSource, sourceSelected, onSelectSource, onOpenSource, onRemoveSource, onStretchSource, onSplitSource, sourcePlace, sourceMode, sourceLabel, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -95,6 +95,13 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onOpenSource?(video: Asset): void;
   onRemoveSource?(): void;
   onStretchSource?(fromMs: number, toMs: number): void;
+  /** Split the source at the playhead (null: the playhead is not inside its stretch). */
+  onSplitSource?: (() => void) | null;
+  /** Where the source lies on the track, and whether the stage plays it (the playhead then stands in the track's own time). */
+  sourcePlace?: SourcePlace | null;
+  sourceMode?: boolean;
+  /** What makes the clips to come: the source's model. */
+  sourceLabel?: string;
   /** In and Out, on the clock of what plays; null = no range. */
   range: TimeRange | null;
   onRange(range: TimeRange | null): void;
@@ -133,9 +140,13 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   }, []);
 
   const slots = useMemo(() => layout(clips, pps, recipes, stretch ?? undefined), [clips, pps, recipes, stretch]);
-  const end = slots.length ? slots.at(-1)!.left + slots.at(-1)!.width : PAD;
-  const totalMs = slots.length ? slots.at(-1)!.startMs + slots.at(-1)!.lengthMs : 0;
-  const width = end + NEW_CLIP + PAD * 2 + 40;
+  const clipsEnd = slots.length ? slots.at(-1)!.left + slots.at(-1)!.width : PAD;
+  // the clips Make will add after the last one, and the source under them: the track reaches past them
+  const toCome = sourcePlace && !sourcePlace.made && !sourcePlace.replaces && sourcePlace.windows.length ? PAD + ((sourcePlace.atMs + sourcePlace.windows.at(-1)!.toMs) / 1000) * pps : 0;
+  const sourceEnd = sourcePlace ? PAD + ((sourcePlace.atMs + sourcePlace.lengthMs) / 1000) * pps : 0;
+  const end = Math.max(clipsEnd, toCome);
+  const totalMs = Math.max(slots.length ? slots.at(-1)!.startMs + slots.at(-1)!.lengthMs : 0, sourceMode && sourcePlace ? sourcePlace.atMs + sourcePlace.lengthMs : 0);
+  const width = Math.max(end, sourceEnd) + NEW_CLIP + PAD * 2 + 40;
   const xOf = (clientX: number) => clientX - (inner.current?.getBoundingClientRect().left ?? 0);
 
   const { over, dragging, draggedOf, hover, overClip, overJoin, drop, hint, legend, lineAt, leave } = useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic, onTransition: onTransition ? (clip, kind) => onTransition(clip, newTransition(kind)) : undefined, onSource });
@@ -227,6 +238,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
             {onSource && (
               <SourceLane
                 timeline={timeline}
+                place={sourcePlace ?? null}
+                onSplit={onSplitSource}
                 recipes={recipes}
                 pps={pps}
                 width={width}
@@ -257,7 +270,8 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
             />
 
             {lineAt !== null && <div aria-hidden className="pointer-events-none absolute z-20 w-[3px] rounded bg-accent" style={{ left: lineAt - 1.5, top: ROW.top - 2, height: ROW.height + 4 }} />}
-            <Playhead clock={clock} slots={slots} cursorMs={cursorMs} totalMs={totalMs} pps={pps} />
+            {sourcePlace && !sourcePlace.made && sourcePlace.windows.length > 0 && <ToCome place={sourcePlace} pps={pps} label={sourceLabel ?? "Motion transfer"} />}
+            <Playhead clock={clock} slots={slots} cursorMs={cursorMs} totalMs={totalMs} pps={pps} free={sourceMode} />
             <FramePeek area={inner} floor={floor} slots={slots} clips={clips} recipes={recipes} pps={pps} totalMs={totalMs} paused={Boolean(pinOver || stretch || dragging)} />
             {pinOver && (() => {
               const s = slots.find((x) => x.clip.id === pinOver.clip);

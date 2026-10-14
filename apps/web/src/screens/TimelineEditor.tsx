@@ -4,6 +4,7 @@ import { Picker } from "../PictureField";
 import { Inspector } from "../timeline/Inspector";
 import { JoinPanel } from "../timeline/inspector/join";
 import { SourcePanel } from "../timeline/inspector/source";
+import { SourceStage } from "../timeline/SourceStage";
 import { MusicPanel } from "../timeline/inspector/music";
 import { Player } from "../timeline/Player";
 import { MediaOverlay } from "../timeline/MediaOverlay";
@@ -58,7 +59,27 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         <MediaOverlay timeline={shown} placeItems={placeItemsOf(e)} />
 
         <main className="flex min-w-0 grow flex-col">
-            <Player ref={e.player} {...playerProps(e)} />
+            {e.sourceOpen && t.source && e.place ? (
+              <SourceStage
+                ref={e.player}
+                video={t.source.video}
+                atMs={e.place.atMs}
+                fromMs={t.source.fromMs}
+                toMs={t.source.toMs}
+                frame={t.width && t.height ? { width: t.width, height: t.height } : null}
+                playing={e.playing}
+                onPlaying={e.setPlaying}
+                onTime={e.onTime}
+                // the playhead where it stands, when that is on the source; else the stretch's start
+                startAt={(() => {
+                  const now = e.cursor ?? e.clock.get();
+                  return now >= e.place.atMs && now <= e.place.atMs + e.place.lengthMs ? now : e.place.atMs + t.source.fromMs;
+                })()}
+                master={e.muted ? 0 : e.volume}
+              />
+            ) : (
+              <Player ref={e.player} {...playerProps(e)} />
+            )}
         </main>
         </div>
           {range && <RangeBar range={range} emptyRange={e.emptyRange} clips={clips} snapQuiet={e.snapQuiet} onSnapQuiet={e.toggleSnapQuiet} items={e.rangeItems()} />}
@@ -78,6 +99,9 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
         ) : e.sourceOpen ? (
           <SourcePanel
             timeline={t}
+            place={e.place}
+            clock={e.clock}
+            onLook={(look) => e.edit.mutate({ look })}
             recipes={e.videoRecipes}
             onEdit={(source) => e.edit.mutate({ source })}
             onMake={e.makeSource.run}

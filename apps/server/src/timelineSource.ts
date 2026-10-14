@@ -9,9 +9,10 @@ import type { AssetRow } from "./timelineModel";
 /**
  * A timeline's source lane (HANDOVER-timeline-brainstorm.md §3.1–3.2): a long video laid under the clips, `atMs` where its
  * own start sits on the timeline, of which the stretch `fromMs`–`toMs` is made into clips by a model that takes a source
- * window by window (Motion transfer: VideoTraits.windows), each window carrying on from the one before, the same picture,
- * prompt and seed in every one. `clip`: the clip of the timeline the stretch was taken from (an imported video split
- * where Motion transfer starts), which the made clips take the place of.
+ * window by window (Motion transfer: VideoTraits.windows), each window carrying on from the one before, made with the
+ * same form (`inputs`: the model's whole form, its picture, prompt and seed among it; its driving video is the source's).
+ * `clip`: the clip of the timeline the stretch was taken from (an imported video split where Motion transfer starts),
+ * which the made clips take the place of.
  */
 export interface SourcePlan {
   asset: string;
@@ -20,11 +21,9 @@ export interface SourcePlan {
   toMs: number;
   recipe: string | null;
   windowMs: number;
-  picture: string | null;
-  prompt: string;
+  inputs: Record<string, unknown>;
   /** Windows end at the source's scene cuts, the next one a new shot. */
   snap: boolean;
-  seed: number | null;
   clip: string | null;
 }
 
@@ -37,10 +36,9 @@ export const sourcePatch = z
     toMs: z.number().min(0).optional(),
     recipe: z.string().nullable().optional(),
     windowMs: z.number().min(500).max(60_000).optional(),
-    picture: z.string().nullable().optional(),
-    prompt: z.string().max(4000).optional(),
+    /** The model's form every window is made with (what was touched). */
+    inputs: z.record(z.string().max(64), z.unknown()).refine((x) => JSON.stringify(x).length < 64_000, "too large").optional(),
     snap: z.boolean().optional(),
-    seed: z.number().int().min(0).nullable().optional(),
     clip: z.string().nullable().optional(),
   })
   .nullable();
@@ -50,11 +48,13 @@ export type SourcePatch = z.infer<typeof sourcePatch>;
 export function sourceOfRow(raw: string | null | undefined): SourcePlan | null {
   if (!raw) return null;
   try {
-    const x = JSON.parse(raw) as Partial<SourcePlan>;
+    const x = JSON.parse(raw) as Partial<SourcePlan> & { picture?: string | null; prompt?: string; seed?: number | null };
     if (typeof x.asset !== "string") return null;
+    // the first sources (2026-10-14) kept their picture, prompt and seed apart from a form
+    const older = { ...(x.picture ? { picture: x.picture } : {}), ...(x.prompt ? { prompt: x.prompt } : {}), ...(typeof x.seed === "number" ? { seed: x.seed } : {}) };
     return {
       asset: x.asset, atMs: Number(x.atMs) || 0, fromMs: Number(x.fromMs) || 0, toMs: Number(x.toMs) || 0, recipe: x.recipe ?? null,
-      windowMs: Number(x.windowMs) || 5000, picture: x.picture ?? null, prompt: x.prompt ?? "", snap: Boolean(x.snap), seed: typeof x.seed === "number" ? x.seed : null, clip: x.clip ?? null,
+      windowMs: Number(x.windowMs) || 5000, inputs: { ...older, ...(x.inputs && typeof x.inputs === "object" ? x.inputs : {}) }, snap: Boolean(x.snap), clip: x.clip ?? null,
     };
   } catch {
     return null;
@@ -67,7 +67,7 @@ export function patchedSource(before: SourcePlan | null, patch: NonNullable<Sour
   if (!before && !patch.asset) throw httpError("Drop a video on the Source lane first.");
   const length = video?.duration_ms ?? 0;
   const base: SourcePlan = fresh || !before
-    ? { asset: patch.asset!, atMs: endMs, fromMs: 0, toMs: length, recipe: before?.recipe ?? null, windowMs: before?.windowMs ?? 5000, picture: before?.picture ?? null, prompt: before?.prompt ?? "", snap: before?.snap ?? false, seed: before?.seed ?? null, clip: null }
+    ? { asset: patch.asset!, atMs: endMs, fromMs: 0, toMs: length, recipe: before?.recipe ?? null, windowMs: before?.windowMs ?? 5000, inputs: before?.inputs ?? {}, snap: before?.snap ?? false, clip: null }
     : before;
   const next: SourcePlan = {
     ...base,

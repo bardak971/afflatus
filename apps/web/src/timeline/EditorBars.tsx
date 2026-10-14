@@ -113,10 +113,12 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
  * The bar under the player: previous and next clip, play (the range when there is one), loop the range, the clock, the
  * volume here, full screen, and what is done at the frame on screen (extend from it, save it).
  */
-export function Transport({ t, clock, slots, cursor, total, playing, ranged, loopRange, volume, muted, adding, saving, onJump, onToggle, onToggleLoop, onVolume, onMute, onFullscreen, onExtend, onSaveFrame }: {
+export function Transport({ t, clock, slots, cursor, total, source, playing, ranged, loopRange, volume, muted, adding, saving, onJump, onToggle, onToggleLoop, onVolume, onMute, onFullscreen, onExtend, onSaveFrame }: {
   t: Timeline;
   clock: Clock;
   slots: Slot[];
+  /** The stage plays the source lane (where it lies on the track): the readout speaks of it. */
+  source?: { atMs: number; lengthMs: number } | null;
   cursor: number | null;
   total: number;
   playing: boolean;
@@ -146,7 +148,7 @@ export function Transport({ t, clock, slots, cursor, total, playing, ranged, loo
       {ranged && (
         <button type="button" aria-label="Loop the range" aria-pressed={loopRange} data-tip={loopRange ? "Loop is on: back to In at Out (L)" : "Loop the range (L)"} onClick={onToggleLoop} className={cx("flex h-8 w-8 items-center justify-center rounded-lg", loopRange ? "bg-accent-wash text-accent" : "text-ink-2 hover:bg-hover hover:text-ink")}><Repeat size={15} /></button>
       )}
-      <Readout clock={clock} slots={slots} cursor={cursor} total={total} />
+      <Readout clock={clock} slots={slots} cursor={cursor} total={total} source={source} />
       <span className="grow" />
       {/* how loud it plays here (the clips' and the music's own volumes stay as set) */}
       <div className="group flex items-center gap-1">

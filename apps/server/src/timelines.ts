@@ -1,7 +1,7 @@
 import { chatJson } from "./llm";
 import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
-import { musicPlan, type ClipMusic, type InputSpec, type Transition } from "@afflatus/core";
+import { musicPlan, typedSeed, type ClipMusic, type InputSpec, type Transition } from "@afflatus/core";
 import { newId, now, OWNER, type Db } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError, notFound } from "./errors";
@@ -17,7 +17,7 @@ import { TimelineMedia } from "./timelineMedia";
 import { TimelineHistory } from "./timelineHistory";
 import { TimelineRange } from "./timelineRange";
 import { takeView, TimelineViews } from "./timelineViews";
-import { recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
+import { ownInputIds, recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
 import { patchedSource, planWindows, sourceOfRow, type SourcePatch } from "./timelineSource";
 import { TimelineTakes } from "./timelineTakes";
 import { unusedSize, unusedTakes } from "./timelineUnused";
@@ -504,6 +504,37 @@ export class Timelines {
   }
 
   /**
+   * The source split at a moment of it (`atMs`, in its own time): what comes before it, from where its stretch starts, becomes
+   * a clip of the timeline playing the source as it is (where the made clips will go, before them), and the stretch made into
+   * clips starts at that moment. The source keeps its place under the clips. One step for Undo.
+   */
+  async splitSource(timelineId: string, atMs: number): Promise<string> {
+    const id = await this.history.oneAtATime(timelineId, async () => {
+      const t = await this.row(timelineId);
+      const plan = sourceOfRow(t.source);
+      if (!plan) throw httpError("Drop a video on the Source lane first.");
+      const video = await this.assetRow(plan.asset);
+      if (!video) throw notFound("the source video");
+      const length = video.duration_ms ?? plan.toMs;
+      const cut = Math.round(atMs);
+      if (cut < plan.fromMs + 200 || cut > plan.toMs - 1000) throw httpError("Put the playhead inside the stretch, at least a second before its end.");
+      const all = await this.placed(timelineId);
+      const replaced = plan.clip ? all.findIndex((p) => p.clip.id === plan.clip) : -1;
+      const index = replaced >= 0 ? replaced : all.length;
+      const made = await this.planner.newClip(all, index, { asset: plan.asset });
+      await this.remember(timelineId, "the source split");
+      return this.db.transaction().execute(async (tx) => {
+        const clip = await this.planner.insertClip(timelineId, all, index, made, tx);
+        await tx.updateTable("takes").set({ trim_start_ms: plan.fromMs, trim_end_ms: Math.max(0, length - cut) }).where("clip_id", "=", clip).execute();
+        await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, fromMs: cut }), updated_at: now() }).where("id", "=", timelineId).execute();
+        return clip;
+      });
+    });
+    await this.touch(timelineId);
+    return id;
+  }
+
+  /**
    * The source lane's stretch made into clips, one a window (timelineSource.ts): each takes its part of the source as its
    * driving video and carries on from the one before (a window after a scene cut opens a new shot: a cut), with the same
    * picture, prompt and seed in every one. In place of the clip the stretch was taken from, else after the last clip. One
@@ -520,8 +551,6 @@ export class Timelines {
       const video = await this.assetRow(plan.asset);
       if (!video) throw notFound("the source video");
       const driving = recipe.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window);
-      const picture = recipe.inputs.find((i) => i.type === "image" && i.role === "source");
-      const prompt = recipe.inputs.find((i) => i.type === "prompt");
       if (!driving || driving.type !== "clip" || !driving.window) throw httpError(`${recipe.title} takes no driving video.`);
       const windows = await planWindows(plan, recipe, video, this.storage);
       if (!windows.length) throw httpError("The stretch is too short for one clip: make it longer.");
@@ -530,8 +559,14 @@ export class Timelines {
       const replaced = plan.clip ? all.findIndex((p) => p.clip.id === plan.clip && p.active?.asset.id === plan.asset) : -1;
       const index = replaced >= 0 ? replaced : all.length;
       const startsAt = all.slice(0, index).reduce((sum, p) => sum + plannedLengthOf(p, p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined), 0);
-      const seed = plan.seed ?? Math.floor(Math.random() * 2 ** 31);
-      const settings = settingsOf(recipe, all, index);
+      // one seed for every window, as one picture: what keeps the person the same from clip to clip
+      const seed = typedSeed(plan.inputs.seed) ?? Math.floor(Math.random() * 2 ** 31);
+      // the form every window is made with: the settings of the last clip of that model, then the source's own form; the
+      // clips a timeline fills in itself and the driving video's part are each window's
+      const own = ownInputIds(recipe);
+      const form = Object.fromEntries(Object.entries({ ...settingsOf(recipe, all, index), ...plan.inputs }).filter(([k]) => own.has(k) && k !== driving.id && k !== driving.window!.start && k !== driving.window!.seconds));
+      const pictureSpec = recipe.inputs.find((i) => i.type === "image" && i.role === "source");
+      const picture = pictureSpec && typeof form[pictureSpec.id] === "string" ? (form[pictureSpec.id] as string) : null;
       await this.remember(timelineId, `the ${windows.length} clips made from the source`);
       return this.db.transaction().execute(async (tx) => {
         const order: Array<{ clip: { id: string } }> = all.map((p) => ({ clip: { id: p.clip.id } }));
@@ -543,21 +578,15 @@ export class Timelines {
         for (const [k, w] of windows.entries()) {
           const clip: NewClip = {
             kind: "video", recipeId: recipe.id, joined: w.opens ? "cut" : "continue", still: null, take: null, asset: undefined, look: null,
-            inputs: {
-              ...settings,
-              [driving.id]: { asset: plan.asset }, [driving.window!.start]: w.start, [driving.window!.seconds]: w.seconds,
-              ...(picture && plan.picture ? { [picture.id]: plan.picture } : {}),
-              ...(prompt && plan.prompt.trim() ? { [prompt.id]: plan.prompt } : {}),
-              seed,
-            },
+            inputs: { ...form, [driving.id]: { asset: plan.asset }, [driving.window!.start]: w.start, [driving.window!.seconds]: w.seconds, seed },
           };
           const id = await this.planner.insertClip(timelineId, order, index + k, clip, tx);
           order.splice(index + k, 0, { clip: { id } });
           made.push(id);
         }
         // the source's start sits where its stretch now plays from; the clip it was taken from is gone
-        await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, atMs: startsAt - plan.fromMs, seed, clip: null }), updated_at: now() }).where("id", "=", timelineId).execute();
-        if (plan.picture) await this.keep(plan.picture, tx);
+        await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, atMs: startsAt - plan.fromMs, inputs: { ...plan.inputs, seed }, clip: null }), updated_at: now() }).where("id", "=", timelineId).execute();
+        if (picture) await this.keep(picture, tx);
         return made;
       });
     });

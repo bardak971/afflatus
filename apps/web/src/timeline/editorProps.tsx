@@ -72,6 +72,9 @@ export function playerProps(e: LoadedEditor): ComponentPropsWithoutRef<typeof Pl
   };
 }
 
+/** How long the transport runs: the clips, or the source as far as it reaches when the stage plays it. */
+const runOf = (e: LoadedEditor) => (e.sourceOpen && e.place ? Math.max(e.total, e.place.atMs + e.place.lengthMs) : e.total);
+
 export function transportProps(e: LoadedEditor): ComponentProps<typeof Transport> {
   const { player } = e;
   return {
@@ -79,7 +82,8 @@ export function transportProps(e: LoadedEditor): ComponentProps<typeof Transport
     clock: e.clock,
     slots: e.slots,
     cursor: e.cursor,
-    total: e.total,
+    total: runOf(e),
+    source: e.sourceOpen ? e.place : null,
     playing: e.playing,
     ranged: Boolean(e.range && !e.emptyRange),
     loopRange: e.loopRange,
@@ -123,7 +127,8 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     onSelectMusic: () => e.setMusicOpen(true),
     cursorMs: e.cursor,
     onSeek: (ms, trackMs) => {
-      e.player.current?.seek(ms);
+      // the stage plays the source: the playhead stands in the track's own time
+      e.player.current?.seek(e.sourceOpen && trackMs !== undefined ? trackMs : ms);
       // after the seek, which says where the player is: the playhead stays exactly where it was put
       if (trackMs !== undefined) e.setCursor(trackMs);
     },
@@ -139,6 +144,25 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     onOpenSource: e.setOpened,
     onRemoveSource: () => edit.mutate({ source: null }),
     onStretchSource: (fromMs, toMs) => edit.mutate({ source: { fromMs, toMs } }),
+    sourcePlace: e.place,
+    sourceMode: e.sourceOpen && Boolean(e.place),
+    sourceLabel: (() => {
+      const r = e.videoRecipes.find((x) => x.id === e.t.source?.recipe);
+      return r ? e.recipes.data?.families.find((f) => f.id === r.family)?.name ?? r.title : undefined;
+    })(),
+    onSplitSource: e.t.source && e.place && !e.place.made
+      ? () => {
+          const place = e.place!;
+          const source = e.t.source!;
+          // where the playhead stands on the source: the stage plays it in the track's own time
+          const at = (e.sourceOpen ? e.cursor ?? e.clock.get() : e.cursor ?? -1) - place.atMs;
+          if (at <= source.fromMs + 200 || at >= source.toMs - 1000) {
+            e.setNote("Put the playhead inside the source's stretch (click the source lane: the stage plays it) to split it there.");
+            return;
+          }
+          e.splitSource.mutate(at);
+        }
+      : undefined,
     onTransition: (clip, transition) => {
       patch.mutate({ clip, patch: { transition } });
       e.openJoin(clip);

@@ -40,8 +40,8 @@ describe("a timeline's source lane", () => {
     let v = await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id } });
     expect(v.source).toMatchObject({ asset: meme.id, atMs: 0, fromMs: 0, toMs: 28000, windowMs: 5000 });
     expect(v.source.video.id).toBe(meme.id);
-    v = await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, recipe: "scail.motion", prompt: "A man raps." } });
-    expect(v.source).toMatchObject({ fromMs: 3000, toMs: 28000, recipe: "scail.motion", prompt: "A man raps." });
+    v = await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, recipe: "scail.motion", inputs: { prompt: "A man raps." } } });
+    expect(v.source).toMatchObject({ fromMs: 3000, toMs: 28000, recipe: "scail.motion", inputs: { prompt: "A man raps." } });
     // a stretch past the video's end is held within it
     v = await call("PATCH", `/api/timelines/${tl.id}`, { source: { toMs: 99000 } });
     expect(v.source.toMs).toBe(28000);
@@ -55,7 +55,7 @@ describe("a timeline's source lane", () => {
     const meme = await asset("video");
     const picture = await asset("image");
     await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id } });
-    await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, recipe: "scail.motion", picture: picture.id, prompt: "A man raps.", seed: 42 } });
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, recipe: "scail.motion", inputs: { picture: picture.id, prompt: "A man raps.", seed: 42, steps: 8 } } });
     const made = await call("POST", `/api/timelines/${tl.id}/source/make`);
     expect(made.clips).toHaveLength(5);
     const v = await view(tl.id);
@@ -63,7 +63,8 @@ describe("a timeline's source lane", () => {
     expect(v.clips.map((c: { joined: string }) => c.joined)).toEqual(["cut", "continue", "continue", "continue", "continue"]);
     for (const c of v.clips) {
       expect(c.recipe).toBe("scail.motion");
-      expect(c.inputs).toMatchObject({ driving: { asset: meme.id }, picture: picture.id, prompt: "A man raps.", seed: 42 });
+      // the source's whole form in every window: its picture, prompt, seed and a setting changed in it
+      expect(c.inputs).toMatchObject({ driving: { asset: meme.id }, picture: picture.id, prompt: "A man raps.", seed: 42, steps: 8 });
     }
     expect(v.clips[0].inputs.drivingStart).toBe(3);
     // the next part starts the carried frames (5 at 16 fps) before where the first one's clip stops
@@ -86,7 +87,7 @@ describe("a timeline's source lane", () => {
     await call("PATCH", `/api/clips/${second}`, { trimStartMs: 3000 });
     const before = await view(tl.id);
     const c2 = before.clips[1];
-    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id, atMs: c2.atMs - c2.take.startMs, fromMs: c2.take.startMs, toMs: c2.take.endMs, clip: second, recipe: "wananimate.motion", picture: picture.id } });
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id, atMs: c2.atMs - c2.take.startMs, fromMs: c2.take.startMs, toMs: c2.take.endMs, clip: second, recipe: "wananimate.motion", inputs: { picture: picture.id } } });
     const made = await call("POST", `/api/timelines/${tl.id}/source/make`);
     const v = await view(tl.id);
     expect(v.clips[0].id).toBe(first);
@@ -96,6 +97,19 @@ describe("a timeline's source lane", () => {
     // the source stays where it was laid, and no longer names the clip it replaced
     expect(v.source.atMs).toBe(c2.atMs - 3000);
     expect(v.source.clip).toBeNull();
+  });
+
+  it("is split at a moment: the part before plays as it is, a clip of its own, and Motion transfer starts there", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test source" });
+    const meme = await asset("video");
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id } });
+    const { clip } = await call("POST", `/api/timelines/${tl.id}/source/split`, { atMs: 3000 });
+    const v = await view(tl.id);
+    expect(v.clips.map((c: { id: string }) => c.id)).toEqual([clip]);
+    expect(v.clips[0].take).toMatchObject({ startMs: 0, endMs: 3000 });
+    expect(v.source.fromMs).toBe(3000);
+    expect(v.undo).toMatch(/source split/);
+    await expect(call("POST", `/api/timelines/${tl.id}/source/split`, { atMs: 27900 })).rejects.toThrow(/stretch/);
   });
 
   it("is refused without a model that makes a source window by window, or without a source", async () => {
