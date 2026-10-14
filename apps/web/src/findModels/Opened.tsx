@@ -63,7 +63,8 @@ export function Opened({ card, picked, onPick, onBack }: { card: BrowseCard; pic
                 <div key={f.name} className="grid grid-cols-[minmax(0,1fr)_150px_80px] items-center gap-3 border-b border-line/60 px-3 py-2 text-[13px] last:border-b-0">
                   <Checkbox checked={on.has(f.name)} onChange={(v) => setTicked(() => { const n = new Set(on); if (v) n.add(f.name); else n.delete(f.name); return n; })} className="min-w-0">
                     <span className="flex min-w-0 flex-col">
-                      <span className="truncate">{f.name}</span>
+                      {/* the whole name: versions of one model often differ only at its end */}
+                      <span className="break-all">{f.name}</span>
                       <span className="truncate text-xs text-ink-3">{[f.note, haveSaid(f), picked.has(f.name) ? "picked" : ""].filter(Boolean).join(" · ") || " "}</span>
                     </span>
                   </Checkbox>

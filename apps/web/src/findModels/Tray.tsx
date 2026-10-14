@@ -76,7 +76,7 @@ export function Tray({ files, target, onRemove, onClear, onDone, dropping, onOve
         {files.map((f) => (
           <div key={fileKey(f)} className="grid grid-cols-[minmax(0,1fr)_auto_64px_20px] items-center gap-2 border-b border-line/60 px-4 py-2 text-[12.5px]">
             <span className="flex min-w-0 flex-col">
-              <span className="truncate" data-tip={f.file}>{f.file}</span>
+              <span className="break-all">{f.file}</span>
               <span className="truncate text-xs text-ink-3">{f.folder} · {f.from}</span>
             </span>
             <ViaChip via={f.via} />

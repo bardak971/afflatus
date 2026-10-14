@@ -61,7 +61,7 @@ export function Card({ card, picked, onOpen, onQuick }: { card: BrowseCard; pick
         </button>
       </div>
       <div className="flex min-w-0 flex-col gap-1 px-3 py-2.5">
-        <span className="truncate text-[13.5px] font-semibold" data-tip={card.name}>{card.name}</span>
+        <span className="line-clamp-2 text-[13.5px] font-semibold break-words" data-tip={card.name}>{card.name}</span>
         <span className="flex items-center gap-2 truncate text-xs text-ink-3">
           <span className="truncate">by {card.creator}</span>
           <span className="flex items-center gap-0.5"><Download size={11} />{compact(card.downloads)}</span>

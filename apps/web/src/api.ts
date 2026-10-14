@@ -197,7 +197,7 @@ export const api = {
   /** A set file brought in (Import): a new set of its files. */
   importModelSet: (file: unknown) => call<ModelSet>("POST", "/model-sets/import", file),
   /** What can be added to a set or a deploy: presets, families, this computer's files. */
-  searchModelSets: (q: string, o?: Asked) => call<SetSearch>("GET", `/model-sets/search?q=${encodeURIComponent(q)}`, undefined, o?.signal),
+  searchModelSets: (q: string, o?: Asked & { many?: boolean }) => call<SetSearch>("GET", `/model-sets/search?q=${encodeURIComponent(q)}${o?.many ? "&many=1" : ""}`, undefined, o?.signal),
   /** A machine removed from Afflatus: a rented pod is left on RunPod as it is (its secret goes once the pod does). */
   removeMachine: (id: string) => call<{ ok: true }>("POST", `/machines/${encodeURIComponent(id)}/remove`, {}),
   /** Whether each image a deploy may run can be pulled now (null: its registry did not answer). */
@@ -285,8 +285,8 @@ export const api = {
   downloadSeen: (id: string) => call<{ ok: true }>("POST", `/downloads/${id}/seen`),
   /** Find models: the filters' choices, Civitai's and Hugging Face's models a page at a time, a repository's files, a link read. */
   browseBases: (o?: Asked) => call<BrowseBases>("GET", "/browse/bases", undefined, o?.signal),
-  browseCivitai: (q: { q: string; types: string[]; bases: string[]; sort: string; period: string; cursor?: string }, o?: Asked) => {
-    const p = new URLSearchParams({ q: q.q, sort: q.sort, period: q.period });
+  browseCivitai: (q: { q: string; types: string[]; bases: string[]; sort: string; period: string; all: boolean; cursor?: string }, o?: Asked) => {
+    const p = new URLSearchParams({ q: q.q, sort: q.sort, period: q.period, all: q.all ? "1" : "0" });
     for (const t of q.types) p.append("types", t);
     for (const b of q.bases) p.append("bases", b);
     if (q.cursor) p.set("cursor", q.cursor);

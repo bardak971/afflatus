@@ -251,6 +251,7 @@ export function registerBrowse(app: FastifyInstance, s: Services): void {
   app.get("/api/browse/civitai", async (req) => {
     const q = z.object({
       q: z.string().max(200).default(""), types: csv, bases: csv, sort: z.enum(SORTS).default("Most Downloaded"), period: z.enum(PERIODS).default("AllTime"), cursor: z.string().max(400).optional(),
+      all: z.enum(["1", "0"]).default("0"),
     }).parse(req.query);
     const settings = await lookupsOn();
     const params = new URLSearchParams({ limit: String(PAGE), sort: q.sort, period: q.period });
@@ -258,6 +259,8 @@ export function registerBrowse(app: FastifyInstance, s: Services): void {
     for (const t of q.types) params.append("types", t);
     for (const b of q.bases) params.append("baseModels", b);
     if (q.cursor) params.set("cursor", q.cursor);
+    // Civitai's API leaves part of its models out unless asked for all of them (both its sites alike): the user's switch
+    if (q.all === "1") params.set("nsfw", "true");
     const got = await civitaiGet<{ items?: CivModel[]; metadata?: { nextCursor?: string | number } }>(`/api/v1/models?${params}`, settings.civitaiKey);
     const k = await known(s);
     return { items: (got?.items ?? []).map((m) => civitaiCard(m, k)), next: got?.metadata?.nextCursor !== undefined ? String(got.metadata.nextCursor) : null };
