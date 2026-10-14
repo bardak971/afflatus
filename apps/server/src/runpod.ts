@@ -90,7 +90,7 @@ export const STOPPED_DISK_PER_GB_MONTH = 0.2;
  * Each pinned to one version, so that a deploy runs what Afflatus was tested with.
  */
 export const POD_IMAGES = {
-  afflatus: () => envSaid.podImage()?.trim() || "ghcr.io/bardak971/afflatus-pod:0.1.4",
+  afflatus: () => envSaid.podImage()?.trim() || "ghcr.io/bardak971/afflatus-pod:0.1.6",
   runpod: () => "runpod/comfyui:1.4.0-comfyuiv0.35.0-cuda12.8",
 } as const;
 /**
