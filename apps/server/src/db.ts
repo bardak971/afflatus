@@ -346,6 +346,8 @@ export interface Tables {
   rent_sessions: { id: string; machine_id: string; pod: string; rate: number; started_at: string; ended_at: string | null; seen_at: string | null };
   /** What rented pods were measured at (podFiles.ts): a file's bytes over its time per source (hf, civitai, upload), a deploy's boot (ms). */
   pod_measures: { id: string; kind: string; cloud: string | null; bytes: number; ms: number; at: string };
+  /** Named lists of model files (modelSets.ts): presets by reference and files of their own, as JSON in `def`. */
+  model_sets: { id: string; owner_id: string; name: string; def: string; created_at: string; updated_at: string };
   /** Unfinished work, saved as it is typed. */
   drafts: {
     id: string;
