@@ -2,6 +2,7 @@ import { defineRecipe, type GraphBuilder, type InputSpec, type Ref, type Variant
 import { H3_FPS, H3_MAX_FRAMES } from "./family";
 import { h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video } from "./video";
+import { H3_STARTS } from "./model";
 
 /**
  * MiniMax H3 · Lip sync: a new shot made around a recording. The recording is laid on the clip's sound where the clip's
@@ -75,6 +76,7 @@ export const h3LipSync = defineRecipe<H3LipSync>({
   output: "video",
   traits: h3Video.traits,
   inputs: lipSyncInputs,
+  starts: H3_STARTS,
   presets: h3Video.presets,
   // the recording is cut to the clip; the model's decoded sound goes before it when the clip opens on frames of the clip
   // before or on a moment before the words. No voice sample: H3's nodes are asked without one

@@ -25,7 +25,7 @@ export function useQueueVariation(into?: { draft?: string; folder?: string }) {
       const status = setup.data?.recipes.find((x) => x.id === job.recipe.id);
       const why = setup.isSuccess ? notReady(status, setup.data.comfy.online) : null;
       if (why) throw new Error(why);
-      const input = wholeForm(job.recipe, status?.options, modelSettings.data?.items ?? [], job.stored);
+      const input = wholeForm(job.recipe, status, modelSettings.data?.items ?? [], job.stored);
       const has = new Set(job.recipe.inputs.map((i) => i.id));
       for (const id of Object.keys(input)) if (input[id] === undefined || !has.has(id)) delete input[id];
       const queued = await api.enqueue(job.recipe.id, input, 1, null, into);

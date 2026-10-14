@@ -69,6 +69,8 @@ describe("scan", () => {
     expect(s.recipes[0]).toEqual({
       id: "toy.make", ready: true, missingNodes: [], missingSlots: [], emptyInputs: [], missingFiles: [], missing: [], problems: [], limitedBy: [],
       options: { model: ["m.safetensors"], sampler: ["auto", "euler", "heun"] },
+      // the files its family uses here, for the settings the form starts by them: only those found
+      slots: { vae: "toy_vae.safetensors" },
     });
   });
 

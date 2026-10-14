@@ -45,7 +45,7 @@ export function ClipDesigner({ timeline: t, clip: c, clips, recipes, setup, sett
         side="inline"
         draftKey={`clip:${c.id}`}
         recipe={recipe}
-        values={wholeForm(recipe, status?.options, settings.data?.items ?? [], stored)}
+        values={wholeForm(recipe, status, settings.data?.items ?? [], stored)}
         previous={before && beforeMain ? String(inputsOf(before)[beforeMain.id] ?? "") || undefined : undefined}
         story={{ clips: clips.map(sayOf), index: at }}
         look={c.look ?? t.look}

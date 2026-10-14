@@ -164,8 +164,8 @@ export const h3Inputs: InputSpec[] = [
     whenOn: { shiftVideo: 12, shiftAudio: 3, sampler: "euler" },
   },
   {
-    id: "turboSteps", type: "number", label: "Turbo steps", min: 0, max: 16, step: 1, default: 8, showWhen: "fast", advanced: true, perModel: true,
-    note: "8 for the 8-step turbo LoRA and the distilled files; 4 for a 4-step one. ComfyUI's own template runs the 8-step LoRA at 6",
+    id: "turboSteps", type: "number", label: "Turbo steps", min: 1, max: 16, step: 1, default: 8, oldZero: true, showWhen: "fast", advanced: true, perModel: true,
+    note: "8 for the 8-step turbo LoRA and the distilled files; 4 for a 4-step one (a reference clip on MiniMax's 4-step reference LoRA starts on 4). ComfyUI's own template runs the 8-step LoRA at 6",
   },
   { id: "steps", type: "number", label: "Steps", note: "20 is ComfyUI's own template; 15 is a little quicker, 25 a little finer", min: 4, max: 50, step: 1, default: 20, showWhen: { input: "fast", in: [false] }, advanced: true, perModel: true },
   {
@@ -174,11 +174,11 @@ export const h3Inputs: InputSpec[] = [
   },
   { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "BasicScheduler", input: "scheduler" }, default: "simple", advanced: true, perModel: true },
   {
-    id: "shiftVideo", type: "number", label: "Shift (video)", min: 0, max: 30, step: 0.5, default: 11, advanced: true, perModel: true,
+    id: "shiftVideo", type: "number", label: "Shift (video)", min: 1, max: 30, step: 0.5, default: 11, oldZero: true, advanced: true, perModel: true,
     note: "11 at full steps, 12 with the 8-step turbo LoRA and 6 with a 4-step one (what they were trained at). Higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail). The model's own, when no shift is set at all, is 12",
   },
   {
-    id: "shiftAudio", type: "number", label: "Shift (sound)", min: 0, max: 30, step: 0.5, default: 4, advanced: true, perModel: true,
+    id: "shiftAudio", type: "number", label: "Shift (sound)", min: 1, max: 30, step: 0.5, default: 4, oldZero: true, advanced: true, perModel: true,
     note: "4 at full steps, 3 with Turbo (the turbo LoRAs were trained at 3)",
   },
   {

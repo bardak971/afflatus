@@ -45,6 +45,8 @@ export interface RecipeStatus {
   limitedBy: string[];
   /** What each model / choice input offers on this ComfyUI (input id → options). */
   options: Record<string, string[]>;
+  /** The files its family's slots use here (slot id → file): the form starts some settings by them (Recipe.starts). */
+  slots?: Record<string, string>;
 }
 
 export interface Scan {
@@ -221,6 +223,7 @@ export async function scan(
       const { missingNodes, limitedBy, missingFiles, missing, problems } = readiness;
       return {
         id: r.id, missingNodes, missingSlots, emptyInputs, missingFiles, missing, problems, limitedBy, options,
+        slots: Object.fromEntries(slots.filter((s) => s.file).map((s) => [s.id, s.file!])),
         ready: !missingNodes.length && !missingSlots.length && !emptyInputs.length && !missingFiles.length && !problems.length,
       };
     }),

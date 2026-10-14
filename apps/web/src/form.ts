@@ -1,5 +1,5 @@
-import { chosenDefaults, frameOf, fuzzyScore, isShown, latentUpscaleSize, megapixels, pickChoice, RANDOM_SEED, secondsInput, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
-import type { ModelSettings, RecipeInfo } from "./api";
+import { chosenDefaults, frameOf, ruledDefaults, withoutOldZeros, fuzzyScore, isShown, latentUpscaleSize, megapixels, pickChoice, RANDOM_SEED, secondsInput, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
+import type { ModelSettings, RecipeInfo, RecipeStatus } from "./api";
 import { fileLabel, plural } from "./format";
 
 /**
@@ -86,12 +86,19 @@ export function sentForm(recipe: RecipeInfo, defaults: Record<string, unknown>, 
 /** The whole form: what it starts from (`formDefaults`), with what is stored over it. What a render or a load is sent from. */
 export function wholeForm(
   recipe: RecipeInfo,
-  options: Record<string, string[]> | undefined,
+  status: FormSetup,
   settings: ModelSettings[],
   stored: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  return { ...formDefaults(recipe, options, settings, stored).defaults, ...stored };
+  return { ...formDefaults(recipe, status, settings, stored).defaults, ...ownValues(recipe, stored) };
 }
+
+/** What a form is worked out with of its recipe's status here: what each input offers, and the files its family uses. */
+export type FormSetup = Pick<RecipeStatus, "options" | "slots"> | undefined;
+
+/** What a draft holds, without the 0s older drafts saved for "the recipe picks it": those settings follow the form. */
+export const ownValues = (recipe: RecipeInfo, stored: Record<string, unknown> | undefined): Record<string, unknown> =>
+  stored ? withoutOldZeros(recipe.inputs, stored) : {};
 
 /**
  * What a form starts from, in two layers: the recipe's own defaults, then what was saved for the model
@@ -100,14 +107,16 @@ export function wholeForm(
  */
 export function formDefaults(
   recipe: RecipeInfo,
-  options: Record<string, string[]> | undefined,
+  status: FormSetup,
   settings: ModelSettings[],
-  stored: Record<string, unknown> | undefined,
+  given: Record<string, unknown> | undefined,
 ) {
+  const options = status?.options;
+  const stored = ownValues(recipe, given);
   const base = Object.fromEntries(recipe.inputs.map((i) => [i.id, defaultOf(i, options?.[i.id])]));
   const modelInput = recipe.inputs.find((i) => i.type === "model");
   const file = modelInput ? String(stored?.[modelInput.id] ?? base[modelInput.id] ?? "") : "";
-  const saved = settings.find((s) => s.family === recipe.family && s.file === file)?.values ?? {};
+  const saved = withoutOldZeros(recipe.inputs, settings.find((s) => s.family === recipe.family && s.file === file)?.values ?? {});
   const hasSaved = Object.keys(saved).length > 0;
   // nothing saved for this file yet: what its line's authors recommend, read from its name (Pony, NoobAI v-pred, Krea…)
   const name = file.split(/[\\/]/).pop() ?? "";
@@ -122,8 +131,11 @@ export function formDefaults(
   // last, what the choices made move (a hand detector picked: the denoise, crop and prompt start on hands); what the
   // draft holds is its own and stays, so only the settings still at their starting values follow the choice. What the
   // model's line or the values saved for it set stays too: a distilled H3 file's own shifts, not Turbo's usual ones
-  const moved = Object.entries(chosenDefaults(recipe.inputs, { ...layered, ...stored })).filter(([id]) => !(id in lined) && !(id in perModel));
-  return { defaults: { ...layered, ...Object.fromEntries(moved) }, file, hasSaved, preset: notes.length ? notes.join(" · ") : undefined };
+  const moved = Object.fromEntries(Object.entries(chosenDefaults(recipe.inputs, { ...layered, ...stored })).filter(([id]) => !(id in lined) && !(id in perModel)));
+  // and what this setup makes right (Recipe.starts): with MiniMax's 4-step reference LoRA a reference clip's Turbo runs
+  // 4 steps at its shifts, whatever the model's line or the values saved for the usual model say
+  const ruled = ruledDefaults(recipe.starts, { ...layered, ...moved, ...stored }, status?.slots ?? {});
+  return { defaults: { ...layered, ...moved, ...ruled }, file, hasSaved, preset: notes.length ? notes.join(" · ") : undefined };
 }
 
 /**

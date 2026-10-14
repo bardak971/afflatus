@@ -113,6 +113,11 @@ interface NumberInput extends Base {
   unit?: string;
   /** Values offered as one click under the slider (the usual resolutions), the number staying typeable. */
   picks?: number[];
+  /**
+   * 0 was once how this setting said "the recipe picks it", before the form showed the value it uses: a 0 an older
+   * draft or saved setting holds is read as left alone (the default, or where a choice moves it), never as 0.
+   */
+  oldZero?: true;
 }
 interface ToggleInput extends Base {
   type: "toggle";
@@ -307,7 +312,8 @@ function schemaOf(spec: InputSpec): z.ZodType {
     case "number": {
       // a whole step from a whole start (steps, frames, a resolution): what takes it is an INT, which refuses 7.5
       const whole = [spec.step, spec.min, spec.default].every(Number.isInteger);
-      return (whole ? z.number().int() : z.number()).min(spec.min).max(spec.max).default(spec.default);
+      const n = (whole ? z.number().int() : z.number()).min(spec.min).max(spec.max).default(spec.default);
+      return spec.oldZero ? z.preprocess((v) => (v === 0 ? undefined : v), n) : n;
     }
     case "toggle":
       return z.boolean().default(spec.default);
@@ -408,4 +414,49 @@ export function secondsOf(specs: InputSpec[], values: Record<string, unknown>): 
   if (!spec) return null;
   const n = Number(values[spec.id] ?? spec.default);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** A form's values without the 0s older drafts saved for "the recipe picks it" (`oldZero`): those settings are left alone. */
+export function withoutOldZeros(specs: readonly InputSpec[], values: Record<string, unknown>): Record<string, unknown> {
+  const old = new Set(specs.filter((s) => s.type === "number" && s.oldZero).map((s) => s.id));
+  return Object.fromEntries(Object.entries(values).filter(([id, v]) => !(old.has(id) && v === 0)));
+}
+
+/**
+ * A condition on a form's values and on the files its family uses (slot id → file name), for settings whose right
+ * starting value depends on both. `name`: the file a model input picks, else the slot's, its name matched (case ignored).
+ */
+export type StartCondition =
+  | { all: StartCondition[] }
+  | { any: StartCondition[] }
+  | { not: StartCondition }
+  | { input: string; is: unknown }
+  | { input: string; filled: true }
+  | { name: { input?: string; slot?: string }; match: string };
+
+/** Settings that start elsewhere while a condition holds: what the render runs with the setup it finds. */
+export interface StartRule {
+  when: StartCondition;
+  values: Record<string, unknown>;
+}
+
+function holds(c: StartCondition, values: Record<string, unknown>, slots: Record<string, string>): boolean {
+  if ("all" in c) return c.all.every((x) => holds(x, values, slots));
+  if ("any" in c) return c.any.some((x) => holds(x, values, slots));
+  if ("not" in c) return !holds(c.not, values, slots);
+  if ("name" in c) {
+    const picked = c.name.input ? values[c.name.input] : undefined;
+    const file = (typeof picked === "string" && picked) || (c.name.slot ? slots[c.name.slot] : "") || "";
+    return new RegExp(c.match, "i").test(file.split(/[\\/]/).pop() ?? "");
+  }
+  const v = values[c.input];
+  if ("filled" in c) return Array.isArray(v) ? v.length > 0 : typeof v === "string" ? v.trim() !== "" : Boolean(v);
+  return v === c.is;
+}
+
+/** The starting values the rules whose condition holds give, the first rule first for a setting two give. */
+export function ruledDefaults(rules: readonly StartRule[] | undefined, values: Record<string, unknown>, slots: Record<string, string>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const r of rules ?? []) if (holds(r.when, values, slots)) for (const [k, v] of Object.entries(r.values)) if (!(k in out)) out[k] = v;
+  return out;
 }

@@ -1,7 +1,7 @@
 import type { FrameGrid } from "./frameGrid";
 import type { LintInput, PromptLine } from "./promptLint";
 import type { BuiltGraph } from "./graph";
-import { chosenDefaults, schemaFor, type InputSpec } from "./inputs";
+import { chosenDefaults, schemaFor, withoutOldZeros, type InputSpec, type StartRule } from "./inputs";
 import { folderOfFileInput } from "./models";
 
 /** A file a family needs, wherever the user keeps it: found by pattern, overridable on the setup page. */
@@ -183,6 +183,11 @@ export interface Recipe<In = Record<string, unknown>> {
    * before a lineage's); a value saved for the file always wins over them.
    */
   presets?: Preset[];
+  /**
+   * Settings whose right start depends on the files its family finds as well as on the form (a turbo LoRA made for
+   * other steps): the form starts them there, so that what it shows is what the render runs.
+   */
+  starts?: StartRule[];
 }
 
 /** Settings for the models whose file name matches `match` (a regular expression, case-insensitive). */
@@ -199,8 +204,9 @@ export const defineRecipe = <In>(r: Recipe<In>): Recipe<In> => r;
 /** Raw inputs (from the browser, a draft, a variant) → validated values with defaults filled in. */
 export function parseInput<In>(recipe: Recipe<In>, raw: unknown): In {
   const parsed = schemaFor(recipe.inputs).parse(raw) as Record<string, unknown>;
-  // what was left out starts where the choices made move it, as the form starts it (Turbo on: the turbo LoRA's shifts)
-  const given = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  // what was left out starts where the choices made move it, as the form starts it (Turbo on: the turbo LoRA's shifts);
+  // an older draft's 0 for "the recipe picks it" counts as left out
+  const given = raw && typeof raw === "object" ? withoutOldZeros(recipe.inputs, raw as Record<string, unknown>) : {};
   const moved = Object.entries(chosenDefaults(recipe.inputs, parsed)).filter(([id]) => given[id] === undefined);
   return { ...parsed, ...Object.fromEntries(moved) } as In;
 }
@@ -214,7 +220,7 @@ export function dryContext(over: Partial<BuildContext> = {}): BuildContext {
 export function describeRecipe(r: Recipe<any>) {
   return {
     id: r.id, family: r.family, ...(r.imported ? { imported: true as const } : {}), version: r.version, title: r.title, summary: r.summary, output: r.output,
-    inputs: r.inputs, traits: r.traits ?? null, presets: r.presets ?? [],
+    inputs: r.inputs, traits: r.traits ?? null, presets: r.presets ?? [], starts: r.starts ?? [],
     ...(r.chapters?.length ? { chapters: r.chapters } : {}),
     // the model files it names itself (an imported workflow's): what its LoRAs are sorted for
     models: (r.files ?? []).filter((f) => ["checkpoints", "diffusion_models"].includes(folderOfFileInput(f.classType, f.input) ?? "")).map((f) => f.file),
