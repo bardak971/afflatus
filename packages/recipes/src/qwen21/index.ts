@@ -253,7 +253,7 @@ export const qwen21MotionPicture = defineRecipe<Qwen21MotionPicture>({
     ...sampling,
   ],
   nodes: (input) => [...NODES(input), "LoadImage"],
-  optionalNodes: ["LoraLoaderModelOnly"],
+  optionalNodes: ["LoraLoaderModelOnly", "AfflatusFaceMatch"],
   build(input, ctx) {
     const g = new GraphBuilder();
     const k = load(g, input, ctx);
@@ -273,9 +273,17 @@ export const qwen21MotionPicture = defineRecipe<Qwen21MotionPicture>({
     };
     const put = pass(input.replace, [g.out("LoadImage", { image: ctx.uploads.source }), ...photos.map((file) => g.out("LoadImage", { image: file }))], ctx.seed);
     const lit = input.relight ? pass(input.relit, [put.image], ctx.seed + 1) : null;
-    const out = g.add("PreviewImage", { images: (lit ?? put).image });
+    const made = (lit ?? put).image;
+    const out = g.add("PreviewImage", { images: made });
+    // how much the face in it is the person of the photos (the Afflatus pack's Face Match, with insightface): the box ranks by it
+    const score = ctx.has("AfflatusFaceMatch") && photos.length
+      ? g.add("AfflatusFaceMatch", { image: made, ...Object.fromEntries(photos.map((file, i) => [`photo_${i + 1}`, g.out("LoadImage", { image: file })])) })
+      : null;
     const passes = [{ node: put.sampled[0], steps: input.steps }, ...(lit ? [{ node: lit.sampled[0], steps: input.steps }] : [])];
-    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: input.steps * passes.length, passes, loads: k.loads };
+    return {
+      graph: g.graph, phases: g.phases, totalSteps: input.steps * passes.length, passes, loads: k.loads,
+      outputs: [{ node: out, kind: "image", role: "result" }, ...(score ? [{ node: score, kind: "image" as const, role: "score" as const }] : [])],
+    };
   },
   variants: [
     {

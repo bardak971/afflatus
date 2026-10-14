@@ -319,7 +319,7 @@ export async function history(core: QueueCore, opts: { status?: "done" | "failed
     const input = inputsOf(r);
     const promptSpec = recipe?.inputs.find((i) => i.type === "prompt" && !i.optional) ?? recipe?.inputs.find((i) => i.type === "prompt" && i.id !== "negative");
     const prompt = promptSpec && typeof input[promptSpec.id] === "string" ? (input[promptSpec.id] as string).trim().slice(0, 240) : "";
-    const resolved = r.generation_id ? readJson<{ seed?: number }>(gens.find((g) => g.id === r.generation_id)?.resolved, {}) : {};
+    const resolved = r.generation_id ? readJson<{ seed?: number; face?: number }>(gens.find((g) => g.id === r.generation_id)?.resolved, {}) : {};
     const tookMs = r.started_at && r.finished_at ? new Date(r.finished_at).getTime() - new Date(r.started_at).getTime() : null;
     const kind = kindOf(r);
     return {
@@ -333,6 +333,8 @@ export async function history(core: QueueCore, opts: { status?: "done" | "failed
       model: recipe ? modelOf(recipe.inputs, input) : null,
       prompt,
       seed: typeof resolved.seed === "number" ? resolved.seed : null,
+      /** How much the face in what it made is the person of its photos (a picture for Motion transfer, with the Face Match node). */
+      face: typeof resolved.face === "number" ? resolved.face : null,
       // jobs asked for together ("Make 4"): the same form, the same second
       batch: `${r.draft_id ?? ""}|${r.recipe_id}|${r.label}|${r.created_at.slice(0, 19)}`,
       made: made.filter((a) => a.generation_id === r.generation_id).map((a) => ({ id: a.id, kind: a.kind, width: a.width, height: a.height, durationMs: a.duration_ms, kept: a.kept_at !== null, inBin: a.deleted_at !== null, name: a.name })),

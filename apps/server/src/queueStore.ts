@@ -69,10 +69,11 @@ export async function store(
   const files = collectOutputs(resume, outputs);
   if (!files.length) throw new Error("ComfyUI finished but returned no output");
   const sides = sideFiles(resume, outputs);
+  const face = faceOf(resume, outputs);
   const generationId = newId();
   const at = now();
   // with the cast it was sent with: what is made from it later (a video of this picture) can take it over
-  const resolved: Record<string, unknown> = { seed: resume.seed, loads: resume.loads, ...(resume.overlap ? { overlap: resume.overlap } : {}), ...(resume.mirror?.length ? { mirror: resume.mirror } : {}), ...(row.look ? { look: JSON.parse(row.look) } : {}) };
+  const resolved: Record<string, unknown> = { seed: resume.seed, loads: resume.loads, ...(resume.overlap ? { overlap: resume.overlap } : {}), ...(resume.mirror?.length ? { mirror: resume.mirror } : {}), ...(row.look ? { look: JSON.parse(row.look) } : {}), ...(face !== null ? { face } : {}) };
   // the folder that was open when it was sent, when it is still there. Being in a folder does not keep a result:
   // it still goes to the bin after a day unless it is kept
   const folder = row.folder_id ? (await db.selectFrom("folders").select("id").where("id", "=", row.folder_id).executeTakeFirst())?.id ?? null : null;
@@ -116,6 +117,16 @@ export async function store(
     filed?.();
   }
   return generationId;
+}
+
+/** How much the face in the result is the person of the photos it was made with (a Face Match node's figure), or null. */
+function faceOf(resume: Resume, outputs: Outputs): number | null {
+  for (const out of resume.outputs) {
+    if (out.role !== "score") continue;
+    const said = (outputs[out.node] as { afflatus_face?: Array<{ face?: number | null }> } | undefined)?.afflatus_face?.[0]?.face;
+    if (typeof said === "number" && Number.isFinite(said)) return said;
+  }
+  return null;
 }
 
 /** The files the result nodes handed back, each with the kind the recipe asked of it. */

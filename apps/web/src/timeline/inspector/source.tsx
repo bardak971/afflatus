@@ -195,6 +195,7 @@ function PictureFromFrame({ timeline, place, clock, current, onPick }: { timelin
       video={source.asset}
       atMs={at}
       name={`Picture for ${timeline.name}`}
+      folder={timeline.folderId}
       cast={timeline.look?.cast.map((c) => c.id)}
       current={current}
       onPick={onPick}

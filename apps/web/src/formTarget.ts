@@ -14,6 +14,8 @@ interface Target {
   set(input: string, value: unknown): void;
   /** The draft it is (the command bar's commands act on the open draft). */
   draftId?: string;
+  /** The folder open beside it, where its renders land (and what a box of the form makes, a Motion transfer's pictures). */
+  folder?: string;
   /** Who is in it and how it looks, and the way to change that (the command bar's @ cast). */
   look?: Look | null;
   setLook?(look: Look): void;
