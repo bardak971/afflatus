@@ -179,10 +179,12 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
         const files = await list(m.machine.id, f.folder);
         if (files) on[m.machine.id] = files.includes(fileName(f.file));
       }
+      // where a pod would get it, as the pod does (a file a site knows by its name is never uploaded from here)
       const src = presetSource(f);
-      const here = src ? null : await localCopy(settings.comfyDir, f.folder, f.file);
-      const size = f.size ?? (here ? (await stat(here).catch(() => null))?.size : undefined);
-      items.push({ ...f, ...(size ? { size } : {}), via: src ? measureKind(src) : here ? "upload" : null, on });
+      const about = src ? null : await s.podFiles.about(f).catch(() => null);
+      const here = src || about?.via ? null : await localCopy(settings.comfyDir, f.folder, f.file);
+      const size = f.size ?? about?.size ?? (here ? (await stat(here).catch(() => null))?.size : undefined);
+      items.push({ ...f, ...(size ? { size } : {}), via: src ? measureKind(src) : about?.via ?? (here ? "upload" : null), on });
     }
     return { items };
   });
@@ -263,17 +265,19 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
     const familyHits = s.registry.families().filter((f) => !f.imported && hit(`${f.name} ${f.id}`)).slice(0, 8)
       .map((f) => ({ id: f.id, name: f.name, files: f.slots.filter((x) => x.get && !x.optional).map((x) => withVia({ file: x.get!.file, folder: x.folder, url: x.get!.url })) }))
       .filter((f) => f.files.length);
-    const files: Array<{ file: string; folder: string; size?: number; via: "upload" }> = [];
+    const files: Array<{ file: string; folder: string; size?: number; via: SetFileView["via"] }> = [];
     if (words.length) {
       const comfy = await s.comfy();
       const dir = (await readSettings(s.db)).comfyDir;
       // every folder asked at once; at most 30 files found, each looked for on this computer at once
       const lists = await Promise.all(SEARCHED_FOLDERS.map(async (folder) => ({ folder, names: await comfy.client.models(folder).catch(() => [] as string[]) })));
       const found = lists.flatMap(({ folder, names }) => names.filter(hit).map((file) => ({ file, folder }))).slice(0, 30);
+      // where a pod would get each, as the pod does: a site that knows it (a preset's, a family's, the Civitai version it was
+      // matched to) before an upload from this computer, which is only for a file no site has
       files.push(...(await Promise.all(found.map(async (f) => {
-        const here = await localCopy(dir, f.folder, f.file);
-        const size = here ? (await stat(here).catch(() => null))?.size : undefined;
-        return { ...f, ...(size ? { size } : {}), via: "upload" as const };
+        const [here, about] = await Promise.all([localCopy(dir, f.folder, f.file), s.podFiles.about(f).catch(() => null)]);
+        const size = about?.size ?? (here ? (await stat(here).catch(() => null))?.size : undefined);
+        return { ...f, ...(size ? { size } : {}), via: about?.via ?? (here ? ("upload" as const) : null) };
       }))));
     }
     return { presets: presetHits, families: familyHits, files };

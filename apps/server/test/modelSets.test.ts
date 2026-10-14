@@ -126,6 +126,9 @@ describe("a model set", () => {
     expect(mine.files).toEqual([]);
     fake.models.loras = ["have.safetensors", "mine.safetensors"];
     expect((await get(t.app, "/api/model-sets/search?q=mine")).json().files).toEqual([{ file: "mine.safetensors", folder: "loras", size: 4096, via: "upload" }]);
+    // a file of this computer that a site knows by its name (a preset's Civitai version): had from there, never uploaded
+    fake.models.diffusion_models = [UNET.file];
+    expect((await get(t.app, "/api/model-sets/search?q=h3_v4")).json().files).toEqual([{ file: UNET.file, folder: "diffusion_models", size: UNET.size, via: "civitai" }]);
     // a query given twice is one query too long, not a crash
     expect((await get(t.app, "/api/model-sets/search?q=a&q=b")).statusCode).toBe(400);
   });
