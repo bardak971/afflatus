@@ -200,6 +200,8 @@ export const settingsSchema = z.object({
   rentCaps: z.object({ day: z.number().min(0).max(100_000).default(0), month: z.number().min(0).max(1_000_000).default(0) }).default({ day: 0, month: 0 }),
   /** The last deploy's choices: the Deploy dialog opens with them, and "Deploy again" repeats them. Null before the first. */
   lastDeploy: deploySchema.nullable().default(null),
+  /** A network volume no pod ran on for this many days is flagged (it bills every month all the same); 0: never. */
+  volumeUnusedDays: z.number().int().min(0).max(365).default(7),
   /**
    * The RunPod secrets of pods removed from Afflatus while they still were on RunPod: each pod reads its own at its start,
    * so it stays as long as the pod does, and is deleted once the pod is gone (rented.ts). Never given to the page.
@@ -444,6 +446,7 @@ export function publicSettings(s: Settings) {
     hasRunpodKey: Boolean(s.runpodKey),
     rentCaps: s.rentCaps,
     lastDeploy: s.lastDeploy,
+    volumeUnusedDays: s.volumeUnusedDays,
     finish: s.finish,
     slotFiles: s.slotFiles,
     acceptedPresets: s.acceptedPresets,

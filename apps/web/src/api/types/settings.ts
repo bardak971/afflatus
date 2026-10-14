@@ -190,6 +190,8 @@ export interface Settings {
   rentCaps: { day: number; month: number };
   /** The last deploy's choices: the Deploy dialog opens with them, "Deploy again" repeats them. */
   lastDeploy: DeployAsk | null;
+  /** A network volume no pod ran on for this many days is flagged; 0: never. */
+  volumeUnusedDays: number;
   /** The user's defaults for "Finish all clips" on a timeline. */
   finish: FinishSettings;
   /** A family's file chosen by hand where several fit: family id → slot id → file. */

@@ -217,6 +217,27 @@ describe("a deploy", () => {
     expect(ro.sets[0]?.missing.count).toBe(0);
   });
 
+  it("flags a volume no pod ran on for the days set (counted from when Afflatus first saw one never used); 0: never", async () => {
+    type V = { id: string; unused: boolean };
+    const unused = async () => ((await get(t.app, "/api/runpod/volumes")).json().volumes as V[]).filter((v) => v.unused).map((v) => v.id);
+    // first seen now: not flagged yet
+    expect(await unused()).toEqual([]);
+    const eightDaysAgo = new Date(Date.now() - 8 * 86_400_000).toISOString();
+    await t.db.updateTable("volume_files").set({ noticed_at: eightDaysAgo }).where("volume_id", "=", "vol-se").execute();
+    expect(await unused()).toEqual(["vol-se"]);
+    // used 8 days ago: flagged too; a pod on it now: not
+    await t.db.updateTable("volume_files").set({ used_at: eightDaysAgo }).where("volume_id", "=", "vol-ro").execute();
+    await t.db.updateTable("volume_files").set({ noticed_at: eightDaysAgo }).where("volume_id", "=", "vol-ro").execute();
+    expect((await unused()).sort()).toEqual(["vol-ro", "vol-se"]);
+    expect((await deploy({ volume: "vol-ro", idleDo: "stop" })).statusCode).toBe(200);
+    expect(await unused()).toEqual(["vol-se"]);
+    // said with the spending, for the Settings tab's flag
+    const storage = (await get(t.app, "/api/rented/spending")).json().spending.storage;
+    expect(storage.unused).toEqual([{ id: "vol-se", name: "far-away", perMonth: 3.5, usedAt: null }]);
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { volumeUnusedDays: 0 } });
+    expect(await unused()).toEqual([]);
+  });
+
   it("makes, grows and deletes a volume; never smaller, never one a pod is mounted on", async () => {
     const made = await post(t.app, "/api/runpod/volumes", { name: "zz-test volume", size: 20, dataCenter: "EU-RO-1" });
     expect(made.statusCode).toBe(200);

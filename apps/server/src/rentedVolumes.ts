@@ -34,6 +34,8 @@ export interface VolumeView extends NetworkVolume {
   holds: Holdings | null;
   /** When a pod last ran on it (now, while one does); null: never seen used. */
   usedAt: string | null;
+  /** No pod ran on it for the days the user set (Settings), or since Afflatus first saw it: it bills for nothing. */
+  unused: boolean;
   /** The pod running on it now, when one is: no other pod may use it meanwhile. */
   usedBy: PodOn | null;
   /** Every pod it is mounted on, stopped ones too: it cannot be deleted while one is. */
@@ -56,6 +58,8 @@ export interface Storage {
   volumes: number;
   /** Stopped pods with a disk of their own: billed while they wait. */
   stoppedDisks: number;
+  /** The volumes no pod ran on for the days the user set: billed for nothing (Settings › Rented GPUs flags them). */
+  unused: Array<{ id: string; name: string; perMonth: number; usedAt: string | null }>;
 }
 
 /** RunPod's price of a standard network volume, USD per GB and month (the first TB). */
@@ -81,31 +85,43 @@ export function usedBy(volume: string, pods: readonly Pod[], machines: readonly 
   return mountedOn(volume, pods, machines).find((p) => HOLDS.has(p.status)) ?? null;
 }
 
-export function viewVolumes(volumes: readonly NetworkVolume[], pods: readonly Pod[], machines: readonly Machine[], kept: ReadonlyMap<string, KeptHoldings>, now = Date.now()): VolumeView[] {
+export function viewVolumes(volumes: readonly NetworkVolume[], pods: readonly Pod[], machines: readonly Machine[], kept: ReadonlyMap<string, KeptHoldings>, unusedDays: number, now = Date.now()): VolumeView[] {
   return volumes.map((v) => {
     const on = mountedOn(v.id, pods, machines);
     const usedBy = on.find((p) => HOLDS.has(p.status)) ?? null;
     const k = kept.get(v.id);
+    const usedAt = usedBy ? new Date(now).toISOString() : k?.usedAt ?? null;
+    // never seen used: counted from when Afflatus first saw it (a volume made elsewhere, or before)
+    const since = Date.parse(usedAt ?? k?.noticedAt ?? new Date(now).toISOString());
     return {
       ...v, usedBy, mountedOn: on, perMonth: Math.round(v.size * VOLUME_PER_GB_MONTH * 100) / 100,
-      holds: k ? { count: k.keys.size, seenAt: k.seenAt, seenBy: k.seenBy } : null,
-      usedAt: usedBy ? new Date(now).toISOString() : k?.usedAt ?? null,
+      holds: k?.keys && k.seenAt && k.seenBy ? { count: k.keys.size, seenAt: k.seenAt, seenBy: k.seenBy } : null,
+      usedAt, unused: !usedBy && unusedDays > 0 && now - since >= unusedDays * 86_400_000,
     };
   });
 }
 
-/** What a volume holds as kept: its files' keys (fileKey, by the file's own name), when and by which pod, when last used. */
+/** What a volume holds as kept: its files' keys (fileKey, by the file's own name; null until listed), when and by which pod, when last used, when first seen. */
 export interface KeptHoldings {
-  keys: Set<string>;
-  seenAt: string;
-  seenBy: string;
-  usedAt: string;
+  keys: Set<string> | null;
+  seenAt: string | null;
+  seenBy: string | null;
+  usedAt: string | null;
+  noticedAt: string;
 }
 
 /** Every volume's holdings as kept. */
 export async function keptHoldings(db: Db): Promise<Map<string, KeptHoldings>> {
   const rows = await db.selectFrom("volume_files").selectAll().execute();
-  return new Map(rows.map((r) => [r.volume_id, { keys: new Set(JSON.parse(r.files) as string[]), seenAt: r.seen_at, seenBy: r.seen_by, usedAt: r.used_at }]));
+  return new Map(rows.map((r) => [r.volume_id, { keys: r.files === null ? null : new Set(JSON.parse(r.files) as string[]), seenAt: r.seen_at, seenBy: r.seen_by, usedAt: r.used_at, noticedAt: r.noticed_at }]));
+}
+
+/** The volumes Afflatus sees for the first time, noted with now: one never used is counted unused from then. */
+export async function noticeVolumes(db: Db, volumes: readonly NetworkVolume[], kept: ReadonlyMap<string, KeptHoldings>, now = Date.now()): Promise<void> {
+  const fresh = volumes.filter((v) => !kept.has(v.id));
+  if (!fresh.length) return;
+  const at = new Date(now).toISOString();
+  await db.insertInto("volume_files").values(fresh.map((v) => ({ volume_id: v.id, files: null, seen_at: null, seen_by: null, used_at: null, noticed_at: at }))).onConflict((oc) => oc.column("volume_id").doNothing()).execute();
 }
 
 /** A file's key as a volume's listing is kept: its folder and its own name (a subfolder on the pod does not count). */
@@ -125,7 +141,7 @@ export async function recordHoldings(db: Db, volume: string, comfy: Comfy, by: s
   }
   const at = new Date(now).toISOString();
   const row = { files: JSON.stringify([...keys].sort()), seen_at: at, seen_by: by, used_at: at };
-  await db.insertInto("volume_files").values({ volume_id: volume, ...row }).onConflict((oc) => oc.column("volume_id").doUpdateSet(row)).execute();
+  await db.insertInto("volume_files").values({ volume_id: volume, ...row, noticed_at: at }).onConflict((oc) => oc.column("volume_id").doUpdateSet(row)).execute();
 }
 
 /** Of a set's files, those a volume lacks as last seen. */

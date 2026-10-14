@@ -32,7 +32,7 @@ export function registerRented(app: FastifyInstance, s: Services): void {
     const [volumes, sets, kept] = await Promise.all([s.rented.volumes(), setsWithFiles(s), keptHoldings(s.db)]);
     // each set as the volume held it last time a pod ran there: all there, or what it lacks
     return { volumes: volumes.map((v) => {
-      const keys = kept.get(v.id)?.keys;
+      const keys = kept.get(v.id)?.keys ?? null;
       return { ...v, sets: keys ? sets.filter((x) => x.files.length).map((x) => ({ id: x.id, name: x.name, missing: missingOn(x.files, keys) })) : [] };
     }) };
   });

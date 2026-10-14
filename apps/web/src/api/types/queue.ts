@@ -294,6 +294,8 @@ export interface NetworkVolume {
   holds: { count: number; seenAt: string; seenBy: string } | null;
   /** When a pod last ran on it; null: never seen used. */
   usedAt: string | null;
+  /** No pod ran on it for the days set in Settings: it bills for nothing. */
+  unused: boolean;
   /** Each Model set as it held it last time a pod ran there: what it lacks (empty when nothing is known). */
   sets: Array<{ id: string; name: string; missing: { count: number; bytes: number; unknown: number } }>;
 }
@@ -338,6 +340,8 @@ export interface RentedSpending {
     perMonth: number;
     volumes: number;
     stoppedDisks: number;
+    /** The volumes no pod ran on for the days set in Settings. */
+    unused: Array<{ id: string; name: string; perMonth: number; usedAt: string | null }>;
   } | null;
 }
 

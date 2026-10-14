@@ -9,7 +9,7 @@ import type { PresetFile } from "@afflatus/core";
 import { imagePublic } from "./podImage";
 import { recordMeasure } from "./podMeasures";
 import { SEARCHED_FOLDERS } from "./modelSets";
-import { inUseSaid, keptHoldings, mountedOn, recordHoldings, usedBy, viewVolumes, VOLUME_MAX_GB, VOLUME_MIN_GB, VOLUME_PER_GB_MONTH, type Storage, type VolumeView } from "./rentedVolumes";
+import { inUseSaid, keptHoldings, noticeVolumes, mountedOn, recordHoldings, usedBy, viewVolumes, VOLUME_MAX_GB, VOLUME_MIN_GB, VOLUME_PER_GB_MONTH, type Storage, type VolumeView } from "./rentedVolumes";
 import { MAX_MACHINES, readSettings, updateSettings, type DeployAsk, type Machine, type Settings } from "./settings";
 
 /**
@@ -354,7 +354,9 @@ export class Rented {
     const [volumes, pods] = await Promise.all([client.volumes(), client.pods()]).catch((err: Error) => {
       throw httpError(err.message, 502);
     });
-    return viewVolumes(volumes, pods, s.machines, await keptHoldings(this.db), this.now());
+    const kept = await keptHoldings(this.db);
+    await noticeVolumes(this.db, volumes, kept, this.now());
+    return viewVolumes(volumes, pods, s.machines, kept, s.volumeUnusedDays, this.now());
   }
 
   /** When each volume's folders were last listed (ms), so that a pod on it is asked at most every VOLUME_LIST_MS. */
@@ -1097,12 +1099,17 @@ export class Rented {
     let value: Storage | null = null;
     if (volumes && pods) {
       const disks = pods.filter((p) => p.status !== "TERMINATED" && p.diskGb > 0);
+      const kept = await keptHoldings(this.db);
+      await noticeVolumes(this.db, volumes, kept, this.now());
+      const settings = await readSettings(this.db);
+      const unused = viewVolumes(volumes, pods, settings.machines, await keptHoldings(this.db), settings.volumeUnusedDays, this.now()).filter((v) => v.unused);
       value = {
         volumesMonth: volumeBills ? volumeBills.filter((b) => b.end > month).reduce((n, b) => n + b.amount, 0) : null,
         disksMonth: (podBills ?? []).filter((r) => r.end > month).reduce((n, r) => n + r.disk, 0),
         perMonth: volumes.reduce((n, v) => n + v.size * VOLUME_PER_GB_MONTH, 0) + disks.reduce((n, p) => n + p.diskGb * (p.status === "EXITED" ? STOPPED_DISK_PER_GB_MONTH : RUNNING_DISK_PER_GB_MONTH), 0),
         volumes: volumes.length,
         stoppedDisks: disks.filter((p) => p.status === "EXITED").length,
+        unused: unused.map((v) => ({ id: v.id, name: v.name, perMonth: v.perMonth, usedAt: v.usedAt })),
       };
     }
     this.storageSeen = { at: this.now(), value };
