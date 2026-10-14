@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { acceptSetLicences, deployModels } from "./deployModels";
+import { deployFiles, deployModels } from "./deployModels";
 import { httpError } from "./errors";
 import { podMachineId, podUrl } from "./runpod";
 import type { Services } from "./services";
@@ -45,8 +45,7 @@ export function registerRented(app: FastifyInstance, s: Services): void {
   /** A GPU deployed, as the dialog asked: billed from now. The user's click only; refused at a spending cap. */
   app.post("/api/runpod/deploy", async (req) => {
     const ask = deploySchema.parse(req.body);
-    await acceptSetLicences(s, ask);
-    return s.rented.deploy(ask);
+    return s.rented.deploy({ ...ask, files: await deployFiles(s, ask), again: false });
   });
 
   /** A pod added as a machine, as it is (running or stopped): its ComfyUI's address worked out from it. Nothing is started. */

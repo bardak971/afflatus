@@ -117,8 +117,10 @@ export const deploySchema = z.object({
   files: z.array(presetFileSchema).max(300).default([]),
   /** The waiting jobs' files unticked: those jobs stay elsewhere. Not remembered. */
   leaveOut: z.array(z.strictObject({ file: z.string().max(400), folder: z.string().max(120) })).max(300).default([]),
-  /** The set's presets whose licence was accepted in the dialog, by id. Not remembered. */
-  accept: z.array(z.string().max(120)).max(20).default([]),
+  /** The presets whose licence was accepted in the dialog, by id. Not remembered. */
+  accept: z.array(z.string().max(120)).max(40).default([]),
+  /** Deploy again: nothing was ticked, the remembered set's files come (deployModels.ts deployFiles). Not remembered. */
+  again: z.boolean().default(false),
 });
 export type DeployAsk = z.infer<typeof deploySchema>;
 

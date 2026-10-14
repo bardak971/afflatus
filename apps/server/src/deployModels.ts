@@ -1,13 +1,12 @@
-import type { PresetFile } from "@afflatus/core";
+import { fileKey, type PresetFile } from "@afflatus/core";
 import { filesUsed } from "./machineScans";
 import { filesOf, parseSetDef } from "./modelSets";
 import { measuredRange, type MeasureKind, type Range } from "./podMeasures";
-import { presetsWithFiles } from "./presetFiles";
+import { acceptLicences, presetsWithFiles } from "./presetFiles";
 import { readJson } from "./queueModel";
 import { needsComfy } from "./queueOffline";
 import type { Services } from "./services";
-import { httpError } from "./errors";
-import { readSettings, updateSettings, type DeployAsk } from "./settings";
+import { readSettings, type DeployAsk } from "./settings";
 import { OWNER } from "./db";
 
 /**
@@ -28,30 +27,29 @@ export interface DeployModelsView {
   jobs: { count: number; files: Array<DeployFile & { jobs: number; first: boolean }> };
   /** The picked set's files (its presets' and its own), each once; null with no set picked. */
   set: Array<DeployFile & { preset?: { id: string; name: string }; off: boolean }> | null;
-  /** Presets of the set whose licence was not accepted yet: accepted by deploying with them. */
-  licences: Array<{ id: string; name: string; licence: string }>;
+  /**
+   * Presets under a licence not accepted yet, with their files (fileKey): a deploy that brings one of those files asks for
+   * that licence, whichever way the file was picked (the jobs', the set's, one added).
+   */
+  licences: Array<{ id: string; name: string; licence: string; keys: string[] }>;
   /** What earlier deploys measured: bytes a second per source, ms for a boot; null where nothing was measured. */
   speeds: Record<Exclude<MeasureKind, "boot">, Range | null>;
   boot: Range | null;
 }
 
 /**
- * A deploy that brings files of a set's presets under a licence: each accepted in the dialog (kept as accepted, as for the
- * preset itself), or the deploy is refused before anything is made.
+ * The files a deploy brings: the ones ticked in the dialog, or, for Deploy again (`again`, nothing ticked), the remembered
+ * set's files; each preset's file under its licence, accepted in the dialog or before (presetFiles.ts acceptLicences), or
+ * the deploy is refused before anything is made.
  */
-export async function acceptSetLicences(s: Services, ask: Pick<DeployAsk, "set" | "files" | "accept">): Promise<void> {
-  if (!ask.set || !ask.files.length) return;
-  const row = await s.db.selectFrom("model_sets").select("def").where("owner_id", "=", OWNER).where("id", "=", ask.set).executeTakeFirst();
-  if (!row) return;
-  const presets = await presetsWithFiles(s);
-  const settings = await readSettings(s.db);
-  const sent = new Set(ask.files.map((f) => `${f.folder}|${f.file.toLowerCase()}`));
-  const pending = parseSetDef(row.def).presets
-    .map((id) => presets.find((p) => p.id === id))
-    .filter((p): p is NonNullable<typeof p> => Boolean(p?.licence && !settings.acceptedPresets.includes(p.id) && p.files.some((f) => sent.has(`${f.folder}|${f.file.toLowerCase()}`))));
-  const refused = pending.filter((p) => !ask.accept.includes(p.id));
-  if (refused.length) throw httpError(`${refused.map((p) => `${p.name} comes under the ${p.licence!.name}`).join("; ")}: accept it first.`);
-  if (pending.length) await updateSettings(s.db, ({ acceptedPresets }) => ({ acceptedPresets: [...new Set([...acceptedPresets, ...pending.map((p) => p.id)])] }));
+export async function deployFiles(s: Services, ask: Pick<DeployAsk, "set" | "files" | "accept" | "again">): Promise<PresetFile[]> {
+  let files = ask.files;
+  if (ask.again && !files.length && ask.set) {
+    const row = await s.db.selectFrom("model_sets").select("def").where("owner_id", "=", OWNER).where("id", "=", ask.set).executeTakeFirst();
+    if (row) files = filesOf(parseSetDef(row.def), await presetsWithFiles(s)).filter((f) => !f.off).map(({ preset: _p, off: _o, ...f }) => f);
+  }
+  await acceptLicences(s, files, ask.accept);
+  return files;
 }
 
 export async function deployModels(s: Services, o: { cloud: string; set: string }): Promise<DeployModelsView> {
@@ -89,11 +87,10 @@ export async function deployModels(s: Services, o: { cloud: string; set: string 
         const about = await s.podFiles.about(f);
         set.push({ file: f.file, folder: f.folder, ...(f.url ? { url: f.url } : {}), ...(f.civitai ? { civitai: f.civitai } : {}), via: about.via, size: about.size, ...(f.preset ? { preset: f.preset } : {}), off: f.off });
       }
-      for (const id of def.presets) {
-        const p = presets.find((x) => x.id === id);
-        if (p?.licence && !settings.acceptedPresets.includes(id)) licences.push({ id, name: p.name, licence: p.licence.name });
-      }
     }
+  }
+  for (const p of await presetsWithFiles(s)) {
+    if (p.licence && !settings.acceptedPresets.includes(p.id)) licences.push({ id: p.id, name: p.name, licence: p.licence.name, keys: p.files.map(fileKey) });
   }
   const cloud = o.cloud || null;
   const [hf, civitai, url, upload, boot] = await Promise.all((["hf", "civitai", "url", "upload", "boot"] as const).map((k) => measuredRange(s.db, k, cloud)));

@@ -6,7 +6,7 @@ import { z } from "zod";
 import { envSaid } from "./config";
 import { httpError } from "./errors";
 import { fileName } from "./media";
-import { shippedSchema, type PresetFile, type ShippedPreset } from "@afflatus/core";
+import { fileKey, shippedSchema, type PresetFile, type ShippedPreset } from "@afflatus/core";
 import { OWNER } from "./db";
 import type { DownloadView } from "./downloads";
 import { beginDownload } from "./fetchFile";
@@ -93,6 +93,25 @@ export async function presetsWithFiles(s: Pick<Services, "db" | "shippedPresets"
   });
   const shipped = s.shippedPresets.list().map((p) => ({ id: SHIPPED + p.id, name: p.name, recipe: p.recipe, files: p.files, licence: p.licence }));
   return [...mine, ...shipped];
+}
+
+/**
+ * The presets under a licence not accepted yet that name one of these files: whatever brings a preset's file (the preset,
+ * a Model set, a file added by hand, a set brought in from a file) brings it under its licence.
+ */
+export async function licencesPending(s: Pick<Services, "db" | "shippedPresets">, files: Array<{ folder: string; file: string }>): Promise<Preset[]> {
+  if (!files.length) return [];
+  const [presets, settings] = await Promise.all([presetsWithFiles(s), readSettings(s.db)]);
+  const keys = new Set(files.map(fileKey));
+  return presets.filter((p) => p.licence && !settings.acceptedPresets.includes(p.id) && p.files.some((f) => keys.has(fileKey(f))));
+}
+
+/** These files fetched only under their presets' licences: the ones `accept` names (true: all) are kept as accepted; any other refuses. */
+export async function acceptLicences(s: Pick<Services, "db" | "shippedPresets">, files: Array<{ folder: string; file: string }>, accept: string[] | boolean): Promise<void> {
+  const pending = await licencesPending(s, files);
+  const refused = pending.filter((p) => accept !== true && !(Array.isArray(accept) && accept.includes(p.id)));
+  if (refused.length) throw httpError(`${refused.map((p) => `${p.name} comes under the ${p.licence!.name}`).join("; ")}: accept it first.`);
+  if (pending.length) await updateSettings(s.db, ({ acceptedPresets }) => ({ acceptedPresets: [...new Set([...acceptedPresets, ...pending.map((p) => p.id)])] }));
 }
 
 export function registerPresetFiles(app: FastifyInstance, s: Services): void {

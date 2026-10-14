@@ -15,7 +15,7 @@ import { Select } from "./Select";
 import { Button, cx, ErrorNote, fieldClass, Help, Segmented } from "./ui";
 
 /** What a first deploy opens with: Afflatus's image, Secure Cloud, no volume, terminated after 10 min idle. */
-const FIRST: Omit<DeployAsk, "gpu"> = { cloud: "SECURE", template: "afflatus", volume: "", disk: 120, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15, set: "", files: [], leaveOut: [], accept: [] };
+const FIRST: Omit<DeployAsk, "gpu"> = { cloud: "SECURE", template: "afflatus", volume: "", disk: 120, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15, set: "", files: [], leaveOut: [], accept: [], again: false };
 const IDLE = [5, 10, 15, 30, 60, 120, 0];
 const WATCH = [5, 10, 15, 30, 60, 0];
 const DISKS = [60, 120, 200, 400];
@@ -167,7 +167,7 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
             </span>
             {!volume && (
               <span className="w-[110px]">
-                <Select size="sm" label="Its own disk" value={String(want.disk)} onChange={(v) => set({ disk: Number(v) })} options={DISKS.map((n) => ({ value: String(n), label: `${n} GB` }))} />
+                <Select size="sm" label="Its own disk" value={String(want.disk)} onChange={(v) => set({ disk: Number(v) })} options={[...new Set([...DISKS, want.disk])].sort((a, b) => a - b).map((n) => ({ value: String(n), label: `${n} GB` }))} />
               </span>
             )}
             <span className="text-xs text-ink-3">{volume ? `models kept on it · GPUs of ${volume.dataCenter} only` : "models fetched at each deploy"}</span>

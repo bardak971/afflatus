@@ -2,15 +2,15 @@ import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { presetFileSchema, type PresetFile } from "@afflatus/core";
+import { fileKey, presetFileSchema, type PresetFile } from "@afflatus/core";
 import { now, OWNER } from "./db";
 import { httpError, notFound } from "./errors";
 import { beginDownload } from "./fetchFile";
 import { fileName } from "./media";
 import { localCopy, measureKind, presetSource } from "./podSources";
-import { presetsWithFiles, type Preset } from "./presetFiles";
+import { acceptLicences, presetsWithFiles, type Preset } from "./presetFiles";
 import type { Services } from "./services";
-import { readSettings, updateSettings } from "./settings";
+import { readSettings } from "./settings";
 
 /**
  * Model sets: a named list of model files, nothing else (no form, no values), for a rented pod (Deploy a GPU), a new
@@ -22,8 +22,8 @@ import { readSettings, updateSettings } from "./settings";
 /** The model folders the search looks through on this computer's ComfyUI. */
 const SEARCHED_FOLDERS = ["checkpoints", "diffusion_models", "loras", "vae", "text_encoders", "clip_vision", "upscale_models", "latent_upscale_models", "controlnet", "model_patches", "audio_encoders"];
 
-/** A file left out of a set's preset, by its folder and name. */
-const keyOf = (folder: string, file: string) => `${folder}|${fileName(file)}`;
+/** A file left out of a set's preset, by its folder and name (core fileKey). */
+const keyOf = (folder: string, file: string) => fileKey({ folder, file });
 
 export const setDefSchema = z.strictObject({
   /** The presets it holds, by their id ("shipped:…" for one that ships with Afflatus). */
@@ -63,7 +63,9 @@ export interface ModelSetView {
 /** A set's files: its presets' (less those left out) then its own, each once. */
 export function filesOf(def: SetDef, presets: Preset[]): Array<PresetFile & { preset?: { id: string; name: string }; off: boolean }> {
   const out: Array<PresetFile & { preset?: { id: string; name: string }; off: boolean }> = [];
-  const seen = new Set<string>();
+  // a file of the set's own is listed as its own, even when a preset of the set names it too: leaving the preset's out
+  // never takes it away
+  const seen = new Set<string>(def.files.map((f) => keyOf(f.folder, f.file)));
   for (const id of def.presets) {
     const p = presets.find((x) => x.id === id);
     if (!p) continue;
@@ -74,17 +76,17 @@ export function filesOf(def: SetDef, presets: Preset[]): Array<PresetFile & { pr
       out.push({ ...f, preset: { id: p.id, name: p.name }, off: def.off.includes(key) });
     }
   }
+  const own = new Set<string>();
   for (const f of def.files) {
     const key = keyOf(f.folder, f.file);
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (own.has(key)) continue;
+    own.add(key);
     out.push({ ...f, off: false });
   }
   return out;
 }
 
 export const parseSetDef = (raw: string): SetDef => setDefSchema.parse(JSON.parse(raw));
-const parseDef = parseSetDef;
 
 /** What a set file holds when saved (Save as a file): its presets written out as files, so that it reads anywhere. */
 export interface SetFileExport {
@@ -103,7 +105,7 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
   const presets = () => presetsWithFiles(s);
 
   const view = (row: { id: string; name: string; def: string; updated_at: string }, all: Preset[], accepted: string[]): ModelSetView => {
-    const def = parseDef(row.def);
+    const def = parseSetDef(row.def);
     const files = filesOf(def, all).filter((f) => !f.off);
     return {
       id: row.id, name: row.name, files: def.files, off: def.off, updatedAt: row.updated_at,
@@ -144,7 +146,7 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
   });
   app.post<{ Params: { id: string } }>("/api/model-sets/:id/duplicate", async (req) => {
     const row = await find(req.params.id);
-    return save(null, { ...parseDef(row.def), name: `${row.name} copy`.slice(0, 120) });
+    return save(null, { ...parseSetDef(row.def), name: `${row.name} copy`.slice(0, 120) });
   });
 
   /** A set's files with where each comes from and which machines have it already (each machine's ComfyUI is asked). */
@@ -162,7 +164,10 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
       return listed.get(key)!;
     };
     const items: SetFileView[] = [];
-    for (const f of filesOf(parseDef(row.def), all)) {
+    const listed0 = filesOf(parseSetDef(row.def), all);
+    // every machine's folders asked at once, not one after another
+    await Promise.all(listed0.flatMap((f) => machines.map((m) => list(m.machine.id, f.folder))));
+    for (const f of listed0) {
       const on: Record<string, boolean> = {};
       for (const m of machines) {
         const files = await list(m.machine.id, f.folder);
@@ -185,11 +190,7 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
     const row = await find(req.params.id);
     const b = z.strictObject({ machine: z.string().max(40).optional(), accept: z.boolean().optional() }).parse(req.body ?? {});
     const all = await presets();
-    const def = parseDef(row.def);
-    const settings = await readSettings(s.db);
-    const unaccepted = def.presets.map((id) => all.find((p) => p.id === id)).filter((p): p is Preset => Boolean(p?.licence && !settings.acceptedPresets.includes(p.id)));
-    if (unaccepted.length && !b.accept) throw httpError(`${unaccepted.map((p) => `${p.name} comes under the ${p.licence!.name}`).join("; ")}: accept it first.`);
-    if (unaccepted.length) await updateSettings(s.db, ({ acceptedPresets }) => ({ acceptedPresets: [...new Set([...acceptedPresets, ...unaccepted.map((p) => p.id)])] }));
+    const def = parseSetDef(row.def);
     const machines = await s.machines();
     const target = b.machine ? machines.find((m) => m.machine.id === b.machine) : machines[0];
     if (!target) throw notFound("that ComfyUI");
@@ -200,6 +201,8 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
       if (!have.has(f.folder)) have.set(f.folder, (await target.comfy.client.models(f.folder).catch(() => [] as string[])).map(fileName));
       if (!have.get(f.folder)!.includes(fileName(f.file))) missing.push(f);
     }
+    // the files fetched come under their presets' licences, whichever way they are in the set (a preset, a file of its own)
+    await acceptLicences(s, missing, Boolean(b.accept));
     if (target.machine.rented) {
       s.podFiles.want(target.machine.id, missing.map(({ file, folder, url, civitai, size }) => ({ file, folder, ...(url ? { url } : {}), ...(civitai ? { civitai } : {}), ...(size ? { size } : {}) })), { tier: "ahead" });
       return { sent: missing.length, failed: [], skipped: 0 };
@@ -227,7 +230,7 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
   /** The set as a file: its presets written out as files (with the preset each came from), so that it reads anywhere. */
   app.get<{ Params: { id: string } }>("/api/model-sets/:id/export", async (req, reply) => {
     const row = await find(req.params.id);
-    const files = filesOf(parseDef(row.def), await presets())
+    const files = filesOf(parseSetDef(row.def), await presets())
       .filter((f) => !f.off)
       .map(({ preset, off: _off, ...f }) => ({ ...f, ...(preset ? { from: preset.name } : {}) }));
     const body: SetFileExport = { afflatusModelSet: 1, name: row.name, files };
@@ -239,27 +242,33 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
    * What can be added to a set (or to a deploy's files), found by words: presets (their files), families (their usual
    * files, each with its address), and the model files this computer's ComfyUI has, folder by folder.
    */
-  app.get<{ Querystring: { q?: string } }>("/api/model-sets/search", async (req) => {
-    const words = (req.query.q ?? "").toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
+  app.get("/api/model-sets/search", async (req) => {
+    const { q } = z.object({ q: z.string().max(200).default("") }).parse(req.query);
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
     const hit = (text: string) => words.every((w) => text.toLowerCase().includes(w));
+    // each file with where it comes from, as the server judges it (a preset's own address or version)
+    const withVia = <F extends PresetFile>(f: F) => {
+      const src = presetSource(f);
+      return { ...f, via: src ? measureKind(src) : null };
+    };
     const all = await presets();
     const presetHits = all.filter((p) => hit(`${p.name} ${p.files.map((f) => f.file).join(" ")}`)).slice(0, 12)
-      .map((p) => ({ id: p.id, name: p.name, files: p.files, bytes: p.files.reduce((n, f) => n + (f.size ?? 0), 0) }));
+      .map((p) => ({ id: p.id, name: p.name, files: p.files.map(withVia), bytes: p.files.reduce((n, f) => n + (f.size ?? 0), 0) }));
     const familyHits = s.registry.families().filter((f) => !f.imported && hit(`${f.name} ${f.id}`)).slice(0, 8)
-      .map((f) => ({ id: f.id, name: f.name, files: f.slots.filter((x) => x.get && !x.optional).map((x) => ({ file: x.get!.file, folder: x.folder, url: x.get!.url })) }))
+      .map((f) => ({ id: f.id, name: f.name, files: f.slots.filter((x) => x.get && !x.optional).map((x) => withVia({ file: x.get!.file, folder: x.folder, url: x.get!.url })) }))
       .filter((f) => f.files.length);
-    const files: Array<{ file: string; folder: string; size?: number }> = [];
+    const files: Array<{ file: string; folder: string; size?: number; via: "upload" }> = [];
     if (words.length) {
       const comfy = await s.comfy();
       const dir = (await readSettings(s.db)).comfyDir;
-      for (const folder of SEARCHED_FOLDERS) {
-        for (const file of await comfy.client.models(folder).catch(() => [] as string[])) {
-          if (files.length >= 30 || !hit(file)) continue;
-          const here = await localCopy(dir, folder, file);
-          const size = here ? (await stat(here).catch(() => null))?.size : undefined;
-          files.push({ file, folder, ...(size ? { size } : {}) });
-        }
-      }
+      // every folder asked at once; at most 30 files found, each looked for on this computer at once
+      const lists = await Promise.all(SEARCHED_FOLDERS.map(async (folder) => ({ folder, names: await comfy.client.models(folder).catch(() => [] as string[]) })));
+      const found = lists.flatMap(({ folder, names }) => names.filter(hit).map((file) => ({ file, folder }))).slice(0, 30);
+      files.push(...(await Promise.all(found.map(async (f) => {
+        const here = await localCopy(dir, f.folder, f.file);
+        const size = here ? (await stat(here).catch(() => null))?.size : undefined;
+        return { ...f, ...(size ? { size } : {}), via: "upload" as const };
+      }))));
     }
     return { presets: presetHits, families: familyHits, files };
   });

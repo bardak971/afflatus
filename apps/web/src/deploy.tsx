@@ -24,7 +24,7 @@ export function DeployHost() {
 }
 
 /** A last deploy said in a few words: "A40 · Afflatus · no volume". */
-export const lastSaid = (last: DeployAsk, name?: string) => [name ?? last.gpu.replace(/^NVIDIA (GeForce )?/, ""), last.template === "afflatus" ? "Afflatus" : "RunPod's ComfyUI", last.volume ? "network volume" : "no volume"].join(" · ");
+export const lastSaid = (last: DeployAsk, name?: string) => [name ?? last.gpu.replace(/^NVIDIA (GeForce )?/, ""), last.template === "afflatus" ? "Afflatus" : "RunPod's ComfyUI", last.volume ? "network volume" : "no volume", last.set ? "its Model set" : ""].filter(Boolean).join(" · ");
 
 /**
  * "Deploy again": the last deploy's choices, after one question that says the rate as RunPod says it now. Its GPU not
@@ -46,7 +46,8 @@ export function useDeployAgain() {
         return null;
       }
       if (!(await ask({ title: `Deploy another ${offer.name}?`, text: `${lastSaid(last, offer.name)}, on RunPod at ${usd(offer.price)}/h: billed from now until it is ${last.idleDo === "stop" ? "stopped" : "terminated"} (${last.idleMinutes ? `after ${last.idleMinutes} min idle, or ` : ""}by you).`, yes: "Deploy" }))) return null;
-      return api.deployGpu(last);
+      // its Model set's files come again (the server reads the set as it is now)
+      return api.deployGpu({ ...last, again: true });
     },
     onSuccess: () => {
       for (const queryKey of DEPLOYED_READS) void client.invalidateQueries({ queryKey });

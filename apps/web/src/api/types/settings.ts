@@ -118,8 +118,10 @@ export interface DeployAsk {
   files: PresetFile[];
   /** The waiting jobs' files unticked: those jobs stay elsewhere (empty in lastDeploy). */
   leaveOut: Array<{ file: string; folder: string }>;
-  /** The set's presets whose licence was accepted in the dialog (empty in lastDeploy). */
+  /** The presets whose licence was accepted in the dialog (empty in lastDeploy). */
   accept: string[];
+  /** Deploy again: nothing ticked, the remembered set's files come (false in lastDeploy). */
+  again: boolean;
 }
 /** A ComfyUI asked now (GET /api/machines): whether it answers (and why not), its version, its GPU and the Afflatus node pack it loaded. */
 export interface MachineProbe {

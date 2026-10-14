@@ -187,4 +187,22 @@ describe("a deploy's files", () => {
     expect((await post(t.app, "/api/runpod/deploy", { ...ask, accept: ["shipped:minimax-h3"] })).statusCode).toBe(200);
     expect((await readSettings(t.db)).acceptedPresets).toContain("shipped:minimax-h3");
   });
+
+  it("of a licensed preset are under its licence whichever way they were picked (added by hand, from no set)", async () => {
+    const view = (await get(t.app, "/api/runpod/deploy/models")).json();
+    // the dialog is told which files each licence covers
+    const h3 = view.licences.find((l: { id: string }) => l.id === "shipped:minimax-h3");
+    expect(h3.keys).toContain("diffusion_models|minimax_h3_fl2va_pruned_int8_convrot.safetensors");
+    const ask = { gpu: "NVIDIA A40", cloud: "SECURE", template: "afflatus", volume: "", disk: 60, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15, files: [{ file: "minimax_h3_fl2va_pruned_int8_convrot.safetensors", folder: "diffusion_models" }] };
+    expect((await post(t.app, "/api/runpod/deploy", ask)).json().error).toMatch(/accept it first/);
+    expect(runpod.pods).toHaveLength(0);
+  });
+
+  it("of the remembered set come again with Deploy again", async () => {
+    const set = (await post(t.app, "/api/model-sets", { name: "LoRAs", files: [{ file: "style.safetensors", folder: "loras", url: "https://huggingface.co/o/r/resolve/main/style.safetensors" }] })).json();
+    const res = await post(t.app, "/api/runpod/deploy", { gpu: "NVIDIA A40", cloud: "SECURE", template: "afflatus", volume: "", disk: 60, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15, set: set.id, again: true });
+    expect(res.statusCode).toBe(200);
+    const machine = (await readSettings(t.db)).machines.find((m) => m.id === res.json().id);
+    expect(machine?.rented?.files).toEqual([{ file: "style.safetensors", folder: "loras", url: "https://huggingface.co/o/r/resolve/main/style.safetensors" }]);
+  });
 });

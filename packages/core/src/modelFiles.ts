@@ -15,4 +15,10 @@ export const MODEL_EXT = endsIn(MODEL_EXTS);
 export const isModelFile = (name: string) => MODEL_EXT.test(name);
 
 /** A model file's name without its folder and without its extension: "Wan\\wan_2.1_vae.safetensors" → "wan_2.1_vae". */
+/**
+ * One model file wherever it is said, by its folder and its name without its sub-folder, lower case: a job's file, a
+ * preset's, a set's and a pod's are the same file when this is the same (a pod lists a file by its name in the folder).
+ */
+export const fileKey = (f: { folder: string; file: string }) => `${f.folder}|${(f.file.split(/[\\/]/).pop() ?? f.file).toLowerCase()}`;
+
 export const modelStem = (file: string) => (file.split(/[\\/]/).pop() ?? file).replace(MODEL_EXT, "");
