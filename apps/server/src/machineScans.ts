@@ -100,6 +100,8 @@ export interface Lack {
   balance?: { leftMs: number; needMs: number };
   /** A rented pod its files cannot reach: why (one failed there, or was left out at its deploy). */
   failed?: string;
+  /** Not sendable (and not off): what keeps it from being sent there, in a few words. */
+  why?: string;
 }
 
 /**
@@ -136,5 +138,26 @@ export function lackOn(recipe: Pick<Recipe<any>, "id" | "family" | "inputs" | "n
   const sendable = Boolean(status) && !off && (unique.length > 0 || Boolean(knownPacks?.length)) && knownPacks !== null && !status!.problems.length
     && status!.missing.every((m) => m.folder)
     && status!.emptyInputs.every((id) => filled.has(id)) && status!.missingSlots.every(slotFilled);
-  return { off, files: unique, sendable, ...(knownPacks?.length ? { packs: knownPacks } : {}) };
+  const why = sendable || off ? null : unsendable(status, knownPacks, filled, slotFilled);
+  return { off, files: unique, sendable, ...(knownPacks?.length ? { packs: knownPacks } : {}), ...(why ? { why } : {}) };
+}
+
+/**
+ * Why a job cannot be sent to a machine to get what it lacks there, in a few words: the queue says it beside the job (a
+ * pod that would not take one said only "waits for" the paused PC, and nobody could tell what kept it off the pod).
+ */
+function unsendable(status: RecipeStatus | undefined, knownPacks: string[] | null, filled: Set<string>, slotFilled: (id: string) => boolean): string {
+  if (!status) return "its ComfyUI was not read yet";
+  if (knownPacks === null) {
+    const unknown = status.missingNodes.filter((n) => packOfNode(n)?.own !== false);
+    return `its ComfyUI lacks ${unknown.slice(0, 3).join(", ")}${unknown.length > 3 ? "…" : ""}, of no node pack Afflatus can install`;
+  }
+  if (status.problems.length) return `its ComfyUI refuses it: ${status.problems[0]}`;
+  const noFolder = status.missing.find((m) => !m.folder);
+  if (noFolder) return `${noFolder.file} has no model folder Afflatus knows`;
+  const empty = status.emptyInputs.find((id) => !filled.has(id));
+  if (empty) return `nothing there to pick for its ${empty}`;
+  const slot = status.missingSlots.find((id) => !slotFilled(id));
+  if (slot) return `no download known for its ${slot} file`;
+  return "nothing it lacks there can be sent";
 }

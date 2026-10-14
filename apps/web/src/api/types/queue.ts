@@ -57,6 +57,8 @@ export interface MachineLack {
   balance?: { leftMs: number; needMs: number };
   /** A rented pod its files cannot reach: why. */
   failed?: string;
+  /** What keeps it from being sent there to get what it lacks (a node no pack has, ComfyUI refusing it), in a few words. */
+  why?: string;
 }
 
 /** A model file a rented pod is getting: for a job that waits for it ("need"), or for later ("ahead"). */

@@ -181,7 +181,12 @@ export function MachinesPill() {
                         {g.temperature !== undefined && <span className={cx(g.temperature >= 80 && "text-warn-ink")}>{Math.round(g.temperature)}°</span>}
                       </span>
                     ) : (
-                      <span className="text-[11.5px] text-ink-3">{m.online === false ? (m.locked ? "locked against Afflatus's token" : "not answering") : "no figures yet"}</span>
+                      <span className="text-[11.5px] text-ink-3">
+                        {/* a pod being deployed does not answer for minutes, as it should: said as what it is doing, not as a fault */}
+                        {m.rented && (m.rented.booting || m.rented.status === "PROVISIONING" || m.rented.status === "STARTING")
+                          ? "its image is pulled onto the host, then ComfyUI starts: a few minutes"
+                          : m.online === false ? (m.locked ? "locked against Afflatus's token" : "not answering") : "no figures yet"}
+                      </span>
                     )}
                   </span>
                   <span className="flex items-center gap-1.5">
