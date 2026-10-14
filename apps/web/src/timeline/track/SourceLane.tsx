@@ -1,7 +1,8 @@
-import type { DragEvent } from "react";
-import { Film } from "lucide-react";
+import { useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { Eye, Film, SlidersHorizontal, Trash2 } from "lucide-react";
+import { ContextMenu, useMenu } from "../../ContextMenu";
 import { sourceWindows, type ClipValue } from "@afflatus/core";
-import { STRIP_FRAMES, stripUrl, type Clip, type RecipeInfo, type Timeline } from "../../api";
+import { STRIP_FRAMES, stripUrl, type Asset, type Clip, type RecipeInfo, type Timeline } from "../../api";
 import { cx } from "../../ui";
 import { fileVersion, PAD } from "../model";
 import { SOURCE } from "./rows";
@@ -24,7 +25,7 @@ export function plannedWindows(source: NonNullable<Timeline["source"]>, recipe: 
  * lit, the rest faint; each clip made from it outlined over its part, or, before Make, where the windows will fall. Empty: a
  * place to drop one. A click opens it in the column.
  */
-export function SourceLane({ timeline, recipes, pps, width, selected, over, onDragOver, onSelect }: {
+export function SourceLane({ timeline, recipes, pps, width, selected, over, onDragOver, onSelect, onOpen, onRemove, onStretch }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   pps: number;
@@ -34,7 +35,15 @@ export function SourceLane({ timeline, recipes, pps, width, selected, over, onDr
   over: boolean;
   onDragOver(e: DragEvent): void;
   onSelect(): void;
+  /** Its video in the viewer, where it plays. */
+  onOpen?(video: Asset): void;
+  onRemove?(): void;
+  /** The stretch made into clips, its ends dragged on the lane (where Motion transfer starts and stops). */
+  onStretch?(fromMs: number, toMs: number): void;
 }) {
+  const menu = useMenu<true>();
+  /** The stretch while one of its ends is dragged, and which end. */
+  const [held, setHeld] = useState<{ side: "from" | "to"; fromMs: number; toMs: number; left: number } | null>(null);
   const source = timeline.source;
   const x = (ms: number) => PAD + (ms / 1000) * pps;
   if (!source) {
@@ -66,6 +75,29 @@ export function SourceLane({ timeline, recipes, pps, width, selected, over, onDr
     const seconds = Number(c.inputs[b.seconds] ?? 0) * 1000;
     return [{ id: c.id, from: start, to: start + seconds }];
   });
+  const length0 = length;
+  const fromMs = held?.fromMs ?? source.fromMs;
+  const toMs = held?.toMs ?? source.toMs;
+  // an end of the stretch dragged: on tenths of a second, a second apart at least, within the video
+  const grab = (side: "from" | "to") => (e: ReactPointerEvent<HTMLElement>) => {
+    if (e.button !== 0 || !onStretch) return;
+    e.stopPropagation();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // a pointer that cannot be captured (gone already) is followed while it stays over the lane
+    }
+    setHeld({ side, fromMs: source.fromMs, toMs: source.toMs, left: e.currentTarget.parentElement!.getBoundingClientRect().left });
+  };
+  const pull = (e: ReactPointerEvent) => {
+    if (!held) return;
+    const ms = Math.round((((e.clientX - held.left) / pps) * 1000) / 100) * 100;
+    setHeld(held.side === "from" ? { ...held, fromMs: Math.max(0, Math.min(held.toMs - 1000, ms)) } : { ...held, toMs: Math.min(length0, Math.max(held.fromMs + 1000, ms)) });
+  };
+  const let_go = () => {
+    if (held && (held.fromMs !== source.fromMs || held.toMs !== source.toMs)) onStretch?.(held.fromMs, held.toMs);
+    setHeld(null);
+  };
   const planned = !bound.length || source.clip ? plannedWindows(source, recipes.find((r) => r.id === source.recipe)) : [];
   return (
     <div
@@ -74,6 +106,7 @@ export function SourceLane({ timeline, recipes, pps, width, selected, over, onDr
       onClick={onSelect}
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onSelect()}
       onDragOver={onDragOver}
+      onContextMenu={(e) => menu.open(e, true)}
       aria-label={`Source: ${video.name}`}
       aria-pressed={selected}
       data-hint="click: the source's settings, Make N clips"
@@ -86,16 +119,46 @@ export function SourceLane({ timeline, recipes, pps, width, selected, over, onDr
           return <span key={k} className="h-full grow bg-raised" style={{ backgroundImage: `url(${stripUrl(video.id)}?v=${fileVersion(video)})`, backgroundSize: `${STRIP_FRAMES * 100}% 100%`, backgroundPosition: `${(frame / (STRIP_FRAMES - 1)) * 100}% 0` }} />;
         })}
         {/* outside the stretch made into clips: faint */}
-        <span className="absolute inset-y-0 left-0 bg-ground/70" style={{ width: (source.fromMs / 1000) * pps }} />
-        <span className="absolute inset-y-0 right-0 bg-ground/70" style={{ width: Math.max(0, ((length - source.toMs) / 1000) * pps) }} />
+        <span className="absolute inset-y-0 left-0 bg-ground/70" style={{ width: (fromMs / 1000) * pps }} />
+        <span className="absolute inset-y-0 right-0 bg-ground/70" style={{ width: Math.max(0, ((length - toMs) / 1000) * pps) }} />
         {bound.map((b) => (
           <span key={b.id} className="absolute inset-y-0 rounded-sm border-2 border-accent" style={{ left: (b.from / 1000) * pps, width: Math.max(4, ((b.to - b.from) / 1000) * pps) }} />
         ))}
-        {planned.map((p, k) => (
+        {onStretch && (["from", "to"] as const).map((side) => (
+          <span
+            key={side}
+            role="separator"
+            aria-label={side === "from" ? "Drag: where Motion transfer starts" : "Drag: where it stops"}
+            data-hint={`drag: where Motion transfer ${side === "from" ? "starts" : "stops"} (${((side === "from" ? fromMs : toMs) / 1000).toFixed(1)} s)`}
+            onPointerDown={grab(side)}
+            onPointerMove={pull}
+            onPointerUp={let_go}
+            onPointerCancel={() => setHeld(null)}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute inset-y-0 z-10 w-2 cursor-ew-resize bg-accent"
+            style={{ left: ((side === "from" ? fromMs : toMs) / 1000) * pps - (side === "from" ? 0 : 8) }}
+          />
+        ))}
+        {held && <span className="absolute top-0.5 z-10 rounded bg-ground/90 px-1 font-mono text-[10px]" style={{ left: ((held.side === "from" ? fromMs : toMs) / 1000) * pps + 10 }}>{((held.side === "from" ? fromMs : toMs) / 1000).toFixed(1)} s</span>}
+        {!held && planned.map((p, k) => (
           <span key={k} className={cx("absolute inset-y-0 w-0.5", p.opens ? "bg-warn" : "bg-accent")} style={{ left: (p.fromMs / 1000) * pps - 1 }} />
         ))}
       </span>
       <span className="absolute top-0.5 left-1 rounded bg-ground/85 px-1 text-[10px] font-semibold">{video.name}</span>
+      {menu.menu && (
+        <ContextMenu
+          at={menu.menu.at}
+          label="The source"
+          head={{ title: "Source", sub: video.name }}
+          items={[
+            { label: "Source settings", icon: <SlidersHorizontal size={14} />, note: "the stretch, the model, the picture, Make N clips", run: onSelect },
+            ...(onOpen ? [{ label: "Open its video", icon: <Eye size={14} />, note: "the viewer, where it plays", run: () => onOpen(video) }] : []),
+            "—" as const,
+            ...(onRemove ? [{ label: "Remove the source", icon: <Trash2 size={14} />, note: "the clips made from it stay", run: onRemove }] : []),
+          ]}
+          onClose={menu.close}
+        />
+      )}
     </div>
   );
 }

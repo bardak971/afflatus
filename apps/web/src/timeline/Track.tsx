@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Minus, Plus } from "lucide-react";
 import { newTransition, TRANSITIONS, type ClipMusic, type Transition } from "@afflatus/core";
-import type { Clip, RecipeInfo, Timeline, TimelinePatch } from "../api";
+import type { Asset, Clip, RecipeInfo, Timeline, TimelinePatch } from "../api";
 import { Keys } from "../Keys";
 import { useKeysHere } from "../keys/here";
 import { cx } from "../ui";
@@ -33,7 +33,7 @@ const PIN_AFTER_MS = 250;
  * and the music under all of it. Things are dragged onto it (useTrackDrop); a clip's edges shorten it (useStretch); the
  * range is drawn and snapped on it (useRangeDrag); it zooms and fits (useTrackZoom).
  */
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, onSource, sourceSelected, onSelectSource, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, onSource, sourceSelected, onSelectSource, onOpenSource, onRemoveSource, onStretchSource, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -91,6 +91,10 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onSource?(asset: string): void;
   sourceSelected?: boolean;
   onSelectSource?(): void;
+  /** The source's video in the viewer; the source taken away. */
+  onOpenSource?(video: Asset): void;
+  onRemoveSource?(): void;
+  onStretchSource?(fromMs: number, toMs: number): void;
   /** In and Out, on the clock of what plays; null = no range. */
   range: TimeRange | null;
   onRange(range: TimeRange | null): void;
@@ -230,6 +234,9 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
                 over={over?.kind === "source"}
                 onDragOver={(e) => hover(e, draggedOf(e) === "video" ? { kind: "source" } : null)}
                 onSelect={() => onSelectSource?.()}
+                onOpen={onOpenSource}
+                onRemove={onRemoveSource}
+                onStretch={onStretchSource}
               />
             )}
 

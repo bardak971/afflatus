@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Wand2 } from "lucide-react";
-import { thumbUrl, type RecipeInfo, type SourcePatch, type Timeline } from "../../api";
+import { Sparkles, Wand2 } from "lucide-react";
+import { fileUrl, type DesignerSession, type RecipeInfo, type SourcePatch, type Timeline } from "../../api";
+import type { DesignerTurn } from "../../designer/types";
 import { useEntities, useRecipes } from "../../data";
 import { clock } from "../../format";
 import { useMakeSourcePicture } from "../../motionPicture";
@@ -12,6 +13,8 @@ import { Button, Help, SectionTitle, Segmented, Toggle } from "../../ui";
 import { ColumnEdge, FoldButton, useColumnWidth } from "../column";
 import { plannedWindows, windowed } from "../track/SourceLane";
 import { CloseButton, Slide } from "./parts";
+
+const Designer = lazy(() => import("../../Designer").then((m) => ({ default: m.Designer })));
 
 /**
  * The source lane opened in the column: the long video, the stretch of it made into clips, the model and its window, the
@@ -45,10 +48,17 @@ export function SourcePanel({ timeline, recipes, onEdit, onMake, making, onClose
   const first = timeline.look?.cast[0];
   const person = first ? entities.data?.items.find((e) => e.id === first.id && e.kind === "person") : undefined;
   const face = person && person.kind === "person" ? person.def.pictures[0] ?? null : null;
+  // the source played here: the frame it stands on is where a picture is made from, and where the stretch can be set
+  const player = useRef<HTMLVideoElement>(null);
+  const [atMs, setAtMs] = useState(source?.fromMs ?? 0);
   const picture = useMutation({
-    mutationFn: () => makePicture(source!.asset, source!.fromMs, face, `Picture for ${timeline.name}`),
+    mutationFn: () => makePicture(source!.asset, atMs, face, `Picture for ${timeline.name}`),
     onError: failed("The picture could not be started"),
   });
+  // the designer writes the prompt every window shares, from the picture (the conversation lasts while the panel is open)
+  const [designing, setDesigning] = useState(false);
+  const [turns, setTurns] = useState<DesignerTurn[]>([]);
+  const [session, setSession] = useState<DesignerSession | null>(null);
 
   const w = windowed(recipe);
   const windows = source && recipe ? plannedWindows(source, recipe) : [];
@@ -72,10 +82,26 @@ export function SourcePanel({ timeline, recipes, onEdit, onMake, making, onClose
           <span className="text-ink-2">Drop a long video on the Source lane under the track (a meme, a dance), or split a video clip where Motion transfer starts and choose <span className="font-semibold">Motion transfer in windows…</span> on the part after.</span>
         ) : (
           <>
-            <div className="flex items-start gap-3">
-              <img src={thumbUrl(source.video.id)} alt="" className="h-20 shrink-0 rounded-md bg-raised object-cover" />
+            <div className="flex flex-col gap-2">
+              <video
+                key={source.video.id}
+                ref={player}
+                src={fileUrl(source.video.id)}
+                controls
+                playsInline
+                preload="metadata"
+                onLoadedMetadata={(e) => (e.currentTarget.currentTime = source.fromMs / 1000)}
+                onTimeUpdate={(e) => setAtMs(Math.round(e.currentTarget.currentTime * 1000))}
+                onSeeked={(e) => setAtMs(Math.round(e.currentTarget.currentTime * 1000))}
+                className="max-h-72 w-full rounded-lg bg-black object-contain"
+              />
+              <span className="flex flex-wrap items-center gap-1.5">
+                <span className="mr-1 font-mono text-xs text-ink-2">{clock(atMs, { decimals: 1 })}</span>
+                <Button size="sm" onClick={() => onEdit({ fromMs: Math.min(atMs, source.toMs - 1000) })} data-tip="The stretch made into clips starts at this frame">Start here</Button>
+                <Button size="sm" onClick={() => onEdit({ toMs: Math.max(atMs, source.fromMs + 1000) })} data-tip="The stretch made into clips ends at this frame">End here</Button>
+              </span>
               <span className="text-xs text-ink-2">
-                {clock(length)} long. Its stretch from <span className="font-semibold text-ink">{clock(source.fromMs)}</span> to <span className="font-semibold text-ink">{clock(source.toMs)}</span> is made into clips; the rest stays as it is.
+                {clock(length)} long. Its stretch from <span className="font-semibold text-ink">{clock(source.fromMs, { decimals: 1 })}</span> to <span className="font-semibold text-ink">{clock(source.toMs, { decimals: 1 })}</span> is made into clips; the rest stays as it is.
               </span>
             </div>
             {length > 0 && (
@@ -100,16 +126,23 @@ export function SourcePanel({ timeline, recipes, onEdit, onMake, making, onClose
               <PictureField label="Picture" note="what moves, in every window: the same picture keeps the person the same from clip to clip" optional={false} value={source.picture} onChange={(id) => onEdit({ picture: id ?? null })} />
               {!source.picture && (
                 <div className="flex flex-col gap-1.5 rounded-lg border border-dashed border-line-strong px-3 py-2.5">
-                  <Button size="sm" className="self-start" disabled={picture.isPending} onClick={() => picture.mutate()}><Wand2 size={14} /> Make it from the source…</Button>
+                  <Button size="sm" className="self-start" disabled={picture.isPending} onClick={() => picture.mutate()}><Wand2 size={14} /> Make it from this frame…</Button>
                   <span className="text-xs text-ink-2">
-                    The frame at {clock(source.fromMs)}, {person ? <>with {person.name} (the timeline's cast) put in,</> : "opened on its References (drop who goes in there),"} in Qwen Image 2.1 · Edit: 3 pictures, pick one and drop it here.
+                    The frame the player above stands on ({clock(atMs, { decimals: 1 })}: pick one where the person is seen well), {person ? <>with {person.name} (the timeline's cast) put in,</> : "opened on its References (drop who goes in there),"} in Qwen Image 2.1 · Edit: 3 pictures, pick one and drop it here.
                   </span>
                 </div>
               )}
             </div>
 
             <label className="flex flex-col gap-1.5">
-              <SectionTitle>Prompt</SectionTitle>
+              <span className="flex items-center justify-between gap-2">
+                <SectionTitle>Prompt</SectionTitle>
+                {recipe && (
+                  <Button size="sm" onClick={(e) => { e.preventDefault(); setDesigning((d) => !d); }} data-tip="The designer writes it with you, from the picture">
+                    <Sparkles size={13} /> Designer
+                  </Button>
+                )}
+              </span>
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
@@ -119,6 +152,29 @@ export function SourcePanel({ timeline, recipes, onEdit, onMake, making, onClose
                 className="resize-y rounded-lg border border-line bg-raised px-3 py-2 text-sm"
               />
             </label>
+            {designing && recipe && (
+              <Suspense fallback={null}>
+                <Designer
+                  side="inline"
+                  draftKey={`source:${timeline.id}`}
+                  recipe={recipe}
+                  // the form one window would have: the picture it reads, the prompt it writes, the source's part
+                  values={{ picture: source.picture ?? undefined, prompt, driving: { asset: source.asset }, drivingStart: source.fromMs / 1000, drivingSeconds: source.windowMs / 1000 }}
+                  look={timeline.look}
+                  mood={timeline.mood}
+                  turns={turns}
+                  onTurns={setTurns}
+                  session={session}
+                  onSession={setSession}
+                  onApply={(changes) => {
+                    const next = typeof changes.prompt === "string" ? changes.prompt : prompt;
+                    setPrompt(next);
+                    onEdit({ prompt: next });
+                  }}
+                  onClose={() => setDesigning(false)}
+                />
+              </Suspense>
+            )}
 
             <div className="flex flex-col gap-1">
               <SectionTitle>{windows.length} {windows.length === 1 ? "clip" : "clips"}</SectionTitle>

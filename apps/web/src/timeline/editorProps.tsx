@@ -136,6 +136,9 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     },
     sourceSelected: e.sourceOpen,
     onSelectSource: e.openSource,
+    onOpenSource: e.setOpened,
+    onRemoveSource: () => edit.mutate({ source: null }),
+    onStretchSource: (fromMs, toMs) => edit.mutate({ source: { fromMs, toMs } }),
     onTransition: (clip, transition) => {
       patch.mutate({ clip, patch: { transition } });
       e.openJoin(clip);
