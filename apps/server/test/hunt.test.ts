@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeRunpod, type FakeComfy, type FakeGpu, type FakeRunpod } from "@afflatus/comfy/testing";
 import { readSettings } from "../src/settings";
-import { CHECKPOINT, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
+import { CHECKPOINT, costToday, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /**
  * Hunt a GPU (hunt.ts) against a pretend RunPod: a GPU made free between two rounds is deployed once, through the Deploy
@@ -95,7 +95,7 @@ describe("starting a hunt", () => {
   it("is refused at a spending cap, and on a volume another pod uses", async () => {
     await queue();
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 1, month: 0 } } });
-    await t.db.insertInto("rent_sessions").values({ id: "s1", machine_id: "rp-x", pod: "x", rate: 12, started_at: new Date(Date.now() - 10 * 60_000).toISOString(), ended_at: new Date().toISOString(), seen_at: null }).execute();
+    await t.db.insertInto("rent_sessions").values(costToday("s1")).execute();
     const capped = await start();
     expect(capped.statusCode).toBe(409);
     expect(capped.json().error).toMatch(/spending cap/);
@@ -233,7 +233,7 @@ describe("the hunt", () => {
     await queue();
     await start();
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 1, month: 0 } } });
-    await t.db.insertInto("rent_sessions").values({ id: "s1", machine_id: "rp-x", pod: "x", rate: 12, started_at: new Date(Date.now() - 10 * 60_000).toISOString(), ended_at: new Date().toISOString(), seen_at: null }).execute();
+    await t.db.insertInto("rent_sessions").values(costToday("s1")).execute();
     free("NVIDIA A40");
     await t.services.hunt.tick();
     expect(creates()).toBe(0);
