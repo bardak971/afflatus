@@ -1,5 +1,5 @@
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
-import type { LoraValue, Recipe } from "@afflatus/core";
+import { packOfNode, type LoraValue, type Recipe } from "@afflatus/core";
 import type { Machine, Settings } from "./settings";
 
 /**
@@ -89,10 +89,13 @@ export interface Lack {
   off: boolean;
   files: Array<{ file: string; folder: string; url?: string }>;
   /**
-   * The files are all it lacks there: with them in its folders, it runs (no node missing, nothing else refused, no other
-   * input with nothing to pick). A rented pod can be sent them (podFiles.ts).
+   * What it lacks there can all be sent to it: its files, and the node packs (known ones, `packs`) of the node types it
+   * lacks; with them there, it runs (nothing else refused, no other input with nothing to pick). A rented pod can be sent
+   * them (podFiles.ts).
    */
-  onlyFiles: boolean;
+  sendable: boolean;
+  /** The node packs it lacks there, by their name in ComfyUI-Manager's list (core packs.ts), when every node it lacks is of one. */
+  packs?: string[];
   /** A rented pod whose RunPod balance runs out before this job would end there: how long it lasts, how long the job takes (ms). */
   balance?: { leftMs: number; needMs: number };
   /** A rented pod its files cannot reach: why (one failed there, or was left out at its deploy). */
@@ -126,7 +129,10 @@ export function lackOn(recipe: Pick<Recipe<any>, "id" | "family" | "inputs" | "n
   // names, is not), and nothing else keeps it from running. A family switched off by hand is never sent files.
   const filled = new Set(wanted.map((w) => w.input));
   const slotFilled = (id: string) => slots.some((x) => x.id === id && (x.get || pickedFor(recipe, input, x, slots))) || recipe.inputs.some((i) => i.type === "model" && i.slot === id && filled.has(i.id));
-  const onlyFiles = Boolean(status) && !off && unique.length > 0 && !status!.missingNodes.length && !status!.problems.length
+  // the node types it lacks, each of a pack Afflatus knows (its own pack is never missing on a pod: the image has it)
+  const packs = [...new Set((status?.missingNodes ?? []).map((n) => packOfNode(n)))];
+  const knownPacks = packs.every((p) => p && !p.own) ? packs.map((p) => p!.name) : null;
+  const sendable = Boolean(status) && !off && (unique.length > 0 || Boolean(knownPacks?.length)) && knownPacks !== null && !status!.problems.length
     && status!.emptyInputs.every((id) => filled.has(id)) && status!.missingSlots.every(slotFilled);
-  return { off, files: unique, onlyFiles };
+  return { off, files: unique, sendable, ...(knownPacks?.length ? { packs: knownPacks } : {}) };
 }

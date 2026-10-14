@@ -80,29 +80,32 @@ interface Lane {
  * Of a waiting render, with several machines: the machines that can run it, and what keeps it off each of the others. A
  * rented pod that lacks only files it can be sent (`fetch`) is among the ones that can, with how long until they are there.
  */
-type Able = { can: Set<string>; lacks: Record<string, Lack>; fetch: Record<string, { files: Lack["files"]; ms: number }> };
+type Able = { can: Set<string>; lacks: Record<string, Lack>; fetch: Record<string, { files: Lack["files"]; packs?: string[]; ms: number }> };
 
 /**
  * The model files a rented pod can be sent (podFiles.ts), as the queue reads them: a job that lacks only files on a pod may
  * still go there, once they came. Set by services.ts; null: no machine is ever sent a file.
  */
 export interface PodFetch {
-  /** Why these files cannot come to that machine: one of them failed there already. Null: they can. */
-  failed(machine: string, files: Lack["files"]): string | null;
-  /** How long until these files are on that machine (ms): what is left of each, at the slow end of the speeds measured. */
-  untilThere(machine: string, files: Lack["files"]): Promise<number>;
-  /** Have them sent: for a job that will run there ("need"), or for one that went elsewhere this time ("ahead"). */
-  want(machine: string, files: Lack["files"], tier: "need" | "ahead", job?: string): void;
+  /** Why these files (or node packs) cannot come to that machine: one of them failed there already. Null: they can. */
+  failed(machine: string, files: Lack["files"], packs?: string[]): string | null;
+  /** How long until these files (and node packs) are on that machine (ms): what is left of each, at the slow end of the speeds measured. */
+  untilThere(machine: string, files: Lack["files"], packs?: string[]): Promise<number>;
+  /** Have them sent: for a job that will run there ("need"), or for one that went elsewhere this time ("ahead": files only, never packs, which restart its ComfyUI). */
+  want(machine: string, files: Lack["files"], tier: "need" | "ahead", job?: string, packs?: string[]): void;
   /** A job's files on that machine: all there, still coming, one failed (null: it asked for none). */
   jobState(machine: string, job: string): "ready" | "waiting" | "failed" | null;
 }
 
 /** A rented pod's files as the queue reads them, from podFiles.ts. */
-export function podFetchOf(files: Pick<PodFiles, "failed" | "untilThere" | "want" | "jobState">): PodFetch {
+export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "untilThere" | "want" | "wantPacks" | "jobState">): PodFetch {
   return {
-    failed: (machine, list) => list.map((f) => files.failed(machine, f.folder, f.file)).find((why) => why !== null) ?? null,
-    untilThere: (machine, list) => files.untilThere(machine, list),
-    want: (machine, list, tier, job) => files.want(machine, list, { tier, ...(job ? { job } : {}) }),
+    failed: (machine, list, packs = []) => list.map((f) => files.failed(machine, f.folder, f.file)).find((why) => why !== null) ?? files.failedPacks(machine, packs),
+    untilThere: (machine, list, packs) => files.untilThere(machine, list, packs),
+    want: (machine, list, tier, job, packs) => {
+      files.want(machine, list, { tier, ...(job ? { job } : {}) });
+      if (tier === "need" && job && packs?.length) files.wantPacks(machine, packs, job);
+    },
     jobState: (machine, job) => files.jobState(machine, job)?.state ?? null,
   };
 }
@@ -838,13 +841,13 @@ ${JSON.stringify(input)}`;
         const lack = (lanes.length > 1 || lane.machine!.rented) && scan?.comfy.online ? lackOn(recipe, input, scan, settings, machines.get(lane.id) ?? lane.machine!, familyOf) : null;
         const balance = await this.balanceLack(r, lane);
         // a pod that lacks only files it can be sent: it can run the job once they came
-        if (lack && !balance && lack.onlyFiles && lane.machine!.rented && this.podFetch && !this.podFetch.failed(lane.id, lack.files)) {
+        if (lack && !balance && lack.sendable && lane.machine!.rented && this.podFetch && !this.podFetch.failed(lane.id, lack.files, lack.packs)) {
           can.add(lane.id);
-          fetch[lane.id] = { files: lack.files, ms: await this.podFetch.untilThere(lane.id, lack.files) };
+          fetch[lane.id] = { files: lack.files, ...(lack.packs ? { packs: lack.packs } : {}), ms: await this.podFetch.untilThere(lane.id, lack.files, lack.packs) };
           continue;
         }
-        const failed = lack?.onlyFiles && lane.machine!.rented && this.podFetch ? this.podFetch.failed(lane.id, lack.files) : null;
-        if (lack || balance) lacks[lane.id] = { ...(lack ?? { off: false, files: [], onlyFiles: false }), ...(balance ? { balance } : {}), ...(failed ? { failed } : {}) };
+        const failed = lack?.sendable && lane.machine!.rented && this.podFetch ? this.podFetch.failed(lane.id, lack.files, lack.packs) : null;
+        if (lack || balance) lacks[lane.id] = { ...(lack ?? { off: false, files: [], sendable: false }), ...(balance ? { balance } : {}), ...(failed ? { failed } : {}) };
         else can.add(lane.id);
       }
       out.set(r.id, { can, lacks, fetch });
@@ -939,7 +942,7 @@ ${JSON.stringify(input)}`;
     for (const r of rows) {
       const fetch = able.get(r.id)?.fetch ?? {};
       const on = where.get(r.id)?.lane;
-      for (const [lane, f] of Object.entries(fetch)) this.podFetch.want(lane, f.files, lane === on ? "need" : "ahead", lane === on ? r.id : undefined);
+      for (const [lane, f] of Object.entries(fetch)) this.podFetch.want(lane, f.files, lane === on ? "need" : "ahead", lane === on ? r.id : undefined, f.packs);
     }
   }
 
