@@ -88,6 +88,27 @@ export function windowsOf(recipe: Recipe<any> | undefined) {
   return recipe && w ? { fps: recipe.traits!.fps, ...w } : null;
 }
 
+/**
+ * A window's part of its driving video once its join changes (`joined`, what it becomes): one that carries on starts its
+ * carried frames early (they are the clip before's last ones, dropped from what it makes, sourceWindows.ts); made a cut it
+ * starts that much later and is that much shorter, so it shows the same stretch and does not play the run-up again over
+ * the clip before (nor its sound). Made to carry on again, they come back. Null for a recipe not made window by window, or
+ * a part that would start before the video.
+ */
+export function windowRunUp(recipe: Recipe<any> | undefined, inputs: Record<string, unknown>, joined: "cut" | "continue"): Record<string, unknown> | null {
+  const shape = windowsOf(recipe);
+  const driving = recipe?.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window);
+  if (!shape || !shape.carried || !driving || driving.type !== "clip" || !driving.window) return null;
+  const { start, seconds } = driving.window;
+  if (typeof inputs[start] !== "number" || typeof inputs[seconds] !== "number") return null;
+  const by = (joined === "cut" ? 1 : -1) * (shape.carried / shape.fps);
+  const at = round4((inputs[start] as number) + by);
+  if (at < 0) return null;
+  return { ...inputs, [start]: at, [seconds]: round4((inputs[seconds] as number) - by) };
+}
+
+const round4 = (s: number) => Math.round(s * 10_000) / 10_000;
+
 /** The windows a source's stretch is made in, with the scene cuts asked for (read with ffmpeg). */
 export async function planWindows(plan: SourcePlan, recipe: Recipe<any>, video: AssetRow, storage: Storage): Promise<SourceWindow[]> {
   const shape = windowsOf(recipe);

@@ -186,7 +186,8 @@ export function useTimelineMutations(id: string, o: {
   /** A scene in a few words, written as clips by the designer and put on the timeline. Nothing is rendered. */
   const plan = useMutation({
     mutationFn: async (v: { idea: string; clips: number }) => {
-      const recipe = o.clipsNow.current?.find((c) => c.recipe)?.recipe ?? o.firstRecipe();
+      // a source's window is made from its driving video, never written from an idea
+      const recipe = o.clipsNow.current?.find((c) => c.recipe && !o.recipes.find((r) => r.id === c.recipe)?.traits?.windows)?.recipe ?? o.firstRecipe();
       if (!recipe) throw new Error("There is no video model to plan clips for yet.");
       const made = await api.designerPlan({ recipe, idea: v.idea.trim(), clips: v.clips, look: o.timeline?.look ?? null, mood: o.timeline?.mood });
       if (!made.clips.length) throw new Error(made.note || "The designer returned no clips.");

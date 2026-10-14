@@ -32,7 +32,7 @@ export { mainTextOf } from "./form";
  * through `made`, `look` and `helpers`. Which input goes where is `layoutOf` (form.ts); what each part
  * says folded is `summariesOf`.
  */
-export function Form({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, keepEmpty }: {
+export function Form({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, keepEmpty, promptInView }: {
   recipe: RecipeInfo;
   status: RecipeStatus | undefined;
   /** What the draft holds for this recipe: only what was touched. */
@@ -56,6 +56,8 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   frameExtra?: { node: ReactNode; summary: string };
   /** Show the recipe's chapters that hold nothing yet (the import screen's preview, while sections are arranged). */
   keepEmpty?: boolean;
+  /** Bring the prompt into view when the form opens on a short screen: the Create panel. A timeline clip's form stays where it is. */
+  promptInView?: boolean;
 }) {
   const family = useRecipes().data?.families.find((f) => f.id === recipe.family);
   const settings = useModelSettings();
@@ -93,7 +95,7 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
     if (!input) {
       // the Create panel opened on a short screen: a part left open above (the Model card) can push the prompt, the field
       // worked in most, under the Generate bar; the panel scrolls to it then, and leaves it where it is otherwise
-      if (!card) return;
+      if (!promptInView) return;
       requestAnimationFrame(() => {
         const el = document.querySelector<HTMLElement>('[data-part="prompt"]');
         let box = el?.parentElement ?? null;

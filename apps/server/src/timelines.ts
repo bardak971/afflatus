@@ -18,7 +18,7 @@ import { TimelineHistory } from "./timelineHistory";
 import { TimelineRange } from "./timelineRange";
 import { takeView, TimelineViews } from "./timelineViews";
 import { ownInputIds, recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
-import { patchedSource, planWindows, sourceOfRow, type SourcePatch } from "./timelineSource";
+import { patchedSource, planWindows, sourceOfRow, windowRunUp, type SourcePatch } from "./timelineSource";
 import { TimelineTakes } from "./timelineTakes";
 import { unusedSize, unusedTakes } from "./timelineUnused";
 import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, mirroredPins, mirrorJson, mirrorOfRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow, transitionJson, transitionOfRow } from "./timelineModel";
@@ -492,7 +492,7 @@ export class Timelines {
         })
         .where("id", "=", id)
         .execute();
-      if (patch.source?.inputs) await this.samePicture(id, null, patch.source.inputs, tx);
+      if (patch.source?.inputs) await this.sameForm(id, null, patch.source.inputs, tx);
       // what it made follows it to its new folder
       if (moved) await timelineMediaFollows(tx, id);
     });
@@ -505,11 +505,12 @@ export class Timelines {
   }
 
   /**
-   * The Picture of a source's windows is one: changed on one of the clips made from the source (or given with the source's
-   * form, `inputs` of the source's own), it is set on the source and on every clip made from it. A clip of another video, or
-   * of another model, is left alone. Its takes stay; its next take is made with it.
+   * The Picture and the prompt of a source's windows are one: changed on one of the clips made from the source (or given with
+   * the source's form, `inputs` of the source's own), they are set on the source and on every clip made from it, as the source
+   * panel shows them, the form every window shares. The seed and each window's part of the driving video stay its own. A clip
+   * of another video, or of another model, is left alone. Its takes stay; its next take is made with them.
    */
-  private async samePicture(timelineId: string, from: Pick<ClipRow, "id" | "recipe_id" | "inputs"> | null, inputs: Record<string, unknown>, tx: Db) {
+  private async sameForm(timelineId: string, from: Pick<ClipRow, "id" | "recipe_id" | "inputs"> | null, inputs: Record<string, unknown>, tx: Db) {
     const t = await tx.selectFrom("timelines").select(["source"]).where("id", "=", timelineId).executeTakeFirst();
     const plan = sourceOfRow(t?.source);
     if (!plan?.recipe) return;
@@ -519,20 +520,24 @@ export class Timelines {
     if (!recipe || !spec || !driving) return;
     const bound = (inp: Record<string, unknown>) => (inp[driving.id] as { asset?: string } | undefined)?.asset === plan.asset;
     if (from && (from.recipe_id !== recipe.id || !bound(inputs))) return;
-    const picture = inputs[spec.id];
-    // only a Picture set (not one taken away), and on a clip only when it changed there
-    if (typeof picture !== "string" || (from && (JSON.parse(from.inputs) as Record<string, unknown>)[spec.id] === picture)) return;
+    // the prompts written for what is seen (a model's negative prompt is a setting of its own, kept per clip as the others)
+    const prompts = recipe.inputs.filter((i) => i.type === "prompt" && !i.perModel).map((i) => i.id);
+    const was = from ? (JSON.parse(from.inputs) as Record<string, unknown>) : {};
+    // only a Picture set (not one taken away) and a prompt as a text, and on a clip only what changed there
+    const shared = Object.fromEntries([spec.id, ...prompts].filter((id) => typeof inputs[id] === "string" && (!from || was[id] !== inputs[id])).map((id) => [id, inputs[id]]));
+    const ids = Object.keys(shared);
+    if (!ids.length) return;
     const clips = await tx.selectFrom("clips").select(["id", "inputs"]).where("timeline_id", "=", timelineId).where("recipe_id", "=", recipe.id).execute();
     for (const c of clips) {
       if (from && c.id === from.id) continue;
       const own = JSON.parse(c.inputs) as Record<string, unknown>;
-      if (!bound(own) || own[spec.id] === picture) continue;
-      await tx.updateTable("clips").set({ inputs: JSON.stringify({ ...own, [spec.id]: picture }), updated_at: now() }).where("id", "=", c.id).execute();
+      if (!bound(own) || ids.every((id) => own[id] === shared[id])) continue;
+      await tx.updateTable("clips").set({ inputs: JSON.stringify({ ...own, ...shared }), updated_at: now() }).where("id", "=", c.id).execute();
     }
-    if (from && plan.inputs[spec.id] !== picture) {
-      await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, inputs: { ...plan.inputs, [spec.id]: picture } }) }).where("id", "=", timelineId).execute();
+    if (from && ids.some((id) => plan.inputs[id] !== shared[id])) {
+      await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, inputs: { ...plan.inputs, ...shared } }) }).where("id", "=", timelineId).execute();
     }
-    if (typeof picture === "string") await this.keep(picture, tx);
+    if (typeof shared[spec.id] === "string") await this.keep(shared[spec.id] as string, tx);
   }
 
   /**
@@ -569,7 +574,7 @@ export class Timelines {
   /**
    * The source lane's stretch made into clips, one a window (timelineSource.ts): each takes its part of the source as its
    * driving video and carries on from the one before (a window after a scene cut opens a new shot: a cut), with the same
-   * picture, prompt and seed in every one. In place of the clip the stretch was taken from, else after the last clip. One
+   * picture and prompt in every one, and the seed typed on the source form if one was. In place of the clip the stretch was taken from, else after the last clip. One
    * step for Undo. Nothing is rendered here: the editor sends the new clips to render, as from its Render button.
    */
   async makeFromSource(timelineId: string): Promise<string[]> {
@@ -591,8 +596,10 @@ export class Timelines {
       const replaced = plan.clip ? all.findIndex((p) => p.clip.id === plan.clip && p.active?.asset.id === plan.asset) : -1;
       const index = replaced >= 0 ? replaced : all.length;
       const startsAt = all.slice(0, index).reduce((sum, p) => sum + plannedLengthOf(p, p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined), 0);
-      // one seed for every window, as one picture: what keeps the person the same from clip to clip
-      const seed = typedSeed(plan.inputs.seed) ?? Math.floor(Math.random() * 2 ** 31);
+      // a seed only when one was typed on the source form: else each render draws its own, as for a new clip (the shared
+      // Picture keeps the person the same from window to window, not a seed). One drawn here would be a typed seed to the
+      // seed mode, every New take sent with it again
+      const seed = typedSeed(plan.inputs.seed);
       // the form every window is made with: the settings of the last clip of that model, then the source's own form; the
       // clips a timeline fills in itself and the driving video's part are each window's
       const own = ownInputIds(recipe);
@@ -610,14 +617,14 @@ export class Timelines {
         for (const [k, w] of windows.entries()) {
           const clip: NewClip = {
             kind: "video", recipeId: recipe.id, joined: w.opens ? "cut" : "continue", still: null, take: null, asset: undefined, look: null,
-            inputs: { ...form, [driving.id]: { asset: plan.asset }, [driving.window!.start]: w.start, [driving.window!.seconds]: w.seconds, seed },
+            inputs: { ...form, [driving.id]: { asset: plan.asset }, [driving.window!.start]: w.start, [driving.window!.seconds]: w.seconds, ...(seed !== null ? { seed } : {}) },
           };
           const id = await this.planner.insertClip(timelineId, order, index + k, clip, tx);
           order.splice(index + k, 0, { clip: { id } });
           made.push(id);
         }
         // the source's start sits where its stretch now plays from; the clip it was taken from is gone
-        await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, atMs: startsAt - plan.fromMs, inputs: { ...plan.inputs, seed }, clip: null }), updated_at: now() }).where("id", "=", timelineId).execute();
+        await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, atMs: startsAt - plan.fromMs, clip: null }), updated_at: now() }).where("id", "=", timelineId).execute();
         if (picture) await this.keep(picture, tx);
         return made;
       });
@@ -754,12 +761,18 @@ export class Timelines {
     else if (keys.length) await this.remember(clip.timeline_id, labelOf(patch));
 
     const { animate, trims, order, mirror } = checked;
+    // a window of a source made a cut, or made to carry on again: its part of the driving video moves by the frames carried
+    const joined = patch.joined ?? (patch.transition ? "cut" : undefined);
+    const runUp = joined && joined !== clip.joined && !animate
+      ? windowRunUp(this.registry.recipe(patch.recipe ?? clip.recipe_id ?? ""), patch.inputs ?? (JSON.parse(clip.inputs) as Record<string, unknown>), joined)
+      : null;
+    const inputs = runUp ?? patch.inputs;
     await this.db.transaction().execute(async (tx) => {
       await tx
         .updateTable("clips")
         .set({
           ...(patch.recipe !== undefined ? { recipe_id: patch.recipe } : {}),
-          ...(patch.inputs !== undefined ? { inputs: JSON.stringify(patch.inputs) } : {}),
+          ...(inputs !== undefined ? { inputs: JSON.stringify(inputs) } : {}),
           ...(patch.joined !== undefined ? { joined: patch.joined } : patch.transition ? { joined: "cut" as const } : {}),
           ...(patch.transition !== undefined ? { transition: transitionJson(patch.transition) } : {}),
           ...(patch.take !== undefined ? { take_id: patch.take } : {}),
@@ -782,7 +795,7 @@ export class Timelines {
       if (order) await this.renumber(clip.timeline_id, order, tx);
       if (patch.soundAsset) await this.keep(patch.soundAsset, tx);
       // a window of the source's: its Picture changed is the source's and every window's (the same person in every one)
-      if (patch.inputs !== undefined) await this.samePicture(clip.timeline_id, clip, patch.inputs, tx);
+      if (patch.inputs !== undefined) await this.sameForm(clip.timeline_id, clip, patch.inputs, tx);
     });
     // a picture pinned on the clip: the timeline takes its folder, as a drop would (within the step just kept)
     if (checked.pinnedNow) {

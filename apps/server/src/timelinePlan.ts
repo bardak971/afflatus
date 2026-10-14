@@ -104,8 +104,12 @@ export class TimelinePlan {
   /** What a new clip at `index` is: its kind, model, form and how it starts, and the take or picture it comes with. Nothing is written. */
   async newClip(all: Placed[], index: number, opts: { asset?: string; recipe?: string; as?: "still" | "clip" }) {
     const { db, registry } = this.core;
-    // a new clip is made the way the last rendered clip before it was
-    const lastRecipe = all.slice(0, index).reverse().find((p) => p.clip.recipe_id)?.clip.recipe_id ?? null;
+    // a new clip is made the way the last rendered clip before it was. Not as a window of the source (Motion transfer): it
+    // would have no driving video. After one, as another clip of the timeline, else with no model yet (the editor gives its own)
+    const last = all.slice(0, index).reverse().find((p) => p.clip.recipe_id);
+    const windowed = (p: Placed) => Boolean(registry.recipe(p.clip.recipe_id ?? "")?.traits?.windows);
+    const other = (p: Placed) => Boolean(p.clip.recipe_id) && !windowed(p);
+    const lastRecipe = (last && windowed(last) ? (all.slice(0, index).reverse().find(other) ?? all.find(other)) : last)?.clip.recipe_id ?? null;
     let recipeId = opts.recipe ?? lastRecipe;
     let inputs: Record<string, unknown> = {};
     let joined: ClipRow["joined"] = "continue";
