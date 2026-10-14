@@ -3,6 +3,7 @@ import { z } from "zod";
 import { deployFiles, deployModels } from "./deployModels";
 import { setsWithFiles } from "./modelSets";
 import { keptHoldings, missingOn } from "./rentedVolumes";
+import { volumePlan } from "./volumePlan";
 import { httpError } from "./errors";
 import { podMachineId, podUrl } from "./runpod";
 import type { Services } from "./services";
@@ -40,6 +41,12 @@ export function registerRented(app: FastifyInstance, s: Services): void {
   app.post("/api/runpod/volumes", async (req) => {
     const { name, size, dataCenter } = z.strictObject({ name: z.string().trim().min(1).max(60), size: z.number().int(), dataCenter: z.string().min(1).max(40) }).parse(req.body);
     return { volume: await s.rented.makeVolume(name, size, dataCenter) };
+  });
+
+  /** What Make a volume… says first: where (GPUs in stock there now), what size the sets want, whether it pays for itself. Read-only. */
+  app.get("/api/runpod/volumes/plan", async (req) => {
+    const { sets } = z.object({ sets: z.string().max(2000).optional() }).parse(req.query);
+    return volumePlan(s, sets ? sets.split(",").filter(Boolean).slice(0, 20) : null);
   });
 
   /** A network volume made larger (Grow…). */

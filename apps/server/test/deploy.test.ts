@@ -178,6 +178,17 @@ describe("a deploy", () => {
     expect(spending.month).toBeCloseTo(0.5, 5);
   });
 
+  it("plans a volume: the data centers with GPUs in stock (the user's pods there first), the size the sets want", async () => {
+    await post(t.app, "/api/model-sets", { name: "zz-test set", presets: [], off: [], files: [{ file: "zz-test.safetensors", folder: "loras", size: 30_000_000_000 }] });
+    expect((await deploy()).statusCode).toBe(200);
+    const plan = (await get(t.app, "/api/runpod/volumes/plan")).json();
+    // the A40 deployed in EU-RO-1: that place first; the RTX 4090 is in stock nowhere
+    expect(plan.places[0]).toMatchObject({ dataCenter: "EU-RO-1", pods: 1, gpus: [{ name: "A40", price: 0.44 }, { name: "RTX 6000 Ada", price: 0.77 }] });
+    expect(plan.places.flatMap((p: { gpus: Array<{ name: string }> }) => p.gpus.map((g) => g.name))).not.toContain("RTX 4090");
+    // 30 GB and a quarter more, in tens
+    expect(plan).toMatchObject({ sizeGb: 40, perGbMonth: 0.07, sets: [{ name: "zz-test set", bytes: 30_000_000_000 }] });
+  });
+
   it("makes, grows and deletes a volume; never smaller, never one a pod is mounted on", async () => {
     const made = await post(t.app, "/api/runpod/volumes", { name: "zz-test volume", size: 20, dataCenter: "EU-RO-1" });
     expect(made.statusCode).toBe(200);
