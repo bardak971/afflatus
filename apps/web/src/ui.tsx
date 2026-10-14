@@ -235,11 +235,10 @@ export function placePill(pill: HTMLElement, from: PillBox | null, to: PillBox |
 
 /**
  * A row of choices where one is on: a pill holding them, the one on lit. `sm`: smaller, for a dense bar (time windows).
- * `mono`: choices that are figures (1H, 24H). `strip`: drawn as the draft editor's bar of parts (recipeForm/Strip.tsx), a
- * bordered strip whose choices keep their own width. The lit pill is one box behind the options that stretches from the
- * old choice to the new one; the value itself changes on the click.
+ * `mono`: choices that are figures (1H, 24H). The lit pill is one box behind the options that stretches from the old
+ * choice to the new one; the value itself changes on the click.
  */
-export function Segmented<T extends string>({ value, options, onChange, label, oneLine, size = "md", mono, strip, className }: {
+export function Segmented<T extends string>({ value, options, onChange, label, oneLine, size = "md", mono, className }: {
   value: T;
   options: Array<{ value: T; label: ReactNode; tip?: string }>;
   onChange(value: T): void;
@@ -248,8 +247,6 @@ export function Segmented<T extends string>({ value, options, onChange, label, o
   oneLine?: boolean;
   size?: "md" | "sm";
   mono?: boolean;
-  /** The draft editor's strip: a thin border, compact choices that keep their own width. */
-  strip?: boolean;
   className?: string;
 }) {
   const group = useRef<HTMLDivElement>(null);
@@ -282,11 +279,11 @@ export function Segmented<T extends string>({ value, options, onChange, label, o
   }, [keys]);
   return (
     // the chips wrap onto another line rather than run past the edge of a narrow panel (seven shapes do)
-    <div ref={group} role="radiogroup" aria-label={label} className={cx("relative flex gap-0.5 bg-raised", strip ? "w-max rounded-lg border border-line p-1" : "rounded-xl p-[3px]", oneLine ? "shrink-0 flex-nowrap" : "max-w-full flex-wrap", className)}>
+    <div ref={group} role="radiogroup" aria-label={label} className={cx("relative flex gap-0.5 rounded-xl bg-raised p-[3px]", oneLine ? "shrink-0 flex-nowrap" : "max-w-full flex-wrap", className)}>
       <span
         ref={pill}
         aria-hidden
-        className={cx("pointer-events-none absolute bg-line-strong", strip ? "rounded" : "rounded-[9px]", " motion-safe:data-[travel]:[transition:left_var(--t-travel)_var(--ease-snap)_var(--edge-l),right_var(--t-travel)_var(--ease-snap)_var(--edge-r),top_var(--t-travel)_var(--ease-snap)]")}
+        className="pointer-events-none absolute rounded-[9px] bg-line-strong motion-safe:data-[travel]:[transition:left_var(--t-travel)_var(--ease-snap)_var(--edge-l),right_var(--t-travel)_var(--ease-snap)_var(--edge-r),top_var(--t-travel)_var(--ease-snap)]"
       />
       {options.map((o) => (
         <button
@@ -298,10 +295,10 @@ export function Segmented<T extends string>({ value, options, onChange, label, o
           onClick={() => onChange(o.value)}
           className={cx(
             // over the pill
-            "relative whitespace-nowrap transition-colors",
-            strip ? "shrink-0 rounded px-1.5 py-1 text-[11px] font-semibold" : cx("grow rounded-[9px]", size === "md" ? "h-[30px] px-3 text-[12.5px]" : "h-[26px] px-2.5 text-xs"),
+            "relative grow rounded-[9px] whitespace-nowrap transition-colors",
+            size === "md" ? "h-[30px] px-3 text-[12.5px]" : "h-[26px] px-2.5 text-xs",
             mono && "font-mono",
-            o.value === value ? cx(strip ? "text-ink-strong" : "font-bold text-ink", !placed && "bg-line-strong") : cx(!strip && "font-semibold", "text-ink-2 hover:bg-hover hover:text-ink"),
+            o.value === value ? cx("font-bold text-ink", !placed && "bg-line-strong") : "font-semibold text-ink-2 hover:bg-hover hover:text-ink",
           )}
         >
           {o.label}
