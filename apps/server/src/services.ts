@@ -218,7 +218,12 @@ export async function createServices(
   // the daily check for newer model versions rides on the hourly sweep: it only runs when the user asked for it. What
   // goes wrong is logged and kept on the report (daily), never thrown at a timer
   const daily = () => void services.updates.daily().catch((err) => console.warn("[updates]", (err as Error).message));
-  const checker = setInterval(daily, 60 * 60_000);
+  // the hashing rides on it too: a file added or replaced since the last pass is hashed and matched within the hour, not
+  // at the next start (a pass that finds nothing changed only lists the folders; it waits while this computer renders)
+  const checker = setInterval(() => {
+    daily();
+    void services.hashes.run();
+  }, 60 * 60_000);
   checker.unref();
   const firstCheck = setTimeout(daily, 30_000);
   firstCheck.unref();

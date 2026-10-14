@@ -1,18 +1,22 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
+import { civitaiVersion } from "../src/civitai";
 import { Comfy } from "../src/comfy";
 import { NO_DIRECT } from "../src/downloads";
 import { PodFiles } from "../src/podFiles";
 import { estimateFiles, measuredRange, recordMeasure, MEASURED_FROM } from "../src/podMeasures";
-import { localCopy, podSource } from "../src/podSources";
+import { forgetHuggingFace } from "../src/huggingface";
+import { localCopy, measureKind, podSource } from "../src/podSources";
 import { writeSettings } from "../src/settings";
 import { makeApp, referenceCatalog, until, type TestApp } from "./helpers";
 
+const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex").toUpperCase();
 /** A file on a pretend site, served from any byte asked for. */
 const FILE = Buffer.alloc(200_000, 3);
 let site: Server;
@@ -247,26 +251,106 @@ describe("where a pod's file comes from", () => {
     expect(await podSource(lookup(), { file: "none.safetensors", folder: "loras" })).toBeNull();
   });
 
-  it("is the site that has a file of that name, asked before this computer's copy is sent (lookups on); never with them off", async () => {
-    // a pretend Civitai with a model holding a file of exactly that name; a pretend Hugging Face that has none
-    const sites = createServer((req, res) => {
-      res.setHeader("Content-Type", "application/json");
-      if (req.url?.startsWith("/api/v1/models")) return res.end(JSON.stringify({ items: [{ id: 5, name: "Mine", type: "LORA", modelVersions: [{ id: 56, name: "v2", baseModel: "SDXL", files: [{ name: "mine.safetensors", sizeKB: 4, primary: true }] }] }] }));
-      res.end("[]");
+  describe("on a pretend Civitai whose model has files of the same names as this computer's", () => {
+    const MINE = sha(Buffer.alloc(150_000, 9));
+    const FP8 = "F".repeat(64);
+    /** Whether the site's mine.safetensors is these very bytes (else a stranger's LoRA of the same name). */
+    let same = false;
+    let searches = 0;
+    let versions = 0;
+    let at = "";
+    let sites: Server;
+    beforeEach(async () => {
+      same = false;
+      searches = 0;
+      versions = 0;
+      sites = createServer((req, res) => {
+        res.setHeader("Content-Type", "application/json");
+        const files = [
+          { name: "mine.safetensors", sizeKB: 4, primary: true, downloadUrl: `${at}/files/mine`, hashes: { SHA256: same ? MINE : "A".repeat(64) } },
+          { name: "mine_fp8.safetensors", sizeKB: 2, downloadUrl: `${at}/files/fp8`, hashes: { SHA256: FP8 } },
+          { name: "theirs.safetensors", sizeKB: 3, downloadUrl: `${at}/files/theirs`, hashes: { SHA256: "B".repeat(64) } },
+        ];
+        if (req.url?.startsWith("/api/v1/models")) {
+          searches++;
+          return res.end(JSON.stringify({ items: [{ id: 5, name: "Mine", type: "LORA", modelVersions: [{ id: 56, name: "v2", baseModel: "SDXL", files: files.map(({ hashes: _h, ...f }) => f) }] }] }));
+        }
+        if (req.url === "/api/v1/model-versions/56") {
+          versions++;
+          return res.end(JSON.stringify({ id: 56, name: "v2", model: { name: "Mine" }, files }));
+        }
+        // a pretend Hugging Face that has none of them
+        res.end("[]");
+      });
+      await new Promise<void>((r) => sites.listen(0, "127.0.0.1", r));
+      at = `http://127.0.0.1:${(sites.address() as AddressInfo).port}`;
+      vi.stubEnv("CIVITAI_URL", at);
+      vi.stubEnv("HUGGINGFACE_URL", at);
+      forgetHuggingFace();
     });
-    await new Promise<void>((r) => sites.listen(0, "127.0.0.1", r));
-    const at = `http://127.0.0.1:${(sites.address() as AddressInfo).port}`;
-    vi.stubEnv("CIVITAI_URL", at);
-    vi.stubEnv("HUGGINGFACE_URL", at);
-    try {
-      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: false } });
-      expect(await podSource(lookup(), { file: "mine.safetensors", folder: "loras" })).toMatchObject({ kind: "upload" });
-      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: true } });
-      expect(await podSource(lookup(), { file: "mine.safetensors", folder: "loras" })).toEqual({ kind: "civitai", version: 56, pick: "mine.safetensors" });
-    } finally {
+    afterEach(async () => {
       vi.unstubAllEnvs();
       await new Promise((r) => sites.close(r));
-    }
+    });
+    const hashRow = async (o: { matched?: boolean } = {}) => {
+      const st = statSync(join(home, "models", "loras", "mine.safetensors"));
+      await t.services.db.insertInto("model_hashes").values({ folder: "loras", file: "mine.safetensors", size: st.size, mtime: Math.round(st.mtimeMs), sha256: MINE, hashed_at: "2026-10-14", civitai_version: o.matched ? 0 : null, hf_url: null, matched_at: o.matched ? new Date().toISOString() : null }).execute();
+    };
+
+    it("sends this computer's copy rather than a site's file of the same name; takes that file only with the same hash", async () => {
+      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: false } });
+      expect(await podSource(lookup(), { file: "mine.safetensors", folder: "loras" }, { live: true })).toMatchObject({ kind: "upload" });
+      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: true } });
+      // not hashed yet: nothing proves the site's mine.safetensors is the user's own
+      expect(await podSource(lookup(), { file: "mine.safetensors", folder: "loras" }, { live: true })).toMatchObject({ kind: "upload" });
+      // a file this computer does not have: the site that has one of its name is all there is
+      expect(await podSource(lookup(), { file: "theirs.safetensors", folder: "loras" }, { live: true })).toEqual({ kind: "civitai", version: 56, pick: "theirs.safetensors" });
+      // hashed, and the site's file of that name is other bytes: still this computer's copy
+      await hashRow();
+      expect(await podSource(lookup(), { file: "mine.safetensors", folder: "loras" }, { live: true })).toMatchObject({ kind: "upload" });
+      // the site lists this very hash for it: that file, by its hash, kept as the hash's match for the lists to say
+      same = true;
+      expect(await podSource(lookup(), { file: "mine.safetensors", folder: "loras" }, { live: true })).toEqual({ kind: "civitai", version: 56, pick: "mine.safetensors", sha256: MINE });
+      expect(await podSource(lookup(), { file: "mine.safetensors", folder: "loras" })).toEqual({ kind: "civitai", version: 56, pick: "mine.safetensors", sha256: MINE });
+    });
+
+    it("asks no site for a file whose hash was matched to nothing", async () => {
+      same = true;
+      await hashRow({ matched: true });
+      expect(await podSource(lookup(), { file: "mine.safetensors", folder: "loras" }, { live: true })).toMatchObject({ kind: "upload" });
+      expect(versions).toBe(0);
+    });
+
+    it("takes a version's file by its hash, not by the name it has here", async () => {
+      expect((await civitaiVersion(56, "renamed_by_me.safetensors", "", FP8))?.file.name).toBe("mine_fp8.safetensors");
+      // by the name only with no hash: the closest name, its main file on a tie
+      expect((await civitaiVersion(56, "renamed_by_me.safetensors", ""))?.file.name).toBe("mine.safetensors");
+      // a hash none of its files has: none of them
+      expect(await civitaiVersion(56, "mine.safetensors", "", "C".repeat(64))).toBeNull();
+    });
+
+    it("keeps a lookup that found nothing for a day; the lists ask no site at all", async () => {
+      const nothing = { file: "nothing_like_it.safetensors", folder: "loras" };
+      expect(await podSource(lookup(), nothing)).toBeNull();
+      expect(searches).toBe(0);
+      expect(await podSource(lookup(), nothing, { live: true })).toBeNull();
+      const asked = searches;
+      expect(asked).toBeGreaterThan(0);
+      expect(await podSource(lookup(), nothing, { live: true })).toBeNull();
+      expect(searches).toBe(asked);
+      // the miss is no page to show, and the user's own search asks again
+      expect((await t.app.inject({ method: "GET", url: "/api/models/loras/pages" })).json().items).toEqual({});
+      await t.app.inject({ method: "POST", url: "/api/models/loras/page", payload: { file: nothing.file } });
+      expect(searches).toBeGreaterThan(asked);
+    });
+  });
+
+  it("says Hugging Face only of an address whose host is Hugging Face's", () => {
+    expect(measureKind({ kind: "url", url: "https://huggingface.co/o/r/resolve/main/a.safetensors" })).toBe("hf");
+    expect(measureKind({ kind: "url", url: "https://cdn-lfs.hf.co/x" })).toBe("hf");
+    expect(measureKind({ kind: "url", url: "https://127.0.0.1:8188?.hf.co/" })).toBe("url");
+    expect(measureKind({ kind: "url", url: "https://huggingface.co.example.com/x" })).toBe("url");
+    expect(measureKind({ kind: "url", url: "http://huggingface.co/x" })).toBe("url");
   });
 
   it("is never a path out of the model folder", async () => {

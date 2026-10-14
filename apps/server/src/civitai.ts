@@ -36,7 +36,7 @@ export const KINDS: Record<string, string[]> = {
   ultralytics: ["Detection"], sams: ["Other"],
 };
 
-export type ApiFile = { name?: string; sizeKB?: number; type?: string; primary?: boolean; downloadUrl?: string };
+export type ApiFile = { name?: string; sizeKB?: number; type?: string; primary?: boolean; downloadUrl?: string; hashes?: { SHA256?: string } };
 export type ApiVersion = { id?: number; name?: string; baseModel?: string; trainedWords?: string[]; files?: ApiFile[]; model?: { name?: string } };
 export type ApiModel = { id: number; name: string; type?: string; modelVersions?: ApiVersion[] };
 
@@ -171,8 +171,12 @@ export async function civitaiGet<T>(path: string, key: string): Promise<T | null
   return null;
 }
 
-/** One version by its number, from whichever site has it, with the file a download of it fetches. */
-export async function civitaiVersion(id: number, wanted: string, key: string): Promise<{ title: string; file: ApiFile } | null> {
+/**
+ * One version by its number, from whichever site has it, with the file a download of it fetches. Given the SHA-256 of the
+ * file wanted (a version found by this computer's copy's hash), the version's file with that hash: a version holds several
+ * files of the model (fp16, fp8, pruned), and the one of these very bytes is the one meant, whatever it is called here.
+ */
+export async function civitaiVersion(id: number, wanted: string, key: string, sha256?: string): Promise<{ title: string; file: ApiFile } | null> {
   let failed: Error | null = null;
   for (const site of civitaiSites()) {
     let res: Response;
@@ -189,6 +193,11 @@ export async function civitaiVersion(id: number, wanted: string, key: string): P
     }
     const v = (await res.json()) as ApiVersion;
     const files = (v.files ?? []).filter((f) => f.downloadUrl && MODEL_EXT.test(f.name ?? ""));
+    if (sha256 && files.some((f) => f.hashes?.SHA256)) {
+      // the version lists its files' hashes: the file of these bytes, else none (another of its files is other bytes)
+      const same = files.find((f) => f.hashes?.SHA256?.toUpperCase() === sha256.toUpperCase());
+      return same ? { title: [v.model?.name, v.name].filter(Boolean).join(" · "), file: same } : null;
+    }
     // the file of that very name when the version has it, else the one the lookup showed: the closest name, its main file on a tie
     const words = wordsOf(wanted);
     const near = (f: ApiFile) => words.filter((w) => squash(f.name ?? "").includes(squash(w))).length + (f.primary ? 0.5 : 0);

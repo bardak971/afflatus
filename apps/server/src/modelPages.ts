@@ -38,8 +38,21 @@ const folderOf = (folder: string) => {
   if (!FOLDER.test(folder)) throw httpError("there is no such model folder");
   return folder;
 };
+/**
+ * A lookup that found no page is kept a day as a row with no address: the searches, set lists and pods ask for the same
+ * files over and over, and asking both sites each time for a file they do not have is slow and wears the user's allowance.
+ */
+const MISS_MS = 24 * 60 * 60_000;
+/** The file's page, when one is known (a row with an address: the others are misses). */
 const known = async (db: Db, folder: string, name: string): Promise<ModelPage | null> =>
-  (await db.selectFrom("model_pages").select(["url", "title"]).where("folder", "=", folder).where("name", "=", name).executeTakeFirst()) ?? null;
+  (await db.selectFrom("model_pages").select(["url", "title"]).where("folder", "=", folder).where("name", "=", name).where("url", "!=", "").executeTakeFirst()) ?? null;
+/** The page known for a file, without asking any site. */
+export const knownPage = (db: Db, folder: string, file: string) => known(db, folder, nameOf(file));
+/** Whether the sites were asked for the file less than a day ago and had no page for it. */
+const missed = async (db: Db, folder: string, name: string): Promise<boolean> => {
+  const row = await db.selectFrom("model_pages").select("found_at").where("folder", "=", folder).where("name", "=", name).where("url", "=", "").executeTakeFirst();
+  return Boolean(row && Date.now() - Date.parse(row.found_at) < MISS_MS);
+};
 const remember = async (db: Db, folder: string, name: string, page: ModelPage) => {
   await db
     .insertInto("model_pages")
@@ -58,15 +71,18 @@ const fingerprintOf = async (db: Db, folder: string, file: string): Promise<stri
 /**
  * Look for a file's page. Known already: that one. Otherwise, when looking things up is turned on in Settings, Civitai by
  * the file's fingerprint (the same file under any name), then Civitai (both sites) and Hugging Face by its name: a model
- * with a file of exactly this name is its page and is remembered; the others found are offered. Also what a rented pod
- * asks before sending a file from this computer: one a site has is fetched from there (podSources.ts).
+ * with a file of exactly this name is its page and is remembered; the others found are offered. A page found by the name
+ * is shown to the user as the file's, but a rented pod takes it as the file's source only when this computer has no copy,
+ * or the site's file has this copy's very hash (podSources.ts): a name like pytorch_lora_weights.safetensors is many files.
  */
-export async function lookUpPage(db: Db, folder: string, file: string): Promise<{ page: ModelPage | null; candidates: PageCandidate[]; lookups: boolean }> {
+export async function lookUpPage(db: Db, folder: string, file: string, o: { fresh?: boolean } = {}): Promise<{ page: ModelPage | null; candidates: PageCandidate[]; lookups: boolean }> {
   const name = nameOf(file);
   const page = await known(db, folder, name);
   if (page) return { page, candidates: [], lookups: true };
   const settings = await readSettings(db);
   if (!settings.civitaiLookups) return { page: null, candidates: [], lookups: false };
+  // asked a moment ago and found nowhere: not asked again for a day, unless the user asks (fresh: the page's own search)
+  if (!o.fresh && (await missed(db, folder, name))) return { page: null, candidates: [], lookups: true };
 
   // by its fingerprint first: the same file under any name is the same version there
   const print = await fingerprintOf(db, folder, file);
@@ -94,6 +110,8 @@ export async function lookUpPage(db: Db, folder: string, file: string): Promise<
   const exact = civitai.items.findIndex((i) => i.exact);
   const sure = exact >= 0 ? candidates[exact]! : !civitai.items.length && hf.items.length === 1 ? candidates[0]! : null;
   if (sure) await remember(db, folder, name, { url: sure.url, title: sure.title });
+  // nothing sure, and both sites answered: a miss kept for a day (a site that did not answer says nothing, asked next time)
+  else if (hf.answered && civitai.asked.length && !civitai.silent.length) await remember(db, folder, name, { url: "", title: "" });
   return { page: sure ? { url: sure.url, title: sure.title } : null, candidates: sure ? [] : candidates.slice(0, 8), lookups: true };
 }
 
@@ -103,7 +121,7 @@ export function registerModelPages(app: FastifyInstance, s: Services): void {
 
   /** Every page known for the files of a folder, by file name (lower case, without its sub-folder). */
   app.get<{ Params: { folder: string } }>("/api/models/:folder/pages", async (req) => {
-    const rows = await s.db.selectFrom("model_pages").select(["name", "url", "title"]).where("folder", "=", folderOf(req.params.folder)).execute();
+    const rows = await s.db.selectFrom("model_pages").select(["name", "url", "title"]).where("folder", "=", folderOf(req.params.folder)).where("url", "!=", "").execute();
     return { items: Object.fromEntries(rows.map((r) => [r.name, { url: r.url, title: r.title }])) };
   });
 
@@ -115,7 +133,7 @@ export function registerModelPages(app: FastifyInstance, s: Services): void {
   app.post<{ Params: { folder: string } }>("/api/models/:folder/page", async (req) => {
     const folder = folderOf(req.params.folder);
     const { file } = z.strictObject({ file: z.string().min(1).max(500) }).parse(req.body);
-    return lookUpPage(s.db, folder, file);
+    return lookUpPage(s.db, folder, file, { fresh: true });
   });
 
   /** The page the user says is the file's (one of those offered, or an address of their own); null forgets it. */

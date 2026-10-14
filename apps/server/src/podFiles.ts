@@ -9,6 +9,7 @@ import { localCopy, measureKind, podSource, type PodSource, type SourceLookup } 
 import { PACKS_MS, PodPacks, type PodPackView } from "./podPacks";
 import { PACK_UPLOADS, uploadFile } from "./podUpload";
 import type { Settings } from "./settings";
+import { assertPublicUrl, fetchPublic } from "./outbound";
 import { olderThan } from "./version";
 
 /**
@@ -265,7 +266,8 @@ export class PodFiles {
 
   /** Where a file would come from and how large it is, before it is asked for (the Deploy dialog): null for what is not known. */
   async about(f: PodFileWant): Promise<{ via: "hf" | "civitai" | "url" | "upload" | null; size: number | null }> {
-    const src = await this.sourceOf(f);
+    // what is known only: the lists that ask this ask it of many files at once, and a site is asked only for a pod's fetch
+    const src = await this.sourceOf(f, false);
     if (!src) return { via: null, size: f.size ?? null };
     const size = f.size ?? (await this.sizeOf(f, src));
     return { via: measureKind(src), size: size === ASSUMED_BYTES ? null : size };
@@ -288,7 +290,7 @@ export class PodFiles {
     for (const f of files) {
       const e = this.pods.get(machine)?.get(keyOf(f.folder, f.file));
       if (e?.state === "ready") continue;
-      const src = e?.source !== undefined ? e.source : await this.sourceOf(f);
+      const src = e?.source !== undefined ? e.source : await this.sourceOf(f, true);
       if (!src) return Infinity;
       const kind = measureKind(src);
       const left = e?.total ? e.total - e.bytes : f.size ?? (await this.sizeOf(f, src));
@@ -299,12 +301,14 @@ export class PodFiles {
   }
 
   private readonly sources = new Map<string, { at: number; value: Promise<PodSource | null> }>();
-  private sourceOf(f: PodFileWant): Promise<PodSource | null> {
-    // the source given is part of the key: a set's Civitai version is not taken for a job's file with none
-    const key = `${keyOf(f.folder, f.file)}|${f.url ?? ""}|${f.civitai?.version ?? ""}`;
+  /** Where a file comes from (podSources.ts), kept a minute; `live`: a site may be asked (a pod's fetch, the queue's plan for it). */
+  private sourceOf(f: PodFileWant, live: boolean): Promise<PodSource | null> {
+    // the source given is part of the key: a set's Civitai version is not taken for a job's file with none; and what is
+    // known only is not taken for what a site was asked
+    const key = `${keyOf(f.folder, f.file)}|${f.url ?? ""}|${f.civitai?.version ?? ""}|${live ? "live" : "known"}`;
     const kept = this.sources.get(key);
     if (kept && Date.now() - kept.at < KEEP_MS) return kept.value;
-    const value = podSource(this.d.lookup, { file: f.file, folder: f.folder, ...(f.url ? { url: f.url } : {}), ...(f.civitai ? { civitai: f.civitai } : {}) });
+    const value = podSource(this.d.lookup, { file: f.file, folder: f.folder, ...(f.url ? { url: f.url } : {}), ...(f.civitai ? { civitai: f.civitai } : {}) }, { live });
     // a lookup that failed (the database) is not kept: asked again next time, not taken for "no source" a minute long
     value.catch(() => this.sources.delete(key));
     const safe = value.catch(() => null);
@@ -348,11 +352,17 @@ export class PodFiles {
     const settings = await this.d.settings().catch(() => null);
     if (settings?.civitaiLookups) {
       if (src.kind === "civitai") {
-        const found = await civitaiVersion(src.version, src.pick ?? fileName(f.file), settings.civitaiKey).catch(() => null);
+        const found = await civitaiVersion(src.version, src.pick ?? fileName(f.file), settings.civitaiKey, src.sha256).catch(() => null);
         if (found?.file.sizeKB) return Math.round(found.file.sizeKB * 1024);
       } else if (src.kind === "url" && measureKind(src) === "hf") {
-        const res = await fetch(src.url, { method: "HEAD", redirect: "manual", signal: AbortSignal.timeout(10_000) }).catch(() => null);
-        const said = Number(res?.headers.get("x-linked-size") ?? 0);
+        // judged as any address fetched on a user's say-so (outbound.ts), redirects too; the size is on the first answer
+        let said = 0;
+        const seen = (res: Response) => (said ||= Number(res.headers.get("x-linked-size") ?? 0));
+        const res = await Promise.resolve()
+          .then(() => assertPublicUrl(src.url))
+          .then(() => fetchPublic(src.url, { method: "HEAD", signal: AbortSignal.timeout(10_000) }, [], 1, seen))
+          .catch(() => null);
+        if (res) seen(res);
         if (said > 0) return said;
       }
     }
@@ -423,7 +433,7 @@ export class PodFiles {
         // a file ahead takes only what the line has left once every file a job waits for has started
         if (e.tier === "ahead" && this.ordered(machine).some((o) => o.tier === "need" && o.state === "next")) continue;
         if (e.source === undefined) {
-          e.source = await this.sourceOf(e);
+          e.source = await this.sourceOf(e, true);
           if (e.source) e.via = measureKind(e.source);
         }
         if (!e.source) {
@@ -490,7 +500,8 @@ export class PodFiles {
       let headers: Record<string, string> | undefined;
       let total = e.total;
       if (src.kind === "civitai") {
-        const found = await civitaiVersion(src.version, src.pick ?? name, settings.civitaiKey);
+        // a version found by this computer's copy's hash: its file of these bytes, not the one of the closest name
+        const found = await civitaiVersion(src.version, src.pick ?? name, settings.civitaiKey, src.sha256);
         if (!found?.file.downloadUrl) throw new Error("Civitai lists no file of that version to download");
         source = found.file.downloadUrl;
         headers = settings.civitaiKey ? { Authorization: `Bearer ${settings.civitaiKey}` } : undefined;
