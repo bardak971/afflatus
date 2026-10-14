@@ -172,7 +172,9 @@ describe("a rented pod's model files", () => {
     // that pass: the file ahead did not start while a needed one waits to
     await under;
     expect(files.view("pod").find((f) => f.file === "later.safetensors")?.state).toBe("next");
+    // both waited for: the one ahead can be done before the one needed (it started later, but a loaded machine may finish it first)
     await settle("pod", "later.safetensors");
+    await settle("pod", "now.safetensors");
     expect(files.view("pod").every((f) => f.state === "ready")).toBe(true);
   });
 
