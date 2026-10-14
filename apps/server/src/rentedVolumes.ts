@@ -36,6 +36,8 @@ export interface VolumeView extends NetworkVolume {
   usedAt: string | null;
   /** No pod ran on it for the days the user set (Settings), or since Afflatus first saw it: it bills for nothing. */
   unused: boolean;
+  /** How its last Fill from a set… ended: when, and the files that failed (none: all in). */
+  lastFill: FillNote | null;
   /** The pod running on it now, when one is: no other pod may use it meanwhile. */
   usedBy: PodOn | null;
   /** Every pod it is mounted on, stopped ones too: it cannot be deleted while one is. */
@@ -96,9 +98,15 @@ export function viewVolumes(volumes: readonly NetworkVolume[], pods: readonly Po
     return {
       ...v, usedBy, mountedOn: on, perMonth: Math.round(v.size * VOLUME_PER_GB_MONTH * 100) / 100,
       holds: k?.keys && k.seenAt && k.seenBy ? { count: k.keys.size, seenAt: k.seenAt, seenBy: k.seenBy } : null,
-      usedAt, unused: !usedBy && unusedDays > 0 && now - since >= unusedDays * 86_400_000,
+      usedAt, unused: !usedBy && unusedDays > 0 && now - since >= unusedDays * 86_400_000, lastFill: k?.fill ?? null,
     };
   });
+}
+
+/** How a Fill from a set… ended: when, and the files that failed, with why. */
+export interface FillNote {
+  at: string;
+  failed: Array<{ file: string; error: string }>;
 }
 
 /** What a volume holds as kept: its files' keys (fileKey, by the file's own name; null until listed), when and by which pod, when last used, when first seen. */
@@ -108,12 +116,13 @@ export interface KeptHoldings {
   seenBy: string | null;
   usedAt: string | null;
   noticedAt: string;
+  fill: FillNote | null;
 }
 
 /** Every volume's holdings as kept. */
 export async function keptHoldings(db: Db): Promise<Map<string, KeptHoldings>> {
   const rows = await db.selectFrom("volume_files").selectAll().execute();
-  return new Map(rows.map((r) => [r.volume_id, { keys: r.files === null ? null : new Set(JSON.parse(r.files) as string[]), seenAt: r.seen_at, seenBy: r.seen_by, usedAt: r.used_at, noticedAt: r.noticed_at }]));
+  return new Map(rows.map((r) => [r.volume_id, { keys: r.files === null ? null : new Set(JSON.parse(r.files) as string[]), seenAt: r.seen_at, seenBy: r.seen_by, usedAt: r.used_at, noticedAt: r.noticed_at, fill: r.fill_note ? (JSON.parse(r.fill_note) as FillNote) : null }]));
 }
 
 /** The volumes Afflatus sees for the first time, noted with now: one never used is counted unused from then. */
@@ -142,6 +151,13 @@ export async function recordHoldings(db: Db, volume: string, comfy: Comfy, by: s
   const at = new Date(now).toISOString();
   const row = { files: JSON.stringify([...keys].sort()), seen_at: at, seen_by: by, used_at: at };
   await db.insertInto("volume_files").values({ volume_id: volume, ...row, noticed_at: at }).onConflict((oc) => oc.column("volume_id").doUpdateSet(row)).execute();
+}
+
+/** How a fill of a volume ended, kept with it (said on its row once its pod is gone). */
+export async function noteFill(db: Db, volume: string, failed: FillNote["failed"], now = Date.now()): Promise<void> {
+  const at = new Date(now).toISOString();
+  const fill_note = JSON.stringify({ at, failed: failed.slice(0, 50) });
+  await db.insertInto("volume_files").values({ volume_id: volume, files: null, seen_at: null, seen_by: null, used_at: at, noticed_at: at, fill_note }).onConflict((oc) => oc.column("volume_id").doUpdateSet({ fill_note })).execute();
 }
 
 /** Of a set's files, those a volume lacks as last seen. */

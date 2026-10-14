@@ -9,7 +9,7 @@ import type { PresetFile } from "@afflatus/core";
 import { imagePublic } from "./podImage";
 import { recordMeasure } from "./podMeasures";
 import { SEARCHED_FOLDERS } from "./modelSets";
-import { inUseSaid, keptHoldings, noticeVolumes, mountedOn, recordHoldings, usedBy, viewVolumes, VOLUME_MAX_GB, VOLUME_MIN_GB, VOLUME_PER_GB_MONTH, type Storage, type VolumeView } from "./rentedVolumes";
+import { inUseSaid, keptHoldings, noteFill, noticeVolumes, mountedOn, recordHoldings, usedBy, viewVolumes, VOLUME_MAX_GB, VOLUME_MIN_GB, VOLUME_PER_GB_MONTH, type Storage, type VolumeView } from "./rentedVolumes";
 import { MAX_MACHINES, readSettings, updateSettings, type DeployAsk, type Machine, type Settings } from "./settings";
 
 /**
@@ -280,15 +280,20 @@ export class Rented {
   /** A deployed pod answered for the first time: the files its deploy asked for, and the ones it left out (services.ts hands them to podFiles). */
   onUp: ((machine: string, files: PresetFile[], leaveOut: Array<{ file: string; folder: string }>) => void) | null = null;
 
-  /** The files a machine's pod still waits for, and all it was given (services.ts: podFiles); null when not known. */
-  filesLeft: ((machine: string) => { left: number; total: number }) | null = null;
+  /** The files a machine's pod still waits for, all it was given, and those that failed (services.ts: podFiles). */
+  filesLeft: ((machine: string) => { left: number; total: number; failed: Array<{ file: string; error: string }> }) | null = null;
 
   /** Machines deployed only to fill their volume: they take no render. */
   private filling = new Set<string>();
 
-  /** Whether a machine can take work: a rented one only while its pod runs and is not being stopped. Null: it can. */
+  /** Whether a machine can take work: a rented one only while its pod runs and is not being stopped, never one filling its volume. Null: it can. */
   unavailable(machine: string): string | null {
     if (this.filling.has(machine)) return "filling its volume";
+    return this.podDown(machine);
+  }
+
+  /** Whether a machine's pod is down: not running, or being stopped. Null: up (or not a rented machine). Its files follow this. */
+  podDown(machine: string): string | null {
     const s = this.seen.get(machine);
     if (!s) return null;
     if (s.stopping) return "being stopped";
@@ -881,6 +886,9 @@ export class Rented {
         if (pod?.volumeId) {
           this.volumeListed.delete(pod.volumeId);
           await this.noteVolume(m, pod.volumeId);
+          // how it ended, kept with the volume: its row says it once the pod is gone (a file that failed, and why)
+          await noteFill(this.db, pod.volumeId, files.failed, this.now()).catch(() => {});
+          if (files.failed.length) console.log(`[rented] ${m.name || m.id}: ${files.failed.length} of its files failed: ${files.failed.map((f) => f.file).join(", ")}`);
         }
         await this.act(m, "terminate", "filled");
         return true;

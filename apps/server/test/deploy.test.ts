@@ -190,6 +190,7 @@ describe("a deploy", () => {
   });
 
   it("fills a volume from a set: the cheapest GPU there, no render given to it, terminated once its files are in", async () => {
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: true } });
     const set = (await post(t.app, "/api/model-sets", { name: "zz-test set", presets: [], off: [], files: [
       { file: "illustrious.safetensors", folder: "checkpoints", url: "https://huggingface.co/zz-test/x/resolve/main/illustrious.safetensors", size: 6_000_000_000 },
     ] })).json().id as string;
@@ -201,7 +202,7 @@ describe("a deploy", () => {
     const id = res.json().id as string;
     expect(runpod.pods[0]).toMatchObject({ gpu: "NVIDIA A40", volumeId: "vol-ro", dataCenterId: "EU-RO-1" });
     const s = await readSettings(t.db);
-    expect(s.machines.find((m) => m.id === id)?.rented).toMatchObject({ fill: true, volume: "vol-ro" });
+    expect(s.machines.find((m) => m.id === id)?.rented).toMatchObject({ fill: true, volume: "vol-ro", files: [{ file: "illustrious.safetensors", folder: "checkpoints" }] });
     // not the user's deploy: the next one does not start from it
     expect(s.lastDeploy).toBeNull();
     // no render goes to it, though nothing else can take one
@@ -215,6 +216,16 @@ describe("a deploy", () => {
     const ro = ((await get(t.app, "/api/runpod/volumes")).json().volumes as Array<{ id: string; holds: { count: number } | null; sets: Array<{ missing: { count: number } }> }>).find((v) => v.id === "vol-ro")!;
     expect(ro.holds?.count).toBe(2);
     expect(ro.sets[0]?.missing.count).toBe(0);
+    expect((ro as unknown as { lastFill: { failed: unknown[] } }).lastFill.failed).toEqual([]);
+  });
+
+  it("a fill whose files fail ends all the same (nothing left to fetch), and the volume's row says which failed", async () => {
+    const set = (await post(t.app, "/api/model-sets", { name: "zz-test nowhere", presets: [], off: [], files: [{ file: "zz-test-nowhere.safetensors", folder: "loras", size: 1000 }] })).json().id as string;
+    const id = (await post(t.app, "/api/runpod/volumes/vol-ro/fill", { set })).json().id as string;
+    await until(async () => (await t.services.rented.poll(), !(await readSettings(t.db)).machines.some((m) => m.id === id)), 15_000);
+    expect(runpod.pods[0]!.status).toBe("TERMINATED");
+    const ro = ((await get(t.app, "/api/runpod/volumes")).json().volumes as Array<{ id: string; lastFill: { failed: Array<{ file: string }> } | null }>).find((v) => v.id === "vol-ro")!;
+    expect(ro.lastFill?.failed.map((f) => f.file)).toEqual(["zz-test-nowhere.safetensors"]);
   });
 
   it("flags a volume no pod ran on for the days set (counted from when Afflatus first saw one never used); 0: never", async () => {

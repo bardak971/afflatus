@@ -37,6 +37,10 @@ export const queryKeys = {
   /** The GPUs RunPod has free now, by cloud, and the account's network volumes (Deploy a GPU). */
   runpodGpus: (cloud: string) => ["runpod-gpus", cloud] as const,
   runpodVolumes: () => ["runpod-volumes"] as const,
+  /** What Make a volume… says first (data centers in stock, sizes, savings), by the sets weighed (null: all). */
+  volumePlan: (sets: string[] | null) => ["volume-plan", sets ?? "all"] as const,
+  /** What Fill from a set… says first, by volume and set. */
+  fillPlan: (volume: string, set: string) => ["fill-plan", volume, set] as const,
   runpodImages: () => ["runpod-images"] as const,
   /** The Deploy dialog's Models part, by cloud (the speeds measured on it) and picked set. */
   deployModels: (cloud: string, set: string) => ["deploy-models", cloud, set] as const,

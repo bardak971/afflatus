@@ -150,7 +150,8 @@ export async function createServices(
     cloudOf: async (id) => (await machineOf(id))?.machine.rented?.cloud ?? null,
     lookup: { db, presets: () => presetsWithFiles({ db, shippedPresets }), families: () => registry.families(), comfyDir: async () => (await readSettings(db)).comfyDir },
     settings: () => readSettings(db),
-    alive: (id) => rented.unavailable(id) === null,
+    // its pod up: a pod filling its volume takes no render, but gets its files
+    alive: (id) => rented.podDown(id) === null,
     busy: (id) => queue.runningOn(id),
     // a file there now, or one that failed: the pod's folders are read again, and its jobs looked at again
     settled: (id) => {
@@ -178,7 +179,7 @@ export async function createServices(
   // a deployed pod up: the files its deploy asked for come after what its jobs wait for; the ones left out never come
   rented.filesLeft = (id) => {
     const files = podFiles.view(id);
-    return { left: files.filter((f) => f.state === "next" || f.state === "fetching").length, total: files.length };
+    return { left: files.filter((f) => f.state === "next" || f.state === "fetching").length, total: files.length, failed: files.filter((f) => f.state === "failed").map((f) => ({ file: f.file, error: f.error ?? "failed" })) };
   };
   rented.onUp = (id, files, leaveOut) => {
     podFiles.leaveOut(id, leaveOut);

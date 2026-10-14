@@ -296,8 +296,30 @@ export interface NetworkVolume {
   usedAt: string | null;
   /** No pod ran on it for the days set in Settings: it bills for nothing. */
   unused: boolean;
+  /** How its last Fill from a set… ended: when, and the files that failed (none: all in). */
+  lastFill: { at: string; failed: Array<{ file: string; error: string }> } | null;
   /** Each Model set as it held it last time a pod ran there: what it lacks (empty when nothing is known). */
   sets: Array<{ id: string; name: string; missing: { count: number; bytes: number; unknown: number } }>;
+}
+
+/** What Make a volume… says first: where (GPUs in stock now, the user's pods there), the size the sets want, whether it pays for itself. */
+export interface VolumePlan {
+  places: Array<{ dataCenter: string; gpus: Array<{ name: string; price: number }>; pods: number }>;
+  sets: Array<{ id: string; name: string; bytes: number }>;
+  sizeGb: number;
+  perGbMonth: number;
+  /** The pods run in the last 30 days and their mean rate ($/h). */
+  deploys: number;
+  rate: number | null;
+  /** How long fetching the sets takes each deploy, and its cost at the mean rate; null when never measured. */
+  fetch: { fastMs: number; slowMs: number; lowUsd: number; highUsd: number } | null;
+}
+
+/** What Fill from a set… says first: the GPU it takes, what the volume lacks of the set, how long, what it costs. */
+export interface FillPlan {
+  gpu: { name: string; price: number } | null;
+  missing: { count: number; bytes: number; unknown: number };
+  estimate: { fastMs: number; slowMs: number; lowUsd: number; highUsd: number } | null;
 }
 
 /** A pod of the user's on RunPod, as the list for adding one says it. */

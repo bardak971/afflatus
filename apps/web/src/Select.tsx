@@ -17,6 +17,8 @@ export interface Option {
   search?: string;
   /** The section it is listed under. Options of one section must follow each other. */
   group?: string;
+  /** Shown greyed and never picked, its note saying why (a network volume another pod runs on). */
+  disabled?: boolean;
   /** One of the choices put forward (what a picture was made with, among everything it could be changed with): drawn so that it stands out. */
   marked?: boolean;
 }
@@ -150,6 +152,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
   };
 
   const pick = (o: Option) => {
+    if (o.disabled) return;
     onChange(o.value);
     close();
   };
@@ -231,6 +234,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
                 id={optionId(i)}
                 role="option"
                 aria-selected={o.value === value}
+                aria-disabled={o.disabled || undefined}
                 tabIndex={-1}
                 data-index={i}
                 onClick={() => pick(o)}
@@ -241,6 +245,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
                   o.value === value ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : o.marked && i !== active && "bg-accent-wash",
                   o.value === value && i === active && "brightness-110",
                   o.marked && "mb-0.5",
+                  o.disabled && "cursor-not-allowed opacity-50",
                 )}
               >
                 <span className="flex h-4 w-4 shrink-0 items-center justify-center text-accent">{o.value === value && <Check size={14} strokeWidth={3} />}</span>
