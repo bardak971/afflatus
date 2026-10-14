@@ -48,6 +48,13 @@ describe("checkGraph", () => {
     expect(problems).toContain('"medium" is not a choice of "mode"');
   });
 
+  it("takes a model file missing from a list of ComfyUI's own entries for a file it lacks, not a bad choice", () => {
+    // a fresh pod: the loader's list holds only ComfyUI's built-in entries ("pixel_space", "taesd" for a VAE)
+    const own = { ...catalog, Loader: { ...catalog.Loader!, input: { required: { file: [["pixel_space", "taesd"]] } } } } as typeof catalog;
+    const b = built((g) => g.add("Sampler", { model: g.out("Loader", { file: "qwen_image_2.1_vae_bf16.safetensors" }), steps: 8, method: "euler", mode: "fast" }));
+    expect(checkGraph(b, own).join("\n")).not.toContain("is not a choice");
+  });
+
   it("checks what the outputs are made from: a problem in a side branch does not stop the result", () => {
     const b = built((g) => {
       // a second sampler nothing reads, missing its model: ComfyUI would skip it and run the rest
