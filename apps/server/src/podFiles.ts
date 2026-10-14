@@ -76,7 +76,7 @@ export interface PodFilesDeps {
   /** Its cloud (RunPod's secure or community), for the speeds measured on it. */
   cloudOf(machine: string): Promise<string | null>;
   lookup: SourceLookup;
-  settings(): Promise<Pick<Settings, "civitaiKey" | "downloadModels" | "civitaiLookups">>;
+  settings(): Promise<Pick<Settings, "civitaiKey" | "downloadModels" | "civitaiLookups"> & Partial<Pick<Settings, "huggingFaceToken">>>;
   /** Whether the machine's pod runs now: what a pod no longer running was getting is forgotten (its container went with it). */
   alive(machine: string): boolean;
   /** Whether a job runs on the machine now: its ComfyUI is not restarted under a render (podPacks.ts). */
@@ -495,7 +495,11 @@ export class PodFiles {
         source = found.file.downloadUrl;
         headers = settings.civitaiKey ? { Authorization: `Bearer ${settings.civitaiKey}` } : undefined;
         total = Math.round((found.file.sizeKB ?? 0) * 1024) || total;
-      } else source = src.url;
+      } else {
+        source = src.url;
+        // a gated model's file is signed only for an account that accepted its terms: the user's token, to Hugging Face alone
+        if (settings.huggingFaceToken && /^https:\/\/(huggingface\.co|hf\.co)\//i.test(source)) headers = { Authorization: `Bearer ${settings.huggingFaceToken}` };
+      }
       // its clock starts as it is asked for: a pod's two at a time start at once, and a fast file is done before the next look
       e.flowingAt = Date.now();
       if (!this.current(machine, e)) return;

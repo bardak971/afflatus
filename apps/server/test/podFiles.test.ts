@@ -97,6 +97,28 @@ describe("a rented pod's model files", () => {
     expect(files.jobState("pod", "other")).toBeNull();
   });
 
+  it("of a gated Hugging Face model are signed with the user's token, sent to Hugging Face alone", async () => {
+    const seen: Array<Record<string, string>> = [];
+    t.services.downloads.signer = async (source, headers) => {
+      seen.push(headers);
+      return source.startsWith("https://huggingface.co/") ? `${siteUrl}/signed/gated.safetensors?sig=1` : null;
+    };
+    const comfy = new Comfy(pod.url, t.services.registry);
+    const withToken = new PodFiles({
+      db: t.services.db, downloads: t.services.downloads,
+      comfyOf: async () => comfy, cloudOf: async () => "SECURE", alive: () => true, busy: () => false,
+      lookup: { db: t.services.db, presets: async () => [], families: () => [], comfyDir: async () => home },
+      settings: async () => ({ civitaiKey: "", downloadModels: true, civitaiLookups: true, huggingFaceToken: "hf_test_token_123" }),
+    });
+    withToken.want("pod", [{ file: "gated.safetensors", folder: "loras", url: "https://huggingface.co/org/gated/resolve/main/gated.safetensors" }], { tier: "need" });
+    await until(async () => {
+      await withToken.tick();
+      return ["ready", "failed"].includes(withToken.view("pod")[0]?.state ?? "");
+    });
+    expect(withToken.view("pod")[0]?.state).toBe("ready");
+    expect(seen).toEqual([{ Authorization: "Bearer hf_test_token_123" }]);
+  });
+
   it("keep each one's speed, a fast one too (done before the next look), from its start to all of it on the pod", async () => {
     files.measuredFrom = 1;
     files.want("pod", [{ file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors` }, { file: "mine.safetensors", folder: "loras" }], { tier: "need" });

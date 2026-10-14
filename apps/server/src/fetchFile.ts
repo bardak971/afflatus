@@ -68,7 +68,9 @@ export async function beginDownload(s: Services, req: FastifyRequest, b: Downloa
     if (!/^https:\/\//.test(b.url) && !pretendSites()) throw bad("only https URLs are downloaded");
     // not an address inside this network, ComfyUI's machine included (a pretend Civitai in the tests and the demo is fine)
     assertPublicUrl(b.url, civitaiSites());
-    const started = await s.downloads.start(comfy, self, { file: b.file, folder: b.folder, title: name, source: b.url, comfyDir: dir, machine });
+    // a gated model's file needs an account that accepted its terms: the user's Hugging Face token, to Hugging Face alone
+    const hf = settings.huggingFaceToken && /^https:\/\/(huggingface\.co|hf\.co)\//i.test(b.url) ? { Authorization: `Bearer ${settings.huggingFaceToken}` } : undefined;
+    const started = await s.downloads.start(comfy, self, { file: b.file, folder: b.folder, title: name, source: b.url, ...(hf ? { headers: hf } : {}), comfyDir: dir, machine });
     await keepPage(started.file);
     return started;
   }
