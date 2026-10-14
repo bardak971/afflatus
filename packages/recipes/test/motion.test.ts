@@ -77,6 +77,12 @@ describe("SCAIL-2 · Motion transfer", () => {
     expect(of(build({}, part(81 / SCAIL_FPS, { hasSound: false })).graph, "TrimAudioDuration")).toHaveLength(0);
   });
 
+  it("shows an animated live preview with KJNodes, on the model that samples", () => {
+    const preview = of(build().graph, "ModelPreviewOverrideKJ");
+    expect(preview).toHaveLength(1);
+    expect(of(build({ livePreview: false }).graph, "ModelPreviewOverrideKJ")).toHaveLength(0);
+  });
+
   it("moves only the person asked for, in the order asked", () => {
     const { graph } = build({ person: 2, order: "Biggest first" });
     expect(of(graph, "SCAIL2ColoredMask")[0]!.inputs).toMatchObject({ object_indices: "1", sort_by: "area" });

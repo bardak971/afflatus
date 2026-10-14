@@ -1,6 +1,6 @@
 import { defineRecipe, GraphBuilder, type Ref, type Variant } from "@afflatus/core";
 import { SCAIL_CARRIED, SCAIL_CHUNK, SCAIL_FPS } from "./family";
-import { applyLoras, loraLoads } from "../shared/model";
+import { applyLoras, livePreview, loraLoads } from "../shared/model";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import {
   chunkLengths, drivingFrames, matchedToDriving, MOTION_GRID, MOTION_NODES, MOTION_OPTIONAL, MOTION_OUT_INPUTS, motionCanvas, motionFrames, motionInputs,
@@ -21,6 +21,7 @@ export interface ScailMotion extends MotionValues {
   shift: number;
   cfg: number;
   poseStrength: number;
+  livePreview: boolean;
 }
 
 const SHAPE: MotionShape = { fps: SCAIL_FPS, most: 321, least: 9 };
@@ -54,6 +55,10 @@ export const scailMotion = defineRecipe<ScailMotion>({
     { id: "cfg", type: "number", label: "CFG scale", min: 1, max: 10, step: 0.5, default: 1, advanced: true, perModel: true, note: "1 with the lightx2v LoRA. Above 1 every step takes twice as long" },
     { id: "shift", type: "number", label: "Shift", min: 0, max: 20, step: 0.5, default: 5, advanced: true, perModel: true },
     { id: "poseStrength", type: "number", label: "Pose strength", min: 0, max: 2, step: 0.05, default: 1, advanced: true, note: "how hard the driving video's pose is held to" },
+    {
+      id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
+      note: "while it renders, a short clip of what is forming, each step. Without it the preview is one still frame. A small cost per step. Needs the KJNodes pack",
+    },
     ...MOTION_OUT_INPUTS,
   ],
   needs: ["dpo", "turbo", "clipVision", "sam"],
@@ -62,7 +67,7 @@ export const scailMotion = defineRecipe<ScailMotion>({
     "CheckpointLoaderSimple", "SAM3_VideoTrack", "SCAIL2ColoredMask", "WanSCAILToVideo", "ModelSamplingSD3", "KSamplerSelect", "BasicScheduler", "SamplerCustom", "VAEDecode",
     ...(input.drivingSeconds * SCAIL_FPS > SCAIL_CHUNK ? ["ImageFromBatch", "ImageBatch"] : []),
   ],
-  optionalNodes: [...MOTION_OPTIONAL, VHS, ...CORE_VIDEO_OUT],
+  optionalNodes: [...MOTION_OPTIONAL, VHS, ...CORE_VIDEO_OUT, "ModelPreviewOverrideKJ"],
 
   build(input, ctx) {
     if (!input.picture || !ctx.uploads.picture) throw new Error("Motion transfer needs a picture: what moves.");
@@ -97,7 +102,7 @@ export const scailMotion = defineRecipe<ScailMotion>({
     if (slots.dpo) model = g.out("LoraLoaderModelOnly", { model, lora_name: slots.dpo, strength_model: 1 });
     if (slots.turbo) model = g.out("LoraLoaderModelOnly", { model, lora_name: slots.turbo, strength_model: TURBO_STRENGTH });
     model = applyLoras(g, model, input.loras);
-    const shifted = g.out("ModelSamplingSD3", { model, shift: input.shift });
+    const shifted = livePreview(g, ctx, g.out("ModelSamplingSD3", { model, shift: input.shift }), input.livePreview);
     const sigmas = g.out("BasicScheduler", { model, scheduler: "simple", steps: input.steps, denoise: 1 });
     const sampler = g.out("KSamplerSelect", { sampler_name: "euler" });
 
@@ -150,7 +155,7 @@ export const scailMotion = defineRecipe<ScailMotion>({
 
   variants: ((): Variant<ScailMotion>[] => {
     const slots = {
-      unet: "wan2.1_14B_SCAIL_2_int8_convrot.safetensors", dpo: "wan2.1_SCAIL_2_DPO_lora_bf16.safetensors", turbo: "lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",
+      tinyVae: "taew2_1.safetensors", unet: "wan2.1_14B_SCAIL_2_int8_convrot.safetensors", dpo: "wan2.1_SCAIL_2_DPO_lora_bf16.safetensors", turbo: "lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",
       clip: "umt5_xxl_fp8_e4m3fn_scaled.safetensors", vae: "wan_2.1_vae.safetensors", clipVision: "clip_vision_h.safetensors", sam: "sam3.1_multiplex_fp16.safetensors", rife: "rife49.pth",
     };
     const picture = { width: 768, height: 1360 };

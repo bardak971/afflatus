@@ -45,6 +45,7 @@ export const scail = defineFamily({
       hint: "Put sam3.1_multiplex_fp16.safetensors in ComfyUI's models/checkpoints folder.",
       get: { file: "sam3.1_multiplex_fp16.safetensors", url: "https://huggingface.co/Comfy-Org/sam3.1/resolve/main/checkpoints/sam3.1_multiplex_fp16.safetensors" },
     },
+    fromWan("tinyVae"),
     fromWan("rife"),
   ],
   loraMatch: ["wan", "scail"],
