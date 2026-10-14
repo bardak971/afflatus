@@ -1,7 +1,8 @@
-# The pod image's build context is the repository's root: only the node pack and the start script go into it.
+# The pod image's build context is the repository's root: only the node pack and the pod's own scripts go into it.
 *
 !comfy-nodes/afflatus-nodes
 !deploy/runpod/start.sh
 !deploy/runpod/broken.py
+!deploy/runpod/registry_cache.py
 comfy-nodes/afflatus-nodes/tests
 **/__pycache__
