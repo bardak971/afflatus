@@ -47,8 +47,20 @@ describe("mergeScans", () => {
   });
 });
 
-describe("lackOn", () => {
+describe("lackOn, why it cannot be sent", () => {
   const h3 = { id: "h3-i2v", family: "h3", inputs: [{ id: "unet", type: "model", folder: "diffusion_models", label: "Model", slot: "model" }] } as never;
+  it("names a node no pack Afflatus can install, and ComfyUI refusing it", () => {
+    const node = scan([{ ...recipe("h3-i2v", false, { unet: [] }), missingNodes: ["SomeUnknownNode"] }]);
+    expect(lackOn(h3, { unet: "h3.safetensors" }, node, { families: {} }, machine("b"), familyOf)).toMatchObject({ sendable: false, why: expect.stringMatching(/lacks SomeUnknownNode, of no node pack/) });
+    const refused = scan([{ ...recipe("h3-i2v", false, { unet: [] }), problems: ["Value not in list: weight_dtype"] }]);
+    expect(lackOn(h3, { unet: "h3.safetensors" }, refused, { families: {} }, machine("b"), familyOf)).toMatchObject({ sendable: false, why: "its ComfyUI refuses it: Value not in list: weight_dtype" });
+    // sendable: no reason said
+    expect(lackOn(h3, { unet: "h3.safetensors" }, scan([recipe("h3-i2v", false, { unet: [] })]), { families: {} }, machine("b"), familyOf)).not.toHaveProperty("why");
+  });
+});
+
+describe("lackOn", () => {
+  const h3 ={ id: "h3-i2v", family: "h3", inputs: [{ id: "unet", type: "model", folder: "diffusion_models", label: "Model", slot: "model" }] } as never;
   it("says the files a machine lacks, and calls a family off only when it was switched off", () => {
     const none = scan([recipe("h3-i2v", false, { unet: [] })]);
     // no H3 file there: the family follows its files, so it is not "off", it lacks the file asked for
