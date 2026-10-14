@@ -42,13 +42,17 @@ function useJobsOf(ids: string[]) {
   const queue = useQueue();
   const q = queue.data;
   const live = new Set([...(q?.waiting ?? []).map((w) => w.id), ...(q?.running ? [q.running.id] : []), ...(q?.machines ?? []).flatMap((m) => (m.running ? [m.running.id] : []))]);
-  const pending = ids.some((id) => live.has(id));
   const history = useQuery({
     queryKey: ["picture-set-jobs", ids.join(",")],
     queryFn: () => api.jobs({ limit: 100 }),
     enabled: ids.length > 0,
-    // read again while one of them is still under way, and once when the last ends
-    refetchInterval: pending ? 4000 : false,
+    // read again until every one of them is in the history as ended: the last one's picture shows as soon as it lands (read
+    // only while one ran, the last stayed "queued" until the page was reloaded); faster while one is about to end
+    refetchInterval: (query) => {
+      const ended = new Set((query.state.data?.items ?? []).map((x) => x.id));
+      const open = ids.filter((id) => !ended.has(id));
+      return open.length ? (open.some((id) => live.has(id)) ? 3000 : 1500) : false;
+    },
   });
   return ids.map((id) => {
     const running = q?.running?.id === id ? q.running : (q?.machines ?? []).map((m) => m.running).find((r) => r?.id === id);
@@ -122,11 +126,19 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
 
       {/* who goes in: their photos, the first the most important */}
       <div className="flex flex-col gap-1.5">
-        <span className="text-xs text-ink-2">Who goes in <span className="text-ink-3">· 1 to 3 photos: one sharp, front-facing, well lit; another angle helps</span></span>
+        <span className="text-xs text-ink-2">Who goes in <span className="text-ink-3">· 1 to 3 photos; the first (main) matters most: sharp, front-facing, lit like the frame</span></span>
         <div className="flex flex-wrap items-center gap-1.5">
-          {set.people.map((id) => (
+          {set.people.map((id, i) => (
             <span key={id} className="relative">
-              <img src={thumbUrl(id)} alt="" className="h-14 w-14 rounded-md object-cover" />
+              <button
+                type="button"
+                onClick={() => i > 0 && change(keyId, { people: [id, ...set.people.filter((x) => x !== id)] })}
+                data-tip={i === 0 ? "The main photo: the one the face is taken from most. Click another to make it the main one" : "Click: make it the main photo"}
+                className={cx("block overflow-hidden rounded-md border-2", i === 0 ? "border-accent" : "border-transparent hover:border-line-strong")}
+              >
+                <img src={thumbUrl(id)} alt="" className="h-14 w-14 object-cover" />
+              </button>
+              {i === 0 && set.people.length > 1 && <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 rounded bg-accent px-1 text-[9px] font-bold text-accent-ink">main</span>}
               <button type="button" aria-label="Remove this photo" onClick={() => change(keyId, { people: set.people.filter((x) => x !== id) })} className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-line bg-panel text-ink-2 hover:text-ink">
                 <X size={11} />
               </button>
