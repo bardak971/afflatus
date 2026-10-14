@@ -54,12 +54,12 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
   useEffect(() => {
     if (!recipe || !draft) { publish(null); return; }
     publish({
-      recipe, values: { ...formValues }, set: (input, value) => d.setValue(recipe.id, input, value), draftId: draft.id, look: draft.look, setLook: d.setLook, generate: (machine) => makeNow.current(machine),
+      recipe, values: { ...formValues }, set: (input, value) => d.setValue(recipe.id, input, value), draftId: draft.id, folder: folder?.id, look: draft.look, setLook: d.setLook, generate: (machine) => makeNow.current(machine),
       applyPreset: (id) => presetNow.current(id), savePreset: (name) => savePreset.mutateAsync(name),
     });
     // the form is gone with the panel
     // eslint-disable-next-line react-hooks/exhaustive-deps -- published when the form's values change; the callbacks read the latest through refs
-  }, [recipe, draft?.id, formValues, draft?.look]);
+  }, [recipe, draft?.id, formValues, draft?.look, folder?.id]);
   useEffect(() => () => publish(null), [publish]);
 
   const comfyOnline = setup.data?.comfy.online ?? false;

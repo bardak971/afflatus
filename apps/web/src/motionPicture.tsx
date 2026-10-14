@@ -100,6 +100,7 @@ export function MakeFromDriving({ specs, values, current, onPick }: { specs: rea
       video={driving.asset}
       atMs={frame * 1000}
       name="Picture for Motion transfer"
+      folder={target.folder}
       cast={target.look?.cast.map((c) => c.id)}
       current={current}
       onPick={onPick}

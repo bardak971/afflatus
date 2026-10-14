@@ -82,6 +82,8 @@ export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" 
   /** The same for jobs asked for together ("Make 4"): shown as one card. */
   batch: string;
   made: Array<{ id: string; kind: "image" | "video" | "audio"; width: number | null; height: number | null; durationMs: number | null; kept: boolean; inBin: boolean; name: string }>;
+  /** How much the face in what it made is the person of its photos (a picture for Motion transfer); null when not measured. */
+  face?: number | null;
 }
 export interface HistoryPage {
   items: HistoryJob[];

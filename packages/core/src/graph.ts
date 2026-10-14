@@ -23,7 +23,7 @@ interface GraphOutput {
    * never shown, and handed to the model when another clip carries on from this one; latent = the clip's
    * own latent (MiniMax H3, with the Afflatus node pack), kept beside it for the clips that continue it.
    */
-  role: "result" | "poster" | "tail" | "raw" | "latent" | "fine";
+  role: "result" | "poster" | "tail" | "raw" | "latent" | "fine" | "score";
 }
 
 export interface BuiltGraph {

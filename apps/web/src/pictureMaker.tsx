@@ -55,13 +55,13 @@ function useJobsOf(ids: string[]) {
     if (running) return { id, state: "running" as const, progress: running.progress ?? 0 };
     if (q?.waiting.some((w) => w.id === id)) return { id, state: "waiting" as const };
     const h = history.data?.items.find((x) => x.id === id);
-    if (h?.status === "done") return { id, state: "done" as const, picture: h.made.find((m) => m.kind === "image" && !m.inBin)?.id ?? null };
+    if (h?.status === "done") return { id, state: "done" as const, picture: h.made.find((m) => m.kind === "image" && !m.inBin)?.id ?? null, face: h.face ?? null };
     if (h) return { id, state: "failed" as const, why: h.error ?? h.status };
     return { id, state: "waiting" as const };
   });
 }
 
-export function PictureMaker({ keyId, video, atMs, name, cast, current, onPick, frameControl, after }: {
+export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, onPick, frameControl, after }: {
   /** What the set is kept under: a draft, a timeline's source. */
   keyId: string;
   /** The driving video, and the moment of it the person is put into. */
@@ -69,6 +69,8 @@ export function PictureMaker({ keyId, video, atMs, name, cast, current, onPick, 
   atMs: number;
   /** What it is for, in the jobs' names ("Picture for Timeline 15"). */
   name: string;
+  /** Where the pictures land: the timeline's renders' folder, the folder open beside the Create form. Left out: the Inbox. */
+  folder?: string | null;
   /** The cast's people (entity ids), offered as who goes in. */
   cast?: string[];
   /** The Picture now: ringed among the made ones. */
@@ -94,13 +96,18 @@ export function PictureMaker({ keyId, video, atMs, name, cast, current, onPick, 
   const make = useMutation({
     mutationFn: async () => {
       const frame = await api.frame(video, Math.round(atMs));
-      const made = await api.enqueue(MAKER, { source: frame.id, people: set.people.map((asset) => ({ asset, role: "person" })), relight: set.relight }, ROUND, null, { label: name });
+      const made = await api.enqueue(MAKER, { source: frame.id, people: set.people.map((asset) => ({ asset, role: "person" })), relight: set.relight }, ROUND, null, { label: name, ...(folder ? { folder } : {}) });
       change(keyId, { jobs: [...set.jobs, ...made.ids] });
     },
     onError: failed("The pictures could not be started"),
   });
   const addPhoto = (id: string) => !set.people.includes(id) && set.people.length < 3 && change(keyId, { people: [...set.people, id] });
   const busy = jobs.some((j) => j.state === "waiting" || j.state === "running");
+  // the made ones best first by how much the face is the person (when measured), the others after, newest first
+  const faceOf = (j: (typeof jobs)[number]) => (j.state === "done" ? j.face : null);
+  const ordered = [...jobs].reverse().sort((a, b) => (faceOf(b) ?? -2) - (faceOf(a) ?? -2));
+  const best = ordered.find((j) => faceOf(j) != null);
+  const measured = Boolean(best);
   return (
     <div className="flex flex-col gap-2.5 rounded-lg border border-dashed border-line-strong px-3 py-2.5">
       <span className="flex items-center gap-1.5 text-xs font-semibold"><Sparkles size={13} className="text-accent" /> Make the picture</span>
@@ -164,11 +171,19 @@ export function PictureMaker({ keyId, video, atMs, name, cast, current, onPick, 
       {/* what came of it: as each lands; a click makes it the Picture */}
       {jobs.length > 0 && (
         <div className="grid grid-cols-3 gap-1.5">
-          {[...jobs].reverse().map((j) => (
+          {ordered.map((j) => (
             <div key={j.id} className="flex flex-col gap-1">
               {j.state === "done" && j.picture ? (
-                <button type="button" onClick={() => setLooking(j.picture!)} aria-label="Show it large" className={cx("cursor-zoom-in overflow-hidden rounded-md border-2", current === j.picture ? "border-accent" : "border-transparent hover:border-line-strong")}>
+                <button type="button" onClick={() => setLooking(j.picture!)} aria-label="Show it large" className={cx("relative cursor-zoom-in overflow-hidden rounded-md border-2", current === j.picture ? "border-accent" : "border-transparent hover:border-line-strong")}>
                   <img src={thumbUrl(j.picture)} alt="" className="aspect-[9/16] w-full object-cover" />
+                  {j.face != null && (
+                    <span
+                      data-tip="How much the face is the person of the photos: 0.85 and up, a close likeness; under 0.6, someone else (or a face too small or turned to read)"
+                      className={cx("absolute bottom-1 left-1 rounded px-1.5 py-px font-mono text-[10.5px] font-bold", j.face >= 0.85 ? "bg-good text-ground" : j.face >= 0.6 ? "bg-warn text-warn-on" : "bg-warn-wash text-warn-ink")}
+                    >
+                      face {j.face.toFixed(2)}{j === best ? " · best" : ""}
+                    </span>
+                  )}
                 </button>
               ) : (
                 <div className="flex aspect-[9/16] w-full flex-col items-center justify-center gap-1.5 rounded-md bg-raised px-2 text-center text-[10.5px] text-ink-3">
@@ -184,6 +199,9 @@ export function PictureMaker({ keyId, video, atMs, name, cast, current, onPick, 
       )}
       {after}
       {shown.data && <Viewer asset={shown.data} onClose={() => setLooking(null)} />}
+      {jobs.some((j) => j.state === "done") && !measured && (
+        <span className="text-[11px] text-ink-3">No face figures: the Afflatus node pack's Face Match needs insightface in ComfyUI (pip install insightface onnxruntime), then a ComfyUI restart.</span>
+      )}
       {adding && <Picker title="A photo of who goes in" onClose={() => setAdding(false)} onPick={(id) => { addPhoto(id); setAdding(false); }} />}
     </div>
   );

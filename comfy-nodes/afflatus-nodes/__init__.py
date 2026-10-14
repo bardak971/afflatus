@@ -1,6 +1,6 @@
 """Afflatus nodes for ComfyUI.
 
-Eleven nodes, all for continuing a MiniMax H3 clip from its own latent rather than from re-encoded pixels:
+Eleven nodes for continuing a MiniMax H3 clip from its own latent rather than from re-encoded pixels, and one more:
 
 - Afflatus: Save H3 Latent / Load H3 Latent — a MiniMax H3 video+audio latent as one safetensors file
   (ComfyUI's own SaveLatent cannot store the nested pair); Normalize H3 Latent — a sampled window's audio
@@ -13,6 +13,8 @@ Eleven nodes, all for continuing a MiniMax H3 clip from its own latent rather th
 - MiniMax H3 Guided Continuation Window, Latent Tail Guide, Append Continuation — the native latent-tail
   continuation by ttulttul (MIT, see LICENSE-continuation), vendored with one change: the check for a recent
   enough ComfyUI says "update ComfyUI" when the module it reads is missing, instead of a bare ImportError.
+- Afflatus: Face Match — how much a face in a picture is the person of some photos (InsightFace's ArcFace, on the CPU),
+  to rank the pictures a Motion transfer is made from; registered only when insightface is installed.
 
 Afflatus writes this pack into ComfyUI's custom_nodes folder itself when it knows the folder (Settings →
 ComfyUI); ComfyUI picks it up at its next start. It can also be installed by hand: copy this folder into
@@ -57,6 +59,7 @@ from .continuation_nodes import (  # noqa: E402
     MiniMaxH3LatentTailGuide,
 )
 from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, AfflatusH3SeamLatent, AfflatusH3TailGuide, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent  # noqa: E402
+from .face_match import AfflatusFaceMatch, available as face_available  # noqa: E402
 
 
 def _version() -> str:
@@ -86,6 +89,8 @@ class AfflatusExtension(ComfyExtension):
             MiniMaxH3GuidedContinuationWindow,
             MiniMaxH3LatentTailGuide,
             MiniMaxH3AppendContinuation,
+            # a face's likeness to some photos, for the pictures a Motion transfer is made from: only with insightface installed
+            *([AfflatusFaceMatch] if face_available() else []),
         ]
 
 
