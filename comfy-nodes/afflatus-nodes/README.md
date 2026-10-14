@@ -46,6 +46,11 @@ With the pack loaded, ComfyUI answers:
   `.part` files a stopped ComfyUI left are removed at its next start. From 0.12.0: also Hugging Face's and Civitai's own
   signed download links (https, on their download hosts only), which Afflatus asks for with its key and hands over
   without it; `POST /afflatus/download/<id>/url` gives a download whose link expired a fresh one, and it carries on.
+- `POST /afflatus/upload`, `PUT`, `GET` and `DELETE /afflatus/upload/<id>` (0.14.0): a model file Afflatus sends itself,
+  for one no site has (a LoRA of your own), to a ComfyUI that cannot reach Afflatus (a rented pod). The size is said
+  first (a folder without the room is refused then), each piece is `PUT` as raw bytes at the byte the upload is at
+  (`?offset=`, 64 MB at most), a piece cut short is sent again, and the file is renamed once complete. The same folders
+  and names as the downloads; nothing written past its size; an upload nothing is sent to for 10 minutes is dropped.
 - `GET` and `POST /afflatus/alive` (0.13.0): the watchdog of a rented machine. Afflatus says "still here" with
   `{"minutes": 15}` every minute or so; silent that long, the pod stops itself (on RunPod: `runpodctl stop pod`, or
   RunPod's API with the pod's `RUNPOD_API_KEY`). Nothing is armed until Afflatus says it; `{"minutes": 0}` disarms it.

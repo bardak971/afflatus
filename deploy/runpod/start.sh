@@ -27,11 +27,20 @@ echo "[afflatus-pod] ComfyUI's files in $BASE"
 rm -rf "$BASE/custom_nodes/afflatus-nodes"
 cp -r /opt/afflatus-nodes "$BASE/custom_nodes/afflatus-nodes"
 
+# the node packs built into the image (Dockerfile), at its commits: linked in, over a copy an older pod left on the volume
+while read -r pack; do
+  [ -n "$pack" ] || continue
+  rm -rf "${BASE:?}/custom_nodes/$pack"
+  ln -s "/opt/packs/$pack" "$BASE/custom_nodes/$pack"
+done < /opt/packs/BUILT_IN
+
 # node packs an earlier pod installed on the volume: their Python packages are not in this container yet. Torch stays the
 # image's CUDA build (/constraints.txt): a pack asking for another would swap it for a PyPI one, GBs at every start
 for req in "$BASE"/custom_nodes/*/requirements.txt; do
   [ -f "$req" ] || continue
   [ "$req" = "$BASE/custom_nodes/afflatus-nodes/requirements.txt" ] && continue
+  # the built-in ones' packages are in the image already (DaSiWa's list on purpose not)
+  grep -qxF "$(basename "$(dirname "$req")")" /opt/packs/BUILT_IN && continue
   pip install -q -c /constraints.txt -r "$req" || echo "[afflatus-pod] could not install $req"
 done
 
