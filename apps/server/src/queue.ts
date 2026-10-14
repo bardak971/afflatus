@@ -15,7 +15,7 @@ import { FIRST_MACHINE, readSettings, type Machine } from "./settings";
 import type { Storage } from "./storage";
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
-import { DEFAULT_QUEUE_OPTIONS, readJson, SHUTDOWN, type JobRow, type QueueCore, type QueueOptions, type Resume, type Running, type Usual } from "./queueModel";
+import { DEFAULT_QUEUE_OPTIONS, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type QueueOptions, type Resume, type Running, type Usual } from "./queueModel";
 import * as bulk from "./queueBulk";
 import { needsComfy, Offline } from "./queueOffline";
 import * as submitting from "./queueSubmit";
@@ -42,6 +42,8 @@ const LOADS_KEY = "queue.loads";
 const keyOf = (key: string, machine: string) => (machine === FIRST_MACHINE ? key : `${key}.${machine}`);
 /** At most how often a running render's step count is saved on its job, when the options do not say. */
 const STEPS_SAVE_MS = 5_000;
+/** The GPU's load (percent) from which a render that says nothing is taken as at work, not stuck. */
+const GPU_AT_WORK = 30;
 /** The lane of the jobs that need no ComfyUI. */
 const TOOLS = "tools";
 /** How long a running job has left, from what it was expected to take; null when that cannot be told. */
@@ -986,6 +988,30 @@ ${JSON.stringify(input)}`;
   }
 
   /**
+   * How long the render a machine runs has been past its forecast and silent (no step, no node, no preview from ComfyUI,
+   * its GPU idle):
+   * the shorter of the two, so that a render known to be long is never taken for stuck before its time. 0 when it runs
+   * nothing, or a render not sent yet.
+   */
+  quietFor(machine: string): number {
+    const run = this.lanes.get(machine)?.running;
+    if (!run?.promptId || !run.movedAt || !run.startedAt) return 0;
+    const now = Date.now();
+    const pastForecast = run.expectedMs ? now - run.startedAt - run.expectedMs : Infinity;
+    return Math.max(0, Math.min(now - run.movedAt, pastForecast));
+  }
+
+  /** Fail the render a machine runs as stuck, with what to say, and drop it in its ComfyUI. Whether there was one. */
+  async endStuck(machine: string, why: string): Promise<boolean> {
+    const lane = this.lanes.get(machine);
+    const run = lane?.running;
+    if (!run?.promptId || run.abort.signal.aborted) return false;
+    run.abort.abort(new Stuck(why));
+    await lane!.comfy?.client.interrupt(run.promptId).catch(() => {});
+    return true;
+  }
+
+  /**
    * Whether a machine is at work or has work: a job running or starting there, or a waiting render the plan gives it (one
    * pinned to it that can run there, or one that ends sooner there than anywhere else, its files' coming counted). Paused,
    * it has none. For a rented machine's idle time: a pod that could run a job the plan sends elsewhere (this computer is
@@ -1153,6 +1179,7 @@ ${JSON.stringify(input)}`;
       // a fresh render learns how long it should take only once it is sent: the spilling warning needs it from the first run on
       running.expectedMs ??= resume.timing?.expectedMs ?? null;
       running.startedAt = resume.startedAt;
+      running.movedAt = Date.now();
       running.seed = resume.seed;
       if (abort.signal.aborted) {
         // stopped by hand: ComfyUI drops it too; shutting down leaves it there for the next start (SHUTDOWN)
@@ -1164,7 +1191,13 @@ ${JSON.stringify(input)}`;
       // and its step count goes on from the one saved: which pass runs cannot tell it when one node samples chunk after chunk
       comfy.monitor.track({ promptId: resume.promptId, totalSteps: resume.totalSteps, phases: resume.phases, passes: resume.passes, clientId: resume.clientId, expect: resume.timing?.expect, stepsDone: resume.stepsDone });
       const saving = this.stepsSaver(row.id, resume, comfy);
+      // a busy GPU is a render at work too: a node that says nothing on the way (a long decode, an interpolation) is not
+      // taken for stuck while it computes; a render that hangs leaves its GPU idle. Its memory says nothing: it stays full
+      comfy.monitor.onSystem = (load) => {
+        if (load.gpus.some((g) => (g.load ?? 0) >= GPU_AT_WORK)) running.movedAt = Date.now();
+      };
       comfy.monitor.onChange = () => {
+        running.movedAt = Date.now();
         this.events.emit("progress");
         saving.check();
       };
@@ -1251,6 +1284,10 @@ ${JSON.stringify(input)}`;
     const onRecord = resume && !made && !row.warm;
     if (this.stopped) {
       // shutting down: leave the row as it is, the next start picks it up
+    } else if (at.aborted && lane.running?.abort.signal.reason instanceof Stuck) {
+      // stuck on a rented GPU: a failure, said as such, not a stop by the user
+      if (onRecord) await this.note(lane, row, recipe, resume, measured, "failed", whole, Date.now() - resume.startedAt);
+      await this.failure(row, resume?.promptId ?? at.held?.promptId, new Error((lane.running.abort.signal.reason as Stuck).message));
     } else if (err instanceof ComfyCancelled || at.aborted) {
       // on record before the job says how it ended, as a render that is done
       if (onRecord) await this.note(lane, row, recipe, resume, measured, "cancelled", whole, Date.now() - resume.startedAt);

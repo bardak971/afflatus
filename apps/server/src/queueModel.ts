@@ -28,6 +28,14 @@ export function readJson<T>(text: string | null | undefined, fallback: T): T {
  */
 export const SHUTDOWN = "shutting down";
 
+/**
+ * The reason a render is aborted with when ComfyUI said nothing of it for too long on a rented GPU (rented.ts): it fails
+ * with this message, and the pod, billed meanwhile, is free again for its next job or its idle time.
+ */
+export class Stuck {
+  constructor(readonly message: string) {}
+}
+
 /** The job under way: its abort switch, the prompt ComfyUI knows it by once it has one, and whether it holds the GPU. */
 export interface Running {
   id: string;
@@ -43,6 +51,8 @@ export interface Running {
   /** What it was expected to take, and when it started on the GPU: a run at twice that with the memory full is spilling. */
   expectedMs?: number | null;
   startedAt?: number;
+  /** When ComfyUI last said something of it (a step, a node starting, a preview): a render silent for long is stuck. */
+  movedAt?: number;
   /** The seed the graph was built with, once it is sent: said on the running card. */
   seed?: number;
 }

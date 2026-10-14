@@ -157,6 +157,37 @@ describe("a rented machine", () => {
     expect(await t.services.queue.wants(id)).toBe(false);
   });
 
+  it("fails a render ComfyUI is silent on with its GPU idle for long, so that the pod is not billed for it, and no sooner", async () => {
+    await setKey();
+    const id = await add();
+    await post(t.app, `/api/machines/${id}/start`, {});
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
+    // the home machine paused: the job goes to the pod, whose pretend ComfyUI keeps it running and says nothing of it
+    await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: { machine: "m1" } });
+    const queued = (await post(t.app, "/api/jobs", job())).json().ids[0] as string;
+    const row = () => t.db.selectFrom("jobs").select(["status", "error"]).where("id", "=", queued).executeTakeFirstOrThrow();
+    await until(async () => (await row()).status === "running" && t.services.queue.quietFor(id) > 0);
+    // silent, but not for long yet: it runs on
+    await t.services.rented.poll();
+    expect((await row()).status).toBe("running");
+    // silent, but its GPU at work (a node that says nothing on the way): it runs on
+    t.services.rented.stuckMs = 400;
+    for (let i = 0; i < 6; i++) {
+      podComfy.send("crystools.monitor", { cpu_utilization: 10, gpus: [{ gpu_utilization: 95, vram_used: 20, vram_total: 24 }] });
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await t.services.rented.poll();
+    expect((await row()).status).toBe("running");
+    // its GPU idle and ComfyUI silent: stuck
+    await new Promise((r) => setTimeout(r, 450));
+    await t.services.rented.poll();
+    await until(async () => (await row()).status === "failed");
+    expect((await row()).error).toMatch(/^Stuck: no progress from ComfyUI/);
+    // dropped in its ComfyUI too (waiting there, it is taken off its queue; running, it is interrupted)
+    expect(podComfy.calls).toContain("POST /queue");
+    await until(async () => !t.services.queue.runningOn(id));
+  });
+
   it("at a cap: stops, and Start is refused", async () => {
     await setKey();
     const id = await add();
