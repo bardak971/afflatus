@@ -130,6 +130,12 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     onMove: (clip, afterId) => patch.mutate({ clip, patch: { after: afterId } }),
     onJoin: (clip, joined) => patch.mutate({ clip: clip.id, patch: { joined } }),
     onOpenJoin: (clip) => e.openJoin(clip.id),
+    onSource: (asset) => {
+      edit.mutate({ source: { asset } });
+      e.openSource();
+    },
+    sourceSelected: e.sourceOpen,
+    onSelectSource: e.openSource,
     onTransition: (clip, transition) => {
       patch.mutate({ clip, patch: { transition } });
       e.openJoin(clip);
@@ -294,6 +300,12 @@ export function clipActs(e: LoadedEditor): ClipMenuActions {
     move: e.move,
     picked: e.picked,
     removeMany: (ids) => removeMany.mutate(ids),
+    toSource: (c) => {
+      if (!c.take) return;
+      // the source sits so that what the clip plays stays where it is; the clips made from it take its place
+      e.edit.mutate({ source: { asset: c.take.asset.id, atMs: c.atMs - c.take.startMs, fromMs: c.take.startMs, toMs: c.take.endMs, clip: c.id } });
+      e.openSource();
+    },
   };
 }
 

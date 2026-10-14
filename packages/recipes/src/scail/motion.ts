@@ -40,7 +40,7 @@ export const scailMotion = defineRecipe<ScailMotion>({
   summary: "A picture moved like a driving video: body, hands and mouth. The picture's room, light and people are kept; the motion is the video's.",
   output: "video",
   // a video of its own, made from a picture and another video: no join with the clips around it
-  traits: { startFrame: false, endFrame: false, midFrames: false, continues: false, endAnchor: false, sound: true, fps: SCAIL_FPS, frameGrid: MOTION_GRID },
+  traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: SCAIL_FPS, frameGrid: MOTION_GRID, windows: { most: SHAPE.most, least: SHAPE.least, carried: SCAIL_CARRIED } },
   inputs: [
     ...motionInputs(SHAPE),
     {
@@ -141,7 +141,7 @@ export const scailMotion = defineRecipe<ScailMotion>({
     });
 
     const images = matchedToDriving(g, ctx, made!, pose, input, frame);
-    const saved = motionSaved(g, ctx, images, input, { frame, fps: SCAIL_FPS, frames: total, parts });
+    const saved = motionSaved(g, ctx, images, input, { frame, fps: SCAIL_FPS, frames: total, parts, carried: SCAIL_CARRIED });
     return {
       graph: g.graph,
       phases: g.phases,

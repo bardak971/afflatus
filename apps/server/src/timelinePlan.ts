@@ -27,9 +27,13 @@ export interface TakeLinks {
   next?: { take: string; at: number };
 }
 
-/** A recipe's inputs without the ones a timeline fills in itself. */
+/**
+ * A recipe's inputs without the ones a timeline fills in itself (the clips it joins onto). A source video is the clip's own
+ * (Motion transfer's driving video, its part of a timeline's source lane): kept.
+ */
+export const ownInputIds = (recipe: Recipe<any>) => new Set(recipe.inputs.filter((i) => i.type !== "clip" || i.role === "source").map((i) => i.id));
 function ownInputs(recipe: Recipe<any>, input: Record<string, unknown>): Record<string, unknown> {
-  const ids = new Set(recipe.inputs.filter((i) => i.type !== "clip").map((i) => i.id));
+  const ids = ownInputIds(recipe);
   return Object.fromEntries(Object.entries(input).filter(([id]) => ids.has(id)));
 }
 
@@ -147,7 +151,7 @@ export class TimelinePlan {
   }
 
   /** The clip, its place among the others and its take, written in the transaction `tx`. */
-  async insertClip(timelineId: string, all: Array<Pick<Placed, "clip">>, index: number, made: NewClip, tx: Db): Promise<string> {
+  async insertClip(timelineId: string, all: Array<{ clip: { id: string } }>, index: number, made: NewClip, tx: Db): Promise<string> {
     const id = newId();
     const at = now();
     const order = all.map((p) => p.clip.id);
@@ -225,7 +229,8 @@ export class TimelinePlan {
     if (sameBefore) at = carried!.at!;
     if (prevSpec) {
       // the clip before ends frozen: hand over where it still moved, unless the form says not to
-      if (raw.handover !== false && !sameBefore && !quick) {
+      // a window of a long source carries on exactly where the window before ends: its part of the source starts there
+      if (raw.handover !== false && !sameBefore && !quick && !recipe.traits?.windows) {
         // ffmpeg missing is said, not taken for a clip that moves to its end
         const lively = await this.handoverAt(before).catch((err: Error) => {
           if (err instanceof FfmpegMissing) throw err;

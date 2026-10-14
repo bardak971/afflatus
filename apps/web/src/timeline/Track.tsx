@@ -14,7 +14,8 @@ import type { PinPlace } from "./track/peek";
 import { PinPeek, type PinOver } from "./track/PinPeek";
 import { Playhead } from "./track/Playhead";
 import { MusicLane } from "./track/MusicLane";
-import { HEIGHT, MUSIC, ROW, SOUND } from "./track/rows";
+import { HEIGHT, MUSIC, ROW, SOUND, SOURCE } from "./track/rows";
+import { SourceLane } from "./track/SourceLane";
 import { TrackClip, type TrackClipActs } from "./track/TrackClip";
 import { TrackRuler } from "./track/TrackRuler";
 import { useRangeDrag } from "./track/useRangeDrag";
@@ -32,7 +33,7 @@ const PIN_AFTER_MS = 250;
  * and the music under all of it. Things are dragged onto it (useTrackDrop); a clip's edges shorten it (useStretch); the
  * range is drawn and snapped on it (useRangeDrag); it zooms and fits (useTrackZoom).
  */
-export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
+export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected, clock, cursorMs, running, busy, onStop, onSelect, picked, onPick, onUpload, onSelectMusic, onSeek, onMove, onInsert, onPin, onClipSound, onMusic, onTrim, onNewClip, onMenu, onSoundMenu, onPinMenu, onMusicMenu, onMusicEdit, onClipMusic, onJoin, onOpenJoin, onTransition, onSource, sourceSelected, onSelectSource, range, onRange, onRangeMenu, snapQuiet, renderOf, keys }: {
   timeline: Timeline;
   recipes: RecipeInfo[];
   /** Pixels per second. */
@@ -86,6 +87,10 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onOpenJoin?(clip: Clip): void;
   /** A cut's transition into a clip set (dropped from the strip, a length dragged); null = a plain cut. */
   onTransition?(clip: string, transition: Transition | null): void;
+  /** A video dropped on the source lane, and the lane opened in the column (and whether it is). */
+  onSource?(asset: string): void;
+  sourceSelected?: boolean;
+  onSelectSource?(): void;
   /** In and Out, on the clock of what plays; null = no range. */
   range: TimeRange | null;
   onRange(range: TimeRange | null): void;
@@ -129,7 +134,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const width = end + NEW_CLIP + PAD * 2 + 40;
   const xOf = (clientX: number) => clientX - (inner.current?.getBoundingClientRect().left ?? 0);
 
-  const { over, dragging, draggedOf, hover, overClip, overJoin, drop, hint, legend, lineAt, leave } = useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic, onTransition: onTransition ? (clip, kind) => onTransition(clip, newTransition(kind)) : undefined });
+  const { over, dragging, draggedOf, hover, overClip, overJoin, drop, hint, legend, lineAt, leave } = useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic, onTransition: onTransition ? (clip, kind) => onTransition(clip, newTransition(kind)) : undefined, onSource });
 
   // ---- the range: In and Out, swept on the ruler with Shift, or dragged by their brackets; they snap to cuts, to the playhead and to quiet moments
   const { playEnd, measureOf, motion, snapRange, band, rangeMenuAt } = useRangeDrag({ slots, clips, timeline, pps, clock, snapQuiet, range, xOf, onRangeMenu });
@@ -149,6 +154,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
         <div className="relative w-[64px] shrink-0 border-r border-line text-[11px] font-semibold text-ink-2" style={{ height: HEIGHT }}>
           <span className="absolute left-3" style={{ top: ROW.top + ROW.height / 2 - 8 }}>Video</span>
           <span className="absolute left-3" style={{ top: SOUND.top + 1 }}>Audio</span>
+          {onSource && <span className="absolute left-3" style={{ top: SOURCE.top + 4 }}>Source</span>}
           <span className="absolute left-3" style={{ top: MUSIC.top + 3 }}>Music</span>
         </div>
         <div
@@ -212,6 +218,20 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
               <Plus size={15} />
               <span className="text-xs font-semibold">New clip</span>
             </button>
+
+            {/* the source: a long video under the clips, made into clips window by window */}
+            {onSource && (
+              <SourceLane
+                timeline={timeline}
+                recipes={recipes}
+                pps={pps}
+                width={width}
+                selected={Boolean(sourceSelected)}
+                over={over?.kind === "source"}
+                onDragOver={(e) => hover(e, draggedOf(e) === "video" ? { kind: "source" } : null)}
+                onSelect={() => onSelectSource?.()}
+              />
+            )}
 
             {/* the music: one sound under the whole video, split at the clips */}
             <MusicLane

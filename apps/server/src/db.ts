@@ -240,6 +240,8 @@ export interface Tables {
     look: string | null;
     /** The look and mood of the whole video, in words: added to what happens in every clip. */
     mood: string | null;
+    /** Its source lane: a long video made into clips window by window (JSON, timelineSource.ts SourcePlan); null = none. */
+    source?: string | null;
     created_at: string;
     updated_at: string;
   };

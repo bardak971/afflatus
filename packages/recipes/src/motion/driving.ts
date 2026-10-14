@@ -161,9 +161,12 @@ export function matchedToDriving(g: GraphBuilder, ctx: BuildContext, images: Ref
 }
 
 /** The clip saved: RIFE ×2 when asked, with the driving video's own sound over its part when kept and it has some. */
-export function motionSaved(g: GraphBuilder, ctx: BuildContext, images: Ref, input: MotionValues, at: { frame: { width: number; height: number }; fps: number; frames: number; parts: string }) {
+export function motionSaved(g: GraphBuilder, ctx: BuildContext, images: Ref, input: MotionValues, at: { frame: { width: number; height: number }; fps: number; frames: number; parts: string; carried?: number }) {
+  // carrying on from a clip before, its first `carried` frames are that clip's and are dropped: the sound starts after them,
+  // so that windows of one source play its sound end to end
+  const skip = ctx.uploads.previous ? at.carried ?? 0 : 0;
   const sound = input.keepSound && Boolean(ctx.media.driving?.hasSound) && ctx.has("TrimAudioDuration")
-    ? g.out("TrimAudioDuration", { audio: [at.parts, 1], start_index: 0, duration: at.frames / at.fps })
+    ? g.out("TrimAudioDuration", { audio: [at.parts, 1], start_index: skip / at.fps, duration: (at.frames - skip) / at.fps })
     : undefined;
   return finishFrames(g, ctx, images, { upscale: UPSCALE.off, upscaleBy: 1, upscaleModel: "", crf: input.crf }, { frame: at.frame, rife: input.smooth, fps: at.fps, ...(sound ? { audio: sound } : {}) });
 }

@@ -51,12 +51,12 @@ export function motionSlots(inputs: readonly InputSpec[]): { picture: InputSpec;
   return picture && driving ? { picture, driving } : null;
 }
 
-/** Opens the Edit form for a picture of `motion`'s, tied to it: the source, the person, the words, how many. */
+/** Opens the Edit form for a picture of `motion`'s, tied to it (or for a timeline's source: not tied): the source, the person, the words, how many. */
 function useOpenEditFor() {
   const recipes = useRecipes();
   const openNew = useOpenNewDraft();
   const tie = useMotionLinks((s) => s.tie);
-  return async (link: Link, o: { source: string; person: string | null; prompt: string; count: number; name: string }) => {
+  return async (link: Link | null, o: { source: string; person: string | null; prompt: string; count: number; name: string }) => {
     const editor = recipes.data?.recipes.find((r) => r.id === EDITOR);
     if (!editor) throw new Error("Qwen Image 2.1 · Edit is not among the models.");
     const refs = editor.inputs.find((i) => i.type === "references");
@@ -66,10 +66,23 @@ function useOpenEditFor() {
       recipe: editor.id, count: o.count, name: o.name,
       forms: { [editor.id]: { [source.id]: o.source, [prompt.id]: o.prompt, ...(refs && o.person ? { [refs.id]: [{ asset: o.person, role: "person" }] } : {}) } },
     });
-    tie(d.id, link);
+    if (link) tie(d.id, link);
     // without a person it opens on the empty reference slot: who goes in is what is missing
     useFormAim.getState().set(editor.id, refs && !o.person && o.prompt === REPLACE ? refs.id : prompt.id);
     openNew(d);
+  };
+}
+
+/**
+ * A timeline source's picture, made as a Motion transfer form's is: the frame where its stretch starts, with `person` (the
+ * timeline cast's first person's picture) put into it, 3 pictures to pick from in Create. Not tied back: the one picked is
+ * dropped on the source's Picture.
+ */
+export function useMakeSourcePicture() {
+  const openEdit = useOpenEditFor();
+  return async (video: string, atMs: number, person: string | null, name: string) => {
+    const frame = await api.frame(video, Math.round(atMs));
+    await openEdit(null, { source: frame.id, person, prompt: REPLACE, count: 3, name });
   };
 }
 

@@ -451,6 +451,8 @@ export const api = {
   /** A draft taken to another project (null: the Inbox); nothing else moves with it. */
   moveDraft: (id: string, project: string | null) => call<Draft>("PUT", `/drafts/${id}`, { project }),
   editTimeline: (id: string, patch: TimelinePatch) => call<Timeline>("PATCH", `/timelines/${id}`, patch),
+  /** The source lane's stretch made into clips, one a window: their ids (nothing is rendered yet). */
+  makeFromSource: (id: string) => call<{ clips: string[] }>("POST", `/timelines/${id}/source/make`),
   undoTimeline: (id: string) => call<{ undone: string }>("POST", `/timelines/${id}/undo`),
   redoTimeline: (id: string) => call<{ redone: string }>("POST", `/timelines/${id}/redo`),
   /** A copy of the clip right after it, with its takes. */

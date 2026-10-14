@@ -38,6 +38,8 @@ export interface ClipMenuActions {
   /** The clips picked with Ctrl + click: a menu on one of them removes them all. */
   picked: Set<string>;
   removeMany(clips: string[]): void;
+  /** The part of a video clip that plays made the timeline's source, the clips made from it to take its place (Motion transfer, window by window). */
+  toSource?(c: Clip): void;
 }
 
 /** Split the clip at the playhead (S, Ctrl B): on when the playhead stands inside what it plays. */
@@ -102,6 +104,8 @@ export const clipMenuItems = (c: Clip, act: ClipMenuActions): MenuItem[] => {
       { label: "×4", icon: <Gauge size={14} />, disabled: act.pending.range, note: "a quarter speed", run: () => act.slow(4, c.atMs, c.atMs + c.lengthMs) },
     ] }] : []),
     ...(video ? [{ label: "Open its video", icon: <Eye size={14} />, note: "the viewer, with Trim", run: () => act.open(video) }] : []),
+    // a video brought in (a meme, a dance): what it plays, made again with a picture moving like it, window by window
+    ...(video && c.kind === "video" && !c.recipe && act.toSource ? [{ label: "Motion transfer in windows…", icon: <Film size={14} />, note: "the source lane: what it plays, made into clips", run: () => act.toSource!(c) }] : []),
     // a still has no sound of its own to mute
     ...(c.kind === "video" ? ["—" as const, c.sound === "muted"
       ? { label: "Unmute", icon: <Volume2 size={14} />, run: () => act.patch(c.id, { sound: "own" }) }

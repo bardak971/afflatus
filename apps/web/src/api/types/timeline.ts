@@ -117,7 +117,30 @@ export interface Timeline {
   exporting: { id: string; status: "queued" | "running" } | null;
   exported: Asset | null;
   exportFailed: string | null;
+  /** Its source lane: a long video made into clips window by window; null = none. */
+  source: TimelineSource | null;
 }
+/**
+ * A timeline's source lane: the video, where its own start sits on the timeline (`atMs`, below 0 when it starts before the
+ * timeline), the stretch made into clips, and the form they are made with. `clip`: the clip the stretch was taken from,
+ * which the made clips replace.
+ */
+export interface TimelineSource {
+  asset: string;
+  video: Asset;
+  atMs: number;
+  fromMs: number;
+  toMs: number;
+  recipe: string | null;
+  windowMs: number;
+  picture: string | null;
+  prompt: string;
+  snap: boolean;
+  seed: number | null;
+  clip: string | null;
+}
+/** A change to the source lane: a new video, or its settings. */
+export type SourcePatch = Partial<Omit<TimelineSource, "video">>;
 /** How a clip regenerated in a range meets its neighbours: with their video as context (the motion carries across), on a frame, or nothing there. */
 export interface RangeContext {
   start: "clip" | "frame" | "none";
@@ -180,4 +203,6 @@ export interface TimelinePatch {
   /** The project it belongs to (null: the Inbox), and the folder its renders land in (null: the project's root). */
   project?: string | null;
   folder?: string | null;
+  /** Its source lane: a new video, changes to the one there, or null to take it away. */
+  source?: SourcePatch | null;
 }

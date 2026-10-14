@@ -91,6 +91,8 @@ export function useTimelineMutations(id: string, o: {
     onSuccess: after,
   });
   const edit = useMutation({ mutationFn: (p: TimelinePatch) => api.editTimeline(id, p), onSuccess: after });
+  /** The source lane's stretch made into clips (their ids, to send to render once the timeline is read again). */
+  const makeSource = useMutation({ mutationFn: () => api.makeFromSource(id), onSuccess: after });
   const add = useMutation({
     mutationFn: (v: NewClip) => api.addClip(id, v),
     onSuccess: (r) => {
@@ -200,5 +202,5 @@ export function useTimelineMutations(id: string, o: {
   const { error, at: errorAt } = [plan, loop, render, fix, patch, edit, add, remove, removeMany, removeTake, stop, undo, redo, exportIt, frame, split, duplicate]
     .filter((x) => x.error)
     .reduce<{ error: Error | null; at: number }>((last, x) => (x.submittedAt >= last.at ? { error: x.error, at: x.submittedAt } : last), { error: null, at: -1 });
-  return { after, render, patch, fix, edit, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error, errorAt };
+  return { after, render, patch, fix, edit, makeSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error, errorAt };
 }

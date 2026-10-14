@@ -18,6 +18,8 @@ import { rootFolderOf } from "./projects";
 import { inUse } from "./sweep";
 import { folderOfTimeline } from "./timelineFolder";
 import { fcp7Xml, otioJson, projectPlan, projectReadme } from "./timelineProject";
+import { ownInputIds } from "./timelinePlan";
+import { sourcePatch } from "./timelineSource";
 import { ZipStream } from "./zipStream";
 import type { Services } from "./services";
 import { clockOf, FROM_PREVIOUS, type CutOptions, type Timelines } from "./timelines";
@@ -49,6 +51,8 @@ export const timelinePatch = z.strictObject({
   /** The project it belongs to (null: the Inbox), and the folder its renders land in (null: the project's root). */
   project: z.string().nullable().optional(),
   folder: z.string().nullable().optional(),
+  /** Its source lane (a long video made into clips window by window): a new video, changes to the one there, or null to take it away. */
+  source: sourcePatch.optional(),
 });
 
 const newClip = z.strictObject({
@@ -177,6 +181,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   /** The music ducked under speech: its gain along the timeline (duck.ts), for the player; null when there is no music or it is not ducked. */
   app.get<{ Params: { id: string } }>("/api/timelines/:id/duck", async (req) => ({ curve: await t.duck(req.params.id) }));
   app.patch<{ Params: { id: string } }>("/api/timelines/:id", async (req) => t.edit(req.params.id, timelinePatch.parse(req.body)));
+  /** Its source lane's stretch made into clips, window by window (timelineSource.ts): the new clips' ids, to be rendered by the editor. */
+  app.post<{ Params: { id: string } }>("/api/timelines/:id/source/make", async (req) => ({ clips: await t.makeFromSource(req.params.id) }));
   app.delete<{ Params: { id: string } }>("/api/timelines/:id", async (req) => {
     await t.remove(req.params.id);
     return { ok: true };
@@ -456,7 +462,7 @@ async function renderClips(s: Services, timeline: string, clips: z.infer<typeof 
     const recipe = clip.recipe ? s.registry.recipe(clip.recipe) : undefined;
     if (!recipe) throw httpError(clip.kind === "still" ? `Clip ${i + 1} is a still image: there is nothing to render.` : `Clip ${i + 1} is an imported video: there is no model to render it with.`);
     // what a timeline fills in itself is not the form's to say
-    const own = new Set(recipe.inputs.filter((x) => x.type !== "clip").map((x) => x.id));
+    const own = ownInputIds(recipe);
     // the cast and the style: the clip's own, else the timeline's, worked into its form
     const typed = Object.fromEntries(Object.entries(ask.input).filter(([k]) => own.has(k)));
     const input = withMood(recipe, (await compose(s.db, recipe, typed, clip.look ?? view.look)).input, view.mood);

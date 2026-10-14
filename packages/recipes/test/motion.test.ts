@@ -146,6 +146,13 @@ describe("Wan Animate 2 · Motion transfer", () => {
     expect(of(graph, "LoadVideo").map((n) => n.inputs.file)).toContain("prev.mp4");
     expect(of(graph, "ImageFromBatch").some((n) => Array.isArray(n.inputs.batch_index))).toBe(true);
   });
+  it("keeps the sound of the frames it makes: from after the one carried over", () => {
+    const input = parseInput(wanAnimateMotion, { picture: "p1", driving: { asset: "v1" }, previous: { asset: "v0" } });
+    const graph = wanAnimateMotion.build(input, dryContext({ slots: wslots, uploads: { picture: "p.png", driving: "d.mp4", previous: "prev.mp4" }, media: { picture: { width: 768, height: 1360 }, driving: at24(81 / 24) } })).graph as Graph;
+    const trim = of(graph, "TrimAudioDuration")[0]!;
+    expect(trim.inputs.start_index).toBeCloseTo(1 / 24);
+    expect(trim.inputs.duration).toBeCloseTo(80 / 24);
+  });
 });
 
 describe("SCAIL-2 carrying on from the clip before", () => {
@@ -154,5 +161,16 @@ describe("SCAIL-2 carrying on from the clip before", () => {
     const graph = scailMotion.build(input, dryContext({ slots, uploads: { picture: "p.png", driving: "d.mp4", previous: "prev.mp4" }, media: { picture: { width: 768, height: 1360 }, driving: part(81 / SCAIL_FPS) } })).graph as Graph;
     expect(of(graph, "WanSCAILToVideo")[0]!.inputs.previous_frames).toBeDefined();
     expect(of(graph, "ImageFromBatch").some((n) => n.inputs.batch_index === 5)).toBe(true);
+  });
+  it("keeps the sound of the frames it makes, from after the 5 carried over: windows of one source play its sound end to end", () => {
+    const input = parseInput(scailMotion, { picture: "p1", driving: { asset: "v1" }, previous: { asset: "v0" } });
+    const graph = scailMotion.build(input, dryContext({ slots, uploads: { picture: "p.png", driving: "d.mp4", previous: "prev.mp4" }, media: { picture: { width: 768, height: 1360 }, driving: part(81 / SCAIL_FPS) } })).graph as Graph;
+    const trim = of(graph, "TrimAudioDuration")[0]!;
+    expect(trim.inputs.start_index).toBeCloseTo(5 / SCAIL_FPS);
+    expect(trim.inputs.duration).toBeCloseTo(76 / SCAIL_FPS);
+  });
+  it("says it makes a long source window by window, carrying on from the clip before", () => {
+    expect(scailMotion.traits).toMatchObject({ continues: "clip", windows: { most: 321, carried: 5 } });
+    expect(wanAnimateMotion.traits).toMatchObject({ continues: "clip", windows: { most: 81, carried: 1 } });
   });
 });
