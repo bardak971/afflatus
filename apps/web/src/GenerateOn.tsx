@@ -30,12 +30,19 @@ function said(m: MachineState, waiting: number, holds: boolean): string {
   return [state, waiting > 0 && `${waiting} waiting`, holds && "holds this model"].filter(Boolean).join(" · ");
 }
 
+/** Why a machine cannot be picked for renders that make `makes`: away, or taking the other kind only. Null: it can. */
+const unpickable = (m: MachineState, makes: "image" | "video") =>
+  m.online === false ? "not answering"
+  : m.takes !== "all" && m.takes !== makes ? `takes ${m.takes === "image" ? "pictures" : "videos"} only`
+  : null;
+
 /**
  * The last slice of Generate (a draft) and of New take (a timeline's clips), with several ComfyUIs: a machine icon that
  * picks where they render. A small list above it: Auto (the button as it always was: the machine that would end it
  * first), then each machine with what it does, what it holds and how long this would take there; one that lacks the
- * form's model, is away, or does not take this kind of render cannot be picked. The pick stays with the draft or the
- * timeline (draftMachine.ts). With one ComfyUI, nothing.
+ * form's model, is away, or does not take this kind of render cannot be picked. A rented pod that lacks it can: it fetches
+ * it first (a pod deployed with nothing could not be picked, and nothing could be sent to it). The pick stays with the
+ * draft or the timeline (draftMachine.ts). With one ComfyUI, nothing.
  */
 export function GenerateOn({ recipe, pickKey, whole, look, ms, of }: {
   recipe: RecipeInfo;
@@ -47,23 +54,43 @@ export function GenerateOn({ recipe, pickKey, whole, look, ms, of }: {
   /** What the pick is kept for, as the list says it. */
   of: "draft" | "timeline";
 }) {
+  const { lacksOn } = useLoadChoices({ recipe, input: whole, look });
+  const spec = recipe.inputs.find((i) => i.type === "model");
+  const file = spec && typeof whole[spec.id] === "string" ? modelName(whole[spec.id] as string) : null;
+  const makes = recipe.output === "image" ? "image" : "video";
+  const why = (m: MachineState) => unpickable(m, makes) ?? (lacksOn(m.id) && !m.rented ? "lacks this model" : null);
+  const note = (m: MachineState) => (lacksOn(m.id) && m.rented ? "fetches this model first" : null);
+  return <MachinePick pickKey={pickKey} of={of} ms={ms} file={file} why={why} note={note} />;
+}
+
+/**
+ * The same slice beside Render all and Render picked on a timeline: where its clips render, kept for the timeline as New
+ * take's is. It knows no one form, so it holds against a machine only what holds for every clip: away, or pictures only.
+ */
+export function RenderOn({ pickKey, ms }: { pickKey: string; ms: number | null }) {
+  return <MachinePick pickKey={pickKey} of="timeline" ms={ms} file={null} why={(m) => unpickable(m, "video")} note={() => null} small />;
+}
+
+function MachinePick({ pickKey, of, ms, file, why, note, small }: {
+  pickKey: string;
+  of: "draft" | "timeline";
+  ms: number | null;
+  file: string | null;
+  /** Why a machine cannot be picked; null: it can. */
+  why(m: MachineState): string | null;
+  /** A word said of a machine that can be picked, in place of what it does (a pod fetching the model first). */
+  note(m: MachineState): string | null;
+  /** The slice of a smaller button (the timeline's header). */
+  small?: boolean;
+}) {
   const queue = useQueue();
   const several = severalMachines(queue.data);
   const picked = usePickedMachine(pickKey);
   const set = useDraftMachine((s) => s.set);
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
-  const { lacksOn } = useLoadChoices({ recipe, input: whole, look });
   if (!several.length) return null;
-  const spec = recipe.inputs.find((i) => i.type === "model");
-  const file = spec && typeof whole[spec.id] === "string" ? modelName(whole[spec.id] as string) : null;
-  const makes = recipe.output === "image" ? "image" : "video";
   const waitingOn = (id: string) => (queue.data?.waiting ?? []).filter((w) => w.machine === id || w.pinned === id).length;
-  const why = (m: MachineState) =>
-    m.online === false ? "not answering"
-    : lacksOn(m.id) ? "lacks this model"
-    : m.takes !== "all" && m.takes !== makes ? `takes ${m.takes === "image" ? "pictures" : "videos"} only`
-    : null;
   const pick = (id: string | null) => {
     set(pickKey, id);
     setOpen(false);
@@ -78,9 +105,9 @@ export function GenerateOn({ recipe, pickKey, whole, look, ms, of }: {
         aria-label={of === "draft" ? "Generate on a machine of your choosing" : "Render on a machine of your choosing"}
         data-tip={picked ? `${of === "draft" ? "Generates" : "Its clips render"} on ${machineLabel(picked)}: click to pick another, or Auto` : `${of === "draft" ? "Generate" : "Render"} on a machine of your choosing`}
         onClick={() => setOpen(!open)}
-        className={cx("flex h-11 w-11 shrink-0 items-center justify-center rounded-r-lg border-l border-accent-ink/25 bg-accent text-accent-ink hover:brightness-95", open && "brightness-90")}
+        className={cx("flex shrink-0 items-center justify-center rounded-r-lg border-l border-accent-ink/25 bg-accent text-accent-ink hover:brightness-95", small ? "h-10 w-9" : "h-11 w-11", open && "brightness-90")}
       >
-        <Server size={16} />
+        <Server size={small ? 15 : 16} />
       </button>
       {open && (
         <Popover anchor={anchor} onClose={() => setOpen(false)} label={of === "draft" ? "Generate on" : "Render on"} width={440} height={80 + (several.length + 1) * 52}>
@@ -105,7 +132,7 @@ export function GenerateOn({ recipe, pickKey, whole, look, ms, of }: {
                   {m ? <span className={cx("size-[7px] rounded-full", m.online === false ? "bg-warn" : m.paused ? "bg-ink-3" : m.running ? "bg-accent" : "border-[1.5px] border-good")} /> : <Server size={13} className="text-accent" />}
                   <span className="min-w-0 truncate">
                     <span className="font-semibold">{m ? machineLabel(m) : "Auto"}</span>{" "}
-                    <span className="text-xs text-ink-3">· {m ? off ?? said(m, waitingOn(m.id), holds) : "the machine that ends it first"}</span>
+                    <span className="text-xs text-ink-3">· {m ? off ?? note(m) ?? said(m, waitingOn(m.id), holds) : "the machine that ends it first"}</span>
                   </span>
                   {off === "lacks this model" ? (
                     <Link href={`/settings/models?machine=${encodeURIComponent(m!.id)}`} onClick={() => setOpen(false)} className="text-xs text-ink-3 hover:text-ink hover:underline">Models ›</Link>

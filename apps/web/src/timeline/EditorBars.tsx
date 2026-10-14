@@ -5,6 +5,10 @@ import { clock, est, plural } from "../format";
 import { Estimate } from "./estimate";
 import { Button, Chip, cx, Help } from "../ui";
 import { Slider } from "../Slider";
+import { useQueue } from "../data";
+import { timelineKey } from "../draftMachine";
+import { RenderOn, usePickedMachine } from "../GenerateOn";
+import { machineLabel, severalMachines } from "../machines";
 import type { Clock } from "./clock";
 import { Readout } from "./Readout";
 import type { Slot } from "./model";
@@ -38,6 +42,8 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
   onExport(): void;
 }) {
   const [name, setName] = useState<string | null>(null);
+  const several = severalMachines(useQueue().data).length > 0;
+  const on = usePickedMachine(timelineKey(t.id));
   const { error, note } = said;
   // rendered and planned, as the index says them ("1:37 rendered of 1:47"), the figures in mono
   const now = clock(t.durationMs);
@@ -89,15 +95,22 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
       <Button className="-ml-1 w-10 shrink-0 px-0!" aria-label="Redo" disabled={!t.redo || redo.pending} data-tip={t.redo ? `Redo: ${t.redo}` : "Nothing to redo"} data-tip-keys="Ctrl+Shift+Z | Ctrl+Y" onClick={redo.run}>
         <Redo2 size={16} />
       </Button>
+      {/* with several ComfyUIs, each with the slice that picks where the timeline's clips render (New take's pick) */}
       {missing.length > 0 && (
-        <Button tone="primary" disabled={rendering} data-tip="Renders the clips that have no take yet and redoes the ones that no longer follow the clip before them, in order." onClick={onRenderMissing}>
-          Render all ({missing.length})<Estimate ms={allMs} />
-        </Button>
+        <span className="flex shrink-0">
+          <Button tone="primary" className={cx(several && "rounded-r-none!")} disabled={rendering} data-tip={`Renders the clips that have no take yet and redoes the ones that no longer follow the clip before them, in order.${on ? ` On ${machineLabel(on)}.` : ""}`} onClick={onRenderMissing}>
+            Render all ({missing.length})<Estimate ms={allMs} />
+          </Button>
+          <RenderOn pickKey={timelineKey(t.id)} ms={allMs} />
+        </span>
       )}
       {picked.size > 0 && (
-        <Button tone="primary" disabled={rendering || !picked.renderable} data-tip="Renders the clips picked with Ctrl + click, together: each is queued as its own job, in order, and a clip that flows on from a picked one waits for it. Esc drops the pick." onClick={onRenderPicked}>
-          Render {picked.size} picked
-        </Button>
+        <span className="flex shrink-0">
+          <Button tone="primary" className={cx(several && "rounded-r-none!")} disabled={rendering || !picked.renderable} data-tip="Renders the clips picked with Ctrl + click, together: each is queued as its own job, in order, and a clip that flows on from a picked one waits for it. Esc drops the pick." onClick={onRenderPicked}>
+            Render {picked.size} picked
+          </Button>
+          <RenderOn pickKey={timelineKey(t.id)} ms={null} />
+        </span>
       )}
       <Button className={cx("shrink-0", iconOnly)} aria-label="Finish" disabled={!clips.some((c) => c.kind === "video" && c.take)} data-tip="Finish: every clip's selected take brought to its final quality by an upscale route, as a new take each. The drafts stay." onClick={onFinish}>
         <Sparkles size={15} /> <span className={narrow}>Finish</span>
