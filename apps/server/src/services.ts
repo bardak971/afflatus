@@ -8,7 +8,7 @@ import { Downloads } from "./downloads";
 import { PodFiles } from "./podFiles";
 import { presetsWithFiles } from "./presetFiles";
 import { ShippedPresets, shippedPresetsDir } from "./presetFiles";
-import { DEFAULT_QUEUE_OPTIONS, Queue, type QueueOptions } from "./queue";
+import { DEFAULT_QUEUE_OPTIONS, podFetchOf, Queue, type QueueOptions } from "./queue";
 import { Registry } from "./registry";
 import { readSettings, type Machine } from "./settings";
 import { Linked, RoutedStorage } from "./linked";
@@ -148,10 +148,17 @@ export async function createServices(
   const podFiles = new PodFiles({
     db, downloads,
     comfyOf: async (id) => (await machineOf(id))?.comfy ?? null,
-    working: (id) => rented.hasWork(id),
     cloudOf: async (id) => (await machineOf(id))?.machine.rented?.cloud ?? null,
     lookup: { db, presets: () => presetsWithFiles({ db, shippedPresets }), families: () => registry.families(), comfyDir: async () => (await readSettings(db)).comfyDir },
     settings: () => readSettings(db),
+    alive: (id) => rented.unavailable(id) === null,
+    // a file there now, or one that failed: the pod's folders are read again, and its jobs looked at again
+    settled: (id) => {
+      void machineOf(id).then((m) => {
+        m?.comfy.forgetScan();
+        queue.nudge();
+      });
+    },
     // the pods' rows are in the queue's view (rentedOf): a file's progress is said as the queue is, every 2 s at most
     changed: () => {
       if (podFilesTold) return;
@@ -162,6 +169,7 @@ export async function createServices(
       podFilesTold.unref();
     },
   });
+  queue.podFetch = podFetchOf(podFiles);
   // what pods are getting is followed every second, while any is
   const podFilesTimer = setInterval(() => void podFiles.tick().catch((err) => console.warn("[pod files]", (err as Error).message)), 1000);
   podFilesTimer.unref();

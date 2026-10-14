@@ -21,7 +21,6 @@ let pod: FakeComfy;
 let t: TestApp;
 let disk: string;
 let home: string;
-let working: boolean;
 let files: PodFiles;
 
 beforeEach(async () => {
@@ -59,11 +58,10 @@ beforeEach(async () => {
   t.services.downloads.listedEveryMs = 10;
   // the site's own signed link for any of its addresses (signedLink asks the site): here the address itself, signed
   t.services.downloads.signer = async (source) => (source.includes("/nolink/") ? null : `${source.replace("/files/", "/signed/")}?sig=1`);
-  working = true;
   const comfy = new Comfy(pod.url, t.services.registry);
   files = new PodFiles({
     db: t.services.db, downloads: t.services.downloads,
-    comfyOf: async () => comfy, working: () => working, cloudOf: async () => "SECURE",
+    comfyOf: async () => comfy, cloudOf: async () => "SECURE", alive: () => true,
     lookup: { db: t.services.db, presets: async () => [], families: () => [], comfyDir: async () => home },
     settings: async () => ({ civitaiKey: "", downloadModels: true, civitaiLookups: true }),
   });
@@ -131,13 +129,8 @@ describe("a rented pod's model files", () => {
     expect(existsSync(join(disk, "loras", "mine.safetensors"))).toBe(false);
   });
 
-  it("ahead start only while the pod has work, and after every file a job waits for", async () => {
-    working = false;
+  it("ahead come after every file a job waits for", async () => {
     files.want("pod", [{ file: "later.safetensors", folder: "loras", url: `${siteUrl}/files/later.safetensors` }], { tier: "ahead" });
-    for (let i = 0; i < 5; i++) await files.tick();
-    expect(files.view("pod")[0]).toMatchObject({ state: "next", tier: "ahead" });
-    expect(pod.packFetched).toEqual([]);
-    working = true;
     files.want("pod", [{ file: "now.safetensors", folder: "loras", url: `${siteUrl}/files/now.safetensors` }], { tier: "need", job: "j1" });
     // the needed one first in the list, and fetched first
     expect(files.view("pod").map((f) => f.file)).toEqual(["now.safetensors", "later.safetensors"]);
@@ -147,7 +140,6 @@ describe("a rented pod's model files", () => {
   });
 
   it("move up when a job needs one asked for ahead", async () => {
-    working = false;
     files.want("pod", [{ file: "x.safetensors", folder: "loras", url: `${siteUrl}/files/x.safetensors` }], { tier: "ahead" });
     files.want("pod", [{ file: "x.safetensors", folder: "loras" }], { tier: "need", job: "j2" });
     await settle("pod", "x.safetensors");

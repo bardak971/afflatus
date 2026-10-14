@@ -9,6 +9,7 @@ import { machinePaces, rates } from "./forecast";
 import type { Registry } from "./registry";
 import { record } from "./renders";
 import { lackOn, type Lack } from "./machineScans";
+import type { PodFiles } from "./podFiles";
 import { plan, type Lane as Schedulable, type Planned, type Waiting } from "./schedule";
 import { FIRST_MACHINE, readSettings, type Machine } from "./settings";
 import type { Storage } from "./storage";
@@ -75,8 +76,36 @@ interface Lane {
   core: QueueCore;
 }
 
-/** Of a waiting render, with several machines: the machines that can run it, and what keeps it off each of the others. */
-type Able = { can: Set<string>; lacks: Record<string, Lack> };
+/**
+ * Of a waiting render, with several machines: the machines that can run it, and what keeps it off each of the others. A
+ * rented pod that lacks only files it can be sent (`fetch`) is among the ones that can, with how long until they are there.
+ */
+type Able = { can: Set<string>; lacks: Record<string, Lack>; fetch: Record<string, { files: Lack["files"]; ms: number }> };
+
+/**
+ * The model files a rented pod can be sent (podFiles.ts), as the queue reads them: a job that lacks only files on a pod may
+ * still go there, once they came. Set by services.ts; null: no machine is ever sent a file.
+ */
+export interface PodFetch {
+  /** Why these files cannot come to that machine: one of them failed there already. Null: they can. */
+  failed(machine: string, files: Lack["files"]): string | null;
+  /** How long until these files are on that machine (ms): what is left of each, at the slow end of the speeds measured. */
+  untilThere(machine: string, files: Lack["files"]): Promise<number>;
+  /** Have them sent: for a job that will run there ("need"), or for one that went elsewhere this time ("ahead"). */
+  want(machine: string, files: Lack["files"], tier: "need" | "ahead", job?: string): void;
+  /** A job's files on that machine: all there, still coming, one failed (null: it asked for none). */
+  jobState(machine: string, job: string): "ready" | "waiting" | "failed" | null;
+}
+
+/** A rented pod's files as the queue reads them, from podFiles.ts. */
+export function podFetchOf(files: Pick<PodFiles, "failed" | "untilThere" | "want" | "jobState">): PodFetch {
+  return {
+    failed: (machine, list) => list.map((f) => files.failed(machine, f.folder, f.file)).find((why) => why !== null) ?? null,
+    untilThere: (machine, list) => files.untilThere(machine, list),
+    want: (machine, list, tier, job) => files.want(machine, list, { tier, ...(job ? { job } : {}) }),
+    jobState: (machine, job) => files.jobState(machine, job)?.state ?? null,
+  };
+}
 
 export class Queue {
   /** "queue": jobs changed. "library": an asset was added. "progress": a running job moved. */
@@ -698,10 +727,13 @@ ${JSON.stringify(input)}`;
         if (!this.paused && gpuRows.length) {
           // each free machine is asked whether it answers (a busy one does); the plan is made with those that may take work
           for (const l of open) if (free(l)) await answers(l);
-          where = plan(await this.schedulable(open), await this.planned(gpuRows, await this.ableOf(gpuRows)));
+          const able = await this.ableOf(gpuRows);
+          where = plan(await this.schedulable(open), await this.planned(gpuRows, able));
+          this.sendFiles(gpuRows, able, where);
           for (const lane of open) {
             if (!free(lane) || lane.reachable === false) continue;
-            const next = gpuRows.find((r) => !taken.has(r.id) && where.get(r.id)?.lane === lane.id);
+            // on a pod getting files, the first job planned there whose own files are all there
+            const next = gpuRows.find((r) => !taken.has(r.id) && where.get(r.id)?.lane === lane.id && this.filesThere(r, lane, able));
             if (!next) continue;
             // a rented pod whose balance would run out before it ends (one pinned to it among them): it waits
             if (await this.balanceLack(next, lane)) continue;
@@ -800,13 +832,21 @@ ${JSON.stringify(input)}`;
       const input = readJson<Record<string, unknown>>(r.inputs, {});
       const can = new Set<string>();
       const lacks: Record<string, Lack> = {};
+      const fetch: Able["fetch"] = {};
       for (const { lane, scan } of scans) {
-        const lack = lanes.length > 1 && scan?.comfy.online ? lackOn(recipe, input, scan, settings, machines.get(lane.id) ?? lane.machine!, familyOf) : null;
+        // a lone rented pod is asked too: what it lacks may be sent to it
+        const lack = (lanes.length > 1 || lane.machine!.rented) && scan?.comfy.online ? lackOn(recipe, input, scan, settings, machines.get(lane.id) ?? lane.machine!, familyOf) : null;
         const balance = await this.balanceLack(r, lane);
-        if (lack || balance) lacks[lane.id] = { ...(lack ?? { off: false, files: [] }), ...(balance ? { balance } : {}) };
+        // a pod that lacks only files it can be sent: it can run the job once they came
+        if (lack && !balance && lack.onlyFiles && lane.machine!.rented && this.podFetch && !this.podFetch.failed(lane.id, lack.files)) {
+          can.add(lane.id);
+          fetch[lane.id] = { files: lack.files, ms: await this.podFetch.untilThere(lane.id, lack.files) };
+          continue;
+        }
+        if (lack || balance) lacks[lane.id] = { ...(lack ?? { off: false, files: [], onlyFiles: false }), ...(balance ? { balance } : {}) };
         else can.add(lane.id);
       }
-      out.set(r.id, { can, lacks });
+      out.set(r.id, { can, lacks, fetch });
     }
     return out;
   }
@@ -814,7 +854,9 @@ ${JSON.stringify(input)}`;
   /** The waiting jobs as the scheduler reads them: what each makes, its pin, the machines that can run it, its model and its forecast with and without loading it. */
   private planned(rows: JobRow[], able: ReadonlyMap<string, Able> = new Map()): Promise<Planned[]> {
     return Promise.all(rows.map(async (r): Promise<Planned> => {
-      const base = { id: r.id, makes: this.makes(r), pin: r.pin_machine ?? null, can: able.get(r.id)?.can };
+      const fetch = able.get(r.id)?.fetch ?? {};
+      const fetchMs = Object.keys(fetch).length ? new Map(Object.entries(fetch).map(([lane, f]) => [lane, f.ms])) : undefined;
+      const base = { id: r.id, makes: this.makes(r), pin: r.pin_machine ?? null, can: able.get(r.id)?.can, ...(fetchMs ? { fetchMs } : {}) };
       const recipe = r.recipe_id === CUT_JOB ? undefined : this.registry.recipe(r.recipe_id);
       if (!recipe) return { ...base, model: null, renderMs: null, loadMs: null };
       const input = readJson<Record<string, unknown>>(r.inputs, {});
@@ -886,12 +928,40 @@ ${JSON.stringify(input)}`;
     return ms === null ? null : ms * ((await this.paces()).get(machine) ?? 1);
   }
 
+  /**
+   * The files the plan needs on rented pods, asked for: a job planned onto a pod lacking only files has them sent there
+   * first ("need"); one planned elsewhere has its files sent to the pods that lack them, for later ("ahead"). Nothing is
+   * fetched that no waiting job asks for.
+   */
+  private sendFiles(rows: JobRow[], able: ReadonlyMap<string, Able>, where: ReadonlyMap<string, { lane: string }>): void {
+    if (!this.podFetch) return;
+    for (const r of rows) {
+      const fetch = able.get(r.id)?.fetch ?? {};
+      const on = where.get(r.id)?.lane;
+      for (const [lane, f] of Object.entries(fetch)) this.podFetch.want(lane, f.files, lane === on ? "need" : "ahead", lane === on ? r.id : undefined);
+    }
+  }
+
+  /** Whether a job planned onto this machine has its files there: always, unless it is a pod still getting them. */
+  private filesThere(r: JobRow, lane: Lane, able: ReadonlyMap<string, Able>): boolean {
+    if (!able.get(r.id)?.fetch[lane.id]) return true;
+    return this.podFetch?.jobState(lane.id, r.id) === "ready";
+  }
+
   /** What keeps a job off a rented pod for its balance: null when it ends there before the balance does. */
   private async balanceLack(r: JobRow, lane: Lane): Promise<Lack["balance"] | null> {
     if (!lane.machine?.rented) return null;
     const need = await this.lengthOn(r, lane.id);
     const fit = this.fitsBalance(need);
     return fit.ok || need === null || fit.leftMs === null ? null : { leftMs: fit.leftMs, needMs: need };
+  }
+
+  /** Rented pods' files: set by services.ts. */
+  podFetch: PodFetch | null = null;
+
+  /** Something a waiting job may wait for changed (a file came to a pod, or failed there): the line is read again. */
+  nudge(): void {
+    void this.pump();
   }
 
   /** Whether a machine runs a job now, or is starting one. */
@@ -901,17 +971,20 @@ ${JSON.stringify(input)}`;
   }
 
   /**
-   * Whether a machine is at work or has work it could take: a job running or starting there, or a waiting render it can run
-   * (pinned to it, or free to go to any machine that can run it). Paused, it has none. For a rented machine's idle time.
+   * Whether a machine is at work or has work: a job running or starting there, or a waiting render the plan gives it (one
+   * pinned to it that can run there, or one that ends sooner there than anywhere else, its files' coming counted). Paused,
+   * it has none. For a rented machine's idle time: a pod that could run a job the plan sends elsewhere (this computer is
+   * sooner), or a job pinned to it that can never run there (a file it cannot get), has none, and is not billed for it.
    */
   async wants(machine: string): Promise<boolean> {
     const lane = this.lanes.get(machine);
     if (lane?.running || lane?.starting) return true;
     if (this.paused || lane?.paused) return false;
-    const rows = (await this.db.selectFrom("jobs").selectAll().where("status", "=", "queued").execute()).filter(needsComfy);
+    const rows = (await this.db.selectFrom("jobs").selectAll().where("status", "=", "queued").orderBy("priority").orderBy("created_at").execute()).filter(needsComfy);
     if (!rows.length) return false;
-    const able = await this.ableOf(rows.filter((r) => !r.pin_machine));
-    return rows.some((r) => (r.pin_machine ? r.pin_machine === machine : able.get(r.id)?.can.has(machine) ?? true));
+    const open = (await this.refresh()).filter((l) => !l.paused && l.machine);
+    const where = plan(await this.schedulable(open), await this.planned(rows, await this.ableOf(rows)));
+    return rows.some((r) => where.get(r.id)?.lane === machine);
   }
 
   noteReachable(ok: boolean, each: ReadonlyMap<string, boolean> = new Map()): void {

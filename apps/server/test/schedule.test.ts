@@ -8,6 +8,18 @@ const job = (id: string, over: Partial<Planned> = {}): Planned => ({ id, makes: 
 const where = (lanes: Lane[], jobs: Planned[]) => Object.fromEntries([...plan(lanes, jobs)].map(([id, p]) => [id, p.lane]));
 
 describe("the plan", () => {
+  it("counts a pod's files on their way: the job starts there once they came, and goes where it ends sooner", () => {
+    // home busy for a minute; the pod free but two minutes from having the job's files
+    const lanes = [lane("home", { busyForMs: 60_000, holds: new Set(["sdxl"]) }), lane("pod", { holds: new Set(["sdxl"]) })];
+    const got = plan(lanes, [job("a", { fetchMs: new Map([["pod", 120_000]]) })]);
+    expect(got.get("a")).toEqual({ lane: "home", startsInMs: 60_000 });
+    // home busy for longer than the files take: the pod, once they are there
+    const busy = [lane("home", { busyForMs: 600_000, holds: new Set(["sdxl"]) }), lane("pod", { holds: new Set(["sdxl"]) })];
+    expect(plan(busy, [job("a", { fetchMs: new Map([["pod", 120_000]]) })]).get("a")).toEqual({ lane: "pod", startsInMs: 120_000 });
+    // files that cannot be told to come (no source): never the sooner place
+    expect(where(lanes, [job("a", { fetchMs: new Map([["pod", Infinity]]) })])).toEqual({ a: "home" });
+  });
+
   it("keeps the line's order on one machine, each job starting when the one before ends", () => {
     const got = plan([lane("m1", { holds: new Set(["sdxl"]) })], [job("a"), job("b"), job("c", { model: "flux" })]);
     expect([...got].map(([id, p]) => [id, p.lane, p.startsInMs])).toEqual([["a", "m1", 0], ["b", "m1", 20_000], ["c", "m1", 40_000]]);
