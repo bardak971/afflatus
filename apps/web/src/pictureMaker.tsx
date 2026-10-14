@@ -110,8 +110,9 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
   /** A made picture let go: out of the box, and to the library's bin (back from there for a week); a failed one only out of the box. */
   const drop = useMutation({
     mutationFn: async (j: (typeof jobs)[number]) => {
-      if (j.state === "done" && j.picture && j.picture !== current) await api.bin(j.picture);
-      change(keyId, { jobs: set.jobs.filter((id) => id !== j.id) });
+      // a picture a timeline still uses (a window's Picture) is only taken out of here: it stays in the library for that clip
+      if (j.state === "done" && j.picture && j.picture !== current) await api.bin(j.picture).catch(() => {});
+      change(keyId, { jobs: usePictureSets.getState().of[keyId]?.jobs.filter((id) => id !== j.id) ?? [] });
     },
     onError: failed("The picture could not be deleted"),
   });
