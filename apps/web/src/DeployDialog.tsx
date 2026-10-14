@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Cpu, RotateCw } from "lucide-react";
+import { Bookmark, ChevronDown, Cpu, RotateCw } from "lucide-react";
+import { ContextMenu, useMenu } from "./ContextMenu";
 import { api, type Availability, type DeployAsk, type GpuOffer, type NetworkVolume } from "./api";
 import { useSettings } from "./data";
 import { DeployModels, SaveAsSet, type ModelsPicked } from "./DeployModels";
 import { DEPLOYED_READS } from "./deployReads";
-import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
+import { Dialog, DialogHead, DIALOG } from "./Dialog";
 import { gb, plural, usd } from "./format";
 import { useNow } from "./hooks";
 import { Keys } from "./Keys";
@@ -112,6 +113,7 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
       go(`/settings?machine=${encodeURIComponent(id)}`);
     },
   });
+  const more = useMenu<true>();
   // the choices kept as the next deploy's without deploying (Settings › Rented GPUs › Next deploy); the files are a deploy's own
   const saveNext = useMutation({
     mutationFn: () => api.saveSettings({ lastDeploy: { ...want, files: [], leaveOut: [], accept: [], again: false } }),
@@ -121,7 +123,7 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
     },
   });
   return (
-    <Dialog label="Deploy a GPU" onClose={onClose} className={cx(DIALOG.replace("max-w-md", "max-w-[640px]"), "max-h-[calc(100vh-48px)]")}>
+    <Dialog label="Deploy a GPU" onClose={onClose} className={cx(DIALOG.replace("max-w-md", "max-w-[860px]"), "max-h-[calc(100vh-48px)]")}>
       <DialogHead icon={<Cpu size={16} />} title="Deploy a GPU" sub="RunPod · what is in stock now" onClose={onClose} />
       <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
         <section className="flex flex-col gap-1.5">
@@ -219,16 +221,28 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
         {deploy.isError && <ErrorNote>{deploy.error.message}</ErrorNote>}
         {saveNext.isError && <ErrorNote>{saveNext.error.message}</ErrorNote>}
       </div>
-      <DialogFoot info={picked
-        ? `Billed from deploy · ${picked.name} ${picked.places[0]!.id === "any" ? "on Community Cloud" : `in ${picked.places[0]!.id}`}`
-        : gone
-          // the one picked last time, not in stock on this cloud now: said where the choice is made, nothing moves above
-          ? <span className="inline-flex items-center gap-2 text-warn-ink">{gone.name} not in stock {volume ? `in ${volume.dataCenter} ` : ""}now{instead ? `; the ${instead.name} is, at ${usd(instead.price)}/h` : ""}{instead && <Button size="sm" onClick={() => set({ gpu: instead.id })}>Pick it</Button>}</span>
-          : "Pick a GPU"}>
-        <Button tone="quiet" onClick={onClose}>Cancel <Keys keys="Esc" size="sm" /></Button>
-        <Button tone="quiet" onClick={() => saveNext.mutate()} disabled={!want.gpu || saveNext.isPending} data-tip="What this dialog opens with next time, and what Deploy again does: kept without deploying">Save as next deploy</Button>
-        <Button tone="primary" onClick={() => deploy.mutate()} disabled={!picked || imageMissing || deploy.isPending || !models.ready || !diskFits || Boolean(volume?.usedBy)}>{deploy.isPending ? "Deploying…" : picked ? `Deploy · ${usd(picked.price)}/h` : "Deploy"}</Button>
-      </DialogFoot>
+      {/* the note takes what width there is and wraps; the buttons keep their place (they never move under the pointer) */}
+      <div className="-mx-5 -mb-5 mt-1 flex items-center gap-3 border-t border-line px-5 py-3.5">
+        <span className="min-w-0 grow text-xs text-ink-3">
+          {picked
+            ? `Billed from deploy · ${picked.name} ${picked.places[0]!.id === "any" ? "on Community Cloud" : `in ${picked.places[0]!.id}`}`
+            : gone
+              // the one picked last time, not in stock on this cloud now: said where the choice is made, nothing moves above
+              ? <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-warn-ink">{gone.name} not in stock {volume ? `in ${volume.dataCenter} ` : ""}now{instead ? `; the ${instead.name} is, at ${usd(instead.price)}/h` : ""}{instead && <Button size="sm" onClick={() => set({ gpu: instead.id })}>Pick it</Button>}</span>
+              : "Pick a GPU"}
+        </span>
+        <Button tone="quiet" onClick={onClose} className="shrink-0">Cancel <Keys keys="Esc" size="sm" /></Button>
+        {/* Deploy, and on its slice what else can be done with these choices: kept as the next deploy's, without deploying */}
+        <span className="flex shrink-0">
+          <button type="button" onClick={() => deploy.mutate()} disabled={!picked || imageMissing || deploy.isPending || !models.ready || !diskFits || Boolean(volume?.usedBy)} className="flex h-10 min-w-[150px] items-center justify-center rounded-l-lg bg-accent px-4 text-[13px] font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
+            {deploy.isPending ? "Deploying…" : picked ? `Deploy · ${usd(picked.price)}/h` : "Deploy"}
+          </button>
+          <button type="button" aria-label="More: save as the next deploy" data-tip="Save these choices as the next deploy's, without deploying" onClick={(e) => more.open(e, true)} disabled={!want.gpu} className="flex h-10 w-9 items-center justify-center rounded-r-lg border-l border-accent-ink/25 bg-accent text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
+            <ChevronDown size={15} />
+          </button>
+        </span>
+        {more.menu && <ContextMenu at={more.menu.at} label="Deploy" items={[{ label: "Save as next deploy", note: "without deploying", icon: <Bookmark size={14} />, run: () => saveNext.mutate() }]} onClose={more.close} />}
+      </div>
     </Dialog>
   );
 }

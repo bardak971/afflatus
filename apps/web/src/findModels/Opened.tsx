@@ -61,7 +61,8 @@ export function Opened({ card, picked, onPick, onBack }: { card: BrowseCard; pic
             <div className="flex flex-col rounded-xl border border-line">
               {version.files.map((f) => (
                 <div key={f.name} className="grid grid-cols-[minmax(0,1fr)_150px_80px] items-center gap-3 border-b border-line/60 px-3 py-2 text-[13px] last:border-b-0">
-                  <Checkbox checked={on.has(f.name)} onChange={(v) => setTicked(() => { const n = new Set(on); if (v) n.add(f.name); else n.delete(f.name); return n; })} className="min-w-0">
+                  {/* the box on the name's first line, not in the middle of the name and its note */}
+                  <Checkbox checked={on.has(f.name)} onChange={(v) => setTicked(() => { const n = new Set(on); if (v) n.add(f.name); else n.delete(f.name); return n; })} className="min-w-0 items-start! [&>span:first-child]:mt-px">
                     <span className="flex min-w-0 flex-col">
                       {/* the whole name: versions of one model often differ only at its end */}
                       <span className="break-all">{f.name}</span>
