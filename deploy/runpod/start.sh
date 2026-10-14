@@ -67,6 +67,15 @@ with open(path, "w") as f:
     c.write(f)
 PY
 
+# the registry's list kept in the image, where Manager has none yet: it resolves a pack's name from its first second.
+# Its date kept (cp -p): Manager finds it old and reads the registry again in the background, using this one meanwhile
+mkdir -p "$BASE/user/__manager/cache"
+for f in /opt/afflatus-pod/manager-cache/*.json; do
+  if [ -f "$f" ] && [ ! -f "$BASE/user/__manager/cache/$(basename "$f")" ]; then
+    cp -p "$f" "$BASE/user/__manager/cache/" || echo "[afflatus-pod] could not copy the registry list"
+  fi
+done
+
 # COMFYUI_ARGS: more of ComfyUI's flags, from the pod's environment (--fast, --reserve-vram 1, …)
 # shellcheck disable=SC2086
 exec python /comfyui/main.py --listen 0.0.0.0 --port 8188 --enable-manager --disable-auto-launch --base-directory "$BASE" ${COMFYUI_ARGS:-}

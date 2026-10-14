@@ -66,6 +66,11 @@ RUN set -e; mkdir -p /opt/packs; cd /opt/packs; \
 # requirement that pulls another torch would swap the CUDA one for one that does not run here)
 ENV PIP_CONSTRAINT=/constraints.txt
 
+# the registry's list of node packs, as Manager caches it: a pod just up installs a pack by its name at once, instead of
+# after Manager's own reading of the whole registry (minutes). start.sh puts it in Manager's cache folder
+COPY deploy/runpod/registry_cache.py /opt/afflatus-pod/registry_cache.py
+RUN python /opt/afflatus-pod/registry_cache.py /opt/afflatus-pod/manager-cache "${COMFYUI_VERSION#v}"
+
 COPY comfy-nodes/afflatus-nodes /opt/afflatus-nodes
 COPY deploy/runpod/start.sh /start.sh
 COPY deploy/runpod/broken.py /opt/afflatus-pod/broken.py
