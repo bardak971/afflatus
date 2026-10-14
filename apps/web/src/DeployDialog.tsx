@@ -46,7 +46,7 @@ const WHY_DONE = "Idle: nothing rendering on it and nothing waiting that it coul
 const heldSaid = (v: NetworkVolume, set: string): string | undefined => {
   if (!v.holds) return "what it holds: not known yet";
   const s = v.sets.find((x) => x.id === set);
-  if (s) return s.missing.count ? `${s.name}: ${s.missing.bytes ? gb(s.missing.bytes) : `${s.missing.count} files`} missing` : `${s.name}: all there`;
+  if (s) return s.missing.count ? `${s.name}: ${s.missing.bytes ? gb(s.missing.bytes) : plural(s.missing.count, "file")} missing` : `${s.name}: all there`;
   return `holds ${plural(v.holds.count, "model file")}`;
 };
 

@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ExternalLink, Lock } from "lucide-react";
+import { ExternalLink, Lock, X } from "lucide-react";
 import { api, type BrowseCard, type BrowseFile } from "../api";
-import { compact, shortDate, size } from "../format";
+import { compact, plural, shortDate, size } from "../format";
 import { queryKeys } from "../queryKeys";
 import { Select } from "../Select";
 import { Button, Checkbox, cx, ErrorNote } from "../ui";
@@ -16,7 +16,7 @@ const haveSaid = (f: BrowseFile) => f.have.map((h) => (h.kind === "pc" ? "on thi
  * size, what tells it apart, its folder (the guess, changed here) and what the user has of it; its trigger words and
  * licence. Pick takes the ticked files to Picked.
  */
-export function Opened({ card, picked, onPick, onBack }: { card: BrowseCard; picked: Set<string>; onPick(files: PickedFile[]): void; onBack(): void }) {
+export function Opened({ card, picked, onPick, onClose }: { card: BrowseCard; picked: Set<string>; onPick(files: PickedFile[]): void; onClose(): void }) {
   const repo = useQuery({ queryKey: queryKeys.browse.repo(card.id), queryFn: ({ signal }) => api.browseRepoFiles(card.id, { signal }), enabled: card.site === "huggingface" && !card.versions.length, staleTime: 10 * 60_000, retry: false });
   const versions = card.versions.length ? card.versions : repo.data ? [{ id: "main", name: "main", base: "", publishedAt: null, trainedWords: [], files: repo.data.files }] : [];
   const [versionId, setVersionId] = useState<string | null>(null);
@@ -30,10 +30,10 @@ export function Opened({ card, picked, onPick, onBack }: { card: BrowseCard; pic
   const lacksFolder = chosen.some((f) => !folderOf(f));
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-      <div className="flex items-center gap-2">
-        <Button size="sm" tone="quiet" onClick={onBack}><ArrowLeft size={14} /> Back to the results</Button>
-        <span className="grow" />
+      {/* closed, the results are back as they were */}
+      <div className="flex items-center justify-end gap-2">
         <a href={card.page} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs text-ink-2 hover:text-ink">{card.site === "civitai" ? "On Civitai" : "On Hugging Face"} <ExternalLink size={12} /></a>
+        <button type="button" aria-label="Close" data-tip="Close" data-tip-keys="Esc" onClick={onClose} className="grid size-7 place-items-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink"><X size={15} /></button>
       </div>
       <div className="grid grid-cols-[minmax(0,260px)_minmax(0,1fr)] gap-5">
         <div className="aspect-[3/4] overflow-hidden rounded-xl border border-line bg-raised">
@@ -69,7 +69,8 @@ export function Opened({ card, picked, onPick, onBack }: { card: BrowseCard; pic
                       <span className="truncate text-xs text-ink-3">{[f.note, haveSaid(f), picked.has(f.name) ? "picked" : ""].filter(Boolean).join(" · ") || " "}</span>
                     </span>
                   </Checkbox>
-                  <span data-tip={f.why}><Select size="sm" label={`Folder of ${f.name}`} value={folderOf(f) || "none"} onChange={(v) => setFolders((x) => ({ ...x, [f.name]: v }))} placeholder="Which folder?" options={[...(folderOf(f) ? [] : [{ value: "none", label: "Which folder?" }]), ...FOLDERS.map((x) => ({ value: x, label: x }))]} /></span>
+                  {/* "none" is the "Which folder?" option: kept as no folder, never a folder of that name */}
+                  <span data-tip={f.why}><Select size="sm" label={`Folder of ${f.name}`} value={folderOf(f) || "none"} onChange={(v) => setFolders((x) => ({ ...x, [f.name]: v === "none" ? "" : v }))} placeholder="Which folder?" options={[...(folderOf(f) ? [] : [{ value: "none", label: "Which folder?" }]), ...FOLDERS.map((x) => ({ value: x, label: x }))]} /></span>
                   <span className="text-right font-mono text-xs text-ink-2">{f.bytes ? size(f.bytes) : "–"}</span>
                 </div>
               ))}
@@ -85,7 +86,7 @@ export function Opened({ card, picked, onPick, onBack }: { card: BrowseCard; pic
           )}
           <span className="flex items-center gap-2">
             <Button tone="primary" disabled={!chosen.length || lacksFolder} onClick={() => onPick(chosen.map((f) => pickedOf(f, card, version!.name, folderOf(f))))}>
-              Pick {chosen.length > 1 ? `${chosen.length} files` : "it"}
+              Pick {chosen.length > 1 ? plural(chosen.length, "file") : "it"}
             </Button>
             {lacksFolder && <span className="text-xs text-warn-ink">Say which folder it goes in.</span>}
           </span>

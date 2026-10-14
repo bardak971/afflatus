@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { X } from "lucide-react";
 import { fileKey } from "@afflatus/core";
 import { api, type DeployAsk, type DeployFile, type DeployModels as View, type MeasuredRange, type PresetFile } from "./api";
 import { est, gb, plural, size, usd } from "./format";
-import { openFindModels } from "./findModels/store";
+import { openFindModels, useFind, type FindTarget } from "./findModels/store";
 import { ViaChip } from "./modelFilesUi";
 import { queryKeys } from "./queryKeys";
 import { useSayFailed } from "./sayFailed";
@@ -119,7 +119,22 @@ export function DeployModels({ want, set, rate, gpu, onPicked }: { want: DeployA
     else n.add(fileKey(f));
     return n;
   };
-  const add = (files: DeployFile[]) => setAdded((a) => [...a, ...files.filter((f) => !a.some((x) => fileKey(x) === fileKey(f)))]);
+  const add = useCallback((files: DeployFile[]) => setAdded((a) => [...a, ...files.filter((f) => !a.some((x) => fileKey(x) === fileKey(f)))]), []);
+  // what Find models adds to: this deploy, its time and price at the speeds measured on this cloud and the GPU's rate, as below
+  const findTarget = useCallback((): FindTarget => ({
+    what: gpu ? `Deploy · ${gpu}` : "this deploy", action: "Add to this deploy", add,
+    estimate: (files) => {
+      const t = v ? timeOf(files, v.speeds) : null;
+      return t && rate !== null ? `${est(t.fast)}–${est(t.slow).replace(/^~/, "")} · ${usd((t.fast / 3_600_000) * rate, true)}–${usd((t.slow / 3_600_000) * rate, true)}` : null;
+    },
+  }), [gpu, add, v, rate]);
+  // open, it follows this dialog: a GPU picked anew, its rate, or the speeds read again (another cloud) give it a new estimate
+  const finding = useRef<FindTarget | null>(null);
+  useEffect(() => {
+    if (!finding.current || useFind.getState().target !== finding.current) return;
+    finding.current = findTarget();
+    openFindModels(finding.current);
+  }, [findTarget]);
 
   return (
     <section className="flex flex-col gap-2">
@@ -161,14 +176,7 @@ export function DeployModels({ want, set, rate, gpu, onPicked }: { want: DeployA
             ))}
             {/* the rest is found in Find models: yours, Civitai, Hugging Face */}
             <span className="flex items-center gap-2">
-              <Button size="sm" onClick={() => openFindModels({
-                what: gpu ? `Deploy · ${gpu}` : "this deploy", action: "Add to this deploy", add,
-                // the time and price at the speeds measured on this cloud and the GPU's rate, as below
-                estimate: (files) => {
-                  const t = v ? timeOf(files, v.speeds) : null;
-                  return t && rate !== null ? `${est(t.fast)}–${est(t.slow).replace(/^~/, "")} · ${usd((t.fast / 3_600_000) * rate, true)}–${usd((t.slow / 3_600_000) * rate, true)}` : null;
-                },
-              })}>Find more…</Button>
+              <Button size="sm" onClick={() => { finding.current = findTarget(); openFindModels(finding.current); }}>Find more…</Button>
               <span className="text-xs text-ink-3">your presets and files, Civitai, Hugging Face</span>
             </span>
           </div>

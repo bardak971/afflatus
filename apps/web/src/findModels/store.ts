@@ -44,9 +44,14 @@ export const pickedOf = (f: BrowseFile, card: BrowseCard, version: string, folde
 /** The ComfyUI folders a file without one can be put in. */
 export const FOLDERS = ["checkpoints", "diffusion_models", "loras", "vae", "text_encoders", "clip_vision", "upscale_models", "latent_upscale_models", "controlnet", "model_patches", "audio_encoders", "embeddings"];
 
-/** Picked files downloaded onto this PC's ComfyUI, one after the other, as the usual downloads (Settings › Models shows them). */
-export async function getOnPc(files: PickedFile[]): Promise<void> {
-  for (const f of files) await api.startDownload({ file: f.file, folder: f.folder, ...(f.civitai ? { civitai: f.civitai.version, ...(f.civitai.pick ? { pick: f.civitai.pick } : {}) } : { url: f.url! }) });
+/**
+ * Picked files downloaded onto this PC's ComfyUI as the usual downloads (Settings › Models shows them), all asked for at
+ * once: one refused does not stop the others. Gives back the files that were not started, each with why, so that only
+ * they stay picked for another try (a file started twice would download twice).
+ */
+export async function getOnPc(files: PickedFile[]): Promise<Array<{ file: PickedFile; error: unknown }>> {
+  const tried = await Promise.allSettled(files.map((f) => api.startDownload({ file: f.file, folder: f.folder, ...(f.civitai ? { civitai: f.civitai.version, ...(f.civitai.pick ? { pick: f.civitai.pick } : {}) } : { url: f.url! }) })));
+  return tried.flatMap((t, i) => (t.status === "rejected" ? [{ file: files[i]!, error: t.reason as unknown }] : []));
 }
 
 /** The browser's own state, kept when it closes (Esc, a click on its ✕): opened again, it is where it was. */
