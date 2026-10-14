@@ -63,6 +63,9 @@ interface Entry extends PodFileView {
   flowingAt?: number;
   /** When all of it was on the pod (the pack had it whole), for its speed. */
   wholeAt?: number;
+  /** Put back in line after a passing failure (ComfyUI not answering, its line full): how many times, and not before when. */
+  tries?: number;
+  notBefore?: number;
 }
 
 export interface PodFilesDeps {
@@ -97,8 +100,16 @@ const KEEP_MS = 60_000;
 /** How many of a pod's files come at once: two downloads share its line well, and one upload this computer's. */
 const DOWNLOADS_AT_ONCE = 2;
 const UPLOADS_AT_ONCE = 1;
-/** What the node pack answers a download of a file it has already (downloads.py): the pod has it. */
+/**
+ * What the node pack answers a download or an upload of a file it has, or is getting (downloads.py, uploads.py): checked
+ * against the pod's own list before the file is taken for there.
+ */
 const THERE = /\(409: that file is there already/;
+/** A failure that passes (ComfyUI not answering for a moment, restarting, its line full): the file is asked again later. */
+const PASSING = /not answering|cannot be reached|no longer knows the download|did not answer|does not answer with|\((429|5\d\d)[:)]|fetch failed|ECONN|socket|timed? ?out|aborted/i;
+/** How many times a passing failure puts a file back in line before it is failed, and the first wait (doubled each time). */
+const TRIES = 4;
+const RETRY_MS = 15_000;
 const keyOf = (folder: string, file: string) => `${folder}|${fileName(file).toLowerCase()}`;
 
 export class PodFiles {
@@ -114,7 +125,56 @@ export class PodFiles {
   private readonly packs: PodPacks;
 
   constructor(private readonly d: PodFilesDeps) {
-    this.packs = new PodPacks({ comfyOf: d.comfyOf, busy: d.busy });
+    this.packs = new PodPacks({ comfyOf: d.comfyOf, busy: d.busy, beforeRestart: (m) => this.requeueFetching(m) });
+  }
+
+  /** No job may start on the machine: its node packs wait for its ComfyUI to restart, or it restarts now. */
+  holding(machine: string): boolean {
+    return this.packs.holding(machine);
+  }
+
+  /** How long a file put back in line after a passing failure waits before it is asked again (shorter in tests). */
+  retryMs = RETRY_MS;
+
+  /** Everything the pod is getting put back in line: its ComfyUI restarts, and its downloads and uploads live in its process. */
+  private requeueFetching(machine: string): void {
+    for (const e of this.pods.get(machine)?.values() ?? []) if (e.state === "fetching") this.requeue(e);
+  }
+
+  /** A file under way stopped and put back in line, as it was before it started. */
+  private requeue(e: Entry): void {
+    if (e.downloadId) this.d.downloads.stop(e.downloadId);
+    e.upload?.abort();
+    e.state = "next";
+    e.bytes = 0;
+    delete e.downloadId;
+    delete e.flowingAt;
+    delete e.wholeAt;
+  }
+
+  /** A passing failure: the file asked again a little later, a few times; then it is failed for that pod. */
+  private retryLater(machine: string, e: Entry, why: string): true {
+    const tries = (e.tries ?? 0) + 1;
+    if (tries >= TRIES) return this.fail(machine, e, why);
+    this.requeue(e);
+    e.tries = tries;
+    e.notBefore = Date.now() + this.retryMs * 2 ** (tries - 1);
+    console.warn(`[pod files] ${e.file} on ${machine}: ${why}; asked again`);
+    return true;
+  }
+
+  /** Whether this entry is still the pod's (a pod forgotten, or the file asked anew, while an answer was awaited). */
+  private current(machine: string, e: Entry): boolean {
+    return this.pods.get(machine)?.get(keyOf(e.folder, e.file)) === e;
+  }
+
+  /** "There already" from the pack: the pod's own list says whether it is there (else it is still coming: asked again later). */
+  private async confirmThere(machine: string, e: Entry): Promise<void> {
+    const comfy = await this.d.comfyOf(machine);
+    const listed = await comfy?.client.models(e.folder).then((files) => files.some((f) => fileName(f) === fileName(e.file)), () => null);
+    if (!this.current(machine, e)) return;
+    if (listed) await this.ready(machine, e, false);
+    else this.retryLater(machine, e, "a copy of it is still on its way to the pod");
   }
 
   /**
@@ -235,12 +295,16 @@ export class PodFiles {
 
   private readonly sources = new Map<string, { at: number; value: Promise<PodSource | null> }>();
   private sourceOf(f: PodFileWant): Promise<PodSource | null> {
-    const key = keyOf(f.folder, f.file);
+    // the source given is part of the key: a set's Civitai version is not taken for a job's file with none
+    const key = `${keyOf(f.folder, f.file)}|${f.url ?? ""}|${f.civitai?.version ?? ""}`;
     const kept = this.sources.get(key);
     if (kept && Date.now() - kept.at < KEEP_MS) return kept.value;
-    const value = podSource(this.d.lookup, { file: f.file, folder: f.folder, ...(f.url ? { url: f.url } : {}), ...(f.civitai ? { civitai: f.civitai } : {}) }).catch(() => null);
-    this.sources.set(key, { at: Date.now(), value });
-    return value;
+    const value = podSource(this.d.lookup, { file: f.file, folder: f.folder, ...(f.url ? { url: f.url } : {}), ...(f.civitai ? { civitai: f.civitai } : {}) });
+    // a lookup that failed (the database) is not kept: asked again next time, not taken for "no source" a minute long
+    value.catch(() => this.sources.delete(key));
+    const safe = value.catch(() => null);
+    this.sources.set(key, { at: Date.now(), value: safe });
+    return safe;
   }
 
   private readonly ranges = new Map<string, { at: number; value: Promise<Range | null> }>();
@@ -253,8 +317,19 @@ export class PodFiles {
     return value;
   }
 
+  private readonly sizes = new Map<string, { at: number; value: Promise<number> }>();
+  /** A file's size before it is fetched, kept a minute: the queue asks for every waiting job at every pass. */
+  private sizeOf(f: PodFileWant, src: PodSource): Promise<number> {
+    const key = keyOf(f.folder, f.file);
+    const kept = this.sizes.get(key);
+    if (kept && Date.now() - kept.at < KEEP_MS) return kept.value;
+    const value = this.readSize(f, src);
+    this.sizes.set(key, { at: Date.now(), value });
+    return value;
+  }
+
   /** A file's size before it is fetched: this computer's copy's, a preset's that names it, else a cautious guess. */
-  private async sizeOf(f: PodFileWant, src: PodSource): Promise<number> {
+  private async readSize(f: PodFileWant, src: PodSource): Promise<number> {
     const path = src.kind === "upload" ? src.path : await localCopy(await this.d.lookup.comfyDir(), f.folder, f.file);
     const size = path ? (await stat(path).catch(() => null))?.size : undefined;
     if (size) return size;
@@ -309,11 +384,24 @@ export class PodFiles {
         continue;
       }
       for (const e of this.ordered(machine)) if (e.state === "fetching" && e.downloadId && this.follow(machine, e)) changed = true;
+      // its ComfyUI restarts for node packs: nothing starts until it is back
+      if (this.packs.restartingNow(machine)) continue;
       const under = this.ordered(machine).filter((e) => e.state === "fetching");
       let downloads = under.filter((e) => e.via !== "upload").length;
       let uploads = under.filter((e) => e.via === "upload").length;
+      const now = Date.now();
+      // a file a job waits for never waits behind files ahead: one of those gives it its place (and starts again later)
+      const needed = this.ordered(machine).some((o) => o.tier === "need" && o.state === "next" && o.via !== "upload" && (o.notBefore ?? 0) <= now);
+      if (needed && downloads >= DOWNLOADS_AT_ONCE) {
+        const ahead = under.filter((o) => o.tier === "ahead" && o.via !== "upload").pop();
+        if (ahead) {
+          this.requeue(ahead);
+          downloads--;
+          changed = true;
+        }
+      }
       for (const e of this.ordered(machine)) {
-        if (e.state !== "next") continue;
+        if (e.state !== "next" || (e.notBefore ?? 0) > now) continue;
         // a file ahead takes only what the line has left once every file a job waits for has started
         if (e.tier === "ahead" && this.ordered(machine).some((o) => o.tier === "need" && o.state === "next")) continue;
         if (e.source === undefined) {
@@ -358,11 +446,14 @@ export class PodFiles {
       void this.ready(machine, e);
       return true;
     }
-    // the pack has a file of that name already: the pod has it
+    // the pack has a file of that name, or is getting one: its own list says which
     if (v.status === "error" && THERE.test(v.error ?? "")) {
-      void this.ready(machine, e, false);
+      e.state = "fetching";
+      delete e.downloadId;
+      void this.confirmThere(machine, e);
       return true;
     }
+    if (v.status === "error" && PASSING.test(v.error ?? "")) return this.retryLater(machine, e, v.error!);
     if (v.status === "error" || v.status === "stopped") return this.fail(machine, e, v.error ?? "it was stopped");
     return moved;
   }
@@ -389,12 +480,20 @@ export class PodFiles {
       } else source = src.url;
       // its clock starts as it is asked for: a pod's two at a time start at once, and a fast file is done before the next look
       e.flowingAt = Date.now();
+      if (!this.current(machine, e)) return;
       const started = await this.d.downloads.start(comfy, "", { file: e.file, folder: e.folder, title: name, source, ...(headers ? { headers } : {}), ...(total ? { total } : {}), machine, directOnly: true });
+      // the pod forgotten (stopped, gone) while its download was asked for: stopped, not left running for nothing
+      if (!this.current(machine, e) || e.state !== "fetching") {
+        this.d.downloads.stop(started.id);
+        return;
+      }
       e.downloadId = started.id;
       if (started.total) e.total = started.total;
     } catch (err) {
+      if (!this.current(machine, e)) return;
       const message = (err as Error).message;
-      if (THERE.test(message)) await this.ready(machine, e, false);
+      if (THERE.test(message)) await this.confirmThere(machine, e);
+      else if (PASSING.test(message)) this.retryLater(machine, e, message);
       else this.fail(machine, e, message);
       this.d.changed?.();
     }
@@ -403,7 +502,9 @@ export class PodFiles {
   /** A file only this computer has, sent to the pod. */
   private async send(machine: string, comfy: Comfy, e: Entry, path: string): Promise<void> {
     const version = await comfy.client.packVersion().catch(() => null);
-    if (!version || olderThan(version, PACK_UPLOADS)) throw new Error(`the pod's Afflatus node pack takes no upload before ${PACK_UPLOADS}`);
+    // no answer is a moment of the pod's (asked again later); an answer of an older pack is for good
+    if (!version) throw new Error("the pod's ComfyUI did not answer");
+    if (olderThan(version, PACK_UPLOADS)) throw new Error(`the pod's Afflatus node pack takes no upload before ${PACK_UPLOADS}`);
     const stop = new AbortController();
     e.upload = stop;
     e.flowingAt = Date.now();
@@ -416,9 +517,13 @@ export class PodFiles {
           this.d.changed?.();
         },
       });
-      await this.ready(machine, e);
+      if (this.current(machine, e)) await this.ready(machine, e);
     } catch (err) {
-      if (!stop.signal.aborted) this.fail(machine, e, (err as Error).message);
+      const message = (err as Error).message;
+      if (stop.signal.aborted || !this.current(machine, e)) return;
+      if (THERE.test(message)) await this.confirmThere(machine, e);
+      else if (PASSING.test(message)) this.retryLater(machine, e, message);
+      else this.fail(machine, e, message);
     } finally {
       delete e.upload;
       void this.tick();
@@ -432,7 +537,10 @@ export class PodFiles {
     this.d.changed?.();
     this.d.settled?.(machine);
     if (measured && e.flowingAt && e.via) {
-      await recordMeasure(this.d.db, { kind: e.via, cloud: await this.d.cloudOf(machine), bytes: e.total || e.bytes, ms: (e.wholeAt ?? Date.now()) - e.flowingAt }, this.measuredFrom).catch(() => {});
+      const ms = (e.wholeAt ?? Date.now()) - e.flowingAt;
+      await this.d.cloudOf(machine)
+        .then((cloud) => recordMeasure(this.d.db, { kind: e.via!, cloud, bytes: e.total || e.bytes, ms }, this.measuredFrom))
+        .catch((err: Error) => console.warn(`[pod files] a speed not kept: ${err.message}`));
     }
     void this.tick();
   }

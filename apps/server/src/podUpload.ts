@@ -32,19 +32,26 @@ type State = { state: "uploading" | "done" | "error" | "stopped"; bytes: number;
 /** Send the file; resolves once the pack has named it. Throws with what went wrong, the pack's upload then removed. */
 export async function uploadFile(o: UploadOptions): Promise<void> {
   const total = (await stat(o.path)).size;
+  // opened before the pod is asked: a file that cannot be read leaves no upload behind there
+  const file = await open(o.path, "r");
   const piece = o.piece ?? PIECE;
   const attempts = o.attempts ?? 5;
   const backoff = o.backoffMs ?? 2000;
   const json = { "Content-Type": "application/json" };
-  const started = await o.client.raw("/afflatus/upload", { method: "POST", headers: json, body: JSON.stringify({ folder: o.folder, filename: o.file.replace(/\\/g, "/"), total }), signal: AbortSignal.timeout(30_000) });
-  if (!started.ok) throw new Error(`The pod's node pack refused the upload (${started.status}: ${(await started.text()).slice(0, 200)})`);
-  const { id } = (await started.json()) as { id: string };
+  let id: string;
+  try {
+    const started = await o.client.raw("/afflatus/upload", { method: "POST", headers: json, body: JSON.stringify({ folder: o.folder, filename: o.file.replace(/\\/g, "/"), total }), signal: AbortSignal.timeout(30_000) });
+    if (!started.ok) throw new Error(`The pod's node pack refused the upload (${started.status}: ${(await started.text()).slice(0, 200)})`);
+    ({ id } = (await started.json()) as { id: string });
+  } catch (err) {
+    await file.close();
+    throw err;
+  }
   const at = `/afflatus/upload/${encodeURIComponent(id)}`;
   const state = async (): Promise<State | null> => {
     const res = await o.client.raw(at, { signal: AbortSignal.timeout(15_000) }).catch(() => null);
     return res?.ok ? ((await res.json().catch(() => null)) as State | null) : null;
   };
-  const file = await open(o.path, "r");
   let bytes = 0;
   let fails = 0;
   try {

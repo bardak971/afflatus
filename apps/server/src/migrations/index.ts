@@ -62,6 +62,7 @@ import m0060 from "./0060-drop-kit-for";
 import m0061 from "./0061-rent-seen";
 import m0062 from "./0062-pod-measures";
 import m0063 from "./0063-model-sets";
+import m0064 from "./0064-pod-measures-wide";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -132,4 +133,5 @@ export const migrations: Record<string, Migration> = {
   "0061_rent_seen": m0061,
   "0062_pod_measures": m0062,
   "0063_model_sets": m0063,
+  "0064_pod_measures_wide": m0064,
 };

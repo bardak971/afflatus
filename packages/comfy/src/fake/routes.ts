@@ -15,6 +15,11 @@ export function fakeRoutes(fake: FakeState, hooks: { queued(promptId: string, cl
         return json(200, { system: { comfyui_version: "0.0.0-fake" }, devices: [{ name: "fake gpu", vram_total: 12 * 2 ** 30, vram_free: 8 * 2 ** 30 }] });
       }
       if (path === "/object_info") return json(200, fake.catalog);
+      // one node type, as ComfyUI answers it: that type alone, or nothing when it does not have it
+      if (path.startsWith("/object_info/")) {
+        const node = decodeURIComponent(path.slice("/object_info/".length));
+        return json(200, fake.catalog[node] ? { [node]: fake.catalog[node] } : {});
+      }
       if (path === "/internal/logs/raw") {
         const t = started;
         return json(200, { entries: [

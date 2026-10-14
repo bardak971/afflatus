@@ -34,6 +34,9 @@ const NODE_PACKS: NodePack[] = [
 /** The pack a node type comes from, when it is one the built-in forms use. */
 export const packOfNode = (node: string): NodePack | undefined => NODE_PACKS.find((p) => p.nodes.includes(node));
 
+/** The node types a known pack brings (its name in ComfyUI-Manager's list); empty for one not known. */
+export const nodesOfPack = (name: string): string[] => NODE_PACKS.find((p) => p.name === name)?.nodes ?? [];
+
 /**
  * Node types ComfyUI lacks, said as what to install: each pack once, with how to get it, then the node types no known pack
  * brings. ComfyUI reads custom_nodes only at start, so it is restarted after.

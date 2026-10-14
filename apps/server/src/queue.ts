@@ -95,10 +95,12 @@ export interface PodFetch {
   want(machine: string, files: Lack["files"], tier: "need" | "ahead", job?: string, packs?: string[]): void;
   /** A job's files on that machine: all there, still coming, one failed (null: it asked for none). */
   jobState(machine: string, job: string): "ready" | "waiting" | "failed" | null;
+  /** The machine's node packs wait for its ComfyUI to restart, or it restarts now: no job starts there meanwhile. */
+  holding(machine: string): boolean;
 }
 
 /** A rented pod's files as the queue reads them, from podFiles.ts. */
-export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "untilThere" | "want" | "wantPacks" | "jobState">): PodFetch {
+export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding">): PodFetch {
   return {
     failed: (machine, list, packs = []) => list.map((f) => files.failed(machine, f.folder, f.file)).find((why) => why !== null) ?? files.failedPacks(machine, packs),
     untilThere: (machine, list, packs) => files.untilThere(machine, list, packs),
@@ -107,6 +109,7 @@ export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "unt
       if (tier === "need" && job && packs?.length) files.wantPacks(machine, packs, job);
     },
     jobState: (machine, job) => files.jobState(machine, job)?.state ?? null,
+    holding: (machine) => files.holding(machine),
   };
 }
 
@@ -133,7 +136,6 @@ export class Queue {
   /** The timelines, for jobs that render a clip of one (set once both exist). */
   clips: Timelines | null = null;
   /** How many passes picked another job over a waiting one: a job is passed over a few times at most. */
-  private readonly passedOver = new Map<string, number>();
 
   constructor(
     private readonly db: Db,
@@ -736,10 +738,11 @@ ${JSON.stringify(input)}`;
           for (const lane of open) {
             if (!free(lane) || lane.reachable === false) continue;
             // on a pod getting files, the first job planned there whose own files are all there
+            // a pod whose node packs wait for its ComfyUI to restart (or that restarts now) takes nothing until it is back: the
+            // job that needs them is first in its line, and a job sent meanwhile would be lost in the restart
+            if (this.podFetch?.holding(lane.id)) continue;
             const next = gpuRows.find((r) => !taken.has(r.id) && where.get(r.id)?.lane === lane.id && this.filesThere(r, lane, able));
             if (!next) continue;
-            // a rented pod whose balance would run out before it ends (one pinned to it among them): it waits
-            if (await this.balanceLack(next, lane)) continue;
             this.startOn(lane, next);
             taken.add(next.id);
             started = true;
@@ -827,7 +830,8 @@ ${JSON.stringify(input)}`;
     const settings = await readSettings(this.db).catch(() => null);
     if (!settings) return out;
     const machines = new Map(settings.machines.map((m) => [m.id, m]));
-    const scans = await Promise.all(lanes.map(async (l) => ({ lane: l, scan: l.reachable === false ? null : await l.comfy!.scan().catch(() => null) })));
+    // a machine known to be away, or a rented pod not running, is not asked (a dead pod's address would hold the pass)
+    const scans = await Promise.all(lanes.map(async (l) => ({ lane: l, scan: l.reachable === false || this.unavailable(l.id) ? null : await l.comfy!.scan().catch(() => null) })));
     const familyOf = (id: string) => this.registry.recipe(id)?.family;
     for (const r of rows) {
       const recipe = r.recipe_id === CUT_JOB || r.recipe_id === EXPORT_JOB ? undefined : this.registry.recipe(r.recipe_id);
@@ -836,7 +840,14 @@ ${JSON.stringify(input)}`;
       const can = new Set<string>();
       const lacks: Record<string, Lack> = {};
       const fetch: Able["fetch"] = {};
-      for (const { lane, scan } of scans) {
+      // every machine of a job worked out at once (its balance, its files' time on a pod)
+      await Promise.all(scans.map(async ({ lane, scan }) => {
+        // a rented pod whose ComfyUI cannot be read now (booting, restarting for node packs, away) starts with nothing: what
+        // it has is not known, so it is not given the job (a ComfyUI of the user's own is not held against a job for that)
+        if (lane.machine!.rented && !scan?.comfy.online) {
+          lacks[lane.id] = { off: false, files: [], sendable: false };
+          return;
+        }
         // a lone rented pod is asked too: what it lacks may be sent to it
         const lack = (lanes.length > 1 || lane.machine!.rented) && scan?.comfy.online ? lackOn(recipe, input, scan, settings, machines.get(lane.id) ?? lane.machine!, familyOf) : null;
         const balance = await this.balanceLack(r, lane);
@@ -844,12 +855,12 @@ ${JSON.stringify(input)}`;
         if (lack && !balance && lack.sendable && lane.machine!.rented && this.podFetch && !this.podFetch.failed(lane.id, lack.files, lack.packs)) {
           can.add(lane.id);
           fetch[lane.id] = { files: lack.files, ...(lack.packs ? { packs: lack.packs } : {}), ms: await this.podFetch.untilThere(lane.id, lack.files, lack.packs) };
-          continue;
+          return;
         }
         const failed = lack?.sendable && lane.machine!.rented && this.podFetch ? this.podFetch.failed(lane.id, lack.files, lack.packs) : null;
         if (lack || balance) lacks[lane.id] = { ...(lack ?? { off: false, files: [], sendable: false }), ...(balance ? { balance } : {}), ...(failed ? { failed } : {}) };
         else can.add(lane.id);
-      }
+      }));
       out.set(r.id, { can, lacks, fetch });
     }
     return out;
@@ -984,7 +995,11 @@ ${JSON.stringify(input)}`;
     const lane = this.lanes.get(machine);
     if (lane?.running || lane?.starting) return true;
     if (this.paused || lane?.paused) return false;
-    const rows = (await this.db.selectFrom("jobs").selectAll().where("status", "=", "queued").orderBy("priority").orderBy("created_at").execute()).filter(needsComfy);
+    // the jobs that may start now, as a pass plans them: one that waits for another job (a clip after the one it continues), or
+    // held back by an update, is no work yet: it would keep a pod billed for a start that cannot come
+    const active = await this.db.selectFrom("jobs").selectAll().where("status", "in", ["queued", "running"]).orderBy("priority").orderBy("created_at").execute();
+    const waitingOn = new Set(active.map((r) => r.id));
+    const rows = active.filter((r) => r.status === "queued" && needsComfy(r) && !(r.depends_on && waitingOn.has(r.depends_on)) && !(this.only && !this.only.has(r.id)));
     if (!rows.length) return false;
     const open = (await this.refresh()).filter((l) => !l.paused && l.machine);
     const where = plan(await this.schedulable(open), await this.planned(rows, await this.ableOf(rows)));
@@ -1018,7 +1033,6 @@ ${JSON.stringify(input)}`;
       .where("id", "=", id);
     if (from) q = q.where("status", "=", from);
     await q.execute();
-    this.passedOver.delete(id);
     if (status !== "done") await this.failDependents(id);
     this.events.emit("queue");
     // only a clip's render, a cut or an export changes a timeline: a picture's end does not read them again

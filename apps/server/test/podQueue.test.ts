@@ -114,6 +114,17 @@ describe("a job whose model file a pod lacks", () => {
     expect(waiting?.lacks?.[id]?.failed).toContain("no site is known");
   });
 
+  it("waiting for another job to end is no work for a pod: it does not keep it billed", async () => {
+    const id = await deployed();
+    await post(t.app, "/api/queue/pause", { machine: await homeId() });
+    // a job that waits for another (a clip after the one it continues) whose own start is not possible now
+    const first = await enqueue({ checkpoint: "nowhere.safetensors" });
+    const second = await enqueue();
+    await t.db.updateTable("jobs").set({ depends_on: first }).where("id", "=", second).execute();
+    await t.db.updateTable("jobs").set({ pin_machine: await homeId() }).where("id", "=", first).execute();
+    expect(await t.services.queue.wants(id)).toBe(false);
+  });
+
   it("is no work for a pod the plan sends it away from", async () => {
     const id = await deployed();
     // renders known to take a second (as learned renders would say): this computer's running one ends in a second
