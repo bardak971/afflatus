@@ -271,12 +271,55 @@ export interface GpuOffer {
   dataCenters: Array<{ id: string; availability: Availability }>;
 }
 
+/** A pod as a volume names it: its machine's name when it is one. */
+export interface PodOn {
+  pod: string;
+  name: string;
+  status: RentedState["status"];
+}
+
 /** A network volume of the RunPod account: the models kept between deploys, in one data center. */
 export interface NetworkVolume {
   id: string;
   name: string;
   size: number;
   dataCenter: string;
+  /** The pod running on it now: no other pod may use it meanwhile. */
+  usedBy: PodOn | null;
+  /** Every pod it is mounted on, stopped ones too: it cannot be deleted while one is. */
+  mountedOn: PodOn[];
+  /** USD a month. */
+  perMonth: number;
+  /** What it holds as the last pod on it listed; null: no pod Afflatus follows ran on it yet. */
+  holds: { count: number; seenAt: string; seenBy: string } | null;
+  /** When a pod last ran on it; null: never seen used. */
+  usedAt: string | null;
+  /** No pod ran on it for the days set in Settings: it bills for nothing. */
+  unused: boolean;
+  /** How its last Fill from a set… ended: when, and the files that failed (none: all in). */
+  lastFill: { at: string; failed: Array<{ file: string; error: string }> } | null;
+  /** Each Model set as it held it last time a pod ran there: what it lacks (empty when nothing is known). */
+  sets: Array<{ id: string; name: string; missing: { count: number; bytes: number; unknown: number } }>;
+}
+
+/** What Make a volume… says first: where (GPUs in stock now, the user's pods there), the size the sets want, whether it pays for itself. */
+export interface VolumePlan {
+  places: Array<{ dataCenter: string; gpus: Array<{ name: string; price: number }>; pods: number }>;
+  sets: Array<{ id: string; name: string; bytes: number }>;
+  sizeGb: number;
+  perGbMonth: number;
+  /** The pods run in the last 30 days and their mean rate ($/h). */
+  deploys: number;
+  rate: number | null;
+  /** How long fetching the sets takes each deploy, and its cost at the mean rate; null when never measured. */
+  fetch: { fastMs: number; slowMs: number; lowUsd: number; highUsd: number } | null;
+}
+
+/** What Fill from a set… says first: the GPU it takes, what the volume lacks of the set, how long, what it costs. */
+export interface FillPlan {
+  gpu: { name: string; price: number } | null;
+  missing: { count: number; bytes: number; unknown: number };
+  estimate: { fastMs: number; slowMs: number; lowUsd: number; highUsd: number } | null;
 }
 
 /** A pod of the user's on RunPod, as the list for adding one says it. */
@@ -309,6 +352,19 @@ export interface RentedSpending {
   runwayMs: number | null;
   /** Today and this month are RunPod's own bill (the last hours counted by Afflatus); false: Afflatus's count alone. */
   billed: boolean;
+  /** What storage costs (volumes, the pods' own disks); null when RunPod was not read. Never counted against the caps. */
+  storage: {
+    /** The volumes' bill this month, as RunPod has written it; null when it did not give it. */
+    volumesMonth: number | null;
+    /** Of this month's spending, the pods' own disks (in it already). */
+    disksMonth: number;
+    /** What storage costs a month as the account stands now. */
+    perMonth: number;
+    volumes: number;
+    stoppedDisks: number;
+    /** The volumes no pod ran on for the days set in Settings. */
+    unused: Array<{ id: string; name: string; perMonth: number; usedAt: string | null }>;
+  } | null;
 }
 
 /** What a machine row says of a rented pod. Afflatus never starts one on its own. */
@@ -343,7 +399,7 @@ export interface RentedState {
   /** Afflatus is stopping it now: it takes no new work. */
   stopping: boolean;
   /** Why Afflatus stopped or terminated it last: "boot" when its ComfyUI never answered. */
-  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | null;
+  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | "filled" | null;
   /** Deployed and on its first start (its image pulled, ComfyUI starting): a normal step. */
   booting: boolean;
   error: string | null;

@@ -1,6 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { deployFiles, deployModels } from "./deployModels";
+import { setsWithFiles } from "./modelSets";
+import { keptHoldings, missingOn } from "./rentedVolumes";
+import { fillPlan, volumePlan } from "./volumePlan";
 import { httpError } from "./errors";
 import { podMachineId, podUrl } from "./runpod";
 import type { Services } from "./services";
@@ -24,8 +27,57 @@ export function registerRented(app: FastifyInstance, s: Services): void {
     return { gpus: await s.rented.gpus(cloud) };
   });
 
-  /** The account's network volumes; read-only. */
-  app.get("/api/runpod/volumes", async () => ({ volumes: await s.rented.volumes() }));
+  /** The account's network volumes, each with the pod running on it when one is; read-only. */
+  app.get("/api/runpod/volumes", async () => {
+    const [volumes, sets, kept] = await Promise.all([s.rented.volumes(), setsWithFiles(s), keptHoldings(s.db)]);
+    // each set as the volume held it last time a pod ran there: all there, or what it lacks
+    return { volumes: volumes.map((v) => {
+      const keys = kept.get(v.id)?.keys ?? null;
+      return { ...v, sets: keys ? sets.filter((x) => x.files.length).map((x) => ({ id: x.id, name: x.name, missing: missingOn(x.files, keys) })) : [] };
+    }) };
+  });
+
+  /** A network volume made (Make a volume…, its monthly price said on the button): billed every month from now. */
+  app.post("/api/runpod/volumes", async (req) => {
+    const { name, size, dataCenter } = z.strictObject({ name: z.string().trim().min(1).max(60), size: z.number().int(), dataCenter: z.string().min(1).max(40) }).parse(req.body);
+    return { volume: await s.rented.makeVolume(name, size, dataCenter) };
+  });
+
+  /** What Make a volume… says first: where (GPUs in stock there now), what size the sets want, whether it pays for itself. Read-only. */
+  app.get("/api/runpod/volumes/plan", async (req) => {
+    const { sets } = z.object({ sets: z.string().max(2000).optional() }).parse(req.query);
+    return volumePlan(s, sets ? sets.split(",").filter(Boolean).slice(0, 20) : null);
+  });
+
+  /** What Fill from a set… says first: the GPU it takes and its price, what the volume lacks of the set, how long, what it costs. */
+  app.get("/api/runpod/volumes/:id/fill", async (req) => {
+    const { set } = z.object({ set: z.string().min(1).max(80) }).parse(req.query);
+    return fillPlan(s, z.object({ id: z.string().max(80) }).parse(req.params).id, set);
+  });
+
+  /**
+   * Fill from a set…: the cheapest GPU in stock where the volume is, deployed only to fetch the set's files onto it, then
+   * terminated. Billed from now, on the user's click; each preset's licence accepted first, as for a deploy.
+   */
+  app.post("/api/runpod/volumes/:id/fill", async (req) => {
+    const { set, accept } = z.strictObject({ set: z.string().min(1).max(80), accept: z.array(z.string().max(120)).max(40).default([]) }).parse(req.body);
+    const files = await deployFiles(s, { set, files: [], accept, again: true });
+    if (!files.length) throw httpError("That set brings no file.");
+    return s.rented.fill(z.object({ id: z.string().max(80) }).parse(req.params).id, set, files);
+  });
+
+  /** A network volume made larger (Grow…). */
+  app.patch("/api/runpod/volumes/:id", async (req) => {
+    const { size } = z.strictObject({ size: z.number().int() }).parse(req.body);
+    await s.rented.growVolume(z.object({ id: z.string().max(80) }).parse(req.params).id, size);
+    return { ok: true };
+  });
+
+  /** A network volume deleted with what it holds (Delete…): refused while a pod is mounted on it. */
+  app.delete("/api/runpod/volumes/:id", async (req) => {
+    await s.rented.deleteVolume(z.object({ id: z.string().max(80) }).parse(req.params).id);
+    return { ok: true };
+  });
 
   /** Whether each image a deploy may run can be pulled now: the dialog says which cannot. */
   app.get("/api/runpod/images", async () => s.rented.images());
@@ -85,7 +137,8 @@ export function registerRented(app: FastifyInstance, s: Services): void {
   /** What the rented GPUs cost today and this month, the caps, and RunPod's balance; nothing without a rented machine. */
   app.get("/api/rented/spending", async () => {
     const settings = await readSettings(s.db);
-    if (!settings.machines.some((m) => m.rented)) return { spending: null };
+    // with a key and no pod, storage still bills (a volume left behind): read whenever there is a key
+    if (!settings.runpodKey && !settings.machines.some((m) => m.rented)) return { spending: null };
     return { spending: await s.rented.spending() };
   });
 }

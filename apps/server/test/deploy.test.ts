@@ -109,6 +109,170 @@ describe("a deploy", () => {
     expect((await deploy({ volume: "vol-gone" })).statusCode).toBe(409);
   });
 
+  it("one pod at a time on a volume: another deploy on it is refused while it runs, said by whom; free again once it stops", async () => {
+    expect((await deploy({ volume: "vol-ro", idleDo: "stop" })).statusCode).toBe(200);
+    const volumes = () => get(t.app, "/api/runpod/volumes").then((r) => r.json().volumes as Array<{ id: string; usedBy: { name: string; status: string } | null; mountedOn: unknown[]; perMonth: number }>);
+    expect((await volumes()).find((v) => v.id === "vol-ro")).toMatchObject({ usedBy: { name: "A40" }, perMonth: 7 });
+    expect((await volumes()).find((v) => v.id === "vol-se")?.usedBy).toBeNull();
+    const again = await deploy({ volume: "vol-ro", idleDo: "stop" });
+    expect(again.statusCode).toBe(409);
+    expect(again.json().error).toMatch(/The volume "afflatus-models" is in use by A40/);
+    expect(creates()).toBe(1);
+    // stopped: mounted still (it cannot be deleted), but free for another pod
+    const machine = (await readSettings(t.db)).machines.find((m) => m.rented)!;
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]!.status === "RUNNING"));
+    await post(t.app, `/api/machines/${machine.id}/stop`, { how: "stop" });
+    await until(async () => runpod.pods[0]!.status === "EXITED");
+    const after = (await volumes()).find((v) => v.id === "vol-ro")!;
+    expect(after.usedBy).toBeNull();
+    expect(after.mountedOn).toHaveLength(1);
+    expect((await deploy({ volume: "vol-ro", idleDo: "stop" })).statusCode).toBe(200);
+  });
+
+  it("a pod RunPod does not list yet holds its volume: two deploys in a row never take one", async () => {
+    expect((await deploy({ volume: "vol-ro", idleDo: "stop" })).statusCode).toBe(200);
+    runpod.failList = null;
+    // RunPod's list a moment behind: the pod just made is not in it
+    const made = runpod.pods.splice(0, 1);
+    const again = await deploy({ volume: "vol-ro", idleDo: "stop" });
+    expect(again.statusCode).toBe(409);
+    expect(again.json().error).toMatch(/in use by A40 \(starting\)/);
+    runpod.pods.push(...made);
+  });
+
+  it("keeps what a volume holds as its pod listed it, and says per Model set what is there, once no pod runs on it", async () => {
+    const set = await post(t.app, "/api/model-sets", { name: "zz-test set", presets: [], off: [], files: [
+      { file: "illustrious.safetensors", folder: "checkpoints", size: 6_000_000_000 },
+      { file: "zz-test-missing.safetensors", folder: "loras", size: 200_000_000 },
+    ] });
+    expect(set.statusCode).toBe(200);
+    expect((await deploy({ volume: "vol-ro", idleDo: "stop" })).statusCode).toBe(200);
+    type Seen = { id: string; holds: { count: number; seenBy: string } | null; usedAt: string | null; sets: Array<{ name: string; missing: { count: number; bytes: number } }> };
+    const ro = async () => ((await get(t.app, "/api/runpod/volumes")).json().volumes as Seen[]).find((v) => v.id === "vol-ro")!;
+    // nothing known before its pod answers
+    expect((await ro()).holds).toBeNull();
+    await until(async () => (await t.services.rented.poll(), (await ro()).holds !== null));
+    const seen = await ro();
+    expect(seen.holds).toMatchObject({ count: 2, seenBy: "A40" });
+    expect(seen.usedAt).not.toBeNull();
+    expect(seen.sets).toEqual([{ id: expect.any(String), name: "zz-test set", missing: { count: 1, bytes: 200_000_000, unknown: 0 } }]);
+    // the pod gone: what the volume holds stays, as last seen
+    runpod.pods.splice(0);
+    const after = (await get(t.app, "/api/runpod/volumes")).json().volumes as Seen[];
+    expect(after.find((v) => v.id === "vol-ro")?.holds?.count).toBe(2);
+    expect(after.find((v) => v.id === "vol-se")?.holds).toBeNull();
+  });
+
+  it("says what storage costs, with no pod at all: the volumes' bill this month, the pods' disks within it, a month as it stands", async () => {
+    const day = new Date();
+    const start = new Date(day.getFullYear(), day.getMonth(), day.getDate()).toISOString();
+    const end = new Date(Date.parse(start) + 3_600_000).toISOString();
+    runpod.volumeBill = [{ networkVolumeId: "vol-ro", startTime: start, endTime: end, totalAmount: 0.23 }];
+    runpod.bill = [{ podId: "gone-pod", startTime: start, endTime: end, totalAmount: 0.5, diskAmount: 0.02 }];
+    const spending = (await get(t.app, "/api/rented/spending")).json().spending;
+    // a key and no machine: storage still bills, so it is read
+    expect(spending.storage).toMatchObject({ volumesMonth: 0.23, disksMonth: 0.02, volumes: 2, stoppedDisks: 0 });
+    // 150 GB of volumes at $0.07
+    expect(spending.storage.perMonth).toBeCloseTo(10.5, 5);
+    // storage is never counted against the caps: the month is the pods' bill alone
+    expect(spending.month).toBeCloseTo(0.5, 5);
+  });
+
+  it("plans a volume: the data centers with GPUs in stock (the user's pods there first), the size the sets want", async () => {
+    await post(t.app, "/api/model-sets", { name: "zz-test set", presets: [], off: [], files: [{ file: "zz-test.safetensors", folder: "loras", size: 30_000_000_000 }] });
+    expect((await deploy()).statusCode).toBe(200);
+    const plan = (await get(t.app, "/api/runpod/volumes/plan")).json();
+    // the A40 deployed in EU-RO-1: that place first; the RTX 4090 is in stock nowhere
+    expect(plan.places[0]).toMatchObject({ dataCenter: "EU-RO-1", pods: 1, gpus: [{ name: "A40", price: 0.44 }, { name: "RTX 6000 Ada", price: 0.77 }] });
+    expect(plan.places.flatMap((p: { gpus: Array<{ name: string }> }) => p.gpus.map((g) => g.name))).not.toContain("RTX 4090");
+    // 30 GB and a quarter more, in tens
+    expect(plan).toMatchObject({ sizeGb: 40, perGbMonth: 0.07, sets: [{ name: "zz-test set", bytes: 30_000_000_000 }] });
+  });
+
+  it("fills a volume from a set: the cheapest GPU there, no render given to it, terminated once its files are in", async () => {
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: true } });
+    const set = (await post(t.app, "/api/model-sets", { name: "zz-test set", presets: [], off: [], files: [
+      { file: "illustrious.safetensors", folder: "checkpoints", url: "https://huggingface.co/zz-test/x/resolve/main/illustrious.safetensors", size: 6_000_000_000 },
+    ] })).json().id as string;
+    const plan = (await get(t.app, `/api/runpod/volumes/vol-ro/fill?set=${set}`)).json();
+    // never seen: all of the set is missing; the A40 is the cheapest in stock in EU-RO-1
+    expect(plan).toMatchObject({ gpu: { name: "A40", price: 0.44 }, missing: { count: 1, bytes: 6_000_000_000 } });
+    const res = await post(t.app, "/api/runpod/volumes/vol-ro/fill", { set });
+    expect(res.statusCode).toBe(200);
+    const id = res.json().id as string;
+    expect(runpod.pods[0]).toMatchObject({ gpu: "NVIDIA A40", volumeId: "vol-ro", dataCenterId: "EU-RO-1" });
+    const s = await readSettings(t.db);
+    expect(s.machines.find((m) => m.id === id)?.rented).toMatchObject({ fill: true, volume: "vol-ro", files: [{ file: "illustrious.safetensors", folder: "checkpoints" }] });
+    // not the user's deploy: the next one does not start from it
+    expect(s.lastDeploy).toBeNull();
+    // no render goes to it, though nothing else can take one
+    await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: { machine: "m1" } });
+    const queued = (await post(t.app, "/api/jobs", job())).json().ids[0] as string;
+    expect(await t.services.queue.wants(id)).toBe(false);
+    // up, its file there already: the volume listed, the pod terminated, the machine gone
+    await until(async () => (await t.services.rented.poll(), !(await readSettings(t.db)).machines.some((m) => m.id === id)), 15_000);
+    expect(runpod.pods[0]!.status).toBe("TERMINATED");
+    expect((await t.db.selectFrom("jobs").select("status").where("id", "=", queued).executeTakeFirstOrThrow()).status).toBe("queued");
+    const ro = ((await get(t.app, "/api/runpod/volumes")).json().volumes as Array<{ id: string; holds: { count: number } | null; sets: Array<{ missing: { count: number } }> }>).find((v) => v.id === "vol-ro")!;
+    expect(ro.holds?.count).toBe(2);
+    expect(ro.sets[0]?.missing.count).toBe(0);
+    expect((ro as unknown as { lastFill: { failed: unknown[] } }).lastFill.failed).toEqual([]);
+  });
+
+  it("a fill whose files fail ends all the same (nothing left to fetch), and the volume's row says which failed", async () => {
+    const set = (await post(t.app, "/api/model-sets", { name: "zz-test nowhere", presets: [], off: [], files: [{ file: "zz-test-nowhere.safetensors", folder: "loras", size: 1000 }] })).json().id as string;
+    const id = (await post(t.app, "/api/runpod/volumes/vol-ro/fill", { set })).json().id as string;
+    await until(async () => (await t.services.rented.poll(), !(await readSettings(t.db)).machines.some((m) => m.id === id)), 15_000);
+    expect(runpod.pods[0]!.status).toBe("TERMINATED");
+    const ro = ((await get(t.app, "/api/runpod/volumes")).json().volumes as Array<{ id: string; lastFill: { failed: Array<{ file: string }> } | null }>).find((v) => v.id === "vol-ro")!;
+    expect(ro.lastFill?.failed.map((f) => f.file)).toEqual(["zz-test-nowhere.safetensors"]);
+  });
+
+  it("flags a volume no pod ran on for the days set (counted from when Afflatus first saw one never used); 0: never", async () => {
+    type V = { id: string; unused: boolean };
+    const unused = async () => ((await get(t.app, "/api/runpod/volumes")).json().volumes as V[]).filter((v) => v.unused).map((v) => v.id);
+    // first seen now: not flagged yet
+    expect(await unused()).toEqual([]);
+    const eightDaysAgo = new Date(Date.now() - 8 * 86_400_000).toISOString();
+    await t.db.updateTable("volume_files").set({ noticed_at: eightDaysAgo }).where("volume_id", "=", "vol-se").execute();
+    expect(await unused()).toEqual(["vol-se"]);
+    // used 8 days ago: flagged too; a pod on it now: not
+    await t.db.updateTable("volume_files").set({ used_at: eightDaysAgo }).where("volume_id", "=", "vol-ro").execute();
+    await t.db.updateTable("volume_files").set({ noticed_at: eightDaysAgo }).where("volume_id", "=", "vol-ro").execute();
+    expect((await unused()).sort()).toEqual(["vol-ro", "vol-se"]);
+    expect((await deploy({ volume: "vol-ro", idleDo: "stop" })).statusCode).toBe(200);
+    expect(await unused()).toEqual(["vol-se"]);
+    // said with the spending, for the Settings tab's flag
+    const storage = (await get(t.app, "/api/rented/spending")).json().spending.storage;
+    expect(storage.unused).toEqual([{ id: "vol-se", name: "far-away", perMonth: 3.5, usedAt: null }]);
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { volumeUnusedDays: 0 } });
+    expect(await unused()).toEqual([]);
+  });
+
+  it("makes, grows and deletes a volume; never smaller, never one a pod is mounted on", async () => {
+    const made = await post(t.app, "/api/runpod/volumes", { name: "zz-test volume", size: 20, dataCenter: "EU-RO-1" });
+    expect(made.statusCode).toBe(200);
+    const id = made.json().volume.id as string;
+    expect(runpod.volumes.find((v) => v.id === id)).toMatchObject({ name: "zz-test volume", size: 20, dataCenter: "EU-RO-1" });
+    expect((await post(t.app, "/api/runpod/volumes", { name: "too small", size: 5, dataCenter: "EU-RO-1" })).statusCode).toBe(400);
+    const grow = (size: number) => t.app.inject({ method: "PATCH", url: `/api/runpod/volumes/${id}`, payload: { size } });
+    expect((await grow(30)).statusCode).toBe(200);
+    expect(runpod.volumes.find((v) => v.id === id)?.size).toBe(30);
+    expect((await grow(25)).statusCode).toBe(400);
+    // a pod on it, even stopped, keeps it from being deleted
+    expect((await deploy({ volume: id, idleDo: "stop" })).statusCode).toBe(200);
+    const del = () => t.app.inject({ method: "DELETE", url: `/api/runpod/volumes/${id}` });
+    const refused = await del();
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toMatch(/mounted on A40/);
+    // terminated on RunPod's side (its machine up and answering first: no longer a deploy under way)
+    await until(async () => (await t.services.rented.poll(), (await readSettings(t.db)).machines.find((m) => m.rented)?.rented?.deployedAt === ""));
+    runpod.pods.splice(0);
+    expect((await del()).statusCode).toBe(200);
+    expect(runpod.volumes.find((v) => v.id === id)).toBeUndefined();
+    expect((await del()).statusCode).toBe(404);
+  });
+
   it("is refused at a spending cap without asking RunPod to make anything, and RunPod's balance refusal is said", async () => {
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 1, month: 0 } } });
     // $2 spent in the last ten minutes (within today, whatever the hour)

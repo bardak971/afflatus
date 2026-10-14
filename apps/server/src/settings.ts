@@ -92,6 +92,10 @@ export const rentedSchema = z.object({
   /** The user stopped it (their Stop), until it is started again: kept across a restart of Afflatus, so that a pod the user
    *  stopped is never taken for one its watchdog stopped (a deployed one that keeps nothing is then terminated). */
   userStopped: z.boolean().default(false),
+  /** The network volume it was deployed on, by id ("" for none): it holds that volume while it runs. */
+  volume: z.string().max(80).default(""),
+  /** Deployed only to fill its volume (Fill from a set…): it takes no render, and is terminated once its files are in. */
+  fill: z.boolean().default(false),
   /** RunPod's cloud it was deployed on, when Afflatus deployed it: the speeds its files came at are kept per cloud (podMeasures.ts). */
   cloud: z.enum(["SECURE", "COMMUNITY"]).optional(),
   /** The files its deploy asked for, handed to it at its first answer (podFiles.ts), then emptied. */
@@ -196,6 +200,8 @@ export const settingsSchema = z.object({
   rentCaps: z.object({ day: z.number().min(0).max(100_000).default(0), month: z.number().min(0).max(1_000_000).default(0) }).default({ day: 0, month: 0 }),
   /** The last deploy's choices: the Deploy dialog opens with them, and "Deploy again" repeats them. Null before the first. */
   lastDeploy: deploySchema.nullable().default(null),
+  /** A network volume no pod ran on for this many days is flagged (it bills every month all the same); 0: never. */
+  volumeUnusedDays: z.number().int().min(0).max(365).default(7),
   /**
    * The RunPod secrets of pods removed from Afflatus while they still were on RunPod: each pod reads its own at its start,
    * so it stays as long as the pod does, and is deleted once the pod is gone (rented.ts). Never given to the page.
@@ -440,6 +446,7 @@ export function publicSettings(s: Settings) {
     hasRunpodKey: Boolean(s.runpodKey),
     rentCaps: s.rentCaps,
     lastDeploy: s.lastDeploy,
+    volumeUnusedDays: s.volumeUnusedDays,
     finish: s.finish,
     slotFiles: s.slotFiles,
     acceptedPresets: s.acceptedPresets,

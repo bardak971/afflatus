@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Cpu, RotateCw } from "lucide-react";
-import { api, type Availability, type DeployAsk, type GpuOffer } from "./api";
+import { api, type Availability, type DeployAsk, type GpuOffer, type NetworkVolume } from "./api";
 import { useSettings } from "./data";
 import { DeployModels, SaveAsSet, type ModelsPicked } from "./DeployModels";
 import { DEPLOYED_READS } from "./deployReads";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
-import { usd } from "./format";
+import { gb, plural, usd } from "./format";
 import { useNow } from "./hooks";
 import { Keys } from "./Keys";
 import { queryKeys } from "./queryKeys";
@@ -40,6 +40,14 @@ const WHY_TEMPLATE = "Afflatus: ComfyUI 0.37 with its Manager, the Afflatus node
 const WHY_CLOUD = "Secure Cloud: RunPod's own data centers. Community Cloud: hosts run by others, cheaper, fewer guarantees: some have a GPU that does not work (the Afflatus image finds it at its start, and the pod is terminated within minutes, its pull time billed). Both bill by the second while the pod exists.";
 const WHY_DISK = "No volume: the models are fetched onto the pod's own disk at each deploy, and go with it when it is terminated ($0.10/GB a month while it runs, nothing after). A network volume keeps them between deploys, so a pod is ready in a minute ($0.07/GB a month, billed with or without a pod), and ties the pod to the volume's data center.";
 const WHY_DONE = "Idle: nothing rendering on it and nothing waiting that it could take. Terminate: nothing billed after, nothing left on RunPod (the pod, its secret). Watchdog: if this PC goes silent (crash, sleep, no internet), the node pack on the pod stops it by itself after that long (Afflatus's image only).";
+
+/** What a volume holds, as its option says it: the picked set's state on it, or how many files, as last seen. */
+const heldSaid = (v: NetworkVolume, set: string): string | undefined => {
+  if (!v.holds) return "what it holds: not known yet";
+  const s = v.sets.find((x) => x.id === set);
+  if (s) return s.missing.count ? `${s.name}: ${s.missing.bytes ? gb(s.missing.bytes) : `${s.missing.count} files`} missing` : `${s.name}: all there`;
+  return `holds ${plural(v.holds.count, "model file")}`;
+};
 
 /**
  * Deploy a GPU: what RunPod has free now (read again every 15 s), by price, with the image, the cloud, the disk and what
@@ -104,6 +112,14 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
       go(`/settings?machine=${encodeURIComponent(id)}`);
     },
   });
+  // the choices kept as the next deploy's without deploying (Settings › Rented GPUs › Next deploy); the files are a deploy's own
+  const saveNext = useMutation({
+    mutationFn: () => api.saveSettings({ lastDeploy: { ...want, files: [], leaveOut: [], accept: [], again: false } }),
+    onSuccess: (saved) => {
+      client.setQueryData(queryKeys.settings(), saved);
+      onClose();
+    },
+  });
   return (
     <Dialog label="Deploy a GPU" onClose={onClose} className={cx(DIALOG.replace("max-w-md", "max-w-[640px]"), "max-h-[calc(100vh-48px)]")}>
       <DialogHead icon={<Cpu size={16} />} title="Deploy a GPU" sub="RunPod · what is in stock now" onClose={onClose} />
@@ -162,8 +178,8 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
 
           <span className="flex items-center gap-1.5 font-semibold text-ink-2">Disk <Help text={WHY_DISK} /></span>
           <span className="flex flex-wrap items-center gap-2">
-            <span className="w-[200px]">
-              <Select size="sm" label="Network volume" value={want.volume || "none"} onChange={(v) => set({ volume: v === "none" ? "" : v })} options={[{ value: "none", label: "No volume" }, ...(volumes.data?.volumes ?? []).map((v) => ({ value: v.id, label: v.name, note: `${v.dataCenter} · ${v.size} GB` }))]} />
+            <span className="w-[280px]">
+              <Select size="sm" label="Network volume" value={want.volume || "none"} onChange={(v) => set({ volume: v === "none" ? "" : v })} options={[{ value: "none", label: "No volume" }, ...(volumes.data?.volumes ?? []).map((v) => ({ value: v.id, label: v.name, note: v.usedBy ? `in use by ${v.usedBy.name} · ${v.usedBy.status === "RUNNING" ? "running" : "starting"}` : `${v.dataCenter} · ${v.size} GB`, detail: v.usedBy ? undefined : heldSaid(v, want.set), disabled: Boolean(v.usedBy) }))]} />
             </span>
             {!volume && (
               <span className="w-[110px]">
@@ -192,9 +208,16 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
         )}
         <SaveAsSet files={models.files} />
 
+        {volume?.usedBy && (
+          <span className="flex items-center gap-2 text-xs text-warn-ink">
+            The volume {volume.name} is in use by {volume.usedBy.name}: one pod at a time on a volume.
+            <Button size="sm" onClick={() => set({ volume: "" })}>Deploy without it</Button>
+          </span>
+        )}
         {imageMissing && <ErrorNote>{want.template === "afflatus" ? "The Afflatus image is not published yet, or not public: RunPod could not pull it. Deploy with RunPod's ComfyUI meanwhile." : "RunPod's ComfyUI image cannot be pulled from Docker Hub now."}</ErrorNote>}
         {want.template === "runpod" && <ErrorNote>RunPod's ComfyUI has no Afflatus pack: it is not locked, so anyone who finds its address can run work on it, and nothing stops it if this PC goes silent.</ErrorNote>}
         {deploy.isError && <ErrorNote>{deploy.error.message}</ErrorNote>}
+        {saveNext.isError && <ErrorNote>{saveNext.error.message}</ErrorNote>}
       </div>
       <DialogFoot info={picked
         ? `Billed from deploy · ${picked.name} ${picked.places[0]!.id === "any" ? "on Community Cloud" : `in ${picked.places[0]!.id}`}`
@@ -203,7 +226,8 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
           ? <span className="inline-flex items-center gap-2 text-warn-ink">{gone.name} not in stock {volume ? `in ${volume.dataCenter} ` : ""}now{instead ? `; the ${instead.name} is, at ${usd(instead.price)}/h` : ""}{instead && <Button size="sm" onClick={() => set({ gpu: instead.id })}>Pick it</Button>}</span>
           : "Pick a GPU"}>
         <Button tone="quiet" onClick={onClose}>Cancel <Keys keys="Esc" size="sm" /></Button>
-        <Button tone="primary" onClick={() => deploy.mutate()} disabled={!picked || imageMissing || deploy.isPending || !models.ready || !diskFits}>{deploy.isPending ? "Deploying…" : picked ? `Deploy · ${usd(picked.price)}/h` : "Deploy"}</Button>
+        <Button tone="quiet" onClick={() => saveNext.mutate()} disabled={!want.gpu || saveNext.isPending} data-tip="What this dialog opens with next time, and what Deploy again does: kept without deploying">Save as next deploy</Button>
+        <Button tone="primary" onClick={() => deploy.mutate()} disabled={!picked || imageMissing || deploy.isPending || !models.ready || !diskFits || Boolean(volume?.usedBy)}>{deploy.isPending ? "Deploying…" : picked ? `Deploy · ${usd(picked.price)}/h` : "Deploy"}</Button>
       </DialogFoot>
     </Dialog>
   );

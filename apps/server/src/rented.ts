@@ -4,10 +4,12 @@ import type { Comfy } from "./comfy";
 import type { Db } from "./db";
 import { httpError } from "./errors";
 import { newToken } from "./lock-api";
-import { COMFY_PORT, exposesComfy, imageFor, LOCK_ENV, noCapacity, POD_IMAGES, podMachineId, podUrl, Runpod, RunpodError, RunpodShape, secretRef, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ACTION_ENV, WATCHDOG_ENV, type BillRecord, type GpuOffer, type NetworkVolume, type Pod, type PodSpec, type PodStatus } from "./runpod";
+import { COMFY_PORT, exposesComfy, imageFor, LOCK_ENV, noCapacity, POD_IMAGES, podMachineId, podUrl, Runpod, RunpodError, RunpodShape, secretRef, RUNNING_DISK_PER_GB_MONTH, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ACTION_ENV, WATCHDOG_ENV, type BillRecord, type GpuOffer, type NetworkVolume, type Pod, type PodSpec, type PodStatus } from "./runpod";
 import type { PresetFile } from "@afflatus/core";
 import { imagePublic } from "./podImage";
 import { recordMeasure } from "./podMeasures";
+import { SEARCHED_FOLDERS } from "./modelSets";
+import { inUseSaid, keptHoldings, noteFill, noticeVolumes, mountedOn, recordHoldings, usedBy, viewVolumes, VOLUME_MAX_GB, VOLUME_MIN_GB, VOLUME_PER_GB_MONTH, type Storage, type VolumeView } from "./rentedVolumes";
 import { MAX_MACHINES, readSettings, updateSettings, type DeployAsk, type Machine, type Settings } from "./settings";
 
 /**
@@ -57,7 +59,7 @@ export interface RentedView {
    * Why Afflatus stopped or terminated it last, when it did: "boot" when its ComfyUI never answered; "gpu" when the pod said its
    * GPU does not work; "watchdog" when its watchdog stopped it while Afflatus was away, and Afflatus terminated what was left.
    */
-  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | null;
+  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | "filled" | null;
   /** Deployed and on its first start (its image pulled, ComfyUI starting): a normal step, said as one, not as an error. */
   booting: boolean;
   /** What went wrong with this pod, or asking RunPod, when something did. */
@@ -78,6 +80,8 @@ export interface Spending {
   runwayMs: number | null;
   /** Today and this month are RunPod's own bill (with Afflatus's count for the hours RunPod has not billed yet); false: Afflatus's count alone. */
   billed: boolean;
+  /** What storage costs (volumes, the pods' own disks); null when RunPod was not read. Never counted against the caps. */
+  storage: Storage | null;
 }
 
 /** What a pod cost as Afflatus counts it (rent_sessions), today and this month, and whether a run of it is still open. */
@@ -103,6 +107,8 @@ const TRANSITIONAL: ReadonlySet<string> = new Set(["PROVISIONING", "STARTING"]);
  * pod slow to come up reaches a cap too; RunPod's bill stays the reference.
  */
 const BILLED: ReadonlySet<string> = new Set(["RUNNING", "STARTING", "PROVISIONING"]);
+/** How often the folders of a volume a pod runs on are listed, to keep what it holds (rentedVolumes.ts). */
+const VOLUME_LIST_MS = 5 * 60_000;
 /** After a cap, how long a render that does not end is waited for before the pod is stopped all the same. */
 const CAP_GRACE_MS = 60 * 60_000;
 /**
@@ -274,8 +280,20 @@ export class Rented {
   /** A deployed pod answered for the first time: the files its deploy asked for, and the ones it left out (services.ts hands them to podFiles). */
   onUp: ((machine: string, files: PresetFile[], leaveOut: Array<{ file: string; folder: string }>) => void) | null = null;
 
-  /** Whether a machine can take work: a rented one only while its pod runs and is not being stopped. Null: it can. */
+  /** The files a machine's pod still waits for, all it was given, and those that failed (services.ts: podFiles). */
+  filesLeft: ((machine: string) => { left: number; total: number; failed: Array<{ file: string; error: string }> }) | null = null;
+
+  /** Machines deployed only to fill their volume: they take no render. */
+  private filling = new Set<string>();
+
+  /** Whether a machine can take work: a rented one only while its pod runs and is not being stopped, never one filling its volume. Null: it can. */
   unavailable(machine: string): string | null {
+    if (this.filling.has(machine)) return "filling its volume";
+    return this.podDown(machine);
+  }
+
+  /** Whether a machine's pod is down: not running, or being stopped. Null: up (or not a rented machine). Its files follow this. */
+  podDown(machine: string): string | null {
     const s = this.seen.get(machine);
     if (!s) return null;
     if (s.stopping) return "being stopped";
@@ -333,13 +351,91 @@ export class Rented {
     });
   }
 
-  /** The account's network volumes (Deploy a GPU). */
-  async volumes(): Promise<NetworkVolume[]> {
+  /** The account's network volumes (Deploy a GPU, Settings): each with the pod running on it, when one is. */
+  async volumes(): Promise<VolumeView[]> {
     const s = await readSettings(this.db);
     if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
-    return this.client(s.runpodKey).volumes().catch((err: Error) => {
+    const client = this.client(s.runpodKey);
+    const [volumes, pods] = await Promise.all([client.volumes(), client.pods()]).catch((err: Error) => {
       throw httpError(err.message, 502);
     });
+    const kept = await keptHoldings(this.db);
+    await noticeVolumes(this.db, volumes, kept, this.now());
+    return viewVolumes(volumes, pods, s.machines, kept, s.volumeUnusedDays, this.now());
+  }
+
+  /** When each pod last listed its volume's folders (ms), by machine and volume: at most every VOLUME_LIST_MS, a new pod at its first answer. */
+  private volumeListed = new Map<string, number>();
+
+  /**
+   * What the volume a pod runs on holds, listed through its ComfyUI and kept (what a volume holds once no pod is on it),
+   * at most every few minutes; and that the volume was used now. Never in the way of the poll: a failure is only said.
+   */
+  private async noteVolume(m: Machine, volume: string): Promise<void> {
+    const key = `${m.id}|${volume}`;
+    const last = this.volumeListed.get(key) ?? 0;
+    if (this.now() - last < VOLUME_LIST_MS) return;
+    this.volumeListed.set(key, this.now());
+    const comfy = await this.comfyOf(m.id);
+    if (!comfy) return;
+    await recordHoldings(this.db, volume, comfy, m.name || m.id, SEARCHED_FOLDERS, this.now()).catch((err: Error) => console.warn(`[rented] what the volume of ${m.name || m.id} holds was not read: ${err.message}`));
+  }
+
+  /** A network volume made, as the user asked (its monthly price said before): billed every month from now, pod or not. */
+  async makeVolume(name: string, size: number, dataCenter: string): Promise<NetworkVolume> {
+    const s = await readSettings(this.db);
+    if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
+    if (!Number.isInteger(size) || size < VOLUME_MIN_GB || size > VOLUME_MAX_GB) throw httpError(`A volume is ${VOLUME_MIN_GB} to ${VOLUME_MAX_GB} GB.`);
+    const made = await this.client(s.runpodKey).createVolume(name, size, dataCenter).catch((err: Error) => {
+      throw httpError(err.message, 502);
+    });
+    console.log(`[rented] volume ${made.name} made in ${made.dataCenter}, ${made.size} GB`);
+    this.storageSeen = null;
+    this.events.emit("setup");
+    return made;
+  }
+
+  /** The data centers that take a network volume; null when RunPod does not say (Make a volume then offers every place). */
+  async volumeDataCenters(): Promise<string[] | null> {
+    const s = await readSettings(this.db);
+    if (!s.runpodKey) return null;
+    return this.client(s.runpodKey).volumeDataCenters().catch(() => null);
+  }
+
+  /** A network volume made larger: RunPod never makes one smaller. */
+  async growVolume(id: string, size: number): Promise<void> {
+    const s = await readSettings(this.db);
+    if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
+    const client = this.client(s.runpodKey);
+    const volume = (await client.volumes().catch((err: Error) => {
+      throw httpError(err.message, 502);
+    })).find((v) => v.id === id);
+    if (!volume) throw httpError("That network volume is not on this account any more.", 404);
+    if (!Number.isInteger(size) || size <= volume.size || size > VOLUME_MAX_GB) throw httpError(`A volume only grows: more than ${volume.size} GB, ${VOLUME_MAX_GB} at most.`);
+    await client.growVolume(id, size).catch((err: Error) => {
+      throw httpError(err.message, 502);
+    });
+    this.events.emit("setup");
+  }
+
+  /** A network volume deleted with all it holds (its billing ends): never while a pod is mounted on it, stopped ones too. */
+  async deleteVolume(id: string): Promise<void> {
+    const s = await readSettings(this.db);
+    if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
+    const client = this.client(s.runpodKey);
+    const [volumes, pods] = await Promise.all([client.volumes(), client.pods()]).catch((err: Error) => {
+      throw httpError(err.message, 502);
+    });
+    const volume = volumes.find((v) => v.id === id);
+    if (!volume) throw httpError("That network volume is not on this account any more.", 404);
+    const on = mountedOn(id, pods, s.machines);
+    if (on.length) throw httpError(`The volume "${volume.name}" is mounted on ${on.map((p) => `${p.name} (${p.status === "EXITED" ? "stopped" : p.status.toLowerCase()})`).join(", ")}: terminate ${on.length === 1 ? "that pod" : "those pods"} first.`, 409);
+    await client.deleteVolume(id).catch((err: Error) => {
+      throw httpError(err.message, 502);
+    });
+    console.log(`[rented] volume ${volume.name} deleted`);
+    this.storageSeen = null;
+    this.events.emit("setup");
   }
 
   /**
@@ -348,17 +444,40 @@ export class Rented {
    * only ComfyUI's port open; added as a machine at once, and the choices kept for the next deploy. Refused at a spending
    * cap. Billed from now: Afflatus never deploys on its own.
    */
-  async deploy(ask: DeployAsk): Promise<{ id: string }> {
+  async deploy(ask: DeployAsk, o: { fill?: boolean } = {}): Promise<{ id: string }> {
     if (this.deploying) throw httpError("A deploy is under way: wait for it to end.", 409);
     this.deploying = true;
     try {
-      return await this.deployNow(ask);
+      return await this.deployNow(ask, o.fill ?? false);
     } finally {
       this.deploying = false;
     }
   }
 
-  private async deployNow(ask: DeployAsk): Promise<{ id: string }> {
+  /**
+   * The cheapest GPU in stock where a volume is, to fill it: what Fill from a set… deploys (said with its price first).
+   * Null when none is free there now.
+   */
+  async fillGpu(volume: string): Promise<{ gpu: GpuOffer; volume: NetworkVolume } | null> {
+    const found = (await this.volumes()).find((v) => v.id === volume);
+    if (!found) throw httpError("That network volume is not on this account any more.", 404);
+    if (found.usedBy) throw httpError(inUseSaid(found.name, found.usedBy), 409);
+    const offers = await this.gpus("SECURE");
+    const gpu = offers.filter((g) => g.dataCenters.some((d) => d.id === found.dataCenter && d.availability !== "NONE")).sort((a, b) => a.price - b.price)[0];
+    return gpu ? { gpu, volume: found } : null;
+  }
+
+  /**
+   * A pod deployed only to fill a volume with these files (Fill from a set…): the cheapest GPU in stock there, Afflatus's
+   * image, no render given to it, terminated once its files are in. Billed from now, as any deploy, on the user's click.
+   */
+  async fill(volume: string, set: string, files: PresetFile[]): Promise<{ id: string }> {
+    const found = await this.fillGpu(volume);
+    if (!found) throw httpError("No GPU is free where that volume is now: try again later.", 409);
+    return this.deploy({ gpu: found.gpu.id, cloud: "SECURE", template: "afflatus", volume, disk: 20, idleMinutes: 5, idleDo: "terminate", watchdogMinutes: 15, set, files, leaveOut: [], accept: [], again: false }, { fill: true });
+  }
+
+  private async deployNow(ask: DeployAsk, fill = false): Promise<{ id: string }> {
     const s = await readSettings(this.db);
     if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
     // a pod made that cannot be kept as a machine would have to be terminated at once, its first seconds billed
@@ -369,13 +488,16 @@ export class Rented {
     }
     // an image RunPod could not pull would leave a pod provisioning, billed, until its boot limit: asked of its registry first
     const client = this.client(s.runpodKey);
-    const [offers, volumes] = await Promise.all([client.gpus(ask.cloud), ask.volume ? client.volumes() : Promise.resolve([])]).catch((err: Error) => {
+    const [offers, volumes, pods] = await Promise.all([client.gpus(ask.cloud), ask.volume ? client.volumes() : Promise.resolve([]), ask.volume ? client.pods() : Promise.resolve([])]).catch((err: Error) => {
       throw httpError(err.message, 502);
     });
     const offer = offers.find((g) => g.id === ask.gpu);
     if (!offer) throw httpError(`RunPod does not offer that GPU on ${ask.cloud === "COMMUNITY" ? "Community" : "Secure"} Cloud now: pick another.`, 409);
     const volume = ask.volume ? volumes.find((v) => v.id === ask.volume) ?? null : null;
     if (ask.volume && !volume) throw httpError("That network volume is not on this account any more: pick another, or deploy without one.", 409);
+    // one running pod per volume: a second would write over what the first keeps there
+    const taken = volume ? usedBy(volume.id, pods, s.machines) : null;
+    if (volume && taken) throw httpError(inUseSaid(volume.name, taken), 409);
     const listed = offer.dataCenters.filter((d) => d.availability !== "NONE" && (!volume || d.id === volume.dataCenter)).sort((a, b) => FREEST[a.availability] - FREEST[b.availability]).map((d) => d.id);
     // RunPod said it is free without saying where: wherever it puts it (never with a volume, which has its own)
     const places: Array<string | null> = listed.length || volume || offer.dataCenters.length || offer.availability === "NONE" ? listed : [null];
@@ -444,9 +566,10 @@ export class Rented {
         let name = offer.name.slice(0, 36);
         for (let n = 2; names.has(name); n++) name = `${offer.name.slice(0, 36)} ${n}`;
         // without a volume a stop keeps nothing and its GPU may be taken meanwhile: terminated, as for a pod added
-        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString(), cloud: ask.cloud, files: ask.files, leaveOut: ask.leaveOut };
-        // the next deploy starts from the same choices; the files are this one's
-        return { machines: [...current.machines, { id, name, url: podUrl(made.id), dir: "", takes: "all" as const, families: {}, token, rented }], lastDeploy: { ...ask, files: [], leaveOut: [], accept: [] } };
+        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString(), cloud: ask.cloud, volume: volume?.id ?? "", fill, files: ask.files, leaveOut: ask.leaveOut };
+        const machines = [...current.machines, { id, name, url: podUrl(made.id), dir: "", takes: "all" as const, families: {}, token, rented }];
+        // the next deploy starts from the same choices; the files are this one's. A fill is not a deploy of the user's choices
+        return fill ? { machines } : { machines, lastDeploy: { ...ask, files: [], leaveOut: [], accept: [] } };
       });
     } catch (err) {
       // not kept as a machine: nothing here would ever stop it, so it goes at once
@@ -454,6 +577,8 @@ export class Rented {
       if (kept) await client.deleteSecret(secret).catch(() => {});
       throw err;
     }
+    // a fill takes no render from its first second, not from the next read
+    if (fill) this.filling.add(id);
     console.log(`[rented] deployed ${offer.name} in ${made.dataCenter ?? "a data center"} (${ask.template}, ${volume ? `volume ${volume.name}` : "no volume"})`);
     this.events.emit("setup");
     void this.poll();
@@ -500,6 +625,7 @@ export class Rented {
     this.spentThisPoll = null;
     const settings = await readSettings(this.db);
     const rented = settings.machines.filter((m) => m.rented);
+    this.filling = new Set(rented.filter((m) => m.rented!.fill).map((m) => m.id));
     for (const id of this.seen.keys()) if (!rented.some((m) => m.id === id)) this.seen.delete(id);
     // a run still open for a machine that is no longer this pod (removed from Afflatus while it ran, or added again as
     // another pod) is closed now, where it was last seen running: nothing would ever close it otherwise
@@ -760,6 +886,23 @@ export class Rented {
       s.lockTried = true;
       await this.lockPod(m.id).catch((err: Error) => console.warn(`[rented] ${m.name || m.id} not locked: ${err.message}`));
     }
+    if (answers && pod?.volumeId) void this.noteVolume(m, pod.volumeId);
+    // a pod filling its volume: terminated once its files are in (what the volume holds listed first), kept until then
+    if (m.rented!.fill) {
+      const files = this.filesLeft?.(m.id);
+      if (answers && !m.rented!.deployedAt && files && files.left === 0) {
+        if (pod?.volumeId) {
+          this.volumeListed.delete(`${m.id}|${pod.volumeId}`);
+          await this.noteVolume(m, pod.volumeId);
+          // how it ended, kept with the volume: its row says it once the pod is gone (a file that failed, and why)
+          await noteFill(this.db, pod.volumeId, files.failed, this.now()).catch(() => {});
+          if (files.failed.length) console.log(`[rented] ${m.name || m.id}: ${files.failed.length} of its files failed: ${files.failed.map((f) => f.file).join(", ")}`);
+        }
+        await this.act(m, "terminate", "filled");
+        return true;
+      }
+      s.busyAt = this.now();
+    }
     await this.keepOrStop(m, s, caps, answers);
     return changed;
   }
@@ -940,14 +1083,53 @@ export class Rented {
     return { today: sumToday, month: sumMonth, billed: records !== null };
   }
 
-  /** Today's and this month's cost, the caps, and RunPod's balance. */
+  /** Today's and this month's cost, the caps, RunPod's balance, and what storage costs. */
   async spending(): Promise<Spending> {
     const s = await readSettings(this.db);
     const spent = await this.spent();
     // RunPod is asked at most once a minute: the card reads this every 10 s while a pod runs
     if (s.runpodKey) await this.readBalance(s.runpodKey);
     const balance = this.balanceSeen?.value ?? null;
-    return { ...spent, caps: s.rentCaps, balance, lowBalance: balance !== null && balance < LOW_BALANCE, spendPerHr: this.balanceSeen?.spendPerHr ?? null, runwayMs: this.runwayMs() };
+    const storage = s.runpodKey ? await this.storage(s.runpodKey) : null;
+    return { ...spent, caps: s.rentCaps, balance, lowBalance: balance !== null && balance < LOW_BALANCE, spendPerHr: this.balanceSeen?.spendPerHr ?? null, runwayMs: this.runwayMs(), storage };
+  }
+
+  private storageSeen: { at: number; value: Storage | null } | null = null;
+
+  /**
+   * What storage costs on the account: the volumes' bill this month, the pods' own disks within this month's bill, and
+   * what it all costs a month as it stands. Read again every few minutes (it moves by the day); null when RunPod does not
+   * answer.
+   */
+  private async storage(key: string): Promise<Storage | null> {
+    if (this.storageSeen && (this.now() - this.storageSeen.at < BILL_EVERY_MS || this.now() < this.quietUntil)) return this.storageSeen.value;
+    const d = new Date(this.now());
+    const month = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+    const client = this.client(key);
+    const [volumes, pods, volumeBills, podBills] = await Promise.all([
+      client.volumes().catch(() => null),
+      client.pods().catch(() => null),
+      client.volumeBilling(month, this.now()).catch(() => null),
+      this.bill(key, month),
+    ]);
+    let value: Storage | null = null;
+    if (volumes && pods) {
+      const disks = pods.filter((p) => p.status !== "TERMINATED" && p.diskGb > 0);
+      const kept = await keptHoldings(this.db);
+      await noticeVolumes(this.db, volumes, kept, this.now());
+      const settings = await readSettings(this.db);
+      const unused = viewVolumes(volumes, pods, settings.machines, await keptHoldings(this.db), settings.volumeUnusedDays, this.now()).filter((v) => v.unused);
+      value = {
+        volumesMonth: volumeBills ? volumeBills.filter((b) => b.end > month).reduce((n, b) => n + b.amount, 0) : null,
+        disksMonth: (podBills ?? []).filter((r) => r.end > month).reduce((n, r) => n + r.disk, 0),
+        perMonth: volumes.reduce((n, v) => n + v.size * VOLUME_PER_GB_MONTH, 0) + disks.reduce((n, p) => n + p.diskGb * (p.status === "EXITED" ? STOPPED_DISK_PER_GB_MONTH : RUNNING_DISK_PER_GB_MONTH), 0),
+        volumes: volumes.length,
+        stoppedDisks: disks.filter((p) => p.status === "EXITED").length,
+        unused: unused.map((v) => ({ id: v.id, name: v.name, perMonth: v.perMonth, usedAt: v.usedAt })),
+      };
+    }
+    this.storageSeen = { at: this.now(), value };
+    return value;
   }
 
   /** The user's Start: refused at a cap. */
@@ -1104,7 +1286,8 @@ export class Rented {
     }
     // a deployed pod terminated by its idle time, a cap or a boot that never came: nothing is left of it, its machine goes too
     // (the user's own Terminate removes it in stopBy)
-    if (action === "terminate" && m.rented!.deployed && (why === "idle" || why === "cap" || why === "watchdog")) await this.forget(m, s);
+    if (action === "terminate" && m.rented!.deployed && (why === "idle" || why === "cap" || why === "watchdog" || why === "filled")) await this.forget(m, s);
+    if (why === "filled") console.log(`[rented] ${m.name || m.id}: its volume filled, terminated`);
     if (why === "watchdog") console.log(`[rented] ${m.name || m.id}: found stopped by its watchdog, terminated (it kept nothing)`);
     if (why === "idle" || why === "cap" || why === "boot" || why === "gpu") console.log(`[rented] ${m.name || m.id}: ${action === "terminate" ? "terminated" : "stopped"} (${why === "idle" ? `idle ${m.rented!.idleMinutes} min` : why === "boot" ? `its ComfyUI never answered in ${bootLimit(m) / 60_000} min` : why === "gpu" ? "its GPU did not work on that host" : "a spending cap"})`);
     this.events.emit("queue");

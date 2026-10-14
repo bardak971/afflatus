@@ -5,7 +5,7 @@ import { Search, X } from "lucide-react";
 import { fuzzyScore } from "@afflatus/core";
 import { api } from "../api";
 import { useFamilies, useQueue, useRecipes, useSettings, useSetup, useStorage } from "../data";
-import { size } from "../format";
+import { plural, size } from "../format";
 import { scrollInside } from "../scrollInside";
 import { cx, Segmented } from "../ui";
 import { AboutCard } from "./settings/AboutCard";
@@ -36,13 +36,19 @@ function useTabMarks(): Partial<Record<Tab, ReactNode>> {
   const comfy = setup.data?.comfy;
   const podRunning = useQueue().data?.machines.some((m) => m.rented?.status === "RUNNING") ?? false;
   // RunPod's balance low (RunPod stops pods at zero): said on the tab, as the Rented GPUs card's own read finds it
-  const anyRented = useSettings().data?.machines.some((m) => m.rented) ?? false;
-  const lowBalance = useQuery({ queryKey: queryKeys.rentedSpending(), queryFn: ({ signal }) => api.rentedSpending({ signal }), enabled: anyRented, staleTime: 60_000 }).data?.spending?.lowBalance ?? false;
+  const settingsNow = useSettings().data;
+  // with a key and no pod, a volume left behind still bills: read whenever there is a key
+  const anyRented = Boolean(settingsNow?.hasRunpodKey) || (settingsNow?.machines.some((m) => m.rented) ?? false);
+  const spent = useQuery({ queryKey: queryKeys.rentedSpending(), queryFn: ({ signal }) => api.rentedSpending({ signal }), enabled: anyRented, staleTime: 60_000 }).data?.spending;
+  const lowBalance = spent?.lowBalance ?? false;
+  const unusedVolumes = spent?.storage?.unused.length ?? 0;
   // operations of the families that are on that cannot run: a family turned off is a choice, not a problem
   const notReady = setup.data ? (recipes.data?.recipes ?? []).filter((r) => families.isOn(r.family) && !setup.data!.recipes.find((x) => x.id === r.id)?.ready).length : 0;
   return {
     comfyui: comfy && <span aria-label={comfy.online ? "connected" : "not answering"} className={cx("h-[7px] w-[7px] rounded-full", comfy.online ? "bg-good" : "bg-warn")} />,
-    rented: lowBalance ? <span className="rounded-md bg-warn-wash px-1.5 font-mono text-[10.5px] text-warn-ink">balance low</span> : podRunning && <span aria-label="a pod running" className="h-[7px] w-[7px] rounded-full bg-good" />,
+    rented: lowBalance ? <span className="rounded-md bg-warn-wash px-1.5 font-mono text-[10.5px] text-warn-ink">balance low</span>
+      : unusedVolumes > 0 ? <span className="rounded-md bg-warn-wash px-1.5 font-mono text-[10.5px] text-warn-ink">{plural(unusedVolumes, "volume")} unused</span>
+      : podRunning && <span aria-label="a pod running" className="h-[7px] w-[7px] rounded-full bg-good" />,
     models: notReady > 0 && <span className="rounded-md bg-warn-wash px-1.5 font-mono text-[10.5px] text-warn-ink">{notReady} not ready</span>,
     storage: storage.data && <span className="font-mono text-[10.5px] font-normal text-ink-3">{size(storage.data.total)}</span>,
     about: health.data && <span className="font-mono text-[10.5px] font-normal text-ink-3">{/^\d/.test(health.data.version) ? `v${health.data.version}` : health.data.version}</span>,

@@ -82,7 +82,9 @@ export interface FakeRunpod {
   /** A pod comes up with its ComfyUI not answering (a first start pulling, a container that does not start). */
   comfyStaysDown: boolean;
   /** What RunPod billed, hour by hour (GET /v2/billing/pods): set by a test, as RunPod writes it some hours late; null: refused (403). */
-  bill: Array<{ podId: string; startTime: string; endTime: string; totalAmount: number }> | null;
+  bill: Array<{ podId: string; startTime: string; endTime: string; totalAmount: number; diskAmount?: number }> | null;
+  /** What RunPod billed the volumes, day by day (GET /v2/billing/network-volumes): set by a test or the demo. */
+  volumeBill: Array<{ networkVolumeId: string; startTime: string; endTime: string; totalAmount: number }>;
   close(): Promise<void>;
 }
 
@@ -123,8 +125,9 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
   const fake: Omit<FakeRunpod, "url" | "close"> = {
     key: o.key, pods, calls: [], balance: o.balance ?? 23.4, bootMs: o.bootMs ?? 1500,
     failAction: {}, failDetail: null, secrets: {}, failSecrets: false, stopMs: 0, failPatch: null, hideEnv: false, failList: null, oddList: false, actionDelayMs: 0,
-    gpus: o.gpus ?? FAKE_GPUS, volumes: o.volumes ?? [], noCapacity: new Set(), failCreate: null, createThenFail: null, bill: [], comfyStaysDown: false,
+    gpus: o.gpus ?? FAKE_GPUS, volumes: o.volumes ?? [], noCapacity: new Set(), failCreate: null, createThenFail: null, bill: [], comfyStaysDown: false, volumeBill: [],
   };
+  let volumesMade = 0;
   const timers = new Set<NodeJS.Timeout>();
   /** What the pods have cost: the stretches that ended, and what runs now. */
   let ended = 0;
@@ -166,7 +169,11 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
       // as RunPod: both ends of the period, or neither
       if (url.searchParams.has("startTime") !== url.searchParams.has("endTime")) return json(400, { title: "Bad Request", status: 400, detail: "startTime and endTime must be provided together" });
       const from = Date.parse(url.searchParams.get("startTime") ?? "") || 0;
-      return json(200, { records: fake.bill.filter((r) => Date.parse(r.endTime) > from).map((r) => ({ ...r, gpuAmount: r.totalAmount, cpuAmount: 0, diskAmount: 0 })), metadata: {} });
+      return json(200, { records: fake.bill.filter((r) => Date.parse(r.endTime) > from).map((r) => ({ ...r, gpuAmount: r.totalAmount - (r.diskAmount ?? 0), cpuAmount: 0, diskAmount: r.diskAmount ?? 0 })), metadata: {} });
+    }
+    if (req.method === "GET" && url.pathname === "/v2/billing/network-volumes") {
+      const from = Date.parse(url.searchParams.get("startTime") ?? "") || 0;
+      return json(200, { records: fake.volumeBill.filter((r) => Date.parse(r.endTime) > from).map((r) => ({ ...r, standardAmount: r.totalAmount, highPerformanceAmount: 0 })), metadata: {} });
     }
     // the GPUs a pod can be deployed on, their price on the cloud asked and how free they are, overall and by data center
     if (req.method === "GET" && url.pathname === "/v2/catalog/gpus") {
@@ -181,7 +188,35 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
         })),
       });
     }
+    // every data center of its GPUs takes a volume, but EU-SE-1
+    if (req.method === "GET" && url.pathname === "/v2/catalog/datacenters") {
+      const ids = [...new Set(fake.gpus.flatMap((g) => g.dataCenters.map((d) => d.id)))];
+      return json(200, { dataCenters: ids.map((id) => ({ id, name: id, region: "EUROPE", networkVolumeTypes: id === "EU-SE-1" ? [] : ["STANDARD"], globalNetwork: false, compliance: [] })) });
+    }
     if (req.method === "GET" && url.pathname === "/v2/network-volumes") return json(200, { networkVolumes: fake.volumes.map((v) => ({ ...v, type: "STANDARD" })) });
+    // a volume made (10 to 4096 GB, as RunPod), grown (never shrunk), deleted
+    if (req.method === "POST" && url.pathname === "/v2/network-volumes") {
+      const size = Number(body.size);
+      if (typeof body.name !== "string" || !body.name || typeof body.dataCenter !== "string" || !Number.isInteger(size) || size < 10 || size > 4096) return json(422, { title: "Unprocessable", status: 422, detail: "invalid volume" });
+      const made: FakeVolume = { id: `vol-${++volumesMade}`, name: body.name, size, dataCenter: body.dataCenter };
+      fake.volumes.push(made);
+      return json(201, { ...made, type: "STANDARD" });
+    }
+    const volumeAt = /^\/v2\/network-volumes\/([^/]+)$/.exec(url.pathname);
+    if (volumeAt) {
+      const v = fake.volumes.find((x) => x.id === decodeURIComponent(volumeAt[1]!));
+      if (!v) return json(404, { title: "Not Found", status: 404, detail: "network volume not found" });
+      if (req.method === "PATCH") {
+        const size = Number(body.size);
+        if (!Number.isInteger(size) || size < v.size || size > 4096) return json(400, { title: "Bad Request", status: 400, detail: "Invalid request body or size decrease attempted" });
+        v.size = size;
+        return json(200, { ...v, type: "STANDARD" });
+      }
+      if (req.method === "DELETE") {
+        fake.volumes = fake.volumes.filter((x) => x !== v);
+        return json(204);
+      }
+    }
     // a pod deployed: one GPU type, in the first data center asked that has one free (any, when none is asked)
     if (req.method === "POST" && url.pathname === "/v2/pods") {
       if (fake.failCreate) return json(fake.failCreate, { title: "Refused", status: fake.failCreate, detail: fake.failCreate === 402 ? "insufficient balance" : "create refused" });

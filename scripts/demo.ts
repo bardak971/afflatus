@@ -115,11 +115,12 @@ const RUNPOD_KEY = "demo-runpod-key";
 const pod = async () => Object.assign(await pretendComfy(), { packVersion: PACK });
 const pretendRunpod = process.env.DEMO_RUNPOD === "1" ? await startFakeRunpod({
   key: RUNPOD_KEY, bootMs: 8000,
-  // Deploy a GPU: a new pod is a new pretend ComfyUI with the node pack, up 8 s after it is made; one network volume
+  // Deploy a GPU: a new pod is a new pretend ComfyUI with the node pack, up 8 s after it is made; two network volumes, the
+  // 5090 mounted on the first (in use while it runs), the second never used
   spawn: pod,
-  volumes: [{ id: "demo-volume", name: "afflatus-models", size: 100, dataCenter: "EU-RO-1" }],
+  volumes: [{ id: "demo-volume", name: "afflatus-models", size: 100, dataCenter: "EU-RO-1" }, { id: "demo-old", name: "old-loras", size: 50, dataCenter: "US-TX-3" }],
   pods: [
-    { name: "comfy-5090", rate: 0.69, gpu: "NVIDIA GeForce RTX 5090", dataCenterId: "EU-RO-1", ports: ["8188/http", "22/tcp"], diskGb: 50, comfy: await pod() },
+    { name: "comfy-5090", rate: 0.69, gpu: "NVIDIA GeForce RTX 5090", dataCenterId: "EU-RO-1", ports: ["8188/http", "22/tcp"], diskGb: 50, volumeId: "demo-volume", comfy: await pod() },
     { name: "a100-tests", rate: 1.64, gpu: "NVIDIA A100", dataCenterId: "US-TX-3", ports: ["8188/http"], diskGb: 80, comfy: await pod() },
     { name: "jupyter-only", rate: 0.34, gpu: "NVIDIA RTX A4000", dataCenterId: "EU-SE-1", ports: ["8888/http"], diskGb: 20, comfy: await pod() },
   ],

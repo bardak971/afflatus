@@ -92,6 +92,10 @@ export interface RentedMachine {
   deployedAt: string;
   /** The user stopped it, until it is started again. */
   userStopped: boolean;
+  /** The network volume it was deployed on, by id ("" for none). */
+  volume: string;
+  /** Deployed only to fill its volume: it takes no render, and is terminated once its files are in. */
+  fill: boolean;
   /** RunPod's cloud it was deployed on, when Afflatus deployed it. */
   cloud?: "SECURE" | "COMMUNITY";
   /** The files its deploy asked for, until its first answer hands them to it. */
@@ -186,6 +190,8 @@ export interface Settings {
   rentCaps: { day: number; month: number };
   /** The last deploy's choices: the Deploy dialog opens with them, "Deploy again" repeats them. */
   lastDeploy: DeployAsk | null;
+  /** A network volume no pod ran on for this many days is flagged; 0: never. */
+  volumeUnusedDays: number;
   /** The user's defaults for "Finish all clips" on a timeline. */
   finish: FinishSettings;
   /** A family's file chosen by hand where several fit: family id → slot id → file. */

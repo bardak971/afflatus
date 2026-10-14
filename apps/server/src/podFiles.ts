@@ -168,10 +168,15 @@ export class PodFiles {
     return this.pods.get(machine)?.get(keyOf(e.folder, e.file)) === e;
   }
 
+  /** Whether the pod's own list of the folder has the file; null when its ComfyUI does not answer. */
+  private async onPod(machine: string, e: Entry): Promise<boolean | null> {
+    const comfy = await this.d.comfyOf(machine);
+    return (await comfy?.client.models(e.folder).then((files) => files.some((f) => fileName(f) === fileName(e.file)), () => null)) ?? null;
+  }
+
   /** "There already" from the pack: the pod's own list says whether it is there (else it is still coming: asked again later). */
   private async confirmThere(machine: string, e: Entry): Promise<void> {
-    const comfy = await this.d.comfyOf(machine);
-    const listed = await comfy?.client.models(e.folder).then((files) => files.some((f) => fileName(f) === fileName(e.file)), () => null);
+    const listed = await this.onPod(machine, e);
     if (!this.current(machine, e)) return;
     if (listed) await this.ready(machine, e, false);
     else this.retryLater(machine, e, "a copy of it is still on its way to the pod");
@@ -409,7 +414,7 @@ export class PodFiles {
           if (e.source) e.via = measureKind(e.source);
         }
         if (!e.source) {
-          this.fail(machine, e, "no site is known for it, and this computer's ComfyUI has no copy to send");
+          await this.failUnlessThere(machine, e, "no site is known for it, and this computer's ComfyUI has no copy to send");
           changed = true;
           continue;
         }
@@ -494,7 +499,7 @@ export class PodFiles {
       const message = (err as Error).message;
       if (THERE.test(message)) await this.confirmThere(machine, e);
       else if (PASSING.test(message)) this.retryLater(machine, e, message);
-      else this.fail(machine, e, message);
+      else await this.failUnlessThere(machine, e, message);
       this.d.changed?.();
     }
   }
@@ -523,7 +528,7 @@ export class PodFiles {
       if (stop.signal.aborted || !this.current(machine, e)) return;
       if (THERE.test(message)) await this.confirmThere(machine, e);
       else if (PASSING.test(message)) this.retryLater(machine, e, message);
-      else this.fail(machine, e, message);
+      else await this.failUnlessThere(machine, e, message);
     } finally {
       delete e.upload;
       void this.tick();
@@ -543,6 +548,17 @@ export class PodFiles {
         .catch((err: Error) => console.warn(`[pod files] a speed not kept: ${err.message}`));
     }
     void this.tick();
+  }
+
+  /**
+   * A file that cannot be had from here (no source, lookups or downloads turned off, a refusal) may be on the pod already (a
+   * volume that holds it): ready then, as the pod's own list says; failed otherwise.
+   */
+  private async failUnlessThere(machine: string, e: Entry, error: string): Promise<void> {
+    const listed = await this.onPod(machine, e);
+    if (!this.current(machine, e)) return;
+    if (listed) await this.ready(machine, e, false);
+    else this.fail(machine, e, error);
   }
 
   private fail(machine: string, e: Entry, error: string): true {
