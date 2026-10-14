@@ -26,8 +26,8 @@ const SWAP_SIZES = ["Source", "480p", "576p", "768p"] as const;
 
 /** The longest window one swap makes, in frames (17k + 5): 5.9 s. */
 export const SWAP_FRAMES = 141;
-/** The shortest: 39 frames, 1.6 s. */
-const SWAP_LEAST = 39;
+/** The shortest: 90 frames, 3.75 s. H3 was trained on clips of 124 frames and more; the LoRA's author found 4-5 s safest. */
+const SWAP_LEAST = 90;
 
 /** H3's inputs a swap does not take: its prompt is the caption, its length the source's part, its shape the source's. */
 const NOT_TAKEN = new Set([
@@ -53,13 +53,15 @@ const swapInputs: InputSpec[] = [
     note: "the video whose person is replaced. One swap holds 5.9 s of it; a longer one is swapped window by window on a timeline",
   },
   { id: "sourceStart", type: "number", label: "Source: start", min: 0, max: 3600, step: 0.1, default: 0, unit: " s", showWhen: "source" },
-  // (from 1.675 s, whole tenths below the 5.875 s of 141 frames for the slider's steps: still the 39 frames of the shortest window)
-  { id: "sourceSeconds", type: "number", label: "Source: length", min: 1.675, max: SWAP_FRAMES / H3_FPS, step: 0.1, default: SWAP_FRAMES / H3_FPS, unit: " s", showWhen: "source" },
+  // (whole tenths below the 5.875 s of 141 frames for the slider's steps: from 3.775 s, still the 90 frames of the shortest
+  // window). 5.175 s by default: 124 frames, the length the swap held 3 times of 3 at, within the 4-5 s its LoRA's author found safest
+  { id: "sourceSeconds", type: "number", label: "Source: length", min: 3.775, max: SWAP_FRAMES / H3_FPS, step: 0.1, default: 5.175, unit: " s", showWhen: "source" },
   ...h3Inputs.flatMap((spec): InputSpec[] => {
     if (NOT_TAKEN.has(spec.id)) return [];
-    // the model's own shifts, as the swap was tested and its LoRA's author ran it (12 / 3), not H3's full-step 11 / 4
-    if (spec.id === "shiftVideo" && spec.type === "number") return [{ ...spec, default: 12 }];
-    if (spec.id === "shiftAudio" && spec.type === "number") return [{ ...spec, default: 3 }];
+    // the model's own shifts (MiniMaxH3SigmaShift's defaults), as the swap was tested, not H3's full-step 11 / 4
+    if (spec.id === "shiftVideo" && spec.type === "number") return [{ ...spec, default: 12, note: "12, the model's own, as the swaps were tested. Higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail)" }];
+    if (spec.id === "shiftAudio" && spec.type === "number") return [{ ...spec, default: 3, note: "3, the model's own, as the swaps were tested" }];
+    if (spec.id === "fast" && spec.type === "toggle") return [{ ...spec, note: "8 steps with the turbo LoRA: not tested with the swap LoRA, whose author ran full steps" }];
     if (spec.id === "references" && spec.type === "references") {
       // one: the LoRA was trained on one <Picture 1>, and with three of the cast's photos H3 took one's room for the scene (2026-10-13)
       return [{ ...spec, label: "Who goes in", max: 1, roles: ["person"], note: "a picture of the person who takes their place: the cast's first (the face). The scene stays the video's: a second photo brought its own room in" }];
@@ -75,7 +77,7 @@ const swapInputs: InputSpec[] = [
   { id: "keepSound", type: "toggle", label: "Keep the source's sound", default: true, advanced: true, note: "the file carries the source video's own sound; off, the sound H3 makes" },
 ];
 
-/** The frames of the window: the part handed over (or asked for), floored to H3's 17k + 5, 39 to 141. */
+/** The frames of the window: the part handed over (or asked for), floored to H3's 17k + 5, 90 to 141. */
 function framesOf(input: H3Swap, ctx: Pick<BuildContext, "media">): number {
   const have = ctx.media.source?.frames ?? Math.round(input.sourceSeconds * H3_FPS);
   return Math.max(SWAP_LEAST, gridAtOrBefore(Math.min(SWAP_FRAMES, have), H3_GRID));
@@ -102,8 +104,8 @@ export const swapCaption = (who: string, pictures: number) => `Swap ${who} in <V
 
 /**
  * The swap as an H3 clip: MiniMax's reference model as it is (`unet`), the source's part as its one reference video, the
- * swap LoRA first among the LoRAs, its length the part's, its shape the source's and its size the one picked (the
- * source's own by default): with the hybrid Turbo fine-tune at 1024 × 576 the room was redrawn 3 times of 3, with ref2va
+ * swap LoRA first among the LoRAs, its length the part's, its shape the source's and its size the one picked (576p
+ * by default, see swapSize): with the hybrid Turbo fine-tune at 1024 × 576 the room was redrawn 3 times of 3, with ref2va
  * at the source's 864 × 480 it was kept as it was (2026-10-13).
  */
 function asClip(input: H3Swap, swapLora: string, frames: number, unet?: string, size?: { width: number; height: number }): H3Video {
@@ -174,7 +176,7 @@ export const h3Swap = defineRecipe<H3Swap>({
       },
       {
         name: "a short part, Turbo, the sound H3 makes",
-        input: { who: "the woman on the left.", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], keepSound: false },
+        input: { who: "the woman on the left.", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], keepSound: false, fast: true },
         slots: all, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: { ...part, frames: 90, hasSound: false } },
       },
     ];
