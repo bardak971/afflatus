@@ -28,6 +28,9 @@ import type { llmSchema, publicSettings, settingsSchema } from "../src/settings"
 import type { Timelines } from "../src/timelines";
 import type { clipPatch, timelinePatch } from "../src/timelines-api";
 import type { UpdatesView } from "../src/updates";
+import type { DeployModelsView } from "../src/deployModels";
+import type { ModelSetView, SetFileView } from "../src/modelSets";
+import type { DeployModels, ModelSet, SetFile } from "../../web/src/api/types/models";
 
 /**
  * The web keeps its own copy of the shapes the server answers with (it imports nothing from the server), so a field
@@ -153,6 +156,12 @@ describe("the web's API types match what the server answers", () => {
     agree<CommandEstimate, WebEstimate>().toEqualTypeOf<true>();
     agree<PromptHistoryItem, WebPromptItem>().toEqualTypeOf<true>();
     agree<DownloadView, Download>().toEqualTypeOf<true>();
+  });
+
+  it("Model sets, and a deploy's files", () => {
+    agree<ModelSetView, ModelSet>().toEqualTypeOf<true>();
+    agree<SetFileView, SetFile>().toEqualTypeOf<true>();
+    agree<DeployModelsView, DeployModels>().toEqualTypeOf<true>();
   });
 
   it("Afflatus's own updates", () => {

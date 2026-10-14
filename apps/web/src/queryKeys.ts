@@ -38,6 +38,14 @@ export const queryKeys = {
   runpodGpus: (cloud: string) => ["runpod-gpus", cloud] as const,
   runpodVolumes: () => ["runpod-volumes"] as const,
   runpodImages: () => ["runpod-images"] as const,
+  /** The Deploy dialog's Models part, by cloud (the speeds measured on it) and picked set. */
+  deployModels: (cloud: string, set: string) => ["deploy-models", cloud, set] as const,
+  /** The Model sets, a set's files, and what can be added to one. */
+  modelSets: {
+    all: () => ["model-sets"] as const,
+    files: (id: string) => ["model-sets", id, "files"] as const,
+    search: (q: string) => ["model-sets-search", q] as const,
+  },
   nodePack: (comfyDir: string | undefined) => ["node-pack", comfyDir] as const,
   packs: {
     all: () => ["packs"] as const,

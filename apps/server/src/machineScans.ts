@@ -49,13 +49,30 @@ export function mergeScans(scans: Array<{ machine: Machine; scan: Scan }>, setti
 }
 
 /** The model files and LoRAs a job asks for, by input, with the folder each goes in: what a machine must list for the job to run there. */
-function filesAsked(recipe: Pick<Recipe<any>, "inputs">, input: Record<string, unknown>): Array<{ input: string; file: string; folder: string }> {
+export function filesAsked(recipe: Pick<Recipe<any>, "inputs">, input: Record<string, unknown>): Array<{ input: string; file: string; folder: string }> {
   return recipe.inputs.flatMap((i) => {
     const v = input[i.id];
     if (i.type === "model" && typeof v === "string" && v) return [{ input: i.id, file: v, folder: i.folder }];
     if (i.type === "loras" && Array.isArray(v)) return (v as LoraValue[]).filter((l) => l?.file).map((l) => ({ input: i.id, file: l.file, folder: "loras" }));
     return [];
   });
+}
+
+/**
+ * Every model file a job uses, as a machine that has none of them would need them (a pod just deployed): the files its
+ * inputs name and its family's files its recipe needs, as `scan` (this computer's) finds them, else the family's usual one.
+ */
+export function filesUsed(recipe: Pick<Recipe<any>, "family" | "inputs" | "needs">, input: Record<string, unknown>, scan: Scan | null, slots: Array<{ id: string; folder: string; optional?: boolean; get?: { file: string; url: string } }>): Array<{ file: string; folder: string; url?: string }> {
+  const out: Array<{ file: string; folder: string; url?: string }> = filesAsked(recipe, input).map(({ file, folder }) => ({ file, folder }));
+  const found = scan?.families.find((f) => f.id === recipe.family)?.slots ?? [];
+  // a slot an input stands for is that input's file
+  const byInput = new Set(recipe.inputs.flatMap((i) => (i.type === "model" && i.slot && input[i.id] ? [i.slot] : [])));
+  for (const slot of slots) {
+    if ((slot.optional && !recipe.needs?.includes(slot.id)) || byInput.has(slot.id)) continue;
+    const file = found.find((x) => x.id === slot.id)?.file ?? slot.get?.file;
+    if (file) out.push({ file, folder: slot.folder, ...(slot.get && slot.get.file === file ? { url: slot.get.url } : {}) });
+  }
+  return out.filter((f, i) => out.findIndex((g) => g.file === f.file && g.folder === f.folder) === i);
 }
 
 /** What keeps a job off a machine: its family switched off there, and the files it lacks there (with where to get each, when known). */

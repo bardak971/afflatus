@@ -1,5 +1,6 @@
 /** The settings, the language models they name, and the start-up checks. */
 import type { BarSettings } from "./bar";
+import type { PresetFile } from "./designer";
 
 /** Alive, the version, and the start-up checks: what this computer has of what Afflatus needs. */
 export interface Health {
@@ -91,6 +92,10 @@ export interface RentedMachine {
   deployedAt: string;
   /** RunPod's cloud it was deployed on, when Afflatus deployed it. */
   cloud?: "SECURE" | "COMMUNITY";
+  /** The files its deploy asked for, until its first answer hands them to it. */
+  files: PresetFile[];
+  /** The files its deploy left out, until its first answer. */
+  leaveOut: Array<{ file: string; folder: string }>;
 }
 
 /** What a GPU is deployed with: the Deploy dialog's choices, kept as the next deploy's (Settings.lastDeploy). */
@@ -107,6 +112,14 @@ export interface DeployAsk {
   idleMinutes: number;
   idleDo: "stop" | "terminate";
   watchdogMinutes: number;
+  /** The Model set picked (its id); empty: none. */
+  set: string;
+  /** The model files ticked, fetched onto the pod once it is up (empty in lastDeploy). */
+  files: PresetFile[];
+  /** The waiting jobs' files unticked: those jobs stay elsewhere (empty in lastDeploy). */
+  leaveOut: Array<{ file: string; folder: string }>;
+  /** The set's presets whose licence was accepted in the dialog (empty in lastDeploy). */
+  accept: string[];
 }
 /** A ComfyUI asked now (GET /api/machines): whether it answers (and why not), its version, its GPU and the Afflatus node pack it loaded. */
 export interface MachineProbe {

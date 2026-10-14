@@ -145,6 +145,26 @@ export class PodFiles {
     return { state: mine.every((e) => e.state === "ready") ? "ready" : "waiting", files };
   }
 
+  /** Files the user left out of the pod (unticked at its deploy): never fetched there, and the jobs that use one stay elsewhere. */
+  leaveOut(machine: string, files: Array<{ file: string; folder: string }>): void {
+    let pod = this.pods.get(machine);
+    if (!pod) this.pods.set(machine, (pod = new Map()));
+    for (const f of files) {
+      const key = keyOf(f.folder, f.file);
+      if (pod.get(key)?.state === "ready") continue;
+      pod.set(key, { file: f.file, folder: f.folder, state: "failed", error: "left out when the pod was deployed", tier: "ahead", bytes: 0, total: 0, jobs: [], needAt: Infinity, source: null });
+    }
+    this.d.changed?.();
+  }
+
+  /** Where a file would come from and how large it is, before it is asked for (the Deploy dialog): null for what is not known. */
+  async about(f: PodFileWant): Promise<{ via: "hf" | "civitai" | "url" | "upload" | null; size: number | null }> {
+    const src = await this.sourceOf(f);
+    if (!src) return { via: null, size: f.size ?? null };
+    const size = f.size ?? (await this.sizeOf(f, src));
+    return { via: measureKind(src), size: size === ASSUMED_BYTES ? null : size };
+  }
+
   /** Whether a file failed on that pod already (asking again would fail again): its reason. */
   failed(machine: string, folder: string, file: string): string | null {
     const e = this.pods.get(machine)?.get(keyOf(folder, file));

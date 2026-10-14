@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { acceptSetLicences, deployModels } from "./deployModels";
 import { httpError } from "./errors";
 import { podMachineId, podUrl } from "./runpod";
 import type { Services } from "./services";
@@ -35,8 +36,18 @@ export function registerRented(app: FastifyInstance, s: Services): void {
     return { ok: true };
   });
 
+  /** What the Deploy dialog's Models part shows: the waiting jobs' files, the picked set's, and what earlier deploys measured. Read-only. */
+  app.get("/api/runpod/deploy/models", async (req) => {
+    const q = z.object({ cloud: z.enum(["SECURE", "COMMUNITY"]).default("SECURE"), set: z.string().max(80).default("") }).parse(req.query);
+    return deployModels(s, q);
+  });
+
   /** A GPU deployed, as the dialog asked: billed from now. The user's click only; refused at a spending cap. */
-  app.post("/api/runpod/deploy", async (req) => s.rented.deploy(deploySchema.parse(req.body)));
+  app.post("/api/runpod/deploy", async (req) => {
+    const ask = deploySchema.parse(req.body);
+    await acceptSetLicences(s, ask);
+    return s.rented.deploy(ask);
+  });
 
   /** A pod added as a machine, as it is (running or stopped): its ComfyUI's address worked out from it. Nothing is started. */
   app.post("/api/runpod/add", async (req) => {

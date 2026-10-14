@@ -4,6 +4,7 @@ import { useLocation } from "wouter";
 import { Cpu, RotateCw } from "lucide-react";
 import { api, type Availability, type DeployAsk, type GpuOffer } from "./api";
 import { useSettings } from "./data";
+import { DeployModels, SaveAsSet, type ModelsPicked } from "./DeployModels";
 import { DEPLOYED_READS } from "./deployReads";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
 import { usd } from "./format";
@@ -14,7 +15,7 @@ import { Select } from "./Select";
 import { Button, cx, ErrorNote, fieldClass, Help, Segmented } from "./ui";
 
 /** What a first deploy opens with: Afflatus's image, Secure Cloud, no volume, terminated after 10 min idle. */
-const FIRST: Omit<DeployAsk, "gpu"> = { cloud: "SECURE", template: "afflatus", volume: "", disk: 120, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15 };
+const FIRST: Omit<DeployAsk, "gpu"> = { cloud: "SECURE", template: "afflatus", volume: "", disk: 120, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15, set: "", files: [], leaveOut: [], accept: [] };
 const IDLE = [5, 10, 15, 30, 60, 120, 0];
 const WATCH = [5, 10, 15, 30, 60, 0];
 const DISKS = [60, 120, 200, 400];
@@ -90,8 +91,13 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
   // the one picked (or deployed last time) is not free now: said, with the cheapest free one as large
   const gone = !picked && want.gpu && gpus.isSuccess ? gpus.data.gpus.find((g) => g.id === want.gpu) ?? { id: want.gpu, name: want.gpu.replace(/^NVIDIA (GeForce )?/, ""), memory: 0 } : null;
   const instead = gone ? offers.find((g) => g.memory >= gone.memory) ?? null : null;
+  // the files the Models part ticked, and whether every licence of them was accepted
+  const [models, setModels] = useState<ModelsPicked>({ files: [], leaveOut: [], accept: [], ready: true, bytes: 0 });
+  // the pod's own disk holds the files (with room for ComfyUI and its packs): a larger one proposed when they would not fit
+  const diskNeed = Math.ceil(models.bytes / 2 ** 30 + 30);
+  const diskFits = Boolean(want.volume) || diskNeed <= want.disk;
   const deploy = useMutation({
-    mutationFn: () => api.deployGpu(want),
+    mutationFn: () => api.deployGpu({ ...want, files: models.files, leaveOut: models.leaveOut, accept: models.accept }),
     onSuccess: ({ id }) => {
       for (const queryKey of DEPLOYED_READS) void client.invalidateQueries({ queryKey });
       onClose();
@@ -177,6 +183,15 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
           </span>
         </section>
 
+        <DeployModels want={want} set={set} rate={picked?.price ?? null} onPicked={setModels} />
+        {!diskFits && (
+          <span className="flex items-center gap-2 text-xs text-warn-ink">
+            These files take about {diskNeed - 30} GB, with ComfyUI {diskNeed} GB: its disk of {want.disk} GB is too small.
+            <Button size="sm" onClick={() => set({ disk: DISKS.find((n) => n >= diskNeed) ?? Math.min(2000, Math.ceil(diskNeed / 50) * 50) })}>Use {DISKS.find((n) => n >= diskNeed) ?? Math.min(2000, Math.ceil(diskNeed / 50) * 50)} GB</Button>
+          </span>
+        )}
+        <SaveAsSet files={models.files} />
+
         {imageMissing && <ErrorNote>{want.template === "afflatus" ? "The Afflatus image is not published yet, or not public: RunPod could not pull it. Deploy with RunPod's ComfyUI meanwhile." : "RunPod's ComfyUI image cannot be pulled from Docker Hub now."}</ErrorNote>}
         {want.template === "runpod" && <ErrorNote>RunPod's ComfyUI has no Afflatus pack: it is not locked, so anyone who finds its address can run work on it, and nothing stops it if this PC goes silent.</ErrorNote>}
         {deploy.isError && <ErrorNote>{deploy.error.message}</ErrorNote>}
@@ -188,7 +203,7 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
           ? <span className="inline-flex items-center gap-2 text-warn-ink">{gone.name} not in stock {volume ? `in ${volume.dataCenter} ` : ""}now{instead ? `; the ${instead.name} is, at ${usd(instead.price)}/h` : ""}{instead && <Button size="sm" onClick={() => set({ gpu: instead.id })}>Pick it</Button>}</span>
           : "Pick a GPU"}>
         <Button tone="quiet" onClick={onClose}>Cancel <Keys keys="Esc" size="sm" /></Button>
-        <Button tone="primary" onClick={() => deploy.mutate()} disabled={!picked || imageMissing || deploy.isPending}>{deploy.isPending ? "Deploying…" : picked ? `Deploy · ${usd(picked.price)}/h` : "Deploy"}</Button>
+        <Button tone="primary" onClick={() => deploy.mutate()} disabled={!picked || imageMissing || deploy.isPending || !models.ready || !diskFits}>{deploy.isPending ? "Deploying…" : picked ? `Deploy · ${usd(picked.price)}/h` : "Deploy"}</Button>
       </DialogFoot>
     </Dialog>
   );

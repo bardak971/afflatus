@@ -170,6 +170,11 @@ export async function createServices(
     },
   });
   queue.podFetch = podFetchOf(podFiles);
+  // a deployed pod up: the files its deploy asked for come after what its jobs wait for; the ones left out never come
+  rented.onUp = (id, files, leaveOut) => {
+    podFiles.leaveOut(id, leaveOut);
+    podFiles.want(id, files.map(({ file, folder, url, civitai, size }) => ({ file, folder, ...(url ? { url } : {}), ...(civitai ? { civitai } : {}), ...(size ? { size } : {}) })), { tier: "ahead" });
+  };
   // what pods are getting is followed every second, while any is
   const podFilesTimer = setInterval(() => void podFiles.tick().catch((err) => console.warn("[pod files]", (err as Error).message)), 1000);
   podFilesTimer.unref();

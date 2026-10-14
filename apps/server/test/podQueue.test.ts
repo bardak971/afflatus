@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeComfy, startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
 import { readSettings, writeSettings } from "../src/settings";
-import { CHECKPOINT, complete, job, makeApp, makeFake, post, referenceCatalog, until, type TestApp } from "./helpers";
+import { CHECKPOINT, complete, get, job, makeApp, makeFake, post, referenceCatalog, until, type TestApp } from "./helpers";
 
 /**
  * A deployed pod that lacks a job's model file (queue.ts with podFiles.ts): the job may still go there, its file sent
@@ -54,8 +54,9 @@ afterEach(async () => {
 });
 
 /** A pod deployed and up, as a machine of Afflatus. */
-async function deployed(): Promise<string> {
-  const res = await post(t.app, "/api/runpod/deploy", { gpu: "NVIDIA A40", cloud: "SECURE", template: "afflatus", volume: "", disk: 60, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15 });
+async function deployed(more: Record<string, unknown> = {}): Promise<string> {
+  const res = await post(t.app, "/api/runpod/deploy", { gpu: "NVIDIA A40", cloud: "SECURE", template: "afflatus", volume: "", disk: 60, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15, ...more });
+  expect(res.statusCode).toBe(200);
   const id = res.json().id as string;
   await until(() => runpod.pods[0]?.status === "RUNNING");
   await until(async () => (await t.services.rented.poll(), !(await readSettings(t.db)).machines.find((m) => m.id === id)?.rented?.deployedAt));
@@ -132,5 +133,52 @@ describe("a job whose model file a pod lacks", () => {
     await until(() => home.prompts.size === 2);
     complete(home, [...home.prompts.keys()][1]!);
     await until(async () => (await row(b)).status === "done");
+  });
+});
+
+describe("a deploy's files", () => {
+  it("are the waiting jobs' (each once, with how many use it) and the picked set's, with what earlier deploys measured", async () => {
+    await post(t.app, "/api/queue/pause", {});
+    await enqueue();
+    await enqueue({ prompt: "a dog" });
+    const set = (await post(t.app, "/api/model-sets", { name: "LoRAs", files: [{ file: "style.safetensors", folder: "loras", url: "https://huggingface.co/o/r/resolve/main/style.safetensors", size: 300 }] })).json();
+    const view = (await get(t.app, `/api/runpod/deploy/models?cloud=SECURE&set=${set.id}`)).json();
+    expect(view.jobs.count).toBe(2);
+    expect(view.jobs.files).toEqual([expect.objectContaining({ file: CHECKPOINT, folder: "checkpoints", via: "upload", size: 120_000, jobs: 2, first: true })]);
+    expect(view.set).toEqual([expect.objectContaining({ file: "style.safetensors", via: "hf", size: 300, off: false })]);
+    // nothing measured yet: the page says time and price are not known
+    expect(view.speeds).toEqual({ hf: null, civitai: null, url: null, upload: null });
+    expect(view.boot).toBeNull();
+  });
+
+  it("are handed to the pod at its first answer, the ones left out never fetched, and its boot time kept", async () => {
+    const id = await deployed({ files: [{ file: "style.safetensors", folder: "checkpoints" }], leaveOut: [{ file: CHECKPOINT, folder: "checkpoints" }] });
+    expect(t.services.podFiles.view(id)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ file: "style.safetensors", tier: "ahead" }),
+      expect.objectContaining({ file: CHECKPOINT, state: "failed", error: "left out when the pod was deployed" }),
+    ]));
+    // handed once: its record keeps them no more, and the next deploy starts with none
+    const settings = await readSettings(t.db);
+    expect(settings.machines.find((m) => m.id === id)?.rented).toMatchObject({ files: [], leaveOut: [] });
+    expect(settings.lastDeploy).toMatchObject({ files: [], leaveOut: [], accept: [] });
+    expect((await t.db.selectFrom("pod_measures").select(["kind", "cloud"]).execute())).toEqual([{ kind: "boot", cloud: "SECURE" }]);
+    // a job that uses the file left out stays home
+    await post(t.app, "/api/queue/pause", { machine: await homeId() });
+    const a = await enqueue();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(pod.prompts.size).toBe(0);
+    expect((await t.services.queue.status()).waiting.find((w) => w.id === a)?.lacks?.[id]).toBeTruthy();
+  });
+
+  it("of a preset under a licence are refused until it is accepted in the dialog", async () => {
+    const set = (await post(t.app, "/api/model-sets", { name: "H3", presets: ["shipped:minimax-h3"] })).json();
+    const files = (await get(t.app, `/api/runpod/deploy/models?set=${set.id}`)).json().set.map(({ file, folder }: { file: string; folder: string }) => ({ file, folder }));
+    const ask = { gpu: "NVIDIA A40", cloud: "SECURE", template: "afflatus", volume: "", disk: 60, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15, set: set.id, files };
+    const refused = await post(t.app, "/api/runpod/deploy", ask);
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error).toMatch(/accept it first/);
+    expect(runpod.pods).toHaveLength(0);
+    expect((await post(t.app, "/api/runpod/deploy", { ...ask, accept: ["shipped:minimax-h3"] })).statusCode).toBe(200);
+    expect((await readSettings(t.db)).acceptedPresets).toContain("shipped:minimax-h3");
   });
 });

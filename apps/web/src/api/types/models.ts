@@ -1,6 +1,7 @@
 /** Models and recipes: what ComfyUI has, what each recipe needs, imported workflows, and where a missing file can be had. */
 import type { Chapter, InputSpec, VideoTraits } from "@afflatus/core";
 import type { Bindings, Wiring, WorkflowDef } from "@afflatus/workflows";
+import type { PresetFile } from "./designer";
 
 export interface RecipeInfo {
   id: string;
@@ -212,4 +213,64 @@ export interface CivitaiFind {
   of: number;
   /** This ComfyUI already has the file a download of it would fetch: in which kind of folder, under which name. */
   have?: { folder: string; file: string };
+}
+
+/** Where a model file comes from onto a rented pod: Hugging Face, Civitai, another address, or this computer (an upload). */
+export type FileVia = "hf" | "civitai" | "url" | "upload";
+
+/** A Model set (Settings › Models): a named list of model files, presets by reference and files of its own. */
+export interface ModelSet {
+  id: string;
+  name: string;
+  presets: Array<{ id: string; name: string; licence?: { name: string }; accepted: boolean; gone?: boolean }>;
+  files: PresetFile[];
+  /** Files of its presets left out of it ("folder|name"). */
+  off: string[];
+  /** The files it brings and their bytes, as far as known. */
+  count: number;
+  bytes: number;
+  updatedAt: string;
+}
+
+/** One file of a set, as listed: where it comes from and which machines have it. */
+export interface SetFile extends PresetFile {
+  preset?: { id: string; name: string };
+  off: boolean;
+  via: FileVia | null;
+  /** Machine id → whether its ComfyUI lists it (a machine that did not answer is left out). */
+  on: Record<string, boolean>;
+}
+
+/** What can be added to a set or a deploy, found by words. */
+export interface SetSearch {
+  presets: Array<{ id: string; name: string; files: PresetFile[]; bytes: number }>;
+  families: Array<{ id: string; name: string; files: Array<{ file: string; folder: string; url: string }> }>;
+  files: Array<{ file: string; folder: string; size?: number }>;
+}
+
+/** The slowest and fastest of what earlier deploys measured: bytes a second for a source, ms for a boot. */
+export interface MeasuredRange {
+  low: number;
+  high: number;
+  count: number;
+}
+
+/** A model file a deploy may bring onto its pod. */
+export interface DeployFile {
+  file: string;
+  folder: string;
+  url?: string;
+  civitai?: { version: number; pick?: string; page?: string };
+  via: FileVia | null;
+  /** Bytes, when known. */
+  size: number | null;
+}
+
+/** The Deploy dialog's Models part: the waiting jobs' files, the picked set's, and what earlier deploys measured. */
+export interface DeployModels {
+  jobs: { count: number; files: Array<DeployFile & { jobs: number; first: boolean }> };
+  set: Array<DeployFile & { preset?: { id: string; name: string }; off: boolean }> | null;
+  licences: Array<{ id: string; name: string; licence: string }>;
+  speeds: Record<FileVia, MeasuredRange | null>;
+  boot: MeasuredRange | null;
 }

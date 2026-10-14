@@ -83,7 +83,8 @@ export function filesOf(def: SetDef, presets: Preset[]): Array<PresetFile & { pr
   return out;
 }
 
-const parseDef = (raw: string): SetDef => setDefSchema.parse(JSON.parse(raw));
+export const parseSetDef = (raw: string): SetDef => setDefSchema.parse(JSON.parse(raw));
+const parseDef = parseSetDef;
 
 /** What a set file holds when saved (Save as a file): its presets written out as files, so that it reads anywhere. */
 export interface SetFileExport {
