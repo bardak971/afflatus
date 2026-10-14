@@ -74,7 +74,8 @@ export async function podSource(l: SourceLookup, want: { file: string; folder: s
 /** The file in this computer's ComfyUI folders, when it is there: by its name with its sub-folder, else by its name in the folder's top. */
 export async function localCopy(comfyDir: string, folder: string, file: string): Promise<string | null> {
   const parts = file.split(/[\\/]/).filter(Boolean);
-  if (!parts.length || parts.some((p) => p === "." || p === "..")) return null;
+  // a model folder's name only (never a path up out of models/), and a name that never goes up a folder
+  if (!parts.length || parts.some((p) => p === "." || p === "..") || !/^[\w-]+$/.test(folder)) return null;
   for (const dir of await modelDirs(comfyDir, folder)) {
     for (const path of [join(dir, ...parts), join(dir, parts[parts.length - 1]!)]) {
       const st = await stat(path).catch(() => null);

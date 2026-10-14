@@ -576,6 +576,8 @@ export class Downloads {
       const got = (await res.json()) as { id: string; path?: string };
       d.packId = got.id;
       if (got.path) d.into = got.path.replace(/[\\/][^\\/]*$/, "");
+      // from the source's own link nothing passes through Afflatus (serve() says "downloading" for the one-time address)
+      if (d.signed && d.status === "starting") d.status = "downloading";
       if (!running(d)) {
         void d.comfy.client.raw(`/afflatus/download/${encodeURIComponent(got.id)}`, { method: "DELETE" }).catch(() => {});
         return;

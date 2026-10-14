@@ -130,6 +130,29 @@ describe("a rented pod's model files", () => {
     expect(files.jobState("pod", "j1")).toMatchObject({ state: "failed", error: expect.stringContaining("no site is known") });
   });
 
+  it("are asked again when the pod does not answer for a moment, not failed for good", async () => {
+    files.retryMs = 10;
+    pod.down = true;
+    files.want("pod", [{ file: "mine.safetensors", folder: "loras" }], { tier: "need", job: "j1" });
+    await until(async () => (await files.tick(), files.view("pod")[0]?.state === "next"));
+    expect(files.jobState("pod", "j1")?.state).toBe("waiting");
+    pod.down = false;
+    await settle("pod", "mine.safetensors");
+    expect(files.view("pod")[0]).toMatchObject({ state: "ready", via: "upload" });
+  });
+
+  it("a job waits for are not held behind files ahead: one of those gives its place", async () => {
+    for (const n of ["a1", "a2"]) files.want("pod", [{ file: `${n}.safetensors`, folder: "loras", url: `${siteUrl}/files/slow-${n}.safetensors` }], { tier: "ahead" });
+    await until(async () => (await files.tick(), files.view("pod").filter((f) => f.state === "fetching").length === 2));
+    files.want("pod", [{ file: "now.safetensors", folder: "loras", url: `${siteUrl}/files/now.safetensors` }], { tier: "need", job: "j1" });
+    await settle("pod", "now.safetensors");
+    expect(files.jobState("pod", "j1")?.state).toBe("ready");
+    // one ahead was stopped to make room, and started again once the needed one was done
+    expect(t.services.downloads.list().filter((d) => d.status === "stopped")).toHaveLength(1);
+    expect(files.view("pod").filter((f) => f.tier === "ahead").every((f) => f.state === "fetching")).toBe(true);
+    for (const d of t.services.downloads.list()) t.services.downloads.stop(d.id);
+  });
+
   it("are not sent to a pod whose node pack takes no upload", async () => {
     pod.packVersion = "0.13.1";
     files.want("pod", [{ file: "mine.safetensors", folder: "loras" }], { tier: "need" });
@@ -235,8 +258,11 @@ describe("what pods were measured at", () => {
 
 describe("a rented pod's node packs", () => {
   /** A pod with ComfyUI-Manager, and the pod files of it; `busy` says whether a job runs there. */
-  async function withManager(fail: string[] = [], late: Record<string, number> = {}) {
-    const pm = await startFakeComfy({ catalog: referenceCatalog(), models: { loras: [] }, manager: true, packsFail: fail, packsLate: late, afterReboot: { FaceDetailer: { input: { required: {} }, output: [], output_name: [], name: "FaceDetailer", category: "x" } as never } });
+  /** `nodes`: the node types ComfyUI has once restarted (the packs' own, when they loaded). */
+  async function withManager(fail: string[] = [], late: Record<string, number> = {}, nodes = ["DetailerForEach", "FaceDetailer", "LyingSigmaSampler"]) {
+    // a pod without these packs: their nodes come only with a restart that loads them
+    const catalog = Object.fromEntries(Object.entries(referenceCatalog()).filter(([n]) => !["DetailerForEach", "FaceDetailer", "LyingSigmaSampler"].includes(n)));
+    const pm = await startFakeComfy({ catalog, models: { loras: [] }, manager: true, packsFail: fail, packsLate: late, afterReboot: Object.fromEntries(nodes.map((n) => [n, { input: { required: {} }, output: [], output_name: [], name: n, category: "x" }])) as never });
     pm.packVersion = "0.14.0";
     const comfy = new Comfy(pm.url, t.services.registry);
     let busy = false;
@@ -276,6 +302,19 @@ describe("a rented pod's node packs", () => {
       await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "ready"));
       expect(pm.packs.map((p) => p.id)).toEqual(["comfyui-detail-daemon"]);
       expect(pm.reboots).toBe(1);
+    } finally {
+      await pm.close();
+    }
+  });
+
+  it("that ComfyUI did not load after its restart fail: never ready with their nodes missing", async () => {
+    const { pm, pf } = await withManager([], {}, []);
+    try {
+      pf.wantPacks("pod", ["comfyui-impact-pack"], "j1");
+      await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "failed"));
+      expect(pf.packsView("pod")[0]!.error).toMatch(/did not load it/);
+      expect(pf.jobState("pod", "j1")?.state).toBe("failed");
+      expect(pf.holding("pod")).toBe(false);
     } finally {
       await pm.close();
     }

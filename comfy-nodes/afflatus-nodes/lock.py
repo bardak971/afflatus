@@ -87,7 +87,14 @@ class Lock:
         self.path = os.path.join(folder, LOCK_FILE)
         self.off = (env.get("AFFLATUS_LOCK") or "").strip().lower() == "off"
         token = (env.get("AFFLATUS_TOKEN") or "").strip()
-        self.fixed = {"hash": hash_of(token), "local": False} if token and not self.off else None
+        # a fixed token that is not one (the reference to a RunPod secret left as it is, a secret deleted, too short) locks
+        # with nothing that opens it: never the reference's text as the key, which anyone who reads the pod's settings knows
+        if token and not token_ok(token):
+            print("[afflatus-nodes] AFFLATUS_TOKEN is not a token Afflatus makes: ComfyUI is locked, and nothing opens it.")
+            token = None
+            self.fixed = {"hash": "!", "local": False} if not self.off else None
+        else:
+            self.fixed = {"hash": hash_of(token), "local": False} if token and not self.off else None
         self._seen = None
         self._state = None
         self._mutex = threading.Lock()
@@ -267,6 +274,9 @@ def make_middleware(lock, web):
                 return logged_in(web, request, state)
             return page(web, "That link was used already or is too old: open ComfyUI from Afflatus again, or paste the token.")
         if request.method == "POST":
+            # a token is short: a large form is refused before it is read (it would be held in memory, asked by anyone)
+            if request.content_length is None or request.content_length > 4096:
+                return web.Response(status=413, text="too large")
             form = await request.post()
             if same(hash_of(str(form.get("token", "")).strip()), state["hash"]):
                 return logged_in(web, request, state)

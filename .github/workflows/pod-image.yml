@@ -35,6 +35,9 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # the job can write packages: its token is not left in the checkout
+          persist-credentials: false
       - name: Check the version
         id: version
         env:

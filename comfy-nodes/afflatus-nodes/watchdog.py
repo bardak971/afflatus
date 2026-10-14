@@ -28,6 +28,8 @@ import urllib.request
 
 CHECK_S = 30
 RETRY_S = 300
+# a stop the provider took, and the pod still running this long after (this code still runs): asked again
+AGAIN_S = 300
 
 
 def how_to_stop(env=None):
@@ -74,6 +76,7 @@ class Watchdog:
         self.last = None
         self.tried = None
         self.stopped = False
+        self.stopped_at = None
         self._mutex = threading.Lock()
 
     def alive(self, minutes):
@@ -90,8 +93,13 @@ class Watchdog:
     def check(self):
         """Once: stop the pod when Afflatus has been silent past its minutes. True when it was stopped now."""
         with self._mutex:
-            if not self.minutes or self.last is None or self.stopped or self.way is None:
+            if not self.minutes or self.last is None or self.way is None:
                 return False
+            # stopped, and this still runs: the provider took the stop and the pod goes on (billed); asked again a while after
+            if self.stopped:
+                if self.now() - self.stopped_at < AGAIN_S:
+                    return False
+                self.stopped = False
             if self.now() - self.last < self.minutes * 60:
                 return False
             if self.tried is not None and self.now() - self.tried < RETRY_S:
@@ -106,6 +114,7 @@ class Watchdog:
         if ok:
             with self._mutex:
                 self.stopped = True
+                self.stopped_at = self.now()
         return ok
 
     def loop(self):

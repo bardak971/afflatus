@@ -36,12 +36,18 @@ done < /opt/packs/BUILT_IN
 
 # node packs an earlier pod installed on the volume: their Python packages are not in this container yet. Torch stays the
 # image's CUDA build (/constraints.txt): a pack asking for another would swap it for a PyPI one, GBs at every start
+# with a volume, pip's cache kept there: a next pod does not download them all again. Each list bounded in time: the pod
+# is billed while it installs, and its watchdog is not running yet
+if [ "$BASE" != /comfyui ]; then
+  unset PIP_NO_CACHE_DIR
+  export PIP_CACHE_DIR="$BASE/.pip-cache"
+fi
 for req in "$BASE"/custom_nodes/*/requirements.txt; do
   [ -f "$req" ] || continue
   [ "$req" = "$BASE/custom_nodes/afflatus-nodes/requirements.txt" ] && continue
   # the built-in ones' packages are in the image already (DaSiWa's list on purpose not)
   grep -qxF "$(basename "$(dirname "$req")")" /opt/packs/BUILT_IN && continue
-  pip install -q -c /constraints.txt -r "$req" || echo "[afflatus-pod] could not install $req"
+  timeout 600 pip install -q -c /constraints.txt -r "$req" || echo "[afflatus-pod] could not install $req"
 done
 
 # ComfyUI-Manager installs the node packs a job needs only where it trusts who asks: on a ComfyUI listening on every

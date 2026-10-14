@@ -57,8 +57,10 @@ const webUrl = z.string().url().max(2000).refine((u) => /^https?:\/\//i.test(u),
 
 /** One model file a preset needs, as the server checks it (`PresetFile`). */
 export const presetFileSchema = z.strictObject({
-  file: z.string().min(1).max(400),
-  folder: z.string().min(1).max(120),
+  // a name, with sub-folders when it has some: never a step up out of its folder
+  file: z.string().min(1).max(400).refine((f) => !f.split(/[\\/]/).some((p) => p === ".." || p === "."), "a file name never goes up a folder"),
+  // a ComfyUI model folder's name ("loras", "diffusion_models"): letters, digits, dashes and underscores only
+  folder: z.string().min(1).max(120).regex(/^[\w-]+$/, "a model folder's name"),
   url: webUrl.optional(),
   civitai: z.strictObject({ version: z.number().int().positive(), pick: z.string().max(400).optional(), page: webUrl.optional() }).optional(),
   page: webUrl.optional(),

@@ -132,7 +132,9 @@ export function lackOn(recipe: Pick<Recipe<any>, "id" | "family" | "inputs" | "n
   // the node types it lacks, each of a pack Afflatus knows (its own pack is never missing on a pod: the image has it)
   const packs = [...new Set((status?.missingNodes ?? []).map((n) => packOfNode(n)))];
   const knownPacks = packs.every((p) => p && !p.own) ? packs.map((p) => p!.name) : null;
+  // a file of its own (an imported workflow's) whose model folder is not known cannot be sent: it is not among the files
   const sendable = Boolean(status) && !off && (unique.length > 0 || Boolean(knownPacks?.length)) && knownPacks !== null && !status!.problems.length
+    && status!.missing.every((m) => m.folder)
     && status!.emptyInputs.every((id) => filled.has(id)) && status!.missingSlots.every(slotFilled);
   return { off, files: unique, sendable, ...(knownPacks?.length ? { packs: knownPacks } : {}) };
 }

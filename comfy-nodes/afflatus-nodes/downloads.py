@@ -30,7 +30,9 @@ known is refused, and one that sends more than it said is cut off there, so a so
 MAX_JOBS run at once (a 429 past that).
 """
 
+import asyncio
 import os
+import shutil
 import re
 import threading
 import time
@@ -86,13 +88,33 @@ def direct_ok(url) -> bool:
     return at.scheme == "https" and not at.username and not at.password and any(host == h or host.endswith("." + h) for h in DIRECT_HOSTS)
 
 
+def _code_dirs(folder_paths):
+    """The real paths of the node packs' folders: a folder a pack registers inside its own code is never a model folder."""
+    try:
+        return [os.path.realpath(p) for p in folder_paths.get_folder_paths("custom_nodes")]
+    except Exception:
+        return []
+
+
+def _inside(root, path):
+    try:
+        return os.path.commonpath([root, path]) == root
+    except ValueError:
+        return False
+
+
 def model_dir(folder, folder_paths):
     """The directory a model folder's downloads go into: the first of ComfyUI's paths for it that exists and can be written, as its real path."""
     if not isinstance(folder, str) or folder in NOT_MODELS or folder not in folder_paths.folder_names_and_paths:
         return None
+    code = _code_dirs(folder_paths)
     for path in folder_paths.get_folder_paths(folder):
         if os.path.isdir(path) and os.access(path, os.W_OK):
-            return os.path.realpath(path)
+            real = os.path.realpath(path)
+            # a pack's own folder (VideoHelperSuite's video formats, say) takes no file from outside
+            if any(_inside(c, real) for c in code):
+                return None
+            return real
     return None
 
 
@@ -139,6 +161,8 @@ class Job:
         self.renewed = threading.Event()
         self.path = path
         self.total = int(total) if isinstance(total, (int, float)) and total > 0 else 0
+        # the size Afflatus said: what the source says may not be more (a source never fills the disk past it)
+        self.declared = self.total
         self.bytes = 0
         self.state = "downloading"
         self.error = None
@@ -187,10 +211,18 @@ class _Stopped(Exception):
 
 
 def _remove(path):
+    """The file gone; one that cannot be removed now (held open on Windows) is left to the start's sweep, never raised."""
     try:
         os.remove(path)
-    except FileNotFoundError:
+    except OSError:
         pass
+
+
+def _within(job, size):
+    """The size a source says, held to the one Afflatus said: more is refused before anything of it is written."""
+    if job.declared and size > job.declared:
+        raise Refused(f"the source says {size} bytes, {job.declared} were said")
+    return size
 
 
 def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeout=60, renew_wait=RENEW_WAIT_S):
@@ -213,7 +245,7 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
                     if have and got and int(got.group(1)) == have:
                         mode = "ab"
                         if got.group(2) != "*":
-                            job.total = int(got.group(2))
+                            job.total = _within(job, int(got.group(2)))
                     else:
                         # the whole file (a source that does not resume sends it from the start): what was there goes
                         if have:
@@ -222,7 +254,7 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
                         mode = "wb"
                         size = int(res.headers.get("Content-Length") or 0)
                         if size:
-                            job.total = size
+                            job.total = _within(job, size)
                     if not job.total:
                         raise Refused("the size of the file is not known")
                     with open(part, mode) as f:
@@ -345,7 +377,7 @@ def register(routes, web, folder_paths):
         if not relay_ok(body.get("url")) and not direct_ok(body.get("url")):
             return web.Response(status=400, text="only Afflatus's one-time download addresses, and Hugging Face's and Civitai's own download links, are fetched")
         try:
-            _root, path = target(body.get("folder"), body.get("filename"), folder_paths)
+            root, path = target(body.get("folder"), body.get("filename"), folder_paths)
         except Refused as e:
             return web.Response(status=400, text=str(e))
         forget()
@@ -353,7 +385,13 @@ def register(routes, web, folder_paths):
             return web.Response(status=409, text="that file is there already, or being downloaded")
         if sum(j.state == "downloading" for j in jobs.values()) >= MAX_JOBS:
             return web.Response(status=429, text=f"{MAX_JOBS} downloads are under way already")
-        job = Job(body["url"], path, body.get("total") or 0)
+        total = body.get("total") or 0
+        # a disk without the room is said now, not once it is full
+        if isinstance(total, (int, float)) and total > 0:
+            free = await asyncio.to_thread(lambda: shutil.disk_usage(root).free)
+            if free < total:
+                return web.Response(status=507, text=f"the disk has {free} bytes free, the file is {int(total)}")
+        job = Job(body["url"], path, total)
         jobs[job.id] = job
         threading.Thread(target=run, args=(job,), name=f"afflatus-download-{job.id[:8]}", daemon=True).start()
         return web.json_response({"id": job.id, "path": path})

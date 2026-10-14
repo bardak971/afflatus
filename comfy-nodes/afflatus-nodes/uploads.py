@@ -20,6 +20,7 @@ the start, not once the disk is full. An upload nothing is sent to for IDLE_S is
 import asyncio
 import os
 import shutil
+import threading
 import time
 import uuid
 
@@ -33,6 +34,10 @@ PIECE_MAX = 64 << 20
 READ = 1 << 20
 # an upload not sent to for this long is given up: the sender stopped
 IDLE_S = 600
+# a piece whose bytes stop coming this long is given up: the connection is gone (a sleeping PC leaves it half open)
+READ_S = 60
+# how often uploads left alone are looked for (their .part removed), whether or not anyone asks
+TIDY_S = 60
 # finished uploads are forgotten after an hour
 KEEP_S = 3600
 
@@ -60,11 +65,15 @@ class Upload:
     def end(self, state, error=None):
         if self.state != "uploading":
             return
-        if state != "done":
-            _remove(self.part)
+        # said first: a .part that cannot be removed now (held open on Windows) never leaves it "uploading"
         self.state = state
         self.error = error
         self.ended = time.time()
+        if state != "done":
+            try:
+                _remove(self.part)
+            except OSError:
+                pass  # the start's sweep removes it (downloads.sweep_parts)
 
 
 def write_piece(upload, offset, data):
@@ -95,6 +104,14 @@ def register(routes, web, folder_paths):
     """The upload routes on ComfyUI's server (`routes`, aiohttp's `web`)."""
     uploads = {}
 
+    def tidy_forever():
+        while True:
+            time.sleep(TIDY_S)
+            try:
+                tidy()
+            except Exception:
+                pass
+
     def tidy():
         now = time.time()
         for u in list(uploads.values()):
@@ -102,6 +119,9 @@ def register(routes, web, folder_paths):
                 u.end("stopped", "nothing was sent for a while: the upload was given up")
         for key in [k for k, u in uploads.items() if u.ended and now - u.ended > KEEP_S]:
             del uploads[key]
+
+    # an upload left alone drops its .part even when nobody asks for uploads any more (Afflatus gone silent)
+    threading.Thread(target=tidy_forever, name="afflatus-uploads-tidy", daemon=True).start()
 
     @routes.post("/afflatus/upload")
     async def _afflatus_upload(request):
@@ -157,7 +177,10 @@ def register(routes, web, folder_paths):
         try:
             data = bytearray()
             while len(data) < size:
-                block = await request.content.read(min(READ, size - len(data)))
+                try:
+                    block = await asyncio.wait_for(request.content.read(min(READ, size - len(data))), READ_S)
+                except asyncio.TimeoutError:
+                    block = b""
                 if not block:
                     break
                 data += block

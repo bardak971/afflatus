@@ -114,6 +114,17 @@ describe("a job whose model file a pod lacks", () => {
     expect(waiting?.lacks?.[id]?.failed).toContain("no site is known");
   });
 
+  it("waiting for another job to end is no work for a pod: it does not keep it billed", async () => {
+    const id = await deployed();
+    await post(t.app, "/api/queue/pause", { machine: await homeId() });
+    // a job that waits for another (a clip after the one it continues) whose own start is not possible now
+    const first = await enqueue({ checkpoint: "nowhere.safetensors" });
+    const second = await enqueue();
+    await t.db.updateTable("jobs").set({ depends_on: first }).where("id", "=", second).execute();
+    await t.db.updateTable("jobs").set({ pin_machine: await homeId() }).where("id", "=", first).execute();
+    expect(await t.services.queue.wants(id)).toBe(false);
+  });
+
   it("is no work for a pod the plan sends it away from", async () => {
     const id = await deployed();
     // renders known to take a second (as learned renders would say): this computer's running one ends in a second
@@ -186,5 +197,23 @@ describe("a deploy's files", () => {
     expect(runpod.pods).toHaveLength(0);
     expect((await post(t.app, "/api/runpod/deploy", { ...ask, accept: ["shipped:minimax-h3"] })).statusCode).toBe(200);
     expect((await readSettings(t.db)).acceptedPresets).toContain("shipped:minimax-h3");
+  });
+
+  it("of a licensed preset are under its licence whichever way they were picked (added by hand, from no set)", async () => {
+    const view = (await get(t.app, "/api/runpod/deploy/models")).json();
+    // the dialog is told which files each licence covers
+    const h3 = view.licences.find((l: { id: string }) => l.id === "shipped:minimax-h3");
+    expect(h3.keys).toContain("diffusion_models|minimax_h3_fl2va_pruned_int8_convrot.safetensors");
+    const ask = { gpu: "NVIDIA A40", cloud: "SECURE", template: "afflatus", volume: "", disk: 60, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15, files: [{ file: "minimax_h3_fl2va_pruned_int8_convrot.safetensors", folder: "diffusion_models" }] };
+    expect((await post(t.app, "/api/runpod/deploy", ask)).json().error).toMatch(/accept it first/);
+    expect(runpod.pods).toHaveLength(0);
+  });
+
+  it("of the remembered set come again with Deploy again", async () => {
+    const set = (await post(t.app, "/api/model-sets", { name: "LoRAs", files: [{ file: "style.safetensors", folder: "loras", url: "https://huggingface.co/o/r/resolve/main/style.safetensors" }] })).json();
+    const res = await post(t.app, "/api/runpod/deploy", { gpu: "NVIDIA A40", cloud: "SECURE", template: "afflatus", volume: "", disk: 60, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15, set: set.id, again: true });
+    expect(res.statusCode).toBe(200);
+    const machine = (await readSettings(t.db)).machines.find((m) => m.id === res.json().id);
+    expect(machine?.rented?.files).toEqual([{ file: "style.safetensors", folder: "loras", url: "https://huggingface.co/o/r/resolve/main/style.safetensors" }]);
   });
 });

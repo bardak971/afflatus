@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
-import { writeSettings } from "../src/settings";
+import { updateSettings, writeSettings } from "../src/settings";
 import { get, makeApp, makeFake, post, type TestApp } from "./helpers";
 
 /** Model sets (modelSets.ts): named lists of model files, presets by reference and files of their own. */
@@ -80,6 +80,16 @@ describe("a model set", () => {
     expect((await post(t.app, "/api/model-sets/import", { name: "x" })).json().error).toMatch(/not a model set file/);
   });
 
+  it("asks for a preset's licence for its file even when the set holds it as a file of its own (a set brought in)", async () => {
+    const set = (await post(t.app, "/api/model-sets", { name: "Mine", files: [{ file: "minimax_h3_fl2va_pruned_int8_convrot.safetensors", folder: "diffusion_models", url: "https://huggingface.co/x/resolve/main/minimax_h3_fl2va_pruned_int8_convrot.safetensors" }] })).json();
+    expect((await post(t.app, `/api/model-sets/${set.id}/get`, {})).json().error).toMatch(/accept it first/);
+  });
+
+  it("refuses a file that would go up out of its folder, and a folder that is not a model folder's name", async () => {
+    expect((await post(t.app, "/api/model-sets", { name: "x", files: [{ file: "../../evil.safetensors", folder: "loras" }] })).statusCode).toBe(400);
+    expect((await post(t.app, "/api/model-sets", { name: "x", files: [{ file: "a.safetensors", folder: "../../Users" }] })).statusCode).toBe(400);
+  });
+
   it("asks for a preset's licence before any of its files is fetched", async () => {
     const set = (await post(t.app, "/api/model-sets", { name: "Shipped", presets: ["shipped:minimax-h3"] })).json();
     expect(set.presets[0]).toMatchObject({ id: "shipped:minimax-h3", accepted: false, licence: { name: expect.stringContaining("MiniMax") } });
@@ -95,7 +105,8 @@ describe("a model set", () => {
     const pod = await makeFake();
     pod.models.loras = ["have.safetensors"];
     try {
-      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ id: "m1", url: fake.url }, { id: "rp", url: pod.url, rented: { provider: "runpod", pod: "pod-1" } }] } });
+      // a rented machine is made by Afflatus, never by the page: written as Afflatus writes it
+      await updateSettings(t.db, () => ({ machines: [{ id: "m1", url: fake.url }, { id: "rp", url: pod.url, rented: { provider: "runpod", pod: "pod-1" } }] }));
       const set = (await post(t.app, "/api/model-sets", { name: "LoRAs", files: [{ file: "have.safetensors", folder: "loras" }, { ...VAE, folder: "loras" }] })).json();
       expect((await post(t.app, `/api/model-sets/${set.id}/get`, { machine: "rp" })).json()).toEqual({ sent: 1, failed: [], skipped: 0 });
       expect(t.services.podFiles.view("rp")).toEqual([expect.objectContaining({ file: VAE.file, folder: "loras", tier: "ahead", jobs: [] })]);
@@ -114,6 +125,8 @@ describe("a model set", () => {
     const mine = (await get(t.app, "/api/model-sets/search?q=mine")).json();
     expect(mine.files).toEqual([]);
     fake.models.loras = ["have.safetensors", "mine.safetensors"];
-    expect((await get(t.app, "/api/model-sets/search?q=mine")).json().files).toEqual([{ file: "mine.safetensors", folder: "loras", size: 4096 }]);
+    expect((await get(t.app, "/api/model-sets/search?q=mine")).json().files).toEqual([{ file: "mine.safetensors", folder: "loras", size: 4096, via: "upload" }]);
+    // a query given twice is one query too long, not a crash
+    expect((await get(t.app, "/api/model-sets/search?q=a&q=b")).statusCode).toBe(400);
   });
 });

@@ -76,8 +76,8 @@ describe("a deploy", () => {
     const machine = s.machines.find((m) => m.id === id)!;
     expect(runpod.secrets[secret!]).toBe(machine.token);
     expect(machine).toMatchObject({ name: "A40", rented: { pod: pod.id, idleDo: "terminate", idleMinutes: 10, secret, deployed: true } });
-    expect(s.lastDeploy).toEqual({ ...ASK, set: "", files: [], leaveOut: [], accept: [] });
-    expect((await get(t.app, "/api/settings")).json().lastDeploy).toEqual({ ...ASK, set: "", files: [], leaveOut: [], accept: [] });
+    expect(s.lastDeploy).toEqual({ ...ASK, set: "", files: [], leaveOut: [], accept: [], again: false });
+    expect((await get(t.app, "/api/settings")).json().lastDeploy).toEqual({ ...ASK, set: "", files: [], leaveOut: [], accept: [], again: false });
     // up: its ComfyUI locked from its first second with the machine's token
     await until(() => pod.status === "RUNNING");
     expect(pod.comfy.lock).toEqual({ token: machine.token, local: false, fixed: true });

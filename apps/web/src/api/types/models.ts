@@ -243,9 +243,9 @@ export interface SetFile extends PresetFile {
 
 /** What can be added to a set or a deploy, found by words. */
 export interface SetSearch {
-  presets: Array<{ id: string; name: string; files: PresetFile[]; bytes: number }>;
-  families: Array<{ id: string; name: string; files: Array<{ file: string; folder: string; url: string }> }>;
-  files: Array<{ file: string; folder: string; size?: number }>;
+  presets: Array<{ id: string; name: string; files: Array<PresetFile & { via: FileVia | null }>; bytes: number }>;
+  families: Array<{ id: string; name: string; files: Array<{ file: string; folder: string; url: string; via: FileVia | null }> }>;
+  files: Array<{ file: string; folder: string; size?: number; via: "upload" }>;
 }
 
 /** The slowest and fastest of what earlier deploys measured: bytes a second for a source, ms for a boot. */
@@ -270,7 +270,8 @@ export interface DeployFile {
 export interface DeployModels {
   jobs: { count: number; files: Array<DeployFile & { jobs: number; first: boolean }> };
   set: Array<DeployFile & { preset?: { id: string; name: string }; off: boolean }> | null;
-  licences: Array<{ id: string; name: string; licence: string }>;
+  /** Presets under a licence not accepted yet, with their files (fileKey): a deploy bringing one asks for it. */
+  licences: Array<{ id: string; name: string; licence: string; keys: string[] }>;
   speeds: Record<FileVia, MeasuredRange | null>;
   boot: MeasuredRange | null;
 }

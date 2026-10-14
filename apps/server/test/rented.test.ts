@@ -214,21 +214,77 @@ describe("a rented machine", () => {
     }
   });
 
-  it("closes the run of a pod removed from Afflatus while it ran: today's cost stops counting it", async () => {
+  it("is not removed from Afflatus while it runs (billed, nothing would stop it), and is once stopped", async () => {
     await setKey();
     const id = await add();
     await post(t.app, `/api/machines/${id}/start`, {});
     await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
     await t.services.rented.poll();
     expect((await sessions()).filter((r) => !r.ended_at)).toHaveLength(1);
-    await post(t.app, `/api/machines/${id}/remove`, {});
+    const refused = await post(t.app, `/api/machines/${id}/remove`, {});
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toMatch(/stop or terminate it first/);
+    // still counted while it runs
+    expect((await sessions()).filter((r) => !r.ended_at)).toHaveLength(1);
+    await post(t.app, `/api/machines/${id}/stop`, { how: "stop" });
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "EXITED"));
     await t.services.rented.poll();
+    expect((await post(t.app, `/api/machines/${id}/remove`, {})).statusCode).toBe(200);
     expect((await sessions()).filter((r) => !r.ended_at)).toEqual([]);
-    // what it ran stays counted, and no more is added
+  });
+
+  it("still running a while after its idle stop is asked to stop again: never left billing", async () => {
+    await setKey();
+    const id = await add();
+    podComfy.packVersion = "0.14.0";
+    await post(t.app, `/api/machines/${id}/start`, {});
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
+    await t.services.rented.poll();
+    // RunPod takes the stop and the pod goes on running
+    runpod.stopMs = 60 * 60_000;
     const real = Date.now;
-    const before = (await t.services.rented.spending()).today;
-    t.services.rented.now = () => real() + 60 * 60_000;
-    expect((await t.services.rented.spending()).today).toBeCloseTo(before, 6);
+    t.services.rented.now = () => real() + 11 * 60_000;
+    await t.services.rented.poll();
+    const stops = () => runpod.calls.filter((c) => c === `POST /v2/pods/${pod5090().id}/action stop`).length;
+    expect(stops()).toBe(1);
+    // a pod being stopped hears no "still here": its own watchdog may stop it if RunPod does not
+    const pinged = podComfy.alive.length;
+    await t.services.rented.poll();
+    expect(podComfy.alive.length).toBe(pinged);
+    expect(stops()).toBe(1);
+    t.services.rented.now = () => real() + 14 * 60_000;
+    await t.services.rented.poll();
+    expect(stops()).toBe(2);
+  });
+
+  it("while RunPod's list cannot be read, says \"still here\" only to a pod with work or within its idle time", async () => {
+    await setKey();
+    const id = await add();
+    podComfy.packVersion = "0.14.0";
+    await post(t.app, `/api/machines/${id}/start`, {});
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
+    await t.services.rented.poll();
+    runpod.failList = 500;
+    const pinged = podComfy.alive.length;
+    await t.services.rented.poll();
+    // within its idle time: kept alive while Afflatus cannot ask RunPod anything
+    expect(podComfy.alive.length).toBe(pinged + 1);
+    const real = Date.now;
+    t.services.rented.now = () => real() + 11 * 60_000;
+    await t.services.rented.poll();
+    // idle past its time, and RunPod cannot be told to stop it: silent, so that its watchdog stops it
+    expect(podComfy.alive.length).toBe(pinged + 1);
+    expect((await readSettings(t.db)).machines.some((m) => m.id === id)).toBe(true);
+  });
+
+  it("never gives the page a pod's environment, nor lets the page write the secrets to delete", async () => {
+    await setKey();
+    pod5090().env = { AFFLATUS_TOKEN: "plain-token", HF_TOKEN: "hf_secret" };
+    const pods = (await get(t.app, "/api/runpod/pods")).json().pods as Array<{ env: Record<string, string> }>;
+    expect(JSON.stringify(pods)).not.toContain("plain-token");
+    expect(JSON.stringify(pods)).not.toContain("hf_secret");
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { leftSecrets: [{ secret: "someone-elses", pod: "x" }] } });
+    expect((await readSettings(t.db)).leftSecrets).toEqual([]);
   });
 
   it("is terminated when asked: gone from RunPod and from Afflatus, its secret with it", async () => {

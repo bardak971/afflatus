@@ -23,14 +23,40 @@ custom_nodes/ and restart ComfyUI. Needs ComfyUI 0.3.x with the arbitrary-frame 
 import os
 import re
 
-from comfy_api.latest import ComfyExtension, io
 
-from .continuation_nodes import (
+def _lock_first():
+    """The lock in front of ComfyUI's server before anything else of the pack: nothing the pack does after (a route, an
+    import) can leave a locked ComfyUI open by failing first. With AFFLATUS_TOKEN set (a rented pod, reached at a public
+    address) and no lock in, ComfyUI stops rather than run open to anyone with its address: the pod never answers, and
+    Afflatus ends it at its boot limit."""
+    try:
+        import folder_paths
+        from aiohttp import web
+        from server import PromptServer
+    except ImportError:
+        # outside ComfyUI's server (a bare import, a test): no server to lock
+        return
+    try:
+        from .lock import install
+
+        install(PromptServer.instance, web, folder_paths)
+    except Exception as err:
+        print(f"[afflatus-nodes] the lock could not be put in front of ComfyUI's server: {err}")
+        if (os.environ.get("AFFLATUS_TOKEN") or "").strip():
+            print("[afflatus-nodes] AFFLATUS_TOKEN is set and the lock is not in: ComfyUI stops rather than run open.")
+            os._exit(1)
+
+
+_lock_first()
+
+from comfy_api.latest import ComfyExtension, io  # noqa: E402
+
+from .continuation_nodes import (  # noqa: E402
     MiniMaxH3AppendContinuation,
     MiniMaxH3GuidedContinuationWindow,
     MiniMaxH3LatentTailGuide,
 )
-from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, AfflatusH3SeamLatent, AfflatusH3TailGuide, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent
+from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, AfflatusH3SeamLatent, AfflatusH3TailGuide, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent  # noqa: E402
 
 
 def _version() -> str:
@@ -212,15 +238,9 @@ try:
     from .watchdog import register as _register_watchdog
 
     _register_watchdog(PromptServer.instance.routes, web)
-
-    from .lock import install as _install_lock
-
-    try:
-        _install_lock(PromptServer.instance, web, folder_paths)
-    except Exception as err:
-        # said in ComfyUI's console: Afflatus checks a lock took (a call without the token must be refused), so a lock that
-        # could not be put in is found there too, never taken for one that works
-        print(f"[afflatus-nodes] the lock could not be put in front of ComfyUI's server: {err}")
-except Exception:
+except ImportError:
     # outside ComfyUI's server (a bare import, a test): the nodes still load, the routes are simply not there
     pass
+except Exception as err:
+    # said in ComfyUI's console, never swallowed: a route missing is looked for there (the lock is in already, above)
+    print(f"[afflatus-nodes] its routes could not all be added: {err}")
