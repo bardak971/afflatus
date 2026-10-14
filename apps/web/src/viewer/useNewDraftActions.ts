@@ -70,12 +70,11 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
   // a picture as the first frame of a new video: a draft on the video model used last among those that can
   // open on a picture (the form can still be put on another one: the picture goes along)
   const drafts = useDrafts(enabled);
-  const opener = usedLast(
-    (recipes.data?.recipes ?? []).filter((r) => on(r.family) && r.output === "video" && r.inputs.some((i) => i.type === "image" && i.role === "start")),
-    drafts.data?.items,
-    (r) => Boolean(setup.data?.recipes.find((x) => x.id === r.id)?.ready),
-  );
-  const openerName = opener ? (recipes.data?.families.find((f) => f.id === opener.family)?.name ?? opener.title) : "";
+  const ready = (r: RecipeInfo) => Boolean(setup.data?.recipes.find((x) => x.id === r.id)?.ready);
+  const nameOf = (r: RecipeInfo) => recipes.data?.families.find((f) => f.id === r.family)?.name ?? r.title;
+  const openers = (recipes.data?.recipes ?? []).filter((r) => on(r.family) && r.output === "video" && r.inputs.some((i) => i.type === "image" && i.role === "start"));
+  const opener = usedLast(openers, drafts.data?.items, ready);
+  const openerName = opener ? nameOf(opener) : "";
 
   /** A new clip from the frame at in to the frame at out, on the video model used last: first frame, last frame, duration = the range. */
   const between = useMutation({
@@ -107,11 +106,13 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
     },
     onSuccess: toForm,
   });
+  /** A new video with the picture as its first frame: on the model asked for (the submenu), else the one used last. */
   const animate = useMutation({
-    mutationFn: () => {
-      const slot = opener!.inputs.find((i) => i.type === "image" && i.role === "start")!;
-      aim(opener!, slot.id);
-      return api.createDraft({ recipe: opener!.id, forms: { [opener!.id]: { [slot.id]: asset.id } }, look: castOf(detail.data) });
+    mutationFn: (id?: string) => {
+      const to = openers.find((r) => r.id === id) ?? opener!;
+      const slot = to.inputs.find((i) => i.type === "image" && i.role === "start")!;
+      aim(to, slot.id);
+      return api.createDraft({ recipe: to.id, forms: { [to.id]: { [slot.id]: asset.id } }, look: castOf(detail.data) });
     },
     onSuccess: toForm,
   });
@@ -130,20 +131,26 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
   // Motion transfer: a picture as what moves, a video as how it moves, on the model used last among those that do it
   const pictureSlot = (r: RecipeInfo) => r.inputs.find((i) => i.type === "image" && i.role === "source");
   const drivingSlot = (r: RecipeInfo) => r.inputs.find((i) => i.type === "clip" && i.role === "source");
-  const mover = usedLast(
-    (recipes.data?.recipes ?? []).filter((r) => on(r.family) && r.output === "video" && pictureSlot(r) && drivingSlot(r)),
-    drafts.data?.items,
-    (r) => Boolean(setup.data?.recipes.find((x) => x.id === r.id)?.ready),
-  );
-  const moverName = mover ? (recipes.data?.families.find((f) => f.id === mover.family)?.name ?? mover.title) : "";
+  const movers = (recipes.data?.recipes ?? []).filter((r) => on(r.family) && r.output === "video" && pictureSlot(r) && drivingSlot(r));
+  const mover = usedLast(movers, drafts.data?.items, ready);
+  const moverName = mover ? nameOf(mover) : "";
+  /** A Motion transfer draft with this in its place: on the model asked for (the submenu), else the one used last. */
   const transfer = useMutation({
-    mutationFn: () => {
-      const slot = asset.kind === "image" ? pictureSlot(mover!)! : drivingSlot(mover!)!;
-      aim(mover!, slot.id);
-      return api.createDraft({ recipe: mover!.id, forms: { [mover!.id]: { [slot.id]: asset.kind === "image" ? asset.id : { asset: asset.id } } } });
+    mutationFn: (id?: string) => {
+      const to = movers.find((r) => r.id === id) ?? mover!;
+      const slot = asset.kind === "image" ? pictureSlot(to)! : drivingSlot(to)!;
+      aim(to, slot.id);
+      return api.createDraft({ recipe: to.id, forms: { [to.id]: { [slot.id]: asset.kind === "image" ? asset.id : { asset: asset.id } } } });
     },
     onSuccess: toForm,
   });
+  /** The models a submenu offers, the one used last first (marked), then by name; one not ready says so. */
+  const choices = (ways: RecipeInfo[], last: RecipeInfo | undefined) => {
+    // a model with two ways (H3's Video with audio and Lip sync both open on a picture) says which: "MiniMax H3 · Lip sync"
+    const said = (r: RecipeInfo) => (ways.filter((w) => w.family === r.family).length > 1 ? `${nameOf(r)} · ${r.title}` : nameOf(r));
+    return [...ways].sort((x, y) => Number(y === last) - Number(x === last) || said(x).localeCompare(said(y)))
+      .map((r) => ({ id: r.id, name: said(r), last: r === last, ready: ready(r) }));
+  };
 
   const all = (recipes.data?.recipes ?? []).filter((r) => on(r.family));
   /** The recipe for an operation: the one of the model the picture was made with when it has it, else one that is ready, else any. */
@@ -169,5 +176,8 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
     },
   });
 
-  return { a, g, recipe, madeWith, recipes, reuse, carrier, fromLastFrame, carryOn, between, extendHere, opener, openerName, animate, mover, moverName, transfer, follower, follow, toolFor, toolInput, openTool };
+  return {
+    a, g, recipe, madeWith, recipes, reuse, carrier, fromLastFrame, carryOn, between, extendHere, opener, openerName, animate, mover, moverName, transfer,
+    openerChoices: choices(openers, opener), moverChoices: choices(movers, mover), follower, follow, toolFor, toolInput, openTool,
+  };
 }

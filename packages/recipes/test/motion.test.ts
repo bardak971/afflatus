@@ -119,16 +119,24 @@ describe("Wan Animate 2 · Motion transfer", () => {
     expect(of(graph, "KSamplerSelect")[0]!.inputs.sampler_name).toBe("lcm");
     expect(of(graph, "WanAnimate2Cache")[0]!.inputs).toMatchObject({ device: "cpu", dtype: "int8" });
     expect(of(graph, "TrimVideoLatent")).toHaveLength(1);
-    // one window: no context windows
-    expect(of(graph, "ContextWindowsManual")).toHaveLength(0);
+    // one window: nothing carried on
+    expect(of(graph, "WanAnimate2ToVideo")).toHaveLength(1);
   });
 
-  it("keeps the driving video's pace (24 a second, as H3's), RIFE off by default, and takes a longer part in one pass by context windows", () => {
-    const graph = wbuild({ drivingSeconds: 10 }, at24(10));
-    expect(of(graph, "WanAnimate2ToVideo")[0]!.inputs.length).toBe(237);
-    expect(of(graph, "ContextWindowsManual")[0]!.inputs).toMatchObject({ context_length: 21, context_overlap: 8, dim: 2 });
+  it("keeps the driving video's pace (24 a second, as H3's), RIFE off by default, one window a job", () => {
+    // 3.4 s at most: a longer part goes on a timeline, window after window
+    expect(() => parseInput(wanAnimateMotion, { picture: "p1", driving: { asset: "v1" }, drivingSeconds: 10 })).toThrow();
+    const graph = wbuild({ drivingSeconds: 3.3 }, at24(3.3));
+    expect(of(graph, "WanAnimate2ToVideo").map((n) => n.inputs.length)).toEqual([77]);
+    expect(of(graph, "ContextWindowsManual")).toHaveLength(0);
     expect(of(graph, "FrameInterpolate")).toHaveLength(0);
-    expect(of(graph, "TrimAudioDuration")[0]!.inputs.duration).toBeCloseTo(237 / 24);
+    expect(of(graph, "TrimAudioDuration")[0]!.inputs.duration).toBeCloseTo(77 / 24);
+  });
+
+  it("gives the motion branch its own prompt when one is written", () => {
+    const graph = wbuild({ motion: "He raps to the camera." });
+    const pose = of(graph, "WanAnimate2ToVideo")[0]!.inputs.positive_pose as [string, number];
+    expect((graph[pose[0]]!.inputs as { text: string }).text).toBe("He raps to the camera.");
   });
 
   it("carries on from the clip before: its last frame starts the clip, and is dropped from it", () => {

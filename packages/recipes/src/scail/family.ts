@@ -1,4 +1,4 @@
-import { defineFamily, type Family } from "@afflatus/core";
+import { defineFamily, wordCount, type Family } from "@afflatus/core";
 import { wan } from "../wan/family";
 
 const HF = "https://huggingface.co/Comfy-Org/SCAIL-2/resolve/main";
@@ -15,6 +15,11 @@ export const scail = defineFamily({
   id: "scail",
   name: "SCAIL-2",
   summary: "Motion transfer: a picture moved like a driving video, body, hands and mouth. On Wan 2.1 14B, 16 fps.",
+  help: {
+    what: "A picture moved like a driving video, its room, its light and its people kept.",
+    best: "several people, each paired with who drives them; holding the face",
+    weak: "16 frames a second (RIFE doubles them), no sound of its own; complex motion and long clips can lose quality",
+  },
   promptStyle: "sentences",
   slots: [
     {
@@ -49,6 +54,21 @@ export const scail = defineFamily({
     fromWan("rife"),
   ],
   loraMatch: ["wan", "scail"],
+  guide: `SCAIL-2 moves the people of a PICTURE the way the people of a DRIVING VIDEO move: the motion, the gestures, the mouth and the camera all come from the video, everything seen comes from the picture. The prompt only describes the picture, so that the model keeps what is in it. It is optional, and short is best.
+RULES
+- 25 to 60 words, plain sentences, present tense.
+- Who is in the picture, each with 2 or 3 things that can be seen (hair, beard, clothing with its colour), in the order they stand from left to right. Several people: a sentence each.
+- The place in a few concrete things, and its light ("deep red stage light", "daylight from a window").
+- The action in a few words at most, the way the video has it ("raps to the camera, moving his hands"). Never a sequence of moves, never a camera move, never timing: the video gives those.
+- Nothing that is not in the picture: no new person, object or place.
+- No names of real people, no weights, no quality words, no tags.
+EXAMPLE, for the form only (its subject, place and words are not to be reused):
+A young woman with short black hair, a yellow raincoat and white sneakers stands on a wet city sidewalk at night, lit by shop windows and a blue neon sign. She dances, swinging her arms.`,
+  lint({ text, main }) {
+    if (!text?.trim()) return [];
+    const n = wordCount(text);
+    return n > 80 ? [{ part: main, text: `${n} words: SCAIL-2 only needs the picture described, 25 to 60 words.` }] : [];
+  },
 });
 
 export const SCAIL_FPS = 16;

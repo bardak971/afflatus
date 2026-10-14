@@ -4,7 +4,7 @@ import { api } from "./api";
 import { clock } from "./format";
 import { pausesIn } from "./pauses";
 import { queryKeys } from "./queryKeys";
-import { RangeSlider } from "./RangeSlider";
+import { RangeSlider, PastWhatFits } from "./RangeSlider";
 import { barsOf } from "./screens/library/SoundWave";
 import { cx } from "./ui";
 
@@ -107,10 +107,7 @@ export function SoundRange({ asset, total, start, seconds, min, most, label, pla
         ) : (
           <span className="absolute inset-x-0 top-1/2 h-px bg-line-strong" />
         )}
-        {/* past what the part can reach from its start: no clip holds it */}
-        {from + most < total && (
-          <span className="absolute inset-y-0 right-0 bg-[repeating-linear-gradient(135deg,var(--color-ground)_0_5px,transparent_5px_10px)] opacity-60" style={{ left: pct(from + most) }} />
-        )}
+        <PastWhatFits from={from} most={most} total={total} />
       </span>
       <span
         aria-hidden style={{ left: pct(from), width: pct(to - from) }}

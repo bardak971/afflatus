@@ -5,7 +5,7 @@ import { api, type Download } from "./api";
 import { useQueue } from "./data";
 import { about, fileLabel, siteName, size } from "./format";
 import { machineName, severalMachines } from "./machines";
-import { Bar, cx } from "./ui";
+import { Bar, buttonClass, cx } from "./ui";
 import { count, useDownloads, useGetFile, type Find } from "./useGetFile";
 import { queryKeys } from "./queryKeys";
 
@@ -142,8 +142,10 @@ export const civitaiTip = (m: Find["items"][number], file: string) =>
  * its author gave, or look for it on Civitai and fetch it from there. Both only show when they were
  * turned on in Settings; without them this renders nothing and the plain links around it stay.
  */
-export function GetFile({ file, folder, url, civitai, pick, hints, auto }: {
+export function GetFile({ file, folder, url, civitai, pick, hints, auto, buttons }: {
   file: string;
+  /** Its Download and Search as buttons (a file offered on its own card), not as links in a line of text. */
+  buttons?: boolean;
   /** Look the file up as soon as this shows, rather than on a click (the import page, where nothing else says where it is). */
   auto?: boolean;
   folder: string | null;
@@ -157,22 +159,24 @@ export function GetFile({ file, folder, url, civitai, pick, hints, auto }: {
 }) {
   const { lookups, fetching, find, search, start, download, mine, busy, noRoute, why, caution } = useGetFile({ file, folder, url, civitai, pick, hints, auto });
   if (!lookups && !fetching) return null;
+  const main = buttons ? buttonClass({ tone: "primary", size: "sm", className: "gap-1.5" }) : cx(link, "flex items-center gap-1 disabled:opacity-60");
+  const other = buttons ? buttonClass({ size: "sm" }) : link;
 
   return (
     <span className="flex flex-col gap-1.5 pt-1">
       <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {fetching && url && (
-          <button type="button" disabled={busy || noRoute} data-tip={why} onClick={() => download({ url })} className={cx(link, "flex items-center gap-1 disabled:opacity-60")}>
-            <DownloadIcon size={13} /> Download into ComfyUI
+          <button type="button" disabled={busy || noRoute} data-tip={why} onClick={() => download({ url })} className={main}>
+            <DownloadIcon size={13} /> {buttons ? "Download" : "Download into ComfyUI"}
           </button>
         )}
         {fetching && civitai && !url && (
-          <button type="button" disabled={busy || noRoute} data-tip={why} onClick={() => download({ civitai })} className={cx(link, "flex items-center gap-1 disabled:opacity-60")}>
-            <DownloadIcon size={13} /> Download into ComfyUI
+          <button type="button" disabled={busy || noRoute} data-tip={why} onClick={() => download({ civitai })} className={main}>
+            <DownloadIcon size={13} /> {buttons ? "Download" : "Download into ComfyUI"}
           </button>
         )}
         {lookups && (
-          <button type="button" onClick={search} disabled={find.isPending} className={link} data-tip="Asks Hugging Face for a file of exactly this name, and Civitai for models with a close name.">{find.isPending ? "Searching…" : "Search"}</button>
+          <button type="button" onClick={search} disabled={find.isPending} className={other} data-tip="Asks Hugging Face for a file of exactly this name, and Civitai for models with a close name.">{find.isPending ? "Searching…" : buttons ? "Other files…" : "Search"}</button>
         )}
       </span>
       {fetching && caution && !mine && (url || civitai) && <span className="text-xs text-warn-ink">{caution}</span>}

@@ -29,7 +29,12 @@ function useTakes() {
  * forward and the part opens: the place is there to be dropped on. While searching, what a screen adds (the
  * cast, a clip's pinned frames) steps aside: it is not a setting. The cast comes back when the search names it.
  */
-export function InputsPart({ frames, refs, framesChosen, refsCount, chosen, summary, missing, look, lookHit, frameExtra, q, render }: {
+export function InputsPart({ frames, refs, framesChosen, refsCount, chosen, summary, missing, look, lookHit, lookWithFrames, frameExtra, q, render }: {
+  /**
+   * The cast is used by the frames alone (a Motion transfer: who goes into the picture made from the driving video), not by
+   * a reference input or the words: it is drawn under the frames, and there is no References tab holding it alone.
+   */
+  lookWithFrames?: boolean;
   frames: InputSpec[];
   refs: InputSpec[];
   framesChosen: number;
@@ -50,7 +55,7 @@ export function InputsPart({ frames, refs, framesChosen, refsCount, chosen, summ
   const setPart = useParts((st) => st.set);
   const takes = useTakes();
   const hasFrames = frames.length > 0 || Boolean(frameExtra);
-  const hasRefs = refs.length > 0 || (Boolean(look) && (!q || Boolean(lookHit)));
+  const hasRefs = refs.length > 0 || (Boolean(look) && !lookWithFrames && (!q || Boolean(lookHit)));
   const tab = hasFrames && hasRefs ? (onRefs ? "references" : "frames") : hasFrames ? "frames" : "references";
   // something dragged in: the tab that takes it comes forward
   const refsTake = refs.some(takes);
@@ -100,7 +105,10 @@ export function InputsPart({ frames, refs, framesChosen, refsCount, chosen, summ
         </div>
       )}
       {tabNow === "frames" && !q && frameExtra?.node}
-      {(tabNow === "frames" || q) && frames.map(render)}
+      {/* a cast used by the frames alone goes right after the main ones (the picture it is put into), before what is advanced (a clip carried on from) */}
+      {(tabNow === "frames" || q) && (lookWithFrames ? frames.filter((i) => !i.advanced) : frames).map(render)}
+      {lookWithFrames && (!q || lookHit) && look}
+      {lookWithFrames && (tabNow === "frames" || q) && frames.filter((i) => i.advanced).map(render)}
       {((tabNow === "references" && !q) || lookHit) && look}
       {(tabNow === "references" || q) && refs.map(render)}
     </Part>

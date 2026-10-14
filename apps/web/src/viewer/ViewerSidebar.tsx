@@ -110,7 +110,7 @@ function Sent({ title, text, folded }: { title: string; text: string; folded?: b
 }
 
 /** One thing to do with the item: a word, its key. Pressed: it is on (Kept, Trim). A long label wraps to a second line rather than being cut ("Reuse · new seed", "Remove background"). */
-function Act({ icon, label, k, pressed, done, onClick, disabled, title, wide }: { icon?: LucideIcon; label: string; k?: ReactNode; pressed?: boolean; done?: boolean; onClick(): void; disabled?: boolean; title?: string; wide?: boolean }) {
+function Act({ icon, label, k, pressed, done, onClick, disabled, title, wide, more }: { icon?: LucideIcon; label: string; k?: ReactNode; pressed?: boolean; done?: boolean; onClick(e: React.MouseEvent<HTMLButtonElement>): void; disabled?: boolean; title?: string; wide?: boolean; more?: boolean }) {
   // just queued: a check and the ok look for a moment (itemActions.tsx `done`)
   const Icon = done ? Check : icon;
   return (
@@ -130,6 +130,7 @@ function Act({ icon, label, k, pressed, done, onClick, disabled, title, wide }: 
       {Icon && <Icon size={14} aria-hidden className={cx("shrink-0", done ? "text-good" : pressed ? "text-accent" : "text-ink-2")} />}
       <span className="line-clamp-2 min-w-0 grow leading-tight">{label}</span>
       {k && <span className="shrink-0 whitespace-nowrap"><Kbd>{k}</Kbd></span>}
+      {more && <ChevronDown size={13} aria-hidden className="shrink-0 text-ink-2" />}
     </button>
   );
 }
@@ -428,6 +429,8 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
   onClose(): void;
 }) {
   const { a, g, recipe, madeWith, recipes, leave, reuse, saveFrame, takeSound, animate, carryOn, cutRange, between, extendHere, mirror, follow, toolFor, openTool } = acts;
+  /** An action's own list (Image to video's models, Motion transfer's), open under its button. */
+  const choose = useMenu<ItemAction>();
   const family = recipes.data?.families.find((f) => f.id === (recipe?.family ?? g?.family));
   const title = recipe ? recipeLabel(family?.name, recipe.title) : g ? "Generated with a recipe that is no longer here" : a.origin === "uploaded" ? "Uploaded" : a.origin === "generated" ? "Generated" : a.origin === "exported" ? "Timeline export" : a.origin === "frame" ? "Video frame" : a.origin === "edited" ? "Edited copy" : a.origin === "imported" && a.kind === "audio" ? "Extracted audio" : "Imported";
   const made = new Date(a.createdAt);
@@ -491,13 +494,15 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
             <SectionTitle>{groupTitle(group, a.kind)}</SectionTitle>
             <div className="grid grid-cols-2 gap-1.5">
               {actions.map((x) => (
-                <Act key={x.id} icon={x.icon} label={x.label} k={x.key && keysShown("viewer", x.id) ? x.key : undefined} pressed={x.pressed} done={x.done} disabled={x.disabled} title={x.disabled && x.note ? `${x.label}: ${x.note}` : x.tip} onClick={() => x.run?.()} />
+                // one with a choice of its own (a model to open on): its list under it; its key still takes the one used last
+                <Act key={x.id} icon={x.icon} label={x.label} k={x.key && keysShown("viewer", x.id) ? x.key : undefined} pressed={x.pressed} done={x.done} disabled={x.disabled} title={x.disabled && x.note ? `${x.label}: ${x.note}` : x.tip} more={Boolean(x.items?.length) && x.id !== "timeline" && x.id !== "move"} onClick={(e) => (x.items?.length && x.id !== "timeline" && x.id !== "move" ? choose.open(e, x) : x.run?.())} />
               ))}
             </div>
             {group === "passes" && !a.inBin && <MorePasses madeWith={madeWith} shown={passTools} start={openTool} />}
           </div>
         ))}
         {failed && <span className="-mt-2 text-warn-ink">{failed.message}</span>}
+        {choose.menu?.subject.items && <ContextMenu at={choose.menu.at} label={choose.menu.subject.label} items={choose.menu.subject.items} onClose={choose.close} />}
 
         {g && (
           <div data-viewer-params className="flex scroll-mt-3 flex-col gap-3">
