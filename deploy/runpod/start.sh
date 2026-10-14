@@ -20,6 +20,10 @@ if ! python -c "import torch; torch.cuda.init(); torch.zeros(1, device='cuda')" 
 fi
 
 mkdir -p "$BASE/custom_nodes" "$BASE/models" "$BASE/user" "$BASE/input" "$BASE/output"
+# ComfyUI's model folders, as its own checkout has them: a fresh volume holds none, and nothing could be put in one
+for dir in /comfyui/models/*/; do
+  mkdir -p "$BASE/models/$(basename "$dir")"
+done
 echo "[afflatus-pod] ComfyUI's files in $BASE"
 
 # the node pack as this image has it, over the one an older pod left on the volume: the lock and the watchdog are the

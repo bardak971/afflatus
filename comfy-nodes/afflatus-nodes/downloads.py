@@ -104,17 +104,33 @@ def _inside(root, path):
 
 
 def model_dir(folder, folder_paths):
-    """The directory a model folder's downloads go into: the first of ComfyUI's paths for it that exists and can be written, as its real path."""
+    """
+    The directory a model folder's downloads go into: the first of ComfyUI's paths for it that exists and can be written,
+    as its real path. When none exists yet (a fresh network volume holds an empty models folder: ComfyUI started on it
+    with --base-directory has made none of its folders), the first is made, where its parent can be written.
+    """
     if not isinstance(folder, str) or folder in NOT_MODELS or folder not in folder_paths.folder_names_and_paths:
         return None
     code = _code_dirs(folder_paths)
-    for path in folder_paths.get_folder_paths(folder):
+    paths = list(folder_paths.get_folder_paths(folder))
+    for path in paths:
         if os.path.isdir(path) and os.access(path, os.W_OK):
             real = os.path.realpath(path)
             # a pack's own folder (VideoHelperSuite's video formats, say) takes no file from outside
             if any(_inside(c, real) for c in code):
                 return None
             return real
+    first = paths[0] if paths else None
+    parent = os.path.dirname(first) if first else None
+    if first and not os.path.exists(first) and parent and os.path.isdir(parent) and os.access(parent, os.W_OK):
+        real = os.path.join(os.path.realpath(parent), os.path.basename(first))
+        if any(_inside(c, real) for c in code):
+            return None
+        try:
+            os.makedirs(real, exist_ok=True)
+        except OSError:
+            return None
+        return real
     return None
 
 

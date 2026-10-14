@@ -361,3 +361,22 @@ def test_afflatus_own_address_refused_is_still_gone(tmp_path, site):
     s = site(status=403)
     job = _fetch(tmp_path, s.url)
     assert job.state == "error" and "Afflatus answered 403" in job.error
+
+
+def test_a_missing_model_folder_is_made_where_its_parent_can_be_written(tmp_path):
+    """A fresh network volume: ComfyUI's models folder is there, none of its folders; the first path of one is made."""
+
+    class Paths:
+        folder_names_and_paths = {"vae": ([str(tmp_path / "models" / "vae")], set()), "custom_nodes": ([str(tmp_path / "custom_nodes")], set())}
+
+        def get_folder_paths(self, name):
+            return self.folder_names_and_paths[name][0]
+
+    (tmp_path / "models").mkdir()
+    made = downloads.model_dir("vae", Paths())
+    assert made == os.path.realpath(str(tmp_path / "models" / "vae"))
+    assert os.path.isdir(made)
+    # a parent that is not there: nothing is made out of thin air
+    Paths.folder_names_and_paths["vae"] = ([str(tmp_path / "nowhere" / "vae")], set())
+    assert downloads.model_dir("vae", Paths()) is None
+    assert not (tmp_path / "nowhere").exists()
