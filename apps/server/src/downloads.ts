@@ -66,6 +66,9 @@ export interface DownloadView {
   machine?: string;
 }
 
+/** What a download onto a machine that cannot reach Afflatus (a rented pod) is refused with when its source gives no link of its own. */
+export const NO_DIRECT = "Its source gives no download link of its own, and a rented GPU cannot reach Afflatus to be sent the file through it.";
+
 interface Download extends DownloadView {
   token: string;
   source: string;
@@ -85,6 +88,8 @@ interface Download extends DownloadView {
   upstream?: AbortController;
   /** Manager reads a Hugging Face address itself: no bytes pass through Afflatus. */
   direct?: boolean;
+  /** Only from the source's own signed link: ComfyUI's machine cannot reach Afflatus (a rented pod). */
+  directOnly?: boolean;
   /** The pack fetches the source's own signed link (signedLink): no bytes pass through Afflatus; a fresh link is sent when it expires. */
   signed?: boolean;
   /** How many fresh links were sent, and when the last was. */
@@ -278,6 +283,12 @@ export class Downloads {
     this.tell(true);
   }
 
+  /** One download as it stands, by its id; null when it is not (or no longer) listed. */
+  get(id: string): DownloadView | null {
+    const d = this.all.get(id);
+    return d ? this.view(d) : null;
+  }
+
   /** Newest first. What finished is forgotten after an hour, a failure nobody read after a day. */
   list(): DownloadView[] {
     const now = Date.now();
@@ -377,7 +388,7 @@ export class Downloads {
    * address the pack or Manager fetches); `comfyDir` is ComfyUI's folder from the Settings, read for a ComfyUI
    * too old to say its folders.
    */
-  async start(comfy: Comfy, self: string, want: { file: string; folder: string; title: string; source: string; headers?: Record<string, string>; total?: number; comfyDir?: string; machine?: string }): Promise<DownloadView> {
+  async start(comfy: Comfy, self: string, want: { file: string; folder: string; title: string; source: string; headers?: Record<string, string>; total?: number; comfyDir?: string; machine?: string; directOnly?: boolean }): Promise<DownloadView> {
     const name = want.file.split(/[\\/]/).pop() ?? "";
     const sub = want.file.split(/[\\/]/).slice(0, -1).filter(Boolean).join("/");
     if (!isModelFile(name) || want.file.split(/[\\/]/).some((p) => BAD_NAME.test(p))) throw httpError(`"${name}" is not a model file Afflatus can download.`);
@@ -396,7 +407,10 @@ export class Downloads {
       id: randomUUID(), token: randomBytes(24).toString("hex"), comfy, source: want.source, headers,
       file: want.file, folder: want.folder, title: want.title, bytes: 0, total: want.total ?? 0, status: "starting", abort: new AbortController(), via: route.via,
       ...(want.machine ? { machine: want.machine } : {}),
+      ...(want.directOnly ? { directOnly: true } : {}),
     };
+    // a machine that cannot reach Afflatus takes its files from the node pack only, and from the source's own link
+    if (want.directOnly && route.via !== "pack") throw httpError("A rented GPU gets its files through the Afflatus node pack (0.12.0 or later), which this one does not answer with.");
     if (route.via === "afflatus") {
       try {
         const dest = await placeIn(route.root, sub, name);
@@ -483,14 +497,15 @@ export class Downloads {
   }
 
   /**
-   * Start what waits, AT_ONCE of Afflatus's own downloads and the pack's at a time, in the order they were
-   * asked for; the others say what they wait behind.
+   * Start what waits, AT_ONCE of Afflatus's own downloads and the pack's at a time on each ComfyUI, in the order they
+   * were asked for; the others say what they wait behind. Each machine has its own line: a rented pod's files do not
+   * wait behind this computer's.
    */
   private pump(): void {
     const ours = [...this.all.values()].filter((d) => d.via !== "manager");
-    const under = ours.filter((d) => d.begun && running(d));
     let changed = false;
     for (const d of ours.filter((o) => !o.begun && o.status === "starting")) {
+      const under = ours.filter((o) => o.comfy === d.comfy && o.begun && running(o));
       if (under.length < AT_ONCE) {
         d.begun = true;
         delete d.waiting;
@@ -552,6 +567,7 @@ export class Downloads {
       const version = await d.comfy.client.packVersion().catch(() => null);
       const signed = version && !olderThan(version, PACK_SIGNED) ? await this.signer(d.source, d.headers).catch(() => null) : null;
       d.signed = Boolean(signed);
+      if (!signed && d.directOnly) throw new Error(NO_DIRECT);
       const res = await d.comfy.client.raw("/afflatus/download", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(15_000),
         body: JSON.stringify({ url: signed ?? this.oneTime(d.self!, d), folder: d.folder, filename: d.file.replace(/\\/g, "/"), total: d.total }),
@@ -581,6 +597,11 @@ export class Downloads {
         }
         silent = 0;
         if (s.note) d.note = s.note;
+        // from the source's own link, no byte passes through Afflatus to count: the pack's count is the progress
+        if (d.signed && typeof s.bytes === "number" && s.bytes > d.bytes) {
+          d.bytes = s.bytes;
+          this.tell();
+        }
         // its signed link expired half way: a fresh one, asked for here with the key as the first was; the pack carries on
         if (s.expired && d.signed && Date.now() - (d.renewedAt ?? 0) > 10_000) {
           d.renewals = (d.renewals ?? 0) + 1;

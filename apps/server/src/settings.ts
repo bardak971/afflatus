@@ -88,6 +88,8 @@ export const rentedSchema = z.object({
    * meanwhile (an image that never pulls keeps a pod provisioning, billed). Emptied once it answered.
    */
   deployedAt: z.string().max(40).default(""),
+  /** RunPod's cloud it was deployed on, when Afflatus deployed it: the speeds its files came at are kept per cloud (podMeasures.ts). */
+  cloud: z.enum(["SECURE", "COMMUNITY"]).optional(),
 });
 
 /** What a GPU is deployed with (Settings › Rented GPUs › Deploy a GPU): the dialog's choices. */

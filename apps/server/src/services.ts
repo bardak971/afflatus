@@ -5,6 +5,8 @@ import { join } from "node:path";
 import type { Db, DbKind } from "./db";
 import type { LibraryChange } from "./events";
 import { Downloads } from "./downloads";
+import { PodFiles } from "./podFiles";
+import { presetsWithFiles } from "./presetFiles";
 import { ShippedPresets, shippedPresetsDir } from "./presetFiles";
 import { DEFAULT_QUEUE_OPTIONS, Queue, type QueueOptions } from "./queue";
 import { Registry } from "./registry";
@@ -42,6 +44,8 @@ export interface Services {
   downloads: Downloads;
   /** Rented machines: pods on RunPod, read, started and stopped (rented.ts). */
   rented: Rented;
+  /** The model files rented pods are getting (podFiles.ts). */
+  podFiles: PodFiles;
   /** The presets that ship with Afflatus (the repository's `presets/` folder). */
   shippedPresets: ShippedPresets;
   /** Newer versions of the model files on Civitai. */
@@ -137,14 +141,39 @@ export async function createServices(
   const sweeper = setInterval(runSweep, 60 * 60_000);
   sweeper.unref();
   const swept = runSweep();
+  const downloads = new Downloads(queue.events, dirs.dataDir ? join(dirs.dataDir, "downloads.json") : undefined);
+  const shippedPresets = new ShippedPresets(dirs.shippedPresets === undefined ? shippedPresetsDir() : dirs.shippedPresets);
+  const machineOf = async (id: string) => (await machines()).find((m) => m.machine.id === id);
+  let podFilesTold: NodeJS.Timeout | null = null;
+  const podFiles = new PodFiles({
+    db, downloads,
+    comfyOf: async (id) => (await machineOf(id))?.comfy ?? null,
+    working: (id) => rented.hasWork(id),
+    cloudOf: async (id) => (await machineOf(id))?.machine.rented?.cloud ?? null,
+    lookup: { db, presets: () => presetsWithFiles({ db, shippedPresets }), families: () => registry.families(), comfyDir: async () => (await readSettings(db)).comfyDir },
+    settings: () => readSettings(db),
+    // the pods' rows are in the queue's view (rentedOf): a file's progress is said as the queue is, every 2 s at most
+    changed: () => {
+      if (podFilesTold) return;
+      podFilesTold = setTimeout(() => {
+        podFilesTold = null;
+        queue.events.emit("queue");
+      }, 2000);
+      podFilesTold.unref();
+    },
+  });
+  // what pods are getting is followed every second, while any is
+  const podFilesTimer = setInterval(() => void podFiles.tick().catch((err) => console.warn("[pod files]", (err as Error).message)), 1000);
+  podFilesTimer.unref();
   const services: Services = {
-    db, dbKind, storage, linked, registry, comfy, machines, comfyOf, queue, timelines, rented, downloads: new Downloads(queue.events, dirs.dataDir ? join(dirs.dataDir, "downloads.json") : undefined),
-    shippedPresets: new ShippedPresets(dirs.shippedPresets === undefined ? shippedPresetsDir() : dirs.shippedPresets),
+    db, dbKind, storage, linked, registry, comfy, machines, comfyOf, queue, timelines, rented, podFiles, downloads,
+    shippedPresets,
     updates: null as unknown as Updates,
     started: swept.then(() => undefined),
     precompute,
     async close() {
       clearInterval(sweeper);
+      clearInterval(podFilesTimer);
       rented.stop();
       await precompute?.stop();
       queue.stop();

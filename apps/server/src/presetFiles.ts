@@ -82,19 +82,21 @@ export interface PresetFilesView {
   needs?: { family: string; name: string; missing: string[] };
 }
 
-type Preset = { id: string; name: string; recipe?: string; files: PresetFile[]; licence?: { name: string } };
+export type Preset = { id: string; name: string; recipe?: string; files: PresetFile[]; licence?: { name: string } };
+
+/** Every preset that names files: the user's own from the database, then the shipped ones. */
+export async function presetsWithFiles(s: Pick<Services, "db" | "shippedPresets">): Promise<Preset[]> {
+  const rows = await s.db.selectFrom("entities").select(["id", "name", "def"]).where("owner_id", "=", OWNER).where("kind", "=", "preset").execute();
+  const mine = rows.flatMap((r) => {
+    const def = JSON.parse(r.def) as { recipe?: string; files?: PresetFile[]; licence?: { name: string } };
+    return def.files?.length ? [{ id: r.id, name: r.name, recipe: def.recipe, files: def.files, licence: def.licence }] : [];
+  });
+  const shipped = s.shippedPresets.list().map((p) => ({ id: SHIPPED + p.id, name: p.name, recipe: p.recipe, files: p.files, licence: p.licence }));
+  return [...mine, ...shipped];
+}
 
 export function registerPresetFiles(app: FastifyInstance, s: Services): void {
-  /** Every preset that names files: the user's own from the database, and the shipped ones. */
-  const all = async (): Promise<Preset[]> => {
-    const rows = await s.db.selectFrom("entities").select(["id", "name", "def"]).where("owner_id", "=", OWNER).where("kind", "=", "preset").execute();
-    const mine = rows.flatMap((r) => {
-      const def = JSON.parse(r.def) as { recipe?: string; files?: PresetFile[]; licence?: { name: string } };
-      return def.files?.length ? [{ id: r.id, name: r.name, recipe: def.recipe, files: def.files, licence: def.licence }] : [];
-    });
-    const shipped = s.shippedPresets.list().map((p) => ({ id: SHIPPED + p.id, name: p.name, recipe: p.recipe, files: p.files, licence: p.licence }));
-    return [...mine, ...shipped];
-  };
+  const all = () => presetsWithFiles(s);
   const find = async (id: string) => {
     const found = (await all()).find((p) => p.id === id);
     if (!found) throw httpError("that preset was not found, or names no files", 404);

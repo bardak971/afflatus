@@ -168,6 +168,8 @@ const fresh = (): Seen => ({
 
 export class Rented {
   private readonly seen = new Map<string, Seen>();
+  /** Whether each pod had work at the last look: a job running there, or waiting that it could take (keepOrStop). */
+  private readonly working = new Map<string, boolean>();
   /** What went wrong asking RunPod as a whole (the key, an answer not read): said on every rented card. */
   private error: string | null = null;
   private timer: NodeJS.Timeout | null = null;
@@ -252,6 +254,11 @@ export class Rented {
   }
 
   /** Whether a machine can take work: a rented one only while its pod runs and is not being stopped. Null: it can. */
+  /** Whether a pod has work: a job running there, or one waiting that it could take, at the last look. Files ahead start only then (podFiles.ts). */
+  hasWork(machine: string): boolean {
+    return this.queue.runningOn(machine) || this.working.get(machine) === true;
+  }
+
   unavailable(machine: string): string | null {
     const s = this.seen.get(machine);
     if (!s) return null;
@@ -416,7 +423,7 @@ export class Rented {
         let name = offer.name.slice(0, 36);
         for (let n = 2; names.has(name); n++) name = `${offer.name.slice(0, 36)} ${n}`;
         // without a volume a stop keeps nothing and its GPU may be taken meanwhile: terminated, as for a pod added
-        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString() };
+        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString(), cloud: ask.cloud };
         return { machines: [...current.machines, { id, name, url: podUrl(made.id), dir: "", takes: "all" as const, families: {}, token, rented }], lastDeploy: ask };
       });
     } catch (err) {
@@ -791,7 +798,9 @@ export class Rented {
     const running = this.queue.runningOn(m.id);
     // work counts only for a pod whose ComfyUI answers: one that went down would otherwise keep a waiting job "for it" forever
     // not idle before its ComfyUI first answered (a first boot pulling node packs and models): the boot limit covers that
-    if (running || !s.answered || (answers && (await this.queue.wants(m.id)))) s.busyAt = now;
+    const wants = answers && (await this.queue.wants(m.id));
+    this.working.set(m.id, running || wants);
+    if (running || !s.answered || wants) s.busyAt = now;
     s.busyAt ??= now;
     const spent = await this.spent();
     s.stopAfter = (caps.day > 0 && spent.today >= caps.day) || (caps.month > 0 && spent.month >= caps.month);
