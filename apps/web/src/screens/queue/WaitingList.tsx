@@ -272,6 +272,8 @@ function PinnedLacks({ machine, id, lack }: { machine: string; id: string; lack:
               </div>
             ))}
           </>
+        ) : lack.why ? (
+          <span>Waits for {machine}: {lack.why}. Run on another machine from its menu.</span>
         ) : (
           <span>Waits: {machine} cannot run it (a custom node it needs is missing there). Run on another machine from its menu.</span>
         )}
