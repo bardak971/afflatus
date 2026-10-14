@@ -153,7 +153,7 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, o
                   </div>
                 ),
               }}
-              frameExtra={!picture ? { summary: "", node: <PictureFromFrame timeline={timeline} place={place} clock={clock} /> } : undefined}
+              frameExtra={!picture && pictureSpec ? { summary: "", node: <PictureFromFrame timeline={timeline} place={place} clock={clock} slot={pictureSpec.id} /> } : undefined}
               helpers={
                 <WritingHelp
                   recipe={form}
@@ -185,7 +185,7 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, o
  * Under an empty Picture: made from the frame of the source the stage stands on (pick one where the person is seen well),
  * with the timeline cast's first person put in, in Qwen Image 2.1 · Edit. Reads the clock on its own: only it redraws as it plays.
  */
-function PictureFromFrame({ timeline, place, clock }: { timeline: Timeline; place: SourcePlace | null; clock: Clock }) {
+function PictureFromFrame({ timeline, place, clock, slot }: { timeline: Timeline; place: SourcePlace | null; clock: Clock; slot: string }) {
   const time = useClock(clock);
   const entities = useEntities();
   const makePicture = useMakeSourcePicture();
@@ -195,12 +195,12 @@ function PictureFromFrame({ timeline, place, clock }: { timeline: Timeline; plac
   const first = timeline.look?.cast[0];
   const person = first ? entities.data?.items.find((e) => e.id === first.id && e.kind === "person") : undefined;
   const face = person && person.kind === "person" ? person.def.pictures[0] ?? null : null;
-  const make = useMutation({ mutationFn: () => makePicture(source.asset, at, face, `Picture for ${timeline.name}`), onError: failed("The picture could not be started") });
+  const make = useMutation({ mutationFn: () => makePicture(source.asset, at, face, `Picture for ${timeline.name}`, { timeline: timeline.id, slot }), onError: failed("The picture could not be started") });
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border border-dashed border-line-strong px-3 py-2.5">
       <Button size="sm" className="self-start" disabled={make.isPending} onClick={() => make.mutate()}><Wand2 size={14} /> Make it from this frame…</Button>
       <span className="text-xs text-ink-2">
-        The frame of the source at the playhead (<span className="font-mono">{mmss(at, { decimals: 1 })}</span>: move it to one where the person is seen well), {person ? <>with {person.name} (the timeline's cast) put in,</> : "opened on its References (drop who goes in there),"} in Qwen Image 2.1 · Edit: 3 pictures, pick one and drop it on the Picture.
+        The frame of the source at the playhead (<span className="font-mono">{mmss(at, { decimals: 1 })}</span>: move it to one where the person is seen well), {person ? <>with {person.name} (the timeline's cast) put in,</> : "opened on its References (drop who goes in there),"} in Qwen Image 2.1 · Edit: 3 pictures; right-click the one you like, Use for Motion transfer (or Relight it first…).
       </span>
     </div>
   );

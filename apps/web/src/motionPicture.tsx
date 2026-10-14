@@ -1,4 +1,5 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { ArrowLeft, PersonStanding, Sun, Wand2 } from "lucide-react";
@@ -35,9 +36,13 @@ const RELIGHT =
   "the same shadows on their face, less light on their skin where the room is dark, and the same soft, grainy phone-video look. " +
   "Do not change their face, their hair, their expression or anything else in <image1>.";
 
-/** An Edit draft made for a Motion transfer draft: which one, and the slot its picture goes into. Kept in this browser. */
+/**
+ * An Edit draft made for a Motion transfer: a draft of Create (`motion`), or a timeline's source lane (`timeline`), and the
+ * slot its picture goes into. Kept in this browser.
+ */
 interface Link {
-  motion: string;
+  motion?: string;
+  timeline?: string;
   slot: string;
 }
 export const useMotionLinks = create<{ of: Record<string, Link>; tie(edit: string, link: Link): void }>()(
@@ -74,15 +79,15 @@ function useOpenEditFor() {
 }
 
 /**
- * A timeline source's picture, made as a Motion transfer form's is: the frame where its stretch starts, with `person` (the
- * timeline cast's first person's picture) put into it, 3 pictures to pick from in Create. Not tied back: the one picked is
- * dropped on the source's Picture.
+ * A timeline source's picture, made as a Motion transfer form's is: the frame at the playhead, with `person` (the timeline
+ * cast's first person's picture) put into it, 3 pictures to pick from in Create, tied to the source: the one picked goes
+ * into its Picture (Use for Motion transfer), or is relit first.
  */
 export function useMakeSourcePicture() {
   const openEdit = useOpenEditFor();
-  return async (video: string, atMs: number, person: string | null, name: string) => {
+  return async (video: string, atMs: number, person: string | null, name: string, to: { timeline: string; slot: string }) => {
     const frame = await api.frame(video, Math.round(atMs));
-    await openEdit(null, { source: frame.id, person, prompt: REPLACE, count: 3, name });
+    await openEdit(to, { source: frame.id, person, prompt: REPLACE, count: 3, name });
   };
 }
 
@@ -134,9 +139,24 @@ export function MakeFromDriving({ specs, values }: { specs: readonly InputSpec[]
 /** Over an Edit draft made for a Motion transfer: what it is for, how its pictures go back, and the way back. */
 export function MotionPictureBanner({ draftId }: { draftId: string | undefined }) {
   const link = useMotionLinks((s) => (draftId ? s.of[draftId] : undefined));
-  const motion = useQuery({ queryKey: queryKeys.drafts.one(link?.motion ?? null), queryFn: () => api.draft(link!.motion), enabled: Boolean(link) });
+  const motion = useQuery({ queryKey: queryKeys.drafts.one(link?.motion ?? null), queryFn: () => api.draft(link!.motion!), enabled: Boolean(link?.motion) });
+  const timeline = useQuery({ queryKey: queryKeys.timelines.one(link?.timeline ?? ""), queryFn: () => api.timeline(link!.timeline!), enabled: Boolean(link?.timeline) });
   const openNew = useOpenNewDraft();
+  const [, go] = useLocation();
   if (!link) return null;
+  if (link.timeline) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-accent/35 bg-accent/10 px-3 py-2 text-xs text-ink">
+        <PersonStanding size={14} className="shrink-0 text-accent" />
+        <span className="grow">
+          For the source of <span className="font-semibold">{timeline.data?.name || "a timeline"}</span>: right-click the picture you like, <span className="font-semibold">Use for Motion transfer</span>, or <span className="font-semibold">Relight it first…</span>
+        </span>
+        <button type="button" onClick={() => go(`/timelines/${link.timeline}`)} className="flex shrink-0 items-center gap-1 font-semibold underline underline-offset-2">
+          <ArrowLeft size={12} /> Back
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-2 rounded-lg border border-accent/35 bg-accent/10 px-3 py-2 text-xs text-ink">
       <PersonStanding size={14} className="shrink-0 text-accent" />
@@ -159,9 +179,19 @@ export function useMotionPictureItems(): (asset: Asset) => MenuItem[] {
   const openNew = useOpenNewDraft();
   const openEdit = useOpenEditFor();
   const failed = useSayFailed({ id: "motion-picture" });
+  const client = useQueryClient();
+  const [, go] = useLocation();
   const use = useMutation({
     mutationFn: async (asset: Asset) => {
-      const d = await api.draft(link!.motion);
+      // a timeline's source: its Picture, then back to the timeline
+      if (link!.timeline) {
+        const t = await api.timeline(link!.timeline);
+        await api.editTimeline(t.id, { source: { inputs: { ...(t.source?.inputs ?? {}), [link!.slot]: asset.id } } });
+        await client.invalidateQueries({ queryKey: queryKeys.timelines.one(t.id) });
+        go(`/timelines/${t.id}`);
+        return;
+      }
+      const d = await api.draft(link!.motion!);
       const saved = await api.saveDraft(d.id, { forms: { ...d.forms, [d.recipe]: { ...d.forms[d.recipe], [link!.slot]: asset.id } } });
       openNew(saved);
     },
