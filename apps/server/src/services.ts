@@ -176,6 +176,10 @@ export async function createServices(
     return row ? { ...row, files: podFiles.view(m.id), packs: podFiles.packsView(m.id) } : null;
   };
   // a deployed pod up: the files its deploy asked for come after what its jobs wait for; the ones left out never come
+  rented.filesLeft = (id) => {
+    const files = podFiles.view(id);
+    return { left: files.filter((f) => f.state === "next" || f.state === "fetching").length, total: files.length };
+  };
   rented.onUp = (id, files, leaveOut) => {
     podFiles.leaveOut(id, leaveOut);
     podFiles.want(id, files.map(({ file, folder, url, civitai, size }) => ({ file, folder, ...(url ? { url } : {}), ...(civitai ? { civitai } : {}), ...(size ? { size } : {}) })), { tier: "ahead" });

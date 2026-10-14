@@ -94,6 +94,8 @@ export const rentedSchema = z.object({
   userStopped: z.boolean().default(false),
   /** The network volume it was deployed on, by id ("" for none): it holds that volume while it runs. */
   volume: z.string().max(80).default(""),
+  /** Deployed only to fill its volume (Fill from a set…): it takes no render, and is terminated once its files are in. */
+  fill: z.boolean().default(false),
   /** RunPod's cloud it was deployed on, when Afflatus deployed it: the speeds its files came at are kept per cloud (podMeasures.ts). */
   cloud: z.enum(["SECURE", "COMMUNITY"]).optional(),
   /** The files its deploy asked for, handed to it at its first answer (podFiles.ts), then emptied. */

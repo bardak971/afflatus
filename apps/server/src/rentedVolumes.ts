@@ -128,9 +128,12 @@ export async function recordHoldings(db: Db, volume: string, comfy: Comfy, by: s
   await db.insertInto("volume_files").values({ volume_id: volume, ...row }).onConflict((oc) => oc.column("volume_id").doUpdateSet(row)).execute();
 }
 
+/** Of a set's files, those a volume lacks as last seen. */
+export const lackingOn = <F extends PresetFile>(files: readonly F[], keys: ReadonlySet<string>): F[] => files.filter((f) => !keys.has(keyOf(f.folder, f.file)));
+
 /** Of a set's files, those a volume lacks as last seen: how many, their bytes as far as known. */
 export function missingOn(files: readonly PresetFile[], keys: ReadonlySet<string>): { count: number; bytes: number; unknown: number } {
-  const lacking = files.filter((f) => !keys.has(keyOf(f.folder, f.file)));
+  const lacking = lackingOn(files, keys);
   return { count: lacking.length, bytes: lacking.reduce((n, f) => n + (f.size ?? 0), 0), unknown: lacking.filter((f) => !f.size).length };
 }
 

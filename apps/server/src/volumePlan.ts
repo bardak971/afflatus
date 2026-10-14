@@ -1,8 +1,9 @@
 import type { PresetFile } from "@afflatus/core";
+import { notFound } from "./errors";
 import { setsWithFiles } from "./modelSets";
-import { estimateFiles, type FilesEstimate } from "./podMeasures";
+import { estimateFiles, measuredRange, type FilesEstimate } from "./podMeasures";
 import { measureKind, presetSource } from "./podSources";
-import { VOLUME_MAX_GB, VOLUME_MIN_GB, VOLUME_PER_GB_MONTH } from "./rentedVolumes";
+import { keptHoldings, lackingOn, missingOn, VOLUME_MAX_GB, VOLUME_MIN_GB, VOLUME_PER_GB_MONTH } from "./rentedVolumes";
 import type { Services } from "./services";
 
 /**
@@ -74,4 +75,31 @@ export async function volumePlan(s: Services, setIds: string[] | null): Promise<
     places, sets: chosen.map((x) => ({ id: x.id, name: x.name, bytes: x.files.reduce((n, f) => n + (f.size ?? 0), 0) })),
     sizeGb: sizeFor(bytes), perGbMonth: VOLUME_PER_GB_MONTH, deploys: runs.size, rate, fetch,
   };
+}
+
+/** What Fill from a set… says before it deploys: the GPU it takes and its price, what the volume lacks of the set, how long and what it costs. */
+export interface FillPlan {
+  gpu: { name: string; price: number } | null;
+  /** The set's files the volume lacks as last seen (all of them when it was never seen), and their bytes as far as known. */
+  missing: { count: number; bytes: number; unknown: number };
+  /** The files' fetch at the measured speeds and the GPU's price, plus the pod's boot as measured; null when never measured. */
+  estimate: { fastMs: number; slowMs: number; lowUsd: number; highUsd: number } | null;
+}
+
+export async function fillPlan(s: Services, volume: string, setId: string): Promise<FillPlan> {
+  const [found, sets, kept] = await Promise.all([s.rented.fillGpu(volume), setsWithFiles(s), keptHoldings(s.db)]);
+  const set = sets.find((x) => x.id === setId);
+  if (!set) throw notFound("that model set");
+  const keys = kept.get(volume)?.keys ?? new Set<string>();
+  const lacking = lackingOn(set.files, keys);
+  const missing = missingOn(set.files, keys);
+  if (!found) return { gpu: null, missing, estimate: null };
+  const kinds = lacking.filter((f) => f.size).map((f) => {
+    const src = presetSource(f);
+    return { bytes: f.size!, kind: src ? measureKind(src) : ("upload" as const) };
+  });
+  const [files, boot] = await Promise.all([estimateFiles(s.db, kinds, "SECURE", found.gpu.price), measuredRange(s.db, "boot", "SECURE")]);
+  const usd = (ms: number) => (ms / 3_600_000) * found.gpu.price;
+  const estimate = files && boot ? { fastMs: files.fastMs + boot.low, slowMs: files.slowMs + boot.high, lowUsd: usd(files.fastMs + boot.low), highUsd: usd(files.slowMs + boot.high) } : null;
+  return { gpu: { name: found.gpu.name, price: found.gpu.price }, missing, estimate };
 }

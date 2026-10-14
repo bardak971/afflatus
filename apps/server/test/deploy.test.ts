@@ -189,6 +189,34 @@ describe("a deploy", () => {
     expect(plan).toMatchObject({ sizeGb: 40, perGbMonth: 0.07, sets: [{ name: "zz-test set", bytes: 30_000_000_000 }] });
   });
 
+  it("fills a volume from a set: the cheapest GPU there, no render given to it, terminated once its files are in", async () => {
+    const set = (await post(t.app, "/api/model-sets", { name: "zz-test set", presets: [], off: [], files: [
+      { file: "illustrious.safetensors", folder: "checkpoints", url: "https://huggingface.co/zz-test/x/resolve/main/illustrious.safetensors", size: 6_000_000_000 },
+    ] })).json().id as string;
+    const plan = (await get(t.app, `/api/runpod/volumes/vol-ro/fill?set=${set}`)).json();
+    // never seen: all of the set is missing; the A40 is the cheapest in stock in EU-RO-1
+    expect(plan).toMatchObject({ gpu: { name: "A40", price: 0.44 }, missing: { count: 1, bytes: 6_000_000_000 } });
+    const res = await post(t.app, "/api/runpod/volumes/vol-ro/fill", { set });
+    expect(res.statusCode).toBe(200);
+    const id = res.json().id as string;
+    expect(runpod.pods[0]).toMatchObject({ gpu: "NVIDIA A40", volumeId: "vol-ro", dataCenterId: "EU-RO-1" });
+    const s = await readSettings(t.db);
+    expect(s.machines.find((m) => m.id === id)?.rented).toMatchObject({ fill: true, volume: "vol-ro" });
+    // not the user's deploy: the next one does not start from it
+    expect(s.lastDeploy).toBeNull();
+    // no render goes to it, though nothing else can take one
+    await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: { machine: "m1" } });
+    const queued = (await post(t.app, "/api/jobs", job())).json().ids[0] as string;
+    expect(await t.services.queue.wants(id)).toBe(false);
+    // up, its file there already: the volume listed, the pod terminated, the machine gone
+    await until(async () => (await t.services.rented.poll(), !(await readSettings(t.db)).machines.some((m) => m.id === id)), 15_000);
+    expect(runpod.pods[0]!.status).toBe("TERMINATED");
+    expect((await t.db.selectFrom("jobs").select("status").where("id", "=", queued).executeTakeFirstOrThrow()).status).toBe("queued");
+    const ro = ((await get(t.app, "/api/runpod/volumes")).json().volumes as Array<{ id: string; holds: { count: number } | null; sets: Array<{ missing: { count: number } }> }>).find((v) => v.id === "vol-ro")!;
+    expect(ro.holds?.count).toBe(2);
+    expect(ro.sets[0]?.missing.count).toBe(0);
+  });
+
   it("makes, grows and deletes a volume; never smaller, never one a pod is mounted on", async () => {
     const made = await post(t.app, "/api/runpod/volumes", { name: "zz-test volume", size: 20, dataCenter: "EU-RO-1" });
     expect(made.statusCode).toBe(200);

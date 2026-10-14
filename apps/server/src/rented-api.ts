@@ -3,7 +3,7 @@ import { z } from "zod";
 import { deployFiles, deployModels } from "./deployModels";
 import { setsWithFiles } from "./modelSets";
 import { keptHoldings, missingOn } from "./rentedVolumes";
-import { volumePlan } from "./volumePlan";
+import { fillPlan, volumePlan } from "./volumePlan";
 import { httpError } from "./errors";
 import { podMachineId, podUrl } from "./runpod";
 import type { Services } from "./services";
@@ -47,6 +47,23 @@ export function registerRented(app: FastifyInstance, s: Services): void {
   app.get("/api/runpod/volumes/plan", async (req) => {
     const { sets } = z.object({ sets: z.string().max(2000).optional() }).parse(req.query);
     return volumePlan(s, sets ? sets.split(",").filter(Boolean).slice(0, 20) : null);
+  });
+
+  /** What Fill from a set… says first: the GPU it takes and its price, what the volume lacks of the set, how long, what it costs. */
+  app.get("/api/runpod/volumes/:id/fill", async (req) => {
+    const { set } = z.object({ set: z.string().min(1).max(80) }).parse(req.query);
+    return fillPlan(s, z.object({ id: z.string().max(80) }).parse(req.params).id, set);
+  });
+
+  /**
+   * Fill from a set…: the cheapest GPU in stock where the volume is, deployed only to fetch the set's files onto it, then
+   * terminated. Billed from now, on the user's click; each preset's licence accepted first, as for a deploy.
+   */
+  app.post("/api/runpod/volumes/:id/fill", async (req) => {
+    const { set, accept } = z.strictObject({ set: z.string().min(1).max(80), accept: z.array(z.string().max(120)).max(40).default([]) }).parse(req.body);
+    const files = await deployFiles(s, { set, files: [], accept, again: true });
+    if (!files.length) throw httpError("That set brings no file.");
+    return s.rented.fill(z.object({ id: z.string().max(80) }).parse(req.params).id, set, files);
   });
 
   /** A network volume made larger (Grow…). */

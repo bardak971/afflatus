@@ -59,7 +59,7 @@ export interface RentedView {
    * Why Afflatus stopped or terminated it last, when it did: "boot" when its ComfyUI never answered; "gpu" when the pod said its
    * GPU does not work; "watchdog" when its watchdog stopped it while Afflatus was away, and Afflatus terminated what was left.
    */
-  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | null;
+  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | "filled" | null;
   /** Deployed and on its first start (its image pulled, ComfyUI starting): a normal step, said as one, not as an error. */
   booting: boolean;
   /** What went wrong with this pod, or asking RunPod, when something did. */
@@ -280,8 +280,15 @@ export class Rented {
   /** A deployed pod answered for the first time: the files its deploy asked for, and the ones it left out (services.ts hands them to podFiles). */
   onUp: ((machine: string, files: PresetFile[], leaveOut: Array<{ file: string; folder: string }>) => void) | null = null;
 
+  /** The files a machine's pod still waits for, and all it was given (services.ts: podFiles); null when not known. */
+  filesLeft: ((machine: string) => { left: number; total: number }) | null = null;
+
+  /** Machines deployed only to fill their volume: they take no render. */
+  private filling = new Set<string>();
+
   /** Whether a machine can take work: a rented one only while its pod runs and is not being stopped. Null: it can. */
   unavailable(machine: string): string | null {
+    if (this.filling.has(machine)) return "filling its volume";
     const s = this.seen.get(machine);
     if (!s) return null;
     if (s.stopping) return "being stopped";
@@ -422,17 +429,40 @@ export class Rented {
    * only ComfyUI's port open; added as a machine at once, and the choices kept for the next deploy. Refused at a spending
    * cap. Billed from now: Afflatus never deploys on its own.
    */
-  async deploy(ask: DeployAsk): Promise<{ id: string }> {
+  async deploy(ask: DeployAsk, o: { fill?: boolean } = {}): Promise<{ id: string }> {
     if (this.deploying) throw httpError("A deploy is under way: wait for it to end.", 409);
     this.deploying = true;
     try {
-      return await this.deployNow(ask);
+      return await this.deployNow(ask, o.fill ?? false);
     } finally {
       this.deploying = false;
     }
   }
 
-  private async deployNow(ask: DeployAsk): Promise<{ id: string }> {
+  /**
+   * The cheapest GPU in stock where a volume is, to fill it: what Fill from a set… deploys (said with its price first).
+   * Null when none is free there now.
+   */
+  async fillGpu(volume: string): Promise<{ gpu: GpuOffer; volume: NetworkVolume } | null> {
+    const found = (await this.volumes()).find((v) => v.id === volume);
+    if (!found) throw httpError("That network volume is not on this account any more.", 404);
+    if (found.usedBy) throw httpError(inUseSaid(found.name, found.usedBy), 409);
+    const offers = await this.gpus("SECURE");
+    const gpu = offers.filter((g) => g.dataCenters.some((d) => d.id === found.dataCenter && d.availability !== "NONE")).sort((a, b) => a.price - b.price)[0];
+    return gpu ? { gpu, volume: found } : null;
+  }
+
+  /**
+   * A pod deployed only to fill a volume with these files (Fill from a set…): the cheapest GPU in stock there, Afflatus's
+   * image, no render given to it, terminated once its files are in. Billed from now, as any deploy, on the user's click.
+   */
+  async fill(volume: string, set: string, files: PresetFile[]): Promise<{ id: string }> {
+    const found = await this.fillGpu(volume);
+    if (!found) throw httpError("No GPU is free where that volume is now: try again later.", 409);
+    return this.deploy({ gpu: found.gpu.id, cloud: "SECURE", template: "afflatus", volume, disk: 20, idleMinutes: 5, idleDo: "terminate", watchdogMinutes: 15, set, files, leaveOut: [], accept: [], again: false }, { fill: true });
+  }
+
+  private async deployNow(ask: DeployAsk, fill = false): Promise<{ id: string }> {
     const s = await readSettings(this.db);
     if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
     // a pod made that cannot be kept as a machine would have to be terminated at once, its first seconds billed
@@ -521,9 +551,10 @@ export class Rented {
         let name = offer.name.slice(0, 36);
         for (let n = 2; names.has(name); n++) name = `${offer.name.slice(0, 36)} ${n}`;
         // without a volume a stop keeps nothing and its GPU may be taken meanwhile: terminated, as for a pod added
-        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString(), cloud: ask.cloud, volume: volume?.id ?? "", files: ask.files, leaveOut: ask.leaveOut };
-        // the next deploy starts from the same choices; the files are this one's
-        return { machines: [...current.machines, { id, name, url: podUrl(made.id), dir: "", takes: "all" as const, families: {}, token, rented }], lastDeploy: { ...ask, files: [], leaveOut: [], accept: [] } };
+        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString(), cloud: ask.cloud, volume: volume?.id ?? "", fill, files: ask.files, leaveOut: ask.leaveOut };
+        const machines = [...current.machines, { id, name, url: podUrl(made.id), dir: "", takes: "all" as const, families: {}, token, rented }];
+        // the next deploy starts from the same choices; the files are this one's. A fill is not a deploy of the user's choices
+        return fill ? { machines } : { machines, lastDeploy: { ...ask, files: [], leaveOut: [], accept: [] } };
       });
     } catch (err) {
       // not kept as a machine: nothing here would ever stop it, so it goes at once
@@ -531,6 +562,8 @@ export class Rented {
       if (kept) await client.deleteSecret(secret).catch(() => {});
       throw err;
     }
+    // a fill takes no render from its first second, not from the next read
+    if (fill) this.filling.add(id);
     console.log(`[rented] deployed ${offer.name} in ${made.dataCenter ?? "a data center"} (${ask.template}, ${volume ? `volume ${volume.name}` : "no volume"})`);
     this.events.emit("setup");
     void this.poll();
@@ -577,6 +610,7 @@ export class Rented {
     this.spentThisPoll = null;
     const settings = await readSettings(this.db);
     const rented = settings.machines.filter((m) => m.rented);
+    this.filling = new Set(rented.filter((m) => m.rented!.fill).map((m) => m.id));
     for (const id of this.seen.keys()) if (!rented.some((m) => m.id === id)) this.seen.delete(id);
     // a run still open for a machine that is no longer this pod (removed from Afflatus while it ran, or added again as
     // another pod) is closed now, where it was last seen running: nothing would ever close it otherwise
@@ -838,6 +872,19 @@ export class Rented {
       await this.lockPod(m.id).catch((err: Error) => console.warn(`[rented] ${m.name || m.id} not locked: ${err.message}`));
     }
     if (answers && pod?.volumeId) void this.noteVolume(m, pod.volumeId);
+    // a pod filling its volume: terminated once its files are in (what the volume holds listed first), kept until then
+    if (m.rented!.fill) {
+      const files = this.filesLeft?.(m.id);
+      if (answers && !m.rented!.deployedAt && files && files.left === 0) {
+        if (pod?.volumeId) {
+          this.volumeListed.delete(pod.volumeId);
+          await this.noteVolume(m, pod.volumeId);
+        }
+        await this.act(m, "terminate", "filled");
+        return true;
+      }
+      s.busyAt = this.now();
+    }
     await this.keepOrStop(m, s, caps, answers);
     return changed;
   }
@@ -1216,7 +1263,8 @@ export class Rented {
     }
     // a deployed pod terminated by its idle time, a cap or a boot that never came: nothing is left of it, its machine goes too
     // (the user's own Terminate removes it in stopBy)
-    if (action === "terminate" && m.rented!.deployed && (why === "idle" || why === "cap" || why === "watchdog")) await this.forget(m, s);
+    if (action === "terminate" && m.rented!.deployed && (why === "idle" || why === "cap" || why === "watchdog" || why === "filled")) await this.forget(m, s);
+    if (why === "filled") console.log(`[rented] ${m.name || m.id}: its volume filled, terminated`);
     if (why === "watchdog") console.log(`[rented] ${m.name || m.id}: found stopped by its watchdog, terminated (it kept nothing)`);
     if (why === "idle" || why === "cap" || why === "boot" || why === "gpu") console.log(`[rented] ${m.name || m.id}: ${action === "terminate" ? "terminated" : "stopped"} (${why === "idle" ? `idle ${m.rented!.idleMinutes} min` : why === "boot" ? `its ComfyUI never answered in ${bootLimit(m) / 60_000} min` : why === "gpu" ? "its GPU did not work on that host" : "a spending cap"})`);
     this.events.emit("queue");
