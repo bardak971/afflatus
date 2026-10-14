@@ -5,11 +5,11 @@ export type { ModelInfo };
 import type { Advice, GpuOffer, HistoryPage, NetworkVolume, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
-import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView } from "./api/types/designer";
+import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
 import type { DeployAsk, Health, FinishSettings, MachineProbe, Settings, SettingsPatch } from "./api/types/settings";
 import type { UpdatesView } from "./api/types/updates";
 import type { CommandEntry, CommandEstimate, CommandIndex, PromptHistoryItem } from "./api/types/bar";
-import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, HuggingFaceFind, CivitaiFind } from "./api/types/models";
+import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, HuggingFaceFind, CivitaiFind, DeployModels, ModelSet, SetFile, SetSearch } from "./api/types/models";
 
 /** Shapes of the server's answers. Kept next to the calls so a change on one side is noticed on the other. */
 export * from "./api/types/queue";
@@ -176,6 +176,22 @@ export const api = {
   runpodVolumes: (o?: Asked) => call<{ volumes: NetworkVolume[] }>("GET", "/runpod/volumes", undefined, o?.signal),
   /** A GPU deployed, as the dialog asked: billed from now. Its machine's id. */
   deployGpu: (ask: DeployAsk) => call<{ id: string }>("POST", "/runpod/deploy", ask),
+  /** The Deploy dialog's Models part: the waiting jobs' files, the picked set's, and what earlier deploys measured. */
+  deployModels: (cloud: DeployAsk["cloud"], set: string, o?: Asked) => call<DeployModels>("GET", `/runpod/deploy/models?${new URLSearchParams({ cloud, set })}`, undefined, o?.signal),
+  /** The Model sets (Settings › Models). */
+  modelSets: (o?: Asked) => call<{ items: ModelSet[] }>("GET", "/model-sets", undefined, o?.signal),
+  /** A set made (no id) or changed. */
+  saveModelSet: (id: string | null, body: { name: string; presets: string[]; files: PresetFile[]; off: string[] }) => call<ModelSet>(id ? "PUT" : "POST", id ? `/model-sets/${encodeURIComponent(id)}` : "/model-sets", body),
+  deleteModelSet: (id: string) => call<{ ok: true }>("DELETE", `/model-sets/${encodeURIComponent(id)}`),
+  duplicateModelSet: (id: string) => call<ModelSet>("POST", `/model-sets/${encodeURIComponent(id)}/duplicate`, {}),
+  /** A set's files, with where each comes from and which machines have it. */
+  modelSetFiles: (id: string, o?: Asked) => call<{ items: SetFile[] }>("GET", `/model-sets/${encodeURIComponent(id)}/files`, undefined, o?.signal),
+  /** The set's files a machine lacks, fetched there (the first ComfyUI without one); a preset's licence accepted with `accept`. */
+  getModelSetFiles: (id: string, body: { machine?: string; accept?: boolean } = {}) => call<{ sent: number; failed: Array<{ file: string; error: string }>; skipped: number }>("POST", `/model-sets/${encodeURIComponent(id)}/get`, body),
+  /** A set file brought in (Import): a new set of its files. */
+  importModelSet: (file: unknown) => call<ModelSet>("POST", "/model-sets/import", file),
+  /** What can be added to a set or a deploy: presets, families, this computer's files. */
+  searchModelSets: (q: string, o?: Asked) => call<SetSearch>("GET", `/model-sets/search?q=${encodeURIComponent(q)}`, undefined, o?.signal),
   /** A machine removed from Afflatus: a rented pod is left on RunPod as it is (its secret goes once the pod does). */
   removeMachine: (id: string) => call<{ ok: true }>("POST", `/machines/${encodeURIComponent(id)}/remove`, {}),
   /** Whether each image a deploy may run can be pulled now (null: its registry did not answer). */

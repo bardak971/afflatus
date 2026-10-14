@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { presetFileSchema } from "@afflatus/core";
 import type { Db } from "./db";
 import { httpError } from "./errors";
 import { oneAtATime } from "./keyedLock";
@@ -90,6 +91,10 @@ export const rentedSchema = z.object({
   deployedAt: z.string().max(40).default(""),
   /** RunPod's cloud it was deployed on, when Afflatus deployed it: the speeds its files came at are kept per cloud (podMeasures.ts). */
   cloud: z.enum(["SECURE", "COMMUNITY"]).optional(),
+  /** The files its deploy asked for, handed to it at its first answer (podFiles.ts), then emptied. */
+  files: z.array(presetFileSchema).max(300).default([]),
+  /** The files its deploy left out (unticked): its jobs that use one stay elsewhere. Handed at its first answer, then emptied. */
+  leaveOut: z.array(z.strictObject({ file: z.string().max(400), folder: z.string().max(120) })).max(300).default([]),
 });
 
 /** What a GPU is deployed with (Settings › Rented GPUs › Deploy a GPU): the dialog's choices. */
@@ -106,6 +111,14 @@ export const deploySchema = z.object({
   idleMinutes: z.number().int().min(0).max(24 * 60).default(10),
   idleDo: z.enum(["stop", "terminate"]).default("terminate"),
   watchdogMinutes: z.number().int().min(0).max(24 * 60).default(15),
+  /** The Model set picked (its id), remembered for the next deploy; empty: none. */
+  set: z.string().max(80).default(""),
+  /** The model files ticked: fetched onto the pod once it is up, after what its jobs wait for. Not remembered. */
+  files: z.array(presetFileSchema).max(300).default([]),
+  /** The waiting jobs' files unticked: those jobs stay elsewhere. Not remembered. */
+  leaveOut: z.array(z.strictObject({ file: z.string().max(400), folder: z.string().max(120) })).max(300).default([]),
+  /** The set's presets whose licence was accepted in the dialog, by id. Not remembered. */
+  accept: z.array(z.string().max(120)).max(20).default([]),
 });
 export type DeployAsk = z.infer<typeof deploySchema>;
 

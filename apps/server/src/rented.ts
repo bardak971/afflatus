@@ -5,7 +5,9 @@ import type { Db } from "./db";
 import { httpError } from "./errors";
 import { newToken } from "./lock-api";
 import { COMFY_PORT, exposesComfy, imageFor, LOCK_ENV, noCapacity, POD_IMAGES, podMachineId, podUrl, Runpod, RunpodError, RunpodShape, secretRef, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ACTION_ENV, WATCHDOG_ENV, type BillRecord, type GpuOffer, type NetworkVolume, type Pod, type PodSpec, type PodStatus } from "./runpod";
+import type { PresetFile } from "@afflatus/core";
 import { imagePublic } from "./podImage";
+import { recordMeasure } from "./podMeasures";
 import { readSettings, updateSettings, type DeployAsk, type Machine, type Settings } from "./settings";
 
 /**
@@ -251,6 +253,9 @@ export class Rented {
     return s;
   }
 
+  /** A deployed pod answered for the first time: the files its deploy asked for, and the ones it left out (services.ts hands them to podFiles). */
+  onUp: ((machine: string, files: PresetFile[], leaveOut: Array<{ file: string; folder: string }>) => void) | null = null;
+
   /** Whether a machine can take work: a rented one only while its pod runs and is not being stopped. Null: it can. */
   unavailable(machine: string): string | null {
     const s = this.seen.get(machine);
@@ -416,8 +421,9 @@ export class Rented {
         let name = offer.name.slice(0, 36);
         for (let n = 2; names.has(name); n++) name = `${offer.name.slice(0, 36)} ${n}`;
         // without a volume a stop keeps nothing and its GPU may be taken meanwhile: terminated, as for a pod added
-        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString(), cloud: ask.cloud };
-        return { machines: [...current.machines, { id, name, url: podUrl(made.id), dir: "", takes: "all" as const, families: {}, token, rented }], lastDeploy: ask };
+        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString(), cloud: ask.cloud, files: ask.files, leaveOut: ask.leaveOut };
+        // the next deploy starts from the same choices; the files are this one's
+        return { machines: [...current.machines, { id, name, url: podUrl(made.id), dir: "", takes: "all" as const, families: {}, token, rented }], lastDeploy: { ...ask, files: [], leaveOut: [], accept: [] } };
       });
     } catch (err) {
       // not kept as a machine: nothing here would ever stop it, so it goes at once
@@ -679,9 +685,13 @@ export class Rented {
       return true;
     }
     if (answers) s.answered = true;
-    // its first answer since it was deployed: later starts count from when it runs
+    // its first answer since it was deployed: later starts count from when it runs. How long it took is kept (the Deploy
+    // dialog's "up in"), and what its deploy asked for is handed to it now
     if (answers && m.rented!.deployedAt) {
-      await updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id && x.rented ? { ...x, rented: { ...x.rented, deployedAt: "" } } : x)) }));
+      if (Number.isFinite(deployedAt)) await recordMeasure(this.db, { kind: "boot", cloud: m.rented!.cloud ?? null, bytes: 0, ms: this.now() - deployedAt }).catch(() => {});
+      const { files, leaveOut } = m.rented!;
+      await updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id && x.rented ? { ...x, rented: { ...x.rented, deployedAt: "", files: [], leaveOut: [] } } : x)) }));
+      if (files.length || leaveOut.length) this.onUp?.(m.id, files, leaveOut);
     }
     // up this long and its ComfyUI never answered: its container failed to start, or ComfyUI on it did; billed for nothing.
     // A deployed pod's first boot counts from its deploy (its image pulled first); one that never came up is terminated
