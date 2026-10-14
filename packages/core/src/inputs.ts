@@ -189,6 +189,11 @@ interface ClipInput extends Base {
    * how long it is, in seconds. It is handed over cut to that part, at `fps`. `fits`: how much of it one clip holds.
    */
   window?: { start: string; seconds: string; fits?: PartFit };
+  /**
+   * "previous": its last frame as it was filed (finished: matched, softened, grained) goes up too, as "<id>.look". The frames
+   * handed over are the model's own when they were kept, which do not show how the clip looked (Motion transfer's colour match).
+   */
+  look?: boolean;
 }
 
 /** What a reference picture shows. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dryContext, parseInput, type MediaFacts } from "@afflatus/core";
+import { dryContext, parseInput, sourceWindows, type MediaFacts } from "@afflatus/core";
 import { scailMotion } from "../src/scail/motion";
 import { chunkLengths } from "../src/motion/driving";
 import { SCAIL_FPS } from "../src/scail/family";
@@ -65,7 +65,8 @@ describe("SCAIL-2 · Motion transfer", () => {
     expect(Array.isArray(conds[1]!.inputs.video_frame_offset)).toBe(true);
     expect(conds[1]!.inputs.previous_frames).toBeDefined();
     expect(of(graph, "ImageFromBatch").some((n) => n.inputs.batch_index === 5)).toBe(true);
-    expect(of(graph, "ImageBatch")).toHaveLength(1);
+    // the two chunks joined, and RIFE's last frame held (motionSaved)
+    expect(of(graph, "ImageBatch")).toHaveLength(2);
     expect(built.passes).toHaveLength(2);
   });
 
@@ -204,5 +205,188 @@ describe("what a motion render is priced on", () => {
     const long = scailMotion.build(parseInput(scailMotion, { picture: "p1", driving: { asset: "v1" }, drivingSeconds: 20 }), dryContext({ slots, uploads: { picture: "p.png", driving: "d.mp4" }, media: { picture: { width: 768, height: 1360 }, driving: part(20) } }));
     expect(long.frames).toBe(81);
     expect(long.totalSteps).toBe(6 * 5);
+  });
+});
+
+/** The node a link points at. */
+const at = (graph: Graph, ref: unknown) => graph[(ref as [string, number])[0]]!;
+/** Whether a node of `type` is upstream of `ref`. */
+const above = (graph: Graph, ref: unknown, type: string): boolean => {
+  if (!Array.isArray(ref) || typeof ref[0] !== "string" || !graph[ref[0]]) return false;
+  const node = at(graph, ref);
+  return node.class_type === type || Object.values(node.inputs).some((v) => above(graph, v, type));
+};
+/**
+ * How many frames a link carries, from the frames the model's decode gives (`decoded`): the nodes between the model and the
+ * file, counted as ComfyUI does (RIFE ×2 makes 2n − 1; ImageFromBatch takes what is there; a node of the clip before's is 1).
+ */
+const framesOf = (graph: Graph, ref: unknown, decoded: number): number => {
+  const node = at(graph, ref);
+  const i = node.inputs;
+  switch (node.class_type) {
+    case "VAEDecode":
+      return decoded;
+    case "LoadImage":
+      return 1;
+    case "FrameInterpolate":
+      return 2 * framesOf(graph, i.images, decoded) - 1;
+    case "ImageBatch":
+      return framesOf(graph, i.image1, decoded) + framesOf(graph, i.image2, decoded);
+    case "ImageFromBatch": {
+      const n = framesOf(graph, i.image, decoded);
+      // a link: what the node says (Wan Animate's frames of the clip before, 1)
+      const from = typeof i.batch_index === "number" ? (i.batch_index < 0 ? i.batch_index + n : i.batch_index) : 1;
+      return Math.min(n - from, i.length as number);
+    }
+    case "ColorTransfer":
+      return framesOf(graph, i.image_target, decoded);
+    default:
+      return framesOf(graph, i.image ?? i.images, decoded);
+  }
+};
+
+describe("a Motion transfer window as filed", () => {
+  const wslots = { unet: "wan_animate_2_int8_convrot.safetensors", turbo: "lightx2v.safetensors", clip: "umt5.safetensors", vae: "wan_2.1_vae.safetensors", clipVision: "clip_vision_h.safetensors", rife: "rife49.pth" };
+  const SHAPES = [
+    { recipe: scailMotion, slots, fps: 16, shape: { fps: 16, most: 321, least: 9, carried: 5 } },
+    { recipe: wanAnimateMotion, slots: wslots, fps: 24, shape: { fps: 24, most: 81, least: 9, carried: 1 } },
+  ] as const;
+  const made = (recipe: (typeof SHAPES)[number]["recipe"], s: Record<string, string>, fps: number, over: Record<string, unknown>, uploads: Record<string, string> = {}) => {
+    const input = parseInput(recipe as typeof scailMotion, { picture: "p1", driving: { asset: "v1" }, ...over });
+    return recipe.build(input as never, dryContext({
+      slots: s, uploads: { picture: "p.png", driving: "d.mp4", ...uploads },
+      media: { picture: { width: 768, height: 1360 }, driving: { width: 480, height: 854, frames: 81, fps, hasSound: true } },
+    }));
+  };
+
+  it("takes every window a timeline makes of a long source: its first, those carrying on and those after a scene cut", () => {
+    for (const { recipe, shape, fps } of SHAPES) {
+      for (const windowMs of [1000, 3000, 3400, 5000, 8000, 20_000, 30_000]) {
+        for (const cutsMs of [[], [7300, 15_100, 40_000]]) {
+          const windows = sourceWindows({ fromMs: 1500, toMs: 61_500, windowMs, shape, cutsMs });
+          expect(windows.length).toBeGreaterThan(1);
+          expect(windows.some((w) => !w.opens)).toBe(true);
+          for (const w of windows) {
+            const input = parseInput(recipe as typeof scailMotion, { picture: "p1", driving: { asset: "v1" }, drivingStart: w.start, drivingSeconds: w.seconds });
+            // the part cut at the model's speed holds the frames planned: those it shows, and those carried
+            const planned = Math.round((w.toMs - w.fromMs) / (1000 / fps)) + (w.opens ? 0 : shape.carried);
+            expect(Math.floor(input.drivingSeconds * fps)).toBeGreaterThanOrEqual(planned);
+          }
+        }
+      }
+    }
+  });
+
+  it("reaches Wan Animate 2's 81 frames from its form", () => {
+    const built = made(wanAnimateMotion, wslots, 24, { drivingSeconds: 81.5 / 24 });
+    expect(of(built.graph as Graph, "WanAnimate2ToVideo")[0]!.inputs.length).toBe(81);
+  });
+
+  it("lasts what its part does with RIFE ×2: its frames doubled and the last one held, 2n at twice the rate, as long as its sound", () => {
+    for (const { recipe, slots: s, fps, shape } of SHAPES) {
+      for (const previous of [false, true]) {
+        const built = made(recipe, s, fps, { drivingSeconds: 81.5 / fps, smooth: true, ...(previous ? { previous: { asset: "v0" } } : {}) }, previous ? { previous: "prev.mp4", "previous.look": "prev.png" } : {});
+        const graph = built.graph as Graph;
+        const saver = graph[built.outputs[0]!.node]!;
+        const carried = previous ? shape.carried : 0;
+        const filed = framesOf(graph, saver.inputs.images, 81);
+        expect(filed).toBe(2 * (81 - carried));
+        expect(saver.inputs.frame_rate).toBe(2 * fps);
+        expect(filed / (2 * fps)).toBeCloseTo(of(graph, "TrimAudioDuration")[0]!.inputs.duration as number, 6);
+        // the model's own frames beside it, as made, at the model's speed: not matched, not grained
+        const raw = graph[built.outputs[1]!.node]!;
+        expect(framesOf(graph, raw.inputs.images, 81)).toBe(81 - carried);
+        expect(raw.inputs.frame_rate).toBe(fps);
+        expect(above(graph, raw.inputs.images, "ImageAddNoise")).toBe(false);
+        expect(above(graph, raw.inputs.images, "ImageBlur")).toBe(false);
+      }
+      // without RIFE, n frames at the model's speed
+      const plain = made(recipe, s, fps, { drivingSeconds: 81.5 / fps, smooth: false });
+      expect(framesOf(plain.graph as Graph, (plain.graph as Graph)[plain.outputs[0]!.node]!.inputs.images, 81)).toBe(81);
+    }
+  });
+
+  it("puts its grain on last, after RIFE: grain interpolated shimmered at half the rate", () => {
+    for (const { recipe, slots: s, fps } of SHAPES) {
+      const built = made(recipe, s, fps, { smooth: true });
+      const graph = built.graph as Graph;
+      const saver = graph[built.outputs[0]!.node]!;
+      expect(at(graph, saver.inputs.images).class_type).toBe("ImageAddNoise");
+      expect(above(graph, saver.inputs.images, "FrameInterpolate")).toBe(true);
+      const interpolate = of(graph, "FrameInterpolate")[0]!;
+      expect(above(graph, interpolate.inputs.images, "ImageAddNoise")).toBe(false);
+      // the colour and the softness still before it
+      expect(above(graph, interpolate.inputs.images, "ColorTransfer")).toBe(true);
+      expect(above(graph, interpolate.inputs.images, "ImageBlur")).toBe(true);
+      // not asked to match the driving video: no grain either
+      expect(of(made(recipe, s, fps, { smooth: true, matchDriving: false }).graph as Graph, "ImageAddNoise")).toHaveLength(0);
+    }
+  });
+
+  it("samples on the form's Shift: the scheduler reads the shifted model, at SCAIL-2's own 8 and Wan Animate's 5 by default", () => {
+    for (const { recipe, slots: s, fps } of SHAPES) {
+      const scheduler = (over: Record<string, unknown>) => {
+        const graph = made(recipe, s, fps, over).graph as Graph;
+        return at(graph, of(graph, "BasicScheduler")[0]!.inputs.model);
+      };
+      expect(scheduler({}).class_type).toBe("ModelSamplingSD3");
+      expect(scheduler({}).inputs.shift).toBe(recipe === scailMotion ? 8 : 5);
+      expect(scheduler({ shift: 3 }).inputs.shift).toBe(3);
+    }
+  });
+});
+
+describe("SCAIL-2's chunks", () => {
+  it("anchor each chunk on the one before as it is kept: its colours held, from the second chunk on", () => {
+    const { graph } = build({ drivingSeconds: 20 }, part(20));
+    const conds = of(graph, "WanSCAILToVideo");
+    expect(conds.length).toBeGreaterThanOrEqual(3);
+    // the first chunk hands on its frames as decoded (nothing was held), every one after its frames as held
+    expect(at(graph, conds[1]!.inputs.previous_frames).class_type).toBe("VAEDecode");
+    for (const cond of conds.slice(2)) expect(at(graph, cond.inputs.previous_frames).class_type).toBe("ColorTransfer");
+    // without ColorTransfer, as decoded
+    const plain = build({ drivingSeconds: 20 }, part(20), (n) => n !== "ColorTransfer").graph;
+    for (const cond of of(plain, "WanSCAILToVideo").slice(1)) expect(at(plain, cond.inputs.previous_frames).class_type).toBe("VAEDecode");
+  });
+});
+
+describe("a Motion transfer window matched to the driving video", () => {
+  const scail = (uploads: Record<string, string>, over: Record<string, unknown> = {}) => {
+    const input = parseInput(scailMotion, { picture: "p1", driving: { asset: "v1" }, ...(uploads.previous ? { previous: { asset: "v0" } } : {}), ...over });
+    return scailMotion.build(input, dryContext({ slots, uploads: { picture: "p.png", driving: "d.mp4", ...uploads }, media: { picture: { width: 768, height: 1360 }, driving: part(81 / SCAIL_FPS) } })).graph as Graph;
+  };
+  const toDriving = (graph: Graph) => of(graph, "ColorTransfer").filter((n) => n.inputs.source_stats === "uniform");
+
+  it("opening a shot, takes the driving video's colours, pooled over its part", () => {
+    const graph = scail({});
+    expect(toDriving(graph)).toHaveLength(1);
+    expect(at(graph, toDriving(graph)[0]!.inputs.image_ref).class_type).toBe("ImageScale");
+  });
+
+  it("carrying on, takes the transform the clip before was filed with: read from its own first frame to that clip's last as filed", () => {
+    const graph = scail({ previous: "prev.mp4", "previous.look": "prev.png" });
+    expect(toDriving(graph)).toHaveLength(0);
+    const look = of(graph, "ColorTransfer").find((n) => n.inputs.source_stats === "target_frame")!;
+    expect(look.inputs).toMatchObject({ method: "reinhard_lab", "source_stats.target_index": 0, strength: 1 });
+    expect(at(graph, look.inputs.image_ref).inputs.image).toBe("prev.png");
+    // the frame it is read from: its first, softened and grained as the clip before's last was filed, put before the clip
+    const both = at(graph, look.inputs.image_target);
+    expect(both.class_type).toBe("ImageBatch");
+    expect(at(graph, both.inputs.image1).class_type).toBe("ImageAddNoise");
+    expect(above(graph, both.inputs.image1, "ImageBlur")).toBe(true);
+    // and dropped after: the clip keeps its own frames
+    const after = of(graph, "ImageFromBatch").find((n) => at(graph, n.inputs.image) === look)!;
+    expect(after.inputs).toMatchObject({ batch_index: 1, length: 4096 });
+    // the same in Wan Animate 2
+    const wan = wanAnimateMotion.build(parseInput(wanAnimateMotion, { picture: "p1", driving: { asset: "v1" }, previous: { asset: "v0" } }), dryContext({
+      slots: { unet: "u", turbo: "t", clip: "c", vae: "v", clipVision: "cv", rife: "r" }, uploads: { picture: "p.png", driving: "d.mp4", previous: "prev.mp4", "previous.look": "prev.png" },
+      media: { picture: { width: 768, height: 1360 }, driving: { width: 480, height: 854, frames: 81, fps: 24, hasSound: true } },
+    })).graph as Graph;
+    expect(of(wan, "ColorTransfer").map((n) => n.inputs.source_stats)).toEqual(["target_frame"]);
+  });
+
+  it("carrying on without the clip before's last frame as filed (not read), takes the driving video's colours as before", () => {
+    expect(toDriving(scail({ previous: "prev.mp4" }))).toHaveLength(1);
+    expect(of(scail({ previous: "prev.mp4", "previous.look": "prev.png" }, { matchDriving: false }), "ColorTransfer").filter((n) => n.inputs.source_stats !== "per_frame")).toHaveLength(0);
   });
 });

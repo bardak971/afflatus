@@ -37,17 +37,24 @@ export interface MotionShape {
 
 /** The inputs every Motion transfer form opens with: the picture, the driving video and its part, the prompt, the size. */
 export function motionInputs(shape: MotionShape, placeholder = "A man in a black t-shirt and a silver watch stands in a crowded room lit by red light. He raps to the camera, moving his hands to the beat."): InputSpec[] {
-  // the most one job takes, in tenths of a second as the field says it (Wan Animate's one window: 3.3 s)
-  const most = Math.floor((shape.most / shape.fps) * 10) / 10;
+  // the most one job takes, in tenths of a second as the note says it (Wan Animate's one window: 3.3 s)
+  const said = Math.floor((shape.most / shape.fps) * 10) / 10;
+  // what the field takes, in hundredths: from the fewest frames a job makes (a timeline's last window, or one ended by a scene
+  // cut, is under a second) to the most and the half frame a timeline's windows add (sourceWindows.ts), so that every window
+  // it makes is taken. Floored to a tenth the most refused every Wan Animate window (3.3958 s against 3.3) and never reached
+  // its 81 frames. The most is on the field's steps from the least, so that the slider's end reaches it
+  const hundredths = (s: number) => Math.round(s * 100) / 100;
+  const least = Math.ceil((shape.least / shape.fps) * 100) / 100;
+  const most = hundredths(least + Math.ceil(((shape.most + 0.5) / shape.fps - least) * 100 - 1e-6) / 100);
   return [
     // the driving video first: it says where the clip starts, and which of its frames a picture is made from
     {
       id: "driving", type: "clip", role: "source", label: "Driving video", frames: [shape.most], fps: shape.fps, whole: true,
       window: { start: "drivingStart", seconds: "drivingSeconds", fits: { frames: shape.most, fps: shape.fps, pad: 0, min: shape.least / shape.fps, grid: MOTION_GRID } },
-      note: `how it moves: the body, the hands, the face. One job takes ${most} s of it; a longer video goes on a timeline, part by part`,
+      note: `how it moves: the body, the hands, the face. One job takes ${said} s of it; a longer video goes on a timeline, part by part`,
     },
     { id: "drivingStart", type: "number", label: "Driving video: start", min: 0, max: 3600, step: 0.1, default: 0, unit: " s", showWhen: "driving" },
-    { id: "drivingSeconds", type: "number", label: "Driving video: length", min: 1, max: most, step: 0.1, default: Math.min(5, most), unit: " s", showWhen: "driving" },
+    { id: "drivingSeconds", type: "number", label: "Driving video: length", min: least, max: most, step: 0.01, default: Math.min(5, said), unit: " s", showWhen: "driving" },
     {
       id: "picture", type: "image", role: "source", label: "Picture",
       note: "what moves. Its room, its light and its people are kept: only the motion comes from the video. Front-facing works best",
@@ -89,7 +96,7 @@ export function motionOutInputs(fps: number): InputSpec[] {
  */
 export function previousInput(fps: number, carried: number): InputSpec {
   return {
-    id: "previous", type: "clip", role: "previous", label: "Previous clip", optional: true, frames: [carried], fps, advanced: true,
+    id: "previous", type: "clip", role: "previous", label: "Previous clip", optional: true, frames: [carried], fps, advanced: true, look: true,
     note: `a clip this one carries on from, from its last frame${carried > 1 ? "s" : ""}: on a timeline, the window before. Start the driving video's part where that clip's ended`,
   };
 }
@@ -103,6 +110,9 @@ export function previousFrames(g: GraphBuilder, ctx: BuildContext): Ref | null {
 /** The node classes the shared part needs, and those it uses only when there. */
 export const MOTION_NODES = ["LoadImage", "LoadVideo", "GetVideoComponents", "ImageScale"];
 export const MOTION_OPTIONAL = ["ColorTransfer", "ImageBlur", "ImageAddNoise", "TrimAudioDuration", "FrameInterpolationModelLoader", "FrameInterpolate"];
+/** The batch nodes RIFE's last frame held takes (motionSaved), and the match to the clip before's look (matchedToDriving). */
+export const motionBatchNodes = (input: Pick<MotionValues, "smooth" | "previous" | "matchDriving">) =>
+  input.smooth || (input.previous && input.matchDriving) ? ["ImageBatch", "ImageFromBatch"] : [];
 
 /** The clip's frame: a timeline's (its clips share one frame), else the picture's shape at `short` on its short side; on the grid the model takes. */
 export function motionCanvas(input: MotionValues, ctx: BuildContext, grid: number): { width: number; height: number } {
@@ -141,16 +151,36 @@ export function drivingFrames(g: GraphBuilder, ctx: BuildContext, frame: { width
   return { parts, frames: g.out("ImageScale", { image: [parts, 0], upscale_method: "area", width: frame.width, height: frame.height, crop: "center" }) };
 }
 
+/** A touch of the driving video's softness. */
+const softened = (g: GraphBuilder, ctx: BuildContext, images: Ref) => (ctx.has("ImageBlur") ? g.out("ImageBlur", { image: images, blur_radius: 1, sigma: 0.6 }) : images);
+/** A touch of its grain: last, on the frames as they are filed (RIFE in between made it shimmer at half the rate). */
+const grained = (g: GraphBuilder, ctx: BuildContext, images: Ref) => (ctx.has("ImageAddNoise") ? g.out("ImageAddNoise", { image: images, seed: ctx.seed, strength: 0.02 }) : images);
+
 /**
  * The clip brought to the driving video's look, when asked and the nodes are there: its colours and brightness pooled over the
- * whole clip (one transform, nothing pumps), a touch of its softness and grain, and its size on the clip's short side. On the
- * meme test the render was darker and cleaner than the phone video it copied, which read as a render (YAVG 50 against 69).
+ * whole clip (one transform, nothing pumps), a touch of its softness, and its size on the clip's short side; its grain goes on
+ * as it is filed (motionSaved). On the meme test the render was darker and cleaner than the phone video it copied, which read
+ * as a render (YAVG 50 against 69).
  */
 export function matchedToDriving(g: GraphBuilder, ctx: BuildContext, images: Ref, driving: Ref, input: MotionValues, frame: { width: number; height: number }): Ref {
   if (!input.matchDriving) return images;
-  if (ctx.has("ColorTransfer")) images = g.out("ColorTransfer", { image_target: images, image_ref: driving, method: "reinhard_lab", source_stats: "uniform", strength: 1 });
-  if (ctx.has("ImageBlur")) images = g.out("ImageBlur", { image: images, blur_radius: 1, sigma: 0.6 });
-  if (ctx.has("ImageAddNoise")) images = g.out("ImageAddNoise", { image: images, seed: ctx.seed, strength: 0.02 });
+  const look = ctx.uploads.previous ? ctx.uploads["previous.look"] : undefined;
+  if (ctx.has("ColorTransfer") && look) {
+    // carrying on, it takes the transform the clip before was filed with, not one of its own: pooled over each window's own
+    // part, two windows got two transforms and each join stepped in colour. That transform is read where the two meet, from
+    // this clip's first frame (softened and grained as the clip before's last was when filed) to that last frame as filed,
+    // and applied to the whole clip as one; the model holds its first frame to the frames handed over, so it is the same
+    // transform, window after window, and a window that opens a shot matches the driving video again
+    const first = grained(g, ctx, softened(g, ctx, g.out("ImageFromBatch", { image: images, batch_index: 0, length: 1 })));
+    const matched = g.out("ColorTransfer", {
+      image_target: g.out("ImageBatch", { image1: first, image2: images }), image_ref: g.out("LoadImage", { image: look }),
+      method: "reinhard_lab", source_stats: "target_frame", "source_stats.target_index": 0, strength: 1,
+    });
+    images = g.out("ImageFromBatch", { image: matched, batch_index: 1, length: 4096 });
+  } else if (ctx.has("ColorTransfer")) {
+    images = g.out("ColorTransfer", { image_target: images, image_ref: driving, method: "reinhard_lab", source_stats: "uniform", strength: 1 });
+  }
+  images = softened(g, ctx, images);
   // a small phone video's size: the clip is not made larger than it was made, only smaller
   const own = ctx.media.driving;
   const short = own?.width && own.height ? Math.min(own.width, own.height) : 0;
@@ -169,7 +199,11 @@ export function motionSaved(g: GraphBuilder, ctx: BuildContext, images: Ref, inp
   const sound = input.keepSound && Boolean(ctx.media.driving?.hasSound) && ctx.has("TrimAudioDuration")
     ? g.out("TrimAudioDuration", { audio: [at.parts, 1], start_index: skip / at.fps, duration: (at.frames - skip) / at.fps })
     : undefined;
-  const done = finishFrames(g, ctx, images, { upscale: UPSCALE.off, upscaleBy: 1, upscaleModel: "", crf: input.crf }, { frame: at.frame, rife: input.smooth, fps: at.fps, ...(sound ? { audio: sound } : {}) });
+  // RIFE's n frames make 2n − 1: the last one again, so that the clip lasts what its part does (n / fps, the length its sound
+  // and its draft have); 1/32 s short a window, the windows drifted from their sound. Its grain on the frames as filed
+  const done = finishFrames(g, ctx, images, { upscale: UPSCALE.off, upscaleBy: 1, upscaleModel: "", crf: input.crf }, {
+    frame: at.frame, rife: input.smooth, fps: at.fps, holdLast: true, ...(input.matchDriving ? { last: (x: Ref) => grained(g, ctx, x) } : {}), ...(sound ? { audio: sound } : {}),
+  });
   // the model's own frames, kept beside the clip: the window after carries on from them, not from the finished ones (matched to
   // the driving video, softened, grained, interpolated and compressed: each join started softer than the clip before ended, the
   // loss stacking window after window, seen on the meme 2026-10-14). As H3 keeps its own (h3/finish.ts), nearly lossless

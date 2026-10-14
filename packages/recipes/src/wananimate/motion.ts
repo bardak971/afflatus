@@ -5,7 +5,7 @@ import { WAN_NEGATIVE } from "../wan/video";
 import { applyLoras, livePreview, loraLoads } from "../shared/model";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import {
-  drivingFrames, matchedToDriving, previousFrames, previousInput, MOTION_GRID, MOTION_NODES, MOTION_OPTIONAL, motionCanvas, motionFrames, motionInputs, motionOutInputs, motionSaved,
+  drivingFrames, matchedToDriving, motionBatchNodes, previousFrames, previousInput, MOTION_GRID, MOTION_NODES, MOTION_OPTIONAL, motionCanvas, motionFrames, motionInputs, motionOutInputs, motionSaved,
   type MotionShape, type MotionValues,
 } from "../motion/driving";
 
@@ -71,9 +71,9 @@ export const wanAnimateMotion = defineRecipe<WanAnimateMotion>({
     ...motionOutInputs(WAN_ANIMATE_FPS),
   ],
   needs: ["turbo", "clipVision"],
-  nodes: () => [
+  nodes: (input) => [
     ...MOTION_NODES, "UNETLoader", "LoraLoaderModelOnly", "CLIPLoader", "VAELoader", "CLIPTextEncode", "CLIPVisionLoader", "CLIPVisionEncode", "ImageFromBatch",
-    "WanAnimate2ToVideo", "WanAnimate2Cache", "ModelSamplingSD3", "KSamplerSelect", "BasicScheduler", "SamplerCustom", "TrimVideoLatent", "VAEDecode",
+    "WanAnimate2ToVideo", "WanAnimate2Cache", "ModelSamplingSD3", "KSamplerSelect", "BasicScheduler", "SamplerCustom", "TrimVideoLatent", "VAEDecode", ...motionBatchNodes(input),
   ],
   optionalNodes: [...MOTION_OPTIONAL, VHS, ...CORE_VIDEO_OUT, "ModelPreviewOverrideKJ", FACE_NODE],
 
@@ -100,8 +100,11 @@ export const wanAnimateMotion = defineRecipe<WanAnimateMotion>({
     model = applyLoras(g, model, input.loras);
     const cache = CACHES[input.cache] ?? CACHES["In RAM, int8"]!;
     model = g.out("WanAnimate2Cache", { model, device: cache.device, dtype: cache.dtype });
-    const sigmas = g.out("BasicScheduler", { model, scheduler: "simple", steps: input.steps, denoise: 1 });
-    const sampling = livePreview(g, ctx, g.out("ModelSamplingSD3", { model, shift: input.shift }), input.livePreview);
+    // the scheduler reads the shifted model: reading the one before it, the sigmas took the model's own shift (5, the
+    // form's default) and the form's Shift did nothing
+    const shifted = g.out("ModelSamplingSD3", { model, shift: input.shift });
+    const sigmas = g.out("BasicScheduler", { model: shifted, scheduler: "simple", steps: input.steps, denoise: 1 });
+    const sampling = livePreview(g, ctx, shifted, input.livePreview);
 
     const before = previousFrames(g, ctx);
     const cond = g.add("WanAnimate2ToVideo", {
@@ -162,7 +165,7 @@ export const wanAnimateMotion = defineRecipe<WanAnimateMotion>({
       {
         name: "carrying on from the clip before",
         input: { picture: "p1", driving: { asset: "v1" }, previous: { asset: "v0" }, drivingSeconds: 3.3 },
-        slots, uploads: { picture: "p.png", driving: "d.mp4", previous: "prev.mp4" }, media: { picture, driving: part(3.4), previous: { width: 480, height: 854, frames: 1, fps: WAN_ANIMATE_FPS } },
+        slots, uploads: { picture: "p.png", driving: "d.mp4", previous: "prev.mp4", "previous.look": "prev.png" }, media: { picture, driving: part(3.4), previous: { width: 480, height: 854, frames: 1, fps: WAN_ANIMATE_FPS } },
       },
     ];
   })(),
