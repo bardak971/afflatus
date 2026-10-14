@@ -7,6 +7,7 @@ import { LlmEditor } from "./LlmEditor";
 import { Block, Card, Row } from "./Rows";
 import { queryKeys } from "../../queryKeys";
 import { plural } from "../../format";
+import { COLUMNS } from "./wide";
 
 const shortId = () => Math.random().toString(36).slice(2, 10);
 
@@ -95,96 +96,99 @@ export function DesignerCard() {
   const kept = ({ hasApiKey: _has, ...l }: LlmInfo) => l;
   const all = saved.length + newLlms.filter((n) => !saved.some((l) => l.id === n.id)).length;
   return (
-    <div className="flex flex-col gap-4">
-      <Card
-        setting="designer.llms"
-        title={<span className="flex items-center gap-1.5">LLMs <Help title="LLMs" text="The designer writes and improves your prompts with a language model (LLM): any with an OpenAI-compatible API, on your computer (LM Studio, Ollama, llama.cpp) or elsewhere. Without one, everything else works. With several, each conversation has its own: you pick it in the designer's panel, and it stays with that draft or clip." /></span>}
-        status={<span className="font-mono text-xs text-ink-3">{all || "none"}</span>}
-      >
-        {/* one list, keyed by id: a new one stays the same editor once saved, so "Save and test" shows its answer */}
-        {[...saved, ...newLlms.filter((n) => !saved.some((l) => l.id === n.id))].map((l) => {
-          const fresh = !saved.some((x) => x.id === l.id);
-          return (
-            <LlmEditor
-              key={l.id}
-              llm={l}
-              fresh={fresh}
-              only={all === 1}
-              inUse={!fresh && s?.designerLlm === l.id}
-              onSave={fresh
-                ? async (next) => {
-                  await put({ llms: [...saved.map(kept), next] });
-                  setNewLlms((list) => list.filter((x) => x.id !== l.id));
-                }
-                : (next) => put({ llms: saved.map((x) => (x.id === l.id ? next : kept(x))) })}
-              onUse={() => { if (!fresh) changeLlms.mutate({ designerLlm: l.id }); }}
-              onRemove={() => (fresh ? setNewLlms((list) => list.filter((x) => x.id !== l.id)) : changeLlms.mutate({ llms: saved.filter((x) => x.id !== l.id).map(kept) }))}
-            />
-          );
-        })}
-        <Block>
-          <div>
-            <Button onClick={() => setNewLlms((list) => [...list, { id: shortId(), name: "", baseUrl: "", model: "", hasApiKey: false, vision: false, noThinking: false, contextSize: 16384, maxOutputTokens: 3000 }])}>
-              {all ? "Add another LLM" : "Add an LLM"}
-            </Button>
-          </div>
-        </Block>
-        {changeLlms.isError && <Block><ErrorNote>{changeLlms.error.message}</ErrorNote></Block>}
-      </Card>
-
-      <Card
-        setting="designer.notes"
-        title={<span className="flex items-center gap-1.5">System prompts <Help title="System prompts" text={`Standing instructions of your own, each under a name, picked in the designer's panel for a draft or a clip; the one picked holds for every answer of that conversation. They are added after the model's prompting guide (Settings › Prompts) and WIN over it: an instruction that says "always name the focal length" brings the lens back into every prompt, which the guides now avoid unless the picture calls for it. Say what the guide cannot know: your taste, your subject matter, your limits.`} /></span>}
-        status={<span className="font-mono text-xs text-ink-3">{notes.length || "none"}</span>}
-      >
-        {notes.map((n) => (
-          <InstructionEditor
-            key={n.id}
-            item={n}
-            fresh={false}
-            inUse={s?.designerInstruction === n.id}
-            open={openNote === n.id}
-            onOpen={() => setOpenNote(openNote === n.id ? null : n.id)}
-            onSave={(next) => put({ designerInstructions: notes.map((x) => (x.id === n.id ? next : x)) })}
-            onRemove={() => changeNotes.mutate({ designerInstructions: notes.filter((x) => x.id !== n.id) })}
-            onDefault={() => changeNotes.mutate({ designerInstruction: n.id })}
-          />
-        ))}
-        {newNotes.map((n) => (
-          <InstructionEditor
-            key={n.id}
-            item={n}
-            fresh
-            inUse={false}
-            open
-            onOpen={() => {}}
-            onSave={async (next) => {
-              await put({ designerInstructions: [...notes, next] });
-              setNewNotes((list) => list.filter((x) => x.id !== n.id));
-            }}
-            onRemove={() => setNewNotes((list) => list.filter((x) => x.id !== n.id))}
-            onDefault={() => {}}
-          />
-        ))}
-        <Block>
-          <div>
-            <Button onClick={() => setNewNotes((list) => [...list, { id: shortId(), name: "", text: "" }])}>Add system prompt</Button>
-          </div>
-        </Block>
-        {changeNotes.isError && <Block><ErrorNote>{changeNotes.error.message}</ErrorNote></Block>}
-      </Card>
-
-      <Card title="Conversation history">
-        <Row
-          setting="designer.forget"
-          label="Clear every conversation"
-          sub={forget.isSuccess ? `Cleared: ${plural(forget.data.forgotten, "conversation")}.` : undefined}
-          help={`Clears every conversation with the designer, in all drafts and on all timelines. What it wrote into your forms stays. One conversation is cleared with "Start over" in the designer's panel.`}
+    // two columns in a wide window, as the other tabs: the LLMs and the history on the left, the system prompts on the right
+    <div className={COLUMNS}>
+      <div className="flex flex-col gap-4">
+        <Card
+          setting="designer.llms"
+          title={<span className="flex items-center gap-1.5">LLMs <Help title="LLMs" text="The designer writes and improves your prompts with a language model (LLM): any with an OpenAI-compatible API, on your computer (LM Studio, Ollama, llama.cpp) or elsewhere. Without one, everything else works. With several, each conversation has its own: you pick it in the designer's panel, and it stays with that draft or clip." /></span>}
+          status={<span className="font-mono text-xs text-ink-3">{all || "none"}</span>}
         >
-          <TwoStep label="Clear every conversation" tone="danger" title="Clear every conversation with the designer" yes="Clear all" busy={forget.isPending} onAsk={() => forget.reset()} onYes={() => forget.mutate()} />
-        </Row>
-        {forget.isError && <Block><ErrorNote>{forget.error.message}</ErrorNote></Block>}
-      </Card>
+          {/* one list, keyed by id: a new one stays the same editor once saved, so "Save and test" shows its answer */}
+          {[...saved, ...newLlms.filter((n) => !saved.some((l) => l.id === n.id))].map((l) => {
+            const fresh = !saved.some((x) => x.id === l.id);
+            return (
+              <LlmEditor
+                key={l.id}
+                llm={l}
+                fresh={fresh}
+                only={all === 1}
+                inUse={!fresh && s?.designerLlm === l.id}
+                onSave={fresh
+                  ? async (next) => {
+                    await put({ llms: [...saved.map(kept), next] });
+                    setNewLlms((list) => list.filter((x) => x.id !== l.id));
+                  }
+                  : (next) => put({ llms: saved.map((x) => (x.id === l.id ? next : kept(x))) })}
+                onUse={() => { if (!fresh) changeLlms.mutate({ designerLlm: l.id }); }}
+                onRemove={() => (fresh ? setNewLlms((list) => list.filter((x) => x.id !== l.id)) : changeLlms.mutate({ llms: saved.filter((x) => x.id !== l.id).map(kept) }))}
+              />
+            );
+          })}
+          <Block>
+            <div>
+              <Button onClick={() => setNewLlms((list) => [...list, { id: shortId(), name: "", baseUrl: "", model: "", hasApiKey: false, vision: false, noThinking: false, contextSize: 16384, maxOutputTokens: 3000 }])}>
+                {all ? "Add another LLM" : "Add an LLM"}
+              </Button>
+            </div>
+          </Block>
+          {changeLlms.isError && <Block><ErrorNote>{changeLlms.error.message}</ErrorNote></Block>}
+        </Card>
+        <Card title="Conversation history">
+          <Row
+            setting="designer.forget"
+            label="Clear every conversation"
+            sub={forget.isSuccess ? `Cleared: ${plural(forget.data.forgotten, "conversation")}.` : undefined}
+            help={`Clears every conversation with the designer, in all drafts and on all timelines. What it wrote into your forms stays. One conversation is cleared with "Start over" in the designer's panel.`}
+          >
+            <TwoStep label="Clear every conversation" tone="danger" title="Clear every conversation with the designer" yes="Clear all" busy={forget.isPending} onAsk={() => forget.reset()} onYes={() => forget.mutate()} />
+          </Row>
+          {forget.isError && <Block><ErrorNote>{forget.error.message}</ErrorNote></Block>}
+        </Card>
+      </div>
+      <div className="flex flex-col gap-4">
+        <Card
+          setting="designer.notes"
+          title={<span className="flex items-center gap-1.5">System prompts <Help title="System prompts" text={`Standing instructions of your own, each under a name, picked in the designer's panel for a draft or a clip; the one picked holds for every answer of that conversation. They are added after the model's prompting guide (Settings › Prompts) and WIN over it: an instruction that says "always name the focal length" brings the lens back into every prompt, which the guides now avoid unless the picture calls for it. Say what the guide cannot know: your taste, your subject matter, your limits.`} /></span>}
+          status={<span className="font-mono text-xs text-ink-3">{notes.length || "none"}</span>}
+        >
+          {notes.map((n) => (
+            <InstructionEditor
+              key={n.id}
+              item={n}
+              fresh={false}
+              inUse={s?.designerInstruction === n.id}
+              open={openNote === n.id}
+              onOpen={() => setOpenNote(openNote === n.id ? null : n.id)}
+              onSave={(next) => put({ designerInstructions: notes.map((x) => (x.id === n.id ? next : x)) })}
+              onRemove={() => changeNotes.mutate({ designerInstructions: notes.filter((x) => x.id !== n.id) })}
+              onDefault={() => changeNotes.mutate({ designerInstruction: n.id })}
+            />
+          ))}
+          {newNotes.map((n) => (
+            <InstructionEditor
+              key={n.id}
+              item={n}
+              fresh
+              inUse={false}
+              open
+              onOpen={() => {}}
+              onSave={async (next) => {
+                await put({ designerInstructions: [...notes, next] });
+                setNewNotes((list) => list.filter((x) => x.id !== n.id));
+              }}
+              onRemove={() => setNewNotes((list) => list.filter((x) => x.id !== n.id))}
+              onDefault={() => {}}
+            />
+          ))}
+          <Block>
+            <div>
+              <Button onClick={() => setNewNotes((list) => [...list, { id: shortId(), name: "", text: "" }])}>Add system prompt</Button>
+            </div>
+          </Block>
+          {changeNotes.isError && <Block><ErrorNote>{changeNotes.error.message}</ErrorNote></Block>}
+        </Card>
+      </div>
     </div>
   );
 }

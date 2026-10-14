@@ -60,12 +60,25 @@ export function Row({ label, help, htmlFor, sub, start, tone, setting, children 
 }) {
   const dense = useContext(Dense);
   const name = typeof label === "string" ? label : undefined;
+  // the name may be in two pieces (the ? held to the last word): each is a label of the control, read as one
+  const wrapIn = (text: ReactNode) => (htmlFor ? <label htmlFor={htmlFor} className="min-w-0">{text}</label> : <span className="min-w-0">{text}</span>);
   return (
     <div data-setting={setting} className={cx("grid items-center", dense ? "min-h-[48px] grid-cols-[150px_minmax(0,1fr)] gap-3.5 px-4 py-1.5" : "min-h-[52px] grid-cols-[230px_minmax(0,1fr)] gap-4 px-[18px] py-2", tone === "warn" && "bg-warn-wash/50")}>
       <span className="flex min-w-0 flex-col">
         <span className={cx("flex min-w-0 items-center gap-1.5 text-[13px]", dense && "font-semibold", tone === "warn" && "font-semibold text-warn-ink")}>
-          {htmlFor ? <label htmlFor={htmlFor} className="min-w-0">{label}</label> : <span className="min-w-0">{label}</span>}
-          {help && <Help text={help} title={name} />}
+          {name !== undefined && help ? (
+            // a name that wraps keeps its ? after its last word, held to it: beside the wrapped name, a ? of its own sat
+            // at the column's edge ("Compare opens on original vs result")
+            <span className="min-w-0">
+              {name.slice(0, name.lastIndexOf(" ") + 1) && wrapIn(name.slice(0, name.lastIndexOf(" ") + 1))}
+              <span className="whitespace-nowrap">{wrapIn(name.slice(name.lastIndexOf(" ") + 1))}<Help text={help} title={name} className="relative -top-[1.5px] ml-1.5 align-middle" /></span>
+            </span>
+          ) : (
+            <>
+              {wrapIn(label)}
+              {help && <Help text={help} title={name} />}
+            </>
+          )}
         </span>
         {sub && <span className="mt-0.5 text-[11.5px] text-ink-3">{sub}</span>}
       </span>

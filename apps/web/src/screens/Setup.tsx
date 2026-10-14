@@ -169,9 +169,10 @@ export function Setup() {
         </div>
       </header>
 
-      {/* one column of cards, every setting one row; ComfyUI, Rented GPUs and Models take two in a wide window */}
+      {/* cards of settings, every setting one row: one column, and two side by side in a wide window on every tab (one
+          column left the page's other half empty and its cards a long scroll) */}
       <div ref={scroller} className="min-h-0 grow overflow-y-auto pb-4">
-        <div className={cx("flex flex-col gap-4", tab === "comfyui" || tab === "rented" || tab === "models" ? "max-w-[860px] min-[1600px]:max-w-[1736px]" : "max-w-[860px]")}>
+        <div className="flex max-w-[860px] flex-col gap-4 min-[1600px]:max-w-[1736px]">
           {tab === "comfyui" && <ComfyCard />}
           {tab === "rented" && <RentedTab />}
           {tab === "models" && (
@@ -190,7 +191,12 @@ export function Setup() {
           )}
           {tab === "designer" && <DesignerCard />}
           {/* the settings first: eleven guides above them pushed the tag check below the fold */}
-          {tab === "prompts" && <><WritingCard /><PromptsCard /></>}
+          {tab === "prompts" && (
+            <div className={COLUMNS}>
+              <WritingCard />
+              <PromptsCard />
+            </div>
+          )}
           {tab === "interface" && <InterfaceTab />}
           {tab === "bar" && <BarCard />}
           {tab === "storage" && <StorageCard />}

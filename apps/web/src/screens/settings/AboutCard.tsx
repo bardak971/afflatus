@@ -9,6 +9,7 @@ import { Button, cx, ErrorNote, Help, Toggle } from "../../ui";
 import { aboutState, followRestart, newsOf, stepsOf, useUpdates, useUpdatesSeen, versionNote } from "../../updates";
 import { Block, Card, Row, Status } from "./Rows";
 import { queryKeys } from "../../queryKeys";
+import { COLUMNS } from "./wide";
 
 /** The app itself: its version, its updates, where it runs, what it talks to. */
 export function AboutCard() {
@@ -31,38 +32,42 @@ export function AboutCard() {
   }, [news, see]);
   const version = health.data?.version ?? v?.version;
   return (
-    <div className="flex flex-col gap-4">
-      <Card
-        id="about"
-        title={<span className="flex items-center gap-1.5">About <Help title="About" text="Afflatus runs in front of your own ComfyUI. Nothing leaves your computer unless you ask for a download or a lookup." /></span>}
-        status={version && <span className="font-mono text-xs text-ink-3">{/^\d/.test(version) ? `v${version}` : version}{v?.install === "docker" ? " · docker" : ""}</span>}
-      >
-        <Row setting="about.version" label="Afflatus">
-          <span className="font-mono text-xs">{health.data ? `version ${health.data.version}` : "…"}</span>
-          {note && <Status ok={note.good}>{note.text}</Status>}
-        </Row>
-        {v && <UpdatesPart v={v} startupUnchecked={health.isSuccess && !checks.length} />}
-        <Row label="Database"><span className="font-mono text-xs">{health.data?.database ?? "…"}</span></Row>
-        <Row label="ComfyUI"><span className="truncate font-mono text-xs">{comfy?.online ? `${comfy.version} · ${comfy.nodes} node types · ${comfy.device}` : comfy ? "not answering" : "…"}</span></Row>
-        <Row label="License"><span className="font-mono text-xs">AGPL-3.0</span></Row>
-        {/* the AGPL's offer of the source: the code of the release that runs, not whatever the main branch holds now */}
-        <Row label="Source"><a className="font-mono text-xs font-semibold text-ink underline" href={sourceOf(health.data?.version)} target="_blank" rel="noreferrer">{sourceOf(health.data?.version).replace(/^https:\/\//, "")}</a></Row>
-      </Card>
-
-      <Card
-        setting="about.checks"
-        title={<span className="flex items-center gap-1.5">On this computer <Help title="On this computer" text={`What Afflatus needs where it runs, checked when it started${checked ? ` (${checked})` : ""}. ComfyUI is checked on its own tab.`} /></span>}
-        status={<Button size="sm" onClick={() => recheck.mutate()} disabled={recheck.isPending}>{recheck.isPending ? "Checking…" : checks.length ? "Check again" : "Check now"}</Button>}
-      >
-        {checks.map((c) => (
-          <Row key={c.id} label={c.label} tone={c.ok ? undefined : "warn"} help={c.ok ? undefined : `${c.without} ${c.fix}`}>
-            <span className="min-w-0 truncate font-mono text-xs text-ink-2">{c.detail}</span>
-            <Status ok={c.ok}>{c.ok ? "OK" : "Failed"}</Status>
+    // two columns in a wide window, as the other tabs: the version on the left, the checks on the right
+    <div className={COLUMNS}>
+      <div className="flex flex-col gap-4">
+        <Card
+          id="about"
+          title={<span className="flex items-center gap-1.5">About <Help title="About" text="Afflatus runs in front of your own ComfyUI. Nothing leaves your computer unless you ask for a download or a lookup." /></span>}
+          status={version && <span className="font-mono text-xs text-ink-3">{/^\d/.test(version) ? `v${version}` : version}{v?.install === "docker" ? " · docker" : ""}</span>}
+        >
+          <Row setting="about.version" label="Afflatus">
+            <span className="font-mono text-xs">{health.data ? `version ${health.data.version}` : "…"}</span>
+            {note && <Status ok={note.good}>{note.text}</Status>}
           </Row>
-        ))}
-        {health.isSuccess && !checks.length && <Block className="text-xs text-ink-3">Not checked yet: the server started before these checks existed.</Block>}
-        {recheck.isError && <Block><ErrorNote>{recheck.error.message}</ErrorNote></Block>}
-      </Card>
+          {v && <UpdatesPart v={v} startupUnchecked={health.isSuccess && !checks.length} />}
+          <Row label="Database"><span className="font-mono text-xs">{health.data?.database ?? "…"}</span></Row>
+          <Row label="ComfyUI"><span className="truncate font-mono text-xs">{comfy?.online ? `${comfy.version} · ${comfy.nodes} node types · ${comfy.device}` : comfy ? "not answering" : "…"}</span></Row>
+          <Row label="License"><span className="font-mono text-xs">AGPL-3.0</span></Row>
+          {/* the AGPL's offer of the source: the code of the release that runs, not whatever the main branch holds now */}
+          <Row label="Source"><a className="font-mono text-xs font-semibold text-ink underline" href={sourceOf(health.data?.version)} target="_blank" rel="noreferrer">{sourceOf(health.data?.version).replace(/^https:\/\//, "")}</a></Row>
+        </Card>
+      </div>
+      <div className="flex flex-col gap-4">
+        <Card
+          setting="about.checks"
+          title={<span className="flex items-center gap-1.5">On this computer <Help title="On this computer" text={`What Afflatus needs where it runs, checked when it started${checked ? ` (${checked})` : ""}. ComfyUI is checked on its own tab.`} /></span>}
+          status={<Button size="sm" onClick={() => recheck.mutate()} disabled={recheck.isPending}>{recheck.isPending ? "Checking…" : checks.length ? "Check again" : "Check now"}</Button>}
+        >
+          {checks.map((c) => (
+            <Row key={c.id} label={c.label} tone={c.ok ? undefined : "warn"} help={c.ok ? undefined : `${c.without} ${c.fix}`}>
+              <span className="min-w-0 truncate font-mono text-xs text-ink-2">{c.detail}</span>
+              <Status ok={c.ok}>{c.ok ? "OK" : "Failed"}</Status>
+            </Row>
+          ))}
+          {health.isSuccess && !checks.length && <Block className="text-xs text-ink-3">Not checked yet: the server started before these checks existed.</Block>}
+          {recheck.isError && <Block><ErrorNote>{recheck.error.message}</ErrorNote></Block>}
+        </Card>
+      </div>
     </div>
   );
 }

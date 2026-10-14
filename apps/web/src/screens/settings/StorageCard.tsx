@@ -6,6 +6,7 @@ import { Button, ButtonLink, cx, ErrorNote, Segmented, TwoStep } from "../../ui"
 import { Block, Card, Row } from "./Rows";
 import { daysSaid, insteadOfWaiting } from "../../keepFor";
 import { queryKeys } from "../../queryKeys";
+import { COLUMNS } from "./wide";
 
 /** Where the space goes, and the two ways to get some back. */
 export function StorageCard() {
@@ -30,53 +31,58 @@ export function StorageCard() {
     { label: "Bin", bytes: s.bin.bytes, tone: "bg-ink-3" },
   ] : [];
   return (
-    <div className="flex flex-col gap-4">
-      <Card setting="storage.disk" title="Disk" status={s && <span className="font-mono text-xs text-ink-2">{size(s.total)} used</span>}>
-        {storage.isError && <Block><ErrorNote>{storage.error.message}</ErrorNote></Block>}
-        {s && (
-          <Block className="gap-3 py-4">
-            {s.total > 0 && (
-              <div className="flex h-2.5 overflow-hidden rounded-full bg-line">
-                {parts.map((p) => <div key={p.label} className={p.tone} style={{ width: `${(p.bytes / s.total) * 100}%` }} />)}
-              </div>
-            )}
-            <dl className="grid grid-cols-[auto_1fr_auto] items-center gap-x-2.5 gap-y-1.5">
-              {parts.map((p) => (
-                <div key={p.label} className="contents">
-                  <span className={cx("h-2.5 w-2.5 rounded-sm", p.tone)} />
-                  <dt className="text-ink-2">{p.label}</dt>
-                  <dd className="text-right font-mono">{size(p.bytes)}</dd>
+    // two columns in a wide window, as the other tabs: the disk on the left, the backup and the render times on the right
+    <div className={COLUMNS}>
+      <div className="flex flex-col gap-4">
+        <Card setting="storage.disk" title="Disk" status={s && <span className="font-mono text-xs text-ink-2">{size(s.total)} used</span>}>
+          {storage.isError && <Block><ErrorNote>{storage.error.message}</ErrorNote></Block>}
+          {s && (
+            <Block className="gap-3 py-4">
+              {s.total > 0 && (
+                <div className="flex h-2.5 overflow-hidden rounded-full bg-line">
+                  {parts.map((p) => <div key={p.label} className={p.tone} style={{ width: `${(p.bytes / s.total) * 100}%` }} />)}
                 </div>
-              ))}
-            </dl>
-          </Block>
-        )}
-        {s && s.idleTakes.count > 0 && (
-          <Row setting="storage.idle" label="Takes that never play" sub={`${plural(s.idleTakes.count, "take")}`} help={`${s.idleTakes.count > 1 ? "These takes are" : "This take is"} not the one that plays in ${s.idleTakes.count > 1 ? "their" : "its"} clip. ${binDays ? `In the bin they are kept ${daysSaid(binDays)}, then deleted.` : "In the bin they are kept until you empty it."}`}>
-            <Button size="sm" disabled={idle.isPending} onClick={() => idle.mutate()}>Move {s.idleTakes.count > 1 ? "them" : "it"} to the bin · {size(s.idleTakes.bytes)}</Button>
+              )}
+              <dl className="grid grid-cols-[auto_1fr_auto] items-center gap-x-2.5 gap-y-1.5">
+                {parts.map((p) => (
+                  <div key={p.label} className="contents">
+                    <span className={cx("h-2.5 w-2.5 rounded-sm", p.tone)} />
+                    <dt className="text-ink-2">{p.label}</dt>
+                    <dd className="text-right font-mono">{size(p.bytes)}</dd>
+                  </div>
+                ))}
+              </dl>
+            </Block>
+          )}
+          {s && s.idleTakes.count > 0 && (
+            <Row setting="storage.idle" label="Takes that never play" sub={`${plural(s.idleTakes.count, "take")}`} help={`${s.idleTakes.count > 1 ? "These takes are" : "This take is"} not the one that plays in ${s.idleTakes.count > 1 ? "their" : "its"} clip. ${binDays ? `In the bin they are kept ${daysSaid(binDays)}, then deleted.` : "In the bin they are kept until you empty it."}`}>
+              <Button size="sm" disabled={idle.isPending} onClick={() => idle.mutate()}>Move {s.idleTakes.count > 1 ? "them" : "it"} to the bin · {size(s.idleTakes.bytes)}</Button>
+            </Row>
+          )}
+          {s && (
+            <Row
+              setting="storage.bin"
+              label="Bin"
+              sub={s.bin.count > 0 ? `${plural(s.bin.count, "item")} · ${size(s.bin.bytes)}` : "empty"}
+              help={`${binDays ? `Kept ${daysSaid(binDays)} before it is deleted.` : "Kept until you empty it."} ${unkeptDays ? `Outputs you do not keep go to the bin after ${daysSaid(unkeptDays)}` : "Outputs you do not keep stay until you bin them"}${s.unkept.count ? ` (${s.unkept.count} not kept now, ${size(s.unkept.bytes)})` : ""}. What is on a timeline is always kept.`}
+            >
+              {s.bin.count > 0 && <TwoStep label="Empty the bin" tone="danger" title={`Everything in the bin is erased now, files and all, instead of ${insteadOfWaiting(binDays)}`} note="This cannot be undone." yes={`Erase ${size(s.bin.bytes)}`} busy={empty.isPending} onYes={() => empty.mutate()} />}
+            </Row>
+          )}
+          <Row setting="storage.unkeptDays" label="Unkept renders go to the bin after" help="A render nobody kept (S keeps one) goes to the bin by itself this long after it was made, or after it was unkept or put back. Never: nothing goes on its own, and the library keeps everything until you bin it. What is on a timeline is always kept.">
+            <Segmented oneLine label="Unkept renders go to the bin after" value={String(unkeptDays)} options={UNKEPT_FOR} onChange={(v) => keepFor.mutate({ unkeptDays: Number(v) as 0 | 1 | 3 | 7 })} />
           </Row>
-        )}
-        {s && (
-          <Row
-            setting="storage.bin"
-            label="Bin"
-            sub={s.bin.count > 0 ? `${plural(s.bin.count, "item")} · ${size(s.bin.bytes)}` : "empty"}
-            help={`${binDays ? `Kept ${daysSaid(binDays)} before it is deleted.` : "Kept until you empty it."} ${unkeptDays ? `Outputs you do not keep go to the bin after ${daysSaid(unkeptDays)}` : "Outputs you do not keep stay until you bin them"}${s.unkept.count ? ` (${s.unkept.count} not kept now, ${size(s.unkept.bytes)})` : ""}. What is on a timeline is always kept.`}
-          >
-            {s.bin.count > 0 && <TwoStep label="Empty the bin" tone="danger" title={`Everything in the bin is erased now, files and all, instead of ${insteadOfWaiting(binDays)}`} note="This cannot be undone." yes={`Erase ${size(s.bin.bytes)}`} busy={empty.isPending} onYes={() => empty.mutate()} />}
+          <Row setting="storage.binDays" label="Keep what is in the bin" help="How long the bin holds what was moved to it before it is erased, file and all. Until emptied: nothing is erased until you empty the bin (here, in the bin's strip, or > empty the bin).">
+            <Segmented oneLine label="Keep what is in the bin" value={String(binDays)} options={BIN_FOR} onChange={(v) => keepFor.mutate({ binDays: Number(v) as 0 | 7 | 30 })} />
           </Row>
-        )}
-        <Row setting="storage.unkeptDays" label="Unkept renders go to the bin after" help="A render nobody kept (S keeps one) goes to the bin by itself this long after it was made, or after it was unkept or put back. Never: nothing goes on its own, and the library keeps everything until you bin it. What is on a timeline is always kept.">
-          <Segmented oneLine label="Unkept renders go to the bin after" value={String(unkeptDays)} options={UNKEPT_FOR} onChange={(v) => keepFor.mutate({ unkeptDays: Number(v) as 0 | 1 | 3 | 7 })} />
-        </Row>
-        <Row setting="storage.binDays" label="Keep what is in the bin" help="How long the bin holds what was moved to it before it is erased, file and all. Until emptied: nothing is erased until you empty the bin (here, in the bin's strip, or > empty the bin).">
-          <Segmented oneLine label="Keep what is in the bin" value={String(binDays)} options={BIN_FOR} onChange={(v) => keepFor.mutate({ binDays: Number(v) as 0 | 7 | 30 })} />
-        </Row>
-        {(idle.isError || empty.isError || keepFor.isError) && <Block><ErrorNote>{(idle.error ?? empty.error ?? keepFor.error)?.message}</ErrorNote></Block>}
-        {empty.data?.inUse ? <Block className="text-xs text-ink-2">{empty.data.inUse} item{empty.data.inUse === 1 ? " was" : "s were"} left in the bin: a timeline, a person or a waiting job still uses {empty.data.inUse === 1 ? "it" : "them"}.</Block> : null}
-      </Card>
-      <Backup />
-      <RenderRecord />
+          {(idle.isError || empty.isError || keepFor.isError) && <Block><ErrorNote>{(idle.error ?? empty.error ?? keepFor.error)?.message}</ErrorNote></Block>}
+          {empty.data?.inUse ? <Block className="text-xs text-ink-2">{empty.data.inUse} item{empty.data.inUse === 1 ? " was" : "s were"} left in the bin: a timeline, a person or a waiting job still uses {empty.data.inUse === 1 ? "it" : "them"}.</Block> : null}
+        </Card>
+      </div>
+      <div className="flex flex-col gap-4">
+        <Backup />
+        <RenderRecord />
+      </div>
     </div>
   );
 }
