@@ -1,17 +1,14 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { Wand2 } from "lucide-react";
 import type { DesignerSession, Look, RecipeInfo, SourcePatch, Timeline } from "../../api";
 import type { DesignerTurn } from "../../designer/types";
-import { useEntities, useRecipes, useSetup } from "../../data";
+import { useRecipes, useSetup } from "../../data";
 import { clock as mmss, recipeLabel } from "../../format";
 import { useSettled } from "../../hooks";
-import { useMakeSourcePicture } from "../../motionPicture";
+import { PictureMaker, usePictureSets } from "../../pictureMaker";
 import { appendTo } from "../../promptText";
 import { Form, mainTextOf } from "../../RecipeForm";
 import { CardPrompt } from "../../recipeForm/Part";
 import { Select } from "../../Select";
-import { useSayFailed } from "../../sayFailed";
 import { Button, Toggle } from "../../ui";
 import { WritingHelp } from "../../WritingHelp";
 import { useClock, type Clock } from "../clock";
@@ -153,7 +150,7 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, o
                   </div>
                 ),
               }}
-              frameExtra={!picture && pictureSpec ? { summary: "", node: <PictureFromFrame timeline={timeline} place={place} clock={clock} slot={pictureSpec.id} /> } : undefined}
+              frameExtra={pictureSpec ? { summary: "", node: <PictureFromFrame timeline={timeline} place={place} clock={clock} current={picture ?? null} onPick={(id) => setInputs((x) => ({ ...x, [pictureSpec.id]: id }))} /> } : undefined}
               helpers={
                 <WritingHelp
                   recipe={form}
@@ -182,26 +179,26 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, o
 }
 
 /**
- * Under an empty Picture: made from the frame of the source the stage stands on (pick one where the person is seen well),
- * with the timeline cast's first person put in, in Qwen Image 2.1 · Edit. Reads the clock on its own: only it redraws as it plays.
+ * The picture made for the user (pictureMaker.tsx), from the frame of the source the playhead stands on (pick one where the
+ * person is seen well), the timeline cast's people offered as who goes in. Reads the clock on its own, to the half second:
+ * only it redraws as the source plays, and its frame is not asked for at every tick.
  */
-function PictureFromFrame({ timeline, place, clock, slot }: { timeline: Timeline; place: SourcePlace | null; clock: Clock; slot: string }) {
+function PictureFromFrame({ timeline, place, clock, current, onPick }: { timeline: Timeline; place: SourcePlace | null; clock: Clock; current: string | null; onPick(id: string): void }) {
   const time = useClock(clock);
-  const entities = useEntities();
-  const makePicture = useMakeSourcePicture();
-  const failed = useSayFailed({ id: "source-picture" });
+  const made = usePictureSets((s) => (s.of[`source:${timeline.id}`]?.jobs.length ?? 0) > 0);
   const source = timeline.source!;
-  const at = Math.max(0, Math.min(place?.lengthMs ?? source.toMs, time - (place?.atMs ?? 0)));
-  const first = timeline.look?.cast[0];
-  const person = first ? entities.data?.items.find((e) => e.id === first.id && e.kind === "person") : undefined;
-  const face = person && person.kind === "person" ? person.def.pictures[0] ?? null : null;
-  const make = useMutation({ mutationFn: () => makePicture(source.asset, at, face, `Picture for ${timeline.name}`, { timeline: timeline.id, slot }), onError: failed("The picture could not be started") });
+  if (current && !made) return null;
+  const at = Math.round(Math.max(0, Math.min(place?.lengthMs ?? source.toMs, time - (place?.atMs ?? 0))) / 500) * 500;
   return (
-    <div className="flex flex-col gap-1.5 rounded-lg border border-dashed border-line-strong px-3 py-2.5">
-      <Button size="sm" className="self-start" disabled={make.isPending} onClick={() => make.mutate()}><Wand2 size={14} /> Make it from this frame…</Button>
-      <span className="text-xs text-ink-2">
-        The frame of the source at the playhead (<span className="font-mono">{mmss(at, { decimals: 1 })}</span>: move it to one where the person is seen well), {person ? <>with {person.name} (the timeline's cast) put in,</> : "opened on its References (drop who goes in there),"} in Qwen Image 2.1 · Edit: 3 pictures; right-click the one you like, Use for Motion transfer (or Relight it first…).
-      </span>
-    </div>
+    <PictureMaker
+      keyId={`source:${timeline.id}`}
+      video={source.asset}
+      atMs={at}
+      name={`Picture for ${timeline.name}`}
+      cast={timeline.look?.cast.map((c) => c.id)}
+      current={current}
+      onPick={onPick}
+      frameControl={<span className="text-xs text-ink-3">Move the playhead on the source (play it, or drag it on its lane) to choose another.</span>}
+    />
   );
 }

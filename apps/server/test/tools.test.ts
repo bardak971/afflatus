@@ -171,7 +171,7 @@ describe("the other things done to a picture", () => {
     const takesOne = all.recipes.filter((r: { output: string; inputs: Array<{ type: string; role?: string; optional?: boolean }> }) => r.output === "image" && r.inputs.some((i) => i.type === "image" && i.role === "source" && !i.optional));
     expect(takesOne.map((r: { id: string }) => r.id)).toEqual([
       "sdxl.redraw", "sdxl.paint-over", "sdxl.outpaint", "sdxl.sharper", "sdxl.fix-face", "klein.edit", "klein.variation", "klein.paint-over", "klein.change-shape", "klein.sharper", "klein.fix-face", "krea2.redraw", "krea2.paint-over", "krea2.sharper", "krea2.fix-face",
-      "flux.edit", "flux.redraw", "flux.paint-over", "flux.outpaint", "flux.sharper", "flux.fix-face", "qwen.edit", "qwen.redraw", "qwen.paint-over", "qwen.outpaint", "qwen.sharper", "qwen.fix-face", "qwen21.edit",
+      "flux.edit", "flux.redraw", "flux.paint-over", "flux.outpaint", "flux.sharper", "flux.fix-face", "qwen.edit", "qwen.redraw", "qwen.paint-over", "qwen.outpaint", "qwen.sharper", "qwen.fix-face", "qwen21.edit", "qwen21.motion-picture",
       "zimage.redraw", "zimage.paint-over", "zimage.outpaint", "zimage.sharper", "zimage.fix-face", "tools.remove-background", "tools.seedvr-upscale",
     ]);
     const setup = unlistOptions((await get(t.app, "/api/setup")).json());
