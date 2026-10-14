@@ -3,7 +3,8 @@ import { notFound } from "./errors";
 import { setsWithFiles } from "./modelSets";
 import { estimateFiles, measuredRange, type FilesEstimate } from "./podMeasures";
 import { measureKind, presetSource } from "./podSources";
-import { keptHoldings, lackingOn, missingOn, VOLUME_MAX_GB, VOLUME_MIN_GB, VOLUME_PER_GB_MONTH } from "./rentedVolumes";
+import { licencesPending } from "./presetFiles";
+import { keptHoldings, lackingOn, missingOn, VOLUME_MAX_GB, VOLUME_MIN_GB } from "./rentedVolumes";
 import type { Services } from "./services";
 
 /**
@@ -25,7 +26,6 @@ export interface VolumePlan {
   sets: Array<{ id: string; name: string; bytes: number }>;
   /** The size the sets want with room to spare (a quarter more, in tens of GB). */
   sizeGb: number;
-  perGbMonth: number;
   /** The pods run in the last 30 days, and their mean rate ($/h); 0 and null without any. */
   deploys: number;
   rate: number | null;
@@ -75,7 +75,7 @@ export async function volumePlan(s: Services, setIds: string[] | null): Promise<
   const fetch = kinds.length && rate !== null ? await estimateFiles(s.db, kinds, "SECURE", rate) : null;
   return {
     places, sets: chosen.map((x) => ({ id: x.id, name: x.name, bytes: x.files.reduce((n, f) => n + (f.size ?? 0), 0) })),
-    sizeGb: sizeFor(bytes), perGbMonth: VOLUME_PER_GB_MONTH, deploys: runs.size, rate, fetch,
+    sizeGb: sizeFor(bytes), deploys: runs.size, rate, fetch,
   };
 }
 
@@ -86,16 +86,19 @@ export interface FillPlan {
   missing: { count: number; bytes: number; unknown: number };
   /** The files' fetch at the measured speeds and the GPU's price, plus the pod's boot as measured; null when never measured. */
   estimate: { fastMs: number; slowMs: number; lowUsd: number; highUsd: number } | null;
+  /** The presets of the set's files under a licence not accepted yet: Fill asks for each, as Deploy does. */
+  licences: Array<{ id: string; name: string; licence: string }>;
 }
 
 export async function fillPlan(s: Services, volume: string, setId: string): Promise<FillPlan> {
   const [found, sets, kept] = await Promise.all([s.rented.fillGpu(volume), setsWithFiles(s), keptHoldings(s.db)]);
   const set = sets.find((x) => x.id === setId);
   if (!set) throw notFound("that model set");
+  const licences = (await licencesPending(s, set.files)).map((p) => ({ id: p.id, name: p.name, licence: p.licence!.name }));
   const keys = kept.get(volume)?.keys ?? new Set<string>();
   const lacking = lackingOn(set.files, keys);
   const missing = missingOn(set.files, keys);
-  if (!found) return { gpu: null, missing, estimate: null };
+  if (!found) return { gpu: null, missing, estimate: null, licences };
   const kinds = lacking.filter((f) => f.size).map((f) => {
     const src = presetSource(f);
     return { bytes: f.size!, kind: src ? measureKind(src) : ("upload" as const) };
@@ -103,5 +106,5 @@ export async function fillPlan(s: Services, volume: string, setId: string): Prom
   const [files, boot] = await Promise.all([estimateFiles(s.db, kinds, "SECURE", found.gpu.price), measuredRange(s.db, "boot", "SECURE")]);
   const usd = (ms: number) => (ms / 3_600_000) * found.gpu.price;
   const estimate = files && boot ? { fastMs: files.fastMs + boot.low, slowMs: files.slowMs + boot.high, lowUsd: usd(files.fastMs + boot.low), highUsd: usd(files.slowMs + boot.high) } : null;
-  return { gpu: { name: found.gpu.name, price: found.gpu.price }, missing, estimate };
+  return { gpu: { name: found.gpu.name, price: found.gpu.price }, missing, estimate, licences };
 }

@@ -6,6 +6,7 @@ import { useQueue, useSettings } from "../../data";
 import { est, plural, usd, when } from "../../format";
 import { Select } from "../../Select";
 import { queryKeys } from "../../queryKeys";
+import { useSayFailed } from "../../sayFailed";
 import { Button, cx, ErrorNote, fieldClass } from "../../ui";
 import { Block, Card, Row } from "./Rows";
 import { tabHref } from "./settingsIndex";
@@ -116,12 +117,14 @@ function RunpodAccount() {
       void client.invalidateQueries({ queryKey: queryKeys.rentedSpending() });
     },
   });
+  const sayFailed = useSayFailed({ href: "/settings/rented", go: "Open Rented GPUs" });
   const saveUnused = useMutation({
     mutationFn: (volumeUnusedDays: number) => api.saveSettings({ volumeUnusedDays }),
     onSuccess: (saved) => {
       client.setQueryData(queryKeys.settings(), saved);
       for (const queryKey of [queryKeys.rentedSpending(), queryKeys.runpodVolumes()]) void client.invalidateQueries({ queryKey });
     },
+    onError: sayFailed("The unused volumes' days were not saved"),
   });
   const s = spending.data?.spending;
   // the caps as saved (written in at once on a save), not as the spending read some seconds ago: two edits in a row each keep the other
@@ -172,7 +175,7 @@ function RunpodAccount() {
       )}
       {has && (
         <Row setting="rented.unused" label="Unused volumes" help="A network volume no pod ran on for this long is flagged here and on the tab: it bills every month all the same.">
-          <span className="w-[120px]"><Select size="sm" label="Flag a volume unused after" value={String(settings.data?.volumeUnusedDays ?? 7)} onChange={(v) => saveUnused.mutate(Number(v))} options={UNUSED_DAYS.map((n) => ({ value: String(n), label: n ? `after ${plural(n, "day")}` : "never" }))} /></span>
+          <span className="w-[120px]"><Select size="sm" label="Flag a volume unused after" value={String(settings.data?.volumeUnusedDays ?? 7)} onChange={(v) => !saveUnused.isPending && saveUnused.mutate(Number(v))} options={UNUSED_DAYS.map((n) => ({ value: String(n), label: n ? `after ${plural(n, "day")}` : "never" }))} /></span>
         </Row>
       )}
       {has && (

@@ -296,8 +296,8 @@ export interface NetworkVolume {
   usedAt: string | null;
   /** No pod ran on it for the days set in Settings: it bills for nothing. */
   unused: boolean;
-  /** How its last Fill from a set… ended: when, and the files that failed (none: all in). */
-  lastFill: { at: string; failed: Array<{ file: string; error: string }> } | null;
+  /** How its last Fill from a set… ended: when, the files that failed, and why it was cut short when it was (neither: all in). */
+  lastFill: { at: string; failed: Array<{ file: string; error: string }>; interrupted?: string } | null;
   /** Each Model set as it held it last time a pod ran there: what it lacks (empty when nothing is known). */
   sets: Array<{ id: string; name: string; missing: { count: number; bytes: number; unknown: number } }>;
 }
@@ -307,7 +307,6 @@ export interface VolumePlan {
   places: Array<{ dataCenter: string; gpus: Array<{ name: string; price: number }>; pods: number }>;
   sets: Array<{ id: string; name: string; bytes: number }>;
   sizeGb: number;
-  perGbMonth: number;
   /** The pods run in the last 30 days and their mean rate ($/h). */
   deploys: number;
   rate: number | null;
@@ -320,6 +319,8 @@ export interface FillPlan {
   gpu: { name: string; price: number } | null;
   missing: { count: number; bytes: number; unknown: number };
   estimate: { fastMs: number; slowMs: number; lowUsd: number; highUsd: number } | null;
+  /** The presets of the set's files under a licence not accepted yet: each accepted before Fill. */
+  licences: Array<{ id: string; name: string; licence: string }>;
 }
 
 /** A pod of the user's on RunPod, as the list for adding one says it. */
@@ -399,7 +400,7 @@ export interface RentedState {
   /** Afflatus is stopping it now: it takes no new work. */
   stopping: boolean;
   /** Why Afflatus stopped or terminated it last: "boot" when its ComfyUI never answered. */
-  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | "filled" | null;
+  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | "filled" | "cut" | null;
   /** Deployed and on its first start (its image pulled, ComfyUI starting): a normal step. */
   booting: boolean;
   error: string | null;

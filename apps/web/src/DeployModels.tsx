@@ -25,6 +25,19 @@ export interface ModelsPicked {
   bytes: number;
 }
 
+/** The licences of the files going, each accepted by its box before they are fetched (Deploy a GPU, Fill from a set…). */
+export function LicenceChecks({ licences, accept, onChange }: { licences: ReadonlyArray<{ id: string; name: string; licence: string }>; accept: ReadonlySet<string>; onChange(next: Set<string>): void }) {
+  return (
+    <>
+      {licences.map((l) => (
+        <Checkbox key={l.id} checked={accept.has(l.id)} onChange={(on) => { const n = new Set(accept); if (on) n.add(l.id); else n.delete(l.id); onChange(n); }} className="text-xs">
+          <span>I accept the {l.licence} for {l.name}'s files</span>
+        </Checkbox>
+      ))}
+    </>
+  );
+}
+
 /** A file's line: its box, its name, what it is for, where it comes from, its size. */
 function FileRow({ f, on, onChange, note, dim, disabled }: { f: DeployFile; on: boolean; onChange?(on: boolean): void; note?: string; dim?: boolean; disabled?: boolean }) {
   return (
@@ -160,11 +173,7 @@ export function DeployModels({ want, set, rate, gpu, onPicked }: { want: DeployA
             </span>
           </div>
 
-          {licences.map((l) => (
-            <Checkbox key={l.id} checked={accept.has(l.id)} onChange={(on) => setAccept((s) => { const n = new Set(s); if (on) n.add(l.id); else n.delete(l.id); return n; })} className="text-xs">
-              <span>I accept the {l.licence} for {l.name}'s files</span>
-            </Checkbox>
-          ))}
+          <LicenceChecks licences={licences} accept={accept} onChange={setAccept} />
 
           <div className="flex flex-col gap-0.5 border-t border-line pt-2 text-xs text-ink-2">
             {/* nothing picked: nothing to time or price */}

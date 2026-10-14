@@ -5,11 +5,11 @@ import type { Db } from "./db";
 import { httpError } from "./errors";
 import { newToken } from "./lock-api";
 import { COMFY_PORT, exposesComfy, imageFor, LOCK_ENV, noCapacity, POD_IMAGES, podMachineId, podUrl, Runpod, RunpodError, RunpodShape, secretRef, RUNNING_DISK_PER_GB_MONTH, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ACTION_ENV, WATCHDOG_ENV, type BillRecord, type GpuOffer, type NetworkVolume, type Pod, type PodSpec, type PodStatus } from "./runpod";
-import type { PresetFile } from "@afflatus/core";
+import { volumePerMonth, type PresetFile } from "@afflatus/core";
 import { imagePublic } from "./podImage";
 import { recordMeasure } from "./podMeasures";
 import { SEARCHED_FOLDERS } from "./modelSets";
-import { inUseSaid, keptHoldings, noteFill, noticeVolumes, mountedOn, recordHoldings, usedBy, viewVolumes, VOLUME_MAX_GB, VOLUME_MIN_GB, VOLUME_PER_GB_MONTH, type Storage, type VolumeView } from "./rentedVolumes";
+import { inUseSaid, keptHoldings, noteFill, noticeVolumes, mountedOn, recordHoldings, usedBy, viewVolumes, VOLUME_MAX_GB, VOLUME_MIN_GB, type Storage, type VolumeView } from "./rentedVolumes";
 import { MAX_MACHINES, readSettings, updateSettings, type DeployAsk, type Machine, type Settings } from "./settings";
 
 /**
@@ -57,9 +57,10 @@ export interface RentedView {
   stopping: boolean;
   /**
    * Why Afflatus stopped or terminated it last, when it did: "boot" when its ComfyUI never answered; "gpu" when the pod said its
-   * GPU does not work; "watchdog" when its watchdog stopped it while Afflatus was away, and Afflatus terminated what was left.
+   * GPU does not work; "watchdog" when its watchdog stopped it while Afflatus was away, and Afflatus terminated what was left;
+   * "cut" when a fill of its volume was cut short (its files stuck, or past its time).
    */
-  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | "filled" | null;
+  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | "filled" | "cut" | null;
   /** Deployed and on its first start (its image pulled, ComfyUI starting): a normal step, said as one, not as an error. */
   booting: boolean;
   /** What went wrong with this pod, or asking RunPod, when something did. */
@@ -137,6 +138,26 @@ const secretOf = (m: Machine) => m.rented!.secret || tokenSecret(m.rented!.pod);
 const BOOT_SLOW_MS = 2 * 60_000;
 /** How long a Start waits for a pod just stopped to be stopped on RunPod's side before preparing it. */
 const SETTLE_MS = 30_000;
+/**
+ * A fill whose files moved by nothing this long (not a byte, not a file done) is cut short: a fill pod takes no render, so
+ * a download stuck on it would keep it billed for ever while its ComfyUI answers.
+ */
+const FILL_STALL_MS = 30 * 60_000;
+/**
+ * However it moves, a fill is cut short this long after its deploy: two hours (its boot, the files already there checked),
+ * plus its known bytes at 10 MB/s, the slow end of what a pod fetches at (RunPod's data centers mostly do many times that),
+ * and 10 GB for a file of a size not known. Room for a fill that goes slowly, a bound on one that crawls.
+ */
+const fillLimitMs = (files: readonly PresetFile[]) => 2 * HOUR + (files.reduce((n, f) => n + (f.size || 10e9), 0) / 10e6) * 1000;
+/** What a fill's note says when its pod was terminated before its files were in, by why. */
+const FILL_CUT: Partial<Record<NonNullable<RentedView["stoppedBy"]>, string>> = {
+  idle: "its ComfyUI stopped answering",
+  cap: "a spending cap was reached",
+  boot: "its ComfyUI did not come up",
+  gpu: "its GPU did not work on that host",
+  watchdog: "its pod was found stopped",
+  you: "its pod was terminated by you",
+};
 
 interface Seen {
   pod: Pod | null;
@@ -177,12 +198,21 @@ interface Seen {
   aliveAt: number | null;
   /** Since when it has been starting or provisioning (ms): a pod that never comes up is stopped at its boot limit. */
   startingSince: number | null;
+  /** A fill pod: its files handed to podFiles in this run of Afflatus (which keeps them in memory only). */
+  handed: boolean;
+  /** A fill pod: when its fill began (its first run's start, kept across a restart), what its files last came to, and when that moved. */
+  fillFrom: number | null;
+  fillProgress: string | null;
+  fillMovedAt: number | null;
+  /** Why a fill is being cut short, for its note. */
+  cutWhy: string | null;
 }
 
 const fresh = (): Seen => ({
   pod: null, rate: null, watchdog: "unknown", answers: null, busyAt: null, stoppedBy: null, stopAfter: false, cappedAt: null,
   stopping: false, lockTried: false, seenRunningAt: null, epoch: 0, error: null, bootNote: null, secretDropped: false, upAt: null, answered: false,
   read: false, gpuFailed: null, missing: 0, stoppingSince: null, aliveAt: null, startingSince: null,
+  handed: false, fillFrom: null, fillProgress: null, fillMovedAt: null, cutWhy: null,
 });
 
 /** A pod still running this long after Afflatus asked RunPod to stop it is asked again (and a stop that keeps nothing, terminated). */
@@ -280,8 +310,11 @@ export class Rented {
   /** A deployed pod answered for the first time: the files its deploy asked for, and the ones it left out (services.ts hands them to podFiles). */
   onUp: ((machine: string, files: PresetFile[], leaveOut: Array<{ file: string; folder: string }>) => void) | null = null;
 
-  /** The files a machine's pod still waits for, all it was given, and those that failed (services.ts: podFiles). */
-  filesLeft: ((machine: string) => { left: number; total: number; failed: Array<{ file: string; error: string }> }) | null = null;
+  /**
+   * The files a machine's pod still waits for (how many, their names), all it was given, the bytes in so far, and those that
+   * failed (services.ts: podFiles).
+   */
+  filesLeft: ((machine: string) => { left: number; total: number; bytes: number; waiting: string[]; failed: Array<{ file: string; error: string }> }) | null = null;
 
   /** Machines deployed only to fill their volume: they take no render. */
   private filling = new Set<string>();
@@ -415,11 +448,15 @@ export class Rented {
     await client.growVolume(id, size).catch((err: Error) => {
       throw httpError(err.message, 502);
     });
+    // what storage costs a month moved with it: said at once, not at the next read
+    this.storageSeen = null;
     this.events.emit("setup");
   }
 
   /** A network volume deleted with all it holds (its billing ends): never while a pod is mounted on it, stopped ones too. */
   async deleteVolume(id: string): Promise<void> {
+    // a deploy under way may be putting a pod on it that RunPod does not list yet
+    if (this.deploying) throw httpError("A deploy is under way: wait for it to end.", 409);
     const s = await readSettings(this.db);
     if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
     const client = this.client(s.runpodKey);
@@ -817,6 +854,9 @@ export class Rented {
       await this.act(m, "terminate", "boot");
       return true;
     }
+    // deployed, never up, and still not listed past its boot limit (terminated on RunPod's side, or never made there): it is
+    // not starting on its volume any more, which would otherwise stay "in use" for ever
+    if (!pod && Number.isFinite(deployedAt) && this.now() - deployedAt >= DEPLOYED_BOOT_LIMIT_MS) await this.undeploy(m);
     // any pod starting or provisioning that long (one added and started, its host unable to bring it up) is billed for
     // nothing: stopped as its idle choice says, as a boot that never answers is
     s.startingSince = pod && TRANSITIONAL.has(pod.status) ? s.startingSince ?? this.now() : null;
@@ -826,7 +866,9 @@ export class Rented {
     }
     // a deployed pod without a volume found stopped (its watchdog stopped it while Afflatus was away, or RunPod did): it keeps
     // nothing and its GPU may be taken, so nothing is left of it on the account. A stop of the user's own is left as it is
-    if (pod?.status === "EXITED" && m.rented!.deployed && !pod.networkVolume && pod.diskGb === 0 && s.stoppedBy !== "you" && !m.rented!.userStopped && !s.stopping) {
+    // A fill pod found stopped (a stop of an older Afflatus's at a cap, or RunPod's) goes too: stopped, it keeps its volume
+    // mounted (never deleted then) and fills nothing
+    if (pod?.status === "EXITED" && m.rented!.deployed && (m.rented!.fill || (!pod.networkVolume && pod.diskGb === 0)) && s.stoppedBy !== "you" && !m.rented!.userStopped && !s.stopping) {
       await this.act(m, "terminate", "watchdog");
       return true;
     }
@@ -867,12 +909,13 @@ export class Rented {
     }
     if (answers) s.answered = true;
     // its first answer since it was deployed: later starts count from when it runs. How long it took is kept (the Deploy
-    // dialog's "up in"), and what its deploy asked for is handed to it now
+    // dialog's "up in"), and what its deploy asked for is handed to it now. A fill keeps its files until it ends: podFiles
+    // keeps what a pod gets in memory only, so after a restart of Afflatus they are handed again (followFill)
     if (answers && m.rented!.deployedAt) {
       if (Number.isFinite(deployedAt)) await recordMeasure(this.db, { kind: "boot", cloud: m.rented!.cloud ?? null, bytes: 0, ms: this.now() - deployedAt }).catch(() => {});
-      const { files, leaveOut } = m.rented!;
-      await updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id && x.rented ? { ...x, rented: { ...x.rented, deployedAt: "", files: [], leaveOut: [] } } : x)) }));
-      if (files.length || leaveOut.length) this.onUp?.(m.id, files, leaveOut);
+      const { files, leaveOut, fill } = m.rented!;
+      await updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id && x.rented ? { ...x, rented: { ...x.rented, deployedAt: "", ...(fill ? {} : { files: [], leaveOut: [] }) } } : x)) }));
+      if (!fill && (files.length || leaveOut.length)) this.onUp?.(m.id, files, leaveOut);
     }
     // up this long and its ComfyUI never answered: its container failed to start, or ComfyUI on it did; billed for nothing.
     // A deployed pod's first boot counts from its deploy (its image pulled first); one that never came up is terminated
@@ -887,24 +930,77 @@ export class Rented {
       await this.lockPod(m.id).catch((err: Error) => console.warn(`[rented] ${m.name || m.id} not locked: ${err.message}`));
     }
     if (answers && pod?.volumeId) void this.noteVolume(m, pod.volumeId);
-    // a pod filling its volume: terminated once its files are in (what the volume holds listed first), kept until then
-    if (m.rented!.fill) {
-      const files = this.filesLeft?.(m.id);
-      if (answers && !m.rented!.deployedAt && files && files.left === 0) {
-        if (pod?.volumeId) {
-          this.volumeListed.delete(`${m.id}|${pod.volumeId}`);
-          await this.noteVolume(m, pod.volumeId);
-          // how it ended, kept with the volume: its row says it once the pod is gone (a file that failed, and why)
-          await noteFill(this.db, pod.volumeId, files.failed, this.now()).catch(() => {});
-          if (files.failed.length) console.log(`[rented] ${m.name || m.id}: ${files.failed.length} of its files failed: ${files.failed.map((f) => f.file).join(", ")}`);
-        }
-        await this.act(m, "terminate", "filled");
-        return true;
-      }
-      s.busyAt = this.now();
-    }
+    if (m.rented!.fill && (await this.followFill(m, s, pod, answers))) return true;
     await this.keepOrStop(m, s, caps, answers);
     return changed;
+  }
+
+  /**
+   * A pod filling its volume, up: its files handed (again after a restart of Afflatus), terminated once they are in (what the
+   * volume holds listed first), or cut short when they stop moving or take too long. Kept from going idle only while its
+   * ComfyUI answers: one that went silent ends at its idle time. Says whether it was terminated.
+   */
+  private async followFill(m: Machine, s: Seen, pod: Pod, answers: boolean): Promise<boolean> {
+    const { files, leaveOut } = m.rented!;
+    const now = this.now();
+    // from its first run (its deploy), kept across a restart of Afflatus as its sessions are
+    s.fillFrom ??= (await this.db.selectFrom("rent_sessions").select("started_at").where("machine_id", "=", m.id).orderBy("started_at", "asc").executeTakeFirst().then((r) => (r ? Date.parse(r.started_at) : null))) ?? now;
+    if (now - s.fillFrom >= fillLimitMs(files)) return this.cutFill(m, s, `it was still not done after ${Math.round((now - s.fillFrom) / 60_000)} min`);
+    if (!answers) return false;
+    s.busyAt = now;
+    // a fill always brings files (Fill refuses a set without): none kept means what it was to fetch is not known any more
+    if (!files.length) return this.cutFill(m, s, "what it was to fetch was not known any more");
+    let got = this.filesLeft?.(m.id) ?? null;
+    // handed once in this run of Afflatus, and again when podFiles has nothing of it (a pod seen down a moment is forgotten
+    // there): an empty view is never read as all in
+    if (!s.handed || got?.total === 0) {
+      s.handed = true;
+      s.fillProgress = null;
+      this.onUp?.(m.id, files, leaveOut);
+      got = this.filesLeft?.(m.id) ?? null;
+    }
+    if (!got || got.total === 0) return false;
+    const progress = `${got.left}|${got.bytes}|${got.failed.length}`;
+    if (progress !== s.fillProgress) {
+      s.fillProgress = progress;
+      s.fillMovedAt = now;
+    }
+    if (got.left > 0) return now - (s.fillMovedAt ?? now) >= FILL_STALL_MS ? this.cutFill(m, s, `nothing came for ${FILL_STALL_MS / 60_000} min`) : false;
+    if (pod.volumeId) {
+      this.volumeListed.delete(`${m.id}|${pod.volumeId}`);
+      await this.noteVolume(m, pod.volumeId);
+      // how it ended, kept with the volume: its row says it once the pod is gone (a file that failed, and why)
+      await noteFill(this.db, pod.volumeId, got.failed, now).catch(() => {});
+      if (got.failed.length) console.log(`[rented] ${m.name || m.id}: ${got.failed.length} of its files failed: ${got.failed.map((f) => f.file).join(", ")}`);
+    }
+    await this.act(m, "terminate", "filled");
+    return true;
+  }
+
+  /** A fill cut short: its pod terminated, its note saying why (act writes it). */
+  private async cutFill(m: Machine, s: Seen, why: string): Promise<true> {
+    s.cutWhy = why;
+    await this.act(m, "terminate", "cut");
+    return true;
+  }
+
+  /**
+   * How a fill ended when its pod was terminated before its files were in, kept with its volume: interrupted, with why, the
+   * files that failed and those that never came. Never "all in".
+   */
+  private async noteCut(m: Machine, s: Seen, why: RentedView["stoppedBy"], got: ReturnType<NonNullable<Rented["filesLeft"]>> | null): Promise<void> {
+    const volume = m.rented!.volume;
+    if (!volume) return;
+    const said = (why === "cut" ? s.cutWhy : why ? FILL_CUT[why] : null) ?? "its pod was terminated";
+    const failed = [...(got?.failed ?? []), ...(got?.waiting ?? []).map((file) => ({ file, error: "not fetched: the fill was cut short" }))];
+    await noteFill(this.db, volume, failed, this.now(), said).catch(() => {});
+    console.log(`[rented] ${m.name || m.id}: its fill was cut short (${said})`);
+  }
+
+  /** A deployed pod that never came up taken as not deployed any more: it no longer holds its volume as starting on it. */
+  private async undeploy(m: Machine): Promise<void> {
+    if (!m.rented!.deployedAt) return;
+    await updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id && x.rented ? { ...x, rented: { ...x.rented, deployedAt: "" } } : x)) }));
   }
 
   /** Whether its ComfyUI answers without a lock (the pack's GET /afflatus/lock says locked false). */
@@ -1022,8 +1118,9 @@ export class Rented {
     s.stopAfter = (caps.day > 0 && spent.today >= caps.day) || (caps.month > 0 && spent.month >= caps.month);
     s.cappedAt = s.stopAfter ? s.cappedAt ?? now : null;
     // at a cap: once its render ends, or an hour after the cap when the render does not end
+    // A fill pod is terminated: stopped, it would keep its volume mounted (never deleted then) and fill nothing
     if (s.stopAfter && (!running || now - s.cappedAt! > CAP_GRACE_MS)) {
-      await this.act(m, "stop", "cap");
+      await this.act(m, m.rented!.fill ? "terminate" : "stop", "cap");
       return;
     }
     const idle = m.rented!.idleMinutes * 60_000;
@@ -1122,7 +1219,7 @@ export class Rented {
       value = {
         volumesMonth: volumeBills ? volumeBills.filter((b) => b.end > month).reduce((n, b) => n + b.amount, 0) : null,
         disksMonth: (podBills ?? []).filter((r) => r.end > month).reduce((n, r) => n + r.disk, 0),
-        perMonth: volumes.reduce((n, v) => n + v.size * VOLUME_PER_GB_MONTH, 0) + disks.reduce((n, p) => n + p.diskGb * (p.status === "EXITED" ? STOPPED_DISK_PER_GB_MONTH : RUNNING_DISK_PER_GB_MONTH), 0),
+        perMonth: volumes.reduce((n, v) => n + volumePerMonth(v.size), 0) + disks.reduce((n, p) => n + p.diskGb * (p.status === "EXITED" ? STOPPED_DISK_PER_GB_MONTH : RUNNING_DISK_PER_GB_MONTH), 0),
         volumes: volumes.length,
         stoppedDisks: disks.filter((p) => p.status === "EXITED").length,
         unused: unused.map((v) => ({ id: v.id, name: v.name, perMonth: v.perMonth, usedAt: v.usedAt })),
@@ -1141,6 +1238,8 @@ export class Rented {
     if ((s.rentCaps.day > 0 && spent.today >= s.rentCaps.day) || (s.rentCaps.month > 0 && spent.month >= s.rentCaps.month)) {
       throw httpError("A spending cap is reached: raise it in Settings › Rented GPUs to start it.", 409);
     }
+    // one running pod per volume, as for a deploy: a stopped pod's volume may have gone to another pod meanwhile
+    if (s.runpodKey) await this.volumeFree(m, s);
     const unprepared = await this.prepareBoot(m, s.runpodKey);
     await this.act(m, "start", null).catch((err: Error & { statusCode?: number }) => {
       // its GPU was taken while it was stopped: a stopped pod is bound to its host, and RunPod has none free there
@@ -1152,6 +1251,20 @@ export class Rented {
     // said on its card for the run: it may run open until it is up and locked
     this.seenOf(m.id).bootNote = unprepared;
     return this.view(m)!;
+  }
+
+  /** Refused when the volume a pod is on has another pod running (or starting) on it: two would spoil what it keeps. */
+  private async volumeFree(m: Machine, s: Settings): Promise<void> {
+    const client = this.client(s.runpodKey);
+    const pods = await client.pods().catch((err: Error) => {
+      throw httpError(err.message, 502);
+    });
+    const volume = pods.find((p) => p.id === m.rented!.pod)?.volumeId || m.rented!.volume;
+    if (!volume) return;
+    const taken = usedBy(volume, pods.filter((p) => p.id !== m.rented!.pod), s.machines.filter((x) => x.id !== m.id));
+    if (!taken) return;
+    const name = (await client.volumes().catch(() => [])).find((v) => v.id === volume)?.name ?? volume;
+    throw httpError(inUseSaid(name, taken), 409);
   }
 
   /**
@@ -1236,6 +1349,8 @@ export class Rented {
 
   private async act(m: Machine, action: "start" | "stop" | "terminate", why: RentedView["stoppedBy"]): Promise<void> {
     const s = this.seenOf(m.id);
+    // what a fill cut short still waited for, read before its pod goes (podFiles forgets a pod being stopped)
+    const fillLeft = action === "terminate" && m.rented!.fill && why !== "filled" ? this.filesLeft?.(m.id) ?? null : undefined;
     // a read under way is not taken over this, and a stopping pod takes no new work from now (asked again: no second stop)
     s.epoch++;
     // a start is not a stop under way any more
@@ -1271,6 +1386,10 @@ export class Rented {
     s.pod = action === "terminate" ? null : after ?? s.pod;
     // terminated, whoever asked: its secret goes too (nothing left on RunPod that was the pod's)
     if (action === "terminate") await this.dropSecret(m, s, settings.runpodKey);
+    // a fill ended before its files were in says so with its volume, never "all in"
+    if (fillLeft !== undefined) await this.noteCut(m, s, why, fillLeft);
+    // one that never came up keeps its card (which says why), but no longer holds its volume as starting on it
+    if (action === "terminate" && (why === "boot" || why === "gpu")) await this.undeploy(m);
     s.stoppedBy = action === "start" ? null : why;
     s.error = null;
     // the user's own stop, kept with the machine (read again after a restart of Afflatus); any start ends it
@@ -1286,7 +1405,7 @@ export class Rented {
     }
     // a deployed pod terminated by its idle time, a cap or a boot that never came: nothing is left of it, its machine goes too
     // (the user's own Terminate removes it in stopBy)
-    if (action === "terminate" && m.rented!.deployed && (why === "idle" || why === "cap" || why === "watchdog" || why === "filled")) await this.forget(m, s);
+    if (action === "terminate" && m.rented!.deployed && (why === "idle" || why === "cap" || why === "watchdog" || why === "filled" || why === "cut")) await this.forget(m, s);
     if (why === "filled") console.log(`[rented] ${m.name || m.id}: its volume filled, terminated`);
     if (why === "watchdog") console.log(`[rented] ${m.name || m.id}: found stopped by its watchdog, terminated (it kept nothing)`);
     if (why === "idle" || why === "cap" || why === "boot" || why === "gpu") console.log(`[rented] ${m.name || m.id}: ${action === "terminate" ? "terminated" : "stopped"} (${why === "idle" ? `idle ${m.rented!.idleMinutes} min` : why === "boot" ? `its ComfyUI never answered in ${bootLimit(m) / 60_000} min` : why === "gpu" ? "its GPU did not work on that host" : "a spending cap"})`);
