@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeRunpod, type FakeComfy, type FakeGpu, type FakeRunpod } from "@afflatus/comfy/testing";
 import { readSettings } from "../src/settings";
-import { get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
+import { CHECKPOINT, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /**
  * Hunt a GPU (hunt.ts) against a pretend RunPod: a GPU made free between two rounds is deployed once, through the Deploy
@@ -310,6 +310,26 @@ describe("the hunt", () => {
       again.services.notify.stop();
       again.services.queue.stop();
     }
+  });
+});
+
+describe("the files it deploys with", () => {
+  it("adds the files of the renders queued since it began, not those whose jobs were left out", async () => {
+    await queue(2);
+    const listed = (await get(t.app, "/api/runpod/deploy/models?cloud=SECURE")).json().jobs.files as Array<{ file: string; folder: string }>;
+    const first = listed.find((f) => f.file === CHECKPOINT)!;
+    expect(first).toBeTruthy();
+    // the dialog sent no file ticked and left the waiting jobs' checkpoint out
+    expect((await start({ deploy: { ...DEPLOY, leaveOut: [{ file: first.file, folder: first.folder }] } })).statusCode).toBe(200);
+    // a render queued since, of another checkpoint: its file is fetched while the pod starts
+    await post(t.app, "/api/jobs", job({ prompt: "zz-test later", checkpoint: "zz-test-later.safetensors" }));
+    free("NVIDIA A40");
+    await t.services.hunt.tick();
+    expect(creates()).toBe(1);
+    const machine = (await readSettings(t.db)).machines.find((m) => m.rented)!;
+    const files = machine.rented!.files.map((f) => f.file);
+    expect(files).toContain("zz-test-later.safetensors");
+    expect(files).not.toContain(CHECKPOINT);
   });
 });
 

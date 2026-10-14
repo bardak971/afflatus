@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { firstFree, plural, rankGpus, type HuntMode, type Learned, type RankedGpu, type RankRender } from "@afflatus/core";
-import { deployFiles } from "./deployModels";
+import { fileKey, firstFree, plural, rankGpus, type HuntMode, type Learned, type PresetFile, type RankedGpu, type RankRender } from "@afflatus/core";
+import { deployFiles, deployModels } from "./deployModels";
 import { httpError } from "./errors";
 import { gpuPaces } from "./forecast";
 import { filesUsed } from "./machineScans";
@@ -450,7 +450,8 @@ export class Hunt {
     await this.save();
     let made: { id: string; dataCenter: string | null };
     try {
-      made = await this.s.rented.deploy({ ...st.deploy, gpu: pick.id, again: false });
+      const late = await this.lateFiles(st).catch(() => []);
+      made = await this.s.rented.deploy({ ...st.deploy, files: [...st.deploy.files, ...late], gpu: pick.id, again: false });
     } catch (err) {
       st.deployingSince = null;
       return this.refused(st, err as Error);
@@ -466,7 +467,19 @@ export class Hunt {
   }
 
   /**
-   * A deploy refused: the GPU taken since RunPod listed it (or another deploy, the volume in use) and the hunt goes on; a
+   * The files of the renders queued since the hunt began, not among its own: the pod fetches them while it starts, not
+   * once it takes their jobs. Not those its jobs were left out for, nor those under a licence not accepted yet (they come
+   * when their job is taken, once it is).
+   */
+  private async lateFiles(st: HuntState): Promise<PresetFile[]> {
+    const view = await deployModels(this.s, { cloud: st.cloud, set: "" });
+    const skip = new Set([...st.deploy.files, ...st.deploy.leaveOut].map(fileKey));
+    for (const l of view.licences) for (const key of l.keys) skip.add(key);
+    return view.jobs.files.filter((f) => !skip.has(fileKey(f))).map((f) => ({ file: f.file, folder: f.folder, ...(f.url ? { url: f.url } : {}), ...(f.size ? { size: f.size } : {}) }));
+  }
+
+  /**
+   * A deploy refused:the GPU taken since RunPod listed it (or another deploy, the volume in use) and the hunt goes on; a
    * spending cap or RunPod's balance ends it (each deploy would be refused the same way); any other refusal is counted,
    * and the third in a row ends it.
    */
