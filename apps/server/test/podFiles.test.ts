@@ -164,10 +164,13 @@ describe("a rented pod's model files", () => {
   it("ahead come after every file a job waits for", async () => {
     files.want("pod", [{ file: "later.safetensors", folder: "loras", url: `${siteUrl}/files/later.safetensors` }], { tier: "ahead" });
     files.want("pod", [{ file: "now.safetensors", folder: "loras", url: `${siteUrl}/files/now.safetensors` }], { tier: "need", job: "j1" });
+    // the pass under way when it was asked for (taken now: awaited later, under load, it may have ended and a next one
+    // would start the file ahead once the needed one is under way, as it should)
+    const under = files.tick();
     // the needed one first in the list
     expect(files.view("pod").map((f) => f.file)).toEqual(["now.safetensors", "later.safetensors"]);
-    // the pass under way when it was asked for: the file ahead did not start while a needed one waits to
-    await files.tick();
+    // that pass: the file ahead did not start while a needed one waits to
+    await under;
     expect(files.view("pod").find((f) => f.file === "later.safetensors")?.state).toBe("next");
     await settle("pod", "later.safetensors");
     expect(files.view("pod").every((f) => f.state === "ready")).toBe(true);
