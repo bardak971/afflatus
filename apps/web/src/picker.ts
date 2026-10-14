@@ -1,4 +1,4 @@
-import type { RecipeInfo } from "./api";
+import type { FamilyInfo, RecipeInfo } from "./api";
 
 /**
  * What a form keeps when the operation changes (txt2img to inpaint, on the same model): what the user
@@ -59,6 +59,8 @@ interface ModelGroup {
   key: string;
   name: string;
   summary: string;
+  /** What its "?" says (a built-in model's own words). */
+  help?: FamilyInfo["help"];
   /** Built in, as opposed to made only of imported workflows. */
   builtIn: boolean;
   /** Its operations: the built-in ones, then the user's workflows. */
@@ -71,7 +73,7 @@ const squash = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "");
  * The models, each with its operations. A workflow imported under the name of a built-in model
  * ("Krea2" and "Krea 2" are one name) is listed with that model, next to its built-in operations.
  */
-export function modelGroups(recipes: RecipeInfo[], families: Array<{ id: string; name: string; summary: string; imported?: true }>): ModelGroup[] {
+export function modelGroups(recipes: RecipeInfo[], families: Array<{ id: string; name: string; summary: string; imported?: true; help?: FamilyInfo["help"] }>): ModelGroup[] {
   const groups: ModelGroup[] = [];
   for (const family of families) {
     const own = recipes.filter((r) => r.family === family.id);
@@ -80,9 +82,9 @@ export function modelGroups(recipes: RecipeInfo[], families: Array<{ id: string;
     const same = groups.find((g) => g.key === squash(family.name));
     if (same) {
       same.recipes.push(...own);
-      if (builtIn && !same.builtIn) Object.assign(same, { name: family.name, summary: family.summary, builtIn: true, recipes: [...own, ...same.recipes.filter((r) => !own.includes(r))] });
+      if (builtIn && !same.builtIn) Object.assign(same, { name: family.name, summary: family.summary, help: family.help, builtIn: true, recipes: [...own, ...same.recipes.filter((r) => !own.includes(r))] });
     } else {
-      groups.push({ key: squash(family.name), name: family.name, summary: family.summary, builtIn, recipes: own });
+      groups.push({ key: squash(family.name), name: family.name, summary: family.summary, help: family.help, builtIn, recipes: own });
     }
   }
   // a recipe whose family is not listed is still something to make things with

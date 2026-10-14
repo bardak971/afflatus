@@ -13,6 +13,11 @@ export const zimage = defineFamily({
   id: "zimage",
   name: "Z-Image",
   summary: "txt2img from natural-language prompts in English or Chinese, in 8 steps, with legible text rendering: Z-Image Turbo and its fine-tunes.",
+  help: {
+    what: "Pictures from sentences in English or Chinese, in 8 steps, with readable text.",
+    best: "quick pictures; text in English and Chinese",
+    weak: "in Afflatus, no reference pictures",
+  },
   promptStyle: "sentences",
   slots: [
     {

@@ -26,6 +26,8 @@ export interface FamilyInfo {
   id: string;
   name: string;
   summary: string;
+  /** What its "?" says: what it makes, what it is best and weak at (built-in families). */
+  help?: { what: string; best: string; weak: string };
   /** The family of workflows the user imported under one model name, not a built-in one. */
   imported?: true;
   /** Patterns that tell which LoRAs were made for this family. */

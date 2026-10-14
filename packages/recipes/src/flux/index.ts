@@ -12,6 +12,11 @@ export const flux = defineFamily({
   id: "flux",
   name: "FLUX.1",
   summary: "txt2img from natural-language prompts: FLUX.1 dev, Krea dev, schnell and their fine-tunes. Kontext is the edit model: instruction-based image editing.",
+  help: {
+    what: "Pictures from sentences (FLUX.1 dev, Krea dev, schnell and their fine-tunes); Kontext edits by instruction.",
+    best: "photographic detail, a large choice of LoRAs",
+    weak: "edits need Kontext, a model of its own; dev's licence is non-commercial",
+  },
   promptStyle: "sentences",
   slots: [
     {

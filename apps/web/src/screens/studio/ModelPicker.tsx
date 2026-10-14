@@ -5,7 +5,8 @@ import { useFamilies, useRecipes, useSetup } from "../../data";
 import { notReady, plural } from "../../format";
 import { carryAcross, carryOver, modelGroups } from "../../picker";
 import { Select } from "../../Select";
-import { cx, Segmented } from "../../ui";
+import { modelHelp } from "../../modelHelp";
+import { cx, Help, Segmented } from "../../ui";
 
 type ModelGroup = ReturnType<typeof modelGroups>[number];
 /** One empty list while the recipes load, so what is worked out from them is not redone at every render. */
@@ -115,19 +116,24 @@ export function ModelPicker({ pick, recipe, presets }: { pick: ReturnType<typeof
             onChange={pick.pickKind}
           />
         )}
-        <Select
-          id="create-model"
-          label="Model"
-          searchHint="Search your models and workflows"
-          className="w-full"
-          value={group.key}
-          onChange={pick.pickModel}
-          options={groups.map((g) => ({
-            value: g.key, label: g.name, group: g.builtIn ? "Models" : "Your workflows",
-            note: g.recipes.some((r) => !why(r)) ? `${plural(g.recipes.length, "operation")}` : "not ready",
-            detail: g.builtIn ? g.summary : g.recipes.map((r) => r.title).join(" · "), search: g.recipes.map((r) => r.title).join(" "),
-          }))}
-        />
+        <div className="flex items-center gap-2">
+          <Select
+            id="create-model"
+            label="Model"
+            searchHint="Search your models and workflows"
+            className="w-full"
+            value={group.key}
+            onChange={pick.pickModel}
+            options={groups.map((g) => ({
+              value: g.key, label: g.name, group: g.builtIn ? "Models" : "Your workflows",
+              note: g.recipes.some((r) => !why(r)) ? `${plural(g.recipes.length, "operation")}` : "not ready",
+              detail: g.builtIn ? g.summary : g.recipes.map((r) => r.title).join(" · "), search: g.recipes.map((r) => r.title).join(" "),
+              // what each model is for, to compare before picking
+              tip: modelHelp(g), tipHead: g.name,
+            }))}
+          />
+          {modelHelp(group, recipe) && <Help title={group.name} text={modelHelp(group, recipe)!} />}
+        </div>
       </div>
       {/* its operations: what is built in, then your workflows for it. A few are tabs; many go in a list */}
       {group.recipes.length > 1 && group.recipes.length <= 8 && <Operations group={group} recipe={recipe} why={why} pick={pick.pick} />}

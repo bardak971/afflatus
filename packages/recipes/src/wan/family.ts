@@ -17,6 +17,11 @@ export const wan = defineFamily({
   id: "wan",
   name: "Wan 2.2",
   summary: "Video without audio. i2v from a first frame, first and last frame, or t2v.",
+  help: {
+    what: "Video without sound: from a first frame, a first and a last frame, or words.",
+    best: "motion and camera moves from a picture",
+    weak: "no sound; about 5 s a clip",
+  },
   promptStyle: "sentences",
   slots: [
     {

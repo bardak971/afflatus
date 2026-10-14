@@ -7,6 +7,11 @@ export const tools = defineFamily({
   id: TOOLS_FAMILY,
   name: "Image tools",
   summary: "Small operations on an existing image, done without a diffusion model.",
+  help: {
+    what: "Small passes on a picture, without a diffusion model: background removal, SeedVR2 upscale.",
+    best: "quick fixes",
+    weak: "nothing beyond those passes",
+  },
   promptStyle: "sentences",
   slots: [
     {

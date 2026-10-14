@@ -11,6 +11,11 @@ export const krea2 = defineFamily({
   id: "krea2",
   name: "Krea 2",
   summary: "txt2img from natural-language prompts, in 8 steps. Follows the style of reference images with its style-reference LoRA.",
+  help: {
+    what: "Pictures from sentences in 8 steps, in the style of your own reference pictures.",
+    best: "a consistent style taken from your pictures, quickly",
+    weak: "references give a style only, not people or objects",
+  },
   promptStyle: "sentences",
   slots: [
     {

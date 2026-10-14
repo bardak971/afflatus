@@ -15,6 +15,11 @@ export const ltx = defineFamily({
   id: "ltx",
   name: "LTX 2.3",
   summary: "Video with audio. t2v, i2v from a first frame, or from a first to a last frame, through a keyframe if wanted.",
+  help: {
+    what: "Video with sound, from words or pictures, from a first to a last frame through a keyframe.",
+    best: "landing on set frames (first, middle, last); quick drafts",
+    weak: "speech varies by language, lines can go to the wrong speaker, drifts past 20 s",
+  },
   promptStyle: "sentences",
   slots: [
     {

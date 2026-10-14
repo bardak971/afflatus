@@ -17,6 +17,9 @@ export interface Option {
   search?: string;
   /** The section it is listed under. Options of one section must follow each other. */
   group?: string;
+  /** What shows on hover over the row, with its own head: more than its detail line holds. */
+  tip?: string;
+  tipHead?: string;
   /** One of the choices put forward (what a picture was made with, among everything it could be changed with): drawn so that it stands out. */
   marked?: boolean;
 }
@@ -235,6 +238,8 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
                 data-index={i}
                 onClick={() => pick(o)}
                 onPointerMove={() => moveTo(i)}
+                data-tip={o.tip}
+                data-tip-head={o.tip ? o.tipHead : undefined}
                 className={cx(
                   // over the gliding highlight, which is the active option's background
                   "relative flex min-h-8 shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left",

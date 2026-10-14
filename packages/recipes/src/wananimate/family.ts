@@ -16,6 +16,11 @@ export const wanAnimate = defineFamily({
   id: "wananimate",
   name: "Wan Animate 2",
   summary: "Motion transfer: a picture moved like a driving video, at the video's own frame rate. On Wan 2.1 14B.",
+  help: {
+    what: "A picture moved like a driving video, at the video's own pace: 24 frames a second, as H3.",
+    best: "the face and its expressions; clips that sit with H3's on a timeline; the camera angle set from the prompt",
+    weak: "no pairing of who moves like whom in Afflatus; slower for a second of video",
+  },
   promptStyle: "sentences",
   slots: [
     {

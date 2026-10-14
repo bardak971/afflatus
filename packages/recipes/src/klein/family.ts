@@ -8,6 +8,11 @@ export const klein = defineFamily({
   id: "klein",
   name: "FLUX.2 Klein",
   summary: "Photorealistic txt2img from natural-language prompts. Follows reference images and does instruction-based editing.",
+  help: {
+    what: "Photoreal pictures from sentences, edits by instruction, guided by reference pictures.",
+    best: "photos; edits guided by reference pictures",
+    weak: "on the small 4B model, edits rougher than Qwen Image 2.1's in Afflatus's tests",
+  },
   promptStyle: "sentences",
   slots: [
     {
