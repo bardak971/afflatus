@@ -344,6 +344,8 @@ export interface Tables {
   model_settings: { owner_id: string; family: string; file: string; values: string; updated_at: string };
   /** A rented machine's stretches of running (rented.ts): its pod, the rate it ran at, from when to when (null: running). */
   rent_sessions: { id: string; machine_id: string; pod: string; rate: number; started_at: string; ended_at: string | null; seen_at: string | null };
+  /** What rented pods were measured at (podFiles.ts): a file's bytes over its time per source (hf, civitai, upload), a deploy's boot (ms). */
+  pod_measures: { id: string; kind: string; cloud: string | null; bytes: number; ms: number; at: string };
   /** Unfinished work, saved as it is typed. */
   drafts: {
     id: string;

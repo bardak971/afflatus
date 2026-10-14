@@ -89,6 +89,8 @@ export interface RentedMachine {
   deployed: boolean;
   /** When it was deployed, until its ComfyUI first answered; empty after. */
   deployedAt: string;
+  /** RunPod's cloud it was deployed on, when Afflatus deployed it. */
+  cloud?: "SECURE" | "COMMUNITY";
 }
 
 /** What a GPU is deployed with: the Deploy dialog's choices, kept as the next deploy's (Settings.lastDeploy). */
