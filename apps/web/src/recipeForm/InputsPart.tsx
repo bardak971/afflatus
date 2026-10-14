@@ -4,6 +4,15 @@ import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, useDragged } from
 import { Segmented } from "../ui";
 import { Part, useParts } from "./Part";
 
+/**
+ * The tab shown while something is dragged: the one open stays when it takes it (a picture dragged with References open
+ * went to the Frames tab, 2026-10-14), else the one that does; nothing dragged, the one open.
+ */
+export function tabWhileDragging(open: "frames" | "references", framesTake: boolean, refsTake: boolean): "frames" | "references" {
+  if ((open === "frames" && framesTake) || (open === "references" && refsTake)) return open;
+  return framesTake ? "frames" : refsTake ? "references" : open;
+}
+
 /** Whether an input of the form has a place for what is being dragged from the library. */
 function useTakes() {
   const dragged = useDragged((s) => s.types);
@@ -50,7 +59,7 @@ export function InputsPart({ frames, refs, framesChosen, refsCount, chosen, summ
   // have, held the Frames tab, and its References could not be opened at all
   const [picked, setPicked] = useState<"frames" | "references" | null>(null);
   // a picture the form must have is not there yet (an Inpaint's mask): its tab comes forward, as the part opens
-  const shownTab = framesTake ? "frames" : refsTake ? "references" : (picked ?? (missing && hasFrames ? "frames" : tab));
+  const shownTab = tabWhileDragging(picked ?? (missing && hasFrames ? "frames" : tab), framesTake, refsTake);
   // The part opens by itself while a picture is missing or something it takes is dragged. When that ends because a
   // picture was put in (dropped, picked), it stays open on the tab it was put in: folding away the slot just filled
   // hid the picture with its Change and Remove (and a reference dropped from the Frames tab went back behind it).

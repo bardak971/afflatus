@@ -12,3 +12,17 @@ describe("a Motion transfer's picture made from its driving video", () => {
     expect(motionSlots(recipeById("h3.swap")!.inputs)).toBeNull();
   });
 });
+
+describe("the Inputs tabs while something is dragged", () => {
+  it("keeps the tab open when it takes what is dragged, else brings forward the one that does", async () => {
+    const { tabWhileDragging } = await import("../src/recipeForm/InputsPart");
+    // a picture dragged with References open, both taking pictures: References stays (it went to Frames)
+    expect(tabWhileDragging("references", true, true)).toBe("references");
+    expect(tabWhileDragging("frames", true, true)).toBe("frames");
+    // only one takes it: that one
+    expect(tabWhileDragging("references", true, false)).toBe("frames");
+    expect(tabWhileDragging("frames", false, true)).toBe("references");
+    // nothing dragged: the one open
+    expect(tabWhileDragging("references", false, false)).toBe("references");
+  });
+});

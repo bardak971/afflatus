@@ -66,7 +66,8 @@ function useOpenEditFor() {
       forms: { [editor.id]: { [source.id]: o.source, [prompt.id]: o.prompt, ...(refs && o.person ? { [refs.id]: [{ asset: o.person, role: "person" }] } : {}) } },
     });
     tie(d.id, link);
-    useFormAim.getState().set(editor.id, prompt.id);
+    // without a person it opens on the empty reference slot: who goes in is what is missing
+    useFormAim.getState().set(editor.id, refs && !o.person && o.prompt === REPLACE ? refs.id : prompt.id);
     openNew(d);
   };
 }
@@ -107,7 +108,7 @@ export function MakeFromDriving({ specs, values }: { specs: readonly InputSpec[]
       <span className="text-xs text-ink-2">
         {face && person
           ? <>{person.name} (the cast) put into the frame at <span className="font-semibold text-ink">{start.toFixed(1)} s</span>, where the part starts: 3 pictures with Qwen Image 2.1 · Edit, you pick one.</>
-          : <>The frame at {start.toFixed(1)} s in Qwen Image 2.1 · Edit: put the person in the cast first (Characters), and they go into it.</>}
+          : <>The frame at {start.toFixed(1)} s in Qwen Image 2.1 · Edit, opened on its References: drop a photo of who goes in there (or put them in the cast first, Characters).</>}
       </span>
     </div>
   );

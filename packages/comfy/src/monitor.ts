@@ -372,6 +372,8 @@ export class Monitor {
       const out = (d.output ?? {}) as { images?: unknown; gifs?: unknown };
       const files = [...(Array.isArray(out.images) ? out.images : []), ...(Array.isArray(out.gifs) ? out.gifs : [])]
         .filter((f): f is OutputFile => Boolean(f) && typeof (f as OutputFile).filename === "string")
+        // what a loader was given, from ComfyUI's input folder (LoadVideo shows its video so): not something the workflow made
+        .filter((f) => f.type !== "input")
         .map((f) => ({ filename: f.filename, subfolder: f.subfolder ?? "", type: f.type ?? "output" }));
       if (!files.length) return;
       r.stages = [...r.stages.filter((s) => s.node !== d.node), { node: d.node, files }];
