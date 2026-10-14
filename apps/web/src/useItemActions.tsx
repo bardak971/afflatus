@@ -55,7 +55,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
   const setup = useSetup();
   const client = useQueryClient();
   const say = useBanners((b) => b.push);
-  const { a, g, recipe, reuse, carrier, carryOn, opener, openerName, animate, follower, follow, toolFor, toolInput, openTool } = drafts;
+  const { a, g, recipe, reuse, carrier, carryOn, opener, openerName, animate, mover, moverName, transfer, follower, follow, toolFor, toolInput, openTool } = drafts;
   const said = (title: string) => (sayErrors ? { onError: mutations.failed(title) } : undefined);
 
   // the button of a pass just queued says so for a moment ("Queued", the ok look), on the item it was queued for: the
@@ -105,14 +105,14 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
   const facts = (more: Partial<ItemFacts> = {}): ItemFacts => ({
     kind: a.kind, inBin: a.inBin, kept: a.kept, hasSound: a.hasSound, reading,
     madeHere: Boolean(g), generated: Boolean(g && recipe), seed,
-    opener: opener ? openerName : null, carrier: Boolean(carrier), passes, voice: Boolean(follower),
+    opener: opener ? openerName : null, mover: mover ? moverName : null, carrier: Boolean(carrier), passes, voice: Boolean(follower),
     comfyOnline: setup.data?.comfy.online ?? false,
     compare: "open it from a list",
     timelines: a.id ? timeline.items(a) : [],
     moves: a.id ? mutations.moves(a) : [],
     queued: done && done.id === a.id ? { [done.action]: true } : undefined,
     busy: {
-      "reuse-same": reuse.isPending, "reuse-new": reuse.isPending, variation: queued.isPending, i2v: animate.isPending, extend: carryOn.isPending,
+      "reuse-same": reuse.isPending, "reuse-new": reuse.isPending, variation: queued.isPending, i2v: animate.isPending, extend: carryOn.isPending, motion: transfer.isPending,
       upscale: queued.isPending, face: queued.isPending, hand: queued.isPending, background: queued.isPending, inpaint: openTool.isPending, edit: openTool.isPending, outpaint: openTool.isPending,
       "mirror-h": media.mirror.isPending, "mirror-v": media.mirror.isPending, "save-frame": media.saveFrame.isPending, "extract-audio": media.takeSound.isPending, "remove-sound": media.silence.isPending, voice: follow.isPending,
       comfy: mutations.openInComfy.isPending,
@@ -133,6 +133,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     "reuse-new": () => g && reuse.newSeed(g),
     variation: () => g && recipe && queue("variation", { recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" }),
     i2v: () => animate.mutate(undefined, said("Could not open it in a form")),
+    motion: () => transfer.mutate(undefined, said("Could not open it in a form")),
     extend: () => carryOn.mutate(undefined, said("Could not extend it")),
     upscale: () => quick("u"),
     face: () => quick("f"),

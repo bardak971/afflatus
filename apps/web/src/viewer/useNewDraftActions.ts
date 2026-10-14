@@ -127,6 +127,24 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
     onSuccess: toForm,
   });
 
+  // Motion transfer: a picture as what moves, a video as how it moves, on the model used last among those that do it
+  const pictureSlot = (r: RecipeInfo) => r.inputs.find((i) => i.type === "image" && i.role === "source");
+  const drivingSlot = (r: RecipeInfo) => r.inputs.find((i) => i.type === "clip" && i.role === "source");
+  const mover = usedLast(
+    (recipes.data?.recipes ?? []).filter((r) => on(r.family) && r.output === "video" && pictureSlot(r) && drivingSlot(r)),
+    drafts.data?.items,
+    (r) => Boolean(setup.data?.recipes.find((x) => x.id === r.id)?.ready),
+  );
+  const moverName = mover ? (recipes.data?.families.find((f) => f.id === mover.family)?.name ?? mover.title) : "";
+  const transfer = useMutation({
+    mutationFn: () => {
+      const slot = asset.kind === "image" ? pictureSlot(mover!)! : drivingSlot(mover!)!;
+      aim(mover!, slot.id);
+      return api.createDraft({ recipe: mover!.id, forms: { [mover!.id]: { [slot.id]: asset.kind === "image" ? asset.id : { asset: asset.id } } } });
+    },
+    onSuccess: toForm,
+  });
+
   const all = (recipes.data?.recipes ?? []).filter((r) => on(r.family));
   /** The recipe for an operation: the one of the model the picture was made with when it has it, else one that is ready, else any. */
   const toolFor = (key: string): RecipeInfo | undefined =>
@@ -151,5 +169,5 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
     },
   });
 
-  return { a, g, recipe, madeWith, recipes, reuse, carrier, fromLastFrame, carryOn, between, extendHere, opener, openerName, animate, follower, follow, toolFor, toolInput, openTool };
+  return { a, g, recipe, madeWith, recipes, reuse, carrier, fromLastFrame, carryOn, between, extendHere, opener, openerName, animate, mover, moverName, transfer, follower, follow, toolFor, toolInput, openTool };
 }
