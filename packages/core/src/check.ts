@@ -155,7 +155,10 @@ export function checkGraph(
       } else if (typeof value === "string") {
         const choices = choicesOf(all[name]);
         if (!choices || choices.includes(value)) continue;
-        if (!looksLikeFiles(choices)) problems.push(`${id} ${node.class_type}: "${value}" is not a choice of "${name}"`);
+        // a model file's name is a file whatever the list beside it holds: one a ComfyUI lacks is a file it lacks, sent to a
+        // pod, not a wrong choice (a fresh pod's VAE list holds only ComfyUI's own "pixel_space", "taesd": the Qwen VAE read
+        // as not a choice of it, and the job was never sent to the pod to fetch it)
+        if (!looksLikeFiles(choices) && !isModelFile(value)) problems.push(`${id} ${node.class_type}: "${value}" is not a choice of "${name}"`);
         // against the live catalog of the ComfyUI about to run it, a file that isn't there is a problem too
         // a file that was just uploaded for this graph is there, though the list was read before it arrived
         else if (opts.files && choices.length && !opts.uploaded?.includes(value)) problems.push(`${id} ${node.class_type}: ComfyUI has no file "${value}" for "${name}"`);
