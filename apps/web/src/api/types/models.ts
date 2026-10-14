@@ -247,7 +247,7 @@ export interface SetFile extends PresetFile {
 export interface SetSearch {
   presets: Array<{ id: string; name: string; files: Array<PresetFile & { via: FileVia | null }>; bytes: number }>;
   families: Array<{ id: string; name: string; files: Array<{ file: string; folder: string; url: string; via: FileVia | null }> }>;
-  files: Array<{ file: string; folder: string; size?: number; via: "upload" }>;
+  files: Array<{ file: string; folder: string; size?: number; via: FileVia | null }>;
 }
 
 /** The slowest and fastest of what earlier deploys measured: bytes a second for a source, ms for a boot. */

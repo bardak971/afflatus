@@ -82,6 +82,7 @@ const BROWSER: Record<string, string> = {
   "afflatus.projects.kind": "internal: the Projects panel's filter",
   "afflatus.projects.open": "internal: the Projects panel's open rows",
   "afflatus.draft-machine": "internal: the machine each draft generates on, set from Generate's machine slice",
+  "afflatus.find-all": "internal: Find models' All of Civitai switch, remembered in this browser",
   "afflatus.motion-picture": "internal: which Motion transfer draft an Edit draft makes the picture for, set by Make it from the driving video",
   "afflatus.projects.sort": "internal: the Projects panel's sort",
   "afflatus.reloaded-at": "internal: when the app last reloaded itself for a new version",

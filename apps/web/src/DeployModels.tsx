@@ -6,7 +6,7 @@ import { fileKey } from "@afflatus/core";
 import { api, type DeployAsk, type DeployFile, type DeployModels as View, type MeasuredRange, type PresetFile } from "./api";
 import { est, gb, plural, size, usd } from "./format";
 import { openFindModels } from "./findModels/store";
-import { filesOfPick, ModelSearch, ViaChip } from "./modelFilesUi";
+import { ViaChip } from "./modelFilesUi";
 import { queryKeys } from "./queryKeys";
 import { useSayFailed } from "./sayFailed";
 import { Select } from "./Select";
@@ -145,8 +145,8 @@ export function DeployModels({ want, set, rate, gpu, onPicked }: { want: DeployA
                 <button type="button" aria-label={`Take ${f.file} off`} onClick={() => setAdded((a) => a.filter((x) => fileKey(x) !== fileKey(f)))} className="grid size-6 place-items-center rounded-md text-ink-3 hover:bg-hover hover:text-ink"><X size={12} /></button>
               </div>
             ))}
+            {/* the rest is found in Find models: yours, Civitai, Hugging Face */}
             <span className="flex items-center gap-2">
-              <span className="min-w-0 grow"><ModelSearch onPick={(p) => add(filesOfPick(p))} /></span>
               <Button size="sm" onClick={() => openFindModels({
                 what: gpu ? `Deploy · ${gpu}` : "this deploy", action: "Add to this deploy", add,
                 // the time and price at the speeds measured on this cloud and the GPU's rate, as below
@@ -155,6 +155,7 @@ export function DeployModels({ want, set, rate, gpu, onPicked }: { want: DeployA
                   return t && rate !== null ? `${est(t.fast)}–${est(t.slow).replace(/^~/, "")} · ${usd((t.fast / 3_600_000) * rate, true)}–${usd((t.slow / 3_600_000) * rate, true)}` : null;
                 },
               })}>Find more…</Button>
+              <span className="text-xs text-ink-3">your presets and files, Civitai, Hugging Face</span>
             </span>
           </div>
 

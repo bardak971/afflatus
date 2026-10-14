@@ -5,11 +5,11 @@ import { fileKey } from "@afflatus/core";
 import { api, type BrowseCard } from "./api";
 import { Card } from "./findModels/Card";
 import { Opened } from "./findModels/Opened";
-import { closeFindModels, pickedOf, type FindTarget, type PickedFile } from "./findModels/store";
+import { clearPicked, closeFindModels, pickedOf, useKept, type FindTarget, type PickedFile } from "./findModels/store";
 import { Tray } from "./findModels/Tray";
+import { Yours } from "./findModels/Yours";
 import { useSettled } from "./hooks";
 import { Keys } from "./Keys";
-import { filesOfPick, ModelSearch } from "./modelFilesUi";
 import { queryKeys } from "./queryKeys";
 import { Select } from "./Select";
 import { Checkbox, cx, ErrorNote, fieldClass, Segmented } from "./ui";
@@ -29,27 +29,29 @@ const isLink = (q: string) => /^https?:\/\//i.test(q.trim());
 /** The browser, while a place has it open (findModels/Host.tsx loads it). */
 export function FindModels({ target }: { target: FindTarget }) {
   const bases = useQuery({ queryKey: queryKeys.browse.bases(), queryFn: ({ signal }) => api.browseBases({ signal }), staleTime: 10 * 60_000 });
-  const [tab, setTab] = useState<Tab>("civitai");
-  const [words, setWords] = useState("");
+  // kept when it closes (an Esc, a click on ✕ by mistake): opened again, it is where it was
+  const [tab, setTab] = useKept("tab");
+  const [words, setWords] = useKept("words");
   const q = useSettled(words, 350);
-  const [types, setTypes] = useState<string[]>(["LORA"]);
+  const [types, setTypes] = useKept("types");
   // the families whose base models are asked for: the user's families on, until they change it (none: any base model)
-  const [chosenFamilies, setChosenFamilies] = useState<string[] | null>(null);
+  const [chosenFamilies, setChosenFamilies] = useKept("chosenFamilies");
   const familiesOn = useMemo(() => (bases.data?.families ?? []).filter((f) => f.on), [bases.data]);
   const families = chosenFamilies ?? familiesOn.map((f) => f.id);
   const baseList = useMemo(() => familiesOn.filter((f) => families.includes(f.id)).flatMap((f) => f.bases), [familiesOn, families]);
-  const [sort, setSort] = useState("Most Downloaded");
-  const [period, setPeriod] = useState("AllTime");
-  const [notMine, setNotMine] = useState(true);
-  const [hfBase, setHfBase] = useState("");
-  const [hfKind, setHfKind] = useState<"comfyui" | "loras" | "all">("comfyui");
-  const [opened, setOpened] = useState<BrowseCard | null>(null);
-  const [picked, setPicked] = useState<PickedFile[]>([]);
+  const [sort, setSort] = useKept("sort");
+  const [period, setPeriod] = useKept("period");
+  const [notMine, setNotMine] = useKept("notMine");
+  const [all, setAll] = useKept("all");
+  const [hfBase, setHfBase] = useKept("hfBase");
+  const [hfKind, setHfKind] = useKept("hfKind");
+  const [opened, setOpened] = useKept("opened");
+  const [picked, setPicked] = useKept("picked");
   const [dropping, setDropping] = useState(false);
 
   const civitai = useInfiniteQuery({
-    queryKey: queryKeys.browse.civitai({ q, types, baseList, sort, period }),
-    queryFn: ({ pageParam, signal }) => api.browseCivitai({ q, types, bases: baseList, sort, period, ...(pageParam ? { cursor: pageParam } : {}) }, { signal }),
+    queryKey: queryKeys.browse.civitai({ q, types, baseList, sort, period, all }),
+    queryFn: ({ pageParam, signal }) => api.browseCivitai({ q, types, bases: baseList, sort, period, all, ...(pageParam ? { cursor: pageParam } : {}) }, { signal }),
     initialPageParam: "",
     getNextPageParam: (last) => last.next ?? undefined,
     enabled: tab === "civitai" && !isLink(q) && bases.isSuccess,
@@ -94,7 +96,7 @@ export function FindModels({ target }: { target: FindTarget }) {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [opened]);
+  }, [opened, setOpened]);
 
   const pickedKeys = new Set(picked.map(fileKey));
   const pickedNames = new Set(picked.map((f) => f.file));
@@ -108,7 +110,8 @@ export function FindModels({ target }: { target: FindTarget }) {
   const cardPicked = (c: BrowseCard) => c.versions.some((v) => v.files.some((f) => pickedKeys.has(fileKey({ file: f.name, folder: f.folder ?? "" }))));
 
   return (
-    <div role="dialog" aria-label="Find models" className="fixed inset-0 z-50 grid place-items-center bg-shade/70 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) closeFindModels(); }}>
+    // a click beside it does not close it: Esc or its ✕ do (and what it holds is kept for the next time)
+    <div role="dialog" aria-label="Find models" className="fixed inset-0 z-50 grid place-items-center bg-shade/70 p-4">
       <div className="flex h-[min(94vh,1180px)] w-[min(96vw,1700px)] flex-col overflow-hidden rounded-[18px] border border-line-strong bg-panel shadow-2xl shadow-shade/60">
         <div className="flex items-center gap-3 border-b border-line px-5 py-3.5">
           <span className="text-[17px] font-bold">Find models</span>
@@ -172,6 +175,7 @@ export function FindModels({ target }: { target: FindTarget }) {
               <div className="flex flex-col gap-1.5">
                 <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Show</span>
                 <Checkbox checked={notMine} onChange={setNotMine} className="text-xs"><span>What I do not have</span></Checkbox>
+                {tab === "civitai" && <span data-tip="Civitai's API leaves part of its models out unless it is asked for all of them (civitai.com and civitai.red alike). Remembered in this browser."><Checkbox checked={all} onChange={setAll} className="text-xs"><span>All of Civitai</span></Checkbox></span>}
               </div>
             )}
             {tab === "yours" && <p className="text-xs text-ink-2">Your presets, your model families' usual files, and the files of this PC's ComfyUI.</p>}
@@ -180,9 +184,7 @@ export function FindModels({ target }: { target: FindTarget }) {
           {/* results, or the model opened */}
           <div className="flex min-h-0 flex-col">
             {tab === "yours" ? (
-              <div className="p-4">
-                <ModelSearch onPick={(p) => add(filesOfPick(p).map((f) => ({ ...f, from: p.kind === "file" ? "this PC" : p.hit.name })))} />
-              </div>
+              <Yours words={words} onWords={setWords} picked={pickedKeys} onPick={add} />
             ) : opened ? (
               <Opened card={opened} picked={pickedNames} onPick={(files) => { add(files); setOpened(null); }} onBack={() => setOpened(null)} />
             ) : (
@@ -206,7 +208,10 @@ export function FindModels({ target }: { target: FindTarget }) {
             onOver={setDropping}
             onRemove={(f) => setPicked((p) => p.filter((x) => fileKey(x) !== fileKey(f)))}
             onClear={() => setPicked([])}
-            onDone={closeFindModels}
+            onDone={() => {
+              clearPicked();
+              closeFindModels();
+            }}
             onDrop={(e) => {
               setDropping(false);
               const key = e.dataTransfer.getData("application/x-afflatus-card");

@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { create } from "zustand";
 import { api, type BrowseCard, type BrowseFile, type DeployFile } from "../api";
 
@@ -47,3 +48,56 @@ export const FOLDERS = ["checkpoints", "diffusion_models", "loras", "vae", "text
 export async function getOnPc(files: PickedFile[]): Promise<void> {
   for (const f of files) await api.startDownload({ file: f.file, folder: f.folder, ...(f.civitai ? { civitai: f.civitai.version, ...(f.civitai.pick ? { pick: f.civitai.pick } : {}) } : { url: f.url! }) });
 }
+
+/** The browser's own state, kept when it closes (Esc, a click on its ✕): opened again, it is where it was. */
+interface Panel {
+  tab: "yours" | "civitai" | "huggingface";
+  words: string;
+  types: string[];
+  /** The families whose base models are asked for; null: the user's families on. */
+  chosenFamilies: string[] | null;
+  sort: string;
+  period: string;
+  notMine: boolean;
+  /** All of Civitai: its API leaves part of its models out unless asked (remembered in this browser). */
+  all: boolean;
+  hfBase: string;
+  hfKind: "comfyui" | "loras" | "all";
+  opened: BrowseCard | null;
+  picked: PickedFile[];
+}
+
+const ALL_KEY = "afflatus.find-all";
+const readAll = () => {
+  try {
+    return localStorage.getItem(ALL_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+
+const usePanel = create<Panel>(() => ({
+  tab: "civitai", words: "", types: ["LORA"], chosenFamilies: null, sort: "Most Downloaded", period: "AllTime", notMine: true, all: readAll(),
+  hfBase: "", hfKind: "comfyui", opened: null, picked: [],
+}));
+
+/** One of the browser's kept values, read and set as useState's. */
+export function useKept<K extends keyof Panel>(key: K): [Panel[K], (v: Panel[K] | ((was: Panel[K]) => Panel[K])) => void] {
+  const value = usePanel((s) => s[key]);
+  // the same setter at every render, as useState's
+  const set = useCallback((v: Panel[K] | ((was: Panel[K]) => Panel[K])) => {
+    const next = typeof v === "function" ? (v as (was: Panel[K]) => Panel[K])(usePanel.getState()[key]) : v;
+    usePanel.setState({ [key]: next } as Pick<Panel, K>);
+    if (key === "all") {
+      try {
+        localStorage.setItem(ALL_KEY, next ? "1" : "0");
+      } catch {
+        // kept for this visit only
+      }
+    }
+  }, [key]);
+  return [value, set];
+}
+
+/** What was picked, gone once it was added somewhere (the rest of the browser's state stays). */
+export const clearPicked = () => usePanel.setState({ picked: [], opened: null });
