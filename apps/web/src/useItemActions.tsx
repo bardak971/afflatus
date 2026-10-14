@@ -55,7 +55,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
   const setup = useSetup();
   const client = useQueryClient();
   const say = useBanners((b) => b.push);
-  const { a, g, recipe, reuse, carrier, carryOn, opener, openerName, animate, mover, moverName, transfer, follower, follow, toolFor, toolInput, openTool } = drafts;
+  const { a, g, recipe, reuse, carrier, carryOn, opener, openerName, animate, mover, moverName, transfer, openerChoices, moverChoices, follower, follow, toolFor, toolInput, openTool } = drafts;
   const said = (title: string) => (sayErrors ? { onError: mutations.failed(title) } : undefined);
 
   // the button of a pass just queued says so for a moment ("Queued", the ok look), on the item it was queued for: the
@@ -106,6 +106,9 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     kind: a.kind, inBin: a.inBin, kept: a.kept, hasSound: a.hasSound, reading,
     madeHere: Boolean(g), generated: Boolean(g && recipe), seed,
     opener: opener ? openerName : null, mover: mover ? moverName : null, carrier: Boolean(carrier), passes, voice: Boolean(follower),
+    // each model a picture can open on (i2v), or a motion transfer be made with: the menus' submenus
+    openers: openerChoices.map((c) => ({ label: c.name, note: c.last ? "used last" : c.ready ? undefined : "not ready", run: () => animate.mutate(c.id, said("Could not open it in a form")) })),
+    movers: moverChoices.map((c) => ({ label: c.name, note: c.last ? "used last" : c.ready ? undefined : "not ready", run: () => transfer.mutate(c.id, said("Could not open it in a form")) })),
     comfyOnline: setup.data?.comfy.online ?? false,
     compare: "open it from a list",
     timelines: a.id ? timeline.items(a) : [],

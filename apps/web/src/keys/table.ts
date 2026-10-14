@@ -252,6 +252,7 @@ export const PLACES: KeyPlace[] = [
           { keys: "E", does: "Edit…", note: "img2img: a new draft in the form" },
           { keys: "R", does: "Outpaint…", note: "a new draft in the form" },
           { keys: "M", does: "Image to video (i2v)" },
+          { keys: "Shift+M", does: "Motion transfer" },
           { keys: "Shift+H", does: "Mirror ↔", note: "a mirrored copy, left and right swapped" },
           { keys: "Shift+V", does: "Mirror ↕", note: "a mirrored copy, top and bottom swapped" },
         ],

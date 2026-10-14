@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { clock } from "./format";
-import { RangeSlider } from "./RangeSlider";
+import { RangeSlider, PastWhatFits } from "./RangeSlider";
 import { cx } from "./ui";
 
 /** How many frames the strip shows across the whole video. */
@@ -41,10 +41,7 @@ export function VideoRange({ asset, total, start, seconds, min, most, label, onS
             className={cx("h-full min-w-0 flex-1 object-cover transition-opacity", at(i) >= from && at(i) < to ? "opacity-100" : "opacity-35")}
           />
         ))}
-        {/* past what the part can reach from its start: no clip holds it */}
-        {from + most < total && (
-          <span className="absolute inset-y-0 right-0 bg-[repeating-linear-gradient(135deg,var(--color-ground)_0_5px,transparent_5px_10px)] opacity-60" style={{ left: pct(from + most) }} />
-        )}
+        <PastWhatFits from={from} most={most} total={total} />
       </span>
       <span
         aria-hidden style={{ left: pct(from), width: pct(to - from) }}

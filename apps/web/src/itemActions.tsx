@@ -48,7 +48,7 @@ export const ACTIONS: Record<ActionId, Spec> = {
   variation: { group: "make", label: "Variation", key: "V", kinds: ALL, icon: Shuffle, tip: "Same parameters, new seed: queued at once." },
   i2v: { group: "make", label: "Image to video (i2v)", key: "M", kinds: ["image"], icon: Clapperboard, tip: "A new video with this picture as the first frame, on the video model used last." },
   extend: { group: "make", label: "Extend", key: "C", kinds: ["video"], icon: ArrowRightFromLine, tip: "A new clip that carries on from the end of this one, same model and parameters." },
-  motion: { group: "make", label: "Motion transfer…", kinds: SEEN, icon: PersonStanding, tip: "A new draft of Motion transfer with this in its place: a picture is what moves, a video is how it moves (the driving video)." },
+  motion: { group: "make", label: "Motion transfer…", key: "Shift+M", kinds: SEEN, icon: PersonStanding, tip: "A new draft of Motion transfer with this in its place: a picture is what moves, a video is how it moves (the driving video)." },
   upscale: { group: "passes", label: "Upscale 2x", key: "U", kinds: ["image"], icon: Maximize2, tip: "Upscale 2x: queued at once with the picture's generation parameters." },
   face: { group: "passes", label: "Face detailer", key: "F", kinds: ["image"], icon: Smile, tip: "Face detailer: queued at once with the picture's generation parameters." },
   hand: { group: "passes", label: "Hand detailer", key: "H", kinds: ["image"], icon: Hand, tip: "Hand detailer: the face detailer on the hand detector (hand_yolov8s), at denoise 0.35, crop factor 2, a prompt about hands; queued at once with the picture's generation parameters." },
@@ -104,6 +104,9 @@ export interface ItemFacts {
   opener: string | null;
   /** The model a Motion transfer would open on, by name; null or absent: none is installed. */
   mover?: string | null;
+  /** With more than one model to choose from, Image to video's and Motion transfer's submenus: each model, the one used last first. */
+  openers?: MenuItem[];
+  movers?: MenuItem[];
   /** A model can carry a clip on (Extend). */
   carrier: boolean;
   /** The recipe each pass would use, by its title; absent: none is installed for it. */
@@ -182,7 +185,7 @@ export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<Acti
   const list = actionIds(f.kind).map((id): ItemAction => {
     const spec = ACTIONS[id];
     const off = why(id);
-    const items = id === "timeline" ? f.timelines : id === "move" ? f.moves : undefined;
+    const items = id === "timeline" ? f.timelines : id === "move" ? f.moves : id === "i2v" && (f.openers?.length ?? 0) > 1 ? f.openers : id === "motion" && (f.movers?.length ?? 0) > 1 ? f.movers : undefined;
     const run = runs[id];
     const base: ItemAction = { id, group: spec.group, label: spec.label, key: spec.key, icon: spec.icon, tip: spec.tip, note: off ?? notes[id], disabled: Boolean(off) || Boolean(f.busy?.[id]) || (!run && !items?.length), run, items: off ? undefined : items };
     if (f.queued?.[id] && !off) return { ...base, label: "Queued", done: true };
