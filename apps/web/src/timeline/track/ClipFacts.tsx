@@ -9,6 +9,7 @@ import { queryKeys } from "../../queryKeys";
 const ROWS: Array<{ key: Exclude<keyof Against, "colour">; label: string }> = [
   { key: "luma", label: "Brightness" },
   { key: "sharp", label: "Sharpness" },
+  { key: "grain", label: "Grain" },
   { key: "pace", label: "Pace" },
 ];
 

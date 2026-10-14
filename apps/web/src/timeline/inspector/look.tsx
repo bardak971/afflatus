@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import type { Clip, Take, Timeline } from "../../api";
 import { Chip, cx, Help } from "../../ui";
-import { change, DRIFT, driftOf, driftWords, past, pct, runSeries, runTicks, signed, type RunPoint } from "../lookDrift";
+import { change, DRIFT, driftOf, sharpOf, driftWords, past, pct, runSeries, runTicks, signed, type RunPoint } from "../lookDrift";
 import { SHOWS } from "../attention";
 
 /**
@@ -31,8 +31,9 @@ export function LookTable({ timeline, index, take, onSelectClip }: { timeline: T
   const each = (f: (c: (typeof cols)[number]) => Cell) => cols.map(f);
   const rows: Row[] = [
     { label: "Brightness", value: m.luma.toFixed(0), vs: each((c) => ({ text: share(c.by.luma), bad: past("luma", c.by.luma) })), why: "Mean luma of the frames, 0 to 255." },
-    { label: "Sharpness", value: m.sharp.toFixed(2), vs: each((c) => ({ text: share(c.by.sharp), bad: past("sharp", c.by.sharp) })), why: "The mean absolute Laplacian of a small grey copy: 0 is flat, several units is crisp. A chain continued from exact latents loses it hop after hop." },
+    { label: "Sharpness", value: sharpOf(m).toFixed(2), vs: each((c) => ({ text: share(c.by.sharp), bad: past("sharp", c.by.sharp) })), why: m.edges != null ? "The edges of a small grey copy cleaned of its grain first (the mean absolute Laplacian): 0 is flat, several units is crisp. Grain is its own row: read as detail, a grainier clip looked sharper." : "The mean absolute Laplacian of a small grey copy: 0 is flat, several units is crisp. Grain counts in it (measured before the Grain figure existed)." },
   ];
+  if (m.grain != null) rows.push({ label: "Grain", value: m.grain.toFixed(2), vs: each((c) => ({ text: share(c.by.grain), bad: past("grain", c.by.grain) })), why: `The fine noise: how far the pixels sit from a cleaned copy, in luma steps. A clip that carries on from a grainier one, then gets grain of its own, stacks it join after join; past ${pct(DRIFT.grain)} it shows.` });
   if (m.pace != null) rows.push({ label: "Pace", value: m.pace.toFixed(1), vs: each((c) => ({ text: share(c.by.pace), bad: past("pace", c.by.pace) })), why: `Mean frame-to-frame change, the ruler's motion figure. H3 tends to slow down after each hand-over; past ${pct(DRIFT.pace)} it reads as slow motion.` });
   if (m.chroma) rows.push({ label: "Colour", value: `${signed(m.chroma.u)} / ${signed(m.chroma.v)}`, vs: each((c) => ({ text: c.by.colour == null ? null : `±${c.by.colour.toFixed(1)}`, bad: past("colour", c.by.colour) })), why: `Mean chroma against neutral, as U / V: U is blue (+) to yellow (−), V red (+) to green (−). Against another clip: how far the colour moved in U/V; past ${DRIFT.colour} a cast shows. A warming or greying chain shows here.` });
   if (m.handover != null) rows.push({ label: "Run-up end", value: `×${m.handover.toFixed(1)}`, vs: each(() => ({ text: null })), bad: m.handover > DRIFT.handover, why: `A continuation: how much the picture jumps where the run-up (the frames shared with the clip before; in a seamless take, that clip's own frames) ends and this clip's own frames begin, against its own motion right after. ×1 carries on; past ×${SHOWS} the model stepped away from its guide and the join shows: render a new take.` });
@@ -45,7 +46,7 @@ export function LookTable({ timeline, index, take, onSelectClip }: { timeline: T
   const warning = driftWords(d);
   const n = clips[index]!.takes.findIndex((t) => t.id === take.id) + 1;
   const note = d
-    ? `Measured on this take's own frames when it was rendered. "vs clip" is the change against that clip's take: the one before, and the first of this run (clip ${d.start + 1}); a few per cent is the model's own variation. Warned past ${pct(DRIFT.luma)} brightness, ${pct(DRIFT.sharp)} sharpness, ${pct(DRIFT.pace)} pace, a colour shift of ${DRIFT.colour}. Hover a row for what it means.`
+    ? `Measured on this take's own frames when it was rendered. "vs clip" is the change against that clip's take: the one before, and the first of this run (clip ${d.start + 1}); a few per cent is the model's own variation. Warned past ${pct(DRIFT.luma)} brightness, ${pct(DRIFT.sharp)} sharpness, ${pct(DRIFT.grain)} grain, ${pct(DRIFT.pace)} pace, a colour shift of ${DRIFT.colour}. Hover a row for what it means.`
     : "Measured on this take's own frames when it was rendered. Hover a row for what it means.";
   // In the column at its usual width or narrower (and inside the form's Takes card, narrower still), three figures beside
   // the label did not fit: the second comparison, against the run's start, steps aside. The chart under the table draws
@@ -103,7 +104,8 @@ function RunChart({ clips, index, onSelectClip }: { clips: Clip[]; index: number
   const points = runSeries(clips, index);
   if (points.length < 2) return null;
   const start = points[0]!.index;
-  const values = points.flatMap((p) => [p.sharp, p.luma]).filter((v): v is number => v != null);
+  const values = points.flatMap((p) => [p.sharp, p.luma, p.grain]).filter((v): v is number => v != null);
+  const grained = points.some((p) => p.grain != null);
   // a run that barely moves stays flat: at least ±5 % of the height around the middle
   let lo = Math.min(1, ...values);
   let hi = Math.max(1, ...values);
@@ -137,7 +139,7 @@ function RunChart({ clips, index, onSelectClip }: { clips: Clip[]; index: number
     const mm = clips[p.index]?.take?.measure;
     if (!mm) return `clip ${p.index + 1} · not measured`;
     const by = (r: number | null) => (r == null || p.index === start ? "" : ` (${pct(r - 1)})`);
-    return `clip ${p.index + 1} · sharpness ${mm.sharp.toFixed(2)}${by(p.sharp)} · brightness ${mm.luma.toFixed(0)}${by(p.luma)}`;
+    return `clip ${p.index + 1} · sharpness ${sharpOf(mm).toFixed(2)}${by(p.sharp)}${mm.grain != null ? ` · grain ${mm.grain.toFixed(2)}${by(p.grain)}` : ""} · brightness ${mm.luma.toFixed(0)}${by(p.luma)}`;
   };
   const anchor = (i: number) => (points.length > 2 && i === 0 ? "start" : points.length > 2 && i === points.length - 1 ? "end" : "middle");
   return (
@@ -147,6 +149,7 @@ function RunChart({ clips, index, onSelectClip }: { clips: Clip[]; index: number
         <span className="grow">Along the run · {points.length} clips</span>
         <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-accent" />sharpness</span>
         <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-picture" />brightness</span>
+        {grained && <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-warn" />grain</span>}
       </span>
       <svg viewBox={`0 0 ${CHART.w} ${CHART.h}`} className="block w-full" role="img" aria-label={`Sharpness and brightness along the ${points.length} clips of this run, against clip ${start + 1}`} onPointerLeave={() => setHover(null)}>
         <line x1={CHART.left} x2={CHART.right} y1={yAt(1)} y2={yAt(1)} stroke="var(--color-line-strong)" strokeDasharray="3 3" />
@@ -154,6 +157,7 @@ function RunChart({ clips, index, onSelectClip }: { clips: Clip[]; index: number
         {hover !== null && hover !== at && <rect x={xAt(hover) - band / 2} y={2} width={band} height={CHART.bottom} rx={4} fill="var(--color-ink)" fillOpacity={0.07} />}
         <path d={path((p) => p.luma)} fill="none" stroke="var(--color-picture)" strokeWidth={1.6} strokeOpacity={0.85} strokeLinejoin="round" strokeLinecap="round" />
         <path d={path((p) => p.sharp)} fill="none" stroke="var(--color-accent)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        {grained && <path d={path((p) => p.grain)} fill="none" stroke="var(--color-warn)" strokeWidth={1.6} strokeOpacity={0.9} strokeDasharray="4 2" strokeLinejoin="round" strokeLinecap="round" />}
         {here.luma != null && <circle cx={xAt(at)} cy={yAt(here.luma)} r={3.5} fill="var(--color-picture)" stroke="var(--color-panel)" strokeWidth={2} />}
         {here.sharp != null && <circle cx={xAt(at)} cy={yAt(here.sharp)} r={4} fill="var(--color-accent)" stroke="var(--color-panel)" strokeWidth={2} />}
         {runTicks(points.length, at, start + 1).map((i) => (

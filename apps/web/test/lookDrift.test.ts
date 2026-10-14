@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Clip, Measure, Take } from "../src/api";
-import { change, colourShift, DRIFT, driftOf, driftWords, past, pct, runEnd, runSeries, runStart, runTicks, signed } from "../src/timeline/lookDrift";
+import { change, colourShift, DRIFT, driftOf, driftWords, past, pct, runEnd, runSeries, runStart, runTicks, sharpOf, signed } from "../src/timeline/lookDrift";
 import { clipFacts } from "../src/timeline/track/peek";
 
 const measure = (luma: number, sharp: number, more: Partial<Measure> = {}): Measure => ({ luma, sharp, ...more });
@@ -73,8 +73,8 @@ describe("how far a look slides along its run", () => {
   it("draws the whole run against its start, a clip not measured as a gap", () => {
     const run = runSeries([...clips.slice(0, 2), clip("continue", null), ...clips.slice(3)], 1);
     expect(run.map((p) => p.index)).toEqual([0, 1, 2, 3]);
-    expect(run[0]).toEqual({ index: 0, sharp: 1, luma: 1 });
-    expect(run[2]).toEqual({ index: 2, sharp: null, luma: null });
+    expect(run[0]).toEqual({ index: 0, sharp: 1, luma: 1, grain: null });
+    expect(run[2]).toEqual({ index: 2, sharp: null, luma: null, grain: null });
     expect(run[3]!.sharp).toBeCloseTo(0.8);
     // a start not measured: nothing to draw against
     expect(runSeries([clip("cut", null), clip("continue", measure(1, 1))], 1)).toEqual([]);
@@ -133,5 +133,21 @@ describe("the clip's figures on the hover card", () => {
     expect(clipFacts(video({ lengthMs: 0 }), 0, [], null).lines).toEqual([{ text: "Not rendered yet", tone: "dim" }]);
     expect(clipFacts(video({ lengthMs: 0, failed: "x" }), 0, [], null).lines).toEqual([{ text: "The render failed", tone: "warn" }]);
     expect(clipFacts(video({ lengthMs: 0, job: { id: "j", status: "queued" } }), 0, [], null).lines).toEqual([{ text: "Queued for a render", tone: "dim" }]);
+  });
+});
+
+describe("grain and sharpness without it", () => {
+  const m = (sharp: number, edges?: number, grain?: number) => ({ luma: 100, sharp, ...(edges != null ? { edges } : {}), ...(grain != null ? { grain } : {}) });
+  it("compares sharpness without the grain when both takes have it, else the older figure for both", () => {
+    expect(sharpOf(m(9, 4), m(6, 5))).toBe(4);
+    expect(sharpOf(m(9, 4), m(6))).toBe(9);
+    expect(sharpOf(m(9))).toBe(9);
+  });
+  it("warns of a clip grainier than the one before, and says so", () => {
+    const clips = [{ joined: "cut" as const, take: { measure: m(5, 4, 0.6) } }, { joined: "continue" as const, take: { measure: m(6, 4, 1.2) } }] as never;
+    const d = driftOf(clips, 1)!;
+    expect(d.hop.grain).toBeCloseTo(1);
+    expect(past("grain", d.hop.grain)).toBe(true);
+    expect(driftWords(d)).toMatch(/grainier/);
   });
 });

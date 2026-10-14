@@ -33,8 +33,12 @@ export interface Take {
 export interface Measure {
   /** Mean luma, 0 to 255. */
   luma: number;
-  /** The mean absolute Laplacian of a small grey copy: 0 is flat, several units is crisp. */
+  /** The mean absolute Laplacian of a small grey copy: 0 is flat, several units is crisp. Grain counts in it. */
   sharp: number;
+  /** The same without the grain (on a copy cleaned of its fine noise); takes measured before 2026-10-14 have none. */
+  edges?: number;
+  /** The fine noise: how far the pixels sit from their cleaned copy, in luma steps. */
+  grain?: number;
   /** Mean chroma against neutral: U blue (+) to yellow (−), V red (+) to green (−). */
   chroma?: { u: number; v: number };
   /** Where the darkest and the brightest tenth of the picture sit in luma. */
