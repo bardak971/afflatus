@@ -111,7 +111,7 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
             </button>
             <span className="grow" />
             <input aria-label="Find a GPU" placeholder="Find: 5090, 48 GB…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape" && q) { e.stopPropagation(); setQ(""); } }} className={cx(fieldClass, "h-7 w-36 px-2 text-xs font-normal")} />
-            <Segmented<DeployAsk["cloud"]> strip label="Cloud" value={want.cloud} options={[{ value: "SECURE", label: "Secure" }, { value: "COMMUNITY", label: "Community" }]} onChange={(cloud) => set({ cloud })} />
+            <Segmented<DeployAsk["cloud"]> size="sm" label="Cloud" value={want.cloud} options={[{ value: "SECURE", label: "Secure" }, { value: "COMMUNITY", label: "Community" }]} onChange={(cloud) => set({ cloud })} />
             <Help text={WHY_CLOUD} />
           </span>
           {/* one height whatever the cloud, the stock or the answer: the dialog does not move under the pointer */}
@@ -152,7 +152,7 @@ export function DeployDialog({ onClose }: { onClose(): void }) {
 
         <section className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-x-3 gap-y-3 text-[13px]">
           <span className="flex items-center gap-1.5 font-semibold text-ink-2">Image <Help text={WHY_TEMPLATE} /></span>
-          <Segmented<DeployAsk["template"]> strip label="Image" value={want.template} options={[{ value: "afflatus", label: images.data?.afflatus === false ? "Afflatus · not published" : "Afflatus · locked" }, { value: "runpod", label: "RunPod's ComfyUI · not locked" }]} onChange={(template) => set({ template })} />
+          <Segmented<DeployAsk["template"]> label="Image" value={want.template} options={[{ value: "afflatus", label: images.data?.afflatus === false ? "Afflatus · not published" : "Afflatus · locked" }, { value: "runpod", label: "RunPod's ComfyUI · not locked" }]} onChange={(template) => set({ template })} />
 
           <span className="flex items-center gap-1.5 font-semibold text-ink-2">Disk <Help text={WHY_DISK} /></span>
           <span className="flex flex-wrap items-center gap-2">
