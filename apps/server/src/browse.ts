@@ -117,7 +117,25 @@ type CivVersion = { id: number; name?: string; baseModel?: string; publishedAt?:
 type CivModel = {
   id: number; name: string; type?: string; creator?: { username?: string }; stats?: { downloadCount?: number; thumbsUpCount?: number };
   allowCommercialUse?: string[] | string; allowNoCredit?: boolean; allowDerivatives?: boolean; modelVersions?: CivVersion[];
+  nsfw?: boolean; tags?: string[];
 };
+
+/**
+ * Words that mark a model for adults. Civitai's own filter goes by a model's pictures, so one whose pictures pass can still
+ * be named for it; with the user's switch off, such a card is not shown either. The explicit words count in its name or its
+ * tags; the milder ones in its name only, as tags say what a model can do (the most used checkpoints are tagged "nsfw",
+ * and "sexy" is put on a hairstyles pack).
+ */
+const EXPLICIT = /(^|[^a-z])(porn\w*|hentai|xxx|lewd|sex|erotic\w*|boobs?|nipples?|genitals?|penis|vagina|pussy|futa\w*|ahegao|bdsm|fetish\w*)(?![a-z])/i;
+const MILD = /(^|[^a-z])(nsfw|nude|nudity|naked|sexy|uncensored|breasts?|18\+)(?![a-z])/i;
+
+/**
+ * Whether a Civitai model is for adults: flagged so, or named or tagged so. Its nsfwLevel is not read: it gathers the
+ * ratings of every picture posted with the model, and most plain models (a detail tweaker) carry some.
+ */
+export function forAdults(m: Pick<CivModel, "name" | "nsfw" | "tags">): boolean {
+  return m.nsfw === true || MILD.test(m.name) || [m.name, ...(m.tags ?? [])].some((w) => EXPLICIT.test(w ?? ""));
+}
 
 /** A Civitai picture at 450 wide (a video's first frame as a still), from its full-size address. */
 export function thumbOf(img: CivImage | undefined): string | null {
@@ -265,7 +283,10 @@ export function registerBrowse(app: FastifyInstance, s: Services): void {
     if (q.all === "1") params.set("nsfw", "true");
     const got = await civitaiGet<{ items?: CivModel[]; metadata?: { nextCursor?: string | number } }>(`/api/v1/models?${params}`, settings.civitaiKey);
     const k = await known(s);
-    return { items: (got?.items ?? []).map((m) => civitaiCard(m, k)), next: got?.metadata?.nextCursor !== undefined ? String(got.metadata.nextCursor) : null };
+    // the switch off: what Civitai still sends that is for adults by its rating, name or tags is left out (a page may come
+    // shorter; its cursor still goes on)
+    const items = (got?.items ?? []).filter((m) => q.all === "1" || !forAdults(m));
+    return { items: items.map((m) => civitaiCard(m, k)), next: got?.metadata?.nextCursor !== undefined ? String(got.metadata.nextCursor) : null };
   });
 
   /**
