@@ -30,9 +30,12 @@ def test_stops_the_pod_once_silent_past_its_minutes_and_not_before():
     dog.alive(15)
     clock.t += 15 * 60
     assert dog.check() is True and stops == [("runpodctl", "pod1")]
-    # stopped once: not again
-    clock.t += 60 * 60
+    # stopped: not again at once
+    clock.t += 60
     assert dog.check() is False and len(stops) == 1
+    # still running well after a stop the provider took (this code would not run on a stopped pod): asked again
+    clock.t += W.AGAIN_S
+    assert dog.check() is True and len(stops) == 2
 
 
 def test_a_stop_that_fails_is_tried_again_later():

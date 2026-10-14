@@ -62,6 +62,8 @@ class Request:
         self.content_type = "application/json" if body is not None else "text/plain"
         self._body = body
         self._form = form or {}
+        # what aiohttp says of a body's length: a form's, as sent url-encoded
+        self.content_length = len("&".join(f"{k}={v}" for k, v in self._form.items())) if form is not None else None
 
     async def json(self):
         return self._body
@@ -139,6 +141,20 @@ def test_login_by_form_sets_a_cookie_made_from_the_token(lock, mw):
     assert call(mw, Request(cookies={"afflatus_lock_8188": value})).text == "handled"
     # another ComfyUI on the same host has a cookie of its own
     assert call(mw, Request(port=8189, cookies={"afflatus_lock_8188": value})).status == 401
+
+
+def test_a_large_login_form_is_refused_before_it_is_read(lock, mw):
+    lock.write(TOKEN, local=False)
+    big = call(mw, Request(L.LOGIN, "POST", form={"token": "x" * 5000}))
+    assert big.status == 413
+
+
+def test_a_fixed_token_that_is_not_one_locks_with_nothing_that_opens_it(tmp_path):
+    # the reference to a RunPod secret left as it is (the secret deleted): never taken as the key itself
+    ref = "{{ RUNPOD_SECRET_afflatus-1234abcd }}"
+    lock = L.Lock(str(tmp_path), env={"AFFLATUS_TOKEN": ref})
+    assert lock.state() is not None
+    assert lock.state()["hash"] != L.hash_of(ref)
 
 
 def test_a_new_token_ends_the_old_cookie(lock, mw):

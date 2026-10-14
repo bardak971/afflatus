@@ -18,6 +18,8 @@ FROM python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3
 
 # the ComfyUI release the image is built on: the one Afflatus is tested against
 ARG COMFYUI_VERSION=v0.37.0
+# the commit that tag names: a tag can be moved, a commit cannot
+ARG COMFYUI_COMMIT=73c9bad4d21e7addbe1d13bc92eee0f1431b017d
 # PyTorch's build and versions: torch, torchvision and torchaudio of one release, for one CUDA
 ARG TORCH_CUDA=cu130
 ARG TORCH_VERSION=2.10.0
@@ -33,7 +35,8 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends git ffmpeg libgl1 libglib2.0-0 ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --depth 1 --branch "${COMFYUI_VERSION}" https://github.com/comfyanonymous/ComfyUI /comfyui
+RUN git clone --depth 1 --branch "${COMFYUI_VERSION}" https://github.com/comfyanonymous/ComfyUI /comfyui \
+ && test "$(git -C /comfyui rev-parse HEAD)" = "${COMFYUI_COMMIT}"
 WORKDIR /comfyui
 
 # torch first, from the CUDA wheels, so that ComfyUI's requirements find it there; then ComfyUI's own and its Manager's
@@ -58,6 +61,10 @@ RUN set -e; mkdir -p /opt/packs; cd /opt/packs; \
     pin ComfyUI-KJNodes https://github.com/kijai/ComfyUI-KJNodes "${KJNODES_COMMIT}"; \
     pin Comfyui-MMH3-UltimateUpscale https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale "${MMH3_COMMIT}"; \
     pip install -c /constraints.txt -r ComfyUI-VideoHelperSuite/requirements.txt -r ComfyUI-KJNodes/requirements.txt psutil av nvidia-ml-py
+
+# every pip run after this one holds torch to the image's build: ComfyUI-Manager's installs of node packs too (a pack's
+# requirement that pulls another torch would swap the CUDA one for one that does not run here)
+ENV PIP_CONSTRAINT=/constraints.txt
 
 COPY comfy-nodes/afflatus-nodes /opt/afflatus-nodes
 COPY deploy/runpod/start.sh /start.sh

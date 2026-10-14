@@ -173,6 +173,23 @@ def test_an_upload_left_alone_is_given_up(tmp_path, monkeypatch):
     assert _start(call).status == 200
 
 
+def test_a_piece_whose_bytes_stop_coming_frees_its_upload(tmp_path, monkeypatch):
+    call, _held = _routes(tmp_path)
+    monkeypatch.setattr(uploads, "READ_S", 0.05)
+    uid = _start(call).body["id"]
+
+    class Stuck:
+        async def read(self, n):
+            await asyncio.sleep(5)
+            return b"x"
+
+    req = _Request(FILE[:1000], "application/octet-stream", {"id": uid}, {"offset": "0"})
+    req.content = Stuck()
+    assert call("PUT", "/afflatus/upload/{id}", req).status == 400
+    # the same piece sent again is taken: nothing holds the upload
+    assert _put(call, uid, 0, FILE[:1000]).status == 200
+
+
 def test_the_part_is_one_the_sweep_knows():
     from afflatus_nodes.downloads import PART
 
