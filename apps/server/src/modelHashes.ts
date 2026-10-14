@@ -40,6 +40,8 @@ export interface HashStatus {
   nowhere: number;
   /** No ComfyUI folder on this computer (Settings › ComfyUI): nothing can be hashed. */
   noFolder: boolean;
+  /** A pass looked at the folders since Afflatus started (before, the counts are what was kept). */
+  looked: boolean;
   /** Why the last pass stopped short, when it did. */
   error: string | null;
 }
@@ -79,6 +81,7 @@ export class ModelHashes {
   private error: string | null = null;
   private noFolder = false;
   private found = 0;
+  private looked = false;
   /** Whether a machine runs a job now (services.ts: the queue's). */
   runningOn: (machine: string) => boolean = () => false;
   /** This computer's machines (not rented ones), as the settings said at the pass's start: their renders hold the disk. */
@@ -94,7 +97,7 @@ export class ModelHashes {
       civitai: rows.filter((r) => Number(r.civitai_version) > 0).length,
       huggingFace: rows.filter((r) => !(Number(r.civitai_version) > 0) && r.hf_url).length,
       nowhere: rows.filter((r) => r.matched_at && !(Number(r.civitai_version) > 0) && !r.hf_url).length,
-      noFolder: this.noFolder, error: this.error,
+      noFolder: this.noFolder, error: this.error, looked: this.looked || rows.length > 0,
     };
   }
 
@@ -124,6 +127,7 @@ export class ModelHashes {
     }
     this.noFolder = !anyDir;
     this.found = all.length;
+    this.looked = true;
     const kept = await this.s.db.selectFrom("model_hashes").select(["folder", "file", "size", "mtime"]).execute();
     const keyOf = (folder: string, file: string) => `${folder}|${file}`;
     const have = new Map(kept.map((k) => [keyOf(k.folder, k.file), k]));

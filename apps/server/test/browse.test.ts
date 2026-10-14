@@ -92,7 +92,7 @@ describe("find models", () => {
   });
 
   it("lists Hugging Face's repositories, made for a family's base model, then a repository's model files with sizes and SHA-256", async () => {
-    const res = (await get(t.app, `/api/browse/huggingface?base=${encodeURIComponent("Wan-AI/Wan2.2-I2V-A14B")}&loras=1`)).json();
+    const res = (await get(t.app, `/api/browse/huggingface?base=${encodeURIComponent("Wan-AI/Wan2.2-I2V-A14B")}&kind=loras`)).json();
     expect(res.next).toBe("hf2");
     const asked1 = new URL(asked.find((u) => u.startsWith("/api/models?"))!, "http://x").searchParams;
     // one base model at a time: Hugging Face reads several as all of them at once

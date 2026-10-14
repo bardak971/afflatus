@@ -5,7 +5,8 @@ import { X } from "lucide-react";
 import { fileKey } from "@afflatus/core";
 import { api, type DeployAsk, type DeployFile, type DeployModels as View, type MeasuredRange, type PresetFile } from "./api";
 import { est, gb, plural, size, usd } from "./format";
-import { ModelSearch, ViaChip, type SearchPick } from "./modelFilesUi";
+import { openFindModels } from "./findModels/store";
+import { filesOfPick, ModelSearch, ViaChip } from "./modelFilesUi";
 import { queryKeys } from "./queryKeys";
 import { useSayFailed } from "./sayFailed";
 import { Select } from "./Select";
@@ -51,16 +52,11 @@ function timeOf(files: DeployFile[], speeds: View["speeds"]): { fast: number; sl
   return { fast, slow };
 }
 
-/** What a search pick adds: its files, each with where it comes from as the server says. */
-const filesOfPick = (p: SearchPick): DeployFile[] =>
-  p.kind === "file" ? [{ file: p.hit.file, folder: p.hit.folder, via: p.hit.via, size: p.hit.size ?? null }]
-    : p.hit.files.map((f) => ({ file: f.file, folder: f.folder, ...(f.url ? { url: f.url } : {}), ...("civitai" in f && f.civitai ? { civitai: f.civitai } : {}), via: f.via, size: ("size" in f && f.size) || null }));
-
 /**
  * Deploy a GPU's Models: the waiting jobs' files (ticked), a Model set's, and any file found by words; what that comes to,
  * and what it takes and costs before the first render, from what earlier deploys measured.
  */
-export function DeployModels({ want, set, rate, onPicked }: { want: DeployAsk; set(change: Partial<DeployAsk>): void; rate: number | null; onPicked(p: ModelsPicked): void }) {
+export function DeployModels({ want, set, rate, gpu, onPicked }: { want: DeployAsk; set(change: Partial<DeployAsk>): void; rate: number | null; /** The GPU picked, as the browser says what it adds to. */ gpu: string | null; onPicked(p: ModelsPicked): void }) {
   const view = useQuery({ queryKey: queryKeys.deployModels(want.cloud, want.set), queryFn: ({ signal }) => api.deployModels(want.cloud, want.set, { signal }), staleTime: 15_000, retry: false });
   const sets = useQuery({ queryKey: queryKeys.modelSets.all(), queryFn: ({ signal }) => api.modelSets({ signal }), staleTime: 30_000 });
   const [jobOff, setJobOff] = useState<Set<string>>(() => new Set());
@@ -149,7 +145,17 @@ export function DeployModels({ want, set, rate, onPicked }: { want: DeployAsk; s
                 <button type="button" aria-label={`Take ${f.file} off`} onClick={() => setAdded((a) => a.filter((x) => fileKey(x) !== fileKey(f)))} className="grid size-6 place-items-center rounded-md text-ink-3 hover:bg-hover hover:text-ink"><X size={12} /></button>
               </div>
             ))}
-            <ModelSearch onPick={(p) => add(filesOfPick(p))} />
+            <span className="flex items-center gap-2">
+              <span className="min-w-0 grow"><ModelSearch onPick={(p) => add(filesOfPick(p))} /></span>
+              <Button size="sm" onClick={() => openFindModels({
+                what: gpu ? `Deploy · ${gpu}` : "this deploy", action: "Add to this deploy", add,
+                // the time and price at the speeds measured on this cloud and the GPU's rate, as below
+                estimate: (files) => {
+                  const t = v ? timeOf(files, v.speeds) : null;
+                  return t && rate !== null ? `${est(t.fast)}–${est(t.slow).replace(/^~/, "")} · ${usd((t.fast / 3_600_000) * rate, true)}–${usd((t.slow / 3_600_000) * rate, true)}` : null;
+                },
+              })}>Find more…</Button>
+            </span>
           </div>
 
           {licences.map((l) => (

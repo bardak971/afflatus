@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
-import { api, type FileVia, type SetSearch } from "./api";
+import { api, type DeployFile, type FileVia, type SetSearch } from "./api";
 import { gb, plural, size } from "./format";
 import { useDebounced } from "./hooks";
 import { queryKeys } from "./queryKeys";
@@ -21,6 +21,11 @@ export type SearchPick =
   | { kind: "preset"; hit: SetSearch["presets"][number] }
   | { kind: "family"; hit: SetSearch["families"][number] }
   | { kind: "file"; hit: SetSearch["files"][number] };
+
+/** What a search pick adds: its files, each with where it comes from as the server says. */
+export const filesOfPick = (p: SearchPick): DeployFile[] =>
+  p.kind === "file" ? [{ file: p.hit.file, folder: p.hit.folder, via: p.hit.via, size: p.hit.size ?? null }]
+    : p.hit.files.map((f) => ({ file: f.file, folder: f.folder, ...(f.url ? { url: f.url } : {}), ...("civitai" in f && f.civitai ? { civitai: f.civitai } : {}), via: f.via, size: ("size" in f && f.size) || null }));
 
 /** "Add a preset, a family or any file": words typed, what matches listed, one picked. Deploy a GPU and a Model set's editor. */
 export function ModelSearch({ onPick, presetNote = "" }: { onPick(pick: SearchPick): void; /** Said after a preset's file count ("its files follow it"). */ presetNote?: string }) {

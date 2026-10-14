@@ -23,6 +23,7 @@ import { RentedTab } from "./settings/RentedCard";
 import { INDEX, MOVED, settingHref, spotOf, tabHref, TABS, type Tab } from "./settings/settingsIndex";
 import { queryKeys } from "../queryKeys";
 import { ModelSetsCard } from "./settings/ModelSetsCard";
+import { ModelsOnlineCard } from "./settings/ModelsOnlineCard";
 import { COLUMNS } from "./settings/wide";
 
 /** What each tab says at a glance, beside its name: ComfyUI answering, operations not ready, the disk used, the version. */
@@ -181,7 +182,10 @@ export function Setup() {
                 <LinkCard />
                 <UpdatesCard />
               </div>
-              <ModelSetsCard />
+              <div className="flex flex-col gap-4">
+                <ModelsOnlineCard />
+                <ModelSetsCard />
+              </div>
             </div>
           )}
           {tab === "designer" && <DesignerCard />}

@@ -47,6 +47,7 @@ export const INDEX: SettingSpot[] = [
   { tab: "models", label: "Models", key: "models.families", words: "models on or off in the lists families switch hide ready missing files nodes operations" },
   { tab: "models", label: "Files in use", key: "models.files", near: "models.families", words: "which file several fit checkpoint text encoder vae slot automatic pick choose" },
   { tab: "models", label: "Civitai API key", key: "models.civitaiKey", near: "server.civitaiLookups", words: "token" },
+  { tab: "models", label: "Your models online", key: "models.online", words: "hash sha256 civitai hugging face match find models browse" },
   { tab: "models", label: "Hugging Face token", key: "models.huggingFaceToken", near: "server.civitaiLookups", words: "hf token gated access key" },
   { tab: "models", label: "Search Hugging Face and Civitai", key: "server.civitaiLookups", words: "civitai lookups search trigger words model pages lora names missing" },
   { tab: "models", label: "Download missing models", key: "server.downloadModels", words: "download missing files into comfyui manager" },

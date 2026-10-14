@@ -207,7 +207,8 @@ function huggingFaceCard(r: HfRepo, k: Known, family: Map<string, string>): Brow
   const base = (r.tags ?? []).find((t) => t.startsWith("base_model:"))?.split(":").pop() ?? "";
   const files = (r.siblings ?? []).filter((x) => isModelFile(x.rfilename));
   return {
-    site: "huggingface", id: r.id, name, type: r.pipeline_tag ?? r.library_name ?? "", base, creator: owner,
+    // what it is, without the tag every ComfyUI repack carries; its base model by its own name ("MiniMax-H3")
+    site: "huggingface", id: r.id, name, type: r.pipeline_tag ?? (r.library_name === "diffusion-single-file" ? "" : r.library_name ?? ""), base: base.split("/").pop() ?? "", creator: owner,
     downloads: r.downloads ?? 0, likes: r.likes ?? 0, updatedAt: r.lastModified ?? null, thumb: null, page: `https://huggingface.co/${r.id}`,
     licence: { commercial: null, credit: false, derivatives: null }, fits: family.get(base) ?? null,
     have: files.some((f) => k.byName.has(fileName(f.rfilename).toLowerCase())), update: null, gated: Boolean(r.gated), versions: [], modelFiles: files.length,
@@ -267,12 +268,15 @@ export function registerBrowse(app: FastifyInstance, s: Services): void {
    * at a time, several meaning all of them at once), a page at a time.
    */
   app.get("/api/browse/huggingface", async (req) => {
-    const q = z.object({ q: z.string().max(200).default(""), base: z.string().max(120).refine((b) => Object.values(FAMILY_HF_BASES).flat().includes(b), "a base model the browser offers").optional(), loras: z.enum(["1", "0"]).default("0"), sort: z.enum(["downloads", "likes", "lastModified", "trendingScore"]).default("downloads"), cursor: z.string().max(400).optional() }).parse(req.query);
+    const q = z.object({ q: z.string().max(200).default(""), base: z.string().max(120).refine((b) => Object.values(FAMILY_HF_BASES).flat().includes(b), "a base model the browser offers").optional(), kind: z.enum(["comfyui", "loras", "all"]).default("comfyui"), sort: z.enum(["downloads", "likes", "lastModified", "trendingScore"]).default("downloads"), cursor: z.string().max(400).optional() }).parse(req.query);
     const settings = await lookupsOn();
     const params = new URLSearchParams({ sort: q.sort, direction: "-1", limit: String(PAGE), full: "true" });
     if (q.q.trim()) params.set("search", q.q.trim());
     if (q.base) params.append("filter", `base_model:adapter:${q.base}`);
-    if (q.loras === "1") params.append("filter", "lora");
+    // ComfyUI's kind of files (single-file models, as Comfy-Org's repacks are tagged), LoRAs, or anything (most of the
+    // Hub is text models): Hugging Face reads several filters as all of them at once, so one kind at a time
+    if (q.kind === "comfyui" && !q.base) params.append("filter", "diffusion-single-file");
+    if (q.kind === "loras") params.append("filter", "lora");
     if (q.cursor) params.set("cursor", q.cursor);
     const res = await fetchPublic(`${hfSite()}/api/models?${params}`, { headers: hfHeaders(settings.huggingFaceToken), signal: AbortSignal.timeout(20_000) }, [hfSite()]).catch(() => null);
     if (!res?.ok) throw httpError("Hugging Face did not answer.", 502);
