@@ -7,6 +7,7 @@ import { gb, plural, size } from "../../format";
 import { useDebounced } from "../../hooks";
 import { machineLabel } from "../../machines";
 import { queryKeys } from "../../queryKeys";
+import { Select } from "../../Select";
 import { useSayFailed } from "../../sayFailed";
 import { Button, ButtonLink, Chip, cx, fieldClass, Help, TwoStep } from "../../ui";
 import { Block, Card } from "./Rows";
@@ -115,10 +116,8 @@ function SetEditor({ set, onChanged, onGone }: { set: ModelSet; onChanged(): voi
       <span className="flex flex-wrap items-center gap-2 text-xs">
         <Button size="sm" onClick={() => get.mutate(false)} disabled={get.isPending}>Get the missing</Button>
         {machines.length > 1 && (
-          <span className="flex items-center gap-1 text-ink-3">on
-            <select aria-label="On which machine" value={machine} onChange={(e) => setMachine(e.target.value)} className={cx(fieldClass, "h-7 px-1.5 text-xs")}>
-              {machines.map((m, i) => <option key={m.id} value={i === 0 ? "" : m.id}>{machineLabel(m)}</option>)}
-            </select>
+          <span className="flex items-center gap-1.5 text-ink-3">on
+            <span className="w-[160px]"><Select size="sm" label="On which machine" value={machine || machines[0]!.id} onChange={(id) => setMachine(id === machines[0]!.id ? "" : id)} options={machines.map((m) => ({ value: m.id, label: machineLabel(m) }))} /></span>
           </span>
         )}
         {got && <span className="text-ink-2">{got}</span>}
