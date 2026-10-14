@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Asset, Clip, Take } from "../src/api";
 import { fileVersion, moveAfter, playSignature, roomOf } from "../src/timeline/model";
-import { blendOf, dissolveOf, fadeIn } from "../src/timeline/useHandover";
+import { blendOf, crossingOf, dissolveOf, fadeIn } from "../src/timeline/useHandover";
 
 /** A clip with only what these sums read. */
 const clip = (over: Partial<Clip> & { id: string }): Clip =>
@@ -51,5 +51,24 @@ describe("what the player follows", () => {
     expect(fileVersion(a)).not.toBe(fileVersion({ ...a, bytes: 11 }));
     // the server always says it (takeView.roomMs)
     expect(roomOf({ ...take(), roomMs: 4250 } as Take)).toBe(4250);
+  });
+});
+
+describe("a cut's transition in the player, the export's", () => {
+  const before = clip({ id: "a", take: take({ headMs: 0, startMs: 0 }) });
+  const dissolve = { kind: "dissolve" as const, ms: 500, sound: "fade" as const };
+  it("plays on a cut, mixing both pictures for a dissolve, through a colour for a dip", () => {
+    expect(crossingOf(clip({ id: "b", joined: "cut", transition: dissolve, take: take() }), before)).toEqual({ ms: 500, both: true, fadeSound: true });
+    expect(crossingOf(clip({ id: "b", joined: "cut", transition: { kind: "dip-black", ms: 600, sound: "on" }, take: take() }), before)).toEqual({ ms: 600, both: false, fadeSound: false });
+  });
+  it("not on a join that extends, nor first, and within both clips", () => {
+    expect(crossingOf(clip({ id: "b", joined: "continue", transition: dissolve, take: take() }), before)).toBeNull();
+    expect(crossingOf(clip({ id: "b", joined: "cut", transition: dissolve, take: take() }), undefined)).toBeNull();
+    expect(crossingOf(clip({ id: "b", joined: "cut", transition: dissolve, take: take() }), clip({ id: "a", lengthMs: 200, take: take() }))?.ms).toBe(320);
+  });
+  it("is part of what the player follows: a new transition is played at once", () => {
+    const plain = [before, clip({ id: "b", joined: "cut", take: take() })];
+    const faded = [before, clip({ id: "b", joined: "cut", transition: dissolve, take: take() })];
+    expect(playSignature(faded)).not.toBe(playSignature(plain));
   });
 });

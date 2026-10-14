@@ -322,7 +322,20 @@ export interface ExportPart {
    * latent carries the sound of the clip before: a fade would only dip it).
    */
   blendMode?: "hold" | "overlap" | "freeze";
+  /**
+   * A cut's transition into this part, centred on the cut (core transitions.ts): the part before is held on its last frame
+   * for half of it, this one on its first frame for the other half, and xfade runs over both halves, so nothing moves on
+   * the clock. Its sound runs straight on, or fades out and in over the halves.
+   */
+  transitionIn?: { kind: string; xfade: string; ms: number; fadeSound: boolean };
 }
+
+/**
+ * Flash, as xfade's custom expression: the cut at the middle, a white added over it that peaks there (P runs from 1 to 0).
+ * Luma rises, the colour planes go towards grey with it (as a picture blown out to white loses its colour), the same as the
+ * player's white veil added on top (plus-lighter).
+ */
+export const FLASH_EXPR = "st(0,1-abs(2*P-1));st(1,if(gt(P,0.5),A,B));if(eq(PLANE,0),min(235,ld(1)+220*ld(0)),ld(1)+(128-ld(1))*0.8*ld(0))";
 
 /** How long a continuation fades in over the clip before, which holds its last frame meanwhile: four frames at 24 a second. */
 export const BLEND_MS = JOIN_FADE_MS;
@@ -611,10 +624,16 @@ async function partChains(parts: ExportPart[], inputs: Inputs, size: { W: number
     // the part after fades in over this one's end with a hold: this one holds its last frame (and silence) for as long
     const next = parts[i + 1];
     const padMs = next?.blendMs && next.kind === "video" && next.blendMode !== "overlap" ? Math.min(next.blendMs, (next.endMs - next.startMs) - FRAME_SLACK_MS) : 0;
-    const pad = padMs > 0 ? `,tpad=stop_mode=clone:stop_duration=${sec(padMs)}` : "";
+    // a transition on either side: this part held on its last frame for half of the one after, on its first for half of its own
+    const out = next?.transitionIn ? next.transitionIn.ms / 2 : 0;
+    const into = i > 0 && p.transitionIn ? p.transitionIn.ms / 2 : 0;
+    const pad = (padMs > 0 ? `,tpad=stop_mode=clone:stop_duration=${sec(padMs)}` : "")
+      + (out > 0 || into > 0 ? `,tpad=${[into > 0 ? `start_mode=clone:start_duration=${sec(into)}` : "", out > 0 ? `stop_mode=clone:stop_duration=${sec(out)}` : ""].filter(Boolean).join(":")}` : "");
     const padded = sec(p.endMs - p.startMs + padMs);
-    // the sound is not held with the picture when the part after carries it on (see "freeze")
-    const heard = next?.blendMode === "freeze" ? sec(p.endMs - p.startMs) : padded;
+    // the sound is not held with the picture when the part after carries it on (see "freeze"), nor over a transition (it
+    // runs straight on, its clock the clips'); it fades out and in over the halves when the transition asks
+    const heard = next?.blendMode === "freeze" || out > 0 ? sec(p.endMs - p.startMs) : padded;
+    const fades = [into > 0 && p.transitionIn!.fadeSound ? `afade=t=in:d=${sec(into)}` : "", out > 0 && next!.transitionIn!.fadeSound ? `afade=t=out:st=${sec(p.endMs - p.startMs - out)}:d=${sec(out)}` : ""].filter(Boolean).map((f) => `,${f}`).join("");
     chains.push(
       p.kind === "still"
         ? `[${main}:v]fps=${fps},${fit},setsar=1,format=yuv420p,trim=duration=${length},setpts=PTS-STARTPTS${pad}[v${i}]`
@@ -624,10 +643,10 @@ async function partChains(parts: ExportPart[], inputs: Inputs, size: { W: number
     );
     const loud = `volume=${Math.max(0, p.volume).toFixed(2)}`;
     if (p.sound === "own" && p.kind === "video" && p.hasSound) {
-      chains.push(`[${main}:a]atrim=start=${sec(p.startMs)}:end=${sec(p.endMs)},asetpts=PTS-STARTPTS,${STEREO},${loud},apad,atrim=duration=${heard}[a${i}]`);
+      chains.push(`[${main}:a]atrim=start=${sec(p.startMs)}:end=${sec(p.endMs)},asetpts=PTS-STARTPTS,${STEREO},${loud},apad,atrim=duration=${heard}${fades}[a${i}]`);
     } else if (p.sound === "file" && p.soundFile) {
       const sound = (await inputs.add(`sound${i}.${p.soundFile.ext}`, p.soundFile.source)).index;
-      chains.push(`[${sound}:a]${STEREO},${loud},apad,atrim=duration=${heard},asetpts=PTS-STARTPTS[a${i}]`);
+      chains.push(`[${sound}:a]${STEREO},${loud},apad,atrim=duration=${heard},asetpts=PTS-STARTPTS${fades}[a${i}]`);
     } else {
       chains.push(`anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=${heard}[a${i}]`);
     }
@@ -652,7 +671,7 @@ function fadeRuns(parts: ExportPart[], fps: number, chains: string[]): { outs: s
   const lenOf = (p: ExportPart) => p.endMs - p.startMs;
   const runs: number[][] = [];
   parts.forEach((p, i) => {
-    if (i > 0 && p.blendMs && p.blendMs > 0) runs.at(-1)!.push(i);
+    if (i > 0 && ((p.blendMs && p.blendMs > 0) || p.transitionIn)) runs.at(-1)!.push(i);
     else runs.push([i]);
   });
   const outs: string[] = [];
@@ -662,6 +681,18 @@ function fadeRuns(parts: ExportPart[], fps: number, chains: string[]): { outs: s
     let a = `a${run[0]}`;
     let len = lenOf(parts[run[0]!]!);
     for (const j of run.slice(1)) {
+      const t = parts[j]!.transitionIn;
+      if (t) {
+        // centred on the cut: the run so far was held half of it past its end, this part half of it before its start
+        // (partChains), so the two meet over the whole transition and the clock runs on as without it
+        const kind = t.xfade === "custom" ? `custom:expr='${FLASH_EXPR}'` : t.xfade;
+        chains.push(`[${v}][v${j}]xfade=transition=${kind}:duration=${sec(t.ms)}:offset=${sec(len - t.ms / 2)}[vx${j}]`);
+        chains.push(`[${a}][a${j}]concat=n=2:v=0:a=1[ax${j}]`);
+        len += lenOf(parts[j]!);
+        v = `vx${j}`;
+        a = `ax${j}`;
+        continue;
+      }
       const x = Math.min(parts[j]!.blendMs!, lenOf(parts[j]!) - FRAME_SLACK_MS);
       if (parts[j]!.blendMode === "overlap") {
         // the part starts x early, over the part before's last x: the fade is between the same moments, both moving

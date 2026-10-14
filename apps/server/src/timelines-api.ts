@@ -1,7 +1,7 @@
 import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { RANDOM_SEED, hiddenRunUp, movedSeed, resamplesLatent, typedSeed } from "@afflatus/core";
+import { RANDOM_SEED, TRANSITION_KINDS, TRANSITION_MS, hiddenRunUp, movedSeed, resamplesLatent, typedSeed } from "@afflatus/core";
 import { fromRender, markPng } from "./aiMark";
 import { nameOf } from "./autoName";
 import { VERSION } from "./config";
@@ -68,6 +68,8 @@ export const clipPatch = z.strictObject({
   recipe: z.string().optional(),
   inputs: z.record(z.string(), z.unknown()).optional(),
   joined: z.enum(["continue", "cut"]).optional(),
+  /** The cut's transition into it; null = a plain cut. Given to a clip that extends, it makes the join a cut. */
+  transition: z.strictObject({ kind: z.enum(TRANSITION_KINDS), ms: z.number().min(TRANSITION_MS.least).max(TRANSITION_MS.most), sound: z.enum(["on", "fade"]) }).nullable().optional(),
   take: z.string().optional(),
   trimStartMs: z.number().min(0).optional(),
   trimEndMs: z.number().min(0).optional(),

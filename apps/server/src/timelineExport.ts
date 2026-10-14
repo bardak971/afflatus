@@ -2,14 +2,14 @@ import { fromRender } from "./aiMark";
 import { BLEND_MS, CutError, DISSOLVE_MS, type ExportMusic, type ExportPart, joinVideosInto } from "./cut";
 import { newId, now } from "./db";
 import type { LibraryChange } from "./events";
-import { FRAME_SLACK_MS, MIN_FADE_MS, musicPlan } from "@afflatus/core";
+import { FRAME_SLACK_MS, MIN_FADE_MS, musicPlan, TRANSITIONS, transitionSpan } from "@afflatus/core";
 import { duckCurve } from "./duck";
 import { assetView, extOf, newAssetRow } from "./media";
 import { sourceOf } from "./storage";
 import { folderOfTimeline } from "./timelineFolder";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideoFile } from "./video";
-import { clockOf, joinFade, laidOut, sameMaking, seamless, visible, type AssetRow, type Laid, type Placed, type TimelineCore, type TimelineRow, musicBaseOf, musicClipsOf } from "./timelineModel";
+import { clockOf, joinFade, laidOut, sameMaking, seamless, visible, type AssetRow, type Laid, type Placed, type TimelineCore, type TimelineRow, musicBaseOf, musicClipsOf, transitionOfRow } from "./timelineModel";
 
 /** A timeline as one video: its clips that play joined in order, with their sounds, its music and the joins softened. */
 
@@ -78,7 +78,10 @@ export class TimelineExport {
     const p = l.p;
     const { from, to } = win;
     const soundFile = p.clip.sound === "file" && p.sound ? { source: await sourceOf(storage, p.sound.file_key), ext: extOf(p.sound.mime) } : undefined;
-    const heard = { sound: p.clip.sound, soundFile, volume: p.clip.volume / 100, fill: Boolean(p.clip.fill) };
+    // a cut's transition, centred on the cut (core transitions.ts): only where this part opens on its clip's start, after a part
+    const t = transitionOfRow(p.clip);
+    const span = before && from === 0 ? transitionSpan(t, p.clip.joined, before.endMs - before.startMs, to - from) : 0;
+    const heard = { sound: p.clip.sound, soundFile, volume: p.clip.volume / 100, fill: Boolean(p.clip.fill), ...(t && span ? { transitionIn: { kind: t.kind, xfade: TRANSITIONS[t.kind].xfade, ms: span, fadeSound: t.sound === "fade" } } : {}) };
     if (p.clip.kind === "still") return { kind: "still", source: await sourceOf(storage, p.still!.file_key), ext: extOf(p.still!.mime), startMs: from, endMs: to, hasSound: false, ...heard };
     const x = p.active!;
     /** The video of the part before (none after a still). */

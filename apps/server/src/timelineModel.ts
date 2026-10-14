@@ -1,5 +1,5 @@
 import type { EventEmitter } from "node:events";
-import { chunkAtOrAfter, clipMusicOf, follows, joinFade as fadeOf, landsOn, MODEL_FPS, secondsOf, type ClipMusic, type JoinTake, type Recipe } from "@afflatus/core";
+import { chunkAtOrAfter, clipMusicOf, follows, joinFade as fadeOf, landsOn, MODEL_FPS, secondsOf, transitionOf, type ClipMusic, type JoinTake, type Recipe, type Transition } from "@afflatus/core";
 import type { Db, Tables } from "./db";
 import type { Registry } from "./registry";
 import type { Storage } from "./storage";
@@ -324,6 +324,22 @@ export function musicOfRow(c: Pick<ClipRow, "music">): ClipMusic | null {
   if (!c.music) return null;
   try {
     return clipMusicOf(JSON.parse(c.music));
+  } catch {
+    return null;
+  }
+}
+
+/** A cut's transition as stored, checked (its length held within bounds); null for a plain cut. */
+export const transitionJson = (t: Transition | null) => {
+  const kept = transitionOf(t);
+  return kept ? JSON.stringify(kept) : null;
+};
+
+/** A clip's transition as its row keeps it. */
+export function transitionOfRow(c: Pick<ClipRow, "transition">): Transition | null {
+  if (!c.transition) return null;
+  try {
+    return transitionOf(JSON.parse(c.transition));
   } catch {
     return null;
   }

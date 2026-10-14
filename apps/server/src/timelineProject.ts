@@ -1,7 +1,7 @@
-import { plural, slug } from "@afflatus/core";
+import { plural, slug, TRANSITIONS, transitionSpan } from "@afflatus/core";
 import { extOf } from "./media";
 import { partWindow } from "./timelineExport";
-import { joinFade, visible, type Laid } from "./timelineModel";
+import { joinFade, transitionOfRow, visible, type Laid } from "./timelineModel";
 
 /**
  * A timeline for a video editor (DaVinci Resolve, Premiere Pro, Kdenlive): every clip's own file, where it plays on the
@@ -34,6 +34,8 @@ export interface ProjectItem {
   soundFile?: { file: string; key: string; fileMs: number | null };
   /** The video export dissolves into it over the clip before for this long; the editor gets a marker there. */
   dissolveMs?: number;
+  /** The cut into it has a transition (a dissolve, a dip, a flash…), centred on the cut: the editor gets a marker there. */
+  transition?: { label: string; ms: number };
   /** Its number on the timeline ("clip 3"). */
   clip: number;
 }
@@ -70,9 +72,13 @@ export function projectPlan(name: string, layout: { shown: Laid[]; win: { a: num
       ...(p.clip.sound === "file" && p.sound ? { soundFile: { file: fileFor(p.sound, `clip-${clip}-sound`), key: p.sound.file_key, fileMs: p.sound.duration_ms } } : {}),
     };
     const atMs = l.atMs + from - at0;
+    // a cut's transition, as the video export plays it (core transitions.ts): said by a marker, the editor's own to add
+    const t = transitionOfRow(p.clip);
+    const span = before && from === 0 ? transitionSpan(t, p.clip.joined, before.lengthMs, to - from) : 0;
+    const marked = t && span ? { transition: { label: TRANSITIONS[t.kind].label, ms: span } } : {};
     if (p.clip.kind === "still") {
       if (!p.still) continue;
-      items.push({ kind: "still", file: fileFor(p.still, `clip-${clip}-still`), key: p.still.file_key, atMs, lengthMs: to - from, inMs: 0, fileMs: null, width: p.still.width, height: p.still.height, hasSound: false, clip, ...sound });
+      items.push({ kind: "still", file: fileFor(p.still, `clip-${clip}-still`), key: p.still.file_key, atMs, lengthMs: to - from, inMs: 0, fileMs: null, width: p.still.width, height: p.still.height, hasSound: false, clip, ...sound, ...marked });
       continue;
     }
     const x = p.active!;
@@ -82,6 +88,7 @@ export function projectPlan(name: string, layout: { shown: Laid[]; win: { a: num
       kind: "video", file: fileFor(x.asset, `clip-${clip}-take`), key: x.asset.file_key, atMs, lengthMs: to - from,
       inMs: visible(x).start + from, fileMs: x.asset.duration_ms, width: x.asset.width, height: x.asset.height, hasSound: Boolean(x.asset.has_sound), clip, ...sound,
       ...(fade ? { dissolveMs: fade.ms } : {}),
+      ...marked,
     });
   }
   return { name, width: layout.frame.width, height: layout.frame.height, fps: layout.fps, totalMs: layout.totalMs, items, music: layout.music };
@@ -146,7 +153,10 @@ export function fcp7Xml(plan: ProjectPlan): string {
   const files = plan.items.filter((i) => i.sound === "file" && i.soundFile && i.volume > 0)
     .map((i, k, all) => item(`clip ${i.clip} sound file`, { atMs: i.atMs, lengthMs: Math.min(i.lengthMs, i.soundFile!.fileMs ?? i.lengthMs), inMs: 0, fileMs: i.soundFile!.fileMs }, k === all.length - 1, file(i.soundFile!.file, i.soundFile!.fileMs, false, true), level(i.volume)));
   const music = plan.music ? [item("music", { atMs: 0, lengthMs: plan.totalMs, inMs: 0, fileMs: plan.totalMs }, true, file("media/music.wav", plan.totalMs, false, true))] : [];
-  const markers = plan.items.filter((i) => i.dissolveMs).map((i) => `<marker><name>${esc(`dissolve ${(i.dissolveMs! / 1000).toFixed(2)} s`)}</name><comment>${esc(`Afflatus's video export dissolves clip ${i.clip} in over the clip before here.`)}</comment><in>${fr(i.atMs)}</in><out>-1</out></marker>`);
+  const markers = [
+    ...plan.items.filter((i) => i.dissolveMs).map((i) => `<marker><name>${esc(`dissolve ${(i.dissolveMs! / 1000).toFixed(2)} s`)}</name><comment>${esc(`Afflatus's video export dissolves clip ${i.clip} in over the clip before here.`)}</comment><in>${fr(i.atMs)}</in><out>-1</out></marker>`),
+    ...plan.items.filter((i) => i.transition).map((i) => `<marker><name>${esc(transitionWords(i))}</name><comment>${esc(`Afflatus's video export has this transition into clip ${i.clip}, centred on the cut.`)}</comment><in>${fr(i.atMs)}</in><out>-1</out></marker>`),
+  ];
   const track = (items: string[]) => `<track>${items.join("")}</track>`;
   // the sequence ends where its last clip does (a frame sooner when that clip was cut to its file's end)
   const ends = plan.items.at(-1) ? framesOf(plan.fps, plan.items.at(-1)!, true).end : fr(plan.totalMs);
@@ -194,9 +204,14 @@ export function otioJson(plan: ProjectPlan): string {
     }
     return { OTIO_SCHEMA: "Track.1", name, kind, metadata: {}, effects: [], markers: [], source_range: null, children };
   };
-  const markers = plan.items.filter((i) => i.dissolveMs).map((i) => ({
-    OTIO_SCHEMA: "Marker.2", name: `dissolve ${(i.dissolveMs! / 1000).toFixed(2)} s`, color: "ORANGE", metadata: { afflatus: { clip: i.clip } }, marked_range: range(framesOf(plan.fps, i).start, 0), comment: `Afflatus's video export dissolves clip ${i.clip} in over the clip before here.`,
-  }));
+  const markers = [
+    ...plan.items.filter((i) => i.dissolveMs).map((i) => ({
+      OTIO_SCHEMA: "Marker.2", name: `dissolve ${(i.dissolveMs! / 1000).toFixed(2)} s`, color: "ORANGE", metadata: { afflatus: { clip: i.clip } }, marked_range: range(framesOf(plan.fps, i).start, 0), comment: `Afflatus's video export dissolves clip ${i.clip} in over the clip before here.`,
+    })),
+    ...plan.items.filter((i) => i.transition).map((i) => ({
+      OTIO_SCHEMA: "Marker.2", name: transitionWords(i), color: "PURPLE", metadata: { afflatus: { clip: i.clip } }, marked_range: range(framesOf(plan.fps, i).start, 0), comment: `Afflatus's video export has this transition into clip ${i.clip}, centred on the cut.`,
+    })),
+  ];
   const soundFileAt = (i: ProjectItem): At => ({ atMs: i.atMs, lengthMs: Math.min(i.lengthMs, i.soundFile!.fileMs ?? i.lengthMs), inMs: 0, fileMs: i.soundFile!.fileMs });
   const musicAt: At = { atMs: 0, lengthMs: plan.totalMs, inMs: 0, fileMs: plan.totalMs };
   const tracks = [
@@ -212,10 +227,14 @@ export function otioJson(plan: ProjectPlan): string {
   return `${JSON.stringify(timeline, null, 2)}\n`;
 }
 
+/** A transition's marker: its name and length ("Flash 0.25 s"). */
+const transitionWords = (i: ProjectItem) => `${i.transition!.label} ${(i.transition!.ms / 1000).toFixed(2)} s`;
+
 /** What is in the zip and how to open it, as the zip's README. */
 export function projectReadme(plan: ProjectPlan, version: string): string {
   const s = (ms: number) => `${Math.floor(ms / 60000)}:${((ms % 60000) / 1000).toFixed(1).padStart(4, "0")}`;
   const dissolves = plan.items.filter((i) => i.dissolveMs);
+  const cuts = plan.items.filter((i) => i.transition);
   return [
     `${plan.name}: a timeline from Afflatus ${version}, for a video editor.`,
     `${plan.width} x ${plan.height}, ${plan.fps} fps, ${s(plan.totalMs)}, ${plural(plan.items.length, "clip")}.`,
@@ -232,6 +251,7 @@ export function projectReadme(plan: ProjectPlan, version: string): string {
     "Not in it: colour matching between clips, frame interpolation and upscaling (options of Afflatus's video export), and the",
     "short dissolves the video export makes at some joins; each of those has a marker, to add one where you want it.",
     ...(dissolves.length ? ["", "Dissolves in Afflatus's export:", ...dissolves.map((i) => `- ${s(i.atMs)}, clip ${i.clip}: ${(i.dissolveMs! / 1000).toFixed(2)} s`)] : []),
+    ...(cuts.length ? ["", "Transitions in Afflatus's export (centred on the cut, each a marker):", ...cuts.map((i) => `- ${s(i.atMs)}, clip ${i.clip}: ${transitionWords(i)}`)] : []),
     "",
   ].join("\n");
 }

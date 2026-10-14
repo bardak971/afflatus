@@ -1,5 +1,5 @@
 import { useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
-import { FRAME_SLACK_MS, joinFade, MIN_FADE_MS } from "@afflatus/core";
+import { FRAME_SLACK_MS, joinFade, MIN_FADE_MS, TRANSITIONS, transitionSpan } from "@afflatus/core";
 import type { Clip } from "../api";
 
 /** How long before a clip ends the clip after starts running hidden, so that it takes over with frames ready and in step. */
@@ -24,6 +24,16 @@ export const blendOf = (c: Clip | undefined, from: Clip | undefined) => (fadeIn(
 /** Dissolved in over the clip before held on its last frame: a continuation (DISSOLVE_MS: longer doubled a moving subject). */
 export const dissolveOf = (c: Clip | undefined, from: Clip | undefined) => (fadeIn(c, from)?.mode === "hold" ? fadeIn(c, from)!.ms : 0);
 
+/**
+ * The cut's transition into `c` from `from`, as the export plays it (core transitionSpan): its length, and whether the two
+ * pictures are mixed over it ("both": the clip after waits on its first frame, the clip before stays on its last one).
+ */
+export function crossingOf(c: Clip | undefined, from: Clip | undefined): { ms: number; both: boolean; fadeSound: boolean } | null {
+  if (!c?.transition || !from) return null;
+  const ms = transitionSpan(c.transition, c.joined, from.lengthMs, c.lengthMs);
+  return ms ? { ms, both: TRANSITIONS[c.transition.kind].through === "both", fadeSound: c.transition.sound === "fade" } : null;
+}
+
 /** What the player keeps of the hand-over between two clips, by the refs and setters it shares with it. */
 export interface Handover {
   seq: Clip[];
@@ -40,6 +50,10 @@ export interface Handover {
   handReady: MutableRefObject<boolean>;
   armed: MutableRefObject<boolean>;
   thaw: MutableRefObject<number>;
+  /** The transition into the clip after has begun (started once, see crossingOf). */
+  crossOn: MutableRefObject<boolean>;
+  /** Plays a cut's transition from `from` to `to`, `intoMs` into it (Player: its keyframes on both and on the veil). */
+  cross(from: Clip, to: Clip, ms: number, intoMs: number): void;
   setFrozen: Dispatch<SetStateAction<Clip | null>>;
   setFading: Dispatch<SetStateAction<number>>;
   place(index: number, local: number, onward?: boolean): void;
@@ -57,7 +71,7 @@ export interface Handover {
  * a tab that is not in front while the video goes on playing.
  */
 export function useHandover(h: Handover) {
-  const { seq, at, playing, els, pos, said, masterRef, fadeOn, fadedIn, handReady, armed, thaw, setFrozen, setFading, place, onPlaying, onTime, tuneMusic, keyOf, startOf } = h;
+  const { seq, at, playing, els, pos, said, masterRef, fadeOn, fadedIn, handReady, armed, thaw, crossOn, cross, setFrozen, setFading, place, onPlaying, onTime, tuneMusic, keyOf, startOf } = h;
   /**
    * How late a video runs after it is told to play from a moment: it is started that much ahead. Learned at every join
    * (60 to 85 ms measured). Kept in step by its speed instead, it was in step at the take-over but its frames then came
@@ -92,6 +106,8 @@ export function useHandover(h: Handover) {
           // a continuation dissolves in: this clip stops on its last frame and stays under it meanwhile
           const following = seq[at + 1]!;
           const dissolve = dissolveOf(following, c);
+          // a transition that mixes both pictures: this clip stays on its last frame for its second half (the export's hold)
+          if (crossingOf(following, c)?.both && el) el.pause();
           if (dissolve && el) {
             el.pause();
             window.clearTimeout(thaw.current);
@@ -120,6 +136,22 @@ export function useHandover(h: Handover) {
       const after = seq[at + 1];
       const blend = blendOf(after, c);
       const remaining = c.lengthMs - local;
+      // a cut's transition into the clip after: started when its first half begins; one that mixes both pictures holds the
+      // clip after on its first frame until the cut (the export's hold), so it is not run ahead into its own frames
+      const crossing = crossingOf(after, c);
+      const holdFirst = Boolean(crossing?.both);
+      if (crossing && after && !crossOn.current && remaining <= crossing.ms / 2 && remaining > 0) {
+        crossOn.current = true;
+        cross(c, after, crossing.ms, crossing.ms / 2 - remaining);
+      }
+      // the sound faded out and in over the halves, when the transition asks (its own sound, as the export fades it)
+      if (el && !el.muted) {
+        const into = crossingOf(c, seq[at - 1]);
+        const base = Math.max(0, Math.min(1, (c.volume / 100) * masterRef.current));
+        const gain = Math.min(crossing?.fadeSound ? Math.max(0, remaining) / (crossing.ms / 2) : 1, into?.fadeSound ? Math.max(0, local) / (into.ms / 2) : 1, 1);
+        const want = base * gain;
+        if (Math.abs(el.volume - want) > 0.005) el.volume = want;
+      }
       const nextEl = after?.take ? els.current.get(after.take.id) : undefined;
       const expected = after ? startOf(after) - remaining : 0;
       const lag = startLag.current;
@@ -153,9 +185,10 @@ export function useHandover(h: Handover) {
         // refresh late at every join; at 0.4 % it is drawn and costs nothing to show (only this one: every hidden video drawn
         // made the frames come unevenly elsewhere). A fade or a dissolve brings it in itself
         if (!blend && !dissolveOf(after, c)) nextEl.style.opacity = "0.004";
-        // started ahead by the delay it will lose; a clip that starts at its very first frame waits there, paused on it
-        nextEl.currentTime = Math.max(0, expected + lag) / 1000;
-        if (expected + lag >= 0) {
+        // started ahead by the delay it will lose; a clip that starts at its very first frame waits there, paused on it (and
+        // one a transition holds, on its first frame shown)
+        nextEl.currentTime = (holdFirst && after ? startOf(after) : Math.max(0, expected + lag)) / 1000;
+        if (expected + lag >= 0 && !holdFirst) {
           void nextEl.play().catch(() => {});
           started.current = { at: t, checked: false };
           if (after) arm(nextEl, startOf(after));
@@ -163,11 +196,11 @@ export function useHandover(h: Handover) {
       }
       if (nextEl && fadeOn.current) {
         // one that waited on its first frame starts when it is due, as early as it will be late
-        if (nextEl.paused && expected + lag >= 0 && remaining > 30) {
+        if (nextEl.paused && (holdFirst ? remaining <= lag : expected + lag >= 0 && remaining > 30)) {
           void nextEl.play().catch(() => {});
           started.current = { at: t, checked: false };
           if (after) arm(nextEl, startOf(after));
-        } else if (!nextEl.paused && !started.current.checked && t - started.current.at > 200 && expected >= 0) {
+        } else if (!holdFirst && !nextEl.paused && !started.current.checked && t - started.current.at > 200 && expected >= 0) {
           // once, out of sight, when it has settled: how far off it runs teaches the next join, and a stray start is set right
           // with one seek here (never near the take-over, never by its speed)
           started.current.checked = true;
@@ -205,6 +238,6 @@ export function useHandover(h: Handover) {
       step.current = () => false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the frame loop starts again only on what changes what plays; the rest is read through refs
-  }, [playing, at, seq, place, onPlaying, onTime, tuneMusic]);
+  }, [playing, at, seq, place, onPlaying, onTime, tuneMusic, cross]);
   return step;
 }

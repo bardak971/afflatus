@@ -6,7 +6,9 @@ import { LivePreview } from "../../LivePreview";
 import { Bar, cx } from "../../ui";
 import { useQueueOf } from "../../screens/studio/queueOf";
 import { useRunningOf } from "../useRunning";
-import { DRAG_CLIP, fileVersion, PAD, pinInputs, pinMirrors, playAt, titleOf, type PinWhere, type Slot, type TimeRange } from "../model";
+import { modelsDiffer, TRANSITION_MS, TRANSITIONS, transitionSpan, type Transition } from "@afflatus/core";
+import { canExtend, DRAG_CLIP, fileVersion, PAD, pinInputs, pinMirrors, playAt, titleOf, type PinWhere, type Slot, type TimeRange } from "../model";
+import { SWATCH } from "../transitionLook";
 import { flipped, MirrorMark } from "../MirrorMark";
 import { HINTS, type PinPlace } from "./peek";
 import { ROW, SOUND } from "./rows";
@@ -31,6 +33,8 @@ export interface TrackClipActs {
   restPin(clip: string, where: PinPlace | null, el?: HTMLImageElement): void;
   /** Something is dragged over the clip. */
   overClip(e: DragEvent, s: Slot): void;
+  /** Something is dragged over the join before it (its dot, its transition). */
+  overJoin(e: DragEvent, s: Slot): void;
   /** Its edges: drag to shorten it (or to give back what was cut). */
   startPull(e: ReactPointerEvent, s: Slot, side: "start" | "end"): void;
   movePull(e: ReactPointerEvent): void;
@@ -45,6 +49,10 @@ export interface TrackClipActs {
   onPinMenu?(clip: Clip, where: PinWhere, e: React.MouseEvent): void;
   onStop(job: string): void;
   onJoin?(clip: Clip, joined: "continue" | "cut"): void;
+  /** The join before a clip, opened in the column (a click on its dot or its transition). */
+  onOpenJoin?(clip: Clip): void;
+  /** A cut's transition set (its length dragged by an edge). */
+  onTransition?(clip: string, transition: Transition | null): void;
   /** Render a clip that has nothing to play yet. */
   render(clip: Clip): void;
 }
@@ -57,10 +65,11 @@ export interface TrackClipActs {
 /** How long a clip's film strip waits for its motion before it is asked for all the same. */
 const STRIP_WAIT_MS = 8000;
 
-export const TrackClip = memo(function TrackClip({ s, prev, recipe, misfit, on, picked, rendering, stretch, over, pinOn, ownSound, fileSound, renderMs, acts }: {
+export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, misfit, on, picked, rendering, stretch, over, pinOn, ownSound, fileSound, renderMs, acts }: {
   s: Slot;
-  /** The clip before it on the track. */
+  /** The clip before it on the track, and its model. */
   prev: Clip | undefined;
+  prevRecipe: RecipeInfo | undefined;
   recipe: RecipeInfo | undefined;
   /** Of another aspect ratio than the timeline. */
   misfit: boolean;
@@ -91,6 +100,8 @@ export const TrackClip = memo(function TrackClip({ s, prev, recipe, misfit, on, 
   // clip's strip at once, and forty pictures took the browser's six connections, so the measures the tracks snap to and
   // the editor's other reads waited behind them
   const [waited, setWaited] = useState(false);
+  /** A transition's length while one of its edges is dragged. */
+  const [pulling, setPulling] = useState<number | null>(null);
   useEffect(() => {
     if (ownSound || waited) return;
     const t = setTimeout(() => setWaited(true), STRIP_WAIT_MS);
@@ -268,26 +279,76 @@ export const TrackClip = memo(function TrackClip({ s, prev, recipe, misfit, on, 
         </>
       )}
 
-      {/* how it starts: flowing on from the clip before, or a cut; a click switches, when the model can extend */}
-      {s.index > 0 && c.kind === "video" && (() => {
-        const r = recipe;
-        const canCarry = Boolean(r?.traits?.continues) || (prev?.kind === "still" && Boolean(pinInputs(r).start));
-        const toggles = c.join !== "stale" && canCarry && Boolean(acts.current.onJoin);
+      {/* how it starts: flowing on from the clip before, or a cut, with its transition; a click opens the join in the column
+          (without that panel, it switches extend and cut, when the model can extend) */}
+      {s.index > 0 && prev && (() => {
+        const canCarry = canExtend(c, prev, recipe);
+        const carries = c.joined === "continue" && canCarry;
+        const opens = Boolean(acts.current.onOpenJoin);
+        const toggles = !opens && c.join !== "stale" && canCarry && Boolean(acts.current.onJoin);
+        // extending across two video models: allowed, said by a dot (the face may change there)
+        const differ = carries && modelsDiffer(prevRecipe, recipe);
+        const t = carries ? null : c.transition;
+        const span = transitionSpan(t, "cut", prev.lengthMs, c.lengthMs);
+        const shownMs = pulling ?? span;
+        const pillW = t && shownMs ? Math.max(34, (shownMs / 1000) * a().pps) : 0;
+        const dropping = over?.kind === "join" && over.clip === c.id;
+        const pull = (e: ReactPointerEvent) => {
+          e.stopPropagation();
+          e.currentTarget.setPointerCapture(e.pointerId);
+          setPulling(span);
+        };
+        const pullTo = (e: ReactPointerEvent) => {
+          if (pulling === null) return;
+          const ms = (Math.abs(a().xOf(e.clientX) - s.left) * 2 * 1000) / a().pps;
+          setPulling(Math.round(Math.max(TRANSITION_MS.least, Math.min(TRANSITION_MS.most, ms)) / 10) * 10);
+        };
+        const pullEnd = () => {
+          if (pulling !== null && t && pulling !== span) a().onTransition?.(c.id, { ...t, ms: pulling });
+          setPulling(null);
+        };
+        const words = t ? `${TRANSITIONS[t.kind].label} ${(shownMs / 1000).toFixed(2)} s` : "";
+        const hint = c.join === "stale"
+          ? `Clip ${s.index + 1} no longer follows clip ${s.index}`
+          : carries
+            ? `${c.join === "fresh" ? "Extends" : "Will extend"} clip ${s.index}${differ ? ": two models, the face may change here" : ""}${opens ? ". Click: open the join" : toggles ? ". Click: make it a cut" : ""}`
+            : `A cut${t ? ` with ${words}` : ""}${opens ? ". Click: open the join" : toggles ? `. Click: extend clip ${s.index}` : recipe && c.kind === "video" ? ": this model cannot extend a clip" : ""}`;
         return (
-        <button
-          type="button"
-          onClick={() => (toggles ? a().onJoin?.(c, c.joined === "continue" ? "cut" : "continue") : a().onSelect(c.id))}
-          data-hint={c.join === "stale" ? `Clip ${s.index + 1} no longer follows clip ${s.index}` : c.joined === "continue" ? `${c.join === "fresh" ? "Extends" : "Will extend"} clip ${s.index}${toggles ? ". Click: make it a cut" : ""}` : `A cut${toggles ? `. Click: extend clip ${s.index}` : r && c.kind === "video" ? ": this model cannot extend a clip" : ""}`}
-          aria-label={c.join === "stale" ? `The join before clip ${s.index + 1} no longer holds` : c.joined === "continue" ? `The join before clip ${s.index + 1}: it extends clip ${s.index}` : `The join before clip ${s.index + 1}: a cut`}
-          style={{ left: s.left - 11, top: ROW.top + ROW.height / 2 - 11 }}
-          className={cx(
-            "absolute z-10 flex h-[22px] w-[22px] items-center justify-center rounded-full border",
-            toggles && "hover:scale-110 hover:border-accent",
-            c.join === "stale" ? "border-warn bg-warn text-warn-on" : c.joined === "continue" ? (c.join === "fresh" ? "border-accent bg-accent-wash text-accent" : "border-dashed border-accent bg-panel text-accent") : "border-line-strong bg-raised text-ink-3",
-          )}
-        >
-          {c.join === "stale" ? <TriangleAlert size={11} /> : c.joined === "continue" ? <Link2 size={11} /> : <Scissors size={10} />}
-        </button>
+          <>
+            {t && pillW > 0 && (
+              <span
+                role="button"
+                tabIndex={-1}
+                aria-label={`The transition before clip ${s.index + 1}: ${words}`}
+                data-hint={`${words}. Click: open the join · drag an edge: its length`}
+                onClick={() => a().onOpenJoin?.(c)}
+                onDragOver={(e) => a().overJoin(e, s)}
+                style={{ left: s.left - pillW / 2, width: pillW, top: ROW.top + 9, height: ROW.height - 18, background: SWATCH[t.kind] }}
+                className={cx("absolute z-[9] rounded-md border border-white/40 shadow-sm", dropping && "outline-2 outline-accent")}
+              >
+                {(["left", "right"] as const).map((side) => (
+                  <span key={side} onPointerDown={pull} onPointerMove={pullTo} onPointerUp={pullEnd} onPointerCancel={() => setPulling(null)} className={cx("absolute inset-y-0 w-1.5 cursor-ew-resize", side === "left" ? "left-0" : "right-0")} />
+                ))}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => (opens ? a().onOpenJoin?.(c) : toggles ? a().onJoin?.(c, c.joined === "continue" ? "cut" : "continue") : a().onSelect(c.id))}
+              onDragOver={(e) => a().overJoin(e, s)}
+              data-hint={hint}
+              aria-label={c.join === "stale" ? `The join before clip ${s.index + 1} no longer holds` : carries ? `The join before clip ${s.index + 1}: it extends clip ${s.index}${differ ? ", across two models" : ""}` : `The join before clip ${s.index + 1}: a cut${t ? `, ${words}` : ""}`}
+              style={{ left: s.left - 11, top: ROW.top + ROW.height / 2 - 11 }}
+              className={cx(
+                "absolute z-10 flex h-[22px] w-[22px] items-center justify-center rounded-full border",
+                (toggles || opens) && "hover:scale-110 hover:border-accent",
+                dropping && "scale-125 border-accent ring-2 ring-accent/40",
+                c.join === "stale" ? "border-warn bg-warn text-warn-on" : carries ? (c.join === "fresh" ? "border-accent bg-accent-wash text-accent" : "border-dashed border-accent bg-panel text-accent") : "border-line-strong bg-raised text-ink-3",
+              )}
+            >
+              {c.join === "stale" ? <TriangleAlert size={11} /> : carries ? <Link2 size={11} /> : <Scissors size={10} />}
+              {differ && c.join !== "stale" && <span aria-hidden className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border border-panel bg-warn" />}
+            </button>
+          </>
         );
       })()}
 
