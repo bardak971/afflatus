@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import type { RankedGpu } from "@afflatus/core";
 import type { HuntAsk } from "./api";
 import { usd } from "./format";
@@ -34,7 +34,21 @@ export function HuntSection({ ask, change, ranking, failed, pending, volume, war
   warning: ReactNode;
 }) {
   const pick = firstPick(ranking);
-  const leave = (id: string, on: boolean) => change({ leftOut: on ? ask.leftOut.filter((x) => x !== id) : [...ask.leftOut, id] });
+  // the rows keep their places while GPUs are ticked or RunPod's stock is read again: a row moving under the pointer as it
+  // is unticked is a button moving. They are put in the ranking's order again when what it ranks by changes
+  // (until a tick is clicked here, the order follows the ranking: the GPUs left out at first are set by the dialog)
+  const order = useRef<{ by: string; ids: string[] }>({ by: "", ids: [] });
+  const touched = useRef(false);
+  const by = `${ask.mode}|${ask.ceiling}`;
+  if (ranking && (!touched.current || order.current.by !== by ||order.current.ids.length !== ranking.length || ranking.some((g) => !order.current.ids.includes(g.id)))) {
+    order.current = { by, ids: ranking.map((g) => g.id) };
+  }
+  const rows = ranking ? order.current.ids.map((id) => ranking.find((g) => g.id === id)!) : null;
+  const leave = (id: string, on: boolean) => {
+    // the order as it stands is kept from here
+    touched.current = true;
+    change({ leftOut: on ? ask.leftOut.filter((x) => x !== id) : [...ask.leftOut, id] });
+  };
   return (
     <section className="flex flex-col gap-3">
       {warning}
@@ -63,7 +77,7 @@ export function HuntSection({ ask, change, ranking, failed, pending, volume, war
         </div>
         {failed && <div className="p-3"><ErrorNote>{failed}</ErrorNote></div>}
         {!failed && !ranking && <span className="px-3 py-2.5 text-xs text-ink-3">{pending ? "Asking RunPod…" : "Nothing to rank yet."}</span>}
-        {ranking?.map((g) => (
+        {rows?.map((g) => (
           <div key={g.id} role="row" className={cx("grid items-center gap-2.5 border-b border-line/60 px-3 py-2 text-[13px] last:border-b-0", COLS, g.fit !== "yes" && "opacity-50", g === pick && "bg-accent-wash")}>
             <Checkbox checked={!ask.leftOut.includes(g.id)} onChange={(on) => leave(g.id, on)} label={`Hunt for ${g.name}`} />
             <span className="flex min-w-0 items-center gap-2">

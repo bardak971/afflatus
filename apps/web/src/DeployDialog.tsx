@@ -144,6 +144,19 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
     retry: false,
   });
   const pick = firstPick(rank.data?.ranking);
+  // hunting for the GPU wanted, those it would be a step down to are left out at first: slower by what was learned, else
+  // cheaper an hour. Ticked, the hunt for a 4090 deployed a free L4 at once, as the best value
+  const firstRanking = rank.data?.ranking;
+  const goneId = gone?.id ?? null;
+  useEffect(() => {
+    if (changing || !goneId || !firstRanking || huntChange.leftOut) return;
+    const wanted = firstRanking.find((g) => g.id === goneId);
+    if (!wanted) return;
+    const below = firstRanking.filter((g) => g.id !== wanted.id && (wanted.seconds !== null && g.seconds !== null ? g.seconds > wanted.seconds : g.price < wanted.price));
+    setHuntChange((was) => ({ ...was, leftOut: below.map((g) => g.id) }));
+  }, [changing, goneId, firstRanking, huntChange.leftOut]);
+  // the first pick free now: starting the hunt deploys it at once, and the button says so
+  const pickNow = !changing && pick && pick.stock !== "none free" ? pick : null;
   // a GPU free now to deploy in place of the hunt: the one picked (the dialog opened on the hunt), else the cheapest as large
   const alt = picked ?? instead;
   const held = rank.data?.held ?? null;
@@ -346,7 +359,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
           {hunting ? (
             <button type="button" onClick={() => huntGo.mutate()} disabled={huntGo.isPending || (changing ? !kept : imageMissing || !models.ready || !diskFits || Boolean(volume?.usedBy) || held === 0)} className="flex h-10 min-w-[150px] items-center justify-center gap-2 rounded-l-lg bg-accent px-4 text-[13px] font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
               <Search size={15} />
-              {huntGo.isPending ? (changing ? "Changing…" : "Starting…") : `${changing ? "Change" : "Hunt"} · up to ${usd(huntAsk.ceiling)}/h`}
+              {huntGo.isPending ? (changing ? "Changing…" : "Starting…") : pickNow ? `Deploy ${pickNow.name} now · ${usd(pickNow.price)}/h` : `${changing ? "Change" : "Hunt"} · up to ${usd(huntAsk.ceiling)}/h`}
             </button>
           ) : (
           <button type="button" onClick={() => deploy.mutate()} disabled={!picked || imageMissing || deploy.isPending || !models.ready || !diskFits || Boolean(volume?.usedBy)} className="flex h-10 min-w-[150px] items-center justify-center rounded-l-lg bg-accent px-4 text-[13px] font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
