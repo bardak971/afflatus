@@ -3,6 +3,7 @@ import { modelName, modelOf, type JoinKind, joinKindOf } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 import type { Lack } from "./machineScans";
 import type { PodFileView } from "./podFiles";
+import type { PodPackView } from "./podPacks";
 import { finishForecast, usesGpu } from "./queueTools";
 import type { CutOptions } from "./timelines";
 import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
@@ -13,7 +14,7 @@ import type { RentedView } from "./rented";
 
 /** What a machine row says of a rented pod (rented.ts). */
 /** A rented pod's row: its state, and the model files it is getting (podFiles.ts). */
-export type RentedRow = RentedView & { files: PodFileView[] };
+export type RentedRow = RentedView & { files: PodFileView[]; packs: PodPackView[] };
 
 /** What the queue screen shows: the line as it stands with the running job's progress, the history of finished jobs, and a live preview. */
 

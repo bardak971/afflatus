@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 import type { Machine, MachineState, RentedMachine } from "../../api";
-import type { PodFile } from "../../api";
+import type { PodFile, PodPack } from "../../api";
 import { plural, size, usd } from "../../format";
 import { useNow } from "../../hooks";
 import { rateSaid, rentedSaid } from "../../machines";
@@ -28,11 +28,19 @@ const VIA_SAID: Record<NonNullable<PodFile["via"]>, string> = { hf: "Hugging Fac
 const WHY_FILES = "The model files the pod gets: what its waiting jobs need first, in the order the queue needs them (a job starts as soon as its own files are there), then the ones asked ahead (its deploy's set, a job that ran at home this time). Straight from Hugging Face or Civitai; a file no site is known for comes from this PC. A file never keeps the pod: with nothing to render it goes idle and ends on time.";
 
 /** The files a pod is getting, each with how far it is: ready, a share, next, or why it failed. */
-export function PodFiles({ files }: { files: PodFile[] }) {
+export function PodFiles({ files, packs = [] }: { files: PodFile[]; packs?: PodPack[] }) {
   const ready = files.filter((f) => f.state === "ready").length;
+  const packSaid: Record<PodPack["state"], string> = { next: "next", installing: "installing", installed: "installed · ComfyUI restarts once nothing renders", ready: "loaded", failed: "failed" };
   return (
     <span className="flex min-w-0 grow flex-col gap-1 text-[12.5px]">
-      <span className="text-xs text-ink-3">{ready} of {files.length} there</span>
+      {files.length > 0 && <span className="text-xs text-ink-3">{ready} of {files.length} there</span>}
+      {packs.map((p) => (
+        <span key={p.name} className="flex items-center gap-2" data-tip={p.error}>
+          <span className="min-w-0 truncate">{p.name}<span className="text-ink-3"> · node pack · for {plural(Math.max(1, p.jobs.length), "job")}</span></span>
+          <span className="grow" />
+          <span className={cx("text-xs", p.state === "ready" ? "text-good" : p.state === "failed" ? "text-warn-ink" : "text-ink-3")}>{packSaid[p.state]}</span>
+        </span>
+      ))}
       {files.map((f) => {
         const share = f.total ? Math.min(100, Math.round((f.bytes / f.total) * 100)) : 0;
         return (
@@ -117,9 +125,9 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
         </span>
         <ButtonLink href={RUNPOD_CONSOLE} target="_blank" rel="noreferrer" size="sm"><ExternalLink size={13} /> RunPod</ButtonLink>
       </Row>
-      {r && r.files.length > 0 && (
+      {r && (r.files.length > 0 || r.packs.length > 0) && (
         <Row label="Models" help={WHY_FILES}>
-          <PodFiles files={r.files} />
+          <PodFiles files={r.files} packs={r.packs} />
         </Row>
       )}
       <Row label="When it is idle" help={WHY_IDLE}>

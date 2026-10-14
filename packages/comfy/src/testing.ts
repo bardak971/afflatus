@@ -123,6 +123,8 @@ export interface FakeInit extends Partial<Pick<FakeComfy, "catalog" | "models" |
   mappings?: Record<string, [string[], { title_aux?: string }]>;
   /** Pack ids whose install "fails", with this message in the history. */
   packsFail?: string[];
+  /** Packs its pretend Manager does not find the first so many times it is asked (its list still loading). */
+  packsLate?: Record<string, number>;
   /** Node types that appear in the catalog once ComfyUI "restarts" after a pack install (what the pack brings). */
   afterReboot?: NodeCatalog;
   /**

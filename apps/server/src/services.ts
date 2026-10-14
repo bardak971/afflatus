@@ -151,6 +151,7 @@ export async function createServices(
     lookup: { db, presets: () => presetsWithFiles({ db, shippedPresets }), families: () => registry.families(), comfyDir: async () => (await readSettings(db)).comfyDir },
     settings: () => readSettings(db),
     alive: (id) => rented.unavailable(id) === null,
+    busy: (id) => queue.runningOn(id),
     // a file there now, or one that failed: the pod's folders are read again, and its jobs looked at again
     settled: (id) => {
       void machineOf(id).then((m) => {
@@ -172,7 +173,7 @@ export async function createServices(
   // a pod's row says the files it is getting
   queue.rentedOf = (m) => {
     const row = rented.view(m);
-    return row ? { ...row, files: podFiles.view(m.id) } : null;
+    return row ? { ...row, files: podFiles.view(m.id), packs: podFiles.packsView(m.id) } : null;
   };
   // a deployed pod up: the files its deploy asked for come after what its jobs wait for; the ones left out never come
   rented.onUp = (id, files, leaveOut) => {

@@ -349,4 +349,14 @@ export interface RentedState {
   error: string | null;
   /** The model files it is getting: what its jobs wait for, then what was asked ahead. */
   files: PodFile[];
+  /** The node packs it gets for its jobs (through its ComfyUI-Manager, then a restart of its ComfyUI). */
+  packs: PodPack[];
+}
+
+/** A node pack a rented pod gets for its waiting jobs. */
+export interface PodPack {
+  name: string;
+  state: "next" | "installing" | "installed" | "ready" | "failed";
+  error?: string;
+  jobs: string[];
 }

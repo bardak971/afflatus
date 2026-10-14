@@ -6,6 +6,7 @@ import type { Downloads } from "./downloads";
 import { stat } from "node:fs/promises";
 import { MEASURED_FROM, measuredRange, recordMeasure, type MeasureKind, type Range } from "./podMeasures";
 import { localCopy, measureKind, podSource, type PodSource, type SourceLookup } from "./podSources";
+import { PACKS_MS, PodPacks, type PodPackView } from "./podPacks";
 import { PACK_UPLOADS, uploadFile } from "./podUpload";
 import type { Settings } from "./settings";
 import { olderThan } from "./version";
@@ -75,6 +76,8 @@ export interface PodFilesDeps {
   settings(): Promise<Pick<Settings, "civitaiKey" | "downloadModels" | "civitaiLookups">>;
   /** Whether the machine's pod runs now: what a pod no longer running was getting is forgotten (its container went with it). */
   alive(machine: string): boolean;
+  /** Whether a job runs on the machine now: its ComfyUI is not restarted under a render (podPacks.ts). */
+  busy(machine: string): boolean;
   /** Something changed: the pod's row says it. */
   changed?(): void;
   /** A file came to a pod, or failed there: what lists the pod's files is read again, and the queue looks at its jobs again. */
@@ -107,7 +110,38 @@ export class PodFiles {
   /** The first wait before an upload's piece is sent again (shorter in tests). */
   uploadBackoffMs = 2000;
 
-  constructor(private readonly d: PodFilesDeps) {}
+  /** The node packs pods get for their jobs, beside the files. */
+  private readonly packs: PodPacks;
+
+  constructor(private readonly d: PodFilesDeps) {
+    this.packs = new PodPacks({ comfyOf: d.comfyOf, busy: d.busy });
+  }
+
+  /**
+   * Node packs a job planned onto the pod needs there (machineScans.ts Lack.packs): installed through its Manager, then its
+   * ComfyUI restarted once nothing renders there. Only for a job that will run there: a restart is not made ahead.
+   */
+  wantPacks(machine: string, names: string[], job: string): void {
+    if (this.packs.want(machine, names, job)) {
+      this.d.changed?.();
+      void this.tick();
+    }
+  }
+
+  /** Why these node packs cannot come to that pod; null when they can. */
+  failedPacks(machine: string, names: string[]): string | null {
+    return this.packs.failed(machine, names);
+  }
+
+  /** How long a node pack Manager cannot find yet waits before it is asked again (podPacks.ts; shorter in tests). */
+  set packRetryMs(ms: number) {
+    this.packs.retryMs = ms;
+  }
+
+  /** The node packs a pod is getting, for its row. */
+  packsView(machine: string): PodPackView[] {
+    return this.packs.view(machine);
+  }
 
   /** Files for a pod: "need" (a job waits for them, `job` when given) comes before "ahead"; a file ahead asked as needed moves up. */
   want(machine: string, files: PodFileWant[], o: { tier: "need" | "ahead"; job?: string }): void {
@@ -142,11 +176,14 @@ export class PodFiles {
   /** A job's files on that pod: all there ("ready"), one that cannot be had ("failed", with why), or still coming; null when it asked for none. */
   jobState(machine: string, job: string): { state: "ready" | "waiting" | "failed"; error?: string; files: PodFileView[] } | null {
     const mine = [...(this.pods.get(machine)?.values() ?? [])].filter((e) => e.jobs.includes(job));
-    if (!mine.length) return null;
+    const packs = this.packs.jobPacks(machine, job);
+    if (!mine.length && !packs.length) return null;
     const failed = mine.find((e) => e.state === "failed");
     const files = mine.map((e) => this.viewOf(e));
     if (failed) return { state: "failed", error: `${fileName(failed.file)}: ${failed.error ?? "it could not be had"}`, files };
-    return { state: mine.every((e) => e.state === "ready") ? "ready" : "waiting", files };
+    const pack = packs.find((p) => p.state === "failed");
+    if (pack) return { state: "failed", error: `the node pack ${pack.name}: ${pack.error ?? "it was not installed"}`, files };
+    return { state: mine.every((e) => e.state === "ready") && packs.every((p) => p.state === "ready") ? "ready" : "waiting", files };
   }
 
   /** Files the user left out of the pod (unticked at its deploy): never fetched there, and the jobs that use one stay elsewhere. */
@@ -180,8 +217,9 @@ export class PodFiles {
    * speeds measured from its source (or a cautious guess before any was), one after the other. Infinity when one has no
    * source at all: the pod is then never the sooner place for its job.
    */
-  async untilThere(machine: string, files: PodFileWant[]): Promise<number> {
-    let ms = 0;
+  async untilThere(machine: string, files: PodFileWant[], packs: string[] = []): Promise<number> {
+    // its node packs installed and ComfyUI restarted: about four minutes on a pod just up, beside the files
+    let ms = packs.length && !this.packs.ready(machine, packs) ? PACKS_MS : 0;
     for (const f of files) {
       const e = this.pods.get(machine)?.get(keyOf(f.folder, f.file));
       if (e?.state === "ready") continue;
@@ -242,6 +280,7 @@ export class PodFiles {
       e.upload?.abort();
     }
     this.pods.delete(machine);
+    this.packs.forget(machine);
     this.d.changed?.();
   }
 
@@ -263,7 +302,7 @@ export class PodFiles {
 
   private async pass(): Promise<void> {
     let changed = false;
-    for (const machine of [...this.pods.keys()]) {
+    for (const machine of [...new Set([...this.pods.keys(), ...this.packs.machines()])]) {
       // a pod stopped or gone: its container's files went with it (a volume's stay, and its scan says so at its next start)
       if (!this.d.alive(machine)) {
         this.forget(machine);
@@ -295,6 +334,13 @@ export class PodFiles {
         changed = true;
         void this.begin(machine, e);
       }
+    }
+    // the node packs: installs followed, ComfyUI restarted once they are in and nothing renders there
+    for (const machine of this.packs.machines()) {
+      if (!this.d.alive(machine)) continue;
+      const r = await this.packs.pass(machine).catch(() => ({ changed: false, loaded: false }));
+      if (r.changed) changed = true;
+      if (r.loaded) this.d.settled?.(machine);
     }
     if (changed) this.d.changed?.();
   }

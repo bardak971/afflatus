@@ -52,10 +52,10 @@ describe("lackOn", () => {
   it("says the files a machine lacks, and calls a family off only when it was switched off", () => {
     const none = scan([recipe("h3-i2v", false, { unet: [] })]);
     // no H3 file there: the family follows its files, so it is not "off", it lacks the file asked for
-    expect(lackOn(h3, { unet: "h3.safetensors" }, none, { families: {} }, machine("b"), familyOf)).toEqual({ off: false, files: [{ file: "h3.safetensors", folder: "diffusion_models" }], onlyFiles: true });
+    expect(lackOn(h3, { unet: "h3.safetensors" }, none, { families: {} }, machine("b"), familyOf)).toEqual({ off: false, files: [{ file: "h3.safetensors", folder: "diffusion_models" }], sendable: true });
     // switched off on that machine: said so, ready or not
     const all = scan([recipe("h3-i2v", true, { unet: ["h3.safetensors"] })]);
-    expect(lackOn(h3, { unet: "h3.safetensors" }, all, { families: {} }, machine("b", { h3: false }), familyOf)).toEqual({ off: true, files: [], onlyFiles: false });
+    expect(lackOn(h3, { unet: "h3.safetensors" }, all, { families: {} }, machine("b", { h3: false }), familyOf)).toEqual({ off: true, files: [], sendable: false });
     expect(lackOn(h3, { unet: "h3.safetensors" }, all, { families: {} }, machine("b"), familyOf)).toBeNull();
   });
 
@@ -65,24 +65,33 @@ describe("lackOn", () => {
     const slot = { id: "checkpoint", label: "Checkpoint", folder: "checkpoints", file: null, choices: [], auto: null, chosen: false, optional: false, hint: "", get: { file: "sd_xl_base_1.0.safetensors", url: "https://huggingface.co/x/sd_xl_base_1.0.safetensors" } };
     const empty: Scan = { ...scan([{ ...recipe("sdxl-t2p", false, { checkpoint: [] }), missingSlots: ["checkpoint"] }]), families: [{ id: "sdxl", slots: [slot] }] };
     const lack = lackOn(sdxl, { checkpoint: "illustrious.safetensors" }, empty, { families: {} }, machine("b"), familyOf);
-    expect(lack).toEqual({ off: false, files: [{ file: "illustrious.safetensors", folder: "checkpoints" }], onlyFiles: true });
+    expect(lack).toEqual({ off: false, files: [{ file: "illustrious.safetensors", folder: "checkpoints" }], sendable: true });
     expect(filesUsed(sdxl, { checkpoint: "illustrious.safetensors" }, empty, [slot])).toEqual([{ file: "illustrious.safetensors", folder: "checkpoints" }]);
     // a family with two required files in one folder: the job's pick fills neither by folder alone, the other is still asked
     const other = { ...slot, id: "ref", get: { file: "ref.safetensors", url: "https://huggingface.co/x/ref.safetensors" } };
     expect(filesUsed(sdxl, { checkpoint: "illustrious.safetensors" }, empty, [slot, other]).map((f) => f.file)).toEqual(["illustrious.safetensors", "sd_xl_base_1.0.safetensors", "ref.safetensors"]);
   });
 
+  it("names the node packs a machine lacks when it knows every one: a pod can be sent them too", () => {
+    const status = (over: Partial<RecipeStatus>) => scan([{ ...recipe("h3-i2v", false, { unet: ["h3.safetensors"] }), missingSlots: [], ...over }]);
+    const lack = (s: Scan) => lackOn(h3, { unet: "h3.safetensors" }, s, { families: {} }, machine("b"), familyOf);
+    // the Impact pack's detailer: no file missing, only the pack
+    expect(lack(status({ missingNodes: ["FaceDetailer", "DetailerForEach"] }))).toEqual({ off: false, files: [], sendable: true, packs: ["comfyui-impact-pack"] });
+    // a node no pack Afflatus knows brings: it cannot be sent
+    expect(lack(status({ missingNodes: ["FaceDetailer", "SomeoneElsesNode"] }))?.sendable).toBe(false);
+  });
+
   it("says when the files are all a machine lacks: what a rented pod can be sent", () => {
     const status = (over: Partial<RecipeStatus>) => scan([{ ...recipe("h3-i2v", false, { unet: [] }), ...over }]);
     const lack = (s: Scan, h = h3) => lackOn(h, { unet: "h3.safetensors" }, s, { families: {} }, machine("b"), familyOf);
-    expect(lack(status({}))?.onlyFiles).toBe(true);
-    // a node missing too, or something else ComfyUI would refuse: files alone would not make it run
-    expect(lack(status({ missingNodes: ["MiniMaxH3Cache"] }))?.onlyFiles).toBe(false);
-    expect(lack(status({ problems: ["sampler x is not offered"] }))?.onlyFiles).toBe(false);
+    expect(lack(status({}))?.sendable).toBe(true);
+    // a node no known pack brings, or something else ComfyUI would refuse: what it lacks cannot all be sent
+    expect(lack(status({ missingNodes: ["SomeoneElsesNode"] }))?.sendable).toBe(false);
+    expect(lack(status({ problems: ["sampler x is not offered"] }))?.sendable).toBe(false);
     // a family file no input stands for and no address is known for
-    expect(lack(status({ missingSlots: ["model", "vae"] }))?.onlyFiles).toBe(false);
+    expect(lack(status({ missingSlots: ["model", "vae"] }))?.sendable).toBe(false);
     // an input with nothing to pick that no job file fills (a choice among files)
-    expect(lack(status({ emptyInputs: ["upscaler"] }))?.onlyFiles).toBe(false);
-    expect(lack(status({ emptyInputs: ["unet"] }))?.onlyFiles).toBe(true);
+    expect(lack(status({ emptyInputs: ["upscaler"] }))?.sendable).toBe(false);
+    expect(lack(status({ emptyInputs: ["unet"] }))?.sendable).toBe(true);
   });
 });

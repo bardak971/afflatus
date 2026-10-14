@@ -61,7 +61,7 @@ beforeEach(async () => {
   const comfy = new Comfy(pod.url, t.services.registry);
   files = new PodFiles({
     db: t.services.db, downloads: t.services.downloads,
-    comfyOf: async () => comfy, cloudOf: async () => "SECURE", alive: () => true,
+    comfyOf: async () => comfy, cloudOf: async () => "SECURE", alive: () => true, busy: () => false,
     lookup: { db: t.services.db, presets: async () => [], families: () => [], comfyDir: async () => home },
     settings: async () => ({ civitaiKey: "", downloadModels: true, civitaiLookups: true }),
   });
@@ -230,5 +230,67 @@ describe("what pods were measured at", () => {
     const db = t.services.db;
     for (const ms of [1000, 50_000, 60_000, 70_000, 900_000]) await recordMeasure(db, { kind: "boot", cloud: null, bytes: 0, ms });
     expect(await measuredRange(db, "boot", null)).toMatchObject({ low: 50_000, high: 70_000, count: 5 });
+  });
+});
+
+describe("a rented pod's node packs", () => {
+  /** A pod with ComfyUI-Manager, and the pod files of it; `busy` says whether a job runs there. */
+  async function withManager(fail: string[] = [], late: Record<string, number> = {}) {
+    const pm = await startFakeComfy({ catalog: referenceCatalog(), models: { loras: [] }, manager: true, packsFail: fail, packsLate: late, afterReboot: { FaceDetailer: { input: { required: {} }, output: [], output_name: [], name: "FaceDetailer", category: "x" } as never } });
+    pm.packVersion = "0.14.0";
+    const comfy = new Comfy(pm.url, t.services.registry);
+    let busy = false;
+    const pf = new PodFiles({
+      db: t.services.db, downloads: t.services.downloads, comfyOf: async () => comfy, cloudOf: async () => "SECURE", alive: () => true, busy: () => busy,
+      lookup: { db: t.services.db, presets: async () => [], families: () => [], comfyDir: async () => home },
+      settings: async () => ({ civitaiKey: "", downloadModels: true, civitaiLookups: true }),
+    });
+    pf.packRetryMs = 10;
+    return { pm, pf, setBusy: (b: boolean) => (busy = b) };
+  }
+
+  it("are installed through its Manager, then ComfyUI restarted, never under a render; the job waits until then", async () => {
+    const { pm, pf, setBusy } = await withManager();
+    try {
+      setBusy(true);
+      pf.wantPacks("pod", ["comfyui-impact-pack"], "j1");
+      await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "installed"));
+      expect(pm.packs.map((p) => p.id)).toEqual(["comfyui-impact-pack"]);
+      // a render runs there: no restart yet, the job still waits
+      for (let i = 0; i < 3; i++) await pf.tick();
+      expect(pm.reboots).toBe(0);
+      expect(pf.jobState("pod", "j1")?.state).toBe("waiting");
+      setBusy(false);
+      await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "ready"));
+      expect(pm.reboots).toBe(1);
+      expect(pf.jobState("pod", "j1")?.state).toBe("ready");
+    } finally {
+      await pm.close();
+    }
+  });
+
+  it("that a Manager just started cannot find yet are asked again, and come", async () => {
+    const { pm, pf } = await withManager([], { "comfyui-detail-daemon": 2 });
+    try {
+      pf.wantPacks("pod", ["comfyui-detail-daemon"], "j1");
+      await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "ready"));
+      expect(pm.packs.map((p) => p.id)).toEqual(["comfyui-detail-daemon"]);
+      expect(pm.reboots).toBe(1);
+    } finally {
+      await pm.close();
+    }
+  });
+
+  it("that Manager does not install fail, their job with them", async () => {
+    const { pm, pf } = await withManager(["comfyui-gguf"]);
+    try {
+      pf.wantPacks("pod", ["comfyui-gguf"], "j1");
+      await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "failed"));
+      expect(pf.jobState("pod", "j1")).toMatchObject({ state: "failed", error: expect.stringContaining("comfyui-gguf") });
+      expect(pf.failedPacks("pod", ["comfyui-gguf"])).toContain("comfyui-gguf");
+      expect(pm.reboots).toBe(0);
+    } finally {
+      await pm.close();
+    }
   });
 });
