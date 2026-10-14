@@ -116,7 +116,6 @@ export async function createServices(
   // a rented pod that is not running takes no work, and its row says what it is and costs
   const rented = new Rented(db, queue, queue.events, async (id) => (await machines()).find((m) => m.machine.id === id)?.comfy ?? null);
   queue.unavailable = (id) => rented.unavailable(id);
-  queue.rentedOf = (m) => rented.view(m);
   queue.fitsBalance = (ms) => rented.fitsBalance(ms);
   // a pod up and not locked is locked (its address is public)
   rented.lockPod = (id) => lockMachine({ db, queue, machines }, id, { local: false, renew: false });
@@ -170,6 +169,11 @@ export async function createServices(
     },
   });
   queue.podFetch = podFetchOf(podFiles);
+  // a pod's row says the files it is getting
+  queue.rentedOf = (m) => {
+    const row = rented.view(m);
+    return row ? { ...row, files: podFiles.view(m.id) } : null;
+  };
   // a deployed pod up: the files its deploy asked for come after what its jobs wait for; the ones left out never come
   rented.onUp = (id, files, leaveOut) => {
     podFiles.leaveOut(id, leaveOut);

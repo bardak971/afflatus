@@ -44,6 +44,8 @@ export interface Job {
   runsOn: string[] | null;
   /** Of such a render: what keeps it off each other machine, by machine id (its family off there, the files it lacks there). */
   lacks: Record<string, MachineLack> | null;
+  /** Of a waiting render: the rented pods it can run on once its files are sent there, with them and how long they take (ms). */
+  fetch: Record<string, { files: Array<{ file: string; folder: string }>; ms: number }> | null;
 }
 /** What keeps a waiting render off a machine: its family switched off there, and the files it lacks there (with where to get each, when known). */
 export interface MachineLack {
@@ -51,9 +53,25 @@ export interface MachineLack {
   files: Array<{ file: string; folder: string; url?: string }>;
   /** A rented pod whose RunPod balance runs out before the job would end there: how long it lasts, how long the job takes (ms). */
   balance?: { leftMs: number; needMs: number };
+  /** A rented pod its files cannot reach: why. */
+  failed?: string;
+}
+
+/** A model file a rented pod is getting: for a job that waits for it ("need"), or for later ("ahead"). */
+export interface PodFile {
+  file: string;
+  folder: string;
+  state: "next" | "fetching" | "ready" | "failed";
+  tier: "need" | "ahead";
+  bytes: number;
+  total: number;
+  via?: "hf" | "civitai" | "url" | "upload";
+  error?: string;
+  /** The waiting jobs that wait for it. */
+  jobs: string[];
 }
 /** A finished job as the queue's history shows it: with what it made and how. (Not how long it would take, nor how a clip joined: GET /api/jobs leaves those out.) */
-export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" | "pinned" | "startsInMs" | "runsOn" | "lacks"> {
+export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" | "pinned" | "startsInMs" | "runsOn" | "lacks" | "fetch"> {
   tookMs: number | null;
   /** Of a job that failed in a ComfyUI node: the end of its Python traceback; null otherwise. */
   trace?: string | null;
@@ -329,4 +347,6 @@ export interface RentedState {
   /** Deployed and on its first start (its image pulled, ComfyUI starting): a normal step. */
   booting: boolean;
   error: string | null;
+  /** The model files it is getting: what its jobs wait for, then what was asked ahead. */
+  files: PodFile[];
 }

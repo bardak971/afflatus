@@ -843,7 +843,8 @@ ${JSON.stringify(input)}`;
           fetch[lane.id] = { files: lack.files, ms: await this.podFetch.untilThere(lane.id, lack.files) };
           continue;
         }
-        if (lack || balance) lacks[lane.id] = { ...(lack ?? { off: false, files: [], onlyFiles: false }), ...(balance ? { balance } : {}) };
+        const failed = lack?.onlyFiles && lane.machine!.rented && this.podFetch ? this.podFetch.failed(lane.id, lack.files) : null;
+        if (lack || balance) lacks[lane.id] = { ...(lack ?? { off: false, files: [], onlyFiles: false }), ...(balance ? { balance } : {}), ...(failed ? { failed } : {}) };
         else can.add(lane.id);
       }
       out.set(r.id, { can, lacks, fetch });

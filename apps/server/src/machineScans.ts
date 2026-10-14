@@ -95,6 +95,8 @@ export interface Lack {
   onlyFiles: boolean;
   /** A rented pod whose RunPod balance runs out before this job would end there: how long it lasts, how long the job takes (ms). */
   balance?: { leftMs: number; needMs: number };
+  /** A rented pod its files cannot reach: why (one failed there, or was left out at its deploy). */
+  failed?: string;
 }
 
 /**

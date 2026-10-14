@@ -158,6 +158,7 @@ export function WaitingList({ waiting, running, machines = [], onOrder, onRemove
                 → {machineLabel(machines.find((m) => m.id === w.machine) ?? { name: w.machine, url: "" })}{w.startsInMs ? ` · in ${est(w.startsInMs)}` : ""}{w.runsOn?.length === 1 ? " · only there" : ""}
               </span>
             )}
+            <FetchNote w={w} machines={machines} />
             {machines.length > 0 && !w.pinned && w.runsOn?.length === 0 && (
               <Link href={settingHref("models.families")} className="shrink-0">
                 <Chip tone="warn" tip="No machine has its files, or its family is off on every one. Settings › Models says what each machine has; or pin it to one (Run on) to download what it lacks there.">no machine can run it</Chip>
@@ -195,10 +196,40 @@ export function WaitingList({ waiting, running, machines = [], onOrder, onRemove
   );
 }
 
+/**
+ * A waiting render and a rented pod's files: planned onto a pod still getting them, which comes first and how far it is;
+ * planned elsewhere though a pod could take it once sent its files, that it is sooner where it goes (the files sent ahead).
+ */
+function FetchNote({ w, machines }: { w: Job; machines: MachineState[] }) {
+  if (!w.fetch || !w.machine) return null;
+  const pod = machines.find((m) => m.id === w.machine)?.rented;
+  if (w.fetch[w.machine] && pod) {
+    const coming = pod.files.filter((f) => f.jobs.includes(w.id) && f.state !== "ready");
+    const now = coming.find((f) => f.state === "fetching") ?? coming[0];
+    if (!now) return null;
+    const share = now.total ? Math.round((now.bytes / now.total) * 100) : 0;
+    return (
+      <span className="shrink-0 text-xs text-ink-2" data-tip={`Its ${plural(coming.length, "file")} come to the pod first; it starts there once they are all there (${coming.map((f) => f.file).join(", ")})`}>
+        · getting {now.file}{now.state === "fetching" ? ` · ${share} %` : ""}{coming.length > 1 ? ` · +${coming.length - 1}` : ""}
+      </span>
+    );
+  }
+  const elsewhere = Object.entries(w.fetch).filter(([id]) => id !== w.machine);
+  if (!elsewhere.length) return null;
+  const [id, f] = elsewhere[0]!;
+  const m = machines.find((x) => x.id === id);
+  return (
+    <span className="shrink-0 text-xs text-ink-3" data-tip={`${m ? machineLabel(m) : id} could take it once sent its ${plural(f.files.length, "file")} (${est(f.ms) || "a while"}): it ends sooner here. The files are sent to the pod ahead, for the next one.`}>
+      · sooner than on {m ? machineLabel(m) : id}
+    </span>
+  );
+}
+
 /** What keeps a waiting job off a machine, in a few words for its "Run on" menu; null when nothing does. */
 function lackSaid(lack: MachineLack | undefined): string | null {
   if (!lack) return null;
   if (lack.balance) return `its RunPod balance lasts ${est(lack.balance.leftMs)}, this takes ${est(lack.balance.needMs)}`;
+  if (lack.failed) return `its file cannot get there: ${lack.failed}`;
   if (lack.off) return "its family is off there";
   return lack.files.length ? `lacks ${plural(lack.files.length, "file")}` : "cannot run it";
 }
@@ -214,6 +245,10 @@ function PinnedLacks({ machine, id, lack }: { machine: string; id: string; lack:
         {lack.balance ? (
           <span>
             Waits: the RunPod balance lasts {est(lack.balance.leftMs)} at what the account spends now, and this takes {est(lack.balance.needMs)} on {machine}. At zero RunPod stops every pod and the render is lost: add credit on RunPod, or run it on another machine.
+          </span>
+        ) : lack.failed ? (
+          <span>
+            Cannot run on {machine}: {lack.failed}. Run it on another machine from its menu. It does not keep {machine} on: with nothing else to render, the pod goes idle and ends on time.
           </span>
         ) : lack.off ? (
           <span>

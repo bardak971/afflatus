@@ -75,6 +75,8 @@ describe("a job whose model file a pod lacks", () => {
     await until(() => pod.prompts.size === 1, 15_000);
     expect(pod.packUploaded.length).toBeGreaterThan(0);
     expect(t.services.podFiles.view(id)).toEqual([expect.objectContaining({ file: CHECKPOINT, state: "ready", tier: "need", via: "upload", jobs: [a] })]);
+    // the pod's row lists what it got
+    expect((await t.services.queue.status()).machines.find((m) => m.id === id)?.rented).toMatchObject({ files: [expect.objectContaining({ file: CHECKPOINT, state: "ready" })] });
     complete(pod, [...pod.prompts.keys()][0]!);
     await until(async () => (await row(a)).status === "done");
     expect((await row(a)).machine_id).toBe(id);
@@ -109,6 +111,7 @@ describe("a job whose model file a pod lacks", () => {
     expect(await t.services.queue.wants(id)).toBe(false);
     const waiting = (await t.services.queue.status()).waiting.find((w) => w.id === a);
     expect(waiting?.lacks?.[id]?.files).toEqual([{ file: "nowhere.safetensors", folder: "checkpoints" }]);
+    expect(waiting?.lacks?.[id]?.failed).toContain("no site is known");
   });
 
   it("is no work for a pod the plan sends it away from", async () => {
@@ -128,6 +131,9 @@ describe("a job whose model file a pod lacks", () => {
     const b = await enqueue({ prompt: "a dog" });
     // the plan sends it home (its file would take longer to reach the pod than home takes): the pod has no work
     expect(await t.services.queue.wants(id)).toBe(false);
+    // its row says the pod could take it, once sent its file, and how long that takes
+    const waitingB = (await t.services.queue.status()).waiting.find((w) => w.id === b);
+    expect(waitingB).toMatchObject({ machine: await homeId(), fetch: { [id]: { files: [{ file: CHECKPOINT, folder: "checkpoints" }], ms: 10 * 60_000 } } });
     for (const p of [...home.prompts.keys()]) complete(home, p);
     await until(async () => (await row(a)).status === "done");
     await until(() => home.prompts.size === 2);
