@@ -70,6 +70,11 @@ export interface VideoTraits {
    * over before its end is continued from there (on the grid), in the latent. Left out, it is continued only from its end.
    */
   latentTrim?: string;
+  /**
+   * A recipe that makes a long source window by window (Motion transfer on a timeline's source lane): the most and fewest
+   * frames a job takes, and the frames of the clip before a window carries on from (sourceWindows.ts).
+   */
+  windows?: { most: number; least: number; carried: number };
 }
 
 /** What is known about a picture or a clip that was handed to a recipe. */

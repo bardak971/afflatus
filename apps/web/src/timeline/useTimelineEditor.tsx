@@ -3,7 +3,7 @@ import { useLocation, useSearch } from "wouter";
 import type { Asset, Clip, DesignerSession, RecipeInfo, Take, Timeline } from "../api";
 import { useFamilies, useModelSettings, useRecipes, useSetup, useTimeline } from "../data";
 import type { DesignerTurn } from "../designer/types";
-import { notReady } from "../format";
+import { notReady, plural } from "../format";
 import { useBanners, useEditorColumn } from "../store";
 import { useSelectedClip } from "../bar/bridge";
 import { useQueueOf } from "../screens/studio/queueOf";
@@ -66,11 +66,21 @@ export function useTimelineEditor(id: string) {
   const player = useRef<PlayerHandle>(null);
   /** The clip whose join with the clip before is open in the column (its dot on the track was clicked). */
   const [joinOpen, setJoinOpen] = useState<string | null>(null);
+  /** The source lane is open in the column. */
+  const [sourceOpen, setSourceOpen] = useState(false);
   /** A clip selected, its panel open in place of the music's. */
   const select = (clip: string | null) => {
     setSelected(clip);
     setMusicOpen(false);
     setJoinOpen(null);
+    setSourceOpen(false);
+  };
+  /** The source lane, opened in the column: no clip selected meanwhile. */
+  const openSource = () => {
+    setSelected(null);
+    setMusicOpen(false);
+    setJoinOpen(null);
+    setSourceOpen(true);
   };
   /** The join before a clip, opened in the column: the clip is selected with it. */
   const openJoin = (clip: string) => {
@@ -122,7 +132,7 @@ export function useTimelineEditor(id: string) {
   /** A new clip that waits to be rendered. The first one of a timeline is given a model that can run. */
   const firstRecipe = () => {
     const usable = (r: RecipeInfo) => !notReady(setup.data?.recipes.find((x) => x.id === r.id), comfyOnline);
-    return (videoRecipes.find((r) => r.traits?.continues && usable(r)) ?? videoRecipes.find(usable) ?? videoRecipes[0])?.id;
+    return (videoRecipes.find((r) => r.traits?.continues && !r.traits.windows && usable(r)) ?? videoRecipes.find(usable) ?? videoRecipes[0])?.id;
   };
   const clipsNow = useRef(clips);
   clipsNow.current = clips;
@@ -130,7 +140,7 @@ export function useTimelineEditor(id: string) {
     timeline: t, clipsNow, recipes: recipes.data?.recipes ?? [], edits: { save, turn, ready, inputsOf, editInputs, dropEdits, savedElsewhere }, firstRecipe,
     on: { note: setNote, select, unpick: () => setPicked(new Set()), writing: setWriting, open: setOpened },
   });
-  const { after, render, patch, fix, edit, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
+  const { after, render, patch, fix, edit, makeSource: makeSourceMut, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
   const pickedNow = useRef(picked);
   pickedNow.current = picked;
   const removePicked = useCallback(() => {
@@ -150,6 +160,26 @@ export function useTimelineEditor(id: string) {
   const error = rangeAct.error && (!m.error || rangeAct.submittedAt >= m.errorAt) ? rangeAct.error : m.error;
   // an error goes after a while, not while the pointer is on it (the note's own timer is useHeaderNote's)
   const errorShown = useErrorShown(error, held);
+
+  // the clips made from the source are sent to render once the timeline read again has them (their forms are read then)
+  const [toRender, setToRender] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!toRender) return;
+    const made = clips.filter((c) => toRender.includes(c.id));
+    if (made.length < toRender.length) return;
+    setToRender(null);
+    setSourceOpen(false);
+    // only what can be rendered now: a model whose files or nodes are missing is said, the clips wait with their Render
+    const why = made.map((c) => ready(c).why).find(Boolean);
+    const now = made.filter((c) => ready(c).input);
+    if (now.length) render.mutate({ clips: now });
+    if (why) setNote(`${plural(made.length, "clip")} made from the source, not rendered: ${why}`);
+  }, [clips, toRender, render, ready, setNote]);
+  /** The source's stretch made into clips, sent to render in order (each waits for the one it carries on from). */
+  const makeSource = {
+    pending: makeSourceMut.isPending || Boolean(toRender),
+    run: () => makeSourceMut.mutate(undefined, { onSuccess: (r) => setToRender(r.clips) }),
+  };
 
   const hasRecipe = clips.some((c) => c.recipe);
   const newClip = (afterId?: string | null) => add.mutate({ after: afterId, recipe: hasRecipe ? undefined : firstRecipe() });
@@ -195,7 +225,7 @@ export function useTimelineEditor(id: string) {
   // a key held down sends one undo at a time: the next only once the last is back
   const stepping = undo.isPending || redo.isPending;
   // the keys' refs for what is set below: Ctrl+Enter renders, [ and ] jump, S and Ctrl+B split, Alt+[ and Alt+] step the take; - and =, Shift+Z: the track's zoom (filled by the track)
-  const { selectedNow, renderNow, jumpNow, splitNow, takeNow, trackKeys } = useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameMs, selected: current?.id ?? null, setSelected, setPicked, musicOpen, closeMusic: () => setMusicOpen(false) });
+  const { selectedNow, renderNow, jumpNow, splitNow, takeNow, trackKeys } = useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameMs, selected: current?.id ?? null, setSelected, setPicked, musicOpen: musicOpen || sourceOpen, closeMusic: () => { setMusicOpen(false); setSourceOpen(false); } });
   // what the command bar asked of this timeline: done here, as the buttons and the keys do it
   const openExport = useBarRequests({ id, t, shown, clips, slots, missing, ready, render, undo, redo, say, setNote, setSelected, select, setFin, setCursor, player, selectedNow, splitNow, takeNow });
 
@@ -264,7 +294,7 @@ export function useTimelineEditor(id: string) {
 
   return {
     id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, current,
-    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
+    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, makeSource, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, inputsOf, editInputs, formOf, ready, sayOf, say, m, range, setRange, loopRange, snapQuiet,

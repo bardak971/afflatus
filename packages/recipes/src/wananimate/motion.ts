@@ -43,7 +43,7 @@ export const wanAnimateMotion = defineRecipe<WanAnimateMotion>({
   title: "Motion transfer",
   summary: "A picture moved like a driving video, at the video's own frame rate. The picture's room, light and people are kept; the motion is the video's.",
   output: "video",
-  traits: { startFrame: false, endFrame: false, midFrames: false, continues: false, endAnchor: false, sound: true, fps: WAN_ANIMATE_FPS, frameGrid: MOTION_GRID },
+  traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: WAN_ANIMATE_FPS, frameGrid: MOTION_GRID, windows: { most: SHAPE.most, least: SHAPE.least, carried: 1 } },
   inputs: [
     ...motionInputs(SHAPE, "Character Description: A man in his thirties with short brown hair and a short beard, a black t-shirt and a silver watch.\nBackground description: A crowded room lit by deep red light, people standing behind him."),
     {
@@ -124,7 +124,7 @@ export const wanAnimateMotion = defineRecipe<WanAnimateMotion>({
     // carrying on from the clip before, its frame at the start (the node says how many) is that clip's: dropped
     const made = before ? g.out("ImageFromBatch", { image: decoded, batch_index: [cond, 4], length: 4096 }) : g.out("ImageFromBatch", { image: decoded, batch_index: 0, length: total });
     const images = matchedToDriving(g, ctx, made, pose, input, frame);
-    const saved = motionSaved(g, ctx, images, input, { frame, fps: WAN_ANIMATE_FPS, frames: total, parts });
+    const saved = motionSaved(g, ctx, images, input, { frame, fps: WAN_ANIMATE_FPS, frames: total, parts, carried: 1 });
     return {
       graph: g.graph,
       phases: g.phases,

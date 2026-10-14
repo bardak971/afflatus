@@ -17,7 +17,8 @@ import { TimelineMedia } from "./timelineMedia";
 import { TimelineHistory } from "./timelineHistory";
 import { TimelineRange } from "./timelineRange";
 import { takeView, TimelineViews } from "./timelineViews";
-import { recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type TakeLinks } from "./timelinePlan";
+import { recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
+import { patchedSource, planWindows, sourceOfRow, type SourcePatch } from "./timelineSource";
 import { TimelineTakes } from "./timelineTakes";
 import { unusedSize, unusedTakes } from "./timelineUnused";
 import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, mirroredPins, mirrorJson, mirrorOfRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow, transitionJson, transitionOfRow } from "./timelineModel";
@@ -138,6 +139,8 @@ export interface TimelinePatch {
   /** The project it belongs to (null: the Inbox), and the folder its renders land in (null: the project's root). */
   project?: string | null;
   folder?: string | null;
+  /** Its source lane: a new video, changes to the one there, or null to take it away (timelineSource.ts). */
+  source?: SourcePatch;
 }
 
 /** A library video's place on a timeline: see Timelines.clipOf. */
@@ -443,11 +446,21 @@ export class Timelines {
     }
     if (m?.startClip && !(await this.db.selectFrom("clips").select("id").where("id", "=", m.startClip).where("timeline_id", "=", id).executeTakeFirst())) throw notFound("this clip");
     // the part of the song: within it (another song starts from its beginning, unless said otherwise)
+    // its source lane: a video, its stretch within it, and where its start sits (a new one: where the clips end now)
+    let source: string | null | undefined;
+    if (patch.source === null) source = null;
+    else if (patch.source) {
+      const video = await this.assetRow(patch.source.asset ?? sourceOfRow(before.source)?.asset ?? null);
+      if (!video || video.kind !== "video") throw httpError("The source has to be a video of the library.");
+      const all = await this.placed(id);
+      const end = all.reduce((sum, p) => sum + plannedLengthOf(p, p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined), 0);
+      source = JSON.stringify(patchedSource(sourceOfRow(before.source), patch.source, video, end));
+    }
     const songMs = m?.fromMs !== undefined ? (await this.assetRow(m.asset ?? before.music_asset_id))?.duration_ms ?? null : null;
     const fromMs = m?.fromMs !== undefined ? Math.max(0, Math.min(songMs ?? Infinity, Math.round(m.fromMs / 100) * 100)) : m?.asset ? 0 : undefined;
     await this.remember(
       id,
-      patch.name !== undefined ? "the new name" : patch.width !== undefined ? "the new aspect ratio" : patch.look !== undefined ? "the change of characters" : patch.mood !== undefined ? "the look and mood" : patch.project !== undefined ? "the project" : patch.folder !== undefined ? "the folder" : m?.asset === null ? "the music removed" : m?.asset ? "the new music" : m?.fromMs !== undefined || m?.startClip !== undefined ? "the part of the song" : "the music's settings",
+      patch.name !== undefined ? "the new name" : patch.width !== undefined ? "the new aspect ratio" : patch.look !== undefined ? "the change of characters" : patch.mood !== undefined ? "the look and mood" : patch.project !== undefined ? "the project" : patch.folder !== undefined ? "the folder" : patch.source === null ? "the source removed" : patch.source?.asset ? "the new source" : patch.source ? "the source's settings" : m?.asset === null ? "the music removed" : m?.asset ? "the new music" : m?.fromMs !== undefined || m?.startClip !== undefined ? "the part of the song" : "the music's settings",
     );
     const within = (n: number, least: number, most: number) => Math.max(least, Math.min(most, Math.round(n)));
     // to another project without a folder said: a folder of the project it leaves gives way to the new one's root
@@ -474,6 +487,7 @@ export class Timelines {
           ...(m?.startClip !== undefined ? { music_start_clip_id: m.startClip } : {}),
           ...(patch.look !== undefined ? { look: patch.look ? JSON.stringify(patch.look) : null } : {}),
           ...(patch.mood !== undefined ? { mood: patch.mood.trim() || null } : {}),
+          ...(source !== undefined ? { source } : {}),
           updated_at: now(),
         })
         .where("id", "=", id)
@@ -484,8 +498,71 @@ export class Timelines {
     // what it made followed it: which items, and from which folders, is not counted here
     if (moved) this.events.emit("library", { change: "moved" } satisfies LibraryChange);
     if (m?.asset) await this.keep(m.asset);
+    if (patch.source?.asset) await this.keep(patch.source.asset);
     this.changed();
     return this.view(id);
+  }
+
+  /**
+   * The source lane's stretch made into clips, one a window (timelineSource.ts): each takes its part of the source as its
+   * driving video and carries on from the one before (a window after a scene cut opens a new shot: a cut), with the same
+   * picture, prompt and seed in every one. In place of the clip the stretch was taken from, else after the last clip. One
+   * step for Undo. Nothing is rendered here: the editor sends the new clips to render, as from its Render button.
+   */
+  async makeFromSource(timelineId: string): Promise<string[]> {
+    const ids = await this.history.oneAtATime(timelineId, async () => {
+      const t = await this.row(timelineId);
+      const plan = sourceOfRow(t.source);
+      if (!plan) throw httpError("Drop a video on the Source lane first.");
+      const recipe = plan.recipe ? this.registry.recipe(plan.recipe) : undefined;
+      if (!recipe) throw httpError("Choose the model the clips are made with.");
+      if (!recipe.traits?.windows) throw httpError(`${recipe.title} does not make a long video window by window.`);
+      const video = await this.assetRow(plan.asset);
+      if (!video) throw notFound("the source video");
+      const driving = recipe.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window);
+      const picture = recipe.inputs.find((i) => i.type === "image" && i.role === "source");
+      const prompt = recipe.inputs.find((i) => i.type === "prompt");
+      if (!driving || driving.type !== "clip" || !driving.window) throw httpError(`${recipe.title} takes no driving video.`);
+      const windows = await planWindows(plan, recipe, video, this.storage);
+      if (!windows.length) throw httpError("The stretch is too short for one clip: make it longer.");
+      const all = await this.placed(timelineId);
+      // in place of the clip the stretch was taken from (still the same video), else after the last clip
+      const replaced = plan.clip ? all.findIndex((p) => p.clip.id === plan.clip && p.active?.asset.id === plan.asset) : -1;
+      const index = replaced >= 0 ? replaced : all.length;
+      const startsAt = all.slice(0, index).reduce((sum, p) => sum + plannedLengthOf(p, p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined), 0);
+      const seed = plan.seed ?? Math.floor(Math.random() * 2 ** 31);
+      const settings = settingsOf(recipe, all, index);
+      await this.remember(timelineId, `the ${windows.length} clips made from the source`);
+      return this.db.transaction().execute(async (tx) => {
+        const order: Array<{ clip: { id: string } }> = all.map((p) => ({ clip: { id: p.clip.id } }));
+        if (replaced >= 0) {
+          await tx.deleteFrom("clips").where("id", "=", plan.clip!).execute();
+          order.splice(replaced, 1);
+        }
+        const made: string[] = [];
+        for (const [k, w] of windows.entries()) {
+          const clip: NewClip = {
+            kind: "video", recipeId: recipe.id, joined: w.opens ? "cut" : "continue", still: null, take: null, asset: undefined, look: null,
+            inputs: {
+              ...settings,
+              [driving.id]: { asset: plan.asset }, [driving.window!.start]: w.start, [driving.window!.seconds]: w.seconds,
+              ...(picture && plan.picture ? { [picture.id]: plan.picture } : {}),
+              ...(prompt && plan.prompt.trim() ? { [prompt.id]: plan.prompt } : {}),
+              seed,
+            },
+          };
+          const id = await this.planner.insertClip(timelineId, order, index + k, clip, tx);
+          order.splice(index + k, 0, { clip: { id } });
+          made.push(id);
+        }
+        // the source's start sits where its stretch now plays from; the clip it was taken from is gone
+        await tx.updateTable("timelines").set({ source: JSON.stringify({ ...plan, atMs: startsAt - plan.fromMs, seed, clip: null }), updated_at: now() }).where("id", "=", timelineId).execute();
+        if (plan.picture) await this.keep(plan.picture, tx);
+        return made;
+      });
+    });
+    await this.touch(timelineId);
+    return ids;
   }
 
   /** The timeline goes, with what Undo and Redo remembered of it; the videos of its takes stay in the library. */

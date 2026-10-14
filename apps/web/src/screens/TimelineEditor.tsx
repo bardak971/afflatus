@@ -3,6 +3,7 @@ import { clock as mmss } from "../format";
 import { Picker } from "../PictureField";
 import { Inspector } from "../timeline/Inspector";
 import { JoinPanel } from "../timeline/inspector/join";
+import { SourcePanel } from "../timeline/inspector/source";
 import { MusicPanel } from "../timeline/inspector/music";
 import { Player } from "../timeline/Player";
 import { MediaOverlay } from "../timeline/MediaOverlay";
@@ -73,6 +74,15 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             clips={clips}
             label={musicOpen && t.music ? "Music" : current ? `${current.kind === "still" ? "Still" : "Clip"} ${clips.indexOf(current) + 1}` : "Overview"}
             {...e.checks}
+          />
+        ) : e.sourceOpen ? (
+          <SourcePanel
+            timeline={t}
+            recipes={e.videoRecipes}
+            onEdit={(source) => e.edit.mutate({ source })}
+            onMake={e.makeSource.run}
+            making={e.makeSource.pending}
+            onClose={() => e.setSourceOpen(false)}
           />
         ) : musicOpen && t.music ? (
           <MusicPanel timeline={t} onEdit={(p) => e.edit.mutate(p)} onClose={() => e.setMusicOpen(false)} />

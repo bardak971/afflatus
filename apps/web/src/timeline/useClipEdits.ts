@@ -66,7 +66,7 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
       if (setup.isSuccess && notReady(status, comfyOnline)) return null;
       const stored = inputsOf(c);
       const input = wholeForm(recipe, status?.options, settings.data?.items ?? [], stored);
-      for (const i of recipe.inputs) if (input[i.id] === undefined || i.type === "clip") delete input[i.id];
+      for (const i of recipe.inputs) if (input[i.id] === undefined || (i.type === "clip" && i.role !== "source")) delete input[i.id];
       return input;
     }),
     [recipes.data, setup.data, setup.isSuccess, comfyOnline, inputsOf, settings.data],
@@ -83,7 +83,7 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
       if (blocked) return { why: blocked };
       const stored = inputsOf(c);
       const input = wholeForm(recipe, status?.options, settings.data?.items ?? [], stored);
-      for (const i of recipe.inputs) if (input[i.id] === undefined || i.type === "clip") delete input[i.id];
+      for (const i of recipe.inputs) if (input[i.id] === undefined || (i.type === "clip" && i.role !== "source")) delete input[i.id];
       const at = clips.findIndex((x) => x.id === c.id);
       const before = at > 0 ? clips[at - 1] : undefined;
       const carries = Boolean(before) && c.joined === "continue";
@@ -92,6 +92,8 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
         // a clip that picks up from the last frame of the one before, or opens on the picture before it, needs no opening picture of its own
         const given = carries && i.type === "image" && i.role === "start" && (recipe.traits?.continues === "frame" || before?.kind === "still");
         if (i.type === "image" && !i.optional && !input[i.id] && !given) return { why: `Choose the ${i.label.toLowerCase()} first.` };
+        // a source video (Motion transfer's driving video) comes from the timeline's source lane
+        if (i.type === "clip" && i.role === "source" && !i.optional && !input[i.id]) return { why: `It has no ${i.label.toLowerCase()}: drop one on the Source lane under the track.` };
       }
       return { input };
     }),

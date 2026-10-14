@@ -3,6 +3,7 @@ import type { Db } from "./db";
 import type { Look } from "./entities";
 import { assetView } from "./media";
 import { EXPORT_JOB, lengthOnGrid, seamless, visible, type Placed, type Taken, type TimelineRow } from "./timelineModel";
+import { sourceOfRow } from "./timelineSource";
 
 /** What a timeline's view is made of besides its clips' order and lengths: its takes as the browser gets them, its jobs, its header. */
 
@@ -41,6 +42,13 @@ export class TimelineViews {
   }
 
   /** What a timeline's view says besides its clips: its frame, place, look, music, what Undo and Redo would do, its export. */
+  /** The source lane as the editor shows it: the plan, with its video (null when it left the library). */
+  private async sourceView(t: TimelineRow) {
+    const plan = sourceOfRow(t.source);
+    const video = plan ? await this.assetRow(plan.asset) : null;
+    return plan && video ? { ...plan, video: assetView(video) } : null;
+  }
+
   async headOf(t: TimelineRow) {
     const music = await this.assetRow(t.music_asset_id);
     const undo = await this.db.selectFrom("timeline_history").select("label").where("timeline_id", "=", t.id).orderBy("seq", "desc").executeTakeFirst();
@@ -70,6 +78,8 @@ export class TimelineViews {
       exporting: exporting ? { id: exporting.id, status: exporting.status as "queued" | "running" } : null,
       exported: exported && !exported.deleted_at ? assetView(exported) : null,
       exportFailed: lastExport?.status === "failed" ? lastExport.error : null,
+      /** Its source lane: the long video, where its start sits, the stretch to make and the form it is made with; null = none. */
+      source: await this.sourceView(t),
     };
   }
 

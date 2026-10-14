@@ -14,6 +14,7 @@ export * from "./seed";
 export * from "./limits";
 export * from "./joins";
 export * from "./transitions";
+export * from "./sourceWindows";
 export * from "./frameGrid";
 export * from "./promptLint";
 export * from "./music";

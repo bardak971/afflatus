@@ -20,10 +20,12 @@ export type Over =
   | { kind: "sound"; clip: string }
   | { kind: "music" }
   /** A transition onto the join before this clip. */
-  | { kind: "join"; clip: string };
+  | { kind: "join"; clip: string }
+  /** A video onto the source lane. */
+  | { kind: "source" };
 
 /** What is being dragged over the track, and what dropping it here would do. */
-export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic, onTransition }: {
+export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic, onTransition, onSource }: {
   clips: Clip[];
   slots: Slot[];
   /** Where the last clip ends, in pixels. */
@@ -36,6 +38,8 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
   onClipSound(clip: string, asset: string): void;
   onMusic(asset: string): void;
   onTransition?(clip: string, kind: TransitionKind): void;
+  /** A video dropped on the source lane. */
+  onSource?(asset: string): void;
 }) {
 
   const [over, setOver] = useState<Over | null>(null);
@@ -111,7 +115,8 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
         if (target.kind === "pin" && picture) onPin(clips.find((c) => c.id === target.clip)!, target.where, made.id, target.atS);
         else if (target.kind === "sound" && made.kind === "audio") onClipSound(target.clip, made.id);
         else if (target.kind === "music" && made.kind === "audio") onMusic(made.id);
-        else if (made.kind !== "audio" && target.kind !== "music") {
+        else if (target.kind === "source" && made.kind === "video") onSource?.(made.id);
+        else if (made.kind !== "audio" && target.kind !== "music" && target.kind !== "source") {
           // a picture or video that landed on a clip without a pin to take it: it goes in after that clip
           const index = target.kind === "insert" ? target.index : clips.findIndex((c) => c.id === target.clip) + 1;
           onInsert(made.id, index === 0 ? null : clips[index - 1]!.id);
@@ -127,6 +132,7 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
     } else if (target.kind === "pin" && asset) onPin(clips.find((c) => c.id === target.clip)!, target.where, asset, target.atS);
     else if (target.kind === "sound" && asset) onClipSound(target.clip, asset);
     else if (target.kind === "music" && asset) onMusic(asset);
+    else if (target.kind === "source" && asset) onSource?.(asset);
   };
   const n = (id: string) => clips.findIndex((c) => c.id === id) + 1;
   const hint = !dragging
@@ -141,6 +147,8 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
           ? over.where === "mid" ? `Drop to make this image a keyframe of clip ${n(over.clip)} at ${over.atS} s.` : `Drop to make this image the ${over.where === "start" ? "first" : "last"} frame of clip ${n(over.clip)}.`
           : over.kind === "sound"
             ? `Drop to replace the audio of clip ${n(over.clip)}.`
+            : over.kind === "source"
+            ? "Drop to make it the source: made into clips window by window (Motion transfer)."
             : over.kind === "join"
             ? `Drop to put it on the cut between clip ${n(over.clip) - 1} and clip ${n(over.clip)}${clips[n(over.clip) - 1]?.joined === "continue" ? " (it becomes a cut)" : ""}.`
             : "Drop to play it under the whole video.";
