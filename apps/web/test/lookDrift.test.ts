@@ -151,3 +151,14 @@ describe("grain and sharpness without it", () => {
     expect(driftWords(d)).toMatch(/grainier/);
   });
 });
+
+describe("the face along a run", () => {
+  it("warns of a clip whose person drifted against the run's start, and says so", () => {
+    const m = (face: number) => ({ luma: 100, sharp: 5, face });
+    const clips = [{ joined: "cut" as const, take: { measure: m(0.54) } }, { joined: "continue" as const, take: { measure: m(0.52) } }, { joined: "continue" as const, take: { measure: m(0.29) } }] as never;
+    expect(past("face", driftOf(clips, 1)!.hop.face)).toBe(false);
+    const d = driftOf(clips, 2)!;
+    expect(d.whole.face).toBeCloseTo(-0.46, 2);
+    expect(driftWords(d)).toMatch(/less alike/);
+  });
+});

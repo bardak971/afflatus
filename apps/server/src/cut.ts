@@ -360,6 +360,9 @@ export interface Measure {
   edges?: number;
   /** Grain: how far the copy's pixels sit from its 3×3 median, in luma steps (0 to 255): the fine noise, not the detail. */
   grain?: number;
+  /** How much the face along the clip is the person it is of (its Picture, its cast): ArcFace, the median over a few frames and the lowest. With the Face Match node only. */
+  face?: number;
+  faceLow?: number;
   /** Mean chroma against neutral: U is blue (+) to yellow (−), V red (+) to green (−); −128 to 127. */
   chroma?: { u: number; v: number };
   /** Where the darkest and the brightest tenth of the picture sit in luma (signalstats YLOW and YHIGH). */

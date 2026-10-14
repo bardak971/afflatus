@@ -1,3 +1,4 @@
+import { FACE_NODE, faceScore } from "../shared/face";
 import { defineRecipe, GraphBuilder, type Ref, type Variant } from "@afflatus/core";
 import { SCAIL_CARRIED, SCAIL_CHUNK, SCAIL_FPS } from "./family";
 import { applyLoras, livePreview, loraLoads } from "../shared/model";
@@ -68,7 +69,7 @@ export const scailMotion = defineRecipe<ScailMotion>({
     "CheckpointLoaderSimple", "SAM3_VideoTrack", "SCAIL2ColoredMask", "WanSCAILToVideo", "ModelSamplingSD3", "KSamplerSelect", "BasicScheduler", "SamplerCustom", "VAEDecode",
     ...(input.drivingSeconds * SCAIL_FPS > SCAIL_CHUNK ? ["ImageFromBatch", "ImageBatch"] : input.previous ? ["ImageFromBatch"] : []),
   ],
-  optionalNodes: [...MOTION_OPTIONAL, VHS, ...CORE_VIDEO_OUT, "ModelPreviewOverrideKJ"],
+  optionalNodes: [...MOTION_OPTIONAL, VHS, ...CORE_VIDEO_OUT, "ModelPreviewOverrideKJ", FACE_NODE],
 
   build(input, ctx) {
     if (!input.picture || !ctx.uploads.picture) throw new Error("Motion transfer needs a picture: what moves.");
@@ -145,7 +146,12 @@ export const scailMotion = defineRecipe<ScailMotion>({
     return {
       graph: g.graph,
       phases: g.phases,
-      outputs: [{ node: saved.out, kind: "video", role: "result" }, ...(saved.raw ? [{ node: saved.raw, kind: "video" as const, role: "raw" as const }] : [])],
+      outputs: [
+        { node: saved.out, kind: "video", role: "result" },
+        ...(saved.raw ? [{ node: saved.raw, kind: "video" as const, role: "raw" as const }] : []),
+        // the face along the clip against the Picture's: a window whose person drifted is flagged on the timeline
+        ...faceScore(g, ctx, images, [picture]),
+      ],
       totalSteps: input.steps * lengths.length,
       passes,
       loads: [

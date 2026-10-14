@@ -2,6 +2,7 @@ import type { BuildContext, BuiltGraph, GraphBuilder, Ref } from "@afflatus/core
 import { UPSCALE } from "../video/upscale";
 import { colourMatched, finishFrames } from "../shared/finish";
 import { saveVideo } from "../shared/out";
+import { faceScore } from "../shared/face";
 import { H3_FPS } from "./family";
 import type { H3Video } from "./inputs";
 
@@ -40,6 +41,8 @@ export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made:
       ...(raw ? [{ node: raw, kind: "video" as const, role: "raw" as const }] : []),
       ...(kept ? [{ node: kept, kind: "video" as const, role: "latent" as const }] : []),
       ...(keptFine ? [{ node: keptFine, kind: "video" as const, role: "fine" as const }] : []),
+      // the face along the clip against its people's pictures (the cast): drift along a run of clips is flagged on the timeline
+      ...faceScore(g, ctx, native, (input.references ?? []).flatMap((r, i) => (r.role === "person" && ctx.uploads[`references.${i}`] ? [g.out("LoadImage", { image: ctx.uploads[`references.${i}`] })] : []))),
     ],
     loads: done.loads,
   };

@@ -1,3 +1,4 @@
+import { FACE_NODE } from "../shared/face";
 import { defineRecipe, GraphBuilder, latentUpscaleSize, type BuildContext, type BuiltGraph, type Ref, type Variant } from "@afflatus/core";
 import { H3_FPS, H3_GRID } from "./family";
 import { UPSCALE, UPSCALE_OPTIONAL, upscaleNodes } from "../video/upscale";
@@ -54,7 +55,7 @@ export const h3Video = defineRecipe<H3Video>({
       ...(guided ? ["MiniMaxH3AddGuide"] : []),
     ];
   },
-  optionalNodes: [...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, ...COLOUR_MATCH_NODES, ...H3_CONTINUATION_NODES, H3_SEAM, H3_HEAD_GUIDE, H3_LANDING, H3_TRIM, ...H3_SAVE_LATENT,
+  optionalNodes: [FACE_NODE, ...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, ...COLOUR_MATCH_NODES, ...H3_CONTINUATION_NODES, H3_SEAM, H3_HEAD_GUIDE, H3_LANDING, H3_TRIM, ...H3_SAVE_LATENT,
     "MiniMaxH3Cache", "ModelPatchTorchSettings", "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ",
     // one of the two enlargers is used, by whether the latent upscaler's file is there: neither can be required by nodes()
     ...H3_LATENT_ENLARGE_NODES,

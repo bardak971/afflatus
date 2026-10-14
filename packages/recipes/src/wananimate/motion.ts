@@ -1,3 +1,4 @@
+import { FACE_NODE, faceScore } from "../shared/face";
 import { defineRecipe, GraphBuilder, type Variant } from "@afflatus/core";
 import { WAN_ANIMATE_FPS, WAN_ANIMATE_WINDOW } from "./family";
 import { WAN_NEGATIVE } from "../wan/video";
@@ -74,7 +75,7 @@ export const wanAnimateMotion = defineRecipe<WanAnimateMotion>({
     ...MOTION_NODES, "UNETLoader", "LoraLoaderModelOnly", "CLIPLoader", "VAELoader", "CLIPTextEncode", "CLIPVisionLoader", "CLIPVisionEncode", "ImageFromBatch",
     "WanAnimate2ToVideo", "WanAnimate2Cache", "ModelSamplingSD3", "KSamplerSelect", "BasicScheduler", "SamplerCustom", "TrimVideoLatent", "VAEDecode",
   ],
-  optionalNodes: [...MOTION_OPTIONAL, VHS, ...CORE_VIDEO_OUT, "ModelPreviewOverrideKJ"],
+  optionalNodes: [...MOTION_OPTIONAL, VHS, ...CORE_VIDEO_OUT, "ModelPreviewOverrideKJ", FACE_NODE],
 
   build(input, ctx) {
     if (!input.picture || !ctx.uploads.picture) throw new Error("Motion transfer needs a picture: what moves.");
@@ -128,7 +129,12 @@ export const wanAnimateMotion = defineRecipe<WanAnimateMotion>({
     return {
       graph: g.graph,
       phases: g.phases,
-      outputs: [{ node: saved.out, kind: "video", role: "result" }, ...(saved.raw ? [{ node: saved.raw, kind: "video" as const, role: "raw" as const }] : [])],
+      outputs: [
+        { node: saved.out, kind: "video", role: "result" },
+        ...(saved.raw ? [{ node: saved.raw, kind: "video" as const, role: "raw" as const }] : []),
+        // the face along the clip against the Picture's: a window whose person drifted is flagged on the timeline
+        ...faceScore(g, ctx, images, [g.out("LoadImage", { image: ctx.uploads.picture })]),
+      ],
       totalSteps: input.steps,
       passes: [{ node: sampled, steps: input.steps }],
       loads: [
