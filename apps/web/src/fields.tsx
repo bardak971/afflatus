@@ -12,6 +12,7 @@ import { FieldRow } from "./fields/FieldRow";
 import { withNote } from "./fieldNotes";
 import { fileLabel } from "./format";
 import { MaskField } from "./MaskField";
+import { MakeFromDriving } from "./motionPicture";
 import { Slider } from "./Slider";
 import { ClipField, PictureField, ReferencesField, SoundField, type PartProps } from "./PictureField";
 import { cx, Segmented, Toggle } from "./ui";
@@ -161,7 +162,13 @@ export function Field({ spec, value, values, specs, options, family, model, onCh
         const picture = spec.of ? values?.[spec.of] : undefined;
         return <MaskField label={spec.label} note={spec.note} picture={typeof picture === "string" ? picture : null} value={typeof value === "string" ? value : null} onChange={onChange} />;
       }
-      return <PictureField label={spec.label} note={spec.note} optional={Boolean(spec.optional)} value={typeof value === "string" ? value : null} onChange={onChange} />;
+      return (
+        <>
+          <PictureField label={spec.label} note={spec.note} optional={Boolean(spec.optional)} value={typeof value === "string" ? value : null} onChange={onChange} />
+          {/* a Motion transfer's picture, made from its driving video (motionPicture.tsx) */}
+          {spec.role === "source" && specs && values && <MakeFromDriving specs={specs} values={values} />}
+        </>
+      );
 
     case "references":
       return <ReferencesField label={spec.label} note={spec.note} max={spec.max} roles={spec.roles} video={spec.media === "video"} value={(value as ReferenceValue[] | undefined) ?? []} onChange={onChange} cast={cast} />;

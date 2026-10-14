@@ -48,7 +48,8 @@ export function motionInputs(shape: MotionShape): InputSpec[] {
     { id: "drivingStart", type: "number", label: "Driving video: start", min: 0, max: 3600, step: 0.1, default: 0, unit: " s", showWhen: "driving" },
     { id: "drivingSeconds", type: "number", label: "Driving video: length", min: 1, max: Math.floor(most * 10) / 10, step: 0.1, default: 5, unit: " s", showWhen: "driving" },
     {
-      id: "prompt", type: "prompt", label: "Prompt", style: "sentences", optional: true,
+      // the cast is not written into it: on this form the cast is who goes into a picture made from the video (motionPicture.tsx)
+      id: "prompt", type: "prompt", label: "Prompt", style: "sentences", optional: true, noCast: true,
       placeholder: "A man in a black t-shirt raps to the camera in a crowded room lit by red light, moving his hands to the beat.",
       note: "what the picture shows, in sentences: optional, it helps the model keep what is there",
     },
