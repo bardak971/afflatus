@@ -80,6 +80,8 @@ const stateSchema = z.object({
   lastError: z.string().nullable(),
   /** When the deploy under way began: after a restart, the machine it made is looked for from then. */
   deployingSince: z.string().nullable(),
+  /** The rented machines there were when the deploy under way began: after a restart, the one not among them is its pod. */
+  before: z.array(z.string()).default([]),
   found: z.object({ gpu: z.string(), name: z.string(), price: z.number(), dataCenter: z.string().nullable(), at: z.string() }).nullable(),
 });
 export type HuntState = z.infer<typeof stateSchema>;
@@ -165,11 +167,15 @@ export class Hunt {
       return;
     }
     const st = parsed.data;
-    // stopped mid-deploy: the machine that deploy made, when it got as far as keeping one, is its pod; else it hunts again
+    // stopped mid-deploy: the rented machine that was not there before it is its pod. None kept: the pod may still have been
+    // made on RunPod before Afflatus stopped, so the hunt ends rather than deploying a second one (a pod billed unseen)
     if (st.status === "deploying") {
-      const since = Date.parse(st.deployingSince ?? st.startedAt);
-      const made = (await readSettings(this.s.db)).machines.find((m) => m.rented?.deployed && !m.rented.fill && Date.parse(m.rented.deployedAt) >= since);
-      Object.assign(st, made ? { status: "up", machine: made.id } : { status: "hunting" }, { deployingSince: null });
+      const made = (await readSettings(this.s.db)).machines.find((m) => m.rented && !m.rented.fill && !st.before.includes(m.id));
+      if (!made) {
+        this.state = st;
+        return this.end("Afflatus stopped while deploying a GPU: look on RunPod for a pod it may have made");
+      }
+      Object.assign(st, { status: "up", machine: made.id, deployingSince: null });
     }
     this.state = st;
     await this.save();
@@ -286,7 +292,7 @@ export class Hunt {
       mode: asked.mode, ceiling: asked.ceiling, leftOut: asked.leftOut, cloud: asked.deploy.cloud, dataCenter,
       deploy: { ...asked.deploy, files, again: false }, hold: asked.hold,
       startedAt: new Date(at).toISOString(), giveUpAt: new Date(at + asked.giveUpMinutes * 60_000).toISOString(),
-      status: "hunting", machine: null, pausedByHunt: [], asks: 0, fails: 0, lastError: null, deployingSince: null, found: null,
+      status: "hunting", machine: null, pausedByHunt: [], asks: 0, fails: 0, lastError: null, deployingSince: null, before: [], found: null,
     };
     this.state = st;
     this.ranking = null;
@@ -432,6 +438,7 @@ export class Hunt {
     if (!pick) return this.save();
     st.status = "deploying";
     st.deployingSince = new Date(this.now()).toISOString();
+    st.before = (await readSettings(this.s.db)).machines.filter((m) => m.rented).map((m) => m.id);
     await this.save();
     let made: { id: string; dataCenter: string | null };
     try {

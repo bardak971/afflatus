@@ -281,6 +281,31 @@ describe("the hunt", () => {
       again.services.queue.stop();
     }
   });
+
+  it("stopped mid-deploy with no pod kept: ends, deploys nothing more, resumes what it paused", async () => {
+    await queue();
+    await start();
+    await t.services.hunt.tick();
+    t.services.hunt.stop();
+    // as if Afflatus stopped between RunPod making the pod and the machine being kept: the pod may exist, unseen
+    const row = await t.db.selectFrom("settings").select("value").where("key", "=", "hunt").executeTakeFirstOrThrow();
+    const st = { ...JSON.parse(row.value), status: "deploying", deployingSince: new Date().toISOString(), before: [] };
+    await t.db.updateTable("settings").set({ value: JSON.stringify(st) }).where("key", "=", "hunt").execute();
+    const again = await makeApp({ db: t.db, comfyUrl: home.url });
+    try {
+      again.services.hunt.stop();
+      free("NVIDIA A40");
+      await again.services.hunt.tick();
+      expect(again.services.hunt.view().hunt).toBeNull();
+      expect(creates()).toBe(0);
+      expect(await again.services.queue.pausedOn("m1")).toBe(false);
+    } finally {
+      again.services.hunt.stop();
+      again.services.rented.stop();
+      again.services.notify.stop();
+      again.services.queue.stop();
+    }
+  });
 });
 
 describe("the home machines", () => {
