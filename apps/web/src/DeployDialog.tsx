@@ -120,16 +120,19 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
   const keyed = Boolean(settings.data?.hasRunpodKey);
   const outOfStock = keyed ? (gpus.data?.gpus ?? []).filter((g) => !placesOf(g).length && matches(g)).sort((a, b) => a.price - b.price) : [];
 
-  // the hunt: asked for (Ctrl+K, the hunt's card), or the GPU wanted not free. A hunt under way is changed, not started again
+  // the hunt: asked for (Ctrl+K, the hunt's card), or a GPU not free picked here. A hunt under way is changed, not started
+  // again. The last deploy's GPU not free when the dialog opens is not a hunt: it opens on what is in stock, the foot saying
+  // so (the owner wanted to deploy, and found the dialog hunting for a GPU he had not picked)
   const [huntAsked, setHuntAsked] = useState(opening !== "deploy");
+  const [opened] = useState(want.gpu);
   // the GPU the dialog turned to a hunt for: it stays a hunt while that GPU is the one wanted, whatever RunPod's next read
   // says (a GPU that comes and goes from the stock list every 15 s flipped the whole dialog between hunt and deploy)
   const [huntFor, setHuntFor] = useState<string | null>(null);
-  const goneId = gone?.id ?? null;
+  const goneId = gone && want.gpu !== opened ? gone.id : null;
   useEffect(() => {
     if (keyed && goneId) setHuntFor(goneId);
   }, [keyed, goneId]);
-  const hunting = keyed && (huntAsked || Boolean(gone) || (huntFor !== null && huntFor === want.gpu));
+  const hunting = keyed && (huntAsked || Boolean(goneId) || (huntFor !== null && huntFor === want.gpu));
   const queueHunt = useQueue().data?.hunt ?? null;
   const changing = hunting && (opening === "change" || Boolean(queueHunt));
   const kept = useQuery({ queryKey: queryKeys.hunt(), queryFn: ({ signal }) => api.hunt({ signal }), enabled: changing }).data?.hunt ?? null;
@@ -363,7 +366,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
             ? `Billed from deploy · ${picked.name} ${picked.places[0]!.id === "any" ? "on Community Cloud" : `in ${picked.places[0]!.id}`}`
             : gone
               // the one picked last time, not in stock on this cloud now: said where the choice is made, nothing moves above
-              ? <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-warn-ink">{gone.name} not in stock {volume ? `in ${volume.dataCenter} ` : ""}now{instead ? `; the ${instead.name} is, at ${usd(instead.price)}/h` : ""}{instead && <Button size="sm" onClick={() => set({ gpu: instead.id })}>Pick it</Button>}</span>
+              ? <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-warn-ink">{gone.name} not in stock {volume ? `in ${volume.dataCenter} ` : ""}now{instead ? `; the ${instead.name} is, at ${usd(instead.price)}/h` : ""}{instead && <Button size="sm" onClick={() => set({ gpu: instead.id })}>Pick it</Button>}{keyed && <Button size="sm" onClick={() => { setHuntFor(gone.id); setHuntAsked(true); }}>Hunt for it</Button>}</span>
               : "Pick a GPU"}
         </span>
         <Button tone="quiet" onClick={onClose} className="shrink-0">Cancel <Keys keys="Esc" size="sm" /></Button>
