@@ -4,7 +4,7 @@ import type { Comfy } from "./comfy";
 import type { Db } from "./db";
 import type { Downloads } from "./downloads";
 import { stat } from "node:fs/promises";
-import { measuredRange, recordMeasure, type MeasureKind, type Range } from "./podMeasures";
+import { MEASURED_FROM, measuredRange, recordMeasure, type MeasureKind, type Range } from "./podMeasures";
 import { localCopy, measureKind, podSource, type PodSource, type SourceLookup } from "./podSources";
 import { PACK_UPLOADS, uploadFile } from "./podUpload";
 import type { Settings } from "./settings";
@@ -60,6 +60,8 @@ interface Entry extends PodFileView {
   upload?: AbortController;
   /** When its bytes started coming, for its speed. */
   flowingAt?: number;
+  /** When all of it was on the pod (the pack had it whole), for its speed. */
+  wholeAt?: number;
 }
 
 export interface PodFilesDeps {
@@ -100,6 +102,8 @@ export class PodFiles {
   private readonly pods = new Map<string, Map<string, Entry>>();
   private seq = 0;
   private ticking: Promise<void> | null = null;
+  /** A file smaller than this is not measured (podMeasures.ts MEASURED_FROM; smaller in tests). */
+  measuredFrom = MEASURED_FROM;
   /** The first wait before an upload's piece is sent again (shorter in tests). */
   uploadBackoffMs = 2000;
 
@@ -299,7 +303,8 @@ export class PodFiles {
   private follow(machine: string, e: Entry): boolean {
     const v = this.d.downloads.get(e.downloadId!);
     if (!v) return this.fail(machine, e, "its download was lost: Afflatus was restarted, or it was taken off the list");
-    if (v.status === "downloading" && !e.flowingAt) e.flowingAt = Date.now();
+    // whole on the pod once the pack is done with it (ComfyUI listing it comes a moment after): its speed ends there
+    if (v.status === "saving" || v.status === "done") e.wholeAt ??= Date.now();
     const moved = v.bytes !== e.bytes || (v.total || e.total) !== e.total;
     e.bytes = v.bytes;
     if (v.total) e.total = v.total;
@@ -336,6 +341,8 @@ export class PodFiles {
         headers = settings.civitaiKey ? { Authorization: `Bearer ${settings.civitaiKey}` } : undefined;
         total = Math.round((found.file.sizeKB ?? 0) * 1024) || total;
       } else source = src.url;
+      // its clock starts as it is asked for: a pod's two at a time start at once, and a fast file is done before the next look
+      e.flowingAt = Date.now();
       const started = await this.d.downloads.start(comfy, "", { file: e.file, folder: e.folder, title: name, source, ...(headers ? { headers } : {}), ...(total ? { total } : {}), machine, directOnly: true });
       e.downloadId = started.id;
       if (started.total) e.total = started.total;
@@ -379,7 +386,7 @@ export class PodFiles {
     this.d.changed?.();
     this.d.settled?.(machine);
     if (measured && e.flowingAt && e.via) {
-      await recordMeasure(this.d.db, { kind: e.via, cloud: await this.d.cloudOf(machine), bytes: e.total || e.bytes, ms: Date.now() - e.flowingAt }).catch(() => {});
+      await recordMeasure(this.d.db, { kind: e.via, cloud: await this.d.cloudOf(machine), bytes: e.total || e.bytes, ms: (e.wholeAt ?? Date.now()) - e.flowingAt }, this.measuredFrom).catch(() => {});
     }
     void this.tick();
   }

@@ -15,8 +15,8 @@ export const MEASURED_FROM = 100 * 2 ** 20;
 /** The last this many of a kind make its range. */
 const LAST = 12;
 
-export async function recordMeasure(db: Db, m: { kind: MeasureKind; cloud: string | null; bytes: number; ms: number }): Promise<void> {
-  if (m.ms <= 0 || (m.kind !== "boot" && m.bytes < MEASURED_FROM)) return;
+export async function recordMeasure(db: Db, m: { kind: MeasureKind; cloud: string | null; bytes: number; ms: number }, from = MEASURED_FROM): Promise<void> {
+  if (m.ms <= 0 || (m.kind !== "boot" && m.bytes < from)) return;
   await db.insertInto("pod_measures").values({ id: randomUUID(), kind: m.kind, cloud: m.cloud, bytes: Math.round(m.bytes), ms: Math.round(m.ms), at: new Date().toISOString() }).execute();
 }
 

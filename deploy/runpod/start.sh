@@ -44,6 +44,23 @@ for req in "$BASE"/custom_nodes/*/requirements.txt; do
   pip install -q -c /constraints.txt -r "$req" || echo "[afflatus-pod] could not install $req"
 done
 
+# ComfyUI-Manager installs the node packs a job needs only where it trusts who asks: on a ComfyUI listening on every
+# address (a pod), only in its "personal cloud" mode (a machine one person uses: this one is locked to Afflatus's token)
+# at its normal security level. Those two keys set, its other settings kept
+python - "$BASE/user/__manager/config.ini" <<'PY'
+import configparser, os, sys
+path = sys.argv[1]
+os.makedirs(os.path.dirname(path), exist_ok=True)
+c = configparser.ConfigParser(strict=False)
+c.read(path)
+if "default" not in c:
+    c["default"] = {}
+c["default"]["network_mode"] = "personal_cloud"
+c["default"]["security_level"] = "normal"
+with open(path, "w") as f:
+    c.write(f)
+PY
+
 # COMFYUI_ARGS: more of ComfyUI's flags, from the pod's environment (--fast, --reserve-vram 1, …)
 # shellcheck disable=SC2086
 exec python /comfyui/main.py --listen 0.0.0.0 --port 8188 --enable-manager --disable-auto-launch --base-directory "$BASE" ${COMFYUI_ARGS:-}
