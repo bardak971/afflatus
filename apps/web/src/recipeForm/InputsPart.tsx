@@ -32,7 +32,7 @@ function useTakes() {
 export function InputsPart({ frames, refs, framesChosen, refsCount, chosen, summary, missing, look, lookHit, lookWithFrames, frameExtra, q, render }: {
   /**
    * The cast is used by the frames alone (a Motion transfer: who goes into the picture made from the driving video), not by
-   * a reference input or the words: it is drawn under the frames, and there is no References tab holding it alone.
+   * a reference input or the words: no References tab holds it; it is picked in that picture's own box (motionPicture.tsx).
    */
   lookWithFrames?: boolean;
   frames: InputSpec[];
@@ -105,10 +105,7 @@ export function InputsPart({ frames, refs, framesChosen, refsCount, chosen, summ
         </div>
       )}
       {tabNow === "frames" && !q && frameExtra?.node}
-      {/* a cast used by the frames alone goes right after the main ones (the picture it is put into), before what is advanced (a clip carried on from) */}
-      {(tabNow === "frames" || q) && (lookWithFrames ? frames.filter((i) => !i.advanced) : frames).map(render)}
-      {lookWithFrames && (!q || lookHit) && look}
-      {lookWithFrames && (tabNow === "frames" || q) && frames.filter((i) => i.advanced).map(render)}
+      {(tabNow === "frames" || q) && frames.map(render)}
       {((tabNow === "references" && !q) || lookHit) && look}
       {(tabNow === "references" || q) && refs.map(render)}
     </Part>
