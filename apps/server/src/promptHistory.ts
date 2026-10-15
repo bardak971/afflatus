@@ -34,6 +34,8 @@ export interface PromptHistoryItem {
   draftId: string | null;
   /** Its first output still in the library (of its newest render that has one); null when all of them are gone. */
   assetId: string | null;
+  /** The timeline clip that output is a take of: it is seen there, on its timeline. Null for a render of a draft. */
+  clip: { timeline: string; clip: number } | null;
   createdAt: string;
 }
 
@@ -103,7 +105,7 @@ export async function promptHistory(s: Services, raw: unknown): Promise<{ items:
       }
       // the newest render of a prompt is read first: its recipe, draft and time are the item's
       if (byText.size >= limit) continue;
-      byText.set(prompt, { prompt, recipe: g.recipe_id, draftId: g.draft_id, assetId: null, createdAt: g.created_at, gens: [g.id], checked: 0 });
+      byText.set(prompt, { prompt, recipe: g.recipe_id, draftId: g.draft_id, assetId: null, clip: null, createdAt: g.created_at, gens: [g.id], checked: 0 });
     }
     const last = found.at(-1);
     if (!last || found.length < PAGE) break;
@@ -115,6 +117,11 @@ export async function promptHistory(s: Services, raw: unknown): Promise<{ items:
     }
   }
   await resolve();
-  const items = [...byText.values()].map(({ gens: _, checked: __, ...i }) => i);
+  // a take of a timeline clip is looked at on its timeline, the clip selected, as the viewer's own link leads there
+  const placed = await s.timelines.clipOf([...byText.values()].flatMap((i) => (i.assetId ? [i.assetId] : [])));
+  const items = [...byText.values()].map(({ gens: _, checked: __, ...i }) => {
+    const of = i.assetId ? placed.get(i.assetId) : undefined;
+    return { ...i, clip: of ? { timeline: of.timeline, clip: of.clip } : null };
+  });
   return { items };
 }
