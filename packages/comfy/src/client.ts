@@ -313,12 +313,15 @@ export class ComfyClient {
   /**
    * Put a file in ComfyUI's temp folder; returns the name loader nodes take ("<name> [temp]"). With `into: "input"`
    * it goes to the input folder's "afflatus" subfolder instead, for a node that reads only from there (the DaSiWa
-   * Director's pictures); the name is then "afflatus/<name>". `signal` drops it half way (a job's Stop).
+   * Director's pictures); the name is then "afflatus/<name>". `signal` drops it half way (a job's Stop). A Blob (a file on
+   * the disk, fs.openAsBlob) is streamed from where it is, not read into memory first. `name`: the file's own name, for a
+   * file sent under a name its content gives (starting with "afflatus_", for the cleanup to know it); else a fresh one.
    */
-  async upload(bytes: Uint8Array, ext: string, opts: { into?: "input"; signal?: AbortSignal } = {}): Promise<string> {
+  async upload(bytes: Uint8Array | Blob, ext: string, opts: { into?: "input"; signal?: AbortSignal; name?: string } = {}): Promise<string> {
     const form = new FormData();
     const type = MIME[ext] ?? "application/octet-stream";
-    form.append("image", new Blob([new Uint8Array(bytes).buffer], { type }), `afflatus_${randomUUID()}.${ext}`);
+    const body = bytes instanceof Blob ? (bytes.type ? bytes : new Blob([bytes], { type })) : new Blob([new Uint8Array(bytes).buffer], { type });
+    form.append("image", body, opts.name ?? `afflatus_${randomUUID()}.${ext}`);
     form.append("type", opts.into === "input" ? "input" : "temp");
     if (opts.into === "input") form.append("subfolder", "afflatus");
     form.append("overwrite", "true");

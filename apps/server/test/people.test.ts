@@ -152,7 +152,8 @@ describe("people, places and styles", () => {
     expect(node.inputs["ref_audios.ref_audio_0"]).toBeDefined();
     expect(String(node.inputs.prompt)).toContain("<Subject 1> is the character in <Picture 1> and <Picture 2>, She has brown hair and green eyes. She wears a white summer dress.");
     expect(Object.values(graph).find((n) => n.class_type === "UNETLoader")!.inputs.unet_name).toBe("minimax_h3_ref2va.safetensors");
-    expect(fake.uploads.filter((u) => u.endsWith(".png"))).toHaveLength(4);
+    // the four pictures are the same file here: it goes up once, under the name its content gives, for all four
+    expect(fake.uploads.filter((u) => u.endsWith(".png"))).toHaveLength(1);
     expect(fake.uploads.filter((u) => u.endsWith(".wav"))).toHaveLength(1);
   });
 

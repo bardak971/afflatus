@@ -110,7 +110,7 @@ describe("a render one of whose sources was erased while it rendered", () => {
     // a neighbour video or an opening frame chosen at submit, erased since: its row is gone
     const resume = { promptId: "p", seed: 1, outputs: [{ node: "9", role: "result", kind: "image" }], totalSteps: 1, phases: {}, loads: [], startedAt: Date.now(), sources: [{ asset: "not-there", role: "init" }] } as unknown as Resume;
     const outputs = { "9": { images: [{ filename: "made.png", subfolder: "", type: "temp" }] } };
-    const generation = await store(core, comfy, recipe, INPUT, resume, outputs as never, { id: "job", draft_id: null, folder_id: null, look: null });
+    const generation = (await store(core, comfy, recipe, INPUT, resume, outputs as never, { id: "job", draft_id: null, folder_id: null, look: null })).id;
     expect(await t.db.selectFrom("assets").select("id").where("generation_id", "=", generation).execute()).toHaveLength(1);
     expect(await t.db.selectFrom("generation_inputs").selectAll().where("generation_id", "=", generation).execute()).toEqual([]);
   });
