@@ -11,6 +11,7 @@ import { Bar, Button, cx, Empty, ErrorNote } from "../../ui";
 import { Viewer } from "../../viewer/LazyViewer";
 import { useTileMenu } from "../../TileMenu";
 import { Tile, tileName } from "../Library";
+import { ThumbWidth } from "../../Thumb";
 import { LiveTile } from "./LiveTile";
 import { useQueueOf } from "./queueOf";
 import { drawnIndices, stackBands, useHeld, useSpan } from "./virtual";
@@ -212,7 +213,9 @@ function StripItems({ items, byModel, shown, onPick, onMenu }: { items: Asset[];
           {/* at its own shape (a portrait take stays portrait), with its name under it; the one shown large is marked */}
           <div className={cx("flex flex-col gap-1.5 rounded-[12px] p-1.5", on ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : "hover:shadow-[inset_0_0_0_1px_var(--color-line-strong)]")}>
             <div data-strip-tile style={{ aspectRatio: shapeOf(a), width: `min(100%, ${Math.round(TILE_H * shapeOf(a))}px)` }} className="mx-auto">
-              <Tile fill plain asset={a} onOpen={() => onPick(a)} onMenu={(e) => onMenu(e, a)} />
+              <ThumbWidth.Provider value={Math.min(room.current.width || Infinity, Math.round(TILE_H * shapeOf(a)))}>
+                <Tile fill plain asset={a} onOpen={() => onPick(a)} onMenu={(e) => onMenu(e, a)} />
+              </ThumbWidth.Provider>
             </div>
             {/* what it is, under the picture: its name, then its clip and its length (or size) */}
             <span className="flex min-w-0 flex-col gap-1 px-0.5">
@@ -252,7 +255,7 @@ function LiveProgress({ id }: { id: string }) {
   return (
     <>
       <span className="font-semibold">{phaseLabel(job.phase)}{job.steps ? ` · step ${job.step} of ${job.steps}` : ""}{job.eta ? ` · ${timeLeft(job.eta)}` : ""}</span>
-      <div className="w-full"><Bar value={job.progress * 100} /></div>
+      <div className="w-full"><Bar value={job.progress * 100} steps={job.steps} loading={!job.progress} /></div>
     </>
   );
 }

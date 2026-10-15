@@ -14,10 +14,6 @@ import { useBanners } from "./store";
 import { queryKeys } from "./queryKeys";
 import { cx } from "./ui";
 
-/** Asked by the menus and the command bar ("Load a model…"): the dialog opens, on the machine named when there is one. */
-const OPEN_LOAD = "afflatus:load-model";
-export const openLoadPanel = (machine?: string) => window.dispatchEvent(new CustomEvent(OPEN_LOAD, { detail: { machine } }));
-
 /** Past this many rows of all the models, typing more narrows them: a long list is not read. */
 const MANY = 40;
 
@@ -39,18 +35,6 @@ type Row =
   | { kind: "choice"; key: string; family: string; file: string; from: string; ofForm: boolean; recipe: string; input: string | null; path: string | null; choice: LoadChoice }
   | { kind: "file"; key: string; family: string; file: string; from: string; ofForm: false; recipe: string; input: string; path: string };
 
-/** The dialog, mounted once (StatusBar.tsx) and opened from the menus and the command bar. */
-export function LoadPanelHost() {
-  const [open, setOpen] = useState<{ machine?: string } | null>(null);
-  useEffect(() => {
-    const show = (e: Event) => setOpen({ machine: (e as CustomEvent<{ machine?: string }>).detail?.machine });
-    window.addEventListener(OPEN_LOAD, show);
-    return () => window.removeEventListener(OPEN_LOAD, show);
-  }, []);
-  if (!open) return null;
-  return <LoadDialog machine={open.machine} onClose={() => setOpen(null)} />;
-}
-
 /**
  * "Load a model…": a dialog in the middle of the screen, in the command bar's frame. Where, once at the top (Auto: the
  * machine that would render it first; or one machine, the one whose menu opened it); one row per model on two lines,
@@ -58,7 +42,7 @@ export function LoadPanelHost() {
  * it and where it is loaded already; typing finds any model file the machine has, loaded with its family's plain
  * operation. ↑↓, Enter, Esc.
  */
-function LoadDialog({ machine: asked, onClose }: { machine?: string; onClose(): void }) {
+export function LoadDialog({ machine: asked, onClose }: { machine?: string; onClose(): void }) {
   const queue = useQueue();
   const several = severalMachines(queue.data);
   const [machine, setMachine] = useState<string | undefined>(several.length ? asked : undefined);

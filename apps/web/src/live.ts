@@ -68,6 +68,8 @@ const LOCK = "afflatus.live";
 const CHANNEL = "afflatus.live";
 /** A connection down this long is said in the status bar: a server restarting is often back sooner. */
 const DOWN_AFTER_MS = 4000;
+/** How often the running jobs' figures from the progress events are written into the queue on screen, at most. */
+const PROGRESS_EVERY_MS = 100;
 /** Heard nothing this long (the server beats every 10 s): the stream is dead though it looks open, as a proxy can leave it after the server went. */
 const SILENT_MS = 30_000;
 /** The waits before each try to open a closed connection again; the last one repeats. */
@@ -156,14 +158,28 @@ export function useLiveEvents(): void {
     // the connection over from another), after which anything may have changed (liveState.ts greetings); and a server
     // of another version means this page is out of date
     const greeted = greetings();
+    // the progress events waiting to be written in, by job (the last figures of each)
+    const progressWaiting = new Map<string, Partial<ProgressUpdate>>();
+    let progressFlush: number | null = null;
+    const writeProgress = () => {
+      progressFlush = null;
+      const all = [...progressWaiting.values()];
+      progressWaiting.clear();
+      const merged = mergeProgress(client.getQueryData<QueueStatus>(queryKeys.queue()), { all });
+      if (merged) client.setQueryData<QueueStatus>(queryKeys.queue(), merged);
+      else readQueue();
+    };
     const handlers: Record<string, (data: string) => void> = {
       queue: readQueue,
       library: readLibrary,
       progress: (data) => {
-        // with the job's figures in the event, the running job is changed in place: nothing is fetched
-        const merged = mergeProgress(client.getQueryData<QueueStatus>(queryKeys.queue()), parse(data) as Partial<ProgressUpdate> | null);
-        if (merged) client.setQueryData<QueueStatus>(queryKeys.queue(), merged);
-        else readQueue();
+        // with the job's figures in the event, the running job is changed in place: nothing is fetched. The events of a
+        // tenth of a second are written in together: each write draws again every screen part that reads the queue, and
+        // with several machines rendering pictures that came to ~36 a second (the bars glide between them, progress/style.ts)
+        const said = parse(data) as (Partial<ProgressUpdate> & { all?: Array<Partial<ProgressUpdate>> }) | null;
+        if (!said) return readQueue();
+        for (const u of said.all ?? [said]) if (typeof u.id === "string") progressWaiting.set(u.id, { ...progressWaiting.get(u.id), ...u });
+        progressFlush ??= window.setTimeout(writeProgress, PROGRESS_EVERY_MS);
       },
       models: on(queryKeys.modelInfo.all()),
       // a timeline changed: its card, and the Projects panel's tree when it is open (its clips, its size)
@@ -316,6 +332,7 @@ export function useLiveEvents(): void {
       if (retry) clearTimeout(retry);
       if (downWait) clearTimeout(downWait);
       if (watchdog) clearInterval(watchdog);
+      if (progressFlush !== null) clearTimeout(progressFlush);
       unwatch();
       source?.close();
       channel?.close();

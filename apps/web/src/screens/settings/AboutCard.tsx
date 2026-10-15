@@ -5,6 +5,7 @@ import { useSetup } from "../../data";
 import { ask } from "../../Confirm";
 import { dayOf, plural, size, sourceOf, UI_LOCALE, when } from "../../format";
 import { useCopied } from "../../hooks";
+import { Progress } from "../../progress/Progress";
 import { Button, cx, ErrorNote, Help, Toggle } from "../../ui";
 import { aboutState, followRestart, newsOf, stepsOf, useUpdates, useUpdatesSeen, versionNote } from "../../updates";
 import { Block, Card, Row, Status } from "./Rows";
@@ -251,11 +252,7 @@ function UpdatesPart({ v, startupUnchecked }: { v: UpdatesView; startupUnchecked
 
 /** A thin bar: how far an update is. */
 function Bar({ done, tone }: { done: number; tone: "good" | "accent" }) {
-  return (
-    <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(done * 100)} className="h-1.5 overflow-hidden rounded-full bg-line">
-      <div className={cx("h-full rounded-full transition-[width] duration-300", tone === "good" ? "bg-good" : "bg-accent")} style={{ width: `${Math.round(done * 100)}%` }} />
-    </div>
-  );
+  return <Progress value={done} className="h-1.5" under="bg-line" tone={tone === "good" ? "bg-good" : "bg-accent"} label="Update" />;
 }
 
 /** An update under way: its steps, each done, now or to come, the bar, and Cancel until it switches. */

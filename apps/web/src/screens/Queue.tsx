@@ -127,7 +127,7 @@ export function Queue() {
                 ? <MachineLanes q={q} onStop={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} />
                 : <RunningCard running={q.running} onStop={(id) => cancel.mutate(id)} />}
               {/* its head says what they come to: how many, how long, the model switches, and the bulk actions */}
-              <WaitingList waiting={q.waiting} running={q.running} machines={several} onOrder={(ids) => order.mutate(ids)} onRemove={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} />
+              <WaitingList waiting={q.waiting} whole={q.whole} running={q.running} machines={several} onOrder={(ids) => order.mutate(ids)} onRemove={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} />
             </section>
             <History />
           </div>

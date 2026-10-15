@@ -1,7 +1,8 @@
-import { Fragment, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ArrowDownToLine, ArrowUpToLine, Layers, Pin, Server, Trash2, X } from "lucide-react";
-import type { Job, MachineLack, MachineState, RunningJob } from "../../api";
+import { api, type Job, type MachineLack, type MachineState, type RunningJob } from "../../api";
 import { GetFile } from "../../GetFile";
 import { machineLabel } from "../../machines";
 import { JOB_DRAG } from "./MachineLanes";
@@ -52,13 +53,30 @@ function WaitingHead({ waiting, running }: { waiting: Job[]; running: RunningJob
  * the rest unfold. With several ComfyUIs (`machines`), each row says the machine it will probably run on and when, or the
  * one it is pinned to; a row dropped on a machine's lane (MachineLanes.tsx), or "Run on" in its menu, pins it there.
  */
-export function WaitingList({ waiting, running, machines = [], onOrder, onRemove, onPin }: {
-  waiting: Job[]; running: RunningJob | null; machines?: MachineState[];
+export function WaitingList({ waiting: line, whole = line.length, running, machines = [], onOrder, onRemove, onPin }: {
+  waiting: Job[];
+  /** How many of `waiting` are whole rows (QueueStatus.whole): the others are asked for whole when the list shows them all. */
+  whole?: number;
+  running: RunningJob | null; machines?: MachineState[];
   onOrder(ids: string[]): void; onRemove(id: string): void; onPin?(job: string, machine: string | null): void;
 }) {
   const [dragged, setDragged] = useState<string | null>(null);
   const [over, setOver] = useState<number | null>(null);
   const [all, setAll] = useState(false);
+  // shown whole, the jobs past the queue answer's first ones are read whole too (what keeps one off a machine, the files
+  // it waits for), a page of them, again when the line changes
+  const later = line.slice(whole).map((w) => w.id);
+  const rest = useQuery({
+    queryKey: ["queue-waiting", whole, later.join()],
+    queryFn: ({ signal }) => api.queueWaiting(whole, 500, { signal }),
+    enabled: all && later.length > 0,
+    staleTime: 5000,
+  });
+  const waiting = useMemo(() => {
+    if (!rest.data) return line;
+    const byId = new Map(rest.data.items.map((w) => [w.id, w]));
+    return line.map((w, i) => (i < whole ? w : byId.get(w.id) ?? w));
+  }, [line, whole, rest.data]);
   const modelOf = useModelName();
   const bulk = useQueueBulk();
   /** The right-click menu of a waiting job: run it next, move it where it saves model loads, group the line, cancel it or all. */

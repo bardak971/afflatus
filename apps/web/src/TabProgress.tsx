@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Job } from "./api";
 import { useQueue } from "./data";
 import { clock, timeLeft } from "./format";
@@ -7,9 +7,11 @@ import { useThemeChoice } from "./theme/store";
 
 const NAME = "Afflatus";
 /**
- * The theme's colours, read off the page as the icon is drawn: the tab's icon is in the theme and the accent that are up,
- * on the dark of the stage as the rail's mark is (its accent is the one tuned for the dark).
+ * The theme's colours, read off the page once per theme (a style read per drawing cost more than the drawing): the tab's
+ * icon is in the theme and the accent that are up, on the dark of the stage as the rail's mark is (its accent is the one
+ * tuned for the dark).
  */
+type Tones = ReturnType<typeof colors>;
 function colors() {
   const css = getComputedStyle(document.querySelector("[data-stage]") ?? document.documentElement);
   const token = (name: string) => css.getPropertyValue(`--color-${name}`).trim();
@@ -23,13 +25,14 @@ type Mark = "done" | "failed" | "waiting" | null;
  * twelve o'clock (what still reads at the size a tab draws it) and the mark inside it; waiting, the mark dim and a dot;
  * done or failed while the tab was not looked at, a badge on its corner.
  */
-function icon(state: { progress: number | null; mark: Mark }): string | null {
+let canvas: HTMLCanvasElement | null = null;
+function icon(state: { progress: number | null; mark: Mark }, tone: Tones): string | null {
   const size = 64;
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = size;
+  // one canvas for every drawing
+  canvas ??= Object.assign(document.createElement("canvas"), { width: size, height: size });
   const c = canvas.getContext("2d");
   if (!c) return null;
-  const tone = colors();
+  c.clearRect(0, 0, size, size);
   c.fillStyle = tone.raised;
   c.beginPath();
   c.roundRect(0, 0, size, size, 14);
@@ -100,6 +103,22 @@ function icon(state: { progress: number | null; mark: Mark }): string | null {
   return canvas.toDataURL("image/png");
 }
 
+const LOOK_EVENTS = ["visibilitychange", "focus", "blur"] as const;
+const lookedNow = () => !document.hidden && document.hasFocus();
+/** Whether the page is in front and has the focus: its tab's icon is not what is looked at then. */
+function useLooked(): boolean {
+  return useSyncExternalStore(
+    (changed) => {
+      for (const e of LOOK_EVENTS) (e === "visibilitychange" ? document : window).addEventListener(e, changed);
+      return () => {
+        for (const e of LOOK_EVENTS) (e === "visibilitychange" ? document : window).removeEventListener(e, changed);
+      };
+    },
+    lookedNow,
+    () => false,
+  );
+}
+
 /** A job in a word or two for the tab: "Clip 3" for a clip's take, else the start of its name. */
 function shortName(label: string): string {
   const clip = /·\s*clip (\d+)(?:\s*·.*)?$/i.exec(label);
@@ -142,7 +161,7 @@ export function TabProgress() {
     return () => document.removeEventListener("visibilitychange", seen);
   }, []);
 
-  // a whole percent at a time: the icon is not redrawn for every event of a render
+  // a whole percent at a time in the title: it is not changed for every event of a render
   const percent = run ? Math.round(run.progress * 100) : null;
   const paused = Boolean(queue.data?.paused) && !run;
   const left = run?.eta ? timeLeft(run.eta) : null;
@@ -163,10 +182,24 @@ export function TabProgress() {
             : NAME;
   }, [percent, left, what, waiting, unseen, paused]);
 
+  // the icon's ring in 5 % steps, and held where it is while the page is looked at (the tab's icon is not what is read
+  // then): a render drew it again ~3.6 times a second, each a canvas encoded to a PNG on the page's thread
+  const looked = useLooked();
+  const drawn = useRef<number | null>(null);
+  const ring = percent === null ? null : looked && drawn.current !== null ? drawn.current : Math.floor(percent / 5) * 5;
+  const mark: Mark = percent !== null ? null : unseen?.mark ?? (waiting ? "waiting" : null);
+  const tones = useRef<{ theme: typeof theme; tones: Tones } | null>(null);
+  const lastDraw = useRef(0);
+
   useEffect(() => {
-    // a frame later: a new theme is put on the page by an effect that runs after this one
-    const frame = requestAnimationFrame(() => {
-      const href = icon({ progress: percent === null ? null : percent / 100, mark: percent !== null ? null : unseen?.mark ?? (waiting ? "waiting" : null) });
+    // a frame later (a new theme is put on the page by an effect that runs after this one), and at most once a second
+    let frame = 0;
+    const wait = Math.max(0, lastDraw.current + 1000 - performance.now());
+    const timer = window.setTimeout(() => (frame = requestAnimationFrame(() => {
+      if (tones.current?.theme !== theme) tones.current = { theme, tones: colors() };
+      const href = icon({ progress: ring === null ? null : ring / 100, mark }, tones.current.tones);
+      lastDraw.current = performance.now();
+      drawn.current = ring;
       if (!href) return;
       // one icon: the files in public/ are the first paint's only
       document.querySelectorAll('link[rel="icon"]').forEach((l, i) => i > 0 && l.remove());
@@ -179,9 +212,12 @@ export function TabProgress() {
       link.type = "image/png";
       link.removeAttribute("sizes");
       link.href = href;
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [percent, waiting, unseen, theme]);
+    })), wait);
+    return () => {
+      window.clearTimeout(timer);
+      cancelAnimationFrame(frame);
+    };
+  }, [ring, mark, theme]);
 
   return null;
 }

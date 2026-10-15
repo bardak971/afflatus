@@ -2,7 +2,7 @@ import { ListOrdered, MemoryStick, Play } from "lucide-react";
 import { useLocation } from "wouter";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { useQueue } from "./data";
-import { openLoadPanel } from "./LoadPanel";
+import { openLoadPanel } from "./loadPanelHost";
 import { machineLabel, machineUnloadBlock, severalMachines } from "./machines";
 import { useQueueOps } from "./queueOps";
 import { unloadBlock } from "./queueRules";

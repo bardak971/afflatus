@@ -11,9 +11,11 @@ describe("a tile's thumbnail", () => {
     expect(thumbSrcSet("blob:http://127.0.0.1/x")).toBeUndefined();
   });
 
-  it("is picked for the width it is laid out at, else for the widest tile (the 512 px one at one pixel per point)", () => {
-    expect(THUMB_SIZES.split(",")[0]).toBe("auto");
-    expect(Number.parseInt(THUMB_SIZES.split(",")[1]!, 10)).toBeGreaterThan(256);
+  it("outside a grid that says its width, is picked for the widest tile (the 512 px one at one pixel per point), never by sizes=auto", () => {
+    // Chrome keeps every <img sizes="auto"> it laid out as a listener of the viewport: a grid whose tiles are replaced leaked
+    // them (the grid's own width: Thumb.tsx ThumbWidth, test/dom/lists.dom.test.tsx)
+    expect(THUMB_SIZES).not.toContain("auto");
+    expect(Number.parseInt(THUMB_SIZES, 10)).toBeGreaterThan(256);
   });
 });
 

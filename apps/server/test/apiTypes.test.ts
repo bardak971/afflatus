@@ -2,7 +2,7 @@ import { describe, expectTypeOf, it } from "vitest";
 import type { z } from "zod";
 // the web's shapes of the server's answers (apps/web/src/api/types), as the page reads them
 import type { Asset, AssetDetail, ClipOf, ProjectsTree } from "../../web/src/api/types/library";
-import type { HistoryPage, QueueStatus, RenderItem, TimesSummary as WebTimes } from "../../web/src/api/types/queue";
+import type { HistoryPage, QueueAnswer, RenderItem, TimesSummary as WebTimes } from "../../web/src/api/types/queue";
 import type { ClipPatch, Measure as WebMeasure, Timeline, TimelinePatch } from "../../web/src/api/types/timeline";
 import type { Draft, DraftBrief, DraftPatch, Entity, PresetFilesView as WebPresetFiles } from "../../web/src/api/types/designer";
 import type { Settings as WebSettings, SettingsPatch } from "../../web/src/api/types/settings";
@@ -23,7 +23,7 @@ import type { PresetFilesView } from "../src/presetFiles";
 import type { projectsTree } from "../src/projects";
 import type { PromptHistoryItem } from "../src/promptHistory";
 import type { Queue } from "../src/queue";
-import type { history } from "../src/queueView";
+import type { history, paged } from "../src/queueView";
 import type { list, TimesSummary } from "../src/rendersRead";
 import type { llmSchema, publicSettings, settingsSchema } from "../src/settings";
 import type { Timelines } from "../src/timelines";
@@ -114,8 +114,8 @@ describe("the web's API types match what the server answers", () => {
   });
 
   it("the queue, its history and the render times", () => {
-    // the queue's view, with the GPU hunt's summary the queue adds to it
-    agree<Awaited<ReturnType<Queue["status"]>>, QueueStatus>().toEqualTypeOf<true>();
+    // the queue's view, with the GPU hunt's summary the queue adds to it, as GET /api/queue pages it (queueView.ts paged)
+    agree<ReturnType<typeof paged<Awaited<ReturnType<Queue["status"]>>, Awaited<ReturnType<Queue["status"]>>["waiting"][number], Awaited<ReturnType<Queue["status"]>>["machines"][number]>>, QueueAnswer>().toEqualTypeOf<true>();
     agree<Awaited<ReturnType<typeof history>>, HistoryPage>().toEqualTypeOf<true>();
     agree<TimesSummary, WebTimes>().toEqualTypeOf<true>();
     agree<Awaited<ReturnType<typeof list>>["items"][number], RenderItem>().toEqualTypeOf<true>();

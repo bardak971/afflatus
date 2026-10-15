@@ -59,7 +59,7 @@ export function RunningCard({ running, onStop }: { running: RunningJob | null; o
             <span className="min-w-0 shrink truncate text-[14.5px] font-bold" data-tip={running.label}>{running.label}</span>
             <span className="min-w-0 shrink-[2] truncate text-xs text-ink-2">{running.kind === "load" ? `loading ${modelOf(running)}` : running.kind === "export" || running.kind === "cut" ? `${modelOf(running)} · no GPU needed` : modelOf(running)}</span>
           </span>
-          <Bar value={running.progress * 100} />
+          <Bar value={running.progress * 100} steps={running.steps} loading={!running.progress} />
           <span className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-0.5 font-mono text-xs text-ink-2">
             <span className="text-ink">{phaseLabel(running.phase)}{running.steps ? ` ${running.step} / ${running.steps}` : ""}</span>
             {pace !== null && (

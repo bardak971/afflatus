@@ -10,6 +10,7 @@ import { machineLabel } from "./machines";
 import { Popover } from "./Popover";
 import { queryKeys } from "./queryKeys";
 import { useSayFailed } from "./sayFailed";
+import { Progress } from "./progress/Progress";
 import { cx } from "./ui";
 
 /**
@@ -100,9 +101,7 @@ function HuntCard({ hunt, now, anchor, onClose }: { hunt: HuntSummary; now: numb
           {st?.lastError && <span className="text-warn-ink">Last answer from RunPod: {st.lastError}</span>}
           {hunt.status === "hunting" && (
             <div className="flex flex-col gap-1">
-              <span className="relative h-1 overflow-hidden rounded-[3px] bg-line-strong">
-                <span className="absolute inset-y-0 left-0 rounded-[3px] bg-accent" style={{ width: `${huntDone(hunt, now) * 100}%` }} />
-              </span>
+              <Progress meter value={huntDone(hunt, now)} className="h-1" radius="rounded-[3px]" label="Hunt time gone" />
               <span className="flex justify-between font-mono text-[11px] text-ink-3">
                 <span>{leftWords(Math.max(0, now - Date.parse(hunt.startedAt)))}</span>
                 <span>gives up at {leftWords(Date.parse(hunt.giveUpAt) - Date.parse(hunt.startedAt), true)}</span>

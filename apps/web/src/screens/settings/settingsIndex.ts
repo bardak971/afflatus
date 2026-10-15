@@ -64,6 +64,7 @@ export const INDEX: SettingSpot[] = [
   { tab: "prompts", label: "Wildcards and weights", key: "prompts.wildcards", words: "wildcard {a|b} weight ctrl up down emphasis random choice" },
   { tab: "interface", label: "Dark theme · Light theme", key: "interface.theme", also: ["theme.mode", "theme.night", "theme.day"], words: "theme appearance dark light system accent catppuccin mocha macchiato frappe latte rose pine moon dawn studio neutral grey tokyo night day kanagawa wave lotus" },
   { tab: "interface", label: "Accent", key: "interface.accent", words: "accent colour color appearance theme" },
+  { tab: "interface", label: "Progress", key: "interface.progress", also: ["progress.style"], words: "progress bar style same look glide steps ticks alive sweep ring motion animation" },
   { tab: "interface", label: "Explain every setting in the forms", key: "explain", words: "help tooltips" },
   { tab: "interface", label: "Play videos on hover", key: "hover.video", words: "mouse card preview" },
   { tab: "interface", label: "Play sound on hover", key: "hover.sound", words: "audio mouse card" },

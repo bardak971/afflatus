@@ -3,6 +3,7 @@ import {
   Bookmark, Calculator, Film, Folder, FolderKanban, Image as ImageIcon, Keyboard, ListOrdered, MapPin, Music, Navigation, PenLine, Puzzle, Quote, SlidersHorizontal, Sparkles, User, Video, Workflow, Zap,
 } from "lucide-react";
 import { stepRateSaid, useStepRate } from "../screens/queue/stepRate";
+import { Progress } from "../progress/Progress";
 import { cx } from "../ui";
 import { Keys } from "../Keys";
 import type { Item, Kind, Section } from "./items";
@@ -178,7 +179,7 @@ export function BarRows({ acting, actions, shownActions, mode, text, sections, f
                       <span className={cx("truncate text-[14.5px] font-semibold", it.job?.state === "failed" ? "text-warn-ink" : "text-ink", it.archived && "opacity-60")}>
                         {pieces(it.label, it.ranges ?? []).map((p, n) => (p.hit ? <span key={n} className="text-accent">{p.text}</span> : <span key={n}>{p.text}</span>))}
                       </span>
-                      {running !== null && <span className="my-1 block h-1 overflow-hidden rounded-full bg-raised"><span className="block h-full rounded-full bg-good transition-[width] duration-500" style={{ width: `${Math.round(running * 100)}%` }} /></span>}
+                      {running !== null && <Progress value={running} steps={(it.job?.job as { steps?: number } | undefined)?.steps} loading={!running} className="my-1 h-1" tone="bg-good" under="bg-raised" />}
                       <span className="truncate text-xs text-ink-2">{it.meta}{it.job?.state === "running" && <StepRateSaid id={it.job.job.id} />}</span>
                     </span>
                     {toggle !== null && (

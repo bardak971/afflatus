@@ -6,6 +6,7 @@ import { httpError, notFound } from "./errors";
 import type { Services } from "./services";
 import { draftLabel, promptOf } from "./autoName";
 import { findDraft, writeDraft } from "./drafts";
+import { paged } from "./queueView";
 
 /** The queue: jobs sent to it, models loaded ahead, and the queue's own controls (pause, order, retry, cancel, previews). */
 
@@ -96,7 +97,13 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
     return { loaded, on };
   });
 
-  app.get("/api/queue", async () => s.queue.status());
+  // the first waiting jobs whole, the others in a few figures (queueView.ts paged); the whole rows of those a page at a time
+  app.get("/api/queue", async () => paged(await s.queue.status()));
+  app.get("/api/queue/waiting", async (req) => {
+    const q = z.object({ offset: z.coerce.number().int().min(0).default(0), limit: z.coerce.number().int().min(1).max(500).default(100) }).parse(req.query);
+    const waiting = (await s.queue.status()).waiting;
+    return { items: waiting.slice(q.offset, q.offset + q.limit), count: waiting.length };
+  });
   /** The finished jobs with what they made: the queue's history, filtered and paged. */
   app.get("/api/jobs", async (req) => {
     const q = z.object({
@@ -113,22 +120,22 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
   const onMachine = z.strictObject({ machine: z.string().min(1).max(40).optional() });
   app.post("/api/queue/pause", async (req) => {
     await s.queue.setPaused(true, onMachine.parse(req.body ?? {}).machine);
-    return s.queue.status();
+    return paged(await s.queue.status());
   });
   app.post("/api/queue/resume", async (req) => {
     await s.queue.setPaused(false, onMachine.parse(req.body ?? {}).machine);
-    return s.queue.status();
+    return paged(await s.queue.status());
   });
   /** Every other machine paused, this one going: everything waiting goes to it. */
   app.post("/api/queue/use-only", async (req) => {
     await s.queue.useOnly(z.strictObject({ machine: z.string().min(1).max(40) }).parse(req.body).machine);
-    return s.queue.status();
+    return paged(await s.queue.status());
   });
   /** A waiting job pinned to a machine (dragged onto its lane, "Run on"), or back to whichever the queue picks (`machine: null`). */
   app.post<{ Params: { id: string } }>("/api/jobs/:id/machine", async (req) => {
     const ok = await s.queue.pin(req.params.id, z.strictObject({ machine: z.string().min(1).max(40).nullable() }).parse(req.body).machine);
     if (!ok) throw httpError("only a waiting job can be moved to another machine");
-    return s.queue.status();
+    return paged(await s.queue.status());
   });
 
   /** Unload the models now (the GPU's memory is wanted for something else): on one machine, or on every one that is not rendering. */
@@ -140,7 +147,7 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
   /** The waiting jobs, in the order they should run. */
   app.post("/api/queue/order", async (req) => {
     await s.queue.reorder(z.strictObject({ ids: z.array(z.string()).max(500) }).parse(req.body).ids);
-    return s.queue.status();
+    return paged(await s.queue.status());
   });
   /** A finished job again, with some of its inputs changed when `input` is given. */
   app.post<{ Params: { id: string } }>("/api/jobs/:id/retry", async (req) => {

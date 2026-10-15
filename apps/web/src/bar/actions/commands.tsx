@@ -6,7 +6,7 @@ import { followRestart, useUpdatesSeen } from "../../updates";
 import { settingHref } from "../../screens/settings/settingsIndex";
 import { billing } from "../commandRows";
 import { cancelHunt, openDeploy } from "../../deploy";
-import { openLoadPanel } from "../../LoadPanel";
+import { openLoadPanel } from "../../loadPanelHost";
 import { OPEN_MACHINES } from "../../MachinesPill";
 import { api, type RecipeInfo } from "../../api";
 import { emptyAll, restoreAll } from "../../binActions";
