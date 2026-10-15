@@ -9,7 +9,7 @@ Set them before starting: in the console on Windows (`set PORT=8730` in cmd, `$e
 | Variable | Default | Meaning |
 |---|---|---|
 | `PORT` | `8720` | The port to listen on |
-| `HOST` | `127.0.0.1` | The address to listen on. `0.0.0.0` opens it to your network; the Docker image listens on all. There is no login: see [Security](../SECURITY.md) |
+| `HOST` | `127.0.0.1` | The address to listen on. `0.0.0.0` opens it to your network; the Docker image listens on all. Set a password (Settings › Interface › Access) first: see [Security](../SECURITY.md). Listening on loopback only, the password's "From this computer" exemption cannot be turned on |
 | `DATA_DIR` | `./data` (`/data` in the image) | Where the database and the files live |
 | `PUBLIC_URL` | empty | The address other machines reach Afflatus at (`http://192.168.x.y:8720`). Needed when ComfyUI runs on another machine, so Afflatus's node pack (or ComfyUI-Manager) can fetch downloads through Afflatus. Its host is also answered to |
 | `ALLOWED_HOSTS` | empty | Host names Afflatus answers to, comma-separated, besides `localhost`, `127.0.0.1`, `HOST` and the host of `PUBLIC_URL`: the machine's LAN name or address, a reverse proxy's name. A request for any other name gets a 403 (this stops DNS rebinding). A reverse proxy must send `X-Forwarded-For`: Update, Go back and the 0.3.0 move are refused through it, and taken only at `localhost` or `127.0.0.1` on the machine itself |
@@ -26,6 +26,7 @@ Set them before starting: in the console on Windows (`set PORT=8730` in cmd, `$e
 | `MODEL_LIST_URL` | ComfyUI-Manager's `model-list.json` on GitHub | The list of standard model files a missing file is looked up in |
 | `UPDATES_URL` | GitHub's latest release of Afflatus | Where the daily check asks for the latest release, in the shape of GitHub's `releases/latest` answer: a mirror, or a stand-in for tests. Its downloads are fetched from it too. An update is still taken only when its `SHA256SUMS.txt` is signed by the release key built into Afflatus |
 | `AFFLATUS_INSTALL` | set by the launcher (`bundle`) and the image (`docker`) | How Afflatus was installed, which decides what Settings → About offers: `bundle` updates itself, `docker` and anything else (the sources) get the notice and the command. Not to be set by hand |
+| `AFFLATUS_RESET_PASSWORD` | empty | `1`: the password and every signed-in device are removed at this start, said loudly in the log (Settings › Interface › Access). For an owner who lost the password and every way to a reset code; take it out once in. The same without a start: `reset-password` (`Afflatus.bat reset-password`, `./afflatus.sh reset-password`, `pnpm start reset-password`) with Afflatus stopped |
 | `AFFLATUS_NO_BROWSER` | empty | `1`: a bundle's launcher opens no browser tab when Afflatus starts |
 | `AFFLATUS_PRETEND_SITES` | empty | `1`: the sites are pretend ones on this machine (the tests, the demo). Plain-http downloads are then allowed, and no real site is asked for what no stand-in covers (Hugging Face, Manager's model list). Never set it on a real install |
 

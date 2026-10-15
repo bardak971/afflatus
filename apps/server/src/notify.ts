@@ -323,6 +323,37 @@ export class Notify {
     }
   }
 
+  /** Whether Telegram is set up: a bot token and a chat to write to. */
+  async telegramSet(): Promise<boolean> {
+    const n = (await readSettings(this.deps.db)).notify;
+    return Boolean(n.telegramToken && n.telegramChat);
+  }
+
+  /**
+   * A message of the password's (a reset code, "Password changed") to Telegram, now, whatever the kinds' ticks and past
+   * the minute's limit: the owner asked for it, and access.ts limits how often. Throws the reason, secrets taken out.
+   */
+  async toTelegram(notice: Notice): Promise<void> {
+    const n = (await readSettings(this.deps.db)).notify;
+    if (!(n.telegramToken && n.telegramChat)) throw httpError("Telegram is not set up: Settings › Interface › Notifications.", 409);
+    try {
+      await this.post("telegram", n, notice, null);
+    } catch (err) {
+      throw httpError(redacted(err, secretsOf(n)), 502);
+    }
+  }
+
+  /** A message to a bot and chat given here, not the ones saved: the chat before a change is told of it (access.ts telegramChanged). */
+  async toTelegramAt(to: { telegramToken: string; telegramChat: string }, notice: Notice): Promise<void> {
+    const n = (await readSettings(this.deps.db)).notify;
+    const at = { ...n, telegramToken: to.telegramToken, telegramChat: to.telegramChat };
+    try {
+      await this.post("telegram", at, notice, null);
+    } catch (err) {
+      throw httpError(redacted(err, secretsOf(at)), 502);
+    }
+  }
+
   /** The chats that wrote to the bot lately (getUpdates, read once): the user sends it anything first, then picks theirs. */
   async telegramChats(): Promise<Array<{ id: string; name: string; type: string }>> {
     const n = (await readSettings(this.deps.db)).notify;

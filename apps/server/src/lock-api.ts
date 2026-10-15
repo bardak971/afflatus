@@ -5,7 +5,7 @@ import { ComfyClient, LOCKED_HEADER } from "@afflatus/comfy";
 import type { Comfy, MachineComfy } from "./comfy";
 import { httpError } from "./errors";
 import type { Services } from "./services";
-import { fromThisComputer } from "./updates-api";
+import { fromThisComputer } from "./hostCheck";
 import { readSettings, updateSettings } from "./settings";
 import { olderThan } from "./version";
 

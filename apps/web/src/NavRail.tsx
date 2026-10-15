@@ -20,18 +20,18 @@ const NAV: Entry[] = [
 const QUEUE: Entry = { href: "/queue", label: "Queue", icon: <ListOrdered size={18} /> };
 const SETTINGS: Entry = { href: "/settings", label: "Settings", icon: <Settings2 size={19} /> };
 
-/** The app's mark: a breath (afflatus) drawn in one stroke, on the accent. */
-function Mark() {
+/** The app's mark: a breath (afflatus) drawn in one stroke, on the accent. `big`: the sign-in page's (access/SignIn.tsx). */
+export function Mark({ big }: { big?: boolean }) {
   return (
     <span
       role="img"
       aria-label="Afflatus"
-      data-tip="Afflatus"
+      data-tip={big ? undefined : "Afflatus"}
       // on the dark of the stage in every theme, as the favicon: the accent there is the one tuned for the dark
       data-stage
-      className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] border border-line bg-raised"
+      className={cx("flex shrink-0 items-center justify-center border border-line bg-raised", big ? "h-[52px] w-[52px] rounded-[13px]" : "h-[38px] w-[38px] rounded-[11px]")}
     >
-      <svg width="27" height="27" viewBox="0 0 100 100" className="text-accent" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" fillRule="evenodd" aria-hidden>
+      <svg width={big ? 36 : 27} height={big ? 36 : 27} viewBox="0 0 100 100" className="text-accent" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" fillRule="evenodd" aria-hidden>
         <path d={MARK.body} />
         <path d={MARK.spark} />
       </svg>

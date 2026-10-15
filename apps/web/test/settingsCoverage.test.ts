@@ -52,6 +52,7 @@ const SERVER: Record<string, string> = {
   bar: "bar.shortcut",
   pinnedProjects: "internal: the rail's pins, set on the rail and in the Projects panel",
   notify: "notify.telegram",
+  access: "access.password",
 };
 
 /** What this browser keeps (localStorage keys and zustand `persist` names): the index key, or why it has none. */

@@ -151,7 +151,24 @@ export function registerEvents(app: FastifyInstance, s: Services, version: strin
     timer = beat = null;
   });
 
+  // who opened each stream, for the lock (access.ts): a stream outlives the request the lock looked at, so a session ended
+  // since, a password set since or "From this computer" turned off ends the streams no longer allowed (the page then meets
+  // the 401 on its next try and shows the sign-in)
+  const who = new WeakMap<FastifyReply, { session: string | null; local: boolean }>();
+  s.access.on("changed", () => {
+    for (const reply of clients) {
+      const w = who.get(reply);
+      if (!w) continue;
+      void s.access.allows({ session: w.session, bypass: false }, w.local).then((ok) => {
+        if (ok) return;
+        clients.delete(reply);
+        reply.raw.end();
+      }, () => {});
+    }
+  });
+
   app.get("/api/events", (req, reply) => {
+    who.set(reply, { session: req.access?.session ?? null, local: req.access?.local ?? false });
     reply.hijack();
     reply.raw.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
     clients.add(reply);

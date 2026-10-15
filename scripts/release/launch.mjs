@@ -154,8 +154,13 @@ async function main() {
   // the launcher's restarts open no new browser tab: the page already open follows the server back
   const restarting = join(versions, ".restarting");
   const firstStart = !existsSync(restarting);
-  rmSync(restarting, { force: true });
-  clearStaleMarkers(versionDir);
+  // `reset-password` (Afflatus.bat reset-password): a command run once on the data folder, not a start. It leaves the
+  // markers of a start alone, opens no browser and is never taken for a version that does not start
+  const command = process.argv[2] === "reset-password";
+  if (!command) {
+    rmSync(restarting, { force: true });
+    clearStaleMarkers(versionDir);
+  }
 
   const env = { ...process.env };
   env.AFFLATUS_INSTALL = "bundle";
@@ -171,6 +176,10 @@ async function main() {
   const pathKey = Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
   env[pathKey] = `${bin}${win ? ";" : ":"}${env[pathKey] ?? ""}`;
   const port = Number(env.PORT) || 8720;
+  if (command) {
+    const run = spawn(process.execPath, [join(app, "apps", "server", "dist", "index.mjs"), ...process.argv.slice(2)], { env, stdio: "inherit" });
+    process.exit(await new Promise((done) => run.on("exit", (code) => done(code ?? 1))));
+  }
   console.log(`Afflatus ${env.AFFLATUS_VERSION} - http://127.0.0.1:${port}  (${win ? "close this window" : "Ctrl+C"} to stop it)`);
 
   const server = spawn(process.execPath, ["--enable-source-maps", join(app, "apps", "server", "dist", "index.mjs"), ...process.argv.slice(2)], { env, stdio: "inherit" });

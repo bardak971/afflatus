@@ -197,6 +197,7 @@ describe("settings", () => {
       finish: { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.15, latentSteps: 2, seedvrFrames: 0, sharpen: 0 }, slotFiles: {}, acceptedPresets: [],
       bar: { shortcut: "Ctrl+K", snippets: false, history: false, cast: false }, pinnedProjects: [],
       notify: { hasTelegramToken: false, telegramChat: "", hasDiscordWebhook: false, picture: true, events: expect.objectContaining({ renderDone: { telegram: false, discord: false }, renderFailed: { telegram: true, discord: true } }) },
+      access: { hasPassword: false, passwordSetAt: null, localNoPassword: false, stayDays: 30, resetTelegram: true, hasMetricsToken: false },
     });
     expect(res.body).not.toContain("secret");
     // a family's file chosen by hand where several fit: kept by family and slot; a slot taken back follows its patterns again

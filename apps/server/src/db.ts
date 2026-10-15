@@ -354,6 +354,10 @@ export interface Tables {
   model_hashes: { folder: string; file: string; size: number | string; mtime: number | string; sha256: string; hashed_at: string; civitai_version: number | string | null; hf_url: string | null; matched_at: string | null };
   /** What each network volume holds, as the last pod on it listed its folders (rentedVolumes.ts): file keys as JSON. */
   volume_files: { volume_id: string; files: string | null; seen_at: string | null; seen_by: string | null; used_at: string | null; noticed_at: string; fill_note: string | null };
+  /** The devices signed in while a password is set (access.ts): the id is the SHA-256 of the cookie's token; `remember` 1 or 0. */
+  sessions: { id: string; device_id: string; created_at: string; last_seen_at: string; expires_at: string; ip: string; user_agent: string; remember: number };
+  /** Every device that ever signed in, by the SHA-256 of its own cookie: a sign-in from one not here is told of (newDevice). */
+  devices: { id: string; first_seen_at: string; name: string };
   /** Named lists of model files (modelSets.ts): presets by reference and files of their own, as JSON in `def`. */
   model_sets: { id: string; owner_id: string; name: string; def: string; created_at: string; updated_at: string };
   /** Unfinished work, saved as it is typed. */

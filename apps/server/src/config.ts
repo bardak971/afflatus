@@ -16,8 +16,8 @@ export interface Config {
 
 export function loadConfig(env: NodeJS.ProcessEnv = environment()): Config {
   return {
-    // localhost only by default: listening on the network is a choice. Afflatus has no login and none is planned: anyone
-    // who reaches the port can use it, so HOST is opened only to a network where everyone is trusted
+    // localhost only by default: listening on the network is a choice. Without a password (Settings › Interface › Access,
+    // access.ts) anyone who reaches the port can use it, so HOST is opened only to a trusted network or with one set
     host: env.HOST?.trim() || "127.0.0.1",
     port: Number(env.PORT) || 8720,
     dataDir: resolve(env.DATA_DIR?.trim() || "data"),
@@ -76,4 +76,6 @@ export const envSaid = {
   runpodProxy: () => process.env.RUNPOD_PROXY,
   /** The image a GPU deployed from Afflatus runs with the Afflatus template, when not the one this version names (a test build). */
   podImage: () => process.env.AFFLATUS_POD_IMAGE,
+  /** "1": the password and every session removed at this start (access.ts resetAccess), for an owner who lost both. */
+  resetPassword: () => process.env.AFFLATUS_RESET_PASSWORD === "1",
 };

@@ -24,6 +24,7 @@ import { sweepIdleDrafts } from "./drafts";
 import { Updates } from "./modelUpdates";
 import { Precompute, type PrecomputeOptions } from "./precompute";
 import { Notify } from "./notify";
+import { Access } from "./access";
 import { Hunt } from "./hunt";
 
 /** Everything the routes need, built once at start (and once per test). */
@@ -49,6 +50,8 @@ export interface Services {
   rented: Rented;
   /** What the user is told of on Telegram, Discord and in the browser (notify.ts). */
   notify: Notify;
+  /** The optional password: the sessions, the limits, the reset codes (access.ts). */
+  access: Access;
   /** The GPU hunt: a rented GPU deployed the moment one the user wants is free (hunt.ts). */
   hunt: Hunt;
   /** The model files rented pods are getting (podFiles.ts). */
@@ -133,6 +136,8 @@ export async function createServices(
   const notify = new Notify({ db, storage, registry, events: queue.events, stillFor: () => queue.stillFor(), costBetween: (from, to) => rented.costBetween(from, to) });
   queue.tell = rented.tell = (kind, notice) => notify.say(kind, notice);
   notify.watch();
+  // the reset codes and the sign-ins go to the data folder's log file as well as the console (none in the tests)
+  const access = new Access(db, notify, { logFile: dirs.dataDir ? join(dirs.dataDir, "logs", "afflatus.log") : undefined });
   const timelines = new Timelines(db, storage, registry, queue.events);
   queue.clips = timelines;
   const precompute = dirs.precompute === false ? null : new Precompute(db, timelines.media, dirs.precompute);
@@ -204,7 +209,7 @@ export async function createServices(
   const podFilesTimer = setInterval(() => void podFiles.tick().catch((err) => console.warn("[pod files]", (err as Error).message)), 1000);
   podFilesTimer.unref();
   const services: Services = {
-    db, dbKind, storage, linked, registry, comfy, machines, comfyOf, queue, timelines, rented, notify, podFiles, downloads,
+    db, dbKind, storage, linked, registry, comfy, machines, comfyOf, queue, timelines, rented, notify, access, podFiles, downloads,
     shippedPresets,
     updates: null as unknown as Updates,
     hashes: null as unknown as ModelHashes,
@@ -217,6 +222,7 @@ export async function createServices(
       clearInterval(podFilesTimer);
       rented.stop();
       notify.stop();
+      access.stop();
       await precompute?.stop();
       queue.stop();
       await queue.idle();

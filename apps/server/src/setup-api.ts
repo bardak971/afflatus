@@ -20,7 +20,8 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
   // a probe asks by a name of its own (a pod's address) and is answered whatever the Host (hostCheck.ts ANY_HOST); so is a page
   // that pointed a name of its own at this machine, which is told only that the server is alive, not what it found on the machine
   const hosts = allowedHosts();
-  app.get("/api/health", async (req) => (hostAllowed(req.headers.host, hosts) ? health(preflight.last) : { ok: true, version }));
+  // locked by a password (access.ts) and not signed in, only that it is alive too: the checks name the computer's folders
+  app.get("/api/health", async (req) => (hostAllowed(req.headers.host, hosts) && (req.access.open || req.access.session) ? health(preflight.last) : { ok: true, version }));
   /** The start-up checks run again, now (Settings → About → Check again). */
   app.post("/api/health/check", async () => health(await preflight.run()));
 
@@ -29,7 +30,26 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
 
   app.get("/api/settings", async () => publicSettings(await readSettings(s.db)));
   app.put("/api/settings", async (req) => {
+    // under the Access settings' rule (access.ts mayChange: a sign-in of the last 10 minutes, or the password in the
+    // X-Afflatus-Password header): the new-device notice, which would hide a sign-in from elsewhere, and Telegram's bot and
+    // chat, where reset codes and alarms go (a session taken over would point them at its own bot)
+    const sent = req.body as { notify?: { events?: { newDevice?: unknown }; telegramToken?: unknown; telegramChat?: unknown } } | null;
+    const ip = req.socket.remoteAddress ?? "";
+    const telegram = sent?.notify?.telegramToken !== undefined || sent?.notify?.telegramChat !== undefined;
+    if (sent?.notify?.events?.newDevice !== undefined || telegram) {
+      // the page sends it URI-encoded: a header takes no character past U+00FF (a Cyrillic or emoji password threw there)
+      const typed = req.headers["x-afflatus-password"];
+      let password: string | undefined;
+      try {
+        password = typeof typed === "string" ? decodeURIComponent(typed) : undefined;
+      } catch {
+        password = typeof typed === "string" ? typed : undefined;
+      }
+      await s.access.mayChange(req.access.session, password, ip);
+    }
+    const before = (await readSettings(s.db)).notify;
     const saved = await writeSettings(s.db, req.body);
+    if (telegram && (saved.notify.telegramToken !== before.telegramToken || saved.notify.telegramChat !== before.telegramChat)) await s.access.telegramChanged(before, ip);
     // a file chosen by hand for a family: what is ready is worked out again
     if (req.body && typeof req.body === "object" && "slotFiles" in req.body) for (const { comfy } of await s.machines()) comfy.forgetScan();
     // a family switched, on every machine or on one: what each machine may run changed (the queue looks again, the pages read it again)
