@@ -196,7 +196,7 @@ export const api = {
   /** Whole rows of the waiting jobs the queue's answer carries in a few figures (QueueStatus.whole), a page at a time. */
   queueWaiting: (offset: number, limit: number, o?: Asked) => call<{ items: Job[]; count: number }>("GET", `/queue/waiting?offset=${offset}&limit=${limit}`, undefined, o?.signal),
   /** `after`: the page after the one whose `next` it is; the first page without it. */
-  jobs: (filter: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; after?: string; limit?: number }, o?: Asked) =>
+  jobs: (filter: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; after?: string; limit?: number; ids?: string }, o?: Asked) =>
     call<HistoryPage>("GET", `/jobs?${new URLSearchParams(Object.fromEntries(Object.entries(filter).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)])))}`, undefined, o?.signal),
   /** Pause or go on: all of them, or one machine (a Machine's id), which finishes what it runs and takes nothing new. */
   pause: (machine?: string) => call<QueueAnswer>("POST", "/queue/pause", machine ? { machine } : {}).then(queueOf),
@@ -547,7 +547,7 @@ export const api = {
   /** What finishTimeline with these settings would take in all; null while one of its jobs has nothing learned yet. */
   finishForecast: (id: string, opts: Partial<FinishSettings> & { route: FinishSettings["route"]; factor: number; redo?: boolean; clips?: string[] }) => call<{ ms: number | null }>("POST", `/timelines/${id}/finish/forecast`, opts),
   /** One frame of a video, saved as a picture in the library. */
-  frame: (video: string, atMs: number, timeline?: string) => call<Asset>("POST", `/assets/${video}/frame`, { atMs, ...(timeline ? { timeline } : {}) }),
+  frame: (video: string, atMs: number, timeline?: string, once?: boolean) => call<Asset>("POST", `/assets/${video}/frame`, { atMs, ...(timeline ? { timeline } : {}), ...(once ? { once } : {}) }),
   mirror: (picture: string, axis: "horizontal" | "vertical") => call<Asset>("POST", `/assets/${picture}/mirror`, { axis }),
   /** A range of a video as new videos, in the queue: copied, split out, or removed. */
   /** A range of a video: copied, split out, removed, or slowed down ("slow", ×2 or ×4: RIFE on the GPU when ComfyUI has it, else ffmpeg; `engine` says which). */

@@ -451,10 +451,11 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
 
   /** One frame of a video, as a picture in the library: to open another clip on, or to keep. `timeline`: the one it is saved from (its folder, see folderForMade). */
   app.post<{ Params: { id: string } }>("/api/assets/:id/frame", async (req) => {
-    const { atMs, timeline } = z.strictObject({ atMs: z.number().min(0), timeline: z.string().optional() }).parse(req.body);
+    // `once`: the same moment asked for again gives the same picture (a Reroll of Make the picture), not one more copy
+    const { atMs, timeline, once } = z.strictObject({ atMs: z.number().min(0), timeline: z.string().optional(), once: z.boolean().optional() }).parse(req.body);
     const video = await s.db.selectFrom("assets").selectAll().where("id", "=", req.params.id).executeTakeFirst();
     if (!video || video.kind !== "video") throw httpError("this video was not found", 404);
-    return assetView(await t.media.frame(video, atMs, false, timeline));
+    return assetView(await t.media.frame(video, atMs, once ?? false, timeline));
   });
 }
 

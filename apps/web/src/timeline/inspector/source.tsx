@@ -208,7 +208,8 @@ function PictureFromFrame({ timeline, place, clock, current, onPick }: { timelin
   const made = usePictureSets((s) => (s.of[`source:${timeline.id}`]?.jobs.length ?? 0) > 0);
   const source = timeline.source!;
   if (current && !made) return null;
-  const at = Math.round(Math.max(0, Math.min(place?.lengthMs ?? source.toMs, time - (place?.atMs ?? 0))) / 500) * 500;
+  // within the stretch that is made into clips: the playhead on the dimmed rest of the lane gave a frame of a part never animated
+  const at = Math.round(Math.max(source.fromMs, Math.min(source.toMs, time - (place?.atMs ?? 0))) / 500) * 500;
   return (
     <PictureMaker
       keyId={`source:${timeline.id}`}

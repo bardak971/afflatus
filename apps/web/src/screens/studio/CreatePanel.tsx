@@ -1,5 +1,4 @@
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { MotionPictureBanner } from "../../motionPicture";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Entity } from "../../api";
 import { useEntities, useFamilies, useModelSettings, useRecipes, useSetup } from "../../data";
@@ -128,7 +127,6 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
       <DraftHeader d={d} draft={draft} titleOf={titleOf} onClose={onClose} />
 
       <ScrollColumn className="flex flex-col gap-2 px-3 pt-2 pb-3">
-        <MotionPictureBanner draftId={draft?.id} />
         {recipes.isError && <ErrorNote>{recipes.error.message}</ErrorNote>}
         {/* saved and saving are a mark in the header (DraftHeader); a failure says why here, with the way to try again */}
         {d.saving === "failed" && (

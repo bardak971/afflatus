@@ -7,7 +7,6 @@ import { useAsset } from "./data";
 import { placeMenu, type ItemFacts } from "./itemActions";
 import { assetHead, type TileMenuOptions } from "./TileMenu";
 import { useItemActions } from "./useItemActions";
-import { useMotionPictureItems } from "./motionPicture";
 import { askViewer, type ViewerAsk } from "./viewer/ask";
 
 /**
@@ -23,7 +22,6 @@ export function TileMenuBody({ onOpen, onSelect, into, first, place = "grid", fo
   const formTarget = useFormTarget((st) => st.target);
   const detail = useAsset(acting.id);
   // a picture made for a Motion transfer draft goes back to it from here
-  const forMotion = useMotionPictureItems();
   const acts = useItemActions({
     asset: acting, detail, enabled: true, into, sayErrors: true,
     // a frame, a sound, a mirrored copy made from here: shown in the viewer, as the place opens an item
@@ -47,7 +45,6 @@ export function TileMenuBody({ onOpen, onSelect, into, first, place = "grid", fo
     }, { "save-frame": "the first frame" });
     const places = form ? formPlaces(formTarget, item) : [];
     const own: MenuItem[] = [
-      ...forMotion(item),
       ...(first?.(item) ?? []),
       ...(places.length ? [{ label: "Use in this draft", icon: <Plus size={14} />, note: formTarget?.recipe.title, items: places }] : []),
       ...(onSelect ? [{ label: "Select", key: "Ctrl+click", icon: <SquareCheck size={14} />, run: () => onSelect(item) }] : []),

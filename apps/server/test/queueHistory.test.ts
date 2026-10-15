@@ -57,6 +57,19 @@ describe("the queue's history", () => {
     expect(rest.counts).toEqual({ done: 5, failed: 1, cancelled: 1 });
   });
 
+  it("gives some jobs by id whatever ran since, with the copies of a person a picture of them had pasted in", async () => {
+    const id = (n: number) => String(n).padStart(32, "0");
+    const at = new Date(Date.UTC(2026, 9, 1, 9, 0)).toISOString();
+    await t.db.insertInto("generations").values({ id: "g1", owner_id: OWNER, recipe_id: "qwen21.motion-picture", recipe_version: 1, family: "qwen21", inputs: "{}", resolved: JSON.stringify({ face: 0.91, faceCopies: 2 }), gen_ms: 1, draft_id: null, created_at: at } as never).execute();
+    // a picture box's three, then sixty other renders: the last page holds none of them any more
+    await t.db.insertInto("jobs").values([job(id(1), "done", 1, { generation_id: "g1" }), job(id(2), "failed", 1), job(id(3), "done", 1), ...Array.from({ length: 60 }, (_, i) => job(id(100 + i), "done", 30))] as never).execute();
+    const asked = (await get(t.app, `/api/jobs?ids=${id(1)},${id(2)},${id(3)}`)).json();
+    expect(asked.items.map((i: { id: string }) => i.id).sort()).toEqual([id(1), id(2), id(3)]);
+    expect(asked.items.find((i: { id: string }) => i.id === id(1))).toMatchObject({ face: 0.91, faceCopies: 2 });
+    expect(asked.items.find((i: { id: string }) => i.id === id(3))).toMatchObject({ faceCopies: 0 });
+    expect((await get(t.app, "/api/jobs?ids=not-an-id")).statusCode).toBe(400);
+  });
+
   it("reads the finished jobs from the index on when they ended, not by sorting them all", async () => {
     await t.db.insertInto("jobs").values([job("a", "done", 1), job("b", "failed", 2), job("waiting", "queued", null)] as never).execute();
     // the SQL the history and the queue's recent jobs run, planned by SQLite as it is
