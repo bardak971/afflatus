@@ -24,7 +24,7 @@ describe("a GPU's name", () => {
     expect(roughSpeed("NVIDIA L40")).toBe(0.75);
     expect(roughSpeed("L4")).toBe(0.3);
     expect(roughSpeed("RTX A6000")).toBe(0.5);
-    expect(roughSpeed("RTX A4000")).toBeNull();
+    expect(roughSpeed("RTX A2000")).toBeNull();
     expect(roughSpeed("NVIDIA GeForce RTX 4090 Laptop GPU")).toBeNull();
   });
 });
@@ -62,8 +62,8 @@ describe("the ranking", () => {
   });
 
   it("a GPU the table does not know comes after those with a time, by its price", () => {
-    const r = rankGpus([...OFFERS, offer("NVIDIA RTX A4000", "RTX A4000", 0.17, 16)], RENDERS, HOME, ASK);
-    expect(r.at(-1)).toMatchObject({ name: "RTX A4000", seconds: null, timeSaid: "not known yet", fit: "yes" });
+    const r = rankGpus([...OFFERS, offer("NVIDIA RTX A2000", "RTX A2000", 0.12, 12)], RENDERS, HOME, ASK);
+    expect(r.at(-1)).toMatchObject({ name: "RTX A2000", seconds: null, timeSaid: "not known yet", fit: "yes" });
   });
 
   it("the usable first: left out, over the ceiling and too small go after, each said", () => {
@@ -82,6 +82,56 @@ describe("the ranking", () => {
     expect(r.find((g) => g.name === "RTX 4090")!.fit).toBe("small");
     // another file: not
     expect(rankGpus(OFFERS, [{ files: [{ file: "sdxl.safetensors", size: 7e9 }], ms: 10_000 }], learned, ASK).find((g) => g.name === "RTX 4090")!.fit).toBe("yes");
+  });
+
+  it("a GPU's pace from fewer than 3 renders is a guess: the live 2000 Ada (1 render, pace 1) ranks under the A40", () => {
+    // the owner's record on 10-15: the 4070 Ti at home, an A40 pod (13 renders), a 2000 Ada pod (1 render, compared with
+    // nothing: pace 1); a SCAIL window of 230 s at the common pace
+    const live = { gpus: [{ gpu: "NVIDIA GeForce RTX 4070 Ti", pace: 1.0085, renders: 122 }, { gpu: "NVIDIA RTX 2000 Ada Generation", pace: 1, renders: 1 }, { gpu: "NVIDIA A40", pace: 0.762, renders: 13 }], oom: [] };
+    const offers = [offer("NVIDIA A40", "A40", 0.44, 48), offer("NVIDIA RTX 2000 Ada Generation", "RTX 2000 Ada", 0.24, 16)];
+    const scail = [{ files: [], ms: 230_046 }];
+    for (const learned of [live, { ...live, gpus: live.gpus.filter((g) => g.renders > 1) }]) {
+      const r = rankGpus(offers, scail, learned, ASK);
+      const by = Object.fromEntries(r.map((g) => [g.name, g]));
+      expect(by["A40"]).toMatchObject({ seconds: Math.round(230.046 * 0.762), learned: 13, timeSaid: "from 13 of your renders" });
+      // a guess from the 4070 Ti (the anchor, 122 renders): 0.55 against 0.2 of a 4090
+      expect(by["RTX 2000 Ada"]).toMatchObject({ seconds: Math.round((230.046 * 1.0085 * 0.55) / 0.2), learned: 0, timeSaid: "a guess" });
+      expect(r.map((g) => g.name)).toEqual(["A40", "RTX 2000 Ada"]);
+      expect(by["RTX 2000 Ada"]!.cost!).toBeGreaterThan(by["A40"]!.cost!);
+    }
+    // one slow render on a GPU never ranks it as learned, nor two
+    const two = rankGpus(OFFERS, RENDERS, { gpus: [...HOME.gpus, { gpu: "NVIDIA A40", pace: 1.5, renders: 2 }], oom: [] }, ASK).find((g) => g.name === "A40")!;
+    expect(two).toMatchObject({ seconds: Math.round(100 / 0.45), learned: 0, timeSaid: "a guess" });
+  });
+
+  it("home alone: the table's GPUs get a time from the owner's card, whether the record lists it or not", () => {
+    const offers = [offer("NVIDIA GeForce RTX 4090", "RTX 4090", 0.69), offer("NVIDIA A40", "A40", 0.44, 48), offer("NVIDIA RTX A4000", "RTX A4000", 0.17, 16), offer("NVIDIA GeForce RTX 4070 Ti", "RTX 4070 Ti", 0.2, 12)];
+    const ms = 510_000;
+    // the record's paces with every GPU (the home card compared with nothing, at 1), or with the compared ones alone (none)
+    const listed = { gpus: [{ gpu: "cuda:0 NVIDIA GeForce RTX 4070 Ti : cudaMallocAsync", pace: 1, renders: 122 }], oom: [] };
+    const alone = { gpus: [], oom: [], rendered: [{ gpu: "cuda:0 NVIDIA GeForce RTX 4070 Ti : cudaMallocAsync", renders: 100 }, { gpu: "NVIDIA GeForce RTX 4070 Ti", renders: 22 }] };
+    for (const learned of [listed, alone]) {
+      const by = Object.fromEntries(rankGpus(offers, [{ files: [], ms }], learned, ASK).map((g) => [g.name, g]));
+      expect(by["RTX 4070 Ti"]).toMatchObject({ seconds: 510, learned: 122, timeSaid: "from 122 of your renders" });
+      expect(by["RTX 4090"]).toMatchObject({ seconds: Math.round(510 * 0.55), timeSaid: "a guess" });
+      expect(by["A40"]).toMatchObject({ seconds: Math.round((510 * 0.55) / 0.45), timeSaid: "a guess" });
+      expect(by["RTX A4000"]).toMatchObject({ seconds: Math.round((510 * 0.55) / 0.27), timeSaid: "a guess" });
+    }
+    // two GPUs never compared: neither is the common pace, nothing is told
+    const two = { gpus: [], oom: [], rendered: [{ gpu: "NVIDIA GeForce RTX 4070 Ti", renders: 50 }, { gpu: "NVIDIA A40", renders: 2 }] };
+    expect(rankGpus(offers, [{ files: [], ms }], two, ASK).every((g) => g.seconds === null)).toBe(true);
+    // the owner's card and the common pod cards are in the table
+    for (const name of ["RTX 4060", "RTX 4060 Ti", "RTX 4070", "RTX 4070 Ti", "RTX 4070 SUPER", "RTX 3060", "RTX 3070", "RTX 5070", "RTX 5080", "RTX A4000", "RTX A4500"]) expect(roughSpeed(name)).not.toBeNull();
+    expect(roughSpeed("RTX 4070 Ti")).toBe(0.55);
+    expect(roughSpeed("RTX 4070 SUPER")).toBe(0.5);
+    expect(roughSpeed("RTX 4070")).toBe(0.42);
+  });
+
+  it("a deploy's own cost: the user's usual boot and idle at each GPU's price", () => {
+    const r = rankGpus(OFFERS, RENDERS, { ...HOME, overheadMs: 12 * 60_000 }, ASK);
+    expect(r.find((g) => g.name === "A40")!.overhead).toBeCloseTo((0.44 * 12) / 60, 10);
+    expect(r.find((g) => g.name === "H100 SXM")!.overhead).toBeCloseTo((2.69 * 12) / 60, 10);
+    expect(rankGpus(OFFERS, RENDERS, HOME, ASK).every((g) => g.overhead === null)).toBe(true);
   });
 
   it("stock in the pinned data center, else anywhere; the first free usable one is the pick", () => {

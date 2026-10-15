@@ -37,7 +37,28 @@ export interface RankRender {
 export interface Learned {
   gpus: Array<{ gpu: string; pace: number; renders: number }>;
   oom: Array<{ gpu: string; file: string }>;
+  /**
+   * Every GPU the record has renders on, with how many, compared with another or not. With one GPU alone (the owner's PC
+   * before any pod) nothing is compared and `gpus` may say nothing of it, yet its pace is the common pace itself.
+   */
+  rendered?: Array<{ gpu: string; renders: number }>;
+  /**
+   * What a deploy bills besides its renders, in ms of the pod's time: the usual boot and the usual idle before the pod
+   * stops, from the user's own sessions (costs.ts deployOverhead); null when no session tells it yet.
+   */
+  overheadMs?: number | null;
+  /**
+   * How many renders a GPU's pace needs to be taken as learned; LEARNED_RENDERS when not said. The Costs tab gives 1: its
+   * paces are a model's own p50 on each GPU, times measured as they are rather than steps compared across machines.
+   */
+  minRenders?: number;
 }
+
+/**
+ * How many compared renders a GPU's pace rests on before it is taken as learned: one render (a model loaded cold, a slow
+ * host) set a GPU's pace at half or twice its truth, and the Hunt said "from 1 of your renders" of it. Below it, a guess.
+ */
+export const LEARNED_RENDERS = 3;
 
 export interface RankAsk {
   mode: HuntMode;
@@ -62,6 +83,8 @@ export interface RankedGpu {
   cost: number | null;
   /** From how many of the user's renders on that GPU its time was learned; 0 when it is a guess (or not known). */
   learned: number;
+  /** What a deploy of it bills besides its renders: the usual boot and idle at its price (USD); null when not known. */
+  overhead: number | null;
   /** What the time rests on, as said: "from 12 of your renders", "a guess", or "not known yet". */
   timeSaid: string;
   /** How free it is, where the pod would go (the volume's data center), else anywhere. */
@@ -95,10 +118,22 @@ const SPEEDS: Array<[RegExp, number]> = [
   [/\brtx 4000 ada\b/, 0.3],
   [/\brtx 2000 ada\b/, 0.2],
   [/\b5090\b/, 1.35],
+  [/\b5080\b/, 0.85],
+  [/\b5070 ti\b/, 0.7],
+  [/\b5070\b/, 0.55],
   [/\b4090\b/, 1],
   [/\b4080\b/, 0.75],
+  [/\b4070 ti super\b/, 0.6],
+  [/\b4070 ti\b/, 0.55],
+  [/\b4070 super\b/, 0.5],
+  [/\b4070\b/, 0.42],
+  [/\b4060 ti\b/, 0.33],
+  [/\b4060\b/, 0.27],
   [/\b3090\b/, 0.6],
   [/\b3080\b/, 0.5],
+  [/\b3070\b/, 0.33],
+  [/\b3060 ti\b/, 0.3],
+  [/\b3060\b/, 0.25],
   [/\bb200\b/, 2.6],
   [/\bh200\b/, 2.0],
   [/\bh100\b/, 1.9],
@@ -108,6 +143,8 @@ const SPEEDS: Array<[RegExp, number]> = [
   [/\bl4\b/, 0.3],
   [/\ba6000\b/, 0.5],
   [/\ba5000\b/, 0.4],
+  [/\ba4500\b/, 0.33],
+  [/\ba4000\b/, 0.27],
   [/\ba40\b/, 0.45],
 ];
 
@@ -135,13 +172,28 @@ function stockOf(o: RankOffer, dataCenter: string | null): Stock {
   return STOCK[best];
 }
 
+/**
+ * The GPUs whose pace is learned: from LEARNED_RENDERS compared renders. The record's paces come either with every GPU
+ * rendered on (one compared with nothing at 1, `renders` all its rows) or with the compared ones alone (`renders` those
+ * compared): either way a GPU under LEARNED_RENDERS is a guess. With none learned and one GPU alone in the record, that GPU
+ * is the common pace (1): the owner's PC before any pod, which the table's guesses are anchored on.
+ */
+function learnedGpus(learned: Learned): Array<{ gpu: string; pace: number; renders: number }> {
+  const least = Math.max(1, learned.minRenders ?? LEARNED_RENDERS);
+  const known = learned.gpus.filter((g) => g.renders >= least && g.pace > 0);
+  if (known.length || !learned.rendered?.length) return known;
+  const keys = new Set(learned.rendered.map((g) => gpuKey(g.gpu)));
+  const renders = learned.rendered.reduce((n, g) => n + g.renders, 0);
+  return keys.size === 1 && renders >= least ? [{ gpu: learned.rendered[0]!.gpu, pace: 1, renders }] : [];
+}
+
 /** The GPUs ranked for these renders: the usable ones first, by the mode's key (value: cost a render; fast: time; cheap: price), then the rest. */
 export function rankGpus(offers: readonly RankOffer[], renders: readonly RankRender[], learned: Learned, ask: RankAsk): RankedGpu[] {
   const timed = renders.flatMap((r) => (r.ms !== null && r.ms > 0 ? [r.ms] : []));
   const meanMs = timed.length ? timed.reduce((a, b) => a + b, 0) / timed.length : null;
   const largest = Math.max(0, ...renders.flatMap((r) => r.files.map((f) => f.size ?? 0)));
   const needed = new Set(renders.flatMap((r) => r.files.map((f) => fileKey(f.file))));
-  const known = learned.gpus.filter((g) => g.renders > 0 && g.pace > 0).map((g) => ({ ...g, key: gpuKey(g.gpu) }));
+  const known = learnedGpus(learned).map((g) => ({ ...g, key: gpuKey(g.gpu) }));
   // the GPU a guess is anchored on: the learned one the table knows, with the most renders behind it
   const anchor = known.filter((g) => roughSpeed(g.gpu) !== null).sort((a, b) => b.renders - a.renders)[0] ?? null;
   const ceilingSaid = `over your $${ask.ceiling.toFixed(2)}/h`;
@@ -162,7 +214,8 @@ export function rankGpus(offers: readonly RankOffer[], renders: readonly RankRen
     const fit: RankedGpu["fit"] = ask.leftOut.includes(o.id) ? "left" : small ? "small" : o.price > ask.ceiling ? "price" : "yes";
     const fits = fit === "left" ? "left out by you" : fit === "small" ? "too small for these files" : fit === "price" ? ceilingSaid : "yes";
     const timeSaid = learnedFrom ? `from ${learnedFrom} of your renders` : seconds !== null ? "a guess" : "not known yet";
-    return { id: o.id, name: o.name, price: o.price, memory: o.memory, fit, fits, seconds: seconds === null ? null : Math.round(seconds), cost: seconds === null ? null : (o.price * seconds) / 3600, learned: learnedFrom, timeSaid, stock: stockOf(o, ask.dataCenter), rank: 0 };
+    const overhead = learned.overheadMs ? (o.price * learned.overheadMs) / 3_600_000 : null;
+    return { id: o.id, name: o.name, price: o.price, memory: o.memory, fit, fits, seconds: seconds === null ? null : Math.round(seconds), cost: seconds === null ? null : (o.price * seconds) / 3600, learned: learnedFrom, overhead, timeSaid, stock: stockOf(o, ask.dataCenter), rank: 0 };
   });
   // a GPU whose time is not known comes after those whose time is, by its price ("value" falls back to the price with none known)
   const key = (g: RankedGpu): number | null => (ask.mode === "cheap" ? g.price : ask.mode === "fast" ? g.seconds : g.cost);

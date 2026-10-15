@@ -252,7 +252,7 @@ function FetchNote({ w, machines }: { w: Job; machines: MachineState[] }) {
 /** What keeps a waiting job off a machine, in a few words for its "Run on" menu; null when nothing does. */
 function lackSaid(lack: MachineLack | undefined): string | null {
   if (!lack) return null;
-  if (lack.balance) return `its RunPod balance lasts ${est(lack.balance.leftMs)}, this takes ${est(lack.balance.needMs)}`;
+  if (lack.balance) return `its RunPod balance lasts ${est(lack.balance.leftMs)}, this needs ${est(lack.balance.needMs)}`;
   if (lack.failed) return `its file cannot get there: ${lack.failed}`;
   if (lack.off) return "its family is off there";
   if (lack.why) return lack.why;
@@ -269,7 +269,7 @@ function PinnedLacks({ machine, id, lack }: { machine: string; id: string; lack:
       <div className="mb-1 ml-[44px] flex flex-col gap-1.5 rounded-[10px] border border-line bg-raised px-3 py-2 text-xs text-ink-2">
         {lack.balance ? (
           <span>
-            Waits: the RunPod balance lasts {est(lack.balance.leftMs)} at what the account spends now, and this takes {est(lack.balance.needMs)} on {machine}. At zero RunPod stops every pod and the render is lost: add credit on RunPod, or run it on another machine.
+            Waits: the RunPod balance lasts {est(lack.balance.leftMs)} at what the account spends now, and this needs {est(lack.balance.needMs)} on {machine} (its files still to come, and room over its forecast while the pod has few renders of it), with 10 min to spare. At zero RunPod stops every pod and the render is lost: add credit on RunPod, or run it on another machine.
           </span>
         ) : lack.failed ? (
           <span>

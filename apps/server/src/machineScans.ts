@@ -96,7 +96,10 @@ export interface Lack {
   sendable: boolean;
   /** The node packs it lacks there, by their name in ComfyUI-Manager's list (core packs.ts), when every node it lacks is of one. */
   packs?: string[];
-  /** A rented pod whose RunPod balance runs out before this job would end there: how long it lasts, how long the job takes (ms). */
+  /**
+   * A rented pod whose RunPod balance runs out before this job would end there: how long it lasts, and what the job needs
+   * of it (ms: its files still to come and its forecast, half again while the forecast rests on too little; rented.ts runwayNeed).
+   */
   balance?: { leftMs: number; needMs: number };
   /** A rented pod its files cannot reach: why (one failed there, or was left out at its deploy). */
   failed?: string;

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { fileKey, firstFree, plural, rankGpus, type HuntMode, type Learned, type PresetFile, type RankedGpu, type RankRender } from "@afflatus/core";
+import { deployOverhead, type DeployOverhead } from "./costs";
 import { deployFiles, deployModels } from "./deployModels";
 import { httpError } from "./errors";
 import { gpuPaces } from "./forecast";
@@ -252,8 +253,11 @@ export class Hunt {
     }));
   }
 
-  /** What the record of renders says of each GPU: its pace, and the files that ran out of memory on it. */
-  private async learned(): Promise<Learned> {
+  /**
+   * What the record of renders says of each GPU: its pace, the GPUs rendered on at all (one alone is the common pace), and
+   * the files that ran out of memory on it; and what a deploy bills besides its renders, from the user's sessions.
+   */
+  private async learned(overhead: DeployOverhead | null): Promise<Learned> {
     const failed = await this.s.db
       .selectFrom("render_stats")
       .innerJoin("jobs", "jobs.id", "render_stats.id")
@@ -265,18 +269,31 @@ export class Hunt {
       .limit(500)
       .execute();
     const oom = failed.filter((r) => OUT_OF_MEMORY.test(r.error ?? "")).map((r) => ({ gpu: r.gpu!, file: r.model_file }));
-    return { gpus: await gpuPaces(this.s.db), oom };
+    const rendered = await this.s.db
+      .selectFrom("render_stats")
+      .select(["gpu", (eb) => eb.fn.countAll<number>().as("renders")])
+      .where("status", "=", "done")
+      .where("whole", "=", 1)
+      .where("step_ms", "is not", null)
+      .where("gpu", "is not", null)
+      .groupBy("gpu")
+      .execute();
+    return { gpus: await gpuPaces(this.s.db), oom, rendered: rendered.map((r) => ({ gpu: r.gpu!, renders: Number(r.renders) })), overheadMs: overhead ? overhead.bootMs + overhead.idleMs : null };
   }
 
-  private async rank(offers: GpuOffer[], rows: JobRow[], o: { mode: HuntMode; ceiling: number; leftOut: string[]; dataCenter: string | null }): Promise<RankedGpu[]> {
-    const [renders, learned] = await Promise.all([this.renders(rows), this.learned()]);
-    return rankGpus(offers, renders, learned, o);
+  private async rank(offers: GpuOffer[], rows: JobRow[], o: { mode: HuntMode; ceiling: number; leftOut: string[]; dataCenter: string | null }): Promise<{ ranking: RankedGpu[]; overhead: DeployOverhead | null }> {
+    const overhead = await deployOverhead(this.s.db, this.now());
+    const [renders, learned] = await Promise.all([this.renders(rows), this.learned(overhead)]);
+    return { ranking: rankGpus(offers, renders, learned, o), overhead };
   }
 
-  /** The dialog's live ranking for its choices: no hunt needed; RunPod read again only past FRESH_MS. */
-  async preview(asked: z.infer<typeof rankSchema>): Promise<{ ranking: RankedGpu[]; held: number }> {
+  /**
+   * The dialog's live ranking for its choices: no hunt needed; RunPod read again only past FRESH_MS. With it, what a
+   * deploy bills besides its renders (the usual boot and idle of the user's sessions), said beside a render's cost.
+   */
+  async preview(asked: z.infer<typeof rankSchema>): Promise<{ ranking: RankedGpu[]; held: number; overhead: DeployOverhead | null }> {
     const [offers, dataCenter, rows] = await Promise.all([this.offers(asked.cloud), this.dataCenterOf(asked.volume), this.held()]);
-    return { ranking: await this.rank(offers, rows, { ...asked, dataCenter }), held: rows.length };
+    return { ...(await this.rank(offers, rows, { ...asked, dataCenter })), held: rows.length };
   }
 
   // ---------------------------------------------------------------- start, change, cancel
@@ -443,7 +460,7 @@ export class Hunt {
       st.lastError = (err as Error).message;
       return this.save();
     }
-    const ranking = await this.rank(offers, rows, st);
+    const { ranking } = await this.rank(offers, rows, st);
     if (this.state !== st) return;
     this.ranking = ranking;
     this.askedAt = this.offersSeen.get(st.cloud)?.at ?? this.now();

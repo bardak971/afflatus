@@ -1,8 +1,8 @@
 import { useRef, type ReactNode } from "react";
 import type { RankedGpu } from "@afflatus/core";
-import type { HuntAsk } from "./api";
+import type { DeployOverhead, HuntAsk } from "./api";
 import { usd } from "./format";
-import { firstPick, giveUpOptions, MODES, minutesSaid, renderSaid } from "./huntSaid";
+import { deploySaid, firstPick, giveUpOptions, MODES, minutesSaid, renderSaid, renderWhy } from "./huntSaid";
 import { Select } from "./Select";
 import { Checkbox, cx, ErrorNote, Help, NumberBox, Segmented } from "./ui";
 
@@ -22,10 +22,12 @@ const COLS = "grid-cols-[28px_minmax(0,1fr)_72px_150px_150px_92px]";
  * for the renders waiting (a tick leaves one out), what the home machines do meanwhile and when it gives up. The dialog
  * keeps its other choices (image, disk, when done, models): the hunt deploys with them.
  */
-export function HuntSection({ ask, change, ranking, failed, pending, volume, warning }: {
+export function HuntSection({ ask, change, ranking, overhead, failed, pending, volume, warning }: {
   ask: HuntAsk;
   change(c: Partial<HuntAsk>): void;
   ranking: RankedGpu[] | null;
+  /** What a deploy bills besides its renders, from the user's sessions; null when none tells it yet. */
+  overhead: DeployOverhead | null;
   failed: string | null;
   pending: boolean;
   /** The network volume the pod would use: the hunt looks in its data center only. */
@@ -71,7 +73,7 @@ export function HuntSection({ ask, change, ranking, failed, pending, volume, war
           <span><Help text={WHY_TABLE} /></span>
           <span>GPU</span>
           <span className="text-right">An hour</span>
-          <span className="text-right">A render</span>
+          <span className="flex items-center justify-end gap-1">A render <Help text={renderWhy(overhead)} /></span>
           <span>Fits these renders</span>
           <span>Now</span>
         </div>
@@ -89,6 +91,7 @@ export function HuntSection({ ask, change, ranking, failed, pending, volume, war
             <span className="flex flex-col items-end">
               <span className={cx("text-xs", g.cost === null ? "text-ink-3" : "font-mono")}>{renderSaid(g)}</span>
               {g.cost !== null && <span className="text-[11px] text-ink-3">{g.timeSaid}</span>}
+              {deploySaid(g) && <span className="text-[11px] text-ink-3">{deploySaid(g)}</span>}
             </span>
             <span className={cx("text-xs", g.fit === "yes" ? "text-good" : "text-ink-2")}>{g.fits}</span>
             <span className="flex items-center gap-1.5 text-xs text-ink-2"><span className={cx("size-2 shrink-0 rounded-full", STOCK_DOT[g.stock])} />{g.stock}</span>
