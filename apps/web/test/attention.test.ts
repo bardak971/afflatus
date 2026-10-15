@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Asset, Clip, Take } from "../src/api";
-import { attention, attentionLine, canDismiss, clipWords, dismissKey, fixAll, fixWords, planFix, type JoinFigures, type Row } from "../src/timeline/attention";
+import { attention, attentionLine, canDismiss, clipWords, dismissKey, fixAll, fixWords, planFix, plansToAsk, withPlans, type JoinFigures, type Row } from "../src/timeline/attention";
 
 /** A clip with only what the rows read. */
 const clip = (over: Partial<Clip> & { id: string }): Clip =>
@@ -64,6 +64,29 @@ describe("Fix all", () => {
       render: ["a", "b", "d"],
       ms: 180_000,
     });
+  });
+});
+
+describe("each render's time, as the server plans it", () => {
+  // 2 clips left to render and a stale one: the header's plan has the first two, Fix all renders all three
+  const clips = [clip({ id: "a" }), clip({ id: "b" }), rendered("c", ["u"], { join: "stale" })];
+  const rows = read(clips);
+  const fix = fixAll(rows, clips, ms)!;
+  it("reads the header's plan for its own clips, and asks for the other sets once", () => {
+    const plan = { auto: true, ids: ["b", "a"], ms: 120_000 };
+    expect(plansToAsk(rows, fix, plan)).toEqual([["c"], ["a", "b", "c"]]);
+    const got = withPlans(rows, fix, plan, [{ ids: ["c"], ms: 50_000 }, { ids: ["a", "b", "c"], ms: 150_000 }]);
+    // added up, they said 120 000 and 180 000: the machines share them
+    expect(got.rows.map((r) => r.act?.do === "render" && r.act.ms)).toEqual([120_000, 50_000]);
+    expect(got.fix?.ms).toBe(150_000);
+  });
+  it("adds up while a plan is not known, and when a machine is picked", () => {
+    const unknown = withPlans(rows, fix, { auto: true, ids: ["a", "b"], ms: 0 }, [{ ids: ["c"], ms: undefined }]);
+    expect(unknown.rows.map((r) => r.act?.do === "render" && r.act.ms)).toEqual([120_000, 60_000]);
+    expect(unknown.fix?.ms).toBe(180_000);
+    const picked = { auto: false, ids: ["a", "b"], ms: 90_000 };
+    expect(plansToAsk(rows, fix, picked)).toEqual([]);
+    expect(withPlans(rows, fix, picked, []).fix?.ms).toBe(180_000);
   });
 });
 

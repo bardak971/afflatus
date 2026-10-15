@@ -70,15 +70,18 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
         onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
         className="h-9 w-56 min-w-24 shrink rounded-lg border border-transparent bg-transparent px-2 text-base font-semibold hover:border-line focus:border-accent focus:bg-raised"
       />
-      <Chip className="min-w-0 shrink!">
+      {/* short on a narrow header, it keeps its figures whole: the name gives way */}
+      <Chip className="@[56rem]/head:min-w-0 @[56rem]/head:shrink!">
         {clips.length === 0 ? "Empty" : (
           <span className="truncate">
             <span className="font-mono">{now}</span>
-            {now !== planned && <> rendered of <span className="font-mono">{planned}</span></>} · {plural(clips.length, "clip")}
+            {/* on a narrow window "0:00 / 0:10", the clips' count left to the Overview: the estimate beside it is kept whole */}
+            {now !== planned && <><span className="hidden @[56rem]/head:inline"> rendered of </span><span className="@[56rem]/head:hidden"> / </span><span className="font-mono">{planned}</span></>}
+            <span className="hidden @[56rem]/head:inline"> · {plural(clips.length, "clip")}</span>
           </span>
         )}
       </Chip>
-      {missing.length > 0 && <Chip tone="warn" className="min-w-0 shrink!"><span className="truncate">{missing.length} to render{allMs ? ` · ${est(allMs)}` : ""}</span></Chip>}
+      {missing.length > 0 && <Chip tone="warn" className="shrink-0">{missing.length} to render{allMs ? ` · ${est(allMs)}` : ""}</Chip>}
       <span className="grow" />
       {saveFailed ? (
         // what was typed is still on screen and not on the server: said, with the way to send it again

@@ -9,7 +9,7 @@ export function Readout({ clock, slots, cursor, total, source }: { clock: Clock;
     const at = cursor ?? time;
     return (
       <>
-        <span className="ml-1 font-mono"><b className="font-semibold">{stamp(at)}</b> <span className="text-ink-3">/ {stamp(total)}</span></span>
+        <span className="ml-1 shrink-0 font-mono whitespace-nowrap"><b className="font-semibold">{stamp(at)}</b> <span className="text-ink-3">/ {stamp(total)}</span></span>
         <span className="hidden h-[22px] shrink-0 items-center gap-1 rounded-md bg-accent-wash px-2 text-[11.5px] font-bold whitespace-nowrap text-accent lg:inline-flex" data-tip="The stage plays the source: where in it the playhead stands">
           Source · <span className="font-mono">{stamp(Math.max(0, Math.min(source.lengthMs, at - source.atMs)))} / {stamp(source.lengthMs)}</span>
         </span>
@@ -18,7 +18,7 @@ export function Readout({ clock, slots, cursor, total, source }: { clock: Clock;
   }
   return (
     <>
-      <span className="ml-1 font-mono"><b className="font-semibold">{stamp(cursor ?? head?.layoutMs ?? 0)}</b> <span className="text-ink-3">/ {stamp(total)}</span></span>
+      <span className="ml-1 shrink-0 font-mono whitespace-nowrap"><b className="font-semibold">{stamp(cursor ?? head?.layoutMs ?? 0)}</b> <span className="text-ink-3">/ {stamp(total)}</span></span>
       {/* the clip under the playhead, as a tag: which one, and where in it */}
       {head && cursor === null && head.slot.clip.lengthMs > 0 && (
         <span className="hidden h-[22px] shrink-0 items-center gap-1 rounded-md bg-accent-wash px-2 text-[11.5px] font-bold whitespace-nowrap text-accent lg:inline-flex" data-tip="Which clip is under the playhead, and where in it">

@@ -7,6 +7,8 @@ import { deploySaid, firstPick, giveUpOptions, MODES, renderSaid, renderWhy } fr
 import { Select } from "./Select";
 import { Checkbox, cx, ErrorNote, Help, NumberBox, Segmented } from "./ui";
 
+/** The ceiling is the GPU's price, as the ranking's prices are: the disk's part depends on the disk picked, not on the GPU. */
+const WHY_CEILING = "The highest price an hour of the GPU itself, as RunPod lists it and as the table below says it. The pod's own disk adds a little to it while it runs ($0.10/GB a month); a network volume is billed apart.";
 const WHY_MODE = "What the hunt deploys first, among the GPUs ticked that fit these renders and are within your price. Best value: the lowest cost a render (its time on that GPU times its price an hour). Fastest: the shortest render. Cheapest an hour: the lowest price an hour. A render's time comes from your own renders on that GPU; a guess from a GPU you rendered on until you have some.";
 const WHY_TABLE = "Ticked: the hunt may deploy it. Fits these renders: no file of the renders waiting is larger than its memory, nor ran out of memory on it before. Now: RunPod's stock where the pod would go. The first GPU in this order that is free is deployed, once.";
 const WHY_HOLD = "Hold: the home machines are paused (a render under way finishes first) so that every render waiting goes to the GPU found; they go on when its pod stops, or when the hunt ends without one. Keep rendering: they go on, and the GPU found takes its share.";
@@ -77,8 +79,9 @@ export function HuntSection({ ask, change, ranking, stepDown = [], overhead, fai
         <span className="grow" />
         <span className="flex items-center gap-2 text-[13px] text-ink-2">
           Up to $
-          <NumberBox label="Highest price an hour, USD" value={ask.ceiling} min={0.05} max={1000} step={0.01} onCommit={(ceiling) => change({ ceiling })} className="-ml-1" />
+          <NumberBox label="Highest GPU price an hour, USD" value={ask.ceiling} min={0.05} max={1000} step={0.01} onCommit={(ceiling) => change({ ceiling })} className="-ml-1" />
           an hour
+          <Help text={WHY_CEILING} />
         </span>
       </div>
       <span className="-mt-1.5 pl-[122px] text-xs text-ink-3">{MODES.find((m) => m.value === ask.mode)!.note}</span>
@@ -88,7 +91,7 @@ export function HuntSection({ ask, change, ranking, stepDown = [], overhead, fai
         <div role="row" className={cx("sticky top-0 z-10 grid items-center gap-2.5 border-b border-line bg-panel px-3 py-1.5 text-[11px] font-semibold text-ink-3", COLS)}>
           <span><Help text={WHY_TABLE} /></span>
           <span>GPU</span>
-          <span className="text-right">An hour</span>
+          <span className="text-right">GPU $/h</span>
           <span className="flex items-center justify-end gap-1">A render <Help text={renderWhy(overhead)} /></span>
           <span>Fits these renders</span>
           <span>Now</span>

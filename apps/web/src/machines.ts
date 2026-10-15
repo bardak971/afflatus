@@ -108,9 +108,12 @@ const HOURS_A_MONTH = 730;
 /** What a pod's own disk adds to its GPU's price an hour while it runs (USD): RunPod bills it with the GPU. */
 export const diskPerHour = (gb: number) => (Math.max(0, gb) * DISK_RUNNING_PER_GB_MONTH) / HOURS_A_MONTH;
 
-/** A pod's rate, its GPU and its disk, as its "?" says it: "GPU $0.59 + disk $0.02 an hour, as RunPod bills it". Null without the GPU's part. */
+/**
+ * A pod's rate, its GPU and its disk, as its "?" says it: "GPU $0.59 + disk $0.02 an hour, as RunPod bills it". Null
+ * without the GPU's part, and when the rate is the GPU's alone (no disk, or one too small to show): "+ its disk $0.00" said nothing.
+ */
 export function rateParts(r: Pick<RentedState, "rate" | "gpuRate">): string | null {
-  if (!r.rate || !r.gpuRate) return null;
+  if (!r.rate || !r.gpuRate || r.rate - r.gpuRate < 0.0005) return null;
   return `GPU ${usd(r.gpuRate)} + its disk ${usd(Math.max(0, r.rate - r.gpuRate), true)} an hour while it runs, as RunPod bills it`;
 }
 

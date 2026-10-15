@@ -232,4 +232,15 @@ describe("the waiting list's \"about N in all\"", () => {
   it("with nothing planned (one machine), the jobs one after another after the running one", () => {
     expect(waitingEnds([{ estimateMs: 1000, startsInMs: null }, { estimateMs: 2000, startsInMs: null }], { eta: 3 })).toBe(6000);
   });
+  it("paused, with nothing planned, shares the jobs between the machines up that can take them", () => {
+    // 6 jobs of a minute on 3 machines: 2 min, not the 6 they add up to; the running one's 30 s on the first
+    const paused = Array.from({ length: 6 }, () => ({ estimateMs: 60_000, startsInMs: null }));
+    expect(waitingEnds(paused, null, null, ["a", "b", "c"])).toBe(120_000);
+    expect(waitingEnds(paused, { eta: 30 }, null, ["a", "b", "c"])).toBe(150_000);
+    // a model only two of them have: shared between those two; one pinned goes where it is pinned
+    expect(waitingEnds(paused.map((w) => ({ ...w, runsOn: ["a", "c"] })), null, null, ["a", "b", "c"])).toBe(180_000);
+    expect(waitingEnds([{ estimateMs: 60_000, startsInMs: null, pinned: "b" }, { estimateMs: 60_000, startsInMs: null, pinned: "b" }], null, null, ["a", "b"])).toBe(120_000);
+    // none up: nothing said
+    expect(waitingEnds(paused, null, null, [])).toBe(0);
+  });
 });

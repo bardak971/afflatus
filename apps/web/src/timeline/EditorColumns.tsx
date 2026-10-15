@@ -2,6 +2,7 @@ import type { ComponentProps } from "react";
 import type { Clip, Timeline, TimelinePatch } from "../api";
 import { ColumnEdge, FoldButton, FoldedStrip } from "./column";
 import { SHAPES, shapeOf, type Shape } from "./model";
+import type { Plan } from "./attention";
 import { Overview, useAttention } from "./Overview";
 import { StartPanel } from "./StartPanel";
 
@@ -12,6 +13,8 @@ import { StartPanel } from "./StartPanel";
 export interface Checks {
   renderable(c: Clip): boolean;
   msOf(c: Clip): number | null;
+  /** The server's plan of the clips left to render (the header's Render all): the Overview says each render's time from it. */
+  plan?: Plan;
   why(c: Clip): string | undefined;
   known: boolean;
 }

@@ -106,6 +106,48 @@ export function fixAll(rows: Row[], clips: Clip[], msOf: (c: Clip) => number | n
 }
 
 /**
+ * The server's plan of the clips left to render, as the header's Render all says it: on Auto (`auto`) they are shared
+ * between the machines, each loading its model once, so each clip's own time added up says too much (2 Wan clips on 3
+ * machines read ~4 min in Needs attention and ~2 min in the header). `ids`: the clips it was asked for; `ms`: 0 while unknown.
+ */
+export interface Plan {
+  auto: boolean;
+  ids: string[];
+  ms: number;
+}
+
+const sameClips = (a: string[], b: string[]) => a.length === b.length && a.every((id) => b.includes(id));
+
+/**
+ * The clips whose time is to be asked of the server's plan: every render the rows and Fix all offer, each set once, but
+ * the header's own (its plan is known) and none when a machine is picked (one machine renders them one after another:
+ * added up is right).
+ */
+export function plansToAsk(rows: Row[], fix: Fix | null, plan: Plan | undefined): string[][] {
+  if (!plan?.auto) return [];
+  const sets = [...rows.flatMap((r) => (r.act?.do === "render" ? [r.act.clips] : [])), ...(fix?.render.length ? [fix.render] : [])];
+  const out: string[][] = [];
+  for (const s of sets) if (!sameClips(s, plan.ids) && !out.some((o) => sameClips(o, s))) out.push(s);
+  return out;
+}
+
+/**
+ * The rows and Fix all with each render's time as the server plans it: the header's plan for its own clips, what was
+ * asked (`asked`, by clip ids as plansToAsk gave them) for the others; added up still while the plan is not known.
+ */
+export function withPlans(rows: Row[], fix: Fix | null, plan: Plan | undefined, asked: Array<{ ids: string[]; ms: number | null | undefined }>): { rows: Row[]; fix: Fix | null } {
+  const planned = (ids: string[], summed: number) => {
+    if (!plan?.auto) return summed;
+    const ms = sameClips(ids, plan.ids) ? plan.ms : asked.find((a) => sameClips(a.ids, ids))?.ms;
+    return ms ? ms : summed;
+  };
+  return {
+    rows: rows.map((r) => (r.act?.do === "render" ? { ...r, act: { ...r.act, ms: planned(r.act.clips, r.act.ms) } } : r)),
+    fix: fix && fix.render.length ? { ...fix, ms: planned(fix.render, fix.ms) } : fix,
+  };
+}
+
+/**
  * A row set aside ("keep as it is": the smoother take was not the better one, the clip is not in the cut): what it is
  * and the take each of its clips plays. Another take, or a new render, is another decision: the row comes back.
  * A clip with nothing rendered is never set aside: there is nothing to keep.

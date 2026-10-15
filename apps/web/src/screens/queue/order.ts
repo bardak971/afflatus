@@ -86,14 +86,24 @@ export function betterPlace<T extends Pick<Job, "id" | "kind" | "recipe">>(waiti
 /**
  * When the waiting jobs are all done, in ms from now, as "about N in all" says it: the server's plan's last end
  * (`plannedEnd`, QueueStatus.waitingEndsInMs) when it gives one, else the latest a waiting job ends where the plan said
- * when each starts, else (one machine, nothing planned) the jobs one after another after the running one. Summed with
- * several machines, 40 jobs on 4 machines said "5 min" for what took 75 s.
+ * when each starts, else (nothing planned: the queue paused) the jobs shared between the `machines` up (their ids; left
+ * out: one machine of one's own), each job to the one free first of those it can run on, after the running one. Summed
+ * with several machines, 40 jobs on 4 machines said "5 min" for what took 75 s, and 47 paused on 3 said 23 min for 11.
+ * A job none of them can take adds nothing; none up: 0, nothing said.
  */
-export function waitingEnds(waiting: ReadonlyArray<Pick<Job, "estimateMs" | "startsInMs">>, running: { eta: number | null } | null, plannedEnd?: number | null): number {
+export function waitingEnds(waiting: ReadonlyArray<Pick<Job, "estimateMs" | "startsInMs"> & Partial<Pick<Job, "runsOn" | "pinned">>>, running: { eta: number | null } | null, plannedEnd?: number | null, machines?: readonly string[]): number {
   if (typeof plannedEnd === "number") return plannedEnd;
   const left = (running?.eta ?? 0) * 1000;
   if (waiting.some((w) => w.startsInMs !== null && w.startsInMs !== undefined)) {
     return waiting.reduce((end, w) => Math.max(end, (w.startsInMs ?? 0) + (w.estimateMs ?? 0)), left);
   }
-  return waiting.reduce((sum, w) => sum + (w.estimateMs ?? 0), 0) + left;
+  if (!machines) return waiting.reduce((sum, w) => sum + (w.estimateMs ?? 0), 0) + left;
+  if (!machines.length) return 0;
+  const free = new Map(machines.map((id, i) => [id, i === 0 ? left : 0]));
+  for (const w of waiting) {
+    const can = (w.pinned ? [w.pinned] : w.runsOn ?? machines).filter((id) => free.has(id));
+    const at = can.reduce<string | null>((best, id) => (best === null || free.get(id)! < free.get(best)! ? id : best), null);
+    if (at !== null) free.set(at, free.get(at)! + (w.estimateMs ?? 0));
+  }
+  return Math.max(...free.values());
 }

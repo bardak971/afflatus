@@ -4,7 +4,7 @@ import { Link } from "wouter";
 import { ArrowDownToLine, ArrowUpToLine, Layers, Pin, Server, Trash2, X } from "lucide-react";
 import { api, type Job, type MachineLack, type MachineState, type RunningJob } from "../../api";
 import { GetFile } from "../../GetFile";
-import { machineLabel, machineState } from "../../machines";
+import { machineLabel, machineState, rentedUp } from "../../machines";
 import { JOB_DRAG } from "./MachineLanes";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { aboutMs, est, plural, when } from "../../format";
@@ -23,10 +23,11 @@ const SHOWN = 3;
  * machines sharing them: waitingEnds), the model switches on the way with a "Group by model" when grouping saves loads,
  * and "Cancel all waiting…".
  */
-function WaitingHead({ waiting, running, endsInMs }: { waiting: Job[]; running: RunningJob | null; endsInMs?: number | null }) {
+function WaitingHead({ waiting, running, endsInMs, machines }: { waiting: Job[]; running: RunningJob | null; endsInMs?: number | null; machines: MachineState[] }) {
   const bulk = useQueueBulk();
   const [busy, setBusy] = useState(false);
-  const ms = waitingEnds(waiting, running, endsInMs);
+  // with nothing planned (paused), shared between the machines up that can take them (with one of one's own, one after another)
+  const ms = waitingEnds(waiting, running, endsInMs, machines.length ? machines.filter((m) => m.online !== false && rentedUp(m)).map((m) => m.id) : undefined);
   const switches = modelSwitches(waiting, running);
   const saves = groupingSaves(waiting, running);
   const run = (work: () => Promise<unknown>) => {
@@ -130,7 +131,7 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
   return (
     // a narrow list (a phone) keeps each row's name and time: its model and machine notes go (@container/waiting)
     <div className="@container/waiting flex flex-col" onDragOver={(e) => dragged && e.preventDefault()} onDrop={() => over !== null && drop(over)}>
-      <WaitingHead waiting={waiting} running={running} endsInMs={endsInMs} />
+      <WaitingHead waiting={waiting} running={running} endsInMs={endsInMs} machines={machines} />
       {shown.map((w, i) => (
         <Fragment key={w.id}>
           <div
