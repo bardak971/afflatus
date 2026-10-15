@@ -632,7 +632,7 @@ function compared(rows: readonly PaceRow[], who: (r: PaceRow) => string | null):
     out.set(id, { pace: median(rs.map((r) => r.ratio)), families, renders: rs.reduce((sum, r) => sum + r.renders, 0) });
   }
   // 1 is the pace of the one compared on the most renders (the owner's PC, as a rule), not the middle of them: with two
-  // machines the middle lies between them and the PC read ×1.33 against itself. Only the ratios between them count
+  // machines the middle lies between them and the PC read Ã—1.33 against itself. Only the ratios between them count
   const most = [...out.values()].sort((a, b) => b.renders - a.renders)[0];
   if (most && most.pace > 0) {
     const by = most.pace;
