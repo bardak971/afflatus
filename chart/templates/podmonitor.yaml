@@ -17,4 +17,11 @@ spec:
     - port: http
       path: /metrics
       interval: {{ .Values.metrics.interval }}
+      {{- with .Values.metrics.tokenSecret }}
+      {{- if .name }}
+      bearerTokenSecret:
+        name: {{ .name }}
+        key: {{ .key | default "token" }}
+      {{- end }}
+      {{- end }}
 {{- end }}

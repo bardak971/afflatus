@@ -88,6 +88,11 @@ metrics:
   # The label the cluster's Prometheus selects monitors by.
   labels:
     release: kube-prometheus-stack
+  # With a password set (Settings > Interface > Access), /metrics answers only to the metrics token made there: put it
+  # in a secret and name it here (`kubectl create secret generic afflatus-metrics --from-literal=token=<token>`).
+  tokenSecret:
+    name: ""
+    key: token
 
 nodeSelector: {}
 tolerations: []
