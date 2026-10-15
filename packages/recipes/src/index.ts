@@ -7,6 +7,8 @@ import { h3Video } from "./h3/video";
 import { klein } from "./klein/family";
 import { ltx } from "./ltx/family";
 import { ltxVideo } from "./ltx/video";
+import { ltx25 } from "./ltx25/family";
+import { ltx25Video } from "./ltx25/video";
 import { krea2 } from "./krea2/family";
 import { krea2FixFace, krea2PaintOver, krea2Picture, krea2Redraw, krea2Sharper } from "./krea2/recipes";
 import { kleinEdit, kleinFixFace, kleinPaintOver, kleinPicture, kleinReshape, kleinSharper, kleinVariation } from "./klein/recipes";
@@ -24,7 +26,7 @@ import { wan } from "./wan/family";
 import { wanVideo } from "./wan/video";
 import { zimage, zimageFixFace, zimageOutpaint, zimagePaintOver, zimagePicture, zimageRedraw, zimageSharper } from "./zimage";
 
-export const families: Family[] = [sdxl, klein, krea2, flux, qwen, qwen21, zimage, h3, wan, scail, wanAnimate, ltx, tools];
+export const families: Family[] = [sdxl, klein, krea2, flux, qwen, qwen21, zimage, h3, wan, scail, wanAnimate, ltx, ltx25, tools];
 
 /** Every built-in recipe. Imported workflows are added to this list at run time by the server. */
 export const recipes: Recipe<any>[] = [
@@ -42,6 +44,7 @@ export const recipes: Recipe<any>[] = [
   scailMotion,
   wanAnimateMotion,
   ltxVideo,
+  ltx25Video,
   removeBackground, seedvrPicture,
 ];
 
@@ -50,10 +53,11 @@ export const recipeById = (id: string) => recipes.find((r) => r.id === id);
 
 export { h3, h3Video, klein, krea2, krea2Picture, sdxl, sdxlTextToPicture, tools, wan, wanVideo };
 export { wanCanvas, wanFrames, WAN_FPS } from "./wan/family";
-export { ltx, ltxVideo };
+export { ltx, ltxVideo, ltx25, ltx25Video };
 export { scail, scailMotion, wanAnimate, wanAnimateMotion };
 export { flux, fluxEdit, fluxPicture, qwen, qwenEdit, qwenPicture, qwen21, qwen21Edit, qwen21Picture, zimage, zimagePicture };
-export { ltxCanvas, ltxFrames, LTX_FPS } from "./ltx/family";
+export { ltxCanvas, ltxFrames, ltxFramesAt, LTX_FPS } from "./ltx/family";
+export { LTX25_FPS } from "./ltx25/family";
 export { LTX_REFINE_SIGMAS, LTX_SIGMAS } from "./ltx/video";
 export type { LtxVideo } from "./ltx/video";
 export type { WanVideo } from "./wan/video";
