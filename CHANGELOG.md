@@ -34,6 +34,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **Trim on a sound:** the viewer's Trim (T) opens a sound's whole waveform, pauses marked, ends snapping into them: copy, split or remove a range, with its loudness evened out if you like.
 - **Remove sound** from a video: a copy without its sound beside it in the library, the video itself untouched; nothing encoded again, no GPU. In every place that lists a video's tools, beside Extract audio.
 - **Renders say they are AI-made:** a PNG picture or a video downloaded from the library, a timeline export and the zip for a video editor carry a machine-readable mark when they come from a render (or a frame, cut or copy of one): IPTC's digital source type "trained algorithmic media" in a picture's XMP and an "AI-generated (Afflatus)" comment in pictures and videos. What you brought in is never marked. The library's own files stay as ComfyUI wrote them, and a marked video holds the same frames.
+- **Progress style** (Settings › Interface › Progress): every progress bar and the Queue ring move one way of your choice: Same look, Glide (the default: the bar glides at the render's own pace), Steps (a tick per step, nothing moving in between) or Alive (a light along the bar, a dot round the ring); per browser, Steps when the system asks for less motion.
+- **Server figures in /metrics** (prom-client): event-loop lag, memory and garbage collection, and per machine the time Afflatus adds to a render (before its first step, filing, measuring); a Server row in the Grafana dashboard.
+
 
 ### Changed
 - **Downloads straight from the source** into a ComfyUI on another machine (node pack 0.12.0): Afflatus asks Hugging Face or Civitai with your key, here, and hands the pack only the temporary signed link they answer with, so the file comes from their servers at their speed, never through this computer's upload, and your key never leaves it. A link that expires half way is sent again, and the download carries on from where it was.
@@ -41,11 +44,16 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **Video forms say what they run:** no Auto; H3 and Wan show their steps and shifts, a distilled H3 file starts on Turbo.
 - **Settings:** ComfyUI, Rented GPUs and Models in two columns on a wide screen; Settings › Models' family panel says what each operation lacks.
 - **Inputs:** a motion transfer's in the order they are used; a tab you click wins over the one brought forward for a missing input; "txt2vid" only when a clip starts from words alone.
+- **Faster with several machines and while rendering:** the machine check keeps ComfyUI's node list and the recipes' checks (the queue answered in milliseconds instead of up to 3 s); forecasts kept until a render lands; a machine is free for its next job once a render's files are stored, its figures read after (one decode instead of eight); a picture goes up once per machine; the tab stays light while rendering (a third of the CPU it took), the Studio no longer keeps old tiles in memory, and the Queue's answer is paged.
+
 
 ### Fixed
 - A form with a cast shows the voice sample the cast adds in its voice field, as it shows the cast's pictures.
 - After a split or a remove, the viewer goes on to what it made instead of staying on the binned original.
 - A part reaching the end of its video or sound keeps that end (a 5.04 s video was cut to 5.0).
+- **Exports of long timelines** no longer fail on Windows (past about 48 clips with transitions); long timelines are exported in pieces, at about half the memory.
+- **Downloads of render videos** are streamed: a file past 2 GB downloads (it failed), and memory stays flat.
+- A stuck render on a rented pod fails after 10 minutes of silence with its GPU idle, instead of 30 minutes or more past a forecast that could be far off.
 
 ## [0.4.0] - 2026-10-12
 
