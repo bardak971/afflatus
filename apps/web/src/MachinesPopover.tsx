@@ -5,7 +5,7 @@ import type { MachineState } from "./api";
 import { lastSaid, openDeploy, useDeployAgain } from "./deploy";
 import { gb, plural } from "./format";
 import { machineLabel } from "./machines";
-import { Bar, busiest, doing, Dot } from "./MachinesPill";
+import { Bar, busiest, doing, Dot } from "./machineBits";
 import { Popover } from "./Popover";
 import { useQueueOps } from "./queueOps";
 import { useSystem } from "./store";

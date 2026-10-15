@@ -1,16 +1,15 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
-import type { MachineState } from "./api";
 import { useMenu } from "./ContextMenu";
 import { useQueue, useSettings } from "./data";
-import { gb, usd } from "./format";
+import { gb } from "./format";
 import { useNow } from "./hooks";
-import { machineLabel, rentedSaid, rentedSpent, rentedUp, severalMachines } from "./machines";
+import { machineLabel, severalMachines } from "./machines";
 import { queryKeys } from "./queryKeys";
 import { useMeteredMachine, useSystem } from "./store";
-import { Progress } from "./progress/Progress";
 import { cx } from "./ui";
+import { Bar, busiest, doing, Dot } from "./machineBits";
 
 // the menu is opened now and then: fetched the first time, the strip itself is in the first load
 const MachineMenuBody = lazy(() => import("./MachineMenu").then((m) => ({ default: m.MachineMenuBody })));
@@ -18,53 +17,6 @@ const MachinesPopover = lazy(() => import("./MachinesPopover").then((m) => ({ de
 
 /** Asked by the strip's "+1" (other renders): the pill opens its popover. */
 export const OPEN_MACHINES = "afflatus:machines";
-
-/** A machine's dot, in its state: filled in the accent while it renders, a green ring idle, grey paused, amber away. */
-export function Dot({ m }: { m: MachineState }) {
-  // a rented pod that is not running: a grey ring while stopped, amber and pulsing while it starts (its first start too,
-  // RunPod saying it runs while its image is pulled)
-  if (m.rented && (m.rented.status !== "RUNNING" || m.rented.booting)) {
-    const starting = m.rented.status === "STARTING" || m.rented.status === "PROVISIONING" || m.rented.booting;
-    return <span aria-hidden className={cx("size-[7px] shrink-0 rounded-full", starting ? "animate-pulse bg-warn" : "border-[1.5px] border-ink-3")} />;
-  }
-  if (m.online === false) return <span aria-hidden className="size-[7px] shrink-0 rounded-full bg-warn" />;
-  if (m.paused) return <span aria-hidden className="size-[7px] shrink-0 rounded-full bg-ink-3" />;
-  return <span aria-hidden className={cx("size-[7px] shrink-0 rounded-full", m.running ? "bg-accent" : "border-[1.5px] border-good")} />;
-}
-
-/** A small bar, its figure in the tip: the pill has the room for two of them, not for their numbers. */
-export function Bar({ label, value, warn, hot, tip }: { label: string; value: number; warn?: boolean; hot?: boolean; tip?: string }) {
-  return (
-    <span className={cx("inline-flex shrink-0 items-center gap-1.5 text-ink-2", warn && "text-warn-ink")} data-tip={tip ?? `${label} ${Math.round(value)} %`}>
-      {label}
-      <Progress meter value={value / 100} className="h-1 w-[26px]" radius="rounded-[3px]" tone={warn ? "bg-warn" : hot ? "bg-accent" : "bg-ink-2"} />
-    </span>
-  );
-}
-
-/** The word for the machines together: the busiest thing they do. */
-export function busiest(machines: MachineState[]): string {
-  const rendering = machines.filter((m) => m.running).length;
-  const away = machines.filter((m) => m.online === false && rentedUp(m)).length;
-  const starting = machines.filter((m) => m.rented?.status === "STARTING" || m.rented?.status === "PROVISIONING").length;
-  const paused = machines.filter((m) => m.paused).length;
-  if (rendering) return `${rendering} rendering`;
-  if (starting) return `${starting} starting`;
-  if (away) return `${away} offline`;
-  if (paused) return paused === machines.length ? "all paused" : `${paused} paused`;
-  return "all idle";
-}
-
-/** What a machine does, in a few words, for its row. */
-export function doing(m: MachineState, now: number): string {
-  // a rented pod: its own state first (stopped, starting, its ComfyUI not up yet), its cost while it runs
-  if (m.rented && (m.rented.status !== "RUNNING" || m.rented.stopping || m.rented.answers === false)) return rentedSaid(m.rented, now);
-  const cost = m.rented?.since ? ` · ${usd(rentedSpent(m.rented, now), true)}` : "";
-  if (m.online === false) return m.locked ? "locked: its token is wrong" : "offline";
-  if (m.running) return `${m.running.label}${m.running.steps ? ` · ${m.running.step}/${m.running.steps}` : ` · ${Math.round(m.running.progress * 100)} %`}${cost}`;
-  const state = m.paused ? "paused" : "idle";
-  return `${m.model ? `${state} · holds ${m.model}` : state}${cost}`;
-}
 
 /**
  * The status bar's machines, when there are several ComfyUIs: one pill in place of a chip each and the meters strip. A

@@ -5,7 +5,8 @@ import { Bookmark, ChevronDown, CircleAlert, Cpu, RotateCw, Search } from "lucid
 import { ContextMenu, useMenu } from "./ContextMenu";
 import { api, type Availability, type DeployAsk, type GpuOffer, type HuntAsk, type NetworkVolume } from "./api";
 import { useQueue, useSettings } from "./data";
-import { huntReads, type DeployOpening } from "./deploy";
+import type { DeployOpening } from "./deploy";
+import { huntReads } from "./deployReads";
 import { HuntSection } from "./DeployHunt";
 import { DeployModels, SaveAsSet, type ModelsPicked } from "./DeployModels";
 import { DEPLOYED_READS } from "./deployReads";

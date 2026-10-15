@@ -4,9 +4,8 @@ import { create } from "zustand";
 import { api, type DeployAsk } from "./api";
 import { ask } from "./Confirm";
 import { useSettings } from "./data";
-import { DEPLOYED_READS } from "./deployReads";
+import { DEPLOYED_READS, huntReads } from "./deployReads";
 import { usd } from "./format";
-import { queryKeys } from "./queryKeys";
 import { useSayFailed } from "./sayFailed";
 
 /**
@@ -22,7 +21,6 @@ const useDeploy = create<{ open: DeployOpening | null }>(() => ({ open: null }))
 export const openDeploy = (how: DeployOpening = "deploy") => useDeploy.setState({ open: how });
 
 /** What a hunt started, changed or cancelled changes: the queue's status (its summary, the machines it paused) and its own view. */
-export const huntReads = (client: QueryClient) => Promise.all([queryKeys.queue(), queryKeys.hunt()].map((queryKey) => client.invalidateQueries({ queryKey })));
 
 /** The hunt under way cancelled (the card, Ctrl+K, a Resume): the machines it paused go on. */
 export const cancelHunt = async (client: QueryClient) => {
