@@ -9,7 +9,7 @@ import { now, type Tables } from "./db";
 import { extOf } from "./media";
 import { readVideo } from "./video";
 import { folderForMade, timelineOfClip } from "./timelineFolder";
-import { recordTool, toolPace } from "./renders";
+import { paceOn, recordTool, toolPace, toolPaces, type ToolPaces } from "./renders";
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB } from "./timelineModel";
 import { readJson, SHUTDOWN, type JobRow, type QueueCore, type Running } from "./queueModel";
@@ -30,9 +30,10 @@ export function rifeModelIn(catalog: Record<string, unknown>): string | null {
 /** `comfy`: the machine it ran on, once it is sent there, for what its GPU drew (power.ts). */
 interface ToolNote { row: JobRow; recipe: string; model: string; timeKey: string; work: number | null; expectedMs: number | null; startedAt: number; measured: Measured | null; comfy?: Comfy }
 
-/** Its usual pace × what it makes: what it should take, from its own record (null until it has run once). */
+/** Its usual pace × what it makes: what it should take on its machine, from its own record (null until it has run once). */
 async function toolNote(core: QueueCore, row: JobRow, recipe: string, model: string, timeKey: string, work: number | null): Promise<ToolNote> {
-  const pace = work ? await toolPace(core.db, recipe).catch(() => null) : null;
+  const machinePace = core.machineId ? (await core.paces().catch(() => new Map<string, number>())).get(core.machineId) ?? 1 : 1;
+  const pace = work ? await toolPace(core.db, recipe, core.machineId, machinePace).catch(() => null) : null;
   return { row, recipe, model, timeKey, work, expectedMs: pace && work ? Math.round(pace * work) : null, startedAt: Date.now(), measured: null };
 }
 
@@ -43,19 +44,21 @@ const finishRoute = (route: string | undefined) => (route === "rtx" ? "rtx" : ro
  * What a finish should take, from its route's own past finishes: the usual pace × what it makes (the video `by` times its
  * size, its frames past a continuation's hidden run-up, which is enlarged plainly). The one place this is worked out: the
  * Finish dialog, the waiting list and the running finish read it. Null until the route has finished something here.
- * `paces` keeps each route's pace for a list of finishes.
+ * `paces` keeps each route's pace for a list of finishes. `on`: on that machine, from its own finishes, else every
+ * machine's at its pace (renders.ts toolPace); left out, every machine's as they are.
  */
 export async function finishForecast(
   db: QueueCore["db"], video: { width: number | null; height: number | null; durationMs: number | null; fps: number | null },
-  o: Pick<CutOptions, "route" | "by" | "hiddenMs">, paces = new Map<string, Promise<number | null>>(),
+  o: Pick<CutOptions, "route" | "by" | "hiddenMs">, paces = new Map<string, Promise<ToolPaces | null>>(), on: { machine: string; pace: number } | null = null,
 ): Promise<number | null> {
   const by = o.by ?? 2;
   const frames = Math.round((Math.max(0, (video.durationMs ?? 0) - (o.hiddenMs ?? 0)) / 1000) * (video.fps ?? 24));
   const work = Math.round((video.width ?? 0) * by) * Math.round((video.height ?? 0) * by) * Math.max(1, frames);
   if (!work) return null;
   const tool = `tool.finish.${finishRoute(o.route)}`;
-  if (!paces.has(tool)) paces.set(tool, toolPace(db, tool).catch(() => null));
-  const pace = await paces.get(tool)!;
+  if (!paces.has(tool)) paces.set(tool, toolPaces(db, tool).catch(() => null));
+  const read = await paces.get(tool)!;
+  const pace = read ? paceOn(read, on?.machine ?? null, on?.pace ?? 1) : null;
   return pace ? Math.round(pace * work) : null;
 }
 

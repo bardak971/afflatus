@@ -736,11 +736,13 @@ async function clipFacts(core: QueueCore, spec: InputSpec & { type: "clip" }, va
  * that finishes a draft (`finishedFrom`) is built on it; a timeline clip's (`clip`) with what it joins onto as far as
  * it is known now, as submit will build it: the frames it shares with its neighbours are sampled too. `machine`: on that
  * machine (its own renders, else the others' at its pace: forecast.ts onMachine); left out, every machine's renders as they
- * are. `machines`: each one's forecast too (`on`), from the one graph built.
+ * are. `machines`: each one's forecast too (`on`), from the one graph built. `loads`: what each machine was last asked to
+ * load (its lane's lastLoads), so that with `cold` left out each is told whether it holds the model itself: judged by the
+ * first machine's, a machine holding another model was told it warm.
  */
 export async function forecastOf(
   core: QueueCore, recipeId: string, rawInput: unknown,
-  opts: { cold?: boolean; finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null; machine?: string | null; machines?: readonly string[] } = {},
+  opts: { cold?: boolean; finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null; machine?: string | null; machines?: readonly string[]; loads?: (machine: string) => string | null } = {},
 ): Promise<{ forecast: Forecast; shape: { pixels: number; frames: number }; model: string; on?: Record<string, Forecast> } | null> {
   const recipe = core.registry.recipe(recipeId);
   if (!recipe) return null;
@@ -758,7 +760,8 @@ export async function forecastOf(
   const shape = built ? workOf(built) : null;
   const model = built ? modelFileOf(recipe, chosen, built) : (modelOf(recipe.inputs, chosen) ?? "");
   const paces = opts.machine || opts.machines?.length ? await core.paces() : undefined;
-  const at = (machine: string | null) => (built && shape?.pixels ? forecastFrom(core, recipe, chosen, built, opts.cold ?? null, { machine, paces }) : Promise.resolve(null));
+  const coldOn = (machine: string | null) => opts.cold ?? (machine !== null && opts.loads ? coldOf(opts.loads(machine), built!) : null);
+  const at = (machine: string | null) => (built && shape?.pixels ? forecastFrom(core, recipe, chosen, built, coldOn(machine), { machine, paces }) : Promise.resolve(null));
   const f = await at(opts.machine ?? null);
   if (f) {
     const on = opts.machines?.length ? Object.fromEntries((await Promise.all(opts.machines.map(async (m) => [m, await at(m)] as const))).flatMap(([m, g]) => (g ? [[m, g]] : []))) : undefined;

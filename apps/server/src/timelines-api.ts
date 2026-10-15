@@ -14,8 +14,7 @@ import { askedOf } from "./jobs-api";
 import { assetView, extOf } from "./media";
 import { sourceOf } from "./storage";
 import { rifeModelIn } from "./queue";
-import { inARow } from "./forecast";
-import { finishForecast } from "./queueTools";
+import { CUT_JOB } from "./timelineModel";
 import { rootFolderOf } from "./projects";
 import { inUse } from "./sweep";
 import { folderOfTimeline } from "./timelineFolder";
@@ -338,7 +337,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     return done;
   });
 
-  /** What Finish with these settings would take in all (finishForecast, queue.forecast for a latent re-sample); null when a job of it has no learned figure yet. */
+  /** What Finish with these settings would take in all (finishEstimate: its jobs through the machines' lanes); null when a job of it has no learned figure yet. */
   app.post<{ Params: { id: string } }>("/api/timelines/:id/finish/forecast", async (req) => ({ ms: await finishEstimate(s, req.params.id, finishBody.parse(req.body)) }));
 
   /** One clip becomes two at a moment of its take (the video's own time, as the take's startMs and endMs say): the first plays up to it, the second from it. */
@@ -537,21 +536,15 @@ async function finishClips(s: Services, timeline: string, b: z.infer<typeof fini
   return { jobs, skipped };
 }
 
-/** What finishing with these settings would take in all, as the waiting list will say it job by job; null when one of them has nothing learned yet. */
+/**
+ * What finishing with these settings would take in all, as the queue would share its jobs between the machines (queue.total:
+ * two free machines take about half the time one does, each at its own pace); null when one of them has nothing learned yet.
+ */
 async function finishEstimate(s: Services, timeline: string, b: z.infer<typeof finishBody>): Promise<number | null> {
   const { plan } = await finishPlan(s, timeline, b);
   if (!plan.length) return null;
-  const paces = new Map<string, Promise<number | null>>();
-  const parts: Array<{ ms: number; loadMs: number; model: string }> = [];
-  for (const j of plan) {
-    // a render is forecast as its job will be built (on its draft, with what its clip joins onto); a finish on the GPU frees the model for the render after it
-    const got = j.kind === "render" ? await s.queue.forecast(j.recipe, j.input, { finishedFrom: j.opts?.finishedFrom, clip: j.opts?.clip }).catch(() => null) : null;
-    const one = j.kind === "render" ? got?.forecast.ms ?? null : await finishForecast(s.db, j.video, j.cut, paces);
-    if (!one) return null;
-    parts.push({ ms: one, loadMs: got?.forecast.loadMs ?? 0, model: got?.model ?? "" });
-  }
-  // the model loads once for a run of renders with it, as the waiting list counts it: not once a clip
-  return inARow(parts);
+  // a render is forecast as its job will be built (on its draft, with what its clip joins onto); a finish on the GPU frees the model for the render after it
+  return (await s.queue.total(plan.map((j) => (j.kind === "render" ? { recipe: j.recipe, input: j.input, finishedFrom: j.opts?.finishedFrom, clip: j.opts?.clip ? { id: j.opts.clip.id, fit: j.opts.clip.fit } : null } : { recipe: CUT_JOB, input: j.cut })))).ms;
 }
 
 /** The jobs a finish would queue, in order, and the clips skipped with why: nothing is queued here. */

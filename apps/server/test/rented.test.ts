@@ -166,7 +166,14 @@ describe("a rented machine", () => {
     await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: { machine: "m1" } });
     const queued = (await post(t.app, "/api/jobs", job())).json().ids[0] as string;
     const row = () => t.db.selectFrom("jobs").select(["status", "error"]).where("id", "=", queued).executeTakeFirstOrThrow();
-    await until(async () => (await row()).status === "running" && t.services.queue.quietFor(id).ms > 0);
+    // a render like nothing before it has no forecast: its silence counts once it ran 10 min, not from its first second
+    type Run = { promptId?: string; startedAt?: number; expectedMs?: number | null };
+    const run = () => (t.services.queue as unknown as { lanes: Map<string, { running: Run | null }> }).lanes.get(id)!.running;
+    await until(async () => (await row()).status === "running" && Boolean(run()?.promptId));
+    expect(run()!.expectedMs ?? null).toBeNull();
+    expect(t.services.queue.quietFor(id).ms).toBe(0);
+    run()!.startedAt = Date.now() - 10 * 60_000 - 1000;
+    await until(() => t.services.queue.quietFor(id).ms > 0);
     // silent, but not for long yet: it runs on
     await t.services.rented.poll();
     expect((await row()).status).toBe("running");

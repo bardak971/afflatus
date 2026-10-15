@@ -35,7 +35,7 @@ export async function forecastsOf(s: Services, forms: Asked[]): Promise<Array<{ 
 }
 
 /** Whether each asked clip lands on the clip after it (its Fit to next), as its render would be planned alone. */
-async function fitsOf(s: Services, forms: Asked[]): Promise<Map<string, boolean>> {
+export async function fitsOf(s: Services, forms: Asked[]): Promise<Map<string, boolean>> {
   const ids = [...new Set(forms.flatMap((f) => (f.clip ? [f.clip] : [])))];
   if (!ids.length) return new Map();
   const rows = await s.db.selectFrom("clips").select(["id", "fit_next"]).where("id", "in", ids).execute();

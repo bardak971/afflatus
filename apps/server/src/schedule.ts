@@ -34,6 +34,10 @@ export interface Planned extends Waiting {
   renderOn?: ReadonlyMap<string, number>;
   /** What loading its model adds on each machine, as `renderOn`: a pod's disk is not this computer's. */
   loadOn?: ReadonlyMap<string, number>;
+  /** It runs on the GPU with no model of its own (a finish, a RIFE slow motion): its machine holds no model after it. */
+  frees?: boolean;
+  /** The job it waits for (a clip carried on from the one before): it starts once that one ends, wherever that one runs. */
+  after?: string;
 }
 
 /** A machine as the scheduler reads it: one that may take work now (not paused, not known to be away). */
@@ -63,27 +67,50 @@ export function takes(machine: Pick<Machine, "id" | "takes">, job: Pick<Waiting,
   return machine.takes === "all" || machine.takes === job.makes;
 }
 
-/** Where each job goes and when it would start there, in ms from now (Infinity: after a job whose end cannot be told). A job no machine takes is left out. */
-export function plan(lanes: readonly Lane[], jobs: readonly Planned[]): Map<string, { lane: string; startsInMs: number }> {
+/**
+ * Where each job goes, when it would start there and when it would end, in ms from now (Infinity: after a job whose end
+ * cannot be told). A job no machine takes is left out. A job like nothing rendered yet (no render time, on no machine) is
+ * placed where it starts soonest, and the machine it goes to is busy for a time that cannot be told after it: the jobs
+ * behind it there say no time rather than one that counts it as nothing.
+ */
+export function plan(lanes: readonly Lane[], jobs: readonly Planned[]): Map<string, { lane: string; startsInMs: number; endsInMs: number }> {
   const at = new Map(lanes.map((l) => [l.id, l.busyForMs ?? Infinity]));
   const held = new Map(lanes.map((l) => [l.id, l.holds]));
-  const out = new Map<string, { lane: string; startsInMs: number }>();
+  const out = new Map<string, { lane: string; startsInMs: number; endsInMs: number }>();
   for (const job of jobs) {
-    let best: { lane: Lane; starts: number; ends: number; cold: boolean } | null = null;
+    let best: { lane: Lane; starts: number; ends: number; cold: boolean; known: boolean } | null = null;
+    // a job that waits for another starts once that one ends (one the plan does not place is not waited for here)
+    const ready = job.after ? out.get(job.after)?.endsInMs ?? 0 : 0;
     for (const lane of lanes) {
       if (!takes(lane, job)) continue;
       // on a pod still getting its files, it starts once they are there (they come while the pod renders what is before it)
-      const starts = Math.max(at.get(lane.id)!, job.fetchMs?.get(lane.id) ?? 0);
+      const starts = Math.max(at.get(lane.id)!, job.fetchMs?.get(lane.id) ?? 0, ready);
       const cold = Boolean(job.model && !held.get(lane.id)!.has(job.model));
-      const ends = starts + (cold ? job.loadOn?.get(lane.id) ?? job.loadMs ?? UNKNOWN_LOAD_MS : 0) + (job.renderOn?.get(lane.id) ?? (job.renderMs ?? 0) * lane.pace);
+      const render = job.renderOn?.get(lane.id) ?? (job.renderMs === null ? null : job.renderMs * lane.pace);
+      // an unknown render is weighed as nothing to choose its machine, and ends at a time that cannot be told
+      const ends = starts + (cold ? job.loadOn?.get(lane.id) ?? job.loadMs ?? UNKNOWN_LOAD_MS : 0) + (render ?? 0);
       // the first machine that ends it soonest: ties go to one that holds its model (a load its renders did not show yet
       // still reads the model again), then to the one named first
-      if (!best || ends < best.ends || (ends === best.ends && best.cold && !cold)) best = { lane, starts, ends, cold };
+      if (!best || ends < best.ends || (ends === best.ends && best.cold && !cold)) best = { lane, starts, ends, cold, known: render !== null };
     }
     if (!best) continue;
-    out.set(job.id, { lane: best.lane.id, startsInMs: best.starts });
-    at.set(best.lane.id, best.ends);
+    const ends = best.known ? best.ends : Infinity;
+    out.set(job.id, { lane: best.lane.id, startsInMs: best.starts, endsInMs: ends });
+    at.set(best.lane.id, ends);
     if (job.model) held.set(best.lane.id, new Set([job.model]));
+    else if (job.frees) held.set(best.lane.id, new Set());
   }
   return out;
+}
+
+/**
+ * How long until every one of these jobs is done, through the machines' lanes as the queue would share them (plan): two
+ * free machines take a line of renders in about half the time one does. Null when one of them cannot be placed, or ends at
+ * a time that cannot be told.
+ */
+export function planTotal(lanes: readonly Lane[], jobs: readonly Planned[]): number | null {
+  const got = plan(lanes, jobs);
+  if (got.size < jobs.length) return null;
+  const end = Math.max(0, ...[...got.values()].map((p) => p.endsInMs));
+  return Number.isFinite(end) ? end : null;
 }

@@ -157,8 +157,11 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
     const got = recipe ? await s.queue.forecast(b.recipe, b.input).catch(() => null) : null;
     if (!recipe || !got) return { estimate: null };
     // the figure itself too, for the Generate button: its "about" is this one, times the batch (the load counted once); with
-    // several machines, each one's, for the machine picked for the draft (GenerateOn.tsx)
+    // several machines, each one's with its load, for the machine picked for the draft (GenerateOn.tsx), and the machines
+    // Auto shares a batch between (queue.forecast)
     const on = got.on ? Object.fromEntries(Object.entries(got.on).map(([m, f]) => [m, f.ms])) : null;
-    return { estimate: { text: said(got.forecast, got.shape).text, pace: got.forecast.pace, ms: got.forecast.ms, loadMs: got.forecast.loadMs, on } };
+    const loadOn = got.on ? Object.fromEntries(Object.entries(got.on).map(([m, f]) => [m, f.loadMs])) : null;
+    const auto = "auto" in got ? got.auto : null;
+    return { estimate: { text: said(got.forecast, got.shape).text, pace: got.forecast.pace, ms: got.forecast.ms, loadMs: got.forecast.loadMs, on, loadOn, auto } };
   });
 }
