@@ -8,6 +8,7 @@ import { machineLabel } from "../../machines";
 import { useQueueOps } from "../../queueOps";
 import { useSystem } from "../../store";
 import { cx } from "../../ui";
+import { FilesLine, gettingFiles } from "../../machineBits";
 import { RunningCard } from "./RunningCard";
 
 const MachineMenuBody = lazy(() => import("../../MachineMenu").then((m) => ({ default: m.MachineMenuBody })));
@@ -222,6 +223,7 @@ function MeterTiles({ load, rendering, pace, fastest }: { load: SystemLoad | nul
 function OpenLane({ m, fastest, onStop, onPin, onFold }: { m: MachineState; fastest: number | null; onStop(id: string): void; onPin(job: string, machine: string): void; onFold(): void }) {
   const { menu, load, drop, state, menuNode } = useLane(m, onPin);
   const name = machineLabel(m);
+  const files = gettingFiles(m);
   return (
     <section
       aria-label={name}
@@ -230,7 +232,7 @@ function OpenLane({ m, fastest, onStop, onPin, onFold }: { m: MachineState; fast
     >
       <MachineRow m={m} onPin={onPin} onOpen={onFold} open />
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(300px,420px)] gap-4 p-3.5">
-        {m.running ? <RunningCard running={m.running} onStop={onStop} /> : getting(m) ? <Getting m={m} /> : (
+        {m.running ? <RunningCard running={m.running} onStop={onStop} /> : files ? <Getting files={files} /> : (
           <div className="flex items-center gap-3.5 rounded-[10px] border border-dashed border-line-strong px-4 py-3 text-ink-2">
             <span className="grid size-[34px] shrink-0 place-items-center rounded-full border-[1.5px] border-line-strong"><Dot state={state} /></span>
             <span className="flex min-w-0 flex-col gap-0.5">
@@ -332,28 +334,15 @@ export function MachineLanes({ q, onStop, onPin }: { q: QueueStatus; onStop(id: 
   );
 }
 
-/** The files a rented pod is getting for the jobs waiting for it (those asked ahead are not waited for). */
-const getting = (m: MachineState) => (m.rented?.files ?? []).filter((f) => f.tier === "need" && (f.state === "next" || f.state === "fetching"));
-
 /**
  * A pod getting the files its waiting jobs need, in place of "Idle": it is not idle, and minutes of downloads said nothing
  * on the Queue page (the owner: "no download visual cue for a rented pod"). How many, how far, and the file under way.
  */
-function Getting({ m }: { m: MachineState }) {
-  const files = (m.rented?.files ?? []).filter((f) => f.tier === "need");
-  const left = getting(m);
-  const done = files.reduce((n, f) => n + (f.state === "ready" ? f.total : f.bytes), 0);
-  const total = files.reduce((n, f) => n + f.total, 0);
-  const now = left.find((f) => f.state === "fetching") ?? left[0]!;
-  const share = total > 0 ? Math.min(1, done / total) : 0;
+function Getting({ files }: { files: NonNullable<ReturnType<typeof gettingFiles>> }) {
   return (
     <div className="flex flex-col justify-center gap-2 rounded-[10px] border border-line-strong px-4 py-3 text-ink-2">
-      <span className="flex items-baseline gap-2">
-        <span className="font-semibold text-ink">Getting {plural(left.length, "file")} for its jobs</span>
-        {total > 0 && <span className="font-mono text-xs">{gb(done)} of {gb(total)}</span>}
-      </span>
-      <Progress value={share} className="h-1.5" under="bg-line" label="Files fetched" />
-      <span className="truncate text-xs">{now.state === "fetching" ? "now" : "next"}: {now.file}{now.via ? ` · from ${now.via === "hf" ? "Hugging Face" : now.via === "civitai" ? "Civitai" : now.via === "upload" ? "this PC" : "its address"}` : ""}</span>
+      <span className="font-semibold text-ink">Getting {plural(files.left.length, "file")} for its jobs</span>
+      <FilesLine g={files} />
     </div>
   );
 }

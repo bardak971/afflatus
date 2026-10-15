@@ -1,15 +1,15 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Download } from "lucide-react";
 import { useMenu } from "./ContextMenu";
 import { useQueue, useSettings } from "./data";
-import { gb } from "./format";
+import { gb, plural } from "./format";
 import { useNow } from "./hooks";
 import { machineLabel, severalMachines } from "./machines";
 import { queryKeys } from "./queryKeys";
 import { useMeteredMachine, useSystem } from "./store";
 import { cx } from "./ui";
-import { Bar, busiest, doing, Dot } from "./machineBits";
+import { Bar, busiest, doing, Dot, filesTip, gettingFiles } from "./machineBits";
 
 // the menu is opened now and then: fetched the first time, the strip itself is in the first load
 const MachineMenuBody = lazy(() => import("./MachineMenu").then((m) => ({ default: m.MachineMenuBody })));
@@ -60,6 +60,8 @@ export function MachinesPill() {
   const gpu = loads[metered.id]?.gpus[0];
   // the GPU a hunt looks for, before it is a machine: a dashed dot of its own (a real one once its pod is made)
   const hunted = q?.hunt && q.hunt.status !== "up" ? q.hunt : null;
+  // a machine getting the files its jobs wait for: said in the pill, the one with the most left first
+  const fetching = machines.map((m) => ({ m, g: gettingFiles(m) })).filter((x) => x.g).sort((a, b) => (b.g!.total - b.g!.done) - (a.g!.total - a.g!.done))[0];
 
   return (
     <>
@@ -82,7 +84,19 @@ export function MachinesPill() {
           {hunted && <span aria-hidden className="m-px size-[7px] shrink-0 rounded-full border-[1.5px] border-dashed border-accent" />}
         </span>
         <span className="shrink-0 font-semibold text-ink">{machines.length}<span className="max-[1280px]:hidden"> {machines.length === 1 ? "ComfyUI" : "ComfyUIs"}</span></span>
-        <span className="shrink-0 text-ink-2 max-[1440px]:hidden">{hunted ? "+ 1 hunted" : busiest(machines)}</span>
+        {/* the files segment says what "getting files" would: the word stays only for something busier (a render) */}
+        {(!fetching || machines.some((m) => m.running)) && <span className="shrink-0 text-ink-2 max-[1440px]:hidden">{hunted ? "+ 1 hunted" : busiest(machines)}</span>}
+        {fetching && (
+          <>
+            <span className="h-3.5 w-px shrink-0 bg-line max-[1280px]:hidden" />
+            {/* which machine and how many fold away before the meters do; the share stays */}
+            <span className="inline-flex shrink-0 items-center gap-1.5 font-semibold text-accent" data-tip={filesTip(machineLabel(fetching.m), fetching.g!)}>
+              <Download size={12} className="shrink-0" />
+              <span className="max-w-32 truncate max-[1600px]:hidden">{machineLabel(fetching.m)} · {plural(fetching.g!.left.length, "file")} ·</span>
+              <span className="font-mono">{Math.floor(fetching.g!.share * 100)} %</span>
+            </span>
+          </>
+        )}
         {gpu && (
           <>
             <span className="h-3.5 w-px shrink-0 bg-line" />

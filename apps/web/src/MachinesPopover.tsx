@@ -5,7 +5,7 @@ import type { MachineState } from "./api";
 import { lastSaid, openDeploy, useDeployAgain } from "./deploy";
 import { gb, plural } from "./format";
 import { machineLabel } from "./machines";
-import { Bar, busiest, doing, Dot } from "./machineBits";
+import { Bar, busiest, doing, Dot, FilesLine, gettingFiles } from "./machineBits";
 import { Popover } from "./Popover";
 import { useQueueOps } from "./queueOps";
 import { useSystem } from "./store";
@@ -31,7 +31,7 @@ export function MachinesPopover({ anchor, machines, metered, now, canDeploy, onP
   const again = useDeployAgain();
   const allPaused = machines.every((m) => m.paused);
   return (
-    <Popover anchor={anchor} onClose={onClose} label="ComfyUIs" width={520} height={120 + machines.length * 64 + (canDeploy ? 44 : 0)}>
+    <Popover anchor={anchor} onClose={onClose} label="ComfyUIs" width={520} height={120 + machines.length * 64 + machines.filter((m) => gettingFiles(m)).length * 40 + (canDeploy ? 44 : 0)}>
       <div className="flex flex-col text-[12.5px]">
         <div className="flex items-center gap-2.5 px-3.5 py-3">
           <span className="font-bold">{plural(machines.length, "ComfyUI")}</span>
@@ -44,6 +44,7 @@ export function MachinesPopover({ anchor, machines, metered, now, canDeploy, onP
         {machines.map((m) => {
           const load = loads[m.id];
           const g = load?.gpus[0];
+          const files = gettingFiles(m);
           return (
             <div
               key={m.id}
@@ -58,6 +59,7 @@ export function MachinesPopover({ anchor, machines, metered, now, canDeploy, onP
               <Dot m={m} />
               <span className="flex min-w-0 flex-col gap-1">
                 <span className="truncate"><span className="font-semibold">{machineLabel(m)}</span> <span className="text-ink-2">· {doing(m, now)}</span></span>
+                {files && <FilesLine g={files} />}
                 {g ? (
                   <span className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11.5px] text-ink-2">
                     {g.load !== undefined && <span className="inline-flex items-center gap-1.5"><Bar label="GPU" value={g.load} hot={Boolean(m.running)} />{Math.round(g.load)} %</span>}
