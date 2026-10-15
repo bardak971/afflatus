@@ -1,13 +1,12 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type SettingsPatch, type UpdatesView } from "../../api";
 import { useSetup } from "../../data";
-import { ask } from "../../Confirm";
 import { dayOf, plural, size, sourceOf, UI_LOCALE, when } from "../../format";
 import { useCopied } from "../../hooks";
 import { Progress } from "../../progress/Progress";
 import { Button, cx, ErrorNote, Help, Toggle } from "../../ui";
-import { aboutState, followRestart, newsOf, stepsOf, useUpdates, useUpdatesSeen, versionNote } from "../../updates";
+import { aboutState, askGoBack, followRestart, newsOf, stepsOf, useUpdates, useUpdatesSeen, versionNote } from "../../updates";
 import { Block, Card, Row, Status } from "./Rows";
 import { queryKeys } from "../../queryKeys";
 import { COLUMNS } from "./wide";
@@ -143,14 +142,12 @@ function UpdatesPart({ v, startupUnchecked }: { v: UpdatesView; startupUnchecked
   });
   const state = aboutState(v);
   const latest = v.latest?.version ?? "";
-  const failed = [check, update, cancel, back, save].find((m) => m.isError)?.error;
+  // Go back refused before its question (a rented GPU runs, a hunt is on), said where the other refusals are
+  const [refused, setRefused] = useState<Error | null>(null);
+  const failed = refused ?? [check, update, cancel, back, save].find((m) => m.isError)?.error;
   const goBack = async () => {
-    const p = v.previous!.version;
-    const yes = await ask({
-      title: `Go back to ${p}?`,
-      text: `Going back restores the library as it was at the update: what was made since stays in the folder, not in the list. Afflatus restarts on ${p}.`,
-      yes: `Go back to ${p}`,
-    });
+    setRefused(null);
+    const yes = await askGoBack(v.previous!.version).catch((err: Error) => (setRefused(err), false));
     if (yes) back.mutate();
   };
   return (

@@ -22,6 +22,9 @@ export const catalogKey = (catalog: NodeCatalog): string | undefined => catalogK
 /** What the pack's lock answers a call without the right token: a 401 that says it is the lock, not some other server's login. */
 export const LOCKED_HEADER = "x-afflatus-lock";
 
+/** The statuses a gateway answers with when what is behind it does not (502, 503, 504, and Cloudflare's 520 to 524). */
+const UNREACHED = new Set([502, 503, 504, 520, 521, 522, 523, 524]);
+
 export interface ComfyStatus {
   version: string;
   /** Name of the first GPU (or "cpu"). */
@@ -154,6 +157,12 @@ export class ComfyClient {
     if (res.status === 401 && res.headers.get(LOCKED_HEADER)) {
       await res.body?.cancel().catch(() => {});
       throw new ComfyLocked(this.token ? `ComfyUI at ${this.baseUrl} is locked, and refused the token Afflatus has for it: paste its token in Settings › ComfyUI.` : `ComfyUI at ${this.baseUrl} is locked: paste its token in Settings › ComfyUI.`);
+    }
+    // a proxy in front of it (RunPod's, Cloudflare's, a reverse proxy's) that could not reach it: ComfyUI did not answer, and
+    // may well still be rendering. A job waits for it as for any silence, instead of failing a render that goes on, billed
+    if (UNREACHED.has(res.status)) {
+      await res.body?.cancel().catch(() => {});
+      throw new ComfyUnreachable(`ComfyUI did not answer at ${this.baseUrl} (${path.split("?")[0]}: ${res.status} from the proxy in front of it)`);
     }
     if (!res.ok) {
       throw new ComfyError(`ComfyUI ${path.split("?")[0]} failed (${res.status}): ${errorSnippet(await res.text().catch(() => ""))}`);

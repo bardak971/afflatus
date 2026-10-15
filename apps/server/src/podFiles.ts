@@ -91,8 +91,13 @@ export interface PodFilesDeps {
   cloudOf(machine: string): Promise<string | null>;
   lookup: SourceLookup;
   settings(): Promise<Pick<Settings, "civitaiKey" | "downloadModels" | "civitaiLookups"> & Partial<Pick<Settings, "huggingFaceToken">>>;
-  /** Whether the machine's pod runs now: what a pod no longer running was getting is forgotten (its container went with it). */
+  /** Whether the machine's pod runs now: nothing starts or moves on one that does not. */
   alive(machine: string): boolean;
+  /**
+   * Whether the machine's pod is down for good (stopped, terminated, or not on RunPod at two reads in a row): what it was
+   * getting is forgotten, its container went with it. Without it, a pod not alive is.
+   */
+  gone?(machine: string): boolean;
   /** Whether a job runs on the machine now: its ComfyUI is not restarted under a render (podPacks.ts). */
   busy(machine: string): boolean;
   /** Something changed: the pod's row says it. */
@@ -122,7 +127,7 @@ const UPLOADS_AT_ONCE = 1;
  */
 const THERE = /\(409: that file is there already/;
 /** A failure that passes (ComfyUI not answering for a moment, restarting, its line full): the file is asked again later. */
-const PASSING = /not answering|cannot be reached|no longer knows the download|did not answer|does not answer with|\((429|5\d\d)[:)]|fetch failed|ECONN|socket|timed? ?out|aborted/i;
+const PASSING = /not answering|cannot be reached|no longer knows the (download|upload)|did not answer|does not answer with|\((429|5\d\d)[:)]|fetch failed|ECONN|socket|timed? ?out|aborted/i;
 /** How many times a passing failure puts a file back in line before it is failed, and the first wait (doubled each time). */
 const TRIES = 4;
 const RETRY_MS = 15_000;
@@ -557,11 +562,15 @@ export class PodFiles {
   private async pass(): Promise<void> {
     let changed = false;
     for (const machine of [...new Set([...this.pods.keys(), ...this.packs.machines()])]) {
-      // a pod stopped or gone: its container's files went with it (a volume's stay, and its scan says so at its next start)
-      if (!this.d.alive(machine)) {
+      // a pod stopped or gone: its container's files went with it (a volume's stay, and its scan says so at its next start).
+      // One RunPod read without it is not that (its list can come back short): what was under way would start again from
+      // nothing, the uploads cut, the files left out at its deploy asked for again
+      if (this.d.gone?.(machine) ?? !this.d.alive(machine)) {
         this.forget(machine);
         continue;
       }
+      // not up now (being stopped, or one read without it): nothing moves, and nothing is forgotten
+      if (!this.d.alive(machine)) continue;
       for (const e of this.ordered(machine)) if (e.state === "fetching" && e.downloadId && this.follow(machine, e)) changed = true;
       // its ComfyUI restarts for node packs: nothing starts until it is back
       if (this.packs.restartingNow(machine)) continue;

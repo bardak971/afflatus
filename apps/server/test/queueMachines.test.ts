@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
-import { complete, get, job, makeApp, makeFake, post, referenceCatalog, until, type TestApp } from "./helpers";
+import { complete, FAST, get, job, makeApp, makeFake, post, referenceCatalog, until, type TestApp } from "./helpers";
 
 /** Several ComfyUIs (settings.ts `machines`): one line of jobs, each machine running one at a time, in parallel. */
 
@@ -140,6 +140,92 @@ describe("a job a ComfyUI had when Afflatus stopped", () => {
     again.stop();
     await again.idle();
   });
+
+  it("is queued again once its machine stays away, and no longer holds what was asked after it", async () => {
+    await post(t.app, "/api/queue/use-only", { machine: "m2" });
+    const a = await enqueue({});
+    await until(() => sentTo(two).length === 1);
+    await until(async () => Boolean((await row(a)).resume));
+    t.services.queue.stop();
+    await t.services.queue.idle();
+    await post(t.app, "/api/queue/resume", {});
+    two.down = true;
+    const { Queue } = await import("../src/queue");
+    const again = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, { ...FAST, offlineExpiryMs: 60_000 });
+    try {
+      await again.start();
+      const cut = await again.enqueueCut({ asset: "nope", startMs: 0, endMs: 1000, action: "copy" }, "zz-test cut");
+      // lost after the wait a render gets, it waits for its machine, which may still render it: the cut goes on meanwhile
+      await until(async () => (await row(a)).status === "queued");
+      await until(async () => (await row(cut)).status === "failed");
+      expect(sentTo(one)).toHaveLength(0);
+      // back, its machine is asked for the prompt it had, and that one is followed: never rendered twice
+      two.down = false;
+      again.nudge();
+      await until(async () => (await row(a)).status === "running");
+      complete(two, sentTo(two)[0]!);
+      await until(async () => (await row(a)).status === "done");
+      expect(sentTo(two)).toHaveLength(1);
+      expect(sentTo(one)).toHaveLength(0);
+    } finally {
+      again.stop();
+      await again.idle();
+    }
+  });
+});
+
+describe("a render whose machine stops answering under it", () => {
+  /** A queue of its own over the same database and ComfyUIs, with the offline limit `expiryMs`. */
+  const queueOf = async (expiryMs: number) => {
+    t.services.queue.stop();
+    await t.services.queue.idle();
+    const { Queue } = await import("../src/queue");
+    const q = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, { ...FAST, offlineExpiryMs: expiryMs });
+    await q.start();
+    return q;
+  };
+
+  it("waits for that machine, which may still render it, instead of rendering it again elsewhere", async () => {
+    const q = await queueOf(60_000);
+    try {
+      await q.setPaused(true, "m2");
+      const a = await q.enqueue("sdxl.text-to-picture", job({ prompt: "a cat" }).input);
+      await until(() => sentTo(one).length === 1);
+      await until(async () => Boolean((await row(a)).resume));
+      await q.setPaused(false, "m2");
+      one.down = true;
+      await until(async () => (await row(a)).status === "queued");
+      await new Promise((r) => setTimeout(r, 400));
+      expect(sentTo(two)).toHaveLength(0);
+      one.down = false;
+      q.nudge();
+      await until(async () => (await row(a)).status === "running");
+      complete(one, sentTo(one)[0]!);
+      await until(async () => (await row(a)).status === "done");
+      expect(sentTo(one)).toHaveLength(1);
+      expect(sentTo(two)).toHaveLength(0);
+    } finally {
+      q.stop();
+      await q.idle();
+    }
+  });
+
+  it("goes elsewhere once that machine is away past the offline limit, and is dropped there when it answers again", async () => {
+    await post(t.app, "/api/queue/pause", { machine: "m2" });
+    const a = await enqueue({ prompt: "a cat" });
+    await until(() => sentTo(one).length === 1);
+    await until(async () => Boolean((await row(a)).resume));
+    await post(t.app, "/api/queue/resume", { machine: "m2" });
+    one.down = true;
+    await until(() => sentTo(two).length === 1);
+    one.down = false;
+    const before = one.calls.length;
+    t.services.queue.noteReachable(true, new Map([["m1", true]]));
+    await until(() => one.calls.slice(before).includes("POST /queue"));
+    complete(two, sentTo(two)[0]!);
+    await until(async () => (await row(a)).status === "done");
+    expect((await row(a)).machine_id).toBe("m2");
+  });
 });
 
 describe("each machine's pace", () => {
@@ -258,6 +344,38 @@ describe("a job sent to a machine", () => {
     expect((await post(t.app, "/api/jobs", { ...job({}), machine: "m9" })).statusCode).toBe(400);
     await finishAll([a, b]);
     expect((await row(b)).machine_id).toBe("m1");
+  });
+
+  it("goes again to another machine when its own is taken out under it (a pod terminated), whatever its address answers", async () => {
+    await post(t.app, "/api/queue/pause", { machine: "m1" });
+    const a = await enqueue({ prompt: "a dog" });
+    await until(() => sentTo(two).length === 1);
+    await until(async () => Boolean((await row(a)).resume));
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ id: "m1", name: "Studio PC", url: one.url }] } });
+    await post(t.app, "/api/queue/resume", { machine: "m1" });
+    // what RunPod's proxy answers for a pod that is no longer there
+    const real = globalThis.fetch;
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => (String(input).startsWith(two.url) ? Promise.resolve(new Response("Not Found", { status: 404 })) : real(input, init))) as typeof fetch;
+    try {
+      await until(() => sentTo(one).length === 1);
+    } finally {
+      globalThis.fetch = real;
+    }
+    await finishAll([a]);
+    expect((await row(a)).machine_id).toBe("m1");
+  });
+
+  it("goes to any machine once its own is taken out, instead of waiting for it for ever", async () => {
+    await post(t.app, "/api/queue/pause", { machine: "m2" });
+    const a = (await post(t.app, "/api/jobs", { ...job({ prompt: "a dog" }), machine: "m2" })).json().ids[0] as string;
+    await new Promise((r) => setTimeout(r, 200));
+    expect((await row(a)).status).toBe("queued");
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ id: "m1", name: "Studio PC", url: one.url }] } });
+    t.services.queue.nudge();
+    await until(() => sentTo(one).length === 1);
+    expect((await row(a)).pin_machine).toBeNull();
+    await finishAll([a]);
+    expect((await row(a)).machine_id).toBe("m1");
   });
 });
 

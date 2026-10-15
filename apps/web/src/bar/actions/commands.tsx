@@ -2,7 +2,7 @@ import { Bell, LogOut, Bookmark, ChevronLeft, ChevronRight, Clapperboard, Circle
 import { TRANSITIONS } from "@afflatus/core";
 import { ask } from "../../Confirm";
 import { openFindModels } from "../../findModels/store";
-import { followRestart, useUpdatesSeen } from "../../updates";
+import { askGoBack, followRestart, useUpdatesSeen } from "../../updates";
 import { settingHref } from "../../screens/settings/settingsIndex";
 import { billing, signOutBlock } from "../commandRows";
 import { missingActions, onThisPc, pickedActions } from "./models";
@@ -531,12 +531,8 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       return [{
         label: `Go back to ${prev.version}…`, icon: <Undo2 size={14} />, disabled: !x.updates?.here, note: x.updates?.here ? "asked first · Afflatus restarts" : "only on the computer Afflatus runs on",
         run: async () => {
-          // About's Go back, with its question
-          const yes = await ask({
-            title: `Go back to ${prev.version}?`,
-            text: `Going back restores the library as it was at the update: what was made since stays in the folder, not in the list. Afflatus restarts on ${prev.version}.`,
-            yes: `Go back to ${prev.version}`,
-          });
+          // About's Go back, with its question (refused while a rented GPU runs or a hunt is on)
+          const yes = await askGoBack(prev.version).catch(failed("Could not go back"));
           if (!yes) return;
           await api.goBack().then((view) => {
             client.setQueryData(queryKeys.updates(), view);

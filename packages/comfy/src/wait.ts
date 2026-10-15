@@ -2,6 +2,8 @@ import { ComfyUnreachable, type ComfyClient, type HistoryEntry } from "./client"
 
 /** ComfyUI stopped answering for too long, or forgot the prompt (it restarted): the job can be tried again. */
 export class ComfyLost extends Error {}
+/** ComfyUI stopped answering for too long mid-render: it may still have the prompt, and render it on unseen. */
+export class ComfyAway extends ComfyLost {}
 /** The prompt was stopped, by Afflatus or from ComfyUI's own interface. */
 export class ComfyCancelled extends Error {
   constructor() {
@@ -108,7 +110,7 @@ export async function waitForOutputs(
     } catch (err) {
       if (!(err instanceof ComfyUnreachable)) throw err;
       unreachableSince ??= Date.now();
-      if (Date.now() - unreachableSince > offlineMs) throw new ComfyLost("ComfyUI went offline during the render");
+      if (Date.now() - unreachableSince > offlineMs) throw new ComfyAway("ComfyUI went offline during the render");
       continue;
     }
     if (!entry) continue;

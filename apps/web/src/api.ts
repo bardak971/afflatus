@@ -8,7 +8,7 @@ import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } 
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
 import type { DeployAsk, Health, FinishSettings, MachineProbe, SessionState, Settings, SettingsPatch, SignedDevices } from "./api/types/settings";
 import { signedOut } from "./access/signedOut";
-import type { UpdatesView } from "./api/types/updates";
+import type { GoBackCheck, UpdatesView } from "./api/types/updates";
 import type { CostsView } from "./api/types/costs";
 import type { CommandEntry, CommandEstimate, CommandIndex, PromptHistoryItem } from "./api/types/bar";
 import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, HuggingFaceFind, CivitaiFind, DeployModels, ModelSet, SetFile, SetSearch, BrowseBases, BrowseCard, BrowseFile, BrowsePage, HashStatus } from "./api/types/models";
@@ -190,6 +190,8 @@ export const api = {
   cancelUpdate: () => call<UpdatesView>("POST", "/updates/cancel"),
   /** Back to the previous version, with the library as it was at the update; Afflatus restarts. */
   goBack: () => call<UpdatesView>("POST", "/updates/go-back"),
+  /** What Go back would leave on RunPod: refused (why) while a rented GPU runs or a hunt is on; what keeps billing stopped. */
+  goBackCheck: () => call<GoBackCheck>("GET", "/updates/go-back"),
   /** The 0.3 library beside this bundle brought in (moved, not copied); Afflatus restarts. */
   moveLibrary: () => call<UpdatesView>("POST", "/updates/move"),
   presetFiles: (o?: Asked) => call<{ online: boolean; items: PresetFilesView[] }>("GET", "/presets/files", undefined, o?.signal),

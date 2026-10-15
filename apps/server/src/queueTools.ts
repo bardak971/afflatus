@@ -12,7 +12,7 @@ import { folderForMade, timelineOfClip } from "./timelineFolder";
 import { paceOn, recordTool, toolPace, toolPaces, type ToolPaces } from "./renders";
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB } from "./timelineModel";
-import { readJson, SHUTDOWN, type JobRow, type QueueCore, type Running } from "./queueModel";
+import { GPU_AT_WORK, readJson, SHUTDOWN, type JobRow, type QueueCore, type Running } from "./queueModel";
 import { taken } from "./queueSubmit";
 
 /** The jobs that need no model of their own: a cut (a copy, a split, a slow-motion, a finish) and an export, done by ffmpeg, with ComfyUI only for RIFE and the upscale routes. */
@@ -109,8 +109,18 @@ async function followed(core: QueueCore, comfy: Comfy, run: Running, row: Pick<J
   comfy.monitor.track({ promptId, totalSteps: 1, phases: g.phases });
   // its GPU's power read on its progress, as a render's is (queue.ts)
   if (note) note.comfy = comfy;
+  // moved by what ComfyUI says of it and by its GPU at work, as a render is: on a rented pod, one that hangs is stuck past
+  // its limit (queue.ts quietFor), not billed up to the whole wait
+  run.startedAt ??= Date.now();
+  run.movedAt = Date.now();
+  comfy.monitor.onSystem = (load) => {
+    void comfy.readPower();
+    if (load.gpus.some((g) => g.load !== undefined)) run.loadAt = Date.now();
+    if (load.gpus.some((g) => (g.load ?? 0) >= GPU_AT_WORK)) run.movedAt = Date.now();
+  };
   comfy.monitor.onChange = () => {
     void comfy.readPower();
+    run.movedAt = Date.now();
     core.events.emit("progress");
   };
   try {

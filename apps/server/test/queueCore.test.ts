@@ -82,6 +82,30 @@ describe("what waits for ComfyUI and what does not", () => {
     expect((await statusOf(render)).status).toBe("queued");
     expect((await get(t.app, "/api/queue")).json().online).toBe(false);
   });
+
+  it("a render goes on through a proxy's 502 on the way to its ComfyUI, and is filed", async () => {
+    const render = await enqueue();
+    await until(() => submitted().length === 1);
+    await until(async () => Boolean((await statusOf(render)).resume));
+    fake.down = true;
+    await new Promise((r) => setTimeout(r, 100));
+    fake.down = false;
+    complete(fake, submitted()[0]!);
+    await until(async () => (await statusOf(render)).status !== "running");
+    expect((await statusOf(render)).status).toBe("done");
+    expect(submitted()).toHaveLength(1);
+  });
+
+  it("an export asked after a render that runs waits for its end", async () => {
+    const render = await enqueue();
+    await until(() => submitted().length === 1);
+    const exported = await t.services.queue.enqueueExport({ timeline: "nope", scale: 1, music: false }, "an export");
+    await new Promise((r) => setTimeout(r, 300));
+    expect((await statusOf(exported)).status).toBe("queued");
+    complete(fake, submitted()[0]!);
+    await until(async () => (await statusOf(render)).status === "done");
+    await until(async () => (await statusOf(exported)).status === "failed");
+  });
 });
 
 describe("a render's result that cannot be filed", () => {

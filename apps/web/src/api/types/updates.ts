@@ -37,6 +37,16 @@ export interface Release {
   security: string | null;
 }
 
+/**
+ * What Go back would leave on RunPod (the version before has no rented GPUs): `refused` says why it cannot go now (a rented
+ * GPU runs, a hunt is on); `billing` names what keeps billing stopped (disks, volumes); `unknown`: RunPod did not answer.
+ */
+export interface GoBackCheck {
+  refused: string | null;
+  billing: string[];
+  unknown: boolean;
+}
+
 /** The last update, Go back or move done here, for "Updated today" and the like. */
 export interface LastChange {
   kind: "updated" | "went-back" | "moved" | "failed";

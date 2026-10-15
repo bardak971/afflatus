@@ -270,3 +270,19 @@ describe("the Picture of a source's windows", () => {
     expect(v.clips.every((c: { inputs: { picture: string } }) => c.inputs.picture === third.id)).toBe(true);
   });
 });
+
+describe("a source saved while a Split runs", () => {
+  it("keeps the start the Split gave it: the two take their turns", async () => {
+    const tls = t.services.timelines;
+    for (let ticks = 0; ticks < 4; ticks++) {
+      const tl = await tls.create("zz-test split race");
+      const meme = await asset("video");
+      await tls.edit(tl.id, { source: { asset: meme.id } });
+      const split = tls.splitSource(tl.id, 3000);
+      for (let k = 0; k < ticks; k++) await new Promise((r) => setImmediate(r));
+      await Promise.all([split, tls.edit(tl.id, { source: { windowMs: 6000 } })]);
+      const v = await tls.view(tl.id);
+      expect(v.source).toMatchObject({ fromMs: 3000, windowMs: 6000 });
+    }
+  });
+});

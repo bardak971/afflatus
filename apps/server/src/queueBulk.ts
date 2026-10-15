@@ -1,5 +1,5 @@
 import { now, type Db } from "./db";
-import type { QueueCore } from "./queueModel";
+import { readJson, type QueueCore, type Resume } from "./queueModel";
 
 /** Many jobs in one request: finished ones taken off the list or queued again, waiting ones cancelled (the Queue screen's bulk actions). */
 
@@ -49,22 +49,23 @@ export async function againAll(core: QueueCore, again: (id: string) => Promise<s
 /**
  * Every waiting job cancelled in one statement (or, with `ids`, those of them that still wait: what the page showed
  * when it was asked); how many were. What continues from one of them fails (`failDependents`, the queue's), as with a
- * single cancel. The running job goes on.
+ * single cancel, and a prompt one of them still had on a ComfyUI (queued again after it was lost from sight) is stopped
+ * there (`interrupt`). The running job goes on.
  */
-export async function cancelWaiting(core: QueueCore, failDependents: (id: string) => Promise<void>, ids?: readonly string[]): Promise<number> {
-  let picked = core.db.selectFrom("jobs").select("id").where("status", "=", "queued");
-  if (ids) picked = picked.where("id", "in", ids.length ? [...ids] : [""]);
-  const waiting = (await picked.execute()).map((r) => r.id);
-  if (!waiting.length) return 0;
-  const r = await core.db
-    .updateTable("jobs")
-    .set({ status: "cancelled", error: "stopped by you", finished_at: now(), updated_at: now() })
-    .where("id", "in", waiting)
-    .where("status", "=", "queued")
-    .executeTakeFirst();
+export async function cancelWaiting(core: QueueCore, failDependents: (id: string) => Promise<void>, interrupt: (machine: string | null, promptId: string) => void, ids?: readonly string[]): Promise<number> {
+  // the ones cancelled are the ones this statement changed: a job a pass started between a read and the write runs on, and
+  // what continues from it is not failed
+  let cancel = core.db.updateTable("jobs").set({ status: "cancelled", error: "stopped by you", finished_at: now(), updated_at: now() }).where("status", "=", "queued");
+  if (ids) cancel = cancel.where("id", "in", ids.length ? [...ids] : [""]);
+  const cancelled = await cancel.returning(["id", "resume", "machine_id"]).execute();
+  if (!cancelled.length) return 0;
+  for (const r of cancelled) {
+    const sent = readJson<Partial<Resume>>(r.resume, {}).promptId;
+    if (sent) interrupt(r.machine_id ?? null, sent);
+  }
   // one left out of `ids` may continue one cancelled now: it can never run
-  for (const id of waiting) await failDependents(id);
+  for (const r of cancelled) await failDependents(r.id);
   core.events.emit("queue");
-  if (await ofTimeline(core.db, waiting)) core.events.emit("timeline");
-  return Number(r.numUpdatedRows);
+  if (await ofTimeline(core.db, cancelled.map((r) => r.id))) core.events.emit("timeline");
+  return cancelled.length;
 }

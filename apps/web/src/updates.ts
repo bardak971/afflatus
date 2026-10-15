@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { create } from "zustand";
-import { api, type UpdateFlow, type UpdatesView } from "./api";
+import { api, type GoBackCheck, type UpdateFlow, type UpdatesView } from "./api";
+import { ask } from "./Confirm";
 import { dayOf, daysBack } from "./format";
 import { queryKeys } from "./queryKeys";
 
@@ -29,6 +30,30 @@ export function aboutState(v: UpdatesView): AboutState {
   if (v.install === "docker") return "docker";
   if (v.install === "sources") return "sources";
   return v.here ? "available" : "elsewhere";
+}
+
+/**
+ * Go back's question (About's and the command bar's): what it restores, and what keeps billing on RunPod after it, which the
+ * version before has no screen for. Null when it is refused (`check.refused` says why).
+ */
+export function goBackQuestion(version: string, check: GoBackCheck): { title: string; text: string; yes: string } | null {
+  if (check.refused) return null;
+  const billed = check.billing.length
+    ? ` Still billed on RunPod after it, with no Rented GPUs screen in ${version} to see or remove them: ${check.billing.join("; ")}.`
+    : check.unknown ? ` RunPod did not answer: what stays billed there (stopped pods' disks, volumes) could not be read, and ${version} has no Rented GPUs screen.` : "";
+  return {
+    title: `Go back to ${version}?`,
+    text: `Going back restores the library as it was at the update: what was made since stays in the folder, not in the list. Afflatus restarts on ${version}.${billed}`,
+    yes: `Go back to ${version}`,
+  };
+}
+
+/** Go back asked: refused (its reason thrown) while a rented GPU runs or a hunt is on; else whether the user said go. */
+export async function askGoBack(version: string): Promise<boolean> {
+  const check = await api.goBackCheck();
+  const question = goBackQuestion(version, check);
+  if (!question) throw new Error(check.refused ?? "Going back is refused now.");
+  return ask(question);
 }
 
 /** What the Afflatus row says beside its version: "Updated today" after an update to it, "Up to date" after a check, else nothing. */

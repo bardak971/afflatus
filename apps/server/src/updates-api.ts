@@ -41,6 +41,12 @@ export function registerUpdates(app: FastifyInstance, updates: AfflatusUpdates):
     return updates.view(true);
   });
 
+  /** What Go back would leave on RunPod, for its question: refused while a rented GPU runs or a hunt is on; what keeps billing. */
+  app.get("/api/updates/go-back", async (req) => {
+    here(req);
+    return updates.goBackCheck();
+  });
+
   /** Back to the previous version, with the library as it was at the update; Afflatus restarts. */
   app.post("/api/updates/go-back", async (req) => {
     here(req);

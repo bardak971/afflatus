@@ -326,6 +326,44 @@ describe("stopping a job", () => {
     expect((await post(t.app, "/api/queue/cancel-waiting", {})).json()).toEqual({ cancelled: 0 });
   });
 
+  it("cancels with the waiting ones the prompt one still had on ComfyUI, queued again after it was lost from sight", async () => {
+    await post(t.app, "/api/queue/pause");
+    const held = await enqueue();
+    await t.db.updateTable("jobs").set({ resume: JSON.stringify({ promptId: "zz-test-held", unsent: true }), machine_id: "m1" }).where("id", "=", held).execute();
+    fake.calls.length = 0;
+    expect((await post(t.app, "/api/queue/cancel-waiting", {})).json()).toEqual({ cancelled: 1 });
+    await until(() => fake.calls.includes("POST /queue"));
+  });
+
+  it("fails what continues only from the jobs it cancelled, not from one a pass started meanwhile", async () => {
+    await post(t.app, "/api/queue/pause");
+    const first = await enqueue({ prompt: "one" });
+    await t.services.queue.enqueue("sdxl.text-to-picture", job({ prompt: "two" }).input, { dependsOn: first });
+    await enqueue({ prompt: "three" });
+    // a pass takes the first one between a read of the waiting jobs and the write that cancels them: only a cancel that
+    // writes before it reads anything is safe from it
+    let armed = true;
+    const db = t.db.withPlugin({
+      transformQuery: (a) => {
+        if (a.node.kind === "UpdateQueryNode") armed = false;
+        return a.node;
+      },
+      transformResult: async (a) => {
+        if (armed) {
+          armed = false;
+          await t.db.updateTable("jobs").set({ status: "running" }).where("id", "=", first).execute();
+        }
+        return a.result;
+      },
+    });
+    const failed: string[] = [];
+    const { cancelWaiting } = await import("../src/queueBulk");
+    const { EventEmitter } = await import("node:events");
+    await cancelWaiting({ db, events: new EventEmitter() } as never, async (id) => void failed.push(id), () => {});
+    expect(failed.length).toBeGreaterThan(0);
+    for (const id of failed) expect((await statusOf(id)).status).toBe("cancelled");
+  });
+
   it("interrupts the running one on ComfyUI", async () => {
     const id = await enqueue();
     await until(() => submitted().length === 1);

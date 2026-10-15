@@ -154,6 +154,26 @@ describe("a rented pod's model files", () => {
     expect(pod.packUploaded.map((p) => p.offset)).toEqual([0, 0]);
   });
 
+  it("are sent again from the start when the pod's ComfyUI restarts mid-upload and forgets it", async () => {
+    files.retryMs = 10;
+    // the pack keeps an upload in memory: restarted, it answers 404 for it (its stop still goes through)
+    const real = globalThis.fetch;
+    let forgotten: string | null = null;
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      const at = /\/afflatus\/upload\/([^?/]+)/.exec(String(input))?.[1];
+      if (at && init?.method !== "DELETE" && (forgotten ??= at) === at) return Promise.resolve(new Response("{}", { status: 404 }));
+      return real(input, init);
+    }) as typeof fetch;
+    try {
+      files.want("pod", [{ file: "mine.safetensors", folder: "loras" }], { tier: "need", job: "j1" });
+      await settle("pod", "mine.safetensors");
+    } finally {
+      globalThis.fetch = real;
+    }
+    expect(files.view("pod")[0]).toMatchObject({ state: "ready", via: "upload", bytes: 150_000 });
+    expect(files.jobState("pod", "j1")?.state).toBe("ready");
+  });
+
   it("fail when no site is known and this computer has no copy", async () => {
     files.want("pod", [{ file: "nowhere.safetensors", folder: "loras" }], { tier: "need", job: "j1" });
     await settle("pod", "nowhere.safetensors");
@@ -573,5 +593,47 @@ describe("a rented pod's disk", () => {
     on.want("pod", [{ file: "x.safetensors", folder: "loras", url: `${siteUrl}/files/x.safetensors` }], { tier: "need" });
     await until(async () => (await on.short("pod", [{ file: "a.safetensors", folder: "loras", size: FILE.length }])) !== null);
     expect(await on.short("pod", [{ file: "a.safetensors", folder: "loras", size: FILE.length }])).toMatch(/^its disk is short: .* \(Make room is off\)$/);
+  });
+});
+
+describe("a pod missing from one RunPod read", () => {
+  /** A pod's files over a pretend download list: its deploy's set coming, a file left out at the deploy. */
+  const podOf = (state: { alive: boolean; gone: boolean }) => {
+    const stopped: string[] = [];
+    const downloads = { start: async () => ({ id: "d1", total: 0 }), stop: (id: string) => (stopped.push(id), true), get: () => ({ status: "downloading", bytes: 10, total: 100 }) };
+    const pf = new PodFiles({
+      db: t.services.db, downloads: downloads as never,
+      comfyOf: async () => ({ client: { models: async () => [] } }) as never,
+      cloudOf: async () => null,
+      lookup: { db: t.services.db, presets: async () => [], families: () => [], comfyDir: async () => "" },
+      settings: async () => ({ civitaiKey: "", downloadModels: true, civitaiLookups: true }),
+      alive: () => state.alive, gone: () => state.gone, busy: () => false,
+    });
+    pf.leaveOut("pod1", [{ file: "big.safetensors", folder: "checkpoints" }]);
+    pf.want("pod1", [{ file: "set.safetensors", folder: "loras", url: "https://huggingface.co/a/b/resolve/main/set.safetensors" }], { tier: "ahead" });
+    return { pf, stopped };
+  };
+
+  it("keeps what it was getting, and what was left out at its deploy", async () => {
+    const state = { alive: true, gone: false };
+    const { pf, stopped } = podOf(state);
+    await until(async () => (await pf.tick(), pf.view("pod1").some((f) => f.state === "fetching")));
+    state.alive = false;
+    await pf.tick();
+    state.alive = true;
+    await pf.tick();
+    expect(pf.view("pod1").map((f) => `${f.file}:${f.state}`).sort()).toEqual(["big.safetensors:failed", "set.safetensors:fetching"]);
+    expect(pf.failed("pod1", "checkpoints", "big.safetensors")).toMatch(/left out/);
+    expect(stopped).toEqual([]);
+  });
+
+  it("forgets them once it is down for good", async () => {
+    const state = { alive: true, gone: false };
+    const { pf, stopped } = podOf(state);
+    await until(async () => (await pf.tick(), pf.view("pod1").some((f) => f.state === "fetching")));
+    Object.assign(state, { alive: false, gone: true });
+    await pf.tick();
+    expect(pf.view("pod1")).toEqual([]);
+    expect(stopped).toEqual(["d1"]);
   });
 });

@@ -242,6 +242,23 @@ describe.skipIf(!clipBytes)("a finish stopped by a restart", () => {
   });
 });
 
+describe.skipIf(!clipBytes)("a finish that hangs", () => {
+  it("counts its silence as a render's does, and fails as stuck, not as stopped by you", async () => {
+    const draft = await video("zz-test draft", clipBytes!, { width: 64, height: 64, duration_ms: 1000 });
+    const id = await t.services.queue.enqueueCut({ asset: draft, startMs: 0, endMs: 1000, action: "finish", route: "model", by: 2, upscaleModel: "x2.pth" } as never, "zz-test finish");
+    await until(() => submitted().length === 1, 20_000);
+    type Run = { promptId?: string; movedAt?: number; startedAt?: number };
+    const run = () => (t.services.queue as unknown as { lanes: Map<string, { running: Run | null }> }).lanes.get("m1")!.running;
+    await until(() => Boolean(run()?.promptId));
+    // long past any forecast: its silence counts
+    run()!.startedAt = Date.now() - 60 * 60_000;
+    await until(() => t.services.queue.quietFor("m1").ms > 0);
+    expect(await t.services.queue.endStuck("m1", "Stuck: zz-test")).toBe(true);
+    await until(async () => (await statusOf(id)).status !== "running");
+    expect(await statusOf(id)).toMatchObject({ status: "failed", error: "Stuck: zz-test" });
+  }, FFMPEG_TIMEOUT);
+});
+
 describe("what a video's measures are kept in", () => {
   it("is measured again when the kept file was cut short, and the same frame asked twice at once is one picture", async () => {
     if (!clipBytes) return;

@@ -121,6 +121,10 @@ export class ModelHashes {
   /** This computer's machines (not rented ones), as the settings said at the pass's start: their renders hold the disk. */
   private home: string[] = [];
   private busy = () => this.home.some((m) => this.runningOn(m));
+  /** Afflatus is closing (stop): no pass starts, and the one under way ends at its next step. */
+  private stopped = false;
+  /** The pass's hashing thread, while there is one: ended at once by a stop. */
+  private worker: Worker | null = null;
 
   constructor(private readonly s: Pick<Services, "db">) {}
 
@@ -137,6 +141,7 @@ export class ModelHashes {
 
   /** A pass: what is not hashed (or changed) hashed, then what is not matched asked of the sites. One at a time. */
   run(): Promise<void> {
+    if (this.stopped) return Promise.resolve();
     this.running ??= this.pass().catch((err: Error) => {
       this.error = err.message.slice(0, 300);
       console.warn("[hashes]", err.message);
@@ -146,6 +151,16 @@ export class ModelHashes {
       this.paused = false;
     });
     return this.running;
+  }
+
+  /**
+   * Afflatus closes: the pass under way ends (its thread terminated, the file it read taken as not read, asked again at the
+   * next start) before the database is closed under it. Resolves once it has.
+   */
+  async stop(): Promise<void> {
+    this.stopped = true;
+    await this.worker?.terminate();
+    await this.running;
   }
 
   private async pass(): Promise<void> {
@@ -183,6 +198,7 @@ export class ModelHashes {
     let worker: Worker | null = null;
     try {
       for (const f of todo) {
+        if (this.stopped) return;
         // a file just found gone with the same size and time: the same file renamed or moved, its hash and match kept
         // rather than a checkpoint read again in full
         const moved = !have.has(keyOf(f.folder, f.file)) ? gone.findIndex((g) => Number(g.size) === f.size && Number(g.mtime) === f.mtime) : -1;
@@ -193,19 +209,20 @@ export class ModelHashes {
         }
         // made at the first file to read, and again after one that stopped (its id is then -1)
         if (!worker || worker.threadId === -1) {
-          worker = new Worker(HASHER, { eval: true });
+          worker = this.worker = new Worker(HASHER, { eval: true });
           // a pass under way never holds the process open at its end
           worker.unref();
         }
         const sha256 = await this.hashOf(worker, f);
-        if (!sha256) continue;
+        if (!sha256 || this.stopped) continue;
         const row = { size: f.size, mtime: f.mtime, sha256, hashed_at: now(), civitai_version: null, hf_url: null, matched_at: null };
         await this.s.db.insertInto("model_hashes").values({ folder: f.folder, file: f.file, ...row }).onConflict((oc) => oc.columns(["folder", "file"]).doUpdateSet(row)).execute();
       }
     } finally {
       await worker?.terminate();
+      this.worker = null;
     }
-    await this.match();
+    if (!this.stopped) await this.match();
   }
 
   /** A file's SHA-256, read in pieces in the hashing's thread, held while this computer renders. Null when it could not be read. */
@@ -269,6 +286,7 @@ export class ModelHashes {
     const versions = await civitaiVersionsByHash([...new Set(due.map((r) => r.sha256))], settings.civitaiKey);
     if (!versions) throw new Error("Civitai did not answer the hashes: asked again at the next pass");
     for (const r of due) {
+      if (this.stopped) return;
       const version = versions.get(r.sha256) ?? 0;
       let hf: string | null = null;
       // whether Hugging Face gave a full answer: one away, refusing (429) or slow says nothing of the file, so the file is
