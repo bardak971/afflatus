@@ -10,6 +10,7 @@ import { machinePaces, paceOf, rates, statRows, type StatRows } from "./forecast
 import { gathering, observeAdded, observePart } from "./serverMetrics";
 import type { Registry } from "./registry";
 import { record } from "./renders";
+import { runwayNeed } from "./rented";
 import { lackOn, type Lack } from "./machineScans";
 import { machineSaid, type Say } from "./notifyWords";
 import type { PodFiles } from "./podFiles";
@@ -718,12 +719,14 @@ ${JSON.stringify(input)}`;
 
   /**
    * What a waiting render should take on a pod that has its model to load (the forecast at the common pace of the machines),
-   * for the GPU hunt's ranking (hunt.ts); null when it cannot be told.
+   * and what of it is that load (`loadMs`), for the GPU hunt's ranking (hunt.ts): a load is the pod's disk, not its card,
+   * and is not read at the GPU's pace. Null when it cannot be told.
    */
-  forecastMs(row: JobRow): Promise<number | null> {
+  async forecastMs(row: JobRow): Promise<{ ms: number; loadMs: number } | null> {
     const recipe = this.registry.recipe(row.recipe_id);
-    if (!recipe || row.warm) return Promise.resolve(null);
-    return this.expected(recipe, readJson<Record<string, unknown>>(row.inputs, {}), true, row);
+    if (!recipe || row.warm) return null;
+    const got = await submitting.forecastOf(this.core, recipe.id, readJson<Record<string, unknown>>(row.inputs, {}), { cold: true, finishedFrom: row.finished_from, clip: row.clip_id ? { id: row.clip_id, fit: Boolean(row.clip_fit) } : null });
+    return got ? { ms: got.forecast.ms, loadMs: got.forecast.loadMs } : null;
   }
 
   /** One machine paused or going, here and in the database. */
@@ -773,9 +776,14 @@ ${JSON.stringify(input)}`;
     const lanes = await this.refresh();
     const rows = await this.db.selectFrom("jobs").selectAll().where("status", "=", "queued").orderBy("priority").orderBy("created_at").execute();
     const able = await this.ableOf(rows.filter(needsComfy));
-    const status = await view.status(this.core, views, paused, paused ? new Map() : await this.forecastPlan(lanes, rows, able), await this.paces(), able);
+    const planned = paused ? new Map<string, { lane: string; startsInMs: number; endsInMs: number }>() : await this.forecastPlan(lanes, rows, able);
+    const status = await view.status(this.core, views, paused, planned, await this.paces(), able);
+    // when the waiting renders are all done, as the plan shares them between the machines (ms from now): the last end, not
+    // their sum (40 jobs on 4 machines were said 5 min, and done in 75 s); null with none planned, or one whose end cannot be told
+    const ends = [...planned.values()].map((p) => p.endsInMs);
+    const waitingEndsInMs = ends.length && ends.every(Number.isFinite) ? Math.max(...ends) : null;
     // the GPU hunt under way, for the status bar (hunt.ts); null when there is none
-    return { ...status, hunt: this.huntOf?.(rows.filter(needsComfy).length) ?? null };
+    return { ...status, waitingEndsInMs, hunt: this.huntOf?.(rows.filter(needsComfy).length) ?? null };
   }
 
   /**
@@ -1070,7 +1078,7 @@ ${JSON.stringify(input)}`;
   }
 
   /** Where each waiting job will probably run and when it starts, as the screens show it: the plan of now, no machine asked again. */
-  private async forecastPlan(lanes: Lane[], rows: JobRow[], able: ReadonlyMap<string, Able>): Promise<Map<string, { lane: string; startsInMs: number }>> {
+  private async forecastPlan(lanes: Lane[], rows: JobRow[], able: ReadonlyMap<string, Able>): Promise<Map<string, { lane: string; startsInMs: number; endsInMs: number }>> {
     return plan(await this.schedulable(lanes.filter((l) => !l.paused && l.machine)), await this.planned(rows.filter(needsComfy), able));
   }
 
@@ -1148,11 +1156,14 @@ ${JSON.stringify(input)}`;
     return this.podFetch?.jobState(lane.id, r.id) === "ready";
   }
 
-  /** What keeps a job off a rented pod for its balance: null when it ends there, its files fetched first, before the balance does. */
+  /**
+   * What keeps a job off a rented pod for its balance: null when it ends there, its files fetched first, before the balance
+   * does. A render with no forecast is weighed at a floor (rented.ts runwayNeed): left out, it went whatever the balance.
+   */
   private async balanceLack(r: JobRow, lane: Lane, fetchMs = 0): Promise<Lack["balance"] | null> {
     if (!lane.machine?.rented) return null;
     const render = await this.lengthOn(r, lane.id);
-    const need = render === null ? null : await this.balanceNeed(lane.id, r.recipe_id, render, fetchMs);
+    const need = render === null ? runwayNeed({ renderMs: null, fetchMs, sure: false }) : await this.balanceNeed(lane.id, r.recipe_id, render, fetchMs);
     const fit = this.fitsBalance(need);
     return fit.ok || need === null || fit.leftMs === null ? null : { leftMs: fit.leftMs, needMs: need };
   }

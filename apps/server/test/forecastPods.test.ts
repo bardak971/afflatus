@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { migrate, openSqlite, type Db } from "../src/db";
-import { forecast, gpuPaces, machinePaces, paceOf } from "../src/forecast";
+import { forecast, fromRates, gpuPaces, machinePaces, paceOf, rates, rentedLoadMs } from "../src/forecast";
 import type { RenderRow } from "../src/renderDigests";
 
 /**
@@ -120,6 +120,10 @@ describe("a machine's pace", () => {
     const paces = await machinePaces(db);
     expect(paceOf(paces, "rp-a40", "wan")! / paceOf(paces, "m1", "wan")!).toBeCloseTo(0.25, 5);
     expect(paceOf(paces, "rp-a40", "qwen")! / paceOf(paces, "m1", "qwen")!).toBeCloseTo(0.7, 5);
+    // the reference machine is 1 on each family it was compared on, not 0.85 on one and 1.15 on the other
+    expect(paceOf(paces, "m1", "wan")).toBeCloseTo(1, 5);
+    expect(paceOf(paces, "m1", "qwen")).toBeCloseTo(1, 5);
+    expect(paceOf(paces, "rp-a40", "wan")).toBeCloseTo(0.25, 5);
   });
 
   it("compares windows of different lengths on their step for the work", async () => {
@@ -149,5 +153,64 @@ describe("a first cold load", () => {
     expect(f.loadMs).toBe(15_000 - 10_000);
     // a machine that never loaded anything cold: the others' loads of the model
     expect((await forecast(db, "wan22", W, 8, true, like("m3", paces)))!.loadMs).toBe(73_000 - 10_000);
+  });
+});
+
+describe("the machines' paces and the cards'", () => {
+  it("are on one scale when pods pile renders onto one card: two A40 pods of three renders each against a PC with four", async () => {
+    // each deploy is a new machine: this PC is the machines' 1 (four renders), the A40 the cards' (six): read on two scales a
+    // new A40 pod was told 1.43 times its time, and the hunt's A40 (the common pace times the card's) as much
+    const qwen = (machine: string, gpu: string, stepMs: number) => picture(machine, gpu, stepMs, { recipe_id: "qwen.t2p", family: "qwen", model_file: "qwen" });
+    const db = await record([...times(4, () => qwen("m1", HOME, 1_000)), ...times(3, () => qwen("rp-0", A40, 700)), ...times(3, () => qwen("rp-1", A40, 700))], [session("rp-new", A40)]);
+    const paces = await machinePaces(db);
+    expect(paces.get("m1")).toBe(1);
+    expect(paces.get("rp-new")).toBeCloseTo(0.7, 5);
+    expect((await gpuPaces(db)).find((g) => g.gpu === A40)!.pace).toBeCloseTo(0.7, 5);
+    expect((await gpuPaces(db)).find((g) => g.gpu === HOME)!.pace).toBeCloseTo(1, 5);
+    const at = { recipeId: "qwen.t2p", family: "qwen", samples: true, paces };
+    const onNew = (await forecast(db, "qwen", 1024 * 1024, 28, false, { ...at, machine: "rp-new" }))!.ms;
+    const onOld = (await forecast(db, "qwen", 1024 * 1024, 28, false, { ...at, machine: "rp-0" }))!.ms;
+    expect(onNew).toBe(onOld);
+  });
+});
+
+describe("a model never rendered here", () => {
+  it("reads the renders of the same recipe with the family's other models, not the recipe's usual time", async () => {
+    // a new version of the Wan model: none of its renders yet; the family's other recipe is left out
+    const db = await record([...times(3, () => row("m1", HOME, 60_000)), ...times(3, () => row("m1", HOME, 10_000, { recipe_id: "wan.t2v", model_file: "wan21" }))]);
+    const paces = await machinePaces(db);
+    const before = (await forecast(db, "wan22", W, 8, false, like("m1", paces)))!.ms;
+    expect((await forecast(db, "wan23", W, 8, false, like("m1", paces)))!.ms).toBe(before);
+    // nor any recipe of the family it rendered: nothing said here, the recipe's usual time is (fromRates)
+    expect(await forecast(db, "wan23", W, 8, false, { ...like("m1", paces), recipeId: "wan.flf" })).toBeNull();
+  });
+});
+
+describe("the fallback's usual times", () => {
+  it("keep a recipe's finishes apart from its drafts: a fresh install's first finish is not priced from the drafts", async () => {
+    const h3 = (sampleMs: number, totalMs: number) => row("m1", HOME, 1_000, { recipe_id: "h3.video", family: "h3", model_file: "h3", sample_ms: sampleMs, total_ms: totalMs, load_ms: 0 });
+    const recipe = { id: "h3.video", inputs: [] } as unknown as Parameters<typeof fromRates>[1];
+    const drafts = await record(times(3, () => h3(150_000, 210_000)));
+    expect(fromRates(await rates(drafts), recipe, {}, { samples: true })!.ms).toBe(210_000);
+    expect(fromRates(await rates(drafts), recipe, {}, { samples: false })).toBeNull();
+    const both = await record([...times(3, () => h3(150_000, 210_000)), ...times(2, () => h3(0, 34_000))]);
+    expect(fromRates(await rates(both), recipe, {}, { samples: false })!.ms).toBe(34_000);
+    expect(fromRates(await rates(both), recipe, {}, { samples: true })!.ms).toBe(210_000);
+    // not told which: the drafts', as before
+    expect(fromRates(await rates(both), recipe, {})!.ms).toBe(210_000);
+    // a draft with only renders filed as sampling nothing (their sampling not seen) reads those
+    const unseen = await record(times(2, () => h3(0, 34_000)));
+    expect(fromRates(await rates(unseen), recipe, {}, { samples: true })!.ms).toBe(34_000);
+  });
+});
+
+describe("a pod's model load, for the GPU hunt", () => {
+  it("is what the pods' cold loads add over their warm ones, not this computer's", async () => {
+    const db = await record(
+      [...times(3, () => row("m1", HOME, 60_000, { cold: 1, load_ms: 15_000 })), row("rp-a40", A40, 30_000, { cold: 1, load_ms: 61_000 }), row("rp-a40", A40, 30_000, { load_ms: 11_000 })],
+      [session("rp-a40", A40)],
+    );
+    expect(await rentedLoadMs(db, "wan")).toBe(50_000);
+    expect(await rentedLoadMs(await record(times(3, () => row("m1", HOME, 60_000, { cold: 1 }))), "wan")).toBeNull();
   });
 });

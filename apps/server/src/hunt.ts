@@ -4,7 +4,7 @@ import { fileKey, firstFree, plural, rankGpus, type HuntMode, type Learned, type
 import { deployOverhead, type DeployOverhead } from "./costs";
 import { deployFiles, deployModels } from "./deployModels";
 import { httpError } from "./errors";
-import { gpuPaces } from "./forecast";
+import { gpuPaces, rentedLoadMs } from "./forecast";
 import { filesUsed } from "./machineScans";
 import { dollars, took, type Say } from "./notifyWords";
 import { readJson, type JobRow } from "./queueModel";
@@ -240,16 +240,26 @@ export class Hunt {
     return found.dataCenter;
   }
 
-  /** The waiting renders as the ranking reads them: their files with their sizes, and their forecast. */
+  /**
+   * The waiting renders as the ranking reads them: their files with their sizes, and their forecast at the common pace with
+   * its model's load apart, as the pods loaded the family's models (rentedLoadMs), else as the forecast has it.
+   */
   private async renders(rows: JobRow[]): Promise<RankRender[]> {
     const scan = await (await this.s.comfy()).scan().catch(() => null);
+    const loads = new Map<string, Promise<number | null>>();
+    const loadOf = (family: string) => {
+      if (!loads.has(family)) loads.set(family, rentedLoadMs(this.s.db, family).catch(() => null));
+      return loads.get(family)!;
+    };
     return Promise.all(rows.slice(0, RANKED_RENDERS).map(async (r) => {
       const recipe = this.s.registry.recipe(r.recipe_id);
       if (!recipe) return { files: [], ms: null };
       const slots = this.s.registry.family(recipe.family)?.slots ?? [];
       const used = filesUsed(recipe, readJson<Record<string, unknown>>(r.inputs, {}), scan, slots);
       const files = await Promise.all(used.map(async (f) => ({ file: f.file, size: (await this.s.podFiles.about(f).catch(() => null))?.size ?? null })));
-      return { files, ms: await this.s.queue.forecastMs(r).catch(() => null) };
+      const f = await this.s.queue.forecastMs(r).catch(() => null);
+      if (!f) return { files, ms: null };
+      return { files, ms: f.ms - f.loadMs, loadMs: (await loadOf(recipe.family)) ?? f.loadMs };
     }));
   }
 

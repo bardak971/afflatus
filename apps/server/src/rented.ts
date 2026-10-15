@@ -119,12 +119,19 @@ const SURE_RENDERS = 3;
 const SURE_FRESH_MS = 60_000;
 
 /**
- * What a job needs of the balance on a pod, beside the margin (ms): its files still to come, then its render, half again
- * when its forecast there is not `sure`. A fetch that cannot be told (a file with no source) counts nothing: that job never
- * starts there for its files, whatever the balance.
+ * What a job with no forecast at all is taken to render for, against the balance: a render nothing like it was made yet
+ * (LTX 2.5's first) went to a pod whatever the balance, and one the balance runs out under is lost, and paid.
  */
-export function runwayNeed(o: { renderMs: number; fetchMs: number; sure: boolean }): number {
-  return (Number.isFinite(o.fetchMs) ? Math.max(0, o.fetchMs) : 0) + o.renderMs * (o.sure ? 1 : UNSURE_FORECAST);
+const UNKNOWN_RENDER_MS = 30 * 60_000;
+
+/**
+ * What a job needs of the balance on a pod, beside the margin (ms): its files still to come, then its render, half again
+ * when its forecast there is not `sure`, UNKNOWN_RENDER_MS when it has none (null). A fetch that cannot be told (a file
+ * with no source) counts nothing: that job never starts there for its files, whatever the balance.
+ */
+export function runwayNeed(o: { renderMs: number | null; fetchMs: number; sure: boolean }): number {
+  const render = o.renderMs === null ? UNKNOWN_RENDER_MS : o.renderMs * (o.sure ? 1 : UNSURE_FORECAST);
+  return (Number.isFinite(o.fetchMs) ? Math.max(0, o.fetchMs) : 0) + render;
 }
 const TRANSITIONAL: ReadonlySet<string> = new Set(["PROVISIONING", "STARTING"]);
 /**

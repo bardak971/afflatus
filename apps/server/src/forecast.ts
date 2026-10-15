@@ -317,6 +317,9 @@ export async function forecast(db: Db, modelFile: string, work: number, steps: n
   const ofKind = <R extends { sample_ms: number }>(rs: R[]): R[] => (like.samples === undefined ? rs : rs.filter((r) => (r.sample_ms > 0) === like.samples));
   let rows = ofKind(all);
   if (!rows.length && all.length && like.family) rows = ofKind(timed(await familyRows(db, like.family, modelFile)));
+  // a model never rendered here reads the renders of the same recipe with the family's other models (a new version of a
+  // checkpoint steps as the one before it did): the recipe's usual time over every size and machine said 37.5 s for 10.8
+  if (!all.length && like.family && like.recipeId) rows = ofKind(timed(await familyRows(db, like.family, modelFile)).filter((r) => r.recipe_id === like.recipeId));
   if (!rows.length) return null;
   // the renders of the same recipe when there are enough of them: the model's others sample something else per step
   // (an upscale re-samples tiles of a larger picture), and placed among them a form read like theirs
@@ -423,6 +426,30 @@ async function familyWarmLoads(db: Db, family: string, machine: string | null): 
   return (here.length ? here : await on(null)).map((r) => r.load_ms);
 }
 
+/**
+ * What loading a model of `family` adds on a rented pod over what a render with its model in memory spends before its first
+ * step (ms): the middle of the pods' cold loads of the family (else of any model), less that of their warm ones (else of the
+ * family's anywhere). A pod reads its models from a network volume or a fresh disk, not this PC's: the GPU hunt priced a
+ * SCAIL window 14 % short with this PC's load, read at the GPU's pace besides. Null when no pod loaded a model cold yet.
+ */
+export async function rentedLoadMs(db: Db, family: string | undefined): Promise<number | null> {
+  const pods = db.selectFrom("rent_sessions").select("machine_id");
+  const loads = async (cold: 0 | 1, fam: string | null) => {
+    let q = db.selectFrom("render_stats").select("load_ms").where("status", "=", "done").where("whole", "=", 1).where("cold", "=", cold).where("model_file", "!=", "").where("step_ms", "is not", null).where("machine_id", "in", pods);
+    if (fam) q = q.where("family", "=", fam);
+    return (await q.orderBy("created_at", "desc").limit(50).execute()).map((r) => r.load_ms);
+  };
+  const ofFamily = async (cold: 0 | 1) => {
+    const mine = family ? await loads(cold, family) : [];
+    return mine.length ? mine : loads(cold, null);
+  };
+  const cold = await ofFamily(1);
+  if (!cold.length) return null;
+  let warm = await ofFamily(0);
+  if (!warm.length && family) warm = await familyWarmLoads(db, family, null);
+  return Math.max(0, Math.round(median(cold) - median(warm)));
+}
+
 /** Below this, a load is no sign the model was loaded again: a video model's text encoder alone takes 10 to 15 s, in memory or not. */
 export const RELOAD_MS = 15_000;
 
@@ -473,6 +500,13 @@ export interface Rate {
   loads: { warmMs: number; coldMs: number | null } | null;
   /** How many past renders this rests on. */
   samples: number;
+  /**
+   * Whether its renders sampled a picture of their own (a draft) or nothing of their own (a finish re-sampling a draft's
+   * latent, a tool); left out for a rate read from the generations, which do not tell.
+   */
+  sampled?: boolean;
+  /** Of a recipe rendered both ways (H3's drafts and finishes), the rate of its renders of the other way. */
+  other?: Rate;
 }
 
 /** How many past renders the fallback looks at: the recent ones say more about the machine as it is now. */
@@ -482,7 +516,7 @@ export async function rates(db: Db): Promise<Record<string, Rate>> {
   const [recorded, paces] = await Promise.all([
     db
       .selectFrom("render_stats")
-      .select(["recipe_id", "family", "machine_id", "total_ms", "load_ms", "cold", "kind", "duration_ms"])
+      .select(["recipe_id", "family", "machine_id", "total_ms", "load_ms", "sample_ms", "cold", "kind", "duration_ms"])
       .where("status", "=", "done")
       .where("whole", "=", 1)
       .orderBy("created_at", "desc")
@@ -490,11 +524,15 @@ export async function rates(db: Db): Promise<Record<string, Rate>> {
       .execute(),
     machinePaces(db).catch(() => new Map<string, number>()),
   ]);
-  const byRecipe = new Map<string, { family: string; jobs: number[]; perSecond: number[]; warm: number[]; cold: number[] }>();
+  // a recipe's drafts and its finishes apart: a finish re-samples a draft's latent with a few steps, and the middle of both
+  // priced a fresh install's first H3 finish at 210 s for 34
+  const byRecipe = new Map<string, { recipe: string; family: string; sampled: boolean; jobs: number[]; perSecond: number[]; warm: number[]; cold: number[] }>();
   const coldOfFamily = new Map<string, number[]>();
   for (const r of recorded) {
-    const at = byRecipe.get(r.recipe_id) ?? { family: r.family, jobs: [], perSecond: [], warm: [], cold: [] };
-    byRecipe.set(r.recipe_id, at);
+    const sampled = r.sample_ms > 0;
+    const key = `${r.recipe_id} ${sampled}`;
+    const at = byRecipe.get(key) ?? { recipe: r.recipe_id, family: r.family, sampled, jobs: [], perSecond: [], warm: [], cold: [] };
+    byRecipe.set(key, at);
     // a pod twice as slow as this PC made the fallback of every machine half again too long, and the load in it twice over
     const run = Math.max(0, r.total_ms - r.load_ms) / ((r.machine_id && paces.get(r.machine_id)) || 1);
     at.jobs.push(run);
@@ -503,12 +541,17 @@ export async function rates(db: Db): Promise<Record<string, Rate>> {
     if (r.cold) coldOfFamily.set(r.family, [...(coldOfFamily.get(r.family) ?? []), r.load_ms]);
   }
   const out: Record<string, Rate> = {};
-  for (const [id, v] of byRecipe) {
+  for (const v of byRecipe.values()) {
     const cold = v.cold.length ? v.cold : (coldOfFamily.get(v.family) ?? []);
-    out[id] = {
+    const rate: Rate = {
       perJobMs: Math.round(median(v.jobs)), perSecondMs: v.perSecond.length ? Math.round(median(v.perSecond)) : null,
-      loads: { warmMs: Math.round(median(v.warm)), coldMs: cold.length ? Math.round(median(cold)) : null }, samples: v.jobs.length,
+      loads: { warmMs: Math.round(median(v.warm)), coldMs: cold.length ? Math.round(median(cold)) : null }, samples: v.jobs.length, sampled: v.sampled,
     };
+    // the drafts' rate first when there are both, the finishes' beside it
+    const there = out[v.recipe];
+    if (!there) out[v.recipe] = rate;
+    else if (v.sampled) out[v.recipe] = { ...rate, other: there };
+    else there.other = rate;
   }
   const rows = await db
     .selectFrom("generations")
@@ -535,17 +578,31 @@ export async function rates(db: Db): Promise<Record<string, Rate>> {
 /**
  * The fallback as a forecast: the recipe's usual job, or its usual pace times the video's seconds, at `at.pace` (the
  * machine's, machinePaces; left out, the common pace), with its model's load when `at.cold` (the recipe's usual cold load,
- * else its family's); null when it never rendered. Without it, a Face detailer whose checkpoint was in memory was told
- * the 74 s its cold renders took (10 s), and a pod's job was recorded at this PC's time while its lane showed its own.
+ * else its family's), from its renders of the form's way (`at.samples`, rateOf); null when it never rendered so. Without
+ * it, a Face detailer whose checkpoint was in memory was told the 74 s its cold renders took (10 s), and a pod's job was
+ * recorded at this PC's time while its lane showed its own.
  */
-export function fromRates(all: Record<string, Rate>, recipe: Recipe<any>, input: Record<string, unknown>, at: { cold?: boolean | null; pace?: number } = {}): Forecast | null {
-  const rate = all[recipe.id];
+export function fromRates(all: Record<string, Rate>, recipe: Recipe<any>, input: Record<string, unknown>, at: { cold?: boolean | null; pace?: number; samples?: boolean } = {}): Forecast | null {
+  const rate = rateOf(all[recipe.id], at.samples);
   if (!rate) return null;
   const seconds = secondsOf(recipe.inputs, input);
   const run = (rate.perSecondMs && seconds ? rate.perSecondMs * seconds : rate.perJobMs) * (at.pace && at.pace > 0 ? at.pace : 1);
   const warm = rate.loads?.warmMs ?? 0;
   const load = at.cold && rate.loads ? Math.max(warm, rate.loads.coldMs ?? warm) : warm;
   return { ms: Math.round(run + load), pace: "usual", fitsUpTo: 0, samples: rate.samples, loadMs: Math.round(load - warm) };
+}
+
+/**
+ * A recipe's rate for a render that samples a picture of its own or not (`samples`, as its graph says; left out: not told):
+ * the rate of its renders of that way. A finish with none is not priced from the drafts (a few steps over a kept latent,
+ * against a whole sampling: 210 s said, 34 taken); a draft with none reads what there is (renders whose sampling was not
+ * seen, ComfyUI answering from its cache, were filed as sampling nothing).
+ */
+function rateOf(rate: Rate | undefined, samples: boolean | undefined): Rate | null {
+  if (!rate) return null;
+  if (samples === undefined || rate.sampled === undefined || rate.sampled === samples) return rate;
+  if (rate.other?.sampled === samples) return rate.other;
+  return samples ? rate : null;
 }
 
 /** The forecast as the form says it: a line, and, past the cliff, the words that go next to the setting that drives the size. */
@@ -577,13 +634,16 @@ interface PaceRow extends RecordedWork {
   step_ms: number;
 }
 
-/** The renders the paces are learned from: each machine's (and card's) latest PACE_ROWS of each model. */
+/**
+ * The renders the paces are learned from: each machine's (and card's) latest PACE_ROWS of each model. The subquery is named:
+ * Postgres 15 and before refuse one with no name, and the Renders summary and /metrics failed with it.
+ */
 async function paceRows(db: Db): Promise<PaceRow[]> {
   const { rows } = await sql<PaceRow>`
     select machine_id, gpu, model_file, family, time_key, recipe_id, kind, width, height, duration_ms, work, step_ms from (
       select *, row_number() over (partition by machine_id, gpu, model_file order by created_at desc) as n from render_stats
       where status = 'done' and whole = 1 and step_ms is not null and work is not null and model_file != ''
-    ) where n <= ${PACE_ROWS}`.execute(db);
+    ) as ranked where n <= ${PACE_ROWS}`.execute(db);
   return rows;
 }
 
@@ -632,15 +692,11 @@ function compared(rows: readonly PaceRow[], who: (r: PaceRow) => string | null):
     out.set(id, { pace: median(rs.map((r) => r.ratio)), families, renders: rs.reduce((sum, r) => sum + r.renders, 0) });
   }
   // 1 is the pace of the one compared on the most renders (the owner's PC, as a rule), not the middle of them: with two
-  // machines the middle lies between them and the PC read ×1.33 against itself. Only the ratios between them count
+  // machines the middle lies between them and the PC read ×1.33 against itself. Only the ratios between them count. On a
+  // family, 1 is that one's pace on the family where it was compared on it: divided by its pace overall, the PC read 0.87
+  // against itself on Qwen pictures and 1.13 on Motion transfer windows
   const most = [...out.values()].sort((a, b) => b.renders - a.renders)[0];
-  if (most && most.pace > 0) {
-    const by = most.pace;
-    for (const c of out.values()) {
-      c.pace /= by;
-      for (const [f, p] of c.families) c.families.set(f, p / by);
-    }
-  }
+  if (most && most.pace > 0) rescale(out.values(), most.pace, new Map(most.families));
   if (!out.size) {
     const counts = new Map<string, number>();
     for (const { costs } of byKey.values()) for (const [id, cs] of costs) counts.set(id, (counts.get(id) ?? 0) + cs.length);
@@ -648,6 +704,42 @@ function compared(rows: readonly PaceRow[], who: (r: PaceRow) => string | null):
     if (most) out.set(most[0], { pace: 1, families: new Map(), renders: most[1] });
   }
   return out;
+}
+
+/**
+ * Paces divided by a reference's: overall by `by`, and on each family by the reference's pace on it (`byFamily`), else by
+ * `by`.
+ */
+function rescale(all: Iterable<Compared>, by: number, byFamily: ReadonlyMap<string, number>): void {
+  for (const c of all) {
+    c.pace /= by;
+    for (const [f, p] of c.families) c.families.set(f, p / (byFamily.get(f) || by));
+  }
+}
+
+/**
+ * The machines' paces and the cards' on one scale: each is learned against the one compared on the most renders, and every
+ * deploy is a new machine piling its renders onto one card, so with pods in regular use the rented card came to be the
+ * cards' 1 while this PC stayed the machines'. Read on two scales, a new A40 pod (its card's pace) was told 1.43 times its
+ * time, and the GPU hunt's figure (the common pace, the machines', times the card's) was off by as much. The cards are
+ * brought to the machines' scale: the card of the machine compared on the most renders (whose card was compared) has that
+ * machine's pace, overall and on each family. Also each machine's GPU, as its renders give it.
+ */
+function paceScales(rows: readonly PaceRow[]): { own: Map<string, Compared>; cards: Map<string, Compared>; gpus: Map<string, string> } {
+  const own = compared(rows, (r) => r.machine_id);
+  const cards = compared(rows, (r) => (r.gpu ? gpuKey(r.gpu) : null));
+  const gpus = new Map<string, string>();
+  for (const r of rows) if (r.machine_id && r.gpu && !gpus.has(r.machine_id)) gpus.set(r.machine_id, r.gpu);
+  const ref = [...own].filter(([machine]) => gpus.has(machine) && cards.has(gpuKey(gpus.get(machine)!))).sort((a, b) => b[1].renders - a[1].renders)[0];
+  if (ref) {
+    const [machine, mine] = ref;
+    const card = cards.get(gpuKey(gpus.get(machine)!))!;
+    // what the card's pace is divided by to read the machine's: its own over the machine's, overall and on each family
+    const by = card.pace / mine.pace;
+    const byFamily = new Map([...card.families].map(([f, p]) => [f, p / (mine.families.get(f) ?? mine.pace)] as const));
+    if (by > 0 && Number.isFinite(by)) rescale(cards.values(), by, byFamily);
+  }
+  return { own, cards, gpus };
 }
 
 /**
@@ -668,11 +760,9 @@ export class Paces extends Map<string, number> {
  * has no pace. A forecast on a machine reads another's renders at its pace against that one's (onMachine).
  */
 export async function machinePaces(db: Db): Promise<Paces> {
-  const rows = await paceRows(db);
-  const own = compared(rows, (r) => r.machine_id);
-  const cards = compared(rows, (r) => (r.gpu ? gpuKey(r.gpu) : null));
+  const { own, cards, gpus } = paceScales(await paceRows(db));
   const paces = new Paces();
-  for (const r of rows) if (r.machine_id && r.gpu && !paces.gpus.has(r.machine_id)) paces.gpus.set(r.machine_id, r.gpu);
+  for (const [machine, gpu] of gpus) paces.gpus.set(machine, gpu);
   const sessions = await db.selectFrom("rent_sessions").select(["machine_id", "gpu"]).where("gpu", "is not", null).orderBy("started_at", "desc").execute();
   for (const s of sessions) if (!paces.gpus.has(s.machine_id)) paces.gpus.set(s.machine_id, s.gpu!);
   // the table's guesses are anchored on a rented card first: a home card shares its memory with the desktop and spills the
@@ -694,13 +784,14 @@ export async function machinePaces(db: Db): Promise<Paces> {
 }
 
 /**
- * Each GPU's pace against all of them, by its name as ComfyUI gave it (render_stats.gpu), as machinePaces learns the
- * machines', with how many renders it was compared on: what the GPU hunt (hunt.ts) ranks RunPod's GPUs by. A GPU compared
- * with nothing is left out (the hunt guesses it from the table); with one GPU rendered on, it is the common pace (1).
+ * Each GPU's pace against all of them, by its name as ComfyUI gave it (render_stats.gpu), on the machines' scale (paceScales:
+ * the common pace the forecast on no machine in particular is said at), with how many renders it was compared on: what the
+ * GPU hunt (hunt.ts) ranks RunPod's GPUs by. A GPU compared with nothing is left out (the hunt guesses it from the table);
+ * with one GPU rendered on, it is the common pace (1).
  */
 export async function gpuPaces(db: Db): Promise<Array<{ gpu: string; pace: number; renders: number }>> {
   const rows = await paceRows(db);
   const names = new Map<string, string>();
   for (const r of rows) if (r.gpu && !names.has(gpuKey(r.gpu))) names.set(gpuKey(r.gpu), r.gpu);
-  return [...compared(rows, (r) => (r.gpu ? gpuKey(r.gpu) : null))].map(([card, c]) => ({ gpu: names.get(card)!, pace: c.pace, renders: c.renders }));
+  return [...paceScales(rows).cards].map(([card, c]) => ({ gpu: names.get(card)!, pace: c.pace, renders: c.renders }));
 }

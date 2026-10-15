@@ -481,4 +481,25 @@ describe("the dialog's live ranking", () => {
     expect(by["A40"]).toMatchObject({ fit: "small", fits: "too small for these files" });
     expect(ranking.map((g) => g.name)).toEqual(["H100 SXM", "RTX 4090", "A40"]);
   });
+
+  it("adds a pod's model load as the pods loaded the family's models, not at the GPU's pace", async () => {
+    runpod.gpus.push(gpu("NVIDIA H100 80GB HBM3", "H100 SXM", 2.69, "NONE", 80));
+    const at = new Date().toISOString();
+    const stat = (id: string, gpuName: string, stepMs: number) => ({
+      id, owner_id: "local", recipe_id: "sdxl.text-to-picture", family: "sdxl", model: "illustrious", model_file: "illustrious", time_key: "steps=28", kind: "image" as const,
+      width: 832, height: 1216, duration_ms: null, steps: 28, status: "done" as const, whole: 1, cold: 0, waited_ms: 0, total_ms: stepMs * 28 + 1000, load_ms: 1000, sample_ms: stepMs * 28,
+      refine_ms: 0, finish_ms: 0, step_ms: stepMs, expected_ms: null, work: 832 * 1216, vram_peak: null, heat_peak: null, asset_id: null, machine_id: "m1", gpu: gpuName, created_at: at,
+    });
+    const home4090 = "cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync";
+    await t.db.insertInto("render_stats").values([stat("a", home4090, 500), stat("b", home4090, 500), stat("c", home4090, 500), ...["d", "e", "f"].map((id) => stat(id, "cuda:0 NVIDIA H100 80GB HBM3 : cudaMallocAsync", 250))]).execute();
+    // a pod that read another SDXL model from its volume in 61 s, and spent 11 s before its first step with it in memory
+    await t.db.insertInto("rent_sessions").values({ id: "zz-s", machine_id: "rp-zz", pod: "zz", rate: 0.44, started_at: at, ended_at: at, seen_at: null, gpu: "NVIDIA A40", up_at: at, idle_minutes: 10 }).execute();
+    const pod = (id: string, cold: number, loadMs: number) => ({ ...stat(id, "NVIDIA A40", 500), machine_id: "rp-zz", model_file: "zz-other", cold, load_ms: loadMs });
+    await t.db.insertInto("render_stats").values([pod("g", 1, 61_000), pod("h", 0, 11_000)]).execute();
+    await queue();
+    const ranking = (await post(t.app, "/api/hunt/rank", { mode: "fast", ceiling: 5 })).json().ranking as Array<{ name: string; seconds: number | null }>;
+    const by = Object.fromEntries(ranking.map((g) => [g.name, g.seconds!]));
+    // the H100 renders twice as fast; both load in the pod's 50 s (it was read at the GPU's pace, and this computer's)
+    expect((by["RTX 4090"]! - 50) / (by["H100 SXM"]! - 50)).toBeCloseTo(2, 0);
+  });
 });
