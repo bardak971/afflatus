@@ -34,7 +34,7 @@ export function MachineMeters() {
               <span className="text-[11px] text-ink-2">{x.label}</span>
               <span className={cx("font-mono text-xs", x.hot && "text-warn-ink")}>{x.value}</span>
             </div>
-            <Bar value={x.percent} tone={x.hot ? "warn" : "picture"} />
+            <Bar meter value={x.percent} tone={x.hot ? "warn" : "picture"} />
           </div>
         ))}
       </div>

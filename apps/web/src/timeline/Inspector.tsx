@@ -302,7 +302,7 @@ function RenderProgress({ clip, onStop }: { clip: string; onStop(): void }) {
         <span className="font-semibold">{running ? phaseLabel(running.phase) : "Queued"}</span>
         <span className="text-xs text-ink-2">{running?.steps ? `step ${running.step} of ${running.steps}` : ""}{running?.eta ? ` · ${timeLeft(running.eta)}` : ""}</span>
       </div>
-      <Bar value={(running?.progress ?? 0) * 100} />
+      <Bar value={(running?.progress ?? 0) * 100} steps={running?.steps} loading={Boolean(running) && !running?.progress} />
       <Button size="sm" className="self-start" onClick={onStop} data-tip={running ? "Stop this render. Nothing is added; the clip keeps the takes it has." : "Remove it from the queue."}>
         {running ? "Stop render" : "Remove from queue"}
       </Button>

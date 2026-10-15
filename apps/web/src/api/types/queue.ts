@@ -149,11 +149,22 @@ export interface QueueStatus {
   machines: MachineState[];
   /** The job that needs no ComfyUI running beside them (an export, a cut by ffmpeg), when one is. */
   tool: RunningJob | null;
+  /**
+   * Every waiting job, in the line's order. The first `whole` of them as the server has them; the others in the few
+   * figures the answer carries of them (`LaterJob`, the rest null): the list asks for their whole rows when it shows them
+   * (api.queueWaiting).
+   */
   waiting: Job[];
+  /** How many of `waiting` came whole. */
+  whole: number;
   recent: Job[];
   /** The GPU hunt under way, as the status bar says it; null when there is none. */
   hunt: HuntSummary | null;
 }
+/** A waiting job past the first ones of the queue's answer, in a few figures, those it has none of left out (the server's queueView.ts paged). */
+export type LaterJob = Pick<Job, "id" | "label" | "kind" | "recipe"> & { [K in "clipId" | "draftId" | "machine" | "pinned" | "estimateMs" | "startsInMs" | "runsOn"]?: NonNullable<Job[K]> };
+/** The queue as GET /api/queue answers it: the first waiting jobs whole, the others in `later`; api.ts makes a QueueStatus of it. */
+export type QueueAnswer = Omit<QueueStatus, "whole"> & { waitingCount: number; later: LaterJob[] };
 
 /** The GPU hunt in a few figures, with the queue's status (the server's hunt.ts HuntSummary). */
 export interface HuntSummary {
@@ -455,8 +466,8 @@ export interface RentedState {
   watchdog: "on" | "none" | "unknown";
   /** Its ComfyUI answers, while it runs: false while it boots, or when it went down on the pod. */
   answers: boolean | null;
-  /** Time left before it stops for being idle, while it runs idle. */
-  idleLeftMs: number | null;
+  /** When it stops for being idle (ms since the epoch), while it runs idle: the page counts down to it. */
+  idleAt: number | null;
   /** A spending cap is reached: it stops once its render ends. */
   capped: boolean;
   /** Afflatus is stopping it now: it takes no new work. */

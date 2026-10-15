@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
 import { fileKey } from "@afflatus/core";
@@ -82,17 +82,19 @@ export function FindModels({ target }: { target: FindTarget }) {
   const failed = results.error ?? (tab === "civitai" ? bases.error : null) ?? link.error;
   const asking = !isLink(q) && (results.isLoading || (tab === "civitai" && bases.isPending));
 
-  // the next page as the end of the list comes into view
+  // the next page as the end of the list comes into view: watched again only when whether there is one, or one is being
+  // read, changes (made again at every drawing, it was rebuilt for every card of every page)
   const end = useRef<HTMLDivElement | null>(null);
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = results;
   useEffect(() => {
     const el = end.current;
-    if (!el) return;
+    if (!el || !hasNextPage || isFetchingNextPage) return;
     const seen = new IntersectionObserver((entries) => {
-      if (entries.some((x) => x.isIntersecting) && results.hasNextPage && !results.isFetchingNextPage) void results.fetchNextPage();
+      if (entries.some((x) => x.isIntersecting)) void fetchNextPage();
     }, { rootMargin: "400px" });
     seen.observe(el);
     return () => seen.disconnect();
-  }, [results]);
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, tab, opened]);
 
   // Over a Dialog (the Deploy dialog's "Find more…"), the panel's data-floating turns the Dialog's own keys off: its Esc
   // and Tab are this panel's. It takes the focus when it opens and gives it back when it closes, as a Dialog does.
@@ -129,6 +131,11 @@ export function FindModels({ target }: { target: FindTarget }) {
     if (v?.files.length === 1 && v.files[0]!.folder) add([pickedOf(v.files[0]!, card, v.name)]);
     else setOpened(card);
   };
+  // the cards' callbacks, the same at every drawing (Card is memoised): a new page draws only its own cards
+  const latest = useRef({ quick, setOpened });
+  latest.current = { quick, setOpened };
+  const openCard = useCallback((c: BrowseCard) => latest.current.setOpened(c), []);
+  const quickCard = useCallback((c: BrowseCard) => latest.current.quick(c), []);
   const cardPicked = (c: BrowseCard) => c.versions.some((v) => v.files.some((f) => pickedKeys.has(fileKey({ file: f.name, folder: f.folder ?? "" }))));
 
   return (
@@ -216,7 +223,7 @@ export function FindModels({ target }: { target: FindTarget }) {
                 {link.isPending && <span className="text-xs text-ink-3">Reading the link…</span>}
                 {asking && !failed && <span className="text-xs text-ink-3">Asking {tab === "civitai" ? "Civitai" : "Hugging Face"}…</span>}
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3.5">
-                  {cards.map((c) => <Card key={`${c.site}:${c.id}`} card={c} picked={cardPicked(c)} onOpen={() => setOpened(c)} onQuick={() => quick(c)} />)}
+                  {cards.map((c) => <Card key={`${c.site}:${c.id}`} card={c} picked={cardPicked(c)} onOpen={openCard} onQuick={quickCard} />)}
                 </div>
                 {results.isSuccess && !cards.length && <p className="py-10 text-center text-sm text-ink-2">Nothing found{notMine ? " that you do not have" : ""}. Fewer words, or another base model.</p>}
                 <div ref={end} className="py-4 text-center text-xs text-ink-3">{results.isFetchingNextPage ? "More…" : results.hasNextPage ? "" : cards.length ? "That is all." : ""}</div>

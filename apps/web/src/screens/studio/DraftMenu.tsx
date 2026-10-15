@@ -18,7 +18,7 @@ const OUTPUT_WORD = { image: ["picture", "pictures"], video: ["take", "takes"], 
 /** A draft's cover: its newest output, or a dashed box when nothing was made from it. */
 function Cover({ d, size }: { d: DraftBrief; size: number }) {
   const style = { width: size, height: size };
-  if (d.cover) return <Thumb src={thumbUrl(d.cover)} alt="" loading="lazy" style={style} className="shrink-0 rounded-[3px] bg-raised object-cover" />;
+  if (d.cover) return <Thumb src={thumbUrl(d.cover)} alt="" loading="lazy" sizes={`${size}px`} style={style} className="shrink-0 rounded-[3px] bg-raised object-cover" />;
   return <span aria-hidden style={style} className="shrink-0 rounded-[3px] border border-dashed border-line-strong" />;
 }
 

@@ -254,7 +254,7 @@ export function People() {
                   return (
                     <Row
                       key={e.id} active={open === e.id} onClick={() => select(e.id)} onMenu={(ev) => rowMenu.open(ev, e)} title={e.name} summary={summaryOf(e, recipeList)}
-                      mark={<span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[3px] bg-raised text-ink-3">{face ? <Thumb src={thumbUrl(face)} alt="" loading="lazy" className="h-full w-full object-cover" /> : tab === "person" ? <User size={16} /> : <MapPin size={16} />}</span>}
+                      mark={<span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[3px] bg-raised text-ink-3">{face ? <Thumb src={thumbUrl(face)} alt="" loading="lazy" sizes="40px" className="h-full w-full object-cover" /> : tab === "person" ? <User size={16} /> : <MapPin size={16} />}</span>}
                     />
                   );
                 })}

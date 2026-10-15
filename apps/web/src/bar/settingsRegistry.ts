@@ -1,6 +1,7 @@
 import type { NotifyKind, Settings, SettingsPatch } from "../api";
 import { INDEX, settingHref, TABS, type Tab } from "../screens/settings/settingsIndex";
 import { allowNotifications, useBanners, useCompareResult, useExplain, useHoverPlay, useNotify } from "../store";
+import { DEFAULT_PROGRESS, PROGRESS_STYLES, type ProgressStyle } from "../progress/style";
 import { useThemeChoice } from "../theme/store";
 import { THEMES } from "../theme/themes";
 import { ask } from "../Confirm";
@@ -88,6 +89,12 @@ export const SETTINGS: SettingEntry[] = [
     get: () => useThemeChoice.getState().day,
     set: (_c, v) => { const s = useThemeChoice.getState(); s.set({ day: String(v), mode: s.mode === "dark" ? "light" : s.mode }); },
     options: () => THEMES.filter((t) => t.light).map((t) => ({ value: t.id, label: t.name })),
+  },
+  {
+    id: "progress.style", label: "Progress style", page: "interface", words: "progress bar same look glide steps ticks alive sweep ring motion", scope: "this browser", kind: "choice", about: "How the progress bars and the Queue's ring move while something renders. With reduced motion asked by the system, Glide and Alive show as Steps.",
+    get: () => useThemeChoice.getState().progress ?? DEFAULT_PROGRESS,
+    set: (_c, v) => useThemeChoice.getState().set({ progress: v as ProgressStyle }),
+    options: () => PROGRESS_STYLES.map((s) => ({ value: s.id, label: s.label })),
   },
   { id: "notify.renderDone", label: "Browser notification: render done", page: "interface", words: "notify browser notification each render done finished", scope: "this browser", kind: "switch", about: "A notification of this browser when a render finishes.", get: () => Boolean(useNotify.getState().browser.renderDone), set: (_c, v) => notifySwitch("renderDone", Boolean(v)) },
   { id: "notify.renderFailed", label: "Browser notification: render failed", page: "interface", words: "notify browser notification error failed", scope: "this browser", kind: "switch", about: "A notification of this browser when a render fails, with ComfyUI's reason.", get: () => Boolean(useNotify.getState().browser.renderFailed), set: (_c, v) => notifySwitch("renderFailed", Boolean(v)) },

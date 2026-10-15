@@ -356,3 +356,37 @@ function cursorOf(after: string | undefined): { finished: string; created: strin
   const [finished, created, id] = (after ?? "").split("|");
   return finished && created && id ? { finished, created, id } : null;
 }
+
+/** How many waiting jobs the queue's answer carries whole: the rest go as a few figures each (paged). */
+export const WAITING_SHOWN = 50;
+
+/** A waiting job past the first ones, in the few figures the screens count and find it by; a figure it has none of is left out. */
+export interface LaterJob {
+  id: string; label: string; kind: ReturnType<typeof kindOf>; recipe: string; clipId?: string; draftId?: string;
+  machine?: string; pinned?: string; estimateMs?: number; startsInMs?: number; runsOn?: string[];
+}
+const LATER_FIGURES = ["clipId", "draftId", "machine", "pinned", "estimateMs", "startsInMs", "runsOn"] as const;
+
+/**
+ * The queue as GET /api/queue (and the routes that change it) answer it: the first WAITING_SHOWN waiting jobs whole, the
+ * others in a few figures each (`later`: what the screens count, find and order them by; the list asks for their whole
+ * rows a page at a time, GET /api/queue/waiting), and their count. With 500 waiting the whole rows came to ~230 kB a
+ * read, read again up to once a second by every tab while anything rendered.
+ *
+ * A rented pod's figures that move with the clock are said so that an answer read again without a change is the same
+ * bytes, and its tag answers 304 (compress.ts): the idle stop as the moment it comes (`idleAt`, which the page counts
+ * down to) rather than the time left, the cost so far to the cent (the page counts a running pod's from its rate).
+ */
+export function paged<S extends { waiting: W[]; machines: M[] }, W extends Pick<LaterJob, "id" | "label" | "kind" | "recipe"> & { [K in (typeof LATER_FIGURES)[number]]: LaterJob[K] | null }, M extends { rented: RentedRow | null }>(s: S, shown = WAITING_SHOWN) {
+  const later = s.waiting.slice(shown).map((w) => {
+    const l: LaterJob = { id: w.id, label: w.label, kind: w.kind, recipe: w.recipe };
+    for (const k of LATER_FIGURES) if (w[k] !== null && w[k] !== undefined) Object.assign(l, { [k]: w[k] });
+    return l;
+  });
+  const machines = s.machines.map((m) => {
+    if (!m.rented) return { ...m, rented: null };
+    const { idleLeftMs, ...rented } = m.rented;
+    return { ...m, rented: { ...rented, spent: Math.round(rented.spent * 100) / 100, idleAt: idleLeftMs === null ? null : Math.round((Date.now() + idleLeftMs) / 1000) * 1000 } };
+  });
+  return { ...s, machines, waiting: s.waiting.slice(0, shown), waitingCount: s.waiting.length, later };
+}

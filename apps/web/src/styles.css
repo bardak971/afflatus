@@ -114,6 +114,15 @@ input[type="range"] {
     opacity: 0;
   }
 }
+/* Alive's light along a progress bar (progress/Progress.tsx): a quarter of the track wide, from before it to past its end */
+@keyframes progress-sweep {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(420%);
+  }
+}
 @keyframes sweep {
   from {
     transform: translateX(-100%);

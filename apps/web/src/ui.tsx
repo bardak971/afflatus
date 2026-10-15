@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
 import { Check, Trash2 } from "lucide-react";
+import { Progress } from "./progress/Progress";
 import { snapTo } from "./snap";
 import { PANEL, useExplain, usePanelWidth } from "./store";
 
@@ -421,13 +422,14 @@ export function SectionTitle({ children }: { children: ReactNode }) {
   return <div className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">{children}</div>;
 }
 
-export function Bar({ value, tone = "accent" }: { value: number; tone?: "accent" | "picture" | "warn" }) {
+/**
+ * The app's progress bar (0–100), in the progress style this browser chose (progress/Progress.tsx). `steps`: the render's
+ * step count, for the ticks of Steps; `loading`: a render with no figure yet (the model loading); `meter`: a gauge, not a
+ * progress (a GPU's load), which never glides nor ticks.
+ */
+export function Bar({ value, tone = "accent", steps, loading, meter }: { value: number; tone?: "accent" | "picture" | "warn"; steps?: number; loading?: boolean; meter?: boolean }) {
   const color = tone === "accent" ? "bg-accent" : tone === "warn" ? "bg-warn" : "bg-picture";
-  return (
-    <div className="h-1.5 overflow-hidden rounded-full bg-line-strong">
-      <div className={cx("h-full rounded-full transition-[width] motion-reduce:transition-none", color)} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
-    </div>
-  );
+  return <Progress value={value / 100} tone={color} steps={steps} loading={loading} meter={meter} className="h-1.5" />;
 }
 
 /** Shown where a list has nothing in it yet: says what will appear and how to get it there. `help`: the why and the how, behind a "?" beside the title. */

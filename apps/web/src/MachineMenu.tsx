@@ -4,7 +4,7 @@ import { useLocation } from "wouter";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import type { MachineState } from "./api";
 import { useQueue } from "./data";
-import { openLoadPanel } from "./LoadPanel";
+import { openLoadPanel } from "./loadPanelHost";
 import { usd } from "./format";
 import { machineLabel, machineUnloadBlock, rateSaid, rentedSaid } from "./machines";
 import { RUNPOD_CONSOLE, useRentedOps } from "./rentedOps";

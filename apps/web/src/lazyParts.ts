@@ -34,6 +34,7 @@ export const loadNewProject = chunk(() => import("./projects/NewProject"));
 export const loadDropTrayBody = chunk(() => import("./DropTrayBody"));
 export const loadModelMenu = chunk(() => import("./ModelMenu"));
 export const loadExpiringPanel = chunk(() => import("./ExpiringPanel"));
+export const loadHuntStrip = chunk(() => import("./HuntStrip"));
 
 export const loadPeople = chunk(() => import("./screens/People"));
 export const loadQueue = chunk(() => import("./screens/Queue"));

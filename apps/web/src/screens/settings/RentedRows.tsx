@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 import type { Machine, MachineState, RentedMachine } from "../../api";
 import type { PodFile, PodPack } from "../../api";
@@ -7,6 +6,7 @@ import { useNow } from "../../hooks";
 import { rateSaid, rentedSaid } from "../../machines";
 import { RUNPOD_CONSOLE, type useRentedOps } from "../../rentedOps";
 import { Select } from "../../Select";
+import { Progress } from "../../progress/Progress";
 import { Button, ButtonLink, Checkbox, cx, TwoStep } from "../../ui";
 import { Block, Row } from "./Rows";
 
@@ -48,7 +48,7 @@ export function PodFiles({ files, packs = [] }: { files: PodFile[]; packs?: PodP
             <span className={cx("min-w-0 truncate", f.state === "next" && f.tier === "ahead" && "text-ink-2")}>
               {f.file}<span className="text-ink-3"> · {f.tier === "need" ? `for ${plural(Math.max(1, f.jobs.length), "job")}` : "ahead"}{f.via === "upload" ? " · from this PC" : ""}</span>
             </span>
-            <span className="h-1 overflow-hidden rounded-full bg-hover"><span className={cx("block h-1", f.state === "ready" ? "bg-good" : f.state === "failed" ? "bg-warn" : f.tier === "ahead" ? "bg-ink-3" : "bg-accent")} style={{ width: `${f.state === "ready" ? 100 : share}%` }} /></span>
+            <Progress value={f.state === "ready" ? 1 : share / 100} className="h-1" under="bg-hover" radius="" tone={f.state === "ready" ? "bg-good" : f.state === "failed" ? "bg-warn" : f.tier === "ahead" ? "bg-ink-3" : "bg-accent"} label={f.file} />
             <span className={cx("text-right text-xs", f.state === "ready" ? "text-good" : f.state === "failed" ? "text-warn-ink" : "text-ink-3")}>
               {f.state === "ready" ? "ready" : f.state === "failed" ? "failed" : f.state === "next" ? "next" : f.total ? `${share} % of ${size(f.total)}` : "starting"}
             </span>
@@ -60,10 +60,9 @@ export function PodFiles({ files, packs = [] }: { files: PodFile[]; packs?: PodP
 }
 
 /** "Stops in 4 min", counting down between two reads of the queue (from when it was read). */
-function IdleLeft({ ms }: { ms: number }) {
-  const [from] = useState(() => Date.now());
+function IdleLeft({ at }: { at: number }) {
   const now = useNow(5000);
-  const left = Math.max(0, ms - (now - from));
+  const left = Math.max(0, at - now);
   return <span className="text-ink-3">· stops in {left < 60_000 ? "under a minute" : `${Math.ceil(left / 60_000)} min`}</span>;
 }
 
@@ -135,7 +134,7 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
           <span className="text-ink-2">after</span>
           <span className="w-[104px] shrink-0"><Select size="sm" label="Minutes idle before" value={String(rented.idleMinutes)} onChange={(v) => set({ idleMinutes: Number(v) })} options={IDLE.map((n) => ({ value: String(n), label: minutesSaid(n) }))} /></span>
           <span className="w-[150px] shrink-0"><Select size="sm" label="What then" value={rented.idleDo} onChange={(v) => set({ idleDo: v as RentedMachine["idleDo"] })} options={[{ value: "stop", label: "Stop it", note: "its volume kept and billed" }, { value: "terminate", label: "Terminate it", note: "nothing billed, deploy a new one next time" }]} /></span>
-          {r?.idleLeftMs != null && <IdleLeft key={r.idleLeftMs} ms={r.idleLeftMs} />}
+          {r?.idleAt != null && <IdleLeft at={r.idleAt} />}
         </span>
       </Row>
       {rented.idleDo === "stop" && r && !r.volume && r.status !== "GONE" && (

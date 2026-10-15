@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { leavingNow } from "../../assetChange";
 import { leaveCopy } from "../../leave";
+import { ThumbWidth } from "../../Thumb";
 import { cx } from "../../ui";
 import { motionAllowed } from "../../useFlip";
 import { justify } from "../library/justify";
@@ -141,7 +142,12 @@ function PlaceBox({ id, at, glide, children }: { id: string; at: CSSProperties; 
       if (leavingNow.has(id)) leaveCopy(el, "m-out");
     };
   }, [id]);
-  return <div ref={ref} data-item-id={id} className={cx("absolute", glide && "transition-[left,top,width,height] duration-(--t-panel) ease-(--ease-snap)")} style={at}>{children}</div>;
+  return (
+    <div ref={ref} data-item-id={id} className={cx("absolute", glide && "transition-[left,top,width,height] duration-(--t-panel) ease-(--ease-snap)")} style={at}>
+      {/* the tile's width for its thumbnail's sizes: rounded up to 32 px, so that a resize of a few pixels does not pick again */}
+      <ThumbWidth.Provider value={typeof at.width === "number" ? Math.ceil(at.width / 32) * 32 : null}>{children}</ThumbWidth.Provider>
+    </div>
+  );
 }
 
 /**

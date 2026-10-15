@@ -1,6 +1,12 @@
-import { useLayoutEffect, useRef, type ImgHTMLAttributes } from "react";
+import { createContext, useContext, useLayoutEffect, useRef, type ImgHTMLAttributes } from "react";
 import { THUMB_SIZES, thumbSrcSet } from "./api";
 import { cx } from "./ui";
+
+/**
+ * The width a grid lays its tile out at (px), for its thumbnail's `sizes`: the browser picks the 256 px or the 512 px one
+ * by it. A thumbnail outside such a grid says its own `sizes`, or is taken at 320 px (THUMB_SIZES).
+ */
+export const ThumbWidth = createContext<number | null>(null);
 
 /**
  * A thumbnail that fades in when it arrives (the "motion and loading" canvas, board 3): put it in a box with a neutral
@@ -12,13 +18,14 @@ import { cx } from "./ui";
  * then no draw of React at all.
  *
  * A thumbnail of the library (a thumbUrl) comes in two sizes, and the browser picks the one the tile needs by the width
- * it is laid out at (thumbSrcSet): 256 px for a small tile on a screen of one pixel per point, else 512 px. The width
+ * its grid lays it out at (thumbSrcSet, ThumbWidth): 256 px for a small tile on a screen of one pixel per point, else 512 px. The width
  * alone says it only where the box has the picture's own shape, or is no taller than 128 px: `large` for any other box
  * (a fixed 3:4 tile, which a landscape picture fills by its height), which then always has the 512 px one.
  */
 export function Thumb({ src, large, className, onLoad, onError, ...rest }: ImgHTMLAttributes<HTMLImageElement> & { src: string; large?: boolean }) {
   const el = useRef<HTMLImageElement>(null);
   const set = large ? undefined : thumbSrcSet(src);
+  const width = useContext(ThumbWidth);
   // before the first paint (and again for another picture): hidden only when it is not there yet
   useLayoutEffect(() => {
     const img = el.current;
@@ -34,7 +41,7 @@ export function Thumb({ src, large, className, onLoad, onError, ...rest }: ImgHT
       ref={el}
       src={src}
       srcSet={set}
-      sizes={set && THUMB_SIZES}
+      sizes={set && (width ? `${Math.max(1, Math.round(width))}px` : THUMB_SIZES)}
       {...rest}
       onLoad={(e) => {
         show();

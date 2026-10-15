@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Check, Download, Heart, Lock, Plus } from "lucide-react";
 import type { BrowseCard } from "../api";
 import { compact, plural, shortDate, size } from "../format";
@@ -21,7 +22,7 @@ const weightOf = (card: BrowseCard) => {
  * Picked, the same. The card's body and its + are two buttons side by side, not one inside the other: Enter on the + only
  * picks.
  */
-export function Card({ card, picked, onOpen, onQuick }: { card: BrowseCard; picked: boolean; onOpen(): void; onQuick(): void }) {
+export const Card = memo(function Card({ card, picked, onOpen, onQuick }: { card: BrowseCard; picked: boolean; onOpen(card: BrowseCard): void; onQuick(card: BrowseCard): void }) {
   const inSet = card.versions.flatMap((v) => v.files.flatMap((f) => f.have.filter((h) => h.kind === "set").map((h) => h.name)))[0];
   return (
     <div
@@ -30,10 +31,11 @@ export function Card({ card, picked, onOpen, onQuick }: { card: BrowseCard; pick
         e.dataTransfer.setData("application/x-afflatus-card", `${card.site}:${card.id}`);
         e.dataTransfer.effectAllowed = "copy";
       }}
-      className={cx("group relative flex min-w-0 flex-col overflow-hidden rounded-xl border bg-panel transition-colors", picked ? "border-accent shadow-[0_0_0_1px_var(--color-accent)]" : "border-line hover:border-line-strong")}
+      // drawn only near the view: a long list of found models (680 cards, 17 000 elements) lays out what is seen
+      className={cx("group relative flex min-w-0 flex-col overflow-hidden rounded-xl border bg-panel transition-colors [contain-intrinsic-size:auto_236px] [content-visibility:auto]", picked ? "border-accent shadow-[0_0_0_1px_var(--color-accent)]" : "border-line hover:border-line-strong")}
     >
       {/* the focus ring drawn inside: the card's rounded clip would cut one drawn outside */}
-      <button type="button" onClick={onOpen} className="flex min-w-0 flex-col rounded-xl text-left focus-visible:outline-offset-[-2px]">
+      <button type="button" onClick={() => onOpen(card)} className="flex min-w-0 flex-col rounded-xl text-left focus-visible:outline-offset-[-2px]">
         <span className="relative block h-[150px] w-full overflow-hidden">
           <Thumb card={card} />
           <span className="absolute top-2 left-2 rounded-md bg-shade/80 px-1.5 py-0.5 text-[10.5px] font-bold text-ink">{[card.type, card.fits ?? card.base].filter(Boolean).join(" · ")}</span>
@@ -66,11 +68,11 @@ export function Card({ card, picked, onOpen, onQuick }: { card: BrowseCard; pick
         type="button"
         aria-label={`Pick ${card.name}`}
         data-tip="Pick its file (a version of several files opens, to choose)"
-        onClick={onQuick}
+        onClick={() => onQuick(card)}
         className="absolute top-[114px] right-2 grid size-7 place-items-center rounded-lg bg-accent text-accent-ink opacity-0 shadow-lg transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
       >
         <Plus size={15} />
       </button>
     </div>
   );
-}
+});

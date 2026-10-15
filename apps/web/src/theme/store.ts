@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import type { ProgressStyle } from "../progress/style";
 import { themeById, tokensOf, TOKENS, type Theme, type Tokens } from "./themes";
 
 /**
@@ -14,6 +15,8 @@ export interface ThemeChoice {
   night: string;
   /** The accent picked in each family of themes. */
   accents: Record<string, string>;
+  /** How progress bars move (Settings › Interface › Progress); unset: Glide. Kept here because it is a look of this browser too. */
+  progress?: ProgressStyle;
 }
 export const useThemeChoice = create<ThemeChoice & { set(patch: Partial<ThemeChoice>): void }>()(
   persist((set) => ({ mode: "dark", day: "latte", night: "studio", accents: {}, set: (patch) => set(patch) }), { name: "afflatus.theme" }),

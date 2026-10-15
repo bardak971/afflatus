@@ -20,7 +20,7 @@ export function LiveTile({ job, onClick, on, title, fill }: {
         <LivePreview job={job} className="absolute inset-0 h-full w-full object-cover opacity-80" />
         <div className="relative flex w-full flex-col items-center gap-1.5 bg-ground/60 px-2 py-2 text-center">
           <div className="text-xs font-semibold">{phaseLabel(job.phase)}</div>
-          <div className="w-4/5"><Bar value={job.progress * 100} /></div>
+          <div className="w-4/5"><Bar value={job.progress * 100} steps={job.steps} loading={!job.progress} /></div>
         </div>
       </button>
       <button

@@ -2,7 +2,7 @@ import { projectForNew, projectParam } from "./project";
 import { unlistOptions, type ListedOptions, type ModelInfo, type RankedGpu } from "@afflatus/core";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
-import type { Advice, FillPlan, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumePlan, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
+import type { Advice, FillPlan, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumePlan, Job, QueueAnswer, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
@@ -62,6 +62,20 @@ export async function failure(res: Response): Promise<ApiError> {
 }
 
 /** `signal`: a query's, so that a query that is cancelled (refetched, left) also stops its request. */
+/**
+ * The queue as the screens read it, from the server's answer: every waiting job in `waiting`, the first ones whole and
+ * the others (`later`, a few figures each) with the rest of a job's fields empty, so that what counts, finds or orders
+ * the waiting jobs sees all of them.
+ */
+export function queueOf(a: QueueAnswer): QueueStatus {
+  const { later, waitingCount: _count, ...rest } = a;
+  const empty = {
+    status: "queued" as const, error: null, warning: null, generationId: null, join: null, upscaler: null, input: null, createdAt: "", startedAt: null, finishedAt: null, lacks: null, fetch: null,
+    clipId: null, draftId: null, machine: null, pinned: null, estimateMs: null, startsInMs: null, runsOn: null,
+  };
+  return { ...rest, whole: a.waiting.length, waiting: later.length ? [...a.waiting, ...later.map((l) => ({ ...empty, ...l }))] : a.waiting };
+}
+
 async function call<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const res = await send(`/api${path}`, {
     method,
@@ -154,17 +168,19 @@ export const api = {
   presetFiles: (o?: Asked) => call<{ online: boolean; items: PresetFilesView[] }>("GET", "/presets/files", undefined, o?.signal),
   nodePack: (o?: Asked) => call<{ pack: string; path: string; written: boolean; loaded: boolean; canWrite: boolean }>("GET", "/comfy/node-pack", undefined, o?.signal),
   getPresetFiles: (id: string, body: { accept?: boolean; optional?: boolean } = {}) => call<{ started: Download[]; failed: Array<{ file: string; error: string }>; skipped: number }>("POST", `/presets/${encodeURIComponent(id)}/get`, body),
-  queue: (o?: Asked) => call<QueueStatus>("GET", "/queue", undefined, o?.signal),
+  queue: (o?: Asked) => call<QueueAnswer>("GET", "/queue", undefined, o?.signal).then(queueOf),
+  /** Whole rows of the waiting jobs the queue's answer carries in a few figures (QueueStatus.whole), a page at a time. */
+  queueWaiting: (offset: number, limit: number, o?: Asked) => call<{ items: Job[]; count: number }>("GET", `/queue/waiting?offset=${offset}&limit=${limit}`, undefined, o?.signal),
   /** `after`: the page after the one whose `next` it is; the first page without it. */
   jobs: (filter: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; after?: string; limit?: number }, o?: Asked) =>
     call<HistoryPage>("GET", `/jobs?${new URLSearchParams(Object.fromEntries(Object.entries(filter).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)])))}`, undefined, o?.signal),
   /** Pause or go on: all of them, or one machine (a Machine's id), which finishes what it runs and takes nothing new. */
-  pause: (machine?: string) => call<QueueStatus>("POST", "/queue/pause", machine ? { machine } : {}),
-  resume: (machine?: string) => call<QueueStatus>("POST", "/queue/resume", machine ? { machine } : {}),
+  pause: (machine?: string) => call<QueueAnswer>("POST", "/queue/pause", machine ? { machine } : {}).then(queueOf),
+  resume: (machine?: string) => call<QueueAnswer>("POST", "/queue/resume", machine ? { machine } : {}).then(queueOf),
   /** Every other machine paused, this one going: everything waiting goes to it. */
-  useOnly: (machine: string) => call<QueueStatus>("POST", "/queue/use-only", { machine }),
+  useOnly: (machine: string) => call<QueueAnswer>("POST", "/queue/use-only", { machine }).then(queueOf),
   /** A waiting job pinned to a machine, or back to whichever the queue picks (null). */
-  pinJob: (id: string, machine: string | null) => call<QueueStatus>("POST", `/jobs/${id}/machine`, { machine }),
+  pinJob: (id: string, machine: string | null) => call<QueueAnswer>("POST", `/jobs/${id}/machine`, { machine }).then(queueOf),
   /** Each ComfyUI asked now: whether it answers, its version, its GPU and the node pack it loaded. */
   machines: (o?: Asked) => call<MachineProbe[]>("GET", "/machines", undefined, o?.signal),
   /** Lock a ComfyUI to Afflatus (the node pack's lock), or change its lock: `renew` makes a new token, `local` lets calls from its own computer in. Checked before it counts. */
@@ -244,7 +260,7 @@ export const api = {
   /** Every waiting job cancelled in one request; with `ids`, only those of them that still wait. The running job goes on. */
   cancelWaiting: (ids?: string[]) => call<{ cancelled: number }>("POST", "/queue/cancel-waiting", ids ? { ids } : {}),
   /** The waiting jobs, in the order they should run. */
-  queueOrder: (ids: string[]) => call<QueueStatus>("POST", "/queue/order", { ids }),
+  queueOrder: (ids: string[]) => call<QueueAnswer>("POST", "/queue/order", { ids }).then(queueOf),
   /** A finished job again; `input` changes some of what it was asked. */
   retryJob: (id: string, input?: Record<string, unknown>) => call<{ id: string }>("POST", `/jobs/${id}/retry`, input ? { input } : {}),
   /** Finished jobs off the history, several in one request (a batch's row); what they made stays in the library. */
@@ -540,10 +556,12 @@ export function thumbSrcSet(src: string): string | undefined {
   return /^\/api\/assets\/[^/?]+\/thumb$/.test(src) ? `${src}?w=256 256w, ${src} 512w` : undefined;
 }
 /**
- * The width a tile's thumbnail is picked for: the width it is laid out at ("auto", for a picture loaded lazily, in a
- * browser that knows it), else 320 px, the widest tile, so that a browser without it gets the 512 px one as before.
+ * The width a tile's thumbnail is picked for when its grid does not say it (Thumb.tsx ThumbWidth): 320 px, the widest
+ * tile, so the 512 px one. Never "auto": Chrome keeps every `<img sizes="auto">` it ever laid out, with its element, as a
+ * listener of the viewport's size, so a grid whose tiles are replaced as renders land grew by every tile it dropped (the
+ * Studio, ~500 tiles and 10 MB in 10 minutes).
  */
-export const THUMB_SIZES = "auto, 320px";
+export const THUMB_SIZES = "320px";
 /** Twelve frames of a video side by side, spread over its length. */
 export const stripUrl = (id: string) => `/api/assets/${id}/strip`;
 export const STRIP_FRAMES = 12;

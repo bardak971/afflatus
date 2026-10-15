@@ -5,6 +5,7 @@ import { ProjectSwitch } from "./Projects";
 import { useQueueOf } from "./screens/studio/queueOf";
 import { MARK } from "./logo";
 import { ThemeFlip } from "./theme/Appearance";
+import { ProgressRing } from "./progress/Progress";
 import { cx } from "./ui";
 import { newsOf, useUpdates, useUpdatesSeen } from "./updates";
 
@@ -18,9 +19,6 @@ const NAV: Entry[] = [
 ];
 const QUEUE: Entry = { href: "/queue", label: "Queue", icon: <ListOrdered size={18} /> };
 const SETTINGS: Entry = { href: "/settings", label: "Settings", icon: <Settings2 size={19} /> };
-
-/** The ring round the Queue's icon: r 13 in a 30 box. */
-const RING = 2 * Math.PI * 13;
 
 /** The app's mark: a breath (afflatus) drawn in one stroke, on the accent. */
 function Mark() {
@@ -65,39 +63,19 @@ function Item({ entry, path, tip, label, pill, badge }: { entry: Entry; path: st
 /** The Queue, alive in the rail: the running job as a ring round its icon, the waiting ones counted at its corner. */
 function QueueItem({ path }: { path: string }) {
   // only these figures: the rail draws again when they move, not at every change of the queue
-  const q = useQueueOf((s) => ({ running: s.running ? { label: s.running.label, progress: s.running.progress } : null, waiting: s.waiting.length }));
+  const q = useQueueOf((s) => ({ running: s.running ? { label: s.running.label, progress: s.running.progress, steps: s.running.steps } : null, waiting: s.waiting.length }));
   const running = q?.running ?? null;
   const waiting = q?.waiting ?? 0;
   const parts = [running && `rendering ${running.label}`, waiting > 0 && `${waiting} waiting`].filter(Boolean);
   const tip = parts.length ? `Queue · ${parts.join(" · ")}` : undefined;
-  const done = running ? Math.min(1, Math.max(0, running.progress)) : 0;
+
   return (
     <Item
       entry={QUEUE}
       path={path}
       tip={tip}
       label={tip}
-      pill={
-        running && (
-          <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden className={cx("absolute", done === 0 && "animate-spin [animation-duration:2.4s] motion-reduce:animate-none")}>
-            <circle cx="15" cy="15" r="13" fill="none" stroke="var(--color-line-strong)" strokeWidth="2" />
-            {/* no figure yet from this phase: a quarter that turns slowly */}
-            <circle
-              cx="15"
-              cy="15"
-              r="13"
-              fill="none"
-              stroke="var(--color-accent)"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeDasharray={RING}
-              strokeDashoffset={done > 0 ? RING * (1 - done) : RING * 0.75}
-              transform="rotate(-90 15 15)"
-              className="transition-[stroke-dashoffset] duration-500 motion-reduce:transition-none"
-            />
-          </svg>
-        )
-      }
+      pill={running && <ProgressRing value={Math.min(1, Math.max(0, running.progress))} steps={running.steps} loading={!(running.progress > 0)} />}
       badge={
         waiting > 0 && (
           <span aria-hidden className="absolute top-0.5 right-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 font-mono text-[9.5px] font-extrabold text-accent-ink">

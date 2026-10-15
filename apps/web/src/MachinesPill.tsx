@@ -1,28 +1,26 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, MoreHorizontal, Pause, Play } from "lucide-react";
-import { Link } from "wouter";
+import { ChevronDown } from "lucide-react";
 import type { MachineState } from "./api";
 import { useMenu } from "./ContextMenu";
 import { useQueue, useSettings } from "./data";
-import { lastSaid, openDeploy, useDeployAgain } from "./deploy";
-import { gb, plural, usd } from "./format";
+import { gb, usd } from "./format";
 import { useNow } from "./hooks";
 import { machineLabel, rentedSaid, rentedSpent, rentedUp, severalMachines } from "./machines";
-import { Popover } from "./Popover";
 import { queryKeys } from "./queryKeys";
-import { useQueueOps } from "./queueOps";
 import { useMeteredMachine, useSystem } from "./store";
+import { Progress } from "./progress/Progress";
 import { cx } from "./ui";
 
 // the menu is opened now and then: fetched the first time, the strip itself is in the first load
 const MachineMenuBody = lazy(() => import("./MachineMenu").then((m) => ({ default: m.MachineMenuBody })));
+const MachinesPopover = lazy(() => import("./MachinesPopover").then((m) => ({ default: m.MachinesPopover })));
 
 /** Asked by the strip's "+1" (other renders): the pill opens its popover. */
 export const OPEN_MACHINES = "afflatus:machines";
 
 /** A machine's dot, in its state: filled in the accent while it renders, a green ring idle, grey paused, amber away. */
-function Dot({ m }: { m: MachineState }) {
+export function Dot({ m }: { m: MachineState }) {
   // a rented pod that is not running: a grey ring while stopped, amber and pulsing while it starts (its first start too,
   // RunPod saying it runs while its image is pulled)
   if (m.rented && (m.rented.status !== "RUNNING" || m.rented.booting)) {
@@ -35,19 +33,17 @@ function Dot({ m }: { m: MachineState }) {
 }
 
 /** A small bar, its figure in the tip: the pill has the room for two of them, not for their numbers. */
-function Bar({ label, value, warn, hot, tip }: { label: string; value: number; warn?: boolean; hot?: boolean; tip?: string }) {
+export function Bar({ label, value, warn, hot, tip }: { label: string; value: number; warn?: boolean; hot?: boolean; tip?: string }) {
   return (
     <span className={cx("inline-flex shrink-0 items-center gap-1.5 text-ink-2", warn && "text-warn-ink")} data-tip={tip ?? `${label} ${Math.round(value)} %`}>
       {label}
-      <span className="relative h-1 w-[26px] overflow-hidden rounded-[3px] bg-line-strong">
-        <span className={cx("absolute inset-y-0 left-0 rounded-[3px]", warn ? "bg-warn" : hot ? "bg-accent" : "bg-ink-2")} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
-      </span>
+      <Progress meter value={value / 100} className="h-1 w-[26px]" radius="rounded-[3px]" tone={warn ? "bg-warn" : hot ? "bg-accent" : "bg-ink-2"} />
     </span>
   );
 }
 
 /** The word for the machines together: the busiest thing they do. */
-function busiest(machines: MachineState[]): string {
+export function busiest(machines: MachineState[]): string {
   const rendering = machines.filter((m) => m.running).length;
   const away = machines.filter((m) => m.online === false && rentedUp(m)).length;
   const starting = machines.filter((m) => m.rented?.status === "STARTING" || m.rented?.status === "PROVISIONING").length;
@@ -60,7 +56,7 @@ function busiest(machines: MachineState[]): string {
 }
 
 /** What a machine does, in a few words, for its row. */
-function doing(m: MachineState, now: number): string {
+export function doing(m: MachineState, now: number): string {
   // a rented pod: its own state first (stopped, starting, its ComfyUI not up yet), its cost while it runs
   if (m.rented && (m.rented.status !== "RUNNING" || m.rented.stopping || m.rented.answers === false)) return rentedSaid(m.rented, now);
   const cost = m.rented?.since ? ` · ${usd(rentedSpent(m.rented, now), true)}` : "";
@@ -84,23 +80,24 @@ export function MachinesPill() {
   const picked = useMeteredMachine((s) => s.id);
   const pick = useMeteredMachine((s) => s.set);
   const loads = useSystem((s) => s.loads);
-  const ops = useQueueOps();
   // with a RunPod key: one more GPU, from what is free now, or the last one again
   const canDeploy = Boolean(useSettings().data?.hasRunpodKey);
-  const again = useDeployAgain();
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const menu = useMenu<string | null>();
   const client = useQueryClient();
-  // a rented pod that runs (or starts) costs by the second: its row counts while the popover is open, and the queue is read
-  // again every so often beside the live events, so that a stop by idle or by a cap is never missed
+  // a rented pod that runs (or starts) costs by the second: its row counts while the popover is open. A stop, a cap or a
+  // change of the pod comes as a "queue" event (rented.ts); the idle stop is counted down on the page from when it comes
+  // (idleAt), and the queue read once then, to see it stopped. Every tab read it every 15 s before, which kept the server's
+  // machine checks going on an idle server.
   const rentedOn = machines.some((m) => m.rented && m.rented.status !== "EXITED" && m.rented.status !== "GONE" && m.rented.status !== "TERMINATED");
   const now = useNow(1000, open && rentedOn);
+  const idleAt = machines.reduce<number | null>((soonest, m) => (m.rented?.idleAt != null && (soonest === null || m.rented.idleAt < soonest) ? m.rented.idleAt : soonest), null);
   useEffect(() => {
-    if (!rentedOn) return;
-    const t = setInterval(() => void client.invalidateQueries({ queryKey: queryKeys.queue(), exact: true }), 15_000);
-    return () => clearInterval(t);
-  }, [rentedOn, client]);
+    if (idleAt === null) return;
+    const t = setTimeout(() => void client.invalidateQueries({ queryKey: queryKeys.queue(), exact: true }), Math.max(0, idleAt - Date.now()) + 3000);
+    return () => clearTimeout(t);
+  }, [idleAt, client]);
   useEffect(() => {
     const show = () => setOpen(true);
     window.addEventListener(OPEN_MACHINES, show);
@@ -109,7 +106,6 @@ export function MachinesPill() {
   if (!machines.length) return null;
   const metered = machines.find((m) => m.id === picked) ?? machines.find((m) => m.id === q?.running?.machine) ?? machines[0]!;
   const gpu = loads[metered.id]?.gpus[0];
-  const allPaused = machines.every((m) => m.paused);
   // the GPU a hunt looks for, before it is a machine: a dashed dot of its own (a real one once its pod is made)
   const hunted = q?.hunt && q.hunt.status !== "up" ? q.hunt : null;
 
@@ -146,88 +142,10 @@ export function MachinesPill() {
         <ChevronDown size={12} className={cx("shrink-0 text-ink-3 transition-transform", open && "rotate-180")} />
       </button>
       {open && (
-        <Popover anchor={anchor} onClose={() => setOpen(false)} label="ComfyUIs" width={520} height={120 + machines.length * 64 + (canDeploy ? 44 : 0)}>
-          <div className="flex flex-col text-[12.5px]">
-            <div className="flex items-center gap-2.5 px-3.5 py-3">
-              <span className="font-bold">{plural(machines.length, "ComfyUI")}</span>
-              <span className="text-ink-2">{busiest(machines)}</span>
-              <span className="grow" />
-              <button type="button" className="rounded-md border border-line px-2.5 py-1 text-xs font-semibold hover:bg-hover" onClick={() => (allPaused ? ops.resume : ops.pause).mutate(undefined)}>
-                {allPaused ? "Resume all" : "Pause all"}
-              </button>
-            </div>
-            {machines.map((m) => {
-              const load = loads[m.id];
-              const g = load?.gpus[0];
-              return (
-                <div
-                  key={m.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => pick(m.id)}
-                  onKeyDown={(e) => e.key === "Enter" && pick(m.id)}
-                  onContextMenu={(e) => menu.open(e, m.id)}
-                  data-tip="Its GPU and VRAM go in the pill"
-                  className={cx("grid cursor-pointer grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-2.5 border-t border-line px-3.5 py-2.5 hover:bg-hover", m.id === metered.id && "bg-raised")}
-                >
-                  <Dot m={m} />
-                  <span className="flex min-w-0 flex-col gap-1">
-                    <span className="truncate"><span className="font-semibold">{machineLabel(m)}</span> <span className="text-ink-2">· {doing(m, now)}</span></span>
-                    {g ? (
-                      <span className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11.5px] text-ink-2">
-                        {g.load !== undefined && <span className="inline-flex items-center gap-1.5"><Bar label="GPU" value={g.load} hot={Boolean(m.running)} />{Math.round(g.load)} %</span>}
-                        <span className={cx(g.vramPercent >= 90 && "text-warn-ink")}>VRAM {gb(g.vramUsed)}/{gb(g.vramTotal)}</span>
-                        {load?.ram && <span className={cx(load.ram.percent >= 90 && "text-warn-ink")}>RAM {Math.round(load.ram.percent)} %</span>}
-                        {g.temperature !== undefined && <span className={cx(g.temperature >= 80 && "text-warn-ink")}>{Math.round(g.temperature)}°</span>}
-                      </span>
-                    ) : (
-                      <span className="text-[11.5px] text-ink-3">
-                        {/* a pod being deployed does not answer for minutes, as it should: said as what it is doing, not as a fault */}
-                        {m.rented && (m.rented.booting || m.rented.status === "PROVISIONING" || m.rented.status === "STARTING")
-                          ? "its image is pulled onto the host, then ComfyUI starts: a few minutes"
-                          : m.online === false ? (m.locked ? "locked against Afflatus's token" : "not answering") : "no figures yet"}
-                      </span>
-                    )}
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      aria-label={m.paused ? `Resume ${machineLabel(m)}` : `Pause ${machineLabel(m)}`}
-                      data-tip={m.paused ? "Resume it" : "Pause it: it finishes what it runs"}
-                      onClick={(e) => { e.stopPropagation(); (m.paused ? ops.resume : ops.pause).mutate(m.id); }}
-                      className={cx("flex size-7 items-center justify-center rounded-md border border-line hover:bg-hover", m.paused && "bg-accent-wash text-accent")}
-                    >
-                      {m.paused ? <Play size={13} /> : <Pause size={13} />}
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`${machineLabel(m)}: menu`}
-                      onClick={(e) => { e.stopPropagation(); menu.open(e, m.id); }}
-                      className="flex size-7 items-center justify-center rounded-md border border-line hover:bg-hover"
-                    >
-                      <MoreHorizontal size={14} />
-                    </button>
-                  </span>
-                </div>
-              );
-            })}
-            {canDeploy && (
-              <div className="flex items-center gap-2 border-t border-line px-3.5 py-2">
-                <button type="button" className="rounded-md border border-line px-2.5 py-1 text-xs font-semibold hover:bg-hover" onClick={() => { setOpen(false); openDeploy(); }}>Deploy a GPU…</button>
-                {again.last && (
-                  <button type="button" disabled={again.run.isPending} data-tip="Its rate is asked first" className="min-w-0 truncate rounded-md px-2 py-1 text-left text-xs text-ink-2 hover:bg-hover hover:text-ink" onClick={() => { setOpen(false); again.run.mutate(); }}>
-                    Deploy again: {lastSaid(again.last)}
-                  </button>
-                )}
-              </div>
-            )}
-            <div className="flex items-center gap-3 border-t border-line px-3.5 py-2.5 text-xs text-ink-2">
-              <span>Click a row: its GPU and VRAM go in the pill</span>
-              <span className="grow" />
-              <Link href="/queue" onClick={() => setOpen(false)} className="font-semibold text-accent hover:underline">Open the Queue</Link>
-            </div>
-          </div>
-        </Popover>
+        // its own chunk: opened now and then, not on the first paint
+        <Suspense fallback={null}>
+          <MachinesPopover anchor={anchor} machines={machines} metered={metered.id} now={now} canDeploy={canDeploy} onPick={pick} onMenu={(e, id) => menu.open(e, id)} onClose={() => setOpen(false)} />
+        </Suspense>
       )}
       {menu.menu && (
         <Suspense fallback={null}>

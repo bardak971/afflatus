@@ -392,7 +392,8 @@ function ClipPhase({ clip }: { clip: string }) {
 }
 function ClipBar({ clip }: { clip: string }) {
   const progress = useQueueOf((q) => (q.running?.clipId === clip ? q.running.progress : 0)) ?? 0;
-  return <Bar value={progress * 100} />;
+  const steps = useQueueOf((q) => (q.running?.clipId === clip ? q.running.steps : undefined)) ?? undefined;
+  return <Bar value={progress * 100} steps={steps} loading={!progress} />;
 }
 
 /** A pinned picture on a clip: framed in the colour of pictures, ringed in the accent while its card shows. */

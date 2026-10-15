@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useSearch } from "wouter";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { api, type Machine, type Scan } from "../../api";
@@ -102,41 +102,45 @@ function AllGrid({ machines, scans, onOpen }: { machines: Machine[]; scans: Arra
       id="models"
       setting="models.families"
       title={<span className="flex items-center gap-1.5">Models <Help title="Models" text="Each model family on each machine: ready, how many of its operations are, off there (switched off, its files there), no files there, or away (not answering). Click a cell for that machine's tab. The switch turns the family off on every machine (out of the model lists), or back on wherever its files are." /></span>}
-      status={
-        <span className="flex gap-1">
-          {machines.map((m) => <span key={m.id} data-tip={machineLabel(m)} className="w-32 truncate text-center font-mono text-xs text-ink-3">{machineLabel(m)}</span>)}
-          <span className="w-10" />
-        </span>
-      }
     >
-      {families.map((f) => {
-        const cells = machines.map((m, i) => cellOf(scans[i], m, said, f.id, recipesOf(f.id)));
-        const on = cells.some((c) => c.kind === "on");
-        return (
-          <div key={f.id} className={cx("flex min-h-[48px] items-center gap-3 px-[18px]", !on && "opacity-70")}>
-            <span className={cx("min-w-0 grow truncate font-semibold", !on && "text-ink-2")}>{f.name}</span>
-            <span className="flex shrink-0 gap-1">
-              {cells.map((c, i) => (
-                <button
-                  key={machines[i]!.id}
-                  type="button"
-                  onClick={() => onOpen(machines[i]!.id)}
-                  data-tip={`${f.name} on ${machineLabel(machines[i]!)}: open its tab`}
-                  className={cx(
-                    "h-7 w-32 rounded-md text-center text-xs font-semibold hover:bg-hover",
-                    c.kind === "on" ? (c.good === c.of ? "text-good" : "text-warn-ink") : "font-normal text-ink-3",
-                  )}
-                >
-                  {c.kind === "away" ? "away" : c.kind === "off" ? (c.found ? "off" : "no files") : c.good === c.of ? "ready" : `${c.good} of ${c.of}`}
-                </button>
-              ))}
-            </span>
-            <span className="flex w-10 shrink-0 justify-end">
-              <Toggle bare on={on} onChange={(next) => save.mutate({ family: f.id, on: next })} label={`${f.name} on every machine`} />
-            </span>
-          </div>
-        );
-      })}
+      {/* one grid, the machines' names its head (on two lines when narrow): each column as wide as the room allows, up to a
+          chip's width, the family's name keeping room to be read; past what fits (a narrow window) it scrolls sideways
+          rather than cutting the last machines off. The names sat in the card's head before, at a fixed 128 px each: with
+          9 machines at 1680 px they ran over the title, hid the families' names and cut the 9th column */}
+      <div className="overflow-x-auto px-[18px] pb-1">
+        <div className="grid items-center gap-x-1" style={{ gridTemplateColumns: `minmax(120px, 1fr) repeat(${machines.length}, minmax(52px, 128px)) 40px` }}>
+          <span className="self-end py-1.5 pr-3 text-xs text-ink-3">Family</span>
+          {machines.map((m) => <span key={m.id} data-tip={machineLabel(m)} className="line-clamp-2 min-w-0 self-end py-1.5 text-center text-xs leading-tight break-words text-ink-3">{machineLabel(m)}</span>)}
+          <span />
+          {families.map((f) => {
+            const cells = machines.map((m, i) => cellOf(scans[i], m, said, f.id, recipesOf(f.id)));
+            const on = cells.some((c) => c.kind === "on");
+            return (
+              <Fragment key={f.id}>
+                <span className={cx("flex min-h-[48px] min-w-0 items-center truncate pr-3 font-semibold", !on && "text-ink-2 opacity-70")} data-tip={f.name}>{f.name}</span>
+                {cells.map((c, i) => (
+                  <button
+                    key={machines[i]!.id}
+                    type="button"
+                    onClick={() => onOpen(machines[i]!.id)}
+                    data-tip={`${f.name} on ${machineLabel(machines[i]!)}: open its tab`}
+                    className={cx(
+                      "h-7 min-w-0 truncate rounded-md px-1 text-center text-xs font-semibold hover:bg-hover",
+                      c.kind === "on" ? (c.good === c.of ? "text-good" : "text-warn-ink") : "font-normal text-ink-3",
+                      !on && "opacity-70",
+                    )}
+                  >
+                    {c.kind === "away" ? "away" : c.kind === "off" ? (c.found ? "off" : "no files") : c.good === c.of ? "ready" : `${c.good} of ${c.of}`}
+                  </button>
+                ))}
+                <span className={cx("flex justify-end", !on && "opacity-70")}>
+                  <Toggle bare on={on} onChange={(next) => save.mutate({ family: f.id, on: next })} label={`${f.name} on every machine`} />
+                </span>
+              </Fragment>
+            );
+          })}
+        </div>
+      </div>
       {save.isError && <Block><ErrorNote>{save.error.message}</ErrorNote></Block>}
     </Card>
   );

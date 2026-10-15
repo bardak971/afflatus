@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, MoreHorizontal, Pause, Play } from "lucide-react";
+import { Progress } from "../../progress/Progress";
 import { previewUrl, type MachineState, type QueueStatus, type RunningJob, type SystemLoad } from "../../api";
 import { useMenu } from "../../ContextMenu";
 import { gb, phaseLabel, plural, timeLeft } from "../../format";
@@ -53,7 +54,7 @@ function Mini({ label, value, fill }: { label: string; value: number | undefined
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-ink-2">
       {label}
-      <span className="relative h-1 w-[26px] overflow-hidden rounded-[2px] bg-line-strong"><span className={cx("absolute inset-y-0 left-0", fill)} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} /></span>
+      <Progress meter value={value / 100} className="h-1 w-[26px]" radius="rounded-[2px]" tone={fill} />
       <span className="w-8 font-mono text-ink">{Math.round(value)}%</span>
     </span>
   );
@@ -120,7 +121,7 @@ function Actions({ m, onMenu }: { m: MachineState; onMenu(e: React.MouseEvent): 
 /** The thin accent line along the bottom edge: a render's progress, as the status bar's running pill draws it (pulsing before a step count). */
 function ProgressEdge({ run }: { run: RunningJob | null }) {
   if (!run) return null;
-  return <span className={cx("absolute bottom-0 left-0 h-0.5 bg-accent transition-[width] motion-reduce:transition-none", !run.progress && "animate-pulse opacity-40")} style={{ width: `${run.progress > 0 ? Math.min(100, run.progress * 100) : 100}%` }} />;
+  return <Progress shape="edge" value={run.progress} steps={run.steps} loading={!run.progress} />;
 }
 
 /** A lane's drop: a waiting job dropped on it is pinned to its machine. */
@@ -198,7 +199,7 @@ function Tile({ label, value, bar, fill, note }: { label: string; value: string;
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-raised px-2.5 py-2">
       <span className="flex items-baseline justify-between gap-2 text-[11px] whitespace-nowrap text-ink-2">{label}<span className="font-mono text-[11.5px] text-ink">{value}</span></span>
-      {bar !== undefined ? <span className="h-1 overflow-hidden rounded-[2px] bg-line-strong"><span className={cx("block h-full", fill)} style={{ width: `${Math.max(0, Math.min(100, bar))}%` }} /></span> : <span className="text-[11px] text-ink-3">{note}</span>}
+      {bar !== undefined ? <Progress meter value={bar / 100} className="h-1" radius="rounded-[2px]" tone={fill} /> : <span className="text-[11px] text-ink-3">{note}</span>}
     </div>
   );
 }
@@ -351,7 +352,7 @@ function Getting({ m }: { m: MachineState }) {
         <span className="font-semibold text-ink">Getting {plural(left.length, "file")} for its jobs</span>
         {total > 0 && <span className="font-mono text-xs">{gb(done)} of {gb(total)}</span>}
       </span>
-      <span className="h-1.5 overflow-hidden rounded-full bg-line"><span className="block h-full rounded-full bg-accent transition-[width] duration-700" style={{ width: `${Math.round(share * 100)}%` }} /></span>
+      <Progress value={share} className="h-1.5" under="bg-line" label="Files fetched" />
       <span className="truncate text-xs">{now.state === "fetching" ? "now" : "next"}: {now.file}{now.via ? ` · from ${now.via === "hf" ? "Hugging Face" : now.via === "civitai" ? "Civitai" : now.via === "upload" ? "this PC" : "its address"}` : ""}</span>
     </div>
   );

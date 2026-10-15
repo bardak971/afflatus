@@ -208,7 +208,7 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
                 </button>
               ) : (
                 <div className="flex aspect-[9/16] w-full flex-col items-center justify-center gap-1.5 rounded-md bg-raised px-2 text-center text-[10.5px] text-ink-3">
-                  {j.state === "running" ? <><span>making…</span><Bar value={j.progress * 100} /></> : j.state === "failed" ? <span className="text-warn-ink">failed: {j.why}</span> : <span>queued</span>}
+                  {j.state === "running" ? <><span>making…</span><Bar value={j.progress * 100} loading={!j.progress} /></> : j.state === "failed" ? <span className="text-warn-ink">failed: {j.why}</span> : <span>queued</span>}
                 </div>
               )}
               {j.state === "done" && j.picture && (current === j.picture

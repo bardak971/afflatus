@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Clock, Download } from "lucide-react";
 import { useMenu } from "./ContextMenu";
 import { Link, useLocation } from "wouter";
+import { Progress } from "./progress/Progress";
 import { api, type Job, type QueueStatus, type RunningJob } from "./api";
 import { useAsset, useProjects, useQueue, useSettings } from "./data";
 import { Keys } from "./Keys";
@@ -10,11 +11,10 @@ import { BAR_DEFAULT } from "./keys/barDefault";
 import { useDownloads } from "./useGetFile";
 import { elapsed, gb, phaseLabel, timeLeft, when } from "./format";
 import { StripModel, StripPlace, stripGhost } from "./ModelLoad";
-import { LoadPanelHost } from "./LoadPanel";
-import { HuntStrip } from "./HuntStrip";
+import { LoadPanelHost } from "./loadPanelHost";
 import { MachinesPill, OPEN_MACHINES } from "./MachinesPill";
 import { machineName, severalMachines } from "./machines";
-import { lazyPart, loadExpiringPanel } from "./lazyParts";
+import { lazyPart, loadExpiringPanel, loadHuntStrip } from "./lazyParts";
 import { useProject } from "./project";
 import { useQueueOps } from "./queueOps";
 import { expiringSaid, useExpiring, useExpiringOnly, useKeepAllExpiring } from "./screens/studio/expiring";
@@ -25,6 +25,8 @@ import { Chip, cx } from "./ui";
 // the viewer is fetched the first time the last result is opened from here
 // the expiring chip's panel and menu: opened now and then, the strip itself is in the first load
 const ExpiringPanel = lazyPart(loadExpiringPanel, (m) => m.ExpiringPanel);
+// the GPU hunt's strip: only while a hunt is under way, so not in the first load
+const HuntStrip = lazyPart(loadHuntStrip, (m) => m.HuntStrip);
 const Viewer = lazy(() => import("./Viewer").then((m) => ({ default: m.Viewer })));
 
 /** A number of the strip in the room of three digits. */
@@ -67,7 +69,7 @@ export function StatusBar() {
     <>
       <LoadPanelHost />
       <footer className="flex h-10 shrink-0 items-center gap-2.5 overflow-hidden border-t border-line bg-panel px-3 text-xs">
-        {huntSlot && hunt ? <HuntStrip hunt={hunt} slot /> : run ? <Running run={run} /> : q?.online === false ? <Offline q={q} /> : q?.paused ? <Paused waiting={waiting} /> : <Idle last={lastMade(q)} />}
+        {huntSlot && hunt ? <Suspense fallback={null}><HuntStrip hunt={hunt} slot /></Suspense> : run ? <Running run={run} /> : q?.online === false ? <Offline q={q} /> : q?.paused ? <Paused waiting={waiting} /> : <Idle last={lastMade(q)} />}
         {several.filter((m) => m.running).length > 1 && (
           <button type="button" className="inline-flex h-6 shrink-0 items-center rounded-full border border-line px-2 text-xs hover:bg-hover" data-tip="Renders running on the other ComfyUIs: click for each machine" onClick={() => window.dispatchEvent(new Event(OPEN_MACHINES))}>
             +{several.filter((m) => m.running).length - 1}
@@ -77,7 +79,7 @@ export function StatusBar() {
         {run && q?.paused ? !(hunt?.hold === "rest") && <Paused waiting={waiting} /> : waiting > 0 && (run || q?.online !== false) && !q?.paused && (
           <Link href="/queue" className={cx(stripGhost, "shrink-0")} data-tip="Jobs waiting their turn: open the Queue to reorder or cancel them">+{waiting} queued</Link>
         )}
-        {hunt && !huntSlot && <HuntStrip hunt={hunt} slot={false} />}
+        {hunt && !huntSlot && <Suspense fallback={null}><HuntStrip hunt={hunt} slot={false} /></Suspense>}
         <Expiring />
         {fetching.length > 0 && (
           <Link href="/settings/models" className={cx(stripGhost, "min-w-0")} data-tip="A model file is being downloaded into ComfyUI. It goes on if this page is closed. Open Settings to see it or cancel it.">
@@ -156,9 +158,7 @@ function Meter({ label, value, fill, warn, tip, className }: { label: string; va
   return (
     <span className={cx("inline-flex shrink-0 items-center gap-1.5 text-ink-2", warn && "text-warn-ink", className)} data-tip={tip}>
       {label}
-      <span className="relative h-1 w-[26px] overflow-hidden rounded-[3px] bg-line-strong">
-        <span className={cx("absolute inset-y-0 left-0 rounded-[3px]", warn ? "bg-warn" : (fill ?? "bg-ink-2"))} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
-      </span>
+      <Progress meter value={value / 100} className="h-1 w-[26px]" radius="rounded-[3px]" tone={warn ? "bg-warn" : (fill ?? "bg-ink-2")} />
       <span className="font-mono whitespace-pre">{pad(value)}<span className="opacity-70">%</span></span>
     </span>
   );
@@ -204,7 +204,7 @@ function Running({ run }: { run: RunningJob }) {
           {steps && <span className="shrink-0 font-mono whitespace-pre">{steps}</span>}
         </span>
         <span className="shrink-0 font-mono whitespace-pre text-ink-2">· {left}</span>
-        <span className={cx("absolute bottom-0 left-0 h-0.5 bg-accent transition-[width] motion-reduce:transition-none", !run.progress && "animate-pulse opacity-40")} style={{ width: `${run.progress > 0 ? Math.min(100, run.progress * 100) : 100}%` }} />
+        <Progress shape="edge" value={run.progress} steps={run.steps} loading={!run.progress} />
       </Link>
       {run.spilling && <span className="shrink-0 rounded-[5px] bg-warn-wash px-1.5 py-px font-semibold whitespace-nowrap text-warn-ink" data-tip="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory (a finish frees ComfyUI's models first), or give SeedVR2 a smaller batch size (Finish).">spilling out of VRAM</span>}
     </>
