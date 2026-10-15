@@ -44,13 +44,14 @@ const unpickable = (m: MachineState, makes: "image" | "video") =>
  * it first (a pod deployed with nothing could not be picked, and nothing could be sent to it). The pick stays with the
  * draft or the timeline (draftMachine.ts). With one ComfyUI, nothing.
  */
-export function GenerateOn({ recipe, pickKey, whole, look, ms, of }: {
+export function GenerateOn({ recipe, pickKey, whole, look, msOn, of }: {
   recipe: RecipeInfo;
   /** Where the pick is kept: a draft's id, or a timeline's key (draftMachine.ts). */
   pickKey: string;
   whole: Record<string, unknown>;
   look: Parameters<typeof api.warm>[2];
-  ms: number | null;
+  /** What it takes on a machine, or on Auto (null); null: not known. */
+  msOn(m: MachineState | null): number | null;
   /** What the pick is kept for, as the list says it. */
   of: "draft" | "timeline";
 }) {
@@ -60,21 +61,22 @@ export function GenerateOn({ recipe, pickKey, whole, look, ms, of }: {
   const makes = recipe.output === "image" ? "image" : "video";
   const why = (m: MachineState) => unpickable(m, makes) ?? (lacksOn(m.id) && !m.rented ? "lacks this model" : null);
   const note = (m: MachineState) => (lacksOn(m.id) && m.rented ? "fetches this model first" : null);
-  return <MachinePick pickKey={pickKey} of={of} ms={ms} file={file} why={why} note={note} />;
+  return <MachinePick pickKey={pickKey} of={of} msOn={msOn} file={file} why={why} note={note} />;
 }
 
 /**
  * The same slice beside Render all and Render picked on a timeline: where its clips render, kept for the timeline as New
  * take's is. It knows no one form, so it holds against a machine only what holds for every clip: away, or pictures only.
  */
-export function RenderOn({ pickKey, ms }: { pickKey: string; ms: number | null }) {
-  return <MachinePick pickKey={pickKey} of="timeline" ms={ms} file={null} why={(m) => unpickable(m, "video")} note={() => null} small />;
+export function RenderOn({ pickKey, msOn }: { pickKey: string; msOn(m: MachineState | null): number | null }) {
+  return <MachinePick pickKey={pickKey} of="timeline" msOn={msOn} file={null} why={(m) => unpickable(m, "video")} note={() => null} small />;
 }
 
-function MachinePick({ pickKey, of, ms, file, why, note, small }: {
+function MachinePick({ pickKey, of, msOn, file, why, note, small }: {
   pickKey: string;
   of: "draft" | "timeline";
-  ms: number | null;
+  /** What it takes on each machine (its own figure: machines.ts timeOn), and on Auto (null). */
+  msOn(m: MachineState | null): number | null;
   file: string | null;
   /** Why a machine cannot be picked; null: it can. */
   why(m: MachineState): string | null;
@@ -120,7 +122,8 @@ function MachinePick({ pickKey, of, ms, file, why, note, small }: {
               const off = m ? why(m) : null;
               const on = m ? picked?.id === m.id : !picked;
               const holds = Boolean(m && file && m.model && m.model.toLowerCase() === file);
-              const time = ms ? `~${roughly(m ? ms * (m.pace ?? 1) : ms)}` : "";
+              const ms = msOn(m);
+              const time = ms ? `~${roughly(ms)}` : "";
               return (
                 <button
                   key={m?.id ?? "auto"}

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Camera, Download, Link2, Maximize, Pause, Play, Redo2, Repeat, SkipBack, SkipForward, Sparkles, Undo2, Volume2, VolumeX } from "lucide-react";
-import type { Clip, Timeline } from "../api";
+import type { Clip, MachineState, Timeline } from "../api";
 import { clock, est, plural } from "../format";
 import { Estimate } from "./estimate";
 import { Button, Chip, cx, Help } from "../ui";
@@ -17,7 +17,7 @@ import type { Slot } from "./model";
  * The editor's header: the timeline's name, its length, what is said (a save that failed, an error, a note), Undo and Redo,
  * and what is done to the whole timeline: render what is left, render the picked clips, finish, export.
  */
-export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said, onHold, undo, redo, missing, allMs, picked, rendering, onRename, onRenderMissing, onRenderPicked, onFinish, onExport }: {
+export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said, onHold, undo, redo, missing, allMs, allOn, picked, rendering, onRename, onRenderMissing, onRenderPicked, onFinish, onExport }: {
   t: Timeline;
   clips: Clip[];
   total: number;
@@ -31,7 +31,10 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
   redo: { run(): void; pending: boolean };
   /** The clips with nothing to play yet or a stale join, and about how long they take to render. */
   missing: Clip[];
+  /** On the machine picked for the timeline, else Auto. */
   allMs: number;
+  /** On each machine (null: Auto), for the machine list beside Render all. */
+  allOn(m: MachineState | null): number;
   /** How many clips are picked with Ctrl + click, and whether any of them can be rendered. */
   picked: { size: number; renderable: boolean };
   rendering: boolean;
@@ -101,7 +104,7 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
           <Button tone="primary" className={cx(several && "rounded-r-none!")} disabled={rendering} data-tip={`Renders the clips that have no take yet and redoes the ones that no longer follow the clip before them, in order.${on ? ` On ${machineLabel(on)}.` : ""}`} onClick={onRenderMissing}>
             Render all ({missing.length})<Estimate ms={allMs} />
           </Button>
-          <RenderOn pickKey={timelineKey(t.id)} ms={allMs} />
+          <RenderOn pickKey={timelineKey(t.id)} msOn={allOn} />
         </span>
       )}
       {picked.size > 0 && (
@@ -109,7 +112,7 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
           <Button tone="primary" className={cx(several && "rounded-r-none!")} disabled={rendering || !picked.renderable} data-tip="Renders the clips picked with Ctrl + click, together: each is queued as its own job, in order, and a clip that flows on from a picked one waits for it. Esc drops the pick." onClick={onRenderPicked}>
             Render {picked.size} picked
           </Button>
-          <RenderOn pickKey={timelineKey(t.id)} ms={null} />
+          <RenderOn pickKey={timelineKey(t.id)} msOn={() => null} />
         </span>
       )}
       <Button className={cx("shrink-0", iconOnly)} aria-label="Finish" disabled={!clips.some((c) => c.kind === "video" && c.take)} data-tip="Finish: every clip's selected take brought to its final quality by an upscale route, as a new take each. The drafts stay." onClick={onFinish}>

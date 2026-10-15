@@ -1,7 +1,7 @@
 import { Link } from "wouter";
 import { Minus, Plus } from "lucide-react";
 import { hasWildcards, plural } from "@afflatus/core";
-import type { Draft, RecipeInfo } from "../../api";
+import type { Draft, MachineState, RecipeInfo } from "../../api";
 import { batchAbout, useAdvice } from "../../advice";
 import { BATCH } from "../../draft";
 import { Keys } from "../../Keys";
@@ -9,7 +9,7 @@ import { FormModel, ResultsPlace } from "../../ModelLoad";
 import { Button, cx, ErrorNote, Help } from "../../ui";
 import { useQueue } from "../../data";
 import { aboutMs } from "../../format";
-import { severalMachines } from "../../machines";
+import { severalMachines, timeOn } from "../../machines";
 import { GenerateOn, shortName, usePickedMachine } from "../../GenerateOn";
 import { inputMissing } from "./missing";
 import type { useGenerate } from "./useGenerate";
@@ -28,12 +28,16 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCou
   const count = draft?.count ?? 1;
   const several = severalMachines(useQueue().data).length > 0;
   const noun = recipe?.output === "image" ? "image" : recipe?.output === "video" ? "video" : "audio clip";
-  // the form's own forecast, the one its Output line says (advice.ts): the button says it for the whole batch, at the pace
-  // of the machine picked for this draft when there is one (with several ComfyUIs, GenerateOn.tsx)
+  // the form's own forecast, the one its Output line says (advice.ts): the button says it for the whole batch, on the machine
+  // picked for this draft when there is one (with several ComfyUIs, GenerateOn.tsx), as that machine's renders say it
   const estimate = useAdvice(recipe, whole).data?.estimate;
   const picked = usePickedMachine(draft?.id);
-  const total = estimate ? (estimate.ms - estimate.loadMs) * count + estimate.loadMs : null;
-  const about = picked && total !== null ? aboutMs(total * (picked.pace ?? 1)) : batchAbout(estimate, count);
+  const totalOn = (m: MachineState | null): number | null => {
+    const one = estimate ? timeOn(estimate.ms, estimate.on, m) : null;
+    return estimate && one !== null ? (one - estimate.loadMs) * count + estimate.loadMs : null;
+  };
+  const total = totalOn(picked ?? null);
+  const about = picked && total !== null ? aboutMs(total) : batchAbout(estimate, count);
   const missing = inputMissing(recipe, whole);
   return (
     <div className="flex shrink-0 flex-col gap-2 border-t border-line p-3">
@@ -71,7 +75,7 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCou
             )}
             <Keys keys="Ctrl+Enter" size="sm" className="@max-[30rem]:hidden" />
           </Button>
-          {recipe && draft && several && <GenerateOn recipe={recipe} pickKey={draft.id} whole={whole} look={draft.look} ms={total} of="draft" />}
+          {recipe && draft && several && <GenerateOn recipe={recipe} pickKey={draft.id} whole={whole} look={draft.look} msOn={totalOn} of="draft" />}
         </div>
       </div>
     </div>

@@ -217,6 +217,8 @@ export interface Advice {
   ms: number;
   /** The load in `ms`: a batch loads its model once. */
   loadMs: number;
+  /** With several machines, one render on each (by machine id), from that machine's own renders, else the others' at its pace. */
+  on?: Record<string, number> | null;
 }
 export type TimesPeriod = "day" | "week" | "month" | "all";
 /** A window of time to look at, ms since the epoch. */

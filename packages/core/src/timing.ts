@@ -7,8 +7,12 @@ import { modelFileName } from "./warm";
  * ask it, so they never say different things.
  */
 
-/** Settings that change what is made, not how long it takes. */
-const NO_TIME = /^(seed|crf|shift)/i;
+/**
+ * Settings that change what is made, not how long it takes. Where a Motion transfer part starts in its driving video
+ * (drivingStart) is one: with it in the key, every window of a timeline was filed under a key of its own, and no two
+ * machines' renders of the same windows were ever compared (forecast.ts machinePaces).
+ */
+const NO_TIME = /^(seed|crf|shift|drivingStart$)/i;
 
 /**
  * What of a form decides how long its render takes: its numbers, its switches and its choices, its

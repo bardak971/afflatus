@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, mainModel, missingNodesSaid, modelFileName, modelOf, onGrid, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
 import { ComfyCancelled, ComfyUnreachable } from "@afflatus/comfy";
-import { forecast, fromRates, workOf, type Forecast } from "./forecast";
+import { chunksOf, forecast, fromRates, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
 import { cutFrames, frameAt, partOf, rangeKeep, referenceClip, soundPart } from "./cut";
 import type { Db, Tables } from "./db";
@@ -405,12 +405,12 @@ function checkMasks(recipe: Recipe<any>, media: Record<string, MediaFacts>): voi
   }
 }
 
-/** For the record of render times: what a render is filed under, whether its model had to load, and what was expected of it. */
+/** For the record of render times: what a render is filed under, whether its model had to load, and what was expected of it on the machine it runs on. */
 async function timingOf(core: QueueCore, recipe: Recipe<any>, chosen: Record<string, unknown>, built: BuiltGraph, cold: boolean): Promise<Resume["timing"]> {
   const work = workOf(built);
   return {
     model: mainModel(built) ?? "", modelFile: modelFileOf(recipe, chosen, built),
-    timeKey: timeKey(recipe.inputs, chosen), cold, expectedMs: ((await forecastFrom(core, recipe, chosen, built, cold)) ?? fromRates((await core.usual()).rates, recipe, chosen))?.ms ?? null,
+    timeKey: timeKey(recipe.inputs, chosen), cold, expectedMs: ((await forecastFrom(core, recipe, chosen, built, cold, { machine: core.machineId, paces: await core.paces() })) ?? fromRates((await core.usual()).rates, recipe, chosen))?.ms ?? null,
     expect: await usualParts(core.db, recipe, chosen).catch(() => ({})),
     // what it samples per step, kept with its figures: the next form like it is forecast from them
     work: work.pixels * work.frames,
@@ -540,11 +540,14 @@ async function clipFacts(core: QueueCore, spec: InputSpec & { type: "clip" }, va
  * to read, or one like nothing rendered here yet. `cold` says whether its model has to load (the queue knows it
  * for a job further down the line); left out, it is whether its base models are the ones ComfyUI holds now. A job
  * that finishes a draft (`finishedFrom`) is built on it; a timeline clip's (`clip`) with what it joins onto as far as
- * it is known now, as submit will build it: the frames it shares with its neighbours are sampled too.
+ * it is known now, as submit will build it: the frames it shares with its neighbours are sampled too. `machine`: on that
+ * machine (its own renders, else the others' at its pace: forecast.ts onMachine); left out, every machine's renders as they
+ * are. `machines`: each one's forecast too (`on`), from the one graph built.
  */
 export async function forecastOf(
-  core: QueueCore, recipeId: string, rawInput: unknown, opts: { cold?: boolean; finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null } = {},
-): Promise<{ forecast: Forecast; shape: { pixels: number; frames: number }; model: string } | null> {
+  core: QueueCore, recipeId: string, rawInput: unknown,
+  opts: { cold?: boolean; finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null; machine?: string | null; machines?: readonly string[] } = {},
+): Promise<{ forecast: Forecast; shape: { pixels: number; frames: number }; model: string; on?: Record<string, Forecast> } | null> {
   const recipe = core.registry.recipe(recipeId);
   if (!recipe) return null;
   let chosen: Record<string, unknown>;
@@ -560,8 +563,13 @@ export async function forecastOf(
   if (built) chosen = settled(recipe, chosen, await (await core.comfy()).catalog());
   const shape = built ? workOf(built) : null;
   const model = built ? modelFileOf(recipe, chosen, built) : (modelOf(recipe.inputs, chosen) ?? "");
-  const f = built && shape?.pixels ? await forecastFrom(core, recipe, chosen, built, opts.cold ?? null) : null;
-  if (f) return { forecast: f, shape: shape!, model };
+  const paces = opts.machine || opts.machines?.length ? await core.paces() : undefined;
+  const at = (machine: string | null) => (built && shape?.pixels ? forecastFrom(core, recipe, chosen, built, opts.cold ?? null, { machine, paces }) : Promise.resolve(null));
+  const f = await at(opts.machine ?? null);
+  if (f) {
+    const on = opts.machines?.length ? Object.fromEntries((await Promise.all(opts.machines.map(async (m) => [m, await at(m)] as const))).flatMap(([m, g]) => (g ? [[m, g]] : []))) : undefined;
+    return { forecast: f, shape: shape!, model, ...(on ? { on } : {}) };
+  }
   const fallback = fromRates((await core.usual()).rates, recipe, chosen);
   return fallback ? { forecast: fallback, shape: { pixels: shape?.pixels ?? 0, frames: shape?.frames ?? 1 }, model } : null;
 }
@@ -570,13 +578,15 @@ export async function forecastOf(
 const modelFileOf = (recipe: Recipe<any>, chosen: Record<string, unknown>, built: BuiltGraph) => modelOf(recipe.inputs, chosen) ?? (mainModel(built) ?? "").split(" + ")[0]!.toLowerCase();
 
 /** The forecast of a built graph from its model's past renders; `cold` null: whether its base models are not the ones held now. */
-async function forecastFrom(core: QueueCore, recipe: Recipe<any>, chosen: Record<string, unknown>, built: BuiltGraph, cold: boolean | null): Promise<Forecast | null> {
+async function forecastFrom(
+  core: QueueCore, recipe: Recipe<any>, chosen: Record<string, unknown>, built: BuiltGraph, cold: boolean | null, where: { machine: string | null; paces?: ReadonlyMap<string, number> },
+): Promise<Forecast | null> {
   const shape = workOf(built);
   if (!shape.pixels) return null;
   const base = baseModels(built);
   return forecast(core.db, modelFileOf(recipe, chosen, built), shape.pixels * shape.frames, shape.steps, cold ?? (base.length > 0 && !holding(core, base)), {
     recipeId: recipe.id, timeKey: timeKey(recipe.inputs, chosen), family: recipe.family, fps: (id) => core.registry.recipe(id)?.traits?.fps,
-    samples: Object.values(built.phases).includes("sampling"),
+    samples: Object.values(built.phases).includes("sampling"), chunks: chunksOf(built, shape.pixels), ...where,
   });
 }
 

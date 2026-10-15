@@ -85,10 +85,14 @@ export async function status(
     .limit(20)
     .execute();
   const finishes = await finishesWaiting(core, rows);
-  const renders = await rendersWaiting(core, rows);
-  // a waiting job's forecast at the pace of the machine it will probably run on
+  const renders = await rendersWaiting(core, rows, planned);
+  // a waiting job's forecast on the machine it will probably run on: a render's from that machine's own renders (rendersWaiting),
+  // a finish's at that machine's pace
   const estimate = (r: JobRow) => {
-    const ms = (r.status === "queued" && (finishes.get(r.id) ?? renders.get(r.id))) || null;
+    if (r.status !== "queued") return null;
+    const render = renders.get(r.id);
+    if (render !== undefined) return render || null;
+    const ms = finishes.get(r.id) ?? null;
     const on = planned.get(r.id)?.lane;
     return ms && on ? Math.round(ms * (paces.get(on) ?? 1)) : ms;
   };
@@ -175,8 +179,12 @@ export async function status(
   };
 }
 
-/** What each waiting render should take (the forecast, queue.expected), by job, in the line's order: down the line, a job whose model is not the one before it has to load it first. */
-async function rendersWaiting(core: QueueCore, rows: JobRow[]): Promise<Map<string, number | null>> {
+/**
+ * What each waiting render should take (the forecast, queue.expected), by job, in the line's order: down the line, a job
+ * whose model is not the one before it has to load it first. On the machine it will probably run on (`planned`), as that
+ * machine's renders say it.
+ */
+async function rendersWaiting(core: QueueCore, rows: JobRow[], planned: ReadonlyMap<string, { lane: string }>): Promise<Map<string, number | null>> {
   let held = core.lastLoads === null ? null : new Set(core.lastLoads.split("|").map(modelName));
   const asked: Array<Promise<[string, number | null]>> = [];
   for (const r of rows) {
@@ -189,7 +197,7 @@ async function rendersWaiting(core: QueueCore, rows: JobRow[]): Promise<Map<stri
     const model = modelOf(recipe.inputs, input);
     const cold = Boolean(model && held && !held.has(model));
     if (model) held = new Set([model]);
-    asked.push(core.expected(recipe, input, cold, r).then((ms) => [r.id, ms]));
+    asked.push(core.expected(recipe, input, cold, r, planned.get(r.id)?.lane ?? null).then((ms) => [r.id, ms]));
   }
   return new Map(await Promise.all(asked));
 }

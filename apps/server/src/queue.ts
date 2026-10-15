@@ -80,6 +80,9 @@ interface Lane {
   core: QueueCore;
 }
 
+/** A form's forecast as the queue reads it (ms): on no machine in particular, and on each machine it was asked for. */
+type Expected = { ms: number | null; on: ReadonlyMap<string, number> };
+
 /**
  * Of a waiting render, with several machines: the machines that can run it, and what keeps it off each of the others. A
  * rented pod that lacks only files it can be sent (`fetch`) is among the ones that can, with how long until they are there.
@@ -195,7 +198,8 @@ export class Queue {
       get offlineSince() { return self.offline.since; },
       loaded: (loads, model) => this.loaded(l, loads, model),
       usual: () => this.usual(),
-      expected: (recipe, input, cold, job) => this.expected(recipe, input, cold, job),
+      paces: () => this.paces(),
+      expected: (recipe, input, cold, job, machine) => this.expected(recipe, input, cold, job, machine),
       runTool: (row, work) => this.runTool(l, row, work),
     };
     if (id !== TOOLS) l.ready = this.readLane(l);
@@ -562,19 +566,33 @@ export class Queue {
   }
 
   /** The waiting jobs' forecasts, by form: a job waits unchanged, so it is worked out once, and again after half a minute (renders end, the record grows). */
-  private expectedAt: { at: number; by: Map<string, Promise<number | null>> } = { at: 0, by: new Map() };
-  /** About how long a render will take: the forecast of its form, with what loading its model adds when it is not the one loaded before it. */
-  private expected(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean, job: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit"> | null = null): Promise<number | null> {
+  private expectedAt: { at: number; by: Map<string, Promise<Expected>> } = { at: 0, by: new Map() };
+  /**
+   * About how long a render will take: the forecast of its form, with what loading its model adds when it is not the one
+   * loaded before it. On `machine` when it is said: its own renders of the model, else the others' at its pace (forecast.ts
+   * onMachine); a form placed from its recipe's usual times alone (no graph built) at the machine's pace.
+   */
+  private async expected(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean, job: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit"> | null = null, machine: string | null = null): Promise<number | null> {
+    const e = await this.expectedAll(recipe, input, cold, job);
+    if (machine === null || e.ms === null) return e.ms;
+    return e.on.get(machine) ?? e.ms * ((await this.paces()).get(machine) ?? 1);
+  }
+
+  /** The forecast of a form as `expected` reads it: on no machine in particular, and on each machine (one graph built for all). */
+  private expectedAll(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean, job: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit"> | null): Promise<Expected> {
     if (Date.now() - this.expectedAt.at > 30_000) this.expectedAt = { at: Date.now(), by: new Map() };
+    const machines = this.machineLanes().map((l) => l.id);
     const key = `${recipe.id}
 ${cold}
 ${job?.finished_from}
 ${job?.clip_id}
 ${job?.clip_fit}
+${machines.join(",")}
 ${JSON.stringify(input)}`;
     let got = this.expectedAt.by.get(key);
     if (!got) {
-      got = submitting.forecastOf(this.core, recipe.id, input, { cold, finishedFrom: job?.finished_from, clip: job?.clip_id ? { id: job.clip_id, fit: Boolean(job.clip_fit) } : null }).then((f) => f?.forecast.ms ?? null, () => null);
+      got = submitting.forecastOf(this.core, recipe.id, input, { cold, finishedFrom: job?.finished_from, clip: job?.clip_id ? { id: job.clip_id, fit: Boolean(job.clip_fit) } : null, machines })
+        .then((f) => ({ ms: f?.forecast.ms ?? null, on: new Map(Object.entries(f?.on ?? {}).map(([m, g]) => [m, g.ms])) }), () => ({ ms: null, on: new Map<string, number>() }));
       this.expectedAt.by.set(key, got);
     }
     return got;
@@ -827,7 +845,7 @@ ${JSON.stringify(input)}`;
       .filter((l) => l.reachable !== false && !this.unavailable(l.id))
       .map(async (l) => ({
         id: l.id, takes: l.machine!.takes,
-        busyForMs: l.running || l.starting ? remainingOf(l.running) ?? (await this.untilEnd(l, paces.get(l.id) ?? 1)) : 0,
+        busyForMs: l.running || l.starting ? remainingOf(l.running) ?? (await this.untilEnd(l)) : 0,
         holds: new Set(l.lastLoads ? l.lastLoads.split("|").map(modelName) : []),
         pace: paces.get(l.id) ?? 1,
       })));
@@ -835,10 +853,10 @@ ${JSON.stringify(input)}`;
 
   /**
    * How long a machine's job has left when it does not say yet: one being started or sent (its expected time comes back
-   * with the prompt) is taken at its own forecast, as the waiting list has it, less what it ran; null when nothing like it
-   * was rendered (then the machine is not waited for).
+   * with the prompt) is taken at its own forecast on that machine, as the waiting list has it, less what it ran; null when
+   * nothing like it was rendered (then the machine is not waited for).
    */
-  private async untilEnd(lane: Lane, pace: number): Promise<number | null> {
+  private async untilEnd(lane: Lane): Promise<number | null> {
     const id = lane.running?.id ?? lane.starting;
     const row = id ? await this.db.selectFrom("jobs").selectAll().where("id", "=", id).executeTakeFirst() : undefined;
     const recipe = row && row.recipe_id !== CUT_JOB && row.recipe_id !== EXPORT_JOB ? this.registry.recipe(row.recipe_id) : undefined;
@@ -846,10 +864,10 @@ ${JSON.stringify(input)}`;
     const input = readJson<Record<string, unknown>>(row.inputs, {});
     const model = modelOf(recipe.inputs, input);
     const held = new Set(lane.lastLoads ? lane.lastLoads.split("|").map(modelName) : []);
-    const ms = await this.expected(recipe, input, Boolean(model && !held.has(model)), row);
+    const ms = await this.expected(recipe, input, Boolean(model && !held.has(model)), row, lane.id);
     if (ms === null) return null;
     const ran = lane.running?.startedAt ? Date.now() - lane.running.startedAt : 0;
-    return Math.max(0, ms * pace - ran);
+    return Math.max(0, ms - ran);
   }
 
   /**
@@ -911,9 +929,14 @@ ${JSON.stringify(input)}`;
       const recipe = r.recipe_id === CUT_JOB ? undefined : this.registry.recipe(r.recipe_id);
       if (!recipe) return { ...base, model: null, renderMs: null, loadMs: null };
       const input = readJson<Record<string, unknown>>(r.inputs, {});
-      const [warm, cold] = await Promise.all([this.expected(recipe, input, false, r), this.expected(recipe, input, true, r)]);
+      const [warm, cold] = await Promise.all([this.expectedAll(recipe, input, false, r), this.expectedAll(recipe, input, true, r)]);
+      // each machine's own figures when its renders (or its pace) say them: the scheduler reads those before the common one at its pace
+      const loadOn = new Map([...warm.on].flatMap(([m, ms]) => (cold.on.has(m) ? [[m, Math.max(0, cold.on.get(m)! - ms)] as const] : [])));
       // loading ahead renders nothing: its cost is the load alone
-      return { ...base, model: modelOf(recipe.inputs, input), renderMs: r.warm ? 0 : warm, loadMs: warm !== null && cold !== null ? Math.max(0, cold - warm) : null };
+      return {
+        ...base, model: modelOf(recipe.inputs, input), renderMs: r.warm ? 0 : warm.ms, loadMs: warm.ms !== null && cold.ms !== null ? Math.max(0, cold.ms - warm.ms) : null,
+        ...(r.warm ? {} : { renderOn: warm.on }), loadOn,
+      };
     }));
   }
 
@@ -971,12 +994,11 @@ ${JSON.stringify(input)}`;
    */
   fitsBalance: (ms: number | null) => { ok: boolean; leftMs: number | null } = () => ({ ok: true, leftMs: null });
 
-  /** How long a job would take on this machine, loading its model included, at the machine's learned pace (ms); null: not known. */
+  /** How long a job would take on this machine, loading its model included, from its renders there or at its learned pace (ms); null: not known. */
   private async lengthOn(r: JobRow, machine: string): Promise<number | null> {
     const recipe = r.recipe_id === CUT_JOB || r.recipe_id === EXPORT_JOB ? undefined : this.registry.recipe(r.recipe_id);
     if (!recipe) return null;
-    const ms = await this.expected(recipe, readJson<Record<string, unknown>>(r.inputs, {}), true, r);
-    return ms === null ? null : ms * ((await this.paces()).get(machine) ?? 1);
+    return this.expected(recipe, readJson<Record<string, unknown>>(r.inputs, {}), true, r, machine);
   }
 
   /**
@@ -1400,6 +1422,20 @@ ${JSON.stringify(input)}`;
     for (const lane of await this.refresh()) if (await submitting.isLoaded(lane.core, recipeId, rawInput)) return lane.id;
     return null;
   }
-  /** What this model's past renders say a form will take; null without history or for a form not complete enough to build. */
-  forecast(recipeId: string, rawInput: unknown, opts: { finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null } = {}) { return submitting.forecastOf(this.core, recipeId, rawInput, opts); }
+  /**
+   * What this model's past renders say a form will take; null without history or for a form not complete enough to build.
+   * With one machine, on it (its own renders first). With several, on each (`on`), and said (`forecast`) on the one that
+   * renders it soonest of those that can take it now (Auto, the queue's own waits aside): the machine picked by hand reads
+   * its own in `on`.
+   */
+  async forecast(recipeId: string, rawInput: unknown, opts: { finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null } = {}) {
+    const lanes = this.machineLanes();
+    if (lanes.length < 2) return submitting.forecastOf(this.core, recipeId, rawInput, { ...opts, machine: lanes[0]?.id ?? null });
+    const got = await submitting.forecastOf(this.core, recipeId, rawInput, { ...opts, machines: lanes.map((l) => l.id) });
+    if (!got?.on) return got;
+    const makes = this.registry.recipe(recipeId)?.output === "image" ? "image" : "video";
+    const open = lanes.filter((l) => l.reachable !== false && !l.paused && !this.unavailable(l.id) && (l.machine!.takes === "all" || l.machine!.takes === makes));
+    const soonest = open.flatMap((l) => (got.on![l.id] ? [got.on![l.id]!] : [])).sort((a, b) => a.ms - b.ms)[0];
+    return soonest ? { ...got, forecast: soonest } : got;
+  }
 }

@@ -116,7 +116,7 @@ export const scailMotion = defineRecipe<ScailMotion>({
     // the clip before, when there is one, anchors the first chunk as a chunk before it would: its frames dropped, its colours held
     let previous: Ref | null = previousFrames(g, ctx);
     let offset: Ref | number = 0;
-    const passes: Array<{ node: string; steps: number }> = [];
+    const passes: Array<{ node: string; steps: number; frames: number }> = [];
     lengths.forEach((length, i) => {
       g.phase("sampling");
       const cond = g.add("WanSCAILToVideo", {
@@ -128,7 +128,7 @@ export const scailMotion = defineRecipe<ScailMotion>({
       const sampled = g.add("SamplerCustom", {
         model: shifted, add_noise: true, noise_seed: ctx.seed + i, cfg: input.cfg, positive: [cond, 0], negative: [cond, 1], sampler, sigmas, latent_image: [cond, 2],
       });
-      passes.push({ node: sampled, steps: input.steps });
+      passes.push({ node: sampled, steps: input.steps, frames: length });
       g.phase("decoding");
       const decoded = g.out("VAEDecode", { samples: [sampled, 1], vae });
       let fresh = decoded;

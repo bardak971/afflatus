@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
-import type { Asset, Clip, DesignerSession, RecipeInfo, Take, Timeline } from "../api";
+import type { Asset, Clip, DesignerSession, MachineState, RecipeInfo, Take, Timeline } from "../api";
 import { useFamilies, useModelSettings, useRecipes, useSetup, useTimeline } from "../data";
 import type { DesignerTurn } from "../designer/types";
 import { notReady, plural } from "../format";
@@ -8,6 +8,8 @@ import { useBanners, useEditorColumn } from "../store";
 import { useSelectedClip } from "../bar/bridge";
 import { newTransition, TRANSITIONS } from "@afflatus/core";
 import { useQueueOf } from "../screens/studio/queueOf";
+import { timelineKey } from "../draftMachine";
+import { usePickedMachine } from "../GenerateOn";
 import { useNewClock } from "./clock";
 import { rememberAspect } from "./EditorSkeleton";
 import type { ExportAsk } from "./ExportDialog";
@@ -201,9 +203,14 @@ export function useTimelineEditor(id: string) {
   const missing = clips.filter((c) => c.kind === "video" && !c.job && (!c.take || c.join === "stale" || c.mirrorChanged) && ready(c).input);
   const renderable = (c: Clip) => picked.has(c.id) && c.kind === "video" && Boolean(ready(c).input);
 
-  /** About how long a clip takes to render: the server's forecast of its whole form, learned from past renders (as the timeline card's). */
-  const takes = useForecasts(clips, recipes.data?.recipes ?? NONE, formOf);
-  const allMs = missing.reduce((sum, c) => sum + (takes(c) ?? 0), 0);
+  /** About how long a clip takes to render on a machine (null: Auto): the server's forecast of its whole form, learned from past renders (as the timeline card's). */
+  const takesOn = useForecasts(clips, recipes.data?.recipes ?? NONE, formOf);
+  // on the machine picked for this timeline, as that machine's own renders say it; Auto: the machine that renders it soonest
+  const pickedMachine = usePickedMachine(timelineKey(id));
+  const takes = (c: Clip) => takesOn(c, pickedMachine);
+  /** What rendering every clip left to render takes on a machine (null: Auto), as Render all and its machine list say it. */
+  const allOn = (m: MachineState | null) => missing.reduce((sum, c) => sum + (takesOn(c, m) ?? 0), 0);
+  const allMs = allOn(pickedMachine ?? null);
   /** What Needs attention is worked out from (EditorColumns' Checks). */
   const checks: Checks = {
     renderable: (c: Clip) => c.kind === "video" && !c.job && Boolean(ready(c).input),
@@ -322,7 +329,7 @@ export function useTimelineEditor(id: string) {
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, inputsOf, editInputs, formOf, ready, sayOf, say, m, range, setRange, loopRange, snapQuiet,
     toggleSnapQuiet, emptyRange, toggle, toggleLoop, rangeAct, rangeItems, clipMenu, soundMenu, pinMenu, musicMenu, rangeMenu, onClip,
-    newClip, move, missing, renderable, takes, allMs, checks, volume, muted, onVolume, onMute, cursor, setCursor, onTime,
+    newClip, move, missing, renderable, takes, takesOn, allMs, allOn, checks, volume, muted, onVolume, onMute, cursor, setCursor, onTime,
     trackKeys, jump, splitAt, stepTake, continueFrom, continueHere, misfits, finishedSize, fixFirst, exportNow, clipHead,
     after, render, patch, fix, edit, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan,
   };

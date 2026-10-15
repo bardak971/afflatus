@@ -268,8 +268,13 @@ export const api = {
   /** What rendering would take: a timeline's clips (by number, 1 = the first; left out, those with nothing rendered yet) or a draft's next render. */
   commandEstimate: (of: { timeline: string; clips?: number[] } | { draft: string }, o?: Asked) =>
     call<CommandEstimate>("GET", `/command-estimate?${"draft" in of ? `draft=${encodeURIComponent(of.draft)}` : `timeline=${encodeURIComponent(of.timeline)}${of.clips?.length ? `&clips=${of.clips.join(",")}` : ""}`}`, undefined, o?.signal),
-  /** What each form would take to render once, learned from this machine's renders (the same forecast as commandEstimate's); null where nothing like it was rendered yet. */
-  forecasts: (forms: Array<{ recipe: string; input: Record<string, unknown> }>, o?: Asked) => call<{ ms: Array<number | null> }>("POST", "/forecasts", { forms }, o?.signal),
+  /**
+   * What each form would take to render once, learned from past renders (the same forecast as commandEstimate's), a
+   * timeline clip's planned as its render will be (`clip`); with several machines, on each (`on`, by machine id). Null
+   * where nothing like it was rendered yet.
+   */
+  forecasts: (forms: Array<{ recipe: string; input: Record<string, unknown>; clip?: string }>, o?: Asked) =>
+    call<{ ms: Array<number | null>; on?: Array<Record<string, number> | null> }>("POST", "/forecasts", { forms }, o?.signal),
   /** The prompts that were rendered, each once, newest first; `q`: only those holding it. */
   promptHistory: (q?: string, limit?: number, o?: Asked) => {
     const params = new URLSearchParams();
