@@ -2,7 +2,7 @@ import type { Asset, AssetFilter, CommandEntry, FamilyInfo, PromptHistoryItem, U
 import { plural, when } from "../format";
 import { prepare } from "./match";
 import type { Item, Section, Shown } from "./items";
-import { completeLast, isFlag, KEY_SAID, keysFor, SEARCH_KEYS, sinceOf, valueText, without, type Parsed, type SearchKey, type Token } from "./search";
+import { completeLast, isFlag, KEY_SAID, keysFor, sinceOf, valueText, without, type Parsed, type SearchKey, type Token } from "./search";
 
 /**
  * The bar's render search turned into rows (docs/command-bar.md, "Searching renders"): the keys a word begins, a key's
@@ -239,6 +239,3 @@ export function loosened(d: Pick<SearchData, "parsed" | "used" | "families" | "d
     return { token, filter: filterOf({ ...d, parsed }).filter };
   });
 }
-
-/** Whether a key alone was typed with nothing else: its list is the newest of a kind (image:, video:, sound:), else its values. */
-export const SEARCH_KEY_SET: ReadonlySet<string> = new Set(SEARCH_KEYS);

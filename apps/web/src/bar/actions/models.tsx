@@ -1,23 +1,30 @@
 import { Copy, Download as DownloadIcon, ExternalLink, ListPlus, RotateCcw, Search, Server, Square, User, X } from "lucide-react";
 import { api, type BrowseCard, type BrowseFile, type Download, type UpdateRow } from "../../api";
 import { ask, askChoice } from "../../Confirm";
-import { addPicked, clearPicked, dropPicked, FOLDERS, getOnPc, openFindModels, openFindModelsOn, pickedNow, pickedOf } from "../../findModels/store";
+import { addPicked, clearPicked, dropPicked, FOLDERS, getOnPc, openFindModels, openFindModelsOn, pickedNow, pickedOf, type FindTarget } from "../../findModels/store";
 import { plural } from "../../format";
 import { toFind, type BrowseAsk } from "../browseSearch";
-import { retype } from "./search";
+import { retype } from "./retype";
 import { size } from "../../format";
 import { machineLabel } from "../../machines";
 import { queryKeys } from "../../queryKeys";
 import { settingHref } from "../../screens/settings/settingsIndex";
 import { copyText } from "../../secureContext";
 import type { Action, BarCtx } from "./ctx";
-import { onThisPc } from "./commands";
-
 /**
  * What the bar does with Civitai and Hugging Face: a pasted link's file downloaded onto this PC or another ComfyUI, a
  * download stopped, dismissed or asked again, a newer version of a model fetched. Every download is asked first, with
  * its size and where it goes: a stray Enter in a bar is easy, and a model is gigabytes.
  */
+
+/** Find models as Settings › Models opens it: what is picked downloads onto this PC (the bar's `find models`, a pasted link's Tab). */
+export const onThisPc = (x: BarCtx): FindTarget => ({
+  what: "this PC", action: "Get on this PC", pc: true,
+  add: async (files) => {
+    await getOnPc(files);
+    void x.client.invalidateQueries({ queryKey: queryKeys.downloads() });
+  },
+});
 
 /** A ComfyUI a download can go to: this PC (the first one, no id) or another, by its id. */
 type Where = { id?: string; name: string };

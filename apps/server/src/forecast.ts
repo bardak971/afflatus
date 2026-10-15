@@ -439,22 +439,6 @@ export function reloadAbove(warmLoads: readonly number[]): number {
 /** How many renders of a recipe its own points are taken from alone: with fewer, the model's others say more. */
 const OWN_POINTS = 3;
 
-/**
- * What renders queued one after another take in all, from each one's forecast (its `ms` with its `loadMs`) and `times`
- * renders of each: a model loads for the first of a run of renders with it, and the others find it in memory. A part
- * with no model (a tool on the GPU) frees it: the render after loads its own again.
- */
-export function inARow(parts: Array<{ ms: number; loadMs: number; model: string; times?: number }>): number {
-  let total = 0;
-  let held = "";
-  for (const p of parts) {
-    const load = p.model && p.model === held ? 0 : p.loadMs;
-    total += (p.ms - p.loadMs) * Math.max(1, p.times ?? 1) + load;
-    held = p.model;
-  }
-  return total;
-}
-
 // ---------------------------------------------------------------- where no render of the model was measured yet
 
 /**

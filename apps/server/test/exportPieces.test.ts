@@ -70,7 +70,10 @@ describe.skipIf(!ffmpegThere)("a long export made by ffmpeg", () => {
     EXPORT_PIECE.parts = pieceParts;
     try {
       return await joinVideosInto(parts, { width: 64, height: 36 }, fps, opts, async (file) => {
-        const pts = (await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pts_time", "-of", "csv=p=0", file], { maxBuffer: 1 << 26 })).stdout.trim().split(/\r?\n/).map((l) => Number.parseFloat(l));
+        // ffprobe 5.1 writes an empty line after a frame that carries side data (x264's settings, on the first frame of
+        // each piece): a line, not a frame
+        const said = (await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pts_time", "-of", "csv=p=0", file], { maxBuffer: 1 << 26 })).stdout;
+        const pts = said.split(/\r?\n/).filter((l) => l.trim()).map((l) => Number.parseFloat(l));
         const sound = (await run("ffmpeg", ["-loglevel", "error", "-i", file, "-map", "0:a", "-f", "md5", "-"])).stdout.trim();
         return { pts, sound };
       });

@@ -5,7 +5,7 @@ import { kitHref } from "../../screens/kit/link";
 import { copyText } from "../../secureContext";
 import { castPlace, withPerson } from "../castTo";
 import type { Action, BarCtx, Person } from "./ctx";
-import { retype } from "./search";
+import { retype } from "./retype";
 import { valueText } from "../search";
 
 /** A preset of the Prompt kit on the open draft, as the form's preset menu applies it (refused the same way). */

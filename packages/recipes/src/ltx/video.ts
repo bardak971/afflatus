@@ -4,7 +4,7 @@ import { LTX_FPS } from "./family";
 
 // the recipe's workings are shared with LTX 2.5 (recipe.ts); its input type and its schedules are still had from here
 export type { LtxVideo } from "./recipe";
-export { LTX_JOIN_FRAMES, LTX_REFINE_SIGMAS, LTX_SIGMAS } from "./recipe";
+export { LTX_REFINE_SIGMAS, LTX_SIGMAS } from "./recipe";
 
 /** LTX 2.3: the one checkpoint (or split files with their text projection), `euler`, CFG on the conditioning, 25 frames a second. */
 export const ltxVideo = ltxRecipe({

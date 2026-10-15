@@ -152,6 +152,3 @@ export function sinceOf(v: string, now = Date.now()): Date | null {
   }
   return null;
 }
-
-/** The orders `sort:` takes, as the library's list says them. */
-export const SORTS = { newest: "newest", oldest: "oldest", name: "name", size: "size" } as const;

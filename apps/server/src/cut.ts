@@ -48,6 +48,11 @@ function must(tool: string, args: string[], opts: { timeout?: number; signal?: A
   });
 }
 
+/** How the encoder times the frames it is handed, by the option this ffmpeg reads (`-fps_mode` since 6, `-vsync` before). */
+async function fpsMode(mode: "passthrough" | "vfr"): Promise<string[]> {
+  return [((await ffmpegMajor()) ?? 99) < 6 ? "-vsync" : "-fps_mode", mode];
+}
+
 async function inTemp<T>(work: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "afflatus-cut-"));
   try {
@@ -699,10 +704,17 @@ export async function joinVideosInto<T>(parts: ExportPart[], frame: { width: num
   const slower = web && fps > WEB_FPS ? `fps=${WEB_FPS}` : "";
   const post = [smooth, slower, scale > 1 ? "unsharp=5:5:0.6:5:5:0" : ""].filter(Boolean);
   const finish = `[joined]${post.join(",") || "null"}[v]`;
-  const videoCodec = web
-    // a size to keep: a mean bitrate, capped so no stretch overshoots it, and the slower preset for more picture per byte
-    ? ["-c:v", "libx264", "-preset", "slow", "-b:v", `${web.videoKbps}k`, "-maxrate", `${Math.round(web.videoKbps * 1.5)}k`, "-bufsize", `${web.videoKbps * 2}k`, "-pix_fmt", "yuv420p"]
-    : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"];
+  const videoCodec = [
+    ...(web
+      // a size to keep: a mean bitrate, capped so no stretch overshoots it, and the slower preset for more picture per byte
+      ? ["-c:v", "libx264", "-preset", "slow", "-b:v", `${web.videoKbps}k`, "-maxrate", `${Math.round(web.videoKbps * 1.5)}k`, "-bufsize", `${web.videoKbps * 2}k`, "-pix_fmt", "yuv420p"]
+      : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"]),
+    // each frame at its own moment on the frame grid, none repeated to fill a gap: a run whose sound ends past its picture
+    // leaves less than a frame before the next run. Left to itself, ffmpeg 6 repeated the next run's first frame into it on
+    // the whole timeline, where a piece ends with nothing after it to repeat (2 frames short in 458); ffmpeg 7 and later
+    // do not repeat it. Said, every version makes the same frames in pieces as whole
+    ...(await fpsMode("vfr")),
+  ];
   const audioCodec = ["-c:a", "aac", "-b:a", web ? `${web.audioKbps}k` : "192k"];
   const ends = [...(opts.fromRender ? aiVideoArgs : []), "-movflags", "+faststart"];
   const run = { timeout: 3 * 60 * 60_000, signal: opts.signal };
@@ -756,7 +768,7 @@ export async function joinVideosInto<T>(parts: ExportPart[], frame: { width: num
       const file = join(dir, `piece${k}.mov`);
       // kept lossless for the speed change, each picture at its moment to the microsecond, as the whole timeline's concat
       // filter hands them on (not moved onto the frame grid: the speed change picks its frames by those moments)
-      const keep = ["-c:v", "libx264", "-preset", "ultrafast", "-qp", "0", "-pix_fmt", "yuv420p", (await ffmpegMajor() ?? 99) < 6 ? "-vsync" : "-fps_mode", "passthrough", "-enc_time_base:v", "1:1000000"];
+      const keep = ["-c:v", "libx264", "-preset", "ultrafast", "-qp", "0", "-pix_fmt", "yuv420p", ...(await fpsMode("passthrough")), "-enc_time_base:v", "1:1000000"];
       const codec = regrid ? keep : videoCodec;
       await must(tools.ffmpeg, [
         "-y", "-loglevel", "error", ...inputs.args, ...(await graphFile(dir, `graph${k}.txt`, chains)), "-map", "[v]", "-map", "[a]", ...codec, "-c:a", "pcm_f32le", file,
@@ -779,8 +791,11 @@ export async function joinVideosInto<T>(parts: ExportPart[], frame: { width: num
     const counted = slower ? ["tpad=stop=1:stop_mode=clone", ...post, `trim=end_frame=${Math.round(ending * WEB_FPS)}`] : post;
     const chains: string[] = regrid ? [`[0:v]${["settb=AVTB", ...counted].join(",")}[v]`] : [];
     if (music) {
+      // the sound read from the list opened a second time: from the same opening as the copied picture, ffmpeg 6 ended the
+      // mix where that input ended and lost the sound's last packet (13 ms short)
+      const voices = await inputs.add("pieces.txt", join(dir, "pieces.txt"), ["-f", "concat", "-safe", "0"]);
       const track = await inputs.add(`music.${music.ext}`, music.source);
-      chains.push("[0:a]anull[voices]", ...musicChain(music.plan, track, await inputs.add("gain.wav", musicGainWav(music, total))));
+      chains.push(`[${voices.index}:a]anull[voices]`, ...musicChain(music.plan, track, await inputs.add("gain.wav", musicGainWav(music, total))));
     }
     const picture = regrid
       ? ["-map", "[v]", ...videoCodec]
@@ -1231,7 +1246,7 @@ async function grayFrames(file: string, moments: number[]): Promise<Array<Uint8A
   // a little past the last moment, so that the frame a seek there lands on is in the run when the video has it
   const span = (Math.max(...us) - from) / 1e6 + 0.25;
   // each frame once, as decoded: at a constant rate the raw output would repeat the first to fill the moments before it
-  const asIs = [((await ffmpegMajor()) ?? 99) < 6 ? "-vsync" : "-fps_mode", "passthrough"];
+  const asIs = await fpsMode("passthrough");
   const run = await new Promise<{ out: Buffer; log: string } | null>((done) => {
     execFile(
       tools.ffmpeg,
