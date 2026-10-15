@@ -57,7 +57,7 @@ export function motionInputs(shape: MotionShape, placeholder = "A man in a black
     { id: "drivingSeconds", type: "number", label: "Driving video: length", min: least, max: most, step: 0.01, default: Math.min(5, said), unit: " s", showWhen: "driving" },
     {
       id: "picture", type: "image", role: "source", label: "Picture",
-      note: "what moves. Its room, its light and its people are kept: only the motion comes from the video. Front-facing works best",
+      note: "what moves. Its room, its light and its people are kept: only the motion comes from the video. Front-facing works best, in the driving video's own shape: the video is cut to the picture's shape from the centre, and a video of another shape loses its edges",
     },
     {
       // the cast is not written into it: on this form the cast is who goes into a picture made from the video (motionPicture.tsx)

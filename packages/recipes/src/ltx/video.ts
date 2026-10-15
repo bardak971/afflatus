@@ -103,7 +103,18 @@ const uses = (input: LtxVideo, slots: Record<string, string>) => ({ twoPass: inp
  * The frame a keyframe is pinned at: its moment on LTX's 25 frames a second, kept off the first frame and
  * off the last one, which belong to the first and the last picture.
  */
-const midFrame = (input: LtxVideo, frames: number) => Math.max(1, Math.min(frames - 2, Math.round(input.midAt * LTX_FPS)));
+const midFrame = (input: LtxVideo, frames: number) => {
+  // on the model's 8-frame steps (the node rounds a guide's index down to one by itself, so 2.5 s typed landed at 2.24 s),
+  // off the first frame and the last, which belong to the first and the last picture
+  const step = 8;
+  const at = Math.round((input.midAt * LTX_FPS) / step) * step;
+  return Math.max(step, Math.min(frames - 1 - step, at));
+};
+/**
+ * How many steps the refining pass takes: the form's, and one more than LTX's own 3 on a clip past 241 frames (9.6 s),
+ * where users find the ×2 upscaler needs it (Lightricks discussion #13, 2026-03). A count typed other than 3 is taken as typed.
+ */
+const refineStepsOf = (input: LtxVideo, frames: number) => (input.refineSteps === 3 && frames > 241 ? 4 : input.refineSteps);
 
 /** A picture as the model likes it: at the clip's size, and roughened like a frame of video. */
 function ltxFrame(g: GraphBuilder, input: LtxVideo, upload: string | undefined, w: number, h: number): Ref {
@@ -201,7 +212,7 @@ function ltxTwoPass(run: LtxRun): { video: Ref; audio: Ref } {
   if (input.start) large = g.out("LTXVImgToVideoInplace", { vae, image: ltxFrame(g, input, ctx.uploads.start, width, height), latent: large, strength: 1, bypass: false });
   const full = input.mid ? keyframe(large, width, height) : plain(large);
   g.phase("refining");
-  const refine = input.refineSteps;
+  const refine = refineStepsOf(input, frames);
   const second = g.add("SamplerCustomAdvanced", {
     noise: g.out("RandomNoise", { noise_seed: ctx.seed + 1 }),
     guider: g.out("CFGGuider", { model: loaded.model, positive: full.positive, negative: full.negative, cfg: input.cfg }),
@@ -283,7 +294,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
     { id: "start", type: "image", role: "start", label: "First frame", note: "the first frame", optional: true },
     { id: "end", type: "image", role: "end", label: "Last frame", note: "the last frame. With one, the clip is made in one pass at full size", optional: true },
     { id: "mid", type: "image", role: "mid", at: "midAt", label: "Keyframe", note: "a picture the clip passes through, at the time set below", optional: true, advanced: true },
-    { id: "midAt", type: "number", label: "Keyframe at", min: 0.5, max: 19.5, step: 0.5, default: 2.5, unit: " s", showWhen: "mid", advanced: true },
+    { id: "midAt", type: "number", label: "Keyframe at", min: 0.5, max: 19.5, step: 0.5, default: 2.5, unit: " s", showWhen: "mid", advanced: true, note: "snapped to the model's 8-frame steps (about a third of a second)" },
     { id: "seconds", type: "number", label: "Duration", min: 1, max: 20, step: 0.5, default: 5, unit: " s" },
     {
       id: "shape", type: "size", label: "Aspect ratio", default: "wide", grid: 64, min: 256, max: 1920, ratioOnly: true,
@@ -306,7 +317,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       id: "refineStrength", type: "number", label: "Refine denoise", min: 0.3, max: 1, step: 0.05, default: 0.85, showWhen: "twoPass", advanced: true,
       note: "where the refining pass starts: 0.85 is LTX's own. Lower keeps the enlarged clip closer to the first pass, higher lets it change more",
     },
-    { id: "refineSteps", type: "number", label: "Refine steps", note: "3 is LTX's own", min: 1, max: 8, step: 1, default: 3, showWhen: "twoPass", advanced: true },
+    { id: "refineSteps", type: "number", label: "Refine steps", note: "3 is LTX's own; left at 3, a clip past 241 frames (9.6 s) takes 4, which users find the enlarged clip needs. Another count is taken as typed", min: 1, max: 8, step: 1, default: 3, showWhen: "twoPass", advanced: true },
     {
       id: "turboIn", type: "choice", label: "Distilled model", options: ["From the name", "Yes", "No"], renamed: { Auto: "From the name" }, default: "From the name", advanced: true, section: "rare", perModel: true,
       note: "made for 8 steps as it is: no distilled LoRA is added. From the name: when it says distilled, turbo, lightning or a step count",
