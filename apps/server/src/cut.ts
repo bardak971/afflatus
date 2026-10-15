@@ -4,7 +4,7 @@ import { FRAME_SLACK_MS, JOIN_FADE_MS, musicGainAt, type MusicPlan } from "@affl
 import { gainWav, type DuckCurve } from "./duck";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { factsOf, localInputs, tools, type ProbeInfo, type VideoFacts } from "./video";
+import { factsOf, ffmpegMajor, graphFileOption, localInputs, tools, type ProbeInfo, type VideoFacts } from "./video";
 import { ffmpegPool } from "./pool";
 import { aiVideoArgs } from "./aiMark";
 
@@ -315,6 +315,8 @@ export interface ExportPart {
   noMatch?: boolean;
   /** Decoded as one piece with the part before: not matched, given the part before's own nudge (no step where there is none). */
   sameLook?: boolean;
+  /** Its video's frame means as kept beside it (TimelineMedia.means): the colour match reads them rather than measure the file again. */
+  means?: FrameMeans | null;
   /**
    * "hold": the part before holds its last frame for as long, this one fades in after it (nothing of either is lost).
    * "overlap": this part starts `blendMs` early, over the same moments as the part before's end, and the two are faded
@@ -552,34 +554,148 @@ export async function joinVideosInto<T>(parts: ExportPart[], frame: { width: num
   const lengthMs = parts.reduce((sum, p) => sum + (p.endMs - p.startMs), 0);
   const web = opts.webMb ? webCut(frame, lengthMs, opts.webMb) : null;
   const size = web ? { W: web.W, H: web.H } : { W: even(frame.width * scale), H: even(frame.height * scale) };
+  // enlarged frames are sharpened a little: scaling alone leaves them soft
+  const smooth = !web && opts.smoothTo && opts.smoothTo > fps ? `minterpolate=fps=${opts.smoothTo}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1` : "";
+  // the web's speed: pictures dropped evenly, never made up
+  const slower = web && fps > WEB_FPS ? `fps=${WEB_FPS}` : "";
+  const post = [smooth, slower, scale > 1 ? "unsharp=5:5:0.6:5:5:0" : ""].filter(Boolean);
+  const finish = `[joined]${post.join(",") || "null"}[v]`;
+  const videoCodec = web
+    // a size to keep: a mean bitrate, capped so no stretch overshoots it, and the slower preset for more picture per byte
+    ? ["-c:v", "libx264", "-preset", "slow", "-b:v", `${web.videoKbps}k`, "-maxrate", `${Math.round(web.videoKbps * 1.5)}k`, "-bufsize", `${web.videoKbps * 2}k`, "-pix_fmt", "yuv420p"]
+    : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"];
+  const audioCodec = ["-c:a", "aac", "-b:a", web ? `${web.audioKbps}k` : "192k"];
+  const ends = [...(opts.fromRender ? aiVideoArgs : []), "-movflags", "+faststart"];
+  const run = { timeout: 3 * 60 * 60_000, signal: opts.signal };
+  const music = opts.music;
   return inTemp(async (dir) => {
+    // every part's file on disk first: a colour match reads the part before's, which may lie in the piece before
+    const files = await Promise.all(parts.map((p, i) => onDisk(dir, `part${i}.${p.ext}`, p.source)));
+    const looks = await colourLooks(parts, files, Boolean(opts.match));
+    const pieces = piecesOf(parts, runsOf(parts));
+    const out = join(dir, "export.mp4");
+    if (pieces.length === 1) {
+      const inputs = new Inputs(dir);
+      const chains = await partChains(parts, files, pieces[0]!.flat(), inputs, size, fps, looks);
+      const { outs, total } = fadeRuns(parts, pieces[0]!, fps, chains);
+      chains.push(`${outs.join("")}concat=n=${outs.length}:v=1:a=1[joined][${music ? "voices" : "a"}]`, finish);
+      if (music) {
+        const track = await inputs.add(`music.${music.ext}`, music.source);
+        chains.push(...musicChain(music.plan, track, await inputs.add("gain.wav", musicGainWav(music, total))));
+      }
+      await must(tools.ffmpeg, [
+        "-y", "-loglevel", "error", ...inputs.args, ...(await graphFile(dir, "graph.txt", chains)), "-map", "[v]", "-map", "[a]", ...videoCodec, ...audioCodec, ...ends, out,
+      ], run);
+      return use(out);
+    }
+    // A long timeline is made in pieces, one ffmpeg run each, cut where no fade or transition crosses: ffmpeg opens every
+    // input of a run at once and holds tens of megabytes for each, so its memory is a piece's, not the whole timeline's.
+    // Each piece's picture is encoded as the whole would be and its sound kept exact (32-bit float, as the encoder is
+    // handed it); the pieces are put end to end by the concat demuxer, the picture copied as it is and the sound encoded
+    // once with the music under it. A piece ends where its concat filter ends it (its sound padded to its picture, as
+    // between runs), and the next starts there, as on the whole timeline's clock. Made at another speed (smoothed, or the
+    // web's), the pictures are worked out across the joins of the pieces too: the pieces are then kept lossless and the
+    // speed changed and encoded once, over all of them.
+    const regrid = Boolean(smooth || slower);
+    let total = 0;
+    let clock = 0;
+    /** Where the whole timeline's concat filter would end the picture: see `ending` below. */
+    let ending = 0;
+    const list: string[] = [];
+    for (const [k, piece] of pieces.entries()) {
+      const inputs = new Inputs(dir);
+      const chains = await partChains(parts, files, piece.flat(), inputs, size, fps, looks);
+      const { outs, total: length } = fadeRuns(parts, piece, fps, chains);
+      total += length;
+      // the concat filter pads a run's sound with silence to its picture's end only when another run follows: a piece but
+      // the last is followed by an empty one, so that its sound ends where the whole timeline's would
+      if (k < pieces.length - 1) {
+        chains.push(`nullsrc=s=${size.W}x${size.H}:r=${fps},format=yuv420p,setsar=1,trim=end_frame=0[vend]`, "anullsrc=channel_layout=stereo:sample_rate=48000,atrim=end_sample=0[aend]");
+        outs.push("[vend][aend]");
+      }
+      chains.push(`${outs.join("")}concat=n=${outs.length}:v=1:a=1[joined][a]`, regrid ? "[joined]null[v]" : finish);
+      const file = join(dir, `piece${k}.mov`);
+      // kept lossless for the speed change, each picture at its moment to the microsecond, as the whole timeline's concat
+      // filter hands them on (not moved onto the frame grid: the speed change picks its frames by those moments)
+      const keep = ["-c:v", "libx264", "-preset", "ultrafast", "-qp", "0", "-pix_fmt", "yuv420p", (await ffmpegMajor() ?? 99) < 6 ? "-vsync" : "-fps_mode", "passthrough", "-enc_time_base:v", "1:1000000"];
+      const codec = regrid ? keep : videoCodec;
+      await must(tools.ffmpeg, [
+        "-y", "-loglevel", "error", ...inputs.args, ...(await graphFile(dir, `graph${k}.txt`, chains)), "-map", "[v]", "-map", "[a]", ...codec, "-c:a", "pcm_f32le", file,
+      ], run);
+      // where the next piece starts: the end of its longest stream, exact (the file's own duration is in milliseconds)
+      const said = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type,duration", "-of", "csv=p=0", file]);
+      const lengths = new Map(said.split(/\r?\n/).filter(Boolean).map((l) => [l.split(",")[0], Number(l.split(",")[1])] as const));
+      const longest = Math.max(lengths.get("video") ?? 0, lengths.get("audio") ?? 0);
+      ending = clock + Math.max((lengths.get("video") ?? 0) - 1 / fps, lengths.get("audio") ?? 0);
+      clock += longest;
+      list.push(`file '${file.replace(/\\/g, "/").replace(/'/g, "'\\''")}'`, `duration ${longest.toFixed(6)}`);
+    }
+    await writeFile(join(dir, "pieces.txt"), list.join("\n") + "\n");
     const inputs = new Inputs(dir);
-    const chains = await partChains(parts, inputs, size, fps, Boolean(opts.match));
-    const { outs, total } = fadeRuns(parts, fps, chains);
-    const music = opts.music;
-    chains.push(`${outs.join("")}concat=n=${outs.length}:v=1:a=1[joined][${music ? "voices" : "a"}]`);
-    // enlarged frames are sharpened a little: scaling alone leaves them soft
-    const smooth = !web && opts.smoothTo && opts.smoothTo > fps ? `minterpolate=fps=${opts.smoothTo}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1` : "";
-    // the web's speed: pictures dropped evenly, never made up
-    const slower = web && fps > WEB_FPS ? `fps=${WEB_FPS}` : "";
-    chains.push(`[joined]${[smooth, slower, scale > 1 ? "unsharp=5:5:0.6:5:5:0" : ""].filter(Boolean).join(",") || "null"}[v]`);
+    await inputs.add("pieces.txt", join(dir, "pieces.txt"), ["-f", "concat", "-safe", "0"]);
+    // the web's speed: on the whole timeline the speed change gives a frame for every moment before where the concat
+    // filter ends the picture, its last frame's moment or the sound's end when that runs a little past (measured: not the
+    // last frame's end). Here the last frame is held a frame longer and the frames counted off there. Smoothing goes by
+    // the frames alone
+    const counted = slower ? ["tpad=stop=1:stop_mode=clone", ...post, `trim=end_frame=${Math.round(ending * WEB_FPS)}`] : post;
+    const chains: string[] = regrid ? [`[0:v]${["settb=AVTB", ...counted].join(",")}[v]`] : [];
     if (music) {
       const track = await inputs.add(`music.${music.ext}`, music.source);
-      chains.push(...musicChain(music.plan, track, await inputs.add("gain.wav", musicGainWav(music, total))));
+      chains.push("[0:a]anull[voices]", ...musicChain(music.plan, track, await inputs.add("gain.wav", musicGainWav(music, total))));
     }
-    const out = join(dir, "export.mp4");
+    const picture = regrid
+      ? ["-map", "[v]", ...videoCodec]
+      // the picture put back on its frame grid where a piece starts between two frames (its sound ran on past its
+      // picture): the encoder of the whole timeline rounds to the nearest frame there, the same
+      : ["-map", "0:v", "-c:v", "copy", "-bsf:v", `setts=pts=round(PTS*TB*${fps})/(TB*${fps}):dts=round(DTS*TB*${fps})/(TB*${fps})`];
     await must(tools.ffmpeg, [
-      "-y", "-loglevel", "error", ...inputs.args,
-      "-filter_complex", chains.join(";"), "-map", "[v]", "-map", "[a]",
-      ...(web
-        // a size to keep: a mean bitrate, capped so no stretch overshoots it, and the slower preset for more picture per byte
-        ? ["-c:v", "libx264", "-preset", "slow", "-b:v", `${web.videoKbps}k`, "-maxrate", `${Math.round(web.videoKbps * 1.5)}k`, "-bufsize", `${web.videoKbps * 2}k`, "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", `${web.audioKbps}k`]
-        : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k"]),
-      ...(opts.fromRender ? aiVideoArgs : []),
-      "-movflags", "+faststart", out,
-    ], { timeout: 3 * 60 * 60_000, signal: opts.signal });
+      "-y", "-loglevel", "error", ...inputs.args, ...(chains.length ? ["-filter_complex", chains.join(";")] : []),
+      ...picture, "-map", music ? "[a]" : "0:a", ...audioCodec, ...ends, out,
+    ], run);
     return use(out);
   });
+}
+
+/**
+ * The parts of a timeline longer than this are made in pieces of about as many (piecesOf), each piece its own ffmpeg run.
+ * Settable for the tests, which make pieces of a few parts.
+ */
+export const EXPORT_PIECE = { parts: 8 };
+
+/** The parts that fade into each other (a blend or a transition), as runs of their numbers, in order: a run is made as one. */
+export function runsOf(parts: ExportPart[]): number[][] {
+  const runs: number[][] = [];
+  parts.forEach((p, i) => {
+    if (i > 0 && ((p.blendMs && p.blendMs > 0) || p.transitionIn)) runs.at(-1)!.push(i);
+    else runs.push([i]);
+  });
+  return runs;
+}
+
+/** Whole runs gathered into pieces of at least EXPORT_PIECE.parts parts (the last one may be shorter; a longer run is a piece of its own). One piece when the timeline is that short. */
+export function piecesOf(parts: ExportPart[], runs: number[][]): number[][][] {
+  if (parts.length <= EXPORT_PIECE.parts) return [runs];
+  const pieces: number[][][] = [[]];
+  let count = 0;
+  for (const run of runs) {
+    if (count >= EXPORT_PIECE.parts) {
+      pieces.push([]);
+      count = 0;
+    }
+    pieces.at(-1)!.push(run);
+    count += run.length;
+  }
+  return pieces;
+}
+
+/**
+ * The filter graph handed to ffmpeg in a file: on the command line it outgrew Windows' 32 767 characters at ~48 clips
+ * with transitions (spawn ENAMETOOLONG). The option that reads it depends on the version (graphFileOption).
+ */
+async function graphFile(dir: string, name: string, chains: string[]): Promise<string[]> {
+  const file = join(dir, name);
+  await writeFile(file, chains.join(";"));
+  return [await graphFileOption(), file];
 }
 
 const sec = (ms: number) => (ms / 1000).toFixed(3);
@@ -599,40 +715,59 @@ class Inputs {
 }
 
 /**
- * Each part's picture and sound as a chain of its own (`v<i>`, `a<i>`): cut to what plays, fitted into the frame, brought to
- * one speed, colour-matched to the part before (the nudge carried along), held at its end when the part after fades in with
- * a hold; its own sound, its sound file, or silence, as long as its picture.
+ * Each part's colour nudge, a `lutyuv` to add to its picture's chain (empty when none): colour matching carries along, a
+ * part matched to the part before as it will look, nudge included. The means at every join are read at once and the carry
+ * worked out in order after. A part's means are read off its video's kept frame means (`means`, worked out once per video
+ * and kept beside it); only without them is the file measured there (meansOf, two ffmpeg runs a join, through the pool).
  */
-async function partChains(parts: ExportPart[], inputs: Inputs, size: { W: number; H: number }, fps: number, match: boolean): Promise<string[]> {
+async function colourLooks(parts: ExportPart[], files: string[], match: boolean): Promise<string[]> {
+  type Tune = { kind: "same" } | { kind: "match"; means: Promise<[Means | null, Means | null]> } | { kind: "reset" };
+  const look = MATCH.lookSec;
+  const at = (i: number, fromMs: number): Promise<Means | null> => {
+    const kept = parts[i]!.means ? meansWithin(parts[i]!.means!, fromMs, look) : null;
+    return kept ? Promise.resolve(kept) : meansOf(files[i]!, fromMs / 1000, look);
+  };
+  const tunes: Tune[] = parts.map((p, i) => {
+    const prev = parts[i - 1];
+    if (match && p.sameLook && prev?.kind === "video") return { kind: "same" };
+    if (match && p.kind === "video" && !p.noMatch && prev?.kind === "video") {
+      const means = Promise.all([at(i - 1, prev.endMs - look * 1000), at(i, p.matchAtMs ?? p.startMs + (p.blendMs ?? 0))]);
+      // read later, in order: a failure is caught there (meansOf says none rather than failing)
+      means.catch(() => {});
+      return { kind: "match", means };
+    }
+    return { kind: "reset" };
+  });
+  const lut = (c: Means) => (c.y || c.u || c.v ? `,lutyuv=y='clip(val+(${c.y}),0,255)':u='clip(val+(${c.u}),0,255)':v='clip(val+(${c.v}),0,255)'` : "");
+  let carry: Means = { y: 0, u: 0, v: 0 };
+  const said: string[] = [];
+  for (const [i, t] of tunes.entries()) {
+    if (t.kind === "match") {
+      const [a, b] = await t.means;
+      carry = a && b ? colourNudge(a, b, carry) : { y: 0, u: 0, v: 0 };
+    } else if (t.kind === "reset") carry = { y: 0, u: 0, v: 0 };
+    said[i] = t.kind === "reset" ? "" : lut(carry);
+  }
+  return said;
+}
+
+/**
+ * Each part's picture and sound as a chain of its own (`v<i>`, `a<i>`), for the parts numbered `which` (a piece of the
+ * timeline, or all of it): cut to what plays, fitted into the frame, brought to one speed, colour-matched to the part
+ * before (`looks`, colourLooks), held at its end when the part after fades in with a hold; its own sound, its sound file,
+ * or silence, as long as its picture.
+ */
+async function partChains(parts: ExportPart[], files: string[], which: number[], inputs: Inputs, size: { W: number; H: number }, fps: number, looks: string[]): Promise<string[]> {
   const { W, H } = size;
   const chains: string[] = [];
-  // colour matching carries along: a part is matched to the part before as it will look, nudge included. The means of every
-  // join are read at once (each pair is two ffmpeg runs, through the pool) and the carry is worked out in order after:
-  // until then a part's chain holds a mark where its colour nudge goes
-  type Tune = { kind: "same" } | { kind: "match"; means: Promise<[Means | null, Means | null]> } | { kind: "reset" };
-  const tunes: Tune[] = [];
-  const mark = (i: number) => `\u0000tune${i}\u0000`;
-  let prevFile: string | null = null;
-  let prevPart: ExportPart | null = null;
-  const lut = (c: Means) => (c.y || c.u || c.v ? `,lutyuv=y='clip(val+(${c.y}),0,255)':u='clip(val+(${c.u}),0,255)':v='clip(val+(${c.v}),0,255)'` : "");
-  for (const [i, p] of parts.entries()) {
+  for (const i of which) {
+    const p = parts[i]!;
     const length = sec(p.endMs - p.startMs);
-    const { index: main, file } = await inputs.add(`part${i}.${p.ext}`, p.source, p.kind === "still" ? ["-loop", "1", "-t", length] : []);
+    const { index: main } = await inputs.add(`part${i}.${p.ext}`, files[i]!, p.kind === "still" ? ["-loop", "1", "-t", length] : []);
     const fit = p.fill
       ? `scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H}`
       : `scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`;
-    const tune = mark(i);
-    if (match && p.sameLook && prevPart?.kind === "video") {
-      tunes.push({ kind: "same" });
-    } else if (match && p.kind === "video" && !p.noMatch && prevPart?.kind === "video" && prevFile) {
-      const look = MATCH.lookSec;
-      const means = Promise.all([meansOf(prevFile, (prevPart.endMs - look * 1000) / 1000, look), meansOf(file, (p.matchAtMs ?? p.startMs + (p.blendMs ?? 0)) / 1000, look)]);
-      // read later, in order: a failure is caught there (meansOf says none rather than failing)
-      means.catch(() => {});
-      tunes.push({ kind: "match", means });
-    } else tunes.push({ kind: "reset" });
-    prevFile = file;
-    prevPart = p;
+    const tune = looks[i] ?? "";
     // the part after fades in over this one's end with a hold: this one holds its last frame (and silence) for as long
     const next = parts[i + 1];
     const padMs = next?.blendMs && next.kind === "video" && next.blendMode !== "overlap" ? Math.min(next.blendMs, (next.endMs - next.startMs) - FRAME_SLACK_MS) : 0;
@@ -663,29 +798,15 @@ async function partChains(parts: ExportPart[], inputs: Inputs, size: { W: number
       chains.push(`anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration=${heard}[a${i}]`);
     }
   }
-  let carry: Means = { y: 0, u: 0, v: 0 };
-  const said: string[] = [];
-  for (const [i, t] of tunes.entries()) {
-    if (t.kind === "match") {
-      const [a, b] = await t.means;
-      carry = a && b ? colourNudge(a, b, carry) : { y: 0, u: 0, v: 0 };
-    } else if (t.kind === "reset") carry = { y: 0, u: 0, v: 0 };
-    said[i] = t.kind === "reset" ? "" : lut(carry);
-  }
-  return chains.map((c) => c.replace(/\u0000tune(\d+)\u0000/g, (_m, i: string) => said[Number(i)] ?? ""));
+  return chains;
 }
 
 /**
- * The parts that fade into the one before, crossfaded in runs (added to `chains`); each run's picture and sound out (`outs`,
- * to be put one after the other), and how long all of it lasts.
+ * The parts that fade into the one before, crossfaded in runs (runsOf; added to `chains`); each run's picture and sound out
+ * (`outs`, to be put one after the other), and how long all of it lasts.
  */
-function fadeRuns(parts: ExportPart[], fps: number, chains: string[]): { outs: string[]; total: number } {
+function fadeRuns(parts: ExportPart[], runs: number[][], fps: number, chains: string[]): { outs: string[]; total: number } {
   const lenOf = (p: ExportPart) => p.endMs - p.startMs;
-  const runs: number[][] = [];
-  parts.forEach((p, i) => {
-    if (i > 0 && ((p.blendMs && p.blendMs > 0) || p.transitionIn)) runs.at(-1)!.push(i);
-    else runs.push([i]);
-  });
   const outs: string[] = [];
   let total = 0;
   for (const run of runs) {

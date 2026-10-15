@@ -182,7 +182,7 @@ export class Timelines {
     };
     this.range = new TimelineRange(core);
     this.media = new TimelineMedia(core);
-    this.exporter = new TimelineExport(core);
+    this.exporter = new TimelineExport(core, (asset) => this.media.means(asset));
     this.takes = new TimelineTakes(core);
     this.planner = new TimelinePlan(core, this.takes, this.media);
     this.history = new TimelineHistory(db, (id) => this.row(id), () => this.changed());
