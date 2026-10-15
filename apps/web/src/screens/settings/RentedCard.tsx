@@ -1,8 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ExternalLink } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
-import { api } from "../../api";
+import { api, type RunpodPod } from "../../api";
 import { useQueue, useSettings } from "../../data";
+import { useOpenComfyUI } from "../../actions";
+import { useRentedOps } from "../../rentedOps";
+import { RentedHead } from "./RentedRows";
 import { est, plural, usd, when } from "../../format";
 import { Select } from "../../Select";
 import { queryKeys } from "../../queryKeys";
@@ -60,16 +64,8 @@ export function RentRow() {
   );
 }
 
-/** A figure against its cap: the amount, "of $5", a thin bar. */
-function Against({ value, cap, sub }: { value: number; cap: number; sub?: string }) {
-  const part = cap > 0 ? Math.min(1, value / cap) : 0;
-  return (
-    <span className="flex min-w-0 grow flex-col gap-1.5">
-      <span className="text-[12.5px]"><span className="font-semibold">{usd(value, true)}</span>{cap > 0 && <span className="text-ink-2"> of {usd(cap)}</span>}{sub && <span className="text-ink-3"> · {sub}</span>}</span>
-      {cap > 0 && <span className="h-[5px] max-w-[320px] overflow-hidden rounded-[3px] bg-line-strong"><span className={cx("block h-full rounded-[3px]", part >= 1 ? "bg-warn" : "bg-accent")} style={{ width: `${part * 100}%` }} /></span>}
-    </span>
-  );
-}
+/** A figure against its cap, in a few words: "$1.18 of $5", or the figure alone without a cap. */
+const against = (value: number, cap: number) => `${usd(value, true)}${cap > 0 ? ` of ${usd(cap)}` : ""}`;
 
 /** A cap in dollars: a small box, saved when it is left. Empty or 0: no cap. */
 function CapBox({ label, value, onSave }: { label: string; value: number; onSave(v: number): void }) {
@@ -95,8 +91,9 @@ function CapBox({ label, value, onSave }: { label: string; value: number; onSave
 }
 
 /**
- * The RunPod account: its key, its balance, today and this month against the caps, and the caps themselves. The figures
- * are Afflatus's (each pod's time × its rate), counted once a pod is a machine; RunPod's bill is the reference.
+ * The RunPod account: its key, its balance and how long it lasts, the caps with today and this month under them, and when a
+ * volume counts as unused. The spending itself (the month, the day, where it went) is Queue › Costs's: here, only what a
+ * setting is weighed against.
  */
 function RunpodAccount() {
   const settings = useSettings();
@@ -143,9 +140,20 @@ function RunpodAccount() {
   };
   return (
     <Card
-      title="RunPod"
-      help="What your rented pods cost, every pod of the account, its GPU and its disk: RunPod's own bill. RunPod writes it some hours after the fact, so the last hours are Afflatus's count (each pod's time × its rate, from its deploy), the higher of the two while a pod runs, so that a cap is never reached late. A network volume is billed apart, every month."
-      status={s && s.balance !== null ? <span className={cx("text-[12.5px]", s.lowBalance ? "font-semibold text-warn-ink" : "text-ink-2")}>balance <span className="font-mono">{usd(s.balance)}</span></span> : undefined}
+      title="RunPod account"
+      help="What your rented pods cost, every pod of the account, its GPU and its disk: RunPod's own bill. RunPod writes it some hours after the fact, so the last hours are Afflatus's count (each pod's time × its rate, from its deploy), the higher of the two while a pod runs, so that a cap is never reached late. A network volume is billed apart, every month. The balance lasts at what the account spends now (every pod and volume): at zero RunPod stops every pod, and a render that would end after it is not sent to a rented pod."
+      status={(
+        <span className="flex items-center gap-3 text-[12.5px]">
+          {s && s.balance !== null && (
+            <span className={s.lowBalance || (s.runwayMs !== null && s.runwayMs < 3_600_000) ? "font-semibold text-warn-ink" : "text-ink-2"}>
+              balance <span className="font-mono text-ink">{usd(s.balance)}</span>
+              {s.runwayMs !== null && s.spendPerHr !== null && <> · lasts {est(s.runwayMs)} at {usd(s.spendPerHr)}/h</>}
+            </span>
+          )}
+          {/* the spending itself is the Queue's Costs view */}
+          <Link href="/queue?view=costs" className="font-semibold text-ink-2 hover:text-ink">Costs ›</Link>
+        </span>
+      )}
     >
       {!has || changing
         ? <RunpodKey setting="rented.key" label="API key" onSaved={() => setChanging(false)} onCancel={changing ? () => setChanging(false) : undefined} />
@@ -155,20 +163,11 @@ function RunpodAccount() {
             <Button size="sm" tone="quiet" onClick={() => setChanging(true)}>Change key</Button>
           </Row>
         )}
-      {s && <Row label="Today"><Against value={s.today} cap={caps.day} sub={s.billed ? "RunPod's bill, the last hours counted here" : "counted here (RunPod's bill not read)"} /></Row>}
-      {s && <Row label="This month"><Against value={s.month} cap={caps.month} /></Row>}
-      {s?.storage && (s.storage.volumes > 0 || s.storage.stoppedDisks > 0 || s.storage.disksMonth > 0) && (
-        <Row label="Storage" help="What keeping models costs: the network volumes (billed every month, pod or not) and the pods' own disks (a stopped pod's disk still bills, at $0.20 per GB a month). The disks are in the figures above, RunPod billing them with their pod; the volumes are not. A cap stops pods, never storage: only deleting a volume, or terminating a stopped pod, ends it.">
-          <span className="text-[12.5px] text-ink-2">
-            {s.storage.volumesMonth !== null && <><span className="font-semibold text-ink">{usd(s.storage.volumesMonth, true)}</span> for {plural(s.storage.volumes, "volume")} this month · </>}
-            {s.storage.disksMonth > 0 && <>{usd(s.storage.disksMonth, true)} of disks in the month above · </>}
-            ~{usd(s.storage.perMonth)} a month as it stands{s.storage.stoppedDisks > 0 && <span className="text-warn-ink"> · {plural(s.storage.stoppedDisks, "stopped pod")} with a disk, billed while it waits</span>}
-          </span>
-        </Row>
-      )}
-      {s && s.runwayMs !== null && s.spendPerHr !== null && (
-        <Row label="Balance lasts" help="At what the account spends now on RunPod (every pod and volume): at zero RunPod stops every pod, and terminates those without a volume. A render that would end after it is not sent to a rented pod.">
-          <span className={cx("text-[12.5px]", s.runwayMs < 3_600_000 ? "font-semibold text-warn-ink" : "text-ink-2")}>{est(s.runwayMs)} at {usd(s.spendPerHr)}/h</span>
+      {has && (
+        // today and this month under the caps, which they are weighed against
+        <Row setting="comfy.rentcaps" label="Caps" sub={s ? `today ${against(s.today, caps.day)} · this month ${against(s.month, caps.month)}` : undefined} help="At a cap, the render running finishes, then the pods stop; what waits goes to your other machines, and Start says the cap is reached. Empty: no cap. Today and this month are RunPod's bill, its last hours counted here.">
+          <CapBox label="a day" value={caps.day} onSave={(day) => changeCaps({ day })} />
+          <CapBox label="a month" value={caps.month} onSave={(month) => changeCaps({ month })} />
         </Row>
       )}
       {has && (
@@ -176,15 +175,10 @@ function RunpodAccount() {
           <span className="w-[120px]"><Select size="sm" label="Flag a volume unused after" value={String(settings.data?.volumeUnusedDays ?? 7)} onChange={(v) => !saveUnused.isPending && saveUnused.mutate(Number(v))} options={UNUSED_DAYS.map((n) => ({ value: String(n), label: n ? `after ${plural(n, "day")}` : "never" }))} /></span>
         </Row>
       )}
-      {has && (
-        <Row setting="comfy.rentcaps" label="Caps" help="At a cap, the render running finishes, then the pods stop; what waits goes to your other machines, and Start says the cap is reached. Empty: no cap.">
-          <CapBox label="a day" value={caps.day} onSave={(day) => changeCaps({ day })} />
-          <CapBox label="a month" value={caps.month} onSave={(month) => changeCaps({ month })} />
-        </Row>
-      )}
-      {(s?.lowBalance || spending.isError || saveCaps.isError || Boolean(s?.storage?.unused.length)) && (
+      {(s?.lowBalance || spending.isError || saveCaps.isError || Boolean(s?.storage?.unused.length) || Boolean(s?.storage?.stoppedDisks)) && (
         <Block>
           {s?.lowBalance && <ErrorNote>Your RunPod balance is low: RunPod stops pods at zero, and may delete their disks after a while.</ErrorNote>}
+          {Boolean(s?.storage?.stoppedDisks) && <ErrorNote>{plural(s!.storage!.stoppedDisks, "stopped pod")} with a disk: billed while it waits. Terminate it if you will not start it again.</ErrorNote>}
           {s?.storage?.unused.map((v) => <ErrorNote key={v.id}>The volume {v.name} is unused {v.usedAt ? `since ${when(v.usedAt)}` : "since Afflatus first saw it"}: {usd(v.perMonth)} a month for nothing. Delete it under Network volumes if you will not deploy on it soon.</ErrorNote>)}
           {spending.isError && <ErrorNote>{spending.error.message}</ErrorNote>}
           {saveCaps.isError && <ErrorNote>{saveCaps.error.message}</ErrorNote>}
@@ -194,9 +188,14 @@ function RunpodAccount() {
   );
 }
 
+/** Past this many pods each is one line, its facts left to its card: a long list of two-line pods is a long way down. */
+const SHORT_PAST = 6;
+
 /**
- * Every pod of the account, made here or on RunPod's site, read again while the tab is open. Add makes one a machine; one
- * already a machine leads to its card. A running pod that is not a machine is said: it bills, and nothing here stops it.
+ * Every pod of the account, made here or on RunPod's site, read again while the tab is open: running ones first, the
+ * list's head adding them up. A pod that is a machine says its state and cost, how it ends, and has Open ComfyUI (logged
+ * in, a one-time code), Start or Stop, and its card; one that is not has Add. A running pod that is not a machine is
+ * said: it bills, and nothing here stops it.
  */
 function RunpodPods() {
   const client = useQueryClient();
@@ -207,28 +206,81 @@ function RunpodPods() {
       for (const queryKey of [queryKeys.settings(), queryKeys.runpodPods(), queryKeys.queue(), queryKeys.machines()]) void client.invalidateQueries({ queryKey });
     },
   });
-  const list = pods.data?.pods ?? [];
+  const machines = useSettings().data?.machines ?? [];
+  const states = useQueue().data?.machines ?? [];
+  const ops = useRentedOps();
+  const openComfy = useOpenComfyUI();
+  // the volumes' names (the Network volumes card reads them on this tab too)
+  const volumes = useQuery({ queryKey: queryKeys.runpodVolumes(), queryFn: ({ signal }) => api.runpodVolumes({ signal }), staleTime: 30_000, retry: false });
+  // a machine's state is the queue's, live; RunPod's list is read every 15 s and runs behind a pod just started or stopped
+  const live = (p: RunpodPod) => {
+    const r = p.added ? states.find((m) => m.id === p.added)?.rented : undefined;
+    return { status: r?.status ?? p.status, rate: r?.rate ?? p.cost };
+  };
+  // running first, then the others as RunPod lists them
+  const list = [...(pods.data?.pods ?? [])].sort((a, b) => Number(live(b).status === "RUNNING") - Number(live(a).status === "RUNNING"));
+  const running = list.filter((p) => live(p).status === "RUNNING");
+  const stopped = list.filter((p) => live(p).status === "EXITED").length;
+  const perHour = running.reduce((n, p) => n + (live(p).rate ?? 0), 0);
+  const short = list.length > SHORT_PAST;
   return (
-    <Card title="Your pods on RunPod" setting="rented.pods" status={<Button size="sm" tone="primary" onClick={() => openDeploy()}>Deploy a GPU…</Button>} help="Every pod of the account, made here or on RunPod's site. Add makes one a machine, as it is (its card is in Settings › ComfyUI): Afflatus starts it only when you press Start. A pod must expose ComfyUI's port, 8188, over HTTP to be added.">
+    <Card
+      title="Your pods"
+      setting="rented.pods"
+      help="Every pod of the account, made here or on RunPod's site. Add makes one a machine, as it is (its card is in Settings › ComfyUI): Afflatus starts it only when you press Start. A pod must expose ComfyUI's port, 8188, over HTTP to be added."
+      status={(
+        <span className="flex items-center gap-3">
+          {list.length > 0 && (
+            <span className="text-[12.5px] text-ink-2">
+              {running.length > 0 && <><span className="font-semibold text-good">{running.length} running</span> · <span className="font-mono">{usd(perHour)}</span>/h</>}
+              {running.length > 0 && stopped > 0 && " · "}
+              {stopped > 0 && `${stopped} stopped`}
+            </span>
+          )}
+          <Button size="sm" tone="primary" onClick={() => openDeploy()}>Deploy a GPU…</Button>
+        </span>
+      )}
+    >
       {pods.isError && <Block><ErrorNote>{pods.error.message}</ErrorNote></Block>}
-      {pods.isSuccess && !list.length && <Block><span className="text-xs text-ink-2">No pods on this account. Make one on RunPod (a ComfyUI template, port 8188 exposed), then it shows here.</span></Block>}
+      {pods.isSuccess && !list.length && <Block><span className="text-xs text-ink-2">No pods on this account. Deploy a GPU, or make one on RunPod (a ComfyUI template, port 8188 exposed): then it shows here.</span></Block>}
       {list.map((p) => {
-        const running = p.status === "RUNNING";
+        const { status, rate } = live(p);
+        const isRunning = status === "RUNNING";
+        const machine = p.added ? machines.find((m) => m.id === p.added) : undefined;
+        const state = p.added ? states.find((m) => m.id === p.added) : undefined;
+        const r = state?.rented;
         // running and not a machine: billed, with no idle, cap or watchdog of Afflatus's on it
-        const loose = running && !p.added;
-        const said = p.added ? `a machine · ${running ? "running" : p.status === "EXITED" ? "stopped" : p.status.toLowerCase()}`
-          : loose ? `running, not in Afflatus: billed, nothing here stops it${p.comfy ? "" : " · port 8188 not exposed"}`
-          : !p.comfy ? "ComfyUI not exposed: add port 8188 (HTTP) on RunPod"
-          : p.status === "EXITED" ? "stopped" : p.status.toLowerCase();
+        const loose = isRunning && !p.added;
+        const said = loose ? `running, not in Afflatus: billed, nothing here stops it${p.comfy ? "" : " · port 8188 not exposed"}`
+          : !p.added && !p.comfy ? "ComfyUI not exposed: add port 8188 (HTTP) on RunPod"
+          : !p.added ? (status === "EXITED" ? "stopped" : status.toLowerCase()) : null;
+        const ends = machine?.rented ? `${machine.rented.idleDo === "stop" ? "stops" : "terminates"} after ${minutesSaid(machine.rented.idleMinutes)} idle` : null;
+        const volume = p.volumeId ? volumes.data?.volumes.find((v) => v.id === p.volumeId) : undefined;
+        const facts = [
+          p.gpu?.replace(/^NVIDIA (GeForce )?/, ""),
+          rate ? `${usd(rate)}/h` : null,
+          p.dataCenter,
+          p.volumeId ? `on ${volume ? volume.name : "a network volume"}` : null,
+          ends,
+        ].filter(Boolean).join(" · ");
         return (
-          <div key={p.id} className={cx("grid grid-cols-[10px_minmax(0,1fr)_minmax(0,160px)_70px_84px] items-center gap-2.5 px-[18px] py-2 text-[12.5px]", !p.added && !p.comfy && !loose && "opacity-60")}>
-            <span aria-hidden className={cx("size-[7px] rounded-full", loose ? "bg-warn" : running ? "bg-good" : "border-[1.5px] border-ink-3")} />
-            <span className="min-w-0 truncate"><span className="font-semibold">{p.name}</span> <span className={loose ? "text-warn-ink" : "text-ink-3"}>· {said}</span></span>
-            <span className="truncate text-ink-2">{[p.gpu?.replace(/^NVIDIA (GeForce )?/, ""), p.dataCenter].filter(Boolean).join(" · ")}</span>
-            <span className="font-mono text-xs text-ink-2" data-tip={p.cost ? undefined : "RunPod says a pod's rate only while it runs"}>{p.cost ? `${usd(p.cost)}/h` : "—"}</span>
-            {p.added
-              ? <Link href={`/settings?machine=${encodeURIComponent(p.added)}`} className="justify-self-end text-[12.5px] font-semibold hover:underline">Its card ›</Link>
-              : p.comfy ? <Button size="sm" tone="primary" onClick={() => add.mutate(p.id)} disabled={add.isPending}>Add</Button> : <span />}
+          <div key={p.id} className={cx("flex flex-wrap items-center gap-x-3 gap-y-2 px-[18px] py-3", !p.added && !p.comfy && !loose && "opacity-60")}>
+            <span className="flex min-w-0 grow basis-[260px] flex-col gap-1">
+              <span className="flex min-w-0 items-center gap-2">
+                <span aria-hidden className={cx("size-[7px] shrink-0 rounded-full", loose ? "bg-warn" : isRunning ? "bg-good" : "border-[1.5px] border-ink-3")} />
+                <span className="truncate text-[13.5px] font-semibold">{machine ? machine.name || p.name : p.name}</span>
+                {said && <span className={cx("min-w-0 truncate text-[12.5px]", loose ? "text-warn-ink" : "text-ink-3")}>· {said}</span>}
+              </span>
+              {!short && facts && <span className="truncate pl-[15px] text-xs text-ink-3">{facts}</span>}
+            </span>
+            <span className="flex shrink-0 items-center gap-2">
+              {machine && state && <RentedHead machine={machine} state={state} ops={ops} />}
+              {/* its ComfyUI, logged in: once it runs and answers */}
+              {machine && r?.status === "RUNNING" && !r.booting && r.answers !== false && <Button size="sm" onClick={() => openComfy.mutate(machine.id)} disabled={openComfy.isPending}>Open ComfyUI <ExternalLink size={12} /></Button>}
+              {p.added
+                ? <Link href={`/settings?machine=${encodeURIComponent(p.added)}`} className="text-[12.5px] font-semibold text-ink-2 hover:text-ink">Its card ›</Link>
+                : p.comfy && <Button size="sm" tone="primary" onClick={() => add.mutate(p.id)} disabled={add.isPending}>Add</Button>}
+            </span>
           </div>
         );
       })}
@@ -241,9 +293,20 @@ function RunpodPods() {
 const gpuSaid = (id: string) => id.replace(/^NVIDIA (GeForce )?/, "");
 const minutesSaid = (n: number) => (n === 0 ? "never" : n < 60 ? `${n} min` : `${n / 60} h`);
 
+/** One choice of the next deploy, as a small box: what it is, the choice, a line under it. */
+function Choice({ what, children, sub, tone }: { what: string; children: ReactNode; sub?: ReactNode; tone?: "good" | "warn" }) {
+  return (
+    <span className="flex min-w-0 flex-col gap-0.5 rounded-[10px] bg-raised px-3 py-2.5">
+      <span className="text-[11.5px] font-semibold text-ink-3">{what}</span>
+      <span className={cx("truncate text-[13px] font-semibold", tone === "good" ? "text-good" : tone === "warn" ? "text-warn-ink" : "text-ink")}>{children}</span>
+      {sub && <span className="text-[11.5px] text-ink-2">{sub}</span>}
+    </span>
+  );
+}
+
 /**
- * Next deploy: what the Deploy dialog opens with and Deploy again repeats, said in one place. Change… opens the dialog,
- * which saves its choices on a deploy, or with "Save as next deploy".
+ * Next deploy: what the Deploy dialog opens with and Deploy again repeats, as five small boxes (GPU, image, models, disk,
+ * when done). Change… opens the dialog, which saves its choices on a deploy, or with "Save as next deploy".
  */
 function NextDeploy() {
   const settings = useSettings();
@@ -252,32 +315,30 @@ function NextDeploy() {
   const sets = useQuery({ queryKey: queryKeys.modelSets.all(), queryFn: ({ signal }) => api.modelSets({ signal }), enabled: Boolean(next?.set) });
   const volume = next?.volume ? volumes.data?.volumes.find((v) => v.id === next.volume) : null;
   return (
-    <Card title="Next deploy" setting="rented.next" help="What Deploy a GPU opens with, and what Deploy again does: the last deploy's choices, or the ones saved with “Save as next deploy”." status={<Button size="sm" onClick={() => openDeploy()}>Change…</Button>}>
+    <Card title="Next deploy" setting="rented.next" help="What Deploy a GPU opens with, and what Deploy again does: the last deploy's choices, or the ones saved with “Save as next deploy”. Its models are what each waiting job needs, fetched onto the pod from Civitai or Hugging Face (or sent from this PC when no site has the file), in the order the jobs need them; a Model set adds its files ahead." status={<Button size="sm" onClick={() => openDeploy()}>Change…</Button>}>
       {!next && <Block><span className="text-xs text-ink-2">Nothing yet: the first deploy's choices are kept here.</span></Block>}
       {next && (
-        <>
-          <Row label="GPU"><span className="text-[12.5px] text-ink-2"><b className="text-ink">{gpuSaid(next.gpu)}</b> · {next.cloud === "SECURE" ? "Secure" : "Community"} Cloud</span></Row>
-          <Row label="Image"><span className="text-[12.5px] text-ink-2">{next.template === "afflatus" ? "Afflatus · locked" : "RunPod's ComfyUI · not locked"}</span></Row>
-          <Row label="Model set"><span className="text-[12.5px] text-ink-2">{next.set ? sets.data?.items.find((x) => x.id === next.set)?.name ?? "a set since deleted" : "none: the waiting jobs' files only"}</span></Row>
-          <Row label="Disk">
-            <span className={cx("text-[12.5px]", volume?.usedBy ? "text-warn-ink" : "text-ink-2")}>
-              {!next.volume ? `its own, ${next.disk} GB · models fetched at each deploy` : volume ? `${volume.name} · ${volume.dataCenter} · its GPUs only${volume.usedBy ? ` · in use by ${volume.usedBy.name} now` : ""}` : volumes.isSuccess ? "a volume since deleted: none" : "a network volume"}
-            </span>
-          </Row>
-          <Row label="When done"><span className="text-[12.5px] text-ink-2">{next.idleDo === "stop" ? "Stop" : "Terminate"} it after {minutesSaid(next.idleMinutes)} idle · watchdog {next.watchdogMinutes ? minutesSaid(next.watchdogMinutes) : "off"}</span></Row>
-        </>
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2.5 px-[18px] py-3.5">
+          <Choice what="GPU" sub={`${next.cloud === "SECURE" ? "Secure" : "Community"} Cloud`}>{gpuSaid(next.gpu)}</Choice>
+          <Choice what="Image" tone={next.template === "afflatus" ? "good" : "warn"} sub={next.template === "afflatus" ? "locked from its start" : "not locked"}>{next.template === "afflatus" ? "Afflatus" : "RunPod's ComfyUI"}</Choice>
+          <Choice what="Models" sub={next.set ? `+ ${sets.data?.items.find((x) => x.id === next.set)?.name ?? "a set since deleted"} ahead` : "no set ahead"}>What each job needs</Choice>
+          <Choice what="Disk" tone={volume?.usedBy ? "warn" : undefined} sub={!next.volume ? "models fetched each deploy" : volume ? `${volume.dataCenter} · its GPUs only${volume.usedBy ? ` · in use by ${volume.usedBy.name}` : ""}` : undefined}>
+            {!next.volume ? `Its own, ${next.disk} GB` : volume ? volume.name : volumes.isSuccess ? "A volume since deleted" : "A network volume"}
+          </Choice>
+          <Choice what="When done" sub={`after ${minutesSaid(next.idleMinutes)} idle · watchdog ${next.watchdogMinutes ? minutesSaid(next.watchdogMinutes) : "off"}`}>{next.idleDo === "stop" ? "Stop" : "Terminate"}</Choice>
+        </div>
       )}
     </Card>
   );
 }
 
-/** Settings › Rented GPUs: what is set once on the left (the account, the next deploy), what is on RunPod now on the right. */
+/** Settings › Rented GPUs: what is on RunPod on the left (the pods, the volumes), the account and the next deploy on the right. */
 export function RentedTab() {
   const has = Boolean(useSettings().data?.hasRunpodKey);
   return (
     <div className={COLUMNS}>
+      {has && <div className="flex min-w-0 flex-col gap-4"><RunpodPods /><VolumesCard /></div>}
       <div className="flex min-w-0 flex-col gap-4"><RunpodAccount />{has && <NextDeploy />}</div>
-      <div className="flex min-w-0 flex-col gap-4">{has && <><RunpodPods /><VolumesCard /></>}</div>
     </div>
   );
 }

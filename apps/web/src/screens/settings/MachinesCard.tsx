@@ -1,21 +1,24 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearch } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, MoreHorizontal } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, ExternalLink, Lock, LockOpen, MoreHorizontal, Star, Trash2 } from "lucide-react";
+import { useOpenComfyUI } from "../../actions";
+import { ask } from "../../Confirm";
+import type { MenuItem } from "../../ContextMenu";
 import { api, type Machine, type MachineProbe, type MachineState } from "../../api";
 import { useMenu } from "../../ContextMenu";
 import { useQueue, useSettings } from "../../data";
-import { gb, plural } from "../../format";
-import { useMedia } from "../../hooks";
+import { gb, plural, usd } from "../../format";
+import { useCopied, useMedia } from "../../hooks";
 import { machineLabel, rentedSaid, rentedUp } from "../../machines";
 import { useQueueOps } from "../../queueOps";
 import { queryKeys } from "../../queryKeys";
-import { Button, ButtonLink, cx, ErrorNote, fieldClass, Segmented, TwoStep } from "../../ui";
-import { AccessRow } from "./AccessRow";
+import { Button, ButtonLink, cx, ErrorNote, fieldClass, Segmented } from "../../ui";
+import { AccessRow, useAccessActions } from "./AccessRow";
 import { useRentedOps } from "../../rentedOps";
 import { RentRow } from "./RentedCard";
 import { RentedHead, RentedRows } from "./RentedRows";
-import { Block, Card, Fact, Row, Status } from "./Rows";
+import { Block, Card, Row, Status } from "./Rows";
 import { COLUMNS, WIDE } from "./wide";
 
 const MachineMenuBody = lazy(() => import("../../MachineMenu").then((m) => ({ default: m.MachineMenuBody })));
@@ -47,6 +50,42 @@ export function publicPlainHttp(url: string): boolean {
   if (!ip) return !host.includes(".") ? false : true;
   const [a, b] = [Number(ip[1]), Number(ip[2])];
   return !(a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254));
+}
+
+/** A GPU as a card's facts say it: "RTX 4070 Ti" from ComfyUI's "cuda:0 NVIDIA GeForce RTX 4070 Ti : cudaMallocAsync". */
+export function gpuShort(device: string): string {
+  return device.replace(/^cuda:\d+\s*/, "").replace(/\s*:.*$/, "").replace(/^NVIDIA (GeForce )?/, "").trim() || device;
+}
+
+/**
+ * A machine's facts, the line under its card's head: its GPU and memory, a pod's rate and place, ComfyUI's and the node
+ * pack's versions, and the lock. The long "cuda:0 NVIDIA … : cudaMallocAsync" chip it replaces said the same at length.
+ */
+function MachineFacts({ probe, state, rented }: { probe: MachineProbe | undefined; state: MachineState | undefined; rented: boolean }) {
+  const r = state?.rented;
+  const gpu = probe?.device ? gpuShort(probe.device) : r?.gpu?.replace(/^NVIDIA (GeForce )?/, "");
+  const access = probe?.access;
+  const parts: ReactNode[] = [
+    gpu && <span key="gpu"><b className="font-semibold text-ink-2">{gpu}</b>{probe?.vramTotal ? ` · ${gb(probe.vramTotal)}` : ""}</span>,
+    r && (r.rate || r.dataCenter) && <span key="rate">{r.rate ? <><b className="font-semibold text-ink-2">{usd(r.rate)}</b>/h</> : null}{r.rate && r.dataCenter ? " · " : ""}{r.dataCenter}</span>,
+    probe?.online && probe.version && (
+      <span key="versions">
+        ComfyUI <b className="font-mono font-semibold text-ink-2">{probe.version.replace(/^v/, "")}</b>
+        {probe.pack ? <> · node pack <b className="font-mono font-semibold text-ink-2">{probe.pack}</b></> : rented ? " · no node pack" : null}
+      </span>
+    ),
+    access?.state === "locked" && <span key="lock" className="inline-flex items-center gap-1 font-semibold text-good" data-tip={access.fixed ? (rented ? "Locked from its first second: Afflatus set its token in the pod's environment" : "Locked by its start settings (AFFLATUS_TOKEN)") : "Locked: every call needs its token, which Afflatus keeps"}><Lock size={12} strokeWidth={2.2} />Locked</span>,
+    access?.state === "open" && <span key="lock" className="inline-flex items-center gap-1 font-semibold text-warn-ink"><LockOpen size={12} strokeWidth={2.2} />Not locked</span>,
+    access?.state === "wrong" && <span key="lock" className="inline-flex items-center gap-1 font-semibold text-warn-ink"><Lock size={12} strokeWidth={2.2} />Locked with another token</span>,
+  ].filter(Boolean);
+  const noPack = probe?.online && !probe.pack && !rented;
+  if (!parts.length && !noPack) return null;
+  return (
+    <span className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-xs text-ink-3">
+      {parts}
+      {noPack && <ButtonLink href="/api/comfy/node-pack.zip" download tone="danger" size="sm">Node pack not loaded: download it</ButtonLink>}
+    </span>
+  );
 }
 
 /** The settings saved with the machines as they are now, and what reads them asked again. */
@@ -171,14 +210,40 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
   // a rented pod's head says its own state (stopped, starting, running and its cost), with Start or Stop
   const status = rented ? <RentedHead machine={machine} state={state} ops={rentedOps} /> : !probe ? null : state?.paused
     ? <span className="text-[12.5px] font-semibold text-ink-2">Ⅱ Paused</span>
-    : <Status ok={probe.online}>{probe.online ? `${state?.running ? "Rendering" : "Answering"}${probe.device ? ` · ${probe.device}` : ""}` : "Not answering"}</Status>;
+    : <Status ok={probe.online}>{probe.online ? (state?.running ? "Rendering" : "Answering") : "Not answering"}</Status>;
+  // its ComfyUI in a tab of its own, logged in by a one-time code (lock-api.ts pageUrl): once it answers (a pod, once it runs)
+  const openComfy = useOpenComfyUI();
+  const canOpen = rented ? state?.rented?.status === "RUNNING" && !state.rented.booting && state.rented.answers !== false : Boolean(probe?.online);
+  const access = useAccessActions(machine.id, label, probe);
+  const { copied: addressCopied, copy: copyAddress } = useCopied();
+  const removeNote = rented ? (billing ? "From Afflatus only: it keeps running and billing on RunPod, and nothing stops it any more." : "From Afflatus only: the pod stays on RunPod, as it is.") : "What it rendered stays; waiting jobs go elsewhere.";
+  // the card's own items in its menu, after the machine's: its token, its address, the order, removing it
+  const extra: MenuItem[] = [
+    ...access.items,
+    { label: addressCopied ? "Address copied" : "Copy its address", icon: <Copy size={14} />, run: () => copyAddress(machine.url) },
+    ...(all.length > 1 && index > 0 ? [{ label: "Make it the first", icon: <Star size={14} />, note: "setup, downloads, node packs", run: () => save.mutate([machine, ...all.filter((m) => m.id !== machine.id)]) }] : []),
+    ...(all.length > 1 ? [{ label: "Remove from Afflatus…", icon: <Trash2 size={14} />, danger: true, run: () => void ask({ title: `Remove ${label}?`, text: removeNote, yes: "Remove" }).then((yes) => yes && (rented ? removeRented.mutate() : save.mutate(all.filter((m) => m.id !== machine.id)))) }] : []),
+  ];
   return (
     <Card
       id={`machine-${machine.id}`}
       title={(
-        <span className="flex items-baseline gap-2">
-          {onFold && <button type="button" aria-label={`Fold ${label}`} className="self-center text-ink-3 hover:text-ink" onClick={onFold}><ChevronDown size={14} /></button>}
-          {label}{index === 0 && <span className="text-xs font-normal text-ink-3">the first: setup, downloads, node packs</span>}
+        <span className="flex items-center gap-2">
+          {onFold && <button type="button" aria-label={`Fold ${label}`} className="text-ink-3 hover:text-ink" onClick={onFold}><ChevronDown size={14} /></button>}
+          {/* its name, renamed in place: what the status bar, the Queue and the menus call it; empty, its address */}
+          <input
+            id={`comfy-name-${machine.id}`}
+            aria-label={`${label}: its name`}
+            data-tip="Click to rename: what the status bar, the Queue and the menus call it. Empty: its address"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={() => name.trim() !== machine.name && put({ name: name.trim() })}
+            onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+            placeholder={label}
+            maxLength={40}
+            className="field-sizing-content min-w-12 max-w-[320px] rounded-md border border-transparent bg-transparent px-1 -mx-1 text-[15px] font-bold text-ink outline-none placeholder:text-ink hover:border-line focus:border-accent"
+          />
+          {all.length > 1 && index === 0 && <span className="rounded-md bg-raised px-2 py-0.5 text-[11.5px] font-semibold text-ink-2" data-tip="The setup, the downloads and the node packs talk to it">the first</span>}
         </span>
       )}
       label={label}
@@ -186,16 +251,15 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
         <span className="flex items-center gap-2">
           {status}
           {state?.paused && <Button size="sm" onClick={() => ops.resume.mutate(machine.id)}>Resume</Button>}
-          <button type="button" aria-label={`${label}: menu`} className="grid size-7 place-items-center rounded-md border border-line hover:bg-hover" onClick={(e) => menu.open(e, true)}>
+          {canOpen && <Button size="sm" onClick={() => openComfy.mutate(machine.id)} disabled={openComfy.isPending} data-tip="Its ComfyUI in a new tab, logged in">Open ComfyUI <ExternalLink size={12} /></Button>}
+          <button type="button" aria-label={`${label}: menu`} className="grid size-8 place-items-center rounded-lg border border-line-strong hover:bg-hover" onClick={(e) => menu.open(e, true)}>
             <MoreHorizontal size={14} />
           </button>
-          {menu.menu && <Suspense fallback={null}><MachineMenuBody at={menu.menu.at} machine={machine.id} onClose={menu.close} /></Suspense>}
+          {menu.menu && <Suspense fallback={null}><MachineMenuBody at={menu.menu.at} machine={machine.id} extra={extra} onClose={menu.close} /></Suspense>}
         </span>
       )}
+      sub={<MachineFacts probe={probe} state={state} rented={rented} />}
     >
-      <Row label="Name" htmlFor={`comfy-name-${machine.id}`} help="What the status bar, the Queue and the menus call it. Empty: its address.">
-        <input id={`comfy-name-${machine.id}`} value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name.trim() !== machine.name && put({ name: name.trim() })} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} placeholder={label} maxLength={40} className={cx("h-10 min-w-0 grow text-sm", fieldClass)} />
-      </Row>
       {!rented && <Row label="ComfyUI URL" htmlFor={`comfy-url-${machine.id}`} help="The address this ComfyUI listens on. Test again saves it first when it changed; it only reads what ComfyUI has.">
         <input id={`comfy-url-${machine.id}`} value={url} onChange={(e) => setUrl(e.target.value)} spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
         <Button onClick={() => test.mutate()} disabled={test.isPending}>{test.isPending ? "Connecting…" : url.trim() !== machine.url ? "Save and test" : "Test again"}</Button>
@@ -209,13 +273,6 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
           {publicPlainHttp(machine.url) && <ErrorNote>A public address over plain http: anyone who finds it can run code on this ComfyUI. Reach it through Tailscale or an SSH tunnel, or put it behind a proxy that asks for a password.</ErrorNote>}
         </Block>
       )}
-      {probe?.online && (
-        <Row label="ComfyUI" start>
-          {probe.version && <Fact tip="ComfyUI version">v{probe.version.replace(/^v/, "")}</Fact>}
-          {probe.device && <Fact tip={`${probe.device}: ${gb(probe.vramTotal ?? 0)} VRAM, ${gb(probe.vramFree ?? 0)} free`}><span className="max-w-[340px] truncate">{probe.device} · {gb(probe.vramTotal ?? 0)} · {gb(probe.vramFree ?? 0).replace(" GB", "")} free</span></Fact>}
-          {probe.pack ? <Fact tip="The Afflatus node pack this ComfyUI loaded">node pack {probe.pack}</Fact> : rented ? <Fact tip="Without the Afflatus node pack, this pod is not locked and has no watchdog: its Access line says how to have it">no node pack</Fact> : <ButtonLink href="/api/comfy/node-pack.zip" download tone="danger" size="sm">Node pack not loaded: download it</ButtonLink>}
-        </Row>
-      )}
       {!rented && <Row label="Folder on this computer" htmlFor={`comfy-dir-${machine.id}`} help="Optional: this ComfyUI's own folder (the one with main.py), when it is on this computer. Leave it empty for another computer or a rented instance.">
         <input id={`comfy-dir-${machine.id}`} value={dir} onChange={(e) => setDir(e.target.value)} placeholder="empty when it runs elsewhere" spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
         <Button onClick={() => put({ dir: dir.trim() })} disabled={save.isPending || dir.trim() === machine.dir}>Save</Button>
@@ -225,11 +282,15 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
       </Row>
       {rented && <RentedRows machine={machine} state={state} put={(r) => put({ rented: r })} ops={rentedOps} remove={() => save.mutate(all.filter((m) => m.id !== machine.id))} />}
       <AccessRow id={machine.id} label={label} probe={probe} url={machine.url} rented={rented} />
-      {all.length > 1 && (
-        <Row label="Order and removal" help="The first ComfyUI is the one the setup, the downloads and the node packs talk to. Removing one leaves what it rendered in the library; a job waiting for it goes to another machine.">
-          {index > 0 && <Button size="sm" onClick={() => save.mutate([machine, ...all.filter((m) => m.id !== machine.id)])}>Make it the first</Button>}
-          <TwoStep tone="danger" label="Remove" title={`Remove ${label}`} note={rented ? (billing ? "from Afflatus only: it keeps running and billing on RunPod, and nothing stops it any more" : "from Afflatus only: the pod stays on RunPod, as it is") : "what it rendered stays; waiting jobs go elsewhere"} yes="Remove" onYes={() => (rented ? removeRented.mutate() : save.mutate(all.filter((m) => m.id !== machine.id)))} />
-        </Row>
+      {(access.failed || removeRented.isError) && <Block>{access.failed && <ErrorNote>{access.failed.message}</ErrorNote>}{removeRented.isError && <ErrorNote>{removeRented.error.message}</ErrorNote>}</Block>}
+      {/* the token's end at the foot of one of your own (a pod's foot is its address and Terminate) */}
+      {!rented && probe?.tokenEnd && (
+        <div className="flex items-center gap-3 bg-raised px-[18px] py-2.5 text-xs">
+          <span className="font-mono text-ink-3" data-tip="The token's end: the token itself stays in Afflatus">token ••••••••{probe.tokenEnd}</span>
+          <button type="button" className="font-semibold text-ink-2 hover:text-ink" onClick={access.copyToken}>{access.copied ? "Copied" : "Copy"}</button>
+          <span className="grow" />
+          <span className="inline-flex items-center gap-1 text-ink-3">Renew, Unlock and Remove: in <MoreHorizontal size={13} aria-label="its menu" /></span>
+        </div>
       )}
     </Card>
   );

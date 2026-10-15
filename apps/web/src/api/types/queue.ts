@@ -419,6 +419,8 @@ export interface RunpodPod {
   gpuCount: number;
   dataCenter: string | null;
   diskGb: number;
+  /** The network volume it is on, when it is one. */
+  volumeId?: string | null;
   /** It exposes ComfyUI's port (8188, HTTP): it can be added. */
   comfy: boolean;
   /** The machine it is added as, when it is. */

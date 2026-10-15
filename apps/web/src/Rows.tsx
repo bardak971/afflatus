@@ -15,15 +15,18 @@ const Dense = createContext(false);
  * `dense`: the Prompt kit's look, an 11px upper-case head and 150px names. `help`: what the card is for,
  * behind a ? right after its title (as a row's ? follows its name); `status` stays on the right.
  */
-export function Card({ title, status, help, dense, id, label, setting, children }: { title?: ReactNode; status?: ReactNode; help?: string; dense?: boolean; id?: string; label?: string; setting?: string; children: ReactNode }) {
+export function Card({ title, status, sub, help, dense, id, label, setting, children }: { title?: ReactNode; status?: ReactNode; /** A quiet line under the head, in it (a machine's facts). */ sub?: ReactNode; help?: string; dense?: boolean; id?: string; label?: string; setting?: string; children: ReactNode }) {
   return (
     <section id={id} aria-label={label} data-setting={setting} className="overflow-hidden rounded-[14px] border border-line bg-panel shadow-card">
       {title && (
-        <div className={cx("flex items-center gap-2.5 border-b border-line", dense ? "min-h-[42px] px-4 py-2" : "min-h-[48px] px-[18px] py-2.5")}>
-          <h2 className={cx("min-w-0", dense ? "text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase" : "text-[14px] font-bold")}>{title}</h2>
-          {help && <Help text={help} title={typeof title === "string" ? title : label} className="-ml-1" />}
-          <span className="grow" />
-          {status}
+        <div className={cx("flex flex-col gap-1.5 border-b border-line", dense ? "min-h-[42px] px-4 py-2" : "min-h-[48px] px-[18px] py-2.5", Boolean(sub) && "pb-3")}>
+          <div className="flex min-h-[28px] items-center gap-2.5">
+            <h2 className={cx("min-w-0", dense ? "text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase" : "text-[14px] font-bold")}>{title}</h2>
+            {help && <Help text={help} title={typeof title === "string" ? title : label} className="-ml-1" />}
+            <span className="grow" />
+            {status}
+          </div>
+          {sub}
         </div>
       )}
       <Dense.Provider value={Boolean(dense)}>
