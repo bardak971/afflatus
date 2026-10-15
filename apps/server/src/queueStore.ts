@@ -301,7 +301,7 @@ async function fileOne(
   return {
     measure: video?.facts ? () => measureStored({ db, storage }, recipe, input, resume, { id, key, ext, latentKey, latentFrames, facts: video.facts! }) : null,
     row: {
-      id, kind, origin: "generated", name: "", file_key: key, thumb_key: thumb ? thumbKey(id) : null, mime, bytes: bytes.length, raw_key: rawKey, latent_key: latentKey, latent_frames: latentFrames, fine_latent_key: fineKey,
+      id, kind, origin: "generated", name: "", file_key: key, thumb_key: thumb ? thumbKey(id) : null, mime, bytes: bytes.length, raw_key: rawKey, latent_key: latentKey, latent_frames: latentFrames, fine_latent_key: fineKey, kept_bytes: (rawKey ? rawBytes!.length : 0) + (latentKey ? latentBytes!.length : 0) + (fineKey ? fineBytes!.length : 0),
       width: size?.width ?? null, height: size?.height ?? null,
       duration_ms: video?.facts?.durationMs ?? null, fps: video?.facts?.fps ?? null, has_sound: video?.facts?.hasSound ? 1 : 0,
       source_id: null, source_range: null, linked_path: null, kept_at: null, countdown_from: null,

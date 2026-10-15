@@ -102,6 +102,12 @@ export const sourceOf = (version: string | undefined) => (version && /^v?\d+\.\d
 export const size = (bytes: number) =>
   bytes < 2 ** 20 ? `${bytes > 0 ? Math.max(1, Math.round(bytes / 1024)) : 0} KB` : bytes < 2 ** 30 ? `${Math.round(bytes / 2 ** 20)} MB` : `${(bytes / 2 ** 30).toFixed(1)} GB`;
 
+/** What an item takes on the disk: its file and what it keeps beside it (an H3 clip's latents, the model's own frames), as the server sums it. */
+export const spaceOf = (a: { bytes: number; keptBytes?: number }) => a.bytes + (a.keptBytes ?? 0);
+
+/** An item's size split, for the tip over it: said only when it keeps something beside its file. */
+export const spaceSaid = (a: { bytes: number; keptBytes?: number }) => (a.keptBytes ? `${size(a.bytes)} file + ${size(a.keptBytes)} kept for the clips that continue it` : undefined);
+
 export const gb = (bytes: number) => `${(bytes / 2 ** 30).toFixed(1)} GB`;
 
 /** A count with its word: "1 take", "3 settings", "2 people" (core's, shared with the server). */

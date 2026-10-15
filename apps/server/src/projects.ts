@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { httpError } from "./errors";
 import { newId, now, OWNER, type Db } from "./db";
+import { SPACE } from "./media";
 import type { Services } from "./services";
 import { NOT_IN_LIBRARY } from "./library";
 import { inUseShown, unusedSize, unusedTakes } from "./timelineUnused";
@@ -55,10 +56,10 @@ export async function projectsTree(s: Services, q?: string, only?: "image" | "vi
   const folders = await db.selectFrom("folders").select(["id", "parent_id", "name", "path", "project_id", "created_at"]).where("owner_id", "=", OWNER).execute();
   // the library's items (not in the bin, not a mask or a kit picture), by folder; the loose ones under null
   const byFolder = new Map(
-    (await db.selectFrom("assets").select((eb) => ["folder_id", eb.fn.countAll().as("n"), eb.fn.sum<number>("bytes").as("b")]).where("deleted_at", "is", null).where("origin", "not in", NOT_IN_LIBRARY).$if(Boolean(only), (qb) => qb.where("kind", "=", only!)).groupBy("folder_id").execute())
+    (await db.selectFrom("assets").select((eb) => ["folder_id", eb.fn.countAll().as("n"), eb.fn.sum<number>(SPACE).as("b")]).where("deleted_at", "is", null).where("origin", "not in", NOT_IN_LIBRARY).$if(Boolean(only), (qb) => qb.where("kind", "=", only!)).groupBy("folder_id").execute())
       .map((r) => [r.folder_id, { n: Number(r.n), b: Number(r.b ?? 0) }]),
   );
-  const total = await db.selectFrom("assets").select((eb) => eb.fn.sum<number>("bytes").as("b")).where("deleted_at", "is", null).executeTakeFirst();
+  const total = await db.selectFrom("assets").select((eb) => eb.fn.sum<number>(SPACE).as("b")).where("deleted_at", "is", null).executeTakeFirst();
   const draftCounts = new Map((await db.selectFrom("drafts").select((eb) => ["project_id", eb.fn.countAll().as("n")]).groupBy("project_id").execute()).map((r) => [r.project_id, Number(r.n)]));
   const unusedCounts = new Map<string | null, number>();
   for (const d of await unusedDrafts(db)) unusedCounts.set(d.project_id, (unusedCounts.get(d.project_id) ?? 0) + 1);

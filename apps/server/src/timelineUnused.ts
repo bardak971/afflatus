@@ -1,5 +1,6 @@
 import type { EventEmitter } from "node:events";
 import type { Db } from "./db";
+import { spaceOf } from "./media";
 import { isLinked } from "./linked";
 import { inUse } from "./sweep";
 
@@ -71,7 +72,7 @@ export async function unusedTakes(db: Db, only?: string, used?: Promise<Map<stri
     .innerJoin("assets", "assets.id", "takes.asset_id")
     .select([
       "takes.id as id", "takes.asset_id as asset", "takes.prev_take_id as prev", "takes.finished_from as from", "clips.take_id as playing", "clips.timeline_id as timeline",
-      "assets.bytes as bytes", "assets.file_key as fileKey", "assets.deleted_at as deletedAt",
+      "assets.bytes as bytes", "assets.kept_bytes as kept_bytes", "assets.file_key as fileKey", "assets.deleted_at as deletedAt",
     ])
     .execute();
   const out = new Map<string, Unused>();
@@ -106,7 +107,7 @@ export async function unusedTakes(db: Db, only?: string, used?: Promise<Map<stri
     const u = out.get(r.timeline) ?? { takes: [], videoOf: new Map<string, string>(), assets: new Map<string, number>() };
     u.takes.push(r.id);
     u.videoOf.set(r.id, r.asset);
-    u.assets.set(r.asset, Number(r.bytes));
+    u.assets.set(r.asset, spaceOf(r));
     out.set(r.timeline, u);
   }
   return out;

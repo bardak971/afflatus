@@ -4,7 +4,7 @@ import { z } from "zod";
 import { describeRecipe, fuzzyFilter } from "@afflatus/core";
 import { draftLabel, promptOf, recipeWords, shownNames } from "./autoName";
 import type { DbKind, Tables } from "./db";
-import { assetView } from "./media";
+import { assetView, SPACE } from "./media";
 import { folderIdsOf, NOT_IN_LIBRARY } from "./library";
 import { readJson } from "./queueModel";
 import type { Services } from "./services";
@@ -310,7 +310,7 @@ class AssetSearch {
       const end = q.before !== undefined ? Math.max(0, Number(q.before) || 0) : undefined;
       const from = end !== undefined ? Math.max(0, end - q.limit) : Number(q.after) || 0;
       const count = end !== undefined ? end - from : q.limit;
-      const sorted = q.sort === "name" ? query.orderBy(sql`lower(name)`, dir).orderBy("id", dir) : query.orderBy("bytes", dir).orderBy("id", dir);
+      const sorted = q.sort === "name" ? query.orderBy(sql`lower(name)`, dir).orderBy("id", dir) : query.orderBy(SPACE, dir).orderBy("id", dir);
       const rows = await sorted.limit(count + 1).offset(from).execute();
       const page = rows.slice(0, count);
       return { items: await this.placedViews(page), next: rows.length > count || end !== undefined ? String(from + page.length) : null, prev: from > 0 ? String(from) : null };

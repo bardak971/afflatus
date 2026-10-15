@@ -9,7 +9,7 @@ import { isLinked } from "./linked";
 import { rootFolderOf } from "./projects";
 import { timelineMediaFollows } from "./timelineFolder";
 import type { Look } from "./entities";
-import { assetView } from "./media";
+import { assetView, spaceOf } from "./media";
 import type { Registry } from "./registry";
 import type { Storage } from "./storage";
 import { TimelineExport } from "./timelineExport";
@@ -315,11 +315,11 @@ export class Timelines {
     const rows = await this.db.selectFrom("timelines").selectAll().where("owner_id", "=", OWNER).orderBy("updated_at", "desc").execute();
     const placed = await this.placedOf(rows.map((t) => t.id), this.db, opts.playingOnly);
     const exports = rows.flatMap((t) => (t.export_asset_id ? [t.export_asset_id] : []));
-    const live = new Map(exports.length ? (await this.db.selectFrom("assets").select(["id", "bytes"]).where("id", "in", exports).where("deleted_at", "is", null).execute()).map((a) => [a.id, Number(a.bytes)]) : []);
+    const live = new Map(exports.length ? (await this.db.selectFrom("assets").select(["id", "bytes", "kept_bytes"]).where("id", "in", exports).where("deleted_at", "is", null).execute()).map((a) => [a.id, spaceOf(a)]) : []);
     return rows.map((t) => {
       const all = placed.get(t.id) ?? [];
       const sizes = new Map<string, number>();
-      for (const p of all) for (const x of p.takes) if (!x.asset.deleted_at) sizes.set(x.asset.id, Number(x.asset.bytes));
+      for (const p of all) for (const x of p.takes) if (!x.asset.deleted_at) sizes.set(x.asset.id, spaceOf(x.asset));
       const exported = t.export_asset_id !== null && live.has(t.export_asset_id);
       if (exported) sizes.set(t.export_asset_id!, live.get(t.export_asset_id!)!);
       return {

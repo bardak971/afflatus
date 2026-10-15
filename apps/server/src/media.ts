@@ -1,10 +1,11 @@
-import type { Insertable } from "kysely";
+import { sql, type Insertable } from "kysely";
 import { now, OWNER, type Db, type Tables } from "./db";
 import { missingFiles } from "./missingFiles";
+import type { Storage } from "./storage";
 
 /** A library item as the browser gets it. */
 export const assetView = (a: Tables["assets"]) => ({
-  id: a.id, kind: a.kind, origin: a.origin, name: a.name, mime: a.mime, bytes: a.bytes, width: a.width, height: a.height,
+  id: a.id, kind: a.kind, origin: a.origin, name: a.name, mime: a.mime, bytes: a.bytes, keptBytes: a.kept_bytes ?? 0, width: a.width, height: a.height,
   durationMs: a.duration_ms, fps: a.fps, hasSound: Boolean(a.has_sound), folderId: a.folder_id, generationId: a.generation_id,
   kept: a.kept_at !== null, inBin: a.deleted_at !== null, createdAt: a.created_at,
   // when the one-day countdown of an unkept item last started (it was unkept, or put back from the bin); null: it runs from createdAt
@@ -20,6 +21,34 @@ type Defaulted = "owner_id" | "kept_at" | "deleted_at" | "created_at" | "fine_la
 /** A row for the assets table with what every new item shares filled in: the owner, not kept, not in the bin, made now. Any of those can be given. */
 export function newAssetRow(fields: Omit<AssetInsert, Defaulted> & Partial<Pick<AssetInsert, Defaulted>>): AssetInsert {
   return { owner_id: OWNER, kept_at: null, deleted_at: null, created_at: now(), fine_latent_key: null, ...fields };
+}
+
+/**
+ * What an item takes on the disk: its file, and what it keeps beside it (an H3 clip's latents, the model's own frames).
+ * Every size shown counts this; `bytes` alone is the file's (what the browser is sent, and a file's version).
+ */
+export const spaceOf = (a: Pick<Tables["assets"], "bytes" | "kept_bytes">) => Number(a.bytes) + Number(a.kept_bytes ?? 0);
+/** spaceOf in a query, of the assets table (`assets.` for a query that joins it): summed by the sizes of folders and projects. */
+export const SPACE = sql<number>`bytes + kept_bytes`;
+export const ASSETS_SPACE = sql<number>`assets.bytes + assets.kept_bytes`;
+
+/**
+ * What the items made before kept_bytes keep beside their file, read once from the disk at start (0075_kept_bytes): the
+ * items with a latent or the model's own frames and nothing counted yet. One whose files are gone stays at 0. Returns
+ * how many were filled.
+ */
+export async function fillKeptBytes(db: Db, storage: Pick<Storage, "size">): Promise<number> {
+  const rows = await db.selectFrom("assets").select(["id", "raw_key", "latent_key", "fine_latent_key"]).where("kept_bytes", "=", 0)
+    .where((eb) => eb.or([eb("raw_key", "is not", null), eb("latent_key", "is not", null), eb("fine_latent_key", "is not", null)])).execute();
+  let filled = 0;
+  for (const r of rows) {
+    const sizes = await Promise.all([r.raw_key, r.latent_key, r.fine_latent_key].map((k) => (k ? storage.size(k).catch(() => 0) : 0)));
+    const kept = sizes.reduce((n, b) => n + b, 0);
+    if (!kept) continue;
+    await db.updateTable("assets").set({ kept_bytes: kept }).where("id", "=", r.id).execute();
+    filled++;
+  }
+  return filled;
 }
 
 /**

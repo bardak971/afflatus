@@ -57,6 +57,8 @@ export interface Tables {
      * decodes its join as one piece with it (seamless at the finished size). Not for new renders: those take latent_key.
      */
     fine_latent_key: string | null;
+    /** What it keeps on the disk beside its file, in bytes: its latents, the model's own frames (raw_key). Counted in every size shown with `bytes`; 0 by default (optional on insert, as the database fills it). */
+    kept_bytes?: number;
     /** null = not kept: goes to the bin after a day. */
     kept_at: string | null;
     /**

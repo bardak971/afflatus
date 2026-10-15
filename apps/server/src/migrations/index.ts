@@ -73,6 +73,7 @@ import m0071 from "./0071-costs";
 import m0072 from "./0072-motion-work";
 import m0073 from "./0073-render-work";
 import m0074 from "./0074-rent-busy";
+import m0075 from "./0075-kept-bytes";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -154,4 +155,5 @@ export const migrations: Record<string, Migration> = {
   "0072_motion_work": m0072,
   "0073_render_work": m0073,
   "0074_rent_busy": m0074,
+  "0075_kept_bytes": m0075,
 };

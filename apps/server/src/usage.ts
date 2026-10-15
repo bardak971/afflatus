@@ -4,7 +4,7 @@ import { z } from "zod";
 import { now, type Tables } from "./db";
 import { foldersOf, type LibraryChange } from "./events";
 import type { Services } from "./services";
-import { resetCountdown } from "./media";
+import { resetCountdown, spaceOf } from "./media";
 import { ERASED, eraseUnused } from "./sweep";
 import { inUseShown, unusedTakes } from "./timelineUnused";
 
@@ -19,9 +19,9 @@ async function idleTakes(db: Kysely<Tables>, used?: Promise<Map<string, string>>
  */
 export function registerUsage(app: FastifyInstance, s: Services): void {
   app.get("/api/storage", async () => {
-    const assets = await s.db.selectFrom("assets").select(["id", "kind", "bytes", "deleted_at", "kept_at", "origin"]).execute();
+    const assets = await s.db.selectFrom("assets").select(["id", "kind", "bytes", "kept_bytes", "deleted_at", "kept_at", "origin"]).execute();
     const idle = new Set((await idleTakes(s.db, inUseShown(s))).map((t) => t.asset_id));
-    const sum = (rows: typeof assets) => rows.reduce((n, a) => n + a.bytes, 0);
+    const sum = (rows: typeof assets) => rows.reduce((n, a) => n + spaceOf(a), 0);
     const live = assets.filter((a) => !a.deleted_at);
     const bin = assets.filter((a) => a.deleted_at);
     const unused = live.filter((a) => idle.has(a.id));

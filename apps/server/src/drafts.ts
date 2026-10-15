@@ -6,6 +6,7 @@ import { NOT_IN_LIBRARY } from "./library";
 import { httpError } from "./errors";
 import { oneAtATime } from "./keyedLock";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
+import { ASSETS_SPACE } from "./media";
 import { emptyLook, lookSchema, type Look } from "./entities";
 import type { Services } from "./services";
 import { unwrittenOf } from "./unwrittenDrafts";
@@ -173,7 +174,7 @@ export async function draftsList(s: Services, project: string | undefined, limit
   // scale. Postgres plans a cross join with a join condition like an inner join.
   const outputs = rows.length
     ? await s.db.selectFrom("generations").crossJoin("assets").whereRef("assets.generation_id", "=", "generations.id")
-      .select(["generations.draft_id as draft", "assets.id as id", "assets.kind as kind", "assets.bytes as bytes"])
+      .select(["generations.draft_id as draft", "assets.id as id", "assets.kind as kind"]).select(ASSETS_SPACE.as("bytes"))
       .where("generations.draft_id", "in", rows.map((d) => d.id)).where("assets.deleted_at", "is", null).where("assets.origin", "not in", NOT_IN_LIBRARY)
       .orderBy("assets.created_at", "desc").execute()
     : [];
