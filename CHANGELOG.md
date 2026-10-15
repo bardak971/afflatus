@@ -46,6 +46,8 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **Inputs:** a motion transfer's in the order they are used; a tab you click wins over the one brought forward for a missing input; "txt2vid" only when a clip starts from words alone.
 - **Faster with several machines and while rendering:** the machine check keeps ComfyUI's node list and the recipes' checks (the queue answered in milliseconds instead of up to 3 s); forecasts kept until a render lands; a machine is free for its next job once a render's files are stored, its figures read after (one decode instead of eight); a picture goes up once per machine; the tab stays light while rendering (a third of the CPU it took), the Studio no longer keeps old tiles in memory, and the Queue's answer is paged.
 - **Afflatus's pod image 0.1.9:** the node pack 0.16.2 (a lighter Face Match); InsightFace's face models are no longer in the image (their licence is for non-commercial research): the pod fetches them from InsightFace's own release at its start, and a volume keeps them.
+- **Render times on several machines and rented GPUs:** a new pod is told the times of the earlier pods with its GPU (else another machine's at its GPU's pace, or the speed table's guess), not this PC's as they were; a GPU's pace counts from 3 renders compared with another's, and per model family; a first cold load reads the machine's own disk; each machine is judged by the model it holds; Finish and Render missing count the machines working side by side; Auto only among the machines that have the job's files.
+- **Hunt a GPU:** a GPU's time is "from your renders" only from 3 of them (one render made a slow card look as fast as the rest); the GPU's pace is applied once; a guess rests on a rented card before a home one; the 40, 30 and 50 series and the RTX A4000/A4500 are in the speed table; each GPU says what a deploy bills besides its renders (the usual boot and idle, from your sessions).
 
 ### Fixed
 - A form with a cast shows the voice sample the cast adds in its voice field, as it shows the cast's pictures.
@@ -54,6 +56,8 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **Exports of long timelines** no longer fail on Windows (past about 48 clips with transitions); long timelines are exported in pieces, at about half the memory.
 - **Downloads of render videos** are streamed: a file past 2 GB downloads (it failed), and memory stays flat.
 - A stuck render on a rented pod fails after 10 minutes of silence with its GPU idle, instead of 30 minutes or more past a forecast that could be far off.
+- **Render times:** a model's first finish was priced as a draft (94 min said for 5); a form far past anything rendered says no figure rather than a straight-line guess (6 h said for 4 min); Qwen edit, Make the picture, Fix face and Remove background learn from their own renders; a picture redrawn in tiles is no longer priced on its tiles twice; a warm render that had to load again no longer makes the next ones of that model look slow; the old Motion transfer renders recorded with 4096 frames are corrected.
+- A rented pod's balance check counts the files still to fetch and a margin while the pod has no renders of its own.
 
 ## [0.4.0] - 2026-10-12
 
