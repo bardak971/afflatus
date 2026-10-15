@@ -26,6 +26,13 @@ for dir in /comfyui/models/*/; do
 done
 echo "[afflatus-pod] ComfyUI's files in $BASE"
 
+# InsightFace's face models for the node pack's Face Match, fetched from InsightFace's own release while ComfyUI starts
+# (the image does not carry them: their licence is for non-commercial research). In the background, so the start is not
+# held up; once in the models folder a volume keeps them, and a render that needs them first fetches them itself
+if [ ! -d "$BASE/models/insightface/models/buffalo_l" ]; then
+  (python -c "from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_l', root='$BASE/models/insightface', allowed_modules=['detection', 'recognition'], providers=['CPUExecutionProvider']).prepare(ctx_id=-1)" > /tmp/afflatus-insightface.log 2>&1 &)
+fi
+
 # the node pack as this image has it, over the one an older pod left on the volume: the lock and the watchdog are the
 # image's, never an older copy's
 rm -rf "$BASE/custom_nodes/afflatus-nodes"

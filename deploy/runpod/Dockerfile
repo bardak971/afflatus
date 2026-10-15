@@ -64,9 +64,10 @@ RUN set -e; mkdir -p /opt/packs; cd /opt/packs; \
 
 # InsightFace and ONNX Runtime for the node pack's Face Match (how much a face in a render is the person it is of: the
 # pictures a Motion transfer is made from, a clip's face along its run), on the CPU. InsightFace's own package is built
-# from source (a small extension): the compilers come for that and go after. Its face models (buffalo_l, ~300 MB) are
-# fetched now into /opt/insightface, where the node finds them when ComfyUI's models folder has none
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential  && pip install -c /constraints.txt insightface==0.7.3 onnxruntime==1.20.1  && python -c "from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_l', root='/opt/insightface', allowed_modules=['detection', 'recognition'], providers=['CPUExecutionProvider']).prepare(ctx_id=-1)"  && apt-get purge -y build-essential && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+# from source (a small extension): the compilers come for that and go after. Its face models (buffalo_l, ~300 MB) are not
+# in the image: their licence is for non-commercial research, so the image does not hand them out; the pod fetches them from
+# InsightFace's own release at its start (start.sh), into the models folder, where a volume keeps them for the next pod
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential  && pip install -c /constraints.txt insightface==0.7.3 onnxruntime==1.20.1  && apt-get purge -y build-essential && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 # every pip run after this one holds torch to the image's build: ComfyUI-Manager's installs of node packs too (a pack's
 # requirement that pulls another torch would swap the CUDA one for one that does not run here)
