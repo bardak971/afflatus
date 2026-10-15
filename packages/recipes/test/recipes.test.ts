@@ -784,6 +784,26 @@ describe("ltx.video", () => {
     expect(all(b, "VHS_VideoCombine")[0]!.inputs.audio).toBeDefined();
   });
 
+  it("carries on from the clip before: its last frames guide frame 0 in both passes, hidden as the overlap, the first picture set aside", () => {
+    const prev = { width: 704, height: 1280, frames: 25, fps: 25, hasSound: true };
+    const b = build({ start: "p", previous: { asset: "c" }, seconds: 5 }, { uploads: { start: "p.png", previous: "c.mp4" }, media: { start: { width: 832, height: 1216 }, previous: prev } });
+    // the clip before's frames, scaled to each pass's size, as a guide at frame 0 held exactly; no first-frame picture in the latent
+    expect(all(b, "LTXVImgToVideoInplace")).toEqual([]);
+    expect(all(b, "LoadImage")).toEqual([]);
+    expect(all(b, "LTXVAddGuide").map((n) => [n.inputs.frame_idx, n.inputs.strength])).toEqual([[0, 1], [0, 1]]);
+    expect(all(b, "ImageScale").map((n) => [n.inputs.width, n.inputs.height])).toEqual([[352, 640], [704, 1280]]);
+    expect(all(b, "LTXVCropGuides")).toHaveLength(2);
+    // 5 s of its own after the second it shares: 150 frames on the grid, the overlap said for the timeline (a join on pixels)
+    expect(all(b, "EmptyLTXVLatentVideo")[0]!.inputs.length).toBe(ltxFrames(6));
+    expect(b.frames).toBe(ltxFrames(6));
+    expect(b.overlap).toEqual({ headMs: 1000, tailMs: 0 });
+    // the keyframe's moment is counted after the shared frames
+    const mid = build({ previous: { asset: "c" }, mid: "m", midAt: 2 }, { uploads: { previous: "c.mp4", mid: "m.png" }, media: { previous: prev, mid: { width: 832, height: 1216 } } });
+    expect(all(mid, "LTXVAddGuide").map((n) => n.inputs.frame_idx)).toEqual([0, 25 + 48, 0, 25 + 48]);
+    // fewer frames than the join takes are refused with the counts it takes
+    expect(() => build({ previous: { asset: "c" } }, { uploads: { previous: "c.mp4" }, media: { previous: { ...prev, frames: 17 } } })).toThrow(/25 or 9/);
+  });
+
   it("makes it in one pass at full size when it ends on a picture, when asked, or without the upscaler", () => {
     const ends = build({ start: "p", end: "q", endStrength: 0.9 });
     expect(all(ends, "LTXVLatentUpsampler")).toEqual([]);
