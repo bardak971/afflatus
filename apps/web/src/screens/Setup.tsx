@@ -178,18 +178,10 @@ export function Setup() {
           {tab === "comfyui" && <ElectricityCard />}
           {tab === "rented" && <RentedTab />}
           {tab === "models" && (
-            <div className={COLUMNS}>
-              <div className="flex flex-col gap-4">
-                <ModelsByMachine />
-                <CivitaiCard />
-                <LinkCard />
-                <UpdatesCard />
-              </div>
-              <div className="flex flex-col gap-4">
-                <ModelsOnlineCard />
-                <ModelSetsCard />
-              </div>
-            </div>
+            <ModelsByMachine
+              left={<><CivitaiCard /><LinkCard /><UpdatesCard /></>}
+              right={<><ModelsOnlineCard /><ModelSetsCard /></>}
+            />
           )}
           {tab === "designer" && <DesignerCard />}
           {/* the settings first: eleven guides above them pushed the tag check below the fold */}
