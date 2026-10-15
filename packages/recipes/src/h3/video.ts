@@ -24,7 +24,7 @@ export const h3Video = defineRecipe<H3Video>({
   output: "video",
   traits: {
     startFrame: true, endFrame: true, midFrames: true, continues: "clip", endAnchor: true, sound: true,
-    fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM,
+    fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM],
   },
   inputs: h3Inputs,
   starts: H3_STARTS,

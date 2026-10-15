@@ -480,6 +480,10 @@ async function finishLatent(
     sent.warnings.push(`The latent of the ${spec.role === "previous" ? "clip before" : "clip after"} was not found: the join was made on frames instead.`);
     return;
   }
+  // the machine has no node that joins in the latent (a chain planned here because no machine has the pack): the join falls
+  // to frames, as the recipe decides from the nodes it finds, and the job says so rather than fading without a word
+  const lacking = spec.role === "previous" ? (recipe.traits?.latentNodes ?? []).filter((n) => !(n in catalog)) : [];
+  if (lacking.length) sent.warnings.push(`The join was made on frames: this ComfyUI has no Afflatus node pack (no ${lacking[0]}), which a join in the latent takes.`);
   sent.uploads[`${spec.id}.latent`] = await upload(saved, "safetensors");
   sent.media[spec.id] = { ...sent.media[spec.id]!, latentFrames: cutAt || asset.latent_frames, ...(cutAt ? { latentCut: cutAt } : {}), ...(spec.role === "next" ? { latentAt: atFrames } : {}) };
   // a finish after a clip finished by the same latent re-sample: that clip's re-sampled latent, for decoding the join as one piece with it

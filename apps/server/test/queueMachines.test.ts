@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { FakeComfy } from "@afflatus/comfy/testing";
-import { complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
+import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
+import { complete, get, job, makeApp, makeFake, post, referenceCatalog, until, type TestApp } from "./helpers";
 
 /** Several ComfyUIs (settings.ts `machines`): one line of jobs, each machine running one at a time, in parallel. */
 
@@ -236,5 +236,36 @@ describe("a job sent to a machine", () => {
     expect((await post(t.app, "/api/jobs", { ...job({}), machine: "m9" })).statusCode).toBe(400);
     await finishAll([a, b]);
     expect((await row(b)).machine_id).toBe("m1");
+  });
+});
+
+describe("a timeline's clips of a model that joins in a kept latent", () => {
+  /** The nodes an H3 join in the latent takes (h3.video's latentNodes): the Afflatus node pack's. */
+  const packNodes = ["AfflatusLoadH3Latent", "MiniMaxH3GuidedContinuationWindow", "MiniMaxH3LatentTailGuide", "AfflatusH3SeamLatent"];
+  /** A ComfyUI with MiniMax H3's files, with or without the pack. */
+  const h3Fake = (pack: boolean) =>
+    startFakeComfy({
+      catalog: Object.fromEntries(Object.entries(referenceCatalog()).filter(([type]) => pack || !packNodes.includes(type))),
+      models: { checkpoints: [], diffusion_models: ["minimax_h3_fl2va_demo.safetensors"], text_encoders: ["qwen3vl_32b_minimax_h3_demo.safetensors"], vae: ["minimax_h3_video_vae_demo.safetensors", "minimax_h3_audio_vae_demo.safetensors"] },
+    });
+
+  it("go to a machine with the Afflatus node pack while one has it; a clip made in Create goes anywhere", async () => {
+    const [h1, h2] = await Promise.all([h3Fake(true), h3Fake(false)]);
+    try {
+      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ id: "m1", name: "Studio PC", url: h1.url }, { id: "m2", name: "Second GPU", url: h2.url }] } });
+      for (const m of ["m1", "m2"]) await post(t.app, `/api/setup/rescan?machine=${m}`, {});
+      // paused: the jobs stay waiting, and the status says where each would run
+      await post(t.app, "/api/queue/pause", {});
+      const tl = (await post(t.app, "/api/timelines", { name: "zz-test Chain" })).json();
+      const first = (await post(t.app, `/api/timelines/${tl.id}/clips`, { recipe: "h3.video" })).json().clip as string;
+      const second = (await post(t.app, `/api/timelines/${tl.id}/clips`, { recipe: "h3.video" })).json().clip as string;
+      const ids = (await post(t.app, `/api/timelines/${tl.id}/render`, { clips: [{ id: first, input: { description: "She walks." } }, { id: second, input: { description: "She turns." } }] })).json().ids as string[];
+      const alone = (await post(t.app, "/api/jobs", { recipe: "h3.video", input: { description: "A boat." } })).json().ids[0] as string;
+      const waiting = (await queue()).waiting as Array<{ id: string; runsOn: string[] | null; lacks: Record<string, { why?: string }> | null }>;
+      for (const id of ids) expect(waiting.find((w) => w.id === id)).toMatchObject({ runsOn: ["m1"], lacks: { m2: { why: expect.stringContaining("node pack") } } });
+      expect(waiting.find((w) => w.id === alone)?.runsOn).toBeNull();
+    } finally {
+      await Promise.all([h1.close().catch(() => {}), h2.close().catch(() => {})]);
+    }
   });
 });
