@@ -232,6 +232,10 @@ export interface Advice {
   loadMs: number;
   /** With several machines, one render on each (by machine id), from that machine's own renders, else the others' at its pace. */
   on?: Record<string, number> | null;
+  /** The load in each of `on`: 0 on a machine that holds the model. */
+  loadOn?: Record<string, number> | null;
+  /** With several machines, the ones Auto may give it to now (open, taking it, with its files): a batch is shared between them. */
+  auto?: string[] | null;
 }
 export type TimesPeriod = "day" | "week" | "month" | "all";
 /** A window of time to look at, ms since the epoch. */

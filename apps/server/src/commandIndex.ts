@@ -5,8 +5,7 @@ import { z } from "zod";
 import { NOT_IN_LIBRARY } from "./library";
 import { OWNER, type Db, type Tables } from "./db";
 import { httpError } from "./errors";
-import { inARow } from "./forecast";
-import { forecastsOf, type Asked } from "./forecasts-api";
+import { fitsOf, type Asked } from "./forecasts-api";
 import { promptHistory } from "./promptHistory";
 import type { Services } from "./services";
 import { inUseShown, unusedSize, unusedTakes } from "./timelineUnused";
@@ -240,18 +239,22 @@ const estimateQuery = z.object({
 }).refine((q) => Boolean(q.timeline) !== Boolean(q.draft), { message: "say a timeline or a draft" });
 
 /**
- * What rendering some of a timeline's clips, or a draft's next render (its count of jobs), would take: each form's
- * forecast (queue.forecast, the one figure the form, its Generate button and the queue say too) added up. Nothing is assumed about the card: one
- * part with no learned figure makes the whole null rather than a sum that leaves it out.
+ * What rendering some of a timeline's clips, or a draft's next render (its count of jobs), would take: each form's forecast
+ * (the one figure the form, its Generate button and the queue say too) through the machines' lanes as the queue would share
+ * them (queue.total): with two free machines a batch takes about half the time, while a clip carried on from the one
+ * before still waits for it. Nothing is assumed about the card: one part with no learned figure makes the whole null
+ * rather than a sum that leaves it out.
  */
 async function commandEstimate(s: Services, raw: unknown): Promise<CommandEstimate> {
   const q = estimateQuery.parse(raw);
-  const forms: Array<Asked & { times: number }> = [];
+  const forms: Array<Asked & { times: number; after?: number }> = [];
   if (q.timeline) {
     const t = await s.db.selectFrom("timelines").select("id").where("id", "=", q.timeline).executeTakeFirst();
     if (!t) throw httpError("this timeline was not found", 404);
     const clips = await s.db.selectFrom("clips").select(["id", "recipe_id", "inputs", "kind", "take_id", "joined"]).where("timeline_id", "=", t.id).orderBy("position").orderBy("created_at").execute();
     const asked = q.clips ? new Set(q.clips.split(",").map(Number)) : null;
+    // each clip's place among the forms, for one carried on from the clip before when that one renders too (it waits for it)
+    const formOf = new Map<number, number>();
     for (const [i, c] of clips.entries()) {
       if (c.kind !== "video" || !c.recipe_id) continue;
       if (asked ? !asked.has(i + 1) : c.take_id !== null) continue;
@@ -264,7 +267,9 @@ async function commandEstimate(s: Services, raw: unknown): Promise<CommandEstima
       const own = new Set((recipe.inputs as InputSpec[]).filter((x) => x.type !== "clip").map((x) => x.id));
       const input = Object.fromEntries(Object.entries(stored).filter(([k]) => own.has(k)));
       // and planned as its render will be: at the timeline's frame, carrying on from the clip before
-      forms.push({ recipe: recipe.id, input, clip: c.id, times: 1 });
+      const before = c.joined === "continue" ? formOf.get(i - 1) : undefined;
+      formOf.set(i, forms.length);
+      forms.push({ recipe: recipe.id, input, clip: c.id, times: 1, ...(before !== undefined ? { after: before } : {}) });
     }
   } else {
     const d = await findDraft(s.db, q.draft!);
@@ -275,11 +280,10 @@ async function commandEstimate(s: Services, raw: unknown): Promise<CommandEstima
 
   const ahead = Number((await s.db.selectFrom("jobs").select((eb) => eb.fn.countAll().as("n")).where("status", "in", ["queued", "running"]).executeTakeFirst())?.n ?? 0);
   if (!forms.length) return { ms: null, basis: 0, ahead };
-  const got = await forecastsOf(s, forms);
-  if (got.some((g) => !g)) return { ms: null, basis: 0, ahead };
-  const parts = got.map((g, i) => ({ ...g!, times: forms[i]!.times }));
-  // the model loads once for a run of renders with it, as the queue runs them: not once a render
-  return { ms: inARow(parts), basis: Math.min(...parts.map((p) => p.samples)), ahead };
+  const fits = await fitsOf(s, forms);
+  // the model loads once per machine for a run of renders with it, as the queue runs them: not once a render
+  const got = await s.queue.total(forms.map((f) => ({ recipe: f.recipe, input: f.input, clip: f.clip ? { id: f.clip, fit: fits.get(f.clip) ?? false } : null, times: f.times, after: f.after })));
+  return got.ms === null ? { ms: null, basis: 0, ahead } : { ms: got.ms, basis: got.samples, ahead };
 }
 
 export function registerCommandBar(app: FastifyInstance, s: Services): void {

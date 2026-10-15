@@ -93,11 +93,43 @@ export async function recordTool(
   await digestDays(db, Date.now(), dayOf(at));
 }
 
-/** A tool's usual pace from its own record: milliseconds per unit of work (pixels × frames), the middle of its last finished runs. */
-export async function toolPace(db: Db, recipe: string): Promise<number | null> {
-  const rows = await db.selectFrom("render_stats").select(["total_ms", "work", "vram_peak", "expected_ms"]).where("recipe_id", "=", recipe).where("status", "=", "done").where("whole", "=", 1).orderBy("created_at", "desc").limit(30).execute();
-  // a run that spilled out of video memory is not the usual pace
-  return median(rows.filter((r) => r.work && !(r.expected_ms && r.total_ms >= 2 * r.expected_ms)).map((r) => r.total_ms / r.work!));
+/** A tool's usual paces from its own record (toolPaces): each machine's, and every machine's together. */
+export interface ToolPaces {
+  on: ReadonlyMap<string | null, number>;
+  all: number | null;
+}
+
+/**
+ * A tool's usual pace from its own record: milliseconds per unit of work (pixels × frames), the middle of its last finished
+ * runs, on each machine and on all of them. A run that spilled out of video memory is not the usual pace: one twice as
+ * slow as the middle of its own machine's runs is left out. Measured against what was expected of it, a pod's every finish
+ * was dropped, expected as they were at this computer's pace.
+ */
+export async function toolPaces(db: Db, recipe: string): Promise<ToolPaces> {
+  const rows = await db.selectFrom("render_stats").select(["total_ms", "work", "machine_id"]).where("recipe_id", "=", recipe).where("status", "=", "done").where("whole", "=", 1).orderBy("created_at", "desc").limit(60).execute();
+  const byMachine = new Map<string | null, number[]>();
+  for (const r of rows) if (r.work) byMachine.set(r.machine_id, [...(byMachine.get(r.machine_id) ?? []), r.total_ms / r.work]);
+  const kept = new Map([...byMachine].map(([m, paces]) => {
+    const usual = median(paces) ?? 0;
+    return [m, paces.filter((p) => p < 2 * usual)] as const;
+  }));
+  const on = new Map([...kept].flatMap(([m, paces]) => {
+    const usual = median(paces);
+    return usual === null ? [] : [[m, usual] as const];
+  }));
+  return { on, all: median([...kept.values()].flat()) };
+}
+
+/** Of a tool's paces, the one on `machine`: its own runs as soon as it has one, else every machine's at its `pace` (1 the common pace, 2 half as fast). */
+export function paceOn(paces: ToolPaces, machine: string | null = null, pace = 1): number | null {
+  const own = machine === null ? undefined : paces.on.get(machine);
+  if (own !== undefined) return own;
+  return paces.all === null ? null : paces.all * (machine === null ? 1 : pace);
+}
+
+/** A tool's usual pace on `machine` (toolPaces, paceOn); left out, every machine's together. */
+export async function toolPace(db: Db, recipe: string, machine: string | null = null, pace = 1): Promise<number | null> {
+  return paceOn(await toolPaces(db, recipe), machine, pace);
 }
 
 // ---------------------------------------------------------------- folding the old rows into days

@@ -2,14 +2,14 @@ import { Link } from "wouter";
 import { Minus, Plus } from "lucide-react";
 import { hasWildcards, plural } from "@afflatus/core";
 import type { Draft, MachineState, RecipeInfo } from "../../api";
-import { batchAbout, useAdvice } from "../../advice";
+import { batchAbout, batchMs, useAdvice } from "../../advice";
 import { BATCH } from "../../draft";
 import { Keys } from "../../Keys";
 import { FormModel, ResultsPlace } from "../../ModelLoad";
 import { Button, cx, ErrorNote, Help } from "../../ui";
 import { useQueue } from "../../data";
 import { aboutMs } from "../../format";
-import { severalMachines, timeOn } from "../../machines";
+import { severalMachines } from "../../machines";
 import { GenerateOn, shortName, usePickedMachine } from "../../GenerateOn";
 import { inputMissing } from "./missing";
 import type { useGenerate } from "./useGenerate";
@@ -32,10 +32,8 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, send, onCou
   // picked for this draft when there is one (with several ComfyUIs, GenerateOn.tsx), as that machine's renders say it
   const estimate = useAdvice(recipe, whole).data?.estimate;
   const picked = usePickedMachine(draft?.id);
-  const totalOn = (m: MachineState | null): number | null => {
-    const one = estimate ? timeOn(estimate.ms, estimate.on, m) : null;
-    return estimate && one !== null ? (one - estimate.loadMs) * count + estimate.loadMs : null;
-  };
+  // on Auto, the batch shared between the machines Auto may give it to, as the queue shares it (advice.ts batchMs)
+  const totalOn = (m: MachineState | null): number | null => batchMs(estimate, count, m);
   const total = totalOn(picked ?? null);
   const about = picked && total !== null ? aboutMs(total) : batchAbout(estimate, count);
   const missing = inputMissing(recipe, whole);

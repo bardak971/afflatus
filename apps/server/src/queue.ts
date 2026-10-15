@@ -13,7 +13,7 @@ import { record } from "./renders";
 import { lackOn, type Lack } from "./machineScans";
 import { machineSaid, type Say } from "./notifyWords";
 import type { PodFiles } from "./podFiles";
-import { plan, type Lane as Schedulable, type Planned, type Waiting } from "./schedule";
+import { plan, planTotal, type Lane as Schedulable, type Planned, type Waiting } from "./schedule";
 import { FIRST_MACHINE, readSettings, type Machine } from "./settings";
 import type { Storage } from "./storage";
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
@@ -61,6 +61,18 @@ const FORECASTS_MS = 5 * 60_000;
 /** How long a running job has left, from what it was expected to take; null when that cannot be told. */
 const remainingOf = (run: Running | null): number | null => (run?.expectedMs && run.startedAt ? Math.max(0, run.expectedMs - (Date.now() - run.startedAt)) : null);
 
+/**
+ * The GPU a machine's render is recorded under (render_stats.gpu): the one its ComfyUI says it renders on, its first device
+ * ("cuda:0 NVIDIA GeForce RTX 4070 Ti : cudaMallocAsync" read as its name), else the system feed's when it reports one card.
+ * The feed lists every card of the computer in its own order: its first is not the one rendering on a computer with two.
+ * Null when neither says.
+ */
+export function gpuOf(device: string | null, gpus: ReadonlyArray<{ name: string }>): string | null {
+  const name = (device ?? "").replace(/^\w+:\d+\s+/, "").replace(/\s+:\s+\S+$/, "").trim();
+  if (name && name.toLowerCase() !== "cpu") return gpus.find((g) => g.name.toLowerCase() === name.toLowerCase())?.name ?? name;
+  return gpus.length === 1 ? gpus[0]!.name : null;
+}
+
 /** A machine's lane: its ComfyUI, the job it runs, what it was last asked to load, whether it is paused by hand. */
 interface Lane {
   id: string;
@@ -85,6 +97,8 @@ interface Lane {
   paused: boolean;
   /** Whether its ComfyUI answered the last time it was asked; null before. */
   reachable: boolean | null;
+  /** The GPU its ComfyUI renders on, as it said when it last answered (its first device); null before. */
+  device: string | null;
   /** Its state as kept across restarts, read once. */
   ready: Promise<void>;
   core: QueueCore;
@@ -92,7 +106,8 @@ interface Lane {
 
 /** A form's forecast as the queue reads it (ms): on no machine in particular, and on each machine it was asked for. */
 /** `model`: the model file its renders are filed under (render_stats.model_file), also for a recipe that loads it from its family's slot; null when it cannot be built. */
-type Expected = { ms: number | null; on: ReadonlyMap<string, number>; model: string | null };
+/** `samples`: how many past renders it rests on (0 when none). */
+type Expected = { ms: number | null; on: ReadonlyMap<string, number>; model: string | null; samples: number };
 
 /**
  * Of a waiting render, with several machines: the machines that can run it, and what keeps it off each of the others. A
@@ -191,7 +206,7 @@ export class Queue {
     if (lane) return lane;
     const self = this;
     lane = {
-      id, machine: null, comfy: null, running: null, starting: null, holds: false, unloadTimer: null, lastLoads: null, lastModel: null, paused: false, reachable: null,
+      id, machine: null, comfy: null, running: null, starting: null, holds: false, unloadTimer: null, lastLoads: null, lastModel: null, paused: false, reachable: null, device: null,
       ready: Promise.resolve(),
       core: null as unknown as QueueCore,
     };
@@ -648,7 +663,7 @@ ${JSON.stringify(input)}`;
     let got = kept.by.get(key);
     if (!got) {
       got = submitting.forecastOf(this.core, recipe.id, input, { cold, finishedFrom: job?.finished_from, clip: job?.clip_id ? { id: job.clip_id, fit: Boolean(job.clip_fit) } : null, machines })
-        .then((f) => ({ ms: f?.forecast.ms ?? null, on: new Map(Object.entries(f?.on ?? {}).map(([m, g]) => [m, g.ms])), model: f?.model || null }), () => ({ ms: null, on: new Map<string, number>(), model: null }));
+        .then((f) => ({ ms: f?.forecast.ms ?? null, on: new Map(Object.entries(f?.on ?? {}).map(([m, g]) => [m, g.ms])), model: f?.model || null, samples: f?.forecast.samples ?? 0 }), () => ({ ms: null, on: new Map<string, number>(), model: null, samples: 0 }));
       kept.by.set(key, got);
     }
     return got;
@@ -832,7 +847,7 @@ ${JSON.stringify(input)}`;
           const off = this.unavailable(l.id);
           if (off && !(sent && off === CAP_REACHED)) return false;
           if (!asked.has(l.id)) {
-            l.reachable = await l.comfy!.client.status().then(() => true, () => false);
+            l.reachable = await l.comfy!.client.status().then((st) => ((l.device = st.device), true), () => false);
             asked.set(l.id, l.reachable);
           }
           return asked.get(l.id)!;
@@ -993,14 +1008,21 @@ ${JSON.stringify(input)}`;
     return out;
   }
 
-  /** The waiting jobs as the scheduler reads them: what each makes, its pin, the machines that can run it, its model and its forecast with and without loading it. */
-  private planned(rows: JobRow[], able: ReadonlyMap<string, Able> = new Map()): Promise<Planned[]> {
+  /**
+   * The waiting jobs as the scheduler reads them: what each makes, its pin, the machines that can run it, the job it waits
+   * for, its model and its forecast with and without loading it. A finish on the GPU is priced from its route's own finishes
+   * on each machine (queueView finishesOf), and frees the model before the render after it.
+   */
+  private async planned(rows: JobRow[], able: ReadonlyMap<string, Able> = new Map()): Promise<Planned[]> {
+    const paces = await this.paces();
+    const finishes = await view.finishesOf(this.db, rows, this.machineLanes().map((l) => ({ id: l.id, pace: paces.get(l.id) ?? 1 })));
     return Promise.all(rows.map(async (r): Promise<Planned> => {
       const fetch = able.get(r.id)?.fetch ?? {};
       const fetchMs = Object.keys(fetch).length ? new Map(Object.entries(fetch).map(([lane, f]) => [lane, f.ms])) : undefined;
-      const base = { id: r.id, makes: this.makes(r), pin: r.pin_machine ?? null, can: able.get(r.id)?.can, ...(fetchMs ? { fetchMs } : {}) };
+      const base = { id: r.id, makes: this.makes(r), pin: r.pin_machine ?? null, can: able.get(r.id)?.can, ...(fetchMs ? { fetchMs } : {}), ...(r.depends_on ? { after: r.depends_on } : {}) };
       const recipe = r.recipe_id === CUT_JOB ? undefined : this.registry.recipe(r.recipe_id);
-      if (!recipe) return { ...base, model: null, renderMs: null, loadMs: null };
+      const finish = finishes.get(r.id);
+      if (!recipe) return { ...base, model: null, renderMs: finish?.ms ?? null, loadMs: null, ...(finish?.on.size ? { renderOn: finish.on } : {}), frees: r.recipe_id === CUT_JOB && tools.usesGpu(r) };
       const input = readJson<Record<string, unknown>>(r.inputs, {});
       const [warm, cold] = await Promise.all([this.expectedAll(recipe, input, false, r), this.expectedAll(recipe, input, true, r)]);
       // each machine's own figures when its renders (or its pace) say them: the scheduler reads those before the common one at its pace
@@ -1131,8 +1153,9 @@ ${JSON.stringify(input)}`;
     if (!run?.promptId || !run.movedAt || !run.startedAt) return { ms: 0, gpuIdle: false };
     const silent = Math.max(0, now - run.movedAt);
     if (run.loadAt && now - run.loadAt <= LOAD_FRESH_MS) return { ms: silent, gpuIdle: true };
-    const forecast = run.expectedMs ?? 0;
-    const waited = now - run.startedAt >= Math.min(2 * forecast, forecast + FORECAST_SLACK_MS);
+    // a render like nothing rendered before has no forecast: it is waited for the slack alone, not counted silent from its start
+    const forecast = run.expectedMs ?? null;
+    const waited = now - run.startedAt >= (forecast ? Math.min(2 * forecast, forecast + FORECAST_SLACK_MS) : FORECAST_SLACK_MS);
     return { ms: waited ? silent : 0, gpuIdle: false };
   }
 
@@ -1505,7 +1528,7 @@ ${JSON.stringify(input)}`;
     try {
       // what its GPU drew over its own stretch, from the power read on the way (none on a rented pod, nor without the reading)
       const energy = lane.comfy?.home ? lane.comfy.power.energy(resume.startedAt, resume.startedAt + totalMs) : null;
-      await record(this.db, row, recipe, resume, measured, status, whole, totalMs, generationId, { machine: lane.id, gpu: lane.comfy?.monitor.system?.gpus[0]?.name ?? null, energy });
+      await record(this.db, row, recipe, resume, measured, status, whole, totalMs, generationId, { machine: lane.id, gpu: gpuOf(lane.device, lane.comfy?.monitor.system?.gpus ?? []), energy });
       // the record changed: the next forecast reads it again at once, not after the second the mark is kept
       this.recordMark = null;
     } catch (err) {
@@ -1526,18 +1549,64 @@ ${JSON.stringify(input)}`;
   }
   /**
    * What this model's past renders say a form will take; null without history or for a form not complete enough to build.
-   * With one machine, on it (its own renders first). With several, on each (`on`), and said (`forecast`) on the one that
-   * renders it soonest of those that can take it now (Auto, the queue's own waits aside): the machine picked by hand reads
-   * its own in `on`.
+   * With one machine, on it (its own renders first). With several, on each (`on`), each with its model to load or not as
+   * that machine holds it, and said (`forecast`) on the one that renders it soonest of those that can take it now (Auto,
+   * the queue's own waits aside): open, taking what it makes, with its files (`can`, as a waiting job of it is told). Those
+   * are the machines Auto shares a batch of it between (`auto`). The machine picked by hand reads its own in `on`.
    */
   async forecast(recipeId: string, rawInput: unknown, opts: { finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null } = {}) {
     const lanes = this.machineLanes();
     if (lanes.length < 2) return submitting.forecastOf(this.core, recipeId, rawInput, { ...opts, machine: lanes[0]?.id ?? null });
-    const got = await submitting.forecastOf(this.core, recipeId, rawInput, { ...opts, machines: lanes.map((l) => l.id) });
+    const loads = (machine: string) => this.lanes.get(machine)?.lastLoads ?? null;
+    const got = await submitting.forecastOf(this.core, recipeId, rawInput, { ...opts, machines: lanes.map((l) => l.id), loads });
     if (!got?.on) return got;
     const makes = this.registry.recipe(recipeId)?.output === "image" ? "image" : "video";
-    const open = lanes.filter((l) => l.reachable !== false && !l.paused && !this.unavailable(l.id) && (l.machine!.takes === "all" || l.machine!.takes === makes));
-    const soonest = open.flatMap((l) => (got.on![l.id] ? [got.on![l.id]!] : [])).sort((a, b) => a.ms - b.ms)[0];
-    return soonest ? { ...got, forecast: soonest } : got;
+    // the machines it can run on, as a waiting job of it would be told (its files there, or on their way to a pod)
+    const form = this.standIn("form", { recipe: recipeId, input: rawInput, finishedFrom: opts.finishedFrom, clip: opts.clip });
+    const can = (await this.ableOf([form]).catch(() => new Map<string, Able>())).get(form.id)?.can;
+    const open = lanes.filter((l) => l.reachable !== false && !l.paused && !this.unavailable(l.id) && (l.machine!.takes === "all" || l.machine!.takes === makes) && (!can || can.has(l.id)));
+    const auto = open.flatMap((l) => (got.on![l.id] ? [l.id] : []));
+    const soonest = auto.map((id) => got.on![id]!).sort((a, b) => a.ms - b.ms)[0];
+    return { ...got, ...(soonest ? { forecast: soonest } : {}), auto };
+  }
+
+  /** A form as a waiting job of it would be read (by the plan, the machines' checks), queued nowhere. */
+  private standIn(id: string, f: { recipe: string; input: unknown; finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null; after?: string | null }): JobRow {
+    const r: Partial<JobRow> = {
+      id, recipe_id: f.recipe, inputs: JSON.stringify(f.input ?? {}), status: "queued", warm: 0, pin_machine: null, depends_on: f.after ?? null,
+      finished_from: f.finishedFrom ?? null, clip_id: f.clip?.id ?? null, clip_fit: f.clip?.fit ? 1 : 0, created_at: now(),
+    };
+    return r as JobRow;
+  }
+
+  /**
+   * What these jobs would take in all, as the queue would share them between its machines (schedule.ts planTotal), the
+   * queue's own waits aside: two free machines take a timeline's finishes in about half the time one does, each at its own
+   * pace, each loading its model once for a run of renders with it. A render is a form (with the draft it finishes, the
+   * clip it renders, the job before it it carries on from); a cut, its options (a finish on the GPU). `times`: renders of
+   * the same form. Null when one of them has nothing learned yet; `samples`: the fewest past renders a render rests on.
+   */
+  async total(parts: ReadonlyArray<{ recipe: string; input: unknown; finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null; after?: number; times?: number }>): Promise<{ ms: number | null; samples: number }> {
+    if (!parts.length) return { ms: null, samples: 0 };
+    const all = await this.refresh();
+    const open = all.filter((l) => !l.paused && l.reachable !== false && !this.unavailable(l.id));
+    const lanes = (await this.schedulable(open.length ? open : all.slice(0, 1))).map((l) => ({ ...l, busyForMs: 0 }));
+    // with nothing open at all (every machine away), the first one as it was
+    if (!lanes.length && all[0]) lanes.push({ id: all[0].id, takes: "all", busyForMs: 0, holds: new Set(), pace: 1 });
+    const rows: JobRow[] = [];
+    const last: string[] = [];
+    for (const [i, p] of parts.entries()) {
+      for (let k = 0; k < Math.max(1, p.times ?? 1); k++) rows.push(this.standIn(`part.${i}.${k}`, { ...p, after: p.after !== undefined ? last[p.after] : null }));
+      last[i] = rows[rows.length - 1]!.id;
+    }
+    const jobs = await this.planned(rows, await this.ableOf(rows.filter(needsComfy)).catch(() => new Map<string, Able>()));
+    // a render nothing like was rendered yet makes the whole unknown, not a sum that leaves it out
+    if (jobs.some((j) => j.renderMs === null && !j.renderOn?.size)) return { ms: null, samples: 0 };
+    const renders = rows.filter((r) => r.recipe_id !== CUT_JOB);
+    const samples = renders.length ? Math.min(...(await Promise.all(renders.map(async (r) => {
+      const recipe = this.registry.recipe(r.recipe_id);
+      return recipe ? (await this.expectedAll(recipe, readJson<Record<string, unknown>>(r.inputs, {}), false, r)).samples : 0;
+    })))) : 0;
+    return { ms: planTotal(lanes, jobs), samples };
   }
 }

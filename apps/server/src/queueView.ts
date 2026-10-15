@@ -5,6 +5,7 @@ import type { Lack } from "./machineScans";
 import type { PodFileView } from "./podFiles";
 import type { PodPackView } from "./podPacks";
 import { finishForecast, usesGpu } from "./queueTools";
+import type { ToolPaces } from "./renders";
 import type { CutOptions } from "./timelines";
 import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
 import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel";
@@ -84,17 +85,17 @@ export async function status(
     .orderBy("finished_at", "desc")
     .limit(20)
     .execute();
-  const finishes = await finishesWaiting(core, rows);
-  const renders = await rendersWaiting(core, rows, planned);
+  const finishes = await finishesOf(core.db, rows, lanes.flatMap((l) => (l.machine ? [{ id: l.machine.id, pace: paces.get(l.machine.id) ?? 1 }] : [])));
+  const renders = await rendersWaiting(core, rows, planned, lanes);
   // a waiting job's forecast on the machine it will probably run on: a render's from that machine's own renders (rendersWaiting),
-  // a finish's at that machine's pace
+  // a finish's from that machine's own finishes, else at its pace
   const estimate = (r: JobRow) => {
     if (r.status !== "queued") return null;
     const render = renders.get(r.id);
     if (render !== undefined) return render || null;
-    const ms = finishes.get(r.id) ?? null;
+    const finish = finishes.get(r.id);
     const on = planned.get(r.id)?.lane;
-    return ms && on ? Math.round(ms * (paces.get(on) ?? 1)) : ms;
+    return (on ? finish?.on.get(on) : undefined) ?? finish?.ms ?? null;
   };
   const brief = (r: JobRow) => ({ ...plain(r), estimateMs: estimate(r) });
   /** The machines that can run a waiting render, when that is not all of them; null when every one can. */
@@ -180,41 +181,59 @@ export async function status(
 }
 
 /**
- * What each waiting render should take (the forecast, queue.expected), by job, in the line's order: down the line, a job
- * whose model is not the one before it has to load it first. On the machine it will probably run on (`planned`), as that
- * machine's renders say it.
+ * What each waiting render should take (the forecast, queue.expected), by job, in the line's order: on the machine it will
+ * probably run on (`planned`), as that machine's renders say it, and with its model to load when it is not the one before it
+ * on that machine. Each machine holds its own model: judged by the first machine's, a pod holding another was told its
+ * render warm, 8 s for what took 13 with the load.
  */
-async function rendersWaiting(core: QueueCore, rows: JobRow[], planned: ReadonlyMap<string, { lane: string }>): Promise<Map<string, number | null>> {
-  let held = core.lastLoads === null ? null : new Set(core.lastLoads.split("|").map(modelName));
+async function rendersWaiting(core: QueueCore, rows: JobRow[], planned: ReadonlyMap<string, { lane: string }>, lanes: readonly LaneView[] = []): Promise<Map<string, number | null>> {
+  const heldOf = (c: QueueCore) => (c.lastLoads === null ? null : new Set(c.lastLoads.split("|").map(modelName)));
+  // what each machine holds, down the line; a job no machine is planned to take is judged by the first machine's
+  const first = lanes.find((l) => l.machine)?.machine?.id ?? "";
+  const held = new Map<string, Set<string> | null>(lanes.flatMap((l) => (l.machine ? [[l.machine.id, heldOf(l.core)] as const] : [])));
+  if (!held.has(first)) held.set(first, heldOf(core));
   const asked: Array<Promise<[string, number | null]>> = [];
   for (const r of rows) {
     if (r.status !== "queued") continue;
-    // a tool on the GPU frees the model before it: the render after it loads its own again
-    if (held && usesGpu(r)) held = new Set();
+    const lane = planned.get(r.id)?.lane ?? null;
+    const on = lane !== null && held.has(lane) ? lane : first;
+    // a tool on the GPU frees the model before it: the render after it there loads its own again
+    if (held.get(on) && usesGpu(r)) held.set(on, new Set());
     const recipe = core.registry.recipe(r.recipe_id);
     if (!recipe || r.warm) continue;
     const input = inputsOf(r);
     const model = modelOf(recipe.inputs, input);
-    const cold = Boolean(model && held && !held.has(model));
-    if (model) held = new Set([model]);
-    asked.push(core.expected(recipe, input, cold, r, planned.get(r.id)?.lane ?? null).then((ms) => [r.id, ms]));
+    const was = held.get(on);
+    const cold = Boolean(model && was && !was.has(model));
+    if (model) held.set(on, new Set([model]));
+    asked.push(core.expected(recipe, input, cold, r, lane).then((ms) => [r.id, ms]));
   }
   return new Map(await Promise.all(asked));
 }
 
-/** What each waiting finish should take (finishForecast), by job; a finish whose video is gone is left out. */
-async function finishesWaiting(core: QueueCore, rows: JobRow[]): Promise<Map<string, number | null>> {
+/**
+ * What each waiting finish should take (finishForecast), by job: on no machine in particular (`ms`), and on each of
+ * `machines` (`on`), from its own finishes, else at its pace. A finish whose video is gone is left out.
+ */
+export async function finishesOf(db: Db, rows: readonly JobRow[], machines: ReadonlyArray<{ id: string; pace: number }> = []): Promise<Map<string, { ms: number | null; on: Map<string, number> }>> {
   const asked = rows.flatMap((r) => {
     const o = r.status === "queued" && r.recipe_id === CUT_JOB ? readJson<CutOptions | null>(r.inputs, null) : null;
     return o?.action === "finish" ? [{ id: r.id, o }] : [];
   });
-  const out = new Map<string, number | null>();
+  const out = new Map<string, { ms: number | null; on: Map<string, number> }>();
   if (!asked.length) return out;
-  const videos = new Map((await core.db.selectFrom("assets").select(["id", "width", "height", "duration_ms", "fps"]).where("id", "in", [...new Set(asked.map((a) => a.o.asset))]).execute()).map((v) => [v.id, v]));
-  const paces = new Map<string, Promise<number | null>>();
+  const videos = new Map((await db.selectFrom("assets").select(["id", "width", "height", "duration_ms", "fps"]).where("id", "in", [...new Set(asked.map((a) => a.o.asset))]).execute()).map((v) => [v.id, v]));
+  const paces = new Map<string, Promise<ToolPaces | null>>();
   for (const { id, o } of asked) {
     const v = videos.get(o.asset);
-    if (v) out.set(id, await finishForecast(core.db, { width: v.width, height: v.height, durationMs: v.duration_ms, fps: v.fps }, o, paces));
+    if (!v) continue;
+    const video = { width: v.width, height: v.height, durationMs: v.duration_ms, fps: v.fps };
+    const on = new Map<string, number>();
+    for (const m of machines) {
+      const ms = await finishForecast(db, video, o, paces, { machine: m.id, pace: m.pace });
+      if (ms) on.set(m.id, ms);
+    }
+    out.set(id, { ms: await finishForecast(db, video, o, paces), on });
   }
   return out;
 }
