@@ -72,12 +72,13 @@ function pickedFor(recipe: Pick<Recipe<any>, "inputs" | "needs">, input: Record<
  * Every model file a job uses, as a machine that has none of them would need them (a pod just deployed): the files its
  * inputs name and its family's files its recipe needs, as `scan` (this computer's) finds them, else the family's usual one.
  */
-export function filesUsed(recipe: Pick<Recipe<any>, "family" | "inputs" | "needs">, input: Record<string, unknown>, scan: Scan | null, slots: Array<{ id: string; folder: string; optional?: boolean; get?: { file: string; url: string } }>): Array<{ file: string; folder: string; url?: string }> {
+export function filesUsed(recipe: Pick<Recipe<any>, "family" | "inputs" | "needs" | "needsWith">, input: Record<string, unknown>, scan: Scan | null, slots: Array<{ id: string; folder: string; optional?: boolean; get?: { file: string; url: string } }>): Array<{ file: string; folder: string; url?: string }> {
   const out: Array<{ file: string; folder: string; url?: string }> = filesAsked(recipe, input).map(({ file, folder }) => ({ file, folder }));
   const found = scan?.families.find((f) => f.id === recipe.family)?.slots ?? [];
+  const asks = recipe.needsWith?.(input) ?? [];
   for (const slot of slots) {
     // a slot the job's own pick fills is that file, asked above
-    if ((slot.optional && !recipe.needs?.includes(slot.id)) || pickedFor(recipe, input, slot, slots)) continue;
+    if ((slot.optional && !recipe.needs?.includes(slot.id) && !asks.includes(slot.id)) || pickedFor(recipe, input, slot, slots)) continue;
     const file = found.find((x) => x.id === slot.id)?.file ?? slot.get?.file;
     if (file) out.push({ file, folder: slot.folder, ...(slot.get && slot.get.file === file ? { url: slot.get.url } : {}) });
   }
@@ -112,7 +113,7 @@ export interface Lack {
  * family on there, and the model files and LoRAs it asks for in that machine's lists (an input the scan does not list is
  * not held against it). A recipe not ready for another reason (a custom node missing) lacks no file but is kept off all the same.
  */
-export function lackOn(recipe: Pick<Recipe<any>, "id" | "family" | "inputs" | "needs">, input: Record<string, unknown>, scan: Scan, settings: Pick<Settings, "families">, machine: Pick<Machine, "families">, recipeFamily: (id: string) => string | undefined): Lack | null {
+export function lackOn(recipe: Pick<Recipe<any>, "id" | "family" | "inputs" | "needs" | "needsWith">, input: Record<string, unknown>, scan: Scan, settings: Pick<Settings, "families">, machine: Pick<Machine, "families">, recipeFamily: (id: string) => string | undefined): Lack | null {
   const status = scan.recipes.find((r) => r.id === recipe.id);
   const on = familyOn(settings, machine, recipe.family, foundIn(scan, recipe.family, recipeFamily));
   // "off" is said only of a family switched off by hand (there, or on every machine): one off because its files are not
@@ -120,13 +121,17 @@ export function lackOn(recipe: Pick<Recipe<any>, "id" | "family" | "inputs" | "n
   const off = !on && (machine.families[recipe.family] ?? settings.families[recipe.family]) === false;
   const wanted = filesAsked(recipe, input);
   const asked = wanted.filter(({ input: id, file }) => status?.options[id] && !status.options[id]!.includes(file));
-  if (status?.ready && on && !asked.length) return null;
   const slots = scan.families.find((f) => f.id === recipe.family)?.slots ?? [];
+  // the family's files this input asks for (Turbo's LoRAs): without them it would run, but not as asked
+  const asks = recipe.needsWith?.(input) ?? [];
+  const lacking = slots.filter((x) => asks.includes(x.id) && !x.file);
+  if (status?.ready && on && !asked.length && !lacking.length) return null;
   // a family file the job's own pick fills is not asked for as the family's usual file (a pod would fetch a model it never uses)
   const files = [
     ...slots.filter((x) => status?.missingSlots.includes(x.id) && x.get && !pickedFor(recipe, input, x, slots)).map((x) => ({ file: x.get!.file, folder: x.folder, url: x.get!.url })),
     ...(status?.missing ?? []).flatMap((m) => (m.folder ? [{ file: m.file, folder: m.folder, ...(m.url ? { url: m.url } : {}) }] : [])),
     ...asked.map(({ file, folder }) => ({ file, folder })),
+    ...lacking.flatMap((x) => (x.get ? [{ file: x.get.file, folder: x.folder, url: x.get.url }] : [])),
   ];
   const unique = files.filter((f, i) => files.findIndex((g) => g.file === f.file && g.folder === f.folder) === i);
   // with these files there it runs: a family file missing is one of them (its usual file) or the file of an input that
@@ -140,8 +145,8 @@ export function lackOn(recipe: Pick<Recipe<any>, "id" | "family" | "inputs" | "n
   // a file of its own (an imported workflow's) whose model folder is not known cannot be sent: it is not among the files
   const sendable = Boolean(status) && !off && (unique.length > 0 || Boolean(knownPacks?.length)) && knownPacks !== null && !status!.problems.length
     && status!.missing.every((m) => m.folder)
-    && status!.emptyInputs.every((id) => filled.has(id)) && status!.missingSlots.every(slotFilled);
-  const why = sendable || off ? null : unsendable(status, knownPacks, filled, slotFilled);
+    && status!.emptyInputs.every((id) => filled.has(id)) && status!.missingSlots.every(slotFilled) && lacking.every((x) => x.get);
+  const why = sendable || off ? null : lacking.find((x) => !x.get) ? `its ${lacking.find((x) => !x.get)!.label ?? "family"} file is not there, and no download is known for it` : unsendable(status, knownPacks, filled, slotFilled);
   return { off, files: unique, sendable, ...(knownPacks?.length ? { packs: knownPacks } : {}), ...(why ? { why } : {}) };
 }
 

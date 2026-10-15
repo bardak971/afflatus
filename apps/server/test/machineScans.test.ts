@@ -107,3 +107,31 @@ describe("lackOn", () => {
     expect(lack(status({ emptyInputs: ["unet"] }))?.sendable).toBe(true);
   });
 });
+
+describe("lackOn, a family file the job's choices ask for", () => {
+  /** Wan as a pod has it: its two models, no turbo LoRA. */
+  const wan = { id: "wan.video", family: "wan", inputs: [], needsWith: (input: Record<string, unknown>) => (input.fast ? ["i2vTurboHigh", "i2vTurboLow"] : []) };
+  const turboSlots = [
+    { id: "i2vTurboHigh", label: "Turbo LoRA (i2v, high noise)", folder: "loras", optional: true, file: null, get: { file: "high_lightx2v.safetensors", url: "https://huggingface.co/x/high_lightx2v.safetensors" } },
+    { id: "i2vTurboLow", label: "Turbo LoRA (i2v, low noise)", folder: "loras", optional: true, file: null, get: { file: "low_lightx2v.safetensors", url: "https://huggingface.co/x/low_lightx2v.safetensors" } },
+  ];
+  const pod = (slots: unknown[]): Scan => ({ ...scan([recipe("wan.video", true)]), families: [{ id: "wan", slots }] as Scan["families"] });
+
+  it("sends a pod Turbo's LoRAs when Turbo is on, and asks nothing with it off", () => {
+    const lack = lackOn(wan as never, { fast: true }, pod(turboSlots), { families: {} }, machine("pod"), () => "wan");
+    expect(lack).toMatchObject({ sendable: true, files: [{ file: "high_lightx2v.safetensors", folder: "loras" }, { file: "low_lightx2v.safetensors", folder: "loras" }] });
+    expect(lackOn(wan as never, { fast: false }, pod(turboSlots), { families: {} }, machine("pod"), () => "wan")).toBeNull();
+    // there already: nothing lacks
+    expect(lackOn(wan as never, { fast: true }, pod(turboSlots.map((s) => ({ ...s, file: s.get.file }))), { families: {} }, machine("pod"), () => "wan")).toBeNull();
+  });
+
+  it("says why when no download is known for one", () => {
+    const lack = lackOn(wan as never, { fast: true }, pod(turboSlots.map((s, i) => (i ? { ...s, get: undefined } : s))), { families: {} }, machine("pod"), () => "wan");
+    expect(lack).toMatchObject({ sendable: false, why: "its Turbo LoRA (i2v, low noise) file is not there, and no download is known for it" });
+  });
+
+  it("counts them among the files a job uses (a pod just deployed gets them)", () => {
+    expect(filesUsed(wan as never, { fast: true }, null, turboSlots).map((f) => f.file)).toEqual(["high_lightx2v.safetensors", "low_lightx2v.safetensors"]);
+    expect(filesUsed(wan as never, { fast: false }, null, turboSlots)).toEqual([]);
+  });
+});

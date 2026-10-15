@@ -173,6 +173,12 @@ export interface Recipe<In = Record<string, unknown>> {
    * the model that edits): it is not ready while their files are missing.
    */
   needs?: string[];
+  /**
+   * Slots of its family this particular input cannot do what it asks without (Wan's Turbo: the lightx2v LoRAs, unless the
+   * model is made for a few steps). A machine without their files does not take the job, and a rented pod is sent them:
+   * the recipe left alone would render without them, the full steps where Turbo was asked.
+   */
+  needsWith?(input: In): string[];
   /** Node classes this particular input needs (checked against ComfyUI before queueing). */
   nodes(input: In): string[];
   /** Node classes build() uses only when this ComfyUI has them (ctx.has): speed-ups and finishing touches. */
