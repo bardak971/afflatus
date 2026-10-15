@@ -81,7 +81,7 @@ interface Qwen21Base {
 }
 interface Qwen21Picture extends Qwen21Base { prompt: string; size: SizeValue }
 interface Qwen21Edit extends Qwen21Base { source: string; prompt: string; references: ReferenceValue[]; resolution: number }
-interface Qwen21MotionPicture extends Qwen21Base { source: string; people: ReferenceValue[]; relight: boolean; replace: string; relit: string; resolution: number }
+interface Qwen21MotionPicture extends Qwen21Base { source: string; people: ReferenceValue[]; scene: string; relight: boolean; replace: string; relit: string; resolution: number }
 
 const model: InputSpec = { id: "model", type: "model", label: "Model", folder: "diffusion_models", slot: "unet", match: ["qwen.?image.?2[._]1(?!.*vae)"], note: "Qwen Image 2.1, or a fine-tune of it" };
 /** How it samples: the values of ComfyUI's template (25 steps) raised to what Qwen's authors give (about 40 with euler), each kept per model once saved. */
@@ -251,14 +251,16 @@ const photoTags = (n: number) => {
  * What puts the person in, for n photos: the head is replaced, not the person, which Qwen read as a whole person to add
  * (pasted in beside the one kept, or the man behind made them too), and every photo is named. Qwen's own edit rewriter
  * (Qwen-Image-2.1-PE-I2I) wrote it this way; made a fixed template, it gave 12 clean swaps of 12 with three photos where the
- * words before gave 3, and 6 of 6 with one (HANDOVER-motion-picture-report.md §4). No subject or footage of its own: the
- * frame's light and colour are the ones asked for.
+ * words before gave 3, and 6 of 6 with one (HANDOVER-motion-picture-report.md §4). No subject or footage of its own: facial
+ * hair, not a beard (said to someone without one, it kept the frame's or made one). No light: words for the frame's light
+ * and expression here changed nothing seed for seed (§9); the relight pass brings the light, the user's own line (scene)
+ * what the frame shows.
  */
 export function motionReplace(n: number): string {
   const refs = photoTags(n);
   return (
-    `On <image1>, replace the head of the main person (face, hair and beard) with the head of the person shown in ${refs}, so that the result reads as the same individual as in ${n > 1 ? "those references" : refs}, with matching facial features, face shape, hair and beard. ` +
-    "The new head keeps the position, angle and tilt of the head in <image1> and takes on the lighting direction and colour temperature of the <image1> scene, with skin shading and shadows consistent with its light, so that they appear naturally filmed in this scene. " +
+    `On <image1>, replace the head of the main person (face, hair and facial hair) with the head of the person shown in ${refs}, so that the result reads as the same individual as in ${n > 1 ? "those references" : refs}, with matching facial features, face shape and hair. ` +
+    "The new head keeps the position, angle and tilt of the head in <image1>. " +
     "Keep the body, pose, clothing, background, every other person and all other elements of <image1> completely unchanged."
   );
 }
@@ -276,6 +278,20 @@ const FIRST_REPLACE =
   "Replace the main person in <image1> with the person in <image2>: their face, their hair, their beard and their skin. " +
   "They are lit exactly like the rest of <image1>: the same light and shadows on the face, the same soft, grainy phone-video look, so that they belong in the picture. " +
   "Keep everything else in <image1> exactly the same: their clothes, their pose, the people around them and the framing.";
+/** The defaults' second wording (2026-10-15 morning): beard and the frame's light in the first pass. */
+const SECOND_REPLACE =
+  "On <image1>, replace the head of the main person (face, hair and beard) with the head of the person shown in <image2>, so that the result reads as the same individual as in <image2>, with matching facial features, face shape, hair and beard. " +
+  "The new head keeps the position, angle and tilt of the head in <image1> and takes on the lighting direction and colour temperature of the <image1> scene, with skin shading and shadows consistent with its light, so that they appear naturally filmed in this scene. " +
+  "Keep the body, pose, clothing, background, every other person and all other elements of <image1> completely unchanged.";
+/** Where the user's line goes in an instruction: before its last sentence (what is kept), or at its end. */
+const KEPT = "Keep the body";
+export function withScene(instruction: string, scene: string): string {
+  const line = scene.trim().replace(/\s+/g, " ");
+  if (!line) return instruction;
+  const said = /[.!?]$/.test(line) ? line : `${line}.`;
+  const at = instruction.indexOf(KEPT);
+  return at < 0 ? `${instruction.trimEnd()} ${said}` : `${instruction.slice(0, at)}${said} ${instruction.slice(at)}`;
+}
 const FIRST_RELIGHT =
   "Relight only the main person in <image1> so that they match the rest of the picture: the same light as on the people and the room around them, " +
   "the same shadows on their face, less light on their skin where the room is dark, and the same soft, grainy phone-video look. " +
@@ -301,6 +317,10 @@ export const qwen21MotionPicture = defineRecipe<Qwen21MotionPicture>({
       id: "people", type: "references", label: "Who goes in", max: 3, roles: ["person"],
       note: "photos of the person: one sharp, front-facing and well lit matters most; a second from another angle helps a frame where they are turned",
     },
+    {
+      id: "scene", type: "prompt", label: "Frame prompt", style: "sentences", optional: true, default: "",
+      note: "what the frame shows of them, said plainly: their expression, mouth, gaze, what they hold, the light (\"laughing, mouth open, eyes half closed, lit by red club light\"). Put into the instruction before what is kept",
+    },
     { id: "relight", type: "toggle", label: "Relight", default: true, note: "a second pass that brings the person into the frame's light and look, the face left as it is" },
     { id: "replace", type: "prompt", label: "Instruction", style: "sentences", default: MOTION_REPLACE, advanced: true, note: "what the first pass is told; <image2> on are the photos. Left as it is, it names every photo given" },
     { id: "relit", type: "prompt", label: "Relight instruction", style: "sentences", default: MOTION_RELIGHT, advanced: true, showWhen: "relight", note: "what the second pass is told" },
@@ -314,7 +334,7 @@ export const qwen21MotionPicture = defineRecipe<Qwen21MotionPicture>({
     const k = load(g, input, ctx);
     const photos = input.people.slice(0, 3).map((_, i) => ctx.uploads[`people.${i}`]);
     // the defaults (today's or the first) are worded for the photos given; words of the user's own are sent as written
-    const replace = input.replace === MOTION_REPLACE || input.replace === FIRST_REPLACE ? motionReplace(photos.length) : input.replace;
+    const replace = withScene([MOTION_REPLACE, SECOND_REPLACE, FIRST_REPLACE].includes(input.replace) ? motionReplace(photos.length) : input.replace, input.scene);
     const relit = input.relit === FIRST_RELIGHT ? MOTION_RELIGHT : input.relit;
     const pass = (prompt: string, images: Ref[], seed: number) => {
       const read = g.add("TextEncodeQwenImage21", {
