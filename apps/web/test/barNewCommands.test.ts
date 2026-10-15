@@ -90,3 +90,30 @@ describe("the commands added after 0.4.0", () => {
     }
   });
 });
+
+describe("signing out, and the Costs page", () => {
+  it("reads sign out for this browser, and everywhere for every device", () => {
+    expect(parseCommand("sign out")).toEqual({ cmd: "sign-out" });
+    expect(parseCommand("log out of this device")).toEqual({ cmd: "sign-out" });
+    expect(parseCommand("sign out everywhere")).toEqual({ cmd: "sign-out-everywhere" });
+    expect(parseCommand("logout all devices")).toEqual({ cmd: "sign-out-everywhere" });
+    expect(parseCommand("costs")).toEqual({ cmd: "spending" });
+  });
+
+  it("offers Sign out only to a browser that holds a session, and says why not otherwise", () => {
+    const has = (x: CommandCtx, key: string) => commandTemplates(x).some((r) => r.key === key);
+    expect(has(ctx({ access: { locked: true, session: true } }), "cmd:sign-out")).toBe(true);
+    expect(has(ctx({ access: { locked: false, session: false } }), "cmd:sign-out")).toBe(false);
+    // this computer, in without the password: nothing to sign out of, everywhere still means the others
+    const local = ctx({ access: { locked: true, session: false } });
+    expect(has(local, "cmd:sign-out")).toBe(false);
+    expect(commandRow(local, { cmd: "sign-out" }).meta).toContain("without the password");
+    expect(has(local, "cmd:sign-out-everywhere")).toBe(true);
+  });
+
+  it("is the Costs page without RunPod, the day's figures with it", () => {
+    expect(commandRow(ctx(), { cmd: "spending" })).toMatchObject({ label: "Costs" });
+    expect(commandRow(ctx(), { cmd: "spending" }).meta).toContain("electricity");
+    expect(commandTemplates(ctx()).some((r) => r.key === "cmd:spending")).toBe(true);
+  });
+});

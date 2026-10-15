@@ -1,5 +1,5 @@
 import { lazy, Suspense, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { ArrowUpToLine, Copy, Keyboard, Navigation, RotateCcw, Settings2, Square } from "lucide-react";
 import { useOpenComfyUI, useOpenInComfy } from "../actions";
@@ -95,6 +95,9 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
   const rented = useRentedOps();
   const deployAgain = useDeployAgain();
   const updates = useUpdates().data;
+  // read once by the sign-in gate (Gate.tsx): here from its cache
+  const session = useQuery({ queryKey: queryKeys.session(), queryFn: () => api.session(), staleTime: Infinity }).data;
+  const access = session ? { locked: session.locked, session: session.session } : null;
   // "Import a folder here…": the computer's folder picker, and where what it picks goes (as the Projects panel does it)
   const picker = useRef<HTMLInputElement>(null);
   const importTo = useRef<Target | null>(null);
@@ -136,7 +139,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
   };
 
   const x: BarCtx = {
-    go, client, say, tree, kinds, allProjects, projects: allProjects.filter((p) => !p.archivedAt), pins, queue, ops, bulk, jobs, setup, updates,
+    go, client, say, tree, kinds, allProjects, projects: allProjects.filter((p) => !p.archivedAt), pins, queue, ops, bulk, jobs, setup, updates, access,
     binEmpty: bin ? !bin.count : false, binSaid: bin ? `${itemsWord(bin.count)} · ${size(bin.bytes)}` : "",
     recipes, entities, modelSettings, openNew, selectedClip, draftOpen, aim, subject, item, formTarget, openWorkflow, openComfy, rented, deployAgain, settingCtx, onCopied, setViewing,
     importInto,

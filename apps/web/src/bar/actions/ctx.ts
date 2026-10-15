@@ -75,6 +75,8 @@ export interface BarCtx {
   bulk: ReturnType<typeof useQueueBulk>;
   jobs: ReturnType<typeof useJobActions>;
   setup: ReturnType<typeof useSetup>;
+  /** The sign-in: a password set, and whether this browser holds a session to end (Sign out). */
+  access: { locked: boolean; session: boolean } | null;
   /** Afflatus's own updates (Settings › About), for Update and Go back. */
   updates: UpdatesView | undefined;
   binEmpty: boolean;

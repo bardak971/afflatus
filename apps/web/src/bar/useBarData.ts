@@ -178,10 +178,14 @@ export function useBarData({ open, mode, text, ranks, picked, learn, foundEntrie
   const telegram = Boolean(n?.hasTelegramToken && n.telegramChat);
   const discord = Boolean(n?.hasDiscordWebhook);
   const lookups = Boolean(settings.data?.civitaiLookups);
+  // the sign-in, read once by its gate (Gate.tsx): Sign out and Sign out everywhere follow it
+  const session = useQuery({ queryKey: queryKeys.session(), queryFn: () => api.session(), staleTime: Infinity }).data;
+  const locked = Boolean(session?.locked);
+  const inSession = Boolean(session?.session);
   // what the command rows say of the moment (commandRows.ts); the commands offered with it, those that apply now
   const commandCtx: CommandCtx = useMemo(
-    () => ({ aim, queue: queueNow ?? null, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid, spending, updates, channels: { telegram, discord }, lookups }),
-    [aim, queueNow, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid, spending, updates, telegram, discord, lookups],
+    () => ({ aim, queue: queueNow ?? null, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid, spending, updates, channels: { telegram, discord }, lookups, access: session ? { locked, session: inSession } : null }),
+    [aim, queueNow, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid, spending, updates, telegram, discord, lookups, session, locked, inSession],
   );
   const templates = useMemo(() => commandTemplates(commandCtx), [commandCtx]);
 
