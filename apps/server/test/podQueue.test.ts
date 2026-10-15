@@ -217,3 +217,68 @@ describe("a deploy's files", () => {
     expect(machine?.rented?.files).toEqual([{ file: "style.safetensors", folder: "loras", url: "https://huggingface.co/o/r/resolve/main/style.safetensors" }]);
   });
 });
+
+describe("a job pinned to a pod still booting", () => {
+  /** A pod deployed and running on RunPod whose ComfyUI does not answer yet (its boot), as the rented poll read it. */
+  async function booting(): Promise<string> {
+    runpod.comfyStaysDown = true;
+    const res = await post(t.app, "/api/runpod/deploy", { gpu: "NVIDIA A40", cloud: "SECURE", template: "afflatus", volume: "", disk: 60, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15 });
+    expect(res.statusCode).toBe(200);
+    await until(() => runpod.pods[0]?.status === "RUNNING");
+    await t.services.rented.poll();
+    return res.json().id as string;
+  }
+  /** Queued pinned to the pod, and seen waiting for its ComfyUI to answer. */
+  async function pinned(id: string): Promise<string> {
+    const a = (await post(t.app, "/api/jobs", { ...job(), machine: id })).json().ids[0] as string;
+    await until(async () => (await t.services.queue.status()).waiting.find((w) => w.id === a)?.lacks?.[id]?.why === "its ComfyUI is not answering yet");
+    return a;
+  }
+  /** Its ComfyUI answers now, and the rented poll (on its own timer, whether a page is open or not) sees it: nothing else. */
+  async function answers(): Promise<void> {
+    runpod.comfyStaysDown = false;
+    pod.down = false;
+    await t.services.rented.poll();
+  }
+
+  it("has its files sent once the pod answers, with no other change to the queue and no page open", async () => {
+    const id = await booting();
+    const a = await pinned(id);
+    expect(t.services.podFiles.view(id)).toEqual([]);
+    await answers();
+    await until(() => t.services.podFiles.view(id).some((f) => f.file === CHECKPOINT && f.tier === "need"));
+    expect(t.services.podFiles.view(id)).toEqual([expect.objectContaining({ file: CHECKPOINT, tier: "need", jobs: [a] })]);
+    await until(() => pod.prompts.size === 1, 15_000);
+    expect(home.prompts.size).toBe(0);
+  });
+
+  it("has them sent too when its first scan after it answers does not come (its node list slow on a fresh pod)", async () => {
+    const id = await booting();
+    const a = await pinned(id);
+    // the next two scans of the pod fail as an unread node list does; the ones after read it
+    const comfy = (await t.services.machines()).find((m) => m.machine.id === id)!.comfy;
+    const real = comfy.scan.bind(comfy);
+    let failing = 2;
+    comfy.scan = async (fresh) => (failing-- > 0 ? { at: new Date().toISOString(), comfy: { online: false, url: comfy.url, error: "timed out" }, families: [], recipes: [] } : real(fresh));
+    await answers();
+    await until(() => t.services.podFiles.view(id).some((f) => f.file === CHECKPOINT && f.tier === "need" && f.jobs.includes(a)));
+    expect(failing).toBeLessThan(0);
+  });
+
+  it("keeps the pod from its idle time while the files its job waits for come", async () => {
+    const id = await booting();
+    // files that take long to come: asked for, never there during the test
+    const want = vi.fn();
+    t.services.queue.podFetch = { failed: () => null, untilThere: async () => 5 * 60_000, want, jobState: () => "waiting", holding: () => false };
+    const a = await pinned(id);
+    await answers();
+    await until(() => want.mock.calls.some(([m, , tier, j]) => m === id && tier === "need" && j === a));
+    expect(await t.services.queue.wants(id)).toBe(true);
+    // past its idle time (10 min) since it was last seen at work: still at work, so still up
+    const real = Date.now();
+    t.services.rented.now = () => real + 11 * 60_000;
+    await t.services.rented.poll();
+    expect(runpod.pods[0]!.status).toBe("RUNNING");
+    expect(pod.prompts.size).toBe(0);
+  });
+});

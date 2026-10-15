@@ -297,7 +297,7 @@ export class Rented {
 
   constructor(
     private readonly db: Db,
-    private readonly queue: { wants(machine: string): Promise<boolean>; runningOn(machine: string): boolean; quietFor(machine: string, now?: number): { ms: number; gpuIdle: boolean }; endStuck(machine: string, why: string): Promise<boolean> },
+    private readonly queue: { wants(machine: string): Promise<boolean>; runningOn(machine: string): boolean; quietFor(machine: string, now?: number): { ms: number; gpuIdle: boolean }; endStuck(machine: string, why: string): Promise<boolean>; answering(machine: string): void },
     private readonly events: EventEmitter,
     private readonly comfyOf: (machine: string) => Promise<Comfy | null>,
   ) {}
@@ -1212,6 +1212,9 @@ export class Rented {
     // whether ComfyUI answers is its own status: the provider's proxy answers too (a 404 when no container is behind it), and
     // what the watchdog's route answers says only whether the pack is there
     const up = await comfy.client.status().then(() => true, () => false);
+    // its ComfyUI answering now and not at the last read (a boot ended, a restart done): the queue plans again at once, the
+    // files its jobs wait for asked for. Nothing else tells it when no page is open, and the pod would idle toward its stop
+    if (up && s.answers !== true) this.queue.answering(m.id);
     s.answers = up;
     // its ComfyUI not answering: the pack's watchdog in it is not known to be there either. The Afflatus image on a host whose
     // GPU does not work answers on ComfyUI's port in its place, and says so (deploy/runpod/broken.py)
