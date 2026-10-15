@@ -25,9 +25,12 @@ import { FAST, job, makeApp, makeFake, NOWHERE, post, until } from "./helpers";
 
 /**
  * The file copies of node:fs/promises, watched: for each, whether the library's database (afflatus.db beside where the
- * copy goes) was in place while it was made. Everything else is the real file system.
+ * copy goes) was in place while it was made. The files written in place are kept too: a note the page or the next start
+ * reads (data/updates/*.json) must be renamed in whole, never seen empty halfway through its write. Everything else is the
+ * real file system.
  */
 const copies = vi.hoisted(() => [] as Array<{ to: string; dbThere: boolean }>);
+const inPlace = vi.hoisted(() => [] as string[]);
 vi.mock("node:fs/promises", async (original) => {
   const real = await original<typeof import("node:fs/promises")>();
   const { existsSync: there } = await import("node:fs");
@@ -36,8 +39,15 @@ vi.mock("node:fs/promises", async (original) => {
     copies.push({ to: String(to), dbThere: there(under(dir(String(to)), "afflatus.db")) });
     return real.copyFile(from, to, mode);
   }) as typeof real.copyFile;
-  return { ...real, default: { ...real, copyFile }, copyFile };
+  const writeFile = ((file: Parameters<typeof real.writeFile>[0], ...rest: [never, never]) => {
+    inPlace.push(String(file));
+    return real.writeFile(file, ...rest);
+  }) as typeof real.writeFile;
+  return { ...real, default: { ...real, copyFile, writeFile }, copyFile, writeFile };
 });
+
+/** The notes under data/updates written in place rather than renamed in whole. */
+const notesInPlace = (data: string) => inPlace.filter((f) => dirname(f) === join(data, "updates"));
 
 // ---------------------------------------------------------------- a key, a bundle, a release server
 
@@ -355,6 +365,7 @@ describe("the update of a bundle", () => {
     expect(readdirSync(r.versions).sort()).toEqual(["0.4.1", "0.4.2", "current", "previous", "trial"]);
     expect(readdirSync(join(r.data, "updates"))).toEqual(["last.json"]);
     expect(JSON.parse(readFileSync(join(r.data, "updates", "last.json"), "utf8"))).toMatchObject({ kind: "updated", from: "0.4.1", to: "0.4.2" });
+    expect(notesInPlace(r.data)).toEqual([]);
   });
 
   it("picks a download up where the connection was cut", async () => {
@@ -531,6 +542,7 @@ describe("after an update", () => {
     });
     expect((await r.view()).fallback).toEqual({ version: "0.4.2", previous: "0.4.1", at: "2026-10-11T10:00:00.000Z", code: 1 });
     expect(existsSync(join(r.data, "updates", "fallback.json"))).toBe(false);
+    expect(notesInPlace(r.data)).toEqual([]);
   });
 
   it("does not offer again a version that did not start, and takes its folder away; the next release is offered", async () => {
@@ -610,6 +622,7 @@ describe("after an update", () => {
     // the database as it was is set aside, not deleted
     expect(readdirSync(join(r.data, "backups")).some((n) => /^after-0\.4\.2-.+\.db$/.test(n))).toBe(true);
     expect(JSON.parse(readFileSync(join(r.data, "updates", "last.json"), "utf8"))).toMatchObject({ kind: "went-back", from: "0.4.2", to: "0.4.1" });
+    expect(notesInPlace(r.data)).toEqual([]);
   });
 
   it("brings a 0.3 library beside it in, moved and not copied, while its own is empty", async () => {
@@ -632,6 +645,7 @@ describe("after an update", () => {
     expect(existsSync(old)).toBe(false);
     expect(readdirSync(r.root).some((n) => /^data-empty-/.test(n))).toBe(true);
     expect(JSON.parse(readFileSync(join(r.data, "updates", "last.json"), "utf8"))).toMatchObject({ kind: "moved", from: "0.3.0" });
+    expect(notesInPlace(r.data)).toEqual([]);
   });
 
   it("finds a 0.3 library unpacked by Windows' Extract All, a folder deeper, beside this one's own", async () => {

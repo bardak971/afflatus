@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash, createPublicKey, verify } from "node:crypto";
 import { createReadStream, existsSync, readFileSync } from "node:fs";
-import { copyFile, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, open, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
@@ -244,8 +244,10 @@ export function nodeIn(versionDir: string, platform: string): string {
 }
 
 /**
- * A small file written whole or not at all (versions/current and the like): a temporary file, flushed to the disk, then
- * renamed over the old one. A disk that fills up halfway leaves the old file as it was, never an empty one.
+ * A small file written whole or not at all (versions/current, data/updates/last.json and the like): a temporary file,
+ * flushed to the disk, then renamed over the old one. A disk that fills up halfway leaves the old file as it was, never an
+ * empty one; and whoever reads it meanwhile (the next start, the launcher, the page) finds the old file or the new, never
+ * one still being written, which a slow or busy disk makes easy to catch.
  */
 async function writeAtomic(path: string, text: string): Promise<void> {
   const tmp = `${path}.tmp`;
@@ -498,7 +500,7 @@ export class AfflatusUpdates {
       this.fallback = { version: fellFrom, previous: fellTo, at: typeof fell.at === "string" ? fell.at : now(), code: typeof fell.code === "number" ? fell.code : null };
       console.warn(`[updates] ${fellFrom} did not start; back on ${fellTo}`);
       // remembered past this start, and its folder taken away: it is not offered again, and nothing starts it by mistake
-      await writeFile(join(this.updatesDir, "failed.json"), JSON.stringify({ version: bareVersion(fellFrom) })).catch(() => {});
+      await writeAtomic(join(this.updatesDir, "failed.json"), JSON.stringify({ version: bareVersion(fellFrom) })).catch(() => {});
       if (this.versionsDir && fellFrom !== this.running) await rm(join(this.versionsDir, fellFrom), { recursive: true, force: true }).catch(() => {});
     }
     await rm(fallbackFile, { force: true }).catch(() => {});
@@ -843,7 +845,7 @@ export class AfflatusUpdates {
       await writeAtomic(join(versions, "previous"), from);
       await writeAtomic(join(versions, "current"), to);
       const last: LastChange = { kind: "updated", from: bareVersion(from), to: bareVersion(to), at: now() };
-      await writeFile(join(dir, "last.json"), JSON.stringify(last));
+      await writeAtomic(join(dir, "last.json"), JSON.stringify(last));
       this.last = last;
     } catch (err) {
       // a switch that did not go through is undone: the running version stays the one started, and nothing names the new one
@@ -923,7 +925,7 @@ export class AfflatusUpdates {
 
   private async note(change: LastChange, dataDir = this.o.dataDir): Promise<void> {
     await mkdir(join(dataDir, "updates"), { recursive: true });
-    await writeFile(join(dataDir, "updates", "last.json"), JSON.stringify(change));
+    await writeAtomic(join(dataDir, "updates", "last.json"), JSON.stringify(change));
   }
 
   // ---------------------------------------------------------------- the 0.3 move
