@@ -136,7 +136,7 @@ export async function createServices(
   rented.lockPod = (id) => lockMachine({ db, queue, machines }, id, { local: false, renew: false });
   rented.run();
   // a render's end, a pod stopped, a cap: told where the user asked (notify.ts), never in the way of what it is about
-  const notify = new Notify({ db, storage, registry, events: queue.events, stillFor: () => queue.stillFor(), costBetween: (from, to) => rented.costBetween(from, to) });
+  const notify = new Notify({ db, storage, registry, events: queue.events, stillFor: () => queue.stillFor(), batchCost: (from, to, notBefore) => rented.batchCost(from, to, notBefore) });
   queue.tell = rented.tell = (kind, notice) => notify.say(kind, notice);
   notify.watch();
   // the reset codes and the sign-ins go to the data folder's log file as well as the console (none in the tests)

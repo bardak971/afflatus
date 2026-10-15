@@ -6,7 +6,7 @@ import { rateSaid, rentedSaid, rentedSpent, rentedUp, severalMachines } from "..
 /** What a rented pod's row, its Start and the pill say (machines.ts), and when the machines' own controls show. */
 
 const pod = (over: Partial<RentedState> = {}): RentedState => ({
-  provider: "runpod", pod: "p1", status: "EXITED", rate: 0.69, gpu: "NVIDIA GeForce RTX 5090", dataCenter: "EU-RO-1",
+  provider: "runpod", pod: "p1", status: "EXITED", rate: 0.69, gpuRate: null, gpu: "NVIDIA GeForce RTX 5090", dataCenter: "EU-RO-1",
   since: null, spent: 0, diskPerDay: 0.33, volume: false, otherPorts: [], closedPorts: [], watchdog: "unknown", answers: null, idleAt: null, capped: false, stopping: false,
   stoppedBy: null, booting: false, error: null, files: [], packs: [], ...over,
 });

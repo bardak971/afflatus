@@ -4,7 +4,7 @@ import type { Comfy } from "./comfy";
 import type { Db } from "./db";
 import { httpError } from "./errors";
 import { newToken } from "./lock-api";
-import { COMFY_PORT, exposesComfy, imageFor, LOCK_ENV, noCapacity, POD_IMAGES, podMachineId, podUrl, Runpod, RunpodError, RunpodShape, secretRef, RUNNING_DISK_PER_GB_MONTH, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ACTION_ENV, WATCHDOG_ENV, type BillRecord, type GpuOffer, type NetworkVolume, type Pod, type PodSpec, type PodStatus } from "./runpod";
+import { COMFY_PORT, exposesComfy, imageFor, LOCK_ENV, noCapacity, POD_IMAGES, podMachineId, podUrl, Runpod, RunpodError, RunpodShape, secretRef, HOURS_A_MONTH, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ACTION_ENV, WATCHDOG_ENV, type BillRecord, type GpuOffer, type NetworkVolume, type Pod, type PodSpec, type PodStatus } from "./runpod";
 import { gpuKey, LEARNED_RENDERS, volumePerMonth, type PresetFile } from "@afflatus/core";
 import { gpuPaces } from "./forecast";
 import { imagePublic } from "./podImage";
@@ -33,8 +33,13 @@ export interface RentedView {
   pod: string;
   /** As RunPod says it; GONE: no such pod on this key's account any more; UNKNOWN: not read yet, or RunPod did not answer. */
   status: PodStatus | "GONE" | "UNKNOWN";
-  /** USD an hour while it runs: the last rate seen (kept from its last run while it is stopped); null before it ever ran here. */
+  /**
+   * USD an hour while it runs, its GPU and its own disks as RunPod bills them (runpod.ts runningRate): the last rate seen
+   * (kept from its last run while it is stopped); null before it ever ran here.
+   */
   rate: number | null;
+  /** Of it, the GPU's price alone, while RunPod says it (it runs); null otherwise. */
+  gpuRate: number | null;
   gpu: string | null;
   dataCenter: string | null;
   /** When the running session began (ms), and what it has cost so far. */
@@ -82,6 +87,13 @@ export interface Spending {
   spendPerHr: number | null;
   /** How long the balance lasts at that spend (ms); null when nothing is spent, or RunPod did not say. */
   runwayMs: number | null;
+  /**
+   * What a day costs at this pace (USD): the pods, as Afflatus counted them over the last 7 days, and storage (the volumes
+   * and the pods' own disks, as the account stands), which bills every day whether anything runs or not.
+   */
+  perDay: { pods: number; storage: number };
+  /** How long the balance lasts at that pace (days); null without a balance, or with nothing spent. */
+  runwayDays: number | null;
   /** Today and this month are RunPod's own bill (with Afflatus's count for the hours RunPod has not billed yet); false: Afflatus's count alone. */
   billed: boolean;
   /** What storage costs (volumes, the pods' own disks); null when RunPod was not read. Never counted against the caps. */
@@ -126,6 +138,20 @@ const SURE_FRESH_MS = 60_000;
 export function runwayNeed(o: { renderMs: number; fetchMs: number; sure: boolean }): number {
   return (Number.isFinite(o.fetchMs) ? Math.max(0, o.fetchMs) : 0) + o.renderMs * (o.sure ? 1 : UNSURE_FORECAST);
 }
+/**
+ * The share of a record of RunPod's bill (an hour of a pod) that falls between two moments (ms), by its time: a record
+ * across midnight or the 1st (an hour of the bill is UTC's, a day here is the user's) is cut there, not given whole to the
+ * day or the month it starts in. A record of no length counts whole where it starts.
+ */
+export function shareIn(r: { start: number; end: number }, from: number, to: number): number {
+  if (!(r.end > r.start)) return r.start >= from && r.start < to ? 1 : 0;
+  return Math.max(0, Math.min(to, r.end) - Math.max(from, r.start)) / (r.end - r.start);
+}
+
+/** Whether a cap is reached by what was spent: today's at the day's, this month's at the month's (0: no cap). */
+export const capReached = (caps: { day: number; month: number }, spent: { today: number; month: number }): boolean =>
+  (caps.day > 0 && spent.today >= caps.day) || (caps.month > 0 && spent.month >= caps.month);
+
 const TRANSITIONAL: ReadonlySet<string> = new Set(["PROVISIONING", "STARTING"]);
 /**
  * Billed by RunPod: running, and on its way up (a pod provisioning or starting holds its GPU). Counted from then, so that a
@@ -189,8 +215,12 @@ interface Seen {
   rate: number | null;
   watchdog: RentedView["watchdog"];
   answers: boolean | null;
-  /** When it last had work (ms); the idle clock starts at the first sight of it running and answering. */
+  /**
+   * When it last had work (ms); the idle clock starts at the first sight of it running and answering. Kept on its open
+   * session (`busyKept`: as last written there), so that a restart of Afflatus does not give an idle pod a new idle time.
+   */
   busyAt: number | null;
+  busyKept: number | null;
   stoppedBy: RentedView["stoppedBy"];
   /** A cap is reached: Afflatus stops it as soon as its render ends; and when the cap was first seen reached. */
   stopAfter: boolean;
@@ -234,7 +264,7 @@ interface Seen {
 }
 
 const fresh = (): Seen => ({
-  pod: null, rate: null, watchdog: "unknown", answers: null, busyAt: null, stoppedBy: null, stopAfter: false, cappedAt: null,
+  pod: null, rate: null, watchdog: "unknown", answers: null, busyAt: null, busyKept: null, stoppedBy: null, stopAfter: false, cappedAt: null,
   stopping: false, lockTried: false, seenRunningAt: null, epoch: 0, error: null, bootNote: null, secretDropped: false, upAt: null, answered: false,
   read: false, gpuFailed: null, missing: 0, stoppingSince: null, aliveAt: null, startingSince: null,
   handed: false, fillFrom: null, fillProgress: null, fillMovedAt: null, cutWhy: null,
@@ -388,9 +418,9 @@ export class Rented {
     const rate = s?.rate ?? (pod?.cost || null);
     const idleMs = machine.rented.idleMinutes * 60_000;
     return {
-      provider: "runpod", pod: machine.rented.pod, status, rate, gpu: pod?.gpu ?? null, dataCenter: pod?.dataCenter ?? null,
+      provider: "runpod", pod: machine.rented.pod, status, rate, gpuRate: pod?.gpuCost || null, gpu: pod?.gpu ?? null, dataCenter: pod?.dataCenter ?? null,
       since, spent: since && rate ? ((this.now() - since) / HOUR) * rate : 0,
-      diskPerDay: pod ? (pod.diskGb * STOPPED_DISK_PER_GB_MONTH) / 30 : 0,
+      diskPerDay: pod ? (pod.diskGb * STOPPED_DISK_PER_GB_MONTH * 24) / HOURS_A_MONTH : 0,
       volume: Boolean(pod && (pod.networkVolume || pod.diskGb > 0)),
       otherPorts: pod ? pod.ports.filter((p) => p !== `${COMFY_PORT}/http`) : [],
       closedPorts: machine.rented.closedPorts,
@@ -814,24 +844,38 @@ export class Rented {
     if (this.now() < this.quietUntil || (this.balanceSeen && this.now() - this.balanceSeen.at <= 60_000)) return;
     const got = await this.client(key).balance().catch(() => ({ balance: null, spendPerHr: null }));
     this.balanceSeen = { at: this.now(), value: got.balance, spendPerHr: got.spendPerHr };
-    if (got.balance !== null) await this.sayBalance(got.balance).catch((err: Error) => console.warn(`[rented] the balance's line not worked out: ${err.message}`));
+    if (got.balance !== null) await this.sayBalance(got.balance, key).catch((err: Error) => console.warn(`[rented] the balance's line not worked out: ${err.message}`));
   }
 
   /**
-   * The balance told of as low once it is under the higher of $2 and a day of the last week's rented spend, on average: what
-   * one more day like those would leave at zero, when RunPod stops every pod. Once, until it is back over the line.
+   * The balance told of as low once it is under the higher of $2 and a day at this pace (`perDay`: the last week's pods and
+   * the storage there is now): what one more such day would leave at zero, when RunPod stops every pod. Once, until it is
+   * back over the line.
    */
-  private async sayBalance(balance: number): Promise<void> {
+  private async sayBalance(balance: number, key: string): Promise<void> {
     if (!this.tell) return;
-    const now = this.now();
-    const line = Math.max(LOW_LINE, (await this.costBetween(now - 7 * 24 * HOUR, now)) / 7);
+    const pace = await this.perDay(key);
+    const line = Math.max(LOW_LINE, pace.pods + pace.storage);
     if (balance >= line) {
       this.lowTold = false;
       return;
     }
     if (this.lowTold) return;
     this.lowTold = true;
-    this.tell("balanceLow", { title: `RunPod balance low: ${dollars(balance)}`, body: `Under ${dollars(line)}${line > LOW_LINE ? ", a day of the last week's rented GPUs" : ""}. At $0 RunPod stops every pod, a render under way too.`, key: "balance" });
+    const said = line > LOW_LINE ? `, a day at this pace (the last week's pods ${dollars(pace.pods)}, storage ${dollars(pace.storage)})` : "";
+    this.tell("balanceLow", { title: `RunPod balance low: ${dollars(balance)}`, body: `Under ${dollars(line)}${said}. At $0 RunPod stops every pod, a render under way too.`, key: "balance" });
+  }
+
+  /**
+   * What a day costs at this pace: the pods as Afflatus counted them over the last 7 days, a seventh of it, and storage as
+   * the account stands (its price a month, billed by the hour over HOURS_A_MONTH). Storage is 0 when RunPod's volumes and
+   * pods were not read.
+   */
+  private async perDay(key: string): Promise<{ pods: number; storage: number }> {
+    const now = this.now();
+    const pods = (await this.costBetween(now - 7 * 24 * HOUR, now)) / 7;
+    const storage = key ? await this.storage(key) : null;
+    return { pods, storage: storage ? (storage.perMonth * 24) / HOURS_A_MONTH : 0 };
   }
 
   /** A day's or a month's cap reached: told once for that day, once for that month. */
@@ -865,6 +909,34 @@ export class Rented {
       const end = Math.min(to, r.ended_at ? Date.parse(r.ended_at) : to);
       return Number.isFinite(start) && Number.isFinite(end) && end > start ? sum + ((end - start) / HOUR) * r.rate : sum;
     }, 0);
+  }
+
+  /**
+   * What the rented GPUs cost for a batch of renders that ran from `from` to `to` (ms), as Afflatus counts it: every run that
+   * overlaps it, from its own start (its boot and its files, which the batch's first render on it waited for, are the
+   * batch's) but never from before `notBefore` (the end of the batch before, which counted that), to `to`.
+   */
+  async batchCost(from: number, to: number, notBefore: number): Promise<number> {
+    const rows = await this.db.selectFrom("rent_sessions").select(["started_at", "ended_at", "rate"]).where((eb) => eb.or([eb("ended_at", "is", null), eb("ended_at", ">", new Date(from).toISOString())])).where("started_at", "<", new Date(to).toISOString()).execute();
+    return rows.reduce((sum, r) => {
+      const start = Math.max(notBefore, Date.parse(r.started_at));
+      const end = Math.min(to, r.ended_at ? Date.parse(r.ended_at) : to);
+      return Number.isFinite(start) && Number.isFinite(end) && end > start ? sum + ((end - start) / HOUR) * r.rate : sum;
+    }, 0);
+  }
+
+  /**
+   * RunPod's bill over each stretch of a chart (`times`, each `step` long), every pod of the account, a record across two
+   * stretches shared between them by its time. Null for a stretch before this month (the bill read starts there), and for
+   * all of them when RunPod did not give it. The Costs tab sets it against Afflatus's count, stretch by stretch.
+   */
+  async billedIn(times: readonly number[], step: number): Promise<Array<number | null>> {
+    const key = (await readSettings(this.db)).runpodKey;
+    const d = new Date(this.now());
+    const month = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+    const records = key ? await this.bill(key, month) : null;
+    if (!records) return times.map(() => null);
+    return times.map((t) => (t < month ? null : records.reduce((n, r) => n + r.amount * shareIn(r, t, t + step), 0)));
   }
 
   /** When RunPod's bill was last read (ms), and whether it answered: the Costs tab says how old its totals are. */
@@ -998,8 +1070,23 @@ export class Rented {
       await this.act(m, "terminate", "watchdog");
       return true;
     }
+    // a cap reached while it starts or provisions (by another pod's spending, or the bill read since its Start): it would
+    // come up billed and only then stop. Stopped now, or terminated as capAction says; asked again if it is still at it a
+    // while after
+    if (pod && TRANSITIONAL.has(pod.status) && (caps.day > 0 || caps.month > 0)) {
+      const spent = await (this.spentThisPoll ??= this.spent());
+      this.sayCap(caps, spent);
+      if (capReached(caps, spent)) {
+        if (s.stopping && s.stoppingSince !== null && this.now() - s.stoppingSince < STOP_AGAIN_MS) return changed;
+        const again = s.stopping;
+        s.stopping = false;
+        await this.act(m, this.capAction(m, pod), "cap", again);
+        return true;
+      }
+    }
     if (pod?.status !== "RUNNING") {
       s.busyAt = null;
+      s.busyKept = null;
       s.stopAfter = false;
       s.cappedAt = null;
       s.lockTried = false;
@@ -1160,18 +1247,23 @@ export class Rented {
     if (pod && BILLED.has(pod.status)) {
       s.seenRunningAt = now;
       if (open) {
-        // a run first seen before RunPod said its rate (0) takes the rate as soon as it says one: it was counted as free
-        await this.db.updateTable("rent_sessions").set({ seen_at: iso, ...(open.rate === 0 && pod.cost > 0 ? { rate: pod.cost } : {}) }).where("id", "=", open.id).execute();
+        // a run first seen before RunPod said its rate (0) takes the rate as soon as it says one: it was counted as free. One
+        // opened at a lower rate takes the higher too: a run opened before its disk was counted in its rate (0.5.0), its
+        // whole time billed with that disk
+        await this.db.updateTable("rent_sessions").set({ seen_at: iso, ...(pod.cost > open.rate ? { rate: pod.cost } : {}) }).where("id", "=", open.id).execute();
         return;
       }
-      // from when the pod says it started, but never over a session already counted; a deployed pod's first run from its
-      // deploy, when the money starts
-      const last = await this.db.selectFrom("rent_sessions").select("ended_at").where("machine_id", "=", m.id).orderBy("ended_at", "desc").executeTakeFirst();
+      // from when the pod says it started; a deployed pod's first run from its deploy, when the money starts. A start time
+      // not after the end of the run before is that run's (RunPod may list it until the new one is under way): this run is
+      // counted from its first sight, never from back then (the hours it was stopped, all at once, a cap reached by them)
+      const last = await this.db.selectFrom("rent_sessions").select("ended_at").where("machine_id", "=", m.id).where("ended_at", "is not", null).orderBy("ended_at", "desc").executeTakeFirst();
+      const lastEnd = last?.ended_at ? Date.parse(last.ended_at) : 0;
       const deployedAt = m.rented!.deployedAt ? Date.parse(m.rented!.deployedAt) : Number.NaN;
-      const started = pod.startedAt ? Date.parse(pod.startedAt) : now;
-      const from = Math.max(!last && Number.isFinite(deployedAt) ? Math.min(started, deployedAt) : started, last?.ended_at ? Date.parse(last.ended_at) : 0);
+      const said = pod.startedAt ? Date.parse(pod.startedAt) : Number.NaN;
+      const started = Number.isFinite(said) && said > lastEnd ? said : now;
+      const from = !last && Number.isFinite(deployedAt) ? Math.min(started, deployedAt) : started;
       // its GPU and its idle minutes kept with it: the Costs tab says the one and weighs a shorter idle against the other
-      await this.db.insertInto("rent_sessions").values({ id: randomUUID(), machine_id: m.id, pod: pod.id, rate: pod.cost || s.rate || 0, started_at: new Date(Math.min(from, now)).toISOString(), ended_at: null, seen_at: iso, gpu: pod.gpu, up_at: null, idle_minutes: m.rented!.idleMinutes }).execute();
+      await this.db.insertInto("rent_sessions").values({ id: randomUUID(), machine_id: m.id, pod: pod.id, rate: pod.cost || s.rate || 0, started_at: new Date(Math.min(from, now)).toISOString(), ended_at: null, seen_at: iso, gpu: pod.gpu, up_at: null, idle_minutes: m.rented!.idleMinutes, busy_at: null }).execute();
     } else if (open) {
       // closed now when it was seen running a moment ago. One that ended while Afflatus was away (off, asleep) is closed at
       // the latest it could have run: its watchdog stops it that long after the last "still here" (RunPod's bill, once
@@ -1255,23 +1347,53 @@ export class Rented {
     // work counts only for a pod whose ComfyUI answers: one that went down would otherwise keep a waiting job "for it" forever
     // not idle before its ComfyUI first answered (a first boot pulling node packs and models): the boot limit covers that
     if (running || !s.answered || (answers && (await this.queue.wants(m.id)))) s.busyAt = now;
-    s.busyAt ??= now;
+    // after a restart of Afflatus, idle since its last work as kept, not since now
+    s.busyAt ??= await this.busySince(m, now);
+    await this.keepBusy(m, s);
     const spent = await (this.spentThisPoll ??= this.spent());
     this.sayCap(caps, spent);
-    s.stopAfter = (caps.day > 0 && spent.today >= caps.day) || (caps.month > 0 && spent.month >= caps.month);
+    s.stopAfter = capReached(caps, spent);
     s.cappedAt = s.stopAfter ? s.cappedAt ?? now : null;
     // at a cap: once its render ends, or an hour after the cap when the render does not end
-    // A fill pod is terminated: stopped, it would keep its volume mounted (never deleted then) and fill nothing
     // Whether it renders is read again here, the cap now set: a render that ended while the bill was read is not waited for
     if (s.stopAfter && (!this.queue.runningOn(m.id) || now - s.cappedAt! > CAP_GRACE_MS)) {
-      await this.act(m, m.rented!.fill ? "terminate" : "stop", "cap");
+      await this.act(m, this.capAction(m, s.pod), "cap");
       return;
     }
     const idle = m.rented!.idleMinutes * 60_000;
     if (idle > 0 && now - s.busyAt >= idle) await this.act(m, m.rented!.idleDo, "idle");
   }
 
-  /** What the rented GPUs cost from `from` until now: each session's time in it, at its rate. */
+  /**
+   * What a cap does to a pod: it stops it, or terminates one that a stop would leave with nothing worth keeping: a fill pod
+   * (stopped, it would keep its volume mounted, never deleted then, and fill nothing), and a pod Afflatus deployed that keeps
+   * nothing when stopped (no volume of any kind: a stop would only have it found stopped and terminated after, told of as
+   * its watchdog's) or that is still on its first boot (its deploy is what it was for). A pod the user added is only stopped.
+   */
+  private capAction(m: Machine, pod: Pod | null): "stop" | "terminate" {
+    const keeps = Boolean(pod && (pod.networkVolume || pod.diskGb > 0));
+    return m.rented!.fill || (m.rented!.deployed && (!keeps || Boolean(m.rented!.deployedAt))) ? "terminate" : "stop";
+  }
+
+  /**
+   * When a pod last had work, as kept when Afflatus was not following it (a restart): the latest of what its open session
+   * kept, its boot's end (or the session's start before that), and the end of the last job it ran. Now when nothing says.
+   */
+  private async busySince(m: Machine, now: number): Promise<number> {
+    const open = await this.db.selectFrom("rent_sessions").select(["started_at", "up_at", "busy_at"]).where("machine_id", "=", m.id).where("ended_at", "is", null).executeTakeFirst();
+    if (!open) return now;
+    const job = await this.db.selectFrom("jobs").select((eb) => eb.fn.max("finished_at").as("at")).where("machine_id", "=", m.id).executeTakeFirst();
+    const times = [open.busy_at, open.up_at ?? open.started_at, job?.at ?? null].map((t) => (t ? Date.parse(t) : Number.NaN)).filter(Number.isFinite);
+    return times.length ? Math.min(now, Math.max(...times)) : now;
+  }
+
+  /** When it last had work, written on its open session as it moves: what a restart of Afflatus reads back (busySince). */
+  private async keepBusy(m: Machine, s: Seen): Promise<void> {
+    if (s.busyAt === null || s.busyAt === s.busyKept) return;
+    await this.db.updateTable("rent_sessions").set({ busy_at: new Date(s.busyAt).toISOString() }).where("machine_id", "=", m.id).where("ended_at", "is", null).execute();
+    s.busyKept = s.busyAt;
+  }
+
   /** What each pod cost since `month` as Afflatus counts it, and since `today` (rent_sessions). */
   private async counted(month: number, today: number): Promise<Map<string, Counted>> {
     const rows = await this.db.selectFrom("rent_sessions").selectAll().where((eb) => eb.or([eb("ended_at", "is", null), eb("ended_at", ">", new Date(month).toISOString())])).execute();
@@ -1305,11 +1427,12 @@ export class Rented {
     const key = (await readSettings(this.db)).runpodKey;
     const records = key ? await this.bill(key, month) : null;
     const billed = new Map<string, { today: number; month: number }>();
+    // a record across midnight or the 1st counts for its part after it (shareIn)
     for (const r of records ?? []) {
       if (r.end <= month) continue;
       const b = billed.get(r.pod) ?? { today: 0, month: 0 };
-      b.month += r.amount;
-      if (r.start >= today) b.today += r.amount;
+      b.month += r.amount * shareIn(r, month, Infinity);
+      b.today += r.amount * shareIn(r, today, Infinity);
       billed.set(r.pod, b);
     }
     let sumToday = 0;
@@ -1328,8 +1451,7 @@ export class Rented {
   async capped(): Promise<boolean> {
     const caps = (await readSettings(this.db)).rentCaps;
     if (caps.day <= 0 && caps.month <= 0) return false;
-    const spent = await this.spent();
-    return (caps.day > 0 && spent.today >= caps.day) || (caps.month > 0 && spent.month >= caps.month);
+    return capReached(caps, await this.spent());
   }
 
   /** A deploy under way (the user's, a fill's or the GPU hunt's): another is refused until it ends. */
@@ -1345,7 +1467,13 @@ export class Rented {
     if (s.runpodKey) await this.readBalance(s.runpodKey);
     const balance = this.balanceSeen?.value ?? null;
     const storage = s.runpodKey ? await this.storage(s.runpodKey) : null;
-    return { ...spent, caps: s.rentCaps, balance, lowBalance: balance !== null && balance < LOW_BALANCE, spendPerHr: this.balanceSeen?.spendPerHr ?? null, runwayMs: this.runwayMs(), storage };
+    // the one runway said everywhere (Settings, Queue › Costs): the balance over a day at this pace, storage in it
+    const perDay = await this.perDay(s.runpodKey);
+    const day = perDay.pods + perDay.storage;
+    return {
+      ...spent, caps: s.rentCaps, balance, lowBalance: balance !== null && balance < Math.max(LOW_BALANCE, day), spendPerHr: this.balanceSeen?.spendPerHr ?? null, runwayMs: this.runwayMs(),
+      perDay, runwayDays: balance !== null && day > 0 ? Math.max(0, balance) / day : null, storage,
+    };
   }
 
   private storageSeen: { at: number; value: Storage | null } | null = null;
@@ -1375,8 +1503,10 @@ export class Rented {
       const unused = viewVolumes(volumes, pods, settings.machines, await keptHoldings(this.db), settings.volumeUnusedDays, this.now()).filter((v) => v.unused);
       value = {
         volumesMonth: volumeBills ? volumeBills.filter((b) => b.end > month).reduce((n, b) => n + b.amount, 0) : null,
-        disksMonth: (podBills ?? []).filter((r) => r.end > month).reduce((n, r) => n + r.disk, 0),
-        perMonth: volumes.reduce((n, v) => n + volumePerMonth(v.size), 0) + disks.reduce((n, p) => n + p.diskGb * (p.status === "EXITED" ? STOPPED_DISK_PER_GB_MONTH : RUNNING_DISK_PER_GB_MONTH), 0),
+        disksMonth: (podBills ?? []).reduce((n, r) => n + r.disk * shareIn(r, month, Infinity), 0),
+        // what bills with nothing running: a running pod's own disk is in its rate (runningRate) while it runs, and bills
+        // at the stopped price once it stops; its container disk goes at the stop
+        perMonth: volumes.reduce((n, v) => n + volumePerMonth(v.size), 0) + disks.reduce((n, p) => n + p.diskGb * STOPPED_DISK_PER_GB_MONTH, 0),
         volumes: volumes.length,
         stoppedDisks: disks.filter((p) => p.status === "EXITED").length,
         unused: unused.map((v) => ({ id: v.id, name: v.name, perMonth: v.perMonth, usedAt: v.usedAt })),
@@ -1391,8 +1521,7 @@ export class Rented {
     const s = await readSettings(this.db);
     const m = s.machines.find((x) => x.id === machine);
     if (!m?.rented) throw httpError("That machine is not a rented pod.", 404);
-    const spent = await this.spent();
-    if ((s.rentCaps.day > 0 && spent.today >= s.rentCaps.day) || (s.rentCaps.month > 0 && spent.month >= s.rentCaps.month)) {
+    if (capReached(s.rentCaps, await this.spent())) {
       throw httpError("A spending cap is reached: raise it in Settings › Rented GPUs to start it.", 409);
     }
     // one running pod per volume, as for a deploy: a stopped pod's volume may have gone to another pod meanwhile
@@ -1573,7 +1702,9 @@ export class Rented {
     }
     if (action !== "start") {
       s.busyAt = null;
-      s.stopping = s.pod?.status === "RUNNING";
+      s.busyKept = null;
+      // a pod a cap stops while it starts is followed as being stopped too (asked again if it does not)
+      s.stopping = s.pod?.status === "RUNNING" || (why === "cap" && TRANSITIONAL.has(s.pod?.status ?? ""));
       s.stoppingSince = s.stopping ? this.now() : null;
       await this.session(m, s.pod, s);
     }

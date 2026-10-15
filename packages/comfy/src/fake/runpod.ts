@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { volumePerMonth } from "@afflatus/core";
 import type { FakeComfy } from "../testing";
 
 /** A pod of the pretend RunPod, and the pretend ComfyUI inside it (it answers only while the pod runs). */
@@ -7,12 +8,15 @@ export interface FakePod {
   id: string;
   name: string;
   status: "PROVISIONING" | "STARTING" | "RUNNING" | "EXITED" | "ERROR" | "TERMINATED";
-  /** USD an hour; the list says it only while the pod runs, as RunPod does. */
+  /** USD an hour, its GPU's (RunPod's `cost`); the list says it only while the pod runs, as RunPod does. */
   rate: number;
   gpu: string;
   dataCenterId: string;
   ports: string[];
+  /** Its pod volume (a persistent disk, kept while it is stopped), GB; 0 without one, as a pod deployed without a volume has. */
   diskGb: number;
+  /** Its container disk, GB (RunPod's `disk`): billed while it runs with the GPU, erased at a stop. */
+  containerGb?: number;
   /** Its environment: AFFLATUS_TOKEN in it locks its ComfyUI from its start, as the node pack does (a fixed lock). */
   env: Record<string, string>;
   startedAt: string | null;
@@ -51,8 +55,14 @@ export interface FakeRunpod {
   pods: FakePod[];
   /** Every call, as "METHOD /path [action]". */
   calls: string[];
-  /** The account's balance at the start: what the GraphQL says is this, less what the pods have run since. */
+  /**
+   * The account's balance at the start: what the GraphQL says is this, less what has been billed since: the pods while
+   * they provision, start and run (their GPU and their disks), the stopped pods' disks and the volumes, by the second.
+   */
   balance: number;
+  /** The bill is written by itself from what the pods ran (hour by hour, `billLagMs` late), in place of `bill` set by hand. */
+  autoBill: boolean;
+  billLagMs: number;
   /** How long a started pod is STARTING before it runs. */
   bootMs: number;
   /** Misbehaving as the real one can, for a test: an action refused with this status, by pod id; the env change refused;
@@ -88,11 +98,20 @@ export interface FakeRunpod {
   close(): Promise<void>;
 }
 
+/** RunPod's prices of a pod's own disk, USD per GB and month (a volume's: volumePerMonth), billed by the hour over 730 hours. */
+const DISK_RUNNING = 0.1;
+const DISK_STOPPED = 0.2;
+const MONTH_HOURS = 730;
+const BILLED = new Set<FakePod["status"]>(["RUNNING", "STARTING", "PROVISIONING"]);
+/** What a pod bills an hour as it is now: its GPU and its disks while it is billed, its pod volume alone while it is stopped. */
+const podPerHr = (p: FakePod) =>
+  BILLED.has(p.status) ? p.rate + ((p.diskGb + (p.containerGb ?? 0)) * DISK_RUNNING) / MONTH_HOURS : p.status === "TERMINATED" ? 0 : (p.diskGb * DISK_STOPPED) / MONTH_HOURS;
+
 const raw = (p: FakePod) => ({
-  id: p.id, name: p.name, status: p.status, cost: p.status === "RUNNING" || p.status === "STARTING" || p.status === "PROVISIONING" ? p.rate : 0,
+  id: p.id, name: p.name, status: p.status, cost: BILLED.has(p.status) ? p.rate : 0, disk: p.containerGb ?? 0,
   actions: p.status === "RUNNING" ? ["stop", "restart", "terminate"] : p.status === "EXITED" || p.status === "ERROR" ? ["start", "terminate"] : ["stop", "terminate"],
   gpu: { id: p.gpu, count: 1 }, dataCenterId: p.dataCenterId, ports: p.ports, cloud: "SECURE", image: p.image ?? "runpod/comfyui:latest",
-  mounts: p.volumeId ? { network: [{ volumeId: p.volumeId, path: "/workspace" }] } : { persistent: { size: p.diskGb, path: "/workspace" } },
+  mounts: p.volumeId ? { network: [{ volumeId: p.volumeId, path: "/workspace" }] } : p.diskGb > 0 ? { persistent: { size: p.diskGb, path: "/workspace" } } : {},
   env: p.env,
   runtime: p.status === "RUNNING" && p.startedAt ? { uptime: Math.round((Date.now() - Date.parse(p.startedAt)) / 1000) } : null,
   startedAt: p.startedAt,
@@ -123,16 +142,56 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
     return { ...p, env: p.env ?? {}, id: new URL(p.comfy.url).port, status, startedAt: status === "RUNNING" ? new Date().toISOString() : null };
   });
   const fake: Omit<FakeRunpod, "url" | "close"> = {
-    key: o.key, pods, calls: [], balance: o.balance ?? 23.4, bootMs: o.bootMs ?? 1500,
+    key: o.key, pods, calls: [], balance: o.balance ?? 23.4, autoBill: false, billLagMs: 0, bootMs: o.bootMs ?? 1500,
     failAction: {}, failDetail: null, secrets: {}, failSecrets: false, stopMs: 0, failPatch: null, hideEnv: false, failList: null, oddList: false, actionDelayMs: 0,
     gpus: o.gpus ?? FAKE_GPUS, volumes: o.volumes ?? [], noCapacity: new Set(), failCreate: null, createThenFail: null, bill: [], comfyStaysDown: false, volumeBill: [],
   };
   let volumesMade = 0;
   const timers = new Set<NodeJS.Timeout>();
-  /** What the pods have cost: the stretches that ended, and what runs now. */
-  let ended = 0;
-  const running = (p: FakePod) => (p.status === "RUNNING" && p.startedAt ? ((Date.now() - Date.parse(p.startedAt)) / 3_600_000) * p.rate : 0);
-  const spent = () => ended + fake.pods.reduce((sum, p) => sum + running(p), 0);
+  /**
+   * What has been billed: each pod's stretches at what it billed an hour then (its GPU and disks, or its disk alone while
+   * stopped), and the volumes, written up to now at every change of a pod and every read. The bill is made from them.
+   */
+  const stretches: Array<{ pod: string; from: number; to: number; perHr: number; diskPerHr: number }> = [];
+  let volumesSpent = 0;
+  let upTo = Date.now();
+  const settle = () => {
+    const now = Date.now();
+    if (now <= upTo) return;
+    for (const p of fake.pods) {
+      const perHr = podPerHr(p);
+      if (perHr <= 0) continue;
+      // the same pod billing the same, on from its last stretch: that stretch goes on (the demo reads every few seconds)
+      const last = stretches.findLast((x) => x.pod === p.id);
+      if (last && last.to === upTo && last.perHr === perHr) last.to = now;
+      else stretches.push({ pod: p.id, from: upTo, to: now, perHr, diskPerHr: perHr - (BILLED.has(p.status) ? p.rate : 0) });
+    }
+    volumesSpent += (fake.volumes.reduce((n, v) => n + volumePerMonth(v.size), 0) / MONTH_HOURS) * ((now - upTo) / 3_600_000);
+    upTo = now;
+  };
+  const spent = () => {
+    settle();
+    return volumesSpent + stretches.reduce((n, x) => n + x.perHr * ((x.to - x.from) / 3_600_000), 0);
+  };
+  /** The bill as RunPod writes it: by pod and UTC hour, `billLagMs` behind now. */
+  const autoBill = (from: number) => {
+    settle();
+    const until = Date.now() - fake.billLagMs;
+    const hours = new Map<string, { podId: string; startTime: string; endTime: string; totalAmount: number; diskAmount: number }>();
+    for (const x of stretches) {
+      for (let h = Math.floor(x.from / 3_600_000) * 3_600_000; h < Math.min(x.to, until); h += 3_600_000) {
+        const a = Math.max(h, x.from);
+        const b = Math.min(h + 3_600_000, x.to, until);
+        if (b <= a || h + 3_600_000 <= from) continue;
+        const key = `${x.pod}|${h}`;
+        const r = hours.get(key) ?? { podId: x.pod, startTime: new Date(h).toISOString(), endTime: new Date(h + 3_600_000).toISOString(), totalAmount: 0, diskAmount: 0 };
+        r.totalAmount += x.perHr * ((b - a) / 3_600_000);
+        r.diskAmount += x.diskPerHr * ((b - a) / 3_600_000);
+        hours.set(key, r);
+      }
+    }
+    return [...hours.values()];
+  };
   /**
    * A pod up after `bootMs`: RUNNING, its ComfyUI answering. The node pack reads AFFLATUS_TOKEN as ComfyUI starts: locked
    * from its first second, a lock the routes cannot change. A secret's reference in it is given its value at boot, as RunPod does.
@@ -141,6 +200,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
     const t = setTimeout(() => {
       timers.delete(t);
       if (pod.status !== "STARTING" && pod.status !== "PROVISIONING") return;
+      settle();
       pod.status = "RUNNING";
       pod.startedAt = new Date().toISOString();
       const said = pod.env.AFFLATUS_TOKEN;
@@ -157,18 +217,24 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
     const body = chunks.length ? (JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") as Record<string, unknown>) : {};
     const url = new URL(req.url ?? "/", "http://fake");
     fake.calls.push(`${req.method} ${url.pathname}${body.action ? ` ${String(body.action)}` : ""}`);
+    // what was billed until now, at what the pods and volumes were before this call changes them
+    settle();
     const json = (status: number, value?: unknown) => {
       res.writeHead(status, value === undefined ? {} : { "Content-Type": "application/json" });
       res.end(value === undefined ? undefined : JSON.stringify(value));
     };
     if (req.headers.authorization !== `Bearer ${fake.key}`) return json(401, { title: "Unauthorized", status: 401, detail: "invalid api key" });
     // the balance goes down as the pods run, by the second, as RunPod's does
-    if (req.method === "POST" && url.pathname === "/graphql") return json(200, { data: { myself: { clientBalance: fake.balance - spent(), currentSpendPerHr: fake.pods.filter((p) => p.status === "RUNNING" || p.status === "STARTING" || p.status === "PROVISIONING").reduce((sum, p) => sum + p.rate, 0) } } });
+    if (req.method === "POST" && url.pathname === "/graphql") {
+      const perHr = fake.pods.reduce((n, p) => n + podPerHr(p), 0) + fake.volumes.reduce((n, v) => n + volumePerMonth(v.size), 0) / MONTH_HOURS;
+      return json(200, { data: { myself: { clientBalance: fake.balance - spent(), currentSpendPerHr: perHr } } });
+    }
     if (req.method === "GET" && url.pathname === "/v2/billing/pods") {
       if (!fake.bill) return json(403, { title: "Forbidden", status: 403, detail: "this key cannot read billing" });
       // as RunPod: both ends of the period, or neither
       if (url.searchParams.has("startTime") !== url.searchParams.has("endTime")) return json(400, { title: "Bad Request", status: 400, detail: "startTime and endTime must be provided together" });
       const from = Date.parse(url.searchParams.get("startTime") ?? "") || 0;
+      if (fake.autoBill) return json(200, { records: autoBill(from).map((r) => ({ ...r, gpuAmount: r.totalAmount - r.diskAmount, cpuAmount: 0 })), metadata: {} });
       return json(200, { records: fake.bill.filter((r) => Date.parse(r.endTime) > from).map((r) => ({ ...r, gpuAmount: r.totalAmount - (r.diskAmount ?? 0), cpuAmount: 0, diskAmount: r.diskAmount ?? 0 })), metadata: {} });
     }
     if (req.method === "GET" && url.pathname === "/v2/billing/network-volumes") {
@@ -235,7 +301,8 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
       comfy.down = true;
       const made: FakePod = {
         id: new URL(comfy.url).port, name: body.name, status: "PROVISIONING", rate: (body.cloud === "COMMUNITY" ? gpu.price.community : gpu.price.secure) ?? 0,
-        gpu: gpu.id, dataCenterId: at.id, ports: Array.isArray(body.ports) ? (body.ports as string[]) : [], diskGb: typeof body.disk === "number" ? body.disk : 50,
+        // `disk` is its container disk: a pod deployed so has no pod volume (only a network volume, when one is mounted)
+        gpu: gpu.id, dataCenterId: at.id, ports: Array.isArray(body.ports) ? (body.ports as string[]) : [], diskGb: 0, containerGb: typeof body.disk === "number" ? body.disk : 50,
         env: body.env && typeof body.env === "object" ? { ...(body.env as Record<string, string>) } : {}, startedAt: null, comfy,
         image: typeof body.image === "string" ? body.image : undefined, volumeId: volume?.id ?? null,
       };
@@ -306,7 +373,6 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
       const action = body.action;
       const allowed = raw(pod).actions;
       if (typeof action !== "string" || !allowed.includes(action)) return json(409, { title: "Conflict", status: 409, detail: `cannot ${String(action)} a ${pod.status.toLowerCase()} pod` });
-      ended += running(pod);
       if (action === "terminate") {
         pod.status = "TERMINATED";
         pod.comfy.down = true;

@@ -15,6 +15,7 @@ import { gb, plural, usd } from "./format";
 import { useDebounced, useNow } from "./hooks";
 import { ceilingFor, firstPick } from "./huntSaid";
 import { Keys } from "./Keys";
+import { diskPerHour } from "./machines";
 import { queryKeys } from "./queryKeys";
 import { Select } from "./Select";
 import { Button, cx, ErrorNote, fieldClass, Help, Segmented } from "./ui";
@@ -170,6 +171,11 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
   const wantedFree = picked ?? (wantedRow && wantedRow.stock !== "none free" ? wantedRow : null);
   // the first pick free now: starting the hunt deploys it at once, and the button says so
   const pickNow = !changing && pick && pick.stock !== "none free" ? pick : null;
+  // what the pod bills an hour as RunPod does: the GPU and its own disk while it runs (with a volume, its container disk is
+  // 40 GB at most: rented.ts deploy)
+  const diskGb = want.volume ? Math.min(want.disk, 40) : want.disk;
+  const withDisk = (price: number) => price + diskPerHour(diskGb);
+  const rateTip = (price: number) => `GPU ${usd(price)} + its ${diskGb} GB disk ${usd(diskPerHour(diskGb), true)} an hour while it runs, as RunPod bills it${want.volume ? "; the network volume is billed apart, every month" : ""}`;
   // a GPU free now to deploy in place of the hunt: the one picked (the dialog opened on the hunt), else the cheapest as large
   const alt = picked ?? instead;
   const held = rank.data?.held ?? null;
@@ -378,13 +384,13 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
         {/* Deploy, and on its slice what else can be done with these choices: kept as the next deploy's, without deploying */}
         <span className="flex shrink-0">
           {hunting ? (
-            <button type="button" onClick={() => huntGo.mutate()} disabled={huntGo.isPending || (changing ? !kept : imageMissing || !models.ready || !diskFits || Boolean(volume?.usedBy) || held === 0)} className="flex h-10 min-w-[150px] items-center justify-center gap-2 rounded-l-lg bg-accent px-4 text-[13px] font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="button" data-tip={pickNow ? rateTip(pickNow.price) : undefined} onClick={() => huntGo.mutate()} disabled={huntGo.isPending || (changing ? !kept : imageMissing || !models.ready || !diskFits || Boolean(volume?.usedBy) || held === 0)} className="flex h-10 min-w-[150px] items-center justify-center gap-2 rounded-l-lg bg-accent px-4 text-[13px] font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
               <Search size={15} />
-              {huntGo.isPending ? (changing ? "Changing…" : "Starting…") : pickNow ? `Deploy ${pickNow.name} now · ${usd(pickNow.price)}/h` : `${changing ? "Change" : "Hunt"} · up to ${usd(huntAsk.ceiling)}/h`}
+              {huntGo.isPending ? (changing ? "Changing…" : "Starting…") : pickNow ? `Deploy ${pickNow.name} now · ${usd(withDisk(pickNow.price))}/h` : `${changing ? "Change" : "Hunt"} · up to ${usd(huntAsk.ceiling)}/h`}
             </button>
           ) : (
-          <button type="button" onClick={() => deploy.mutate()} disabled={!picked || imageMissing || deploy.isPending || !models.ready || !diskFits || Boolean(volume?.usedBy)} className="flex h-10 min-w-[150px] items-center justify-center rounded-l-lg bg-accent px-4 text-[13px] font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
-            {deploy.isPending ? "Deploying…" : picked ? `Deploy · ${usd(picked.price)}/h` : "Deploy"}
+          <button type="button" data-tip={picked ? rateTip(picked.price) : undefined} onClick={() => deploy.mutate()} disabled={!picked || imageMissing || deploy.isPending || !models.ready || !diskFits || Boolean(volume?.usedBy)} className="flex h-10 min-w-[150px] items-center justify-center rounded-l-lg bg-accent px-4 text-[13px] font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
+            {deploy.isPending ? "Deploying…" : picked ? `Deploy · ${usd(withDisk(picked.price))}/h` : "Deploy"}
           </button>
           )}
           <button type="button" aria-label="More: save as the next deploy" data-tip="Save these choices as the next deploy's, without deploying" onClick={(e) => more.open(e, true)} disabled={!want.gpu || changing} className="flex h-10 w-9 items-center justify-center rounded-r-lg border-l border-accent-ink/25 bg-accent text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">

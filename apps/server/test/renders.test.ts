@@ -93,8 +93,8 @@ describe("figures of several renders", () => {
     ]);
     expect(c).toMatchObject({ renders: 7, done: 5, failed: 1, cancelled: 1, cold: 1, images: 4, videos: 1, videoMs: 5_000, lostMs: 13_000, longestMs: 120_000 });
     expect(c.totalMs).toBe(20_000 + 22_000 + 24_000 + 61_000 + 9_000 + 4_000 + 120_000);
-    // the middle of the four that did not load: 20, 22, 24, 120
-    expect(c.usualMs).toBe(24_000);
+    // the middle of the four that did not load: 20, 22, 24, 120, the mean of its two middle ones
+    expect(c.usualMs).toBe(23_000);
     expect(c.coldMs).toBe(61_000);
     expect(c.loadUsualMs).toBe(40_000);
     expect(c.vramPeak).toBe(96);
@@ -134,7 +134,7 @@ describe("renders older than they are kept become figures per model and day", ()
     expect(days.map((d) => `${d.day} ${d.recipe_id} ${d.model_file}`)).toEqual([
       "2026-06-24 * ", "2026-06-24 sdxl.text-to-picture illustrious", "2026-06-24 wan.video wan-high", "2026-06-29 * ", "2026-06-29 sdxl.text-to-picture illustrious",
     ]);
-    expect(JSON.parse(days[1]!.figures)).toMatchObject({ renders: 2, done: 2, totalMs: 64_000, usualMs: 34_000 });
+    expect(JSON.parse(days[1]!.figures)).toMatchObject({ renders: 2, done: 2, totalMs: 64_000, usualMs: 32_000 });
     expect(JSON.parse(days[0]!.figures)).toMatchObject({ renders: 3, images: 2, videos: 1, videoMs: 5_000 });
     // nothing more to fold
     expect(await fold(t.db, 90, NOW)).toBe(0);

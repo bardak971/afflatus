@@ -47,7 +47,8 @@ export interface NotifyDeps {
   registry: Registry;
   events: EventEmitter;
   stillFor(): Array<{ job: string; machine: string; ms: number }>;
-  costBetween(from: number, to: number): Promise<number>;
+  /** What the rented GPUs cost for a batch of renders (rented.ts batchCost): the runs it overlaps from their start, not before `notBefore`. */
+  batchCost(from: number, to: number, notBefore: number): Promise<number>;
 }
 
 /** Telegram's HTML wants these three escaped, nothing more. */
@@ -421,7 +422,11 @@ export class Notify {
     const b = this.batch;
     this.batch = null;
     const now = Date.now();
-    const cost = await this.deps.costBetween(b.from, now).catch(() => 0);
+    // a pod's boot and files before the batch's first render on it are the batch's (a deploy for it), never what the batch
+    // before counted: the runs are taken from their start, not before the last job that ended before this batch began
+    const before = await this.deps.db.selectFrom("jobs").select((eb) => eb.fn.max("finished_at").as("at")).where("finished_at", "<", new Date(b.from).toISOString()).executeTakeFirst();
+    const notBefore = before?.at ? Date.parse(before.at) : 0;
+    const cost = await this.deps.batchCost(b.from, now, Number.isFinite(notBefore) ? notBefore : 0).catch(() => 0);
     const parts = [
       b.done ? `${plural(b.done, "render")} done` : null,
       b.failed.length ? `${b.failed.length} failed (${b.failed.slice(0, 5).join(", ")}${b.failed.length > 5 ? ", …" : ""})` : null,

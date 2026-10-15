@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
-import { adviceOf, costs, deployOverhead, fetchAdvice, idleSaving, PARTS, splitSession, type CostsView, type Fetched, type PartMs } from "../src/costs";
+import { adviceOf, costs, deployOverhead, fetchAdvice, idleSaving, NOT_SPLIT, PARTS, splitSession, type CostsDeps, type CostsView, type Fetched, type PartMs } from "../src/costs";
+import type { Spending } from "../src/rented";
 import { openSqlite, migrate, type Db } from "../src/db";
 import { energyOf, PowerLog } from "../src/power";
 import type { Registry } from "../src/registry";
@@ -144,13 +145,13 @@ async function seed(): Promise<void> {
   await db.insertInto("jobs").values([jobRow(a.id, { clip_id: "c1", machine_id: "rp-a" }), jobRow(b.id, { draft_id: "d1", machine_id: "rp-a", status: "failed" }), jobRow(c.id, { draft_id: "d2", machine_id: "rp-a" }), jobRow(d.id, { timeline_id: "t1", machine_id: "rp-b" })] as never).execute();
 }
 
-async function view(over: { price?: number | null; offers?: RankOffer[] } = {}): Promise<CostsView> {
+async function view(over: { price?: number | null; offers?: RankOffer[]; spending?: Spending; billedIn?: CostsDeps["billedIn"] } = {}): Promise<CostsView> {
   const settings = await readSettings(db);
   const costBetween = async (from: number, to: number) => {
     const rows = await db.selectFrom("rent_sessions").selectAll().execute();
     return rows.reduce((s, r) => s + Math.max(0, Math.min(to, Date.parse(r.ended_at ?? iso(NOW))) - Math.max(from, Date.parse(r.started_at))) / HOUR * r.rate, 0);
   };
-  return costs({ db, registry, settings: { ...settings, costs: { kwhPrice: over.price ?? null, currency: "€" } }, spending: null, billReadAt: null, costBetween, offers: async () => over.offers ?? null }, { from: T0 - HOUR, to: NOW }, NOW);
+  return costs({ db, registry, settings: { ...settings, costs: { kwhPrice: over.price ?? null, currency: "€" } }, spending: over.spending ?? null, billReadAt: null, costBetween, billedIn: over.billedIn, offers: async () => over.offers ?? null }, { from: T0 - HOUR, to: NOW }, NOW);
 }
 
 describe("the costs of a window", () => {
@@ -180,9 +181,12 @@ describe("the costs of a window", () => {
   });
 
   it("a deploy's own cost, as the Hunt says it beside a render's: the usual boot and idle at the end of the sessions that ended", async () => {
-    // s1 booted 4 min and idled 10 at its end, s2 3 and 13; a session still open says nothing of its end yet
+    // s1 booted 4 min, fetched 6 and idled 10 at its end, s2 3, 4 and 13: the middle of each, the mean of the two middle
+    // ones of an even count; a session still open says nothing of its end yet
     await db.insertInto("rent_sessions").values({ id: "s3", machine_id: "rp-c", pod: "c", rate: 0.6, started_at: iso(NOW - 30 * MIN), ended_at: null, seen_at: null, gpu: "NVIDIA A40", up_at: iso(NOW - 2 * MIN), idle_minutes: 10 }).execute();
-    expect(await deployOverhead(db, NOW)).toEqual({ bootMs: 4 * MIN, idleMs: 13 * MIN, sessions: 2 });
+    expect(await deployOverhead(db, NOW)).toEqual({ bootMs: 3.5 * MIN, idleMs: 11.5 * MIN, fetchMs: 5 * MIN, sessions: 2 });
+    // a deploy with a network volume keeps its files: no fetch
+    expect(await deployOverhead(db, NOW, { volume: true })).toMatchObject({ fetchMs: 0 });
     await db.deleteFrom("rent_sessions").execute();
     expect(await deployOverhead(db, NOW)).toBeNull();
   });
@@ -206,14 +210,57 @@ describe("the costs of a window", () => {
     const scail = v.renderCosts.filter((r) => r.key === "scail.motion\nscail.safetensors");
     expect(scail.map((r) => [r.where, r.on, r.renders, r.best])).toEqual([["pod", "A40", 2, true], ["home", "This PC", 3, false]]);
     expect(scail[0]!.usd).toBeCloseTo((10 / 60) * 0.6, 9);
-    // the p50 energy of the renders read (25 and 15 Wh: 25 as the middle of two), at €0.25 a kWh
-    expect(scail[1]).toMatchObject({ wh: 25, local: 0.00625 });
+    // the p50 energy of the renders read (25 and 15 Wh: 20, the mean of the two middle ones), at €0.25 a kWh
+    expect(scail[1]).toMatchObject({ wh: 20, local: 0.005 });
     expect(v.home).toEqual([{ machine: "m1", name: "This PC", gpu: "GPU", renders: 3, read: 2, wh: 40, avgW: 240, cost: 0.01 }]);
     expect(v.kwh).toEqual({ price: 0.25, currency: "€" });
     expect(v.advice.map((a) => a.kind)).toEqual(["idle", "fetch"]);
     // the two sessions ended idle 10 and 13 min: at 5 min, 5 and 8 min less at $0.60/h
     expect(v.advice[0]!.save).toBeCloseTo((13 / 60) * 0.6, 9);
     expect(v.advice[1]!.why).toMatch(/^wan's 26\.0 GB came twice\. A 30 GB volume \(\$2\.10\/month\)/);
+  });
+
+  // RunPod's spending as rented.ts says it: this month's bill $1.30 against the sessions' $0.90 counted
+  const spending: Spending = {
+    today: 0.9, month: 1.3, caps: { day: 2, month: 0 }, balance: 20, lowBalance: false, spendPerHr: 0.62, runwayMs: 20 / 0.62 * HOUR, billed: true,
+    perDay: { pods: 0.9 / 7, storage: 0.5 }, runwayDays: 20 / (0.9 / 7 + 0.5),
+    storage: { volumesMonth: 0.2, disksMonth: 0.1, perMonth: 15, volumes: 1, stoppedDisks: 1, unused: [] },
+  };
+
+  it("says the month's bill beyond the count as not split, and the runway and month end with storage, as Settings does", async () => {
+    const v = await view({ spending });
+    expect(v.month).toBe(1.3);
+    // the two sessions, $0.90 counted: $0.40 billed beyond them (disks, pods not in Afflatus, rounding)
+    expect(v.notSplit).toBeCloseTo(0.4, 9);
+    // the same pace and runway as rented.ts gives Settings: the pods' 7 days and storage a day
+    expect(v.pace7).toBe(0.9 / 7);
+    expect(v.storageDay).toBe(0.5);
+    expect(v.runwayDays).toBe(spending.runwayDays);
+    expect(v).toMatchObject({ spendPerHr: 0.62, runwayNowMs: spending.runwayMs });
+    const d = new Date(NOW);
+    const left = (new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime() - NOW) / 86_400_000;
+    expect(v.monthEnd).toBeCloseTo(1.3 + 0.2 + (0.9 / 7 + 0.5) * left, 9);
+  });
+
+  it("stands a stretch of the chart at RunPod's bill: what it billed beyond the count is drawn as not split", async () => {
+    const plain = await view({ spending: { ...spending, billed: true } });
+    const counted = plain.times.map((_t, i) => plain.spend.values.reduce((n, v) => n + v[i]!, 0));
+    const k = counted.findIndex((x) => x > 0);
+    // the bill of that stretch $0.25 over the count; another under it (its last hours not written yet); the rest not read
+    const v = await view({ spending, billedIn: async (times) => times.map((_t, i) => (i === k ? counted[i]! + 0.25 : i === k + 1 ? 0 : null)) });
+    expect(v.spend.gpus).toEqual(["A40", NOT_SPLIT]);
+    expect(v.spend.values[1]![k]).toBeCloseTo(0.25, 9);
+    expect(v.spend.values[1]!.reduce((n, x) => n + x, 0)).toBeCloseTo(0.25, 9);
+    // nothing beyond the count: no such series
+    expect((await view({ spending, billedIn: async (times) => times.map((_t, i) => counted[i]!) })).spend.gpus).toEqual(["A40"]);
+  });
+
+  it("counts a render as a pod's only within a run of its machine", async () => {
+    // rp-a rendered before its first session: a home machine of that id then, not the pod
+    await db.insertInto("render_stats").values(render("rp-a", T0 - 10 * MIN, 5 * MIN, { energy_wh: 10 })).execute();
+    const v = await view({ price: 0.25 });
+    expect(v.home.map((h) => [h.machine, h.renders]).sort()).toEqual([["m1", 3], ["rp-a", 1]]);
+    expect(v.renderCosts.filter((r) => r.where === "pod" && r.key === "scail.motion\nscail.safetensors").map((r) => r.renders)).toEqual([2]);
   });
 
   it("a GPU not tried yet, guessed from the model's own p50 by the hunt's table of speeds, marked a guess", async () => {

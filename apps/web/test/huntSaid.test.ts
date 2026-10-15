@@ -37,7 +37,9 @@ describe("the GPU hunt in words", () => {
     // the 2000 Ada's session: 12.8 min billed for 1.1 min of rendering; a render's cost alone said a tenth of it
     expect(deploySaid({ overhead: (0.24 * (5 * 60_000 + 6.5 * 60_000)) / 3_600_000 })).toBe("+$0.046 a deploy");
     expect(deploySaid({ overhead: null })).toBeNull();
-    const why = renderWhy({ bootMs: 5 * 60_000, idleMs: 390_000, sessions: 4 });
+    const why = renderWhy({ bootMs: 5 * 60_000, idleMs: 390_000, fetchMs: 3 * 60_000, sessions: 4 });
+    expect(why).toContain("their usual files fetched (3m, none with a network volume)");
+    expect(renderWhy({ bootMs: 5 * 60_000, idleMs: 390_000, fetchMs: 0, sessions: 4 })).not.toContain("files fetched");
     expect(why).toContain("usual boot (5m)");
     expect(why).toContain("usual idle before they stop (6m 30s)");
     expect(why).toContain("from your last 4 sessions");

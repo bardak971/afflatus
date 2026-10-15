@@ -209,6 +209,8 @@ export interface HuntState {
 export interface DeployOverhead {
   bootMs: number;
   idleMs: number;
+  /** The usual fetch of the files, for a deploy without a network volume; 0 with one. */
+  fetchMs: number;
   sessions: number;
 }
 /** GET /api/hunt: the hunt (null: none), its last ranking and when RunPod was last asked. */
@@ -438,6 +440,10 @@ export interface RentedSpending {
   spendPerHr: number | null;
   /** How long the balance lasts at that spend (ms); null when nothing is spent, or not known. */
   runwayMs: number | null;
+  /** What a day costs at this pace: the pods over the last 7 days (Afflatus's count) and storage as the account stands. */
+  perDay: { pods: number; storage: number };
+  /** How long the balance lasts at that pace (days): the runway said in Settings and Queue › Costs alike. */
+  runwayDays: number | null;
   /** Today and this month are RunPod's own bill (the last hours counted by Afflatus); false: Afflatus's count alone. */
   billed: boolean;
   /** What storage costs (volumes, the pods' own disks); null when RunPod was not read. Never counted against the caps. */
@@ -446,7 +452,7 @@ export interface RentedSpending {
     volumesMonth: number | null;
     /** Of this month's spending, the pods' own disks (in it already). */
     disksMonth: number;
-    /** What storage costs a month as the account stands now. */
+    /** What storage costs a month with nothing running, as the account stands now. */
     perMonth: number;
     volumes: number;
     stoppedDisks: number;
@@ -461,8 +467,10 @@ export interface RentedState {
   pod: string;
   /** As RunPod says it; GONE: not on RunPod (terminated there, or another account's key); UNKNOWN: not read yet, or RunPod did not answer. */
   status: "PROVISIONING" | "STARTING" | "RUNNING" | "EXITED" | "ERROR" | "TERMINATED" | "GONE" | "UNKNOWN";
-  /** USD an hour while it runs (the last rate seen). */
+  /** USD an hour while it runs (the last rate seen): its GPU and its own disks, as RunPod bills it. */
   rate: number | null;
+  /** Of it, the GPU's price alone, while it runs. */
+  gpuRate: number | null;
   gpu: string | null;
   dataCenter: string | null;
   /** When the running session began (ms), and what it has cost so far (USD). */

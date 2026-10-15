@@ -7,11 +7,12 @@ import { useQueue, useSettings } from "../../data";
 import { useOpenComfyUI } from "../../actions";
 import { useRentedOps } from "../../rentedOps";
 import { RentedHead } from "./RentedRows";
-import { est, plural, usd, when } from "../../format";
+import { plural, usd, when } from "../../format";
 import { Select } from "../../Select";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
-import { Button, cx, ErrorNote, fieldClass } from "../../ui";
+import { Button, cx, ErrorNote, fieldClass, Help } from "../../ui";
+import { runwayNowSaid, runwaySaid, runwayWhy } from "../queue/costsView";
 import { Block, Card, Row } from "./Rows";
 import { tabHref } from "./settingsIndex";
 import { COLUMNS } from "./wide";
@@ -122,6 +123,7 @@ function RunpodAccount() {
     onError: sayFailed("The unused volumes' days were not saved"),
   });
   const s = spending.data?.spending;
+  const now = s ? runwayNowSaid({ spendPerHr: s.spendPerHr, runwayNowMs: s.runwayMs, perDay: s.perDay.pods + s.perDay.storage }) : null;
   // the caps as saved (written in at once on a save), not as the spending read some seconds ago: two edits in a row each keep the other
   const caps = settings.data?.rentCaps ?? s?.caps ?? { day: 0, month: 0 };
   // each edit made on the caps as the edits before it left them, and sent after them: a second edit within one round trip
@@ -141,15 +143,18 @@ function RunpodAccount() {
   return (
     <Card
       title="RunPod account"
-      help="What your rented pods cost, every pod of the account, its GPU and its disk: RunPod's own bill. RunPod writes it some hours after the fact, so the last hours are Afflatus's count (each pod's time × its rate, from its deploy), the higher of the two while a pod runs, so that a cap is never reached late. A network volume is billed apart, every month. The balance lasts at what the account spends now (every pod and volume): at zero RunPod stops every pod, and a render that would end after it is not sent to a rented pod."
+      help="What your rented pods cost, every pod of the account, its GPU and its disk: RunPod's own bill. RunPod writes it some hours after the fact, so the last hours are Afflatus's count (each pod's time × its rate, from its deploy), the higher of the two while a pod runs, so that a cap is never reached late. A network volume is billed apart, every month. The balance lasts at this pace (the pods' last 7 days and storage), and at what the account spends now while a pod runs: at zero RunPod stops every pod, and a render that would end after it is not sent to a rented pod."
       status={(
         <span className="flex items-center gap-3 text-[12.5px]">
           {s && s.balance !== null && (
             <span className={s.lowBalance || (s.runwayMs !== null && s.runwayMs < 3_600_000) ? "font-semibold text-warn-ink" : "text-ink-2"}>
               balance <span className="font-mono text-ink">{usd(s.balance)}</span>
-              {s.runwayMs !== null && s.spendPerHr !== null && <> · lasts {est(s.runwayMs)} at {usd(s.spendPerHr)}/h</>}
+              {/* the same runways as Queue › Costs: at this pace (storage in it), and at what is spent now while a pod runs */}
+              {s.runwayDays !== null && <> · lasts {runwaySaid(s.runwayDays)}</>}
+              {now && <> · {now}</>}
             </span>
           )}
+          {s && s.balance !== null && <Help text={runwayWhy(s.perDay)} title="How long the balance lasts" className="self-center" />}
           {/* the spending itself is the Queue's Costs view */}
           <Link href="/queue?view=costs" className="font-semibold text-ink-2 hover:text-ink">Costs ›</Link>
         </span>

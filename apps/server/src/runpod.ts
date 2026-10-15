@@ -15,8 +15,16 @@ export interface Pod {
   id: string;
   name: string;
   status: PodStatus;
-  /** USD an hour while it runs (RunPod says 0 while stopped: the rate is kept from when it ran). */
+  /**
+   * USD an hour while it runs, as RunPod bills it: its GPU's price and its own disks (the container disk and a pod volume,
+   * billed while it runs: `runningRate`). 0 while it is stopped, as RunPod says its price then: the rate is kept from when it
+   * ran. A network volume is billed apart, every month.
+   */
   cost: number;
+  /** Of it, the GPU's price alone (RunPod's `cost`). */
+  gpuCost: number;
+  /** Its container disk in GB: billed while it runs, erased at a stop. */
+  containerGb: number;
   gpu: string | null;
   gpuCount: number;
   dataCenter: string | null;
@@ -87,6 +95,16 @@ export const COMFY_PORT = 8188;
 export const RUNNING_DISK_PER_GB_MONTH = 0.1;
 /** What a stopped pod's own disk costs, USD per GB and month (RunPod's price for the volume disk of a stopped pod). */
 export const STOPPED_DISK_PER_GB_MONTH = 0.2;
+/** The hours of a month RunPod's monthly prices of storage are billed over, by the hour (365 × 24 / 12). */
+export const HOURS_A_MONTH = 730;
+
+/**
+ * What a running pod costs an hour: its GPU's price (RunPod's `cost`, the GPU alone) and its disks while it runs, the
+ * container disk and its pod volume at RUNNING_DISK_PER_GB_MONTH (a 120 GB container disk adds $0.0164 to an A40's $0.59:
+ * RunPod's console says $0.61). 0 when RunPod says no price (a pod stopped).
+ */
+export const runningRate = (gpuCost: number, containerGb: number, diskGb: number): number =>
+  gpuCost > 0 ? gpuCost + ((Math.max(0, containerGb) + Math.max(0, diskGb)) * RUNNING_DISK_PER_GB_MONTH) / HOURS_A_MONTH : 0;
 
 /**
  * What a GPU deployed from Afflatus runs. "afflatus": ComfyUI, its Manager and the node pack (deploy/runpod), locked from
@@ -187,7 +205,7 @@ export function podUrl(id: string, port = COMFY_PORT): string {
 export const exposesComfy = (pod: Pick<Pod, "ports">) => pod.ports.some((p) => p === `${COMFY_PORT}/http`);
 
 type RawPod = {
-  id: string; name?: string; status?: string; cost?: number; actions?: string[];
+  id: string; name?: string; status?: string; cost?: number; disk?: number; actions?: string[];
   gpu?: { id?: string; count?: number } | null; dataCenterId?: string | null; ports?: string[];
   mounts?: { persistent?: { size?: number } | null; network?: Array<{ volumeId?: unknown } | null> | null } | null;
   env?: Record<string, string> | null;
@@ -198,7 +216,9 @@ const podOf = (p: RawPod): Pod => ({
   id: p.id,
   name: p.name ?? p.id,
   status: (p.status ?? "ERROR") as PodStatus,
-  cost: typeof p.cost === "number" ? p.cost : 0,
+  cost: runningRate(typeof p.cost === "number" ? p.cost : 0, typeof p.disk === "number" ? p.disk : 0, p.mounts?.persistent?.size ?? 0),
+  gpuCost: typeof p.cost === "number" ? p.cost : 0,
+  containerGb: typeof p.disk === "number" ? p.disk : 0,
   gpu: p.gpu?.id ?? null,
   gpuCount: p.gpu?.count ?? (p.gpu ? 1 : 0),
   dataCenter: p.dataCenterId ?? null,

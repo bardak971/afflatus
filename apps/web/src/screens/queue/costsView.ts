@@ -1,5 +1,5 @@
 import type { CostPart, CostsView, PartMs, PodSession } from "../../api";
-import { gb, long, plural } from "../../format";
+import { gb, long, plural, usd } from "../../format";
 
 /**
  * What the Costs tab works out apart from drawing it: its windows, the parts of a pod's time as said, a session's bar, how
@@ -8,6 +8,9 @@ import { gb, long, plural } from "../../format";
 
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
+
+/** The chart's series for what RunPod billed beyond Afflatus's count of the pods' time (the server's costs.ts NOT_SPLIT). */
+export const NOT_SPLIT = "Not split";
 
 /** The windows a click gives, each ending now; "Month" from the 1st, "All" from the first session or render. */
 export const COST_PRESETS: ReadonlyArray<{ label: string; ms: number | null | "month" }> = [
@@ -42,12 +45,33 @@ export function nothingShare(usd: Record<CostPart, number>): number {
 
 export const totalMs = (ms: PartMs) => Object.values(ms).reduce((n, v) => n + v, 0);
 
-/** How long the balance lasts at this pace, as said: "about 4 months", "about 12 days", "about 9 h". */
+/** How long something lasts, as said: "about 4 months", "about 12 days", "about 9 h", "about 40 min". */
+function lastsSaid(days: number): string {
+  if (days >= 60) return `about ${Math.round(days / 30)} months`;
+  if (days >= 2) return `about ${Math.round(days)} days`;
+  if (days * 24 >= 1) return `about ${Math.round(days * 24)} h`;
+  return `about ${Math.max(1, Math.round(days * 24 * 60))} min`;
+}
+
+/** How long the balance lasts at this pace, as said: "about 4 months at this pace". */
 export function runwaySaid(days: number | null): string {
-  if (days === null) return "nothing spent in the last 7 days";
-  if (days >= 60) return `about ${Math.round(days / 30)} months at this pace`;
-  if (days >= 2) return `about ${Math.round(days)} days at this pace`;
-  return `about ${Math.max(1, Math.round(days * 24))} h at this pace`;
+  if (days === null) return "nothing spent in the last 7 days, no storage";
+  return `${lastsSaid(days)} at this pace`;
+}
+
+/**
+ * How long the balance lasts at what the account spends an hour now, beside the runway at this pace: "11 h at $0.60/h now".
+ * Said only while that spend runs half again faster than the pace's day (a pod running): else the pace's runway says it
+ * well enough, and two figures a few days apart would only puzzle.
+ */
+export function runwayNowSaid(r: { spendPerHr: number | null; runwayNowMs: number | null; perDay: number }): string | null {
+  if (r.spendPerHr === null || r.runwayNowMs === null || r.spendPerHr * 24 <= r.perDay * 1.5) return null;
+  return `${lastsSaid(r.runwayNowMs / DAY)} at ${usd(r.spendPerHr)}/h now`;
+}
+
+/** What the runways rest on, for their "?": the same words in Settings and Queue › Costs. */
+export function runwayWhy(perDay: { pods: number; storage: number }): string {
+  return `At this pace: the balance over ${usd(perDay.pods + perDay.storage)} a day, the pods' last 7 days (${usd(perDay.pods)} a day, Afflatus's count) and storage as it stands (${usd(perDay.storage)} a day: network volumes, stopped pods' disks). Now: at what RunPod says the account spends an hour, said while a pod runs; a render that would end after it is not sent to a rented pod. At $0 RunPod stops every pod.`;
 }
 
 /** A session's bar: each part's share of the longest session's length (0 to 1), and its tip; parts it did not have left out. */

@@ -84,6 +84,19 @@ export function rentedSpent(r: RentedState, now = Date.now()): number {
   return r.status === "RUNNING" && r.since && r.rate ? (Math.max(0, now - r.since) / 3_600_000) * r.rate : r.spent;
 }
 
+/** RunPod's price of a pod's own disk while it runs, USD per GB and month, billed by the hour over 730 hours (the server's runpod.ts). */
+const DISK_RUNNING_PER_GB_MONTH = 0.1;
+const HOURS_A_MONTH = 730;
+
+/** What a pod's own disk adds to its GPU's price an hour while it runs (USD): RunPod bills it with the GPU. */
+export const diskPerHour = (gb: number) => (Math.max(0, gb) * DISK_RUNNING_PER_GB_MONTH) / HOURS_A_MONTH;
+
+/** A pod's rate, its GPU and its disk, as its "?" says it: "GPU $0.59 + disk $0.02 an hour, as RunPod bills it". Null without the GPU's part. */
+export function rateParts(r: Pick<RentedState, "rate" | "gpuRate">): string | null {
+  if (!r.rate || !r.gpuRate) return null;
+  return `GPU ${usd(r.gpuRate)} + its disk ${usd(Math.max(0, r.rate - r.gpuRate), true)} an hour while it runs, as RunPod bills it`;
+}
+
 /** A rented pod's rate as Start says it: RunPod says it only once the pod has run (it says 0 while it is stopped). */
 export const rateSaid = (r: RentedState) => (r.rate ? `${usd(r.rate)} / h from now` : "rate known once it has run · billed from now");
 
