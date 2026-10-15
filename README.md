@@ -1,9 +1,12 @@
+<!-- DRAFT for the 0.5.0 README, verified against HEAD cdf47bb3 on 2026-10-16. Still to come: run.webp and costs.webp (pod day). Delete this file before any commit. -->
+
 <p align="center"><img src="docs/media/mark.svg" alt="" width="88"></p>
 
 <h1 align="center">Afflatus</h1>
 
 <p align="center">
-  A self-hosted studio for pictures, videos and timelines, in front of <a href="https://github.com/Comfy-Org/ComfyUI">ComfyUI</a>:<br>on your own GPU, on several, or on one you rent by the hour.
+  ComfyUI's models, without living in the graph.<br>
+  A studio with a library, a form per model and a timeline that makes real videos. Free, on your own PC.
 </p>
 
 <p align="center">
@@ -12,55 +15,119 @@
   <a href="https://github.com/bardak971/afflatus/pkgs/container/afflatus"><img alt="Docker image" src="https://img.shields.io/badge/docker-ghcr.io%2Fbardak971%2Fafflatus-ff9a73"></a>
 </p>
 
+<!-- the hero video: hero8 (2026-10-10), kept for 0.5.0; a new film is 0.6.0 -->
 https://github.com/user-attachments/assets/e217e91c-bbf2-4642-8468-3176c35368ca
 
-<p align="center"><sub>Everything in this video was made in Afflatus, the logo included. The snowboard film at the start: Krea 2 key frames and a MiniMax H3 chain. <a href="https://github.com/user-attachments/assets/ad78668c-1474-4c78-9b75-f4b281f6347f">Watch the film on its own</a>.</sub></p>
+<p align="center"><img src="docs/media/results.webp" alt="Pictures and video frames made in Afflatus: a snowboarder under floodlights, a neon night market, a lighthouse keeper, an anime pilot, a dancer moved by a video, a face that speaks a recording" width="100%"></p>
+<p align="center"><sub>All of it made in Afflatus, on one home GPU and a few rented hours. The logo too.</sub></p>
 
-**One studio for the whole job, free and yours.** Make pictures and videos on your own GPU or one you rent by the hour: each job goes to the machine that will finish it first, counting the model it has to load and how fast that machine has been for you. Chain the clips into a film, move a picture the way a video moves, and hand the timeline to your video editor. See where your GPU time goes and what your rented GPUs cost today and this month, with caps you set. Afflatus can lock the ComfyUIs it drives, and locks the pods it deploys from their first second, so an open pod is not an open door, and marks the renders it hands out as AI-made.
+You keep ComfyUI, your models and your node packs; they do all the rendering. Afflatus is the studio around them: a library where every render is kept with its settings, a clean form for each model, a timeline that turns clips into a film, and one queue that sends each job to whichever GPU will finish it first, yours or one you rent for the afternoon.
 
-You keep ComfyUI, your models and your node packs. Afflatus is one small server and a folder of data, on your PC or in a container, that gives them a library, forms and an editor.
+It is one small server and a folder of data, on your PC or in a container.
 
-## What you get
+## Make
 
-**Make**
-- **Forms instead of noodles.** A clean form per model, on its authors' own settings: prompt, size, steps, done. The graph is still there when you want it, and a `?` beside each model says what it is good and weak at.
-- **Your own workflows, as forms.** Drop in a ComfyUI workflow file: Afflatus keeps the controls its author put forward and names the node packs and model files you are missing.
-- **Every render remembered.** Each picture and clip keeps the exact settings it was made with. Open any of them, change one thing, render again.
-- **Tools on any picture or video.** Inpaint, outpaint, edit by instruction, fix faces and hands, upscale, remove a background, guide a pose or depth with ControlNet; trim a video or a sound, save a frame, take the sound out or remove it.
-- **Picture to video, and motion transfer.** Press **M** on a picture to make it move, pinned to a first frame, a last frame or a keyframe in between. Press **Shift+M** to move it like a video instead: SCAIL-2 copies the body, hands and mouth of the people in a driving video, and keeps your picture's room and light.
-- **Lip sync.** MiniMax H3 makes a new shot around a recording: the mouth follows it, and the recording is the clip's sound.
+<p align="center"><img src="docs/media/make.webp" alt="A Krea 2 picture of a night market, and a frame of the MiniMax H3 video it became" width="820"><br><sub>A picture, then the video made from it.</sub></p>
 
-**Film**
-- **A timeline for real videos.** Clips with several takes each, trims, transitions on the cuts, music that ducks under voices. MiniMax H3 clips carry on from the previous clip's latent, so motion and sound flow across the cut.
-- **Fix just the part you don't like.** Mark a stretch with **I** and **O**, across clips if you like, and regenerate it: a new clip is made between those two frames, and everything around it stays.
-- **A long video, made into clips.** Drop a video under the timeline and it is turned into motion-transfer clips window by window, each carrying on from the last.
-- **It measures what it makes.** Every take is scored on how cleanly it joins the clip before, and on its brightness, sharpness, grain, face likeness and pace against its neighbours. The timeline points out what jumps; the call stays yours.
-- **Out to your editor.** Export one video, a small copy for the web, or a zip for DaVinci Resolve, Premiere Pro or Kdenlive: every clip's whole file with its in and out points, its sound and the music, nothing rendered again.
+- **A form per model, on its authors' settings.** Prompt, size, steps, done. SDXL, FLUX, Krea 2, Qwen Image, Z-Image for pictures; MiniMax H3, LTX 2.3 and 2.5, Wan 2.2 for video; SCAIL-2 for motion. A `?` beside each model says what it is good and weak at.
+- **A designer that knows each model's grammar.** Point it at any OpenAI-style endpoint (LM Studio, Ollama, llama.cpp or a service) and it writes the prompt the way that model reads one: tags for SDXL, one flowing description with no quality words for Krea 2, each from a prompting guide you can read and edit. Your own system prompts shape it further, a photographer, a videomaker; it can plan a whole timeline as a series of clips; and what it writes is checked against the model's rules, each miss shown as a line for you to judge.
+- **A library you can keep tidy.** Projects, with folders inside them. Renders land in the folder you are working in; drag anything anywhere; and one search box finds anything across all of it, by what it is: `video: lantern`, `model:krea2 since:1m`, `in:"The Keeper" -kept`, `lora:` to list the LoRAs you have used, `prompt:` for the words you wrote. Open an item and the viewer shows everything that made it: model, seed, every setting, the pictures it was fed.
+- **Drafts that outlive the render.** A draft is a prompt and its inputs, kept until you delete it. Run the same one on Krea 2, then on Z-Image, then on FLUX, and compare any two results side by side with a wipe. Reuse a render's seed, or make a variation of it, in one click.
+- **Video, three ways, each a clean form.** A picture moves, pinned to a first frame, a last frame or a keyframe in between, with its own sound on MiniMax H3 and LTX. A driving video lends your picture its motion: a dance, a walk, someone talking (SCAIL-2, up to twenty seconds in one job, several people at once). And when the words have to be a particular voice, Lip sync makes a MiniMax H3 shot around your recording: pick the part on its waveform, and the mouth follows it.
+- **Your cast, written once.** The Prompt kit holds your people, places and styles. A person is a few pictures, how they look as tags and as a sentence, a voice, their outfits, and a LoRA per model when you have one; that is what keeps her the same from one render to the next. Put *her, in the summer dress, film look* into a draft or a whole timeline, and each model gets it the way it reads it: tags for SDXL, a sentence and reference pictures for Krea 2 or MiniMax H3, the voice when the clip has to speak. Snippets drop into any prompt by name, a Roll picks one of each kind at random, and a preset keeps a whole setup, model and cast included, as a file you can share.
+- **The usual tools, on the right-click.** Upscale, inpaint, outpaint, edit by instruction, fix a face or a hand, a ControlNet guide, remove a background, mirror; trim a video or a sound, save a frame, take the sound out.
+- **Models that come to you.** Settings → Models says, per family and per operation, what is ready, what is missing and the folder it goes in, with a Download button beside it: the file goes straight into ComfyUI's folders, two at a time, resumed if the line drops, and checked against Hugging Face's own hash where it gives one. The same for a pod.
+- **And models you can find again.** Find models browses Civitai and Hugging Face from inside the app, filtered to the families you run, and gets a model onto this PC, onto a pod, or into a set. Your own checkpoints and LoRAs are hashed in the background, so the LoRA with the unreadable file name is matched to its Civitai page, Afflatus knows which files a pod can fetch for itself and which must travel from your PC, and a check you can run daily says which of your models have a newer version.
 
-**Run**
-- **Several ComfyUIs, one queue.** Add a second GPU, another PC or a rented pod. Each job goes where it finishes first; pin one to a machine, or render a whole timeline there.
-- **Rented GPUs, with guardrails.** Deploy a GPU on RunPod from Afflatus, or hunt for one until it comes free. Your models go onto it, the pod stops when it is idle or when this PC goes silent, and spending caps stop it for good. *New in 0.5.0: reports welcome.*
-- **It learns your machines.** Before you press Generate, the form says how long it will take, from your own past renders on that machine. While it runs, you watch a live preview.
-- **Told when it matters.** A render done or failed, the queue empty, a pod stopped, a cap reached: in the browser, on Telegram or on Discord.
+## Film
 
-**Keep**
-- **A library that stays tidy.** Projects, folders, a bin that empties itself, and a Prompt kit for people (their pictures and voice), places, styles and snippets that every model uses.
-- **Models found and carried.** Search Civitai and Hugging Face from Afflatus, download into ComfyUI's folders, and keep model sets to bring to a pod or a new PC.
-- **Ctrl+K for everything.** Find any draft, render, timeline or setting, and run any action, from the keyboard.
-- **Keeps itself current.** A dot on Settings says a new version is out; the downloadable bundles update in one click, signed and checked, with a way back.
+<p align="center"><img src="docs/media/timeline.webp" alt="The timeline editor with a range marked across two clips and its actions: Regenerate, Loop, Split, Remove, Copy, Slow" width="820"></p>
 
-## From download to your first render
+Clips are easy to make. A film is the hard part, and that is what the timeline is for.
 
-You need **ComfyUI** running somewhere (a clone, the portable build or the desktop app) and any card ComfyUI runs on, or a RunPod account. Afflatus does not install ComfyUI on your PC.
+- **Clips that carry on.** A clip can continue from the one before it: MiniMax H3 in the model's own latent, so the motion and the sound flow across the cut as one shot; LTX from the last second of the clip before. Between clips of different models, or where a join is not seamless, make it a cut or a transition: dissolve, dip to black or white, flash, wipe, slide, circle, zoom.
+- **Takes, not re-rolls.** Each clip is a form of its own. Render three takes at once; each is listed with how cleanly it joins in and out, the smoothest is marked, you pick the one that plays, and the rest wait on the shelf for a later cut.
+- **Regenerate a range.** Mark two seconds, inside a clip or across the join of two, and press Regenerate: a new clip is made for that stretch, joined to the clips on both sides, and the rest of the timeline stays as it was.
 
-1. **Download and start.** Grab the bundle for your system from the [releases page](https://github.com/bardak971/afflatus/releases), unpack it and run `Afflatus.bat` (Windows) or `afflatus.sh` (Linux, macOS) in the `Afflatus` folder it holds. Your browser opens on `http://127.0.0.1:8720`.
-2. **Connect ComfyUI.** In **Settings → ComfyUI**, enter its address (`http://127.0.0.1:8188` on the same machine) and save. Give it ComfyUI's folder too, so Afflatus can install its small node pack; restart ComfyUI so it loads the pack, then press **Lock it** on the Access line, so that only Afflatus can use that ComfyUI.
-3. **Get a model.** **Settings → Models** shows, for each model family, what is ready and what is missing, file by file. Press **Download** and the files go straight into ComfyUI's model folders, or open **Find models…** to pick from Civitai and Hugging Face.
-4. **Make a picture.** Open the **Studio**, press **N** for the form, pick a model, write a prompt and press **Ctrl+Enter**. It lands in your library with everything it was made with.
-5. **Make it move.** Open the picture, press **M**, describe the motion and render. Then drop clips on a **Timeline** to build a film.
-6. **Bring your own workflow.** **Workflows → Import** the `.json` you saved from ComfyUI, and use it like any other form.
+<p align="center"><img src="docs/media/insight.webp" alt="A clip's takes with their join figures, and its look measured against the clips before and after it" width="820"></p>
 
-Other ways to run it:
+- **Measured, not eyeballed.** Every take carries the figures of its joins, in and out, and of its look against the clip before and the start of its run: brightness, sharpness, grain, pace, colour, flicker, and the face against the person's own pictures when there is one. The figures come from the frames, and a chart follows them along the run. When a join jumps, the timeline names the take that would join more cleanly; the call stays yours.
+- **The rest of an editor.** Ranges that snap to the quiet moments and the cuts, split at the playhead, stills held on screen, slow motion, loops, music that ducks under voices. A long video dropped under the clips becomes motion-transfer clips window by window, each carrying on from the last.
+- **Finish and export.** Finish brings every clip to its final size in one go (SeedVR2, RTX Video Super Resolution, an upscale model, or a re-sample of an H3 clip's own latent); a finished take keeps its draft's timing. Export one video, a small copy for the web, or a zip for DaVinci Resolve, Premiere Pro or Kdenlive: every clip's whole file with its in and out points, the sound and the music, nothing rendered twice.
+
+## Run
+
+<p align="center"><img src="docs/media/run.webp" alt="The queue with a lane per machine: this PC and two rented pods, two of them rendering, the third fetching its checkpoint; each waiting render says which machine it goes to and when" width="820"></p>
+
+- **One smart queue.** Add every ComfyUI you have: a second GPU, another PC, a rented pod. Each job goes to the machine that will finish it first, counting whether that machine already holds the model and how fast it has been on your own renders. Pin a job to a machine, or send a whole timeline there.
+- **You see where the time went.** Before you press Generate, the form says how long it will take, from your past renders on that machine. Afterwards, **Render times** accounts for every minute: GPU time, jobs and video made over any period, how much went to loading models, how far off the estimates were, the queue's waits, VRAM peaks and out-of-memory stops; per model, its share, its usual time and whether it ran slower than usual; a lane per model you can drag to zoom; and flags that name what went wrong and offer the fix, sort the queue by model, open the log. On every machine you run, rented ones included.
+- **And what it cost.** The **Costs** page takes RunPod's own bill and splits it: today, the month, where the month will end at this pace, your balance and how long it lasts. Then where the pod time went, rendering, booting, fetching files, sitting idle, failing, and how much of it made nothing; the spend per day and per GPU; per project; every pod session from its deploy to its end; what a render of each model costs on each machine, your own PC included once you give it a price per kWh; and what would have cost less: a shorter idle wait with the saving counted, fewer deploys, a network volume for files fetched again and again, a cheaper GPU for that model.
+- **Told when it matters.** A render failed or stuck, the queue empty, a GPU found, a pod stopped, a cap or a low balance reached, a new device signed in: in the browser, on Telegram or on Discord, each kind on or off.
+
+### A GPU for the afternoon
+
+No big card, or a queue longer than the night? Rent one. Afflatus deploys a pod on RunPod with your own key and treats it like any other machine in the queue. Then it takes care of what people dread about renting:
+
+- **Starting it is one dialog.** Pick the GPU, the disk, the idle time and the models to bring. The pod comes up on Afflatus's own image with ComfyUI ready, only its port open and a token in front of it, from its first second.
+- **Your models go with it.** The files your waiting jobs need are sent first. A **model set** prepares the pod with the models you always use, and a network volume keeps them between pods. A file comes from Civitai or Hugging Face only when it is proven to be the same bytes as yours; otherwise it travels from your PC. The node packs a job needs are installed on the pod too.
+- **The hunt.** Say which GPUs you want, what an hour may cost and how long to try. Afflatus waits, deploys the moment one is free, empties your queue on it, and the idle stop shuts it down. An evening with it, as Telegram told it:
+  > **RTX 2000 Ada found.** Deployed in EU-RO-1 at $0.24/h, after 1 min of hunting; 1 render waiting for it.
+  > **RTX 2000 Ada terminated.** Why: idle 5 min. This run: $0.04.
+- **It stops itself.** After the idle time you set, when Afflatus goes quiet (a watchdog on the pod), when the pod never comes up or its GPU fails. Daily and monthly caps stop the pods once their render ends and refuse new deploys until the day or the month turns.
+<p align="center"><img src="docs/media/pods.webp" alt="Settings › ComfyUI: this PC beside a rented RTX A5000 that is fetching its models, locked, with its idle stop and watchdog" width="820"><br><sub>A pod three minutes in: its models arriving, locked, $0.012 so far.</sub></p>
+
+- **You always know.** Telegram or Discord tells you when the hunt found a GPU, when a pod stops and when a cap is reached, and the Costs page shows RunPod's own bill, each render priced at its session's rate.
+
+Your key, RunPod's bill, no account with Afflatus and no cut for anyone. It is off until you paste a key. And any ComfyUI you can reach by an address can already be a machine, wherever it runs; the deploy, the hunt and the bill are RunPod's for now.
+
+## Keep
+
+<table>
+<tr>
+<td width="50%"><img src="docs/media/projects.webp" alt="The Projects panel"><br><b>Projects.</b> Folders, drafts and timelines per project, with what each holds and weighs. Renders you don't keep go to the bin after a day and the bin empties itself; Storage shows what takes the space, and takes that never play go to the bin in one click.</td>
+<td width="50%"><img src="docs/media/kit.webp" alt="A person in the Prompt kit"><br><b>The Prompt kit.</b> One person: her pictures, her words for every model, her voice, her outfits. Every draft and timeline can cast her.</td>
+</tr>
+<tr>
+<td><img src="docs/media/bar.webp" alt="The Ctrl+K bar: a search by keys, with a preview of the render found"><br><b>Ctrl+K.</b> One box for everything: find renders by kind, model, LoRA, words, project or date, with a preview; open any setting; queue, reuse, split, deploy a GPU, load a model. Paste a Civitai or Hugging Face link and it reads the model, says which files you have, and downloads the rest.</td>
+<td><img src="docs/media/bar-civitai.webp" alt="The Ctrl+K bar searching Civitai with type and base-model keys"><br><b>Civitai from the bar.</b> <code>civitai: type:lora base:krea2 film grain</code> and the results are there, with a preview; Enter downloads, Ctrl+Enter opens Find models on the same search.</td>
+</tr>
+<tr>
+<td><img src="docs/media/queue.webp" alt="Render times"><br><b>Render times.</b> Every minute of GPU, by machine, model and phase, over a day or a month.</td>
+<td><img src="docs/media/costs.webp" alt="Costs: RunPod's bill split by day, GPU, project and render"><br><b>Costs.</b> RunPod's own bill, split: by day and GPU, by project, by pod session, down to what one render of each model cost. And what would have cost less.</td>
+</tr>
+<tr>
+<td><img src="docs/media/login.webp" alt="The sign-in page"><br><b>A password, when you want one.</b> Off on your own machine; on, every device signs in once, and you see them all in Settings.</td>
+<td><img src="docs/media/locked.webp" alt="A locked ComfyUI: the page a browser gets without the token"><br><b>And the ComfyUIs behind it, locked.</b> Afflatus puts a token in front of every ComfyUI it drives, a pod's from its first second. Without it, a browser gets this page and nothing else.</td>
+</tr>
+<tr>
+<td><img src="docs/media/models.webp" alt="Settings → Models: what each family has and lacks, and where each of your models is online"><br><b>Your models, accounted for.</b> What each family lacks, with the button that fetches it; your own files hashed and matched to their pages.</td>
+<td><img src="docs/media/find.webp" alt="Find models: Civitai and Hugging Face browsed from the app"><br><b>Find models.</b> Civitai and Hugging Face from inside the app, filtered to your families, straight onto this PC, a pod or a set.</td>
+</tr>
+</table>
+
+<p align="center"><img src="docs/media/themes.webp" alt="The Studio in four themes" width="820"><br><sub>Studio Dark by default, plus Studio Light and the light and dark themes of Catppuccin, Rosé Pine, Tokyo Night and Kanagawa.</sub></p>
+
+## What you stop doing by hand
+
+- Re-typing the settings of a render you liked three weeks ago.
+- Wiring a first frame, a last frame and a continuation into a graph for every single clip.
+- Watching the clock to know when a render will end.
+- Copying forty gigabytes of models to the second machine, or to a pod, by hand.
+- Exporting clips one by one for the editor.
+- Working out which Civitai page `4xNmKd_v3_fp16.safetensors` came from.
+- Checking RunPod's page every ten minutes to see if the pod is still running.
+
+## Get started
+
+You need ComfyUI running somewhere (a clone, the portable build or the desktop app) and a card it runs on, or a RunPod account.
+
+1. **Download and start.** Grab the bundle for your system from the [releases page](https://github.com/bardak971/afflatus/releases), unpack it and run `Afflatus.bat` (Windows) or `afflatus.sh` (Linux, macOS). Your browser opens on `http://127.0.0.1:8720`.
+2. **Connect ComfyUI.** **Settings → ComfyUI:** its address and its folder, so Afflatus can install its small node pack; restart ComfyUI once, then **Lock it** so only Afflatus can use it.
+3. **Get a model.** **Settings → Models** shows what each family has and lacks, file by file, with a Download button or a search on Civitai and Hugging Face.
+4. **Make something.** In the **Studio**, open the form, pick a model, write a prompt and generate. Open the result and make it move.
+
+<details>
+<summary>Other ways to run it</summary>
 
 | Platform | How |
 |---|---|
@@ -73,148 +140,53 @@ Other ways to run it:
 
 ¹ Built by the release workflow but not yet started on a real machine. Reports welcome.
 
-No GPU at hand? `corepack pnpm demo` runs the real app against a pretend ComfyUI (and, with `DEMO_RUNPOD=1`, a pretend RunPod), with its own data in `./data-demo`.
+No GPU at hand? `corepack pnpm demo` runs the real app against a pretend ComfyUI (and, with `DEMO_RUNPOD=1`, a pretend RunPod).
 
-More help: [installing on a PC](docs/install-desktop.md) · [setting up ComfyUI](docs/comfyui-setup.md) · [using Afflatus](docs/guide.md) · [configuration](docs/configuration.md) · [troubleshooting](docs/troubleshooting.md)
+</details>
 
-> [!WARNING]
-> **Afflatus has no password until you set one.** Without it, anyone who can reach its port can use your library, your settings and your GPUs, rented ones included. It only listens on your own machine unless you tell it otherwise. Before opening it to your network, set a password in Settings › Interface › Access. Forgot it: the sign-in sends a 10-character code to Telegram or to this computer's console and `data/logs/afflatus.log`; lost every way in: stop Afflatus and run `Afflatus.bat reset-password` (`./afflatus.sh reset-password`, `pnpm start reset-password` from the sources), or start it once with `AFFLATUS_RESET_PASSWORD=1`. Never put it on the internet with only that: put a reverse proxy with its own login in front. See [SECURITY.md](SECURITY.md). The ComfyUIs behind it can be locked to Afflatus, and the pods it deploys are locked from their first second.
+More: [installing on a PC](docs/install-desktop.md) · [setting up ComfyUI](docs/comfyui-setup.md) · [using Afflatus](docs/guide.md) · [configuration](docs/configuration.md) · [troubleshooting](docs/troubleshooting.md)
 
-## A tour
+## The built-in models
 
-### The Studio
-
-<p align="center"><img src="docs/media/studio.webp" alt="The Studio: a draft's form beside the project's library" width="820"></p>
-
-Where you make things and where they stay. The form on the left, your library on the right: search your prompts, filter by model or LoRA, compare two takes side by side. Right-click anything to see what you can do with it next: reuse its settings, upscale, fix a face, inpaint, mirror, turn it into a video or give it a video's motion. When several models can do it, a submenu lists them, the one you used last first.
-
-### Your workflows, as forms
-
-<p align="center"><img src="docs/media/import.webp" alt="Importing a ComfyUI workflow" width="820"></p>
-
-Import the workflow file you saved from ComfyUI and Afflatus reads it for you. It keeps the controls the author put forward, turns their switches into toggles, finds where LoRAs go, and names every node pack and model file you are missing, with a button to install them. From then on it is a form like any other, with its renders in your library.
-
-### The timeline
-
-<p align="center"><img src="docs/media/timeline.webp" alt="The timeline editor with a range marked across clips 3 and 4, and its actions: Regenerate, Loop, Split, Remove, Copy, Slow" width="820"></p>
-
-Turn clips into a film. Each clip is a form of its own with as many takes as you like; pick the one that plays. A clip can carry on from the one before, so the motion and the sound keep going across the cut, or meet it with a transition: a dissolve, a dip to black or white, a flash, a wipe, a slide, a circle or a zoom. Not happy with two seconds in the middle? Mark them with **I** and **O** and press **Regenerate**: a new clip is made between those two frames, pinned to them, and replaces what was there.
-
-Drop a long video on the **source lane** under the clips and it becomes motion-transfer clips, window by window, all moving the one picture you choose: play the source on the timeline's playhead, drag where it starts and stops, and make the clips in one go. Trim with scene detection, hold a picture as a still, add music that ducks under voices, then export one video with its colours matched across the cuts, a small copy for the web, or **a zip for your video editor** (FCP 7 XML for DaVinci Resolve and Premiere Pro, OpenTimelineIO for Kdenlive).
-
-### What it measures
-
-<p align="center"><img src="docs/media/insight.webp" alt="A clip's takes with their join figures, and its look against the clips before and along the run" width="820"></p>
-
-Hover a clip, or open its takes, and you see how clean each join is and how its brightness, sharpness, grain, face likeness and pace compare with the clips around it. Nothing is guessed: the figures come from the frames, and a face is compared with the person's own pictures. When a join jumps, the timeline tells you which take would join more cleanly, and you decide.
-
-### Motion transfer and lip sync
-
-Give a picture a video's motion: pick a driving video (a dance, a walk, someone talking) and the picture that should move. **SCAIL-2** takes up to 20 seconds of it in one job and pairs several people of the picture with those of the video. No picture yet? Afflatus makes one from the video's frame with the people you give it (Qwen Image 2.1 puts them in and relights them), three at a time, ranked by how alike the face is.
-
-**Lip sync** turns a recording into a new MiniMax H3 shot: pick the part on its waveform, its ends snapping to the pauses, describe the scene, and the mouth follows the words.
-
-These tools put real faces on things they never did. Use people who are in on the joke, and keep the mark: what you download or export from a render says it is AI-made.
-
-### Several machines, and rented GPUs
-
-Add every ComfyUI you have: a second GPU on its own port, another PC, a rented pod. One queue feeds them all, a lane each, and every job goes to the machine that will finish it first, counting whether it holds the model and how fast it has been on your renders. The status bar shows them as one pill; each machine has its own models, its own switches, and a menu to load, pause or use it alone.
-
-**Rented GPUs run on RunPod**, with your own API key, and cost real money from the second they start. So they come with guardrails:
-- **Deploy a GPU** shows what is free right now and at what price, and, once you have deployed a few times, how long your models take to arrive and what that costs. **Hunt a GPU** waits for the one you want, ranked by what a render costs on it, and deploys it the moment it is free.
-- **Your models go with it:** the files your waiting jobs need, a **model set**, or a network volume that keeps them between pods. A file comes from its site, Civitai or Hugging Face, only when it is proven to be the same bytes as yours (otherwise it is sent from this PC), and your keys never leave this PC.
-- **It stops:** after the idle time you set, when this PC goes silent (a watchdog on the pod), when a render gets stuck, when a pod never comes up or its GPU fails on its host.
-- **What it costs** is RunPod's own bill: today and this month, the balance and how long it lasts, what storage costs. Daily and monthly **caps** stop the pods once their render ends and refuse new deploys.
-- **It is locked:** a pod Afflatus deploys refuses anyone without its token from its first second.
-
-### And more
-
-<table>
-<tr>
-<td width="50%"><img src="docs/media/projects.webp" alt="The Projects panel"><br><b>Projects.</b> Every project with its folders, drafts and timelines, what it holds and what it weighs. Renders you don't keep go to the bin after a day and the bin empties itself after a week, or as long as you set.</td>
-<td width="50%"><img src="docs/media/kit.webp" alt="A person in the Prompt kit"><br><b>The Prompt kit.</b> People, places, styles and snippets, written once and used with every model: tags for SDXL, a sentence and reference pictures for the newer ones, a voice sample for MiniMax H3.</td>
-</tr>
-<tr>
-<td><img src="docs/media/bar.webp" alt="The Ctrl+K command bar"><br><b>Ctrl+K.</b> Find any draft, render, timeline or setting across your projects, with a preview. Queue, reuse, split, flip a setting, load a model, pause a machine or work out frames and seconds without leaving the keyboard.</td>
-<td><img src="docs/media/finish.webp" alt="The Finish dialog"><br><b>Finish.</b> Bring every clip to its final size in one go: SeedVR2, RTX Video Super Resolution or an upscale model. A finished take keeps its draft's timing.</td>
-</tr>
-<tr>
-<td><img src="docs/media/queue.webp" alt="Render times in the queue"><br><b>Render times.</b> Where your GPU time went, by machine, model and phase, with the jobs that ran slower than usual or out of video memory.</td>
-<td><img src="docs/media/models.webp" alt="Settings: what each model family has ready or missing"><br><b>Models.</b> What each family has ready and what is missing, on each machine, with a Download button; Civitai and Hugging Face searched from here; model sets to carry to a pod.</td>
-</tr>
-</table>
-
-<p align="center"><img src="docs/media/themes.webp" alt="The Studio in Studio Light, Catppuccin Mocha, Rosé Pine Dawn and Kanagawa Wave" width="820"><br><sub>Studio Dark by default, plus light and dark themes from Studio, Catppuccin, Rosé Pine, Tokyo Night and Kanagawa.</sub></p>
-
-Also in the app: an optional **prompt designer** that writes prompts following each model's guide, and can plan a longer video as a series of clips, through any OpenAI-style language model (LM Studio, Ollama, llama.cpp or a service).
-
-## Built-in model families
-
-These come with a ready-made form. Anything else, bring in as a workflow.
+Each comes with a form on its authors' own settings; presets for the official releases of most of them, and for DaSiWa's fine-tunes, ship with the Prompt kit.
 
 | Family | Models | What you can do |
 |---|---|---|
-| SDXL | any SDXL checkpoint: Illustrious, NoobAI, Pony, Juggernaut XL… | txt2img, img2img, inpaint, outpaint, upscale, face and hand detailer |
+| SDXL | any SDXL checkpoint: Illustrious, NoobAI, Pony, Juggernaut XL… | txt2img, img2img, inpaint, outpaint, upscale, face and hand detailer, a ControlNet guide |
 | FLUX.2 Klein | 4B base and its fine-tunes | txt2img, edit by instruction, variation, inpaint, outpaint, upscale, face and hand detailer |
+| FLUX.1 | dev, Krea dev, schnell, Kontext | txt2img, edit, img2img, inpaint, outpaint, upscale, face and hand detailer |
 | Krea 2 | Turbo and its fine-tunes | txt2img, img2img, inpaint, upscale, face and hand detailer |
-| FLUX.1 | dev, Kontext | txt2img, edit, img2img, inpaint, outpaint, upscale, face and hand detailer |
 | Qwen Image | 2512, Qwen Image Edit | txt2img, edit, img2img, inpaint, outpaint, upscale, face and hand detailer |
-| Qwen Image 2.1 | | txt2img, edit, the picture for motion transfer (people put into a video's frame and relit) |
+| Qwen Image 2.1 | | txt2img, edit, the picture for a motion transfer |
 | Z-Image | Turbo and its fine-tunes | txt2img, img2img, inpaint, outpaint, upscale, face and hand detailer |
-| MiniMax H3 | video with sound | text, first frame, first and last frames, references, continuation, lip sync: the timeline's native model |
-| Wan 2.2 | | video |
-| LTX 2.3 | | video with sound: text, first and last frames, a keyframe in between |
-| SCAIL-2 | on Wan 2.1 14B | motion transfer: up to 20 s a job, several people, 16 fps (RIFE ×2 on) |
+| MiniMax H3 | video with sound | text, first and last frame, keyframe, references, continuation, lip sync: the timeline's native model |
+| Wan 2.2 | | video from text, a first frame, or first and last frames |
+| LTX 2.3 | | video with sound: text, first and last frames, a keyframe in between, continuation |
+| LTX 2.5 | | video with sound, LTX's newer model: text, first and last frames, a keyframe, continuation, several shots in one prompt |
+| SCAIL-2 | on Wan 2.1 14B | motion transfer, up to 20 s a job, several people |
 | Image tools | SeedVR2, background removal | restore and upscale, remove the background |
 
-Each family starts on its model authors' own settings, and the Prompt kit ships presets for the official releases and for DaSiWa's fine-tunes. The default files are ComfyUI's own releases on Hugging Face. Some options need a custom node pack or a recent ComfyUI; when something is missing, Afflatus tells you what and how to get it ([the list](docs/comfyui-setup.md#node-packs)).
+**Your own workflows.** Have a graph you like in ComfyUI? **Workflows → Import** the file it saved. Afflatus reads most of them: the controls their author exposed become a form, switches become toggles, and it names the node packs and model files you are missing. Some graphs need a hand with their mapping before they render; the editor is there for that.
 
-**Model licences.** The models are other people's work under their own licences, which you accept when you download them. The shipped presets bundle nothing; each shows its licence and asks you to accept it once. Read them: several are community licences with limits on commercial use, and **MiniMax H3's licence does not grant its use in the European Union, the United Kingdom, South Korea or the United States** (its "Excluded Territories"). It also asks that machine-made content shown in public be disclosed as such: Afflatus marks a render's PNG pictures and its videos when you download or export them (IPTC's "trained algorithmic media" and an "AI-generated (Afflatus)" comment). The face likeness figures use InsightFace's buffalo_l models, licensed for non-commercial research only.
+**Model licences.** The models are other people's work under their own licences, which you accept when you download them; each preset shows its licence once. Several limit commercial use, Qwen Image 2.1's weights and the InsightFace models behind the face figures are for research only, and **MiniMax H3's licence does not grant its use in the European Union, the United Kingdom, South Korea or the United States**. What you download or export from a render is marked as AI-made: PNG pictures with IPTC's "trained algorithmic media", videos with a comment; what you brought in is never marked.
 
-## What leaves your computer
+## Yours, and private
 
-Only the daily update check, until you turn more on:
-- **The update check** (Settings → About, on by default): one request to GitHub a day, with nothing about you in it.
-- **Model lookups and downloads** (Settings → Models): Civitai and Hugging Face, with your keys if you give them.
-- **Notifications** (Settings → Interface): the Telegram bot or Discord webhook you set.
-- **Rented GPUs** (Settings → Rented GPUs): RunPod, with your API key.
-
-Keys and tokens stay on the server and are never sent back to the page.
-
-## Your data
-
-Everything (library, settings, timelines) lives in the `data` folder next to the launcher, or in the `/data` volume. A backup is one zip from **Settings → Storage**.
-
-## Updating
-
-A new version shows as a dot on **Settings**, and **About** gives its notes.
-
-- **The Windows, Linux and macOS bundles update themselves**, from 0.4.0 on: press **Update** in About. The download is checked against the release's signature, unpacked beside the version that runs, and Afflatus restarts on it once the queue has finished what it had; a render under way is never cut. The version before is kept, and **Go back** returns to it with the library as it was at the update. Updating and going back are done on the computer Afflatus runs on; another computer only sees the notice.
-- **From 0.3.0**, download the latest release by hand once: unpack it beside the 0.3.0 folder (not into it) and start it. It offers to bring your library over, moved rather than copied ([details](docs/install-desktop.md#coming-from-030)).
-- **Docker:** `docker compose pull && docker compose up -d`, or pull the new image and start the container again. The volume carries your library across.
-- **From the sources:** `git pull && corepack pnpm install && corepack pnpm build`, then start Afflatus again.
-
-The database updates itself when the new version starts.
+- **Your data** is one folder: the library, settings and timelines (linked folders stay where they are). A backup is one zip from Settings → Storage, without your keys unless you ask for them on the computer it runs on.
+- **Nothing leaves your computer** but the daily update check, until you turn something on: model lookups and downloads, Find models, notifications, a hosted language model for the designer, rented GPUs, each with your own key. Keys stay on the server.
+- **A password, when you want one.** Off by default, since Afflatus listens on your own machine only. Turn it on in Settings before you open it to your network: each device signs in once and stays signed in for as long as you say, you see every device and can sign any of them out, a new one is announced on Telegram, and a forgotten password is reset with a code sent to your Telegram or written to the server's log. The ComfyUIs it drives can be locked to it with a token, and the pods it deploys on Afflatus's image are locked from their first second. Put HTTPS in front before reaching it from outside your home. See [SECURITY.md](SECURITY.md).
+- **It updates itself.** A dot on Settings says a new version is out; the bundles update in one click, signed and checked, with a way back.
 
 ## Status
 
-Afflatus is 0.x and made for one person at a time, on one PC with as many ComfyUIs as they like. It is used every day, on a home GPU and on rented ones, and has not yet run on many machines, so expect rough edges and changes between minor versions. What changed in each release is in the [changelog](CHANGELOG.md).
-
-## Contributing
-
-Bug reports, fixes and new model families are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the setup, the checks and the conventions, and the [Code of Conduct](CODE_OF_CONDUCT.md). Security problems go through [private reporting](SECURITY.md).
+Afflatus is 0.x, made for one person at a time, and used every day on a home GPU and rented ones. It has not yet run on many machines: expect rough edges and changes between minor versions. What changed in each release is in the [changelog](CHANGELOG.md). Bug reports, fixes and new model families are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Licence and credits
 
-Afflatus is under [AGPL-3.0](LICENSE). Its node pack for ComfyUI in [comfy-nodes](comfy-nodes) is MIT.
+Afflatus is under [AGPL-3.0](LICENSE); its node pack for ComfyUI in [comfy-nodes](comfy-nodes) is MIT. You are responsible for what you make with it, for the law where you live, the licences of the models you use and the terms of any GPU provider you rent from.
 
-You are responsible for what you make with Afflatus, and for following the law where you live, the licences of the models you use and the terms of any GPU provider you rent from.
-
-- [ComfyUI](https://github.com/Comfy-Org/ComfyUI), which does all the rendering, and Comfy-Org's repackaged releases of the models it runs, among them zai-org's SCAIL-2 and SAM 3.1.
-- The node pack vendors the MIT continuation nodes of ttulttul's [ComfyUI-Minimax-H3-Continuation](https://github.com/ttulttul/ComfyUI-Minimax-H3-Continuation), with one small change (a guarded import).
-- The authors of the node packs listed in [ComfyUI setup](docs/comfyui-setup.md#node-packs), and Kijai for the lightx2v LoRA the motion-transfer forms run on.
-- The shipped presets point at the official model releases (Krea, MiniMax, Wan, Lightricks, Black Forest Labs, Qwen, Tongyi) on Hugging Face; each names its maker and its licence. Nothing of theirs is bundled.
-- [Darksidewalker](https://civitai.com/user/Darksidewalker) (DaSiWa, [GitHub](https://github.com/darksidewalker)), whose fine-tunes of MiniMax H3, Krea 2, LTX 2.3 and Wan 2.2 ship as presets, his recommended settings set per version and the files fetched from his Civitai pages; and whose [ComfyUI-DaSiWa-Nodes](https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes) Afflatus uses.
-- [InsightFace](https://github.com/deepinsight/insightface), whose buffalo_l face models give the face likeness figures; not bundled: they are fetched from InsightFace's own release the first time a face is scored.
-- The ffmpeg builds in the Windows and Linux bundles are the LGPL builds by [BtbN](https://github.com/BtbN/FFmpeg-Builds).
-- Every release carries `THIRD_PARTY_NOTICES.txt`: the npm packages and fonts it ships, with their licences.
+- [ComfyUI](https://github.com/Comfy-Org/ComfyUI), which does all the rendering, and Comfy-Org's repackaged releases of the models, among them zai-org's SCAIL-2 and SAM 3.1.
+- ttulttul's [ComfyUI-Minimax-H3-Continuation](https://github.com/ttulttul/ComfyUI-Minimax-H3-Continuation), whose MIT continuation nodes the node pack vendors with one guarded import.
+- The authors of the node packs listed in [ComfyUI setup](docs/comfyui-setup.md#node-packs), Kijai for the lightx2v LoRA the motion-transfer form runs on, and [InsightFace](https://github.com/deepinsight/insightface), whose models (non-commercial research) give the face figures.
+- [Darksidewalker](https://civitai.com/user/Darksidewalker) (DaSiWa), whose fine-tunes of MiniMax H3, Krea 2, LTX 2.3 and Wan 2.2 ship as presets with his recommended settings, and whose [ComfyUI-DaSiWa-Nodes](https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes) Afflatus uses.
+- The ffmpeg builds in the Windows and Linux bundles are the LGPL builds by [BtbN](https://github.com/BtbN/FFmpeg-Builds). Every release carries `THIRD_PARTY_NOTICES.txt`.
