@@ -38,9 +38,11 @@ const NODE_VERSION = "v24.21.0";
 /**
  * The ffmpeg the Windows and Linux bundles carry: the 9.0 release-branch build (LGPL) of one dated BtbN autobuild, not
  * the rolling "latest". A tag from https://github.com/BtbN/FFmpeg-Builds/releases, of the form
- * autobuild-YYYY-MM-DD-HH-MM; the script refuses to run while this is empty, and --ffmpeg names one for a run.
+ * autobuild-YYYY-MM-DD-HH-MM; the script refuses to run while this is empty, and --ffmpeg names one for a run. A month's
+ * last build: BtbN prunes the daily ones after about two weeks and keeps those (a daily pinned here was gone before the
+ * release it was for). Its archives' SHA-256 are in checksums.json too.
  */
-const FFMPEG_TAG = "autobuild-2026-10-04-20-51";
+const FFMPEG_TAG = "autobuild-2026-09-30-13-08";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
@@ -216,6 +218,8 @@ if (platform !== "darwin-arm64") {
   const listed = assets.find((a) => a.name === "checksums.sha256");
   let expected = listed ? parseSums(await (await get(listed.browser_download_url, { headers })).text())[asset.name] : sums.sha256[asset.name];
   if (listed && !expected) throw new Error(`${ffmpegTag}'s checksums.sha256 does not list ${asset.name}`);
+  // a build written down here is held to it even when its release lists its own: the list is fetched from the same place
+  if (sums.sha256[asset.name] && sums.sha256[asset.name] !== expected) throw new Error(`${ffmpegTag}'s checksums.sha256 says ${expected} for ${asset.name}, scripts/release/checksums.json ${sums.sha256[asset.name]}`);
   const archive = join(root, "release", asset.name);
   if (!expected) {
     if (!record) throw new Error(`${ffmpegTag} carries no checksums.sha256 and scripts/release/checksums.json has no entry for ${asset.name}: run once with --record to write its SHA-256 down, then commit checksums.json`);

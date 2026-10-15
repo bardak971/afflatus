@@ -6,12 +6,12 @@ import { mainTextOf } from "../../form";
 import { appendTo } from "../../promptText";
 import { queryKeys } from "../../queryKeys";
 import { copyText } from "../../secureContext";
-import { useBar } from "../store";
 import { stem } from "../searchRows";
 import { valueText } from "../search";
 import type { SearchValue } from "../items";
 import type { Action, BarCtx } from "./ctx";
 import { commandActions } from "./commands";
+import { retype } from "./retype";
 import { cardActions, downloadActions, findAction, linkActions, newerActions } from "./models";
 
 /** A model file's page (Civitai, Hugging Face) as Afflatus keeps it, from the folders it may be in; opened, or said missing. */
@@ -36,9 +36,6 @@ async function triggerWords(x: BarCtx, file: string): Promise<string> {
   const w = wordsOf(info.items[file], more.items[nameOf(file)]);
   return w.from && w.from !== "training" ? w.words : "";
 }
-
-/** The bar's line set to `line`: a value row's "its renders alone", a prompt's "its renders". */
-export const retype = (line: string): Action["run"] => () => useBar.getState().retype(line);
 
 /**
  * What a value of the render search can have done (Tab on a LoRA, a model, a model file): Enter writes it in the line,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { forecastFrom, inARow, said, workOf, workOfRow } from "../src/forecast";
+import { forecastFrom, said, workOf, workOfRow } from "../src/forecast";
 
 describe("what a render will take, learned from the renders before it", () => {
   // a card at its usual pace up to 130 M units of work, then streaming its weights: three times the cost per unit
@@ -98,18 +98,3 @@ describe("the work of a render whose nodes do not say its frames", () => {
   });
 });
 
-describe("renders one after another", () => {
-  it("load a model once for a run of renders with it, again after another model or a tool on the GPU", () => {
-    const a = { ms: 30_000, loadMs: 10_000, model: "a" };
-    // a batch of four: the load once, not four times
-    expect(inARow([{ ...a, times: 4 }])).toBe(20_000 * 4 + 10_000);
-    expect(inARow([a, a, a])).toBe(20_000 * 3 + 10_000);
-    // another model in between: each loads again
-    const b = { ms: 50_000, loadMs: 20_000, model: "b" };
-    expect(inARow([a, b, a])).toBe(30_000 + 50_000 + 30_000);
-    // a tool between two renders frees the model: the second loads it again
-    expect(inARow([a, { ms: 5_000, loadMs: 0, model: "" }, a])).toBe(30_000 + 5_000 + 30_000);
-    // a model in memory already: its forecasts carry no load, and none is added
-    expect(inARow([{ ...a, loadMs: 0 }, { ...a, loadMs: 0 }])).toBe(60_000);
-  });
-});
