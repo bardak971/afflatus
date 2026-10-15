@@ -1,9 +1,10 @@
+import dns from "node:dns";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { civitaiGet } from "../src/civitai";
 import { findOnHuggingFace, forgetHuggingFace } from "../src/huggingface";
-import { assertPublicUrl, cannotReach, fetchFailure, fetchPublic, isPrivateAddress, isPrivateHost } from "../src/outbound";
+import { assertPublicUrl, cannotReach, fetchFailure, fetchPublic, insideRefusingLookup, isPrivateAddress, isPrivateHost } from "../src/outbound";
 
 describe("where the server may fetch from", () => {
   it("knows the addresses of this machine and its network", () => {
@@ -12,6 +13,24 @@ describe("where the server may fetch from", () => {
     }
     for (const ip of ["8.8.8.8", "172.32.0.1", "172.15.0.1", "192.167.1.1", "2606:4700::1111", "::ffff:8.8.8.8"]) {
       expect(isPrivateAddress(ip), ip).toBe(false);
+    }
+  });
+
+  it("judges an IPv4 address carried in IPv6 by that address, however it is written, and the ranges no stranger's server is in", () => {
+    // the forms the 0.5.0 review got through: what URL makes of [::ffff:127.0.0.1], the metadata address mapped, NAT64
+    const inside = ["::ffff:7f00:1", "::ffff:a9fe:a9fe", "::ffff:169.254.169.254", "64:ff9b::7f00:1", "64:ff9b::127.0.0.1", "64:ff9b:1::5",
+      "::7f00:1", "::127.0.0.1", "::a00:1", "0:0:0:0:0:ffff:127.0.0.1", "::ffff:0:7f00:1", "2002:7f00:1::", "2002:c0a8:101::1", "2002:a9fe:a9fe::",
+      "198.18.0.1", "198.19.255.255", "224.0.0.1", "239.255.255.250", "240.0.0.1", "255.255.255.255", "ff02::1", "fec0::1", "FE80::1%eth0"];
+    for (const ip of inside) expect(isPrivateAddress(ip), ip).toBe(true);
+    for (const ip of ["64:ff9b::808:808", "2002:808:808::1", "::ffff:808:808", "198.17.255.255", "198.20.0.1", "223.255.255.255", "2001:4860:4860::8888"]) {
+      expect(isPrivateAddress(ip), ip).toBe(false);
+    }
+  });
+
+  it("refuses those forms in an address, as URL spells them", () => {
+    for (const url of ["http://[::ffff:127.0.0.1]:8188/", "http://[::ffff:169.254.169.254]/latest/meta-data/", "http://[64:ff9b::7f00:1]/", "http://[::127.0.0.1]/",
+      "http://[2002:7f00:1::]/", "http://[0:0:0:0:0:ffff:7f00:1]/", "http://198.18.0.1/", "http://224.0.0.1/", "http://2130706433/", "http://0x7f.1/"]) {
+      expect(() => assertPublicUrl(url), url).toThrow(/inside your own network/);
     }
   });
 
@@ -174,5 +193,60 @@ describe("Civitai's and Hugging Face's APIs, sent on elsewhere", () => {
     await expect(civitaiGet("/api/v1/model-versions/2", "k-123")).rejects.toThrow(/inside your own network/);
     expect(await findOnHuggingFace("some_model_fp8.safetensors")).toEqual({ items: [], answered: false });
     expect(seen.every((s) => s.at === "a")).toBe(true);
+  });
+});
+
+describe("a public name that points inside the network", () => {
+  let inside: Server;
+  let insidePort = 0;
+  let asked = 0;
+  // localtest.me and its like are public names whose address is 127.0.0.1: here the resolver is told so, offline
+  const resolveTo = (address: string) =>
+    vi.spyOn(dns, "lookup").mockImplementation(((_host: string, options: unknown, done: (err: null, found: unknown) => void) => {
+      const family = address.includes(":") ? 6 : 4;
+      done(null, (options as { all?: boolean }).all ? [{ address, family }] : address);
+    }) as unknown as typeof dns.lookup);
+  beforeEach(async () => {
+    asked = 0;
+    inside = createServer((_req, res) => {
+      asked++;
+      res.end("the router's page");
+    });
+    await new Promise<void>((r) => inside.listen(0, "127.0.0.1", () => r()));
+    insidePort = (inside.address() as AddressInfo).port;
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await new Promise((r) => inside.close(r));
+  });
+
+  it("is refused where the connection is made, before anything is sent", async () => {
+    resolveTo("127.0.0.1");
+    await expect(fetchPublic(`http://localtest.me:${insidePort}/admin`, {})).rejects.toThrow(/inside your own network \(localtest\.me is 127\.0\.0\.1\)/);
+    expect(asked).toBe(0);
+  });
+
+  it("is refused at the end of a redirect too", async () => {
+    const from = createServer((_req, res) => {
+      res.writeHead(302, { location: `http://rebind.example:${insidePort}/admin` });
+      res.end();
+    });
+    await new Promise<void>((r) => from.listen(0, "127.0.0.1", () => r()));
+    const fromUrl = `http://127.0.0.1:${(from.address() as AddressInfo).port}`;
+    try {
+      resolveTo("::ffff:127.0.0.1");
+      await expect(fetchPublic(`${fromUrl}/model.safetensors`, {}, [fromUrl])).rejects.toThrow(/inside your own network/);
+      expect(asked).toBe(0);
+    } finally {
+      await new Promise((r) => from.close(r));
+    }
+  });
+
+  it("lets a name through whose addresses are all on the internet", async () => {
+    resolveTo("93.184.215.14");
+    const one = await new Promise<unknown[]>((r) => insideRefusingLookup("example.com", {}, (err, address, family) => r([err, address, family])));
+    expect(one).toEqual([null, "93.184.215.14", 4]);
+    const all = await new Promise<unknown[]>((r) => insideRefusingLookup("example.com", { all: true }, (err, address) => r([err, address])));
+    expect(all).toEqual([null, [{ address: "93.184.215.14", family: 4 }]]);
   });
 });

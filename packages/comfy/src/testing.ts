@@ -66,7 +66,7 @@ export interface FakeComfy {
   /** Files written into ComfyUI's user data, by path ("workflows/afflatus/x.json"). */
   userdata: Record<string, unknown>;
   /** The node pack's lock (0.12.0 and newer): its token, and whether calls from this machine get in without it. Null: not locked. */
-  lock: { token: string; local: boolean; fixed?: boolean } | null;
+  lock: { token: string; local: boolean; fixed?: boolean; /** Afflatus's page, let in by "from this PC" (lock.py). */ origin?: string } | null;
   /** The calls the lock refused, as "METHOD /path". */
   refused: string[];
   /** What the pretend ComfyUI-Manager says its version is (GET /v2/manager/version). */

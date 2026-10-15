@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { isModelFile } from "@afflatus/core";
 import type { EventEmitter } from "node:events";
 import { readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -120,6 +120,17 @@ const STARTS_WITHIN_MS = 90_000;
 export const AT_ONCE = 2;
 /** The first node pack that downloads (POST /afflatus/download). */
 export const PACK_DOWNLOADS = "0.11.0";
+
+/**
+ * Whether the token of a download's one-time address is the one given, compared in constant time: the address is asked
+ * for by anyone who reaches Afflatus without a sign-in (SECURITY.md), and a comparison that stops at the first wrong
+ * character says, by how long it takes, how much of a guess was right. Both are hashed first, so that their lengths
+ * are the same and say nothing either.
+ */
+export function sameToken(given: unknown, want: string): boolean {
+  const hash = (text: string) => createHash("sha256").update(text, "utf8").digest();
+  return typeof given === "string" && want.length > 0 && timingSafeEqual(hash(given), hash(want));
+}
 /** The first node pack that downloads from a source's own signed link, and takes a fresh one when it expires. */
 export const PACK_SIGNED = "0.12.0";
 /** The hosts a signed download link of Hugging Face or Civitai is on: the pack takes no other (downloads.py DIRECT_HOSTS). */
@@ -647,7 +658,7 @@ export class Downloads {
    */
   async serve(id: string, token: string, range?: string): Promise<{ stream: Readable; size: number; partial?: string } | { error: string; status: number } | null> {
     const d = this.all.get(id);
-    if (!d || d.token !== token || d.direct) return null;
+    if (!d || !sameToken(token, d.token) || d.direct) return null;
     if (d.via === "pack" ? !running(d) || !d.begun : d.status !== "starting") return null;
     // one stream at a time: the pack asks again after a cut, and what may be left of the earlier one is let go
     d.upstream?.abort();

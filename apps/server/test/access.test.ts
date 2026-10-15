@@ -708,6 +708,19 @@ describe("sessions", () => {
     expect(overHttps(req("::1", "https"))).toBe(true);
     expect(overHttps(req(LAN, "https"))).toBe(false);
     expect(overHttps(req("127.0.0.1"))).toBe(false);
+    // a TLS proxy on another machine, named in TRUST_PROXY: its word is taken, and no other machine's
+    vi.stubEnv("TRUST_PROXY", "10.0.0.2, fd00::2");
+    try {
+      expect(overHttps(req("10.0.0.2", "https"))).toBe(true);
+      expect(overHttps(req("::ffff:10.0.0.2", "https"))).toBe(true);
+      expect(overHttps(req("fd00::2", "https"))).toBe(true);
+      expect(overHttps(req("10.0.0.2"))).toBe(false);
+      expect(overHttps(req("10.0.0.3", "https"))).toBe(false);
+      const behind = ([(await signIn({ from: "10.0.0.2", headers: { "x-forwarded-proto": "https", "x-forwarded-for": "203.0.113.9" } })).headers["set-cookie"]].flat() as string[]).join("\n");
+      expect(behind).toContain("Secure");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("end after 12 h idle when not remembered, write their last seen at most once a minute", async () => {

@@ -5,9 +5,11 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, type FakeComfy } from "@afflatus/comfy/testing";
+import { DatabaseSync } from "node:sqlite";
 import { restoreBackup } from "../src/backup";
 import { migrate, openSqlite } from "../src/db";
 import { crc32 } from "../src/zip";
+import { updateSettings } from "../src/settings";
 import { zipNames } from "./zipKit";
 import { ZipStream } from "../src/zipStream";
 import { get, makeApp, makeFake, until, type TestApp } from "./helpers";
@@ -61,6 +63,82 @@ describe("a backup", () => {
     abort.abort();
     // the producer ends by itself (a write fails once the reader is gone) and the temporary copy of the database is removed
     await until(() => copies().length <= before.length, 5000);
+  });
+});
+
+describe("a backup and the keys", () => {
+  const SECRETS = {
+    runpod: "rpa_ZZTESTRUNPODKEY0123456789",
+    civitai: "zztestcivitaikey0123456789abcdef",
+    hf: "hf_ZZTESTHUGGINGFACE0123456789",
+    llm: "sk-zztest-llm-0123456789",
+    old: "sk-zztest-old-llm-0123456789",
+    token: "zztest-comfy-lock-token-0123456789",
+    telegram: "123456789:AAEzztestTelegramToken0123456789",
+    discord: "https://discord.com/api/webhooks/1/zztest-discord-0123456789",
+  };
+  beforeEach(async () => {
+    await updateSettings(t.db, (c) => ({
+      runpodKey: SECRETS.runpod, civitaiKey: SECRETS.civitai, huggingFaceToken: SECRETS.hf,
+      llms: [{ id: "main", baseUrl: "https://llm.example.com/v1", model: "zz-test", apiKey: SECRETS.llm }],
+      machines: c.machines.map((m) => ({ ...m, token: SECRETS.token })),
+      notify: { ...c.notify, telegramToken: SECRETS.telegram, telegramChat: "42", discordWebhook: SECRETS.discord },
+    }));
+    // the one model from before there was a list, kept under its old key
+    await t.db.insertInto("settings").values({ key: "llm", value: JSON.stringify({ baseUrl: "https://old.example.com", apiKey: SECRETS.old }), updated_at: new Date().toISOString() }).execute();
+  });
+  const databaseOf = (zip: Buffer) => {
+    const start = zip.indexOf(Buffer.from("SQLite format 3\0", "latin1"));
+    const page = zip.readUInt16BE(start + 16);
+    return zip.subarray(start, start + zip.readUInt32BE(start + 28) * (page === 1 ? 65536 : page));
+  };
+  const settingsIn = (db: Buffer) => {
+    const dir = mkdtempSync(join(tmpdir(), "afflatus-keys-"));
+    try {
+      writeFileSync(join(dir, "copy.db"), db);
+      const open = new DatabaseSync(join(dir, "copy.db"));
+      const rows = open.prepare("SELECT key, value FROM settings").all() as Array<{ key: string; value: string }>;
+      open.close();
+      return Object.fromEntries(rows.map((r) => [r.key, JSON.parse(r.value)]));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it("leaves every key and token out of the database's copy, without a trace in its bytes, and says so", async () => {
+    const res = await get(t.app, "/api/backup.zip");
+    expect(res.statusCode).toBe(200);
+    const zip = res.rawPayload;
+    for (const [what, secret] of Object.entries(SECRETS)) expect(zip.includes(Buffer.from(secret)), what).toBe(false);
+    const kept = settingsIn(databaseOf(zip));
+    expect([kept.runpodKey, kept.civitaiKey, kept.huggingFaceToken, kept.llms[0].apiKey, kept.llm.apiKey, kept.notify.telegramToken, kept.notify.discordWebhook]).toEqual(["", "", "", "", "", "", ""]);
+    expect(kept.machines.map((m: { token: string }) => m.token).every((x: string) => x === "")).toBe(true);
+    // the rest of the settings come back as they were
+    expect(kept.llms[0]).toMatchObject({ baseUrl: "https://llm.example.com/v1", model: "zz-test" });
+    expect(kept.notify.telegramChat).toBe("42");
+    expect(zip.toString("latin1")).toMatch(/keys and tokens of the settings are NOT in it/);
+    // the database itself still has them
+    expect((await t.db.selectFrom("settings").select("value").where("key", "=", "runpodKey").executeTakeFirstOrThrow()).value).toContain(SECRETS.runpod);
+  });
+
+  it("holds them when asked for from this computer, and is refused from another one", async () => {
+    const plan = (await get(t.app, "/api/backup")).json();
+    expect(plan.withSecrets).toBe(true);
+    const res = await get(t.app, "/api/backup.zip?secrets=1");
+    expect(res.statusCode).toBe(200);
+    expect(String(res.headers["content-disposition"])).toMatch(/-with-keys\.zip/);
+    for (const [what, secret] of Object.entries(SECRETS)) expect(res.rawPayload.includes(Buffer.from(secret)), what).toBe(true);
+    expect(res.rawPayload.toString("latin1")).toMatch(/HOLDS THE KEYS AND TOKENS/);
+    // another computer of the LAN, and a proxy on this one that forwards for someone else
+    for (const from of [{ remoteAddress: "192.168.1.20" }, { headers: { "x-forwarded-for": "203.0.113.9" } }]) {
+      expect((await t.app.inject({ method: "GET", url: "/api/backup", ...from })).json().withSecrets).toBe(false);
+      const away = await t.app.inject({ method: "GET", url: "/api/backup.zip?secrets=1", ...from });
+      expect(away.statusCode).toBe(403);
+      // a backup without them is still given there
+      const plain = await t.app.inject({ method: "GET", url: "/api/backup.zip", ...from });
+      expect(plain.statusCode).toBe(200);
+      expect(plain.rawPayload.includes(Buffer.from(SECRETS.runpod))).toBe(false);
+    }
   });
 });
 

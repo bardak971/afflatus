@@ -131,10 +131,18 @@ export class ComfyClient {
     return this.fetcher(`${this.baseUrl}${path}`, init);
   }
 
-  /** The websocket's address for a client id: the token goes in the address, as a socket cannot carry a header. */
+  /**
+   * The websocket's address for a client id. Never with the token in it: an address is written in the logs of whatever
+   * stands in front of ComfyUI (RunPod's proxy), so the token goes in the socket's Authorization header (socket()).
+   */
   socketUrl(clientId: string): string {
-    const token = this.token ? `&token=${encodeURIComponent(this.token)}` : "";
-    return `${this.baseUrl.replace(/^http/i, "ws")}/ws?clientId=${encodeURIComponent(clientId)}${token}`;
+    return `${this.baseUrl.replace(/^http/i, "ws")}/ws?clientId=${encodeURIComponent(clientId)}`;
+  }
+
+  /** A websocket to this ComfyUI for a client id, with the token as every call has it: Node's WebSocket takes headers, a browser's would not. */
+  socket(clientId: string): WebSocket {
+    const init = this.token ? { headers: { Authorization: `Bearer ${this.token}` } } : undefined;
+    return new (WebSocket as unknown as new (url: string, init?: { headers: Record<string, string> }) => WebSocket)(this.socketUrl(clientId), init);
   }
 
   private async request(path: string, init?: RequestInit, timeoutMs = META_TIMEOUT): Promise<Response> {

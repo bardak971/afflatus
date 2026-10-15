@@ -99,10 +99,18 @@ function Backup() {
         setting="storage.backup"
         label="Back up now"
         sub={p ? `${p.files} files${p.database ? " and the database" : ""}` : undefined}
-        help={`One zip, made while Afflatus runs: ${p?.database ? "the database (a consistent copy) and " : ""}every file of the library. Not in it: the files of linked folders, which stay on your disk, and ComfyUI's models. To restore, stop Afflatus, unpack the zip into an empty data folder (pnpm restore <zip> <folder> does it, and refuses a folder that is not empty), and start it again with DATA_DIR pointing there.${p && !p.database ? " With Postgres, back the database up with Postgres's own tools." : ""}`}
+        help={`One zip, made while Afflatus runs: ${p?.database ? "the database (a consistent copy) and " : ""}every file of the library. Not in it: the files of linked folders, which stay on your disk, and ComfyUI's models. To restore, stop Afflatus, unpack the zip into an empty data folder (pnpm restore <zip> <folder> does it, and refuses a folder that is not empty), and start it again with DATA_DIR pointing there.${p && !p.database ? " With Postgres, back the database up with Postgres's own tools." : " The keys and tokens of the settings (RunPod, Civitai, Hugging Face, the LLMs, the ComfyUI locks, Telegram, Discord) are left out: enter them again after a restore."}`}
       >
         <ButtonLink href="/api/backup.zip" download size="sm">Back up now{p ? ` · about ${size(p.bytes)}` : ""}</ButtonLink>
       </Row>
+      {p?.withSecrets && (
+        <Row
+          label="With keys"
+          help="The same zip with the keys and tokens of the settings in it: the RunPod key spends your money, a lock token opens its ComfyUI. Keep that file where only you can reach it. Made on the computer Afflatus runs on only."
+        >
+          <ButtonLink href="/api/backup.zip?secrets=1" download size="sm">Back up with keys</ButtonLink>
+        </Row>
+      )}
     </Card>
   );
 }

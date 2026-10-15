@@ -1,5 +1,5 @@
 import { open, stat, readFile } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isNetworkPath } from "./linked";
 
 /**
@@ -116,14 +116,31 @@ async function isDir(p: string): Promise<boolean> {
 }
 
 /**
+ * Where a file named as ComfyUI names a model (its path inside the folder, with either slash) is under a directory, or
+ * null when the name would lead out of it: "..", an absolute path, a drive. The name comes from ComfyUI's answer, and a
+ * ComfyUI that names "../../somewhere/file.safetensors" does not get Afflatus to read, nor to hash for Civitai, a file
+ * outside its models folder. The check is on the path as written: a link the user put inside a models folder (a model
+ * kept on another drive) is followed, as ComfyUI follows it.
+ */
+export function insideDir(dir: string, file: string): string | null {
+  const rel = file.replace(/\\/g, "/");
+  if (!rel || rel.includes("\0") || rel.startsWith("/") || /^[a-z]:/i.test(rel) || rel.split("/").some((part) => part === "..")) return null;
+  const root = resolve(dir);
+  const path = resolve(root, rel);
+  const back = relative(root, path);
+  return back && back !== ".." && !back.startsWith(`..${sep}`) && !isAbsolute(back) ? path : null;
+}
+
+/**
  * The header of a .safetensors file found under one of the directories, as ComfyUI names the file
- * (its path inside the folder, with either slash). Null when the file is not there, or is not one.
+ * (its path inside the folder, with either slash). Null when the file is not there, or is not one,
+ * or is named outside the directories (insideDir).
  */
 export async function readLocalHeader(dirs: string[], file: string): Promise<Record<string, unknown> | null> {
   if (!/\.safetensors$/i.test(file)) return null;
-  const rel = file.replace(/\\/g, "/");
   for (const dir of dirs) {
-    const path = join(dir, rel);
+    const path = insideDir(dir, file);
+    if (!path) return null;
     let fh;
     try {
       fh = await open(path, "r");
