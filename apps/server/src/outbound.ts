@@ -1,6 +1,6 @@
 import dns, { type LookupAddress, type LookupOptions } from "node:dns";
 import { isIP } from "node:net";
-import { Agent } from "undici";
+import { Agent, fetch as fetchVia } from "undici";
 import { httpError } from "./errors";
 
 /**
@@ -131,6 +131,17 @@ export function insideRefusingLookup(hostname: string, options: LookupOptions, d
 let guarded: Agent | null = null;
 const guard = () => (guarded ??= new Agent({ connect: { lookup: insideRefusingLookup } }));
 
+/**
+ * A fetch through the guarded agent. Node's own fetch runs the undici built into Node: from Node 24 the same major as the
+ * agent's, which it drives; Node 22 (the engines allow 22.16) has an older one that cannot, so there undici's own fetch
+ * goes with its agent. The answer is a web Response either way.
+ */
+const SAME_UNDICI = Number((process.versions as Record<string, string | undefined>).undici?.split(".")[0]) >= 7;
+function guardedFetch(url: string, init: RequestInit): Promise<Response> {
+  if (SAME_UNDICI) return fetch(url, { ...init, dispatcher: guard() } as RequestInit);
+  return fetchVia(url, { ...init, dispatcher: guard() } as Parameters<typeof fetchVia>[1]) as unknown as Promise<Response>;
+}
+
 /** The refusal of insideRefusingLookup in a failed fetch(), which undici keeps in the error's cause. */
 function insideOf(err: unknown): InsideNetwork | null {
   for (let e = err as { cause?: unknown } | undefined, n = 0; e && n < 4; e = e.cause as typeof e, n++) if (e instanceof InsideNetwork) return e;
@@ -155,8 +166,9 @@ export async function fetchPublic(url: string, init: Omit<RequestInit, "redirect
   let at = url;
   for (let n = 0; ; n++) {
     // an address named as allowed is the one place inside the network it may reach; any other is judged again where it connects
-    const via = allowed.has(hostPortOf(at)) ? {} : { dispatcher: guard() };
-    const res = await fetch(at, { ...init, ...via, headers: new URL(at).host === first ? all : plain, redirect: "manual" } as RequestInit).catch((err: unknown) => {
+    const init_ = { ...init, headers: new URL(at).host === first ? all : plain, redirect: "manual" } as RequestInit;
+    const sent = allowed.has(hostPortOf(at)) ? fetch(at, init_) : guardedFetch(at, init_);
+    const res = await sent.catch((err: unknown) => {
       const inside = insideOf(err);
       throw inside ? httpError(inside.message) : err;
     });
