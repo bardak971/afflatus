@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { extraDirs, modelDirs, readLocalHeader } from "../src/modelFiles";
+import { extraDirs, insideDir, modelDirs, readLocalHeader } from "../src/modelFiles";
 
 const yaml = `#Rename this to extra_model_paths.yaml and ComfyUI will load it
 
@@ -79,5 +79,25 @@ describe("ComfyUI's model folders on this computer", () => {
     expect(await readLocalHeader(dirs, "muse.gguf")).toBeNull();
     expect(await modelDirs("", "diffusion_models")).toEqual([]);
     expect(await modelDirs(join(comfy, "nowhere"), "diffusion_models")).toEqual([]);
+  });
+
+  it("reads no file a name from ComfyUI leads out of the models folder to", async () => {
+    const comfy = mkdtempSync(join(tmpdir(), "afflatus-comfy-"));
+    made.push(comfy);
+    mkdirSync(join(comfy, "models", "loras", "sub"), { recursive: true });
+    const header = { __metadata__: { ss_output_name: "zz-test" } };
+    // a file beside the models folder, which a hostile ComfyUI names by going up, or by its whole path
+    safetensors(join(comfy, "secret.safetensors"), header);
+    safetensors(join(comfy, "models", "loras", "sub", "ok.safetensors"), header);
+    safetensors(join(comfy, "models", "loras", "..dots.safetensors"), header);
+    const dirs = await modelDirs(comfy, "loras");
+    for (const name of ["../../secret.safetensors", "..\\..\\secret.safetensors", "sub/../../../secret.safetensors", join(comfy, "secret.safetensors"), "/etc/x.safetensors", "C:/x.safetensors", "c:secret.safetensors"]) {
+      expect(await readLocalHeader(dirs, name), name).toBeNull();
+      expect(insideDir(dirs[0]!, name), name).toBeNull();
+    }
+    // inside it, whatever the slashes, and a name that only starts with two dots
+    expect(await readLocalHeader(dirs, "sub\\ok.safetensors")).toEqual(header);
+    expect(await readLocalHeader(dirs, "..dots.safetensors")).toEqual(header);
+    expect(insideDir(dirs[0]!, "sub/ok.safetensors")).toBe(resolve(dirs[0]!, "sub", "ok.safetensors"));
   });
 });

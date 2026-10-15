@@ -11,19 +11,24 @@ token itself), read again whenever the file changes, so locking, renewing and un
 
 Three ways in:
   - `Authorization: Bearer <token>`, which Afflatus sends on every call;
-  - `?token=<token>` on /ws only (a WebSocket made by Node or a browser cannot carry a header);
+  - `?token=<token>` on /ws only, for a WebSocket that cannot carry a header (a browser's; Afflatus before 0.5.0): an
+    address can end up in the logs of a proxy in front, so Afflatus now sends the header on its socket too;
   - the `afflatus_lock_<port>` cookie the login page sets: a value made from the token, never the token, HttpOnly and
     SameSite=Lax; and taken only from ComfyUI's own page. SameSite does not tell ports apart: a page served by any other
     program of the same computer (localhost:3000) is the "same site" as localhost:8188, and its browser would send the
     cookie with a request of that page's own (a plain-text POST to /prompt needs no preflight). So the cookie counts only
     on a request the browser says is same-origin (Sec-Fetch-Site), or one whose Origin is ComfyUI's own address.
 And, when the lock says so ("no token needed from this PC"), a call made on this computer: from a loopback address,
-through no proxy (a proxy on the same machine would make the whole internet "this computer"), and not sent by a page of
-another site (a page open in this computer's browser calls from loopback too).
+through no proxy (a proxy on the same machine would make the whole internet "this computer"), to a loopback name (a
+name of another site's that resolves to 127.0.0.1 would make a page of that site "this computer": DNS rebinding), and
+not sent by a page of another origin: a page open in this computer's browser calls from loopback too, whatever served
+it, so only ComfyUI's own page and Afflatus's (the address it locked from) count, not one of another program on
+another port of the same computer.
 
 Routes (a JSON body only, which a page of another site cannot send without asking first):
   GET  /afflatus/lock    → {locked, local, fixed}
-  POST /afflatus/lock    {token, local}  → locks with this token (the first lock: anyone; after: only through the lock)
+  POST /afflatus/lock    {token, local, origin?}  → locks with this token (the first lock: anyone; after: only through
+                               the lock); `origin` is Afflatus's page (http://localhost:8721), let in by "from this PC"
   POST /afflatus/unlock  → opens it again
   POST /afflatus/login-code  → {code}: a one-time code for /afflatus/login?code=, a minute long, so that Afflatus can open
                                ComfyUI's page logged in without the token ever being in an address
@@ -79,6 +84,28 @@ def loopback(address):
         return False
 
 
+def loopback_name(host):
+    """Whether a host (a Host header's, with its port, or an address's) names this computer: localhost or a loopback address."""
+    try:
+        name = urllib.parse.urlsplit("//" + (host or "")).hostname or ""
+    except ValueError:
+        return False
+    return name == "localhost" or loopback(name)
+
+
+def origin_ok(origin):
+    """An origin as Afflatus sends it: http or https, a host and maybe a port, no path; lower-cased. None for anything else."""
+    if not isinstance(origin, str) or len(origin) > 200:
+        return None
+    try:
+        at = urllib.parse.urlsplit(origin.strip().lower())
+    except ValueError:
+        return None
+    if at.scheme not in ("http", "https") or not at.netloc or at.path not in ("", "/") or at.query or at.fragment or "@" in at.netloc:
+        return None
+    return f"{at.scheme}://{at.netloc}"
+
+
 class Lock:
     """The lock's state: from the environment (fixed), else from the file in the user folder, read again when it changes."""
 
@@ -118,18 +145,22 @@ class Lock:
                     got = json.load(f)
                 digest = got.get("hash") if isinstance(got, dict) else None
                 # a file that does not read as a lock locks it all the same: it was meant to, and opening it would be the wrong guess
-                self._state = {"hash": digest if isinstance(digest, str) and len(digest) == 64 else "!", "local": bool(got.get("local")) if isinstance(got, dict) else False}
+                self._state = {
+                    "hash": digest if isinstance(digest, str) and len(digest) == 64 else "!",
+                    "local": bool(got.get("local")) if isinstance(got, dict) else False,
+                    "origin": origin_ok(got.get("origin")) if isinstance(got, dict) else None,
+                }
             except (OSError, ValueError):
                 self._state = {"hash": "!", "local": False}
             self._seen = seen
         return self._state
 
-    def write(self, token, local):
+    def write(self, token, local, origin=None):
         with self._mutex:
             os.makedirs(os.path.dirname(self.path), exist_ok=True)
             part = self.path + ".part"
             with open(part, "w", encoding="utf-8") as f:
-                json.dump({"hash": hash_of(token), "local": bool(local), "at": int(time.time())}, f)
+                json.dump({"hash": hash_of(token), "local": bool(local), "origin": origin_ok(origin), "at": int(time.time())}, f)
             os.replace(part, self.path)
             self._codes.clear()
 
@@ -186,22 +217,32 @@ def let_in(request, state):
         return True
     if same(request.cookies.get(cookie_name(request), ""), cookie_of(digest)) and own_page(request):
         return True
-    return bool(state.get("local")) and from_this_pc(request)
+    return bool(state.get("local")) and from_this_pc(request, state.get("origin"))
 
 
-def from_this_pc(request):
+def from_this_pc(request, afflatus=None):
+    """A call made on this computer, by a program of its own or by ComfyUI's page or Afflatus's (`afflatus`, the origin the
+    lock was made from): never by a page another program serves on another port, nor one reached by another site's name."""
     if not loopback(request.remote):
         return False
     if any(h in request.headers for h in PROXY_HEADERS):
         return False
-    if request.headers.get("Sec-Fetch-Site") == "cross-site":
+    # the name the caller asked for: a site whose name resolves to 127.0.0.1 has its own name here, not localhost
+    if not loopback_name(request.host):
+        return False
+    site = request.headers.get("Sec-Fetch-Site")
+    if site == "cross-site":
         return False
     origin = request.headers.get("Origin")
-    if origin and origin != "null":
-        # a page of this computer's own ComfyUI (or Afflatus) is fine; a page of any site on the internet is not
-        host = urllib.parse.urlsplit(origin).hostname or ""
-        return host == "localhost" or loopback(host)
-    return origin != "null"
+    if origin is None:
+        # a program (a browser says one or the other), the address bar, ComfyUI's own page; a page of another port of this
+        # computer is "same-site" and sends no Origin with a plain GET: not let in on the say of a page nobody named
+        return site != "same-site"
+    if origin == "null":
+        return False
+    said = origin_ok(origin)
+    # ComfyUI's own page by its host and port (a proxy in front may take https and speak http here), or Afflatus's
+    return said is not None and (urllib.parse.urlsplit(said).netloc == (request.host or "").lower() or said == afflatus)
 
 
 PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -316,7 +357,7 @@ def register(routes, web, lock):
         token = body.get("token")
         if not token_ok(token):
             return web.Response(status=400, text=f"a token is {MIN_TOKEN} to {MAX_TOKEN} printable characters")
-        lock.write(token, bool(body.get("local")))
+        lock.write(token, bool(body.get("local")), body.get("origin"))
         return web.json_response({"locked": True, "local": bool(body.get("local"))})
 
     @routes.post("/afflatus/unlock")

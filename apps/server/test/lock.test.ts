@@ -123,6 +123,15 @@ describe("locking a ComfyUI", () => {
     expect(fake.lock?.local).toBe(true);
     expect((await probe()).access).toMatchObject({ state: "locked", local: true });
   });
+
+  it("tells the pack the page it was locked from, the one page of this computer let in besides ComfyUI's own", async () => {
+    const lock = (origin: string) => t.app.inject({ method: "POST", url: "/api/machines/m1/lock", headers: { origin }, payload: { local: true } });
+    expect((await lock("http://localhost:8721")).statusCode).toBe(200);
+    expect(fake.lock?.origin).toBe("http://localhost:8721");
+    // what is not an origin is not passed on
+    expect((await lock("http://localhost:8721/x y")).statusCode).toBe(200);
+    expect(fake.lock?.origin).toBeUndefined();
+  });
 });
 
 describe("ComfyUI-Manager's version", () => {

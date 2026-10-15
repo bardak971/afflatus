@@ -4,10 +4,12 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { DatabaseSync } from "node:sqlite";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
 import { VERSION } from "./config";
 import { httpError } from "./errors";
+import { fromThisComputer } from "./hostCheck";
 import type { Services } from "./services";
 import { ZipStream } from "./zipStream";
 
@@ -19,7 +21,54 @@ import { ZipStream } from "./zipStream";
  *
  * Not in it: the files of linked folders (they are the user's own, on their disk, and Afflatus only
  * points at them), ComfyUI's models, and a Postgres database (that one is backed up with Postgres's tools).
+ * Nor, unless asked for from this computer, the keys and tokens of the settings: a zip is a file that travels
+ * (another disk, a cloud folder, a message), and the RunPod key alone spends the user's money.
  */
+
+/**
+ * The settings that hold a key or a token, blanked in the copy of a backup without them: each one is what lets
+ * someone else act as this Afflatus somewhere (spend on RunPod, call a locked ComfyUI, write in a Telegram chat or a
+ * Discord channel, download as the user). The password stays: it is scrypt's hash, and a restored Afflatus keeps
+ * asking for it. The sessions are kept as hashes too (access.ts).
+ */
+const SECRET_SETTINGS: Record<string, (value: unknown) => unknown> = {
+  civitaiKey: () => "",
+  huggingFaceToken: () => "",
+  runpodKey: () => "",
+  // the one model from before there was a list ("llm"), and the list
+  llm: (v) => (v && typeof v === "object" ? { ...v, apiKey: "" } : v),
+  llms: (v) => (Array.isArray(v) ? v.map((l) => (l && typeof l === "object" ? { ...l, apiKey: "" } : l)) : v),
+  machines: (v) => (Array.isArray(v) ? v.map((m) => (m && typeof m === "object" ? { ...m, token: "" } : m)) : v),
+  notify: (v) => (v && typeof v === "object" ? { ...v, telegramToken: "", discordWebhook: "" } : v),
+};
+
+/**
+ * The keys and tokens of a copy of the database blanked (SECRET_SETTINGS). With secure_delete, SQLite writes zeros over
+ * what a row held before instead of leaving its bytes in the page until the room is used again: the file holds no trace
+ * of them, without a second VACUUM of the whole copy.
+ */
+function blankSecrets(file: string): void {
+  const db = new DatabaseSync(file);
+  try {
+    db.exec("PRAGMA secure_delete = ON");
+    const read = db.prepare("SELECT value FROM settings WHERE key = ?");
+    const write = db.prepare("UPDATE settings SET value = ? WHERE key = ?");
+    for (const [key, blank] of Object.entries(SECRET_SETTINGS)) {
+      const row = read.get(key) as { value: string } | undefined;
+      if (!row) continue;
+      let value: unknown;
+      try {
+        value = JSON.parse(row.value);
+      } catch {
+        // not JSON: the app reads it as its default (settings.ts), and it may still hold the secret as text
+        value = null;
+      }
+      write.run(JSON.stringify(blank(value)), key);
+    }
+  } finally {
+    db.close();
+  }
+}
 
 export interface BackupPlaces {
   /** Where the SQLite database file lives (DATA_DIR). */
@@ -76,19 +125,27 @@ export function registerBackup(app: FastifyInstance, s: Services, places: Backup
     return counting;
   };
 
-  /** What a backup would hold: how many files, how many bytes, and whether the database comes with it. */
-  app.get("/api/backup", async () => {
-    if (!places) return { available: false, files: 0, bytes: 0, database: false };
+  /**
+   * What a backup would hold: how many files, how many bytes, whether the database comes with it, and whether one with
+   * the keys and tokens may be asked for from where the page is (`withSecrets`: from this computer, with the database).
+   */
+  app.get("/api/backup", async (req) => {
+    if (!places) return { available: false, files: 0, bytes: 0, database: false, withSecrets: false };
     const { files, bytes } = await count(places.filesDir);
     const db = s.dbKind === "sqlite" ? await stat(join(places.dataDir, "afflatus.db")).then((x) => x.size).catch(() => 0) : 0;
-    return { available: true, files, bytes: bytes + db, database: s.dbKind === "sqlite" };
+    return { available: true, files, bytes: bytes + db, database: s.dbKind === "sqlite", withSecrets: s.dbKind === "sqlite" && fromThisComputer(req) };
   });
 
-  /** The backup itself, as a download. */
+  /**
+   * The backup itself, as a download: without the keys and tokens, or with them (`?secrets=1`) to a page on this
+   * computer only, as Copy token is (lock-api.ts): Afflatus reached from another one does not hand them out.
+   */
   app.get("/api/backup.zip", async (req, reply) => {
     if (!places) throw httpError("This server was started without a data folder to back up.", 404);
+    const secrets = (req.query as { secrets?: string }).secrets === "1";
+    if (secrets && !fromThisComputer(req)) throw httpError("A backup with the keys and tokens is made on the computer Afflatus runs on, not from another one.", 403);
     const zip = new ZipStream();
-    const name = `afflatus-backup-${stamp()}.zip`;
+    const name = `afflatus-backup-${stamp()}${secrets ? "-with-keys" : ""}.zip`;
     reply.header("Content-Type", "application/zip").header("Content-Disposition", `attachment; filename="${name}"`).header("Cache-Control", "no-store");
     // what is written is a promise that runs beside the reply; the reply takes the stream now. A write
     // fails once the browser has gone (zipStream.ts), which ends the loop: the finally below always runs
@@ -105,6 +162,19 @@ export function registerBackup(app: FastifyInstance, s: Services, places: Backup
           "and files/ (every picture, video, sound, thumbnail and side file the library holds).",
           "Not in it: the files of linked folders (they stay where they are on your disk), and ComfyUI's models.",
           "",
+          ...(secrets
+            ? [
+                "This backup HOLDS THE KEYS AND TOKENS of the settings: the RunPod key, the Civitai and Hugging Face tokens, the",
+                "language models' API keys, the lock tokens of the ComfyUIs, the Telegram bot token and the Discord webhook.",
+                "Anyone who has this file can spend on your RunPod account and use the others: keep it where only you can reach it.",
+              ]
+            : [
+                "The keys and tokens of the settings are NOT in it (they were blanked in this copy of the database): the RunPod key,",
+                "the Civitai and Hugging Face tokens, the language models' API keys, the lock tokens of the ComfyUIs, the Telegram",
+                "bot token and the Discord webhook. After a restore, enter them again in Settings (a locked ComfyUI: paste its token",
+                "or lock it again). A backup with them is made from the computer Afflatus runs on (Settings › Storage).",
+              ]),
+          "",
           "To restore: stop Afflatus, empty its data folder (or point DATA_DIR at a new one), unpack this zip into it so that",
           "afflatus.db and files/ sit at its top, and start Afflatus again. Settings, the library and the timelines come back as they were;",
           "linked folders are found again at their paths when they still exist there.",
@@ -117,6 +187,7 @@ export function registerBackup(app: FastifyInstance, s: Services, places: Backup
           tmp = await mkdtemp(join(tmpdir(), "afflatus-backup-"));
           const copy = join(tmp, "afflatus.db");
           await sql`VACUUM INTO ${copy}`.execute(s.db);
+          if (!secrets) blankSecrets(copy);
           await zip.add("afflatus.db", createReadStream(copy), new Date(), (await stat(copy)).size);
         }
         for await (const f of walk(places.filesDir)) {

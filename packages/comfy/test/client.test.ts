@@ -195,10 +195,11 @@ describe("ComfyClient, a ComfyUI locked by Afflatus's node pack", () => {
     expect(fake.refused).toEqual([]);
   });
 
-  it("puts it in the websocket's address, which the lock checks before the socket opens", async () => {
+  it("sends it in the websocket's Authorization header, which the lock checks before the socket opens, never in its address", async () => {
     expect(client.socketUrl("me")).toBe(`${fake.url.replace("http", "ws")}/ws?clientId=me`);
     client.token = TOKEN;
-    expect(client.socketUrl("me")).toBe(`${fake.url.replace("http", "ws")}/ws?clientId=me&token=${TOKEN}`);
+    // an address is written in the logs of a proxy in front of ComfyUI (RunPod's): the token is not in it, and the socket opens on the header alone
+    expect(client.socketUrl("me")).toBe(`${fake.url.replace("http", "ws")}/ws?clientId=me`);
     const monitor = new Monitor(client);
     await monitor.ready();
     expect(fake.sockets).toContain(client.clientId);

@@ -114,7 +114,7 @@ async function keepToken(s: Pick<Services, "db">, id: string, token: string): Pr
  * computer need one. Checked before it counts: a call without the token is refused, and one with it gets in. A lock that
  * does not hold is taken off again, never left half done. Said by Lock it, and by a rented pod coming up (rented.ts).
  */
-export async function lockMachine(s: Pick<Services, "machines" | "db" | "queue">, id: string, body: { local: boolean; renew: boolean }): Promise<{ tokenEnd: string }> {
+export async function lockMachine(s: Pick<Services, "machines" | "db" | "queue">, id: string, body: { local: boolean; renew: boolean; origin?: string }): Promise<{ tokenEnd: string }> {
   const one = (await s.machines()).find((m) => m.machine.id === id);
   if (!one) throw httpError("there is no ComfyUI with that id", 404);
   const { machine, comfy } = one;
@@ -122,7 +122,8 @@ export async function lockMachine(s: Pick<Services, "machines" | "db" | "queue">
   if (!pack || olderThan(pack, PACK_LOCK)) throw httpError(`The Afflatus node pack ${PACK_LOCK} or newer locks a ComfyUI: update the pack, restart ComfyUI, then lock it.`, 409);
   const before = machine.token;
   const token = before && !body.renew ? before : newToken();
-  await post(comfy, "/afflatus/lock", { token, local: body.local });
+  // the page that locked it is Afflatus's: with "from this PC", the pack lets that page in, and no other of this computer (lock.py)
+  await post(comfy, "/afflatus/lock", { token, local: body.local, ...(body.origin ? { origin: body.origin } : {}) });
   comfy.client.token = token;
   const refused = await refusedWithout(comfy);
   const works = refused && (await comfy.client.status().then(() => true, () => false));
@@ -156,7 +157,8 @@ export function registerLock(app: FastifyInstance, s: Services): void {
   app.post("/api/machines/:id/lock", async (req) => {
     const { id } = params.parse(req.params);
     const body = z.object({ local: z.boolean().default(false), renew: z.boolean().default(false) }).parse(req.body ?? {});
-    const { tokenEnd } = await lockMachine(s, id, body);
+    const origin = /^https?:\/\/[^/\s]+$/i.test(req.headers.origin ?? "") ? req.headers.origin : undefined;
+    const { tokenEnd } = await lockMachine(s, id, { ...body, origin });
     return { ok: true, checks: ["made", "locked", "refused", "answers"], tokenEnd };
   });
 

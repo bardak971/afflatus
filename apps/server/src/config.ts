@@ -39,6 +39,8 @@ export const VERSION = process.env.AFFLATUS_VERSION?.trim() || "dev";
 export const envSaid = {
   /** The address the browser reaches this server at, when a proxy stands in front of it. */
   publicUrl: () => process.env.PUBLIC_URL,
+  /** The addresses of the reverse proxies on other machines whose X-Forwarded-Proto is believed (access-api.ts overHttps), comma-separated. */
+  trustProxy: () => process.env.TRUST_PROXY,
   /** Civitai's address, for a stand-in site (the tests, the demo). */
   civitaiUrl: () => process.env.CIVITAI_URL,
   /** Hugging Face's address, for a stand-in site. */

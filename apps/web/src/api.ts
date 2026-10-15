@@ -374,8 +374,8 @@ export const api = {
   /** What a pasted link leads to: its files, the folder it most likely belongs in, ComfyUI's folders, and what ComfyUI has already. */
   resolveLink: (link: string) => call<LinkFound>("POST", "/downloads/resolve", { link }),
   storage: (o?: Asked) => call<Storage>("GET", "/storage", undefined, o?.signal),
-  /** What a backup would hold: the files and bytes, and whether the database comes with it (SQLite). */
-  backupPlan: (o?: Asked) => call<{ available: boolean; files: number; bytes: number; database: boolean }>("GET", "/backup", undefined, o?.signal),
+  /** What a backup would hold: the files and bytes, whether the database comes with it (SQLite), and whether one with the keys may be made from here (this computer). */
+  backupPlan: (o?: Asked) => call<{ available: boolean; files: number; bytes: number; database: boolean; withSecrets: boolean }>("GET", "/backup", undefined, o?.signal),
   binIdleTakes: () => call<{ moved: number }>("POST", "/storage/bin-idle-takes"),
   emptyBin: () => call<{ erased: number; inUse?: number }>("POST", "/storage/empty-bin"),
   /** Some items of the bin erased now, for good (the bin's Delete now). */

@@ -187,12 +187,13 @@ def test_a_login_code_works_once_and_for_a_minute(lock, mw):
 def test_from_this_pc_only_when_said_and_only_really_from_it(lock, mw):
     lock.write(TOKEN, local=False)
     assert call(mw, Request(remote="127.0.0.1")).status == 401
-    lock.write(TOKEN, local=True)
+    lock.write(TOKEN, local=True, origin="http://127.0.0.1:8721")
     os.utime(lock.path, ns=(2, 2))
     assert call(mw, Request(remote="127.0.0.1")).text == "handled"
-    assert call(mw, Request(remote="::1")).text == "handled"
+    assert call(mw, Request(remote="::1", host="[::1]:8188")).text == "handled"
+    # Afflatus's page (the origin it locked from), and ComfyUI's own by the name it was opened with
     assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "http://127.0.0.1:8721"})).text == "handled"
-    assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "http://localhost:8188"})).text == "handled"
+    assert call(mw, Request(remote="127.0.0.1", host="localhost:8188", headers={"Origin": "http://localhost:8188", "Sec-Fetch-Site": "same-origin"})).text == "handled"
     # another machine, a proxy on this one, a page of another site, a sandboxed page: all locked out
     assert call(mw, Request(remote="192.0.2.4")).status == 401
     assert call(mw, Request(remote="127.0.0.1", headers={"X-Forwarded-For": "203.0.113.9"})).status == 401
@@ -200,6 +201,38 @@ def test_from_this_pc_only_when_said_and_only_really_from_it(lock, mw):
     assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "https://evil.example"})).status == 401
     assert call(mw, Request(remote="127.0.0.1", headers={"Sec-Fetch-Site": "cross-site"})).status == 401
     assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "null"})).status == 401
+
+
+def test_from_this_pc_is_not_a_page_of_another_port_nor_a_name_that_points_here(lock, mw):
+    lock.write(TOKEN, local=True, origin="http://localhost:8721")
+    # DNS rebinding: a page of evil.example, whose name now resolves to 127.0.0.1, calls with its own name as the Host
+    assert call(mw, Request(remote="127.0.0.1", host="evil.example:8188")).status == 401
+    assert call(mw, Request("/prompt", "POST", remote="127.0.0.1", host="evil.example:8188", headers={"Origin": "http://evil.example:8188", "Sec-Fetch-Site": "same-origin"})).status == 401
+    assert call(mw, Request(remote="127.0.0.1", host="127.0.0.1.nip.io:8188")).status == 401
+    # a page another program serves on this computer: same-site, not same-origin, and not Afflatus's
+    assert call(mw, Request("/prompt", "POST", remote="127.0.0.1", headers={"Origin": "http://localhost:3000", "Sec-Fetch-Site": "same-site"})).status == 401
+    assert call(mw, Request("/prompt", "POST", remote="127.0.0.1", headers={"Origin": "http://127.0.0.1:3000"})).status == 401
+    assert call(mw, Request("/history", remote="127.0.0.1", headers={"Sec-Fetch-Site": "same-site"})).status == 401
+    # ComfyUI's own origin on another port, or Afflatus's name with another port, is not theirs either
+    assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "http://127.0.0.1:8189"})).status == 401
+    assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "http://localhost:8722"})).status == 401
+    assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "http://localhost:8721/x"})).status == 401
+    # and these get in: Afflatus's page, ComfyUI's own, a program, the address bar
+    assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "http://localhost:8721", "Sec-Fetch-Site": "same-site"})).text == "handled"
+    assert call(mw, Request("/prompt", "POST", remote="127.0.0.1", headers={"Origin": "http://127.0.0.1:8188", "Sec-Fetch-Site": "same-origin"})).text == "handled"
+    assert call(mw, Request(remote="127.0.0.1", host="localhost:8188")).text == "handled"
+    assert call(mw, Request(remote="127.0.0.1", headers={"Sec-Fetch-Site": "none"})).text == "handled"
+
+
+def test_a_lock_without_afflatus_origin_lets_only_comfyui_own_page_in(lock, mw):
+    lock.write(TOKEN, local=True)
+    assert lock.state()["origin"] is None
+    assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "http://127.0.0.1:8721"})).status == 401
+    assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "http://127.0.0.1:8188"})).text == "handled"
+    # an origin that is not one is not kept
+    lock.write(TOKEN, local=True, origin="javascript:alert(1)")
+    os.utime(lock.path, ns=(3, 3))
+    assert lock.state()["origin"] is None
 
 
 def test_a_lock_file_that_does_not_read_keeps_it_locked(lock, mw):
@@ -254,8 +287,9 @@ def test_routes_lock_unlock_and_code(lock):
     assert route(routes, "POST", "/afflatus/lock", Request(body=None)).status == 415
     assert route(routes, "POST", "/afflatus/lock", Request(body={"token": "short"})).status == 400
     assert route(routes, "POST", "/afflatus/lock", Request(body={"token": "a b" * 10})).status == 400
-    assert route(routes, "POST", "/afflatus/lock", Request(body={"token": TOKEN, "local": True})).data == {"locked": True, "local": True}
+    assert route(routes, "POST", "/afflatus/lock", Request(body={"token": TOKEN, "local": True, "origin": "http://localhost:8721"})).data == {"locked": True, "local": True}
     assert lock.state()["local"] is True
+    assert lock.state()["origin"] == "http://localhost:8721"
     assert "code" in route(routes, "POST", "/afflatus/login-code", Request(body={})).data
     assert route(routes, "POST", "/afflatus/unlock", Request(body={})).data == {"locked": False}
     assert lock.state() is None

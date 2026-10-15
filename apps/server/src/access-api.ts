@@ -95,14 +95,17 @@ export function cookie(name: string, value: string, opts: { maxAgeS: number | nu
 
 /**
  * Whether the browser reached Afflatus over https: the connection itself, the address it is published at (PUBLIC_URL),
- * or a proxy on this computer that says so (X-Forwarded-Proto believed only from loopback, where nobody else can send it).
+ * or a proxy that says so: X-Forwarded-Proto is believed from loopback, where nobody else can send it, and from the
+ * addresses named in TRUST_PROXY (a TLS proxy on another machine, whose sessions would otherwise get a cookie without
+ * Secure, sent again over plain http by a browser that is ever led to the plain address).
  */
 export function overHttps(req: Pick<FastifyRequest, "protocol" | "headers" | "socket">): boolean {
   if (req.protocol === "https") return true;
   if (/^https:\/\//i.test(envSaid.publicUrl()?.trim() ?? "")) return true;
-  const ip = (req.socket.remoteAddress ?? "").toLowerCase();
-  const loopback = /^127\./.test(ip) || ip === "::1" || /^::ffff:127\./.test(ip);
-  return loopback && String(req.headers["x-forwarded-proto"] ?? "").split(",")[0]!.trim().toLowerCase() === "https";
+  const ip = (req.socket.remoteAddress ?? "").toLowerCase().replace(/^::ffff:(?=\d+\.\d+\.\d+\.\d+$)/, "");
+  const loopback = /^127\./.test(ip) || ip === "::1";
+  const trusted = (envSaid.trustProxy() ?? "").split(",").map((a) => a.trim().toLowerCase()).filter(Boolean);
+  return (loopback || trusted.includes(ip)) && String(req.headers["x-forwarded-proto"] ?? "").split(",")[0]!.trim().toLowerCase() === "https";
 }
 
 /** A device's own cookie lives as long as browsers allow (400 days): it is what tells a device seen before from a new one. */
