@@ -137,3 +137,27 @@ describe("migration 0070, the record of render times by machine", () => {
     await db.destroy();
   });
 });
+
+describe("migration 0072, the Motion transfer renders recorded with 4096 frames", () => {
+  it("gives them the work of their frame times their largest chunk, and leaves every other render as it was", async () => {
+    const db = openSqlite(":memory:");
+    await migrate(db, "0071_costs");
+    const at = new Date().toISOString();
+    const base = {
+      owner_id: OWNER, family: "scail", model: "SCAIL", model_file: "sam3", kind: "video" as const, steps: 6, status: "done" as const, whole: 1, cold: 0, waited_ms: 0,
+      total_ms: 250_000, load_ms: 20_000, sample_ms: 200_000, refine_ms: 0, finish_ms: 30_000, step_ms: 30_000, created_at: at,
+    };
+    await db.insertInto("render_stats").values([
+      // a window carried on from the clip before (85 frames, a chunk of 81 first), and a short last one (33 frames)
+      { ...base, id: "w1", recipe_id: "scail.motion", time_key: "driving+;drivingSeconds=5.3438;previous+;steps=6", width: 480, height: 864, duration_ms: 4969, work: 480 * 864 * 4096 },
+      { ...base, id: "w2", recipe_id: "scail.motion", time_key: "driving+;drivingSeconds=1.75;previous+;steps=6", width: 480, height: 864, duration_ms: 1719, work: 480 * 864 * 4096 },
+      // sampled at 576 × 576, filed at 384 × 384: its own work, which 4096 happens to divide
+      { ...base, id: "ok", recipe_id: "scail.motion", time_key: "driving+;drivingSeconds=5.146;steps=6", width: 384, height: 384, duration_ms: 5031, work: 576 * 576 * 81 },
+      { ...base, id: "h3", recipe_id: "h3.video", family: "h3", time_key: "seconds=5", width: 576, height: 1024, duration_ms: 5854, work: 576 * 1024 * 4096 },
+    ]).execute();
+    expect(await migrate(db)).toContain("0072_motion_work");
+    const work = Object.fromEntries((await db.selectFrom("render_stats").select(["id", "work"]).execute()).map((r) => [r.id, r.work]));
+    expect(work).toEqual({ w1: 480 * 864 * 81, w2: 480 * 864 * 33, ok: 576 * 576 * 81, h3: 576 * 1024 * 4096 });
+    await db.destroy();
+  });
+});

@@ -60,15 +60,22 @@ export interface RecordedWork {
  * recorded with the work of one frame, a hundred times too small, and taken at that they made the model's other renders
  * look a hundred times slower per unit of work. The rows are the owner's record and are not rewritten: a video whose
  * work is less than two of its own frames is read with its frames, from its length at its recipe's speed. Null when that
- * speed is not known (the row is then left out), or when the row has no work.
+ * speed is not known (the row is then left out), or when the row has no work. The other way, a video whose work counts
+ * more than eight times the frames its length holds was read with a count that is not its frames (a Motion transfer once
+ * counted the 4096 of a frame-picking node, 2026-10-14, migration 0072): such a row is left out too, or it would say the
+ * model keeps its pace up to fifty times the work it ever sampled. Eight, not two: a part sampled at 576 and filed at 384
+ * holds 2.25 times its pixels in work, and a 4096-frame count is fifty times a five-second window's.
  */
 export function workOfRow(r: RecordedWork, fpsOf: (recipeId: string) => number | undefined): number | null {
   if (r.work === null) return null;
-  // a video is many frames, even sampled at a quarter of the size it is shown at (an upscale after it): less than two is none counted
-  if (r.kind !== "video" || !r.width || !r.height || !r.duration_ms || r.work >= r.width * r.height * 2) return r.work;
+  if (r.kind !== "video" || !r.width || !r.height || !r.duration_ms) return r.work;
   const fps = fpsOf(r.recipe_id);
   // its length is often read half a frame short (141 frames at 24 a second come out 5854 ms): a quarter of a frame up takes both
-  return fps ? r.work * Math.max(1, Math.round((r.duration_ms * fps) / 1000 + 0.25)) : null;
+  const frames = fps ? Math.max(1, Math.round((r.duration_ms * fps) / 1000 + 0.25)) : null;
+  if (frames !== null && r.work > r.width * r.height * frames * 8) return null;
+  // a video is many frames, even sampled at a quarter of the size it is shown at (an upscale after it): less than two is none counted
+  if (r.work >= r.width * r.height * 2) return r.work;
+  return frames !== null ? r.work * frames : null;
 }
 
 /** One past render of a model: how much it sampled per step (pixels × frames), and what one step cost. */
@@ -88,21 +95,33 @@ export interface Forecast {
   loadMs: number;
 }
 
+// the middle of an even count is the mean of its two middle values: the upper one alone made a machine's third render of a
+// model read as slow as its slower second (11.6 s said, 6.2 s taken)
 const median = (xs: number[]): number => {
   const s = [...xs].sort((a, b) => a - b);
-  return s.length ? s[Math.floor(s.length / 2)]! : 0;
+  if (!s.length) return 0;
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
 };
 
 /** How many times the usual cost per unit of work a step must cost to count as past the cliff: a card streaming its weights costs three to four times. */
 const OVER = 2;
 
 /**
+ * How many times the largest render on record a form may be and still be priced from the record: past that, a line drawn
+ * from the renders says nothing (a 4096-frame count once made a five-second window read 6.2 hours), and none is said.
+ */
+const REACH = 8;
+
+/**
  * The forecast from the points alone: `extraMs` is what surrounds the sampling (finishing, the passes after, the load). A
  * part made in `chunks` is priced chunk by chunk, each at its own size (its pace and its fit are its largest's, `work`).
+ * `stepMs`, when renders of the very same form measured it: what a step of `work` costs, which the points' blend between
+ * sizes is brought to. Null with no points, or for a form more than REACH times the largest of them.
  */
-export function forecastFrom(points: Point[], work: number, steps: number, extraMs: number, chunks?: readonly Chunk[] | null): Forecast | null {
+export function forecastFrom(points: Point[], work: number, steps: number, extraMs: number, chunks?: readonly Chunk[] | null, stepMs?: number | null): Forecast | null {
   const pts = points.filter((p) => p.work > 0 && p.stepMs > 0).sort((a, b) => a.work - b.work);
-  if (!pts.length || work <= 0) return null;
+  if (!pts.length || work <= 0 || work > REACH * pts[pts.length - 1]!.work) return null;
   const cost = (p: Point) => p.stepMs / p.work;
   // the usual cost per unit: the middle of the smaller half of the renders, which no card has trouble with
   const usual = median(pts.slice(0, Math.max(1, Math.ceil(pts.length / 2))).map(cost));
@@ -114,7 +133,7 @@ export function forecastFrom(points: Point[], work: number, steps: number, extra
   const past = over.filter((p) => p.work > fitsUpTo);
   const cliffAt = past.length >= 2 ? past[0]!.work : null;
   /** What one step of this much work costs. */
-  const stepAt = (w: number): number => {
+  const blended = (w: number): number => {
     if (cliffAt !== null && w >= cliffAt) return w * median(past.map(cost));
     // the cost of the nearest usual renders by size, blended between the one below and the one above; past the largest, that one's
     const below = [...fine].reverse().find((p) => p.work <= w);
@@ -122,6 +141,10 @@ export function forecastFrom(points: Point[], work: number, steps: number, extra
     const c = below && above && above.work > below.work ? cost(below) + ((cost(above) - cost(below)) * (w - below.work)) / (above.work - below.work) : cost(above ?? below ?? pts[0]!);
     return w * c;
   };
+  // the same form measured: its settings' own step (a context window steps three times slower than the model's others of
+  // that size), each chunk at it as the blend would scale it
+  const measured = stepMs && stepMs > 0 && blended(work) > 0 ? stepMs / blended(work) : 1;
+  const stepAt = (w: number): number => blended(w) * measured;
   const pace: Forecast["pace"] = cliffAt !== null && work >= cliffAt ? "over" : work > fitsUpTo * 1.1 ? "untested" : "usual";
   const sampling = chunks?.length ? chunks.reduce((sum, c) => sum + c.steps * stepAt(c.work), 0) : steps * stepAt(work);
   return { ms: Math.round(sampling + extraMs), pace, fitsUpTo, samples: pts.length, loadMs: 0 };
@@ -191,11 +214,14 @@ export function onMachine<R extends Timed>(rows: R[], like: Pick<Like, "machine"
   return theirs.map((r) => ({ ...r, step_ms: r.step_ms === null ? null : r.step_ms * k, total_ms: r.load_ms + (r.total_ms - r.load_ms) * k, sample_ms: r.sample_ms * k, refine_ms: r.refine_ms * k }));
 }
 
+/** What of a recorded render a forecast reads. */
+const TIMED = ["machine_id", "recipe_id", "time_key", "kind", "width", "height", "duration_ms", "work", "steps", "step_ms", "total_ms", "sample_ms", "refine_ms", "load_ms", "cold"] as const;
+
 /** A model's last 200 whole renders that were timed, newest first: what a forecast for it is read from. */
 export function statRows(db: Db, modelFile: string) {
   return db
     .selectFrom("render_stats")
-    .select(["machine_id", "recipe_id", "time_key", "kind", "width", "height", "duration_ms", "work", "steps", "step_ms", "total_ms", "sample_ms", "refine_ms", "load_ms", "cold"])
+    .select(TIMED)
     .where("model_file", "=", modelFile)
     .where("status", "=", "done")
     .where("whole", "=", 1)
@@ -212,21 +238,35 @@ export async function forecast(db: Db, modelFile: string, work: number, steps: n
   if (!modelFile) return null;
   const found = await (like.rows ?? ((file: string) => statRows(db, file)))(modelFile);
   const fps = like.fps ?? (() => undefined);
-  const all = onMachine(found.flatMap((r) => {
+  const timed = (rs: StatRows) => onMachine(rs.flatMap((r) => {
     const w = workOfRow(r, fps);
     return w ? [{ ...r, work: w }] : [];
   }), like);
+  const all = timed(found);
   // a render that samples nothing of its own (a finish re-sampling a draft's latent, a sharper pass over a picture) spends its
-  // steps in the passes after, and is priced from the renders like it: next to a draft's, its steps read nothing alike
-  const kin = like.samples === undefined ? all : all.filter((r) => (r.sample_ms > 0) === like.samples);
-  const rows = kin.length ? kin : all;
+  // steps in the passes after, and is priced from the renders like it: next to a draft's, its steps read nothing alike. A
+  // model with none like it yet reads its family's others' of that kind, and with none there either nothing is said here
+  // (the recipe's usual is, fromRates): a model's first finish priced from its drafts was said 5,626 s, and took 309
+  const ofKind = <R extends { sample_ms: number }>(rs: R[]): R[] => (like.samples === undefined ? rs : rs.filter((r) => (r.sample_ms > 0) === like.samples));
+  let rows = ofKind(all);
+  if (!rows.length && all.length && like.family) rows = ofKind(timed(await familyRows(db, like.family, modelFile)));
   if (!rows.length) return null;
   // the renders of the same recipe when there are enough of them: the model's others sample something else per step
   // (an upscale re-samples tiles of a larger picture), and placed among them a form read like theirs
   const own = like.recipeId ? rows.filter((r) => r.recipe_id === like.recipeId) : [];
   const keyed = like.timeKey ? own.filter((r) => r.time_key === like.timeKey) : [];
   const pool = own.length >= OWN_POINTS ? own : rows;
-  const points = pool.map((r) => ({ work: r.work, stepMs: r.step_ms! }));
+  const pointsOf = (rs: typeof rows): Point[] => rs.map((r) => ({ work: r.work, stepMs: r.step_ms! }));
+  // with a render or two of its own, the model's others are read at the recipe's pace against theirs, its own beside them:
+  // an edit steps three times slower than a picture of its size, and placed among the pictures as it was its own render
+  // looked past the cliff and was left out (25 s said, 74 s taken)
+  const others = own.length && own.length < OWN_POINTS ? pointsOf(rows.filter((r) => r.recipe_id !== like.recipeId)) : [];
+  const k = others.length ? median(own.map((r) => r.step_ms! / (forecastFrom(others, r.work, 1, 0)?.ms ?? 0)).filter((x) => x > 0 && Number.isFinite(x))) : 0;
+  const points = k > 0 ? [...pointsOf(own), ...others.map((p) => ({ work: p.work, stepMs: p.stepMs * k }))] : pointsOf(pool);
+  // two renders or more of the very same form on this machine say its step: its settings may step unlike the model's others
+  // of its size (an H3 window with an end frame took 24.6 s a step where the others of its size took 7.5)
+  const same = keyed.filter((r) => Math.abs(r.work - work) <= work * 0.02 && (!like.machine || r.machine_id === like.machine)).slice(0, 5);
+  const stepMs = same.length >= 2 ? median(same.map((r) => r.step_ms!)) : null;
   // what surrounds the steps (the finishing, the passes after them, what a step does not count) is the settings' own: from
   // the renders with the same ones, else the recipe's, else the model's, as usualParts tells it for the running render: it is
   // what each took beyond its steps and its load, so that its passes after are not counted twice, as steps and again as a
@@ -236,18 +276,33 @@ export async function forecast(db: Db, modelFile: string, work: number, steps: n
     const counted = Math.max(1, r.steps) * r.step_ms!;
     return like.chunks && r.sample_ms > 0 ? Math.min(counted, r.sample_ms + r.refine_ms) : counted;
   };
-  const around = median((keyed.length ? keyed : own.length ? own : rows).map((r) => r.total_ms - r.load_ms - stepped(r)));
+  const aroundOf = keyed.length ? keyed : own.length ? own : rows;
+  const beside = median(aroundOf.map((r) => r.total_ms - r.load_ms - stepped(r)));
+  // read from the recipe's renders with other settings, it is read at this form's size: decoding and saving 8 s of video
+  // take more than 5 s did (the model's other recipes surround their steps with other passes, and are taken as they are)
+  const around = keyed.length || !own.length ? beside : beside * (work / (median(own.map((r) => r.work)) || work));
   // and what comes before the first step: what even a model in memory spends (the text, the pictures), and with the
   // model to load, that load. A model never loaded cold here is taken to load as the family's others did, else any
-  // model: left out, the cold forecast said less than the same form with the model in memory
-  const warmLoads = pool.filter((r) => !r.cold).map((r) => r.load_ms);
+  // model: left out, the cold forecast said less than the same form with the model in memory. A render filed warm that
+  // loaded the model all the same (ComfyUI let it go to make room) is no warm load: one such, of a model rendered twice,
+  // made its next renders read 140 s for 20. With fewer than three, the family's on this machine say more
+  const coldMid = median(rows.filter((r) => r.cold).map((r) => r.load_ms));
+  const warmOnly = (loads: number[]) => {
+    const above = Math.max(reloadAbove(loads), coldMid / 2);
+    return loads.filter((l) => l <= above);
+  };
+  let warmLoads = warmOnly(pool.filter((r) => !r.cold).map((r) => r.load_ms));
+  if (warmLoads.length < 3 && like.family) {
+    const family = warmOnly(await familyWarmLoads(db, like.family, like.machine ?? null));
+    if (family.length > warmLoads.length) warmLoads = family;
+  }
   const warm = warmLoads.length ? median(warmLoads) : 0;
   let load = warm;
   if (cold) {
     const coldLoads = [pool, rows].map((rs) => rs.filter((r) => r.cold).map((r) => r.load_ms)).find((ls) => ls.length) ?? (await coldLoadsElsewhere(db, like.family));
     load = Math.max(warm, coldLoads.length ? median(coldLoads) : 0);
   }
-  const f = forecastFrom(points, work, steps, Math.max(0, around) + load, like.chunks);
+  const f = forecastFrom(points, work, steps, Math.max(0, around) + load, like.chunks, stepMs);
   // what the load adds over what a model in memory still spends before its first step
   return f && cold ? { ...f, loadMs: Math.round(load - warm) } : f;
 }
@@ -261,6 +316,47 @@ async function coldLoadsElsewhere(db: Db, family: string | undefined): Promise<n
   };
   const ofFamily = family ? await of(family) : [];
   return (ofFamily.length ? ofFamily : await of(null)).map((r) => r.load_ms);
+}
+
+/** The family's other models' last 200 whole renders that were timed, newest first: what a model with none of a kind is read from. */
+function familyRows(db: Db, family: string, modelFile: string): Promise<StatRows> {
+  return db
+    .selectFrom("render_stats")
+    .select(TIMED)
+    .where("family", "=", family)
+    .where("model_file", "!=", modelFile)
+    .where("model_file", "!=", "")
+    .where("status", "=", "done")
+    .where("whole", "=", 1)
+    .where("step_ms", "is not", null)
+    .where("work", "is not", null)
+    .orderBy("created_at", "desc")
+    .limit(200)
+    .execute();
+}
+
+/** The loads of the family's latest renders with their model in memory, on `machine` (its disk and its text encoders), else anywhere. */
+async function familyWarmLoads(db: Db, family: string, machine: string | null): Promise<number[]> {
+  const on = (m: string | null) => {
+    let q = db.selectFrom("render_stats").select("load_ms").where("status", "=", "done").where("whole", "=", 1).where("cold", "=", 0).where("family", "=", family).where("model_file", "!=", "");
+    if (m) q = q.where("machine_id", "=", m);
+    return q.orderBy("created_at", "desc").limit(50).execute();
+  };
+  const here = machine ? await on(machine) : [];
+  return (here.length ? here : await on(null)).map((r) => r.load_ms);
+}
+
+/** Below this, a load is no sign the model was loaded again: a video model's text encoder alone takes 10 to 15 s, in memory or not. */
+export const RELOAD_MS = 15_000;
+
+/**
+ * The load above which a render filed with its model in memory did load it (ComfyUI let it go to make room for another):
+ * three times what the quicker half of `warmLoads` took, and RELOAD_MS at least. The quicker half: of two loads, one of
+ * them a reload, the middle is half that reload, and a reload is never three times it.
+ */
+export function reloadAbove(warmLoads: readonly number[]): number {
+  const quicker = [...warmLoads].sort((a, b) => a - b).slice(0, Math.max(1, Math.ceil(warmLoads.length / 2)));
+  return Math.max(RELOAD_MS, 3 * median(quicker));
 }
 
 /** How many renders of a recipe its own points are taken from alone: with fewer, the model's others say more. */
