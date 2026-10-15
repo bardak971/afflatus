@@ -37,8 +37,15 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
     const ip = req.socket.remoteAddress ?? "";
     const telegram = sent?.notify?.telegramToken !== undefined || sent?.notify?.telegramChat !== undefined;
     if (sent?.notify?.events?.newDevice !== undefined || telegram) {
+      // the page sends it URI-encoded: a header takes no character past U+00FF (a Cyrillic or emoji password threw there)
       const typed = req.headers["x-afflatus-password"];
-      await s.access.mayChange(req.access.session, typeof typed === "string" ? typed : undefined, ip);
+      let password: string | undefined;
+      try {
+        password = typeof typed === "string" ? decodeURIComponent(typed) : undefined;
+      } catch {
+        password = typeof typed === "string" ? typed : undefined;
+      }
+      await s.access.mayChange(req.access.session, password, ip);
     }
     const before = (await readSettings(s.db)).notify;
     const saved = await writeSettings(s.db, req.body);

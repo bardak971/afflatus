@@ -141,7 +141,7 @@ export const api = {
   settings: (o?: Asked) => call<Settings>("GET", "/settings", undefined, o?.signal),
   saveSettings: (patch: SettingsPatch) => call<Settings>("PUT", "/settings", patch),
   /** The same with the password typed again, for a change the server holds behind it (Telegram's bot and chat, the new-device notice; access.ts mayChange). */
-  saveSettingsWith: (patch: SettingsPatch, password: string) => call<Settings>("PUT", "/settings", patch, undefined, { "X-Afflatus-Password": password }),
+  saveSettingsWith: (patch: SettingsPatch, password: string) => call<Settings>("PUT", "/settings", patch, undefined, { "X-Afflatus-Password": encodeURIComponent(password) }),
   /** "Afflatus: test" sent now to Telegram or Discord, with the saved settings: an error says why it did not go. */
   /** The password (access-api.ts): what the page asks first, the sign-in, the reset codes, the devices signed in. */
   session: () => call<SessionState>("GET", "/session"),

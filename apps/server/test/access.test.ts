@@ -615,6 +615,15 @@ describe("Telegram's bot and chat", () => {
     }
   });
 
+  it("take a password of any script, sent URI-encoded as the page sends it (a header takes nothing past U+00FF)", async () => {
+    const word = "пароль 密码 🔒 vraiment";
+    await setPassword(word);
+    await age();
+    expect((await ask("PUT", "/api/settings", { cookie: owner, headers: { "x-afflatus-password": encodeURIComponent(word) }, body: { notify: { telegramChat: "888" } } })).statusCode).toBe(200);
+    expect((await readSettings(t.db)).notify.telegramChat).toBe("888");
+    expect((await ask("PUT", "/api/settings", { cookie: owner, headers: { "x-afflatus-password": encodeURIComponent("not it") }, body: { notify: { telegramChat: "999" } } })).statusCode).toBe(403);
+  });
+
   it("changed, get no reset code for 24 h, and the chat before is told", async () => {
     const tg = await fakeTelegram();
     try {
@@ -648,6 +657,8 @@ describe("the body of a request nobody may make", () => {
     const uploads = () => readdirSync(own).filter((f) => f.startsWith("afflatus-upload-")).length;
     const before = uploads();
     expect((await ask("POST", "/nowhere", { headers: { "content-type": "application/octet-stream" }, raw: "x".repeat(64 * 1024) })).statusCode).toBe(404);
+    // OPTIONS too: Fastify reads its body as any other's
+    expect((await ask("OPTIONS", "/nowhere", { headers: { "content-type": "application/octet-stream" }, raw: "x".repeat(64 * 1024) })).statusCode).toBe(404);
     await setPassword();
     expect((await ask("POST", "/api/assets/upload", { headers: { "content-type": "application/octet-stream" }, raw: "x".repeat(64 * 1024) })).statusCode).toBe(401);
     expect([401, 404]).toContain((await ask("PUT", "/api/drafts/x", { headers: { "content-type": "image/png" }, raw: "x".repeat(64 * 1024) })).statusCode);

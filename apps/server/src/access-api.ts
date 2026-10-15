@@ -148,8 +148,9 @@ export function registerAccessHook(app: FastifyInstance, access: Access): void {
     if (locked && !bypass && !session && !open && !reads) {
       return reply.status(401).header("X-Afflatus-Sign-In", "1").send({ error: "Sign in first: this Afflatus has a password.", signIn: true });
     }
-    // nothing matched: a 404 before any body is read (the upload parser would write it to disk first)
-    if (!route && !reads) return reply.status(404).send({ error: "there is nothing at this address" });
+    // nothing matched: a 404 before any body is read (the upload parser would write it to disk first), OPTIONS too: Fastify
+    // reads an OPTIONS request's body as any other's
+    if (!route && req.method !== "GET" && req.method !== "HEAD") return reply.status(404).send({ error: "there is nothing at this address" });
     // a body sent to a route anyone may call is JSON or nothing (OPEN_BODY)
     if (open && req.method === "POST") {
       const type = String(req.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
