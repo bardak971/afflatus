@@ -1,5 +1,5 @@
 import { fromRender } from "./aiMark";
-import { BLEND_MS, CutError, DISSOLVE_MS, type ExportMusic, type ExportPart, joinVideosInto } from "./cut";
+import { BLEND_MS, CutError, DISSOLVE_MS, type ExportMusic, type ExportPart, type FrameMeans, joinVideosInto } from "./cut";
 import { newId, now } from "./db";
 import type { LibraryChange } from "./events";
 import { FRAME_SLACK_MS, MIN_FADE_MS, musicPlan, TRANSITIONS, transitionSpan } from "@afflatus/core";
@@ -7,6 +7,7 @@ import { duckCurve } from "./duck";
 import { assetView, extOf, newAssetRow } from "./media";
 import { sourceOf } from "./storage";
 import { folderOfTimeline } from "./timelineFolder";
+import { fewAtATime } from "./timelineMedia";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideoFile } from "./video";
 import { clockOf, joinFade, laidOut, sameMaking, seamless, visible, type AssetRow, type Laid, type Placed, type TimelineCore, type TimelineRow, musicBaseOf, musicClipsOf, transitionOfRow } from "./timelineModel";
@@ -27,7 +28,11 @@ export interface ExportAsk {
 }
 
 export class TimelineExport {
-  constructor(private readonly core: TimelineCore) {}
+  constructor(
+    private readonly core: TimelineCore,
+    /** A video's frame means, kept beside it (TimelineMedia.means): the colour match reads them rather than measure each join. */
+    private readonly means: (asset: AssetRow) => Promise<FrameMeans | null> = async () => null,
+  ) {}
 
   /**
    * The timeline as one video in the library: what plays, start to end, with its sounds and its music.
@@ -37,6 +42,16 @@ export class TimelineExport {
     const { t, shown, win, frame, fps, music } = await this.layout(id, opts);
     const parts: ExportPart[] = [];
     for (const [i, l] of shown.entries()) parts.push(await this.partFor(l, partWindow(l, win), parts.at(-1), shown[i - 1]?.p, opts.blend !== false, fps));
+    // the colour match reads every video's kept frame means, a few at a time (worked out and kept where missing, as the
+    // player's matching does): 20 clips measured join by join were 39 ffmpeg runs before the encode
+    if (opts.match !== false) {
+      const videos = [...new Map(shown.flatMap((l) => (l.p.clip.kind === "video" && l.p.active ? [[l.p.active.asset.id, l.p.active.asset] as const] : []))).values()];
+      const along = new Map(await fewAtATime(videos, 3, async (a) => [a.id, await this.means(a)] as const));
+      for (const [i, part] of parts.entries()) {
+        const asset = shown[i]!.p.active?.asset;
+        if (part.kind === "video" && asset) part.means = along.get(asset.id) ?? null;
+      }
+    }
     const joinOpts = { scale: opts.scale ?? 1, music, smoothTo: opts.smooth ? 48 : undefined, match: opts.match !== false, webMb: opts.webMb, fromRender: await this.holdsRender(shown), signal: opts.signal };
     // stored from where ffmpeg wrote it: the export is never held whole in memory
     return joinVideosInto(parts, frame, fps, joinOpts, (file) => this.storeExport(t, file, frame, fps, win, Boolean(opts.webMb)));

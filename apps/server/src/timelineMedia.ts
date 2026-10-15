@@ -23,7 +23,7 @@ function capped<K, V>(cache: Map<K, V>, most = 500): void {
 }
 
 /** `work` for each item, `most` at a time: ffmpeg runs side by side without one per item at once. In the items' order. */
-async function fewAtATime<T, R>(items: T[], most: number, work: (item: T) => Promise<R>): Promise<R[]> {
+export async function fewAtATime<T, R>(items: T[], most: number, work: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
   let next = 0;
   const lane = async () => {

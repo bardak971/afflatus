@@ -22,6 +22,30 @@ export function localInputs(args: string[]): string[] {
   return args.includes("-i") ? args.flatMap((a) => (a === "-i" ? [...only, a] : [a])) : [...only, ...args];
 }
 
+/** The major version in ffmpeg's `-version` line ("ffmpeg version 9.0.2-full_build…" → 9); null when it names none (a nightly names a commit, "N-112345-g…"). */
+export function majorOf(line: string): number | null {
+  const m = /version\s+n?(\d+)\./i.exec(line);
+  return m ? Number(m[1]) : null;
+}
+
+let major: Promise<number | null> | null = null;
+/** The major version of the ffmpeg in use, asked once; null when it could not be run or names none. */
+export function ffmpegMajor(): Promise<number | null> {
+  major ??= new Promise((done) => {
+    execFile(tools.ffmpeg, ["-version"], { encoding: "utf8", timeout: 10_000, windowsHide: true }, (err, stdout) => done(err ? null : majorOf(String(stdout).split(/\r?\n/)[0] ?? "")));
+  });
+  return major;
+}
+
+/**
+ * The option that reads a filter graph from a file: `-/filter_complex` since ffmpeg 7, `-filter_complex_script` before
+ * (deprecated in 7, gone by 9). A build that names no version is taken as recent: nightlies are.
+ */
+export async function graphFileOption(): Promise<string> {
+  const m = await ffmpegMajor();
+  return m !== null && m < 7 ? "-filter_complex_script" : "-/filter_complex";
+}
+
 export interface VideoFacts {
   width: number;
   height: number;
