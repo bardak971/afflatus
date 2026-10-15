@@ -58,6 +58,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - A stuck render on a rented pod fails after 10 minutes of silence with its GPU idle, instead of 30 minutes or more past a forecast that could be far off.
 - **Render times:** a model's first finish was priced as a draft (94 min said for 5); a form far past anything rendered says no figure rather than a straight-line guess (6 h said for 4 min); Qwen edit, Make the picture, Fix face and Remove background learn from their own renders; a picture redrawn in tiles is no longer priced on its tiles twice; a warm render that had to load again no longer makes the next ones of that model look slow; the old Motion transfer renders recorded with 4096 frames are corrected.
 - A rented pod's balance check counts the files still to fetch and a margin while the pod has no renders of its own.
+- A job pinned to a pod still booting has its files fetched as soon as the pod answers, even with no page open; the pod no longer idled toward its terminate, billed, with the job waiting.
 
 ## [0.4.0] - 2026-10-12
 
