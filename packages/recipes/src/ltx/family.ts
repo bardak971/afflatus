@@ -1,6 +1,48 @@
-import { frameOf, type PromptLine, LIST_LINE, wordCount } from "@afflatus/core";
+import { frameOf, type Family, type PromptLine, LIST_LINE, wordCount } from "@afflatus/core";
 import { defineFamily } from "@afflatus/core";
 import { SEEDVR_SLOTS } from "../video/upscale";
+
+/**
+ * How LTX reads a prompt, 2.3 and 2.5 alike: the Designer's guide for a version of the model, with any rule that version
+ * adds (2.5: several shots in one prompt) before the example.
+ */
+export function ltxGuide(name: string, more: string[] = []): string {
+  return `${name} makes the picture AND the sound together, and reads the prompt literally: what is written happens, in that order. ONE flowing paragraph in the present tense, chronological, 60 to 200 words, about a sentence per second of clip; no headers, lists or tags.
+RULES
+- Start with the main action, as a cinematographer describing a shot as it plays.
+- In order: shot size, camera move and where it ends; setting, time of day, light; the subject (age, clothing, features); the actions as they happen; the look (palette, film stock, grain); and LAST the audio.
+- The audio sentence is mandatory: "The audio is …" with ambience, effects and any music; "no music" said plainly when wanted. What is not written is not reliably heard.
+- Speech in quotation marks inside the paragraph, with who says it and how ("She says quietly, in English: "What a view.""); the voice described physically (low and resonant, a whisper, an accent). One speaker at a time. The user's words stay as written, never translated.
+- A talking face needs small motion between phrases (an eyebrow lifts, the eyes move) or it freezes. Camera still or slow while someone speaks.
+- Say the layout outright: left and right, foreground and background, who faces where.
+- Physical cues instead of feelings: "her jaw tightens", not "she is angry".
+- One or two actions per clip; no readable text or logos, no crowds, no many-body physics.
+- A first-frame picture: write only what moves and how the camera moves, never the picture again.
+- A keyframe picture: the clip passes through it at its moment; write the action that leads into it and on from it, in order, never the picture again.
+- The "Negative prompt" part only acts above CFG 1 (the distilled models run at 1): leave it alone unless asked. No weights, no quality words.
+${more.map((r) => `- ${r}\n`).join("")}EXAMPLE, for the form only (its subject, place and words are not to be reused):
+A saxophone player in a wrinkled suit plays a slow melody with his eyes closed, swaying gently, in a dimly lit 1950s New York jazz club. Smoke curls through amber spotlights behind him; a few patrons at small tables to the left cradle drinks in blue shadow. Medium shot from a slightly low angle, the camera pushing in slowly and settling on his face as he opens his eyes mid-phrase. Warm amber light on him, deep blue shadows, a film noir palette with soft grain. The audio is the slow saxophone line over the clink of glasses and low murmured conversation, no other music.`;
+}
+
+/** What the designer wrote, against LTX's guide: one flowing paragraph, an audio sentence, at most 200 words. */
+export const ltxLint: NonNullable<Family["lint"]> = ({ text, main }) => {
+  if (!text?.trim()) return [];
+  const out: PromptLine[] = [];
+  const n = wordCount(text);
+  if (!/\b(audio|sound|hear|heard|ambien|music|silen)/i.test(text)) out.push({ part: main, text: "No audio sentence: LTX makes the sound too, and what is not written is not reliably heard. End with \"The audio is …\"." });
+  if (n > 220) out.push({ part: main, text: `${n} words; the model's guide stops at 200.` });
+  if (LIST_LINE.test(text)) out.push({ part: main, text: "A list: LTX wants one flowing paragraph." });
+  return out;
+};
+
+/** The frame interpolation and SeedVR2 files, as every LTX family lists them. */
+export const LTX_SHARED_SLOTS: Family["slots"] = [
+  {
+    id: "rife", label: "Frame interpolation model (RIFE)", folder: "frame_interpolation", detect: ["rife"], optional: true,
+    hint: "Without it (and without the temporal upscaler), no frame interpolation: clips stay at the model's frame rate. Put a RIFE model in ComfyUI's models/frame_interpolation folder.",
+  },
+  ...SEEDVR_SLOTS,
+];
 
 /**
  * LTX 2.3: video with sound, from words, from a picture, or between a first and a last picture.
@@ -72,38 +114,11 @@ export const ltx = defineFamily({
       hint: "Optional, 24 MB: with taeltx2_3.safetensors (tiny VAE) in ComfyUI's models/vae_approx folder, the animated live preview shows the real frames. Without it, it is a few blurred patches of colour (LTX's latent is 32 times smaller than the clip).",
       get: { file: "taeltx2_3.safetensors", url: "https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/taeltx2_3.safetensors" },
     },
-    {
-      id: "rife", label: "Frame interpolation model (RIFE)", folder: "frame_interpolation", detect: ["rife"], optional: true,
-      hint: "Without it (and without the temporal upscaler), no frame interpolation: clips stay at 25 fps. Put a RIFE model in ComfyUI's models/frame_interpolation folder.",
-    },
-    ...SEEDVR_SLOTS,
+    ...LTX_SHARED_SLOTS,
   ],
   loraMatch: ["ltx"],
-  guide: `LTX 2.3 makes the picture AND the sound together, and reads the prompt literally: what is written happens, in that order. ONE flowing paragraph in the present tense, chronological, 60 to 200 words, about a sentence per second of clip; no headers, lists or tags.
-RULES
-- Start with the main action, as a cinematographer describing a shot as it plays.
-- In order: shot size, camera move and where it ends; setting, time of day, light; the subject (age, clothing, features); the actions as they happen; the look (palette, film stock, grain); and LAST the audio.
-- The audio sentence is mandatory: "The audio is …" with ambience, effects and any music; "no music" said plainly when wanted. What is not written is not reliably heard.
-- Speech in quotation marks inside the paragraph, with who says it and how ("She says quietly, in English: "What a view.""); the voice described physically (low and resonant, a whisper, an accent). One speaker at a time. The user's words stay as written, never translated.
-- A talking face needs small motion between phrases (an eyebrow lifts, the eyes move) or it freezes. Camera still or slow while someone speaks.
-- Say the layout outright: left and right, foreground and background, who faces where.
-- Physical cues instead of feelings: "her jaw tightens", not "she is angry".
-- One or two actions per clip; no readable text or logos, no crowds, no many-body physics.
-- A first-frame picture: write only what moves and how the camera moves, never the picture again.
-- A keyframe picture: the clip passes through it at its moment; write the action that leads into it and on from it, in order, never the picture again.
-- The "Negative prompt" part only acts above CFG 1 (the distilled models run at 1): leave it alone unless asked. No weights, no quality words.
-EXAMPLE, for the form only (its subject, place and words are not to be reused):
-A saxophone player in a wrinkled suit plays a slow melody with his eyes closed, swaying gently, in a dimly lit 1950s New York jazz club. Smoke curls through amber spotlights behind him; a few patrons at small tables to the left cradle drinks in blue shadow. Medium shot from a slightly low angle, the camera pushing in slowly and settling on his face as he opens his eyes mid-phrase. Warm amber light on him, deep blue shadows, a film noir palette with soft grain. The audio is the slow saxophone line over the clink of glasses and low murmured conversation, no other music.`,
-  /** What the designer wrote, against LTX's guide: one flowing paragraph, an audio sentence, at most 200 words. */
-  lint({ text, main }) {
-    if (!text?.trim()) return [];
-    const out: PromptLine[] = [];
-    const n = wordCount(text);
-    if (!/\b(audio|sound|hear|heard|ambien|music|silen)/i.test(text)) out.push({ part: main, text: "No audio sentence: LTX makes the sound too, and what is not written is not reliably heard. End with \"The audio is …\"." });
-    if (n > 220) out.push({ part: main, text: `${n} words; the model's guide stops at 200.` });
-    if (LIST_LINE.test(text)) out.push({ part: main, text: "A list: LTX wants one flowing paragraph." });
-    return out;
-  },
+  guide: ltxGuide("LTX 2.3"),
+  lint: ltxLint,
 });
 
 export const LTX_FPS = 25;
@@ -112,11 +127,13 @@ export const LTX_MAX_PIXELS = 1920 * 1088;
 /** The most a timeline's canvas is rendered at on its short edge: the model's 720p (704 on its grid of 64), its sweet spot. */
 export const LTX_CANVAS_SHORT = 704;
 
-/** How many frames make `seconds` at 25 a second, on a count the model takes (8k + 1). */
-export function ltxFrames(seconds: number): number {
-  const n = Math.max(9, Math.round(seconds * LTX_FPS));
+/** How many frames make `seconds` at `fps` a second, on a count the model takes (8k + 1). */
+export function ltxFramesAt(seconds: number, fps: number): number {
+  const n = Math.max(9, Math.round(seconds * fps));
   return Math.round((n - 1) / 8) * 8 + 1;
 }
+/** The same at LTX 2.3's 25 a second. */
+export const ltxFrames = (seconds: number): number => ltxFramesAt(seconds, LTX_FPS);
 
 /**
  * The canvas for a shape: `short` pixels on the short edge, the shape's proportions. Edges are
