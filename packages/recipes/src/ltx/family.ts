@@ -109,6 +109,8 @@ A saxophone player in a wrinkled suit plays a slow melody with his eyes closed, 
 export const LTX_FPS = 25;
 /** The largest canvas offered: a little over 1080p on the short edge is far more than a home card takes. Edges are multiples of 64. */
 export const LTX_MAX_PIXELS = 1920 * 1088;
+/** The most a timeline's canvas is rendered at on its short edge: the model's 720p (704 on its grid of 64), its sweet spot. */
+export const LTX_CANVAS_SHORT = 704;
 
 /** How many frames make `seconds` at 25 a second, on a count the model takes (8k + 1). */
 export function ltxFrames(seconds: number): number {

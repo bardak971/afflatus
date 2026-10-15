@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, type BuildContext, type LoraValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
-import { LTX_FPS, LTX_MAX_PIXELS, ltxCanvas, ltxFrames } from "./family";
+import { LTX_CANVAS_SHORT, LTX_FPS, LTX_MAX_PIXELS, ltxCanvas, ltxFrames } from "./family";
 import { UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNodes } from "../video/upscale";
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
 import { loadUnet, unetNodes } from "../shared/unet";
@@ -404,10 +404,12 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       throw new Error("A diffusion model in a file of its own needs LTX 2.3's other parts: the video VAE and the audio VAE in ComfyUI's models/vae folder, and the text projection in models/text_encoders.");
     }
 
-    // the frame: a timeline's canvas, else the picture it opens or ends on (or its keyframe, when it has no other), else the shape picked
+    // the frame: a timeline's canvas, else the picture it opens or ends on (or its keyframe, when it has no other), else the shape
+    // picked. A canvas is taken at its own size up to the model's 720p (LTX_CANVAS_SHORT), as Wan's is up to its 720p: a clip at
+    // a 1080p timeline's size was 1088p, slower and no better (users put LTX's sweet spot at 720p; the owner, 2026-10-15)
     const like = input.start ? media.start : input.end ? media.end : input.mid ? media.mid : undefined;
     const { width, height } = ctx.canvas
-      ? ltxCanvas(ctx.canvas.width, ctx.canvas.height, Math.min(ctx.canvas.width, ctx.canvas.height))
+      ? ltxCanvas(ctx.canvas.width, ctx.canvas.height, Math.min(ctx.canvas.width, ctx.canvas.height, LTX_CANVAS_SHORT))
       : like?.width
         ? ltxCanvas(like.width, like.height, input.short)
         : ltxCanvas(input.shape.width, input.shape.height, input.short);

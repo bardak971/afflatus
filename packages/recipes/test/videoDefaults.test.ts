@@ -37,6 +37,15 @@ describe("the colour match to the first frame", () => {
   });
 });
 
+describe("a timeline's canvas", () => {
+  // the canvas's own size up to the model's 720p, as Wan's: a 1080p timeline makes 704p clips, not 1088p ones
+  it("is taken at its size up to 704p on LTX", () => {
+    const at = (canvas: { width: number; height: number }) => of(ltxVideo.build(parseInput(ltxVideo, { prompt: "a", start: "p" }), dryContext({ slots: ltxSlots, uploads: { start: "a.png" }, media: { start: picture }, canvas })).graph as Graph, "EmptyLTXVLatentVideo")[0]!.inputs;
+    expect(at({ width: 1080, height: 1920 })).toMatchObject({ width: 352, height: 640 });
+    expect(at({ width: 576, height: 1024 })).toMatchObject({ width: 288, height: 512 });
+  });
+});
+
 describe("NAG on LTX", () => {
   it("is off by default, and on it patches the model every pass samples with, fed the negative", () => {
     expect(of(ltx({}), "LTX2_NAG")).toEqual([]);
