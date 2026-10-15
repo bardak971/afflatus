@@ -283,6 +283,12 @@ describe("h3.video", () => {
   it("fits a timeline's frame when it is given one, whatever the picture or the shape say", () => {
     const b = build({ start: "p" }, { uploads: { start: "p.png" }, media: { start: { width: 832, height: 1216 } }, canvas: { width: 1024, height: 576 } });
     expect(one(b, "MiniMaxH3ImageToVideo")[0]!.inputs).toMatchObject({ width: 1024, height: 576 });
+    // a canvas gives the shape, the form the size: a clip opening on a large picture on a 1080p timeline is still 576p
+    const big = build({ start: "p", short: 576 }, { uploads: { start: "p.png" }, media: { start: { width: 3024, height: 4032 } }, canvas: { width: 1080, height: 1920 } });
+    expect(one(big, "MiniMaxH3ImageToVideo")[0]!.inputs).toMatchObject({ width: 576, height: 1024 });
+    // a clip carried on keeps the clip before's own size, the canvas's shape
+    const carried = build({ previous: { asset: "v" } }, { uploads: { previous: "v.mp4" }, media: { previous: clip }, canvas: { width: 1080, height: 1920 } });
+    expect(one(carried, "MiniMaxH3ImageToVideo")[0]!.inputs).toMatchObject({ width: 576, height: 1024 });
   });
 
   it("leaves out the speed-ups ComfyUI does not have, and smoothing without its model", () => {

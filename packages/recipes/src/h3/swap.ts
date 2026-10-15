@@ -9,7 +9,7 @@ import { buildH3, h3Video } from "./video";
  * carries akatz-ai's Character-Swap LoRA (trained on the reference model) with its own short caption as the whole prompt:
  * a long "preserve everything" prompt broke 2 of 3 swaps, the caption made 3 of 3 (report §5, S1, 2026-10-12). The
  * file's sound is the source's own. One swap holds a window of up to 141 frames (5.9 s at 24): the LoRA's author found
- * 4-5 s windows the safest; longer videos are swapped window by window on a timeline.
+ * 4-5 s windows the safest (a longer video window by window, as the source lane does for Motion transfer, is not built yet).
  */
 export interface H3Swap extends H3Video {
   source?: ClipValue;
@@ -50,7 +50,7 @@ const swapInputs: InputSpec[] = [
   {
     id: "source", type: "clip", role: "source", label: "Source video", frames: [SWAP_FRAMES], fps: H3_FPS, whole: true,
     window: { start: "sourceStart", seconds: "sourceSeconds", fits: { frames: SWAP_FRAMES, fps: H3_FPS, pad: 0, min: SWAP_LEAST / H3_FPS, grid: H3_GRID } },
-    note: "the video whose person is replaced. One swap holds 5.9 s of it; a longer one is swapped window by window on a timeline",
+    note: "the video whose person is replaced. One swap holds 5.9 s of it: pick the part",
   },
   { id: "sourceStart", type: "number", label: "Source: start", min: 0, max: 3600, step: 0.1, default: 0, unit: " s", showWhen: "source" },
   // (whole tenths below the 5.875 s of 141 frames for the slider's steps: from 3.775 s, still the 90 frames of the shortest
