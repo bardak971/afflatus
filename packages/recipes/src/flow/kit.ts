@@ -210,6 +210,13 @@ export function flowKit(spec: FlowSpec) {
   /** What the checker's variants share: a fine-tune with a shift, a CFG, its steps, a negative prompt and a LoRA. */
   const tuned = { model: spec.fineTune, shift: 4, cfg: 3, steps: 25, negative: "blurry", loras: [{ file: "l.safetensors", weight: 0.8 }] };
 
-  return { inputs, loadNodes, SOMETIMES, SECOND_PASS, load, shifted, condFrom, cond, sample, sizeOf, tuned };
+  /**
+   * Turbo's LoRA, when Turbo is on and the model picked is not made for a few steps (load): the family's file this input
+   * needs (Recipe.needsWith), so that a pod is sent it and a machine without it does not take the job at the full steps.
+   */
+  const turboNeeds = (input: FlowBase): string[] =>
+    spec.turbo && input.fast && !spec.turbo.named.test((input.model ?? "").split(/[\\/]/).pop() ?? "") ? [spec.turbo.slot] : [];
+
+  return { inputs, loadNodes, SOMETIMES, SECOND_PASS, load, shifted, condFrom, cond, sample, sizeOf, tuned, turboNeeds };
 }
 export type FlowKit = ReturnType<typeof flowKit>;

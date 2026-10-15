@@ -2,7 +2,7 @@ import { defineRecipe, type GraphBuilder, type InputSpec, type Ref, type Variant
 import { H3_FPS, H3_MAX_FRAMES } from "./family";
 import { h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video } from "./video";
-import { H3_STARTS } from "./model";
+import { H3_STARTS, turboNeeds } from "./model";
 
 /**
  * MiniMax H3 · Lip sync: a new shot made around a recording. The recording is laid on the clip's sound where the clip's
@@ -68,6 +68,7 @@ const lipSyncInputs: InputSpec[] = h3Inputs.flatMap((spec): InputSpec[] => {
 });
 
 export const h3LipSync = defineRecipe<H3LipSync>({
+  needsWith: turboNeeds,
   id: "h3.lipsync",
   family: "h3",
   version: 1,
