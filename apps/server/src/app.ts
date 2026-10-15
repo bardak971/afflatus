@@ -8,6 +8,7 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { ZodError } from "zod";
 import { VERSION } from "./config";
+import { registerAccess, registerAccessHook } from "./access-api";
 import { registerAssets } from "./assets-api";
 import { registerBackup, type BackupPlaces } from "./backup";
 import { registerCommandBar } from "./commandIndex";
@@ -78,6 +79,8 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
     // and a change must say it is not a plain form's (hostCheck.ts marked): a body-less POST from elsewhere needs no preflight either
     if (!reads && !marked(req.headers)) return reply.status(403).send({ error: "Afflatus takes changes only as JSON, a file, or with the header \"X-Afflatus: 1\" (a script: add it to the request)." });
   });
+  // then the password, when one is set (access-api.ts): every API route but a few needs a signed-in device
+  registerAccessHook(app, s.access);
 
   /** Files from the computer are sent as the request body itself: written to a temporary file as they arrive, never held in memory. */
   const UPLOAD_LIMIT = 512 * 1024 * 1024;
@@ -135,9 +138,17 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
     const status = (err as { statusCode?: number }).statusCode;
     // which request: a bug's stack alone does not say which screen or action met it
     if (!status) console.error(`[http] ${req.method} ${req.url} failed:`, err);
-    return reply.status(status ?? 500).send({ error: status ? (err as Error).message : "something went wrong on the server" });
+    // a refusal of the password's (access.ts) says the tries left and the wait, which the sign-in page counts down
+    const { left, wait } = err as { left?: unknown; wait?: unknown };
+    if (status && typeof wait === "number") reply.header("Retry-After", String(wait));
+    return reply.status(status ?? 500).send({
+      error: status ? (err as Error).message : "something went wrong on the server",
+      ...(status && typeof left === "number" ? { left } : {}),
+      ...(status && typeof wait === "number" ? { wait } : {}),
+    });
   });
 
+  registerAccess(app, s);
   registerSetup(app, s, VERSION);
   registerLock(app, s);
   registerRented(app, s);

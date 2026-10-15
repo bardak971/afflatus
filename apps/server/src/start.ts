@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
-import { createServer, type Server } from "node:net";
+import { connect, createServer, type Server } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
@@ -10,6 +10,7 @@ import { migrate, openDb, type DbKind } from "./db";
 import type { QueueOptions } from "./queue";
 import { createServices, type Services } from "./services";
 import { readSettings } from "./settings";
+import { resetAccess } from "./access";
 import { installNodePack } from "./nodePack";
 import { LocalStorage } from "./storage";
 import { preflight, runPreflight } from "./preflight";
@@ -153,6 +154,11 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<St
       throw new NewerLibraryError(config.dataDir, newer[1]!, kind === "sqlite" ? await copyBeforeNewer(config.dataDir) : null);
     });
     if (applied.length) log.log(`[db] migrated: ${applied.join(", ")}`);
+    // the way back in for an owner who lost the password and every way to a code: said loudly, never quietly
+    if (envSaid.resetPassword()) {
+      log.warn("[access] AFFLATUS_RESET_PASSWORD=1: removing the password and every session. Take the setting out once in.");
+      await resetAccess(db, log);
+    }
     services = await createServices(db, kind, new LocalStorage(join(config.dataDir, "files")), opts.queueOptions, { dataDir: config.dataDir });
     updates = new AfflatusUpdates({ services, dataDir: config.dataDir, restart, ...opts.updates });
     await updates.init();
@@ -196,6 +202,37 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<St
     throw err;
   }
 }
+
+/**
+ * `reset-password`: the password and every session removed from the data folder's library, with Afflatus stopped (the
+ * running one keeps what it read until it restarts). Refused while something answers on Afflatus's port. 0 when done.
+ */
+export async function resetPasswordCommand(config: Config, log: Pick<Console, "log" | "warn"> = console): Promise<number> {
+  const probe = EVERY.has(config.host) ? "127.0.0.1" : config.host;
+  const running = await new Promise<boolean>((resolve) => {
+    const socket = connect({ host: probe, port: config.port });
+    socket.setTimeout(1500);
+    socket.once("connect", () => (socket.destroy(), resolve(true)));
+    socket.once("error", () => resolve(false));
+    socket.once("timeout", () => (socket.destroy(), resolve(false)));
+  });
+  if (running) {
+    log.warn(`Afflatus is running on port ${config.port}: stop it first, then run reset-password again (or start it once with AFFLATUS_RESET_PASSWORD=1).`);
+    return 1;
+  }
+  const { db } = openDb(config);
+  try {
+    await migrate(db);
+    await resetAccess(db, log);
+    log.log(`Done, in ${config.databaseUrl ? "the Postgres library" : config.dataDir}. Start Afflatus and set a new password in Settings › Interface › Access.`);
+    return 0;
+  } finally {
+    await db.destroy();
+  }
+}
+
+/** The addresses that mean "every address" to listen on: the command above asks loopback instead. */
+const EVERY = new Set(["0.0.0.0", "::", "[::]", ""]);
 
 /**
  * `--check`: what a new version is asked before an update switches to it (updates.ts): its code loads (this file is

@@ -43,7 +43,12 @@ export type LlmPatch = Omit<LlmInfo, "hasApiKey"> & { apiKey?: string };
  * refused). As the answer says them, but for what the answer hides: the Civitai key itself, the models with their keys,
  * and `llm`, the model in use changed the short way. Held to the server's schema by test/apiTypes.test.ts.
  */
-export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiKey" | "hasHuggingFaceToken" | "hasRunpodKey" | "machines" | "notify">> & {
+export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiKey" | "hasHuggingFaceToken" | "hasRunpodKey" | "machines" | "notify" | "access">> & {
+  /** Some of the password's settings; the password itself has its own routes (api.setPassword), never this. */
+  access?: Partial<Omit<AccessSettings, "hasPassword" | "passwordSetAt">> & {
+    /** The server's own, never sent by the page: it drops it from a page's save (settings.ts written). */
+    password?: { hash: string; setAt: string } | null;
+  };
   /** Some of the notices' settings: what is sent is put over what is saved. The token and the webhook only when typed ("" takes one off). */
   notify?: { telegramToken?: string; telegramChat?: string; discordWebhook?: string; picture?: boolean; events?: Partial<Record<NotifyKind, { telegram?: boolean; discord?: boolean }>> };
   /** The machines as the page has them, without what it is only told (a token's end). A token left out stays as it is. */
@@ -56,8 +61,20 @@ export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiK
   llms?: LlmPatch[];
   llm?: Partial<Omit<LlmPatch, "id">>;
 };
-/** What Afflatus tells about (the server's notify.ts). `gpuFound` and `huntGaveUp` wait for the GPU hunt: not shown yet. */
-export type NotifyKind = "renderDone" | "renderFailed" | "queueEmpty" | "renderStuck" | "podStopped" | "capReached" | "balanceLow" | "comfyGone" | "gpuFound" | "huntGaveUp";
+/** What Afflatus tells about (the server's notify.ts); `newDevice`: a sign-in from a device never seen (access.ts). */
+export type NotifyKind = "renderDone" | "renderFailed" | "queueEmpty" | "renderStuck" | "podStopped" | "capReached" | "balanceLow" | "comfyGone" | "gpuFound" | "huntGaveUp" | "newDevice";
+/** The optional password's settings (Settings › Interface › Access). The password itself never comes back: only whether there is one. */
+export interface AccessSettings {
+  hasPassword: boolean;
+  /** When it was set (ISO); null without one. */
+  passwordSetAt: string | null;
+  /** A request from the computer Afflatus runs on needs no password. */
+  localNoPassword: boolean;
+  /** How long a remembered device stays signed in. */
+  stayDays: 1 | 7 | 30 | 90;
+  /** Reset codes may go to Telegram (when it is set up). */
+  resetTelegram: boolean;
+}
 /** Where the notices go and which kinds go there. The bot's token and the webhook never come back: only whether one is saved. */
 export interface NotifySettings {
   hasTelegramToken: boolean;
@@ -240,4 +257,43 @@ export interface Settings {
   pinnedProjects: string[];
   /** Notices on Telegram and Discord. */
   notify: NotifySettings;
+  /** The optional password. */
+  access: AccessSettings;
+}
+
+/** GET /api/session: what the page asks before anything else (access-api.ts). */
+export interface SessionState {
+  /** A password is set. */
+  locked: boolean;
+  /** This browser may use the app: no password, signed in, or this computer and it needs none. */
+  signedIn: boolean;
+  /** The request came from the computer Afflatus runs on. */
+  local: boolean;
+  localNoPassword: boolean;
+  /** This browser holds a session (not only the computer's own pass). */
+  session: boolean;
+  stayDays: number;
+  /** A reset code can go to Telegram. */
+  telegram: boolean;
+  /** Seconds this address waits before its next try. */
+  wait: number;
+  /** Seconds before another reset code may be sent. */
+  sendAgain: number;
+}
+/** A device signed in (Settings › Access). */
+export interface SignedDevice {
+  id: string;
+  /** "Chrome on Windows": from its browser's own words. */
+  name: string;
+  firstSeen: string;
+  ip: string;
+  lastSeen: string;
+  remember: boolean;
+  /** The device asking. */
+  here: boolean;
+}
+/** GET /api/session/devices: where Afflatus listens, and who is signed in. */
+export interface SignedDevices {
+  listen: { host: string; port: number; reach: "computer" | "network" | "address" };
+  devices: SignedDevice[];
 }

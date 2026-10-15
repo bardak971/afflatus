@@ -74,7 +74,7 @@ The container cannot write into ComfyUI's folder, so install Afflatus's node pac
 | `DATABASE_URL` | empty | A `postgres://` address instead of SQLite in the volume. SQLite is the supported one |
 | `TZ` | `UTC` | The time zone, for the times shown |
 
-There is no login. Publish the port on your own network only, or put your usual reverse proxy with its own authentication in front.
+Set a password in Settings › Interface › Access before publishing the port (requests from the host come through Docker's network, so none is exempt from it). A forgotten one: the sign-in sends a code to Telegram or to `docker logs afflatus`; lost every way in, `docker compose stop afflatus && docker compose run --rm afflatus node apps/server/dist/index.mjs reset-password`, or set `AFFLATUS_RESET_PASSWORD: "1"` for one start. For the internet, put your usual reverse proxy with its own authentication in front.
 
 ## Backups
 

@@ -242,7 +242,8 @@ if (others.length) {
 // a few months of pretend render times, so that the "Render times" tab has something to show
 await seedRenderTimes(db);
 await seedHistory(db);
-const services = await createServices(db, "sqlite", new LocalStorage(join(dataDir, "files")));
+// the data folder named, as a real start does: the password's reset codes and sign-ins go to its logs/afflatus.log
+const services = await createServices(db, "sqlite", new LocalStorage(join(dataDir, "files")), undefined, { dataDir });
 // WEB_DIR: another build of the web app than the one `pnpm start` serves
 const dist = process.env.WEB_DIR ? join(root, process.env.WEB_DIR) : join(root, "apps/web/dist");
 // Afflatus's own updates, for Settings → About: the check asks only a stand-in site (UPDATES_URL), and a restart is said, not done

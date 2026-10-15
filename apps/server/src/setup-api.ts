@@ -20,7 +20,8 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
   // a probe asks by a name of its own (a pod's address) and is answered whatever the Host (hostCheck.ts ANY_HOST); so is a page
   // that pointed a name of its own at this machine, which is told only that the server is alive, not what it found on the machine
   const hosts = allowedHosts();
-  app.get("/api/health", async (req) => (hostAllowed(req.headers.host, hosts) ? health(preflight.last) : { ok: true, version }));
+  // locked by a password (access.ts) and not signed in, only that it is alive too: the checks name the computer's folders
+  app.get("/api/health", async (req) => (hostAllowed(req.headers.host, hosts) && (req.access.open || req.access.session) ? health(preflight.last) : { ok: true, version }));
   /** The start-up checks run again, now (Settings → About → Check again). */
   app.post("/api/health/check", async () => health(await preflight.run()));
 

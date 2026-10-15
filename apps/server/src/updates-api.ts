@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { httpError } from "./errors";
-import { hostOnly } from "./hostCheck";
+import { fromThisComputer } from "./hostCheck";
 import type { AfflatusUpdates } from "./updates";
 
 /**
@@ -11,15 +11,6 @@ import type { AfflatusUpdates } from "./updates";
  * not a loopback name, which a proxy on this computer that says nothing of whom it forwards for still passes on as the
  * name it is reached by (docs/configuration.md).
  */
-
-/** Whether a request comes from this computer: a loopback address, asked by a loopback name, not forwarded by a proxy. */
-export function fromThisComputer(req: FastifyRequest): boolean {
-  if (req.headers["x-forwarded-for"] || req.headers.forwarded || req.headers["x-real-ip"]) return false;
-  const host = hostOnly(req.headers.host ?? "");
-  if (!(host === "localhost" || /^127\.\d+\.\d+\.\d+$/.test(host) || host === "[::1]")) return false;
-  const ip = (req.socket.remoteAddress ?? "").toLowerCase();
-  return /^127\./.test(ip) || ip === "::1" || /^::ffff:127\./.test(ip);
-}
 
 export function registerUpdates(app: FastifyInstance, updates: AfflatusUpdates): void {
   const here = (req: FastifyRequest) => {

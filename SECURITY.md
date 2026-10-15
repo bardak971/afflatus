@@ -1,8 +1,17 @@
 # Security
 
-## There is no login, by design
+## One optional password, no accounts
 
-Afflatus is made for one person on their own machine or home network. It has no accounts and no password: **whoever can reach its port can use it**. That means your library, your settings, your linked folders and your GPU, through your ComfyUI.
+Afflatus is made for one person on their own machine or home network. It has no accounts. Until you set a password (Settings › Interface › Access), **whoever can reach its port can use it**: your library, your settings, your linked folders and your GPU, through your ComfyUI.
+
+With a password set:
+
+- Every API route and the live event stream need a signed-in device, except the health probe (`/api/health`, which then says only that it is alive), the sign-in page's own routes, and the one-time address ComfyUI fetches a model download from (it carries its own token). The page's files are open: they hold no data. `/metrics` stays open for a scraper (counts, no library content).
+- The password is kept as a salted scrypt hash; a device holds a random token in an HttpOnly, SameSite=Lax cookie (Secure over https), and the database only its SHA-256. A remembered device stays signed in for the days set (30 by default), another until 12 h without use.
+- Wrong tries are limited per address (5, then a wait of 1, 5, then 15 minutes) and over all addresses at once (30 a minute: everyone waits a minute), so that a proxy that hides the addresses cannot be used to try a list.
+- "From this computer" (on by default) lets requests from the machine itself in without the password: only from a loopback address, asked by a loopback name, carrying no forwarding header. A proxy on the same machine that sends neither (nginx's default) would count as this computer: turn the option off when you put one in front. In Docker nothing is exempt.
+- A forgotten password is reset with a 6-digit code sent to Telegram or written to the console and `data/logs/afflatus.log` (valid 10 minutes, once, 5 wrong entries burn it). Without the page: `reset-password` (with Afflatus stopped) or `AFFLATUS_RESET_PASSWORD=1` at a start removes the password and every session.
+- It protects the network side, not the files on the disk: those are your account's and your disk's to protect.
 
 What it does to keep that boundary where you put it:
 
@@ -20,7 +29,7 @@ What it does to keep that boundary where you put it:
 
 What it does **not** do:
 
-- It does not tell people on your network apart. Anyone who can open the page can do everything you can.
+- It does not tell people apart. Anyone who can open the page (or knows the password) can do everything you can.
 - It is not meant to face the internet. **Never publish it as it is.** If you want to reach it from outside, put a reverse proxy with its own authentication in front (an SSO proxy, basic auth, a VPN such as WireGuard or Tailscale), and name the proxy's host in `ALLOWED_HOSTS`.
 
 ## Supported versions
@@ -33,6 +42,6 @@ Please report security problems **privately**, through GitHub's [private vulnera
 
 Useful to include: the version, how Afflatus was run (bundle, Docker, Helm, source; `HOST` and the other settings that matter), the steps to reproduce, and what an attacker gains.
 
-Since there is no login, "someone on my network can use Afflatus" is expected behaviour, not a vulnerability. In scope are, for example: a way past the host check or the cross-site checks, a way to make Afflatus install an update the release key did not sign, reading or writing files outside the data folder and the linked folders, running commands on the host, or a hostile workflow, preset or model file that does more than it should when imported.
+Without a password set, "someone on my network can use Afflatus" is expected behaviour, not a vulnerability. In scope are, for example: a way past the password's lock or its try limits, a way past the host check or the cross-site checks, a way to make Afflatus install an update the release key did not sign, reading or writing files outside the data folder and the linked folders, running commands on the host, or a hostile workflow, preset or model file that does more than it should when imported.
 
 This is a one-person project. Expect a first answer within a week, and a fix in a release as soon as it is ready; you will be credited in the release notes unless you would rather not be.

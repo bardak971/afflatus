@@ -133,11 +133,17 @@ export const deploySchema = z.object({
 export type DeployAsk = z.infer<typeof deploySchema>;
 
 
-/** What Afflatus tells about, on Telegram, Discord and in the browser (notify.ts); `gpuFound` and `huntGaveUp` are the GPU hunt's (hunt.ts). */
-export const NOTIFY_KINDS = ["renderDone", "renderFailed", "queueEmpty", "renderStuck", "podStopped", "capReached", "balanceLow", "comfyGone", "gpuFound", "huntGaveUp"] as const;
+/**
+ * What Afflatus tells about, on Telegram, Discord and in the browser (notify.ts); `gpuFound` and `huntGaveUp` are the GPU
+ * hunt's (hunt.ts), `newDevice` the password's (access.ts): a sign-in from a device never seen before.
+ */
+export const NOTIFY_KINDS = ["renderDone", "renderFailed", "queueEmpty", "renderStuck", "podStopped", "capReached", "balanceLow", "comfyGone", "gpuFound", "huntGaveUp", "newDevice"] as const;
 export type NotifyKind = (typeof NOTIFY_KINDS)[number];
-/** Only a render done is off by default: every other kind is something to act on. */
-const channels = (on: boolean) => z.object({ telegram: z.boolean().default(on), discord: z.boolean().default(on) }).prefault({});
+/**
+ * Only a render done is off by default: every other kind is something to act on. A new device goes to Telegram only: a
+ * Discord channel is often shared, and who signs in where is the owner's to read.
+ */
+const channels = (telegram: boolean, discord = telegram) => z.object({ telegram: z.boolean().default(telegram), discord: z.boolean().default(discord) }).prefault({});
 const notifySchema = z.object({
   /** The bot's token (@BotFather): a secret, never given to the page, never in a log nor a message. */
   telegramToken: z.string().trim().max(200).default(""),
@@ -148,9 +154,25 @@ const notifySchema = z.object({
   /** A small picture of what a render made goes with its message. */
   picture: z.boolean().default(true),
   /** Per kind, the channels it is sent to (the browser's ticks are kept per browser). */
-  events: z.object(Object.fromEntries(NOTIFY_KINDS.map((k) => [k, channels(k !== "renderDone")])) as Record<NotifyKind, ReturnType<typeof channels>>).prefault({}),
+  events: z.object(Object.fromEntries(NOTIFY_KINDS.map((k) => [k, k === "newDevice" ? channels(true, false) : channels(k !== "renderDone")])) as Record<NotifyKind, ReturnType<typeof channels>>).prefault({}),
 });
 export type NotifySettings = z.infer<typeof notifySchema>;
+
+/** The password as stored (access.ts hashPassword): scrypt's figures, the salt and the hash, and when it was set. Never sent to the page. */
+const passwordSchema = z.object({ hash: z.string().max(400), setAt: z.string().max(40) });
+
+/** The optional password (Settings › Interface › Access, access.ts). */
+const accessSchema = z.object({
+  /** Null: no password, Afflatus is open to whoever reaches it, as before there was one. */
+  password: passwordSchema.nullable().default(null),
+  /** A request from this computer itself (access.ts fromThisComputer) needs no password. */
+  localNoPassword: z.boolean().default(true),
+  /** How long a device that ticked "Remember" stays signed in. */
+  stayDays: z.union([z.literal(1), z.literal(7), z.literal(30), z.literal(90)]).default(30),
+  /** Reset codes may go to Telegram (when it is set in Notifications); the console and the log file always have them. */
+  resetTelegram: z.boolean().default(true),
+});
+export type AccessSettings = z.infer<typeof accessSchema>;
 
 export const machineSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]{1,24}$/, "a machine id is lower-case letters, digits and dashes"),
@@ -261,6 +283,8 @@ export const settingsSchema = z.object({
   pinnedProjects: z.array(z.string().min(1).max(80)).max(4).refine((ids) => new Set(ids).size === ids.length, "a project is pinned once").default([]),
   /** Where Afflatus's notices go (Telegram, Discord) and which kinds go there (notify.ts). */
   notify: notifySchema.prefault({}),
+  /** The optional password and how it behaves (access.ts). */
+  access: accessSchema.prefault({}),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 
@@ -427,6 +451,13 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
   }
   // the page sends what it changed of `notify`, and never the token nor the webhook, which it is not given: merged into what is saved
   if (sent.notify !== undefined) sent.notify = notifyMerged(current.notify, sent.notify);
+  // the same for `access`, whose password the page can never write: it is set through its own routes (access-api.ts), which
+  // ask for the current one or a reset code
+  if (sent.access !== undefined) {
+    const asked = sent.access && typeof sent.access === "object" ? { ...(sent.access as Record<string, unknown>) } : sent.access;
+    if (fromPage && asked && typeof asked === "object") delete (asked as Record<string, unknown>).password;
+    sent.access = asked && typeof asked === "object" ? { ...current.access, ...asked } : asked;
+  }
   const next = settingsSchema.parse({ ...current, ...sent });
   const ids = new Set(next.llms.map((l) => l.id));
   if (ids.size !== next.llms.length) throw httpError("two language models have the same id");
@@ -512,5 +543,7 @@ export function publicSettings(s: Settings) {
     pinnedProjects: s.pinnedProjects,
     // the bot's token and the webhook stay here: anyone who has either can write as Afflatus
     notify: { hasTelegramToken: Boolean(s.notify.telegramToken), telegramChat: s.notify.telegramChat, hasDiscordWebhook: Boolean(s.notify.discordWebhook), picture: s.notify.picture, events: s.notify.events },
+    // the password's hash stays here: the page is told whether there is one, and since when
+    access: { hasPassword: s.access.password !== null, passwordSetAt: s.access.password?.setAt ?? null, localNoPassword: s.access.localNoPassword, stayDays: s.access.stayDays, resetTelegram: s.access.resetTelegram },
   };
 }

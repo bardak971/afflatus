@@ -1,8 +1,9 @@
+import type { FastifyRequest } from "fastify";
 import { environment } from "./config";
 /**
  * Which names the server answers to. A page open in the browser on the same machine can point one of
- * its own names at 127.0.0.1 (DNS rebinding) and then drive the API from a script, since there is no
- * login; the Host header still carries that name, so a request whose Host is not one of the server's
+ * its own names at 127.0.0.1 (DNS rebinding) and then drive the API from a script, since this computer
+ * needs no password by default (access.ts); the Host header still carries that name, so a request whose Host is not one of the server's
  * own is refused. The server's own names: localhost and the loopback addresses, the address it was
  * bound to (HOST, when it is a real address rather than "every address"), the host of PUBLIC_URL, and
  * whatever ALLOWED_HOSTS adds (comma-separated: the machine's LAN address or name, a reverse proxy's name).
@@ -116,4 +117,26 @@ export function marked(headers: { "content-type"?: string; "x-afflatus"?: string
   if (headers["x-afflatus"] === "1") return true;
   const type = (headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
   return type === "application/json" || UPLOAD_TYPE.test(type);
+}
+
+/**
+ * The headers a proxy or a tunnel adds to say whom it forwards for. A reverse proxy or a tunnel on this same machine
+ * (cloudflared, Caddy, nginx, Tailscale serve) makes every remote request come from loopback: one that says it forwards
+ * is never taken as this computer's own, whoever it says it forwards for.
+ */
+const FORWARDED = ["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "forwarded", "x-real-ip", "cf-connecting-ip", "true-client-ip", "tailscale-user-login", "via"];
+
+/**
+ * Whether a request comes from this computer: from a loopback address, asked by a loopback name (any port), carrying no
+ * forwarding header. Each of the three is needed: a proxy on this computer comes from loopback, and one that says nothing
+ * of whom it forwards for still passes on the name it is reached by (Caddy, cloudflared), unless it is set to send a
+ * loopback name (nginx's default Host: the "?" of Access says so). In Docker the host's own requests come from the
+ * bridge, not loopback: none is this computer's there.
+ */
+export function fromThisComputer(req: Pick<FastifyRequest, "headers" | "socket">): boolean {
+  if (FORWARDED.some((h) => req.headers[h] !== undefined)) return false;
+  const host = hostOnly(req.headers.host ?? "");
+  if (!(host === "localhost" || /^127\.\d+\.\d+\.\d+$/.test(host) || host === "[::1]")) return false;
+  const ip = (req.socket.remoteAddress ?? "").toLowerCase();
+  return /^127\./.test(ip) || ip === "::1" || /^::ffff:127\./.test(ip);
 }
