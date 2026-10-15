@@ -23,7 +23,7 @@ export function machineSaid(m: MachineState): string {
  * Without `machine`, every machine with its own items as a submenu (the status bar's summary chip on a narrow window).
  * Each item mirrors a button that exists elsewhere (the Queue's lanes, Settings' cards).
  */
-export function MachineMenuBody({ at, machine, onClose }: { at: Parameters<typeof ContextMenu>[0]["at"]; machine?: string; onClose(): void }) {
+export function MachineMenuBody({ at, machine, extra = [], onClose }: { at: Parameters<typeof ContextMenu>[0]["at"]; machine?: string; /** With `machine`: items of the place it opens from, after the machine's own (its card's: the token, the order, Remove). */ extra?: MenuItem[]; onClose(): void }) {
   const queue = useQueue();
   const [, go] = useLocation();
   const ops = useQueueOps();
@@ -71,11 +71,12 @@ export function MachineMenuBody({ at, machine, onClose }: { at: Parameters<typeo
       : { label: "Pause all", icon: <Pause size={14} />, note: "every machine", run: () => ops.pause.mutate(undefined) },
     "—",
     { label: "Open the Queue", icon: <ListOrdered size={14} />, run: () => go("/queue") },
-    { label: "ComfyUI settings", icon: <Gear size={14} />, run: () => go("/settings") },
+    // from its card (`extra`), Settings is where the menu is already
+    ...(extra.length ? [] : [{ label: "ComfyUI settings", icon: <Gear size={14} />, run: () => go("/settings") }]),
   ];
   const one = machine ? all.find((x) => x.id === machine) : undefined;
   if (machine && !one) return null;
-  if (one) return <ContextMenu at={at} label={machineLabel(one)} head={{ title: machineLabel(one), sub: machineSaid(one) }} items={[...itemsOf(one), "—", ...shared]} onClose={onClose} />;
+  if (one) return <ContextMenu at={at} label={machineLabel(one)} head={{ title: machineLabel(one), sub: machineSaid(one) }} items={[...itemsOf(one), ...(extra.length ? ["—" as const, ...extra] : []), "—", ...shared]} onClose={onClose} />;
   return (
     <ContextMenu
       at={at} label="ComfyUIs" head={{ title: `${all.length} ComfyUIs`, sub: `${all.filter((m) => m.running).length} rendering` }} onClose={onClose}

@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { volumePerMonth } from "@afflatus/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, HardDrive, MoreHorizontal, Trash2 } from "lucide-react";
+import { HardDrive, MoreHorizontal, Trash2 } from "lucide-react";
 import { api, type NetworkVolume, type VolumePlan } from "../../api";
 import { ContextMenu, useMenu } from "../../ContextMenu";
 import { DEPLOYED_READS } from "../../deployReads";
@@ -24,7 +24,7 @@ const rangeSaid = (r: { fastMs: number; slowMs: number; lowUsd: number; highUsd:
   `${est(r.fastMs)}–${est(r.slowMs).replace(/^~/, "")} · ${usd(r.lowUsd, true)}–${usd(r.highUsd, true).replace(/^\$/, "")}`;
 
 /**
- * Network volumes: each with where it is, what it costs a month, what it holds (as its last pod saw it, per Model set),
+ * Network volumes: each with where it is, what it costs a month, how many model files it holds (as its last pod saw it),
  * the pod on it now, and whether it went unused; Make one, Fill from a set, Grow, Delete.
  */
 export function VolumesCard() {
@@ -34,7 +34,23 @@ export function VolumesCard() {
   const [open, setOpen] = useState<null | { kind: "make" } | { kind: "fill" | "grow" | "delete"; volume: NetworkVolume }>(null);
   const list = volumes.data?.volumes ?? [];
   return (
-    <Card title="Network volumes" setting="rented.volumes" help={WHY_VOLUMES} status={<Button size="sm" onClick={() => setOpen({ kind: "make" })}>Make one…</Button>}>
+    <Card
+      title="Network volumes"
+      setting="rented.volumes"
+      help={WHY_VOLUMES}
+      status={(
+        <span className="flex items-center gap-3">
+          {/* what they bill together every month, and how many bill for nothing */}
+          {list.length > 0 && (
+            <span className="text-[12.5px] text-ink-2">
+              <span className="font-mono">{usd(list.reduce((n, v) => n + v.perMonth, 0))}</span>/month
+              {list.some((v) => v.unused) && <> · <span className="font-semibold text-warn-ink">{list.filter((v) => v.unused).length} unused</span></>}
+            </span>
+          )}
+          <Button size="sm" onClick={() => setOpen({ kind: "make" })}>Make one…</Button>
+        </span>
+      )}
+    >
       {volumes.isError && <Block><ErrorNote>{volumes.error.message}</ErrorNote></Block>}
       {volumes.isSuccess && !list.length && <Block><span className="text-xs text-ink-2">No volume on this account. Without one, each deploy fetches its models; with one, they wait there for the next pod.</span></Block>}
       {list.map((v) => <VolumeRow key={v.id} v={v} stock={plan.data?.places.find((p) => p.dataCenter === v.dataCenter)?.gpus ?? null} onAct={(kind) => setOpen({ kind, volume: v })} />)}
@@ -57,7 +73,7 @@ function Chip({ children, tone = "plain", tip }: { children: ReactNode; tone?: "
 
 /**
  * One volume as a tile: the drive and its state (a pod on it, unused, at rest), where it is, its size and what it costs a
- * month; what it holds per Model set; how its last fill ended; the GPUs a pod could have there now. Fill from a set first,
+ * month; how many model files it holds; how its last fill ended; the GPUs a pod could have there now. Fill from a set first,
  * Grow and Delete behind its ⋯ (a row of three buttons outweighed what it said, the owner: "poor").
  */
 function VolumeRow({ v, stock, onAct }: { v: NetworkVolume; stock: Array<{ name: string; price: number }> | null; onAct(kind: "fill" | "grow" | "delete"): void }) {
@@ -93,9 +109,6 @@ function VolumeRow({ v, stock, onAct }: { v: NetworkVolume; stock: Array<{ name:
           {v.holds
             ? <Chip tip={`As ${v.holds.seenBy} saw it ${when(v.holds.seenAt)}`}>{plural(v.holds.count, "model file")}</Chip>
             : <span className="text-ink-3">not read yet: the next pod on it reads it</span>}
-          {v.sets.map((s) => s.missing.count
-            ? <Chip key={s.id} tone="warn" tip={`${s.name}: ${plural(s.missing.count, "file")} not there`}>{s.name} · {s.missing.bytes ? gb(s.missing.bytes) : plural(s.missing.count, "file")} missing</Chip>
-            : <Chip key={s.id} tone="good"><Check size={11} />{s.name}</Chip>)}
         </div>
 
         {fill && (

@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Lock, LockOpen } from "lucide-react";
+import { Check, Copy, KeyRound, Lock, LockOpen } from "lucide-react";
+import { ask } from "../../Confirm";
+import type { MenuItem } from "../../ContextMenu";
 import { api, type MachineProbe } from "../../api";
 import { useCopied, useFlash } from "../../hooks";
 import { queryKeys } from "../../queryKeys";
-import { Button, ButtonLink, Checkbox, cx, ErrorNote, fieldClass, TwoStep } from "../../ui";
+import { Button, ButtonLink, cx, ErrorNote, fieldClass, Toggle } from "../../ui";
 import { Block, Row } from "./Rows";
 
 const WHY_LOCK =
@@ -24,6 +26,33 @@ function plainAway(url: string): boolean {
   }
 }
 
+/**
+ * A machine's token actions, for its card's menu and foot: copy the token (into the clipboard), renew it, unlock the
+ * ComfyUI; each asked first where it cannot be undone. A lock set by the machine's environment (a pod's) has no renew or
+ * unlock: it is the environment's.
+ */
+export function useAccessActions(id: string, label: string, probe: MachineProbe | undefined) {
+  const client = useQueryClient();
+  const { copied, copy } = useCopied();
+  const told = () => {
+    for (const queryKey of [queryKeys.machines(), queryKeys.settings(), queryKeys.queue(), queryKeys.setup()]) void client.invalidateQueries({ queryKey });
+  };
+  const copyToken = useMutation({ mutationFn: () => api.copyMachineToken(id), onSuccess: ({ token }) => copy(token) });
+  const renew = useMutation({ mutationFn: (local: boolean) => api.lockMachine(id, { renew: true, local }), onSuccess: told });
+  const unlock = useMutation({ mutationFn: () => api.unlockMachine(id), onSuccess: told });
+  const access = probe?.access;
+  const locked = access?.state === "locked";
+  const items: MenuItem[] = [
+    ...(probe?.tokenEnd ? [{ label: copied ? "Token copied" : "Copy its token", icon: <Copy size={14} />, run: () => copyToken.mutate() }] : []),
+    ...(locked && !access.fixed ? [
+      { label: "Renew the token…", icon: <KeyRound size={14} />, disabled: renew.isPending, run: () => void ask({ title: `Renew ${label}'s token?`, text: "What used the old one is refused from then on.", yes: "Renew" }).then((yes) => yes && renew.mutate(access.local)) },
+      { label: "Unlock…", icon: <LockOpen size={14} />, disabled: unlock.isPending, run: () => void ask({ title: `Unlock ${label}?`, text: "Anything that reaches it can use it again.", yes: "Unlock" }).then((yes) => yes && unlock.mutate()) },
+    ] : []),
+  ];
+  const failed = [copyToken, renew, unlock].find((m) => m.isError)?.error;
+  return { items, copyToken: () => copyToken.mutate(), copied, failed };
+}
+
 /** A small pill: the lock's state at a glance, its icon and word in the state's colour. */
 function Pill({ locked, children }: { locked: boolean; children: string }) {
   return (
@@ -35,25 +64,24 @@ function Pill({ locked, children }: { locked: boolean; children: string }) {
 }
 
 /**
- * A machine's Access line (Settings › ComfyUI): whether its ComfyUI is locked to Afflatus (the node pack's lock), and the
- * buttons for it; under it, ComfyUI-Manager when it is too old. Nothing while it does not answer and is not locked.
+ * A machine's Access line (Settings › ComfyUI): locking it to Afflatus (the node pack's lock), a token to paste when it is
+ * locked with another, and once locked only "No token needed from this PC" (the lock itself is said in the card's facts,
+ * its token's actions are in the card's menu); under it, ComfyUI-Manager when it is too old. Nothing while it does not
+ * answer and is not locked.
  */
 export function AccessRow({ id, label, probe, url, rented = false }: { id: string; label: string; probe: MachineProbe | undefined; url: string; /** A rented pod: its address is public, and its lock is set in its environment from its start. */ rented?: boolean }) {
   const client = useQueryClient();
   const [checked, flashChecks] = useFlash(false, 2400);
   const [pasted, setPasted] = useState("");
-  const { copied, copy } = useCopied();
   const told = () => {
     for (const queryKey of [queryKeys.machines(), queryKeys.settings(), queryKeys.queue(), queryKeys.setup()]) void client.invalidateQueries({ queryKey });
   };
   const lock = useMutation({ mutationFn: (o: { local?: boolean; renew?: boolean }) => api.lockMachine(id, o), onSuccess: (_, o) => { if (!o.renew && o.local === undefined) flashChecks(true); told(); } });
-  const unlock = useMutation({ mutationFn: () => api.unlockMachine(id), onSuccess: told });
   const paste = useMutation({ mutationFn: (token: string) => api.machineToken(id, token), onSuccess: () => { setPasted(""); told(); } });
-  const copyToken = useMutation({ mutationFn: () => api.copyMachineToken(id), onSuccess: ({ token }) => copy(token) });
   const access = probe?.access;
   if (!access || access.state === "unknown") return null;
-  const failed = [lock, unlock, paste, copyToken].find((m) => m.isError)?.error;
-  const busy = lock.isPending || unlock.isPending;
+  const failed = [lock, paste].find((m) => m.isError)?.error;
+  const busy = lock.isPending;
 
   let line;
   if (checked || (lock.isPending && access.state === "open")) {
@@ -74,31 +102,7 @@ export function AccessRow({ id, label, probe, url, rented = false }: { id: strin
       </>
     );
   } else if (access.state === "locked") {
-    line = (
-      <>
-        <span className="flex min-w-0 grow flex-col gap-2">
-          <span className="flex flex-wrap items-center gap-2.5">
-            <Pill locked>Locked</Pill>
-            {access.fixed
-              ? <span className="text-xs text-ink-2">{rented ? "from its first second: Afflatus set it in the pod's environment" : "by its start settings (AFFLATUS_TOKEN)"}</span>
-              : probe.tokenEnd && <span className="rounded-md border border-line bg-hover px-2 py-0.5 font-mono text-[11.5px] text-ink-2" data-tip="The token's end: the token itself stays in Afflatus">••••••••••••{probe.tokenEnd}</span>}
-            {probe.tokenEnd && <button type="button" className="text-xs font-semibold text-ink-2 hover:text-ink" onClick={() => copyToken.mutate()}>{copied ? "Copied" : "Copy token"}</button>}
-          </span>
-          {!access.fixed && (
-            <span className="flex items-center gap-2">
-              <Checkbox checked={access.local} disabled={busy} onChange={(local) => lock.mutate({ local })}>No token needed from this PC</Checkbox>
-              <span className="cursor-help text-[11px] font-bold text-accent" data-tip={WHY_LOCAL}>?</span>
-            </span>
-          )}
-        </span>
-        {!access.fixed && (
-          <span className="flex shrink-0 items-center gap-1">
-            <TwoStep label="Renew…" title={`Renew ${label}'s token`} note="what used the old one is refused from then on" yes="Renew" disabled={busy} onYes={() => lock.mutate({ renew: true, local: access.local })} />
-            <TwoStep label="Unlock…" title={`Unlock ${label}`} note="anything that reaches it can use it again" yes="Unlock" disabled={busy} onYes={() => unlock.mutate()} />
-          </span>
-        )}
-      </>
-    );
+    line = null;
   } else {
     line = (
       <>
@@ -123,7 +127,14 @@ export function AccessRow({ id, label, probe, url, rented = false }: { id: strin
 
   return (
     <>
-      <Row setting="comfy.access" label="Access" help={WHY_LOCK} start={access.state === "locked" || checked}>{line}</Row>
+      {line
+        ? <Row setting="comfy.access" label="Access" help={WHY_LOCK} start={checked}>{line}</Row>
+        // locked: its one setting, as a switch (a lock set by the environment, a pod's, has none)
+        : !access.fixed && (
+          <Row setting="comfy.access" label="No token needed from this PC" help={`${WHY_LOCAL} ${WHY_LOCK}`}>
+            <Toggle bare on={access.local} disabled={busy} onChange={(local) => lock.mutate({ local })} label="No token needed from this PC" />
+          </Row>
+        )}
       {access.state === "locked" && plainAway(url) && (
         <Block><span className="text-xs text-ink-2">Reached over plain http: the token crosses the network between here and it as it is. Fine on your own network; anywhere else, reach it over https or through a tunnel (Tailscale, SSH).</span></Block>
       )}
