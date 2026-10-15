@@ -1,5 +1,5 @@
 import type { Asset, DraftLeaf, FolderNode, ProjectsTree, TreeGroup } from "../api/types/library";
-import { plural, size } from "../format";
+import { plural, size, spaceOf, spaceSaid } from "../format";
 import { binFor } from "../keepFor";
 
 /**
@@ -35,6 +35,8 @@ export interface Row {
   /** What it holds, said in a few words: the Holds column. */
   meta: string;
   bytes: number | null;
+  /** Over its size: what it is made of, when that is more than its file (spaceSaid). */
+  sizeTip?: string;
   depth: number;
   prefix: string;
   foldable: boolean;
@@ -233,7 +235,7 @@ function itemNodes(c: Ctx, g: TreeGroup, f: FolderNode): Node[] {
   const read = c.s.items?.(key);
   if (!read?.items) return [leaf({ key: `more:${key}`, kind: "more", id: null, label: "Reading…", meta: "", bytes: null, group: g.id })];
   return [
-    ...read.items.map((a) => leaf({ key: `a:${a.id}`, kind: "item", id: a.id, label: itemLabel(a), meta: itemMeta(a), bytes: a.bytes, created: a.createdAt, group: g.id, archived: g.archived, asset: a, moving: { kind: "asset", id: a.id, folder: f.id, name: itemLabel(a), ...(a.path ? { onDisk: true } : {}) } })),
+    ...read.items.map((a) => leaf({ key: `a:${a.id}`, kind: "item", id: a.id, label: itemLabel(a), meta: itemMeta(a), bytes: spaceOf(a), sizeTip: spaceSaid(a), created: a.createdAt, group: g.id, archived: g.archived, asset: a, moving: { kind: "asset", id: a.id, folder: f.id, name: itemLabel(a), ...(a.path ? { onDisk: true } : {}) } })),
     ...(read.more ? [leaf({ key: `more:${key}`, kind: "more", id: null, label: "Show more", meta: "", bytes: null, group: g.id, more: key })] : []),
   ];
 }

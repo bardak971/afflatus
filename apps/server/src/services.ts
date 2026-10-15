@@ -13,6 +13,7 @@ import { DEFAULT_QUEUE_OPTIONS, podFetchOf, Queue, type QueueOptions } from "./q
 import { Registry } from "./registry";
 import { readSettings, type Machine } from "./settings";
 import { Linked, RoutedStorage } from "./linked";
+import { fillKeptBytes } from "./media";
 import type { Storage } from "./storage";
 import { keepOf, sweep } from "./sweep";
 import { fold } from "./renders";
@@ -158,6 +159,8 @@ export async function createServices(
       // the times of renders older than they are kept one by one become figures per model and day
       .then(async () => fold(db, (await readSettings(db)).renderHistoryDays))
       .catch((err) => console.warn("[sweep]", (err as Error).message));
+  // what the items made before 0075_kept_bytes keep beside their file, counted in their sizes: read once, in the background
+  void fillKeptBytes(db, storage).catch((err) => console.warn("[kept bytes]", (err as Error).message));
   const sweeper = setInterval(runSweep, 60 * 60_000);
   sweeper.unref();
   const swept = runSweep();

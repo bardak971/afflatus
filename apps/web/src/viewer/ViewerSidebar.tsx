@@ -554,6 +554,7 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
             {g?.resolved.overlap?.headMs ? <Row label="Head overlap" help="The first seconds repeat the end of the previous clip. A timeline skips them.">{(g.resolved.overlap.headMs / 1000).toFixed(1)} s</Row> : null}
             {g?.resolved.overlap?.tailMs ? <Row label="Tail overlap" help="The last seconds repeat the start of the next clip. A timeline skips them.">{(g.resolved.overlap.tailMs / 1000).toFixed(1)} s</Row> : null}
             <Row label="File">{FORMATS[a.mime] ?? a.mime}, {size(a.bytes)}</Row>
+            {a.keptBytes ? <Row label="Kept with it" help="The latent (H3) and the model's own frames, kept for the clips that continue it and for the finish. Counted in the sizes of its folder and project, and erased with it.">{size(a.keptBytes)}</Row> : null}
             {a.path && <Row label={a.inBin ? "Was at" : "Path"}><span className="font-mono text-xs break-all">{a.path}</span></Row>}
             <Row label="Created">{made.toLocaleDateString(UI_LOCALE, { day: "numeric", month: "long", year: "numeric" })} at {hourMinute(made)} ({when(a.createdAt)})</Row>
             {g && <Row label="Render time">{took(g.tookMs)}</Row>}

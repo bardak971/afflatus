@@ -4,6 +4,7 @@ import type { InputSpec } from "@afflatus/core";
 import { z } from "zod";
 import { NOT_IN_LIBRARY } from "./library";
 import { OWNER, type Db, type Tables } from "./db";
+import { SPACE, spaceOf } from "./media";
 import { httpError } from "./errors";
 import { fitsOf, type Asked } from "./forecasts-api";
 import { promptHistory } from "./promptHistory";
@@ -40,7 +41,7 @@ const NAMED = 100;
 /** The items a search of the bar answers with, at most: it shows 50, the best of them. */
 const FOUND = 200;
 /** The columns of an item the bar shows. */
-const ITEM = ["id", "name", "kind", "folder_id", "width", "height", "duration_ms", "bytes", "thumb_key", "created_at", "deleted_at"] as const;
+const ITEM = ["id", "name", "kind", "folder_id", "width", "height", "duration_ms", "bytes", "kept_bytes", "thumb_key", "created_at", "deleted_at"] as const;
 type ItemRow = Pick<Tables["assets"], (typeof ITEM)[number]>;
 
 /**
@@ -62,7 +63,7 @@ async function placesOf(db: Db) {
   /** An item as the bar lists it; one in the bin is found (to be put back), marked. */
   const itemEntry = (a: ItemRow): Extract<CommandEntry, { kind: "asset" }> => ({
     kind: "asset", id: a.id, label: a.name.trim() || UNNAMED[a.kind], project: projectOfFolder(a.folder_id), folder: folderOf(a.folder_id), updatedAt: a.deleted_at ?? a.created_at,
-    assetKind: a.kind, width: a.width, height: a.height, durationMs: a.duration_ms, bytes: Number(a.bytes), hasThumb: a.thumb_key !== null, ...(a.deleted_at ? { inBin: true as const } : {}),
+    assetKind: a.kind, width: a.width, height: a.height, durationMs: a.duration_ms, bytes: spaceOf(a), hasThumb: a.thumb_key !== null, ...(a.deleted_at ? { inBin: true as const } : {}),
   });
   return { projects, folders, projectOf, roots, folderOf, projectOfFolder, itemEntry };
 }
@@ -80,7 +81,7 @@ export async function commandIndex(s: Services, opts: { items?: string[] } = {})
   const [places, sums, newest, asked, drafts, renders, leaves, unused, workflows, kit] = await Promise.all([
     placesOf(db),
     // the library's items (not in the bin, as the library counts them) by folder; the loose ones under null
-    db.selectFrom("assets").select((eb) => ["folder_id", eb.fn.countAll().as("n"), eb.fn.sum<number>("bytes").as("b")])
+    db.selectFrom("assets").select((eb) => ["folder_id", eb.fn.countAll().as("n"), eb.fn.sum<number>(SPACE).as("b")])
       .where("deleted_at", "is", null).where("origin", "not in", NOT_IN_LIBRARY).groupBy("folder_id").execute(),
     db.selectFrom("assets").select(ITEM).where("deleted_at", "is", null).where("origin", "not in", NOT_IN_LIBRARY).orderBy("created_at", "desc").orderBy("id", "desc").limit(NEWEST).execute(),
     named.length ? db.selectFrom("assets").select(ITEM).where("id", "in", named).where("origin", "not in", NOT_IN_LIBRARY).execute() : Promise.resolve([]),

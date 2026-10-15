@@ -8,6 +8,8 @@ export interface Asset {
   name: string;
   mime: string;
   bytes: number;
+  /** What it keeps on the disk beside its file: an H3 clip's latents, the model's own frames of a video changed after (spaceOf). */
+  keptBytes?: number;
   width: number | null;
   height: number | null;
   durationMs: number | null;
