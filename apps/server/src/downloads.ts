@@ -62,6 +62,11 @@ export interface DownloadView {
   note?: string;
   /** Its failure was read (the banner dismissed): a page opened later does not announce it again. */
   seen?: boolean;
+  /**
+   * A pod's file that its node pack says it has already (409): not a failure for the user. The pod's files (podFiles.ts)
+   * read it and confirm the file there; the list the page reads leaves it out (no red banner after a restart of Afflatus).
+   */
+  quiet?: boolean;
   /** The ComfyUI it goes to (settings.ts machines, by id), when it was asked for one. */
   machine?: string;
   /** Failed or stopped and askable again as first asked: set by the route that lists them (downloads-api.ts), never here. */
@@ -261,8 +266,8 @@ export class Downloads {
 
   /** What the browser is told of a download: never its source, its key or its one-time address. */
   private view(d: Download): DownloadView {
-    const { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine } = d;
-    const all: DownloadView = { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine };
+    const { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine, quiet } = d;
+    const all: DownloadView = { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine, quiet };
     for (const k of Object.keys(all) as Array<keyof DownloadView>) if (all[k] === undefined) delete all[k];
     return all;
   }
@@ -296,6 +301,12 @@ export class Downloads {
     d.finishedAt = Date.now();
     delete d.waiting;
     delete d.note;
+    if (d.machine && /\(409: that file is there already/.test(error)) {
+      d.quiet = true;
+      d.seen = true;
+      console.log(`[downloads] ${d.file} (${d.folder}) is on ${d.machine} already, or coming there`);
+      return this.tell(true);
+    }
     // in the server's log too: a failure is read there when nobody had a page open
     console.warn(`[downloads] ${d.file} (${d.folder}, via ${d.via ?? "?"}) failed: ${error}`);
     this.tell(true);
@@ -313,7 +324,7 @@ export class Downloads {
     for (const [id, d] of this.all) if (!stillListed(d, now)) this.all.delete(id);
     this.past = this.past.filter((k) => stillListed(k, now));
     const strip = ({ finishedAt: _f, ...view }: Kept): DownloadView => view;
-    return [...[...this.all.values()].reverse().map((d) => this.view(d)), ...this.past.slice().reverse().map(strip)];
+    return [...[...this.all.values()].reverse().map((d) => this.view(d)), ...this.past.slice().reverse().map(strip)].filter((d) => !d.quiet);
   }
 
   /** Its failure was read: kept on the list (and in the file the list is kept in), no longer announced. */

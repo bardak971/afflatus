@@ -189,8 +189,20 @@ function wanPasses(g: GraphBuilder, ctx: BuildContext, input: WanVideo, models: 
   return { sampled: second, passes, steps };
 }
 
+/**
+ * Turbo's two LoRAs, when Turbo is on and the model picked is not made for a few steps (modelsOf): without them on the
+ * machine the clip would take the full steps, as if Turbo were off (a pod was never sent them: 20 steps for 4, 2026-10-15).
+ */
+const turboNeeds = (input: WanVideo): string[] => {
+  if (!input.fast) return [];
+  const name = input.model?.split(/[\\/]/).pop() ?? "";
+  if (input.turboIn === "Yes" || (input.turboIn !== "No" && namedTurbo.test(name))) return [];
+  return uses(input).words ? ["t2vTurboHigh", "t2vTurboLow"] : ["i2vTurboHigh", "i2vTurboLow"];
+};
+
 export const wanVideo = defineRecipe<WanVideo>({
   id: "wan.video",
+  needsWith: turboNeeds,
   family: "wan",
   version: 1,
   title: "Video",
