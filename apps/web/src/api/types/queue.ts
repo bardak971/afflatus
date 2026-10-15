@@ -61,6 +61,13 @@ export interface MachineLack {
   why?: string;
 }
 
+/** A pod's disk as its node pack last said it (0.19.0 on): the bytes free and in all. */
+export interface PodDisk {
+  free: number;
+  total: number;
+  at: number;
+}
+
 /** A model file a rented pod is getting: for a job that waits for it ("need"), or for later ("ahead"). */
 export interface PodFile {
   file: string;
@@ -495,6 +502,8 @@ export interface RentedState {
   files: PodFile[];
   /** The node packs it gets for its jobs (through its ComfyUI-Manager, then a restart of its ComfyUI). */
   packs: PodPack[];
+  /** Its disk as its node pack last said it (0.19.0 on); null: not known (not read yet, or an older pack). */
+  disk: PodDisk | null;
 }
 
 /** A node pack a rented pod gets for its waiting jobs. */

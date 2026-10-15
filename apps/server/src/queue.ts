@@ -122,6 +122,8 @@ type Able = { can: Set<string>; lacks: Record<string, Lack>; fetch: Record<strin
 export interface PodFetch {
   /** Why these files (or node packs) cannot come to that machine: one of them failed there already. Null: they can. */
   failed(machine: string, files: Lack["files"], packs?: string[]): string | null;
+  /** Why these files do not fit on that pod's disk, beside what it could delete when it makes room; null: they fit, or it is not known. */
+  short(machine: string, files: Lack["files"]): Promise<string | null>;
   /** How long until these files (and node packs) are on that machine (ms): what is left of each, at the slow end of the speeds measured. */
   untilThere(machine: string, files: Lack["files"], packs?: string[]): Promise<number>;
   /** Have them sent: for a job that will run there ("need"), or for one that went elsewhere this time ("ahead": files only, never packs, which restart its ComfyUI). */
@@ -133,8 +135,9 @@ export interface PodFetch {
 }
 
 /** A rented pod's files as the queue reads them, from podFiles.ts. */
-export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding">): PodFetch {
+export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "short" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding">): PodFetch {
   return {
+    short: (machine, list) => files.short(machine, list),
     failed: (machine, list, packs = []) => list.map((f) => files.failed(machine, f.folder, f.file)).find((why) => why !== null) ?? files.failedPacks(machine, packs),
     untilThere: (machine, list, packs) => files.untilThere(machine, list, packs),
     want: (machine, list, tier, job, packs) => {
@@ -997,7 +1000,10 @@ ${JSON.stringify(input)}`;
         const lack = (lanes.length > 1 || lane.machine!.rented) && scan?.comfy.online ? lackOn(recipe, input, scan, settings, machines.get(lane.id) ?? lane.machine!, familyOf) : null;
         // a pod that lacks only files it can be sent: it can run the job once they came, their time to come part of what the
         // balance must last
-        const sendable = Boolean(lack?.sendable && lane.machine!.rented && this.podFetch && !this.podFetch.failed(lane.id, lack.files, lack.packs));
+        const fits = Boolean(lack?.sendable && lane.machine!.rented && this.podFetch && !this.podFetch.failed(lane.id, lack.files, lack.packs));
+        // files that do not fit on its disk (beside what it could delete): the job goes elsewhere, and its row says why
+        const short = fits ? await this.podFetch!.short(lane.id, lack!.files) : null;
+        const sendable = fits && !short;
         const fetchMs = sendable ? await this.podFetch!.untilThere(lane.id, lack!.files, lack!.packs) : 0;
         const balance = await this.balanceLack(r, lane, fetchMs);
         if (lack && !balance && sendable) {
@@ -1005,7 +1011,7 @@ ${JSON.stringify(input)}`;
           fetch[lane.id] = { files: lack.files, ...(lack.packs ? { packs: lack.packs } : {}), ms: fetchMs };
           return;
         }
-        const failed = lack?.sendable && lane.machine!.rented && this.podFetch ? this.podFetch.failed(lane.id, lack.files, lack.packs) : null;
+        const failed = short ?? (lack?.sendable && lane.machine!.rented && this.podFetch ? this.podFetch.failed(lane.id, lack.files, lack.packs) : null);
         if (lack || balance) lacks[lane.id] = { ...(lack ?? { off: false, files: [], sendable: false }), ...(balance ? { balance } : {}), ...(failed ? { failed } : {}) };
         else can.add(lane.id);
       }));

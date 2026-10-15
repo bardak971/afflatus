@@ -101,6 +101,11 @@ export const rentedSchema = z.object({
   files: z.array(presetFileSchema).max(300).default([]),
   /** The files its deploy left out (unticked): its jobs that use one stay elsewhere. Handed at its first answer, then emptied. */
   leaveOut: z.array(z.strictObject({ file: z.string().max(400), folder: z.string().max(120) })).max(300).default([]),
+  /**
+   * Make room: when a file its jobs need does not fit on its disk, the models Afflatus fetched there that no waiting job needs
+   * are deleted first, the longest unused first (podFiles.ts). Never a file Afflatus did not fetch. Off: such a job goes elsewhere.
+   */
+  makeRoom: z.boolean().default(false),
 });
 
 /** What a GPU is deployed with (Settings › Rented GPUs › Deploy a GPU): the dialog's choices. */
@@ -123,6 +128,8 @@ export const deploySchema = z.object({
   files: z.array(presetFileSchema).max(300).default([]),
   /** The waiting jobs' files unticked: those jobs stay elsewhere. Not remembered. */
   leaveOut: z.array(z.strictObject({ file: z.string().max(400), folder: z.string().max(120) })).max(300).default([]),
+  /** Make room on its disk by deleting the models it fetched that no waiting job needs (rentedSchema.makeRoom). */
+  makeRoom: z.boolean().default(true),
   /** The presets whose licence was accepted in the dialog, by id. Not remembered. */
   accept: z.array(z.string().max(120)).max(40).default([]),
   /** Deploy again: nothing was ticked, the remembered set's files come (deployModels.ts deployFiles). Not remembered. */

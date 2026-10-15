@@ -380,3 +380,59 @@ def test_a_missing_model_folder_is_made_where_its_parent_can_be_written(tmp_path
     Paths.folder_names_and_paths["vae"] = ([str(tmp_path / "nowhere" / "vae")], set())
     assert downloads.model_dir("vae", Paths()) is None
     assert not (tmp_path / "nowhere").exists()
+
+
+def test_a_full_disk_is_said_at_once_and_not_tried_again(tmp_path, site, monkeypatch):
+    # no room for what is left of the file: refused before a byte of it is written, one request only
+    s = site()
+    monkeypatch.setattr(downloads.shutil, "disk_usage", lambda path: types.SimpleNamespace(free=SIZE // 2, total=10 * SIZE, used=0))
+    job = _fetch(tmp_path, s.url)
+    assert job.state == "error" and job.error.startswith("the disk is full")
+    assert len(s.asked) == 1
+    assert os.listdir(tmp_path / "loras") == []
+
+
+def test_a_write_that_finds_the_disk_full_is_not_tried_again(tmp_path, site, monkeypatch):
+    s = site()
+    real = open
+
+    def full(path, mode="r", *a, **kw):
+        if str(path).endswith(".part") and "b" in mode and ("w" in mode or "a" in mode):
+            raise OSError(downloads.errno.ENOSPC, "No space left on device")
+        return real(path, mode, *a, **kw)
+
+    monkeypatch.setattr("builtins.open", full)
+    job = _fetch(tmp_path, s.url)
+    assert job.state == "error" and "the disk is full" in job.error
+    assert len(s.asked) == 1
+
+
+def test_the_room_counts_what_other_downloads_still_write(tmp_path, site, monkeypatch):
+    s = site()
+    monkeypatch.setattr(downloads.shutil, "disk_usage", lambda path: types.SimpleNamespace(free=SIZE + SIZE // 2, total=10 * SIZE, used=0))
+    job = Job(s.url, str(tmp_path / "loras" / "model.safetensors"))
+    job.reserved = lambda: SIZE
+    run(job, backoff=0.01)
+    assert job.state == "error" and "kept for other downloads" in job.error
+
+
+def test_the_disk_is_said_and_a_model_file_removed_only_from_a_model_folder(tmp_path):
+    found, routes, web = _routes()
+    fp = _FolderPaths(str(tmp_path))
+    fp.models_dir = str(tmp_path)
+    downloads.register(routes, web, fp)
+    disk, remove = found[("GET", "/afflatus/disk")], found[("POST", "/afflatus/models/remove")]
+    said = asyncio.run(disk(_Request())).body
+    assert said["free"] > 0 and said["total"] >= said["free"] and said["downloading"] == 0
+
+    (tmp_path / "loras" / "wan").mkdir()
+    (tmp_path / "loras" / "wan" / "a.safetensors").write_bytes(b"x" * 1000)
+    (tmp_path / "custom_nodes" / "b.safetensors").write_bytes(b"x")
+    gone = asyncio.run(remove(_Request({"folder": "loras", "filename": "wan/a.safetensors"})))
+    assert gone.status == 200 and gone.body == {"removed": 1000}
+    assert not (tmp_path / "loras" / "wan" / "a.safetensors").exists()
+    assert asyncio.run(remove(_Request({"folder": "loras", "filename": "wan/a.safetensors"}))).status == 404
+    for folder, name in (("custom_nodes", "b.safetensors"), ("loras", "../custom_nodes/b.safetensors"), ("loras", "run.py"), ("nowhere", "a.safetensors")):
+        assert asyncio.run(remove(_Request({"folder": folder, "filename": name}))).status == 400
+    assert (tmp_path / "custom_nodes" / "b.safetensors").exists()
+    assert asyncio.run(remove(_Request("{}", content_type="text/plain"))).status == 415

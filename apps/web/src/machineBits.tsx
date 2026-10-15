@@ -1,4 +1,4 @@
-import type { MachineState, PodFile } from "./api";
+import type { MachineState, PodDisk, PodFile } from "./api";
 import { gb, plural, usd } from "./format";
 import { rentedSaid, rentedSpent, rentedUp } from "./machines";
 import { Progress } from "./progress/Progress";
@@ -9,23 +9,32 @@ import { cx } from "./ui";
 
 /**
  * The files a rented pod is getting for the jobs that wait for it (those asked ahead are not waited for), null when there
- * are none: how many are left, the bytes in and in all, and the file under way (else the next).
+ * are none: how many are left, the bytes in and in all, and the file under way (else the next). `share` is null while a file
+ * left has no size yet (a source that does not say it): the bytes in are said then, never a share that would read as done.
  */
-export function gettingFiles(m: MachineState): { left: PodFile[]; done: number; total: number; share: number; now: PodFile } | null {
+export function gettingFiles(m: MachineState): { left: PodFile[]; done: number; total: number; share: number | null; now: PodFile } | null {
   const files = (m.rented?.files ?? []).filter((f) => f.tier === "need");
   const left = files.filter((f) => f.state === "next" || f.state === "fetching");
   if (!left.length) return null;
   const done = files.reduce((n, f) => n + (f.state === "ready" ? f.total : f.bytes), 0);
   const total = files.reduce((n, f) => n + f.total, 0);
-  return { left, done, total, share: total > 0 ? Math.min(1, done / total) : 0, now: left.find((f) => f.state === "fetching") ?? left[0]! };
+  const known = left.every((f) => f.total > 0);
+  return { left, done, total, share: known && total > 0 ? Math.min(1, done / total) : null, now: left.find((f) => f.state === "fetching") ?? left[0]! };
 }
+
+/** How far, in a few characters: the share, or the bytes in while a size is not known. */
+export const filesSaid = (g: NonNullable<ReturnType<typeof gettingFiles>>) => (g.share === null ? `${gb(g.done)} in` : `${Math.floor(g.share * 100)} %`);
+
+/** A pod's disk in use of all of it ("92.1/120.0 GB"), and whether it is nearly full (90 % on: said in amber). */
+export const diskSaid = (d: PodDisk) => `${gb(d.total - d.free).replace(" GB", "")}/${gb(d.total)}`;
+export const diskNearlyFull = (d: PodDisk) => d.total > 0 && (d.total - d.free) / d.total >= 0.9;
 
 /** Where a pod's file comes from, as its line says it. */
 export const fromSaid = (via: PodFile["via"]) => (via === "hf" ? "Hugging Face" : via === "civitai" ? "Civitai" : via === "upload" ? "this PC" : via === "url" ? "its address" : "");
 
 /** Every file a pod is getting, a line each, for a tip: its name, how far, where from. */
 export const filesTip = (label: string, g: NonNullable<ReturnType<typeof gettingFiles>>) =>
-  `${label}: getting ${plural(g.left.length, "file")} for its jobs${g.total ? `, ${gb(g.done)} of ${gb(g.total)}` : ""}\n${g.left
+  `${label}: getting ${plural(g.left.length, "file")} for its jobs, ${g.share === null ? `${gb(g.done)} in` : `${gb(g.done)} of ${gb(g.total)}`}\n${g.left
     .map((f) => `${f.state === "fetching" ? "now" : "next"}: ${f.file}${f.total ? ` · ${gb(f.total)}` : ""}${f.via ? ` · from ${fromSaid(f.via)}` : ""}`)
     .join("\n")}`;
 
@@ -34,8 +43,8 @@ export function FilesLine({ g }: { g: NonNullable<ReturnType<typeof gettingFiles
   return (
     <span className="flex min-w-0 flex-col gap-1">
       <span className="flex items-center gap-2">
-        <Progress value={g.share} className="h-1.5 grow" under="bg-line" label="Files fetched" />
-        {g.total > 0 && <span className="shrink-0 font-mono text-[11.5px] text-ink-2">{gb(g.done)} of {gb(g.total)}</span>}
+        <Progress value={g.share ?? 0} loading={g.share === null} className="h-1.5 grow" under="bg-line" label="Files fetched" />
+        <span className="shrink-0 font-mono text-[11.5px] text-ink-2">{g.share === null ? `${gb(g.done)} in` : `${gb(g.done)} of ${gb(g.total)}`}</span>
       </span>
       <span className="truncate text-[11.5px] text-ink-2">{g.now.state === "fetching" ? "now" : "next"}: {g.now.file}{g.now.via ? ` · from ${fromSaid(g.now.via)}` : ""}</span>
     </span>
@@ -43,12 +52,13 @@ export function FilesLine({ g }: { g: NonNullable<ReturnType<typeof gettingFiles
 }
 
 /** A ring round a machine's dot that fills as its files come in: on its idle dot, or round its filled one while it renders. */
-function FilesRing({ share, running }: { share: number; running: boolean }) {
+function FilesRing({ share, running }: { share: number | null; running: boolean }) {
   const round = 2 * Math.PI * 4;
+  // a size not known: a quarter that turns, not a share
   return (
-    <svg aria-hidden width="11" height="11" viewBox="0 0 11 11" className="shrink-0">
+    <svg aria-hidden width="11" height="11" viewBox="0 0 11 11" className={cx("shrink-0", share === null && "motion-safe:animate-spin")}>
       <circle cx="5.5" cy="5.5" r="4" fill={running ? "currentColor" : "none"} strokeWidth="1.8" className={running ? "text-accent stroke-accent" : "stroke-line-strong"} />
-      <circle cx="5.5" cy="5.5" r="4" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeDasharray={`${Math.max(0.6, share * round)} ${round}`} transform="rotate(-90 5.5 5.5)" className={running ? "stroke-ink" : "stroke-accent"} />
+      <circle cx="5.5" cy="5.5" r="4" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeDasharray={`${Math.max(0.6, (share ?? 0.25) * round)} ${round}`} transform="rotate(-90 5.5 5.5)" className={running ? "stroke-ink" : "stroke-accent"} />
     </svg>
   );
 }

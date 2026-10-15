@@ -1,14 +1,14 @@
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, MoreHorizontal, Pause, Play } from "lucide-react";
 import { Progress } from "../../progress/Progress";
-import { previewUrl, type MachineState, type QueueStatus, type RunningJob, type SystemLoad } from "../../api";
+import { previewUrl, type MachineState, type PodDisk, type QueueStatus, type RunningJob, type SystemLoad } from "../../api";
 import { useMenu } from "../../ContextMenu";
 import { gb, phaseLabel, plural, timeLeft } from "../../format";
 import { machineLabel } from "../../machines";
 import { useQueueOps } from "../../queueOps";
 import { useSystem } from "../../store";
 import { cx } from "../../ui";
-import { FilesLine, gettingFiles } from "../../machineBits";
+import { diskNearlyFull, diskSaid, FilesLine, gettingFiles } from "../../machineBits";
 import { RunningCard } from "./RunningCard";
 
 const MachineMenuBody = lazy(() => import("../../MachineMenu").then((m) => ({ default: m.MachineMenuBody })));
@@ -205,8 +205,8 @@ function Tile({ label, value, bar, fill, note }: { label: string; value: string;
   );
 }
 
-/** A machine's meters as tiles: GPU, VRAM (in use of all of it), RAM, CPU, the GPU's temperature, and its learned pace against the fastest. */
-function MeterTiles({ load, rendering, pace, fastest }: { load: SystemLoad | null | undefined; rendering: boolean; pace: number | null; fastest: number | null }) {
+/** A machine's meters as tiles: GPU, VRAM (in use of all of it), RAM, CPU, the GPU's temperature, a pod's disk, and its learned pace against the fastest. */
+function MeterTiles({ load, rendering, pace, fastest, disk }: { load: SystemLoad | null | undefined; rendering: boolean; pace: number | null; fastest: number | null; disk: PodDisk | null }) {
   const gpu = load?.gpus[0];
   const tiles: ReactNode[] = [];
   if (gpu?.load !== undefined) tiles.push(<Tile key="gpu" label="GPU" value={`${Math.round(gpu.load)}%`} bar={gpu.load} fill={rendering ? "bg-accent" : "bg-ink-2"} />);
@@ -214,6 +214,7 @@ function MeterTiles({ load, rendering, pace, fastest }: { load: SystemLoad | nul
   if (load?.ram) tiles.push(<Tile key="ram" label="RAM" value={`${Math.round(load.ram.percent)}%`} bar={load.ram.percent} fill="bg-ink-3" />);
   if (load?.cpu !== undefined) tiles.push(<Tile key="cpu" label="CPU" value={`${Math.round(load.cpu)}%`} bar={load.cpu} fill="bg-ink-3" />);
   if (gpu?.temperature !== undefined) tiles.push(<Tile key="temp" label="GPU temp" value={`${Math.round(gpu.temperature)}°`} bar={gpu.temperature} fill={gpu.temperature >= 80 ? "bg-warn" : "bg-ink-3"} />);
+  if (disk) tiles.push(<Tile key="disk" label="Disk" value={diskSaid(disk)} bar={disk.total ? ((disk.total - disk.free) / disk.total) * 100 : 0} fill={diskNearlyFull(disk) ? "bg-warn" : "bg-ink-3"} />);
   const relative = pace !== null && fastest ? pace / fastest : null;
   tiles.push(<Tile key="pace" label="Pace" value={relative === null ? "—" : `×${relative.toFixed(1)}`} note={relative === null ? "nothing to compare yet" : relative < 1.05 ? "the fastest here" : "vs the fastest"} />);
   return <div className="grid content-start grid-cols-3 gap-1.5">{tiles}</div>;
@@ -247,7 +248,7 @@ function OpenLane({ m, fastest, onStop, onPin, onFold }: { m: MachineState; fast
             )}
           </div>
         )}
-        <MeterTiles load={load} rendering={state === "rendering"} pace={m.pace} fastest={fastest} />
+        <MeterTiles load={load} rendering={state === "rendering"} pace={m.pace} fastest={fastest} disk={m.rented?.disk ?? null} />
       </div>
       {menuNode}
     </section>

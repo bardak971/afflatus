@@ -67,6 +67,19 @@ interface Entry extends PodFileView {
   /** Put back in line after a passing failure (ComfyUI not answering, its line full): how many times, and not before when. */
   tries?: number;
   notBefore?: number;
+  /** Afflatus put it there (downloaded or sent), not found there: only such a file is ever deleted to make room. */
+  fetched?: boolean;
+  /** When a job last asked for it, or it came: the longest unused goes first when room is made. */
+  usedAt?: number;
+  /** Put back in line once already because the disk was full (diskFull): a second time, it fails. */
+  roomTried?: boolean;
+}
+
+/** A pod's disk as its node pack said it (0.19.0 on): the bytes free and in all, and when it was read. */
+export interface PodDisk {
+  free: number;
+  total: number;
+  at: number;
 }
 
 export interface PodFilesDeps {
@@ -86,6 +99,8 @@ export interface PodFilesDeps {
   changed?(): void;
   /** A file came to a pod, or failed there: what lists the pod's files is read again, and the queue looks at its jobs again. */
   settled?(machine: string): void;
+  /** Whether the pod makes room on its disk (its Make room, rentedSchema.makeRoom): the models it fetched that no waiting job needs are deleted. */
+  makesRoom?(machine: string): Promise<boolean>;
 }
 
 /**
@@ -111,6 +126,16 @@ const PASSING = /not answering|cannot be reached|no longer knows the download|di
 /** How many times a passing failure puts a file back in line before it is failed, and the first wait (doubled each time). */
 const TRIES = 4;
 const RETRY_MS = 15_000;
+/**
+ * A disk that is full, as the node pack says it (downloads.py: a write that found no room, a file that does not fit beside
+ * the downloads under way; uploads.py and a download asked for with its size: 507). It stays full: never asked again as is.
+ */
+const DISK_FULL = /disk is full|no space left|\(507[:)]/i;
+/** Room kept free on a pod's disk beside its models: ComfyUI's outputs, its temporary files, the pack's .part files. */
+const DISK_MARGIN = 2 * 2 ** 30;
+/** How often a pod's disk is read again (GET /afflatus/disk): its row says it, and a file is held against it before it starts. */
+const DISK_EVERY_MS = 15_000;
+const gbSaid = (bytes: number) => `${(bytes / 2 ** 30).toFixed(1)} GB`;
 const keyOf = (folder: string, file: string) => `${folder}|${fileName(file).toLowerCase()}`;
 
 export class PodFiles {
@@ -121,6 +146,130 @@ export class PodFiles {
   measuredFrom = MEASURED_FROM;
   /** The first wait before an upload's piece is sent again (shorter in tests). */
   uploadBackoffMs = 2000;
+  /** How old a disk read may be when a file is held against it before it starts (0 in tests). */
+  diskFreshMs = 5_000;
+  /** Each pod's disk as last read; null: its node pack is too old to say (before 0.19.0). */
+  private readonly disks = new Map<string, PodDisk | null>();
+  private readonly diskReads = new Map<string, Promise<PodDisk | null>>();
+  /** Each pod's Make room, as last read (with its disk, and before room is looked for). */
+  private readonly making = new Map<string, boolean>();
+  private makes(machine: string): boolean {
+    return this.making.get(machine) ?? false;
+  }
+  private async readMakes(machine: string): Promise<boolean> {
+    const makes = (await this.d.makesRoom?.(machine).catch(() => false)) ?? false;
+    this.making.set(machine, makes);
+    return makes;
+  }
+
+  /** A pod's disk as last read, for its row: null while not known (not read yet, or a node pack too old to say). */
+  diskOf(machine: string): PodDisk | null {
+    return this.disks.get(machine) ?? null;
+  }
+
+  /** Its disk, read again when the last read is older than `fresh` ms (one read at a time). */
+  private disk(machine: string, fresh = DISK_EVERY_MS): Promise<PodDisk | null> {
+    const kept = this.disks.get(machine);
+    if (kept === null || (kept && Date.now() - kept.at < fresh)) return Promise.resolve(kept);
+    let reading = this.diskReads.get(machine);
+    if (!reading) {
+      reading = (async () => {
+        const comfy = await this.d.comfyOf(machine).catch(() => null);
+        const got = comfy ? await comfy.client.disk().catch(() => null) : null;
+        await this.readMakes(machine);
+        // an older pack: nothing to read, nothing held against its files (its own 507 still refuses a file larger than its room)
+        if (got === "absent") this.disks.set(machine, null);
+        else if (got) {
+          const was = this.disks.get(machine);
+          this.disks.set(machine, { free: got.free, total: got.total, at: Date.now() });
+          if (!was || Math.abs(was.free - got.free) > 2 ** 28) this.d.changed?.();
+        }
+        return this.disks.get(machine) ?? null;
+      })().finally(() => this.diskReads.delete(machine));
+      this.diskReads.set(machine, reading);
+    }
+    return reading;
+  }
+
+  /** What the files under way on a pod still have to write: room its free bytes do not have for anything else. */
+  private underway(machine: string, but?: Entry): number {
+    return this.ordered(machine).filter((e) => e !== but && e.state === "fetching").reduce((n, e) => n + Math.max(0, e.total - e.bytes), 0);
+  }
+
+  /**
+   * The files Afflatus fetched onto a pod that no job waiting or running needs (nor one of `keep`), the longest unused first:
+   * what Make room deletes. Never a file the pod had before (its image's, its volume's).
+   */
+  private async spare(machine: string, keep: Set<string> = new Set()): Promise<Entry[]> {
+    const ready = this.ordered(machine).filter((e) => e.state === "ready" && e.fetched && !keep.has(keyOf(e.folder, e.file)));
+    const ids = [...new Set(ready.flatMap((e) => e.jobs))];
+    const active = new Set(ids.length ? (await this.d.db.selectFrom("jobs").select("id").where("id", "in", ids).where("status", "in", ["queued", "running"]).execute()).map((j) => j.id) : []);
+    // a file a waiting job of this pod still needs (one that wants it next) is kept too
+    const wanted = new Set(this.ordered(machine).filter((e) => e.state !== "ready" && e.state !== "failed").map((e) => keyOf(e.folder, e.file)));
+    return ready.filter((e) => !e.jobs.some((j) => active.has(j)) && !wanted.has(keyOf(e.folder, e.file))).sort((a, b) => (a.usedAt ?? 0) - (b.usedAt ?? 0));
+  }
+
+  /**
+   * Room on the pod's disk for `bytes` more, beside the files under way and the margin: made by deleting what it fetched and
+   * no job needs (`spare`) when the pod makes room. Null when there is room (or its disk cannot be read: the pack still
+   * refuses what does not fit), else why there is none, for the file's or the job's line.
+   */
+  private async roomFor(machine: string, bytes: number, but?: Entry, mayDelete = true): Promise<string | null> {
+    const disk = await this.disk(machine, this.diskFreshMs);
+    if (!disk) return null;
+    const room = () => this.disks.get(machine)!.free - this.underway(machine, but) - DISK_MARGIN;
+    if (room() >= bytes) return null;
+    const makes = await this.readMakes(machine);
+    if (makes && mayDelete) {
+      const comfy = await this.d.comfyOf(machine).catch(() => null);
+      for (const e of comfy ? await this.spare(machine, but ? new Set([keyOf(but.folder, but.file)]) : undefined) : []) {
+        if (room() >= bytes) break;
+        const removed = await comfy!.client.removeModel(e.folder, e.file).catch((err: Error) => {
+          console.warn(`[pod files] ${e.file} not removed from ${machine}: ${err.message}`);
+          return null;
+        });
+        if (removed === null) continue;
+        this.pods.get(machine)?.delete(keyOf(e.folder, e.file));
+        console.log(`[pod files] ${e.file} (${gbSaid(removed)}) removed from ${machine} to make room`);
+        const d = this.disks.get(machine)!;
+        this.disks.set(machine, { ...d, free: d.free + removed });
+        this.d.settled?.(machine);
+        this.d.changed?.();
+      }
+      // what the disk says now, not what was added up
+      this.disks.set(machine, { ...this.disks.get(machine)!, at: 0 });
+      await this.disk(machine, 0);
+      if (room() >= bytes) return null;
+    }
+    const free = Math.max(0, this.disks.get(machine)!.free - this.underway(machine, but));
+    return `the pod's disk is full: ${gbSaid(free)} free, ${gbSaid(bytes)} needed${makes ? ", and nothing it fetched can be deleted (its waiting jobs need it)" : " (Make room is off)"}`;
+  }
+
+  /**
+   * Whether these files fit on the pod's disk, for the queue before it sends a job there: the ones not there yet, of the
+   * sizes known, against its free bytes and (when it makes room) what it could delete. Null: they fit, or it is not known.
+   */
+  async short(machine: string, files: PodFileWant[]): Promise<string | null> {
+    const disk = this.disks.get(machine);
+    void this.disk(machine);
+    if (!disk) return null;
+    const keys = new Set(files.map((f) => keyOf(f.folder, f.file)));
+    await this.readMakes(machine);
+    let need = 0;
+    for (const f of files) {
+      const e = this.pods.get(machine)?.get(keyOf(f.folder, f.file));
+      if (e?.state === "ready") continue;
+      if (e?.state === "fetching") continue;
+      const src = e?.source !== undefined ? e.source : await this.sourceOf(f, false);
+      const size = e?.total || f.size || (src ? await this.sizeOf(f, src) : 0);
+      // a size nothing says is not held against the job: the pack refuses the file if it does not fit
+      if (size !== ASSUMED_BYTES) need += size;
+    }
+    const spare = this.makes(machine) ? (await this.spare(machine, keys)).reduce((n, e) => n + e.total, 0) : 0;
+    const room = disk.free - this.underway(machine) - DISK_MARGIN + spare;
+    if (need <= room) return null;
+    return `its disk is short: ${gbSaid(need)} to fetch, ${gbSaid(Math.max(0, disk.free - this.underway(machine)))} free${this.makes(machine) ? `, ${gbSaid(spare)} it could delete` : " (Make room is off)"}`;
+  }
 
   /** The node packs pods get for their jobs, beside the files. */
   private readonly packs: PodPacks;
@@ -232,6 +381,7 @@ export class PodFiles {
         e.jobs.push(o.job);
         changed = true;
       }
+      if (o.job) e.usedAt = Date.now();
     }
     if (changed) {
       this.d.changed?.();
@@ -383,6 +533,7 @@ export class PodFiles {
       e.upload?.abort();
     }
     this.pods.delete(machine);
+    this.disks.delete(machine);
     this.packs.forget(machine);
     this.d.changed?.();
   }
@@ -444,6 +595,25 @@ export class PodFiles {
         // asked again: a file a job waits for may have been asked for while this one's source was looked up
         if (e.tier === "ahead" && this.ordered(machine).some((o) => o.tier === "need" && o.state === "next")) continue;
         if (e.via === "upload" ? uploads >= UPLOADS_AT_ONCE : downloads >= DOWNLOADS_AT_ONCE) continue;
+        // its size known before it starts: the pack is told it (and refuses what does not fit), and it is held against the disk
+        if (!e.total) {
+          const size = await this.sizeOf(e, e.source);
+          if (size !== ASSUMED_BYTES) e.total = size;
+        }
+        if (e.total) {
+          // a file for later deletes nothing to come: left out quietly, and asked again if a job comes to need it
+          const full = await this.roomFor(machine, e.total, e, e.tier === "need");
+          if (full && e.tier === "ahead") {
+            this.pods.get(machine)?.delete(keyOf(e.folder, e.file));
+            changed = true;
+            continue;
+          }
+          if (full) {
+            this.fail(machine, e, full);
+            changed = true;
+            continue;
+          }
+        }
         if (e.via === "upload") uploads++;
         else downloads++;
         e.state = "fetching";
@@ -480,6 +650,12 @@ export class PodFiles {
       delete e.downloadId;
       void this.confirmThere(machine, e);
       return true;
+    }
+    // the disk filled up under it (or the pack refused it for want of room): never tried again as it is
+    const full = [v.status === "error" ? v.error : null, v.note].find((x) => x && DISK_FULL.test(x));
+    if (full) {
+      if (v.status !== "error") this.d.downloads.stop(e.downloadId!);
+      return this.diskFull(machine, e, full);
     }
     if (v.status === "error" && PASSING.test(v.error ?? "")) return this.retryLater(machine, e, v.error!);
     if (v.status === "error" || v.status === "stopped") return this.fail(machine, e, v.error ?? "it was stopped");
@@ -526,6 +702,7 @@ export class PodFiles {
       if (!this.current(machine, e)) return;
       const message = (err as Error).message;
       if (THERE.test(message)) await this.confirmThere(machine, e);
+      else if (DISK_FULL.test(message)) this.diskFull(machine, e, message);
       else if (PASSING.test(message)) this.retryLater(machine, e, message);
       else await this.failUnlessThere(machine, e, message);
       this.d.changed?.();
@@ -555,6 +732,7 @@ export class PodFiles {
       const message = (err as Error).message;
       if (stop.signal.aborted || !this.current(machine, e)) return;
       if (THERE.test(message)) await this.confirmThere(machine, e);
+      else if (DISK_FULL.test(message)) this.diskFull(machine, e, message);
       else if (PASSING.test(message)) this.retryLater(machine, e, message);
       else await this.failUnlessThere(machine, e, message);
     } finally {
@@ -566,6 +744,10 @@ export class PodFiles {
   /** Its file is on the pod; its speed is kept (unless it was there already). */
   private async ready(machine: string, e: Entry, measured = true): Promise<void> {
     e.state = "ready";
+    // one it brought (not one found there): the only kind Make room ever deletes
+    if (measured) e.fetched = true;
+    e.usedAt = Date.now();
+    void this.disk(machine, 0);
     if (e.total) e.bytes = e.total;
     this.d.changed?.();
     this.d.settled?.(machine);
@@ -590,6 +772,24 @@ export class PodFiles {
     if (!this.current(machine, e)) return;
     if (listed) await this.ready(machine, e, false);
     else this.fail(machine, e, error);
+  }
+
+  /**
+   * The pod's disk had no room for it: once, when the pod makes room, it is put back in line (what it fetched and no job
+   * needs is deleted before it starts again, roomFor); else it fails, and its jobs go elsewhere.
+   */
+  private diskFull(machine: string, e: Entry, why: string): true {
+    void this.disk(machine, 0);
+    if (e.tier === "need" && this.makes(machine) && !e.roomTried) {
+      e.roomTried = true;
+      e.state = "next";
+      e.bytes = 0;
+      delete e.downloadId;
+      this.d.changed?.();
+      return true;
+    }
+    const said = /^the pod's disk/.test(why) ? why : `the pod's disk is full (${why.replace(/^.*?(the disk|no space)/i, "$1").slice(0, 200)})${this.makes(machine) ? "" : "; Make room is off"}`;
+    return this.fail(machine, e, said);
   }
 
   private fail(machine: string, e: Entry, error: string): true {

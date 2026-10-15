@@ -494,3 +494,84 @@ describe("a rented pod's node packs", () => {
     }
   });
 });
+
+describe("a rented pod's disk", () => {
+  const GB2 = 2 * 2 ** 30;
+  /** The pod's files, with its pack saying its disk (0.19.0) and Make room as given. */
+  function withDisk(makesRoom: boolean) {
+    pod.packVersion = "0.19.0";
+    const comfy = new Comfy(pod.url, t.services.registry);
+    const made = new PodFiles({
+      db: t.services.db, downloads: t.services.downloads,
+      comfyOf: async () => comfy, cloudOf: async () => "SECURE", alive: () => true, busy: () => false,
+      lookup: { db: t.services.db, presets: async () => [], families: () => [], comfyDir: async () => home },
+      settings: async () => ({ civitaiKey: "", downloadModels: true, civitaiLookups: true }),
+      makesRoom: async () => makesRoom,
+    });
+    made.diskFreshMs = 0;
+    return made;
+  }
+  const settleOn = (on: PodFiles, file: string) =>
+    until(async () => {
+      await on.tick();
+      const v = on.view("pod").find((f) => f.file === file);
+      return v === undefined || v.state === "ready" || v.state === "failed";
+    });
+
+  it("fails a file that does not fit at once, said as a full disk, when the pod does not make room", async () => {
+    const on = withDisk(false);
+    pod.diskFree = GB2 + 100_000;
+    on.want("pod", [{ file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors`, size: FILE.length }], { tier: "need", job: "j1" });
+    await settleOn(on, "a.safetensors");
+    const v = on.view("pod")[0]!;
+    expect(v.state).toBe("failed");
+    expect(v.error).toMatch(/^the pod's disk is full: .* \(Make room is off\)$/);
+    expect(pod.packFetched).toEqual([]);
+    expect(on.diskOf("pod")).toMatchObject({ free: GB2 + 100_000 });
+  });
+
+  it("deletes what it fetched and no job needs, the longest unused first, to make room for a file a job needs", async () => {
+    const on = withDisk(true);
+    on.want("pod", [{ file: "old.safetensors", folder: "loras", url: `${siteUrl}/files/old.safetensors` }], { tier: "need", job: "gone-job" });
+    await settleOn(on, "old.safetensors");
+    expect(on.view("pod")[0]?.state).toBe("ready");
+    // a file the pod had before it (its image's, its volume's) is never deleted
+    writeFileSync(join(disk, "loras", "theirs.safetensors"), Buffer.alloc(300_000, 1));
+    pod.diskFree = GB2 + 100_000;
+    on.want("pod", [{ file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors`, size: FILE.length }], { tier: "need", job: "j2" });
+    await settleOn(on, "a.safetensors");
+    expect(pod.removed).toEqual(["loras/old.safetensors"]);
+    expect(existsSync(join(disk, "loras", "theirs.safetensors"))).toBe(true);
+    expect(on.view("pod").map((f) => [f.file, f.state])).toEqual([["a.safetensors", "ready"]]);
+  });
+
+  it("keeps a file a waiting job needs, and then says the disk is full", async () => {
+    const on = withDisk(true);
+    await t.services.db.insertInto("jobs").values({ id: "waits", owner_id: "local", recipe_id: "x", label: "zz-test", inputs: "{}", status: "queued", warm: 0, look: null, priority: 10, depends_on: null, attempts: 0, resume: null, error: null, generation_id: null, clip_id: null, draft_id: null, folder_id: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() } as never).execute();
+    on.want("pod", [{ file: "old.safetensors", folder: "loras", url: `${siteUrl}/files/old.safetensors` }], { tier: "need", job: "waits" });
+    await settleOn(on, "old.safetensors");
+    pod.diskFree = GB2 + 100_000;
+    on.want("pod", [{ file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors`, size: FILE.length }], { tier: "need", job: "j2" });
+    await settleOn(on, "a.safetensors");
+    expect(pod.removed).toEqual([]);
+    expect(on.view("pod").find((f) => f.file === "a.safetensors")?.error).toMatch(/nothing it fetched can be deleted/);
+  });
+
+  it("fails a file its older pack refuses for want of room, never asked again as a passing failure", async () => {
+    // a pack before 0.19.0 says no disk; it still refuses a file larger than its room (507) when told the size
+    pod.diskFree = 100_000;
+    files.want("pod", [{ file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors`, size: FILE.length }], { tier: "need", job: "j1" });
+    await settle("pod", "a.safetensors");
+    expect(files.view("pod")[0]).toMatchObject({ state: "failed", error: expect.stringMatching(/^the pod.s disk is full/) });
+  });
+
+  it("tells the queue a job's files do not fit, beside what it could delete", async () => {
+    const on = withDisk(false);
+    pod.diskFree = GB2 + 100_000;
+    await on.tick();
+    expect(await on.short("pod", [{ file: "a.safetensors", folder: "loras", size: FILE.length }])).toBeNull();
+    on.want("pod", [{ file: "x.safetensors", folder: "loras", url: `${siteUrl}/files/x.safetensors` }], { tier: "need" });
+    await until(async () => (await on.short("pod", [{ file: "a.safetensors", folder: "loras", size: FILE.length }])) !== null);
+    expect(await on.short("pod", [{ file: "a.safetensors", folder: "loras", size: FILE.length }])).toMatch(/^its disk is short: .* \(Make room is off\)$/);
+  });
+});

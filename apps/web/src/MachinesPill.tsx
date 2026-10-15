@@ -9,7 +9,7 @@ import { machineLabel, severalMachines } from "./machines";
 import { queryKeys } from "./queryKeys";
 import { useMeteredMachine, useSystem } from "./store";
 import { cx } from "./ui";
-import { Bar, busiest, doing, Dot, filesTip, gettingFiles } from "./machineBits";
+import { Bar, busiest, doing, Dot, filesSaid, filesTip, gettingFiles } from "./machineBits";
 
 // the menu is opened now and then: fetched the first time, the strip itself is in the first load
 const MachineMenuBody = lazy(() => import("./MachineMenu").then((m) => ({ default: m.MachineMenuBody })));
@@ -93,7 +93,7 @@ export function MachinesPill() {
             <span className="inline-flex shrink-0 items-center gap-1.5 font-semibold text-accent" data-tip={filesTip(machineLabel(fetching.m), fetching.g!)}>
               <Download size={12} className="shrink-0" />
               <span className="max-w-32 truncate max-[1600px]:hidden">{machineLabel(fetching.m)} · {plural(fetching.g!.left.length, "file")} ·</span>
-              <span className="font-mono">{Math.floor(fetching.g!.share * 100)} %</span>
+              <span className="font-mono">{filesSaid(fetching.g!)}</span>
             </span>
           </>
         )}
