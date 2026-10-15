@@ -140,12 +140,15 @@ function VolumeRow({ v, stock, onAct }: { v: NetworkVolume; stock: Array<{ name:
   );
 }
 
+/** The "?" of an estimate with a guess in it: a source (or a pod's start) never measured on the user's deploys. */
+const GUESS_TIP = "Part of this was never measured on your deploys (a source the files come from, or a pod's start): that part is taken at a cautious usual speed. It is measured from the first pod that fetches one, and said from then on.";
+
 /** What a volume saves at the user's pace: the deploys of the last 30 days, each fetching the sets at the measured speeds. */
 function paysSaid(plan: VolumePlan, size: number): string {
   const cost = usd(perMonth(size));
   if (!plan.deploys || !plan.fetch) return `${cost} a month. How much it saves is said once you have deployed with these sets (Afflatus measures the fetches).`;
   const n = plan.deploys;
-  return `${cost} a month. At your pace (${plural(n, "pod")} in the last 30 days) it saves ${est(plan.fetch.fastMs * n)}–${est(plan.fetch.slowMs * n).replace(/^~/, "")} of fetching a month, and ${usd(plan.fetch.lowUsd * n, true)}–${usd(plan.fetch.highUsd * n, true).replace(/^\$/, "")} of GPU time.`;
+  return `${cost} a month. At your pace (${plural(n, "pod")} in the last 30 days) it saves ${est(plan.fetch.fastMs * n)}–${est(plan.fetch.slowMs * n).replace(/^~/, "")} of fetching a month, and ${usd(plan.fetch.lowUsd * n, true)}–${usd(plan.fetch.highUsd * n, true).replace(/^\$/, "")} of GPU time${plan.fetch.guessed ? " (a guess until a pod has fetched one of each source)" : ""}.`;
 }
 
 function MakeVolume({ plan, onClose }: { plan: VolumePlan | null; onClose(): void }) {
@@ -190,7 +193,7 @@ function MakeVolume({ plan, onClose }: { plan: VolumePlan | null; onClose(): voi
           <input inputMode="numeric" aria-label="Size in GB" value={gbs} onChange={(e) => setSize(Math.min(4096, Number(e.target.value.replace(/\D/g, "")) || 0))} className={cx("h-8 w-[90px] font-mono text-xs", fieldClass)} />
           <span className="text-xs text-ink-3">GB{gbs < 10 ? " · 10 at least" : ""} · {setsBytes ? `your sets take ${gb(setsBytes)}` : "no Model set yet"} · a volume grows later, never shrinks</span>
         </label>
-        {plan && <span className="text-xs text-ink-2">{paysSaid(plan, gbs)}</span>}
+        {plan && <span className="text-xs text-ink-2" data-tip={plan.fetch?.guessed ? GUESS_TIP : undefined}>{paysSaid(plan, gbs)}</span>}
         {make.isError && <ErrorNote>{make.error.message}</ErrorNote>}
       </div>
       <DialogFoot info={`Billed every month from now, pod or not`}>
@@ -234,7 +237,7 @@ function FillVolume({ volume, onClose }: { volume: NetworkVolume; onClose(): voi
           <span className="flex flex-col gap-1 text-xs text-ink-2">
             <span>{p.missing.count ? <>To fetch: <b className="text-ink">{plural(p.missing.count, "file")}{p.missing.bytes ? `, ${gb(p.missing.bytes)}` : ""}</b>{volume.holds ? "" : " (what it holds is not known: all of the set, files already there are skipped)"}</> : "All of this set is there already, as last seen."}</span>
             {p.gpu ? <span>On the cheapest GPU in stock there: <b className="text-ink">{p.gpu.name}</b> at {usd(p.gpu.price)}/h, no render given to it, terminated once the files are in.</span> : <span className="text-warn-ink">No GPU in stock in {volume.dataCenter} now: try again in a while.</span>}
-            {p.gpu && !nothing && <span>{p.estimate ? `About ${rangeSaid(p.estimate)}, its start included, at your measured speeds.` : "How long is said once Afflatus has measured a deploy's fetches."}</span>}
+            {p.gpu && !nothing && p.estimate && <span data-tip={p.estimate.guessed ? GUESS_TIP : undefined}>{`About ${rangeSaid(p.estimate)}, its start included, ${p.estimate.guessed ? "a guess until a pod has fetched one of each source" : "at your measured speeds"}.`}</span>}
           </span>
         )}
         {p && !nothing && p.licences.length > 0 && (

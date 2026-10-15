@@ -4,7 +4,7 @@ import type { Comfy } from "./comfy";
 import type { Db } from "./db";
 import type { Downloads } from "./downloads";
 import { stat } from "node:fs/promises";
-import { MEASURED_FROM, measuredRange, recordFetch, recordMeasure, type MeasureKind, type Range } from "./podMeasures";
+import { GUESSED, MEASURED_FROM, measuredRange, recordFetch, recordMeasure, type MeasureKind, type Range } from "./podMeasures";
 import { localCopy, measureKind, podSource, presetsOf, type PodSource, type SourceLookup } from "./podSources";
 import { PACKS_MS, PodPacks, type PodPackView } from "./podPacks";
 import { PACK_UPLOADS, uploadFile } from "./podUpload";
@@ -112,11 +112,6 @@ export interface PodFilesDeps {
   makesRoom?(machine: string): Promise<boolean>;
 }
 
-/**
- * What the queue plans with before a source was ever measured: the slow end of what is usual, bytes a second (a pod's
- * line to Hugging Face and Civitai, this computer's upload). Never said to the user: a speed is said only once measured.
- */
-const ASSUMED: Record<Exclude<MeasureKind, "boot">, number> = { hf: 30 * 2 ** 20, civitai: 20 * 2 ** 20, url: 20 * 2 ** 20, upload: 3 * 2 ** 20 };
 /** A file whose size nothing says yet is planned as this large. */
 const ASSUMED_BYTES = 8 * 2 ** 30;
 /** How long a source found for a file, and a range measured, are kept before being asked again (the queue asks often). */
@@ -484,7 +479,7 @@ export class PodFiles {
       const kind = measureKind(src);
       const left = e?.total ? e.total - e.bytes : f.size ?? (await this.sizeOf(f, src));
       const range = await this.rangeOf(kind, await this.d.cloudOf(machine));
-      ms += (left / (range?.low ?? ASSUMED[kind])) * 1000;
+      ms += (left / (range?.low ?? GUESSED[kind].low)) * 1000;
     }
     return ms;
   }

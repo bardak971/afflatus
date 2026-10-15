@@ -2,8 +2,8 @@ import { stat } from "node:fs/promises";
 import type { PresetFile } from "@afflatus/core";
 import { notFound } from "./errors";
 import { setsWithFiles } from "./modelSets";
-import { estimateFiles, measuredRange, type FilesEstimate } from "./podMeasures";
-import { localCopy, measureKind, presetSource } from "./podSources";
+import { estimateFiles, rangeOrGuess, type FilesEstimate, type MeasureKind } from "./podMeasures";
+import { localCopy } from "./podSources";
 import { licencesPending } from "./presetFiles";
 import { keptHoldings, lackingOn, missingOn, VOLUME_MAX_GB, VOLUME_MIN_GB } from "./rentedVolumes";
 import type { Services } from "./services";
@@ -31,7 +31,7 @@ export interface VolumePlan {
   /** The pods run in the last 30 days, and their mean rate ($/h); 0 and null without any. */
   deploys: number;
   rate: number | null;
-  /** How long fetching the sets takes each deploy, and what that time costs at the mean rate; null when never measured. */
+  /** How long fetching the sets takes each deploy, and what that time costs at the mean rate; null without a pod run lately. */
   fetch: FilesEstimate | null;
 }
 
@@ -64,6 +64,17 @@ export async function sized(s: Services, files: PresetFile[]): Promise<PresetFil
     const size = byPath.get(`${f.folder}|${pathOf(f.file)}`) ?? (named.length === 1 ? named[0] : undefined) ?? (await onDisk(f));
     return size ? { ...f, size } : f;
   }));
+}
+
+/**
+ * The files of known size with the source a pod would fetch each from, found as a deploy finds it (podSources.ts podSource,
+ * through podFiles.about): a preset's or a family's address, the Civitai version or Hugging Face file its hash was matched
+ * to, else an upload from this computer. A set's upscaler matched by its hash to Civitai was taken for an upload, never
+ * measured, and the whole fill's time went unsaid. A file nothing can give is left out: no pod fetches it.
+ */
+async function fetchedAs(s: Services, files: PresetFile[]): Promise<Array<{ bytes: number; kind: Exclude<MeasureKind, "boot"> }>> {
+  const kinds = await Promise.all(files.filter((f) => f.size).map(async (f) => ({ bytes: f.size!, kind: (await s.podFiles.about(f).catch(() => null))?.via ?? null })));
+  return kinds.filter((k): k is { bytes: number; kind: Exclude<MeasureKind, "boot"> } => k.kind !== null);
 }
 
 /** The size a volume wants for these bytes: a quarter more, up to the next ten GB, within what RunPod takes. */
@@ -99,10 +110,7 @@ export async function volumePlan(s: Services, setIds: string[] | null): Promise<
   const runs = new Map<string, number>();
   for (const r of sessions) runs.set(r.pod, r.rate);
   const rate = runs.size ? [...runs.values()].reduce((n, r) => n + r, 0) / runs.size : null;
-  const kinds = [...files.values()].filter((f) => f.size).map((f) => {
-    const src = presetSource(f);
-    return { bytes: f.size!, kind: src ? measureKind(src) : ("upload" as const) };
-  });
+  const kinds = await fetchedAs(s, [...files.values()]);
   const fetch = kinds.length && rate !== null ? await estimateFiles(s.db, kinds, "SECURE", rate) : null;
   return {
     places, sets: chosen.map((x) => ({ id: x.id, name: x.name, bytes: x.files.reduce((n, f) => n + (f.size ?? 0), 0) })),
@@ -115,8 +123,11 @@ export interface FillPlan {
   gpu: { name: string; price: number } | null;
   /** The set's files the volume lacks as last seen (all of them when it was never seen), and their bytes as far as known. */
   missing: { count: number; bytes: number; unknown: number };
-  /** The files' fetch at the measured speeds and the GPU's price, plus the pod's boot as measured; null when never measured. */
-  estimate: { fastMs: number; slowMs: number; lowUsd: number; highUsd: number } | null;
+  /**
+   * The files' fetch at the measured speeds and the GPU's price, plus the pod's boot as measured; `guessed` when a source
+   * or the boot was never measured and its guess is in it. Null without a GPU in stock.
+   */
+  estimate: { fastMs: number; slowMs: number; lowUsd: number; highUsd: number; guessed: boolean } | null;
   /** The presets of the set's files under a licence not accepted yet: Fill asks for each, as Deploy does. */
   licences: Array<{ id: string; name: string; licence: string }>;
 }
@@ -131,12 +142,9 @@ export async function fillPlan(s: Services, volume: string, setId: string): Prom
   const lacking = lackingOn(files, keys);
   const missing = missingOn(files, keys);
   if (!found) return { gpu: null, missing, estimate: null, licences };
-  const kinds = lacking.filter((f) => f.size).map((f) => {
-    const src = presetSource(f);
-    return { bytes: f.size!, kind: src ? measureKind(src) : ("upload" as const) };
-  });
-  const [fetch, boot] = await Promise.all([estimateFiles(s.db, kinds, "SECURE", found.gpu.price), measuredRange(s.db, "boot", "SECURE")]);
+  const kinds = await fetchedAs(s, lacking);
+  const [fetch, boot] = await Promise.all([estimateFiles(s.db, kinds, "SECURE", found.gpu.price), rangeOrGuess(s.db, "boot", "SECURE")]);
   const usd = (ms: number) => (ms / 3_600_000) * found.gpu.price;
-  const estimate = fetch && boot ? { fastMs: fetch.fastMs + boot.low, slowMs: fetch.slowMs + boot.high, lowUsd: usd(fetch.fastMs + boot.low), highUsd: usd(fetch.slowMs + boot.high) } : null;
+  const estimate = { fastMs: fetch.fastMs + boot.low, slowMs: fetch.slowMs + boot.high, lowUsd: usd(fetch.fastMs + boot.low), highUsd: usd(fetch.slowMs + boot.high), guessed: fetch.guessed || boot.guessed };
   return { gpu: { name: found.gpu.name, price: found.gpu.price }, missing, estimate, licences };
 }

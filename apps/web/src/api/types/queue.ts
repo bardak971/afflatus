@@ -408,15 +408,16 @@ export interface VolumePlan {
   /** The pods run in the last 30 days and their mean rate ($/h). */
   deploys: number;
   rate: number | null;
-  /** How long fetching the sets takes each deploy, and its cost at the mean rate; null when never measured. */
-  fetch: { fastMs: number; slowMs: number; lowUsd: number; highUsd: number } | null;
+  /** How long fetching the sets takes each deploy, and its cost at the mean rate (`guessed`: a source never measured is in it); null without a pod lately. */
+  fetch: { fastMs: number; slowMs: number; lowUsd: number; highUsd: number; guessed: boolean } | null;
 }
 
 /** What Fill from a set… says first: the GPU it takes, what the volume lacks of the set, how long, what it costs. */
 export interface FillPlan {
   gpu: { name: string; price: number } | null;
   missing: { count: number; bytes: number; unknown: number };
-  estimate: { fastMs: number; slowMs: number; lowUsd: number; highUsd: number } | null;
+  /** `guessed`: a source of the files, or a pod's start, never measured is in it, at a cautious usual speed. Null without a GPU. */
+  estimate: { fastMs: number; slowMs: number; lowUsd: number; highUsd: number; guessed: boolean } | null;
   /** The presets of the set's files under a licence not accepted yet: each accepted before Fill. */
   licences: Array<{ id: string; name: string; licence: string }>;
 }

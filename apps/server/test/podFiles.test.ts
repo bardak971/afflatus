@@ -10,7 +10,7 @@ import { civitaiVersion } from "../src/civitai";
 import { Comfy } from "../src/comfy";
 import { NO_DIRECT } from "../src/downloads";
 import { PodFiles } from "../src/podFiles";
-import { estimateFiles, measuredRange, recordMeasure, MEASURED_FROM } from "../src/podMeasures";
+import { estimateFiles, GUESSED, measuredRange, recordMeasure, MEASURED_FROM } from "../src/podMeasures";
 import { forgetHuggingFace } from "../src/huggingface";
 import { localCopy, measureKind, podSource } from "../src/podSources";
 import { writeSettings } from "../src/settings";
@@ -425,10 +425,11 @@ describe("where a pod's file comes from", () => {
 });
 
 describe("what pods were measured at", () => {
-  it("says nothing of a source never measured, and a range from slow to fast once it was", async () => {
+  it("guesses a source never measured, said as a guess, and a range from slow to fast once it was", async () => {
     const db = t.services.db;
     expect(await measuredRange(db, "hf", "SECURE")).toBeNull();
-    expect(await estimateFiles(db, [{ bytes: 2 ** 30, kind: "hf" }], "SECURE", 0.6)).toBeNull();
+    // 1 GB at the guess for Hugging Face, said as one
+    expect(await estimateFiles(db, [{ bytes: 2 ** 30, kind: "hf" }], "SECURE", 0.6)).toMatchObject({ guessed: true, fastMs: (2 ** 30 / GUESSED.hf.high) * 1000, slowMs: (2 ** 30 / GUESSED.hf.low) * 1000 });
     // too small a file says more of the site's answer than its speed: not kept
     await recordMeasure(db, { kind: "hf", cloud: "SECURE", bytes: 1000, ms: 10 });
     expect(await measuredRange(db, "hf", "SECURE")).toBeNull();
@@ -438,14 +439,18 @@ describe("what pods were measured at", () => {
     expect(range.low / 2 ** 20).toBeCloseTo(50, 0);
     expect(range.high / 2 ** 20).toBeCloseTo(200, 0);
     // 10 GB at 50 to 200 MB/s, at $0.60 an hour
-    const est = (await estimateFiles(db, [{ bytes: 10 * 2 ** 30, kind: "hf" }], "SECURE", 0.6))!;
+    const est = await estimateFiles(db, [{ bytes: 10 * 2 ** 30, kind: "hf" }], "SECURE", 0.6);
+    expect(est.guessed).toBe(false);
     expect(est.fastMs / 1000).toBeCloseTo(51.2, 0);
     expect(est.slowMs / 1000).toBeCloseTo(204.8, 0);
     expect(est.highUsd).toBeCloseTo((204.8 / 3600) * 0.6, 4);
     // the other cloud has none of its own: the speeds of any cloud
     expect((await measuredRange(db, "hf", "COMMUNITY"))!.count).toBe(3);
-    // a source of the files never measured: nothing said at all
-    expect(await estimateFiles(db, [{ bytes: 2 ** 30, kind: "hf" }, { bytes: 2 ** 30, kind: "civitai" }], "SECURE", 0.6)).toBeNull();
+    // a source of the files never measured: its share guessed, the measured one's kept, the whole said as a guess (it said
+    // nothing at all for the whole set before)
+    const both = await estimateFiles(db, [{ bytes: 10 * 2 ** 30, kind: "hf" }, { bytes: 2 ** 30, kind: "civitai" }], "SECURE", 0.6);
+    expect(both.guessed).toBe(true);
+    expect(both.slowMs).toBeCloseTo(est.slowMs + (2 ** 30 / GUESSED.civitai.low) * 1000, 0);
   });
 
   it("leaves out the most extreme of each end once there are five", async () => {
