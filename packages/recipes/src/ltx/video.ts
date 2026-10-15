@@ -1,4 +1,4 @@
-import { defineRecipe, GraphBuilder, type BuildContext, type LoraValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
+import { defineRecipe, GraphBuilder, type BuildContext, type ClipValue, type LoraValue, type MediaFacts, type Ref, type SizeValue, type Variant } from "@afflatus/core";
 import { LTX_CANVAS_SHORT, LTX_FPS, LTX_MAX_PIXELS, ltxCanvas, ltxFrames } from "./family";
 import { UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNodes } from "../video/upscale";
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
@@ -29,6 +29,17 @@ function refineSigmas(from: number, steps: number): string {
 const OWN_SCHEDULE = "LTX's own (8 steps)";
 const BY_STEPS = "By steps";
 
+/**
+ * How many frames of the clip before open a clip that carries on from it: its last second (25 frames, on the model's 8n + 1)
+ * as a video guide at frame 0, the way LTX's own extension works from a clip's tail (its authors' pipelines carry 25 to 73
+ * frames; 25 is what a short clip can give). A clip too short for that gives 9. Hidden on a timeline as H3's run-up is.
+ */
+export const LTX_JOIN_FRAMES = [25, 9];
+/** The guide's strength on those frames: they are the clip before's own and are not shown, so they are held exactly. */
+const CARRY_STRENGTH = 1;
+/** The longest clip the model takes, in seconds: the frames shared with the clip before count in it. */
+const LTX_MAX_SECONDS = 20;
+
 export interface LtxVideo extends ColourMatch {
   model?: string;
   turboIn: string;
@@ -37,6 +48,7 @@ export interface LtxVideo extends ColourMatch {
   nag: boolean;
   nagScale: number;
   start?: string;
+  previous?: ClipValue;
   end?: string;
   mid?: string;
   midAt: number;
@@ -100,27 +112,36 @@ const modelOf = (input: LtxVideo, slots: Record<string, string>) => {
 const uses = (input: LtxVideo, slots: Record<string, string>) => ({ twoPass: input.twoPass && Boolean(slots.upscaler) && !input.end });
 
 /**
- * The frame a keyframe is pinned at: its moment on LTX's 25 frames a second, kept off the first frame and
- * off the last one, which belong to the first and the last picture.
+ * The frame a keyframe is pinned at: its moment on LTX's 25 frames a second, counted after the frames shared with the clip
+ * before (`head`), kept off the first frame and off the last one, which belong to the first and the last picture.
  */
-const midFrame = (input: LtxVideo, frames: number) => {
+const midFrame = (input: LtxVideo, frames: number, head = 0) => {
   // on the model's 8-frame steps (the node rounds a guide's index down to one by itself, so 2.5 s typed landed at 2.24 s),
   // off the first frame and the last, which belong to the first and the last picture
   const step = 8;
-  const at = Math.round((input.midAt * LTX_FPS) / step) * step;
+  const at = head + Math.round((input.midAt * LTX_FPS) / step) * step;
   return Math.max(step, Math.min(frames - 1 - step, at));
 };
+
+/** The frames of the clip before a clip opens on, as they were handed over: 25 or 9, on the model's 8n + 1. */
+function headFramesOf(m: MediaFacts | undefined): number {
+  const n = m?.frames ?? 0;
+  if (!LTX_JOIN_FRAMES.includes(n)) throw new Error(`a clip carries on from ${LTX_JOIN_FRAMES.join(" or ")} frames of the clip before, not ${n}`);
+  return n;
+}
 /**
  * How many steps the refining pass takes: the form's, and one more than LTX's own 3 on a clip past 241 frames (9.6 s),
  * where users find the ×2 upscaler needs it (Lightricks discussion #13, 2026-03). A count typed other than 3 is taken as typed.
  */
 const refineStepsOf = (input: LtxVideo, frames: number) => (input.refineSteps === 3 && frames > 241 ? 4 : input.refineSteps);
 
-/** A picture as the model likes it: at the clip's size, and roughened like a frame of video. */
-function ltxFrame(g: GraphBuilder, input: LtxVideo, upload: string | undefined, w: number, h: number): Ref {
-  const sized = g.out("ImageScale", { image: g.out("LoadImage", { image: upload }), upscale_method: "lanczos", width: w, height: h, crop: "center" });
+/** Frames as the model likes them: at the clip's size, and roughened like frames of video. */
+function ltxGuideFrames(g: GraphBuilder, input: LtxVideo, images: Ref, w: number, h: number): Ref {
+  const sized = g.out("ImageScale", { image: images, upscale_method: "lanczos", width: w, height: h, crop: "center" });
   return g.out("LTXVPreprocess", { image: sized, img_compression: input.compression });
 }
+/** A picture the same way. */
+const ltxFrame = (g: GraphBuilder, input: LtxVideo, upload: string | undefined, w: number, h: number): Ref => ltxGuideFrames(g, input, g.out("LoadImage", { image: upload }), w, h);
 
 /**
  * The model, its text encoder and its two VAEs: from files of their own or from the one checkpoint, the LoRAs and the
@@ -170,6 +191,34 @@ interface LtxRun {
   steps: number;
   frame: { width: number; height: number; frames: number };
   passes: Array<{ node: string; steps: number }>;
+  /** The clip before's last frames, as handed over, and how many: the clip opens on them. Null when it starts on its own. */
+  previous: Ref | null;
+  head: number;
+  /** The clip opens on its first-frame picture (not when it carries on from a clip: that one's frames open it). */
+  opens: boolean;
+}
+
+/**
+ * The guides on a pass's latent, at that pass's size: the clip before's frames at frame 0, then the keyframe at its moment.
+ * Frames added to the clip, taken out again once the pass is sampled (LTXVCropGuides), so that they are neither enlarged as
+ * part of the clip nor decoded with it.
+ */
+function guided(run: LtxRun, on: Ref, wide: number, high: number, opening?: string): { positive: Ref; negative: Ref; latent: Ref; any: boolean } {
+  const { g, ctx, input, cond, loaded } = run;
+  let positive: Ref = [cond, 0];
+  let negative: Ref = [cond, 1];
+  let latent = on;
+  const add = (image: Ref, at: number, strength: number) => {
+    const added = g.add("LTXVAddGuide", { positive, negative, vae: loaded.vae, latent, image, frame_idx: at, strength });
+    positive = [added, 0];
+    negative = [added, 1];
+    latent = [added, 2];
+  };
+  if (run.previous) add(ltxGuideFrames(g, input, run.previous, wide, high), 0, CARRY_STRENGTH);
+  // the first picture as a guide (the one-pass route; the two-pass one puts it in the latent itself)
+  else if (opening) add(ltxFrame(g, input, opening, wide, high), 0, input.startStrength);
+  if (input.mid) add(ltxFrame(g, input, ctx.uploads.mid, wide, high), midFrame(input, run.frame.frames, run.head), input.midStrength);
+  return { positive, negative, latent, any: Boolean(run.previous || opening || input.mid) };
 }
 
 /**
@@ -183,18 +232,10 @@ function ltxTwoPass(run: LtxRun): { video: Ref; audio: Ref } {
   const w = width / 2;
   const h = height / 2;
   let latent: Ref = g.out("EmptyLTXVLatentVideo", { width: w, height: h, length: frames, batch_size: 1 });
-  if (input.start) latent = g.out("LTXVImgToVideoInplace", { vae, image: ltxFrame(g, input, ctx.uploads.start, w, h), latent, strength: input.startStrength, bypass: false });
-  // the keyframe is a guide in each pass, at that pass's size: a frame added after the clip's own, taken out
-  // again once the pass is sampled, so that it is neither enlarged as part of the clip nor decoded with it
-  const plain = (on: Ref) => ({ positive: [cond, 0] as Ref, negative: [cond, 1] as Ref, latent: on });
-  const keyframe = (on: Ref, wide: number, high: number) => {
-    const added = g.add("LTXVAddGuide", {
-      positive: [cond, 0], negative: [cond, 1], vae, latent: on, image: ltxFrame(g, input, ctx.uploads.mid, wide, high), frame_idx: midFrame(input, frames), strength: input.midStrength,
-    });
-    return { positive: [added, 0] as Ref, negative: [added, 1] as Ref, latent: [added, 2] as Ref };
-  };
-  const cropped = (by: { positive: Ref; negative: Ref }, sampled: Ref): Ref => (input.mid ? [g.add("LTXVCropGuides", { positive: by.positive, negative: by.negative, latent: sampled }), 2] : sampled);
-  const half = input.mid ? keyframe(latent, w, h) : plain(latent);
+  if (run.opens) latent = g.out("LTXVImgToVideoInplace", { vae, image: ltxFrame(g, input, ctx.uploads.start, w, h), latent, strength: input.startStrength, bypass: false });
+  // the clip before's frames and the keyframe are guides in each pass, at that pass's size (see guided)
+  const cropped = (by: { positive: Ref; negative: Ref; any: boolean }, sampled: Ref): Ref => (by.any ? [g.add("LTXVCropGuides", { positive: by.positive, negative: by.negative, latent: sampled }), 2] : sampled);
+  const half = guided(run, latent, w, h);
   g.phase("sampling");
   const first = g.add("SamplerCustomAdvanced", {
     noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
@@ -209,8 +250,8 @@ function ltxTwoPass(run: LtxRun): { video: Ref; audio: Ref } {
   g.phase("upscaling");
   let large: Ref = g.out("LTXVLatentUpsampler", { samples: decided, upscale_model: g.out("LatentUpscaleModelLoader", { model_name: ctx.slots.upscaler }), vae });
   // the opening picture again, at full size and at full strength: the first frame is the picture itself
-  if (input.start) large = g.out("LTXVImgToVideoInplace", { vae, image: ltxFrame(g, input, ctx.uploads.start, width, height), latent: large, strength: 1, bypass: false });
-  const full = input.mid ? keyframe(large, width, height) : plain(large);
+  if (run.opens) large = g.out("LTXVImgToVideoInplace", { vae, image: ltxFrame(g, input, ctx.uploads.start, width, height), latent: large, strength: 1, bypass: false });
+  const full = guided(run, large, width, height);
   g.phase("refining");
   const refine = refineStepsOf(input, frames);
   const second = g.add("SamplerCustomAdvanced", {
@@ -228,20 +269,17 @@ function ltxTwoPass(run: LtxRun): { video: Ref; audio: Ref } {
 function ltxOnePass(run: LtxRun): { video: Ref; audio: Ref } {
   const { g, ctx, input, loaded, cond, sampler, sound, frame, passes } = run;
   const { width, height, frames } = frame;
-  let positive: Ref = [cond, 0];
-  let negative: Ref = [cond, 1];
-  let latent: Ref = g.out("EmptyLTXVLatentVideo", { width, height, length: frames, batch_size: 1 });
+  // the clip before's frames at frame 0, else the first picture; then the keyframe; then the last picture
+  let { positive, negative, latent, any } = guided(run, g.out("EmptyLTXVLatentVideo", { width, height, length: frames, batch_size: 1 }), width, height, run.opens ? ctx.uploads.start : undefined);
   const guide = (upload: string | undefined, at: number, strength: number) => {
     const added = g.add("LTXVAddGuide", { positive, negative, vae: loaded.vae, latent, image: ltxFrame(g, input, upload, width, height), frame_idx: at, strength });
     positive = [added, 0];
     negative = [added, 1];
     latent = [added, 2];
+    any = true;
   };
-  if (input.start) guide(ctx.uploads.start, 0, input.startStrength);
-  if (input.mid) guide(ctx.uploads.mid, midFrame(input, frames), input.midStrength);
   // -1 is still the clip's last frame after the keyframe's guide: ComfyUI counts back from the clip without the guide frames added to it
   if (input.end) guide(ctx.uploads.end, -1, input.endStrength);
-  const guided = Boolean(input.start || input.mid || input.end);
   g.phase("sampling");
   const only = g.add("SamplerCustomAdvanced", {
     noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
@@ -252,7 +290,7 @@ function ltxOnePass(run: LtxRun): { video: Ref; audio: Ref } {
   passes.push({ node: only, steps: run.steps });
   const done = g.add("LTXVSeparateAVLatent", { av_latent: [only, 0] });
   // the guides are frames added to the clip: they are taken out again before it is decoded
-  return { video: guided ? [g.add("LTXVCropGuides", { positive, negative, latent: [done, 0] }), 2] : [done, 0], audio: [done, 1] };
+  return { video: any ? [g.add("LTXVCropGuides", { positive, negative, latent: [done, 0] }), 2] : [done, 0], audio: [done, 1] };
 }
 
 /** Twice the frames with LTX's temporal upscaler: the latent's frames doubled (the sound untouched), then a short pass settles them. */
@@ -279,7 +317,7 @@ export const ltxVideo = defineRecipe<LtxVideo>({
   summary: "t2v, or i2v from a first frame or a first and last frame, a keyframe between if wanted. Audio generated with it.",
   output: "video",
   traits: {
-    startFrame: true, endFrame: true, midFrames: true, continues: "frame", endAnchor: false, sound: true,
+    startFrame: true, endFrame: true, midFrames: true, continues: "clip", endAnchor: false, sound: true,
     fps: LTX_FPS, frameGrid: { step: 8, offset: 1 },
   },
   inputs: [
@@ -292,6 +330,10 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       placeholder: "A medium close-up. She turns to the camera and says quietly: \"What a view.\" Wind, and waves far below.",
     },
     { id: "start", type: "image", role: "start", label: "First frame", note: "the first frame", optional: true },
+    {
+      id: "previous", type: "clip", role: "previous", label: "Previous clip", optional: true, frames: LTX_JOIN_FRAMES, fps: LTX_FPS, advanced: true,
+      note: "the clip this one carries on from: its last second (25 frames) opens this clip as a guide, so that the motion carries over, not only the last picture. On a timeline those frames are hidden, the clip plays from its own. A first frame is not used with it",
+    },
     { id: "end", type: "image", role: "end", label: "Last frame", note: "the last frame. With one, the clip is made in one pass at full size", optional: true },
     { id: "mid", type: "image", role: "mid", at: "midAt", label: "Keyframe", note: "a picture the clip passes through, at the time set below", optional: true, advanced: true },
     { id: "midAt", type: "number", label: "Keyframe at", min: 0.5, max: 19.5, step: 0.5, default: 2.5, unit: " s", showWhen: "mid", advanced: true, note: "snapped to the model's 8-frame steps (about a third of a second)" },
@@ -385,7 +427,8 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       "RandomNoise", "KSamplerSelect", "CFGGuider", "SamplerCustomAdvanced", "VAEDecodeTiled", "LTXVAudioVAEDecode", ...speedNodes(input),
       ...(input.model ? unetNodes(input.model).filter((n) => n !== "UNETLoader") : []),
       ...(input.schedule === BY_STEPS ? ["LTXVScheduler"] : []),
-      ...(input.start || input.end || input.mid ? ["LoadImage", "ImageScale", "LTXVPreprocess"] : []),
+      ...((input.start && !input.previous) || input.end || input.mid ? ["LoadImage", "ImageScale", "LTXVPreprocess"] : []),
+      ...(input.previous ? ["LoadVideo", "GetVideoComponents", "ImageScale", "LTXVPreprocess"] : []),
     ];
   },
   // which loaders, and which way the clip is made, depend on the files this ComfyUI has
@@ -404,16 +447,20 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       throw new Error("A diffusion model in a file of its own needs LTX 2.3's other parts: the video VAE and the audio VAE in ComfyUI's models/vae folder, and the text projection in models/text_encoders.");
     }
 
-    // the frame: a timeline's canvas, else the picture it opens or ends on (or its keyframe, when it has no other), else the shape
-    // picked. A canvas is taken at its own size up to the model's 720p (LTX_CANVAS_SHORT), as Wan's is up to its 720p: a clip at
-    // a 1080p timeline's size was 1088p, slower and no better (users put LTX's sweet spot at 720p; the owner, 2026-10-15)
-    const like = input.start ? media.start : input.end ? media.end : input.mid ? media.mid : undefined;
+    // the frame: a timeline's canvas, else the clip it carries on from, else the picture it opens or ends on (or its keyframe,
+    // when it has no other), else the shape picked. A canvas is taken at its own size up to the model's 720p (LTX_CANVAS_SHORT),
+    // as Wan's is up to its 720p: a clip at a 1080p timeline's size was 1088p, slower and no better (users put LTX's sweet spot
+    // at 720p; the owner, 2026-10-15)
+    const opens = Boolean(input.start) && !input.previous;
+    const like = input.previous ? media.previous : opens ? media.start : input.end ? media.end : input.mid ? media.mid : undefined;
     const { width, height } = ctx.canvas
       ? ltxCanvas(ctx.canvas.width, ctx.canvas.height, Math.min(ctx.canvas.width, ctx.canvas.height, LTX_CANVAS_SHORT))
       : like?.width
         ? ltxCanvas(like.width, like.height, input.short)
         : ltxCanvas(input.shape.width, input.shape.height, input.short);
-    const frames = ltxFrames(input.seconds);
+    // the frames shared with the clip before are that clip's: the clip is made that much longer, within the 20 s the model takes
+    const head = input.previous ? headFramesOf(media.previous) : 0;
+    const frames = ltxFrames(Math.min(input.seconds, LTX_MAX_SECONDS - head / LTX_FPS) + head / LTX_FPS);
 
     const g = new GraphBuilder();
     const loaded = ltxLoad(g, ctx, input, picked);
@@ -434,7 +481,9 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       loaded.first = same ? loaded.model : nag(loaded.first);
     }
     const run: LtxRun = {
-      g, ctx, input, loaded, cond, steps, frame: { width, height, frames }, passes: [],
+      g, ctx, input, loaded, cond, steps, frame: { width, height, frames }, passes: [], head, opens,
+      // the clip before's last frames as handed over (cut by the server to LTX_JOIN_FRAMES at 25 a second)
+      previous: input.previous ? [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.previous }) }), 0] : null,
       sampler: g.out("KSamplerSelect", { sampler_name: input.sampler }),
       sound: g.out("LTXVEmptyLatentAudio", { frames_number: frames, frame_rate: LTX_FPS, batch_size: 1, audio_vae: loaded.audioVae }),
       // By steps: LTX's own scheduler, shifted by the size of the latent it is given
@@ -459,6 +508,10 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       outputs: [{ node: done.out, kind: "video", role: "result" }],
       totalSteps: run.passes.reduce((n, p) => n + p.steps, 0),
       passes: run.passes,
+      // a continuation counts its frames as an extension and an overlap: hidden on a timeline, faded over the clip before (a
+      // join on pixels, as joinKindOf reads it)
+      frames,
+      ...(head ? { overlap: { headMs: Math.round((head / LTX_FPS) * 1000), tailMs: 0 } } : {}),
       loads: [
         ...done.loads,
         ...(picked.unet
@@ -483,6 +536,12 @@ export const ltxVideo = defineRecipe<LtxVideo>({
       { name: "from words, the one checkpoint, one pass (no upscaler)", input: { prompt: "a" }, slots: one },
       { name: "from words, the one checkpoint, two passes", input: { prompt: "a", seconds: 3 }, slots: { ...one, ...extras } },
       { name: "opens on a picture, in separate files, two passes, smooth", input: { prompt: "a", start: "p1", smooth: true }, slots: { ...parts, ...extras }, uploads: { start: "a.png" }, media: { start: picture } },
+      {
+        name: "carries on from a clip: its last second opens the clip, a first frame set aside",
+        input: { prompt: "a", previous: { asset: "c1" }, start: "ignored" },
+        slots: { ...one, ...extras }, uploads: { previous: "a.mp4", start: "a.png" }, media: { previous: { width: 704, height: 1280, frames: 25, fps: LTX_FPS, hasSound: true } },
+      },
+      { name: "carries on from a short clip, in one pass with a last picture", input: { prompt: "a", previous: { asset: "c1" }, end: "p2" }, slots: one, uploads: { previous: "a.mp4", end: "b.png" }, media: { previous: { width: 704, height: 1280, frames: 9, fps: LTX_FPS, hasSound: false }, end: picture } },
       {
         name: "from a first to a last picture: one pass, a LoRA",
         input: { prompt: "a", start: "p1", end: "p2", loras: [{ file: "l.safetensors", weight: 0.8 }, { file: "off.safetensors", weight: 0 }] },
