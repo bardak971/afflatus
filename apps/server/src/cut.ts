@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { FRAME_SLACK_MS, JOIN_FADE_MS, musicGainAt, type MusicPlan } from "@afflatus/core";
 import { gainWav, type DuckCurve } from "./duck";
 import { tmpdir } from "node:os";
@@ -199,28 +199,40 @@ export async function frameAt(source: Media, ext: string, atMs: number, duration
 /** How many frames a strip holds, and how tall they are. */
 const STRIP = { frames: 12, height: 72 };
 
-/** Frames of a video side by side in one picture (a JPEG), spread evenly over its length: what a clip shows on the timeline. */
+/** Past this long, a strip shows the keyframe at or before each of its moments (see filmStrip). */
+export const KEYFRAME_STRIP_MS = 60_000;
+
+/**
+ * Frames of a video side by side in one picture (a JPEG), spread evenly over its length: what a clip shows on the timeline.
+ * Of a stretch longer than a minute (a long source on the source lane), each picture is the keyframe at or before its
+ * moment, the others not decoded at all: a 5-minute 1080p source took 5–7 s decoded whole, 0.8 s by its keyframes, and
+ * a strip that small does not show the difference of a second or two. A run in the ffmpeg pool.
+ */
 export async function filmStrip(source: Media, ext: string, durationMs: number, opts: { frames?: number; height?: number; /** Only this part of the video, in milliseconds. */ fromMs?: number; toMs?: number } = {}): Promise<Uint8Array> {
   const frames = Math.max(2, Math.min(120, Math.round(opts.frames ?? STRIP.frames)));
   const height = Math.max(24, Math.min(240, Math.round(opts.height ?? STRIP.height)));
   const from = Math.max(0, Math.min(opts.fromMs ?? 0, durationMs));
   const to = Math.max(from + FRAME_SLACK_MS, Math.min(opts.toMs ?? durationMs, durationMs));
-  return inTemp(async (dir) => {
+  const keys = to - from > KEYFRAME_STRIP_MS ? ["-skip_frame", "nokey"] : [];
+  return ffmpegPool(() => inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "strip.jpg");
     const every = Math.max(0.01, (to - from) / 1000 / frames);
+    // the keyframes alone reach the frame grid each in the place after its own (moved on by one place, a hair short), so
+    // that each place shows the last keyframe at or before its moment; the last held a place more, or the strip ended short
+    const keyed = keys.length ? `setpts=PTS+${(every - 0.001).toFixed(4)}/TB,tpad=stop_mode=clone:stop_duration=${every.toFixed(4)},` : "";
     await must(tools.ffmpeg, [
-      "-y", "-loglevel", "error", ...(from > 0 ? ["-ss", (from / 1000).toFixed(3)] : []), "-to", (to / 1000).toFixed(3), "-i", input,
-      "-vf", `fps=1/${every.toFixed(4)}:start_time=0:round=down,scale=-2:${height},tile=${frames}x1`,
+      "-y", "-loglevel", "error", ...keys, ...(from > 0 ? ["-ss", (from / 1000).toFixed(3)] : []), "-to", (to / 1000).toFixed(3), "-i", input,
+      "-vf", `${keyed}fps=1/${every.toFixed(4)}:start_time=0:round=down,scale=-2:${height},tile=${frames}x1`,
       "-frames:v", "1", "-q:v", "5", out,
     ]);
     return new Uint8Array(await readFile(out));
-  });
+  }));
 }
 
-/** One small picture of a moment, as a JPEG: what a hover over the trim bar shows. */
+/** One small picture of a moment, as a JPEG: what a hover over the trim bar shows. A run in the ffmpeg pool, ahead of what only decorates a screen. */
 export async function peekAt(source: Media, ext: string, atMs: number, height = 160): Promise<Uint8Array> {
-  return inTemp(async (dir) => {
+  return ffmpegPool(() => inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "peek.jpg");
     const scale = `scale=-2:${Math.max(48, Math.min(480, height))}`;
@@ -233,7 +245,7 @@ export async function peekAt(source: Media, ext: string, atMs: number, height = 
     }
     if (!bytes?.length) throw new CutError("No picture could be taken from that moment of the video.");
     return new Uint8Array(bytes);
-  });
+  }), { first: true });
 }
 
 /** The moments of a video's keyframes, in milliseconds: where a stream copy can start and end without re-encoding. */
@@ -352,6 +364,9 @@ export const BLEND_MS = JOIN_FADE_MS;
  */
 export const DISSOLVE_MS = JOIN_FADE_MS;
 
+/** How many motion samples a second are measured. */
+export const MOTION_RATE = 10;
+
 /** How a video's own part looks, measured on its real frames when it was stored (see lookOf). */
 export interface Measure {
   /** Mean luma, 0 to 255. */
@@ -385,50 +400,170 @@ export interface Measure {
  * How a video's own part looks, in a few numbers measured on its real frames: mean luma, sharpness, chroma,
  * luma range, flicker, pace and the sound's centre of weight (see Look). From `fromMs` on (a continuation's
  * own part, after the frames it shares with the clip before). For telling whether a run of clips that flow
- * on slides darker, softer, duller or slower clip after clip. Four small ffmpeg passes, under a second each.
+ * on slides darker, softer, duller or slower clip after clip. A pass of ffmpeg per figure: what a take's
+ * landing measures in one (takeMeasures) and falls back to when that one fails.
  */
 export async function lookOf(source: Media, ext: string, fromMs = 0): Promise<Measure | null> {
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const run = (args: string[]) => must(tools.ffmpeg, ["-loglevel", "error", "-ss", (Math.max(0, fromMs) / 1000).toFixed(3), "-i", input, ...args, "-f", "null", "-"], { timeout: 5 * 60_000 }).catch(() => "");
-    const pick = (said: string, key: string) => [...said.matchAll(new RegExp(`lavfi\\.${key}=(-?[\\d.]+)`, "g"))].map((m) => Number(m[1])).filter((v) => Number.isFinite(v));
-    const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
-    const r1 = (x: number) => Math.round(x * 10) / 10;
-    const r2 = (x: number) => Math.round(x * 100) / 100;
     // luma, its spread and the chroma, 12 frames a second on a small colour copy
-    const stats = await run(["-an", "-vf", "fps=12,scale=256:-2,signalstats,metadata=print:file=-"]);
-    const yavg = pick(stats, "signalstats\\.YAVG");
-    if (!yavg.length) return null;
-    // the Laplacian around 128, folded to its size: its mean over the frame is the sharpness
-    const sharp = pick(await run(["-an", "-vf", "fps=4,scale=256:-2,format=gray,convolution=0m='0 -1 0 -1 4 -1 0 -1 0':0bias=128,lutyuv=y='if(gt(val\\,128)\\,val-128\\,128-val)',signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-"]), "signalstats\\.YAVG");
-    if (!sharp.length) return null;
-    // the same without the grain: the copy cleaned of its fine noise first. The grain itself: the copy against its cleaned self
-    const edges = pick(await run(["-an", "-vf", "fps=4,scale=256:-2,format=gray,median=radius=1,convolution=0m='0 -1 0 -1 4 -1 0 -1 0':0bias=128,lutyuv=y='if(gt(val\\,128)\\,val-128\\,128-val)',signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-"]), "signalstats\\.YAVG");
-    const grain = pick(await run(["-an", "-vf", "fps=4,scale=256:-2,format=gray,split[a][b];[b]median=radius=1[c];[a][c]blend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-"]), "signalstats\\.YAVG");
-    // the motion, as the ruler measures it (the first sample is a frame against nothing)
-    const pace = pick(await run(["-an", "-vf", `fps=${MOTION_RATE},scale=96:-2,format=gray,tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-`]), "signalstats\\.YAVG").slice(1);
-    // the sound's spectral centroid; nothing when there is no sound (or no such filter)
-    const centroid = pick(await run(["-vn", "-af", "aspectralstats=measure=centroid,ametadata=print:key=lavfi.aspectralstats.1.centroid:file=-"]), "aspectralstats\\.1\\.centroid");
-    const luma = mean(yavg);
-    const steps = yavg.slice(1).map((v, i) => Math.abs(v - yavg[i]!));
-    const u = pick(stats, "signalstats\\.UAVG");
-    const v = pick(stats, "signalstats\\.VAVG");
-    const low = pick(stats, "signalstats\\.YLOW");
-    const high = pick(stats, "signalstats\\.YHIGH");
-    return {
-      luma: r1(luma),
-      sharp: r2(mean(sharp)),
-      ...(edges.length ? { edges: r2(mean(edges)) } : {}),
-      ...(grain.length ? { grain: r2(mean(grain)) } : {}),
-      ...(u.length && v.length ? { chroma: { u: r1(mean(u) - 128), v: r1(mean(v) - 128) } } : {}),
-      ...(low.length && high.length ? { range: { low: r1(mean(low)), high: r1(mean(high)) } } : {}),
-      flicker: steps.length ? r2((mean(steps) / Math.max(1, luma)) * 100) : 0,
-      pace: pace.length ? r2(mean(pace)) : 0,
-      voice: centroid.length ? Math.round(mean(centroid)) : null,
-    };
+    const stats = await run(["-an", "-vf", `${LOOK.stats},metadata=print:file=-`]);
+    if (!picked(stats, "signalstats\\.YAVG").length) return null;
+    const sharp = await run(["-an", "-vf", `${LOOK.gray},${LOOK.sharp},metadata=print:key=lavfi.signalstats.YAVG:file=-`]);
+    if (!picked(sharp, "signalstats\\.YAVG").length) return null;
+    return lookFrom({
+      stats,
+      sharp,
+      edges: await run(["-an", "-vf", `${LOOK.gray},${LOOK.edges},metadata=print:key=lavfi.signalstats.YAVG:file=-`]),
+      grain: await run(["-an", "-vf", `${LOOK.gray},split[a][b];[b]median=radius=1[c];[a][c]${LOOK.grain},metadata=print:key=lavfi.signalstats.YAVG:file=-`]),
+      pace: picked(await run(["-an", "-vf", `${LOOK.pace},metadata=print:key=lavfi.signalstats.YAVG:file=-`]), "signalstats\\.YAVG"),
+      centroid: await run(["-vn", "-af", `${LOOK.voice}:file=-`]),
+    });
   });
 }
 
+/**
+ * The filters each figure of a look is read through. `gray`: the small grey copy sharpness, edges and grain share.
+ * sharp: the Laplacian around 128, folded to its size (its mean over the frame is the sharpness); edges: the same on the
+ * copy cleaned of its fine noise first; grain: the copy against its cleaned self (a blend of the two). pace: the motion,
+ * as the ruler measures it. voice: the sound's spectral centroid.
+ */
+const LOOK = {
+  stats: "fps=12,scale=256:-2,signalstats",
+  gray: "fps=4,scale=256:-2,format=gray",
+  sharp: "convolution=0m='0 -1 0 -1 4 -1 0 -1 0':0bias=128,lutyuv=y='if(gt(val\\,128)\\,val-128\\,128-val)',signalstats",
+  edges: "median=radius=1,convolution=0m='0 -1 0 -1 4 -1 0 -1 0':0bias=128,lutyuv=y='if(gt(val\\,128)\\,val-128\\,128-val)',signalstats",
+  grain: "blend=all_mode=difference,signalstats",
+  pace: `fps=${MOTION_RATE},scale=96:-2,format=gray,tblend=all_mode=difference,signalstats`,
+  voice: "aspectralstats=measure=centroid,ametadata=print:key=lavfi.aspectralstats.1.centroid",
+};
+
+/** Every value ffmpeg printed for `key` (a metadata print, `lavfi.<key>=<value>` a line). */
+const picked = (said: string, key: string) => [...said.matchAll(new RegExp(`lavfi\\.${key}=(-?[\\d.]+)`, "g"))].map((m) => Number(m[1])).filter((v) => Number.isFinite(v));
+
+/** A look from what each of its passes printed (`pace` already read, its first sample dropped below); null without luma or sharpness. */
+function lookFrom(said: { stats: string; sharp: string; edges: string; grain: string; pace: number[]; centroid: string }): Measure | null {
+  const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
+  const r1 = (x: number) => Math.round(x * 10) / 10;
+  const r2 = (x: number) => Math.round(x * 100) / 100;
+  const yavg = picked(said.stats, "signalstats\\.YAVG");
+  const sharp = picked(said.sharp, "signalstats\\.YAVG");
+  if (!yavg.length || !sharp.length) return null;
+  const edges = picked(said.edges, "signalstats\\.YAVG");
+  const grain = picked(said.grain, "signalstats\\.YAVG");
+  // the first motion sample is a frame against nothing
+  const pace = said.pace.slice(1);
+  // nothing when there is no sound (or no such filter)
+  const centroid = picked(said.centroid, "aspectralstats\\.1\\.centroid");
+  const luma = mean(yavg);
+  const steps = yavg.slice(1).map((v, i) => Math.abs(v - yavg[i]!));
+  const u = picked(said.stats, "signalstats\\.UAVG");
+  const v = picked(said.stats, "signalstats\\.VAVG");
+  const low = picked(said.stats, "signalstats\\.YLOW");
+  const high = picked(said.stats, "signalstats\\.YHIGH");
+  return {
+    luma: r1(luma),
+    sharp: r2(mean(sharp)),
+    ...(edges.length ? { edges: r2(mean(edges)) } : {}),
+    ...(grain.length ? { grain: r2(mean(grain)) } : {}),
+    ...(u.length && v.length ? { chroma: { u: r1(mean(u) - 128), v: r1(mean(v) - 128) } } : {}),
+    ...(low.length && high.length ? { range: { low: r1(mean(low)), high: r1(mean(high)) } } : {}),
+    flicker: steps.length ? r2((mean(steps) / Math.max(1, luma)) * 100) : 0,
+    pace: pace.length ? r2(mean(pace)) : 0,
+    voice: centroid.length ? Math.round(mean(centroid)) : null,
+  };
+}
+
+/** What a take's landing measures of it at once (takeMeasures): its look, and what the timeline editor reads of it. */
+export interface TakeMeasures {
+  /** Of its own part (from `fromMs`), as lookOf measures it. */
+  look: Measure | null;
+  /** Of the whole video, as measureOf, meansAlong and filmStrip make them. */
+  motion: { motion: number[]; sound: number[] | null; speech: number[] | null };
+  means: FrameMeans;
+  strip: Uint8Array;
+}
+
+/**
+ * Everything a take is measured for when it lands, in one ffmpeg run that decodes it once: its look (lookOf), its motion
+ * and loudness (measureOf), its frame means (meansAlong) and its track's film strip (filmStrip), each the same figures as
+ * those give. Each was its own run before, eight decodes of the whole take (1080p 10 s: 17–22 CPU-s against ~5 in one).
+ * Each figure is written to a file of its own in the temporary folder (ffmpeg runs there: a Windows path in a filter's
+ * options needs escaping). A continuation's look starts at `fromMs`, cut there inside the graph as `-ss` would (the frames
+ * from that moment, their clock moved back by it), so that its figures are those lookOf gives. null when the run fails
+ * (a filter this ffmpeg lacks, a stream that cannot be read): the passes one at a time then.
+ */
+export async function takeMeasures(source: Media, ext: string, opts: { fromMs?: number; durationMs: number; hasSound: boolean }): Promise<TakeMeasures | null> {
+  return inTemp(async (dir) => {
+    const input = await onDisk(dir, `in.${ext}`, source);
+    const from = Math.max(0, opts.fromMs ?? 0) / 1000;
+    const cut = from > 0 ? `trim=start=${from.toFixed(3)},setpts=PTS-round(${from.toFixed(3)}/TB),` : "";
+    const acut = from > 0 ? `atrim=start=${from.toFixed(3)},asetpts=PTS-round(${from.toFixed(3)}/TB),` : "";
+    const print = (file: string, key?: string) => `metadata=print${key ? `:key=${key}` : ""}:file=${file}`;
+    const yavg = "lavfi.signalstats.YAVG";
+    // the strip as filmStrip makes the whole video's
+    const every = Math.max(0.01, opts.durationMs / 1000 / STRIP.frames);
+    const graph = [
+      // the motion, from the start, is the look's pace too when the look starts there
+      `[0:v]split=${from > 0 ? 5 : 4}[vm][vs][vt][vl]${from > 0 ? "[vp]" : ""}`,
+      `[vm]scale=96:-2,signalstats,${print("means.txt")}[om]`,
+      `[vs]${LOOK.pace},${print("motion.txt", yavg)}[os]`,
+      `[vt]trim=end=${(opts.durationMs / 1000).toFixed(3)},fps=1/${every.toFixed(4)}:start_time=0:round=down,scale=-2:${STRIP.height},tile=${STRIP.frames}x1[strip]`,
+      `[vl]${cut}split[l1][l2]`,
+      `[l1]${LOOK.stats},${print("stats.txt")}[o1]`,
+      `[l2]${LOOK.gray},split=4[g1][g2][g3][g4]`,
+      `[g1]${LOOK.sharp},${print("sharp.txt", yavg)}[o2]`,
+      `[g2]${LOOK.edges},${print("edges.txt", yavg)}[o3]`,
+      `[g4]median=radius=1[g5]`,
+      `[g3][g5]${LOOK.grain},${print("grain.txt", yavg)}[o4]`,
+      ...(from > 0 ? [`[vp]${cut}${LOOK.pace},${print("pace.txt", yavg)}[o5]`] : []),
+    ];
+    const outs = ["[om]", "[os]", "[o1]", "[o2]", "[o3]", "[o4]", ...(from > 0 ? ["[o5]"] : [])];
+    if (opts.hasSound) {
+      const band = `aresample=8000,asetnsamples=n=${8000 / MOTION_RATE}:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level`;
+      graph.push(
+        "[0:a]asplit=3[a1][a2][a3]",
+        `[a1]${band}:file=sound.txt[ao1]`,
+        `[a2]highpass=f=300,highpass=f=300,lowpass=f=3400,lowpass=f=3400,${band}:file=speech.txt[ao2]`,
+        `[a3]${acut}${LOOK.voice}:file=voice.txt[ao3]`,
+      );
+      outs.push("[ao1]", "[ao2]", "[ao3]");
+    }
+    const ran = await new Promise<boolean>((done, fail) => {
+      execFile(tools.ffmpeg, localInputs([
+        "-hide_banner", "-loglevel", "error", "-nostats", "-y", "-i", resolve(input), "-filter_complex", graph.join(";"),
+        ...outs.flatMap((o) => ["-map", o]), "-f", "null", "-",
+        "-map", "[strip]", "-frames:v", "1", "-q:v", "5", "strip.jpg",
+      ]), { cwd: dir, encoding: "utf8", timeout: 10 * 60_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (err) => {
+        if (err && (err as NodeJS.ErrnoException).code === "ENOENT") return fail(new FfmpegMissing("This needs ffmpeg, which was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE."));
+        done(!err);
+      });
+    });
+    if (!ran) return null;
+    const read = (name: string) => readFile(join(dir, name), "utf8").catch(() => "");
+    const strip = await readFile(join(dir, "strip.jpg")).catch(() => null);
+    const motionSaid = await read("motion.txt");
+    if (!strip?.length || !motionSaid) return null;
+    const rawMotion = picked(motionSaid, "signalstats\\.YAVG");
+    const levels = opts.hasSound ? levelsIn(await read("sound.txt")) : [];
+    const speech = levels.length ? levelsIn(await read("speech.txt")) : [];
+    const look = lookFrom({
+      stats: await read("stats.txt"),
+      sharp: await read("sharp.txt"),
+      edges: await read("edges.txt"),
+      grain: await read("grain.txt"),
+      pace: from > 0 ? picked(await read("pace.txt"), "signalstats\\.YAVG") : rawMotion,
+      centroid: opts.hasSound ? await read("voice.txt") : "",
+    });
+    return {
+      look,
+      motion: { motion: motionIn(motionSaid), sound: levels.length ? levels : null, speech: speech.length ? speech : null },
+      means: meansIn(await read("means.txt")),
+      strip: new Uint8Array(strip),
+    };
+  });
+}
 /** How a clip is matched to the clip before at their join: over this long on each side, and by at most this many steps of 255. A nudge, never a grade. */
 export const MATCH = { lookSec: 0.4, mostSteps: 14 };
 export interface Means {
@@ -459,23 +594,27 @@ export interface FrameMeans {
 export async function meansAlong(source: Media, ext: string): Promise<FrameMeans> {
   return inTemp(async (dir) => {
     const file = await onDisk(dir, `in.${ext}`, source);
-    const said = await must(tools.ffmpeg, ["-loglevel", "error", "-i", file, "-an", "-vf", "scale=96:-2,signalstats,metadata=print:file=-", "-f", "null", "-"], { timeout: 10 * 60_000 });
-    const out: FrameMeans = { t: [], y: [], u: [], v: [] };
-    for (const block of said.split(/^frame:/m).slice(1)) {
-      const at = Number(/pts_time:\s*(-?[\d.]+)/.exec(block)?.[1]);
-      const pick = (key: string) => Number(new RegExp(`lavfi\\.signalstats\\.${key}=([\\d.]+)`).exec(block)?.[1]);
-      const [y, u, v] = [pick("YAVG"), pick("UAVG"), pick("VAVG")];
-      if (![at, y, u, v].every(Number.isFinite)) continue;
-      out.t.push(at * 1000);
-      out.y.push(y);
-      out.u.push(u);
-      out.v.push(v);
-    }
-    // from its first frame, as a stretch is asked for, whatever the file's first timestamp
-    const first = out.t[0] ?? 0;
-    out.t = out.t.map((t) => Math.round((t - first) * 10) / 10);
-    return out;
+    return meansIn(await must(tools.ffmpeg, ["-loglevel", "error", "-i", file, "-an", "-vf", "scale=96:-2,signalstats,metadata=print:file=-", "-f", "null", "-"], { timeout: 10 * 60_000 }));
   });
+}
+
+/** Frame means from what signalstats printed of every frame (a metadata print). */
+function meansIn(said: string): FrameMeans {
+  const out: FrameMeans = { t: [], y: [], u: [], v: [] };
+  for (const block of said.split(/^frame:/m).slice(1)) {
+    const at = Number(/pts_time:\s*(-?[\d.]+)/.exec(block)?.[1]);
+    const pick = (key: string) => Number(new RegExp(`lavfi\\.signalstats\\.${key}=([\\d.]+)`).exec(block)?.[1]);
+    const [y, u, v] = [pick("YAVG"), pick("UAVG"), pick("VAVG")];
+    if (![at, y, u, v].every(Number.isFinite)) continue;
+    out.t.push(at * 1000);
+    out.y.push(y);
+    out.u.push(u);
+    out.v.push(v);
+  }
+  // from its first frame, as a stretch is asked for, whatever the file's first timestamp
+  const first = out.t[0] ?? 0;
+  out.t = out.t.map((t) => Math.round((t - first) * 10) / 10);
+  return out;
 }
 /** The means of the frames from `fromMs` for `seconds`, read off a video's frame means as meansOf would measure them; null when no frame falls there. */
 export function meansWithin(along: FrameMeans, fromMs: number, seconds: number): Means | null {
@@ -890,9 +1029,6 @@ export async function musicTrack(music: ExportMusic, totalMs: number, signal?: A
 /** The music's gain along the video, as the player sets it (musicGainAt), as a WAV the music is multiplied by. */
 export const musicGainWav = (music: Pick<ExportMusic, "plan" | "duck">, totalMs: number) => gainWav((ms) => musicGainAt(music.plan, music.duck, ms), totalMs, 4000);
 
-/** How many motion samples a second are measured. */
-export const MOTION_RATE = 10;
-
 /**
  * How much moves along a video, and how loud it is: ten samples a second each. Motion is the mean
  * difference between a frame and the one before, on a small grey copy (0 = still, 255 = everything
@@ -1060,10 +1196,11 @@ export function parseSceneTimes(log: string): number[] {
 
 /**
  * Where a video cuts from one shot to the next: ffmpeg's scene-change score over `threshold` (0.3 is
- * its usual value: hard cuts, not pans), each as a moment in milliseconds. A video of one shot gives [].
+ * its usual value: hard cuts, not pans), each as a moment in milliseconds. A video of one shot gives []. A run in the
+ * ffmpeg pool: every frame is decoded (a 5-minute 1080p source: 6–11 s).
  */
 export async function scenesOf(source: Media, ext: string, threshold = 0.3): Promise<number[]> {
-  return inTemp(async (dir) => {
+  return ffmpegPool(() => inTemp(async (dir) => {
     const file = await onDisk(dir, `in.${ext}`, source);
     const log = await new Promise<string>((done) => {
       execFile(
@@ -1074,20 +1211,48 @@ export async function scenesOf(source: Media, ext: string, threshold = 0.3): Pro
       );
     });
     return parseSceneTimes(log);
-  });
+  }));
 }
 
-/** ffmpeg's bytes, for a raw frame. */
-function rawOut(tool: string, args: string[]): Promise<Buffer> {
-  return new Promise((done, fail) => {
-    execFile(tool, localInputs(args), { encoding: "buffer", timeout: 120_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true }, (err, stdout) => (err ? fail(err) : done(stdout as Buffer)));
-  });
-}
+/** The side of a grey frame as the joins compare them: 96 × 54. */
+const GRAY = 96 * 54;
 
-/** One frame of a video (or a picture) as 96 × 54 grey pixels, to compare with another. */
-async function grayAt(file: string, atMs: number): Promise<Uint8Array | null> {
-  const out = await rawOut(tools.ffmpeg, ["-loglevel", "error", "-ss", (Math.max(0, atMs) / 1000).toFixed(3), "-i", file, "-frames:v", "1", "-vf", "scale=96:54,format=gray", "-f", "rawvideo", "-"]).catch(() => null);
-  return out && out.length >= 96 * 54 ? new Uint8Array(out.subarray(0, 96 * 54)) : null;
+/**
+ * Frames of a video as 96 × 54 grey pixels: for each moment asked, the frame a seek there lands on (the first whose
+ * timestamp is at or after it, the moment taken to the millisecond as `-ss` is given it), or null when there is none
+ * (past the end, or a file ffmpeg cannot read). One ffmpeg run reads every frame between the first moment and the last:
+ * a run per frame cost ~100 ms each, 34 of them for one join measured with a fade.
+ */
+async function grayFrames(file: string, moments: number[]): Promise<Array<Uint8Array | null>> {
+  if (!moments.length) return [];
+  // as `-ss` reads a moment: seconds to three places, then microseconds
+  const us = moments.map((ms) => Math.round(Number((Math.max(0, ms) / 1000).toFixed(3)) * 1e6));
+  const from = Math.min(...us);
+  // a little past the last moment, so that the frame a seek there lands on is in the run when the video has it
+  const span = (Math.max(...us) - from) / 1e6 + 0.25;
+  // each frame once, as decoded: at a constant rate the raw output would repeat the first to fill the moments before it
+  const asIs = [((await ffmpegMajor()) ?? 99) < 6 ? "-vsync" : "-fps_mode", "passthrough"];
+  const run = await new Promise<{ out: Buffer; log: string } | null>((done) => {
+    execFile(
+      tools.ffmpeg,
+      localInputs(["-hide_banner", "-nostats", "-loglevel", "info", "-ss", (from / 1e6).toFixed(6), "-t", span.toFixed(6), "-i", file, "-an", "-vf", "showinfo,scale=96:54,format=gray", ...asIs, "-f", "rawvideo", "-"]),
+      { encoding: "buffer", timeout: 120_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true },
+      (err, stdout, stderr) => done(err ? null : { out: stdout as Buffer, log: (stderr as Buffer).toString("utf8") }),
+    );
+  });
+  if (!run) return moments.map(() => null);
+  // each frame's timestamp after the seek (counted from the seek's own moment), in the stream's time base
+  const base = /time_base:\s*(\d+)\/(\d+)/.exec(run.log);
+  const num = Number(base?.[1] ?? 1);
+  const den = Number(base?.[2] ?? 1e6);
+  const tb = (micro: number) => Math.round((micro * den) / (num * 1e6));
+  const pts = [...run.log.matchAll(/\bn:\s*\d+\s+pts:\s*(-?\d+)/g)].map((m) => Number(m[1])).slice(0, Math.floor(run.out.length / GRAY));
+  return us.map((u) => {
+    // a seek to `u` keeps the frames at or after it: in this run, those at or after `u - from`
+    const at = tb(u) - tb(from);
+    const k = pts.findIndex((p) => p >= at);
+    return k < 0 ? null : new Uint8Array(run.out.subarray(k * GRAY, (k + 1) * GRAY));
+  });
 }
 
 const meanDiff = (a: Uint8Array, b: Uint8Array) => {
@@ -1103,7 +1268,7 @@ const meanDiff = (a: Uint8Array, b: Uint8Array) => {
  * and the player's) the steps are those of the fade, worked out from the frames 24 a second: "hold", the clip before
  * held on its last frame while this one fades in from its start; "overlap", both moving over the moments before
  * `b.atMs` (b starts `ms` early). Measured as a cut, every faded join read ×5 to ×9 (2026-10-08). null when a frame
- * cannot be read.
+ * cannot be read. Each side's frames are read in one run (grayFrames).
  */
 export async function joinJump(
   a: { source: Media; ext: string; atMs: number },
@@ -1113,36 +1278,48 @@ export async function joinJump(
   return inTemp(async (dir) => {
     const fa = await onDisk(dir, `a.${a.ext}`, a.source);
     const fb = await onDisk(dir, `b.${b.ext}`, b.source);
-    // the last frame a length promises is not always there: a little earlier then
-    const last = (await grayAt(fa, a.atMs)) ?? (await grayAt(fa, a.atMs - 100)) ?? (await grayAt(fa, a.atMs - 250));
-    const first = (await grayAt(fb, b.atMs)) ?? (await grayAt(fb, b.atMs + FRAME_SLACK_MS));
-    if (!last || !first) return null;
     const step = 1000 / Math.max(1, b.fps);
+    const model = 1000 / 24;
+    const faded = fade && fade.ms >= 80 ? fade : null;
+    const n = faded ? Math.max(2, Math.round(faded.ms / model)) : 0;
+    const overlap = faded?.mode === "overlap";
+    // every moment either side is read at, asked of one run per side
+    const aAt = [a.atMs, a.atMs - 100, a.atMs - 250, ...(faded && overlap ? Array.from({ length: n + 1 }, (_, j) => a.atMs - faded.ms + (j - 1) * model) : [])];
+    const bAt = [
+      b.atMs, b.atMs + FRAME_SLACK_MS, ...Array.from({ length: 4 }, (_, k) => b.atMs + k * step),
+      ...(faded && !overlap ? Array.from({ length: n + 1 }, (_, k) => b.atMs + k * model) : []),
+      ...(faded && overlap ? Array.from({ length: n + 1 }, (_, j) => b.atMs - faded.ms + (j - 1) * model) : []),
+    ];
+    const [ga, gb] = await Promise.all([grayFrames(fa, aAt), grayFrames(fb, bAt)]);
+    const ofA = (ms: number) => ga[aAt.indexOf(ms)] ?? null;
+    const ofB = (ms: number) => gb[bAt.indexOf(ms)] ?? null;
+    // the last frame a length promises is not always there: a little earlier then
+    const last = ofA(a.atMs) ?? ofA(a.atMs - 100) ?? ofA(a.atMs - 250);
+    const first = ofB(b.atMs) ?? ofB(b.atMs + FRAME_SLACK_MS);
+    if (!last || !first) return null;
     const own: number[] = [];
     for (let k = 0; k < 3; k++) {
-      const x = await grayAt(fb, b.atMs + k * step);
-      const y = await grayAt(fb, b.atMs + (k + 1) * step);
+      const x = ofB(b.atMs + k * step);
+      const y = ofB(b.atMs + (k + 1) * step);
       if (x && y) own.push(meanDiff(x, y));
     }
     const typical = Math.max(0.6, own.length ? own.reduce((s, v) => s + v, 0) / own.length : 0.6);
-    if (!fade || fade.ms < 80) return Math.round(Math.min(20, meanDiff(last, first) / typical) * 10) / 10;
+    if (!faded) return Math.round(Math.min(20, meanDiff(last, first) / typical) * 10) / 10;
     // the fade, a model frame at a time: each frame a mix of the two sides, the second weighing more and more
-    const model = 1000 / 24;
-    const n = Math.max(2, Math.round(fade.ms / model));
     const mix = (x: Uint8Array, y: Uint8Array, w: number) => { const out = new Uint8Array(x.length); for (let i = 0; i < x.length; i++) out[i] = Math.round((1 - w) * x[i]! + w * y[i]!); return out; };
     const seq: Uint8Array[] = [];
-    if (fade.mode === "hold") {
+    if (faded.mode === "hold") {
       seq.push(last);
       for (let k = 0; k < n; k++) {
-        const y = await grayAt(fb, b.atMs + k * model);
+        const y = ofB(b.atMs + k * model);
         if (y) seq.push(mix(last, y, (k + 1) / (n + 1)));
       }
-      const after = await grayAt(fb, b.atMs + n * model);
+      const after = ofB(b.atMs + n * model);
       if (after) seq.push(after);
     } else {
       for (let k = -1; k < n; k++) {
-        const x = await grayAt(fa, a.atMs - fade.ms + k * model);
-        const y = await grayAt(fb, b.atMs - fade.ms + k * model);
+        const x = ofA(a.atMs - faded.ms + k * model);
+        const y = ofB(b.atMs - faded.ms + k * model);
         if (x && y) seq.push(k < 0 ? x : mix(x, y, (k + 1) / (n + 1)));
       }
       seq.push(first);
@@ -1160,20 +1337,22 @@ export async function joinJump(
  * frame steps right after (×1 = it carries on, ×3 = a visible catch, ×6 and past = a different shot). The
  * steps are the model's own, 24 a second: an interpolated file's in-between frames are stepped over, and each
  * seek lands a few milliseconds early so that a rounded `headMs` still picks the frame meant. null when a
- * frame cannot be read.
+ * frame cannot be read. The frames are read in one run (grayFrames).
  */
 export async function runUpBreak(bytes: Media, ext: string, headMs: number): Promise<number | null> {
   return inTemp(async (dir) => {
     const file = await onDisk(dir, `in.${ext}`, bytes);
     const step = 1000 / 24;
-    const at = (k: number) => grayAt(file, headMs + k * step - 5);
-    const before = await at(-1);
-    const first = await at(0);
+    const ks = [-1, 0, 1, 2, 3];
+    const frames = await grayFrames(file, ks.map((k) => headMs + k * step - 5));
+    const at = (k: number) => frames[ks.indexOf(k)] ?? null;
+    const before = at(-1);
+    const first = at(0);
     if (!before || !first) return null;
     const own: number[] = [];
     for (let k = 0; k < 3; k++) {
-      const x = await at(k);
-      const y = await at(k + 1);
+      const x = at(k);
+      const y = at(k + 1);
       if (x && y) own.push(meanDiff(x, y));
     }
     const typical = Math.max(0.6, own.length ? own.reduce((s, v) => s + v, 0) / own.length : 0.6);
@@ -1247,15 +1426,26 @@ export async function silentOf(source: Media, ext: string): Promise<Uint8Array> 
 
 /**
  * The same video marked as made by a model (aiMark.ts): every stream copied as it is, frames and timestamps untouched,
- * only the container's comment added. An editor counts the same frames in it as in the library's file.
+ * only the container's comment added. An editor counts the same frames in it as in the library's file. Written to a
+ * temporary file and handed over there (`file`, `size`), never read into memory: a 2 GB render downloaded whole that way
+ * held ~3.8 GB. `done` removes it, once whoever reads it is through. A run in the ffmpeg pool, as the other cuts a
+ * request asks for.
  */
-export async function markedVideo(source: Media, ext: string): Promise<Uint8Array> {
-  return inTemp(async (dir) => {
+export async function markedVideoFile(source: Media, ext: string): Promise<{ file: string; size: number; done: () => Promise<void> }> {
+  const dir = await mkdtemp(join(tmpdir(), "afflatus-cut-"));
+  // retried a little: on Windows the stream that read it may still hold it for a moment after its last chunk
+  const done = () => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {});
+  try {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, `marked.${ext}`);
-    await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, "-map", "0", "-c", "copy", "-map_metadata", "0", ...aiVideoArgs, ...(ext === "webm" ? [] : ["-movflags", "+faststart"]), out], { timeout: 10 * 60_000 });
-    return new Uint8Array(await readFile(out));
-  });
+    await ffmpegPool(() => must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, "-map", "0", "-c", "copy", "-map_metadata", "0", ...aiVideoArgs, ...(ext === "webm" ? [] : ["-movflags", "+faststart"]), out], { timeout: 10 * 60_000 }));
+    // the bytes handed in (a file not on this machine's disk) are let go of: only the marked copy is read from here on
+    if (input !== source) await rm(input, { force: true }).catch(() => {});
+    return { file: out, size: (await stat(out)).size, done };
+  } catch (err) {
+    await done();
+    throw err;
+  }
 }
 
 /** The part of a sound that is used, given how long the sound is: see soundPart. */

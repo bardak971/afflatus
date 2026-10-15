@@ -1,10 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { AI_COMMENT, AI_SOURCE_TYPE, markPng } from "../src/aiMark";
+import { markedVideoFile } from "../src/cut";
 import { FFMPEG_TIMEOUT, ffmpegThere } from "./clipKit";
 import { get, makeApp } from "./helpers";
 import { frames, timelineSteps, timelineSuite } from "./timelineKit";
@@ -71,10 +72,24 @@ describe.skipIf(!ffmpegThere)("a video leaving Afflatus", { timeout: FFMPEG_TIME
     const { id } = await twoClips();
     const take = (await view(id)).clips[0].take.asset.id as string;
     const raw = (await get(s.t.app, `/api/assets/${take}/file`)).rawPayload;
-    const down = (await get(s.t.app, `/api/assets/${take}/file?download=1`)).rawPayload;
+    const answer = await get(s.t.app, `/api/assets/${take}/file?download=1`);
+    const down = answer.rawPayload;
     expect(commentOf(raw)).not.toBe(AI_COMMENT);
     expect(commentOf(down)).toBe(AI_COMMENT);
     expect(frames(down)).toBe(frames(raw));
+    // streamed from the marked copy on the disk, its length said before the first byte
+    expect(Number(answer.headers["content-length"])).toBe(down.length);
+  });
+
+  it("is marked in a temporary file that is removed once read", async () => {
+    const { id } = await twoClips();
+    const take = (await view(id)).clips[0].take.asset.id as string;
+    const raw = (await get(s.t.app, `/api/assets/${take}/file`)).rawPayload;
+    const marked = await markedVideoFile(new Uint8Array(raw), "mp4");
+    expect(statSync(marked.file).size).toBe(marked.size);
+    expect(commentOf(readFileSync(marked.file))).toBe(AI_COMMENT);
+    await marked.done();
+    expect(existsSync(dirname(marked.file))).toBe(false);
   });
 
   it("marks an export that holds a render, and not one made only of what the user brought in", async () => {

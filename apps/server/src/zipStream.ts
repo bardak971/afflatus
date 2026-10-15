@@ -1,5 +1,5 @@
 import { PassThrough, type Readable } from "node:stream";
-import { crcUpdate } from "./zip";
+import { crc32 } from "./zip";
 
 /**
  * A zip written as it goes, for a backup of many gigabytes: each file is streamed in once, stored as it is
@@ -84,12 +84,12 @@ export class ZipStream {
     local.writeUInt16LE(extra.length, 28);
     await this.write(Buffer.concat([local, nameBytes, extra]));
     // the bytes, with a running checksum
-    let crc = 0xffffffff;
+    let crc = 0;
     let written = 0;
     try {
       for await (const chunk of source) {
         const b = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
-        crc = crcUpdate(crc, b);
+        crc = crc32(b, crc);
         written += b.length;
         await this.write(b);
       }
@@ -97,7 +97,6 @@ export class ZipStream {
       // a write that failed leaves the loop by its error: the source is let go of
       source.destroy();
     }
-    crc = (crc ^ 0xffffffff) >>> 0;
     if (!wide && written >= LIMIT32) throw new Error(`${name} is larger than it was said to be: the backup cannot hold it as a plain entry`);
     const desc = Buffer.alloc(wide ? 24 : 16);
     desc.writeUInt32LE(0x08074b50, 0);

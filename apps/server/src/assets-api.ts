@@ -1,3 +1,4 @@
+import { createReadStream } from "node:fs";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { toEditor } from "@afflatus/workflows";
@@ -8,7 +9,7 @@ import { registerAssetsBin } from "./assetsBin";
 import { registerAssetUpload } from "./assetUpload";
 import { openInComfy } from "./comfyOpen";
 import { tagMatches } from "./compress";
-import { markedVideo, silentOf, soundOf } from "./cut";
+import { markedVideoFile, silentOf, soundOf } from "./cut";
 import { newId, now, type Tables } from "./db";
 import { httpError, notFound } from "./errors";
 import type { LibraryChange } from "./events";
@@ -214,8 +215,16 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     const a = await asset(req.params.id);
     // saved to the user's disk (not played here): a render goes out marked as made by a model (aiMark.ts), whole
     if (req.query.download === "1" && (a.mime === "image/png" || a.kind === "video") && (await fromRender(s.db, a))) {
-      const marked = a.kind === "video" ? await markedVideo(await sourceOf(s.storage, a.file_key), extOf(a.mime)) : markPng(await s.storage.get(a.file_key));
-      return reply.header("Content-Type", a.mime).header("Cache-Control", "no-store").header("Content-Length", marked.length).send(Buffer.from(marked.buffer, marked.byteOffset, marked.byteLength));
+      reply.header("Content-Type", a.mime).header("Cache-Control", "no-store");
+      if (a.kind === "video") {
+        // streamed from the marked copy on the disk, removed once sent (or the download stopped): never whole in memory
+        const marked = await markedVideoFile(await sourceOf(s.storage, a.file_key), extOf(a.mime));
+        const stream = createReadStream(marked.file);
+        stream.on("close", () => void marked.done());
+        return reply.header("Content-Length", marked.size).send(stream);
+      }
+      const marked = markPng(await s.storage.get(a.file_key));
+      return reply.header("Content-Length", marked.length).send(Buffer.from(marked.buffer, marked.byteOffset, marked.byteLength));
     }
     const size = await s.storage.size(a.file_key);
     reply.header("Content-Type", a.mime).header("Accept-Ranges", "bytes");

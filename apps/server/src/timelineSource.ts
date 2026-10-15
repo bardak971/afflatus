@@ -1,9 +1,6 @@
 import { gridAtOrBefore, sourceWindows, type Recipe, type SourceWindow } from "@afflatus/core";
 import { z } from "zod";
-import { scenesOf } from "./cut";
 import { httpError } from "./errors";
-import { extOf } from "./media";
-import { sourceOf, type Storage } from "./storage";
 import type { AssetRow } from "./timelineModel";
 
 /**
@@ -121,10 +118,13 @@ export function windowRunUp(recipe: Recipe<any> | undefined, inputs: Record<stri
 
 const round4 = (s: number) => Math.round(s * 10_000) / 10_000;
 
-/** The windows a source's stretch is made in, with the scene cuts asked for (read with ffmpeg). */
-export async function planWindows(plan: SourcePlan, recipe: Recipe<any>, video: AssetRow, storage: Storage): Promise<SourceWindow[]> {
+/**
+ * The windows a source's stretch is made in, with the scene cuts asked for: the source's as kept beside it
+ * (TimelineMedia.scenes, read with ffmpeg once), not read again on every Make.
+ */
+export async function planWindows(plan: SourcePlan, recipe: Recipe<any>, video: AssetRow, scenes: (assetId: string) => Promise<{ cuts: number[] }>): Promise<SourceWindow[]> {
   const shape = windowsOf(recipe);
   if (!shape) throw httpError(`${recipe.title} does not make a long video window by window.`);
-  const cutsMs = plan.snap ? await scenesOf(await sourceOf(storage, video.file_key), extOf(video.mime)) : [];
+  const cutsMs = plan.snap ? (await scenes(video.id)).cuts : [];
   return sourceWindows({ fromMs: plan.fromMs, toMs: plan.toMs, windowMs: plan.windowMs, shape, cutsMs });
 }

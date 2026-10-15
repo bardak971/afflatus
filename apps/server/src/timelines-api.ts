@@ -1,3 +1,4 @@
+import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -5,7 +6,7 @@ import { RANDOM_SEED, TRANSITION_KINDS, TRANSITION_MS, hiddenRunUp, movedSeed, r
 import { fromRender, markPng } from "./aiMark";
 import { nameOf } from "./autoName";
 import { VERSION } from "./config";
-import { CutError, markedVideo, musicTrack } from "./cut";
+import { CutError, markedVideoFile, musicTrack } from "./cut";
 import { httpError } from "./errors";
 import { compose, lookSchema, withMood } from "./entities";
 import { askedOf } from "./jobs-api";
@@ -294,7 +295,17 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
           if (req.raw.destroyed) break;
           const a = byKey.get(key);
           if (a && (a.kind === "video" || a.mime === "image/png") && (await fromRender(s.db, a))) {
-            const marked = a.kind === "video" ? await markedVideo(await sourceOf(s.storage, key), extOf(a.mime)) : markPng(await s.storage.get(key));
+            if (a.kind === "video") {
+              // read from the marked copy on the disk as it goes into the zip, then removed: one file in memory at a time held 800 MB
+              const marked = await markedVideoFile(await sourceOf(s.storage, key), extOf(a.mime));
+              try {
+                await zip.add(path, createReadStream(marked.file), new Date(), marked.size);
+              } finally {
+                await marked.done();
+              }
+              continue;
+            }
+            const marked = markPng(await s.storage.get(key));
             await zip.add(path, Readable.from([Buffer.from(marked.buffer, marked.byteOffset, marked.byteLength)]), new Date(), marked.length);
             continue;
           }

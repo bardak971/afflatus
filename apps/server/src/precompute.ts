@@ -1,6 +1,7 @@
+import { lookOf, runUpBreak, takeMeasures, type Measure, type Media } from "./cut";
 import type { Db } from "./db";
 import { ffmpegPool } from "./pool";
-import type { TimelineMedia } from "./timelineMedia";
+import { keptKey, keptMotion, type TimelineMedia } from "./timelineMedia";
 
 /**
  * What the timeline editor measures of its clips, worked out in the background before it is asked for: a take's motion
@@ -229,4 +230,31 @@ export class Precompute {
     timer.unref();
     this.timers.set(timer, work);
   }
+}
+
+/**
+ * A take's measures as it lands, from one decode of it (takeMeasures): its look, kept with the render (and, for a
+ * continuation, the step where its run-up ends, runUpBreak), and what the timeline editor reads of it, put where the
+ * editor and the background find them done (its motion, its film strip, its frame means). Eight decodes before, three of
+ * them made again by the background once the take was placed. `put` stores a file (the caller's: a failed landing removes
+ * what it put). When the one run fails, the look is measured a pass at a time as before and the rest left to the
+ * background. `fromMs`: where the take's own part starts (a continuation's run-up before it).
+ */
+export async function measureLanded(
+  put: (key: string, bytes: Uint8Array) => Promise<void>, assetId: string, source: Media, ext: string,
+  facts: { durationMs: number; hasSound: boolean }, fromMs = 0,
+): Promise<Measure | null> {
+  const all = await takeMeasures(source, ext, { fromMs, durationMs: facts.durationMs, hasSound: facts.hasSound }).catch(() => null);
+  let look = all ? all.look : await lookOf(source, ext, fromMs).catch(() => null);
+  if (all) {
+    const json = (v: unknown) => new TextEncoder().encode(JSON.stringify(v));
+    await put(keptKey.motion(assetId), json(keptMotion(all.motion)));
+    await put(keptKey.strip(assetId), all.strip);
+    if (all.means.t.length) await put(keptKey.means(assetId), json(all.means));
+  }
+  // a continuation: the step where its run-up ends and its own frames begin, kept with the look. The join figures look at
+  // the take-over point, which sits inside the run-up and copies the clip before whatever happens next; a model that steps
+  // away from its guide cuts here, and only this figure says so
+  if (look && fromMs > 0) look = { ...look, handover: (await runUpBreak(source, ext, fromMs).catch(() => null)) ?? undefined };
+  return look;
 }

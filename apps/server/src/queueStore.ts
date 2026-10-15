@@ -2,10 +2,10 @@ import type { OutputFile, waitForOutputs } from "@afflatus/comfy";
 import type { ClipValue, InputSpec, Recipe, ReferenceValue } from "@afflatus/core";
 import { draftNames, labelNames, passName, promptOf } from "./autoName";
 import type { Comfy } from "./comfy";
-import { frameAt, lookOf, repairJoinAudio, runUpBreak, type Measure } from "./cut";
+import { frameAt, repairJoinAudio, type Measure } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { latentDriftOf } from "./latentStats";
-import { precomputeOf } from "./precompute";
+import { measureLanded, precomputeOf } from "./precompute";
 import { extOf, mimeOfFile, newAssetRow, pngSize } from "./media";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideo } from "./video";
@@ -199,13 +199,10 @@ async function fileOne(
   const video = kind === "video" ? await readVideo(bytes, extOf(mime)) : null;
   const size = kind === "image" ? pngSize(bytes) : video?.facts ?? null;
   // how the clip's own part looks (mean luma, sharpness), kept with the render: a run of clips that flow on
-  // can then be checked for sliding darker or softer clip after clip (see lookOf)
+  // can then be checked for sliding darker or softer clip after clip (see lookOf). Its motion, strip and frame
+  // means are kept from the same decode, for the timeline editor (measureLanded)
   let measure: Measure | null = null;
-  if (video?.facts) measure = await lookOf(bytes, extOf(mime), resume.overlap?.headMs ?? 0).catch(() => null);
-  // a continuation: the step where its run-up ends and its own frames begin, kept with the look. The join
-  // figures look at the take-over point, which sits inside the run-up and copies the clip before whatever
-  // happens next; a model that steps away from its guide cuts here, and only this figure says so
-  if (measure && resume.overlap?.headMs) measure.handover = (await runUpBreak(bytes, extOf(mime), resume.overlap.headMs).catch(() => null)) ?? undefined;
+  if (video?.facts) measure = await measureLanded(put, id, bytes, extOf(mime), video.facts, resume.overlap?.headMs ?? 0).catch(() => null);
   // a clip that opens on the end of another one is shown by its own first frame, not by the other's
   const own = video?.frame && resume.overlap?.headMs ? await frameAt(bytes, extOf(mime), resume.overlap.headMs).catch(() => null) : null;
   addPart("measuring", performance.now() - measuring);

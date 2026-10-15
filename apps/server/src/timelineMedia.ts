@@ -36,6 +36,20 @@ export async function fewAtATime<T, R>(items: T[], most: number, work: (item: T)
   return out;
 }
 
+/**
+ * Where what is measured of a video once is kept beside it: its motion and loudness, its track's film strip, its frame
+ * means. Written here as the editor asks for them, and by a take's landing, which measures them all at once
+ * (precompute.ts, measureLanded).
+ */
+export const keptKey = {
+  motion: (id: string) => `motion/${id.slice(0, 2)}/${id}.json`,
+  strip: (id: string) => `strips/${id.slice(0, 2)}/${id}.jpg`,
+  means: (id: string) => `means/${id.slice(0, 2)}/${id}.json`,
+};
+
+/** The motion and loudness of a video as they are kept (TimelineMedia.motion): ten samples a second, the motion to a tenth. */
+export const keptMotion = (m: { motion: number[]; sound: number[] | null; speech: number[] | null }) => ({ rate: MOTION_RATE, values: m.motion.map((v) => Math.round(v * 10) / 10), sound: m.sound, speech: m.speech });
+
 /** A measure kept as JSON in storage; null when it cannot be read (cut short, damaged): it is then worked out again. */
 function readKept<T>(bytes: Uint8Array): T | null {
   try {
@@ -115,7 +129,7 @@ export class TimelineMedia {
     if (!video || video.kind !== "video") throw notFound("this video");
     const windowed = opts.fromMs !== undefined || opts.toMs !== undefined;
     const sized = opts.frames || opts.height;
-    const key = sized ? `strips/${video.id.slice(0, 2)}/${video.id}-${opts.frames ?? 0}x${opts.height ?? 0}.jpg` : `strips/${video.id.slice(0, 2)}/${video.id}.jpg`;
+    const key = sized ? `strips/${video.id.slice(0, 2)}/${video.id}-${opts.frames ?? 0}x${opts.height ?? 0}.jpg` : keptKey.strip(video.id);
     const have = windowed ? null : await storage.get(key).catch(() => null);
     if (have) return have;
     const source = await this.source(video);
@@ -136,14 +150,13 @@ export class TimelineMedia {
     const { storage } = this.core;
     const asset = await this.core.assetRow(assetId);
     if (!asset || (asset.kind !== "video" && asset.kind !== "audio")) throw notFound("this video");
-    const key = `motion/${asset.id.slice(0, 2)}/${asset.id}.json`;
+    const key = keptKey.motion(asset.id);
     const have = await storage.get(key).catch(() => null);
     // a file cut short (a crash while it was written) is measured again, not a video broken for good
     const kept = have ? readKept<{ rate: number; values: number[]; sound?: number[] | null; speech?: number[] | null }>(have) : null;
     // measured before the speech band was: measured again, once
     if (kept && Array.isArray(kept.values) && kept.sound !== undefined && kept.speech !== undefined) return { rate: kept.rate, values: kept.values, sound: kept.sound, speech: kept.speech };
-    const { motion, sound, speech } = await measureOf(await this.source(asset), extOf(asset.mime));
-    const made = { rate: MOTION_RATE, values: motion.map((v) => Math.round(v * 10) / 10), sound, speech };
+    const made = keptMotion(await measureOf(await this.source(asset), extOf(asset.mime)));
     await storage.put(key, new TextEncoder().encode(JSON.stringify(made)));
     return made;
   }
@@ -173,7 +186,7 @@ export class TimelineMedia {
     let got = this.alongs.get(asset.id);
     if (!got) {
       const { storage } = this.core;
-      const key = `means/${asset.id.slice(0, 2)}/${asset.id}.json`;
+      const key = keptKey.means(asset.id);
       got = (async () => {
         const have = await storage.get(key).catch(() => null);
         const kept = have ? readKept<FrameMeans>(have) : null;
@@ -311,12 +324,11 @@ export class TimelineMedia {
   /** What is not kept yet of a video: its motion, its track's film strip, its colour along it (what the background measure makes, precompute.ts). */
   async missing(asset: AssetRow): Promise<Array<"motion" | "strip" | "means">> {
     const { storage } = this.core;
-    const dir = asset.id.slice(0, 2);
     const there = (key: string) => storage.size(key).then((n) => n > 0, () => false);
     const out: Array<"motion" | "strip" | "means"> = [];
-    if (!(await there(`motion/${dir}/${asset.id}.json`))) out.push("motion");
-    if (asset.kind === "video" && !(await there(`strips/${dir}/${asset.id}.jpg`))) out.push("strip");
-    if (asset.kind === "video" && !(await there(`means/${dir}/${asset.id}.json`))) out.push("means");
+    if (!(await there(keptKey.motion(asset.id)))) out.push("motion");
+    if (asset.kind === "video" && !(await there(keptKey.strip(asset.id)))) out.push("strip");
+    if (asset.kind === "video" && !(await there(keptKey.means(asset.id)))) out.push("means");
     return out;
   }
 

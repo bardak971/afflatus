@@ -112,6 +112,20 @@ describe("a timeline's source lane", () => {
     await expect(call("POST", `/api/timelines/${tl.id}/source/split`, { atMs: 27900 })).rejects.toThrow(/stretch/);
   });
 
+  it("snaps its windows to the scene cuts kept beside the source, not read again on each Make", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test source" });
+    const meme = await asset("video");
+    // the cuts as the editor read them once (TimelineMedia.scenes): the file itself is never read here
+    await t.services.storage.put(`scenes/${meme.id.slice(0, 2)}/${meme.id}.json`, new TextEncoder().encode(JSON.stringify({ cuts: [11000] })));
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id, fromMs: 3000, snap: true, recipe: "scail.motion", inputs: { prompt: "A man raps." } } });
+    await call("POST", `/api/timelines/${tl.id}/source/make`);
+    const v = await view(tl.id);
+    // a window ends on the cut, and the one after it opens a new shot
+    const at = v.clips.findIndex((c: { joined: string }, i: number) => i > 0 && c.joined === "cut");
+    expect(at).toBeGreaterThan(0);
+    expect(Math.abs(v.clips[at].inputs.drivingStart - 11)).toBeLessThan(0.3);
+  });
+
   it("is refused without a model that makes a source window by window, or without a source", async () => {
     const tl = await call("POST", "/api/timelines", { name: "zz-test source" });
     await expect(call("POST", `/api/timelines/${tl.id}/source/make`)).rejects.toThrow(/Source lane/);
