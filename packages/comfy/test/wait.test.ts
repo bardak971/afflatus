@@ -57,6 +57,28 @@ describe("waitForOutputs", () => {
     expect(await waitForOutputs(client, id, { ...fast, timeoutMs: 150, pollMs: 1, queueCheckEvery: 1 })).toEqual({});
   });
 
+  it("with the socket telling the end, asks for the history every 5 s only, and at once when the end is told", async () => {
+    const id = await client.submit(graph);
+    let asked = 0;
+    const history = client.history.bind(client);
+    client.history = (promptId: string) => (asked++, history(promptId));
+    let tell = () => {};
+    const ended = new Promise<void>((r) => (tell = r));
+    const result = waitForOutputs(client, id, { timeoutMs: 60_000, ended });
+    // a second and a half of rendering: asked twice by now at 750 ms, not yet at 5 s
+    await new Promise((r) => setTimeout(r, 1_600));
+    expect(asked).toBe(0);
+    // the end is told a moment before the history is written: read at once, then again soon after
+    const at = Date.now();
+    tell();
+    later(60, () => {
+      fake.history[id] = { status: { completed: true }, outputs: {} };
+    });
+    expect(await result).toEqual({});
+    expect(Date.now() - at).toBeLessThan(500);
+    expect(asked).toBeGreaterThanOrEqual(2);
+  });
+
   it("says the job is lost when ComfyUI stays unreachable", async () => {
     const id = await client.submit(graph);
     await fake.close();

@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forgetHuggingFace } from "../src/huggingface";
 import { podSource } from "../src/podSources";
@@ -165,6 +166,19 @@ describe("every model file hashed once", () => {
     rendering = false;
     await run;
     expect((await t.services.hashes.status()).hashed).toBe(3);
+  });
+
+  it("hashes in a thread of its own: the server's thread stays free while a checkpoint is read", async () => {
+    mkdirSync(join(home, "models", "checkpoints"), { recursive: true });
+    const big = Buffer.alloc(256 * 2 ** 20, 7);
+    const path = join(home, "models", "checkpoints", "zz-test-big.safetensors");
+    writeFileSync(path, big);
+    const before = performance.eventLoopUtilization();
+    await t.services.hashes.run().finally(() => rmSync(path, { force: true }));
+    const busy = performance.eventLoopUtilization(before).utilization;
+    expect((await t.db.selectFrom("model_hashes").select("sha256").where("folder", "=", "checkpoints").executeTakeFirstOrThrow()).sha256).toBe(sha(big));
+    // on the server's thread it was busy about 60 % of the pass, 15 % with the hash in a thread of its own
+    expect(busy).toBeLessThan(0.35);
   });
 
   it("asks no site with lookups off, and says when there is no ComfyUI folder here", async () => {

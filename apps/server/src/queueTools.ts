@@ -287,7 +287,7 @@ async function place(core: QueueCore, clips: Timelines, clipId: string, made: As
 export async function awaitPrompt(comfy: Comfy, promptId: string, node: string, signal: AbortSignal, wait: QueueCore["opts"]["wait"]): Promise<OutputFile> {
   let outputs;
   try {
-    outputs = await waitForOutputs(comfy.client, promptId, { ...wait, signal });
+    outputs = await waitForOutputs(comfy.client, promptId, { ...wait, signal, ended: comfy.monitor.ended(promptId) });
   } catch (err) {
     if (err instanceof ComfyCancelled || signal.aborted) {
       // shutting down leaves the prompt running in ComfyUI: the next start follows it by the id saved on the job (SHUTDOWN)

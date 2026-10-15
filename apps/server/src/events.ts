@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
+import type { SystemLoad } from "@afflatus/comfy";
 import type { Db } from "./db";
 import type { Services } from "./services";
 
@@ -73,10 +74,24 @@ export function libraryFrame(said: unknown): LibraryChange {
   };
 }
 
+/**
+ * What a "system" frame says after the first: the machines whose load changed since the last frame (a load's `at`, the
+ * moment it was read, aside), and the ids of every machine, which a page goes by to drop one gone and keep the others'
+ * loads as they were (the web's liveState.ts systemAfter). No frame when nothing changed and no machine came or went.
+ * `now`: what was sent, for the next frame to be told against.
+ */
+export function systemFrame(before: ReadonlyMap<string, string>, read: Array<{ id: string; load: SystemLoad | null }>): { data: { machines: string[]; loads: Record<string, SystemLoad | null> } | null; now: Map<string, string> } {
+  const now = new Map(read.map((r) => [r.id, JSON.stringify(r.load && { ...r.load, at: 0 })]));
+  const changed = read.filter((r) => before.get(r.id) !== now.get(r.id));
+  const same = !changed.length && before.size === now.size && [...before.keys()].every((id, i) => id === read[i]?.id);
+  return { data: same ? null : { machines: read.map((r) => r.id), loads: Object.fromEntries(changed.map((r) => [r.id, r.load])) }, now };
+}
+
 export function registerEvents(app: FastifyInstance, s: Services, version: string): void {
   const clients = new Set<FastifyReply>();
+  const frameOf = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   const send = (event: string, data: unknown = {}) => {
-    const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    const frame = frameOf(event, data);
     for (const reply of clients) {
       if (reply.raw.writableLength > MAX_UNSENT_BYTES) {
         clients.delete(reply);
@@ -88,13 +103,23 @@ export function registerEvents(app: FastifyInstance, s: Services, version: strin
     rest();
   };
   // what it finds of the ComfyUIs goes to the queue too: an idle queue asks them nothing, and kept saying they were online.
-  // `load` is the first machine's (the screens that show one), `loads` every machine's by id
+  // A page gets every machine's load as it opens (`load` the first machine's, for the screens that show one; `loads` every
+  // machine's by id); after that only the machines whose load changed go out, with the ids of all of them, and nothing when
+  // none did (systemFrame): sent whole every 2 s it was 3.3 KB with ten machines, ~140 MB a day per open page, mostly the
+  // same. `shown`: what every open page was sent last, which a page opening is sent whole; none while no page is open
+  let shown: { read: Array<{ id: string; load: SystemLoad | null }>; keys: Map<string, string> } | null = null;
+  const whole = (read: Array<{ id: string; load: SystemLoad | null }>) => ({ load: read[0]?.load ?? null, loads: Object.fromEntries(read.map((r) => [r.id, r.load])) });
   const sendSystem = async () => {
     const all = await s.machines();
     const read = await Promise.all(all.map(async ({ machine, comfy }) => ({ id: machine.id, load: await comfy.load().catch(() => null), answered: comfy.answered })));
     const heard = read.filter((r) => r.answered !== null);
     if (heard.length) s.queue.noteReachable(heard.some((r) => r.answered), new Map(heard.map((r) => [r.id, r.answered!])));
-    send("system", { load: read[0]?.load ?? null, loads: Object.fromEntries(read.map((r) => [r.id, r.load])) });
+    if (!clients.size) return;
+    const frame = systemFrame(shown?.keys ?? new Map(), read);
+    const first = !shown;
+    shown = { read, keys: frame.now };
+    if (first) send("system", whole(read));
+    else if (frame.data) send("system", frame.data);
   };
 
   // every connection used to add its own listeners: the limit that warns about a leak does not apply to a fan-out
@@ -133,6 +158,7 @@ export function registerEvents(app: FastifyInstance, s: Services, version: strin
   };
   const rest = () => {
     if (!timer || clients.size) return;
+    shown = null;
     clearInterval(timer);
     clearInterval(beat ?? undefined);
     timer = beat = null;
@@ -174,8 +200,10 @@ export function registerEvents(app: FastifyInstance, s: Services, version: strin
     clients.add(reply);
     watch();
     reply.raw.write(`event: hello\ndata: ${JSON.stringify({ version })}\n\n`);
-    // right away, so the monitor bar is there when a page opens rather than two seconds later
-    void sendSystem();
+    // right away, so the monitor bar is there when a page opens rather than two seconds later: what the open pages were
+    // sent, to this one alone, the next frames being told against it; read now when no page was open
+    if (shown) reply.raw.write(frameOf("system", whole(shown.read)));
+    else void sendSystem();
     req.raw.on("close", () => {
       clients.delete(reply);
       rest();

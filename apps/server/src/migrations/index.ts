@@ -68,6 +68,7 @@ import m0066 from "./0066-model-hashes";
 import m0067 from "./0067-clip-transition";
 import m0068 from "./0068-timeline-source";
 import m0069 from "./0069-sessions";
+import m0070 from "./0070-render-machines";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -144,4 +145,5 @@ export const migrations: Record<string, Migration> = {
   "0067_clip_transition": m0067,
   "0068_timeline_source": m0068,
   "0069_sessions": m0069,
+  "0070_render_machines": m0070,
 };

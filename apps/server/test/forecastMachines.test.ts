@@ -25,7 +25,7 @@ const row = (machine: string, over: Partial<RenderRow>): RenderRow => ({
   id: `r${n++}`, owner_id: "local", recipe_id: "scail.motion", family: "scail", model: "SCAIL", model_file: MODEL, time_key: "driving+;picture+;steps=6",
   kind: "video", width: 480, height: 864, duration_ms: 4821, steps: 6, status: "done", whole: 1, cold: 0, waited_ms: 0,
   total_ms: 0, load_ms: 0, sample_ms: 0, refine_ms: 0, finish_ms: 0, step_ms: null, expected_ms: null,
-  vram_peak: null, heat_peak: null, asset_id: null, work: PX * 77, machine_id: machine, gpu: null, created_at: at, ...over,
+  vram_peak: null, heat_peak: null, asset_id: null, work: PX * 77, machine_id: machine, gpu: null, node_ms: null, created_at: at, ...over,
 });
 /** A window of 77 frames in one chunk: six steps. */
 const first = (machine: string, stepMs: number, totalMs: number, loadMs: number) => row(machine, { step_ms: stepMs, total_ms: totalMs, load_ms: loadMs, sample_ms: 6 * stepMs });

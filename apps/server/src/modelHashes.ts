@@ -1,7 +1,6 @@
-import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { Worker } from "node:worker_threads";
 import { civitaiVersionsByHash } from "./civitai";
 import { now } from "./db";
 import { findOnHuggingFace, huggingFaceSha256 } from "./huggingface";
@@ -26,6 +25,32 @@ export const HASHED_FOLDERS = ["checkpoints", "diffusion_models", "loras", "vae"
 const ASK_AGAIN_MS = 7 * 24 * 60 * 60_000;
 /** While a render runs here, how often the hashing looks whether it may go on. */
 const PAUSE_MS = 2_000;
+
+/**
+ * The hashing itself, in a worker thread: SHA-256 over a model file on the server's own thread kept it 46 to 50 % busy and
+ * every request 10 to 15 ms late while a pass ran (the 2026-10-15 performance review). One file at a time: `{ path }`
+ * starts one, `{ pause }` and `{ resume }` hold it while this computer renders; it says `{ bytes }` as it reads and
+ * `{ sha256 }` (null: the file could not be read) at the end. A string run with `eval`, as sqliteWorker.ts's is, so that
+ * the same source works under tsx, vitest and the release's single bundled file.
+ */
+const HASHER = String.raw`
+const { parentPort } = require("node:worker_threads");
+const { createHash } = require("node:crypto");
+const { createReadStream } = require("node:fs");
+let stream = null;
+let paused = false;
+parentPort.on("message", (m) => {
+  if (m.pause) { paused = true; stream?.pause(); return; }
+  if (m.resume) { paused = false; stream?.resume(); return; }
+  const hash = createHash("sha256");
+  const s = createReadStream(m.path, { highWaterMark: 4 * 2 ** 20 });
+  stream = s;
+  if (paused) s.pause();
+  s.on("data", (d) => { hash.update(d); parentPort.postMessage({ bytes: d.length }); });
+  s.on("end", () => { stream = null; parentPort.postMessage({ sha256: hash.digest("hex").toUpperCase() }); });
+  s.on("error", () => { stream = null; parentPort.postMessage({ sha256: null }); });
+});
+`;
 
 export interface HashStatus {
   /** Model files found in this computer's ComfyUI folders. */
@@ -154,30 +179,42 @@ export class ModelHashes {
       const k = have.get(keyOf(f.folder, f.file));
       return !k || Number(k.size) !== f.size || Number(k.mtime) !== f.mtime;
     }).sort((a, b) => a.size - b.size);
-    for (const f of todo) {
-      // a file just found gone with the same size and time: the same file renamed or moved, its hash and match kept
-      // rather than a checkpoint read again in full
-      const moved = !have.has(keyOf(f.folder, f.file)) ? gone.findIndex((g) => Number(g.size) === f.size && Number(g.mtime) === f.mtime) : -1;
-      if (moved >= 0) {
-        const [g] = gone.splice(moved, 1);
-        await this.s.db.insertInto("model_hashes").values({ ...g!, folder: f.folder, file: f.file }).execute();
-        continue;
+    // the hashing's thread, for this pass only
+    let worker: Worker | null = null;
+    try {
+      for (const f of todo) {
+        // a file just found gone with the same size and time: the same file renamed or moved, its hash and match kept
+        // rather than a checkpoint read again in full
+        const moved = !have.has(keyOf(f.folder, f.file)) ? gone.findIndex((g) => Number(g.size) === f.size && Number(g.mtime) === f.mtime) : -1;
+        if (moved >= 0) {
+          const [g] = gone.splice(moved, 1);
+          await this.s.db.insertInto("model_hashes").values({ ...g!, folder: f.folder, file: f.file }).execute();
+          continue;
+        }
+        // made at the first file to read, and again after one that stopped (its id is then -1)
+        if (!worker || worker.threadId === -1) {
+          worker = new Worker(HASHER, { eval: true });
+          // a pass under way never holds the process open at its end
+          worker.unref();
+        }
+        const sha256 = await this.hashOf(worker, f);
+        if (!sha256) continue;
+        const row = { size: f.size, mtime: f.mtime, sha256, hashed_at: now(), civitai_version: null, hf_url: null, matched_at: null };
+        await this.s.db.insertInto("model_hashes").values({ folder: f.folder, file: f.file, ...row }).onConflict((oc) => oc.columns(["folder", "file"]).doUpdateSet(row)).execute();
       }
-      const sha256 = await this.hashOf(f);
-      if (!sha256) continue;
-      const row = { size: f.size, mtime: f.mtime, sha256, hashed_at: now(), civitai_version: null, hf_url: null, matched_at: null };
-      await this.s.db.insertInto("model_hashes").values({ folder: f.folder, file: f.file, ...row }).onConflict((oc) => oc.columns(["folder", "file"]).doUpdateSet(row)).execute();
+    } finally {
+      await worker?.terminate();
     }
     await this.match();
   }
 
-  /** A file's SHA-256, read in pieces, waiting while this computer renders. Null when it could not be read. */
-  private hashOf(f: Found): Promise<string | null> {
+  /** A file's SHA-256, read in pieces in the hashing's thread, held while this computer renders. Null when it could not be read. */
+  private hashOf(worker: Worker, f: Found): Promise<string | null> {
     this.hashing = { folder: f.folder, file: f.file, bytes: 0, total: f.size };
     return new Promise((done) => {
-      const hash = createHash("sha256");
-      const stream = createReadStream(f.path, { highWaterMark: 4 * 2 ** 20 });
       let waiting: NodeJS.Timeout | null = null;
+      /** The hash, when the file's last piece was read as the hashing was held: it is said once the render is over. */
+      let held: { sha256: string | null } | null = null;
       const goOn = () => {
         if (this.busy()) {
           this.paused = true;
@@ -187,18 +224,35 @@ export class ModelHashes {
         }
         this.paused = false;
         waiting = null;
-        stream.resume();
+        // the thread goes on reading, or, when it was done already, is ready for the next file
+        worker.postMessage({ resume: true });
+        if (held) end(held.sha256);
       };
-      stream.on("data", (d) => {
-        hash.update(d);
-        if (this.hashing) this.hashing.bytes += d.length;
-        if (this.busy()) {
-          stream.pause();
-          if (!waiting) goOn();
+      const said = (m: { bytes?: number; sha256?: string | null }) => {
+        if (m.bytes !== undefined) {
+          if (this.hashing) this.hashing.bytes += m.bytes;
+          if (!waiting && this.busy()) {
+            worker.postMessage({ pause: true });
+            goOn();
+          }
+          return;
         }
-      });
-      stream.on("end", () => done(hash.digest("hex").toUpperCase()));
-      stream.on("error", () => done(null));
+        if (waiting) held = { sha256: m.sha256 ?? null };
+        else end(m.sha256 ?? null);
+      };
+      // a thread that stopped (out of memory, terminated) says nothing more: the file is taken as not read
+      const failed = () => end(null);
+      const end = (sha256: string | null) => {
+        worker.off("message", said);
+        worker.off("error", failed);
+        worker.off("exit", failed);
+        if (waiting) clearTimeout(waiting);
+        done(sha256);
+      };
+      worker.on("message", said);
+      worker.on("error", failed);
+      worker.on("exit", failed);
+      worker.postMessage({ path: f.path });
     });
   }
 

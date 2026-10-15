@@ -43,6 +43,8 @@ export interface HistoryEntry {
 }
 
 const META_TIMEOUT = 15_000;
+/** How many prompts sent lately keep their node classes (ComfyClient.classesOf): the ones running and waiting, and more. */
+const SENT_KEPT = 32;
 
 /** What of an upstream error body reaches the user: ComfyUI's own message when it's JSON, else a short piece. */
 function errorSnippet(body: string): string {
@@ -292,7 +294,19 @@ export class ComfyClient {
         throw new ComfyError(`ComfyUI rejected the job: ${errorSnippet(text)}`);
       }
     }
+    this.sent.set(id, Object.fromEntries(Object.entries(graph).map(([node, n]) => [node, n.class_type])));
+    if (this.sent.size > SENT_KEPT) this.sent.delete(this.sent.keys().next().value!);
     return id;
+  }
+
+  /** The node classes of the prompts this client sent lately, by node id. */
+  private readonly sent = new Map<string, Record<string, string>>();
+  /**
+   * A prompt's node classes (node id → class_type), when this client sent it: ComfyUI's messages name a node by its id
+   * only, and what a render's time went to is told by class (Monitor.measured). Unknown for one sent before a restart.
+   */
+  classesOf(promptId: string): Record<string, string> | undefined {
+    return this.sent.get(promptId);
   }
 
   /**

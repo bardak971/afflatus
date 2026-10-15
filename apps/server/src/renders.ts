@@ -20,6 +20,9 @@ import { cellOf, DAY, dayOf, digestDays, median, merge, WHOLE_DAY, type Cell, ty
 
 // ---------------------------------------------------------------- one render on the record
 
+/** A render's milliseconds per node class as kept (render_stats.node_ms): null when none were heard. */
+const nodeMs = (measured: Measured | null): string | null => (measured?.nodes && Object.keys(measured.nodes).length ? JSON.stringify(measured.nodes) : null);
+
 /**
  * One row for a render that ran on ComfyUI, finished or not: where its time went (loading, sampling, the
  * passes after, the finishing), what it made, and what was expected of it. Written once: a job found
@@ -52,7 +55,7 @@ export async function record(
       waited_ms: Math.max(0, resume.startedAt - new Date(row.created_at).getTime()),
       total_ms: Math.round(totalMs), load_ms: load, sample_ms: sample, refine_ms: refine, finish_ms: finish,
       step_ms: measured?.stepMs ?? null, expected_ms: resume.timing?.expectedMs ?? null, work: resume.timing?.work ?? null,
-      vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made?.id ?? null, machine_id: where.machine, gpu: where.gpu, created_at: at,
+      vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made?.id ?? null, machine_id: where.machine, gpu: where.gpu, node_ms: nodeMs(measured), created_at: at,
     })
     .onConflict((oc) => oc.column("id").doNothing())
     .execute();
@@ -81,7 +84,7 @@ export async function recordTool(
       kind: "video", width: made.width, height: made.height, duration_ms: made.durationMs, steps: 0, status, whole: measured ? 1 : 0, cold: 0,
       waited_ms: Math.max(0, row.startedAt - new Date(row.created_at).getTime()),
       total_ms: Math.round(totalMs), load_ms: load, sample_ms: 0, refine_ms: refine, finish_ms: finish, step_ms: null, expected_ms: expectedMs, work,
-      vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made.assetId, machine_id: machine, created_at: at,
+      vram_peak: measured?.vramPeak ?? null, heat_peak: measured?.heatPeak ?? null, asset_id: made.assetId, machine_id: machine, node_ms: nodeMs(measured), created_at: at,
     })
     .onConflict((oc) => oc.column("id").doNothing())
     .execute();
@@ -115,6 +118,7 @@ export async function fold(db: Db, keepDays: number, when = Date.now()): Promise
 async function foldBefore(db: Kysely<Tables>, before: string): Promise<number> {
   // a folded day is read from its figures in render_days from now on, not from its digest
   await db.deleteFrom("render_digests").where("day", "<", dayOf(before)).execute();
+  await db.deleteFrom("render_machine_digests").where("day", "<", dayOf(before)).execute();
   const old = await db.selectFrom("render_stats").selectAll().where("created_at", "<", before).execute();
   if (!old.length) return 0;
   const days = new Map<string, RenderRow[]>();
@@ -154,4 +158,5 @@ export async function clear(db: Db): Promise<void> {
   await db.deleteFrom("render_stats").execute();
   await db.deleteFrom("render_days").execute();
   await db.deleteFrom("render_digests").execute();
+  await db.deleteFrom("render_machine_digests").execute();
 }

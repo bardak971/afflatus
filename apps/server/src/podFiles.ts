@@ -5,7 +5,7 @@ import type { Db } from "./db";
 import type { Downloads } from "./downloads";
 import { stat } from "node:fs/promises";
 import { MEASURED_FROM, measuredRange, recordMeasure, type MeasureKind, type Range } from "./podMeasures";
-import { localCopy, measureKind, podSource, type PodSource, type SourceLookup } from "./podSources";
+import { localCopy, measureKind, podSource, presetsOf, type PodSource, type SourceLookup } from "./podSources";
 import { PACKS_MS, PodPacks, type PodPackView } from "./podPacks";
 import { PACK_UPLOADS, uploadFile } from "./podUpload";
 import type { Settings } from "./settings";
@@ -343,7 +343,7 @@ export class PodFiles {
     const size = path ? (await stat(path).catch(() => null))?.size : undefined;
     if (size) return size;
     const name = fileName(f.file).toLowerCase();
-    for (const p of await this.d.lookup.presets().catch(() => [])) {
+    for (const p of await presetsOf(this.d.lookup).catch(() => [])) {
       const named = p.files.find((x) => x.folder === f.folder && fileName(x.file).toLowerCase() === name && x.size);
       if (named?.size) return named.size;
     }

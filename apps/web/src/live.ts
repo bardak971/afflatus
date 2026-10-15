@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import type { NoticeEvent, ProgressUpdate, QueueStatus, SystemLoad, UpdateFlow, UpdatesView } from "./api";
+import type { NoticeEvent, ProgressUpdate, QueueStatus, UpdateFlow, UpdatesView } from "./api";
 import { readHistoryHead, readLibraryTop } from "./data";
 import { applyChange, readsTop } from "./assetCache";
-import { endedSince, greetings, mergeProgress, notifyTag, throttle } from "./liveState";
+import { endedSince, greetings, mergeProgress, notifyTag, systemAfter, throttle } from "./liveState";
 import { useBanners, useLive, useNotify, useSystem } from "./store";
 import { useBar } from "./bar/store";
 import { isUnder, libraryInPlace, libraryReads, queryKeys, RENDER_KEYS, type LibraryChange } from "./queryKeys";
@@ -202,9 +202,10 @@ export function useLiveEvents(): void {
         if (view) client.setQueryData<UpdatesView>(queryKeys.updates(), { ...view, flow });
         if (!view || readsAgain(view.flow, flow)) void client.invalidateQueries({ queryKey: queryKeys.updates() });
       },
+      // the machines' load: whole as the stream opens, then only the machines whose load changed (liveState.ts systemAfter)
       system: (data) => {
-        const got = parse(data) as { load: SystemLoad | null; loads?: Record<string, SystemLoad | null> } | null;
-        if (got) useSystem.getState().set(got.load, got.loads);
+        const now = systemAfter(useSystem.getState(), parse(data) as Parameters<typeof systemAfter>[1]);
+        if (now) useSystem.getState().set(now.load, now.loads);
       },
       hello: (data) => {
         const version = (parse(data) as { version?: string } | null)?.version;
@@ -296,9 +297,14 @@ export function useLiveEvents(): void {
     else {
       channel.onmessage = (e: MessageEvent<Relayed>) => {
         const m = e.data;
-        // the tab with the connection: a new tab asks whether it is down
+        // the tab with the connection: a new tab asks whether it is down, and is told the machines' load whole (the stream
+        // sends only what changed)
         if (source || retry) {
-          if ("ask" in m) tell({ down });
+          if ("ask" in m) {
+            tell({ down });
+            const { load, loads } = useSystem.getState();
+            tell({ event: "system", data: JSON.stringify({ load, loads }) });
+          }
           return;
         }
         // another tab has the connection and speaks: what this one read on opening follows its events from here

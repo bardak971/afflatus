@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import { makePng } from "@afflatus/comfy/testing";
 import { request } from "node:http";
-import { libraryFrame, MAX_UNSENT_BYTES } from "../src/events";
+import type { SystemLoad } from "@afflatus/comfy";
+import { libraryFrame, MAX_UNSENT_BYTES, systemFrame } from "../src/events";
 import { complete, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 let t: TestApp;
@@ -132,5 +133,53 @@ describe("a page that stops reading the live events", () => {
     // several times the limit, past what the sockets on both sides hold
     for (let i = 0; i < Math.ceil((40 * MAX_UNSENT_BYTES) / frame); i++) t.services.queue.events.emit("library", { change: "added", items });
     await closed;
+  });
+});
+
+describe("the machines' load on the live events", () => {
+  it("goes out whole as a page opens, then only when a machine's load changed", async () => {
+    await t.app.listen({ host: "127.0.0.1", port: 0 });
+    const { port } = t.app.server.address() as { port: number };
+    /** The "system" frames a page reads, as they come. */
+    const open = () => {
+      const frames: unknown[] = [];
+      let text = "";
+      const req = request({ host: "127.0.0.1", port, path: "/api/events" }, (res) => {
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          text += chunk;
+          for (let end = text.indexOf("\n\n"); end >= 0; end = text.indexOf("\n\n")) {
+            const [event, data] = text.slice(0, end).split("\n");
+            text = text.slice(end + 2);
+            if (event === "event: system") frames.push(JSON.parse(data!.slice(6)));
+          }
+        });
+      });
+      req.end();
+      return { frames, close: () => req.destroy() };
+    };
+    const first = open();
+    await until(() => first.frames.length > 0);
+    expect(first.frames[0]).toMatchObject({ load: null, loads: { m1: null } });
+    // two ticks of the load timer with nothing changed (no ComfyUI answers): nothing more is sent
+    await new Promise((r) => setTimeout(r, 4_500));
+    expect(first.frames).toHaveLength(1);
+    // a page opening meanwhile gets it whole at once
+    const second = open();
+    await until(() => second.frames.length > 0);
+    expect(second.frames[0]).toEqual(first.frames[0]);
+    first.close();
+    second.close();
+  });
+
+  it("names the machines whose load changed, and every machine's id", () => {
+    const load = (vramPercent: number, at: number): SystemLoad => ({ at, source: "comfyui", disks: [], gpus: [{ name: "GPU", vramUsed: vramPercent, vramTotal: 100, vramPercent }] });
+    const opened = systemFrame(new Map(), [{ id: "m1", load: load(10, 1) }, { id: "m2", load: null }]);
+    // read again a moment later, the same figures: no frame (the moment it was read aside)
+    const same = systemFrame(opened.now, [{ id: "m1", load: load(10, 2) }, { id: "m2", load: null }]);
+    expect(same.data).toBeNull();
+    expect(systemFrame(same.now, [{ id: "m1", load: load(40, 3) }, { id: "m2", load: null }]).data).toEqual({ machines: ["m1", "m2"], loads: { m1: load(40, 3) } });
+    // a machine gone: the ids say so
+    expect(systemFrame(same.now, [{ id: "m1", load: load(10, 3) }]).data).toEqual({ machines: ["m1"], loads: {} });
   });
 });
