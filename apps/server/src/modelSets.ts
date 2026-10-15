@@ -262,8 +262,14 @@ export function registerModelSets(app: FastifyInstance, s: Services): void {
       return { ...f, via: src ? measureKind(src) : null };
     };
     const all = await presets();
-    const presetHits = fuzzyFilter(all, words, (p) => `${p.name} ${p.files.map((f) => f.file).join(" ")}`).slice(0, most.presets)
-      .map((p) => ({ id: p.id, name: p.name, files: p.files.map(withVia), bytes: p.files.reduce((n, f) => n + (f.size ?? 0), 0) }));
+    // a preset's file with no address of its own comes as a pod finds it (podSources.ts): the Civitai version or Hugging Face
+    // file its hash was matched to, else an upload from here; said nowhere, it was left out of what Find models adds to a deploy
+    const presetVia = async <F extends PresetFile>(f: F) => {
+      const known = withVia(f);
+      return known.via ? known : { ...f, via: (await s.podFiles.about(f).catch(() => null))?.via ?? null };
+    };
+    const presetHits = await Promise.all(fuzzyFilter(all, words, (p) => `${p.name} ${p.files.map((f) => f.file).join(" ")}`).slice(0, most.presets)
+      .map(async (p) => ({ id: p.id, name: p.name, files: await Promise.all(p.files.map(presetVia)), bytes: p.files.reduce((n, f) => n + (f.size ?? 0), 0) })));
     // a family's usual files name their address only: their size asked of the site (kept, as the pod's files' are)
     const familyHits = (await Promise.all(fuzzyFilter(s.registry.families().filter((f) => !f.imported), words, (f) => `${f.name} ${f.id}`).slice(0, most.families)
       .map(async (f) => ({ id: f.id, name: f.name, files: await Promise.all(f.slots.filter((x) => x.get && !x.optional).map(async (x) => {

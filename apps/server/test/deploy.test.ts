@@ -1,9 +1,13 @@
+import { mkdirSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
 import { imageParts, imagePublic } from "../src/podImage";
 import { runwayNeed } from "../src/rented";
 import { POD_IMAGES } from "../src/runpod";
-import { readSettings } from "../src/settings";
+import { MEASURED_FROM, recordMeasure } from "../src/podMeasures";
+import { readSettings, writeSettings } from "../src/settings";
 import { costToday, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /**
@@ -196,6 +200,28 @@ describe("a deploy", () => {
     const plan = (await get(t.app, `/api/runpod/volumes/vol-ro/fill?set=${set}`)).json();
     expect(plan.missing).toEqual({ count: 1, bytes: 17_938_799, unknown: 0 });
     expect((await get(t.app, `/api/runpod/volumes/plan`)).json().sets).toEqual([{ id: set, name: "zz-test set", bytes: 17_938_799 }]);
+  });
+
+  it("times a fill's file by where a pod really fetches it (its hash matched to Civitai), and guesses a source never measured", async () => {
+    // the live shape: an upscaler added by its name, on this computer, its hash matched to a Civitai version; Civitai
+    // fetches measured, an upload never
+    const dir = mkdtempSync(join(tmpdir(), "zz-test-fill-"));
+    mkdirSync(join(dir, "models", "upscale_models"), { recursive: true });
+    const path = join(dir, "models", "upscale_models", "RealESRGAN_x4plus_anime_6B.pth");
+    writeFileSync(path, Buffer.alloc(200_000, 5));
+    await writeSettings(t.db, { comfyDir: dir });
+    await t.db.insertInto("model_hashes").values({ folder: "upscale_models", file: "RealESRGAN_x4plus_anime_6B.pth", size: 200_000, mtime: Math.round(statSync(path).mtimeMs), sha256: "A".repeat(64), hashed_at: new Date().toISOString(), civitai_version: 164904, hf_url: null, matched_at: new Date().toISOString() }).execute();
+    const set = (await post(t.app, "/api/model-sets", { name: "zz-test set", presets: [], off: [], files: [{ file: "RealESRGAN_x4plus_anime_6B.pth", folder: "upscale_models" }] })).json().id as string;
+    const fill = async () => (await get(t.app, `/api/runpod/volumes/vol-ro/fill?set=${set}`)).json().estimate as { fastMs: number; slowMs: number; guessed: boolean } | null;
+    // nothing measured yet: a guess, said as one, not nothing
+    expect(await fill()).toMatchObject({ guessed: true });
+    for (const mbps of [40, 80]) await recordMeasure(t.db, { kind: "civitai", cloud: "SECURE", bytes: MEASURED_FROM * 10, ms: ((MEASURED_FROM * 10) / (mbps * 2 ** 20)) * 1000 });
+    for (const ms of [30_000, 90_000]) await recordMeasure(t.db, { kind: "boot", cloud: "SECURE", bytes: 0, ms });
+    // at Civitai's measured speeds (an upload, never measured, would be a guess), its boot included
+    const est = (await fill())!;
+    expect(est.guessed).toBe(false);
+    expect(est.fastMs).toBeCloseTo(30_000 + (200_000 / (80 * 2 ** 20)) * 1000, 0);
+    expect(est.slowMs).toBeCloseTo(90_000 + (200_000 / (40 * 2 ** 20)) * 1000, 0);
   });
 
   it("fills a volume from a set: the cheapest GPU there, no render given to it, terminated once its files are in", async () => {
