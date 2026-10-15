@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
 import { bootOf, BootLogs, bootStep, parseBootLog } from "../src/podBoot";
-import { readSettings } from "../src/settings";
+import { readSettings, updateSettings } from "../src/settings";
 import { get, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /**
@@ -131,6 +131,8 @@ describe("a deployed pod's boot on its card, its row and its log tab", () => {
     await until(() => pod.status === "RUNNING");
     const pulling = await rowOf(id);
     expect(pulling).toMatchObject({ booting: true, boot: { phase: "pulling", step: null, failed: false }, error: null });
+    // no idle countdown while it boots: its idle time counts from its first answer
+    expect(pulling.idleLeftMs).toBeNull();
     // its boot log's port is Afflatus's own, behind its token: not said as a port open outside the lock
     expect(pulling.otherPorts).toEqual([]);
     expect((await get(t.app, `/api/comfy/logs?machine=${id}`)).json()).toEqual({ lines: [], source: "boot" });
@@ -147,20 +149,39 @@ describe("a deployed pod's boot on its card, its row and its log tab", () => {
     expect(more.lines.every((l) => l.t >= since)).toBe(true);
     await until(async () => (await rowOf(id)).booting === false);
     expect((await rowOf(id)).boot).toBeNull();
+    expect((await rowOf(id)).idleLeftMs).toBeGreaterThan(0);
     // up: ComfyUI's own log
     expect((await get(t.app, `/api/comfy/logs?machine=${id}`)).json().source).toBe("comfy");
   });
 
-  it("a start that stops on an error says where, on its card, before its boot limit", async () => {
+  it("a start that stops on an error is terminated at once, not billed to its boot limit; its card and its log say why", async () => {
+    const told: Array<{ body: string }> = [];
+    t.services.rented.tell = (_kind, said) => void told.push(said);
     runpod.bootFails = "putting in the node packs";
     const id = (await post(t.app, "/api/runpod/deploy", ASK)).json().id as string;
-    await until(() => runpod.pods[0]!.status === "RUNNING");
-    await until(async () => Boolean((await rowOf(id)).boot?.failed));
-    const row = await rowOf(id);
-    expect(row.boot).toMatchObject({ phase: "step", step: "putting in the node packs (exit 1)", failed: true });
-    expect(row.error).toMatch(/^Its start stopped: putting in the node packs \(exit 1\)\. Its last lines are in its log/);
+    const pod = runpod.pods[0]!;
+    await until(() => pod.status === "RUNNING");
+    await until(async () => (await rowOf(id), pod.status === "TERMINATED"));
+    const row = (await t.services.queue.status()).machines.find((m) => m.id === id)!.rented!;
+    expect(row).toMatchObject({ stoppedBy: "start", status: "GONE", boot: null });
+    expect(row.error).toMatch(/^Terminated: its start stopped at "putting in the node packs \(exit 1\)", as its boot log says/);
+    expect(told.map((x) => x.body).join("\n")).toMatch(/its start stopped on an error: putting in the node packs \(exit 1\)/);
+    expect(runpod.secrets).toEqual({});
+    // its last lines kept, after its pod is gone
     const lines = (await get(t.app, `/api/comfy/logs?machine=${id}`)).json().lines as Array<{ m: string }>;
     expect(lines.map((l) => l.m)).toContain("ERROR: the step stopped");
+  });
+
+  it("never terminates a pod the user added for what a boot log says: only one deployed from here", async () => {
+    runpod.bootFails = "putting in the node packs";
+    const id = (await post(t.app, "/api/runpod/deploy", ASK)).json().id as string;
+    // as a pod added: not deployed by Afflatus
+    await updateSettings(t.db, (s) => ({ machines: s.machines.map((m) => (m.id === id && m.rented ? { ...m, rented: { ...m.rented, deployed: false, deployedAt: "" } } : m)) }));
+    const pod = runpod.pods[0]!;
+    await until(() => pod.status === "RUNNING");
+    await until(async () => (await rowOf(id), Boolean(t.services.rented.boots.get(id)?.failed)));
+    await rowOf(id);
+    expect(pod.status).toBe("RUNNING");
   });
 
   it("RunPod's ComfyUI image: RunPod's data only, its boot log never asked", async () => {

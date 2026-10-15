@@ -14,7 +14,7 @@ import { Costs } from "./queue/Costs";
 import { ComfyLog } from "./queue/Log";
 import { MachineMeters } from "./queue/MachineMeters";
 import { MachineLanes } from "./queue/MachineLanes";
-import { machineLabel, severalMachines } from "../machines";
+import { machineLabel, onlineSaid, severalMachines } from "../machines";
 import { RunningCard } from "./queue/RunningCard";
 import { WaitingList } from "./queue/WaitingList";
 import { queryKeys } from "../queryKeys";
@@ -103,7 +103,7 @@ export function Queue() {
           <span className="flex shrink-0 items-center gap-1.5">
             {/* not read yet, or could not be: nothing is said about ComfyUI */}
             <span className={cx("h-2 w-2 rounded-full", !q ? "bg-ink-3" : q.online ? "bg-good" : "bg-warn")} />
-            {!q ? "…" : several.length ? `${several.filter((m) => m.online !== false).length} of ${several.length} ComfyUIs online` : q.online ? "ComfyUI online" : "ComfyUI offline · queued jobs wait"}
+            {!q ? "…" : several.length ? onlineSaid(several) : q.online ? "ComfyUI online" : "ComfyUI offline · queued jobs wait"}
           </span>
           {q?.model && !several.length && <span className="truncate font-mono">{q.model} loaded</span>}
         </div>

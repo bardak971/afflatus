@@ -506,7 +506,7 @@ export interface RentedState {
   /** Afflatus is stopping it now: it takes no new work. */
   stopping: boolean;
   /** Why Afflatus stopped or terminated it last: "boot" when its ComfyUI never answered. */
-  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | "filled" | "cut" | null;
+  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | "filled" | "cut" | "start" | null;
   /** Deployed and on its first start (its image pulled, ComfyUI starting): a normal step. */
   booting: boolean;
   /**

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MachineState, QueueStatus, RentedState } from "../src/api";
 import { usd } from "../src/format";
 import { busiest, doing } from "../src/machineBits";
-import { bootSaid, machineState, rateParts, rateSaid, rentedSaid, rentedSpent, rentedUp, severalMachines } from "../src/machines";
+import { bootSaid, machineState, onlineSaid, rateParts, rateSaid, rentedSaid, rentedSpent, rentedUp, severalMachines } from "../src/machines";
 
 /** What a rented pod's row, its Start and the pill say (machines.ts), and when the machines' own controls show. */
 
@@ -67,6 +67,10 @@ describe("a deployed pod's first start", () => {
     expect(machineState(row(pulling))).toBe("starting");
     expect(doing(row(pulling), now)).toBe("pulling the image · 6 min · $0.060");
     expect(busiest([row(pulling)])).toBe("1 starting");
+    // the Queue's head: neither online nor offline
+    const home = { ...row(pod()), id: "m1", rented: null, online: true } as MachineState;
+    expect(onlineSaid([home, row(pulling)])).toBe("1 of 2 ComfyUIs online · 1 starting");
+    expect(onlineSaid([home, { ...home, id: "m2", online: false }])).toBe("1 of 2 ComfyUIs online");
     // a Stop pressed meanwhile says so, not its start
     expect(rentedSaid({ ...pulling, stopping: true }, now)).toMatch(/^stopping/);
     // an older server says no `boot`: as before

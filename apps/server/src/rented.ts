@@ -67,9 +67,10 @@ export interface RentedView {
   /**
    * Why Afflatus stopped or terminated it last, when it did: "boot" when its ComfyUI never answered; "gpu" when the pod said its
    * GPU does not work; "watchdog" when its watchdog stopped it while Afflatus was away, and Afflatus terminated what was left;
-   * "cut" when a fill of its volume was cut short (its files stuck, or past its time).
+   * "cut" when a fill of its volume was cut short (its files stuck, or past its time); "start" when its boot log said its start
+   * stopped on an error (the Afflatus image, deployed from here).
    */
-  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | "filled" | "cut" | null;
+  stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | "filled" | "cut" | "start" | null;
   /** Deployed and on its first start (its image pulled, ComfyUI starting): a normal step, said as one, not as an error. */
   booting: boolean;
   /** While it boots: where it is (podBoot.ts bootOf), from RunPod's data and its boot log. */
@@ -221,6 +222,7 @@ const FILL_CUT: Partial<Record<NonNullable<RentedView["stoppedBy"]>, string>> = 
   cap: "a spending cap was reached",
   boot: "its ComfyUI did not come up",
   gpu: "its GPU did not work on that host",
+  start: "its start stopped on an error",
   watchdog: "its pod was found stopped",
   you: "its pod was terminated by you",
 };
@@ -265,6 +267,8 @@ interface Seen {
   answeredAt: number | null;
   /** The pod said its GPU does not work on its host (the Afflatus image, broken.py), with torch's words. */
   gpuFailed: string | null;
+  /** Its boot log said its start stopped on an error, at that step: what its card says once it is terminated for it. */
+  startFailed: string | null;
   /** How many reads in a row found no such pod on RunPod. */
   missing: number;
   /** Read at least once: what a later read finds is a change only when it differs. */
@@ -288,7 +292,7 @@ interface Seen {
 const fresh = (): Seen => ({
   pod: null, rate: null, watchdog: "unknown", answers: null, busyAt: null, busyKept: null, busyRestored: false, stoppedBy: null, stopAfter: false, cappedAt: null,
   stopping: false, lockTried: false, seenRunningAt: null, epoch: 0, error: null, bootNote: null, secretDropped: false, upAt: null, answered: false, answeredAt: null,
-  read: false, gpuFailed: null, missing: 0, stoppingSince: null, aliveAt: null, startingSince: null,
+  read: false, gpuFailed: null, startFailed: null, missing: 0, stoppingSince: null, aliveAt: null, startingSince: null,
   handed: false, fillFrom: null, fillProgress: null, fillMovedAt: null, cutWhy: null,
 });
 
@@ -479,14 +483,15 @@ export class Rented {
       watchdog: status === "RUNNING" ? s?.watchdog ?? "unknown" : "unknown",
       answers: status === "RUNNING" ? s?.answers ?? null : null,
       // none while files come to it: its idle time is held then, and a countdown would read as a stop to come
-      idleLeftMs: status === "RUNNING" && !s?.stopping && idleMs > 0 && s?.busyAt && !this.queue.runningOn(machine.id) && !this.queue.fetching(machine.id) ? Math.max(0, idleMs - (this.now() - s.busyAt)) : null,
+      // none before its first answer either (a boot): its idle time counts only from then (keepOrStop), its boot is said instead
+      idleLeftMs: status === "RUNNING" && !s?.stopping && (s?.answered || s?.busyRestored) && idleMs > 0 && s?.busyAt && !this.queue.runningOn(machine.id) && !this.queue.fetching(machine.id) ? Math.max(0, idleMs - (this.now() - s.busyAt)) : null,
       capped: s?.stopAfter ?? false,
       stopping: s?.stopping ?? false,
       stoppedBy: s?.stoppedBy ?? null,
       booting,
       boot,
       // a start that stopped on an error says so as its pod says it, before the boot limit's words
-      error: s?.error ?? this.error ?? s?.bootNote ?? (s?.stoppedBy === "gpu" ? s.gpuFailed : null) ?? (boot?.failed ? `Its start stopped: ${boot.step}. Its last lines are in its log (Queue › Log); terminated at ${bootLimit(machine) / 60_000} min if it is not up.` : null) ?? this.unanswered(machine, s ?? null, status, bootLimit(machine)),
+      error: s?.error ?? this.error ?? s?.bootNote ?? (s?.stoppedBy === "gpu" ? s.gpuFailed : null) ?? (s?.stoppedBy === "start" ? s.startFailed : null) ?? (boot?.failed ? `Its start stopped: ${boot.step}. Terminated now, nothing billed after; its last lines are in its log (Queue › Log).` : null) ?? this.unanswered(machine, s ?? null, status, bootLimit(machine)),
     };
   }
 
@@ -1182,6 +1187,15 @@ export class Rented {
     // after a restart of Afflatus, idle since its last work as kept, not since now; set before its ComfyUI is asked (seconds
     // through a pod's proxy), so that its card says its idle time left from the first read on, never nothing meanwhile
     if (s.busyAt === null) ({ at: s.busyAt, restored: s.busyRestored } = await this.busySince(m, this.now()));
+    // a start its boot log says stopped on an error (a step of start.sh, the GPU check) never comes up: terminated at once, not
+    // billed to its boot limit. Only a pod deployed from here with Afflatus's image (none other has the log), before its
+    // first answer; its last lines stay in its log tab, the boot limit stays the backstop
+    const failed = m.rented!.deployed && !s.answered ? this.boots.get(m.id)?.failed : null;
+    if (failed && !this.queue.runningOn(m.id)) {
+      s.startFailed = `Terminated: its start stopped at "${failed}", as its boot log says (its last lines are in its log, Queue › Log). Nothing billed after; deploy again.`;
+      await this.act(m, "terminate", "start");
+      return true;
+    }
     const answers = await this.alive(m, s);
     // a GPU that does not work on its host never will: terminated at once, not at its boot limit
     if (s.gpuFailed && !this.queue.runningOn(m.id)) {
@@ -1731,6 +1745,7 @@ export class Rented {
       cap: "a spending cap was reached",
       boot: `its ComfyUI never answered in ${bootLimit(m) / 60_000} min`,
       gpu: "its GPU did not work on that host",
+      start: `its start stopped on an error: ${this.boots.get(m.id)?.failed ?? "see its log"}`,
       watchdog: "its watchdog had stopped it while Afflatus was away, and it kept nothing",
       filled: "its volume is filled",
       cut: `its fill was cut short: ${s.cutWhy ?? "it stopped moving"}`,
@@ -1838,7 +1853,7 @@ export class Rented {
     // a fill ended before its files were in says so with its volume, never "all in"
     if (fillLeft !== undefined) await this.noteCut(m, s, why, fillLeft);
     // one that never came up keeps its card (which says why), but no longer holds its volume as starting on it
-    if (action === "terminate" && (why === "boot" || why === "gpu")) await this.undeploy(m);
+    if (action === "terminate" && (why === "boot" || why === "gpu" || why === "start")) await this.undeploy(m);
     s.stoppedBy = action === "start" ? null : why;
     s.error = null;
     // the user's own stop, kept with the machine (read again after a restart of Afflatus); any start ends it
@@ -1861,6 +1876,7 @@ export class Rented {
     if (action !== "start" && why && why !== "you" && !again) await this.sayStopped(m, s, action, why).catch((err: Error) => console.warn(`[rented] its stop not told: ${err.message}`));
     if (why === "filled") console.log(`[rented] ${m.name || m.id}: its volume filled, terminated`);
     if (why === "watchdog") console.log(`[rented] ${m.name || m.id}: found stopped by its watchdog, terminated (it kept nothing)`);
+    if (why === "start") console.log(`[rented] ${m.name || m.id}: terminated (its start stopped: ${this.boots.get(m.id)?.failed ?? "an error"})`);
     if (why === "idle" || why === "cap" || why === "boot" || why === "gpu") console.log(`[rented] ${m.name || m.id}: ${action === "terminate" ? "terminated" : "stopped"} (${why === "idle" ? `idle ${m.rented!.idleMinutes} min` : why === "boot" ? `its ComfyUI never answered in ${bootLimit(m) / 60_000} min` : why === "gpu" ? "its GPU did not work on that host" : "a spending cap"})`);
     this.events.emit("queue");
     // read again soon, then at the fast pace while it moves
