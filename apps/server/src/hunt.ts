@@ -289,11 +289,12 @@ export class Hunt {
       .groupBy("gpu")
       .execute();
     const rented = await this.s.db.selectFrom("rent_sessions").select("gpu").distinct().where("gpu", "is not", null).execute();
-    return { gpus: await gpuPaces(this.s.db), rented: rented.map((r) => r.gpu!), oom, rendered: rendered.map((r) => ({ gpu: r.gpu!, renders: Number(r.renders) })), overheadMs: overhead ? overhead.bootMs + overhead.idleMs : null };
+    return { gpus: await gpuPaces(this.s.db), rented: rented.map((r) => r.gpu!), oom, rendered: rendered.map((r) => ({ gpu: r.gpu!, renders: Number(r.renders) })), overheadMs: overhead ? overhead.bootMs + overhead.fetchMs + overhead.idleMs : null };
   }
 
   private async rank(offers: GpuOffer[], rows: JobRow[], o: { mode: HuntMode; ceiling: number; leftOut: string[]; dataCenter: string | null }): Promise<{ ranking: RankedGpu[]; overhead: DeployOverhead | null }> {
-    const overhead = await deployOverhead(this.s.db, this.now());
+    // a pod pinned to a data center has a network volume there (dataCenterOf): its files are kept, not fetched at each deploy
+    const overhead = await deployOverhead(this.s.db, this.now(), { volume: o.dataCenter !== null });
     const [renders, learned] = await Promise.all([this.renders(rows), this.learned(overhead)]);
     return { ranking: rankGpus(offers, renders, learned, o), overhead };
   }

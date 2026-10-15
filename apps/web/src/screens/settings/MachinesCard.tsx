@@ -10,7 +10,7 @@ import { useMenu } from "../../ContextMenu";
 import { useQueue, useSettings } from "../../data";
 import { gb, plural, usd } from "../../format";
 import { useCopied, useMedia } from "../../hooks";
-import { machineLabel, rentedSaid, rentedUp } from "../../machines";
+import { machineLabel, rateParts, rentedSaid, rentedUp } from "../../machines";
 import { useQueueOps } from "../../queueOps";
 import { queryKeys } from "../../queryKeys";
 import { Button, ButtonLink, cx, ErrorNote, fieldClass, Segmented } from "../../ui";
@@ -67,7 +67,7 @@ function MachineFacts({ probe, state, rented }: { probe: MachineProbe | undefine
   const access = probe?.access;
   const parts: ReactNode[] = [
     gpu && <span key="gpu"><b className="font-semibold text-ink-2">{gpu}</b>{probe?.vramTotal ? ` · ${gb(probe.vramTotal)}` : ""}</span>,
-    r && (r.rate || r.dataCenter) && <span key="rate">{r.rate ? <><b className="font-semibold text-ink-2">{usd(r.rate)}</b>/h</> : null}{r.rate && r.dataCenter ? " · " : ""}{r.dataCenter}</span>,
+    r && (r.rate || r.dataCenter) && <span key="rate" data-tip={rateParts(r) ?? undefined}>{r.rate ? <><b className="font-semibold text-ink-2">{usd(r.rate)}</b>/h</> : null}{r.rate && r.dataCenter ? " · " : ""}{r.dataCenter}</span>,
     probe?.online && probe.version && (
       <span key="versions">
         ComfyUI <b className="font-mono font-semibold text-ink-2">{probe.version.replace(/^v/, "")}</b>

@@ -13,7 +13,7 @@ import { Button, cx, ErrorNote, Help } from "../../ui";
 import { KwhForm } from "../settings/ElectricityCard";
 import { settingHref } from "../settings/settingsIndex";
 import { TimeChart, useChartColors } from "./Chart";
-import { COST_PRESETS, nothingShare, PART_SAID, presetWindow, runwaySaid, sessionBits, totalMs, totalsSaid } from "./costsView";
+import { COST_PRESETS, NOT_SPLIT, nothingShare, PART_SAID, presetWindow, runwayNowSaid, runwaySaid, runwayWhy, sessionBits, totalMs, totalsSaid } from "./costsView";
 import { chartTimeLabel, stretchOf, type View } from "./useTimesView";
 import { WindowBar } from "./WindowBar";
 
@@ -62,6 +62,12 @@ function TopFigures({ d }: { d: CostsView }) {
           </span>
         )}
         <span className="text-xs text-ink-2">{share !== null ? <>{Math.round(share * 100)} % of a {usd(d.caps.month)} cap · {capsLink}</> : <>no cap · {capsLink}</>}</span>
+        {Math.abs(d.notSplit) >= 0.01 && (
+          <span className="flex items-center gap-1 text-xs text-ink-2">
+            {d.notSplit > 0 ? `${usd(d.notSplit)} of it not split` : `${usd(-d.notSplit)} under Afflatus's count`}
+            <Help text={d.notSplit > 0 ? `RunPod's bill this month, less Afflatus's count of the pods' time at their rates (what Where it went and the chart split, over the month): pods not added to Afflatus, stopped pods' disks, the bill's rounding. The chart shows it per ${stretchOf(d.step)} as Not split.` : "RunPod billed less than Afflatus counted (a run that ended while Afflatus was away is counted to the latest it could have run). The bill is the reference."} />
+          </span>
+        )}
       </Tile>
       <Tile label="Today" value={usd(d.today.usd)}>
         <span className="text-xs text-ink-2">{d.today.sessions ? `${plural(d.today.sessions, "pod session")} · ${long(d.today.ms)}` : "no pod session"}</span>
@@ -69,11 +75,14 @@ function TopFigures({ d }: { d: CostsView }) {
       <Tile label="Month end, at this pace" value={`~${usd(d.monthEnd)}`}>
         <span className="flex items-center gap-1 text-xs text-ink-2">
           from the last 7 days
-          <Help text={`This month so far, plus ${usd(d.pace7)} a day (what the pods cost over the last 7 days, Afflatus's count) until its end.`} />
+          <Help text={`This month so far with the volumes' bill, plus ${usd(d.pace7 + d.storageDay)} a day until its end: the pods' last 7 days (${usd(d.pace7)} a day, Afflatus's count) and storage as it stands (${usd(d.storageDay)} a day).`} />
         </span>
       </Tile>
       <Tile label="RunPod balance" value={d.balance === null ? "—" : usd(d.balance)}>
-        <span className="text-xs text-ink-2">{d.balance === null ? (d.runpod ? "RunPod did not say" : "no RunPod key") : runwaySaid(d.runwayDays)}</span>
+        <span className="flex items-center gap-1 text-xs text-ink-2">
+          {d.balance === null ? (d.runpod ? "RunPod did not say" : "no RunPod key") : [runwaySaid(d.runwayDays), runwayNowSaid({ spendPerHr: d.spendPerHr, runwayNowMs: d.runwayNowMs, perDay: d.pace7 + d.storageDay })].filter(Boolean).join(" · ")}
+          {d.balance !== null && <Help text={runwayWhy({ pods: d.pace7, storage: d.storageDay })} />}
+        </span>
       </Tile>
       <Tile label="Billed while you sleep" value={s ? <>{usd(s.perMonth)}<span className="text-sm text-ink-3">/month</span></> : "—"}>
         <span className="flex items-center gap-1 text-xs text-ink-2">
@@ -132,7 +141,7 @@ function SpendChart({ d, onZoom }: { d: CostsView; onZoom(from: number, to: numb
     <TimeChart
       title={`Spend per ${stretch}`} note="by GPU · drag: zoom" times={d.times} step={d.step} timeLabel={chartTimeLabel(d.to - d.from, d.step)} onBrush={onZoom}
       format={(v) => usd(v, true)} axisFormat={(v) => usd(v)} stacked bars stat="sum" height={210} rule={dayCap}
-      series={d.spend.gpus.map((g, i) => ({ name: g, values: d.spend.values[i]!, color: g === "Other" ? "var(--color-ink-3)" : tones[i % tones.length] }))}
+      series={d.spend.gpus.map((g, i) => ({ name: g, values: d.spend.values[i]!, color: g === NOT_SPLIT ? "var(--color-line-strong)" : g === "Other" ? "var(--color-ink-3)" : tones[i % tones.length] }))}
     />
   );
 }

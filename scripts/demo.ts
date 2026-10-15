@@ -129,6 +129,10 @@ const pretendRunpod = process.env.DEMO_RUNPOD === "1" ? await startFakeRunpod({
   ],
 }) : null;
 if (pretendRunpod) {
+  // its bill written by itself from what the pods run (their GPU and disks, the stopped ones' disks), five minutes late,
+  // and the balance going down by it: Queue › Costs and the caps work on it as on RunPod's
+  pretendRunpod.autoBill = true;
+  pretendRunpod.billLagMs = 5 * 60_000;
   process.env.RUNPOD_API_URL = pretendRunpod.url;
   process.env.RUNPOD_PROXY = "http://127.0.0.1:{id}";
 }

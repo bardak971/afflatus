@@ -85,10 +85,17 @@ export interface CostsView {
   month: number;
   today: { usd: number; sessions: number; ms: number };
   caps: { day: number; month: number };
+  /** USD a day at this pace: the pods over the last 7 days, and storage. */
   pace7: number;
+  storageDay: number;
   monthEnd: number;
+  /** This month's bill beyond Afflatus's count of the pods' time (below 0: under it). */
+  notSplit: number;
   balance: number | null;
+  /** How long the balance lasts at pace7 + storageDay (the one Settings says); and at what is spent an hour now (ms). */
   runwayDays: number | null;
+  spendPerHr: number | null;
+  runwayNowMs: number | null;
   storage: { perMonth: number; volumes: number; stoppedDisks: number } | null;
   where: { ms: PartMs; usd: Record<CostPart, number>; estimated: boolean };
   spend: { gpus: string[]; values: number[][] };

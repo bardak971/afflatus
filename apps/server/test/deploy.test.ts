@@ -69,7 +69,7 @@ describe("a deploy", () => {
     const id = res.json().id as string;
     const pod = runpod.pods[0]!;
     // the freest data center of the A40
-    expect(pod).toMatchObject({ gpu: "NVIDIA A40", dataCenterId: "EU-RO-1", ports: ["8188/http"], image: POD_IMAGES.afflatus(), diskGb: 120 });
+    expect(pod).toMatchObject({ gpu: "NVIDIA A40", dataCenterId: "EU-RO-1", ports: ["8188/http"], image: POD_IMAGES.afflatus(), diskGb: 0, containerGb: 120 });
     const secret = /^\{\{ RUNPOD_SECRET_(afflatus-[a-f0-9]{8}) \}\}$/.exec(pod.env.AFFLATUS_TOKEN ?? "")?.[1];
     expect(secret).toBeTruthy();
     expect(pod.env.AFFLATUS_WATCHDOG_MINUTES).toBe("15");
@@ -538,7 +538,8 @@ describe("what the rented GPUs cost: RunPod's bill as the truth", () => {
     runpod.balance = 0.0733; // ten minutes at $0.44/h
     t.services.rented.now = (() => { const real = Date.now; return () => real() + 61_000; })();
     const s = await spending();
-    expect(s.spendPerHr).toBeCloseTo(0.44, 5);
+    // the A40, its 120 GB container disk while it runs, and the account's volumes, as RunPod says it
+    expect(s.spendPerHr).toBeCloseTo(0.44 + (120 * 0.1) / 730 + runpod.volumes.reduce((n, v) => n + v.size * 0.07, 0) / 730, 9);
     expect(s.runwayMs).toBeGreaterThan(8 * 60_000);
     expect(s.runwayMs).toBeLessThan(10 * 60_000);
     // a 5-minute render does not fit in what is left, with its margin; nothing known of a job's length: not held back

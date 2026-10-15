@@ -55,7 +55,7 @@ export interface Storage {
   volumesMonth: number | null;
   /** Of this month's spending, what the pods' own disks cost (in it already: RunPod bills a pod's disk with its GPU). */
   disksMonth: number;
-  /** What storage costs a month as the account stands now: every volume, every pod's disk at its running or stopped price. */
+  /** What storage costs a month with nothing running, as the account stands now: every volume, every pod's own disk at the stopped price (a running one's is in its rate while it runs). */
   perMonth: number;
   volumes: number;
   /** Stopped pods with a disk of their own: billed while they wait. */

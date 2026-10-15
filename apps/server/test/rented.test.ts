@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
+import { runningRate } from "../src/runpod";
 import { readSettings } from "../src/settings";
 import { get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
@@ -71,7 +72,7 @@ describe("a rented machine", () => {
     const id = await add();
     await t.services.rented.poll();
     const row = await rowOf(id);
-    expect(row.rented).toMatchObject({ status: "EXITED", rate: null, diskPerDay: expect.closeTo((50 * 0.2) / 30, 5) });
+    expect(row.rented).toMatchObject({ status: "EXITED", rate: null, diskPerDay: expect.closeTo((50 * 0.2 * 24) / 730, 9) });
     expect(t.services.queue.unavailable(id)).toBe("stopped");
     podComfy.calls.length = 0;
     const res = await post(t.app, "/api/jobs", { ...job(), machine: id });
@@ -90,7 +91,7 @@ describe("a rented machine", () => {
     expect((await post(t.app, `/api/machines/${id}/start`, {})).statusCode).toBe(200);
     expect(runpod.calls).toContain(`POST /v2/pods/${pod5090().id}/action start`);
     await until(async () => (await t.services.rented.poll(), (await rowOf(id)).rented?.status === "RUNNING"));
-    expect((await sessions()).map((s) => [s.machine_id, s.rate, s.ended_at])).toEqual([[id, 0.69, null]]);
+    expect((await sessions()).map((s) => [s.machine_id, s.rate, s.ended_at])).toEqual([[id, runningRate(0.69, 0, 50), null]]);
     await until(async () => (await t.db.selectFrom("jobs").select("status").where("id", "=", queued).executeTakeFirstOrThrow()).status !== "queued");
     const ran = await t.db.selectFrom("jobs").select(["status", "machine_id", "error"]).where("id", "=", queued).executeTakeFirstOrThrow();
     expect(ran).toMatchObject({ machine_id: id });

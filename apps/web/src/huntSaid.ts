@@ -37,8 +37,9 @@ export const deploySaid = (g: Pick<RankedGpu, "overhead">) => (g.overhead === nu
 /** The "?" of the A render column: what a render's cost counts, and what a deploy adds on top, from the user's sessions. */
 export function renderWhy(o: DeployOverhead | null): string {
   const render = "A render: its time on that GPU times its price an hour.";
-  if (!o) return `${render} A deploy also bills its boot and its idle before it stops; said here once you have a session that ended.`;
-  return `${render} + a deploy: what each deploy bills besides its renders, at that GPU's price: your pods' usual boot (${brief(o.bootMs)}) and usual idle before they stop (${brief(o.idleMs)}), from your last ${plural(o.sessions, "session")}. The more renders a deploy takes, the less of it each one carries.`;
+  if (!o) return `${render} A deploy also bills its boot, its files and its idle before it stops; said here once you have a session that ended.`;
+  const fetch = o.fetchMs > 0 ? `, their usual files fetched (${brief(o.fetchMs)}, none with a network volume)` : "";
+  return `${render} + a deploy: what each deploy bills besides its renders, at that GPU's price: your pods' usual boot (${brief(o.bootMs)})${fetch} and usual idle before they stop (${brief(o.idleMs)}), from your last ${plural(o.sessions, "session")}. The more renders a deploy takes, the less of it each one carries.`;
 }
 
 /** The hunt's title: "Hunting · best value, up to $1.00/h". */

@@ -5,9 +5,10 @@ import type { Item } from "./items";
 import { prepare } from "./match";
 import { COMMANDS, KIT_OF, parseCommand, type Command, type CommandId, type KitNew } from "./parse";
 import type { TimelineAim } from "./actions/ctx";
-import { est, plural, size, usd, when } from "../format";
+import { plural, size, usd, when } from "../format";
 import { unloadBlock } from "../queueRules";
 import { rateSaid, rentedSaid } from "../machines";
+import { runwayNowSaid, runwaySaid } from "../screens/queue/costsView";
 
 const upper = (s: string | null) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : null);
 
@@ -79,7 +80,9 @@ function spendingSaid(s: RentedSpending): string {
   return [
     `this month ${usd(s.month)}${s.caps.month ? ` of ${usd(s.caps.month)}` : ""}`,
     s.balance !== null && `balance ${usd(s.balance)}${s.lowBalance ? " (low)" : ""}`,
-    s.runwayMs !== null && s.spendPerHr !== null && `lasts ${est(s.runwayMs)} at ${usd(s.spendPerHr)}/h`,
+    // the same runways as Settings and Queue › Costs: at this pace (storage in it), and at what is spent now while a pod runs
+    s.runwayDays !== null && `lasts ${runwaySaid(s.runwayDays)}`,
+    runwayNowSaid({ spendPerHr: s.spendPerHr, runwayNowMs: s.runwayMs, perDay: s.perDay.pods + s.perDay.storage }),
   ].filter(Boolean).join(" · ");
 }
 

@@ -445,16 +445,18 @@ describe("the dialog's live ranking", () => {
     // a session that booted 5 min and stopped 10 min after its last work
     const t0 = Date.now() - 3_600_000;
     const iso = (ms: number) => new Date(ms).toISOString();
-    await t.db.insertInto("rent_sessions").values({ id: "zz-s", machine_id: "rp-zz", pod: "zz", rate: 0.44, started_at: iso(t0), ended_at: iso(t0 + 20 * 60_000), seen_at: null, gpu: "NVIDIA A40", up_at: iso(t0 + 5 * 60_000), idle_minutes: 10 }).execute();
-    await t.db.insertInto("render_stats").values({ ...stat("e", "NVIDIA A40", 500), machine_id: "rp-zz", total_ms: 5 * 60_000, created_at: iso(t0 + 10 * 60_000) }).execute();
+    await t.db.insertInto("rent_sessions").values({ id: "zz-s", machine_id: "rp-zz", pod: "zz", rate: 0.44, started_at: iso(t0), ended_at: iso(t0 + 23 * 60_000), seen_at: null, gpu: "NVIDIA A40", up_at: iso(t0 + 5 * 60_000), idle_minutes: 10 }).execute();
+    await t.db.insertInto("render_stats").values({ ...stat("e", "NVIDIA A40", 500), machine_id: "rp-zz", total_ms: 5 * 60_000, created_at: iso(t0 + 13 * 60_000) }).execute();
+    // its files fetched for 3 min after its boot, before its render: a deploy without a volume fetches them again
+    await t.db.insertInto("pod_fetches").values({ id: "zz-f", machine_id: "rp-zz", file: "checkpoints/zz.safetensors", folder: "checkpoints", via: "hf", bytes: 6e9, started_at: iso(t0 + 5 * 60_000), ended_at: iso(t0 + 8 * 60_000) }).execute();
     await queue();
     const res = (await post(t.app, "/api/hunt/rank", { mode: "value", ceiling: 5 })).json() as { ranking: Array<{ name: string; price: number; cost: number | null; timeSaid: string; overhead: number | null }>; overhead: unknown };
     const by = Object.fromEntries(res.ranking.map((g) => [g.name, g]));
     expect(by["H100 SXM"]).toMatchObject({ timeSaid: "a guess" });
     // its time guessed from the 4090's by the table (1.9 times as fast), not its own render (4 times)
     expect(by["H100 SXM"]!.cost! / by["RTX 4090"]!.cost!).toBeCloseTo(2.69 / 1.9 / 0.69, 6);
-    expect(res.overhead).toEqual({ bootMs: 5 * 60_000, idleMs: 10 * 60_000, sessions: 1 });
-    for (const g of res.ranking) expect(g.overhead).toBeCloseTo((g.price * 15) / 60, 10);
+    expect(res.overhead).toEqual({ bootMs: 5 * 60_000, idleMs: 10 * 60_000, fetchMs: 3 * 60_000, sessions: 1 });
+    for (const g of res.ranking) expect(g.overhead).toBeCloseTo((g.price * 18) / 60, 10);
   });
 
   it("times learned from the user's renders by GPU, guessed elsewhere; a file that ran out of memory on a GPU makes it too small", async () => {

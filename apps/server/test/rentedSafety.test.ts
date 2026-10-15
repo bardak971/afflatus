@@ -296,7 +296,7 @@ describe("money safety", () => {
     t.services.rented.stop();
     const again = await makeApp({ db: t.db, comfyUrl: home.url });
     await again.services.rented.poll();
-    expect((await again.services.queue.status()).machines.find((m) => m.id === id)?.rented?.rate).toBe(0.69);
+    expect((await again.services.queue.status()).machines.find((m) => m.id === id)?.rented?.rate).toBe(0.69 + (50 * 0.1) / 730);
     again.services.rented.stop();
     expect((await get(t.app, "/api/runpod/pods")).statusCode).toBe(200);
   });

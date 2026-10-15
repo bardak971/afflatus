@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PodSession } from "../src/api";
-import { nothingShare, presetWindow, runwaySaid, sessionBits, totalsSaid } from "../src/screens/queue/costsView";
+import { nothingShare, presetWindow, runwayNowSaid, runwaySaid, sessionBits, totalsSaid } from "../src/screens/queue/costsView";
 
 /** What the Costs tab works out from the server's figures before drawing them (costsView.ts). */
 
@@ -23,7 +23,18 @@ describe("the Costs tab", () => {
     expect(runwaySaid(130)).toBe("about 4 months at this pace");
     expect(runwaySaid(12.4)).toBe("about 12 days at this pace");
     expect(runwaySaid(0.4)).toBe("about 10 h at this pace");
-    expect(runwaySaid(null)).toBe("nothing spent in the last 7 days");
+    expect(runwaySaid(0.02)).toBe("about 29 min at this pace");
+  });
+
+  it("the runway at the spend now, only while it runs faster than the pace", () => {
+    // a pod at $0.60/h against a pace of $3 a day: 11 h of a $6.60 balance
+    expect(runwayNowSaid({ spendPerHr: 0.6, runwayNowMs: 11 * 3_600_000, perDay: 3 })).toBe("about 11 h at $0.60/h now");
+    // nothing running, storage alone: the pace's runway is the nearer end
+    expect(runwayNowSaid({ spendPerHr: 0.02, runwayNowMs: 300 * 3_600_000, perDay: 0.5 })).toBeNull();
+    expect(runwayNowSaid({ spendPerHr: null, runwayNowMs: null, perDay: 0 })).toBeNull();
+    // a little faster than the pace: the pace's runway says it
+    expect(runwayNowSaid({ spendPerHr: 0.06, runwayNowMs: 400 * 3_600_000, perDay: 1.2 })).toBeNull();
+    expect(runwaySaid(null)).toBe("nothing spent in the last 7 days, no storage");
   });
 
   it("a session's bar to the longest one's scale, each part with its tip, an estimated boot said", () => {

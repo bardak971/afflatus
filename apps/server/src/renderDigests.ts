@@ -15,7 +15,16 @@ const at = (values: number[], q: number): number | null => {
   const s = sorted(values);
   return s.length ? s[Math.min(s.length - 1, Math.floor(s.length * q))]! : null;
 };
-export const median = (values: number[]) => at(values, 0.5);
+/**
+ * The middle of the values: of an even count, the mean of its two middle ones, as the forecast reads it (forecast.ts). The
+ * upper one alone said 11.6 s for renders of 6.2 and 11.6 s, and a usual boot of 20 min for boots of 5 and 20.
+ */
+export const median = (values: number[]): number | null => {
+  const s = sorted(values);
+  if (!s.length) return null;
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
+};
 export const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
 export const real = (values: Array<number | null>): number[] => values.filter((v): v is number => v !== null && Number.isFinite(v));
 /** The middle of values that each stand for several renders: what the middle of all of them would about be. */

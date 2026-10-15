@@ -25,6 +25,7 @@ export function registerCosts(app: FastifyInstance, s: Services): void {
       return costs({
         db: s.db, registry: s.registry, settings, spending, billReadAt: s.rented.billRead?.ok ? s.rented.billRead.at : null,
         costBetween: (from, to) => s.rented.costBetween(from, to),
+        billedIn: (times, step) => s.rented.billedIn(times, step),
         offers: async () => (settings.runpodKey ? s.hunt.offersNow().catch(() => null) : null),
       }, q);
     })();

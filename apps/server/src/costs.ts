@@ -21,6 +21,8 @@ import type { Settings } from "./settings";
  */
 
 export type Part = "render" | "boot" | "fetch" | "idle" | "failed";
+/** The chart's series for what RunPod billed beyond Afflatus's count of the pods' time. */
+export const NOT_SPLIT = "Not split";
 export const PARTS: readonly Part[] = ["render", "boot", "fetch", "idle", "failed"];
 export type PartMs = Record<Part, number>;
 const noParts = (): PartMs => ({ render: 0, boot: 0, fetch: 0, idle: 0, failed: 0 });
@@ -259,15 +261,28 @@ export interface CostsView {
   month: number;
   today: { usd: number; sessions: number; ms: number };
   caps: { day: number; month: number };
-  /** USD a day over the last 7 days (Afflatus's count), and the month's end at that pace. */
+  /**
+   * USD a day at this pace: the pods over the last 7 days (Afflatus's count) and storage as the account stands (volumes,
+   * stopped pods' disks); the month's end at that pace (its volumes' bill so far in it).
+   */
   pace7: number;
+  storageDay: number;
   monthEnd: number;
+  /** Of this month's total, what RunPod billed beyond Afflatus's count of the pods' time (pods not in Afflatus, disks, rounding); below 0 when it billed less than counted. */
+  notSplit: number;
   balance: number | null;
+  /** How long the balance lasts at `pace7` + `storageDay` (rented.ts spending: the one Settings says too). */
   runwayDays: number | null;
+  /** What the account spends an hour now as RunPod says it, and how long the balance lasts at that (ms): while a pod runs, the nearer end. */
+  spendPerHr: number | null;
+  runwayNowMs: number | null;
   storage: { perMonth: number; volumes: number; stoppedDisks: number } | null;
   /** The window's pod time by part: ms and USD. */
   where: { ms: PartMs; usd: Record<Part, number>; estimated: boolean };
-  /** USD per stretch of `times`, by GPU. */
+  /**
+   * USD per stretch of `times`, by GPU (Afflatus's count), and NOT_SPLIT: what RunPod billed in a stretch beyond that
+   * count, so that a stretch billed in full stands at its bill (what the day cap is weighed against).
+   */
   spend: { gpus: string[]; values: number[][] };
   projects: ProjectCost[];
   sessions: SessionView[];
@@ -289,6 +304,8 @@ export interface CostsDeps {
   billReadAt: number | null;
   /** What the rented GPUs cost between two moments as Afflatus counts it (rented.ts costBetween). */
   costBetween(from: number, to: number): Promise<number>;
+  /** RunPod's bill over each stretch of the chart (rented.ts billedIn); null where it is not read. */
+  billedIn?(times: readonly number[], step: number): Promise<Array<number | null>>;
   /** RunPod's GPUs and their prices, for the guesses on GPUs not tried; null when not read. */
   offers(): Promise<RankOffer[] | null>;
 }
@@ -324,8 +341,17 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
   const machineOf = new Map(d.settings.machines.map((m) => [m.id, m]));
   const homeFirst = d.settings.machines.find((m) => !m.rented)?.id ?? d.settings.machines[0]?.id ?? "m1";
 
+  // a render is a pod's only within a run of its machine (rent_sessions): an id that was a home machine's before it was a
+  // pod's (the first machines were m1, m2 whatever they were) keeps its home renders at home
+  const runs = rented.size ? await db.selectFrom("rent_sessions").select(["machine_id", "started_at", "ended_at"]).where("machine_id", "in", [...rented]).execute() : [];
+  const onPod = (r: { machine_id: string | null; created_at: string; total_ms: number }) => {
+    if (!r.machine_id || !rented.has(r.machine_id)) return false;
+    const end = Date.parse(r.created_at);
+    const start = end - r.total_ms;
+    return runs.some((x) => x.machine_id === r.machine_id && Date.parse(x.started_at) < end && (x.ended_at === null || Date.parse(x.ended_at) > start));
+  };
   // the jobs of the renders on pods: where each belongs (its timeline or draft, their project)
-  const podRenders = renders.filter((r) => r.machine_id && rented.has(r.machine_id));
+  const podRenders = renders.filter(onPod);
   const refs = await itemsOf(db, podRenders.map((r) => r.id));
 
   const sessions: SessionView[] = [];
@@ -382,6 +408,19 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
   const spend = ranked.length > 4
     ? { gpus: [...ranked.slice(0, 3).map(([g]) => g), "Other"], values: [...ranked.slice(0, 3).map(([, v]) => v), times.map((_t, i) => ranked.slice(3).reduce((n, [, v]) => n + v[i]!, 0))] }
     : { gpus: ranked.map(([g]) => g), values: ranked.map(([, v]) => v) };
+  // what RunPod billed in a stretch beyond the count (pods not in Afflatus, stopped pods' disks, rounding): a stretch
+  // billed in full stands at its bill, what the day cap is weighed against. Nothing where the bill is below the count
+  // (its last hours not written yet: the count stands for them, as the cap takes the higher)
+  const billed = d.spending?.billed && d.billedIn ? await d.billedIn(times, step).catch(() => null) : null;
+  const unsplit = times.map((t, i) => {
+    const bill = billed?.[i];
+    if (bill === null || bill === undefined || t + step <= wFrom || t >= wTo) return 0;
+    return Math.max(0, bill - ranked.reduce((n, [, v]) => n + v[i]!, 0));
+  });
+  if (unsplit.some((v) => v >= 0.005)) {
+    spend.gpus.push(NOT_SPLIT);
+    spend.values.push(unsplit);
+  }
 
   // ---- by project: the renders on pods in the window, at their session's rate
   const projects = await byProject(db, podRenders.filter((r) => inside(r.created_at, wFrom, wTo)), refs, renderRate, d.registry);
@@ -389,11 +428,11 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
   // ---- a render's cost, model by where it ran
   const inWin = renders.filter((r) => inside(r.created_at, wFrom, wTo));
   const kwh = d.settings.costs;
-  const renderCosts = await costRows(inWin, rented, renderRate, gpuOfSession, sessions, d, homeFirst, kwh.kwhPrice);
+  const renderCosts = await costRows(inWin, onPod, renderRate, gpuOfSession, sessions, d, homeFirst, kwh.kwhPrice);
 
   // ---- this PC: the energy its renders drew
   const home: HomeView[] = [];
-  for (const [machine, list] of groupBy(inWin.filter((r) => !r.machine_id || !rented.has(r.machine_id)), (r) => r.machine_id ?? homeFirst)) {
+  for (const [machine, list] of groupBy(inWin.filter((r) => !onPod(r)), (r) => r.machine_id ?? homeFirst)) {
     const readOnes = list.filter((r) => r.energy_wh !== null);
     const wh = readOnes.reduce((n, r) => n + r.energy_wh!, 0);
     const ms = readOnes.reduce((n, r) => n + r.total_ms, 0);
@@ -408,20 +447,24 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
   const nowDate = new Date(now);
   const todayFrom = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
   const monthEndAt = new Date(nowDate.getFullYear(), nowDate.getMonth() + 1, 1).getTime();
-  const counted = await d.costBetween(now - 7 * DAY, now);
-  const pace7 = counted / 7;
+  // the pace and the runway as rented.ts says them (Settings too); Afflatus's count alone without RunPod
+  const pace7 = spending?.perDay.pods ?? (await d.costBetween(now - 7 * DAY, now)) / 7;
+  const storageDay = spending?.perDay.storage ?? 0;
   const todaySessions = (await db.selectFrom("rent_sessions").select(["started_at", "ended_at", "rate"]).where((eb) => eb.or([eb("ended_at", "is", null), eb("ended_at", ">", iso(todayFrom))])).execute());
   const todayMs = todaySessions.reduce((n, r) => n + Math.max(0, (r.ended_at ? Date.parse(r.ended_at) : now) - Math.max(todayFrom, Date.parse(r.started_at))), 0);
   const monthCount = await d.costBetween(new Date(nowDate.getFullYear(), nowDate.getMonth(), 1).getTime(), now);
   const month = spending?.month ?? monthCount;
+  // the month's bill beyond the count: said under it, so that it and "Where it went" over the month add up
+  const notSplit = spending?.billed ? month - monthCount : 0;
   const today = spending?.today ?? (await d.costBetween(todayFrom, now));
 
   const advice = adviceOf({ where: { ms: whereMs, usd: whereUsd }, tails, fetched, bootsSeen, rows: renderCosts, sessions: sessions.length });
 
   return {
     from: wFrom, to: wTo, step, times, billed: spending?.billed ?? false, billReadAt: d.billReadAt, runpod: Boolean(spending), month,
-    today: { usd: today, sessions: todaySessions.length, ms: todayMs }, caps: d.settings.rentCaps, pace7, monthEnd: month + pace7 * ((monthEndAt - now) / DAY),
-    balance: spending?.balance ?? null, runwayDays: spending?.balance != null && pace7 > 0 ? spending.balance / pace7 : null,
+    today: { usd: today, sessions: todaySessions.length, ms: todayMs }, caps: d.settings.rentCaps, pace7, storageDay, notSplit,
+    monthEnd: month + (spending?.storage?.volumesMonth ?? 0) + (pace7 + storageDay) * ((monthEndAt - now) / DAY),
+    balance: spending?.balance ?? null, runwayDays: spending?.runwayDays ?? null, spendPerHr: spending?.spendPerHr ?? null, runwayNowMs: spending?.runwayMs ?? null,
     storage: spending?.storage ? { perMonth: spending.storage.perMonth, volumes: spending.storage.volumes, stoppedDisks: spending.storage.stoppedDisks } : null,
     where: { ms: whereMs, usd: whereUsd, estimated: estimatedAny }, spend, projects, sessions, renderCosts, advice, home, kwh: { price: kwh.kwhPrice, currency: kwh.currency },
   };
@@ -465,16 +508,20 @@ export interface DeployOverhead {
   bootMs: number;
   /** The usual idle at the end: from its last work to its stop. */
   idleMs: number;
+  /**
+   * The usual time fetching files of the sessions that fetched any, for a deploy without a network volume (its models come
+   * at every deploy, ~45 % more than boot and idle on the owner's deploys); 0 for one with a volume, which keeps them.
+   */
+  fetchMs: number;
   /** How many sessions it was read from. */
   sessions: number;
 }
 
 /**
- * The usual boot and the usual idle at the end of this user's latest sessions that ended: what each deploy costs on top of
- * its renders, whatever it renders. Null with no session ended yet. The files fetched are left out: they are the renders'
- * own (another set, another time).
+ * The usual boot, the usual idle at the end and, for a deploy without a volume, the usual fetch of this user's latest
+ * sessions that ended: what each deploy costs on top of its renders, whatever it renders. Null with no session ended yet.
  */
-export async function deployOverhead(db: Db, now = Date.now()): Promise<DeployOverhead | null> {
+export async function deployOverhead(db: Db, now = Date.now(), o: { volume?: boolean } = {}): Promise<DeployOverhead | null> {
   const rows = await db.selectFrom("rent_sessions").selectAll().where("ended_at", "is not", null).orderBy("started_at", "desc").limit(OVERHEAD_SESSIONS).execute();
   if (!rows.length) return null;
   const iso = (ms: number) => new Date(ms).toISOString();
@@ -487,12 +534,16 @@ export async function deployOverhead(db: Db, now = Date.now()): Promise<DeployOv
   const usualBootMs = median((await db.selectFrom("pod_measures").select("ms").where("kind", "=", "boot").orderBy("at", "desc").limit(12).execute()).map((r) => Number(r.ms)));
   const boots: number[] = [];
   const idles: number[] = [];
+  const fetched: number[] = [];
   for (const r of rows) {
     const { split } = sessionOf(r, { renders, fetches, measures, usualBootMs }, now);
-    boots.push(partsOf(split.spans).boot);
+    const parts = partsOf(split.spans);
+    boots.push(parts.boot);
     idles.push(idleTail(split.spans, false));
+    // a session that fetched nothing had its files there (a volume): not a deploy's usual fetch
+    if (parts.fetch > 0) fetched.push(parts.fetch);
   }
-  return { bootMs: median(boots)!, idleMs: median(idles)!, sessions: rows.length };
+  return { bootMs: median(boots)!, idleMs: median(idles)!, fetchMs: o.volume ? 0 : median(fetched) ?? 0, sessions: rows.length };
 }
 
 const inside = (at: string, from: number, to: number) => {
@@ -576,12 +627,12 @@ async function byProject(db: Db, rows: readonly RenderLine[], refs: Map<string, 
 }
 
 /** The models of the window, each on the GPUs it rendered on (p50 × rate), this PC (its electricity), and a GPU not tried yet. */
-async function costRows(rows: readonly RenderLine[], rented: Set<string>, rate: Map<string, number>, gpuOfSession: Map<string, string>, sessions: SessionView[], d: CostsDeps, homeFirst: string, price: number | null): Promise<RenderCostRow[]> {
+async function costRows(rows: readonly RenderLine[], onPod: (r: RenderLine) => boolean, rate: Map<string, number>, gpuOfSession: Map<string, string>, sessions: SessionView[], d: CostsDeps, homeFirst: string, price: number | null): Promise<RenderCostRow[]> {
   const done = rows.filter((r) => r.status === "done");
   const gpuOfRender = new Map<string, string>();
   for (const s of sessions) for (const r of s.renders) gpuOfRender.set(r.id, gpuOfSession.get(s.id) ?? "GPU");
   const models = [...groupBy(done, (r) => `${r.recipe_id}\n${r.model_file}`)]
-    .map(([key, list]) => ({ key, list, pod: list.filter((r) => r.machine_id && rented.has(r.machine_id)) }))
+    .map(([key, list]) => ({ key, list, pod: list.filter(onPod) }))
     .sort((a, b) => b.pod.length - a.pod.length || b.list.length - a.list.length)
     .slice(0, 10);
   const out: RenderCostRow[] = [];
@@ -609,7 +660,7 @@ async function costRows(rows: readonly RenderLine[], rented: Set<string>, rate: 
       if (guess) mine.push({ key: m.key, model, file, where: "guess", on: gpuShort(guess.name), ms: guess.seconds! * 1000, renders: 0, usd: guess.cost, local: null, wh: null, best: false });
     }
     out.push(...mine);
-    for (const [machine, list] of groupBy(m.list.filter((r) => !r.machine_id || !rented.has(r.machine_id)), (r) => r.machine_id ?? homeFirst)) {
+    for (const [machine, list] of groupBy(m.list.filter((r) => !onPod(r)), (r) => r.machine_id ?? homeFirst)) {
       const ms = median(list.map((r) => r.total_ms));
       const wh = median(list.filter((r) => r.energy_wh !== null).map((r) => r.energy_wh!));
       const name = d.settings.machines.find((x) => x.id === machine)?.name;
