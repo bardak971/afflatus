@@ -342,9 +342,21 @@ function schemaOf(spec: InputSpec): z.ZodType {
   }
 }
 
+const buildSchema = (specs: readonly InputSpec[]) => z.strictObject(Object.fromEntries(specs.map((s) => [s.id, schemaOf(s)])));
+/**
+ * Each recipe's schema, kept by its list of inputs: building one costs about three times the parse it is used for, and the
+ * machine check parses every variant of every recipe. A list that grew since it was kept (an imported workflow's inputs are
+ * pushed while it is read) gets a new one.
+ */
+const schemas = new WeakMap<readonly InputSpec[], { length: number; schema: ReturnType<typeof buildSchema> }>();
+
 /** The zod object a recipe's raw inputs are parsed with: defaults filled in, unknown keys rejected. */
 export function schemaFor(specs: InputSpec[]) {
-  return z.strictObject(Object.fromEntries(specs.map((s) => [s.id, schemaOf(s)])));
+  const kept = schemas.get(specs);
+  if (kept && kept.length === specs.length) return kept.schema;
+  const schema = buildSchema(specs);
+  schemas.set(specs, { length: specs.length, schema });
+  return schema;
 }
 
 const MODEL_OR_MEDIA = endsIn([...MODEL_EXTS, "png", "jpe?g", "webp", "mp4", "wav", "mp3"]);

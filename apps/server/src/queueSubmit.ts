@@ -8,6 +8,7 @@ import type { Db, Tables } from "./db";
 import { extOf } from "./media";
 import { usualParts } from "./renders";
 import type { Storage } from "./storage";
+import { addPart, timedPart } from "./serverMetrics";
 import { maskBox, mirrorPicture, readPicture } from "./thumbs";
 import { readVideo } from "./video";
 import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel";
@@ -85,25 +86,34 @@ function going(signal: AbortSignal | undefined): void {
  */
 export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>, raw: Record<string, unknown>, row: JobRow, hold: (r: Resume) => Promise<void> = async () => {}, signal?: AbortSignal): Promise<Resume> {
   const { db, storage } = core;
-  const catalog = await comfy.catalog();
+  const catalog = await timedPart("scan", () => comfy.catalog());
   // a timeline clip: what it joins onto is settled now, when the clips around it have their takes
   const plan = row.clip_id && core.clips ? await core.clips.plan(row.clip_id, recipe, raw, Boolean(row.clip_fit), row.finished_from, false, readJson<string[]>(row.clip_mirror, [])) : null;
   const input = plan ? (parseInput(recipe, plan.input) as Record<string, unknown>) : raw;
   const chosen = settled(recipe, input, catalog);
   const missing = recipe.nodes(input).filter((n: string) => !(n in catalog));
   if (missing.length) throw new Error(missingNodesSaid(missing));
-  const slotFiles = await slots(core, comfy, recipe);
+  const slotFiles = await timedPart("scan", () => slots(core, comfy, recipe));
 
   // pictures, videos and sounds the recipe takes are uploaded to ComfyUI's temp folder under fresh names
+  let sending = 0;
   const upload: Up["upload"] = async (bytes, ext, opts = {}) => {
     going(signal);
-    // an upload cut short by the Stop says so, not that ComfyUI stopped answering
-    return comfy.client.upload(bytes, ext, { ...opts, signal }).catch((err: unknown) => {
-      going(signal);
-      throw err;
-    });
+    const t0 = performance.now();
+    try {
+      // an upload cut short by the Stop says so, not that ComfyUI stopped answering
+      return await comfy.client.upload(bytes, ext, { ...opts, signal }).catch((err: unknown) => {
+        going(signal);
+        throw err;
+      });
+    } finally {
+      sending += performance.now() - t0;
+      addPart("uploads", performance.now() - t0);
+    }
   };
   const up: Up = { recipe, db, storage, comfy, input, catalog, finishedFrom: row.finished_from, mirror: plan?.mirror ?? [], sent: { uploads: {}, media: {}, warnings: [] }, signal, upload };
+  // what the media cost beside sending them (cutting a clip's frames, reading a picture): /metrics' "cuts"
+  const media0 = performance.now();
   for (const spec of recipe.inputs as InputSpec[]) {
     const value = input[spec.id];
     if (spec.type === "image" && typeof value === "string" && value !== NO_PICTURE) await uploadImage(up, spec, value);
@@ -112,6 +122,8 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
     else if (spec.type === "references" && Array.isArray(value)) await uploadReferences(up, spec, value as ReferenceValue[]);
     else if (spec.type === "audio" && typeof value === "string") await uploadSound(up, spec, value);
   }
+  // a form handed nothing (a text to picture) has no media to prepare: no figure, rather than a zero among the others
+  if (Object.keys(up.sent.uploads).length) addPart("cuts", Math.max(0, performance.now() - media0 - sending));
   // a finish that needs the draft's own sampled latent (H3's latent re-sample, which samples it again as it is): the recipe says so
   if (row.finished_from && recipe.finishing?.(input)?.latent === "own") {
     const draft = await db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").select(["assets.latent_key as latent_key"]).where("takes.id", "=", row.finished_from).executeTakeFirst();
@@ -144,7 +156,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const cold = base.length > 0 && !holding(core, base);
   going(signal);
   if (cold) {
-    await comfy.client.free().catch(() => {});
+    await timedPart("free", () => comfy.client.free().catch(() => {}));
     await core.loaded(null);
   }
   const timing = await timingOf(core, recipe, chosen, built, cold);
@@ -493,8 +505,32 @@ export async function builtOf(core: QueueCore, recipeId: string, rawInput: unkno
 
 /** A library picture's size, as uploadImage sends it; null when it is not known (the stand-in's square is used). */
 async function pictureFacts(db: Db, id: string): Promise<MediaFacts | null> {
-  const a = await db.selectFrom("assets").select(["width", "height"]).where("id", "=", id).executeTakeFirst();
+  const a = (await sizesOf(db, id)).get(id);
   return a?.width && a.height ? { width: a.width, height: a.height } : null;
+}
+
+/**
+ * The pictures' sizes asked in one turn, read in one statement: the queue's forecasts build every waiting form at once, warm
+ * and cold, and each asked for its picture on its own (34 statements for 120 jobs).
+ */
+const sizeBatches = new WeakMap<Db, { ids: Set<string>; read: Promise<Map<string, { width: number | null; height: number | null }>> }>();
+function sizesOf(db: Db, id: string) {
+  let batch = sizeBatches.get(db);
+  if (!batch) {
+    const ids = new Set<string>();
+    const read = new Promise((go) => setImmediate(go)).then(async () => {
+      // what is asked from now on goes in the next one
+      sizeBatches.delete(db);
+      const all = [...ids];
+      const rows = [];
+      for (let i = 0; i < all.length; i += 500) rows.push(...(await db.selectFrom("assets").select(["id", "width", "height"]).where("id", "in", all.slice(i, i + 500)).execute()));
+      return new Map(rows.map((r) => [r.id, r]));
+    });
+    batch = { ids, read };
+    sizeBatches.set(db, batch);
+  }
+  batch.ids.add(id);
+  return batch.read;
 }
 
 /** A reference video as uploadReferences sends it: its first three seconds at 24 frames a second, 384 pixels on its short side. */
@@ -586,7 +622,7 @@ async function forecastFrom(
   const base = baseModels(built);
   return forecast(core.db, modelFileOf(recipe, chosen, built), shape.pixels * shape.frames, shape.steps, cold ?? (base.length > 0 && !holding(core, base)), {
     recipeId: recipe.id, timeKey: timeKey(recipe.inputs, chosen), family: recipe.family, fps: (id) => core.registry.recipe(id)?.traits?.fps,
-    samples: Object.values(built.phases).includes("sampling"), chunks: chunksOf(built, shape.pixels), ...where,
+    samples: Object.values(built.phases).includes("sampling"), chunks: chunksOf(built, shape.pixels), rows: (file) => core.statRows(file), ...where,
   });
 }
 

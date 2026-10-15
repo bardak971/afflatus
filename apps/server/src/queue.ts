@@ -6,7 +6,8 @@ import { newId, now, OWNER, type Db } from "./db";
 import { addedBy } from "./events";
 import { httpError } from "./errors";
 import type { HuntSummary } from "./hunt";
-import { machinePaces, rates } from "./forecast";
+import { machinePaces, rates, statRows, type StatRows } from "./forecast";
+import { gathering, observeAdded } from "./serverMetrics";
 import type { Registry } from "./registry";
 import { record } from "./renders";
 import { lackOn, type Lack } from "./machineScans";
@@ -48,6 +49,8 @@ const STEPS_SAVE_MS = 5_000;
 const GPU_AT_WORK = 30;
 /** The lane of the jobs that need no ComfyUI. */
 const TOOLS = "tools";
+/** The longest a waiting job's forecast is kept while the record of render times does not change (see `kept`). */
+const FORECASTS_MS = 5 * 60_000;
 /** How long a running job has left, from what it was expected to take; null when that cannot be told. */
 const remainingOf = (run: Running | null): number | null => (run?.expectedMs && run.startedAt ? Math.max(0, run.expectedMs - (Date.now() - run.startedAt)) : null);
 
@@ -198,6 +201,7 @@ export class Queue {
       get offlineSince() { return self.offline.since; },
       loaded: (loads, model) => this.loaded(l, loads, model),
       usual: () => this.usual(),
+      statRows: (modelFile) => this.statRows(modelFile),
       paces: () => this.paces(),
       expected: (recipe, input, cold, job, machine) => this.expected(recipe, input, cold, job, machine),
       runTool: (row, work) => this.runTool(l, row, work),
@@ -558,15 +562,57 @@ export class Queue {
   /** Every waiting job cancelled in one statement, or those of `ids` that still wait (queueBulk.ts). */
   cancelWaiting(ids?: readonly string[]) { return bulk.cancelWaiting(this.core, (id) => this.failDependents(id), ids); }
 
-  private known: (Usual & { at: number }) | null = null;
-  /** What the forecast falls back on, worked out at most twice a minute. */
-  private async usual() {
-    if (!this.known || Date.now() - this.known.at > 30_000) this.known = { at: Date.now(), rates: await rates(this.db) };
-    return this.known;
+  /** The record of render times as it stands (how many rows, the newest), read at most once a second: what the forecasts are kept by. */
+  private recordMark: { at: number; value: Promise<string> } | null = null;
+  private mark(): Promise<string> {
+    if (!this.recordMark || Date.now() - this.recordMark.at > 1_000) {
+      const value = this.db.selectFrom("render_stats").select((eb) => [eb.fn.countAll<number>().as("n"), eb.fn.max("created_at").as("at")]).executeTakeFirstOrThrow()
+        .then((r) => `${r.n}|${r.at ?? ""}`, () => `unread ${Date.now()}`);
+      this.recordMark = { at: Date.now(), value };
+    }
+    return this.recordMark.value;
   }
 
-  /** The waiting jobs' forecasts, by form: a job waits unchanged, so it is worked out once, and again after half a minute (renders end, the record grows). */
-  private expectedAt: { at: number; by: Map<string, Promise<Expected>> } = { at: 0, by: new Map() };
+  /**
+   * The waiting jobs' forecasts by form, and what they are worked out from (each model's renders, the recipes' usual times):
+   * a job waits unchanged, so it is worked out once, and again when the record of render times changes (a render ended, the
+   * hourly fold, the record forgotten), not every half minute; at the latest after FORECASTS_MS, for what else moves a forecast
+   * (the clips a waiting clip joins onto, a ComfyUI back that builds the graphs it could not).
+   */
+  private kept: { mark: string; at: number; by: Map<string, Promise<Expected>>; usual: Promise<Usual> | null; rows: Map<string, Promise<StatRows>> } = { mark: "", at: 0, by: new Map(), usual: null, rows: new Map() };
+  private async forecasts() {
+    const mark = await this.mark();
+    if (mark !== this.kept.mark || Date.now() - this.kept.at > FORECASTS_MS) this.kept = { mark, at: Date.now(), by: new Map(), usual: null, rows: new Map() };
+    return this.kept;
+  }
+
+  /** What the forecast falls back on: read once while the record stays as it is, however many forms ask at once. */
+  private async usual(): Promise<Usual> {
+    const kept = await this.forecasts();
+    if (!kept.usual) {
+      const usual = rates(this.db).then((r) => ({ rates: r }));
+      kept.usual = usual;
+      usual.catch(() => {
+        if (kept.usual === usual) kept.usual = null;
+      });
+    }
+    return kept.usual;
+  }
+
+  /** A model's past renders (forecast.ts statRows), read once while the record stays as it is: every waiting job on every machine reads them. */
+  private async statRows(modelFile: string): Promise<StatRows> {
+    const kept = await this.forecasts();
+    let rows = kept.rows.get(modelFile);
+    if (!rows) {
+      const read = statRows(this.db, modelFile);
+      rows = read;
+      kept.rows.set(modelFile, read);
+      read.catch(() => {
+        if (kept.rows.get(modelFile) === read) kept.rows.delete(modelFile);
+      });
+    }
+    return rows;
+  }
   /**
    * About how long a render will take: the forecast of its form, with what loading its model adds when it is not the one
    * loaded before it. On `machine` when it is said: its own renders of the model, else the others' at its pace (forecast.ts
@@ -579,8 +625,8 @@ export class Queue {
   }
 
   /** The forecast of a form as `expected` reads it: on no machine in particular, and on each machine (one graph built for all). */
-  private expectedAll(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean, job: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit"> | null): Promise<Expected> {
-    if (Date.now() - this.expectedAt.at > 30_000) this.expectedAt = { at: Date.now(), by: new Map() };
+  private async expectedAll(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean, job: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit"> | null): Promise<Expected> {
+    const kept = await this.forecasts();
     const machines = this.machineLanes().map((l) => l.id);
     const key = `${recipe.id}
 ${cold}
@@ -589,11 +635,11 @@ ${job?.clip_id}
 ${job?.clip_fit}
 ${machines.join(",")}
 ${JSON.stringify(input)}`;
-    let got = this.expectedAt.by.get(key);
+    let got = kept.by.get(key);
     if (!got) {
       got = submitting.forecastOf(this.core, recipe.id, input, { cold, finishedFrom: job?.finished_from, clip: job?.clip_id ? { id: job.clip_id, fit: Boolean(job.clip_fit) } : null, machines })
         .then((f) => ({ ms: f?.forecast.ms ?? null, on: new Map(Object.entries(f?.on ?? {}).map(([m, g]) => [m, g.ms])) }), () => ({ ms: null, on: new Map<string, number>() }));
-      this.expectedAt.by.set(key, got);
+      kept.by.set(key, got);
     }
     return got;
   }
@@ -705,6 +751,22 @@ ${JSON.stringify(input)}`;
     const status = await view.status(this.core, views, paused, paused ? new Map() : await this.forecastPlan(lanes, rows, able), await this.paces(), able);
     // the GPU hunt under way, for the status bar (hunt.ts); null when there is none
     return { ...status, hunt: this.huntOf?.(rows.filter(needsComfy).length) ?? null };
+  }
+
+  /**
+   * The line counted as /metrics says it: how many jobs wait, whether one runs, and the machines whose running job is a
+   * render (not an export): two small statements and the lanes in memory, where status() builds every row, forecast and
+   * machine check. Each scrape asked status() before, which kept the checks and forecasts going with no page open.
+   */
+  async counts(): Promise<{ waiting: number; running: boolean; busy: Set<string> }> {
+    const waiting = await this.db.selectFrom("jobs").select((eb) => eb.fn.countAll<number>().as("n")).where("status", "=", "queued").executeTakeFirstOrThrow();
+    const ran = await this.db.selectFrom("jobs").select(["id", "recipe_id"]).where("status", "=", "running").execute();
+    const busy = new Set<string>();
+    for (const l of this.machineLanes()) {
+      const r = l.running ? ran.find((x) => x.id === l.running!.id) : undefined;
+      if (r && r.recipe_id !== EXPORT_JOB) busy.add(l.id);
+    }
+    return { waiting: Number(waiting.n), running: ran.length > 0, busy };
   }
 
   /** The GPU hunt's summary (set by services.ts), given how many renders wait. */
@@ -1240,14 +1302,17 @@ ${JSON.stringify(input)}`;
       if (!resume) {
         // a Stop while its files go up ends it there, before ComfyUI frees its memory or is sent anything (checked again below
         // for one pressed while the prompt was on its way)
-        resume = await submitting.submit(core, comfy, recipe, input, row, async (r) => {
+        const before = { at: performance.now(), parts: {} };
+        resume = await gathering(before.parts, () => submitting.submit(core, comfy, recipe, input, row, async (r) => {
           held = r;
           await this.db.updateTable("jobs").set({ resume: JSON.stringify(r), updated_at: now() }).where("id", "=", row.id).execute();
           // followed from before it is sent, under the id it is sent with: what ComfyUI says at once (the passes it still had
           // cached, execution_cached) arrives before submit returns, and was lost when the prompt was tracked only after it
           comfy.monitor.track({ promptId: r.promptId, totalSteps: r.totalSteps, phases: r.phases, passes: r.passes, clientId: r.clientId, expect: r.timing?.expect });
           early = r.promptId;
-        }, abort.signal);
+        }, abort.signal));
+        // what Afflatus added before ComfyUI had it, for /metrics (a preload is not a render)
+        if (!row.warm) observeAdded(lane.id, "before", performance.now() - before.at, before.parts);
         // a ComfyUI from before prompt ids could be chosen gave one of its own: that one is followed instead
         if (early && early !== resume.promptId) comfy.monitor.untrack(early);
         await this.db.updateTable("jobs").set({ resume: JSON.stringify(resume), updated_at: now() }).where("id", "=", row.id).execute();
@@ -1301,7 +1366,9 @@ ${JSON.stringify(input)}`;
         await this.finish(row.id, "done");
         return;
       }
-      const generationId = await storing.store(core, comfy, recipe, resume.input ?? input, resume, outputs, row);
+      const filing = { at: performance.now(), parts: {} };
+      const generationId = await gathering(filing.parts, () => storing.store(core, comfy, recipe, resume!.input ?? input, resume!, outputs, row));
+      observeAdded(lane.id, "filing", performance.now() - filing.at, filing.parts);
       made = generationId;
       await this.place(row, generationId, resume);
       // on record before the job says done: a screen told it is done reads its time with it (the forecast, the stats)
@@ -1405,7 +1472,8 @@ ${JSON.stringify(input)}`;
   private async note(lane: Lane, row: JobRow, recipe: Recipe<any>, resume: Resume, measured: Measured | null, status: "done" | "failed" | "cancelled", whole: boolean, totalMs: number, generationId?: string): Promise<void> {
     try {
       await record(this.db, row, recipe, resume, measured, status, whole, totalMs, generationId, { machine: lane.id, gpu: lane.comfy?.monitor.system?.gpus[0]?.name ?? null });
-      this.known = null;
+      // the record changed: the next forecast reads it again at once, not after the second the mark is kept
+      this.recordMark = null;
     } catch (err) {
       console.warn(`[queue] the time of job ${row.id} was not put on record: ${(err as Error).message}`);
     }

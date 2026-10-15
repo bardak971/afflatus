@@ -20,6 +20,9 @@ What is there:
 | `afflatus_render_wait_seconds_total` | counter | `recipe`, `family`, `title` | Time waited in the queue |
 | `afflatus_video_seconds_total` | counter | `recipe`, `family`, `title` | Length of the videos made |
 | `afflatus_render_duration_seconds` | histogram | `recipe`, `family`, `title` | How long finished renders took (buckets 5 s to 1 h) |
+| `afflatus_render_added_seconds` | histogram | `machine`, `stage` before / filing | What Afflatus adds around each render on that machine: until ComfyUI has the prompt, and filing what it made |
+| `afflatus_render_added_part_seconds` | histogram | `machine`, `part` scan / cuts / uploads / free / measuring | Their parts |
+| `process_*`, `nodejs_*` | | | The server's own (prom-client's default set): memory, CPU, event-loop lag, garbage collection |
 
 To scrape it, a job in Prometheus (Afflatus on its own machine):
 
@@ -40,6 +43,7 @@ server by its IP, a name the rest of the API refuses (see `ALLOWED_HOSTS`).
 `afflatus.json` is a dashboard for them: import it in Grafana (Dashboards, New, Import) and pick your
 Prometheus as its data source. It is laid out like a queue dashboard: what is going on now, the
 renders over time (finished per hour, render time median and p90, where the GPU time went, queue
-wait, model loads), and the GPU.
+wait, model loads), the GPU, and the server itself (event-loop lag, memory, CPU, and per machine what Afflatus
+adds before and after each render, with its parts).
 
 With several ComfyUIs (Settings › ComfyUI), each machine's gauges carry its id (`machine="m2"`) and, asked by the server's own name, its name; the dashboard's **Machine** variable shows all of them or the ones picked, and its **Machines** row has each one's answering and rendering over time, its learned pace and its VRAM side by side. The counters stay by recipe: renders older than the days kept one by one are folded into daily totals of every machine together, and a per-machine counter would go down when they are.
