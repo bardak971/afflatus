@@ -189,7 +189,7 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
         <span className="pointer-events-none absolute inset-y-0 flex" style={{ left: -cut, width: w }}>
           {Array.from({ length: cells }, (_, k) => {
             const frame = Math.min(STRIP_FRAMES - 1, Math.floor(((k + 0.5) / cells) * STRIP_FRAMES));
-            return <span key={k} className="h-full grow bg-raised" style={{ backgroundImage: `url(${stripUrl(video.id)}?v=${fileVersion(video)})`, backgroundSize: `${STRIP_FRAMES * 100}% 100%`, backgroundPosition: `${(frame / (STRIP_FRAMES - 1)) * 100}% 0` }} />;
+            return <span key={k} className="h-full grow bg-raised" style={{ backgroundImage: `url(${stripUrl(video.id)}&v=${fileVersion(video)})`, backgroundSize: `${STRIP_FRAMES * 100}% 100%`, backgroundPosition: `${(frame / (STRIP_FRAMES - 1)) * 100}% 0` }} />;
           })}
         </span>
         {/* the video before the stretch and after it faint, as the music's song past the clips */}

@@ -55,7 +55,8 @@ describe("sweep", () => {
     const old = await add({ madeAgo: 0, kept: true, binnedAgo: BIN_MS + HOUR, durationMs: 30_000 });
     const keys = derivedKeys({ id: old, duration_ms: 30_000 });
     const dir = old.slice(0, 2);
-    expect(keys).toEqual([`strips/${dir}/${old}.jpg`, `strips/${dir}/${old}-30x48.jpg`, `motion/${dir}/${old}.json`, `scenes/${dir}/${old}.json`, `means/${dir}/${old}.json`, `joins/${dir}/${old}.json`]);
+    // the strips under their names since `-2`, and under the names before
+    expect(keys).toEqual([`strips/${dir}/${old}-2.jpg`, `strips/${dir}/${old}-30x48-2.jpg`, `strips/${dir}/${old}.jpg`, `strips/${dir}/${old}-30x48.jpg`, `motion/${dir}/${old}.json`, `scenes/${dir}/${old}.json`, `means/${dir}/${old}.json`, `joins/${dir}/${old}.json`]);
     for (const key of keys) await t.services.storage.put(key, new Uint8Array([1]));
 
     expect(await sweep(t.db, t.services.storage)).toEqual({ binned: 0, erased: 1 });

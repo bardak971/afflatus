@@ -66,7 +66,7 @@ describe.skipIf(!ffmpegThere)("what the editor reads, measured in the background
   const upload = async (name: string) =>
     (await t.app.inject({ method: "POST", url: `/api/assets?name=${name}`, headers: { "content-type": "video/mp4" }, payload: Buffer.from(clip) })).json() as { id: string };
   const has = (key: string) => t.services.storage.size(key).then(() => true, () => false);
-  const kept = (id: string) => Promise.all(["motion", "means"].map((d) => has(`${d}/${id.slice(0, 2)}/${id}.json`)).concat(has(`strips/${id.slice(0, 2)}/${id}.jpg`)));
+  const kept = (id: string) => Promise.all(["motion", "means"].map((d) => has(`${d}/${id.slice(0, 2)}/${id}.json`)).concat(has(`strips/${id.slice(0, 2)}/${id}-2.jpg`)));
   /** A timeline of two clips, the second flowing on from the first. */
   const twoClips = async () => {
     const one = await upload("zz-test one.mp4");

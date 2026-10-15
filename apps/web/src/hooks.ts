@@ -60,6 +60,22 @@ export function useMedia(query: string): boolean {
   return on;
 }
 
+/**
+ * A form's change of one input, made on its inputs as they stand with the changes just before it: a field that sets two
+ * inputs at once (the part of a sound: its start, then its length) sends two changes before the screen is drawn again, and
+ * the second, made on the inputs drawn, put the start back (a lip sync's recording in the timeline, 2026-10-15). What it
+ * builds on follows `stored` again whenever that is drawn anew.
+ */
+export function useInputEdits(stored: Record<string, unknown>, save: (next: Record<string, unknown>) => void): (input: string, value: unknown) => void {
+  const latest = useRef({ drawn: stored, now: stored });
+  if (latest.current.drawn !== stored) latest.current = { drawn: stored, now: stored };
+  return (input, value) => {
+    const now = { ...latest.current.now, [input]: value };
+    latest.current = { ...latest.current, now };
+    save(now);
+  };
+}
+
 /** The time now, read again every `ms` while `on`: for what counts on screen by itself (a rented pod's running time and cost). */
 export function useNow(ms = 1000, on = true): number {
   const [now, setNow] = useState(() => Date.now());

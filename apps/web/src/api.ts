@@ -599,8 +599,11 @@ export function thumbSrcSet(src: string): string | undefined {
  * Studio, ~500 tiles and 10 MB in 10 minutes).
  */
 export const THUMB_SIZES = "320px";
-/** Twelve frames of a video side by side, spread over its length. */
-export const stripUrl = (id: string) => `/api/assets/${id}/strip`;
+/**
+ * Twelve frames of a video side by side, spread over its length; more options follow with `&`. `s=2` since the strips' last
+ * place stopped coming out black (2026-10-15): a browser keeps a strip for a year, so the ones it had are asked for anew.
+ */
+export const stripUrl = (id: string) => `/api/assets/${id}/strip?s=2`;
 export const STRIP_FRAMES = 12;
 export const previewUrl = (jobId: string, seq: number) => `/api/jobs/${jobId}/preview?s=${seq}`;
 /** One picture the running job showed on the way: stage n of its strip. */

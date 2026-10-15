@@ -56,6 +56,22 @@ describe.skipIf(!ffmpegThere)("a take measured once", { timeout: FFMPEG_TIMEOUT 
     }
   });
 
+  it("fills a short take's strip to its last place, its sound running past its picture or not", async () => {
+    // LTX 2.5's sound runs 15 ms past its picture: the strip spread over the longer length, as the asset's says it
+    const longer = join(dir, "longer.mp4");
+    writeFileSync(longer, await ffmpegMade(["-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=3", "-f", "lavfi", "-i", "sine=frequency=330:duration=3.015", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac"]));
+    for (const [f, ms] of [[file, 3000], [silent, 2000], [longer, 3015]] as const) {
+      for (const strip of [await filmStrip(f, "mp4", ms), (await takeMeasures(f, "mp4", { durationMs: ms, hasSound: f !== silent }))!.strip]) {
+        const { data, info } = await sharp(Buffer.from(strip)).greyscale().raw().toBuffer({ resolveWithObject: true });
+        const w = info.width / 12;
+        let sum = 0;
+        for (let y = 0; y < info.height; y++) for (let x = 11 * w; x < 12 * w; x++) sum += data[y * info.width + x]!;
+        // a frame of the test picture, not the black tile leaves where no frame came
+        expect(sum / (w * info.height)).toBeGreaterThan(20);
+      }
+    }
+  });
+
   it("measures a continuation's look from its own part, as a seek there does", async () => {
     for (const from of [1000, 1042, 1500]) {
       const all = await takeMeasures(file, "mp4", { fromMs: from, durationMs: 3000, hasSound: true });

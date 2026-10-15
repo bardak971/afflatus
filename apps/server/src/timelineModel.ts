@@ -13,15 +13,25 @@ import type { Storage } from "./storage";
 const TRIM_STRIP_FRAMES = (durationMs: number) => Math.min(120, Math.max(16, Math.round(durationMs / 1000)));
 
 /**
+ * Where a video's film strip is kept (the track's, or one at a size: `30x48`). `-2` since the strips' last place stopped
+ * coming out black (cut.ts, heldLast, 2026-10-15): the strips kept before are made again, and their names still swept.
+ */
+export const stripKey = (id: string, size?: string) => `strips/${id.slice(0, 2)}/${id}${size ? `-${size}` : ""}-2.jpg`;
+
+/**
  * The keys of what the timeline works out of a video and keeps beside it: its film strip (the track's,
  * and the trim bar's when its length is known), its motion and loudness, its scene cuts, its colour along it, the join
  * scores of its takes. They go when the video goes, or when the file behind it changes (a linked folder's file written again).
  */
 export function derivedKeys(asset: { id: string; duration_ms: number | null }): string[] {
   const dir = asset.id.slice(0, 2);
+  const trim = asset.duration_ms ? `${TRIM_STRIP_FRAMES(asset.duration_ms)}x48` : null;
   return [
+    stripKey(asset.id),
+    ...(trim ? [stripKey(asset.id, trim)] : []),
+    // the names before stripKey's `-2`
     `strips/${dir}/${asset.id}.jpg`,
-    ...(asset.duration_ms ? [`strips/${dir}/${asset.id}-${TRIM_STRIP_FRAMES(asset.duration_ms)}x48.jpg`] : []),
+    ...(trim ? [`strips/${dir}/${asset.id}-${trim}.jpg`] : []),
     `motion/${dir}/${asset.id}.json`,
     `scenes/${dir}/${asset.id}.json`,
     `means/${dir}/${asset.id}.json`,
