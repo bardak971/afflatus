@@ -118,7 +118,7 @@ export function AddMachineCard() {
   return (
     <Card title="Add a ComfyUI" help={WHY_SEVERAL}>
       <Row setting="comfy.machines" label="ComfyUI URL" htmlFor="comfy-add" help="Another GPU of this computer (its own ComfyUI on another port), another computer on your network, or a rented instance. Added, it takes work from the queue at once; pause it from its card or the status bar.">
-        <input id="comfy-add" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="http://127.0.0.1:8189  —  another GPU, another computer, a rented instance" spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
+        <input id="comfy-add" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="http://127.0.0.1:8189" spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
         <Button onClick={add} disabled={!url.trim() || save.isPending}>Add</Button>
       </Row>
       <RentRow />

@@ -23,11 +23,21 @@ function Cover({ d, size }: { d: DraftBrief; size: number }) {
 }
 
 /**
+ * The open draft as the menu shows it: the list's row (which alone knows its cover and what was made from it), with
+ * the model and the name the open draft has now. The row is refreshed only once an edit is saved, so a draft switched
+ * to another model read its old model on the button's tip until then.
+ */
+export function openRow(current: DraftBrief, drafts: DraftBrief[]): DraftBrief {
+  const row = drafts.find((d) => d.id === current.id);
+  return row ? { ...row, recipe: current.recipe, name: current.name } : current;
+}
+
+/**
  * The drafts, as the command bar's rows: the cover, the name, the models it was tried on on a dim line (its form's
  * first), and on the right how many outputs it has (by model when it was tried on several) and when it was last changed. Opens from the head of the Create panel; typing narrows
  * the list, the arrow keys move in it, Enter opens. A draft with no prompt is named after its model.
  */
-export function DraftMenu({ drafts, open: current, titleOf, onPick, onNew, onClearUnused, menuOf }: {
+export function DraftMenu({ drafts: rows, open: current, titleOf, onPick, onNew, onClearUnused, menuOf }: {
   drafts: DraftBrief[];
   open: DraftBrief | null;
   /** What a draft is called: its name, else the start of its prompt, else "" (named after its model here). */
@@ -39,6 +49,12 @@ export function DraftMenu({ drafts, open: current, titleOf, onPick, onNew, onCle
   menuOf(d: DraftBrief): MenuItem[];
 }) {
   const rowMenu = useMenu<DraftBrief>();
+  // the open draft's row says the model it is on now, in the list as on the button
+  const drafts = useMemo(
+    () => (current ? rows.map((d) => (d.id === current.id ? openRow(current, rows) : d)) : rows),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only what openRow takes of the open draft
+    [rows, current?.id, current?.recipe, current?.name],
+  );
   const recipes = useRecipes();
   const [shown, setShown] = useState(false);
   const [query, setQuery] = useState("");
@@ -128,6 +144,7 @@ export function DraftMenu({ drafts, open: current, titleOf, onPick, onNew, onCle
     }
   };
 
+  const shownRow = current ? openRow(current, rows) : null;
   const Kind = current?.coverKind === "video" ? Film : current?.coverKind === "audio" ? Music : ImageIcon;
   return (
     <>
@@ -137,13 +154,13 @@ export function DraftMenu({ drafts, open: current, titleOf, onPick, onNew, onCle
         aria-haspopup="dialog"
         aria-expanded={shown}
         aria-label={`Drafts: ${current ? nameOf(current) : "no draft yet"}`}
-        data-tip={current ? modelLine(drafts.find((d) => d.id === current.id) ?? current) : undefined}
+        data-tip={shownRow ? modelLine(shownRow) : undefined}
         onClick={() => (shown ? close() : (setShown(true), setAt(Math.max(0, drafts.findIndex((d) => d.id === current?.id)))))}
         className={cx("flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg border bg-raised pr-2.5 pl-1.5 text-left font-semibold", shown ? "border-accent" : "border-line-strong hover:border-accent")}
       >
-        {current ? <Cover d={drafts.find((d) => d.id === current.id) ?? current} size={24} /> : <Kind size={14} className="text-ink-3" />}
+        {shownRow ? <Cover d={shownRow} size={24} /> : <Kind size={14} className="text-ink-3" />}
         <span className={cx("min-w-0 grow truncate", current && !titleOf(current) && "text-ink-2")}>{current ? nameOf(current) : "No draft yet"}</span>
-        {(drafts.find((d) => d.id === current?.id)?.outputs ?? 0) > 0 && <span className="shrink-0 font-mono text-[11px] font-normal text-ink-3">{drafts.find((d) => d.id === current?.id)!.outputs}</span>}
+        {(shownRow?.outputs ?? 0) > 0 && <span className="shrink-0 font-mono text-[11px] font-normal text-ink-3">{shownRow!.outputs}</span>}
         <ChevronDown size={14} className="shrink-0 text-ink-2" />
       </button>
       {shown && (

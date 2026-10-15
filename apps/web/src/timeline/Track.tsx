@@ -289,10 +289,13 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
       </div>
       <div className="flex h-8 items-center gap-2 border-t border-line pr-2 pl-3 text-xs">
         {legend ? (
-          // the keys and their words; the line said in full for a screen reader
-          <span className="flex min-w-0 grow items-center gap-3.5 overflow-hidden text-[11.5px] whitespace-nowrap text-ink-3">
+          // the keys and their words; the line said in full for a screen reader. A narrow footer drops the last ones
+          // whole (they wrap onto a second line that is out of sight) rather than cutting one mid-word; the empty
+          // first item lets even the first of them go when there is no room for it.
+          <span className="flex h-5 min-w-0 grow flex-wrap items-center gap-x-3.5 overflow-hidden text-[11.5px] whitespace-nowrap text-ink-3">
             <span className="sr-only">{hint}</span>
-            {LEGEND.map((l) => <span key={l.words} aria-hidden className="flex shrink-0 items-center gap-1.5"><Keys keys={l.keys} size="sm" />{l.words}</span>)}
+            <span aria-hidden className="-mr-3.5 h-5" />
+            {LEGEND.map((l) => <span key={l.words} aria-hidden className="flex h-5 shrink-0 items-center gap-1.5"><Keys keys={l.keys} size="sm" />{l.words}</span>)}
           </span>
         ) : (
           <span className={cx("min-w-0 grow truncate", dragging ? "font-semibold text-accent" : "text-ink-3")}>{hint}</span>
@@ -316,9 +319,9 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
             ))}
           </span>
         )}
-        <button type="button" aria-label="Zoom out" data-tip="Zoom out" data-tip-keys="-" onClick={() => zoomTo(Math.max(ZOOM.least, pps / ZOOM.step))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Minus size={13} /></button>
-        <button type="button" aria-label="Zoom in" data-tip="Zoom in" data-tip-keys="=" onClick={() => zoomTo(Math.min(ZOOM.most, pps * ZOOM.step))} className="flex h-6 w-6 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Plus size={13} /></button>
-        <button type="button" data-tip="The whole video in view" data-tip-keys="Shift+Z" onClick={fitAll} className="h-6 rounded-md border border-line-strong px-2 font-semibold text-ink-2 hover:bg-hover hover:text-ink">Fit all</button>
+        <button type="button" aria-label="Zoom out" data-tip="Zoom out" data-tip-keys="-" onClick={() => zoomTo(Math.max(ZOOM.least, pps / ZOOM.step))} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Minus size={13} /></button>
+        <button type="button" aria-label="Zoom in" data-tip="Zoom in" data-tip-keys="=" onClick={() => zoomTo(Math.min(ZOOM.most, pps * ZOOM.step))} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"><Plus size={13} /></button>
+        <button type="button" data-tip="The whole video in view" data-tip-keys="Shift+Z" onClick={fitAll} className="h-6 shrink-0 rounded-md border border-line-strong px-2 font-semibold whitespace-nowrap text-ink-2 hover:bg-hover hover:text-ink">Fit all</button>
       </div>
     </div>
   );
