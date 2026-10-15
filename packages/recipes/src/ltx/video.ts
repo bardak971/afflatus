@@ -226,7 +226,7 @@ function guided(run: LtxRun, on: Ref, wide: number, high: number, opening?: stri
  * enlarged ×2 in latent space and refined in a few steps, the sound of the first pass kept.
  */
 function ltxTwoPass(run: LtxRun): { video: Ref; audio: Ref } {
-  const { g, ctx, input, loaded, cond, sampler, sound, frame, passes } = run;
+  const { g, ctx, input, loaded, sampler, sound, frame, passes } = run;
   const { vae } = loaded;
   const { width, height, frames } = frame;
   const w = width / 2;
