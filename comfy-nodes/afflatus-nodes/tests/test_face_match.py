@@ -137,8 +137,8 @@ def test_the_original_kept_and_the_person_pasted_in_beside_is_said(faces_of):
     faces_of[0.1] = [(OTHER, [30, 10, 60, 40])]
     faces_of[0.3] = [(OTHER, [31, 11, 61, 41]), (ME, [0, 0, 20, 20]), (ME, [70, 0, 90, 20])]
     out = at(picture(0.3), picture(0.1))
-    # the best match anywhere would read 1.0: at the place, it is the original
-    assert out["face"] < 0.1 and out["copies"] == 2
+    # no one like the photos where someone stood: both are copies, whatever the figure
+    assert not out["placed"] and out["copies"] == 2
 
 
 def test_a_picture_larger_than_its_frame_is_matched_at_the_same_place(faces_of):
@@ -147,3 +147,18 @@ def test_a_picture_larger_than_its_frame_is_matched_at_the_same_place(faces_of):
     big = Batch(np.full((1, 144, 192, 3), 0.3, dtype=np.float32))
     out = at(big, picture(0.1))
     assert out["face"] == 1.0 and out["copies"] == 0
+
+
+def test_a_stranger_larger_in_the_foreground_is_not_taken_for_the_person_replaced(faces_of):
+    # the meme at 8.5 s: a man's large face in the foreground, the one replaced further back
+    faces_of[0.1] = [(OTHER, [0, 30, 50, 80]), (OTHER, [55, 5, 75, 25])]
+    faces_of[0.3] = [(OTHER, [0, 30, 50, 80]), (ME, [56, 6, 76, 26])]
+    out = at(picture(0.3), picture(0.1))
+    assert out["placed"] and out["face"] == 1.0 and out["copies"] == 0
+
+
+def test_the_man_behind_made_them_too_is_a_copy(faces_of):
+    faces_of[0.1] = [(OTHER, [30, 10, 60, 40]), (OTHER, [70, 5, 85, 20])]
+    faces_of[0.3] = [(ME, [30, 10, 60, 40]), (ME, [70, 5, 85, 20])]
+    out = at(picture(0.3), picture(0.1))
+    assert out["placed"] and out["copies"] == 1

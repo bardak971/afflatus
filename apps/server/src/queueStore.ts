@@ -96,10 +96,12 @@ export async function store(
     const rows: AssetRow[] = [];
     // the last video's measure is the generation's, as it always was
     let measure: { asset: string; work: () => Promise<Measure | null> } | null = null;
+    // made from a box's working picture (Make the picture's frame): a working picture too, out of the library until picked
+    const scratch = await fromScratch(db, recipe, input);
     for (const { file, kind } of files) {
       const one = await fileOne(core, comfy, recipe, input, resume, { file, kind }, sides, written);
       if (one.measure) measure = { asset: one.row.id, work: one.measure };
-      rows.push(newAssetRow({ ...one.row, folder_id: folder, generation_id: generationId, created_at: at }));
+      rows.push(newAssetRow({ ...one.row, ...(scratch ? { origin: "scratch" as const } : {}), folder_id: folder, generation_id: generationId, created_at: at }));
     }
     // what a draft made is named after it, numbered on; a timeline clip's take is named once it is placed (autoName.ts)
     const prompts = recipe.inputs.filter((s) => s.type === "prompt" && !s.optional).map((s) => s.id);
@@ -129,6 +131,14 @@ export async function store(
     if (!measuring) filed?.();
   }
   return { id: generationId, measuring };
+}
+
+/** Whether the picture a recipe works on (its source) is a box's working picture, which what it makes then is too. */
+async function fromScratch(db: Db, recipe: Recipe<any>, input: Record<string, unknown>): Promise<boolean> {
+  const spec = recipe.inputs.find((s) => s.type === "image" && s.role === "source");
+  const id = spec ? input[spec.id] : undefined;
+  if (typeof id !== "string") return false;
+  return (await db.selectFrom("assets").select("origin").where("id", "=", id).executeTakeFirst())?.origin === "scratch";
 }
 
 /** The measures still being made, by the asset they are of: a job that joins onto that asset waits for its own (measuredFirst). */

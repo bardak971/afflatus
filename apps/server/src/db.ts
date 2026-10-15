@@ -30,7 +30,7 @@ export interface Tables {
     kind: "image" | "video" | "audio";
     /** "mask": the part of a picture that was painted over to redo it. Not shown in the library. */
     /** "kit": a picture or a voice sample uploaded for a person or a place of the Prompt kit, kept there and not shown in the library (like "mask"). */
-    origin: "generated" | "uploaded" | "imported" | "frame" | "exported" | "mask" | "cut" | "kit" | "edited";
+    origin: "generated" | "uploaded" | "imported" | "frame" | "exported" | "mask" | "cut" | "kit" | "edited" | "scratch";
     name: string;
     file_key: string;
     thumb_key: string | null;

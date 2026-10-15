@@ -2,6 +2,7 @@ import type { Kysely } from "kysely";
 import { UNKEPT_MS } from "@afflatus/core";
 import { now, type Db, type Tables } from "./db";
 import type { Storage } from "./storage";
+import { SCRATCH_MS } from "./library";
 import { smallThumbKey } from "./thumbs";
 import { derivedKeys } from "./timelineModel";
 
@@ -101,7 +102,7 @@ export async function eraseUnused(db: Db, storage: Storage, due: (tx: Db) => Pro
     // in slices: SQLite takes a limited number of values in one statement
     for (let i = 0; i < ids.length; i += 500) {
       out.push(...await tx.deleteFrom("assets").where("id", "in", ids.slice(i, i + 500))
-        .where((eb) => eb.or([eb("deleted_at", "is not", null), eb("origin", "=", "mask")]))
+        .where((eb) => eb.or([eb("deleted_at", "is not", null), eb("origin", "in", ["mask", "scratch"])]))
         .returning(ERASED).execute());
     }
     return { picked: all.length, erased: out };
@@ -142,6 +143,7 @@ export async function sweep(db: Db, storage: Storage, at = Date.now(), keep: Kee
   });
 
   const maskBefore = new Date(at - BIN_MS).toISOString();
+  const scratchBefore = new Date(at - SCRATCH_MS).toISOString();
   const { erased } = await eraseUnused(db, storage, async (tx) => [
     ...(keep.binMs === null ? [] : await tx.selectFrom("assets").select(ERASED).where("deleted_at", "<", new Date(at - keep.binMs).toISOString()).execute()),
     // a painted part that nothing was made with is of no use to anyone after a week, whatever the bin keeps
@@ -152,6 +154,9 @@ export async function sweep(db: Db, storage: Storage, at = Date.now(), keep: Kee
       .where("created_at", "<", maskBefore)
       .where("id", "not in", tx.selectFrom("generation_inputs").select("asset_id"))
       .execute(),
+    // a box's working picture (a frame read, a picture not picked) a day on: what is in use (a picked one put in a form,
+    // a job still to run on it) stays, as everywhere
+    ...await tx.selectFrom("assets").select(ERASED).where("origin", "=", "scratch").where("kept_at", "is", null).where("created_at", "<", scratchBefore).execute(),
   ]);
   await sweepOrphans(db, storage, at).catch((err) => console.warn("[sweep] files with no item:", (err as Error).message));
   return { binned, erased: erased.length };
