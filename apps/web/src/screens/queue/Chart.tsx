@@ -21,7 +21,7 @@ export function useChartColors(): string[] {
   }, [choice]);
 }
 
-export function TimeChart({ title, note, times, series, format, axisFormat, stacked, stat = "mean", height = 190, timeLabel, top, bottom = 0, fill, bars, children, step, onBrush, detail, isolate }: {
+export function TimeChart({ title, note, times, series, format, axisFormat, stacked, stat = "mean", height = 190, timeLabel, top, bottom = 0, fill, bars, children, step, onBrush, detail, isolate, rule }: {
   title: string;
   note?: string;
   /** The start of each stretch of time, ms since the epoch. */
@@ -53,6 +53,8 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
   detail?(index: number): ReactNode;
   /** The series looked at alone from outside (a model picked in the list); a click on the legend still picks another. */
   isolate?: string | null;
+  /** A dashed line across at a value, with its words (a day's spending cap): the scale reaches it. */
+  rule?: { value: number; label: string } | null;
 }) {
   const id = useId().replace(/:/g, "");
   const box = useRef<HTMLDivElement>(null);
@@ -76,7 +78,7 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
     return () => watch.disconnect();
   }, []);
 
-  const { coloured, shown, stacks, max, x, at, band, y, W, H, n } = useChartScale({ series, times, width, height, palette, solo, stacked, top, bottom, bars });
+  const { coloured, shown, stacks, max, x, at, band, y, W, H, n } = useChartScale({ series, times, width, height, palette, solo, stacked, top, bottom, bars, least: rule?.value });
   const { L, T } = PLOT;
   const filled = fill ?? (stacked || series.length <= 3);
   const onAxis = axisFormat ?? format;
@@ -166,6 +168,12 @@ export function TimeChart({ title, note, times, series, format, axisFormat, stac
               </g>
             );
           })}
+          {rule && (
+            <g pointerEvents="none">
+              <line x1={L} x2={L + W} y1={y(rule.value)} y2={y(rule.value)} className="stroke-ink-3" strokeWidth="1" strokeDasharray="5 4" />
+              <text x={L + W - 4} y={y(rule.value) - 4} textAnchor="end" className="fill-ink-2 text-[10.5px]">{rule.label}</text>
+            </g>
+          )}
           {drag && Math.abs(drag.x1 - drag.x0) >= 2 && (
             <rect pointerEvents="none" x={Math.min(drag.x0, drag.x1)} y={T} width={Math.abs(drag.x1 - drag.x0)} height={H} className="fill-accent/15 stroke-accent" strokeWidth="1" />
           )}

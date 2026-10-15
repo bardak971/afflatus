@@ -4,7 +4,7 @@ import type { Comfy } from "./comfy";
 import type { Db } from "./db";
 import type { Downloads } from "./downloads";
 import { stat } from "node:fs/promises";
-import { MEASURED_FROM, measuredRange, recordMeasure, type MeasureKind, type Range } from "./podMeasures";
+import { MEASURED_FROM, measuredRange, recordFetch, recordMeasure, type MeasureKind, type Range } from "./podMeasures";
 import { localCopy, measureKind, podSource, presetsOf, type PodSource, type SourceLookup } from "./podSources";
 import { PACKS_MS, PodPacks, type PodPackView } from "./podPacks";
 import { PACK_UPLOADS, uploadFile } from "./podUpload";
@@ -570,10 +570,13 @@ export class PodFiles {
     this.d.changed?.();
     this.d.settled?.(machine);
     if (measured && e.flowingAt && e.via) {
-      const ms = (e.wholeAt ?? Date.now()) - e.flowingAt;
+      const to = e.wholeAt ?? Date.now();
+      const ms = to - e.flowingAt;
       await this.d.cloudOf(machine)
         .then((cloud) => recordMeasure(this.d.db, { kind: e.via!, cloud, bytes: e.total || e.bytes, ms }, this.measuredFrom))
         .catch((err: Error) => console.warn(`[pod files] a speed not kept: ${err.message}`));
+      await recordFetch(this.d.db, { machine, file: e.file, folder: e.folder, via: e.via, bytes: e.total || e.bytes, from: e.flowingAt, to })
+        .catch((err: Error) => console.warn(`[pod files] a fetch not kept: ${err.message}`));
     }
     void this.tick();
   }

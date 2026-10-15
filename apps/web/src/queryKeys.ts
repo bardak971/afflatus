@@ -127,6 +127,11 @@ export const queryKeys = {
     lanes: (window: string, machine?: string | null) => (machine ? (["renders", "lanes", window, machine] as const) : (["renders", "lanes", window] as const)),
     size: () => ["renders", "size"] as const,
   },
+  /** The Costs tab: by its window's preset (or its own window's ends). */
+  costs: {
+    all: () => ["costs"] as const,
+    of: (window: string) => ["costs", window] as const,
+  },
   modelUpdates: () => ["model-updates"] as const,
   modelSettings: () => ["model-settings"] as const,
   modelInfo: {

@@ -231,6 +231,8 @@ export interface Settings {
   hasRunpodKey: boolean;
   /** What the rented GPUs may cost, in USD, today and this month; 0: no cap. */
   rentCaps: { day: number; month: number };
+  /** This PC's electricity, for the Costs tab: a kWh's price in the user's money (null: not said) and its symbol. */
+  costs: { kwhPrice: number | null; currency: string };
   /** The last deploy's choices: the Deploy dialog opens with them, "Deploy again" repeats them. */
   lastDeploy: DeployAsk | null;
   /** A network volume no pod ran on for this many days is flagged; 0: never. */

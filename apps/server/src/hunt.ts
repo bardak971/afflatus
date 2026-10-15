@@ -225,6 +225,11 @@ export class Hunt {
     return offers;
   }
 
+  /** RunPod's GPUs and prices on the secure cloud, as the hunt last read them (read again past FRESH_MS): the Costs tab's guesses. */
+  async offersNow(): Promise<GpuOffer[]> {
+    return this.offers("SECURE");
+  }
+
   /** A volume's data center (the dialog's live ranking), from a read of the account's volumes this recent. */
   private async dataCenterOf(volume: string): Promise<string | null> {
     if (!volume) return null;

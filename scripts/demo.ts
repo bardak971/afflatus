@@ -19,6 +19,7 @@ import { createServices } from "../apps/server/src/services";
 import { AfflatusUpdates } from "../apps/server/src/updates";
 import { seedRenderTimes } from "./demo-times";
 import { seedHistory } from "./demo-history";
+import { seedCosts } from "./demo-costs";
 import { writeSettings } from "../apps/server/src/settings";
 import { LocalStorage } from "../apps/server/src/storage";
 import { mkdirSync } from "node:fs";
@@ -108,6 +109,8 @@ const others = await Promise.all(Array.from({ length: Math.min(7, Math.max(0, (N
 // the pretend ComfyUIs run this repository's node pack, as one Afflatus wrote it into does: its lock among what can be tried
 const PACK = /^version\s*=\s*"([^"]+)"/m.exec(readFileSync(join(root, "comfy-nodes", "afflatus-nodes", "pyproject.toml"), "utf-8"))?.[1] ?? null;
 for (const f of [fake, ...others]) f.packVersion = PACK;
+// and its GPU's power, as the pack reads it on an NVIDIA card: a demo render's electricity in Queue › Costs
+for (const f of [fake, ...others]) f.watts = 265;
 // DEMO_RUNPOD=1: a pretend RunPod with three pods (two with a pretend ComfyUI and the node pack, one without ComfyUI's
 // port), for adding a rented machine or deploying a GPU in Settings › Rented GPUs with the key said at start. A started or
 // deployed pod takes 8 s to come up
@@ -242,6 +245,8 @@ if (others.length) {
 // a few months of pretend render times, so that the "Render times" tab has something to show
 await seedRenderTimes(db);
 await seedHistory(db);
+// a week of pretend pod sessions for Queue › Costs, with the pretend RunPod
+if (pretendRunpod) await seedCosts(db);
 // the data folder named, as a real start does: the password's reset codes and sign-ins go to its logs/afflatus.log
 const services = await createServices(db, "sqlite", new LocalStorage(join(dataDir, "files")), undefined, { dataDir });
 // WEB_DIR: another build of the web app than the one `pnpm start` serves

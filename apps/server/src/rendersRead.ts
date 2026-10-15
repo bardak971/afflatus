@@ -44,7 +44,7 @@ function stepFor(spanMs: number): number {
 const TOOL_NAMES: Record<string, string> = {
   "tool.finish.seedvr": "Finish · SeedVR2", "tool.finish.rtx": "Finish · RTX", "tool.finish.model": "Finish · upscale model", "tool.slow": "Slow motion · RIFE",
 };
-const nameOf = (registry: Registry, recipeId: string) => {
+export const nameOf = (registry: Registry, recipeId: string) => {
   if (TOOL_NAMES[recipeId]) return TOOL_NAMES[recipeId]!;
   const recipe = registry.recipe(recipeId);
   if (!recipe) return recipeId;
@@ -250,7 +250,7 @@ async function notRendered(db: Db, from: number, to: number, keepDays: number, w
  * A named period cut finer than days ends at the end of the stretch now is in: ending at the millisecond, its stretches
  * moved on every call, and the page's copy of "day" and "week" was never current (no 304) however little had changed.
  */
-function windowOf(period: Period | Window, since: string | null, when: number): { start: number; end: number; step: number; times: number[] } {
+export function windowOf(period: Period | Window, since: string | null, when: number): { start: number; end: number; step: number; times: number[] } {
   const length = period === "day" ? DAY : period === "week" ? 7 * DAY : period === "month" ? 30 * DAY : 0;
   const win: Window = typeof period !== "string" ? { from: Math.min(period.from, period.to - 60_000), to: Math.min(period.to, when + 60_000) }
     : length ? { from: when - length, to: when }

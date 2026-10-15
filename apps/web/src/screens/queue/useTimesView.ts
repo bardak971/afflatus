@@ -4,6 +4,7 @@ import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-qu
 import { api } from "../../api";
 import { useRenderTimes } from "../../data";
 import { queryKeys } from "../../queryKeys";
+import { UI_LOCALE } from "../../format";
 
 export const HOUR = 3_600_000;
 export const DAY = 86_400_000;
@@ -18,6 +19,20 @@ export const PRESETS: Array<{ label: string; ms: number | null }> = [
  */
 export type View = { preset: string } | { preset: "custom"; from: number; to: number };
 export const presetOf = (label: string) => PRESETS.find((x) => x.label === label) ?? PRESETS[6]!;
+
+/**
+ * How a moment is said on a chart of a window cut into stretches of `step`: the hour within a day or two, the weekday too
+ * past a day and a half, the day for stretches of a day; `full` for the crosshair's head. Render times and Costs share it.
+ */
+export function chartTimeLabel(spanMs: number, step: number) {
+  return (time: number, full?: boolean) =>
+    new Date(time).toLocaleString(UI_LOCALE, full
+      ? step < DAY ? { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" } : { weekday: "short", day: "numeric", month: "short", year: "numeric" }
+      : step < DAY ? (spanMs > 36 * HOUR ? { weekday: "short", hour: "2-digit", minute: "2-digit" } : { hour: "2-digit", minute: "2-digit" }) : { day: "numeric", month: "short" });
+}
+
+/** What a stretch of a chart is called: "5 min", "hour", "6 h", "day". */
+export const stretchOf = (step: number) => (step < HOUR ? `${Math.round(step / 60_000)} min` : step === HOUR ? "hour" : step < DAY ? `${Math.round(step / HOUR)} h` : "day");
 
 /** A moment as a datetime-local input writes it (local time, to the minute). */
 export const toLocalInput = (ms: number) => {

@@ -83,7 +83,9 @@ export async function seedRenderTimes(db: Db, count = 900, now = Date.now()): Pr
       steps: k.steps, status, whole: 1, cold: cold ? 1 : 0, waited_ms: Math.round(rnd() < 0.55 ? 0 : rnd() * rnd() * 420_000),
       total_ms: totalMs, load_ms: load, sample_ms: sample, refine_ms: refine, finish_ms: finish, step_ms: stepMs,
       expected_ms: n < count - 40 ? Math.round(warm * (0.93 + rnd() * 0.14) + (cold ? k.loadMs : 0)) : null,
-      vram_peak: Math.min(99, k.vram * (0.95 + rnd() * 0.08)), heat_peak: Math.round(58 + k.vram * 0.16 + rnd() * 6), asset_id: null, machine_id: "m1", gpu: null, node_ms: null, work: status === "done" ? Math.round(width * height * (seconds ? seconds * 24 : 1)) : null, created_at: new Date(t).toISOString(),
+      vram_peak: Math.min(99, k.vram * (0.95 + rnd() * 0.08)), heat_peak: Math.round(58 + k.vram * 0.16 + rnd() * 6), asset_id: null, machine_id: "m1", gpu: null, node_ms: null,
+      // the GPU's power as the node pack would have read it: about its memory's share of a 320 W card, for the Costs tab's "This PC"
+      energy_wh: Math.round(totalMs * (120 + k.vram * 2) / 3_600_000 * 1000) / 1000, power_avg_w: 120 + k.vram * 2, work: status === "done" ? Math.round(width * height * (seconds ? seconds * 24 : 1)) : null, created_at: new Date(t).toISOString(),
     });
     last = k;
     t -= totalMs + rnd() * 240_000;

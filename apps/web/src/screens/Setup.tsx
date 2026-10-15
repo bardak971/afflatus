@@ -11,6 +11,7 @@ import { cx, Segmented } from "../ui";
 import { AboutCard } from "./settings/AboutCard";
 import { CivitaiCard } from "./settings/CivitaiCard";
 import { ComfyCard } from "./settings/ComfyCard";
+import { ElectricityCard } from "./settings/ElectricityCard";
 import { DesignerCard } from "./settings/DesignerCard";
 import { LinkCard } from "./settings/LinkCard";
 import { ModelsByMachine } from "./settings/ModelsMachines";
@@ -174,6 +175,7 @@ export function Setup() {
       <div ref={scroller} className="min-h-0 grow overflow-y-auto pb-4">
         <div className="flex max-w-[860px] flex-col gap-4 min-[1600px]:max-w-[1736px]">
           {tab === "comfyui" && <ComfyCard />}
+          {tab === "comfyui" && <ElectricityCard />}
           {tab === "rented" && <RentedTab />}
           {tab === "models" && (
             <div className={COLUMNS}>

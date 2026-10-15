@@ -43,6 +43,8 @@ export interface HistoryEntry {
 }
 
 const META_TIMEOUT = 15_000;
+/** The GPU's power is read every few seconds: an answer later than this is skipped, not waited for. */
+const POWER_TIMEOUT = 2_000;
 /** How many prompts sent lately keep their node classes (ComfyClient.classesOf): the ones running and waiting, and more. */
 const SENT_KEPT = 32;
 
@@ -371,6 +373,22 @@ export class ComfyClient {
     if (!res?.ok) return null;
     const version = ((await res.json().catch(() => ({}))) as { version?: unknown }).version;
     return typeof version === "string" ? version : null;
+  }
+
+  /**
+   * The GPU's power draw as the Afflatus node pack reads it (0.18.0 on, GET /afflatus/power): watts, or null when it cannot
+   * read it (no NVIDIA GPU, no NVML nor nvidia-smi). "absent" when the route is not there (no pack, or an older one); null
+   * too when ComfyUI did not answer. A short time limit: it is read beside the other figures every few seconds.
+   */
+  async gpuPower(): Promise<number | null | "absent"> {
+    const res = await this.fetcher(`${this.baseUrl}/afflatus/power`, { signal: AbortSignal.timeout(POWER_TIMEOUT) }).catch(() => null);
+    if (res?.status === 404 || res?.status === 405) {
+      await res.body?.cancel().catch(() => {});
+      return "absent";
+    }
+    if (!res?.ok) return null;
+    const watts = ((await res.json().catch(() => ({}))) as { watts?: unknown }).watts;
+    return typeof watts === "number" && Number.isFinite(watts) && watts >= 0 ? watts : null;
   }
 
   /**

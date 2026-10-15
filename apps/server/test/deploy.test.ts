@@ -524,6 +524,11 @@ describe("what the rented GPUs cost: RunPod's bill as the truth", () => {
     await t.services.rented.poll();
     const run = (await t.db.selectFrom("rent_sessions").selectAll().execute())[0]!;
     expect(Date.parse(run.started_at) - before).toBeLessThan(300);
+    // its GPU and its idle kept with it, and its ComfyUI's first answer: where its boot ended (the Costs tab)
+    expect(run).toMatchObject({ gpu: runpod.pods[0]!.gpu, idle_minutes: 10 });
+    await until(async () => Boolean((await t.db.selectFrom("rent_sessions").select("up_at").executeTakeFirstOrThrow()).up_at) || (await t.services.rented.poll(), false));
+    const up = (await t.db.selectFrom("rent_sessions").select(["up_at", "started_at"]).executeTakeFirstOrThrow());
+    expect(Date.parse(up.up_at!)).toBeGreaterThanOrEqual(Date.parse(up.started_at));
   });
 
   it("says how long the balance lasts at what the account spends now, and holds back a job longer than that", async () => {

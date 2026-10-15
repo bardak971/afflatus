@@ -818,6 +818,11 @@ export class Rented {
     }, 0);
   }
 
+  /** When RunPod's bill was last read (ms), and whether it answered: the Costs tab says how old its totals are. */
+  get billRead(): { at: number; ok: boolean } | null {
+    return this.billSeen ? { at: this.billSeen.at, ok: this.billSeen.records !== null } : null;
+  }
+
   /** RunPod's bill since `from` (ms), read again every few minutes; null when RunPod does not give it. */
   private async bill(key: string, from: number): Promise<BillRecord[] | null> {
     if (this.billSeen && this.billSeen.from === from && (this.now() - this.billSeen.at < BILL_EVERY_MS || this.now() < this.quietUntil)) return this.billSeen.records;
@@ -979,6 +984,7 @@ export class Rented {
       await this.act(m, "terminate", "gpu");
       return true;
     }
+    if (answers && !s.answered) await this.noteUp(m);
     if (answers) s.answered = true;
     // its first answer since it was deployed: later starts count from when it runs. How long it took is kept (the Deploy
     // dialog's "up in"), and what its deploy asked for is handed to it now. A fill keeps its files until it ends: podFiles
@@ -1087,6 +1093,16 @@ export class Rented {
     return said?.locked === false;
   }
 
+  /**
+   * Its ComfyUI's first answer of the open session, kept on it: where its boot ended (costs.ts). Not for a session older than
+   * the longest boot: Afflatus started again while it ran, and its first answer here is not its boot's end.
+   */
+  private async noteUp(m: Machine): Promise<void> {
+    const iso = new Date(this.now()).toISOString();
+    const since = new Date(this.now() - DEPLOYED_BOOT_LIMIT_MS).toISOString();
+    await this.db.updateTable("rent_sessions").set({ up_at: iso }).where("machine_id", "=", m.id).where("ended_at", "is", null).where("up_at", "is", null).where("started_at", ">=", since).execute().catch(() => {});
+  }
+
   /** The running session kept as a row: opened when it is seen running, kept seen while it runs, closed when it is not. */
   private async session(m: Machine, pod: Pod | null, s: Seen): Promise<void> {
     const open = await this.db.selectFrom("rent_sessions").selectAll().where("machine_id", "=", m.id).where("ended_at", "is", null).executeTakeFirst();
@@ -1105,7 +1121,8 @@ export class Rented {
       const deployedAt = m.rented!.deployedAt ? Date.parse(m.rented!.deployedAt) : Number.NaN;
       const started = pod.startedAt ? Date.parse(pod.startedAt) : now;
       const from = Math.max(!last && Number.isFinite(deployedAt) ? Math.min(started, deployedAt) : started, last?.ended_at ? Date.parse(last.ended_at) : 0);
-      await this.db.insertInto("rent_sessions").values({ id: randomUUID(), machine_id: m.id, pod: pod.id, rate: pod.cost || s.rate || 0, started_at: new Date(Math.min(from, now)).toISOString(), ended_at: null, seen_at: iso }).execute();
+      // its GPU and its idle minutes kept with it: the Costs tab says the one and weighs a shorter idle against the other
+      await this.db.insertInto("rent_sessions").values({ id: randomUUID(), machine_id: m.id, pod: pod.id, rate: pod.cost || s.rate || 0, started_at: new Date(Math.min(from, now)).toISOString(), ended_at: null, seen_at: iso, gpu: pod.gpu, up_at: null, idle_minutes: m.rented!.idleMinutes }).execute();
     } else if (open) {
       // closed now when it was seen running a moment ago. One that ended while Afflatus was away (off, asleep) is closed at
       // the latest it could have run: its watchdog stops it that long after the last "still here" (RunPod's bill, once

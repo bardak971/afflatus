@@ -20,6 +20,15 @@ export async function recordMeasure(db: Db, m: { kind: MeasureKind; cloud: strin
   await db.insertInto("pod_measures").values({ id: randomUUID(), kind: m.kind, cloud: m.cloud, bytes: Math.round(m.bytes), ms: Math.round(m.ms), at: new Date().toISOString() }).execute();
 }
 
+/**
+ * A model file a pod got, kept whatever its size (pod_fetches): when its bytes came is the Costs tab's "Fetching files" of
+ * that pod's session, and its name tells the same file fetched on several deploys (what a network volume would have kept).
+ */
+export async function recordFetch(db: Db, f: { machine: string; file: string; folder: string; via: string; bytes: number; from: number; to: number }): Promise<void> {
+  if (!(f.to > f.from)) return;
+  await db.insertInto("pod_fetches").values({ id: randomUUID(), machine_id: f.machine, file: f.file, folder: f.folder, via: f.via, bytes: Math.round(f.bytes), started_at: new Date(f.from).toISOString(), ended_at: new Date(f.to).toISOString() }).execute();
+}
+
 export interface Range {
   /** Slowest and fastest of the last measures: bytes a second for a source, ms for a boot. */
   low: number;

@@ -37,6 +37,7 @@ const SERVER: Record<string, string> = {
   hasHuggingFaceToken: "models.huggingFaceToken",
   hasRunpodKey: "comfy.runpod",
   rentCaps: "comfy.rentcaps",
+  costs: "costs.kwh",
   volumeUnusedDays: "rented.unused",
   lastDeploy: "internal: the Deploy dialog's last choices, its next defaults and what Deploy again repeats",
   finish: "internal: the Finish dialog's own choices, saved from it as the next time's defaults",

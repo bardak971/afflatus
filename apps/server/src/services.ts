@@ -105,6 +105,8 @@ export async function createServices(
     }
     // a token set, renewed or taken off goes with the next call; an open socket stays open (the lock let it in)
     c.client.token = m.token;
+    // a machine of this PC's has its GPU's power read, for its renders' electricity; a rented pod is billed by the hour
+    c.home = !m.rented;
     return c;
   };
   const machines = async (): Promise<MachineComfy[]> => {
