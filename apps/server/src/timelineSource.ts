@@ -82,7 +82,7 @@ export function patchedSource(before: SourcePlan | null, patch: NonNullable<Sour
 /** A recipe that takes a source window by window, with how it takes it. */
 export function windowsOf(recipe: Recipe<any> | undefined) {
   const w = recipe?.traits?.windows;
-  return recipe && w ? { fps: recipe.traits!.fps, ...w } : null;
+  return recipe && w ? { fps: recipe.traits!.fps, grid: recipe.traits!.frameGrid, ...w } : null;
 }
 
 /**

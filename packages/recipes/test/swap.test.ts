@@ -16,6 +16,26 @@ const build = (over: Record<string, unknown> = {}, source: MediaFacts = part()) 
 };
 
 describe("MiniMax H3 · Swap character", () => {
+  it("carries on from the window before on a source lane: its last 5 frames and their sound pinned at the start, as frames, the window's count kept", () => {
+    const input = parseInput(h3Swap, { who: "the man", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: false });
+    const built = h3Swap.build(input, dryContext({
+      slots, uploads: { source: "src.mp4", previous: "w.mp4", "previous.latent": "w.safetensors", "references.0": "r1.png" },
+      media: { source: part({ frames: 124 }), previous: { width: 864, height: 480, frames: 5, fps: H3_FPS, hasSound: true, latentFrames: 124 } },
+    }));
+    const graph = built.graph as Graph;
+    // the pin: a guide at frame 0 from the window before's frames, with their sound (the source's own)
+    const pin = of(graph, "MiniMaxH3AddGuide")[0]!;
+    expect(pin.inputs.frame_idx).toBe(0);
+    expect(pin.inputs.audio).toBeDefined();
+    // never its latent, even when it was kept: the measured join is on frames
+    expect(of(graph, "MiniMaxH3GuidedContinuationWindow")).toEqual([]);
+    expect(of(graph, "AfflatusLoadH3Latent")).toEqual([]);
+    // the window is the part's 124 frames, the 5 shared among them: hidden on the timeline as the overlap
+    expect(of(graph, "MiniMaxH3ReferenceToVideo")[0]!.inputs.length).toBe(124);
+    expect(built.overlap).toEqual({ headMs: 208, tailMs: 0 });
+    expect(h3Swap.traits?.windows).toEqual({ most: 141, least: 90, carried: 5 });
+  });
+
   it("takes the LoRA's short trained caption as its whole prompt, built from who to replace", () => {
     expect(swapCaption("the man in the grey t-shirt", 1)).toBe("Swap the man in the grey t-shirt in <Video 1> with the character in <Picture 1>.");
     expect(swapCaption("her", 3)).toBe("Swap her in <Video 1> with the character in <Picture 1>, <Picture 2> and <Picture 3>.");

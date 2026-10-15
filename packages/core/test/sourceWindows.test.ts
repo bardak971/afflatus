@@ -4,8 +4,23 @@ import { sourceWindows } from "../src/sourceWindows";
 /** A long source made window by window: SCAIL-2's shape (16 fps, 321 frames a job, 5 carried) and Wan Animate 2's (24 fps, 81, 1). */
 const SCAIL = { fps: 16, most: 321, least: 9, carried: 5 };
 const WAN = { fps: 24, most: 81, least: 9, carried: 1 };
+/** MiniMax H3's swap: 24 fps, 141 frames a window on H3's 17k + 5, 5 carried. */
+const SWAP = { fps: 24, most: 141, least: 90, carried: 5, grid: { step: 17, offset: 5 } };
 
 describe("a source's windows", () => {
+  it("are on the model's own grid when it has one: H3's swap windows are 17k + 5 frames, the carried 5 among them", () => {
+    const w = sourceWindows({ fromMs: 3000, toMs: 28000, windowMs: 5000, shape: SWAP });
+    const frames = (x: { seconds: number }) => Math.round(x.seconds * 24 - 0.5);
+    for (const x of w) expect((frames(x) - 5) % 17).toBe(0);
+    // the first window opens: 107 frames of its own; the next ones carry 5 and show 119
+    expect(frames(w[0]!)).toBe(107);
+    expect(frames(w[1]!)).toBe(124);
+    expect(w[1]!.start).toBeCloseTo(3 + 107 / 24 - 5 / 24, 4);
+    expect(Math.abs(w[1]!.toMs - w[1]!.fromMs - (119 / 24) * 1000)).toBeLessThan(1);
+    // a last stretch shorter than the fewest frames a swap takes (90) is left out
+    expect(w.length).toBe(5);
+    expect(28000 - w.at(-1)!.toMs).toBeLessThan(3750);
+  });
   it("cover the stretch end to end: each shows from where the one before stopped", () => {
     const w = sourceWindows({ fromMs: 3000, toMs: 28000, windowMs: 5000, shape: SCAIL });
     expect(w[0]!.fromMs).toBe(3000);
