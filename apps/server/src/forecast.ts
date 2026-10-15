@@ -1,4 +1,4 @@
-import { roughly, secondsOf, type BuiltGraph, type Recipe } from "@afflatus/core";
+import { roughly, secondsOf, type BuiltGraph, type MediaFacts, type Recipe } from "@afflatus/core";
 import type { Db } from "./db";
 
 /**
@@ -9,7 +9,17 @@ import type { Db } from "./db";
  * past that cliff, and a form is placed against both.
  */
 
-/** The sampled work of a graph: its largest canvas in pixels, how many frames of it (1 for a picture), and the steps. */
+/**
+ * A count this large is no frame count: it is a node's "all of them" (ImageFromBatch's 4096 takes every frame of a batch),
+ * and read as frames it made a 250 s SCAIL window say 6.2 h. The longest video sampled here is a few hundred frames.
+ */
+const MAX_FRAMES = 2000;
+
+/**
+ * The sampled work of a graph: the canvas one step samples in pixels, how many frames of it (1 for a picture), and the
+ * steps. The canvas is its first pass's when the recipe says it (a picture redrawn in tiles samples a tile at a time, an
+ * edit reads its pictures beside its canvas), else its largest node size, else the picture it is handed (`built.pixels`).
+ */
 export function workOf(built: BuiltGraph): { pixels: number; frames: number; steps: number } {
   let pixels = 0;
   let frames = 1;
@@ -20,11 +30,23 @@ export function workOf(built: BuiltGraph): { pixels: number; frames: number; ste
     if (typeof w === "number" && typeof h === "number" && w * h > pixels) pixels = w * h;
     for (const key of ["length", "frames", "num_frames", "video_frames", "frame_count"]) {
       const v = i[key];
-      if (typeof v === "number" && v > frames) frames = v;
+      if (typeof v === "number" && v > frames && v < MAX_FRAMES) frames = v;
     }
   }
+  const declared = built.passes?.[0]?.pixels;
   // the recipe's own count wins: its nodes may count frames in their own terms (a continuation window), or not at all (a latent loaded from a file)
-  return { pixels, frames: built.frames && built.frames > 0 ? built.frames : frames, steps: Math.max(1, built.totalSteps) };
+  return { pixels: declared && declared > 0 ? declared : pixels || built.pixels || 0, frames: built.frames && built.frames > 0 ? built.frames : frames, steps: Math.max(1, built.totalSteps) };
+}
+
+/**
+ * A graph whose nodes say no size (a background removal, an imported workflow that reads its picture as it is) with the
+ * largest picture it is handed as its canvas (`media`, the facts the build was given): recorded with no work, its renders
+ * were never placed against each other and its forecast stayed the recipe's usual time on any picture.
+ */
+export function sizedFrom(built: BuiltGraph, media: Readonly<Record<string, MediaFacts>>): BuiltGraph {
+  if (workOf(built).pixels) return built;
+  const largest = Math.max(0, ...Object.values(media).map((m) => (m.width > 0 && m.height > 0 ? m.width * m.height : 0)));
+  return largest ? { ...built, pixels: largest } : built;
 }
 
 /** One sampled chunk of a part made in chunks: its work per step (pixels × its frames) and its steps. */
@@ -35,13 +57,17 @@ export interface Chunk {
 
 /**
  * The chunks a graph samples, when its passes say their frames (a Motion transfer part, made in one chunk or several: one
- * carried on from the clip before runs into a short last chunk); null for a graph whose passes do not say them. The work
- * recorded of a render stays its largest chunk's, the one its measured step (the first pass's) is the pace of.
+ * carried on from the clip before runs into a short last chunk) or their canvas (a picture redrawn in tiles after a pass at
+ * its first size, an edit's second pass reading fewer pictures); null for a graph whose passes do not say them. The work
+ * recorded of a render stays its first chunk's, the one its measured step (the first pass's) is the pace of.
  */
 export function chunksOf(built: BuiltGraph, pixels: number): Chunk[] | null {
   const passes = built.passes ?? [];
-  if (!passes.length || !pixels || !passes.every((p) => p.frames && p.frames > 0)) return null;
-  return passes.map((p) => ({ work: pixels * p.frames!, steps: Math.max(1, p.steps) }));
+  if (!passes.length || !pixels) return null;
+  if (passes.every((p) => p.frames && p.frames > 0)) return passes.map((p) => ({ work: (p.pixels ?? pixels) * p.frames!, steps: Math.max(1, p.steps) }));
+  // a picture's passes: one frame each, at the canvas each says
+  if (passes.every((p) => p.pixels && p.pixels > 0)) return passes.map((p) => ({ work: p.pixels!, steps: Math.max(1, p.steps) }));
+  return null;
 }
 
 /** What of a recorded render `workOfRow` reads. */
@@ -382,14 +408,18 @@ export function inARow(parts: Array<{ ms: number; loadMs: number; model: string;
 
 /**
  * Per recipe, the usual time of one job and, for videos, of one second of video, from what was rendered
- * before (the generations, kept since before render times were recorded). Only what `forecast` falls back on
- * for a form it cannot place (a tool with no steps, a model not measured yet): never a figure of its own.
+ * before. Only what `forecast` falls back on for a form it cannot place (a tool with no steps, a model not
+ * measured yet): never a figure of its own. From the record of render times where the recipe has one: what each
+ * render took beyond its load, at the common pace (its machine's pace taken out, machinePaces), and its loads
+ * apart, warm and cold; from the generations (kept since before render times were recorded) where it has none.
  */
 export interface Rate {
-  /** The usual time of one job, in milliseconds. */
+  /** The usual time of one job, in milliseconds: beyond its loads and at the common pace where `loads` is said. */
   perJobMs: number;
   /** Of a video recipe: the usual time for one second of video. */
   perSecondMs: number | null;
+  /** What it spends before its first step with its model in memory, and with its model to load (else its family's); null for a rate read from the generations, whose times hold their loads as they came. */
+  loads: { warmMs: number; coldMs: number | null } | null;
   /** How many past renders this rests on. */
   samples: number;
 }
@@ -398,6 +428,37 @@ export interface Rate {
 const LOOK_BACK = 400;
 
 export async function rates(db: Db): Promise<Record<string, Rate>> {
+  const [recorded, paces] = await Promise.all([
+    db
+      .selectFrom("render_stats")
+      .select(["recipe_id", "family", "machine_id", "total_ms", "load_ms", "cold", "kind", "duration_ms"])
+      .where("status", "=", "done")
+      .where("whole", "=", 1)
+      .orderBy("created_at", "desc")
+      .limit(LOOK_BACK)
+      .execute(),
+    machinePaces(db).catch(() => new Map<string, number>()),
+  ]);
+  const byRecipe = new Map<string, { family: string; jobs: number[]; perSecond: number[]; warm: number[]; cold: number[] }>();
+  const coldOfFamily = new Map<string, number[]>();
+  for (const r of recorded) {
+    const at = byRecipe.get(r.recipe_id) ?? { family: r.family, jobs: [], perSecond: [], warm: [], cold: [] };
+    byRecipe.set(r.recipe_id, at);
+    // a pod twice as slow as this PC made the fallback of every machine half again too long, and the load in it twice over
+    const run = Math.max(0, r.total_ms - r.load_ms) / ((r.machine_id && paces.get(r.machine_id)) || 1);
+    at.jobs.push(run);
+    if (r.kind === "video" && r.duration_ms && r.duration_ms > 0) at.perSecond.push(run / (r.duration_ms / 1000));
+    (r.cold ? at.cold : at.warm).push(r.load_ms);
+    if (r.cold) coldOfFamily.set(r.family, [...(coldOfFamily.get(r.family) ?? []), r.load_ms]);
+  }
+  const out: Record<string, Rate> = {};
+  for (const [id, v] of byRecipe) {
+    const cold = v.cold.length ? v.cold : (coldOfFamily.get(v.family) ?? []);
+    out[id] = {
+      perJobMs: Math.round(median(v.jobs)), perSecondMs: v.perSecond.length ? Math.round(median(v.perSecond)) : null,
+      loads: { warmMs: Math.round(median(v.warm)), coldMs: cold.length ? Math.round(median(cold)) : null }, samples: v.jobs.length,
+    };
+  }
   const rows = await db
     .selectFrom("generations")
     .innerJoin("assets", "assets.generation_id", "generations.id")
@@ -406,26 +467,34 @@ export async function rates(db: Db): Promise<Record<string, Rate>> {
     .limit(LOOK_BACK)
     .execute();
   const seen = new Set<string>();
-  const byRecipe = new Map<string, { jobs: number[]; perSecond: number[] }>();
+  const before = new Map<string, { jobs: number[]; perSecond: number[] }>();
   for (const r of rows) {
-    // a job that gave several results is one render
-    if (seen.has(r.id) || r.gen_ms <= 0) continue;
+    // a job that gave several results is one render; a recipe on the record of render times is read from it
+    if (seen.has(r.id) || r.gen_ms <= 0 || out[r.recipe_id]) continue;
     seen.add(r.id);
-    const at = byRecipe.get(r.recipe_id) ?? { jobs: [], perSecond: [] };
+    const at = before.get(r.recipe_id) ?? { jobs: [], perSecond: [] };
     at.jobs.push(r.gen_ms);
     if (r.kind === "video" && r.duration_ms && r.duration_ms > 0) at.perSecond.push(r.gen_ms / (r.duration_ms / 1000));
-    byRecipe.set(r.recipe_id, at);
+    before.set(r.recipe_id, at);
   }
-  return Object.fromEntries([...byRecipe].map(([id, v]) => [id, { perJobMs: Math.round(median(v.jobs)), perSecondMs: v.perSecond.length ? Math.round(median(v.perSecond)) : null, samples: v.jobs.length }]));
+  for (const [id, v] of before) out[id] = { perJobMs: Math.round(median(v.jobs)), perSecondMs: v.perSecond.length ? Math.round(median(v.perSecond)) : null, loads: null, samples: v.jobs.length };
+  return out;
 }
 
-/** The fallback as a forecast: the recipe's usual job, or its usual pace times the video's seconds; null when it never rendered. */
-export function fromRates(all: Record<string, Rate>, recipe: Recipe<any>, input: Record<string, unknown>): Forecast | null {
+/**
+ * The fallback as a forecast: the recipe's usual job, or its usual pace times the video's seconds, at `at.pace` (the
+ * machine's, machinePaces; left out, the common pace), with its model's load when `at.cold` (the recipe's usual cold load,
+ * else its family's); null when it never rendered. Without it, a Face detailer whose checkpoint was in memory was told
+ * the 74 s its cold renders took (10 s), and a pod's job was recorded at this PC's time while its lane showed its own.
+ */
+export function fromRates(all: Record<string, Rate>, recipe: Recipe<any>, input: Record<string, unknown>, at: { cold?: boolean | null; pace?: number } = {}): Forecast | null {
   const rate = all[recipe.id];
   if (!rate) return null;
   const seconds = secondsOf(recipe.inputs, input);
-  const ms = rate.perSecondMs && seconds ? Math.round(rate.perSecondMs * seconds) : rate.perJobMs;
-  return { ms, pace: "usual", fitsUpTo: 0, samples: rate.samples, loadMs: 0 };
+  const run = (rate.perSecondMs && seconds ? rate.perSecondMs * seconds : rate.perJobMs) * (at.pace && at.pace > 0 ? at.pace : 1);
+  const warm = rate.loads?.warmMs ?? 0;
+  const load = at.cold && rate.loads ? Math.max(warm, rate.loads.coldMs ?? warm) : warm;
+  return { ms: Math.round(run + load), pace: "usual", fitsUpTo: 0, samples: rate.samples, loadMs: Math.round(load - warm) };
 }
 
 /** The forecast as the form says it: a line, and, past the cliff, the words that go next to the setting that drives the size. */

@@ -4,7 +4,7 @@ import {
   type FaceSettings, type MaskSettings, type RefineColourMatch, type UpscaleSettings,
 } from "../sdxl/common";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
-import { redrawInTiles, tileInputs, tileNodes, TILE_NODES, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
+import { redrawInTiles, tileInputs, tileNodes, TILE_NODES, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import {
   introduce, KLEIN_PRESETS, kleinCond, kleinInputs, kleinModel, kleinSample, kleinSampleLatent, kleinSize, LOAD_NODES, loadKlein, REFERENCE_NODES, SAMPLE_NODES, withIntro,
   type KleinBase,
@@ -98,13 +98,13 @@ export const kleinPicture = defineRecipe<KleinPicture>({
     const scaled = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: large.width, height: large.height, crop: "disabled" });
     const second = { steps: Math.max(input.hiresSteps, Math.round(input.hiresSteps / input.hiresDenoise)), strength: input.hiresDenoise };
     let image: Ref;
-    let pass = { node: "", steps: 0 };
+    let pass: { node: string; steps: number; pixels?: number } = { node: "", steps: 0 };
     if (inTiles(input, large, REFINE_WHOLE_PIXELS / 4)) {
       g.phase("refining");
       // each tile is shown its own piece of the picture as the reference it keeps, as Upscale 2× does
       image = redrawInTiles(g, ctx, scaled, k.vae, large, input, (latent, tiles, tile) => {
         const done = kleinSampleLatent(g, k, kleinCond(g, k, SAME, [tiles]), latent, { width: tile, height: tile }, ctx.seed, { ...second, phase: "refining" });
-        pass = { ...done.pass, steps: done.pass.steps * tilesOf(large, input).count };
+        pass = tilePass(done.pass, large, input);
         return done.sampled;
       });
     } else {
@@ -114,7 +114,8 @@ export const kleinPicture = defineRecipe<KleinPicture>({
       pass = done.pass;
     }
     const out = g.add("PreviewImage", { images: image });
-    const passes = [first.pass, pass];
+    // in tiles, each pass at its own size: the first at the picture's first, the tiles at a tile's
+    const passes = [pass.pixels ? { ...first.pass, pixels: size.width * size.height } : first.pass, pass];
     return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: passes.reduce((n, p) => n + p.steps, 0), passes, loads: [...k.loads, `upscale_models/${input.hiresUpscaler}`] };
   },
   variants: [
@@ -384,13 +385,13 @@ export const kleinSharper = defineRecipe<KleinSharper>({
     g.phase("loading");
     const k = loadKlein(g, input, ctx);
     let image: Ref;
-    let pass = { node: "", steps: 0 };
+    let pass: { node: string; steps: number; pixels?: number } = { node: "", steps: 0 };
     if (tiled) {
       g.phase("refining");
       // each tile is shown its own piece of the picture as the reference it keeps
       image = redrawInTiles(g, ctx, sized, k.vae, size, input, (latent, tiles, tile) => {
         const done = kleinSampleLatent(g, k, kleinCond(g, k, SAME, [tiles]), latent, { width: tile, height: tile }, ctx.seed, { steps: 20, strength: 0.25, phase: "refining" });
-        pass = { ...done.pass, steps: done.pass.steps * tilesOf(size, input).count };
+        pass = tilePass(done.pass, size, input);
         return done.sampled;
       });
     } else {

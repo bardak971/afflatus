@@ -1,7 +1,7 @@
 import { defineRecipe, GraphBuilder, roundTo, type InputSpec, type Recipe, type Ref, type SizeValue } from "@afflatus/core";
 import { HIRES_PASS_INPUTS, hiresPass, UPSCALER_PREFER, type HiresPass } from "../sdxl/common";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
-import { redrawInTiles, tileInputs, tileNodes, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
+import { redrawInTiles, tileInputs, tileNodes, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import type { FlowBase, FlowKit, FlowSpec } from "./kit";
 
 export interface FlowPicture extends FlowBase, HiresPass, DetailSettings, TileSettings {
@@ -81,7 +81,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       const detail = { input, ctx };
       const first = sample(g, k, input, shifted(g, k.model, input, size), c, empty, ctx.seed, {}, detail);
       let latent = first.latent;
-      const passes = [first.pass];
+      const passes: Array<typeof first.pass & { pixels?: number }> = [first.pass];
       const loads = [...k.loads];
       let image: Ref | null = null;
       if (input.hires) {
@@ -101,9 +101,11 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
           const tiled = shifted(g, k.model, input, { width: tile, height: tile });
           image = redrawInTiles(g, ctx, scaled, k.vae, large, input, (l) => {
             const second = sample(g, k, input, tiled, c, l, ctx.seed, pass, detail);
-            passes.push({ ...second.pass, steps: second.pass.steps * tilesOf(large, input).count });
+            passes.push(tilePass(second.pass, large, input));
             return second.latent;
           });
+          // each pass at its own size: the first at the picture's first, the tiles at a tile's
+          passes[0] = { ...passes[0]!, pixels: size.width * size.height };
         } else {
           const second = sample(g, k, input, shifted(g, k.model, input, large), c, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), ctx.seed, pass, detail);
           latent = second.latent;

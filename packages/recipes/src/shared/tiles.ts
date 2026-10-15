@@ -48,6 +48,16 @@ export function tilesOf(size: { width: number; height: number }, input: TileSett
 }
 
 /**
+ * A pass redrawn in tiles as its progress and its forecast count it: its steps once per tile, each sampling one tile
+ * (`pixels`), not the whole picture. Counted at the whole picture's size, a picture twice as large on each side read four
+ * times the tiles at four times the work each, and was told 16 times the time where it took 4 (sharper, 2432² to 4864²).
+ */
+export function tilePass<P extends { node: string; steps: number }>(pass: P, size: { width: number; height: number }, input: TileSettings): P & { pixels: number } {
+  const { tile, count } = tilesOf(size, input);
+  return { ...pass, steps: pass.steps * count, pixels: Math.min(tile, size.width) * Math.min(tile, size.height) };
+}
+
+/**
  * A picture redrawn in tiles: cut, each tile encoded, sampled by `sample` (the pass's sampler, at its light
  * denoise), decoded, and put back at the picture's size. ComfyUI runs the nodes between once per tile, so the
  * pass's steps come round once per tile (`tilesOf(...).count`): what its progress counts.

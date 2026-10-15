@@ -6,7 +6,7 @@ import { flowPaintOver } from "../flow/paint-over";
 import { flowRedraw } from "../flow/redraw";
 import { flowSharper } from "../flow/sharper";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
-import { redrawInTiles, tileInputs, tileNodes, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
+import { redrawInTiles, tileInputs, tileNodes, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import { krea2Kit, krea2Spec } from "./common";
 
 const files = krea2Spec.files;
@@ -109,7 +109,7 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
     const detail = { input, ctx };
     const first = sample(g, k, input, styled ? styledAt(model, W, H) : shifted(g, model, input, { width: W, height: H }), cond, empty, ctx.seed, {}, detail);
     let latent = first.latent;
-    const passes = [first.pass];
+    const passes: Array<typeof first.pass & { pixels?: number }> = [first.pass];
     const loads = [...k.loads, ...(styled ? [`loras/${ctx.slots.styleRef}`] : [])];
 
     let image: Ref | null = null;
@@ -125,9 +125,11 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
       if (inTiles(input, { width: W2, height: H2 }, KREA2_AREA)) {
         image = redrawInTiles(g, ctx, scaled, k.vae, { width: W2, height: H2 }, input, (l, _tiles, tile) => {
           const second = sample(g, k, input, shifted(g, model, input, { width: tile, height: tile }), cond, l, ctx.seed, pass, detail);
-          passes.push({ ...second.pass, steps: second.pass.steps * tilesOf({ width: W2, height: H2 }, input).count });
+          passes.push(tilePass(second.pass, { width: W2, height: H2 }, input));
           return second.latent;
         });
+        // each pass at its own size: the first at the picture's first, the tiles at a tile's
+        passes[0] = { ...passes[0]!, pixels: W * H };
       } else {
         const second = sample(g, k, input, shifted(g, model, input, { width: W2, height: H2 }), cond, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), ctx.seed, pass, detail);
         latent = second.latent;

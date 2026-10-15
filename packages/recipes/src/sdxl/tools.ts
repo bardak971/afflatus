@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, roundTo, type Ref } from "@afflatus/core";
-import { redrawInTiles, tileInputs, TILE_NODES, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
+import { redrawInTiles, tileInputs, TILE_NODES, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import {
   boxOf, FACE_INPUTS, FACTOR_INPUT, loadSdxl, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, REPAINT_NODES, repaintGuided, repaintInputs, repaints, samplerOf, stretchedFill, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
   type FaceSettings, type MaskSettings, type OutpaintSettings, type RefineColourMatch, type RepaintSettings, type UpscaleSettings,
@@ -279,11 +279,11 @@ export const sdxlSharper = defineRecipe<SdxlSharper>({
     }
     g.phase("decoding");
     const out = g.add("PreviewImage", { images: refineColourMatched(g, ctx, picture, sized, input) });
-    // in tiles, the pass runs once for each tile
-    const rounds = tiled ? tilesOf({ width: W, height: H }, input).count : 1;
+    // in tiles, the pass runs once for each tile, at a tile's size
+    const pass = tiled ? tilePass({ node: sampled[0], steps }, { width: W, height: H }, input) : { node: sampled[0], steps };
     return {
       graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }],
-      totalSteps: steps * rounds, passes: [{ node: sampled[0], steps: steps * rounds }], loads: [...loads, `checkpoints/${input.checkpoint}`],
+      totalSteps: pass.steps, passes: [pass], loads: [...loads, `checkpoints/${input.checkpoint}`],
     };
   },
   variants: [
@@ -342,7 +342,8 @@ export const sdxlFixFace = defineRecipe<SdxlFixFace>({
     const out = g.add("PreviewImage", { images: [fixed, 0] });
     return {
       graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }],
-      totalSteps: steps, passes: [{ node: fixed, steps }], loads: [`checkpoints/${input.checkpoint}`],
+      // each face is redrawn on a crop brought to the guide size: what a step samples, whatever the picture's size
+      totalSteps: steps, passes: [{ node: fixed, steps, pixels: input.faceSize * input.faceSize }], loads: [`checkpoints/${input.checkpoint}`],
     };
   },
   variants: [
