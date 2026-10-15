@@ -120,6 +120,24 @@ describe.skipIf(!ffmpegThere)("the timeline folder rule", { timeout: FFMPEG_TIME
     expect(await folderOf(c.take.asset.id)).toBe(sub.id);
   }, 120_000);
 
+  it("files a take in the timeline's folder as it is when the render finishes, not as it was when it was sent", async () => {
+    const p = await call("POST", "/api/projects", { name: "Film" });
+    const source = await call("POST", "/api/folders", { name: "source material", parentId: p.folderId });
+    const finals = await call("POST", "/api/folders", { name: "finals", parentId: p.folderId });
+    const tl = (await call("POST", "/api/timelines", { name: "Evening", project: p.id })).id as string;
+    await call("PATCH", `/api/timelines/${tl}`, { folder: source.id });
+    // sent while the timeline sits in one folder, the folder chosen while the render waits: the take lands in the new one
+    const clip = (await call("POST", `/api/timelines/${tl}/clips`, { recipe: "h3.video" })).clip as string;
+    await call("PATCH", `/api/clips/${clip}`, { inputs: { description: "She walks to the window." }, joined: "cut" });
+    await call("POST", "/api/queue/pause");
+    await call("POST", `/api/timelines/${tl}/render`, { clips: [{ id: clip, input: { description: "She walks to the window." } }] });
+    await call("PATCH", `/api/timelines/${tl}`, { folder: finals.id });
+    await call("POST", "/api/queue/resume");
+    await finish(three!, 1);
+    const c = (await view(tl)).clips.find((x: { id: string }) => x.id === clip);
+    expect(await folderOf(c.take.asset.id)).toBe(finals.id);
+  }, 120_000);
+
   it("moves what a timeline made when it changes project or folder: not a video another timeline plays, a linked file, or one in the bin", async () => {
     const p = await call("POST", "/api/projects", { name: "From" });
     const q = await call("POST", "/api/projects", { name: "To" });

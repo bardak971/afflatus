@@ -10,6 +10,7 @@ import { extOf, mimeOfFile, newAssetRow, pngSize } from "./media";
 import { makeThumb, thumbKey } from "./thumbs";
 import { ffmpegPool } from "./pool";
 import { sourceOf, type Storage } from "./storage";
+import { folderOfTimeline } from "./timelineFolder";
 import { readVideo, videoFacts, type VideoFacts } from "./video";
 import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel";
 
@@ -82,9 +83,16 @@ export async function store(
   const at = now();
   // with the cast it was sent with: what is made from it later (a video of this picture) can take it over
   const resolved: Record<string, unknown> = { seed: resume.seed, loads: resume.loads, ...(resume.overlap ? { overlap: resume.overlap } : {}), ...(resume.mirror?.length ? { mirror: resume.mirror } : {}), ...(row.look ? { look: JSON.parse(row.look) } : {}), ...(face !== null ? { face } : {}), ...(faces?.copies ? { faceCopies: faces.copies } : {}) };
-  // the folder that was open when it was sent, when it is still there. Being in a folder does not keep a result:
-  // it still goes to the bin after a day unless it is kept
-  const folder = row.folder_id ? (await db.selectFrom("folders").select("id").where("id", "=", row.folder_id).executeTakeFirst())?.id ?? null : null;
+  // a clip's render lands in its timeline's folder as it is now, not as it was when the job was sent: the folder is often
+  // chosen while the renders run, and a job's own folder would file the takes that finish later where the timeline no longer
+  // is (timelineFolder.ts). Anything else lands in the folder that was open when it was sent, when it is still there. Being in a
+  // folder does not keep a result: it still goes to the bin after a day unless it is kept
+  const timeline = row.clip_id
+    ? await db.selectFrom("clips").innerJoin("timelines", "timelines.id", "clips.timeline_id").select(["timelines.folder_id", "timelines.project_id"]).where("clips.id", "=", row.clip_id).executeTakeFirst()
+    : undefined;
+  const folder = timeline
+    ? await folderOfTimeline(db, timeline)
+    : row.folder_id ? (await db.selectFrom("folders").select("id").where("id", "=", row.folder_id).executeTakeFirst())?.id ?? null : null;
   // every file comes down from ComfyUI and goes into storage first, with what is read off it; the rows are
   // then written together, so that a failure halfway leaves no generation without its files or the other way round.
   // What was put in storage before a failure is taken out again: no file is left that no row names
