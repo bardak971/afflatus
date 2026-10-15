@@ -32,7 +32,7 @@ function useTakes() {
 export function InputsPart({ frames, refs, framesChosen, refsCount, chosen, summary, missing, look, lookHit, lookWithFrames, frameExtra, q, render }: {
   /**
    * The cast is used by the frames alone (a Motion transfer: who goes into the picture made from the driving video), not by
-   * a reference input or the words: no References tab holds it; it is picked in that picture's own box (motionPicture.tsx).
+   * a reference input or the words: no References tab holds it; it is picked in that picture's own box (pictureMaker.tsx).
    */
   lookWithFrames?: boolean;
   frames: InputSpec[];

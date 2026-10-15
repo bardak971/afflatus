@@ -276,12 +276,13 @@ export async function preview(core: QueueCore, jobId: string) {
  * label and the inputs (the prompt is there), `model` in the inputs too (the model file's name).
  * Counts say how many of each status match the search and the model, so that a filter can show its number.
  */
-export async function history(core: QueueCore, opts: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; offset?: number; after?: string; limit?: number } = {}) {
+export async function history(core: QueueCore, opts: { status?: "done" | "failed" | "cancelled"; q?: string; model?: string; offset?: number; after?: string; limit?: number; ids?: string[] } = {}) {
   const { db } = core;
   const limit = Math.min(200, Math.max(1, opts.limit ?? 60));
   const offset = Math.max(0, opts.offset ?? 0);
   // a job that only loaded a model made nothing: not part of the history
   let query = db.selectFrom("jobs").where("warm", "=", 0);
+  if (opts.ids?.length) query = query.where("id", "in", opts.ids);
   // the text looked for, as a LIKE pattern: its own %, _ and \ made literal with a backslash, which the clause then names as
   // the escape character (SQLite has none by default; the clause reads the same on Postgres). Model files are full of underscores.
   // Both sides in lower case: SQLite's LIKE ignores case, Postgres's does not, and the search is the same on both
@@ -327,7 +328,7 @@ export async function history(core: QueueCore, opts: { status?: "done" | "failed
     const input = inputsOf(r);
     const promptSpec = recipe?.inputs.find((i) => i.type === "prompt" && !i.optional) ?? recipe?.inputs.find((i) => i.type === "prompt" && i.id !== "negative");
     const prompt = promptSpec && typeof input[promptSpec.id] === "string" ? (input[promptSpec.id] as string).trim().slice(0, 240) : "";
-    const resolved = r.generation_id ? readJson<{ seed?: number; face?: number }>(gens.find((g) => g.id === r.generation_id)?.resolved, {}) : {};
+    const resolved = r.generation_id ? readJson<{ seed?: number; face?: number; faceCopies?: number }>(gens.find((g) => g.id === r.generation_id)?.resolved, {}) : {};
     const tookMs = r.started_at && r.finished_at ? new Date(r.finished_at).getTime() - new Date(r.started_at).getTime() : null;
     const kind = kindOf(r);
     return {
@@ -343,6 +344,8 @@ export async function history(core: QueueCore, opts: { status?: "done" | "failed
       seed: typeof resolved.seed === "number" ? resolved.seed : null,
       /** How much the face in what it made is the person of its photos (a picture for Motion transfer, with the Face Match node). */
       face: typeof resolved.face === "number" ? resolved.face : null,
+      /** Copies of that person elsewhere in the picture (Face At): pasted in beside the one kept, the man behind made them too. */
+      faceCopies: typeof resolved.faceCopies === "number" ? resolved.faceCopies : 0,
       // jobs asked for together ("Make 4"): the same form, the same second
       batch: `${r.draft_id ?? ""}|${r.recipe_id}|${r.label}|${r.created_at.slice(0, 19)}`,
       made: made.filter((a) => a.generation_id === r.generation_id).map((a) => ({ id: a.id, kind: a.kind, width: a.width, height: a.height, durationMs: a.duration_ms, kept: a.kept_at !== null, inBin: a.deleted_at !== null, name: a.name })),

@@ -76,11 +76,12 @@ export async function store(
   const files = collectOutputs(resume, outputs);
   if (!files.length) throw new Error("ComfyUI finished but returned no output");
   const sides = sideFiles(resume, outputs);
-  const face = faceOf(resume, outputs);
+  const faces = faceFigures(resume, outputs);
+  const face = faces?.face ?? null;
   const generationId = newId();
   const at = now();
   // with the cast it was sent with: what is made from it later (a video of this picture) can take it over
-  const resolved: Record<string, unknown> = { seed: resume.seed, loads: resume.loads, ...(resume.overlap ? { overlap: resume.overlap } : {}), ...(resume.mirror?.length ? { mirror: resume.mirror } : {}), ...(row.look ? { look: JSON.parse(row.look) } : {}), ...(face !== null ? { face } : {}) };
+  const resolved: Record<string, unknown> = { seed: resume.seed, loads: resume.loads, ...(resume.overlap ? { overlap: resume.overlap } : {}), ...(resume.mirror?.length ? { mirror: resume.mirror } : {}), ...(row.look ? { look: JSON.parse(row.look) } : {}), ...(face !== null ? { face } : {}), ...(faces?.copies ? { faceCopies: faces.copies } : {}) };
   // the folder that was open when it was sent, when it is still there. Being in a folder does not keep a result:
   // it still goes to the bin after a day unless it is kept
   const folder = row.folder_id ? (await db.selectFrom("folders").select("id").where("id", "=", row.folder_id).executeTakeFirst())?.id ?? null : null;
@@ -181,16 +182,15 @@ export async function measuredFirst(assets: Iterable<string>, capMs = 60_000): P
 /** The measures under way (the queue's idle waits for them: tests, shutdown). */
 export const measuresUnderWay = (): Promise<void>[] => [...pending.values()];
 
-/** How much the face in the result is the person of the photos it was made with (a Face Match node's figure), or null. */
-function faceOf(resume: Resume, outputs: Outputs): number | null {
-  return faceFigures(resume, outputs)?.face ?? null;
-}
-/** The Face Match node's figures: the median over the frames read (a picture: its one), and the lowest. */
-function faceFigures(resume: Resume, outputs: Outputs): { face: number; low: number | null } | null {
+/**
+ * The Face Match node's figures: the median over the frames read (a picture: its one), and the lowest; Face At's also how many
+ * copies of the person it found away from the place they were put (a picture with them pasted in beside the one kept).
+ */
+function faceFigures(resume: Resume, outputs: Outputs): { face: number; low: number | null; copies: number } | null {
   for (const out of resume.outputs) {
     if (out.role !== "score") continue;
-    const said = (outputs[out.node] as { afflatus_face?: Array<{ face?: number | null; low?: number | null }> } | undefined)?.afflatus_face?.[0];
-    if (typeof said?.face === "number" && Number.isFinite(said.face)) return { face: said.face, low: typeof said.low === "number" ? said.low : null };
+    const said = (outputs[out.node] as { afflatus_face?: Array<{ face?: number | null; low?: number | null; copies?: number }> } | undefined)?.afflatus_face?.[0];
+    if (typeof said?.face === "number" && Number.isFinite(said.face)) return { face: said.face, low: typeof said.low === "number" ? said.low : null, copies: typeof said.copies === "number" ? said.copies : 0 };
   }
   return null;
 }

@@ -81,7 +81,7 @@ def _faces(bgr, det: int = PHOTO_DET, most: int = 0) -> list:
     for f in faces:
         if f.bbox[2] - f.bbox[0] >= 32 and f.det_score >= 0.5:
             v = np.asarray(f.normed_embedding, dtype=np.float32)
-            out.append((v / (np.linalg.norm(v) + 1e-9), float(f.bbox[2] - f.bbox[0])))
+            out.append((v / (np.linalg.norm(v) + 1e-9), float(f.bbox[2] - f.bbox[0]), [float(x) for x in f.bbox[:4]]))
     return out
 
 
@@ -143,3 +143,67 @@ class AfflatusFaceMatch(io.ComfyNode):
         face = round(float(np.median(found)), 3) if found else None
         low = round(float(min(found)), 3) if found else None
         return io.NodeOutput(ui={"afflatus_face": [{"face": face, "low": low, "frames": len(found), "read": len(picked), "photos": len(refs)}]})
+
+
+# A face elsewhere in the picture this much like the photos is the person again: a copy pasted in. Strangers in a crowd read
+# under 0.2; the copies of the 2026-10-15 test read 0.5 and up.
+COPY = 0.4
+
+
+class AfflatusFaceAt(io.ComfyNode):
+    """
+    Face Match for a picture made from a frame (Motion transfer's): the face where the frame's main person stands, and the
+    copies of the person anywhere else. The best match anywhere ranked first the pictures that kept the original and pasted
+    the person in beside them, or turned the man behind into them too (HANDOVER-motion-picture-report.md: 9 of 12 such
+    pictures read 0.78 to 0.94). The main person is the frame's largest face; the made picture's face nearest its place
+    (within one face's width, the two pictures' sizes matched) is the one scored.
+    """
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusFaceAt",
+            display_name="Afflatus: Face At",
+            category="Afflatus",
+            description="How much the face at the frame's main person's place is the person of the photos (ArcFace, on the CPU), and how many copies of them are elsewhere in the picture. Handed back to Afflatus with the prompt's outputs.",
+            inputs=[
+                io.Image.Input("image", tooltip="The picture made."),
+                io.Image.Input("frame", tooltip="The frame it was made from: its largest face is the place scored."),
+                io.Image.Input("photo_1", tooltip="A photo of the person."),
+                io.Image.Input("photo_2", optional=True, tooltip="Another photo of them."),
+                io.Image.Input("photo_3", optional=True, tooltip="A third."),
+            ],
+            outputs=[],
+            is_output_node=True,
+        )
+
+    @classmethod
+    def execute(cls, image, frame, photo_1, photo_2=None, photo_3=None) -> io.NodeOutput:
+        # a figure beside a render, never its failure, as Face Match
+        try:
+            return cls._measure(image, frame, photo_1, photo_2, photo_3)
+        except Exception as err:  # noqa: BLE001 — any error of InsightFace or of a picture it cannot read
+            return io.NodeOutput(ui={"afflatus_face": [{"face": None, "error": str(err)[:200]}]})
+
+    @classmethod
+    def _measure(cls, image, frame, photo_1, photo_2, photo_3) -> io.NodeOutput:
+        import numpy as np
+
+        refs = [r for r in (_reference(p) for p in (photo_1, photo_2, photo_3) if p is not None) if r is not None]
+        # every face of the picture (a copy can be small, behind), each with its best match among the photos
+        faces = [(max((float(np.dot(f[0], r)) for r in refs), default=-1.0), f[2]) for f in _faces(_bgr(image, 0))]
+        mains = _faces(_bgr(frame, 0), PHOTO_DET, 1)
+        nearest = None
+        if mains:
+            x0, y0, x1, y1 = mains[0][2]
+            sx, sy = image.shape[2] / frame.shape[2], image.shape[1] / frame.shape[1]
+            cx, cy, reach = (x0 + x1) / 2 * sx, (y0 + y1) / 2 * sy, (x1 - x0) * sx
+            dist = lambda b: ((b[0] + b[2]) / 2 - cx) ** 2 + ((b[1] + b[3]) / 2 - cy) ** 2  # noqa: E731
+            close = min(faces, key=lambda f: dist(f[1]), default=None)
+            nearest = close if close is not None and dist(close[1]) < reach**2 else None
+        elif faces:
+            # no face read in the frame: the best match anywhere, as Face Match
+            nearest = max(faces, key=lambda f: f[0])
+        copies = sum(1 for f in faces if f is not nearest and f[0] >= COPY)
+        face = round(nearest[0], 3) if nearest is not None and refs else None
+        return io.NodeOutput(ui={"afflatus_face": [{"face": face, "low": face, "frames": 1 if face is not None else 0, "read": 1, "photos": len(refs), "copies": copies, "placed": nearest is not None}]})

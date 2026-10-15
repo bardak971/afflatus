@@ -1,7 +1,7 @@
 import { defineFamily, defineRecipe, GraphBuilder, REFERENCE_ROLES, roundTo, type InputSpec, type LoraValue, type Ref, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import { loadUnet, unetNodes } from "../shared/unet";
-import { qwenLint } from "../shared/lint";
-import { FACE_NODE, faceScore } from "../shared/face";
+import { qwen21Lint } from "../shared/lint";
+import { FACE_AT_NODE, FACE_NODE, faceScore } from "../shared/face";
 
 const HF = "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main";
 
@@ -40,22 +40,31 @@ export const qwen21 = defineFamily({
     },
   ],
   loraMatch: ["qwen.?image.?2[._]1"],
-  guide: `Qwen Image 2.1 reads plain sentences, in English or Chinese, follows long descriptions closely, and makes pictures and changes them with the same model. One continuous paragraph, the subject first, under 200 words; 1 to 3 sentences are often enough.
-RULES FOR A NEW PICTURE
-- The subject and its look, then the style or medium, the details, the composition and layering, the light and the atmosphere.
-- A portrait with no cast given: the person's ethnicity, gender and an age range.
-- Text that must appear: English double quotes, exact spelling and case, where it sits and in what style; one text element per clause.
-- A proper noun or brand the user gave is never altered.
-- A transparent picture: "This is an RGBA format image with transparency. [the subject]. The image has an alpha channel and a transparent background."
+  guide: `Qwen Image 2.1 was trained on prompts its authors' own rewriter writes (Qwen-Image-2.1-PE), and reads that form best: plain English sentences (or Chinese), one paragraph, no tags, no weights, no quality words.
+RULES FOR A NEW PICTURE (the rewriter's: the finished picture described as if looking at it)
+- About 20 sentences, 400 to 500 words, whatever the length of the brief: a short brief means deciding most of the frame, not writing less. A quiet single subject runs shorter, a dense frame longer.
+- The opening sentence names the medium, the style, the subject and the background or palette: "The image is a vertical realistic photograph of …".
+- Then walk the frame: the background right after the opening, then the top, the left, the centre, the right and the bottom (one subject: the background, its pose and place, the head and face, the body and each garment, what it holds). About a third of the sentences open on where they look ("In the upper-left corner, …"), reaching the corners and the edges.
+- The light has a sentence of its own: its source, direction and quality, and the shadows and highlights it leaves.
+- The last sentence steps back to the whole frame: balance, palette, style and mood ("The overall composition …").
+- Present tense, third person, an observer: no "create", no "you", no "make sure". What the user did not fix is hedged ("appears to be", "likely", "a notebook or a tablet").
+- Colours with a modifier (deep navy, pale cream), materials (brushed metal, coarse linen), counts as words; every item named, never "several items".
+- People: build, posture, gaze, expression, hair, skin tone, each garment with its colour and material; an age as a life stage or a decade, never a number. With a cast, their words say who they are.
+- Text that must appear: straight double quotes, the exact characters, where it sits, its weight, colour and size, in reading order. A picture with no text gets none invented; marks not meant to be read are blurred or too small to read.
+- Objects by class unless the user named a brand. No aspect ratio, resolution or pixel count in the words.
+- A transparent picture: "This is an RGBA format image with transparency. [the description]. The image has an alpha channel and a transparent background."
 RULES FOR AN INSTRUCTION (the part is called "Instruction": a change to a picture)
-- The pictures are numbered: <image1> is the one being changed, <image2> and on are references; name them that way.
-- What changes and what stays; a change to a person stays subtle; text edits quote the old and the new string.
-- No weights, no quality tags. The "Negative prompt" part is ignored at the model's own CFG of 1. A LoRA's trigger words stay. Faithful to the user's idea: detail, not new subjects.
-EXAMPLES, for the form only (their subjects, places and words are not to be reused):
-A new picture: A neon shop sign that reads "QWEN IMAGE 2.1" in cyan tube letters over a shuttered storefront on a rainy night, its reflection broken across the wet pavement below, a lone umbrella passing on the left.
-An instruction: Keep the character and the pose in <image1> unchanged, put the light blue denim shirt from <image2> on the character, and preserve the original facial features, hair, body shape and background.`,
-  /** What the designer wrote, against Qwen's own rewriter: under 200 words, no weights. */
-  lint: qwenLint,
+- One paragraph that leads with the operation, written for someone holding only the input pictures.
+- The pictures are <image1>, <image2>… (with one picture: "the image"). Each one's role is said: <image1> is the canvas whose composition stays, the others give what is taken from them (a face, clothes, a place, a look), each named on its own, never as a group.
+- The change is strong and unmistakable; what is not named stays, in one clause naming it by type and place ("keep the background, every other person and the framing unchanged"), not described again (described, it drifts).
+- A person's identity from a reference is pointed at, never described ("the head of the person shown in <image2>"). A face swap replaces the head (face, hair and beard), not the person, keeps the head's position, angle and tilt, and takes the scene's light; 2 to 3 sentences.
+- Said as what to do: "keep … unchanged", not "do not …". Text edits quote the old and the new string exactly. Only what is visible is claimed.
+- No weights, no quality tags. The "Negative prompt" part is unused at the model's own CFG of 1. A LoRA's trigger words stay. Faithful to the user's idea: detail, not new subjects.
+EXAMPLES, for the form only (their subjects, places and words are not to be reused; a real new picture runs about twice as long):
+A new picture: The image is a vertical realistic photograph of a small bakery entrance at dawn, set in a weathered brick facade of warm terracotta and soot grey. Behind the roofline, a pale blue sky turns peach toward the horizon. Across the top of the frame, a dark green awning with scalloped edges shades the doorway. On the left side of the frame, a chalkboard on a wooden easel reads "FRESH BREAD" in white hand-lettered chalk. In the centre, a glass-paned door stands half open, warm amber light spilling onto the stone step. On the right, a wicker basket of round loaves sits on a small café table of dark weathered wood. Across the lower third, wet cobblestones catch the glow in broken reflections. The lighting is soft early daylight from the left, with the warm light of the shop leaving long, faint shadows across the step. The overall composition is balanced and inviting, in a muted warm palette with a quiet morning mood.
+An instruction: On <image1>, replace the shirt of the woman with the light blue linen shirt shown in <image2>, matching its colour, collar and buttons, fitted to her pose and the folds at her arms. Keep her face, hair, pose, the background and the framing of <image1> unchanged.`,
+  /** What the designer wrote, against Qwen 2.1's own rewriter: no weights; no word cap (it writes 400 to 500 words). */
+  lint: qwen21Lint,
 });
 
 interface Qwen21Base {
@@ -216,13 +225,41 @@ export const qwen21Edit = defineRecipe<Qwen21Edit>({
   ],
 });
 
-/** What puts the person in: the words that kept the face best on the meme test (0.95 to 0.96, HANDOVER-swap-lipsync-plan.md §9). */
-export const MOTION_REPLACE =
+/** The photos as the instruction names them, every one: "<image2>", "<image2> and <image3>", "<image2>, <image3> and <image4>". */
+const photoTags = (n: number) => {
+  const tags = Array.from({ length: Math.max(1, n) }, (_, i) => `<image${i + 2}>`);
+  return tags.length === 1 ? tags[0]! : `${tags.slice(0, -1).join(", ")} and ${tags.at(-1)}`;
+};
+/**
+ * What puts the person in, for n photos: the head is replaced, not the person, which Qwen read as a whole person to add
+ * (pasted in beside the one kept, or the man behind made them too), and every photo is named. Qwen's own edit rewriter
+ * (Qwen-Image-2.1-PE-I2I) wrote it this way; made a fixed template, it gave 12 clean swaps of 12 with three photos where the
+ * words before gave 3, and 6 of 6 with one (HANDOVER-motion-picture-report.md §4). No subject or footage of its own: the
+ * frame's light and colour are the ones asked for.
+ */
+export function motionReplace(n: number): string {
+  const refs = photoTags(n);
+  return (
+    `On <image1>, replace the head of the main person (face, hair and beard) with the head of the person shown in ${refs}, so that the result reads as the same individual as in ${n > 1 ? "those references" : refs}, with matching facial features, face shape, hair and beard. ` +
+    "The new head keeps the position, angle and tilt of the head in <image1> and takes on the lighting direction and colour temperature of the <image1> scene, with skin shading and shadows consistent with its light, so that they appear naturally filmed in this scene. " +
+    "Keep the body, pose, clothing, background, every other person and all other elements of <image1> completely unchanged."
+  );
+}
+/** The default as the form shows it (one photo); sent as it is, the recipe names every photo given (motionReplace). */
+export const MOTION_REPLACE = motionReplace(1);
+/**
+ * The second pass, on the picture the first made: into the frame's light, said as what to do. Without the photos: given
+ * them, it pasted them in as more people.
+ */
+export const MOTION_RELIGHT =
+  "Relight the main person in <image1> so that they sit in the scene's light: the same direction, colour and strength of light as on the people and the room around them, the same shadows across the face, and the same focus, noise and image quality as the rest of <image1>. " +
+  "Keep their face, expression, pose, hair, clothing and everything else in <image1> exactly as it is.";
+/** The first defaults (2026-10-14, written on the meme): a form that kept them gets today's. */
+const FIRST_REPLACE =
   "Replace the main person in <image1> with the person in <image2>: their face, their hair, their beard and their skin. " +
   "They are lit exactly like the rest of <image1>: the same light and shadows on the face, the same soft, grainy phone-video look, so that they belong in the picture. " +
   "Keep everything else in <image1> exactly the same: their clothes, their pose, the people around them and the framing.";
-/** The second pass that brought him into the room's light on the meme (0.87, the best look), on the picture the first made. */
-export const MOTION_RELIGHT =
+const FIRST_RELIGHT =
   "Relight only the main person in <image1> so that they match the rest of the picture: the same light as on the people and the room around them, " +
   "the same shadows on their face, less light on their skin where the room is dark, and the same soft, grainy phone-video look. " +
   "Do not change their face, their hair, their expression or anything else in <image1>.";
@@ -248,17 +285,20 @@ export const qwen21MotionPicture = defineRecipe<Qwen21MotionPicture>({
       note: "photos of the person: one sharp, front-facing and well lit matters most; a second from another angle helps a frame where they are turned",
     },
     { id: "relight", type: "toggle", label: "Relight", default: true, note: "a second pass that brings the person into the frame's light and look, the face left as it is" },
-    { id: "replace", type: "prompt", label: "Instruction", style: "sentences", default: MOTION_REPLACE, advanced: true, note: "what the first pass is told; <image2> on are the photos" },
+    { id: "replace", type: "prompt", label: "Instruction", style: "sentences", default: MOTION_REPLACE, advanced: true, note: "what the first pass is told; <image2> on are the photos. Left as it is, it names every photo given" },
     { id: "relit", type: "prompt", label: "Relight instruction", style: "sentences", default: MOTION_RELIGHT, advanced: true, showWhen: "relight", note: "what the second pass is told" },
     { id: "resolution", type: "number", label: "Working size", min: 0, max: 2048, step: 32, default: 1024, unit: " px", advanced: true, note: "the pictures are brought to about this many pixels on a side before the model reads them" },
     ...sampling,
   ],
   nodes: (input) => [...NODES(input), "LoadImage"],
-  optionalNodes: ["LoraLoaderModelOnly", FACE_NODE],
+  optionalNodes: ["LoraLoaderModelOnly", FACE_NODE, FACE_AT_NODE],
   build(input, ctx) {
     const g = new GraphBuilder();
     const k = load(g, input, ctx);
     const photos = input.people.slice(0, 3).map((_, i) => ctx.uploads[`people.${i}`]);
+    // the defaults (today's or the first) are worded for the photos given; words of the user's own are sent as written
+    const replace = input.replace === MOTION_REPLACE || input.replace === FIRST_REPLACE ? motionReplace(photos.length) : input.replace;
+    const relit = input.relit === FIRST_RELIGHT ? MOTION_RELIGHT : input.relit;
     const pass = (prompt: string, images: Ref[], seed: number) => {
       const read = g.add("TextEncodeQwenImage21", {
         clip: k.clip, prompt, negative_prompt: input.negative, resolution: input.resolution, vae: k.vae,
@@ -272,12 +312,15 @@ export const qwen21MotionPicture = defineRecipe<Qwen21MotionPicture>({
       g.phase("decoding");
       return { sampled, image: g.out("VAEDecode", { samples: sampled, vae: k.vae }) };
     };
-    const put = pass(input.replace, [g.out("LoadImage", { image: ctx.uploads.source }), ...photos.map((file) => g.out("LoadImage", { image: file }))], ctx.seed);
-    const lit = input.relight ? pass(input.relit, [put.image], ctx.seed + 1) : null;
+    const frame = g.out("LoadImage", { image: ctx.uploads.source });
+    const shots = photos.map((file) => g.out("LoadImage", { image: file }));
+    const put = pass(replace, [frame, ...shots], ctx.seed);
+    const lit = input.relight ? pass(relit, [put.image], ctx.seed + 1) : null;
     const made = (lit ?? put).image;
     const out = g.add("PreviewImage", { images: made });
-    // how much the face in it is the person of the photos (the Afflatus pack's Face Match, with insightface): the box ranks by it
-    const score = faceScore(g, ctx, made, photos.map((file) => g.out("LoadImage", { image: file })));
+    // how much the face where the frame's main person stands is the person of the photos, and whether they were pasted in
+    // elsewhere too (the Afflatus pack's Face At, with insightface): the box ranks by it
+    const score = faceScore(g, ctx, made, shots, frame);
     const passes = [{ node: put.sampled[0], steps: input.steps }, ...(lit ? [{ node: lit.sampled[0], steps: input.steps }] : [])];
     return {
       graph: g.graph, phases: g.phases, totalSteps: input.steps * passes.length, passes, loads: k.loads,

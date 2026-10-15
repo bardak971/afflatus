@@ -113,8 +113,11 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
       offset: z.coerce.number().int().min(0).optional(),
       after: z.string().max(200).optional(),
       limit: z.coerce.number().int().min(1).max(200).optional(),
+      // these jobs only, by id (comma-separated): a box that follows its own, whatever else ran since
+      ids: z.string().regex(/^[0-9a-f]{32}(,[0-9a-f]{32}){0,59}$/).optional(),
     }).parse(req.query);
-    return s.queue.history(q);
+    const { ids, ...rest } = q;
+    return s.queue.history({ ...rest, ...(ids ? { ids: ids.split(",") } : {}) });
   });
   /** Pause or go on: all of them, or one machine on its own (`machine`, a machine's id), which finishes what it runs and takes nothing new. */
   const onMachine = z.strictObject({ machine: z.string().min(1).max(40).optional() });

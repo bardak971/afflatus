@@ -59,7 +59,7 @@ from .continuation_nodes import (  # noqa: E402
     MiniMaxH3LatentTailGuide,
 )
 from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, AfflatusH3SeamLatent, AfflatusH3TailGuide, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent  # noqa: E402
-from .face_match import AfflatusFaceMatch, available as face_available  # noqa: E402
+from .face_match import AfflatusFaceAt, AfflatusFaceMatch, available as face_available  # noqa: E402
 
 
 def _version() -> str:
@@ -90,7 +90,7 @@ class AfflatusExtension(ComfyExtension):
             MiniMaxH3LatentTailGuide,
             MiniMaxH3AppendContinuation,
             # a face's likeness to some photos, for the pictures a Motion transfer is made from: only with insightface installed
-            *([AfflatusFaceMatch] if face_available() else []),
+            *([AfflatusFaceMatch, AfflatusFaceAt] if face_available() else []),
         ]
 
 

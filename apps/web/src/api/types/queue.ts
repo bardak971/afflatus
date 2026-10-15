@@ -88,6 +88,8 @@ export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" 
   made: Array<{ id: string; kind: "image" | "video" | "audio"; width: number | null; height: number | null; durationMs: number | null; kept: boolean; inBin: boolean; name: string }>;
   /** How much the face in what it made is the person of its photos (a picture for Motion transfer); null when not measured. */
   face?: number | null;
+  /** Copies of that person elsewhere in the picture (pasted in beside the one kept): 0 when none, or not measured. */
+  faceCopies?: number;
 }
 export interface HistoryPage {
   items: HistoryJob[];
