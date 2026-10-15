@@ -45,9 +45,10 @@ export type LlmPatch = Omit<LlmInfo, "hasApiKey"> & { apiKey?: string };
  */
 export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiKey" | "hasHuggingFaceToken" | "hasRunpodKey" | "machines" | "notify" | "access">> & {
   /** Some of the password's settings; the password itself has its own routes (api.setPassword), never this. */
-  access?: Partial<Omit<AccessSettings, "hasPassword" | "passwordSetAt">> & {
-    /** The server's own, never sent by the page: it drops it from a page's save (settings.ts written). */
+  /** Refused from the page: the Access settings go through api.accessSettings, which asks for the password. */
+  access?: Partial<Omit<AccessSettings, "hasPassword" | "passwordSetAt" | "hasMetricsToken">> & {
     password?: { hash: string; setAt: string } | null;
+    metricsToken?: string;
   };
   /** Some of the notices' settings: what is sent is put over what is saved. The token and the webhook only when typed ("" takes one off). */
   notify?: { telegramToken?: string; telegramChat?: string; discordWebhook?: string; picture?: boolean; events?: Partial<Record<NotifyKind, { telegram?: boolean; discord?: boolean }>> };
@@ -74,6 +75,8 @@ export interface AccessSettings {
   stayDays: 1 | 7 | 30 | 90;
   /** Reset codes may go to Telegram (when it is set up). */
   resetTelegram: boolean;
+  /** A metrics token is set (for Prometheus while a password is set); the token itself is shown once, when made. */
+  hasMetricsToken: boolean;
 }
 /** Where the notices go and which kinds go there. The bot's token and the webhook never come back: only whether one is saved. */
 export interface NotifySettings {
@@ -267,9 +270,10 @@ export interface SessionState {
   locked: boolean;
   /** This browser may use the app: no password, signed in, or this computer and it needs none. */
   signedIn: boolean;
-  /** The request came from the computer Afflatus runs on. */
-  local: boolean;
-  localNoPassword: boolean;
+  /** The request came from the computer Afflatus runs on: said only to a browser that is in. */
+  local?: boolean;
+  /** This computer gets in without the password now: said only to a browser that is in. */
+  localNoPassword?: boolean;
   /** This browser holds a session (not only the computer's own pass). */
   session: boolean;
   stayDays: number;
@@ -295,5 +299,9 @@ export interface SignedDevice {
 /** GET /api/session/devices: where Afflatus listens, and who is signed in. */
 export interface SignedDevices {
   listen: { host: string; port: number; reach: "computer" | "network" | "address" };
+  /** "From this computer" may be turned on: Afflatus listens beyond loopback. */
+  canBypass: boolean;
+  /** The last time sign-ins were being refused (within a day), as the owner was told. */
+  alarm: { at: string; said: string } | null;
   devices: SignedDevice[];
 }

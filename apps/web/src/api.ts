@@ -27,7 +27,7 @@ export class ApiError extends Error {
    * The HTTP status the server answered with; absent when it did not answer. `said`: what a refusal of the password's adds
    * (access.ts): the tries left before a wait, and the wait in seconds.
    */
-  constructor(message: string, readonly status?: number, readonly said: { left?: number; wait?: number } = {}) {
+  constructor(message: string, readonly status?: number, readonly said: { left?: number; wait?: number; needPassword?: boolean } = {}) {
     super(message);
   }
 }
@@ -64,8 +64,8 @@ export function raw(method: string, path: string, body?: unknown, opts: { keepal
 
 /** What a request that did not succeed says, as `call` throws it: the server's own words, and its status. */
 export async function failure(res: Response): Promise<ApiError> {
-  const data = (await res.json().catch(() => ({}))) as { error?: string; left?: number; wait?: number };
-  return new ApiError(data.error ?? `the server answered ${res.status}`, res.status, { left: data.left, wait: data.wait });
+  const data = (await res.json().catch(() => ({}))) as { error?: string; left?: number; wait?: number; needPassword?: boolean };
+  return new ApiError(data.error ?? `the server answered ${res.status}`, res.status, { left: data.left, wait: data.wait, needPassword: data.needPassword });
 }
 
 /** `signal`: a query's, so that a query that is cancelled (refetched, left) also stops its request. */
@@ -77,15 +77,15 @@ async function call<T>(method: string, path: string, body?: unknown, signal?: Ab
     signal,
   });
   const text = await res.text().catch(() => "");
-  let data: { error?: string; left?: number; wait?: number } = {};
+  let data: { error?: string; left?: number; wait?: number; needPassword?: boolean } = {};
   try {
-    if (text) data = JSON.parse(text) as { error?: string; left?: number; wait?: number };
+    if (text) data = JSON.parse(text) as { error?: string; left?: number; wait?: number; needPassword?: boolean };
   } catch {
     // a success with a body that is not JSON is not Afflatus answering (a proxy's page, a login wall): said, never handed on
     // as an empty answer the screen would take for real. An empty body (a plain "done") stays {}.
     if (res.ok) throw new ApiError(`the server answered with something that is not Afflatus's (${res.headers.get("content-type") ?? "no type"})`, res.status);
   }
-  if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`, res.status, { left: data.left, wait: data.wait });
+  if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`, res.status, { left: data.left, wait: data.wait, needPassword: data.needPassword });
   return data as T;
 }
 
@@ -152,6 +152,10 @@ export const api = {
   signOutEverywhere: (keepThis: boolean) => call<{ ok: true }>("POST", "/session/sign-out-everywhere", { keepThis }),
   setPassword: (password: string, current: string, signOutOthers: boolean) => call<{ ok: true }>("POST", "/session/password", { password, current, signOutOthers }),
   passwordOff: (current: string) => call<{ ok: true }>("POST", "/session/password/off", { current }),
+  /** The Access settings: a sign-in of the last 10 minutes, or the password with them (a 403 with needPassword asks for it). */
+  accessSettings: (patch: { localNoPassword?: boolean; stayDays?: 1 | 7 | 30 | 90; resetTelegram?: boolean; newDevice?: { telegram?: boolean; discord?: boolean } }, current?: string) => call<{ ok: true }>("POST", "/session/settings", { ...patch, ...(current ? { current } : {}) }),
+  /** The metrics token made (its only showing) or taken off, under the same rule. */
+  metricsToken: (make: boolean, current?: string) => call<{ token: string | null }>("POST", "/session/metrics-token", { make, ...(current ? { current } : {}) }),
   testNotify: (channel: "telegram" | "discord") => call<{ ok: true }>("POST", "/notify/test", { channel }),
   /** The chats that wrote to the saved bot lately (Telegram's getUpdates, read once). */
   /** A picture or a video sent as it is to the Telegram chat or Discord channel of the notifications. */

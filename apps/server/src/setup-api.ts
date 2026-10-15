@@ -30,6 +30,9 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
 
   app.get("/api/settings", async () => publicSettings(await readSettings(s.db)));
   app.put("/api/settings", async (req) => {
+    // the new-device notice turned off would hide a sign-in from elsewhere: under the Access settings' rule (access.ts mayChange)
+    const sent = req.body as { notify?: { events?: { newDevice?: unknown } } } | null;
+    if (sent?.notify?.events?.newDevice !== undefined) await s.access.mayChange(req.access.session, undefined, req.socket.remoteAddress ?? "");
     const saved = await writeSettings(s.db, req.body);
     // a file chosen by hand for a family: what is ready is worked out again
     if (req.body && typeof req.body === "object" && "slotFiles" in req.body) for (const { comfy } of await s.machines()) comfy.forgetScan();

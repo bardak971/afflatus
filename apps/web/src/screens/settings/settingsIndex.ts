@@ -106,6 +106,7 @@ export const INDEX: SettingSpot[] = [
   { tab: "interface", label: "Stay signed in", key: "access.stay", words: "password session remember device days cookie expire sign in" },
   { tab: "interface", label: "Reset codes go to", key: "access.codes", words: "password forgot reset code telegram console log file recover" },
   { tab: "interface", label: "Tell me of a new device", key: "access.newDevice", words: "password new device sign in notice telegram security" },
+  { tab: "interface", label: "Metrics token", key: "access.metrics", near: "access", words: "prometheus metrics scrape token bearer grafana password" },
   { tab: "interface", label: "Devices signed in", key: "access", words: "password sessions devices signed in sign out everywhere logout security" },
   { tab: "about", label: "About Afflatus", key: "about.version", words: "version about license source github" },
   { tab: "about", label: "Check for new versions", key: "about.updates", words: "updates update new version release upgrade github check daily go back previous security" },

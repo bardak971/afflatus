@@ -1,21 +1,22 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { createServer, type Server } from "node:http";
+import { createServer, get as httpGet, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Access, checkPassword, deviceName, hashPassword, IDLE_MS, resetAccess, Tries, TRY_LIMITS } from "../src/access";
-import { cookie, cookieNames, cookiesOf, openRoute } from "../src/access-api";
+import { cookie, cookieCount, cookieNames, cookiesOf, openRoute, overHttps } from "../src/access-api";
 import { fromThisComputer } from "../src/hostCheck";
-import { readSettings, writeSettings } from "../src/settings";
+import { readSettings, updateSettings, writeSettings } from "../src/settings";
 import { migrate, openSqlite } from "../src/db";
 import { resetPasswordCommand, start } from "../src/start";
 import { FAST, makeApp, makeFake, type TestApp } from "./helpers";
 
 /**
- * The optional password (access.ts, access-api.ts): the lock on the API and what stays open, "from this computer", the
- * hash kept and never shown, the limits on wrong tries, the reset codes, the sessions and their cookies, the ways back
- * in without the page, and the notice of a new device.
+ * The optional password (access.ts, access-api.ts): the lock on the API and on /metrics, what stays open, "from this
+ * computer" (off by default, refused while Afflatus listens on loopback only), the hash kept and never shown, the limits on
+ * wrong tries (bursts included) and the owner told of them, the reset codes tied to their browser, the sessions and their
+ * cookies, the event stream, the ways back in without the page, and the notice of a new device.
  */
 
 const PASSWORD = "correct horse battery";
@@ -26,7 +27,10 @@ const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebK
 const quiet = { log: () => {}, warn: () => {} };
 
 let t: TestApp;
+/** The cookies of the browser that set the password: signed in by setting it. */
+let owner = "";
 beforeEach(async () => {
+  owner = "";
   t = await makeApp();
   // the codes and the sign-ins are logged: kept out of the test's output
   vi.spyOn(console, "log").mockImplementation(() => {});
@@ -38,25 +42,31 @@ afterEach(async () => {
   await t.close();
 });
 
-type Opts = { from?: string; cookie?: string; ua?: string; headers?: Record<string, string>; body?: unknown };
+type Opts = { from?: string; cookie?: string; ua?: string; headers?: Record<string, string>; body?: unknown; raw?: string };
 /** A request from another machine of the network (LAN) unless `from` says otherwise, with this browser's cookies. */
 const ask = (method: string, url: string, o: Opts = {}) =>
   t.app.inject({
     method: method as "GET", url, remoteAddress: o.from ?? LAN,
     headers: { "user-agent": o.ua ?? CHROME, ...(o.cookie ? { cookie: o.cookie } : {}), ...o.headers },
     ...(o.body !== undefined ? { payload: o.body as object } : {}),
+    ...(o.raw !== undefined ? { payload: o.raw } : {}),
   });
 /** The cookies an answer set, as a Cookie header sends them back. */
 const jar = (res: { headers: Record<string, unknown> }) => {
   const set = [res.headers["set-cookie"] ?? []].flat() as string[];
   return set.map((c) => c.split(";")[0]!).filter((c) => !c.endsWith("=")).join("; ");
 };
+/** The password set from this computer (inject's own request: 127.0.0.1, Host localhost); that browser is signed in by it. */
 const setPassword = async (password = PASSWORD) => {
-  // from this computer (the default request of inject: 127.0.0.1, Host localhost), which needs no session to set it
   const res = await t.app.inject({ method: "POST", url: "/api/session/password", payload: { password } });
   expect(res.statusCode).toBe(200);
+  owner = jar(res);
 };
 const signIn = async (o: Opts & { password?: string; remember?: boolean } = {}) => ask("POST", "/api/session/sign-in", { ...o, body: { password: o.password ?? PASSWORD, remember: o.remember ?? true } });
+/** The owner's session made older than the 10 minutes a change of the Access settings takes without the password. */
+const age = async () => {
+  await t.db.updateTable("sessions").set({ created_at: new Date(Date.now() - 11 * 60_000).toISOString() }).execute();
+};
 
 describe("the lock", () => {
   it("leaves everything open while there is no password", async () => {
@@ -87,10 +97,14 @@ describe("the lock", () => {
     expect(health.statusCode).toBe(200);
     // locked and not signed in, the health says only that it is alive: its checks name this computer's folders
     expect(Object.keys(health.json()).sort()).toEqual(["ok", "version"]);
-    expect((await ask("GET", "/api/session")).json()).toMatchObject({ locked: true, signedIn: false });
+    // and the sign-in page is told only what it needs: not whether this computer is exempt
+    const state = (await ask("GET", "/api/session")).json();
+    expect(state).toMatchObject({ locked: true, signedIn: false });
+    expect(state).not.toHaveProperty("localNoPassword");
+    expect(state).not.toHaveProperty("local");
     expect((await ask("POST", "/api/session/sign-out", { body: {} })).statusCode).toBe(200);
     expect((await ask("POST", "/api/session/forgot", { body: { via: "computer" } })).statusCode).toBe(200);
-    expect((await ask("POST", "/api/session/reset", { body: { code: "000000", password: "another password" } })).statusCode).toBe(403);
+    expect((await ask("POST", "/api/session/reset", { body: { code: "000000", password: "another password" } })).statusCode).toBe(400);
     // the download address answers by its own token: a 404 for a token that is not good, never a 401
     expect((await ask("GET", "/api/downloads/fetch/nothing?t=x")).statusCode).toBe(404);
     expect(openRoute("HEAD", "/api/downloads/fetch/:id")).toBe(true);
@@ -98,15 +112,14 @@ describe("the lock", () => {
     expect(openRoute("GET", undefined)).toBe(false);
   });
 
-  it("lets this computer in without a password while that is on, and not once it is off", async () => {
+  it("takes only small JSON bodies on the open routes: no file streamed to disk for anyone", async () => {
     await setPassword();
-    expect((await ask("GET", "/api/settings", { from: "127.0.0.1", headers: { host: "localhost:8720" } })).statusCode).toBe(200);
-    // a proxy on this computer (it comes from loopback) that says whom it forwards for is not this computer
-    expect((await ask("GET", "/api/settings", { from: "127.0.0.1", headers: { host: "localhost:8720", "x-forwarded-for": "203.0.113.9" } })).statusCode).toBe(401);
-    // nor one that passes on the name it is reached by
-    expect((await ask("GET", "/api/settings", { from: "127.0.0.1", headers: { host: "afflatus.example.net" } })).statusCode).toBe(403);
-    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { access: { localNoPassword: false } } });
-    expect((await ask("GET", "/api/settings", { from: "127.0.0.1", headers: { host: "localhost:8720" } })).statusCode).toBe(401);
+    const file = await ask("POST", "/api/session/sign-in", { headers: { "content-type": "application/octet-stream" }, raw: "x".repeat(1024) });
+    expect(file.statusCode).toBe(415);
+    const form = await ask("POST", "/api/session/forgot", { headers: { "content-type": "text/plain", "x-afflatus": "1" }, raw: "via=computer" });
+    expect(form.statusCode).toBe(415);
+    const big = await ask("POST", "/api/session/sign-in", { headers: { "content-type": "application/json" }, raw: JSON.stringify({ password: "x".repeat(20_000) }) });
+    expect(big.statusCode).toBe(413);
   });
 
   it("opens everything again once the password is turned off, with the password", async () => {
@@ -117,10 +130,20 @@ describe("the lock", () => {
     expect((await ask("GET", "/api/settings")).statusCode).toBe(200);
     expect((await t.db.selectFrom("sessions").select("id").execute()).length).toBe(0);
   });
+
+  it("takes a session cookie that comes twice for none (one planted by a page on another port)", async () => {
+    await setPassword();
+    const mine = jar(await signIn());
+    const value = cookiesOf(mine)[NAMES.session]!;
+    expect((await ask("GET", "/api/settings", { cookie: `${NAMES.session}=planted; ${NAMES.session}=${value}` })).statusCode).toBe(401);
+    expect((await ask("GET", "/api/settings", { cookie: `${NAMES.session}=${value}; ${NAMES.session}=planted` })).statusCode).toBe(401);
+    expect(cookieCount(`a=1; ${NAMES.session}=x; b=2`, NAMES.session)).toBe(1);
+  });
 });
 
 describe("from this computer", () => {
   const req = (ip: string, host: string | undefined, headers: Record<string, string> = {}) => ({ socket: { remoteAddress: ip }, headers: { ...(host === undefined ? {} : { host }), ...headers } }) as unknown as Parameters<typeof fromThisComputer>[0];
+  const local = { from: "127.0.0.1", headers: { host: "localhost:8720" } };
 
   it("is a loopback address asked by a loopback name, any port", () => {
     expect(fromThisComputer(req("127.0.0.1", "localhost:8721"))).toBe(true);
@@ -144,6 +167,35 @@ describe("from this computer", () => {
       expect(fromThisComputer(req("127.0.0.1", "localhost:8721", { [h]: "127.0.0.1" })), h).toBe(false);
     }
   });
+
+  it("needs the password by default", async () => {
+    await setPassword();
+    expect((await readSettings(t.db)).access.localNoPassword).toBe(false);
+    expect((await ask("GET", "/api/settings", local)).statusCode).toBe(401);
+  });
+
+  it("cannot be turned on while Afflatus listens on loopback only, nor takes effect if stored on", async () => {
+    vi.stubEnv("HOST", "127.0.0.1");
+    await setPassword();
+    const res = await ask("POST", "/api/session/settings", { cookie: owner, body: { localNoPassword: true } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toContain("forwards connections");
+    expect((await ask("GET", "/api/session/devices", { cookie: owner })).json()).toMatchObject({ canBypass: false });
+    // stored on all the same (a setting from elsewhere): a forwarder on this computer gets nothing by it
+    await updateSettings(t.db, (s) => ({ access: { ...s.access, localNoPassword: true } }));
+    expect((await ask("GET", "/api/settings", local)).statusCode).toBe(401);
+  });
+
+  it("lets this computer in once turned on while listening on the network, still only loopback, a local name and no proxy", async () => {
+    vi.stubEnv("HOST", "0.0.0.0");
+    await setPassword();
+    expect((await ask("POST", "/api/session/settings", { cookie: owner, body: { localNoPassword: true } })).statusCode).toBe(200);
+    expect((await ask("GET", "/api/settings", local)).statusCode).toBe(200);
+    expect((await ask("GET", "/api/settings", { from: "127.0.0.1", headers: { host: "localhost:8720", "x-forwarded-for": "203.0.113.9" } })).statusCode).toBe(401);
+    expect((await ask("GET", "/api/settings", { headers: { host: "localhost:8720" } })).statusCode).toBe(401);
+    // the page in is told; one out is not
+    expect((await ask("GET", "/api/session", local)).json()).toMatchObject({ local: true, localNoPassword: true });
+  });
 });
 
 describe("the password", () => {
@@ -159,23 +211,24 @@ describe("the password", () => {
     expect(await checkPassword(PASSWORD, again)).toBe(true);
     expect(await checkPassword("nope nope", again)).toBe(false);
     expect(await checkPassword(PASSWORD, "garbage")).toBe(false);
-    const settings = (await t.app.inject({ method: "GET", url: "/api/settings" })).body;
+    const settings = (await ask("GET", "/api/settings", { cookie: owner })).body;
     expect(settings).not.toContain("scrypt$");
-    expect(JSON.parse(settings).access).toMatchObject({ hasPassword: true, localNoPassword: true, stayDays: 30 });
+    expect(JSON.parse(settings).access).toMatchObject({ hasPassword: true, localNoPassword: false, stayDays: 30, hasMetricsToken: false });
   });
 
-  it("cannot be written through the settings, only through its own routes", async () => {
-    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { access: { password: { hash: "scrypt$1$1$1$a$b", setAt: "x" }, stayDays: 7 } } });
+  it("cannot be written through the settings, nor any Access setting", async () => {
+    const res = await t.app.inject({ method: "PUT", url: "/api/settings", payload: { access: { password: { hash: "scrypt$1$1$1$a$b", setAt: "x" }, stayDays: 7 } } });
+    expect(res.statusCode).toBe(403);
     const a = (await readSettings(t.db)).access;
     expect(a.password).toBeNull();
-    expect(a.stayDays).toBe(7);
+    expect(a.stayDays).toBe(30);
   });
 
   it("is 8 characters at least, and a change needs the current one", async () => {
     expect((await t.app.inject({ method: "POST", url: "/api/session/password", payload: { password: "short" } })).statusCode).toBe(400);
     await setPassword();
-    expect((await t.app.inject({ method: "POST", url: "/api/session/password", payload: { password: "a new password" } })).statusCode).toBe(403);
-    expect((await t.app.inject({ method: "POST", url: "/api/session/password", payload: { current: PASSWORD, password: "a new password" } })).statusCode).toBe(200);
+    expect((await ask("POST", "/api/session/password", { cookie: owner, body: { password: "a new password" } })).statusCode).toBe(403);
+    expect((await ask("POST", "/api/session/password", { cookie: owner, body: { current: PASSWORD, password: "a new password" } })).statusCode).toBe(200);
     expect((await signIn()).statusCode).toBe(403);
     expect((await signIn({ password: "a new password" })).statusCode).toBe(200);
   });
@@ -197,12 +250,64 @@ describe("the password", () => {
   });
 });
 
+describe("the Access settings", () => {
+  it("change with a sign-in of the last 10 minutes, else with the password", async () => {
+    await setPassword();
+    expect((await ask("POST", "/api/session/settings", { cookie: owner, body: { stayDays: 7 } })).statusCode).toBe(200);
+    await age();
+    const asked = await ask("POST", "/api/session/settings", { cookie: owner, body: { resetTelegram: false } });
+    expect(asked.statusCode).toBe(403);
+    expect(asked.json()).toMatchObject({ needPassword: true });
+    expect((await ask("POST", "/api/session/settings", { cookie: owner, body: { resetTelegram: false, current: "wrong one!" } })).statusCode).toBe(403);
+    expect((await ask("POST", "/api/session/settings", { cookie: owner, body: { resetTelegram: false, current: PASSWORD } })).statusCode).toBe(200);
+    const a = (await readSettings(t.db)).access;
+    expect([a.stayDays, a.resetTelegram]).toEqual([7, false]);
+  });
+
+  it("hold the new-device notice too, through Access or the notifications' grid", async () => {
+    await setPassword();
+    await age();
+    expect((await ask("PUT", "/api/settings", { cookie: owner, body: { notify: { events: { newDevice: { telegram: false } } } } })).json()).toMatchObject({ needPassword: true });
+    expect((await ask("POST", "/api/session/settings", { cookie: owner, body: { newDevice: { telegram: false }, current: PASSWORD } })).statusCode).toBe(200);
+    expect((await readSettings(t.db)).notify.events.newDevice.telegram).toBe(false);
+    // the other kinds are not held
+    expect((await ask("PUT", "/api/settings", { cookie: owner, body: { notify: { events: { renderDone: { telegram: true } } } } })).statusCode).toBe(200);
+  });
+
+  it("tell the streams at once", async () => {
+    await setPassword();
+    const heard = vi.fn();
+    t.services.access.on("changed", heard);
+    await ask("POST", "/api/session/settings", { cookie: owner, body: { stayDays: 90 } });
+    expect(heard).toHaveBeenCalled();
+  });
+});
+
+describe("/metrics", () => {
+  it("is open without a password, and locked with one but for a session or the metrics token", async () => {
+    expect((await ask("GET", "/metrics")).statusCode).toBe(200);
+    await setPassword();
+    const out = await ask("GET", "/metrics", { headers: { host: "localhost:8720" } });
+    expect(out.statusCode).toBe(401);
+    expect(out.body).not.toContain("afflatus_");
+    expect((await ask("GET", "/metrics", { cookie: owner })).statusCode).toBe(200);
+    const made = await ask("POST", "/api/session/metrics-token", { cookie: owner, body: { make: true } });
+    const token = made.json().token as string;
+    expect(token).toMatch(/^afm_/);
+    expect(JSON.stringify(await readSettings(t.db))).not.toContain(token);
+    expect((await ask("GET", "/metrics", { headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(200);
+    expect((await ask("GET", "/metrics", { headers: { authorization: `Bearer ${token}x` } })).statusCode).toBe(401);
+    await ask("POST", "/api/session/metrics-token", { cookie: owner, body: { make: false } });
+    expect((await ask("GET", "/metrics", { headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(401);
+  });
+});
+
 describe("wrong tries", () => {
   it("wait 1, then 5, then 15 minutes per address, start afresh after a right one or a quiet day", () => {
     let now = 0;
     const tries = new Tries(() => now);
-    for (let i = 4; i >= 1; i--) expect(tries.failed("a")).toEqual({ left: i, waitMs: 0 });
-    expect(tries.failed("a")).toEqual({ left: 0, waitMs: 60_000 });
+    for (let i = 4; i >= 1; i--) expect(tries.failed("a")).toEqual({ left: i, waitMs: 0, alarm: false });
+    expect(tries.failed("a")).toEqual({ left: 0, waitMs: 60_000, alarm: false });
     expect(tries.waitMs("a")).toBe(60_000);
     expect(tries.waitMs("b")).toBe(0);
     now += 60_000;
@@ -210,16 +315,14 @@ describe("wrong tries", () => {
     expect(tries.failed("a").waitMs).toBe(300_000);
     now += 300_000;
     for (let i = 0; i < 4; i++) tries.failed("a");
-    expect(tries.failed("a").waitMs).toBe(900_000);
+    // the longest wait reached: the owner is told
+    expect(tries.failed("a")).toMatchObject({ waitMs: 900_000, alarm: true });
     now += 900_000;
     for (let i = 0; i < 4; i++) tries.failed("a");
     expect(tries.failed("a").waitMs).toBe(900_000);
-    // a right one: afresh
     tries.succeeded("a");
-    expect(tries.failed("a")).toEqual({ left: 4, waitMs: 0 });
-    // a day without a wrong one: afresh too
-    for (let i = 0; i < 4; i++) tries.failed("c");
-    tries.failed("c");
+    expect(tries.failed("a")).toMatchObject({ left: 4, waitMs: 0 });
+    for (let i = 0; i < 5; i++) tries.failed("c");
     now += TRY_LIMITS.quietMs + 1;
     for (let i = 0; i < 4; i++) tries.failed("c");
     expect(tries.failed("c").waitMs).toBe(60_000);
@@ -230,13 +333,14 @@ describe("wrong tries", () => {
     const tries = new Tries(() => now);
     for (let i = 0; i < 29; i++) tries.failed(`10.0.0.${i}`);
     expect(tries.waitMs("10.9.9.9")).toBe(0);
-    tries.failed("10.0.1.1");
+    expect(tries.failed("10.0.1.1").alarm).toBe(true);
     expect(tries.waitMs("10.9.9.9")).toBe(60_000);
+    expect(tries.lastMinute()).toEqual({ wrong: 30, addresses: 30 });
     now += 60_000;
     expect(tries.waitMs("10.9.9.9")).toBe(0);
   });
 
-  it("say the tries left, then the wait, through the sign-in, without checking the password meanwhile", async () => {
+  it("say the tries left, then the wait, through the sign-in", async () => {
     await setPassword();
     for (let left = 4; left >= 1; left--) {
       const res = await signIn({ password: "wrong password" });
@@ -251,69 +355,20 @@ describe("wrong tries", () => {
     expect(waiting.json().wait).toBeGreaterThan(50);
     expect(waiting.headers["retry-after"]).toBeDefined();
     expect((await ask("GET", "/api/session")).json().wait).toBeGreaterThan(50);
-    // another address is not held up
     expect((await signIn({ from: "192.168.1.44" })).statusCode).toBe(200);
   });
-});
 
-describe("reset codes", () => {
-  /** An Access of its own on the test's database, with a clock the test moves, its console kept. */
-  const own = (now: () => number, logFile?: string) => {
-    const lines: string[] = [];
-    const a = new Access(t.db, t.services.notify, { now, logFile, log: { log: (l: string) => lines.push(l), warn: (l: string) => lines.push(l) } });
-    return { a, lines, code: () => /RESET CODE: (\d{6})/.exec(lines.join("\n"))?.[1] ?? "" };
-  };
-  const who = { ip: LAN, ua: CHROME, device: undefined, session: null };
-
-  it("are written to the console and the log file, work once, and set the new password", async () => {
+  it("hold for a burst sent at once: every wrong one counts, and the right one among them waits", async () => {
     await setPassword();
-    const dir = mkdtempSync(join(tmpdir(), "afflatus-log-"));
-    try {
-      const log = join(dir, "logs", "afflatus.log");
-      const { a, code } = own(Date.now, log);
-      await a.forgot("computer", LAN);
-      expect(code()).toMatch(/^\d{6}$/);
-      expect(readFileSync(log, "utf8")).toContain(`password reset code: ${code()}`);
-      await a.reset({ ...who, code: code(), password: "a brand new one", signOutOthers: true });
-      expect(await checkPassword("a brand new one", (await readSettings(t.db)).access.password!.hash)).toBe(true);
-      await expect(a.reset({ ...who, code: code(), password: "yet another one", signOutOthers: true })).rejects.toMatchObject({ statusCode: 403 });
-      expect(readFileSync(log, "utf8")).toMatch(/reset code sent to this computer[\s\S]*password reset with a code/);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    const burst = await Promise.all([...Array.from({ length: 15 }, () => signIn({ password: "wrong password" })), signIn()]);
+    const codes = burst.map((r) => r.statusCode);
+    expect(codes).not.toContain(200);
+    expect(codes.filter((c) => c === 403)).toHaveLength(5);
+    expect(codes.filter((c) => c === 429)).toHaveLength(11);
+    expect(t.services.access.passwordTries.waitMs(LAN)).toBeGreaterThan(0);
   });
 
-  it("expire after 10 minutes, and one goes at most once a minute", async () => {
-    await setPassword();
-    let now = Date.now();
-    const { a, code } = own(() => now);
-    await a.forgot("computer", LAN);
-    await expect(a.forgot("computer", LAN)).rejects.toMatchObject({ statusCode: 429 });
-    now += 10 * 60_000 + 1;
-    await expect(a.reset({ ...who, code: code(), password: "a brand new one", signOutOthers: true })).rejects.toMatchObject({ statusCode: 403, message: expect.stringContaining("expired") });
-  });
-
-  it("are used up by 5 wrong entries", async () => {
-    await setPassword();
-    const { a, code } = own(Date.now);
-    await a.forgot("computer", LAN);
-    const wrong = code() === "000000" ? "111111" : "000000";
-    for (let left = 4; left >= 1; left--) await expect(a.reset({ ...who, code: wrong, password: "a brand new one", signOutOthers: true })).rejects.toMatchObject({ left });
-    await expect(a.reset({ ...who, code: wrong, password: "a brand new one", signOutOthers: true })).rejects.toMatchObject({ message: expect.stringContaining("used up") });
-    // the right one is no good any more (and this address now waits)
-    await expect(a.reset({ ...who, ip: "192.168.1.99", code: code(), password: "a brand new one", signOutOthers: true })).rejects.toMatchObject({ statusCode: 403 });
-    expect(await checkPassword(PASSWORD, (await readSettings(t.db)).access.password!.hash)).toBe(true);
-  });
-
-  it("do not spend a try on a new password that is too short", async () => {
-    await setPassword();
-    const { a, code } = own(Date.now);
-    await a.forgot("computer", LAN);
-    await expect(a.reset({ ...who, code: code(), password: "short", signOutOthers: true })).rejects.toMatchObject({ statusCode: 400 });
-    await a.reset({ ...who, code: code(), password: "long enough now", signOutOthers: true });
-  });
-
-  it("go to Telegram when it is set up and allowed, and Telegram is told of the change", async () => {
+  it("tell the owner on Telegram, once, when everyone has to wait", async () => {
     const heard: string[] = [];
     const site: Server = createServer((req, res) => {
       const parts: Buffer[] = [];
@@ -327,23 +382,138 @@ describe("reset codes", () => {
     try {
       vi.stubEnv("TELEGRAM_URL", `http://127.0.0.1:${(site.address() as AddressInfo).port}`);
       await setPassword();
-      // not set up: refused, and the page is told only This computer
+      await writeSettings(t.db, { notify: { telegramToken: "123456789:AAE_test-token-0123456789abcdef", telegramChat: "42" } });
+      for (let i = 0; i < 30; i++) await signIn({ from: `10.0.0.${i % 8}`, password: "wrong password" });
+      await vi.waitFor(() => expect(heard.join("\n")).toContain("Sign-in attempts are being refused: 30 wrong tries in the last minute from 8 addresses."));
+      expect(heard.filter((h) => h.includes("refused"))).toHaveLength(1);
+      expect((await ask("GET", "/api/session/devices", { cookie: owner })).json().alarm.said).toContain("30 wrong tries");
+      // the owner's session goes on meanwhile
+      expect((await ask("GET", "/api/settings", { cookie: owner })).statusCode).toBe(200);
+    } finally {
+      await new Promise((r) => site.close(r));
+    }
+  });
+});
+
+describe("reset codes", () => {
+  /** An Access of its own on the test's database, with a clock the test moves, its console kept. */
+  const own = (now: () => number, logFile?: string) => {
+    const lines: string[] = [];
+    const a = new Access(t.db, t.services.notify, { now, logFile, log: { log: (l: string) => lines.push(l), warn: (l: string) => lines.push(l) } });
+    // the last code written, for the browser that asked last
+    return { a, lines, code: () => [...lines.join("\n").matchAll(/RESET CODE: (\d{6})/g)].at(-1)?.[1] ?? "" };
+  };
+  const who = { ip: LAN, ua: CHROME, device: undefined, session: null };
+  const wrongOf = (code: string) => (code === "000000" ? "111111" : "000000");
+
+  it("are written to the console and the log file, work once in the browser that asked, and set the new password", async () => {
+    await setPassword();
+    const dir = mkdtempSync(join(tmpdir(), "afflatus-log-"));
+    try {
+      const log = join(dir, "logs", "afflatus.log");
+      const { a, code } = own(Date.now, log);
+      const { nonce } = await a.forgot("computer", LAN, undefined);
+      expect(code()).toMatch(/^\d{6}$/);
+      expect(readFileSync(log, "utf8")).toContain(`password reset code: ${code()}`);
+      // another browser (no nonce, or another one) finds no code, and spends nothing of this one
+      await expect(a.reset({ ...who, nonce: undefined, code: code(), password: "a brand new one", signOutOthers: true })).rejects.toMatchObject({ statusCode: 400 });
+      await expect(a.reset({ ...who, nonce: "x".repeat(32), code: code(), password: "a brand new one", signOutOthers: true })).rejects.toMatchObject({ statusCode: 400 });
+      await a.reset({ ...who, nonce, code: code(), password: "a brand new one", signOutOthers: true });
+      expect(await checkPassword("a brand new one", (await readSettings(t.db)).access.password!.hash)).toBe(true);
+      await expect(a.reset({ ...who, nonce, code: code(), password: "yet another one", signOutOthers: true })).rejects.toMatchObject({ statusCode: 400 });
+      expect(readFileSync(log, "utf8")).toMatch(/reset code sent to this computer[\s\S]*password reset with a code/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("expire after 10 minutes, and one goes to an address at most once a minute", async () => {
+    await setPassword();
+    let now = Date.now();
+    const { a, code } = own(() => now);
+    const { nonce } = await a.forgot("computer", LAN, undefined);
+    await expect(a.forgot("computer", LAN, nonce)).rejects.toMatchObject({ statusCode: 429 });
+    // another address is not held up by it
+    await a.forgot("computer", "192.168.1.44", undefined);
+    now += 10 * 60_000 + 1;
+    await expect(a.reset({ ...who, nonce, code: code(), password: "a brand new one", signOutOthers: true })).rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining("expired") });
+  });
+
+  it("are used up by 5 wrong entries of their own browser, never by another's", async () => {
+    await setPassword();
+    const { a, code } = own(Date.now);
+    const mine = (await a.forgot("computer", LAN, undefined)).nonce;
+    const ownerCode = code();
+    // someone else asks for one: the owner's stays
+    const theirs = (await a.forgot("computer", "10.0.0.9", undefined)).nonce;
+    const theirCode = code();
+    for (let left = 4; left >= 1; left--) await expect(a.reset({ ...who, ip: "10.0.0.9", nonce: theirs, code: wrongOf(theirCode), password: "a brand new one", signOutOthers: true })).rejects.toMatchObject({ left });
+    await expect(a.reset({ ...who, ip: "10.0.0.9", nonce: theirs, code: wrongOf(theirCode), password: "a brand new one", signOutOthers: true })).rejects.toMatchObject({ message: expect.stringContaining("used up") });
+    await expect(a.reset({ ...who, ip: "10.0.0.9", nonce: theirs, code: theirCode, password: "a brand new one", signOutOthers: true })).rejects.toMatchObject({ statusCode: 429 });
+    // the owner's code still works, in the owner's browser
+    await a.reset({ ...who, nonce: mine, code: ownerCode, password: "the owner's new one", signOutOthers: true });
+    expect(await checkPassword("the owner's new one", (await readSettings(t.db)).access.password!.hash)).toBe(true);
+  });
+
+  it("count nothing while no code waits, and pause at most 15 minutes after too many wrong ones", async () => {
+    await setPassword();
+    let now = Date.now();
+    const { a, code } = own(() => now);
+    // entries without a code: nothing to guess, nothing counted
+    for (let i = 0; i < 30; i++) await expect(a.reset({ ...who, ip: `10.1.0.${i}`, nonce: "y".repeat(32), code: "123456", password: "a brand new one", signOutOthers: true })).rejects.toMatchObject({ statusCode: 400 });
+    const mine = (await a.forgot("computer", LAN, undefined)).nonce;
+    // 20 wrong entries from many addresses, each with a code of its own: codes pause for everyone, for the window
+    for (let i = 0; i < 4; i++) {
+      const n = (await a.forgot("computer", `10.2.0.${i}`, undefined)).nonce;
+      for (let j = 0; j < 5; j++) await a.reset({ ...who, ip: `10.2.0.${i}`, nonce: n, code: wrongOf(code()), password: "a brand new one", signOutOthers: true }).catch(() => {});
+    }
+    await expect(a.forgot("computer", "10.3.0.1", undefined)).rejects.toMatchObject({ statusCode: 429 });
+    now += 15 * 60_000 + 1;
+    // the window passed: the owner asks again and is let back in
+    const again = (await a.forgot("computer", LAN, mine)).nonce;
+    expect(again).toBe(mine);
+    await a.reset({ ...who, nonce: mine, code: code(), password: "a brand new one", signOutOthers: true });
+  });
+
+  it("do not spend a try on a new password that is too short", async () => {
+    await setPassword();
+    const { a, code } = own(Date.now);
+    const { nonce } = await a.forgot("computer", LAN, undefined);
+    await expect(a.reset({ ...who, nonce, code: code(), password: "short", signOutOthers: true })).rejects.toMatchObject({ statusCode: 400 });
+    await a.reset({ ...who, nonce, code: code(), password: "long enough now", signOutOthers: true });
+  });
+
+  it("go to Telegram when it is set up and allowed, tied to the browser's cookie, and Telegram is told of the change", async () => {
+    const heard: string[] = [];
+    const site: Server = createServer((req, res) => {
+      const parts: Buffer[] = [];
+      req.on("data", (c: Buffer) => parts.push(c));
+      req.on("end", () => {
+        heard.push((JSON.parse(Buffer.concat(parts).toString()) as { text: string }).text);
+        res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ ok: true, result: {} }));
+      });
+    });
+    await new Promise<void>((r) => site.listen(0, "127.0.0.1", r));
+    try {
+      vi.stubEnv("TELEGRAM_URL", `http://127.0.0.1:${(site.address() as AddressInfo).port}`);
+      await setPassword();
       expect((await ask("POST", "/api/session/forgot", { body: { via: "telegram" } })).statusCode).toBe(409);
       expect((await ask("GET", "/api/session")).json().telegram).toBe(false);
       await writeSettings(t.db, { notify: { telegramToken: "123456789:AAE_test-token-0123456789abcdef", telegramChat: "42" } });
       expect((await ask("GET", "/api/session")).json().telegram).toBe(true);
-      // every kind's tick off: the code goes all the same, it is not a notice
-      await writeSettings(t.db, { notify: { events: Object.fromEntries(["renderFailed", "newDevice"].map((k) => [k, { telegram: false }])) } });
       const sent = await ask("POST", "/api/session/forgot", { body: { via: "telegram" } });
       expect(sent.statusCode).toBe(200);
+      const resetCookie = ([sent.headers["set-cookie"]].flat() as string[]).find((c) => c.startsWith(`${NAMES.reset}=`))!;
+      expect(resetCookie).toMatch(/Path=\/api\/session; HttpOnly; SameSite=Strict; Max-Age=600/);
       const code = /Code: (\d{6})/.exec(heard.join("\n"))?.[1];
       expect(code).toMatch(/^\d{6}$/);
-      const reset = await ask("POST", "/api/session/reset", { body: { code, password: "a brand new one", signOutOthers: true } });
+      // without the browser's cookie the code finds nothing
+      expect((await ask("POST", "/api/session/reset", { body: { code, password: "a brand new one" } })).statusCode).toBe(400);
+      const reset = await ask("POST", "/api/session/reset", { cookie: jar(sent), body: { code, password: "a brand new one", signOutOthers: true } });
       expect(reset.statusCode).toBe(200);
       expect((await ask("GET", "/api/settings", { cookie: jar(reset) })).statusCode).toBe(200);
       expect(heard.at(-1)).toContain("password changed");
-      // turned off in Access: Telegram is not offered
-      await writeSettings(t.db, { access: { resetTelegram: false } });
+      await updateSettings(t.db, (s) => ({ access: { ...s.access, resetTelegram: false } }));
       expect((await ask("GET", "/api/session")).json().telegram).toBe(false);
     } finally {
       await new Promise((r) => site.close(r));
@@ -360,12 +530,26 @@ describe("sessions", () => {
     expect(remembered.find((c) => c.startsWith(`${NAMES.device}=`))).toMatch(/HttpOnly; SameSite=Lax; Max-Age=34560000/);
     const once = ([(await signIn({ remember: false })).headers["set-cookie"]].flat() as string[]).find((c) => c.startsWith(`${NAMES.session}=`))!;
     expect(once).not.toContain("Max-Age");
-    // the token is in the cookie only: the database has its hash
     const token = decodeURIComponent(session.split(";")[0]!.split("=")[1]!);
     expect((await t.db.selectFrom("sessions").select("id").execute()).map((r) => r.id)).not.toContain(token);
-    // Secure over https
     expect(cookie(NAMES.session, "x", { maxAgeS: null, secure: true })).toBe(`${NAMES.session}=x; Path=/; HttpOnly; SameSite=Lax; Secure`);
     expect(cookiesOf("a=1; b=%zz; c=x%20y")).toEqual({ a: "1", c: "x y" });
+  });
+
+  it("set the cookie Secure behind an https proxy on this computer, or with an https PUBLIC_URL, never on a remote's word", async () => {
+    await setPassword();
+    const viaProxy = ([(await signIn({ from: "127.0.0.1", headers: { "x-forwarded-proto": "https", "x-forwarded-for": "203.0.113.9" } })).headers["set-cookie"]].flat() as string[]).join("\n");
+    expect(viaProxy).toContain("Secure");
+    const remote = ([(await signIn({ headers: { "x-forwarded-proto": "https" } })).headers["set-cookie"]].flat() as string[]).join("\n");
+    expect(remote).not.toContain("Secure");
+    vi.stubEnv("PUBLIC_URL", "https://afflatus.example.net");
+    const published = ([(await signIn({ from: "10.0.0.7" })).headers["set-cookie"]].flat() as string[]).join("\n");
+    expect(published).toContain("Secure");
+    const req = (ip: string, proto?: string) => ({ protocol: "http", socket: { remoteAddress: ip }, headers: proto ? { "x-forwarded-proto": proto } : {} }) as unknown as Parameters<typeof overHttps>[0];
+    vi.unstubAllEnvs();
+    expect(overHttps(req("::1", "https"))).toBe(true);
+    expect(overHttps(req(LAN, "https"))).toBe(false);
+    expect(overHttps(req("127.0.0.1"))).toBe(false);
   });
 
   it("end after 12 h idle when not remembered, write their last seen at most once a minute", async () => {
@@ -373,7 +557,7 @@ describe("sessions", () => {
     let now = Date.now();
     const a = new Access(t.db, null, { now: () => now, log: quiet });
     const g = await a.signIn({ password: PASSWORD, remember: false, ip: LAN, ua: CHROME, device: undefined });
-    const seen = async () => (await t.db.selectFrom("sessions").select("last_seen_at").executeTakeFirstOrThrow()).last_seen_at;
+    const seen = async () => (await t.db.selectFrom("sessions").select("last_seen_at").where("id", "!=", "").orderBy("created_at", "desc").executeTakeFirstOrThrow()).last_seen_at;
     const first = await seen();
     now += 30_000;
     expect(await a.sessionOf(g.token, LAN)).not.toBeNull();
@@ -383,16 +567,17 @@ describe("sessions", () => {
     expect(await seen()).not.toBe(first);
     now += IDLE_MS + 60_000;
     expect(await a.sessionOf(g.token, LAN)).toBeNull();
-    // a remembered one lasts its days, used or not
     const kept = await a.signIn({ password: PASSWORD, remember: true, ip: LAN, ua: CHROME, device: undefined });
     now += 29 * 86_400_000;
     expect(await a.sessionOf(kept.token, LAN)).not.toBeNull();
     now += 2 * 86_400_000;
     expect(await a.sessionOf(kept.token, LAN)).toBeNull();
+    a.stop();
   });
 
   it("are listed, and signed out one by one or everywhere", async () => {
     await setPassword();
+    await t.db.deleteFrom("sessions").execute();
     const mine = jar(await signIn());
     const phone = jar(await signIn({ from: "192.168.1.44", ua: IPHONE }));
     const third = jar(await signIn({ from: "100.88.3.17" }));
@@ -403,11 +588,9 @@ describe("sessions", () => {
     expect((await ask("POST", `/api/session/devices/${iphone.id}/sign-out`, { cookie: mine, body: {} })).statusCode).toBe(200);
     expect((await ask("GET", "/api/settings", { from: "192.168.1.44", cookie: phone })).statusCode).toBe(401);
     expect((await ask("GET", "/api/settings", { from: "100.88.3.17", cookie: third })).statusCode).toBe(200);
-    // everywhere but here
     expect((await ask("POST", "/api/session/sign-out-everywhere", { cookie: mine, body: { keepThis: true } })).statusCode).toBe(200);
     expect((await ask("GET", "/api/settings", { from: "100.88.3.17", cookie: third })).statusCode).toBe(401);
     expect((await ask("GET", "/api/settings", { cookie: mine })).statusCode).toBe(200);
-    // and here too
     const out = await ask("POST", "/api/session/sign-out-everywhere", { cookie: mine, body: {} });
     expect(String(out.headers["set-cookie"])).toContain("Max-Age=0");
     expect((await ask("GET", "/api/settings", { cookie: mine })).statusCode).toBe(401);
@@ -418,6 +601,25 @@ describe("sessions", () => {
     const mine = jar(await signIn());
     await ask("POST", "/api/session/sign-out", { cookie: mine, body: {} });
     expect((await ask("GET", "/api/settings", { cookie: mine })).statusCode).toBe(401);
+  });
+
+  it("end the live event stream once the session expires, without anything said meanwhile", async () => {
+    await setPassword();
+    const mine = jar(await signIn());
+    await t.app.listen({ host: "127.0.0.1", port: 0 });
+    const { port } = t.app.server.address() as AddressInfo;
+    t.services.access.recheckEvery(50);
+    const ended = new Promise<number>((resolve, reject) => {
+      const req = httpGet({ host: "127.0.0.1", port, path: "/api/events", headers: { cookie: mine, host: "localhost" } }, (res) => {
+        expect(res.statusCode).toBe(200);
+        res.resume();
+        // the stream is open: the session is let expire in the database, which nothing announces
+        void t.db.updateTable("sessions").set({ expires_at: new Date(Date.now() - 1000).toISOString() }).execute();
+        res.on("end", () => resolve(Date.now()));
+      });
+      req.on("error", reject);
+    });
+    expect(await ended).toBeGreaterThan(0);
   });
 
   it("name the device by its browser", () => {
@@ -437,7 +639,6 @@ describe("a new device", () => {
     const first = await signIn();
     expect(notices.filter((n) => n.kind === "newDevice")).toHaveLength(1);
     expect(notices[0]!.body).toContain(`Chrome on Windows from ${LAN}`);
-    // the same browser (its device cookie) signs in again: nothing new
     await signIn({ cookie: jar(first) });
     expect(notices.filter((n) => n.kind === "newDevice")).toHaveLength(1);
     await signIn({ from: "192.168.1.44", ua: IPHONE });
@@ -445,8 +646,7 @@ describe("a new device", () => {
   });
 
   it("goes to Telegram by default, not Discord", async () => {
-    const events = (await readSettings(t.db)).notify.events.newDevice;
-    expect(events).toEqual({ telegram: true, discord: false });
+    expect((await readSettings(t.db)).notify.events.newDevice).toEqual({ telegram: true, discord: false });
   });
 });
 

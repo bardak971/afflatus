@@ -221,6 +221,7 @@ export async function createServices(
       clearInterval(podFilesTimer);
       rented.stop();
       notify.stop();
+      access.stop();
       await precompute?.stop();
       queue.stop();
       await queue.idle();

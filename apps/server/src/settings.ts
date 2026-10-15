@@ -165,12 +165,18 @@ const passwordSchema = z.object({ hash: z.string().max(400), setAt: z.string().m
 const accessSchema = z.object({
   /** Null: no password, Afflatus is open to whoever reaches it, as before there was one. */
   password: passwordSchema.nullable().default(null),
-  /** A request from this computer itself (access.ts fromThisComputer) needs no password. */
-  localNoPassword: z.boolean().default(true),
+  /**
+   * A request from this computer itself (hostCheck.ts fromThisComputer) needs no password. Off by default, and never in
+   * effect while Afflatus listens on loopback only (access.ts bypassOn): anyone else then comes through a forwarder on
+   * this computer, which looks like it.
+   */
+  localNoPassword: z.boolean().default(false),
   /** How long a device that ticked "Remember" stays signed in. */
   stayDays: z.union([z.literal(1), z.literal(7), z.literal(30), z.literal(90)]).default(30),
   /** Reset codes may go to Telegram (when it is set in Notifications); the console and the log file always have them. */
   resetTelegram: z.boolean().default(true),
+  /** The SHA-256 of the token Prometheus sends for /metrics while a password is set (access.ts metricsToken); empty: none. */
+  metricsToken: z.string().max(100).default(""),
 });
 export type AccessSettings = z.infer<typeof accessSchema>;
 
@@ -451,12 +457,10 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
   }
   // the page sends what it changed of `notify`, and never the token nor the webhook, which it is not given: merged into what is saved
   if (sent.notify !== undefined) sent.notify = notifyMerged(current.notify, sent.notify);
-  // the same for `access`, whose password the page can never write: it is set through its own routes (access-api.ts), which
-  // ask for the current one or a reset code
+  // `access` is never the page's to write here: its own routes (access-api.ts) ask for a recent sign-in or the password
   if (sent.access !== undefined) {
-    const asked = sent.access && typeof sent.access === "object" ? { ...(sent.access as Record<string, unknown>) } : sent.access;
-    if (fromPage && asked && typeof asked === "object") delete (asked as Record<string, unknown>).password;
-    sent.access = asked && typeof asked === "object" ? { ...current.access, ...asked } : asked;
+    if (fromPage) throw httpError("The Access settings are changed in Settings › Interface › Access, which asks for the password.", 403);
+    sent.access = sent.access && typeof sent.access === "object" ? { ...current.access, ...(sent.access as Record<string, unknown>) } : sent.access;
   }
   const next = settingsSchema.parse({ ...current, ...sent });
   const ids = new Set(next.llms.map((l) => l.id));
@@ -544,6 +548,6 @@ export function publicSettings(s: Settings) {
     // the bot's token and the webhook stay here: anyone who has either can write as Afflatus
     notify: { hasTelegramToken: Boolean(s.notify.telegramToken), telegramChat: s.notify.telegramChat, hasDiscordWebhook: Boolean(s.notify.discordWebhook), picture: s.notify.picture, events: s.notify.events },
     // the password's hash stays here: the page is told whether there is one, and since when
-    access: { hasPassword: s.access.password !== null, passwordSetAt: s.access.password?.setAt ?? null, localNoPassword: s.access.localNoPassword, stayDays: s.access.stayDays, resetTelegram: s.access.resetTelegram },
+    access: { hasPassword: s.access.password !== null, passwordSetAt: s.access.password?.setAt ?? null, localNoPassword: s.access.localNoPassword, stayDays: s.access.stayDays, resetTelegram: s.access.resetTelegram, hasMetricsToken: Boolean(s.access.metricsToken) },
   };
 }

@@ -9,7 +9,7 @@ Set them before starting: in the console on Windows (`set PORT=8730` in cmd, `$e
 | Variable | Default | Meaning |
 |---|---|---|
 | `PORT` | `8720` | The port to listen on |
-| `HOST` | `127.0.0.1` | The address to listen on. `0.0.0.0` opens it to your network; the Docker image listens on all. Set a password (Settings › Interface › Access) first: see [Security](../SECURITY.md) |
+| `HOST` | `127.0.0.1` | The address to listen on. `0.0.0.0` opens it to your network; the Docker image listens on all. Set a password (Settings › Interface › Access) first: see [Security](../SECURITY.md). Listening on loopback only, the password's "From this computer" exemption cannot be turned on |
 | `DATA_DIR` | `./data` (`/data` in the image) | Where the database and the files live |
 | `PUBLIC_URL` | empty | The address other machines reach Afflatus at (`http://192.168.x.y:8720`). Needed when ComfyUI runs on another machine, so Afflatus's node pack (or ComfyUI-Manager) can fetch downloads through Afflatus. Its host is also answered to |
 | `ALLOWED_HOSTS` | empty | Host names Afflatus answers to, comma-separated, besides `localhost`, `127.0.0.1`, `HOST` and the host of `PUBLIC_URL`: the machine's LAN name or address, a reverse proxy's name. A request for any other name gets a 403 (this stops DNS rebinding). A reverse proxy must send `X-Forwarded-For`: Update, Go back and the 0.3.0 move are refused through it, and taken only at `localhost` or `127.0.0.1` on the machine itself |
