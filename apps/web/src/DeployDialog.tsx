@@ -235,14 +235,17 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
           />
         ) : (
         <section className="flex flex-col gap-1.5">
-          <span className="flex items-center gap-2 text-xs font-semibold text-ink-2">
-            GPU · in stock now
-            {readAgo !== null && <span className="font-normal text-ink-3">read {readAgo} s ago</span>}
+          <span className="flex items-center gap-2 text-[13px] font-semibold text-ink-2">
+            GPU <span className="font-normal text-ink-3">· in stock now</span>
+            {readAgo !== null && <span className="text-xs font-normal text-ink-3">read {readAgo} s ago</span>}
             <button type="button" aria-label="Read RunPod's stock now" data-tip="Read now (every 15 s by itself)" onClick={() => void gpus.refetch()} disabled={gpus.isFetching} className="grid size-6 place-items-center rounded-md text-ink-3 hover:bg-hover hover:text-ink disabled:opacity-50">
               <RotateCw size={12} className={cx(gpus.isFetching && "animate-spin")} />
             </button>
             <span className="grow" />
-            <input aria-label="Find a GPU" placeholder="Find: 5090, 48 GB…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape" && q) { e.stopPropagation(); setQ(""); } }} className={cx(fieldClass, "h-7 w-36 px-2 text-xs font-normal")} />
+            <label className={cx(fieldClass, "flex h-8 w-44 items-center gap-1.5 rounded-lg px-2 text-xs font-normal focus-within:border-accent")}>
+              <Search size={13} className="shrink-0 text-ink-3" />
+              <input aria-label="Find a GPU" placeholder="Find: 5090, 48 GB…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape" && q) { e.stopPropagation(); setQ(""); } }} className="min-w-0 grow bg-transparent outline-none placeholder:text-ink-3" />
+            </label>
             <Segmented<DeployAsk["cloud"]> size="sm" label="Cloud" value={want.cloud} options={[{ value: "SECURE", label: "Secure" }, { value: "COMMUNITY", label: "Community" }]} onChange={(cloud) => set({ cloud })} />
             <Help text={WHY_CLOUD} />
           </span>
@@ -270,7 +273,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
                 role="radio"
                 aria-checked={g.id === want.gpu}
                 onClick={() => set({ gpu: g.id })}
-                className={cx("grid grid-cols-[minmax(0,1fr)_64px_90px_70px_76px] items-center gap-3 border-b border-line/60 px-3 py-2 text-left text-[13px] last:border-b-0", g.id === want.gpu ? "bg-accent-wash" : "hover:bg-hover")}
+                className={cx("grid grid-cols-[minmax(0,1fr)_64px_90px_70px_76px] items-center gap-3 border-b border-line/60 px-3 py-2 text-left text-[13px] last:border-b-0", g.id === want.gpu ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : "hover:bg-hover")}
               >
                 <span className="min-w-0 truncate font-semibold">{g.name}</span>
                 <span className="text-right font-mono text-xs text-ink-2">{g.memory} GB</span>
@@ -301,7 +304,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
         {!changing && (
         <section className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-x-3 gap-y-3 text-[13px]">
           <span className="flex items-center gap-1.5 font-semibold text-ink-2">Image <Help text={WHY_TEMPLATE} /></span>
-          <Segmented<DeployAsk["template"]> label="Image" value={want.template} options={[{ value: "afflatus", label: images.data?.afflatus === false ? "Afflatus · not published" : "Afflatus · locked" }, { value: "runpod", label: "RunPod's ComfyUI · not locked" }]} onChange={(template) => set({ template })} />
+          <Segmented<DeployAsk["template"]> size="sm" className="w-fit" label="Image" value={want.template} options={[{ value: "afflatus", label: images.data?.afflatus === false ? "Afflatus · not published" : "Afflatus · locked" }, { value: "runpod", label: "RunPod's ComfyUI · not locked" }]} onChange={(template) => set({ template })} />
 
           <span className="flex items-center gap-1.5 font-semibold text-ink-2">Disk <Help text={WHY_DISK} /></span>
           <span className="flex flex-wrap items-center gap-2">
