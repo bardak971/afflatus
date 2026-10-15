@@ -43,6 +43,8 @@ const SORTS: Array<{ key: SortKey; label: string; help?: string; className?: str
 
 const WHY_TEMPLATE = "Afflatus: ComfyUI 0.37 with its Manager, the Afflatus node pack, and the packs most video forms use built in (DaSiWa's nodes, VideoHelperSuite, KJNodes, the MMH3 upscale). Its ComfyUI is locked from its first second (its token a RunPod secret), its watchdog armed, only ComfyUI's port open. RunPod's ComfyUI: RunPod's own image, without the Afflatus pack: not locked (anyone with its address can use it), no watchdog, no H3 continuation. Either pulls its image at its first start: a few minutes on a host that never had it.";
 const WHY_CLOUD = "Secure Cloud: RunPod's own data centers. Community Cloud: hosts run by others, cheaper, fewer guarantees: some have a GPU that does not work (the Afflatus image finds it at its start, and the pod is terminated within minutes, its pull time billed). Both bill by the second while the pod exists.";
+/** GB kept free on a pod's own disk beside its models (its outputs, the .part of a download): podFiles.ts DISK_MARGIN, and a little more. */
+const DISK_ROOM = 3;
 const WHY_DISK = "No volume: the models are fetched onto the pod's own disk at each deploy, and go with it when it is terminated ($0.10/GB a month while it runs, nothing after). A network volume keeps them between deploys, so a pod is ready in a minute ($0.07/GB a month, billed with or without a pod), and ties the pod to the volume's data center.";
 const WHY_ROOM = "When a model its jobs need does not fit on its disk, Afflatus first deletes models it fetched there that no waiting or running job needs, the longest unused first, and fetches them again if a job needs them later. It never deletes a file it did not fetch (the image's, a volume's own). Off: a job whose models do not fit goes to another machine, and its row says why. Off by default with a network volume, whose models are kept on purpose.";
 const WHY_DONE = "Idle: nothing rendering on it and nothing waiting that it could take. Terminate: nothing billed after, nothing left on RunPod (the pod, its secret). Watchdog: if this PC goes silent (crash, sleep, no internet), the node pack on the pod stops it by itself after that long (Afflatus's image only).";
@@ -176,8 +178,9 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
   const held = rank.data?.held ?? null;
   // the files the Models part ticked, and whether every licence of them was accepted
   const [models, setModels] = useState<ModelsPicked>({ files: [], leaveOut: [], accept: [], ready: true, bytes: 0 });
-  // the pod's own disk holds the files (with room for ComfyUI and its packs): a larger one proposed when they would not fit
-  const diskNeed = Math.ceil(models.bytes / 2 ** 30 + 30);
+  // the pod's own disk holds the files and the room kept free beside them (podFiles.ts DISK_MARGIN): the image is not on
+  // it (a fresh pod of image 0.1.10 used 0.55 GB of its 40, 2026-10-15). A larger one proposed when they would not fit
+  const diskNeed = Math.ceil(models.bytes / 2 ** 30 + DISK_ROOM);
   const diskFits = Boolean(want.volume) || diskNeed <= want.disk;
   const deploy = useMutation({
     mutationFn: () => api.deployGpu({ ...want, files: models.files, leaveOut: models.leaveOut, accept: models.accept }),
@@ -344,7 +347,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
         <DeployModels want={want} set={set} rate={(hunting ? pick?.price : picked?.price) ?? null} gpu={(hunting ? pick?.name : picked?.name) ?? null} onPicked={setModels} />
         {!diskFits && (
           <span className="flex items-center gap-2 text-xs text-warn-ink">
-            These files take about {diskNeed - 30} GB, with ComfyUI {diskNeed} GB: its disk of {want.disk} GB is too small.
+            These files take about {diskNeed - DISK_ROOM} GB, with the room kept free beside them {diskNeed} GB: its disk of {want.disk} GB is too small.
             <Button size="sm" onClick={() => set({ disk: DISKS.find((n) => n >= diskNeed) ?? Math.min(2000, Math.ceil(diskNeed / 50) * 50) })}>Use {DISKS.find((n) => n >= diskNeed) ?? Math.min(2000, Math.ceil(diskNeed / 50) * 50)} GB</Button>
           </span>
         )}
