@@ -44,6 +44,10 @@ const GROUPS: Array<{ title: string; kinds: Array<{ kind: NotifyKind; label: str
     title: "Machines",
     kinds: [{ kind: "comfyGone", label: "ComfyUI offline mid-render", help: "A machine's ComfyUI stopped answering while it rendered: crashed, closed, or its computer asleep." }],
   },
+  {
+    title: "Access",
+    kinds: [{ kind: "newDevice", label: "New device signed in", help: "A sign-in with the password from a device never seen before: its browser and address (Access). A reset code and \"Password changed\" go to Telegram whatever this says." }],
+  },
 ];
 
 /** The browser's word on its notifications: allowed, blocked, not asked yet, or none at all (a page over plain http elsewhere). */

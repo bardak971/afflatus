@@ -98,6 +98,14 @@ export const SETTINGS: SettingEntry[] = [
   { id: "notify.balanceLow", label: "Browser notification: RunPod balance low", page: "interface", words: "notify browser notification rented runpod balance low credit money", scope: "this browser", kind: "switch", about: "A notification of this browser when the RunPod balance runs low.", get: () => Boolean(useNotify.getState().browser.balanceLow), set: (_c, v) => notifySwitch("balanceLow", Boolean(v)) },
   { id: "notify.gpuFound", label: "Browser notification: GPU found", page: "interface", words: "notify browser notification rented runpod hunt gpu found deployed", scope: "this browser", kind: "switch", about: "A notification of this browser when a GPU hunt finds and deploys one.", get: () => Boolean(useNotify.getState().browser.gpuFound), set: (_c, v) => notifySwitch("gpuFound", Boolean(v)) },
   { id: "notify.huntGaveUp", label: "Browser notification: hunt gave up", page: "interface", words: "notify browser notification rented runpod hunt gave up", scope: "this browser", kind: "switch", about: "A notification of this browser when a GPU hunt gives up.", get: () => Boolean(useNotify.getState().browser.huntGaveUp), set: (_c, v) => notifySwitch("huntGaveUp", Boolean(v)) },
+  { id: "notify.newDevice", label: "Browser notification: new device signed in", page: "interface", words: "notify browser notification new device sign in password security", scope: "this browser", kind: "switch", about: "A notification of this browser when a device never seen before signs in with the password.", get: () => Boolean(useNotify.getState().browser.newDevice), set: (_c, v) => notifySwitch("newDevice", Boolean(v)) },
+  {
+    id: "access.stay", label: "Stay signed in", page: "interface", words: "password session remember device days cookie expire", scope: "Afflatus", kind: "choice",
+    about: "How long a device stays signed in when Remember was ticked at its sign-in; else until the browser closes or 12 h without use.",
+    get: (c) => (c.server ? String(c.server.access.stayDays) : undefined),
+    set: (c, v) => c.save({ access: { stayDays: Number(v) as 1 | 7 | 30 | 90 } }),
+    options: () => [{ value: "1", label: "1 day" }, { value: "7", label: "7 days" }, { value: "30", label: "30 days" }, { value: "90", label: "90 days" }],
+  },
   { id: "notify.comfyGone", label: "Browser notification: ComfyUI offline", page: "interface", words: "notify browser notification comfyui offline gone crashed", scope: "this browser", kind: "switch", about: "A notification of this browser when a ComfyUI stops answering in the middle of a render.", get: () => Boolean(useNotify.getState().browser.comfyGone), set: (_c, v) => notifySwitch("comfyGone", Boolean(v)) },
   {
     id: "notify.picture", label: "Notify with a small picture", page: "interface", words: "notifications telegram discord picture image thumbnail photo still", scope: "Afflatus", kind: "switch",

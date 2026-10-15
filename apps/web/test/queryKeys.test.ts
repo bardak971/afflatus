@@ -18,6 +18,8 @@ const pinned: Array<[QueryKey, unknown[]]> = [
   [k.queue(), ["queue"]],
   [k.settings(), ["settings"]],
   [k.health(), ["health"]],
+  [k.session(), ["session"]],
+  [k.signedDevices(), ["session", "devices"]],
   [k.updates(), ["updates"]],
   [k.entities(), ["entities"]],
   [k.workflows(), ["workflows"]],

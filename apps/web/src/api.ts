@@ -6,7 +6,8 @@ import type { Advice, FillPlan, GpuOffer, HuntAsk, HuntView, HistoryPage, Networ
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
-import type { DeployAsk, Health, FinishSettings, MachineProbe, Settings, SettingsPatch } from "./api/types/settings";
+import type { DeployAsk, Health, FinishSettings, MachineProbe, SessionState, Settings, SettingsPatch, SignedDevices } from "./api/types/settings";
+import { signedOut } from "./access/signedOut";
 import type { UpdatesView } from "./api/types/updates";
 import type { CommandEntry, CommandEstimate, CommandIndex, PromptHistoryItem } from "./api/types/bar";
 import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, HuggingFaceFind, CivitaiFind, DeployModels, ModelSet, SetFile, SetSearch, BrowseBases, BrowseCard, BrowseFile, BrowsePage, HashStatus } from "./api/types/models";
@@ -22,8 +23,11 @@ export * from "./api/types/bar";
 export * from "./api/types/updates";
 /** The server always answers errors as { error }, written for a person to read. */
 export class ApiError extends Error {
-  /** The HTTP status the server answered with; absent when it did not answer. */
-  constructor(message: string, readonly status?: number) {
+  /**
+   * The HTTP status the server answered with; absent when it did not answer. `said`: what a refusal of the password's adds
+   * (access.ts): the tries left before a wait, and the wait in seconds.
+   */
+  constructor(message: string, readonly status?: number, readonly said: { left?: number; wait?: number } = {}) {
     super(message);
   }
 }
@@ -33,7 +37,10 @@ export const NOT_ANSWERING = "Afflatus is not answering. Is it still running?";
 async function send(input: string, init: RequestInit): Promise<Response> {
   try {
     // the server takes a change only with this header, JSON or a file: a plain form from another site has none of them
-    return await fetch(input, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), "X-Afflatus": "1" } });
+    const res = await fetch(input, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), "X-Afflatus": "1" } });
+    // the lock's own 401 (access-api.ts), not a refusal of the route's: this browser's session ended, the sign-in comes back
+    if (res.status === 401 && res.headers.get("X-Afflatus-Sign-In") === "1") signedOut();
+    return res;
   } catch (err) {
     // a request given up on (a query no longer needed) stays an abort, for React Query to tell apart
     if (err instanceof TypeError) throw new ApiError(NOT_ANSWERING);
@@ -57,8 +64,8 @@ export function raw(method: string, path: string, body?: unknown, opts: { keepal
 
 /** What a request that did not succeed says, as `call` throws it: the server's own words, and its status. */
 export async function failure(res: Response): Promise<ApiError> {
-  const data = (await res.json().catch(() => ({}))) as { error?: string };
-  return new ApiError(data.error ?? `the server answered ${res.status}`, res.status);
+  const data = (await res.json().catch(() => ({}))) as { error?: string; left?: number; wait?: number };
+  return new ApiError(data.error ?? `the server answered ${res.status}`, res.status, { left: data.left, wait: data.wait });
 }
 
 /** `signal`: a query's, so that a query that is cancelled (refetched, left) also stops its request. */
@@ -70,15 +77,15 @@ async function call<T>(method: string, path: string, body?: unknown, signal?: Ab
     signal,
   });
   const text = await res.text().catch(() => "");
-  let data: { error?: string } = {};
+  let data: { error?: string; left?: number; wait?: number } = {};
   try {
-    if (text) data = JSON.parse(text) as { error?: string };
+    if (text) data = JSON.parse(text) as { error?: string; left?: number; wait?: number };
   } catch {
     // a success with a body that is not JSON is not Afflatus answering (a proxy's page, a login wall): said, never handed on
     // as an empty answer the screen would take for real. An empty body (a plain "done") stays {}.
     if (res.ok) throw new ApiError(`the server answered with something that is not Afflatus's (${res.headers.get("content-type") ?? "no type"})`, res.status);
   }
-  if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`, res.status);
+  if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`, res.status, { left: data.left, wait: data.wait });
   return data as T;
 }
 
@@ -134,6 +141,17 @@ export const api = {
   settings: (o?: Asked) => call<Settings>("GET", "/settings", undefined, o?.signal),
   saveSettings: (patch: SettingsPatch) => call<Settings>("PUT", "/settings", patch),
   /** "Afflatus: test" sent now to Telegram or Discord, with the saved settings: an error says why it did not go. */
+  /** The password (access-api.ts): what the page asks first, the sign-in, the reset codes, the devices signed in. */
+  session: () => call<SessionState>("GET", "/session"),
+  signIn: (password: string, remember: boolean) => call<{ ok: true }>("POST", "/session/sign-in", { password, remember }),
+  signOut: () => call<{ ok: true }>("POST", "/session/sign-out", {}),
+  forgotCode: (via: "telegram" | "computer") => call<{ via: "telegram" | "computer"; again: number }>("POST", "/session/forgot", { via }),
+  resetWithCode: (code: string, password: string, signOutOthers: boolean) => call<{ ok: true }>("POST", "/session/reset", { code, password, signOutOthers }),
+  signedDevices: () => call<SignedDevices>("GET", "/session/devices"),
+  signOutDevice: (id: string) => call<{ ok: true }>("POST", `/session/devices/${encodeURIComponent(id)}/sign-out`, {}),
+  signOutEverywhere: (keepThis: boolean) => call<{ ok: true }>("POST", "/session/sign-out-everywhere", { keepThis }),
+  setPassword: (password: string, current: string, signOutOthers: boolean) => call<{ ok: true }>("POST", "/session/password", { password, current, signOutOthers }),
+  passwordOff: (current: string) => call<{ ok: true }>("POST", "/session/password/off", { current }),
   testNotify: (channel: "telegram" | "discord") => call<{ ok: true }>("POST", "/notify/test", { channel }),
   /** The chats that wrote to the saved bot lately (Telegram's getUpdates, read once). */
   /** A picture or a video sent as it is to the Telegram chat or Discord channel of the notifications. */

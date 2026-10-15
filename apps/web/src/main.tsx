@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router } from "wouter";
 import { App } from "./App";
+import { Gate } from "./access/Gate";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { aroundNav, useGuardedLocation } from "./leaveGuard";
 import { reloadOnStaleChunks } from "./reload";
@@ -34,7 +35,10 @@ createRoot(document.getElementById("root")!).render(
       <QueryClientProvider client={client}>
         {/* every navigation passes the leave guard, and Back/Forward too (the location it reads): a screen with unsaved work asks first */}
         <Router aroundNav={aroundNav} hook={useGuardedLocation}>
-          <App />
+          {/* behind the password, when one is set (access/Gate.tsx): the app is drawn only once this browser is in */}
+          <Gate>
+            <App />
+          </Gate>
         </Router>
       </QueryClientProvider>
     </ErrorBoundary>
