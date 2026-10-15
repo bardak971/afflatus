@@ -7,7 +7,7 @@ import { addedBy } from "./events";
 import { httpError } from "./errors";
 import type { HuntSummary } from "./hunt";
 import { machinePaces, rates, statRows, type StatRows } from "./forecast";
-import { gathering, observeAdded } from "./serverMetrics";
+import { gathering, observeAdded, observePart } from "./serverMetrics";
 import type { Registry } from "./registry";
 import { record } from "./renders";
 import { lackOn, type Lack } from "./machineScans";
@@ -91,7 +91,8 @@ interface Lane {
 }
 
 /** A form's forecast as the queue reads it (ms): on no machine in particular, and on each machine it was asked for. */
-type Expected = { ms: number | null; on: ReadonlyMap<string, number> };
+/** `model`: the model file its renders are filed under (render_stats.model_file), also for a recipe that loads it from its family's slot; null when it cannot be built. */
+type Expected = { ms: number | null; on: ReadonlyMap<string, number>; model: string | null };
 
 /**
  * Of a waiting render, with several machines: the machines that can run it, and what keeps it off each of the others. A
@@ -320,6 +321,8 @@ export class Queue {
   /** Resolves when nothing is running and nothing can start (tests). */
   async idle(): Promise<void> {
     while (this.dispatching || this.inflight > 0) await new Promise((r) => setTimeout(r, 5));
+    // what a finished video is measured after its job closed lands too
+    await Promise.all(storing.measuresUnderWay());
   }
 
   // ---------------------------------------------------------------- enqueue / cancel / pause
@@ -645,7 +648,7 @@ ${JSON.stringify(input)}`;
     let got = kept.by.get(key);
     if (!got) {
       got = submitting.forecastOf(this.core, recipe.id, input, { cold, finishedFrom: job?.finished_from, clip: job?.clip_id ? { id: job.clip_id, fit: Boolean(job.clip_fit) } : null, machines })
-        .then((f) => ({ ms: f?.forecast.ms ?? null, on: new Map(Object.entries(f?.on ?? {}).map(([m, g]) => [m, g.ms])) }), () => ({ ms: null, on: new Map<string, number>() }));
+        .then((f) => ({ ms: f?.forecast.ms ?? null, on: new Map(Object.entries(f?.on ?? {}).map(([m, g]) => [m, g.ms])), model: f?.model || null }), () => ({ ms: null, on: new Map<string, number>(), model: null }));
       kept.by.set(key, got);
     }
     return got;
@@ -931,7 +934,8 @@ ${JSON.stringify(input)}`;
     const recipe = row && row.recipe_id !== CUT_JOB && row.recipe_id !== EXPORT_JOB ? this.registry.recipe(row.recipe_id) : undefined;
     if (!row || !recipe) return null;
     const input = readJson<Record<string, unknown>>(row.inputs, {});
-    const model = modelOf(recipe.inputs, input);
+    // a recipe that loads its model from its family's slot (SCAIL-2, Wan Animate, the tools) names none on its form: the one its graph loads
+    const model = modelOf(recipe.inputs, input) ?? (await this.expectedAll(recipe, input, false, row)).model;
     const held = new Set(lane.lastLoads ? lane.lastLoads.split("|").map(modelName) : []);
     const ms = await this.expected(recipe, input, Boolean(model && !held.has(model)), row, lane.id);
     if (ms === null) return null;
@@ -1003,7 +1007,9 @@ ${JSON.stringify(input)}`;
       const loadOn = new Map([...warm.on].flatMap(([m, ms]) => (cold.on.has(m) ? [[m, Math.max(0, cold.on.get(m)! - ms)] as const] : [])));
       // loading ahead renders nothing: its cost is the load alone
       return {
-        ...base, model: modelOf(recipe.inputs, input), renderMs: r.warm ? 0 : warm.ms, loadMs: warm.ms !== null && cold.ms !== null ? Math.max(0, cold.ms - warm.ms) : null,
+        // the model its graph loads when its form names none (a recipe loading it from its family's slot): where it is held
+        // is where it goes, as for any other model, and a machine holding another is not taken for warm
+        ...base, model: modelOf(recipe.inputs, input) ?? warm.model, renderMs: r.warm ? 0 : warm.ms, loadMs: warm.ms !== null && cold.ms !== null ? Math.max(0, cold.ms - warm.ms) : null,
         ...(r.warm ? {} : { renderOn: warm.on }), loadOn,
       };
     }));
@@ -1328,6 +1334,8 @@ ${JSON.stringify(input)}`;
         if (early && early !== resume.promptId) comfy.monitor.untrack(early);
         await this.db.updateTable("jobs").set({ resume: JSON.stringify(resume), updated_at: now() }).where("id", "=", row.id).execute();
         if (resume.warnings?.length) await this.warn(row.id, resume.warnings.join(" "));
+        // the window after this one (a motion transfer of a long source) has its driving part cut while this one renders
+        if (!row.warm) void submitting.cutAhead(core, row).catch(() => {});
       }
       running.promptId = resume.promptId;
       running.titles = resume.titles;
@@ -1379,9 +1387,17 @@ ${JSON.stringify(input)}`;
         return;
       }
       const filing = { at: performance.now(), parts: {} };
-      const generationId = await gathering(filing.parts, () => storing.store(core, comfy, recipe, resume!.input ?? input, resume!, outputs, row));
+      const filed = await gathering(filing.parts, () => storing.store(core, comfy, recipe, resume!.input ?? input, resume!, outputs, row));
       observeAdded(lane.id, "filing", performance.now() - filing.at, filing.parts);
+      const generationId = filed.id;
       made = generationId;
+      // measured while the machine takes its next job: /metrics' "measuring", and the editor told once its take has its figures
+      if (filed.measuring) {
+        void filed.measuring.then((ms) => {
+          observePart(lane.id, "measuring", ms);
+          if (row.clip_id) this.events.emit("timeline");
+        });
+      }
       await this.place(row, generationId, resume);
       // on record before the job says done: a screen told it is done reads its time with it (the forecast, the stats)
       await this.note(lane, row, recipe, resume, measured, "done", whole, tookMs, generationId);

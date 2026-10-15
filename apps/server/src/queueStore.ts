@@ -8,9 +8,10 @@ import { latentDriftOf } from "./latentStats";
 import { precomputeOf } from "./precompute";
 import { extOf, mimeOfFile, newAssetRow, pngSize } from "./media";
 import { makeThumb, thumbKey } from "./thumbs";
-import { readVideo } from "./video";
-import type { JobRow, QueueCore, Resume } from "./queueModel";
-import { addPart } from "./serverMetrics";
+import { ffmpegPool } from "./pool";
+import { sourceOf, type Storage } from "./storage";
+import { readVideo, videoFacts, type VideoFacts } from "./video";
+import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel";
 
 /** What a finished render leaves behind: its files in storage, its rows in the library, and the record of how it was made. */
 
@@ -60,12 +61,17 @@ export const renderedOf = (db: Db, asset: Tables["assets"]) => walkFinished(db, 
  */
 export const draftOf = (db: Db, asset: Tables["assets"]) => walkFinished(db, asset, () => false);
 
-/** Download the results, file them in the library, and record how they were made. */
+/**
+ * Download the results, file them in the library, and record how they were made. What is measured of a video (its look,
+ * the step where a continuation's run-up ends, the drift of its latent) is not waited for: it reads the stored file once the
+ * rows are written, while the machine takes its next job, and is patched into the generation when it is ready (`measuring`
+ * resolves with the milliseconds it took; see measuredFirst for what waits for it).
+ */
 export async function store(
   core: QueueCore, comfy: Comfy, recipe: Recipe<any>, input: Record<string, unknown>, resume: Resume,
   outputs: Outputs,
   row: Pick<JobRow, "id" | "draft_id" | "folder_id" | "look" | "asked"> & { clip_id?: string | null; label?: string | null },
-): Promise<string> {
+): Promise<{ id: string; measuring: Promise<number> | null }> {
   const { db, storage } = core;
   const files = collectOutputs(resume, outputs);
   if (!files.length) throw new Error("ComfyUI finished but returned no output");
@@ -82,17 +88,17 @@ export async function store(
   // then written together, so that a failure halfway leaves no generation without its files or the other way round.
   // What was put in storage before a failure is taken out again: no file is left that no row names
   const written: string[] = [];
-  // the background measure waits while the result comes down and is filed: the GPU's work is never held up by it
+  // the background measure waits while the result comes down, is filed and measured: the GPU's work is never held up by it
   const filed = precomputeOf(db)?.hold();
+  let measuring: Promise<number> | null = null;
   try {
     const rows: AssetRow[] = [];
+    // the last video's measure is the generation's, as it always was
+    let measure: { asset: string; work: () => Promise<Measure | null> } | null = null;
     for (const { file, kind } of files) {
-      const filed = await fileOne(core, comfy, recipe, input, resume, { file, kind }, sides, written);
-      // in its own column for the timelines, and in resolved as before (the asset API hands resolved out whole)
-      // a clip's face along it goes with its look: the timeline compares it as it does the brightness
-      const faces = faceFigures(resume, outputs);
-      if (filed.measure) resolved.measure = faces ? { ...filed.measure, face: faces.face, ...(faces.low !== null ? { faceLow: faces.low } : {}) } : filed.measure;
-      rows.push(newAssetRow({ ...filed.row, folder_id: folder, generation_id: generationId, created_at: at }));
+      const one = await fileOne(core, comfy, recipe, input, resume, { file, kind }, sides, written);
+      if (one.measure) measure = { asset: one.row.id, work: one.measure };
+      rows.push(newAssetRow({ ...one.row, folder_id: folder, generation_id: generationId, created_at: at }));
     }
     // what a draft made is named after it, numbered on; a timeline clip's take is named once it is placed (autoName.ts)
     const prompts = recipe.inputs.filter((s) => s.type === "prompt" && !s.optional).map((s) => s.id);
@@ -113,14 +119,67 @@ export async function store(
       }
     }
     await writeRows(db, { id: generationId, recipe, input, resolved, genMs: Date.now() - resume.startedAt, at }, row, sourcesOf(recipe, input, resume), rows);
+    // the rows are there: the measure goes on from here, and lets the background measure go once it is done
+    if (measure) measuring = measureLater(core, generationId, measure.asset, measure.work, faceFigures(resume, outputs), filed);
   } catch (err) {
     for (const key of written) await storage.delete(key).catch(() => {});
     throw err;
   } finally {
-    filed?.();
+    if (!measuring) filed?.();
   }
-  return generationId;
+  return { id: generationId, measuring };
 }
+
+/** The measures still being made, by the asset they are of: a job that joins onto that asset waits for its own (measuredFirst). */
+const pending = new Map<string, Promise<void>>();
+
+/**
+ * Measure a filed video off its stored file, in the server's ffmpeg pool, and patch the figures into its generation (its own
+ * column for the timelines, and `resolved`, which the asset API hands out whole). A failure only leaves the take without
+ * figures, as a video ffmpeg could not read always did. Resolves with how long it took.
+ */
+function measureLater(
+  { db, storage }: QueueCore, generationId: string, asset: string, work: () => Promise<Measure | null>,
+  faces: { face: number; low: number | null } | null, done: (() => void) | undefined,
+): Promise<number> {
+  const t0 = performance.now();
+  // the file is not taken away while ffmpeg reads it (a take thrown away at once)
+  const release = storage.hold?.();
+  const measured: Promise<void> = ffmpegPool(work)
+    .then(async (measure) => {
+      if (!measure) return;
+      // a clip's face along it goes with its look: the timeline compares it as it does the brightness
+      const full = faces ? { ...measure, face: faces.face, ...(faces.low !== null ? { faceLow: faces.low } : {}) } : measure;
+      const g = await db.selectFrom("generations").select("resolved").where("id", "=", generationId).executeTakeFirst();
+      if (!g) return;
+      const resolved = { ...readJson<Record<string, unknown>>(g.resolved, {}), measure: full };
+      await db.updateTable("generations").set({ measure: JSON.stringify(full), resolved: JSON.stringify(resolved) }).where("id", "=", generationId).execute();
+    })
+    .catch((err: Error) => console.warn(`[queue] a take was not measured: ${err.message}`))
+    .finally(() => {
+      if (pending.get(asset) === measured) pending.delete(asset);
+      done?.();
+      void release?.();
+    });
+  pending.set(asset, measured);
+  return measured.then(() => performance.now() - t0);
+}
+
+/**
+ * Wait until what is measured of these assets is done, at most `capMs`: a continuation sends its prompt once the take it
+ * joins onto has its figures, so that the two land in order, while its own files go up meanwhile. Nothing to wait for
+ * with any other asset.
+ */
+export async function measuredFirst(assets: Iterable<string>, capMs = 60_000): Promise<void> {
+  const waits = [...new Set(assets)].flatMap((a) => (pending.has(a) ? [pending.get(a)!] : []));
+  if (!waits.length) return;
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([Promise.all(waits), new Promise((go) => (timer = setTimeout(go, capMs)))]);
+  clearTimeout(timer);
+}
+
+/** The measures under way (the queue's idle waits for them: tests, shutdown). */
+export const measuresUnderWay = (): Promise<void>[] => [...pending.values()];
 
 /** How much the face in the result is the person of the photos it was made with (a Face Match node's figure), or null. */
 function faceOf(resume: Resume, outputs: Outputs): number | null {
@@ -172,83 +231,57 @@ function sideFiles(resume: Resume, outputs: Outputs): Sides {
   return sides;
 }
 
-/** One result into storage, with its thumbnail, its side files and what is read off it; `written` gathers every key put. */
+/** One result into storage, with its thumbnail and its side files; `written` gathers every key put. What is measured of a video is handed back to run later. */
 async function fileOne(
   { db, storage }: QueueCore, comfy: Comfy, recipe: Recipe<any>, input: Record<string, unknown>, resume: Resume,
   { file, kind }: { file: OutputFile; kind: "image" | "video" | "audio" }, sides: Sides, written: string[],
-): Promise<{ row: Omit<Parameters<typeof newAssetRow>[0], "folder_id" | "generation_id" | "created_at">; measure: Measure | null }> {
+): Promise<{ row: Omit<Parameters<typeof newAssetRow>[0], "folder_id" | "generation_id" | "created_at">; measure: (() => Promise<Measure | null>) | null }> {
   const put = async (key: string, bytes: Uint8Array) => {
     written.push(key);
     await storage.put(key, bytes);
   };
-  let bytes = await comfy.client.view(file);
+  // what is saved beside a video result goes with the first video only
+  const side = kind === "video" ? { ...sides } : { raw: null, latent: null, fine: null };
+  if (kind === "video") Object.assign(sides, { raw: null, latent: null, fine: null });
+  // the result and what is saved beside it come down at once: one after the other, a pod's GPU waited for each
+  const [main, rawBytes, latentBytes, fineBytes] = await Promise.all([
+    comfy.client.view(file),
+    side.raw ? comfy.client.view(side.raw) : null,
+    side.latent ? comfy.client.view(side.latent) : null,
+    side.fine ? comfy.client.view(side.fine) : null,
+  ]);
+  let bytes = main;
   const mime = mimeOfFile(file.filename);
+  const ext = extOf(mime);
+  const headMs = resume.overlap?.headMs ?? 0;
   // a clip continued in the latent: the sound's hole at the hand-over is closed (see repairJoinAudio)
-  if (kind === "video" && resume.overlap?.latent && resume.overlap.headMs > 0) {
-    bytes = await repairJoinAudio(bytes, extOf(mime), resume.overlap.headMs).catch((err: Error) => {
+  if (kind === "video" && resume.overlap?.latent && headMs > 0) {
+    bytes = await repairJoinAudio(bytes, ext, headMs).catch((err: Error) => {
       console.warn(`[queue] the join's sound was not repaired: ${err.message}`);
       return bytes;
     });
   }
   const id = newId();
-  const key = `assets/${id.slice(0, 2)}/${id}.${extOf(mime)}`;
-  await put(key, bytes);
-  // what reading and measuring the result costs while its machine waits: /metrics' "measuring"
-  const measuring = performance.now();
-  // a video is read for its size, its length and a frame to show (when ffmpeg is installed)
-  const video = kind === "video" ? await readVideo(bytes, extOf(mime)) : null;
-  const size = kind === "image" ? pngSize(bytes) : video?.facts ?? null;
-  // how the clip's own part looks (mean luma, sharpness), kept with the render: a run of clips that flow on
-  // can then be checked for sliding darker or softer clip after clip (see lookOf)
-  let measure: Measure | null = null;
-  if (video?.facts) measure = await lookOf(bytes, extOf(mime), resume.overlap?.headMs ?? 0).catch(() => null);
-  // a continuation: the step where its run-up ends and its own frames begin, kept with the look. The join
-  // figures look at the take-over point, which sits inside the run-up and copies the clip before whatever
-  // happens next; a model that steps away from its guide cuts here, and only this figure says so
-  if (measure && resume.overlap?.headMs) measure.handover = (await runUpBreak(bytes, extOf(mime), resume.overlap.headMs).catch(() => null)) ?? undefined;
+  const key = `assets/${id.slice(0, 2)}/${id}.${ext}`;
+  const rawKey = rawBytes && side.raw ? `assets/${id.slice(0, 2)}/${id}.raw.${extOf(mimeOfFile(side.raw.filename))}` : null;
+  const latentFrames = latentBytes ? latentFramesOf(latentBytes) : null;
+  const latentKey = latentBytes && latentFrames ? `assets/${id.slice(0, 2)}/${id}.latent.safetensors` : null;
+  const fineKey = fineBytes ? `assets/${id.slice(0, 2)}/${id}.fine.safetensors` : null;
+  await Promise.all([
+    put(key, bytes),
+    rawKey ? put(rawKey, rawBytes!) : null,
+    latentKey ? put(latentKey, latentBytes!) : null,
+    fineKey ? put(fineKey, fineBytes!) : null,
+  ]);
+  // a video is read for its size, its length and a frame to show (when ffmpeg is installed), from where it is stored;
   // a clip that opens on the end of another one is shown by its own first frame, not by the other's
-  const own = video?.frame && resume.overlap?.headMs ? await frameAt(bytes, extOf(mime), resume.overlap.headMs).catch(() => null) : null;
-  addPart("measuring", performance.now() - measuring);
+  const video = kind === "video" ? await readStored(storage, key, bytes, ext, headMs) : null;
+  const size = kind === "image" ? pngSize(bytes) : video?.facts ?? null;
   // a small version for the library grid; without one the grid falls back to the picture itself
-  const thumb = kind === "image" ? await makeThumb(bytes) : video?.frame ? await makeThumb(own ?? video.frame) : null;
+  const thumb = kind === "image" ? await makeThumb(bytes) : video?.frame ? await makeThumb(video.frame) : null;
   if (thumb) await put(thumbKey(id), thumb);
-  let rawKey: string | null = null;
-  if (kind === "video" && sides.raw) {
-    rawKey = `assets/${id.slice(0, 2)}/${id}.raw.${extOf(mimeOfFile(sides.raw.filename))}`;
-    await put(rawKey, await comfy.client.view(sides.raw));
-    sides.raw = null;
-  }
-  let latentKey: string | null = null;
-  let latentFrames: number | null = null;
-  if (kind === "video" && sides.latent) {
-    const latentBytes = await comfy.client.view(sides.latent);
-    latentFrames = latentFramesOf(latentBytes);
-    if (latentFrames) {
-      latentKey = `assets/${id.slice(0, 2)}/${id}.latent.safetensors`;
-      await put(latentKey, latentBytes);
-    }
-    // a join made in the latent: how wide its regenerated run-up came out against the tail it was guided
-    // by, read from the two latents (the clip before's is the one its join took)
-    const overlap = resume.overlap;
-    const prevSpec = recipe.inputs.find((s) => s.type === "clip" && s.role === "previous") as (InputSpec & { fps?: number }) | undefined;
-    const prevValue = prevSpec ? (input[prevSpec.id] as ClipValue | undefined) : undefined;
-    if (measure && overlap?.latent && overlap.headMs > 0 && latentFrames && prevValue?.asset) {
-      const shown = await db.selectFrom("assets").selectAll().where("id", "=", prevValue.asset).executeTakeFirst();
-      const before = shown ? await renderedOf(db, shown) : null;
-      const beforeBytes = before?.latent_key ? await storage.get(before.latent_key).catch(() => null) : null;
-      const drift = beforeBytes ? latentDriftOf(latentBytes, beforeBytes, Math.round((overlap.headMs / 1000) * (prevSpec?.fps ?? 24))) : null;
-      if (drift) measure.drift = drift;
-    }
-    sides.latent = null;
-  }
-  let fineKey: string | null = null;
-  if (kind === "video" && sides.fine) {
-    fineKey = `assets/${id.slice(0, 2)}/${id}.fine.safetensors`;
-    await put(fineKey, await comfy.client.view(sides.fine));
-    sides.fine = null;
-  }
   return {
-    measure,
+    measure: video?.facts ? () => measureStored({ db, storage }, recipe, input, resume, { key, ext, latentKey, latentFrames }) : null,
     row: {
       id, kind, origin: "generated", name: "", file_key: key, thumb_key: thumb ? thumbKey(id) : null, mime, bytes: bytes.length, raw_key: rawKey, latent_key: latentKey, latent_frames: latentFrames, fine_latent_key: fineKey,
       width: size?.width ?? null, height: size?.height ?? null,
@@ -256,6 +289,57 @@ async function fileOne(
       source_id: null, source_range: null, linked_path: null, kept_at: null, countdown_from: null,
     },
   };
+}
+
+/**
+ * A stored video's facts and the frame it is shown by (at `atMs`), read where it is on the disk: no copy of it is written for
+ * ffprobe and ffmpeg, and the two run at once. A storage with no disk here (a bucket) has it read from its bytes, as before.
+ */
+async function readStored(storage: Storage, key: string, bytes: Uint8Array, ext: string, atMs: number): Promise<{ facts: VideoFacts | null; frame: Uint8Array | null }> {
+  const path = storage.localPath?.(key);
+  if (!path) {
+    const read = await readVideo(bytes, ext);
+    return { facts: read.facts, frame: atMs > 0 && read.frame ? await frameAt(bytes, ext, atMs).catch(() => read.frame) : read.frame };
+  }
+  const [facts, frame] = await Promise.all([videoFacts(path), frameAt(path, ext, atMs).catch(() => null)]);
+  // the moment could not be read (a clip shorter than its run-up): its very first frame, as a video is shown otherwise
+  return { facts, frame: frame ?? (atMs > 0 ? await frameAt(path, ext, 0).catch(() => null) : null) };
+}
+
+/**
+ * What is read off a filed video, from its stored file: how the clip's own part looks (mean luma, sharpness), kept with the
+ * render, so that a run of clips that flow on can be checked for sliding darker or softer clip after clip (see lookOf); for a
+ * continuation, the step where its run-up ends; for a join made in the latent, how far its run-up drifted. Null when it could not be read.
+ */
+async function measureStored(
+  { db, storage }: Pick<QueueCore, "db" | "storage">, recipe: Recipe<any>, input: Record<string, unknown>, resume: Resume,
+  stored: { key: string; ext: string; latentKey: string | null; latentFrames: number | null },
+): Promise<Measure | null> {
+  const source = await sourceOf(storage, stored.key);
+  const headMs = resume.overlap?.headMs ?? 0;
+  // a continuation: the step where its run-up ends and its own frames begin, kept with the look. The join figures look at
+  // the take-over point, which sits inside the run-up and copies the clip before whatever happens next; a model that steps
+  // away from its guide cuts here, and only this figure says so
+  const [measure, handover] = await Promise.all([
+    lookOf(source, stored.ext, headMs).catch(() => null),
+    headMs > 0 ? runUpBreak(source, stored.ext, headMs).catch(() => null) : null,
+  ]);
+  if (!measure) return null;
+  if (handover !== null) measure.handover = handover;
+  // a join made in the latent: how wide its regenerated run-up came out against the tail it was guided by, read from the
+  // two latents (the clip before's is the one its join took)
+  const overlap = resume.overlap;
+  const prevSpec = recipe.inputs.find((s) => s.type === "clip" && s.role === "previous") as (InputSpec & { fps?: number }) | undefined;
+  const prevValue = prevSpec ? (input[prevSpec.id] as ClipValue | undefined) : undefined;
+  if (overlap?.latent && overlap.headMs > 0 && stored.latentKey && stored.latentFrames && prevValue?.asset) {
+    const shown = await db.selectFrom("assets").selectAll().where("id", "=", prevValue.asset).executeTakeFirst();
+    const before = shown ? await renderedOf(db, shown) : null;
+    const beforeBytes = before?.latent_key ? await storage.get(before.latent_key).catch(() => null) : null;
+    const latentBytes = beforeBytes ? await storage.get(stored.latentKey).catch(() => null) : null;
+    const drift = beforeBytes && latentBytes ? latentDriftOf(latentBytes, beforeBytes, Math.round((overlap.headMs / 1000) * (prevSpec?.fps ?? 24))) : null;
+    if (drift) measure.drift = drift;
+  }
+  return measure;
 }
 
 /** What a render was made from: its pictures, the clips it joins onto, its references and sounds, and what a timeline handed it. */

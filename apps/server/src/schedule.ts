@@ -69,15 +69,16 @@ export function plan(lanes: readonly Lane[], jobs: readonly Planned[]): Map<stri
   const held = new Map(lanes.map((l) => [l.id, l.holds]));
   const out = new Map<string, { lane: string; startsInMs: number }>();
   for (const job of jobs) {
-    let best: { lane: Lane; starts: number; ends: number } | null = null;
+    let best: { lane: Lane; starts: number; ends: number; cold: boolean } | null = null;
     for (const lane of lanes) {
       if (!takes(lane, job)) continue;
       // on a pod still getting its files, it starts once they are there (they come while the pod renders what is before it)
       const starts = Math.max(at.get(lane.id)!, job.fetchMs?.get(lane.id) ?? 0);
       const cold = Boolean(job.model && !held.get(lane.id)!.has(job.model));
       const ends = starts + (cold ? job.loadOn?.get(lane.id) ?? job.loadMs ?? UNKNOWN_LOAD_MS : 0) + (job.renderOn?.get(lane.id) ?? (job.renderMs ?? 0) * lane.pace);
-      // the first machine that ends it soonest: ties go to the one named first
-      if (!best || ends < best.ends) best = { lane, starts, ends };
+      // the first machine that ends it soonest: ties go to one that holds its model (a load its renders did not show yet
+      // still reads the model again), then to the one named first
+      if (!best || ends < best.ends || (ends === best.ends && best.cold && !cold)) best = { lane, starts, ends, cold };
     }
     if (!best) continue;
     out.set(job.id, { lane: best.lane.id, startsInMs: best.starts });

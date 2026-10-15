@@ -18,6 +18,12 @@ export class Comfy {
   /** The scan under way in the background while the last one is still answered (see scan). */
   private nextScan: Promise<Scan> | null = null;
   private lastCatalog: { at: number; value: Promise<NodeCatalog> } | null = null;
+  /**
+   * The pictures sent to this ComfyUI under a name their content gives, by folder and content hash (queueSubmit's picture
+   * upload): the same picture in every window of a motion transfer goes up once. Forgotten when ComfyUI starts again (it
+   * empties its temp folder then) and with everything else it is told.
+   */
+  readonly uploaded = new Map<string, { at: number; name: Promise<string> }>();
 
   constructor(readonly url: string, private readonly registry: Registry, token = "") {
     this.client = new ComfyClient(url, undefined, token);
@@ -83,6 +89,7 @@ export class Comfy {
     this.lastScan = null;
     this.nextScan = null;
     this.lastCatalog = null;
+    this.uploaded.clear();
   }
 
   /** The node list is read again next time (a node pack was written, and ComfyUI may have loaded it). */

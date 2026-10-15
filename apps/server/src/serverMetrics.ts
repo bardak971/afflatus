@@ -23,7 +23,7 @@ const added = new Histogram({
 });
 const parted = new Histogram({
   name: "afflatus_render_added_part_seconds",
-  help: "The parts of afflatus_render_added_seconds: checking the machine (scan), cutting and reading the media (cuts), sending them (uploads), freeing its memory for another model (free), measuring the result (measuring)",
+  help: "The parts of afflatus_render_added_seconds: checking the machine (scan), cutting and reading the media (cuts), sending them (uploads), freeing its memory for another model (free), measuring the result once its job closed (measuring)",
   labelNames: ["machine", "part"] as const,
   buckets: BUCKETS,
   registers: [serverRegistry],
@@ -54,6 +54,11 @@ export async function timedPart<T>(part: AddedPart, work: () => Promise<T>): Pro
   } finally {
     addPart(part, performance.now() - t0);
   }
+}
+
+/** A part done after the render's job closed (the measuring of a filed video), on its machine (ms): no stage waited for it. */
+export function observePart(machine: string, part: AddedPart, ms: number): void {
+  parted.observe({ machine, part }, ms / 1000);
 }
 
 /** A stage of a render that went through, on its machine: its whole time and its parts (ms). */
