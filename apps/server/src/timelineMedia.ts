@@ -9,7 +9,7 @@ import { sourceOf } from "./storage";
 import { folderForMade } from "./timelineFolder";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideo, videoFacts } from "./video";
-import { joinFade, lengthOf, playingAs, sameMaking, seamless, visible, type AssetRow, type Placed, type Taken, type TimelineCore } from "./timelineModel";
+import { joinFade, lengthOf, playingAs, sameMaking, seamless, stripKey, visible, type AssetRow, type Placed, type Taken, type TimelineCore } from "./timelineModel";
 
 /**
  * What the timelines read out of their videos: a frame as a picture, the film strip, the motion and
@@ -43,7 +43,7 @@ export async function fewAtATime<T, R>(items: T[], most: number, work: (item: T)
  */
 export const keptKey = {
   motion: (id: string) => `motion/${id.slice(0, 2)}/${id}.json`,
-  strip: (id: string) => `strips/${id.slice(0, 2)}/${id}.jpg`,
+  strip: (id: string) => stripKey(id),
   means: (id: string) => `means/${id.slice(0, 2)}/${id}.json`,
 };
 
@@ -130,7 +130,7 @@ export class TimelineMedia {
     if (!video || video.kind !== "video") throw notFound("this video");
     const windowed = opts.fromMs !== undefined || opts.toMs !== undefined;
     const sized = opts.frames || opts.height;
-    const key = sized ? `strips/${video.id.slice(0, 2)}/${video.id}-${opts.frames ?? 0}x${opts.height ?? 0}.jpg` : keptKey.strip(video.id);
+    const key = sized ? stripKey(video.id, `${opts.frames ?? 0}x${opts.height ?? 0}`) : keptKey.strip(video.id);
     const have = windowed ? null : await storage.get(key).catch(() => null);
     if (have) return have;
     const source = await this.source(video);

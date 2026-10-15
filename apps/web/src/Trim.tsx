@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Clapperboard, Gauge, Link2, Pause, Play, Repeat, Scissors, Split, X, ZoomIn, ZoomOut } from "lucide-react";
-import type { Asset } from "./api";
+import { stripUrl, type Asset } from "./api";
 import { clock, plural } from "./format";
 import { Kbd } from "./Keys";
 import { Select } from "./Select";
@@ -151,7 +151,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
   const showFrom = (edge: number) => seek(Math.min(duration, edge + frameMs / 2));
   const zoomFrames = zoom ? Math.min(STRIP_FRAMES, Math.max(2, Math.ceil((zoom.endMs - zoom.startMs) / frameMs))) : 0;
   const exact = zoom ? (zoom.endMs - zoom.startMs) / frameMs <= STRIP_FRAMES + 0.5 : false;
-  const wholeSrc = useMemo(() => `/api/assets/${asset.id}/strip?frames=${Math.min(STRIP_FRAMES, Math.max(16, Math.round(duration / 1000)))}&height=48`, [asset.id, duration]);
+  const wholeSrc = useMemo(() => `${stripUrl(asset.id)}&frames=${Math.min(STRIP_FRAMES, Math.max(16, Math.round(duration / 1000)))}&height=48`, [asset.id, duration]);
   // the strip of the zoomed part is asked for once the zoom has settled: a wheel gesture is many small steps
   const settled = useSettled(zoom, 160);
   // out of the zoom at once
@@ -159,7 +159,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
   const zoomSrc = useMemo(() => {
     if (!settledZoom) return "";
     const n = Math.min(STRIP_FRAMES, Math.max(2, Math.ceil((settledZoom.endMs - settledZoom.startMs) / frameMs)));
-    return `/api/assets/${asset.id}/strip?frames=${n}&height=64&from=${Math.round(settledZoom.startMs)}&to=${Math.round(settledZoom.endMs)}`;
+    return `${stripUrl(asset.id)}&frames=${n}&height=64&from=${Math.round(settledZoom.startMs)}&to=${Math.round(settledZoom.endMs)}`;
   }, [asset.id, settledZoom, frameMs]);
 
   // the wheel on a strip zooms around the moment under the mouse

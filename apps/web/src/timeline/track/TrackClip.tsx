@@ -188,7 +188,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
         {cells.length > 0 && (
           <span className="absolute inset-0 flex">
             {cells.map((frame, k) => (
-              <span key={k} className="h-full grow bg-raised" style={{ backgroundImage: `url(${stripUrl(video!.id)}?v=${fileVersion(video!)})`, backgroundSize: `${STRIP_FRAMES * 100}% 100%`, backgroundPosition: `${(frame / (STRIP_FRAMES - 1)) * 100}% 0` }} />
+              <span key={k} className="h-full grow bg-raised" style={{ backgroundImage: `url(${stripUrl(video!.id)}&v=${fileVersion(video!)})`, backgroundSize: `${STRIP_FRAMES * 100}% 100%`, backgroundPosition: `${(frame / (STRIP_FRAMES - 1)) * 100}% 0` }} />
             ))}
           </span>
         )}

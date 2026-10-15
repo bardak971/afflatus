@@ -204,6 +204,13 @@ export async function frameAt(source: Media, ext: string, atMs: number, duration
 /** How many frames a strip holds, and how tall they are. */
 const STRIP = { frames: 12, height: 72 };
 
+/**
+ * The last frame held a place longer, ahead of a strip's `fps`: its last place falls a step before the end, and `fps` gives
+ * the frame for a place only once a later one comes, so at the end of the file it gave none and `tile` left it black (every
+ * strip, seen as a black last cell on a wide clip, 2026-10-15).
+ */
+const heldLast = (every: number) => `tpad=stop_mode=clone:stop_duration=${every.toFixed(4)},`;
+
 /** Past this long, a strip shows the keyframe at or before each of its moments (see filmStrip). */
 export const KEYFRAME_STRIP_MS = 60_000;
 
@@ -224,11 +231,11 @@ export async function filmStrip(source: Media, ext: string, durationMs: number, 
     const out = join(dir, "strip.jpg");
     const every = Math.max(0.01, (to - from) / 1000 / frames);
     // the keyframes alone reach the frame grid each in the place after its own (moved on by one place, a hair short), so
-    // that each place shows the last keyframe at or before its moment; the last held a place more, or the strip ended short
-    const keyed = keys.length ? `setpts=PTS+${(every - 0.001).toFixed(4)}/TB,tpad=stop_mode=clone:stop_duration=${every.toFixed(4)},` : "";
+    // that each place shows the last keyframe at or before its moment
+    const keyed = keys.length ? `setpts=PTS+${(every - 0.001).toFixed(4)}/TB,` : "";
     await must(tools.ffmpeg, [
       "-y", "-loglevel", "error", ...keys, ...(from > 0 ? ["-ss", (from / 1000).toFixed(3)] : []), "-to", (to / 1000).toFixed(3), "-i", input,
-      "-vf", `${keyed}fps=1/${every.toFixed(4)}:start_time=0:round=down,scale=-2:${height},tile=${frames}x1`,
+      "-vf", `${keyed}${heldLast(every)}fps=1/${every.toFixed(4)}:start_time=0:round=down,scale=-2:${height},tile=${frames}x1`,
       "-frames:v", "1", "-q:v", "5", out,
     ]);
     return new Uint8Array(await readFile(out));
@@ -514,7 +521,7 @@ export async function takeMeasures(source: Media, ext: string, opts: { fromMs?: 
       `[0:v]split=${from > 0 ? 5 : 4}[vm][vs][vt][vl]${from > 0 ? "[vp]" : ""}`,
       `[vm]scale=96:-2,signalstats,${print("means.txt")}[om]`,
       `[vs]${LOOK.pace},${print("motion.txt", yavg)}[os]`,
-      `[vt]trim=end=${(opts.durationMs / 1000).toFixed(3)},fps=1/${every.toFixed(4)}:start_time=0:round=down,scale=-2:${STRIP.height},tile=${STRIP.frames}x1[strip]`,
+      `[vt]trim=end=${(opts.durationMs / 1000).toFixed(3)},${heldLast(every)}fps=1/${every.toFixed(4)}:start_time=0:round=down,scale=-2:${STRIP.height},tile=${STRIP.frames}x1[strip]`,
       `[vl]${cut}split[l1][l2]`,
       `[l1]${LOOK.stats},${print("stats.txt")}[o1]`,
       `[l2]${LOOK.gray},split=4[g1][g2][g3][g4]`,
