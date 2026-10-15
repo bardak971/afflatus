@@ -412,9 +412,11 @@ export class Notify {
       const row = await this.deps.db.selectFrom("jobs").select(["label", "recipe_id"]).where("id", "=", s.job).executeTakeFirst();
       const machine = settings.machines.find((m) => m.id === s.machine);
       const rented = Boolean(machine?.rented);
+      // a pod's render silent this long with its GPU read idle was failed already (at 10 min, rented.ts): one told of here
+      // is one whose GPU load is not read, waited for until past its forecast
       this.say("renderStuck", {
         title: `Stuck: ${row?.label || row?.recipe_id || "a render"}`,
-        body: `No step, node or preview for ${took(s.ms)} on ${machine ? machineSaid(machine) : "its ComfyUI"}. ${rented ? "On a rented GPU it is failed at 30 min past its forecast." : "It runs on: stop it in the Queue if it hangs."}`,
+        body: `No step, node or preview for ${took(s.ms)} on ${machine ? machineSaid(machine) : "its ComfyUI"}. ${rented ? "On a rented GPU it is failed once past its forecast, 10 min over at most." : "It runs on: stop it in the Queue if it hangs."}`,
         key: s.job,
       });
     }
