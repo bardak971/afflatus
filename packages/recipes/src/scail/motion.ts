@@ -22,6 +22,7 @@ export interface ScailMotion extends MotionValues {
   shift: number;
   cfg: number;
   poseStrength: number;
+  dpoStrength: number;
   livePreview: boolean;
 }
 
@@ -57,6 +58,10 @@ export const scailMotion = defineRecipe<ScailMotion>({
     { id: "cfg", type: "number", label: "CFG scale", min: 1, max: 10, step: 0.5, default: 1, advanced: true, perModel: true, note: "1 with the lightx2v LoRA. Above 1 every step takes twice as long" },
     { id: "shift", type: "number", label: "Shift", min: 0, max: 20, step: 0.5, default: 8, advanced: true, perModel: true, note: "8, SCAIL-2's own" },
     { id: "poseStrength", type: "number", label: "Pose strength", min: 0, max: 2, step: 0.05, default: 1, advanced: true, note: "how hard the driving video's pose is held to" },
+    {
+      id: "dpoStrength", type: "number", label: "DPO LoRA strength", min: 0, max: 2, step: 0.05, default: 1, advanced: true, perModel: true,
+      note: "SCAIL-2's own DPO LoRA (hands, lips and eyes), 1 as its template. Its authors say to lower it when the driving video's face shows through the picture's person",
+    },
     {
       id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
       note: "while it renders, a short clip of what is forming, each step. Without it the preview is one still frame. A small cost per step. Needs the KJNodes pack",
@@ -103,7 +108,7 @@ export const scailMotion = defineRecipe<ScailMotion>({
     // as the template: the DPO LoRA, then lightx2v. The scheduler reads the shifted model: reading the one before it (as the
     // template), the sigmas took the model's own shift (8) and the form's Shift did nothing; its default is that 8
     let model = g.out("UNETLoader", { unet_name: slots.unet, weight_dtype: "default" });
-    if (slots.dpo) model = g.out("LoraLoaderModelOnly", { model, lora_name: slots.dpo, strength_model: 1 });
+    if (slots.dpo && input.dpoStrength !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: slots.dpo, strength_model: input.dpoStrength });
     if (slots.turbo) model = g.out("LoraLoaderModelOnly", { model, lora_name: slots.turbo, strength_model: TURBO_STRENGTH });
     model = applyLoras(g, model, input.loras);
     const sampling = g.out("ModelSamplingSD3", { model, shift: input.shift });

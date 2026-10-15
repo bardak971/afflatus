@@ -46,6 +46,9 @@ describe("SCAIL-2 · Motion transfer", () => {
     expect(of(graph, "SAM3_VideoTrack")).toHaveLength(2);
     // as ComfyUI's template: the DPO LoRA, then lightx2v at 0.8, 6 steps at CFG 1
     expect(of(graph, "LoraLoaderModelOnly").map((n) => [n.inputs.lora_name, n.inputs.strength_model])).toEqual([["dpo.safetensors", 1], ["lightx2v.safetensors", 0.8]]);
+    // the DPO LoRA at the strength asked (its authors lower it when the driving face shows through), and not at all at 0
+    expect(of(build({ dpoStrength: 0.6 }).graph, "LoraLoaderModelOnly").map((n) => n.inputs.strength_model)).toEqual([0.6, 0.8]);
+    expect(of(build({ dpoStrength: 0 }).graph, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name)).toEqual(["lightx2v.safetensors"]);
     expect(of(graph, "SamplerCustom")[0]!.inputs.cfg).toBe(1);
     expect(of(graph, "BasicScheduler")[0]!.inputs.steps).toBe(6);
   });

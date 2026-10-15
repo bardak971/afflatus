@@ -79,7 +79,7 @@ export const h3Inputs: InputSpec[] = [
   { id: "soundscape", type: "prompt", weights: false, label: "Sound effects", style: "sentences", optional: true, placeholder: "waves, a light wind, seagulls far away" },
   { id: "music", type: "prompt", weights: false, label: "Music", style: "sentences", optional: true, placeholder: "none" },
   { id: "start", type: "image", role: "start", label: "First frame", note: "the first frame", optional: true },
-  { id: "end", type: "image", role: "end", label: "Last frame", note: "the last frame", optional: true },
+  { id: "end", type: "image", role: "end", label: "Last frame", note: "the last frame. Not used with reference pictures, videos or a voice sample: the reference model takes no last frame", optional: true },
   { id: "mid", type: "image", role: "mid", at: "midAt", label: "Keyframe", note: "a picture the clip passes through, at the time set below", optional: true, advanced: true },
   { id: "midAt", type: "number", label: "Keyframe at", min: 0.5, max: 14.5, step: 0.5, default: 2.5, unit: " s", showWhen: "mid", advanced: true },
   {
@@ -142,7 +142,7 @@ export const h3Inputs: InputSpec[] = [
   },
   {
     id: "short", type: "number", label: "Resolution", min: 384, max: 1088, step: 32, default: 576, unit: "p", picks: [480, 576, 768, 1088],
-    note: "the short side of the frame. 576p suits drafts and the 8-step turbo LoRA (made at 544p); the model's own is 768p (1344×768), and the 4-step LoRA is made for it. Past 768p it is beyond what it was trained for: slower, and it may drift",
+    note: "the short side of the frame. 576p suits drafts and the 8-step turbo LoRA (made at 544p); the model's own is 768p (1344×768), and the 4-step LoRA is made for it. Past 768p it is beyond what it was trained for: slower, it may drift, and some seeds black out part way through the clip (users' reports at 768 × 960 and up)",
   },
   ...upscaleInputs({ latent: true }),
   ...COLOUR_MATCH_INPUTS,

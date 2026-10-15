@@ -828,20 +828,20 @@ describe("ltx.video", () => {
     it("is a guide at its moment between the first and the last picture in one pass, taken out once with the others", () => {
       const b = build({ start: "p", mid: "m", end: "q" }, mids);
       expect(all(b, "LTXVLatentUpsampler")).toEqual([]);
-      // 2.5 s at 25 frames a second; the last picture still at -1, which ComfyUI counts without the guide frames
-      expect(all(b, "LTXVAddGuide").map((n) => [n.inputs.frame_idx, n.inputs.strength])).toEqual([[0, 0.7], [63, 0.8], [-1, 0.7]]);
+      // 2.5 s at 25 frames a second, on the model's 8-frame steps (62.5 → 64); the last picture still at -1, which ComfyUI counts without the guide frames
+      expect(all(b, "LTXVAddGuide").map((n) => [n.inputs.frame_idx, n.inputs.strength])).toEqual([[0, 0.7], [64, 0.8], [-1, 0.7]]);
       expect(all(b, "LTXVCropGuides")).toHaveLength(1);
       expect(all(b, "LoadImage").map((n) => n.inputs.image)).toEqual(["a.png", "c.png", "b.png"]);
       // a keyframe alone is a guide too, and is taken out again
       const alone = build({ mid: "m", twoPass: false, midStrength: 0.6 }, mids);
-      expect(all(alone, "LTXVAddGuide").map((n) => [n.inputs.frame_idx, n.inputs.strength])).toEqual([[63, 0.6]]);
+      expect(all(alone, "LTXVAddGuide").map((n) => [n.inputs.frame_idx, n.inputs.strength])).toEqual([[64, 0.6]]);
       expect(all(alone, "LTXVCropGuides")).toHaveLength(1);
     });
 
     it("guides both passes at their own size, and is taken out before the clip is enlarged and before it is decoded", () => {
       const b = build({ start: "p", mid: "m" }, mids);
       const guides = all(b, "LTXVAddGuide");
-      expect(guides.map((n) => [n.inputs.frame_idx, n.inputs.strength])).toEqual([[63, 0.8], [63, 0.8]]);
+      expect(guides.map((n) => [n.inputs.frame_idx, n.inputs.strength])).toEqual([[64, 0.8], [64, 0.8]]);
       expect(guides.map((n) => sizeOf(b, n))).toEqual([[512, 352], [1024, 704]]);
       // the first frame is still put in place in the latent, not given as a guide
       expect(all(b, "LTXVImgToVideoInplace").map((n) => n.inputs.strength)).toEqual([0.7, 1]);
@@ -868,9 +868,10 @@ describe("ltx.video", () => {
 
     it("stays off the first and the last frame, however late it is asked for", () => {
       const at = (midAt: number, seconds = 5) => all(build({ mid: "m", midAt, seconds, twoPass: false }, mids), "LTXVAddGuide")[0]!.inputs.frame_idx;
-      expect(at(19.5)).toBe(ltxFrames(5) - 2);
-      expect(at(0.5)).toBe(13);
-      expect(at(4, 2)).toBe(ltxFrames(2) - 2);
+      // a step of 8 off either end, on the 8-frame steps
+      expect(at(19.5)).toBe(ltxFrames(5) - 9);
+      expect(at(0.5)).toBe(16);
+      expect(at(4, 2)).toBe(ltxFrames(2) - 9);
     });
 
     it("decides the shape when it is the only picture", () => {
@@ -1183,6 +1184,11 @@ describe("what was fixed inside the recipes is the user's to set", () => {
     expect(refine.at(-1)).toBe(0);
     // it comes down all the way, never back up
     expect(refine.every((x, i) => i === 0 || x < refine[i - 1]!)).toBe(true);
+    // LTX's 3 refine steps, and one more past 241 frames (a 10 s clip is 251) when the count was left at 3
+    const steps = (b: ReturnType<typeof ltxOf>) => String(node(b, "ManualSigmas")[1]!.sigmas).split(",").length - 1;
+    expect(steps(ltxOf({ seconds: 5 }))).toBe(3);
+    expect(steps(ltxOf({ seconds: 10 }))).toBe(4);
+    expect(steps(ltxOf({ seconds: 10, refineSteps: 2 }))).toBe(2);
     expect(set.passes!.map((x) => x.steps)).toEqual([8, 5]);
   });
 });
