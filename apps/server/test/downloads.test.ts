@@ -496,6 +496,24 @@ describe("who downloads", () => {
 });
 
 describe("fetching a model file into one of several ComfyUIs", () => {
+  it("says the file coming on the row of the machine it goes to, as a pod's files are said, until it is in", async () => {
+    await start(true);
+    const second = await startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: [], loras: [] }, manager: true });
+    try {
+      await on();
+      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ id: "m1", url: fake.url }, { id: "m2", url: second.url }] } });
+      const filesOf = async () => Object.fromEntries(((await get(t.app, "/api/queue")).json().machines as Array<{ id: string; files?: unknown[] }>).map((m) => [m.id, m.files ?? []]));
+      // asked for no machine: the first one's
+      const d = (await post(t.app, "/api/downloads", { file: "slow.safetensors", folder: "loras", url: `${siteUrl}/files/slow.safetensors` })).json();
+      await until(async () => (await list()).items[0].bytes > 0);
+      expect(await filesOf()).toEqual({ m1: [expect.objectContaining({ file: "slow.safetensors", folder: "loras", state: "fetching", tier: "ahead" })], m2: [] });
+      await t.app.inject({ method: "DELETE", url: `/api/downloads/${d.id}` });
+      expect(await filesOf()).toEqual({ m1: [], m2: [] });
+    } finally {
+      await second.close().catch(() => {});
+    }
+  });
+
   it("goes to the machine asked for, and says so", async () => {
     await start(true);
     const second = await startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: [], loras: [] }, manager: true });

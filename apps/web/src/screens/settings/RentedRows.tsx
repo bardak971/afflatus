@@ -2,7 +2,7 @@ import type { Machine, MachineState, RentedMachine } from "../../api";
 import type { PodFile, PodPack } from "../../api";
 import { minutesSaid, plural, size, usd } from "../../format";
 import { useCopied, useNow } from "../../hooks";
-import { rateSaid, rentedSaid } from "../../machines";
+import { gettingFiles, rateSaid, rentedSaid } from "../../machines";
 import type { useRentedOps } from "../../rentedOps";
 import { Select } from "../../Select";
 import { Progress } from "../../progress/Progress";
@@ -19,7 +19,7 @@ const portSaid = (p: string) => {
   return `${port}${what[port!] ? ` ${what[port!]}` : ""}${kind === "tcp" ? " (TCP)" : ""}`;
 };
 
-const WHY_IDLE = "Idle: nothing rendering on it and nothing waiting that it could take; a job waiting for it keeps it on. Stop: the GPU stops billing, its volume is kept (and billed), its container disk is erased; its GPU may be taken meanwhile, and then it cannot start again. Terminate: nothing billed after, the pod gone from RunPod: deploy a new one next time. Without a volume a stop keeps nothing: terminate.";
+const WHY_IDLE = "Idle: nothing rendering on it, no model file coming to it, and nothing waiting that it could take; a job waiting for it keeps it on, and so do its files while they come (a download that brings nothing for 5 min no longer does). Stop: the GPU stops billing, its volume is kept (and billed), its container disk is erased; its GPU may be taken meanwhile, and then it cannot start again. Terminate: nothing billed after, the pod gone from RunPod: deploy a new one next time. Without a volume a stop keeps nothing: terminate.";
 const WHY_PORTS = "What a pod's template opens besides ComfyUI: FileBrowser (8080), JupyterLab (8888), SSH (22). They have logins of their own, outside Afflatus's lock, some with a default password printed in the template's page: anyone who finds the pod's address can try them, and with FileBrowser reach its files, ComfyUI's custom nodes included. Closed, Afflatus takes them off the pod at each Start (RunPod's exposed ports), and only ComfyUI is reached, locked. Open them to use one (FileBrowser to put the Afflatus pack on it).";
 const WHY_WATCH = "Afflatus runs on this PC, which can crash, sleep or lose its internet: then nothing here can stop the pod. The Afflatus node pack on the pod hears from Afflatus every minute; silent this long, it stops the pod by itself. It needs the pack on the pod (0.13 or newer).";
 
@@ -147,7 +147,7 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
             <span className="text-ink-2">after</span>
             <span className="w-[104px] shrink-0"><Select size="sm" label="Minutes idle before" value={String(rented.idleMinutes)} onChange={(v) => set({ idleMinutes: Number(v) })} options={IDLE.map((n) => ({ value: String(n), label: minutesSaid(n) }))} /></span>
             <span className="text-ink-2">idle</span>
-            {r?.idleAt != null && <IdleLeft at={r.idleAt} />}
+            {r?.idleAt != null ? <IdleLeft at={r.idleAt} /> : r?.status === "RUNNING" && state && gettingFiles(state) && <span className="text-ink-3">· held while its files come</span>}
           </span>
         </Row>
         {rented.idleDo === "stop" && r && !r.volume && r.status !== "GONE" && (

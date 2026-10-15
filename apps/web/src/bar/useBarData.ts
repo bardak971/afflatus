@@ -155,7 +155,7 @@ export function useBarData({ open, mode, text, line, ranks, picked, learn, found
   const binSaid = binNow ? `${itemsWord(binNow.count)} · ${size(binNow.bytes)}` : "";
   // the queue only while open, and in full only in the queue mode (its jobs live): the bar does not draw again
   // at every sampler step for the counts it says elsewhere
-  const queueNow = useQueueOf((q) => (open ? { paused: q.paused, online: q.online, rendering: q.running?.kind === "render", running: Boolean(q.running), waiting: q.waiting.length, failed: q.recent.filter((j) => j.status === "failed").length, saves: groupingSaves(q.waiting, q.running), machines: severalMachines(q).map((m) => ({ id: m.id, label: machineLabel(m), paused: m.paused, online: m.online, locked: m.locked, running: Boolean(m.running), rented: m.rented })), hunting: Boolean(q.hunt) } : null));
+  const queueNow = useQueueOf((q) => (open ? { paused: q.paused, online: q.online, rendering: q.running?.kind === "render", running: Boolean(q.running), waiting: q.waiting.length, failed: q.recent.filter((j) => j.status === "failed").length, saves: groupingSaves(q.waiting, q.running), machines: severalMachines(q).map((m) => ({ id: m.id, label: machineLabel(m), paused: m.paused, online: m.online, locked: m.locked, running: Boolean(m.running), rented: m.rented, ...(m.files ? { files: m.files } : {}) })), hunting: Boolean(q.hunt) } : null));
   const queueFull = useQueueOf((q) => (open && mode === "queue" ? q : null));
 
   // the timeline a command acts on: the one open in the editor, else the one last opened from here, else the last changed

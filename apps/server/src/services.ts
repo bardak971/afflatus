@@ -203,6 +203,23 @@ export async function createServices(
     const row = rented.view(m);
     return row ? { ...row, files: podFiles.view(m.id), packs: podFiles.packsView(m.id), disk: podFiles.diskOf(m.id) } : null;
   };
+  // a ComfyUI of its own's row says the model files downloading into it (a set's Fill, a missing model's Download), as a
+  // pod's are said: it is getting files, not idle
+  const UNDER_WAY = new Set(["starting", "downloading", "saving"]);
+  queue.downloadsOf = (m, first) =>
+    downloads.list().filter((d) => UNDER_WAY.has(d.status) && (d.machine ? d.machine === m.id : first)).map((d) => ({
+      file: d.file, folder: d.folder, state: d.status === "starting" ? "next" : "fetching", tier: "ahead", bytes: d.bytes, total: d.total, jobs: [],
+    }));
+  // their progress said as the queue is, every 2 s at most (a pod's come through podFiles' own)
+  let downloadsTold: NodeJS.Timeout | null = null;
+  queue.events.on("downloads", () => {
+    if (downloadsTold) return;
+    downloadsTold = setTimeout(() => {
+      downloadsTold = null;
+      queue.events.emit("queue");
+    }, 2000);
+    downloadsTold.unref();
+  });
   // a deployed pod up: the files its deploy asked for come after what its jobs wait for; the ones left out never come
   rented.forgetFiles = (id) => podFiles.forget(id);
   rented.filesLeft = (id) => {

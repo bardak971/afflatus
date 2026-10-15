@@ -59,6 +59,40 @@ describe("several ComfyUIs", () => {
     expect((await row(b)).machine_id).toBe("m1");
   });
 
+  it("have a machine that joins after Pause all join paused, and Resume all start it; not after each was paused alone", async () => {
+    const [three, four, five] = await Promise.all([makeFake(), makeFake(), makeFake()]);
+    const urls: Record<string, string> = { m3: three.url, m4: four.url, m5: five.url };
+    const paused = async () => Object.fromEntries((await queue()).machines.map((m: { id: string; paused: boolean }) => [m.id, m.paused]));
+    const machines = (more: string[]) => [{ id: "m1", url: one.url }, { id: "m2", url: two.url }, ...more.map((id) => ({ id, url: urls[id]! }))];
+    try {
+      await post(t.app, "/api/queue/pause", {});
+      const a = await enqueue({ prompt: "a cat" });
+      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: machines(["m3"]) } });
+      expect(await paused()).toEqual({ m1: true, m2: true, m3: true });
+      await new Promise((r) => setTimeout(r, 100));
+      expect([...sentTo(one), ...sentTo(two), ...sentTo(three)]).toHaveLength(0);
+      // Resume all: the newcomer too
+      await post(t.app, "/api/queue/resume", {});
+      expect(await paused()).toEqual({ m1: false, m2: false, m3: false });
+      await until(() => sentTo(one).length + sentTo(two).length + sentTo(three).length === 1);
+      for (const fake of [one, two, three]) for (const p of sentTo(fake)) complete(fake, p);
+      await until(async () => (await row(a)).status === "done");
+      // each paused on its own (the GPU hunt's rest does so): a machine that joins is not held by it
+      await post(t.app, "/api/queue/pause", { machine: "m1" });
+      await post(t.app, "/api/queue/pause", { machine: "m2" });
+      await post(t.app, "/api/queue/pause", { machine: "m3" });
+      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: machines(["m3", "m4"]) } });
+      expect((await paused()).m4).toBe(false);
+      // Pause all, then one machine resumed alone: Pause all no longer holds
+      await post(t.app, "/api/queue/pause", {});
+      await post(t.app, "/api/queue/resume", { machine: "m1" });
+      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: machines(["m3", "m4", "m5"]) } });
+      expect((await paused()).m5).toBe(false);
+    } finally {
+      await Promise.all([three, four, five].map((f) => f.close().catch(() => {})));
+    }
+  });
+
   it("send everything to one machine when the others are paused, and go on when they resume", async () => {
     await post(t.app, "/api/queue/use-only", { machine: "m2" });
     const ids = [await enqueue({ prompt: "a cat" }), await enqueue({ prompt: "a dog" })];

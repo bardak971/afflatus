@@ -13,7 +13,7 @@ import { record } from "./renders";
 import { runwayNeed } from "./rented";
 import { lackOn, type Lack } from "./machineScans";
 import { machineSaid, type Say } from "./notifyWords";
-import type { PodFiles } from "./podFiles";
+import type { PodFiles, PodFileView } from "./podFiles";
 import { plan, planTotal, type Lane as Schedulable, type Planned, type Waiting } from "./schedule";
 import { FIRST_MACHINE, readSettings, type Machine } from "./settings";
 import type { Storage } from "./storage";
@@ -39,6 +39,8 @@ export { rifeModelIn } from "./queueTools";
  */
 
 const PAUSED_KEY = "queue.paused";
+/** Pause all with several machines, kept until a Resume: a machine that joins meanwhile joins paused (readLane). */
+const PAUSED_ALL_KEY = "queue.pausedAll";
 /** The name of the model among them that a person knows it by, to say which one is loaded. The first machine's keys are the ones from before there were several. */
 const MODEL_KEY = "queue.model";
 /** The base models the last job had a ComfyUI load, kept across restarts of this app (ComfyUI keeps running through them). */
@@ -131,10 +133,12 @@ export interface PodFetch {
   jobState(machine: string, job: string): "ready" | "waiting" | "failed" | null;
   /** The machine's node packs wait for its ComfyUI to restart, or it restarts now: no job starts there meanwhile. */
   holding(machine: string): boolean;
+  /** Files are coming to that machine now, their bytes moving: what holds a rented pod's idle time (podFiles.ts moving). */
+  moving(machine: string): boolean;
 }
 
 /** A rented pod's files as the queue reads them, from podFiles.ts. */
-export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "short" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding">): PodFetch {
+export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "short" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding" | "moving">): PodFetch {
   return {
     short: (machine, list) => files.short(machine, list),
     failed: (machine, list, packs = []) => list.map((f) => files.failed(machine, f.folder, f.file)).find((why) => why !== null) ?? files.failedPacks(machine, packs),
@@ -145,6 +149,7 @@ export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "sho
     },
     jobState: (machine, job) => files.jobState(machine, job)?.state ?? null,
     holding: (machine) => files.holding(machine),
+    moving: (machine) => files.moving(machine),
   };
 }
 
@@ -331,7 +336,14 @@ export class Queue {
   /** A machine's own state from before: paused or not, and what it was last asked to load. */
   private async readLane(lane: Lane): Promise<void> {
     const value = async (key: string) => (await this.db.selectFrom("settings").select("value").where("key", "=", key).executeTakeFirst())?.value;
-    lane.paused = (await value(`${PAUSED_KEY}.${lane.id}`)) === "true";
+    const own = await value(`${PAUSED_KEY}.${lane.id}`);
+    lane.paused = own === "true";
+    // a machine never seen before (a pod deployed or started, a machine added) after the user's Pause all of several
+    // machines joins paused: that pause is each machine's own, and a newcomer would otherwise take the waiting jobs
+    if (own === undefined && (await value(PAUSED_ALL_KEY)) === "true") {
+      lane.paused = true;
+      await this.setting(`${PAUSED_KEY}.${lane.id}`, "true");
+    }
     const loaded = await value(keyOf(LOADS_KEY, lane.id));
     const named = await value(keyOf(MODEL_KEY, lane.id));
     lane.lastModel = loaded ? named || null : null;
@@ -734,10 +746,13 @@ ${JSON.stringify(input)}`;
     if (machine) {
       if (!all.some((m) => m.machine.id === machine)) throw httpError("there is no ComfyUI with that id");
       await this.pauseLane(machine, paused);
+      // one machine going again: Pause all no longer holds, and a machine joining later is not paused for it
+      if (!paused) await this.setting(PAUSED_ALL_KEY, "false");
     } else if (all.length > 1) {
       // with several ComfyUIs, Pause all and Resume all are every machine's own pause, so that each one says it (its chip,
       // its lane, its card) and a machine can be resumed alone afterwards; the switch of one ComfyUI stays off
       for (const { machine: m } of all) await this.pauseLane(m.id, paused);
+      await this.setting(PAUSED_ALL_KEY, String(paused));
       if (this.paused) {
         this.paused = false;
         await this.setting(PAUSED_KEY, "false");
@@ -745,6 +760,8 @@ ${JSON.stringify(input)}`;
     } else {
       this.paused = paused;
       await this.setting(PAUSED_KEY, String(paused));
+      // one machine: this switch holds a machine that joins (it is the whole queue's), and a Resume ends any earlier Pause all
+      if (!paused) await this.setting(PAUSED_ALL_KEY, "false");
       // with one ComfyUI, Resume is its switch: a pause of its own (the GPU hunt's, hunt.ts) goes with it, or nothing would start
       if (!paused) for (const { machine: m } of all) await this.pauseLane(m.id, false);
     }
@@ -791,6 +808,7 @@ ${JSON.stringify(input)}`;
     const all = await this.machines();
     if (!all.some((m) => m.machine.id === machine)) throw httpError("there is no ComfyUI with that id");
     for (const { machine: m } of all) await this.pauseLane(m.id, m.id !== machine);
+    await this.setting(PAUSED_ALL_KEY, "false");
     // one machine going is not a paused queue
     if (this.paused) {
       this.paused = false;
@@ -807,7 +825,7 @@ ${JSON.stringify(input)}`;
     const lanes = await this.refresh();
     const tools = this.lane(TOOLS);
     return [
-      ...lanes.map((l) => ({ machine: l.machine, core: l.core, paused: l.paused, reachable: l.reachable, locked: l.comfy?.locked ?? false, rented: l.machine ? this.rentedOf(l.machine) : null })),
+      ...lanes.map((l, i) => ({ machine: l.machine, core: l.core, paused: l.paused, reachable: l.reachable, locked: l.comfy?.locked ?? false, rented: l.machine ? this.rentedOf(l.machine) : null, files: l.machine && !l.machine.rented ? this.downloadsOf(l.machine, i === 0) : [] })),
       { machine: null, core: tools.core, paused: false, reachable: null, locked: false, rented: null },
     ];
   }
@@ -950,7 +968,7 @@ ${JSON.stringify(input)}`;
           if (gpuRows.some((r) => !taken.has(r.id) && this.heldOn(r))) this.retryLater();
         } else if (gpuRows.length) {
           // Pause all: nothing starts, but a pod (one deployed meanwhile) is sent the waiting jobs' files ahead, so that it
-          // is ready on Resume. A download is never work (podFiles.ts): the pod still idles toward its stop meanwhile
+          // is ready on Resume. Its idle time is held while they move (podFiles.ts moving), and runs again once they are in
           this.sendFiles(gpuRows, await this.ableOf(gpuRows), where);
         }
         // the machines that answered this pass, or that run a job now, say whether any ComfyUI is there
@@ -1183,6 +1201,8 @@ ${JSON.stringify(input)}`;
   unavailable: (machine: string) => string | null = () => null;
   /** What is said of a rented machine on its row (rented.ts); null for a ComfyUI of its own. */
   rentedOf: (machine: Machine) => view.RentedRow | null = () => null;
+  /** A ComfyUI of its own's model files downloading now (`first`: the downloads asked for no machine go to it): set by services.ts. */
+  downloadsOf: (machine: Machine, first: boolean) => PodFileView[] = () => [];
   /**
    * Whether a job this long (ms, null: not known) ends on a rented pod before RunPod's balance does (rented.ts fitsBalance):
    * at zero RunPod stops every pod, the render lost. One that does not is not sent to a rented pod.
@@ -1241,6 +1261,11 @@ ${JSON.stringify(input)}`;
 
   /** Rented pods' files: set by services.ts. */
   podFetch: PodFetch | null = null;
+
+  /** Files are coming to a machine now (a rented pod's, their bytes moving): its idle time is held meanwhile (rented.ts). */
+  fetching(machine: string): boolean {
+    return this.podFetch?.moving(machine) ?? false;
+  }
 
   /** Something a waiting job may wait for changed (a file came to a pod, or failed there): the line is read again. */
   nudge(): void {

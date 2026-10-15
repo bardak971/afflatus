@@ -18,10 +18,11 @@ import { olderThan } from "./version";
  * Each comes from its site straight onto the pod (the node pack's download, from the site's own link: the pod cannot reach
  * Afflatus), or, for a file no site is known for, is sent from this computer (podUpload.ts).
  *
- * The money rule: a download is never work. Files ahead come in the time the pod is billed for anyway (after what a job
- * waits for), and a pod with nothing to render goes idle on time and ends as its idle action says, whatever it was still
- * getting (with a volume, what came stays for the next deploy). A file that cannot be had is said once and stays failed
- * for that pod: its jobs go elsewhere (queue.ts).
+ * The money rule: a file that is moving holds the pod's idle time (moving()), so that a pod is never stopped or terminated
+ * by its idle stop mid-download (the owner: a pod must not be lost for downloading); its idle time runs again from when
+ * the last file is in or failed. Only bytes that come count: a download or upload with nothing new for STALL_MS no longer
+ * holds it, so a stuck fetch cannot bill for ever, and the caps, the balance, the watchdog and a Stop by hand act as
+ * before. A file that cannot be had is said once and stays failed for that pod: its jobs go elsewhere (queue.ts).
  */
 
 export type PodFileState = "next" | "fetching" | "ready" | "failed";
@@ -62,6 +63,9 @@ interface Entry extends PodFileView {
   upload?: AbortController;
   /** When its bytes started coming, for its speed. */
   flowingAt?: number;
+  /** When its bytes last moved, and how many there were then: a file under way holds the pod's idle time only while they move. */
+  movedAt?: number;
+  movedBytes?: number;
   /** When all of it was on the pod (the pack had it whole), for its speed. */
   wholeAt?: number;
   /** Put back in line after a passing failure (ComfyUI not answering, its line full): how many times, and not before when. */
@@ -131,6 +135,8 @@ const PASSING = /not answering|cannot be reached|no longer knows the (download|u
 /** How many times a passing failure puts a file back in line before it is failed, and the first wait (doubled each time). */
 const TRIES = 4;
 const RETRY_MS = 15_000;
+/** How long a file under way may bring no new byte and still hold its pod's idle time (moving()). */
+const STALL_MS = 5 * 60_000;
 /**
  * A disk that is full, as the node pack says it (downloads.py: a write that found no room, a file that does not fit beside
  * the downloads under way; uploads.py and a download asked for with its size: 507). It stays full: never asked again as is.
@@ -151,6 +157,8 @@ export class PodFiles {
   measuredFrom = MEASURED_FROM;
   /** The first wait before an upload's piece is sent again (shorter in tests). */
   uploadBackoffMs = 2000;
+  /** How long a file may bring nothing and still hold its pod's idle time (shorter in tests). */
+  stallMs = STALL_MS;
   /** How old a disk read may be when a file is held against it before it starts (0 in tests). */
   diskFreshMs = 5_000;
   /** Each pod's disk as last read; null: its node pack is too old to say (before 0.19.0). */
@@ -165,6 +173,30 @@ export class PodFiles {
     const makes = (await this.d.makesRoom?.(machine).catch(() => false)) ?? false;
     this.making.set(machine, makes);
     return makes;
+  }
+
+  /**
+   * Whether files are coming to a pod now: one under way whose bytes moved within the last stallMs. What holds its idle
+   * time (rented.ts keepOrStop): a download is waited for, a stuck one is not. A download's bytes are read from the
+   * download list here, not only at the next pass, so that the answer is never a pass behind.
+   */
+  moving(machine: string): boolean {
+    const now = Date.now();
+    for (const e of this.pods.get(machine)?.values() ?? []) {
+      if (e.state !== "fetching") continue;
+      const v = e.downloadId ? this.d.downloads.get(e.downloadId) : null;
+      if (v) this.moved(e, v.bytes);
+      const at = e.movedAt ?? e.flowingAt;
+      if (at !== undefined && now - at < this.stallMs) return true;
+    }
+    return false;
+  }
+
+  /** Its bytes as last seen: the time they last moved is kept when they did. */
+  private moved(e: Entry, bytes: number): void {
+    if (bytes === e.movedBytes) return;
+    e.movedBytes = bytes;
+    e.movedAt = Date.now();
   }
 
   /** A pod's disk as last read, for its row: null while not known (not read yet, or a node pack too old to say). */
@@ -304,6 +336,8 @@ export class PodFiles {
     e.bytes = 0;
     delete e.downloadId;
     delete e.flowingAt;
+    delete e.movedAt;
+    delete e.movedBytes;
     delete e.wholeAt;
   }
 
@@ -647,6 +681,7 @@ export class PodFiles {
     // whole on the pod once the pack is done with it (ComfyUI listing it comes a moment after): its speed ends there
     if (v.status === "saving" || v.status === "done") e.wholeAt ??= Date.now();
     const moved = v.bytes !== e.bytes || (v.total || e.total) !== e.total;
+    this.moved(e, v.bytes);
     e.bytes = v.bytes;
     if (v.total) e.total = v.total;
     if (v.status === "done") {
@@ -698,6 +733,8 @@ export class PodFiles {
       }
       // its clock starts as it is asked for: a pod's two at a time start at once, and a fast file is done before the next look
       e.flowingAt = Date.now();
+      e.movedAt = e.flowingAt;
+      e.movedBytes = 0;
       if (!this.current(machine, e)) return;
       const started = await this.d.downloads.start(comfy, "", { file: e.file, folder: e.folder, title: name, source, ...(headers ? { headers } : {}), ...(total ? { total } : {}), machine, directOnly: true });
       // the pod forgotten (stopped, gone) while its download was asked for: stopped, not left running for nothing
@@ -727,10 +764,13 @@ export class PodFiles {
     const stop = new AbortController();
     e.upload = stop;
     e.flowingAt = Date.now();
+    e.movedAt = e.flowingAt;
+    e.movedBytes = 0;
     try {
       await uploadFile({
         client: comfy.client, path, folder: e.folder, file: e.file, signal: stop.signal, backoffMs: this.uploadBackoffMs,
         onBytes: (bytes, total) => {
+          this.moved(e, bytes);
           e.bytes = bytes;
           e.total = total;
           this.d.changed?.();
