@@ -103,10 +103,13 @@ describe("a rented machine", () => {
     const id = await add();
     await post(t.app, `/api/machines/${id}/start`, {});
     await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
-    expect(await t.services.rented.goingBack()).toEqual({ running: ["comfy-5090 (NVIDIA GeForce RTX 5090)"], billing: [], unknown: false });
+    expect(await t.services.rented.goingBack()).toEqual({ running: ["comfy-5090 (NVIDIA GeForce RTX 5090)"], billing: [], unknown: false, unreadable: null });
     await post(t.app, `/api/machines/${id}/stop`, {});
     await until(async () => (await t.services.rented.poll(), pod5090().status === "EXITED"));
-    expect(await t.services.rented.goingBack()).toEqual({ running: [], billing: ["comfy-5090, stopped: its 50 GB disk, $10.0/month"], unknown: false });
+    expect(await t.services.rented.goingBack()).toEqual({ running: [], billing: ["comfy-5090, stopped: its 50 GB disk, $10.0/month"], unknown: false, unreadable: null });
+    // RunPod not answering: why is said, and Go back is refused on it (updates.ts goBackCheck)
+    runpod.failList = 500;
+    expect(await t.services.rented.goingBack()).toMatchObject({ unknown: true, unreadable: expect.any(String) });
   });
 
   it("is down for good for its files only once stopped, or missing from two reads of RunPod's in a row", async () => {

@@ -57,6 +57,8 @@ export interface Storage {
   disksMonth: number;
   /** What storage costs a month with nothing running, as the account stands now: every volume, every pod's own disk at the stopped price (a running one's is in its rate while it runs). */
   perMonth: number;
+  /** What storage bills a month now: the volumes and the stopped pods' disks (a running pod's disk is in its rate, with the pods' pace). */
+  nowMonth: number;
   volumes: number;
   /** Stopped pods with a disk of their own: billed while they wait. */
   stoppedDisks: number;

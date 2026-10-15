@@ -33,7 +33,11 @@ jobs:
       - run: pnpm test
       # the node pack: every file compiles, and its frame and token arithmetic holds (on stand-ins for torch and ComfyUI)
       - run: python3 -m py_compile comfy-nodes/afflatus-nodes/*.py
-      - run: pipx run --spec "pytest==9.1.1" pytest -q comfy-nodes/afflatus-nodes/tests
+      # with numpy, which ComfyUI has, so that the Face Match tests run (they are skipped without it)
+      - run: |
+          python3 -m venv "$RUNNER_TEMP/pack-tests"
+          "$RUNNER_TEMP/pack-tests/bin/pip" install -q "pytest==9.1.1" "numpy==2.5.4"
+          "$RUNNER_TEMP/pack-tests/bin/python" -m pytest -q comfy-nodes/afflatus-nodes/tests
       - run: node scripts/release/stage.mjs
 
   # the timeline player frame by frame in headless Chrome (the runner has Chrome): H3-shaped synthetic clips with their frame

@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { hasRentedScreen } from "@afflatus/core";
 import { create } from "zustand";
 import { api, type GoBackCheck, type UpdateFlow, type UpdatesView } from "./api";
 import { ask } from "./Confirm";
@@ -38,7 +39,8 @@ export function aboutState(v: UpdatesView): AboutState {
  */
 export function goBackQuestion(version: string, check: GoBackCheck): { title: string; text: string; yes: string } | null {
   if (check.refused) return null;
-  const billed = check.billing.length
+  // a version with the Rented GPUs screen (0.5.0 on) shows what bills there itself: nothing to name
+  const billed = hasRentedScreen(version) ? "" : check.billing.length
     ? ` Still billed on RunPod after it, with no Rented GPUs screen in ${version} to see or remove them: ${check.billing.join("; ")}.`
     : check.unknown ? ` RunPod did not answer: what stays billed there (stopped pods' disks, volumes) could not be read, and ${version} has no Rented GPUs screen.` : "";
   return {

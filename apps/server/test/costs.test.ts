@@ -224,7 +224,7 @@ describe("the costs of a window", () => {
   const spending: Spending = {
     today: 0.9, month: 1.3, caps: { day: 2, month: 0 }, balance: 20, lowBalance: false, spendPerHr: 0.62, runwayMs: 20 / 0.62 * HOUR, billed: true,
     perDay: { pods: 0.9 / 7, storage: 0.5 }, runwayDays: 20 / (0.9 / 7 + 0.5),
-    storage: { volumesMonth: 0.2, disksMonth: 0.1, perMonth: 15, volumes: 1, stoppedDisks: 1, unused: [] },
+    storage: { volumesMonth: 0.2, disksMonth: 0.1, perMonth: 15, nowMonth: 15, volumes: 1, stoppedDisks: 1, unused: [] },
   };
 
   it("says the month's bill beyond the count as not split, and the runway and month end with storage, as Settings does", async () => {

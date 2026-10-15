@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { sql } from "kysely";
 import { z } from "zod";
+import { compareVersions, hasRentedScreen, parseVersion } from "@afflatus/core";
 import { environment, envSaid, VERSION } from "./config";
 import { now } from "./db";
 import { httpError } from "./errors";
@@ -52,13 +53,8 @@ export type InstallKind = "bundle" | "docker" | "sources";
 
 // ---------------------------------------------------------------- versions
 
-interface Parsed { core: [number, number, number]; pre: string[] }
-
-/** A version as releases name it (v1.2.3, 1.2.3-rc.1); null for anything else ("dev"). */
-export function parseVersion(v: string): Parsed | null {
-  const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(v.trim());
-  return m ? { core: [Number(m[1]), Number(m[2]), Number(m[3])], pre: m[4] ? m[4].split(".") : [] } : null;
-}
+// the order of versions is core's, read by the page too (Go back's question)
+export { compareVersions };
 
 /** A version without its tag's "v": the name of its folder under versions/ and what is said. */
 export const bareVersion = (v: string) => v.trim().replace(/^v(?=\d)/, "");
@@ -71,28 +67,6 @@ export const bareVersion = (v: string) => v.trim().replace(/^v(?=\d)/, "");
 export function versionName(name: unknown): string | null {
   if (typeof name !== "string" || !/^[\w.+-]+$/.test(name) || name.startsWith(".") || name.endsWith(".")) return null;
   return name;
-}
-
-/** Semver order: 1 when `a` comes after `b`, -1 before, 0 the same; null when either is not a version. A prerelease comes before its release. */
-export function compareVersions(a: string, b: string): number | null {
-  const x = parseVersion(a);
-  const y = parseVersion(b);
-  if (!x || !y) return null;
-  for (let i = 0; i < 3; i++) if (x.core[i] !== y.core[i]) return x.core[i]! > y.core[i]! ? 1 : -1;
-  if (!x.pre.length || !y.pre.length) return x.pre.length === y.pre.length ? 0 : x.pre.length ? -1 : 1;
-  for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
-    const p = x.pre[i];
-    const q = y.pre[i];
-    if (p === undefined) return -1;
-    if (q === undefined) return 1;
-    const pn = /^\d+$/.test(p);
-    const qn = /^\d+$/.test(q);
-    if (pn && qn) {
-      if (Number(p) !== Number(q)) return Number(p) > Number(q) ? 1 : -1;
-    } else if (pn !== qn) return pn ? -1 : 1;
-    else if (p !== q) return p > q ? 1 : -1;
-  }
-  return 0;
 }
 
 const isPrerelease = (v: string) => Boolean(parseVersion(v)?.pre.length);
@@ -893,16 +867,20 @@ export class AfflatusUpdates {
   // ---------------------------------------------------------------- going back
 
   /**
-   * What Go back would leave on RunPod, asked before its question: refused (`refused` says why) while a rented GPU runs
-   * or a GPU hunt is on, as the version before has no Rented GPUs screen, no idle stop and no spending cap to stop them;
-   * else what keeps billing stopped (`billing`: disks, volumes), named in the question.
+   * What Go back would leave on RunPod, asked before its question: refused (`refused` says why) while a rented GPU runs,
+   * RunPod cannot be read to know it, or a GPU hunt is on, as a version before 0.5.0 has no Rented GPUs screen, no idle
+   * stop and no spending cap to stop them; else what keeps billing stopped (`billing`: disks, volumes), named in the
+   * question. Back to a version with that screen, nothing is refused or named: it sees its pods itself.
    */
   async goBackCheck(): Promise<{ refused: string | null; billing: string[]; unknown: boolean }> {
-    const prev = (await this.previous())?.version ?? "the previous version";
+    const before = (await this.previous())?.version;
+    if (before && hasRentedScreen(before)) return { refused: null, billing: [], unknown: false };
+    const prev = before ?? "the previous version";
     const left = await this.o.services.rented.goingBack();
     const hunt = this.o.services.hunt.view().hunt;
     const refused = left.running.length
       ? `A rented GPU runs: ${left.running.join(", ")}. Stop or terminate it first: ${prev} has no Rented GPUs screen, idle stop or spending cap, and it would bill unseen.`
+      : left.unreadable ? `RunPod could not be read: ${left.unreadable}. Whether a rented GPU runs is not known, and ${prev} has no Rented GPUs screen: try again once RunPod answers.`
       : hunt ? `A GPU hunt is on: cancel it first. ${prev} has no Rented GPUs screen: a pod it deploys would bill unseen.` : null;
     return { refused, billing: left.billing, unknown: left.unknown };
   }

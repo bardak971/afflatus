@@ -123,4 +123,11 @@ describe("Go back's question", () => {
     expect(goBackQuestion("0.4.0", { refused: null, billing: [], unknown: true })!.text).toContain("RunPod did not answer");
     expect(goBackQuestion("0.4.0", { refused: "A rented GPU runs", billing, unknown: false })).toBeNull();
   });
+
+  it("names nothing on RunPod going back to a version with the Rented GPUs screen (0.5.0 on)", () => {
+    const billing = ["volume zz-test (50 GB, $3.50/month)"];
+    expect(goBackQuestion("0.5.0", { refused: null, billing, unknown: true })!.text).not.toContain("RunPod");
+    expect(goBackQuestion("v0.6.1", { refused: null, billing, unknown: false })!.text).not.toContain("RunPod");
+    expect(goBackQuestion("0.5.0-rc.1", { refused: null, billing, unknown: false })!.text).toContain("no Rented GPUs screen in 0.5.0-rc.1");
+  });
 });

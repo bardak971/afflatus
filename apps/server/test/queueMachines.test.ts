@@ -141,7 +141,7 @@ describe("a job a ComfyUI had when Afflatus stopped", () => {
     await again.idle();
   });
 
-  it("is queued again once its machine stays away, and no longer holds what was asked after it", async () => {
+  it("is queued again once its machine stays away, holding the cut asked after it but not an update", async () => {
     await post(t.app, "/api/queue/use-only", { machine: "m2" });
     const a = await enqueue({});
     await until(() => sentTo(two).length === 1);
@@ -155,18 +155,50 @@ describe("a job a ComfyUI had when Afflatus stopped", () => {
     try {
       await again.start();
       const cut = await again.enqueueCut({ asset: "nope", startMs: 0, endMs: 1000, action: "copy" }, "zz-test cut");
-      // lost after the wait a render gets, it waits for its machine, which may still render it: the cut goes on meanwhile
+      // lost after the wait a render gets, it waits for its machine, which may still render it: the cut asked after it
+      // waits too (an export after a render is made with it), but an update does not wait for a machine that is away
       await until(async () => (await row(a)).status === "queued");
-      await until(async () => (await row(cut)).status === "failed");
+      await new Promise((r) => setTimeout(r, 300));
+      expect((await row(cut)).status).toBe("queued");
       expect(sentTo(one)).toHaveLength(0);
+      expect([...(await again.takeable([a]))]).toEqual([]);
       // back, its machine is asked for the prompt it had, and that one is followed: never rendered twice
       two.down = false;
       again.nudge();
       await until(async () => (await row(a)).status === "running");
       complete(two, sentTo(two)[0]!);
       await until(async () => (await row(a)).status === "done");
+      await until(async () => (await row(cut)).status === "failed");
       expect(sentTo(two)).toHaveLength(1);
       expect(sentTo(one)).toHaveLength(0);
+    } finally {
+      again.stop();
+      await again.idle();
+    }
+  });
+
+  it("cleared from the waiting list while its machine is away, is dropped from that ComfyUI once it answers", async () => {
+    await post(t.app, "/api/queue/use-only", { machine: "m2" });
+    const a = await enqueue({});
+    await until(() => sentTo(two).length === 1);
+    await until(async () => Boolean((await row(a)).resume));
+    t.services.queue.stop();
+    await t.services.queue.idle();
+    await post(t.app, "/api/queue/resume", {});
+    two.down = true;
+    const { Queue } = await import("../src/queue");
+    const again = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, { ...FAST, offlineExpiryMs: 60_000 });
+    try {
+      await again.start();
+      await until(async () => (await row(a)).status === "queued");
+      expect(await again.cancelWaiting()).toBe(1);
+      const drops = () => two.calls.filter((c) => c === "POST /queue").length;
+      await new Promise((r) => setTimeout(r, 100));
+      const before = drops();
+      // back: the prompt it may still have is dropped there, not rendered on unseen
+      two.down = false;
+      again.noteReachable(true, new Map([["m2", true]]));
+      await until(() => drops() > before);
     } finally {
       again.stop();
       await again.idle();
