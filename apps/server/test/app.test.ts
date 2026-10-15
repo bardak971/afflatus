@@ -195,7 +195,7 @@ describe("settings", () => {
       unloadAfterMinutes: 0, designerLlm: "main", designerInstructions: [], designerInstruction: "", designerGuides: {},
       tagCheck: true, families: {}, hasCivitaiKey: true, hasHuggingFaceToken: false, hasRunpodKey: false, rentCaps: { day: 0, month: 0 }, costs: { kwhPrice: null, currency: "€" }, lastDeploy: null, volumeUnusedDays: 7, civitaiLookups: false, updateChecks: false, afflatusUpdateChecks: true, downloadModels: false, renderHistoryDays: 90, unkeptDays: 1, binDays: 7,
       finish: { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentDenoise: 0.15, latentSteps: 2, seedvrFrames: 0, sharpen: 0 }, slotFiles: {}, acceptedPresets: [],
-      bar: { shortcut: "Ctrl+K", snippets: false, history: false, cast: false }, pinnedProjects: [],
+      bar: { shortcut: "Ctrl+K", snippets: false, cast: false }, pinnedProjects: [],
       notify: { hasTelegramToken: false, telegramChat: "", hasDiscordWebhook: false, picture: true, events: expect.objectContaining({ renderDone: { telegram: false, discord: false }, renderFailed: { telegram: true, discord: true } }) },
       access: { hasPassword: false, passwordSetAt: null, localNoPassword: false, stayDays: 30, resetTelegram: true, hasMetricsToken: false },
     });

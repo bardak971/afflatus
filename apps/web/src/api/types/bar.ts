@@ -50,6 +50,5 @@ export interface BarSettings {
   /** "Ctrl+K", "Ctrl+Shift+P", "Alt+Space". */
   shortcut: string;
   snippets: boolean;
-  history: boolean;
   cast: boolean;
 }

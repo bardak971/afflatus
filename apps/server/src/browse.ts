@@ -272,10 +272,13 @@ export function registerBrowse(app: FastifyInstance, s: Services): void {
     const q = z.object({
       q: z.string().max(200).default(""), types: csv, bases: csv, sort: z.enum(SORTS).default("Most Downloaded"), period: z.enum(PERIODS).default("AllTime"), cursor: z.string().max(400).optional(),
       all: z.enum(["1", "0"]).default("0"),
+      // one creator's models only (the command bar's by:), by their Civitai name
+      by: z.string().trim().max(80).regex(/^[\w.-]*$/, "a Civitai user name").default(""),
     }).parse(req.query);
     const settings = await lookupsOn();
     const params = new URLSearchParams({ limit: String(PAGE), sort: q.sort, period: q.period });
     if (q.q.trim()) params.set("query", q.q.trim());
+    if (q.by) params.set("username", q.by);
     for (const t of q.types) params.append("types", t);
     for (const b of q.bases) params.append("baseModels", b);
     if (q.cursor) params.set("cursor", q.cursor);
@@ -294,10 +297,12 @@ export function registerBrowse(app: FastifyInstance, s: Services): void {
    * at a time, several meaning all of them at once), a page at a time.
    */
   app.get("/api/browse/huggingface", async (req) => {
-    const q = z.object({ q: z.string().max(200).default(""), base: z.string().max(120).refine((b) => Object.values(FAMILY_HF_BASES).flat().includes(b), "a base model the browser offers").optional(), kind: z.enum(["comfyui", "loras", "all"]).default("comfyui"), sort: z.enum(["downloads", "likes", "lastModified", "trendingScore"]).default("downloads"), cursor: z.string().max(400).optional() }).parse(req.query);
+    const q = z.object({ q: z.string().max(200).default(""), base: z.string().max(120).refine((b) => Object.values(FAMILY_HF_BASES).flat().includes(b), "a base model the browser offers").optional(), kind: z.enum(["comfyui", "loras", "all"]).default("comfyui"), sort: z.enum(["downloads", "likes", "lastModified", "trendingScore"]).default("downloads"), cursor: z.string().max(400).optional(), by: z.string().trim().max(96).regex(/^[\w.-]*$/, "a Hugging Face user or organisation").default("") }).parse(req.query);
     const settings = await lookupsOn();
     const params = new URLSearchParams({ sort: q.sort, direction: "-1", limit: String(PAGE), full: "true" });
     if (q.q.trim()) params.set("search", q.q.trim());
+    // one user's or organisation's repositories only (the command bar's by:)
+    if (q.by) params.set("author", q.by);
     if (q.base) params.append("filter", `base_model:adapter:${q.base}`);
     // ComfyUI's kind of files (single-file models, as Comfy-Org's repacks are tagged), LoRAs, or anything (most of the
     // Hub is text models): Hugging Face reads several filters as all of them at once, so one kind at a time

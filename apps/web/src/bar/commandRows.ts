@@ -5,7 +5,7 @@ import type { Item } from "./items";
 import { prepare } from "./match";
 import { COMMANDS, KIT_OF, parseCommand, type Command, type CommandId, type KitNew } from "./parse";
 import type { TimelineAim } from "./actions/ctx";
-import { est, plural, usd, when } from "../format";
+import { est, plural, size, usd, when } from "../format";
 import { unloadBlock } from "../queueRules";
 import { rateSaid, rentedSaid } from "../machines";
 
@@ -50,6 +50,9 @@ export interface CommandCtx {
   channels?: { telegram: boolean; discord: boolean };
   /** Find models searches online only with Search Hugging Face and Civitai on. */
   lookups?: boolean;
+  /** The files picked in Find models or the bar (`> picked`), and the open form's missing ones (`> get missing files`). */
+  picked?: { count: number; bytes: number };
+  missing?: { recipe: string; files: number } | null;
   /** The sign-in (Settings › Interface › Access): a password set, and whether this browser holds a session to end. */
   access?: { locked: boolean; session: boolean } | null;
 }
@@ -188,6 +191,9 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     "sign-out": ["Sign out", upper(signOutBlock(x.access)) ?? "This browser · the sign-in page comes next"],
     "sign-out-everywhere": ["Sign out everywhere…", x.access?.locked ? "Every device, this one too · each needs the password again · asked first" : "No password is set: nothing to sign out of"],
     "find-models": [c.cmd === "find-models" && c.words ? `Find models: “${c.words}”` : "Find models…", x.lookups ? "Civitai, Hugging Face and yours · to download onto this PC" : "Turn on Search Hugging Face and Civitai (Settings › Models) first"],
+    picked: ["Picked models", x.picked?.count ? `${plural(x.picked.count, "file")}${x.picked.bytes ? ` · ${size(x.picked.bytes)}` : ""} · onto this PC, asked first` : "Nothing picked yet: Tab › Add to Picked on a model of civitai: or hf:"],
+    "get-missing": ["Get missing files", x.missing ? (x.missing.files ? `${x.missing.recipe} · ${plural(x.missing.files, "file")} missing · looked up, then asked` : `${x.missing.recipe} has every file it needs`) : "The open form's missing model files"],
+    "model-updates": ["Model updates", x.lookups ? "Newer versions of your models on Civitai · asked now, then the list" : "Turn on Search Hugging Face and Civitai (Settings › Models) first"],
     "check-updates": ["Check for updates", x.updates?.newer && x.updates.latest ? `Afflatus ${x.updates.latest.version} is out · you have ${x.updates.version}` : x.updates ? `You have ${x.updates.version}${x.updates.checkedAt ? ` · checked ${when(x.updates.checkedAt)}` : ""} · GitHub asked now` : "GitHub asked now"],
     update: x.updates?.newer && x.updates.latest
       ? [`Update to ${x.updates.latest.version}`, x.updates.canUpdate ? `You have ${x.updates.version} · Afflatus restarts once the queue is empty; your library stays as it is` : x.updates.cannot ?? "Not from here"]

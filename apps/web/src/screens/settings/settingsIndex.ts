@@ -75,7 +75,6 @@ export const INDEX: SettingSpot[] = [
   { tab: "bar", label: "Preview", key: "bar.preview", words: "preview in the bar command bar shift side" },
   { tab: "bar", label: "Forget what I used", key: "bar.forget", words: "command bar recents ranking reset clear start over" },
   { tab: "bar", label: "Prompt snippets", key: "bar.snippets", words: "typed by name command bar ; expand" },
-  { tab: "bar", label: "Prompt history", key: "bar.history", words: "in the bar command bar quote" },
   { tab: "bar", label: "Cast with @", key: "bar.cast", words: "command bar person people" },
   { tab: "storage", label: "Disk", key: "storage.disk", words: "disk usage space size" },
   { tab: "storage", label: "Bin", key: "storage.bin", words: "empty the bin trash delete" },

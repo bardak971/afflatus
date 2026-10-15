@@ -122,14 +122,16 @@ describe("a setting picked in the bar", () => {
 describe("modes and commands", () => {
   it("picks the mode from the first character", () => {
     expect(modeOf("> seed 4")).toEqual({ mode: "command", text: "seed 4" });
-    expect(modeOf("#dev")).toEqual({ mode: "place", text: "dev" });
+    // `#` and `"` are the render search's in: and prompt: now, not modes
+    expect(modeOf("#dev").mode).toBe("all");
     expect(modeOf("/ hover")).toEqual({ mode: "setting", text: "hover" });
     expect(modeOf("= 7s")).toEqual({ mode: "calc", text: "7s" });
     expect(modeOf("!")).toEqual({ mode: "queue", text: "" });
     expect(modeOf("harbor ")).toEqual({ mode: "all", text: "harbor" });
     // the optional modes only when they are on
-    expect(modeOf('"rain', { history: false, cast: false }).mode).toBe("all");
-    expect(modeOf("@ada", { history: false, cast: true }).mode).toBe("cast");
+    expect(modeOf('"rain').mode).toBe("all");
+    expect(modeOf("@ada", { cast: false }).mode).toBe("all");
+    expect(modeOf("@ada", { cast: true }).mode).toBe("cast");
   });
   it("reads clip numbers", () => {
     expect(clipList("3-5")).toEqual([3, 4, 5]);

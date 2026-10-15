@@ -21,7 +21,7 @@ const SAYS: Record<Download["status"], string> = {
 };
 
 /** What a line says of its state, by who downloads it. */
-function says(d: Download): string {
+export function says(d: Download): string {
   const ours = d.via === "afflatus" || d.via === "pack";
   if (d.status === "error") return d.error ?? SAYS.error;
   if (d.status === "starting" && d.waiting) return `Waiting its turn, ${d.waiting}: ${ours ? "Afflatus downloads two files at a time" : "ComfyUI-Manager fetches one file at a time"}`;

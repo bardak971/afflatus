@@ -1,4 +1,4 @@
-import type { CommandEntry, Entity, Job, PromptHistoryItem, QueueStatus, RecipeInfo, RunningJob } from "../api";
+import type { BrowseCard, CommandEntry, Download, Entity, UpdateRow, Job, PromptHistoryItem, QueueStatus, RecipeInfo, RunningJob } from "../api";
 import { aboutMs, clock, plural, size, timeLeft, when } from "../format";
 import { calc, type CalcCard, type Grid } from "./calc";
 import { commandRow, liveRow, QUEUE_BULK, type CommandCtx } from "./commandRows";
@@ -9,11 +9,24 @@ import { allRows, keysOfRow, searchKeys, type Found, type KeysAsk } from "../key
 import { rowKeys, type PlaceId } from "../keys/table";
 import { pageLabel, type SettingCtx, type SettingEntry, valueSaid } from "./settingsRegistry";
 import { bonus, recentKeys, type Ranks } from "./rank";
+import type { BrowseAsk } from "./browseSearch";
 
 /** What one row of the bar is, the sections it falls in, and how each kind is said. */
 
 export type Kind = "timeline" | "render" | "draft" | "project" | "folder" | "command" | "setting" | "job" | "calc" | "history" | "person" | "workflow" | "kit" | "nav" | "key";
-type Group = "Recent" | "Suggested" | "Timelines" | "Renders" | "Drafts" | "Projects & folders" | "Workflows" | "Prompt kit" | "Go to" | "Commands" | "Settings" | "Queue" | "Calculator" | "Prompt history" | "Cast" | "Keys";
+type Group = "Filters" | "Model link" | "Downloads" | "Civitai" | "Hugging Face" | "Recent" | "Suggested" | "Timelines" | "Renders" | "Drafts" | "Projects & folders" | "Workflows" | "Prompt kit" | "Go to" | "Commands" | "Settings" | "Queue" | "Calculator" | "Prompt history" | "Cast" | "Keys";
+
+/** A value of the render search a row names (a LoRA, a model family, a model file): what its Tab actions act on. */
+export type SearchValue =
+  | { kind: "lora"; file: string; newer?: UpdateRow }
+  | { kind: "family"; id: string }
+  | { kind: "model"; file: string; newer?: UpdateRow }
+  /** A pasted link's file (modelRows.ts), and a model download in `!`. */
+  | { kind: "link"; card: BrowseCard; version: string; file: string }
+  | { kind: "download"; d: Download }
+  /** A search of Civitai or Hugging Face (browseSearch.ts): Find models opened on it, and one model it found. */
+  | { kind: "find"; ask: BrowseAsk }
+  | { kind: "card"; card: BrowseCard; ask: BrowseAsk };
 
 export interface Item {
   /** Unique, and what the learned rank is kept under: "timeline:<id>", "cmd:pause", "set:hover.video". */
@@ -31,6 +44,8 @@ export interface Item {
   command?: Command;
   /** A command named but not yet given its figures: Enter (or Tab) completes the bar with what to type. */
   complete?: string;
+  /** A render search's value: Enter writes it in the line, Tab lists what can be done with it. */
+  value?: SearchValue;
   recipe?: RecipeInfo;
   setting?: SettingEntry;
   job?: { job: Job | RunningJob; state: "running" | "waiting" | "failed"; position?: number };
@@ -241,7 +256,7 @@ function grouped(rows: readonly Item[], limit = 50): Array<{ group: Group; rows:
 const LIMIT = 50;
 
 /** A row with the parts of its label that matched what is typed, lit. */
-type Shown = Item & { ranges?: Array<[number, number]> };
+export type Shown = Item & { ranges?: Array<[number, number]> };
 export type Section = { group: string; rows: Shown[] };
 
 /** What the rows of the bar are made of: the index read into rows, the commands and settings offered, and the moment. */
@@ -272,7 +287,6 @@ export interface RowsData {
   grid: Grid;
   /** The queue in full, in the `!` mode. */
   queue: QueueStatus | null;
-  history: readonly PromptHistoryItem[];
   keysHere: readonly PlaceId[];
   barKey: string;
   entities: readonly Entity[];
@@ -382,11 +396,6 @@ export function rowsFor(mode: Mode, d: RowsData): Section[] {
       const places = q && !parsed ? search(navRows, q, 12, learned).map((x) => x.item) : [];
       return [{ group: "Commands", rows: withRanges([...rows, ...rest], parsed ? "" : q) }, { group: "Go to", rows: withRanges(places, q) }].filter((s) => s.rows.length);
     }
-    case "place": {
-      const places = base.filter((i) => i.kind === "project" || i.kind === "folder");
-      const found = q ? search(places, q, LIMIT, learned).map((x) => x.item) : [...places].sort((a, b) => learned(b) - learned(a) || Number(a.kind === "folder") - Number(b.kind === "folder") || a.label.localeCompare(b.label)).slice(0, LIMIT);
-      return grouped(withRanges(found, q), LIMIT);
-    }
     case "setting": {
       const found = q ? search(settingRows, q, LIMIT, learned).map((x) => x.item) : settingRows.filter((s) => s.setting?.kind !== "page");
       return [{ group: "Settings", rows: withRanges(found, q) }].filter((s) => s.rows.length);
@@ -406,10 +415,6 @@ export function rowsFor(mode: Mode, d: RowsData): Section[] {
       const bulk = QUEUE_BULK.flatMap(live);
       const bulkFound = q ? search(bulk, q, LIMIT).map((x) => x.item) : bulk;
       return [{ group: "Queue", rows: withRanges(found, q) }, { group: "Commands", rows: withRanges(bulkFound, q) }].filter((s) => s.rows.length);
-    }
-    case "history": {
-      const rows = d.history.map((h, i): Item => ({ key: `history:${i}:${h.createdAt}`, kind: "history", label: h.prompt.replace(/\s+/g, " ").slice(0, 140), meta: `${d.recipes.find((r) => r.id === h.recipe)?.title ?? h.recipe} · ${when(h.createdAt)}`, group: "Prompt history", verb: "use", p: prepare(h.prompt.slice(0, 140)), history: h }));
-      return [{ group: "Prompt history", rows: withRanges(rows, q) }].filter((s) => s.rows.length);
     }
     case "keys": {
       // the sheet's own search over the key table: the same rows in the same order; with nothing typed, every row

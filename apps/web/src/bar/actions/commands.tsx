@@ -1,10 +1,11 @@
 import { Bell, LogOut, Bookmark, ChevronLeft, ChevronRight, Clapperboard, CircleDollarSign, Download, Eye, FileOutput, FileUp, Film, FlipHorizontal2, FolderPlus, Gauge, Layers, Link2, MemoryStick, Pause, PenLine, Play, Plug, RotateCcw, Search, Server, Sparkles, Split, Square, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { TRANSITIONS } from "@afflatus/core";
 import { ask } from "../../Confirm";
-import { getOnPc, openFindModels } from "../../findModels/store";
+import { getOnPc, openFindModels, type FindTarget } from "../../findModels/store";
 import { followRestart, useUpdatesSeen } from "../../updates";
 import { settingHref } from "../../screens/settings/settingsIndex";
 import { billing, signOutBlock } from "../commandRows";
+import { missingActions, pickedActions } from "./models";
 import { cancelHunt, openDeploy } from "../../deploy";
 import { openLoadPanel } from "../../loadPanelHost";
 import { OPEN_MACHINES } from "../../MachinesPill";
@@ -32,6 +33,15 @@ import { PIN_WORDS } from "../../timeline/model";
 const KIT_WORD = { person: "person", place: "place", style: "style", preset: "preset", snippet: "snippet" } as const;
 
 /** A command with its figures: what it does, then (Ctrl + Enter) where it does it. */
+/** Find models as Settings › Models opens it: what is picked downloads onto this PC (the bar's `find models`, a pasted link's Tab). */
+export const onThisPc = (x: BarCtx): FindTarget => ({
+  what: "this PC", action: "Get on this PC", pc: true,
+  add: async (files) => {
+    await getOnPc(files);
+    void x.client.invalidateQueries({ queryKey: queryKeys.downloads() });
+  },
+});
+
 export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, preset?: Preset): Action[] {
   const { aim, client, go, say, good, failed, form, noDraft, askTimeline, atTopAction, tree, queue, ops, openComfy, rented, deployAgain } = x;
   const noTimeline: Action = { label: "No timeline to do it on", disabled: true, run: () => {} };
@@ -465,13 +475,30 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       return [{
         label: c.words ? `Find models: “${c.words}”` : "Find models…", icon: <Search size={14} />, disabled: !lookups,
         note: lookups ? "Civitai, Hugging Face and yours · to download onto this PC" : "turn on Search Hugging Face and Civitai (Settings › Models) first",
-        run: () => openFindModels({
-          what: "this PC", action: "Get on this PC", pc: true,
-          add: async (files) => {
-            await getOnPc(files);
-            void client.invalidateQueries({ queryKey: queryKeys.downloads() });
-          },
-        }, c.words || undefined),
+        run: () => openFindModels(onThisPc(x), c.words || undefined),
+      }];
+    }
+    case "picked":
+      return pickedActions(x);
+    case "get-missing":
+      return missingActions(x);
+    case "model-updates": {
+      // as the card's Check now, then the card (its list opens from there)
+      const lookups = Boolean(x.settingCtx.server?.civitaiLookups);
+      return [{
+        label: "Model updates", icon: <Download size={14} />, disabled: !lookups,
+        note: lookups ? "Civitai asked now, then the list" : "turn on Search Hugging Face and Civitai (Settings › Models) first",
+        run: async () => {
+          go(settingHref("models.updates"));
+          try {
+            const report = await api.checkModelUpdates();
+            client.setQueryData(queryKeys.modelUpdates(), report);
+            const newer = report.items.filter((u) => u.newer).length;
+            good(newer ? `${plural(newer, "model")} with a newer version on Civitai` : "Your models are the newest on Civitai", report.error ?? undefined, settingHref("models.updates"), "Open the list");
+          } catch (err) {
+            failed("Could not ask Civitai")(err);
+          }
+        },
       }];
     }
     case "check-updates":

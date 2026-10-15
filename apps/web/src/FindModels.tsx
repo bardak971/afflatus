@@ -6,7 +6,7 @@ import { api, type BrowseCard } from "./api";
 import { keepTabIn } from "./Dialog";
 import { Card } from "./findModels/Card";
 import { Opened } from "./findModels/Opened";
-import { clearPicked, closeFindModels, pickedOf, useKept, type FindTarget, type PickedFile } from "./findModels/store";
+import { clearPicked, closeFindModels, pickedOf, useKept, type FindTarget, type HfSort, type PickedFile } from "./findModels/store";
 import { Tray } from "./findModels/Tray";
 import { Yours } from "./findModels/Yours";
 import { useSettled } from "./hooks";
@@ -24,6 +24,7 @@ import { Checkbox, cx, ErrorNote, fieldClass, Segmented } from "./ui";
 type Tab = "yours" | "civitai" | "huggingface";
 const TYPE_SAID: Record<string, string> = { LORA: "LoRA", LoCon: "LoCon", DoRA: "DoRA", Checkpoint: "Checkpoint", VAE: "VAE", TextEncoder: "Text encoder", Upscaler: "Upscaler", Controlnet: "ControlNet", UNet: "UNet", CLIPVision: "CLIP vision" };
 const SORT_SAID: Record<string, string> = { "Most Downloaded": "Most downloaded", "Highest Rated": "Highest rated", "Most Liked": "Most liked", Newest: "Newest" };
+const HF_SORTS: Array<{ value: HfSort; label: string }> = [{ value: "downloads", label: "Most downloaded" }, { value: "likes", label: "Most liked" }, { value: "trendingScore", label: "Trending" }, { value: "lastModified", label: "Newest" }];
 const PERIOD_SAID: Record<string, string> = { AllTime: "All time", Year: "This year", Month: "This month", Week: "This week", Day: "Today" };
 const isLink = (q: string) => /^https?:\/\//i.test(q.trim());
 
@@ -46,21 +47,23 @@ export function FindModels({ target }: { target: FindTarget }) {
   const [all, setAll] = useKept("all");
   const [hfBase, setHfBase] = useKept("hfBase");
   const [hfKind, setHfKind] = useKept("hfKind");
+  const [hfSort, setHfSort] = useKept("hfSort");
+  const [by, setBy] = useKept("by");
   const [opened, setOpened] = useKept("opened");
   const [picked, setPicked] = useKept("picked");
   const [dropping, setDropping] = useState(false);
 
   const civitai = useInfiniteQuery({
-    queryKey: queryKeys.browse.civitai({ q, types, baseList, sort, period, all }),
-    queryFn: ({ pageParam, signal }) => api.browseCivitai({ q, types, bases: baseList, sort, period, all, ...(pageParam ? { cursor: pageParam } : {}) }, { signal }),
+    queryKey: queryKeys.browse.civitai({ q, types, baseList, sort, period, all, by }),
+    queryFn: ({ pageParam, signal }) => api.browseCivitai({ q, types, bases: baseList, sort, period, all, by, ...(pageParam ? { cursor: pageParam } : {}) }, { signal }),
     initialPageParam: "",
     getNextPageParam: (last) => last.next ?? undefined,
     enabled: tab === "civitai" && !isLink(q) && bases.isSuccess,
     staleTime: 5 * 60_000,
   });
   const huggingFace = useInfiniteQuery({
-    queryKey: queryKeys.browse.huggingFace({ q, hfBase, hfKind }),
-    queryFn: ({ pageParam, signal }) => api.browseHuggingFace({ q, base: hfBase, kind: hfKind, sort: "downloads", ...(pageParam ? { cursor: pageParam } : {}) }, { signal }),
+    queryKey: queryKeys.browse.huggingFace({ q, hfBase, hfKind, hfSort, by }),
+    queryFn: ({ pageParam, signal }) => api.browseHuggingFace({ q, base: hfBase, kind: hfKind, sort: hfSort, by, ...(pageParam ? { cursor: pageParam } : {}) }, { signal }),
     initialPageParam: "",
     getNextPageParam: (last) => last.next ?? undefined,
     enabled: tab === "huggingface" && !isLink(q),
@@ -161,6 +164,7 @@ export function FindModels({ target }: { target: FindTarget }) {
                 <span className="w-[130px]"><Select size="sm" label="Period" value={period} onChange={setPeriod} options={(bases.data?.periods ?? []).map((p) => ({ value: p, label: PERIOD_SAID[p] ?? p }))} /></span>
               </>
             )}
+            {tab === "huggingface" && <span className="w-[160px]"><Select size="sm" label="Sort" value={hfSort} onChange={(v) => setHfSort(v as HfSort)} options={HF_SORTS} /></span>}
           </div>
         )}
         <div className="grid min-h-0 flex-1 grid-cols-[230px_minmax(0,1fr)_380px]">
@@ -204,6 +208,11 @@ export function FindModels({ target }: { target: FindTarget }) {
               <div className="flex flex-col gap-1.5">
                 <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Show</span>
                 <Checkbox checked={notMine} onChange={setNotMine} className="text-xs"><span>What I do not have</span></Checkbox>
+                {by && (
+                  <button type="button" onClick={() => setBy("")} data-tip="Only this creator's models (by: in the command bar). Click to show everyone's." className="flex items-center gap-1 self-start rounded-full border border-accent bg-accent-wash px-2.5 py-0.5 text-xs text-accent">
+                    By {by} <X size={11} />
+                  </button>
+                )}
                 {tab === "civitai" && <span data-tip="Civitai's API leaves part of its models out unless it is asked for all of them (civitai.com and civitai.red alike). Remembered in this browser."><Checkbox checked={all} onChange={setAll} className="text-xs"><span>All of Civitai</span></Checkbox></span>}
               </div>
             )}

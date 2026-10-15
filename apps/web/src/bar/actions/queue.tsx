@@ -10,7 +10,9 @@ import { queryKeys } from "../../queryKeys";
 /** A job of the queue: what its row and menu on the Queue page do. */
 export function jobActions(x: BarCtx, it: Item): Action[] {
   const { client, failed, good } = x;
-  const { job, state } = it.job!;
+  // a row that only types `!` ("N failed in the queue") names no job: it has nothing to act on
+  if (!it.job) return [];
+  const { job, state } = it.job;
   const toQueue: Action = { label: "Open queue", icon: <ListOrdered size={14} />, run: () => x.go("/queue") };
   const toDraft: Action[] = job.draftId ? [{ label: "Open its draft", icon: <PenLine size={14} />, run: () => x.openDraft(job.draftId!) }] : [];
   if (state === "running") {

@@ -101,6 +101,8 @@ export interface BarCtx {
   openComfy: ReturnType<typeof useOpenInComfy<string>>;
   settingCtx: SettingCtx;
   onCopied(text: string): void;
+  /** A word in the footer for a moment, the bar staying open (a file picked). */
+  flash(text: string, bad?: boolean): void;
   setViewing(a: Asset | null): void;
   /** "Import a folder here…": the computer's folder picker, and where what it picks goes. */
   importInto(t: Target): void;

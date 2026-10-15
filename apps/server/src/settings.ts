@@ -51,8 +51,6 @@ const barSchema = z.object({
   shortcut: z.string().trim().regex(/^(?:(?:Ctrl|Alt|Shift|Meta)\+){0,4}(?:[A-Za-z0-9]{1,12}|[^\sA-Za-z0-9+])$/, "a shortcut is written like Ctrl+K or Alt+Space").default("Ctrl+K"),
   /** Prompt snippets: `;name` in a prompt field expands to the Prompt kit snippet of that name. */
   snippets: z.boolean().default(false),
-  /** Prompt history: `"` in the bar searches the prompts that were rendered. */
-  history: z.boolean().default(false),
   /** Cast: `@` in the bar adds a person of the Prompt kit. */
   cast: z.boolean().default(false),
 });

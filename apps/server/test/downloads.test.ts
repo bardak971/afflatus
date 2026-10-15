@@ -228,6 +228,23 @@ describe("fetching a missing model file into ComfyUI", () => {
     expect((await t.app.inject({ method: "DELETE", url: "/api/downloads/nope" })).statusCode).toBe(404);
   });
 
+  it("is asked again as it was first asked, once stopped or failed (the bar's Download again)", async () => {
+    await start(true);
+    await on();
+    const d = (await post(t.app, "/api/downloads", { file: "slow.safetensors", folder: "loras", url: `${siteUrl}/files/slow.safetensors` })).json();
+    // not while it runs
+    expect((await post(t.app, `/api/downloads/${d.id}/again`, {})).statusCode).toBe(409);
+    await until(async () => (await list()).items[0].bytes > 0);
+    await t.app.inject({ method: "DELETE", url: `/api/downloads/${d.id}` });
+    expect((await list()).items[0]).toMatchObject({ id: d.id, status: "stopped", again: true });
+    const again = (await post(t.app, `/api/downloads/${d.id}/again`, {})).json();
+    expect(again.id).not.toBe(d.id);
+    // the stopped line is gone, the new one runs under the same name
+    expect((await list()).items.map((x: { id: string; file: string }) => [x.id, x.file])).toEqual([[again.id, "slow.safetensors"]]);
+    await t.app.inject({ method: "DELETE", url: `/api/downloads/${again.id}` });
+    expect((await post(t.app, "/api/downloads/nope/again", {})).statusCode).toBe(404);
+  });
+
   it("is never done while lookups are off either: with lookups off Afflatus contacts neither Civitai nor Hugging Face", async () => {
     await start(true);
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: true } });

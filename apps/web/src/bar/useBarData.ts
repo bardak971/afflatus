@@ -2,8 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { LATENT_GRID, type FrameGrid } from "@afflatus/core";
-import { api, type AssetDetail, type CommandEntry, type CommandEstimate, type Entity, type PromptHistoryItem, type RecipeInfo, type SettingsPatch } from "../api";
-import { useAsset, useEntities, useFamilies, useRecipes, useSettings, useStorage } from "../data";
+import { api, type AssetDetail, type CommandEntry, type CommandEstimate, type Entity, type PromptHistoryItem, type FamilyInfo, type BrowseBases, type RecipeInfo, type SettingsPatch } from "../api";
+import { useAsset, useEntities, useFamilies, useRecipes, useSettings, useSetup, useStorage } from "../data";
 import { itemsWord } from "../assetCache";
 import { groupingSaves } from "../screens/queue/bulk";
 import { useQueueOf } from "../screens/studio/queueOf";
@@ -19,19 +19,33 @@ import { type Grid } from "./calc";
 import { commandTemplates, type CommandCtx } from "./commandRows";
 import { machineLabel, severalMachines } from "../machines";
 import { indexItems, navItems, rowsFor, settingItems, usedItems, withItems, type Item, type Section } from "./items";
-import { prepare } from "./match";
+import { prepare, search } from "./match";
 import { COMMANDS, parseCommand, type Command, type Mode } from "./parse";
 import { load, recentKeys, renamed, type Ranks } from "./rank";
 import { PAGES, SETTINGS, settingKeyNow, type SettingCtx } from "./settingsRegistry";
 import { useSelectedClip } from "./bridge";
 import { castPlace } from "./castTo";
 import { useBar } from "./store";
+import type { Chip } from "./SearchChips";
+import { pickedNow, usePickedCount } from "../findModels/store";
+import { useFormTarget } from "../formTarget";
+import { browseRows, browseValueRows, downloadRows, isLink, linkRows } from "./modelRows";
+import { parseBrowse, siteQuery } from "./browseSearch";
+import { nameOf } from "../fields/Loras";
+import { settingHref } from "../screens/settings/settingsIndex";
+import { useDebounced } from "../hooks";
+import { isRenderSearch, parseSearch } from "./search";
+import { filterOf, keyRows, loosened, promptRows, resultSections, valueRows, type SearchData } from "./searchRows";
 import { useUpdates } from "../updates";
 import type { TimelineAim } from "./actions/ctx";
 
 /** One empty list while the recipes load, so what is worked out from them is not redone at every render. */
 const NO_RECIPES: RecipeInfo[] = [];
 const NO_HISTORY: PromptHistoryItem[] = [];
+const NO_FAMILIES: FamilyInfo[] = [];
+const NO_BROWSE_FAMILIES: BrowseBases["families"] = [];
+/** Civitai and Hugging Face asked for with lookups off: the row that leads to the switch. */
+const lookupsOff: Item = { key: "link:off", kind: "nav", label: "Search Hugging Face and Civitai is off", meta: "Turn it on to search or read a link · Settings › Models", group: "Go to", verb: "open", p: prepare("lookups off"), nav: { href: settingHref("server.civitaiLookups") } };
 
 /** How long a row stays selected before its preview is drawn: arrowing fast loads nothing. */
 const DWELL_MS = 80;
@@ -68,6 +82,9 @@ export function commandExtra(shown: Item | null, estimate: CommandEstimate | und
     ],
   };
   if (!shown.complete) return undefined;
+  // a render search's key, value or key taken off: the line it leaves in the bar
+  if (shown.group === "Filters") return { text: `${shown.meta}.
+Enter or Tab writes it in the bar.`, facts: [{ k: "the bar then reads", v: shown.complete.trim() || "(empty)" }] };
   const c = COMMANDS.find((x) => `cmd:${x.id}` === shown.key);
   return { text: `${c?.what ?? ""}.\nEnter or Tab writes it in the bar: add its figures.`, facts: [{ k: "example", v: c?.example ?? "" }] };
 }
@@ -76,17 +93,17 @@ export function commandExtra(shown: Item | null, estimate: CommandEstimate | und
  * Everything the bar's rows are made of: the index of what Afflatus holds, the recipes, settings, Prompt kit and queue,
  * the timeline a command acts on, a render command's estimate, and the rows themselves for what is typed (rowsFor).
  */
-export function useBarData({ open, mode, text, ranks, picked, learn, foundEntries, history }: {
+export function useBarData({ open, mode, text, line, ranks, picked, learn, foundEntries }: {
   open: boolean;
   mode: Mode;
   text: string;
+  /** What is typed as it stands, a space at its end kept: the render search reads a key's value as ended by it. */
+  line: string;
   ranks: Ranks;
   /** The library's items opened from the bar since the index was read. */
   picked: CommandEntry[];
   learn: boolean;
   foundEntries: CommandEntry[] | undefined;
-  /** The prompt history found for what is typed in its mode. */
-  history: PromptHistoryItem[] | undefined;
 }) {
   const [path] = useLocation();
   const client = useQueryClient();
@@ -183,9 +200,18 @@ export function useBarData({ open, mode, text, ranks, picked, learn, foundEntrie
   const locked = Boolean(session?.locked);
   const inSession = Boolean(session?.session);
   // what the command rows say of the moment (commandRows.ts); the commands offered with it, those that apply now
+  // what `> picked` and `> get missing files` say: the files picked, and the open form's missing ones (its recipe's status)
+  const pickedCount = usePickedCount();
+  const pickedFiles = useMemo(() => ({ count: pickedCount, bytes: pickedNow().reduce((n, f) => n + (f.size ?? 0), 0) }), [pickedCount]);
+  const formRecipe = useFormTarget((t) => t.target?.recipe ?? null);
+  const setup = useSetup().data;
+  const missing = useMemo(() => {
+    const st = formRecipe ? setup?.recipes.find((r) => r.id === formRecipe.id) : undefined;
+    return formRecipe && st ? { recipe: formRecipe.title, files: st.missing.length } : null;
+  }, [formRecipe, setup]);
   const commandCtx: CommandCtx = useMemo(
-    () => ({ aim, queue: queueNow ?? null, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid, spending, updates, channels: { telegram, discord }, lookups, access: session ? { locked, session: inSession } : null }),
-    [aim, queueNow, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid, spending, updates, telegram, discord, lookups, session, locked, inSession],
+    () => ({ aim, queue: queueNow ?? null, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid, spending, updates, channels: { telegram, discord }, lookups, picked: pickedFiles, missing, access: session ? { locked, session: inSession } : null }),
+    [aim, queueNow, selectedClip, bannerUndo, editorUndo, binEmpty, binSaid, spending, updates, telegram, discord, lookups, pickedFiles, missing, session, locked, inSession],
   );
   const templates = useMemo(() => commandTemplates(commandCtx), [commandCtx]);
 
@@ -202,18 +228,130 @@ export function useBarData({ open, mode, text, ranks, picked, learn, foundEntrie
   const estimated = estimateOf ? estimate.data : undefined;
   const estimateSaid = estimated ? [estimated.ms !== null && `${aboutMs(estimated.ms)}, learned from ${plural(estimated.basis, "render")}`, estimated.ahead ? `after ${plural(estimated.ahead, "job")}` : "nothing before it"].filter(Boolean).join(" · ") : "";
 
+  // the render search: keys typed anywhere in plain search (search.ts), as rows (searchRows.ts)
+  const familyWords = useMemo(() => (familyList ?? []).map((f) => f.id), [familyList]);
+  // Civitai or Hugging Face searched (`civitai: …`, `hf: …`, browseSearch.ts): read before the render search, whose keys it shares
+  const browsing = open && mode === "all" && /(^|\s)(civitai|hf|huggingface):/i.test(line);
+  const browseBases = useQuery({ queryKey: queryKeys.browse.bases(), queryFn: ({ signal }) => api.browseBases({ signal }), enabled: browsing, staleTime: 10 * 60_000 }).data;
+  const browseFamilies = browseBases?.families ?? NO_BROWSE_FAMILIES;
+  const browse = useMemo(() => (browsing ? parseBrowse(line, browseFamilies) : null), [browsing, line, browseFamilies]);
+  const sParsed = useMemo(() => (open && mode === "all" && !browse ? parseSearch(line, familyWords) : null), [open, mode, line, familyWords, browse]);
+  const typingKey = sParsed?.typing && "key" in sParsed.typing ? sParsed.typing : null;
+  // a model's name among plain words ("red bicycle klein"): that model's renders with the words, above what the words find as before
+  const guessing = Boolean(sParsed && !isRenderSearch(sParsed) && !typingKey && sParsed.words && sParsed.tokens.length);
+  const searching = Boolean(sParsed && (isRenderSearch(sParsed) || typingKey || guessing));
+  const used = useQuery({ queryKey: queryKeys.facets.models(), queryFn: api.assetModels, enabled: searching, staleTime: 60_000 }).data;
+  const drafts = useMemo(() => base.filter((i) => i.kind === "draft"), [base]);
+  const places = useMemo(() => base.filter((i) => i.kind === "project" || i.kind === "folder"), [base]);
+  const familyInfo = familyList ?? NO_FAMILIES;
+  const searchFilter = useMemo(() => (sParsed && searching ? filterOf({ parsed: sParsed, used, families: familyInfo, drafts, places }) : null), [sParsed, searching, used, familyInfo, drafts, places]);
+  // what the keys find: asked of the library a moment after the typing stops, not while a key's value is being chosen
+  const asking = searchFilter && !typingKey && !searchFilter.missing.length ? searchFilter.filter : null;
+  const askFor = useDebounced(asking, 120, true, null);
+  const found = useQuery({ queryKey: queryKeys.assets.barSearch(askFor), queryFn: ({ signal }) => api.assets({ ...askFor!, limit: 30 }, { signal }), enabled: Boolean(askFor), placeholderData: keepPreviousData, staleTime: 15_000 });
+  const count = useQuery({ queryKey: queryKeys.assets.barCount(askFor), queryFn: ({ signal }) => api.assetCount(askFor!, { signal }), enabled: Boolean(askFor), placeholderData: keepPreviousData, staleTime: 15_000 });
+  // nothing found: how many each key's absence would find (board 4), a count each
+  const loose = useMemo(() => (sParsed && askFor && found.data && !found.data.items.length ? loosened({ parsed: sParsed, used, families: familyInfo, drafts, places }) : []), [sParsed, askFor, found.data, used, familyInfo, drafts, places]);
+  const loosen = useQuery({
+    queryKey: queryKeys.assets.barLoosen(loose.map((l) => l.filter)),
+    queryFn: async ({ signal }) => Promise.all(loose.map(async (l) => ({ token: l.token, count: (await api.assetCount(l.filter, { signal })).count }))),
+    enabled: loose.length > 0, staleTime: 15_000,
+  });
+  const promptWords = typingKey?.key === "prompt" ? typingKey.value : sParsed?.tokens.find((t) => t.key === "prompt")?.value ?? null;
+  const promptQ = useDebounced(promptWords ?? "", 150, promptWords !== null, "");
+  const prompts = useQuery({ queryKey: queryKeys.promptHistory.search(promptQ), queryFn: ({ signal }) => api.promptHistory(promptQ, 20, { signal }), enabled: open && promptWords !== null, placeholderData: keepPreviousData }).data?.items ?? NO_HISTORY;
+  const placeOf = useMemo(() => {
+    const folders = new Map(places.filter((p) => p.entry?.kind === "folder").map((p) => [p.entry!.id, p]));
+    const projects = new Map(places.filter((p) => p.entry?.kind === "project").map((p) => [p.entry!.id, p.label]));
+    return (a: { folderId: string | null }) => {
+      const f = a.folderId ? folders.get(a.folderId) : undefined;
+      const project = f?.entry?.kind === "folder" ? f.entry.project : null;
+      return f ? `${project ? `${projects.get(project) ?? "a project"} › ` : ""}${f.label}` : "";
+    };
+  }, [places]);
+
+  // Civitai and Hugging Face (modelRows.ts): a pasted link read into its files, with lookups on; newer versions of the
+  // LoRAs and models a value row names; the model downloads in `!`
+  const linkTyped = open && mode === "all" && isLink(line) ? line.trim() : null;
+  const siteAsk = useMemo(() => (browse && !browse.typing ? siteQuery(browse, browseFamilies) : null), [browse, browseFamilies]);
+  const siteAsked = useDebounced(siteAsk, 300, true, null);
+  const siteCards = useQuery({
+    queryKey: siteAsked?.site === "civitai" ? queryKeys.browse.civitai({ bar: siteAsked }) : queryKeys.browse.huggingFace({ bar: siteAsked }),
+    queryFn: ({ signal }) => (siteAsked!.site === "civitai" ? api.browseCivitai(siteAsked as Extract<typeof siteAsked, { site: "civitai" }>, { signal }) : api.browseHuggingFace(siteAsked as Extract<typeof siteAsked, { site: "huggingface" }>, { signal })),
+    enabled: lookups && Boolean(siteAsked) && (siteAsked?.site !== "civitai" || Boolean(browseBases)), staleTime: 5 * 60_000, placeholderData: keepPreviousData, retry: false,
+  });
+  const linkQ = useDebounced(linkTyped ?? "", 200, Boolean(linkTyped), "");
+  const card = useQuery({ queryKey: queryKeys.browse.link(linkQ), queryFn: () => api.browseLink(linkQ), enabled: lookups && Boolean(linkQ) && linkQ === linkTyped, staleTime: 5 * 60_000, retry: false });
+  const modelUpdates = useQuery({ queryKey: queryKeys.modelUpdates(), queryFn: api.modelUpdates, enabled: searching && lookups, staleTime: 5 * 60_000 }).data;
+  const newer = useMemo(() => {
+    const by = new Map((modelUpdates?.items ?? []).filter((u) => u.newer).map((u) => [nameOf(u.file), u]));
+    return (file: string) => by.get(nameOf(file));
+  }, [modelUpdates]);
+  const downloadList = useQuery({ queryKey: queryKeys.downloads(), queryFn: ({ signal }) => api.downloads({ signal }), enabled: open && mode === "queue" }).data?.items;
+  const queueNames = useQueueOf((q) => (open && mode === "queue" ? q.machines : null));
+
   const sections: Section[] = useMemo(() => {
     if (!open) return [];
-    return rowsFor(mode, {
+    if (browse) {
+      if (!lookups) return [{ group: "Model link", rows: [lookupsOff] }];
+      if (browse.typing) return browseValueRows(line, browse, browseFamilies);
+      const out = browseRows(browse, siteCards.data?.items.slice(0, 20), browseFamilies);
+      if (siteCards.error) out[0]!.rows.splice(1, 0, { key: "find-error", kind: "command", label: `${browse.site === "civitai" ? "Civitai" : "Hugging Face"} did not answer`, meta: siteCards.error instanceof Error ? siteCards.error.message : "", group: "Filters", verb: "—", p: prepare("error") });
+      return out;
+    }
+    if (linkTyped) {
+      if (!lookups) return [{ group: "Model link", rows: [lookupsOff] }];
+      if (card.data && linkQ === linkTyped) return [{ group: "Model link", rows: linkRows(card.data.card) }];
+      const said = card.error ? (card.error instanceof Error ? card.error.message : "It reads as no model.") : "Reading the link…";
+      return [{ group: "Model link", rows: [{ key: "link:none", kind: "command", label: card.error ? "Not a model this bar can read" : said, meta: card.error ? said : "Civitai or Hugging Face asked", group: "Model link", verb: "wait", p: prepare(said) }] }];
+    }
+    if (sParsed && searchFilter && !guessing) {
+      const d: SearchData = { line, parsed: sParsed, used, families: familyInfo, drafts, places, prompts, found: found.data?.items, count: count.data?.count, loosen: loosen.data, placeOf, newer };
+      // a key's value being typed: its values; else what the keys find (and, with prompt:, the prompts that hold its words)
+      // (a value that fits none of them: what the line finds as it stands, which says the name finds nothing)
+      const values = typingKey ? valueRows(d, typingKey.key, typingKey.value).filter((s) => s.rows.length) : [];
+      if (values.length) return values;
+      const out = resultSections(d, searchFilter.missing, searchFilter.unsupported);
+      if (sParsed.tokens.some((t) => t.key === "prompt" && t.value) && prompts.length) out.push({ group: "Prompts", rows: promptRows(prompts) });
+      const begun = sParsed.typing && "prefix" in sParsed.typing ? sParsed.typing.prefix : null;
+      if (begun) out.unshift({ group: "Filters", rows: keyRows(line, begun) });
+      return out.filter((s) => s.rows.length || s.group.startsWith("No render"));
+    }
+    if (mode === "queue" && downloadList?.length) {
+      const named = (id: string) => queueNames?.find((m) => m.id === id)?.name || null;
+      const queueRows = rowsFor(mode, {
+        text, base, byKey, templates, settingRows, navRows, command: commandCtx, learn, ranks, now: Date.now(), parsed, estimateSaid,
+        recipes, recipeItems, presetItems, familyOn: (f) => families.isOn(f), grid: gridOf(recipes, undefined), queue: queueFull ?? null,
+        keysHere, barKey, entities: entities.data?.items ?? [], castTo: castPlace(selectedClip).detail,
+      });
+      const loads = downloadRows(downloadList, named);
+      const shown = text ? search(loads, text, 30).map((x) => x.item) : loads;
+      // the downloads after the jobs, before what is done to the whole queue
+      return shown.length ? [...queueRows.filter((s) => s.group === "Queue"), { group: "Downloads", rows: shown }, ...queueRows.filter((s) => s.group !== "Queue")] : queueRows;
+    }
+    const rows = rowsFor(mode, {
       text, base, byKey, templates, settingRows, navRows, command: commandCtx, learn, ranks, now: Date.now(), parsed, estimateSaid,
       recipes, recipeItems, presetItems, familyOn: (f) => families.isOn(f), grid: gridOf(recipes, undefined), queue: queueFull ?? null,
-      history: history ?? NO_HISTORY, keysHere, barKey, entities: entities.data?.items ?? [], castTo: castPlace(selectedClip).detail,
+      keysHere, barKey, entities: entities.data?.items ?? [], castTo: castPlace(selectedClip).detail,
     });
+    // a key's name begun ("lo"): the keys it fits, above what else the words find
+    const prefix = sParsed?.typing && "prefix" in sParsed.typing ? sParsed.typing.prefix : null;
+    if (guessing && sParsed && found.data?.items.length) {
+      const d: SearchData = { line, parsed: sParsed, used, families: familyInfo, drafts, places, prompts, found: found.data.items, count: count.data?.count, loosen: undefined, placeOf };
+      return [...resultSections(d, [], []), ...rows.filter((s) => s.group !== "Renders")];
+    }
+    return prefix ? [{ group: "Filters", rows: keyRows(line, prefix) }, ...rows] : rows;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the rows are worked out from what they show; the helpers read here are new at every render
-  }, [open, mode, text, base, ranks, learn, queueFull, settingRows, estimateSaid, history, entities.data, recipeItems, presetItems, navRows, selectedClip, keysHere, barKey, templates, commandCtx]);
+  }, [open, mode, text, base, ranks, learn, queueFull, settingRows, estimateSaid, entities.data, recipeItems, presetItems, navRows, selectedClip, keysHere, barKey, templates, commandCtx, sParsed, searchFilter, typingKey, guessing, line, browse, browseFamilies, siteCards.data, siteCards.error, linkTyped, linkQ, lookups, card.data, card.error, newer, downloadList, queueNames, used, familyInfo, drafts, places, prompts, found.data, count.data, loosen.data, placeOf]);
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
-  return { index, recipes, settingCtx, bar, aim, estimated, sections, flat };
+  // the search's tokens as chips in the input: a key, a guessed model, a key left out, one that names nothing
+  const chips = useMemo((): Chip[] => {
+    if (!sParsed || !(searching || sParsed.tokens.length)) return [];
+    const off = new Set([...(searchFilter?.missing ?? []), ...(searchFilter?.unsupported ?? [])]);
+    return sParsed.tokens.map((t) => ({ start: t.start, end: t.end, tone: off.has(t) ? "off" : t.guessed ? "guessed" : t.not ? "out" : "key" }));
+  }, [sParsed, searching, searchFilter]);
+  return { index, recipes, settingCtx, bar, aim, estimated, sections, flat, chips };
 }
 
 /**

@@ -32,6 +32,9 @@ export const useBar = create<{
   preview: boolean;
   /** Learn what I use: ranking by how often and how lately, per browser. */
   learn: boolean;
+  /** A line an action asked the bar to show ("Its renders alone"): the bar takes it and clears it. */
+  retyped: string | null;
+  retype(line: string | null): void;
   show(seed?: string): void;
   hide(): void;
   setPreview(on: boolean): void;
@@ -41,6 +44,8 @@ export const useBar = create<{
   seed: "",
   preview: readFlag(PREVIEW_KEY, true),
   learn: readFlag(LEARN_KEY, true),
+  retyped: null,
+  retype: (retyped) => set({ retyped }),
   show: (seed = "") => set({ open: true, seed }),
   hide: () => set({ open: false }),
   setPreview: (preview) => {

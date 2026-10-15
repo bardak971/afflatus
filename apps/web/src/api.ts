@@ -120,12 +120,13 @@ type Asked = { signal?: AbortSignal };
 const machineParam = (machine?: string) => (machine ? `?machine=${encodeURIComponent(machine)}` : "");
 
 /** A list of the library: its filters, its page and its order. */
-export type AssetFilter = { kind?: string; bin?: boolean; folder?: string; after?: string; before?: string; q?: string; family?: string; kept?: boolean; /** Only what was not kept (kept wins when both are said). */ unkept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean; /** A page's size: 40 when not said. */ limit?: number; /** The order (newest first when not said); `dir` turns name and size around. */ sort?: "new" | "old" | "name" | "size"; dir?: "asc" | "desc" };
+export type AssetFilter = { /** A project ("none": the Inbox), in place of the one the app looks at. */ project?: string; kind?: string; bin?: boolean; folder?: string; after?: string; before?: string; q?: string; family?: string; kept?: boolean; /** Only what was not kept (kept wins when both are said). */ unkept?: boolean; model?: string; lora?: string; draft?: string; since?: string; all?: boolean; /** A page's size: 40 when not said. */ limit?: number; /** The order (newest first when not said); `dir` turns name and size around. */ sort?: "new" | "old" | "name" | "size"; dir?: "asc" | "desc" };
 /** The query of a list of the library (`api.assets`), and of what sums one up (`api.unkept`). */
 function assetParams(opts: AssetFilter): URLSearchParams {
   const q = new URLSearchParams({ limit: String(opts.limit ?? 40) });
   // within the project the app looks at, unless a folder, the bin or a draft says where to look, or `all` asks for everything
-  if (!opts.folder && !opts.bin && !opts.draft && !opts.all && projectParam()) q.set("project", projectParam()!);
+  if (opts.project && !opts.folder) q.set("project", opts.project);
+  else if (!opts.folder && !opts.bin && !opts.draft && !opts.all && projectParam()) q.set("project", projectParam()!);
   if (opts.since) q.set("since", opts.since);
   if (opts.kind) q.set("kind", opts.kind);
   if (opts.bin) q.set("bin", "1");
@@ -348,15 +349,17 @@ export const api = {
   downloadSeen: (id: string) => call<{ ok: true }>("POST", `/downloads/${id}/seen`),
   /** Find models: the filters' choices, Civitai's and Hugging Face's models a page at a time, a repository's files, a link read. */
   browseBases: (o?: Asked) => call<BrowseBases>("GET", "/browse/bases", undefined, o?.signal),
-  browseCivitai: (q: { q: string; types: string[]; bases: string[]; sort: string; period: string; all: boolean; cursor?: string }, o?: Asked) => {
+  browseCivitai: (q: { q: string; types: string[]; bases: string[]; sort: string; period: string; all: boolean; by?: string; cursor?: string }, o?: Asked) => {
     const p = new URLSearchParams({ q: q.q, sort: q.sort, period: q.period, all: q.all ? "1" : "0" });
+    if (q.by) p.set("by", q.by);
     for (const t of q.types) p.append("types", t);
     for (const b of q.bases) p.append("bases", b);
     if (q.cursor) p.set("cursor", q.cursor);
     return call<BrowsePage>("GET", `/browse/civitai?${p}`, undefined, o?.signal);
   },
-  browseHuggingFace: (q: { q: string; base: string; kind: "comfyui" | "loras" | "all"; sort: string; cursor?: string }, o?: Asked) => {
+  browseHuggingFace: (q: { q: string; base: string; kind: "comfyui" | "loras" | "all"; sort: string; by?: string; cursor?: string }, o?: Asked) => {
     const p = new URLSearchParams({ q: q.q, sort: q.sort, kind: q.kind });
+    if (q.by) p.set("by", q.by);
     if (q.base) p.set("base", q.base);
     if (q.cursor) p.set("cursor", q.cursor);
     return call<BrowsePage>("GET", `/browse/huggingface?${p}`, undefined, o?.signal);
@@ -366,6 +369,7 @@ export const api = {
   modelHashes: (o?: Asked) => call<HashStatus>("GET", "/models/hashes", undefined, o?.signal),
   hashModels: () => call<HashStatus>("POST", "/models/hashes/run", {}),
   browseLink: (link: string) => call<{ card: BrowseCard }>("POST", "/browse/link", { link }),
+  downloadAgain: (id: string) => call<Download>("POST", `/downloads/${encodeURIComponent(id)}/again`),
   startDownload: (body: { file: string; folder: string; page?: ModelPage; machine?: string } & ({ civitai: number; pick?: string } | { url: string })) => call<Download>("POST", "/downloads", body),
   /** What a pasted link leads to: its files, the folder it most likely belongs in, ComfyUI's folders, and what ComfyUI has already. */
   resolveLink: (link: string) => call<LinkFound>("POST", "/downloads/resolve", { link }),
@@ -395,6 +399,8 @@ export const api = {
   silence: (video: string) => call<Asset>("POST", `/assets/${video}/silent`),
   assets: (opts: AssetFilter, o?: Asked) =>
     call<{ items: Asset[]; next: string | null; prev: string | null }>("GET", `/assets?${assetParams(opts)}`, undefined, o?.signal),
+  /** How many items a list's filters and words find (the command bar's render search). */
+  assetCount: (opts: AssetFilter, o?: Asked) => call<{ count: number }>("GET", `/assets/count?${assetParams(opts)}`, undefined, o?.signal),
   /** The items not kept of a list (its filters; the page and the order do not count): how many, when the countdown of the first and of the last started, their ids with `ids`. */
   unkept: (opts: AssetFilter, ids: boolean, o?: Asked) => {
     const q = assetParams(opts);

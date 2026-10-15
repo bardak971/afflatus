@@ -12,7 +12,7 @@ import { BarFooter } from "./BarFooter";
 import { BarRows, optionId } from "./BarRows";
 import { lowerFirst, type Item } from "./items";
 import { prepare, search } from "./match";
-import { modeOf, type Mode } from "./parse";
+import { FOLDS, modeOf, type Mode } from "./parse";
 import { Preview } from "./Preview";
 import { bumped, save, type Ranks } from "./rank";
 import { useBar } from "./store";
@@ -21,10 +21,11 @@ import { useBarActions } from "./useActions";
 import { commandExtra, loadRanks, useBarData, useShown } from "./useBarData";
 import { type Acting, useBarKeys } from "./useBarKeys";
 import { useBarSearch } from "./useBarSearch";
+import { SearchChips } from "./SearchChips";
 import { useFlash } from "../hooks";
 
-const MODE_WORD: Partial<Record<Mode, string>> = { command: "commands", place: "projects & folders", setting: "settings", calc: "calculator", queue: "queue", keys: "keys", history: "prompt history", cast: "cast" };
-const MODE_TONE: Record<Mode, string> = { all: "text-accent", command: "text-warn-ink", place: "text-accent", setting: "text-ink-2", calc: "text-good", queue: "text-good", keys: "text-ink-2", history: "text-ink-2", cast: "text-accent" };
+const MODE_WORD: Partial<Record<Mode, string>> = { command: "commands", setting: "settings", calc: "calculator", queue: "queue", keys: "keys", cast: "cast" };
+const MODE_TONE: Record<Mode, string> = { all: "text-accent", command: "text-warn-ink", setting: "text-ink-2", calc: "text-good", queue: "text-good", keys: "text-ink-2", cast: "text-accent" };
 
 /** Why an action cannot run, in a few words: its note ("ComfyUI is offline") or its label ("No model called “zzz”"). */
 const offSaid = (a: Action) => lowerFirst(a.note ?? a.label);
@@ -71,16 +72,17 @@ export function CommandBar() {
   }, [open]);
 
   const barSettings = useSettings().data?.bar;
-  const { mode, text } = modeOf(typed, { history: Boolean(barSettings?.history), cast: Boolean(barSettings?.cast) });
-  const { foundEntries, history } = useBarSearch(open, mode, text);
-  const { index, recipes, settingCtx, bar, aim, estimated, sections, flat } = useBarData({ open, mode, text, ranks, picked, learn, foundEntries, history: history.data?.items });
+  const { mode, text } = modeOf(typed, { cast: Boolean(barSettings?.cast) });
+  const { foundEntries } = useBarSearch(open, mode, text);
+  const line = mode === "all" ? typed.trimStart() : text;
+  const { index, recipes, settingCtx, bar, aim, estimated, sections, flat, chips } = useBarData({ open, mode, text, line, ranks, picked, learn, foundEntries });
   const at = Math.min(sel, Math.max(0, flat.length - 1));
   const current = flat[at] ?? null;
 
   const { shown, setDwell, detail } = useShown(open, current, acting?.item ?? null);
 
   const onCopied = (what: string) => setFlash(what ? { text: `Copied ${what}` } : { text: "Could not copy: the browser refused", bad: true });
-  const { actionsOf, element } = useBarActions({ subject: detail ?? null, aim, settingCtx, onCopied });
+  const { actionsOf, element } = useBarActions({ subject: detail ?? null, aim, settingCtx, onCopied, flash: (text, bad) => setFlash({ text, ...(bad ? { bad } : {}) }) });
 
   const actions: Action[] = acting ? actionsOf(acting.item) : [];
   const shownActions = acting ? (acting.text.trim() ? search(actions.map((a) => ({ a, p: prepare(a.label) })), acting.text, 60).map((x) => x.item.a) : actions) : [];
@@ -104,14 +106,25 @@ export function CommandBar() {
   /** Enter on a row (Ctrl: its second action). A command still missing its figures completes the bar instead. */
   const choose = (it: Item | null, second = false) => {
     if (!it) return;
-    if (it.complete) {
+    // Ctrl + Enter on a value with actions (a LoRA, a model, a place): its first, Enter writing it in the line
+    if (it.complete && !(second && actionsOf(it).length)) {
       setTyped(it.complete);
       setSel(0);
       return;
     }
     const list = actionsOf(it);
-    run(it, list[second ? 1 : 0] ?? (second ? undefined : list[0]));
+    // Ctrl + Enter opens Find models on a civitai: or hf: search from any of its rows, its own first row included
+    run(it, it.complete || it.value?.kind === "find" ? list[0] : list[second ? 1 : 0] ?? (second ? undefined : list[0]));
   };
+  // a line an action asked for ("Its renders alone"): written in the bar, its results shown
+  const retyped = useBar((s) => s.retyped);
+  useEffect(() => {
+    if (retyped === null) return;
+    setTyped(retyped);
+    setSel(0);
+    setActing(null);
+    useBar.getState().retype(null);
+  }, [retyped]);
   const keys = useBarKeys({ acting, setActing, shownActions, count: flat.length, at, setSel, typed, setTyped, current, actionsOf, choose, run, setDwell, close });
 
   // the selected row stays in view
@@ -124,10 +137,12 @@ export function CommandBar() {
 
   // a row of the key table has nothing to preview: the sheet is where it is shown
   const showPreview = preview && !acting && Boolean(current) && mode !== "calc" && mode !== "keys";
-  const [first, second] = current && !current.complete ? actionsOf(current) : [];
+  // a value of the render search with actions (a LoRA, a place): Enter writes it, Ctrl + Enter runs its first
+  const acts = current ? actionsOf(current) : [];
+  const [first, second] = current?.complete ? [undefined, acts[0]] : acts;
   // a row whose first action cannot run now ("No model by that name", ComfyUI offline): Enter says why rather than "run"
   const off = !acting && first?.disabled ? offSaid(first) : null;
-  const verb = acting ? "run" : current?.complete ? "complete" : off ? "unavailable" : current?.verb ?? "open";
+  const verb = acting ? "run" : current?.complete && current.group !== "Filters" ? "complete" : off ? "unavailable" : current?.verb ?? "open";
   const empty = !acting && !flat.length;
   const back = () => input.current?.focus();
 
@@ -156,6 +171,8 @@ export function CommandBar() {
                   <span className="truncate">{acting.item.label}</span><ChevronRight size={14} className="shrink-0 opacity-70" />
                 </button>
               )}
+              <div className="relative flex min-w-0 grow">
+              {!acting && <SearchChips text={typed} chips={chips.map((c) => ({ ...c, start: c.start + typed.length - line.length, end: c.end + typed.length - line.length }))} input={input} />}
               <input
                 ref={input}
                 role="combobox"
@@ -171,16 +188,18 @@ export function CommandBar() {
                 onChange={(e) => {
                   if (acting) setActing({ ...acting, text: e.target.value, sel: 0 });
                   else {
-                    setTyped(e.target.value);
+                    // `"` or `#` typed in an empty bar: the key it stands for (`prompt:`, `in:`)
+                    setTyped(!typed && FOLDS[e.target.value] ? FOLDS[e.target.value]! : e.target.value);
                     setSel(0);
                   }
                 }}
                 onKeyDown={keys.onKeyDown}
                 onKeyUp={keys.onKeyUp}
-                className="min-w-0 grow bg-transparent text-xl font-medium text-ink placeholder:text-ink-3"
+                className="relative min-w-0 grow bg-transparent text-xl font-medium text-ink placeholder:text-ink-3"
                 // the bar itself is what has the focus: no ring of its own (the app's ring is outside the utility layer)
                 style={{ outline: "none" }}
               />
+              </div>
               {MODE_WORD[mode] && !acting && <span className={cx("shrink-0 rounded-full bg-raised px-2.5 py-0.5 text-xs", MODE_TONE[mode])}>{MODE_WORD[mode]}</span>}
               {index.isFetching && !index.data && <span className="shrink-0 text-xs text-ink-3">reading…</span>}
               <Keys keys="Esc" />
@@ -190,7 +209,7 @@ export function CommandBar() {
               <div ref={list} id="bar-list" role="listbox" aria-label={acting ? "Actions" : "Results"} className="min-w-0 flex-1 overflow-y-auto p-2">
                 <BarRows
                   acting={acting} actions={actions} shownActions={shownActions} mode={mode} text={text} sections={sections} flat={flat} at={at} off={off}
-                  settingCtx={settingCtx} reading={index.isLoading} looking={history.isFetching}
+                  settingCtx={settingCtx} reading={index.isLoading}
                   onSelect={setSel}
                   onActSelect={(i) => acting && setActing({ ...acting, sel: i })}
                   onChoose={(it, i) => { if (mode !== "calc") setSel(i); choose(it); back(); }}
@@ -204,7 +223,7 @@ export function CommandBar() {
             <BarFooter
               verb={verb} off={off} acting={Boolean(acting)} preview={preview} flash={flash} bar={bar}
               second={!acting && current && !current.complete && second ? lowerFirst(second.label) : null}
-              onMode={(c) => { setTyped(c); setSel(0); setActing(null); back(); }}
+              onMode={(c) => { setTyped(FOLDS[c] ?? c); setSel(0); setActing(null); back(); }}
               onTurnOn={(k) => { close(); go(settingHref(`bar.${k}`)); }}
             />
           </div>

@@ -72,6 +72,9 @@ interface Panel {
   all: boolean;
   hfBase: string;
   hfKind: "comfyui" | "loras" | "all";
+  hfSort: HfSort;
+  /** One creator's models only (Civitai's user, Hugging Face's user or organisation): the command bar's by:. */
+  by: string;
   opened: BrowseCard | null;
   picked: PickedFile[];
 }
@@ -87,8 +90,32 @@ const readAll = () => {
 
 const usePanel = create<Panel>(() => ({
   tab: "civitai", words: "", types: ["LORA"], chosenFamilies: null, sort: "Most Downloaded", period: "AllTime", notMine: true, all: readAll(),
-  hfBase: "", hfKind: "comfyui", opened: null, picked: [],
+  hfBase: "", hfKind: "comfyui", hfSort: "downloads", by: "", opened: null, picked: [],
 }));
+
+/** Hugging Face's orders, as its API names them. */
+export type HfSort = "downloads" | "likes" | "lastModified" | "trendingScore";
+
+/** What the command bar opens the browser on (`civitai: … type:lora base:klein by:someone`): its tab, words and filters, a model opened. */
+export type FindAsk = Partial<Pick<Panel, "tab" | "words" | "types" | "chosenFamilies" | "sort" | "period" | "all" | "hfBase" | "hfKind" | "hfSort" | "by" | "opened">>;
+/** The browser opened on a search of the command bar's: what it does not say is left as it was, but the creator and the model opened. */
+export const openFindModelsOn = (target: FindTarget, ask: FindAsk) => {
+  usePanel.setState({ by: "", opened: null, ...ask });
+  useFind.setState({ target });
+};
+
+/** What is picked now, and a file added to it (the bar's Add to Picked): once, by its file and source. */
+export const pickedNow = () => usePanel.getState().picked;
+export const addPicked = (f: PickedFile): boolean => {
+  const now = usePanel.getState().picked;
+  if (now.some((p) => p.file === f.file && p.folder === f.folder)) return false;
+  usePanel.setState({ picked: [...now, f] });
+  return true;
+};
+/** Picked files taken off (the bar's Get them, once they started). */
+export const dropPicked = (files: readonly PickedFile[]) => usePanel.setState((s) => ({ picked: s.picked.filter((p) => !files.includes(p)) }));
+/** Whatever the bar picked is shown here too: subscribed, for `> picked`'s count. */
+export const usePickedCount = () => usePanel((s) => s.picked.length);
 
 /** One of the browser's kept values, read and set as useState's. */
 export function useKept<K extends keyof Panel>(key: K): [Panel[K], (v: Panel[K] | ((was: Panel[K]) => Panel[K])) => void] {

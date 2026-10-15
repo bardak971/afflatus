@@ -33,6 +33,7 @@ import { formWhenOpen, openProjects, useSelectedClip, useTimelineRequest, type T
 import type { Item } from "./items";
 import { pageLabel, type SettingCtx } from "./settingsRegistry";
 import { commandActions } from "./actions/commands";
+import { searchValueActions } from "./actions/search";
 import type { Action, BarCtx, FolderEntry, RenderTimeline, TimelineAim, TimelineEntry } from "./actions/ctx";
 import { historyActions, kitActions, personActions } from "./actions/kit";
 import { jobActions } from "./actions/queue";
@@ -48,12 +49,13 @@ const Viewer = lazy(() => import("../Viewer").then((m) => ({ default: m.Viewer }
  * and the Workflows screen's buttons (through bridge.ts), the Prompt kit's calls and the open form. The bar adds no
  * behaviour of its own. The hooks are read here; each kind's actions are in actions/ (commands, renders, tree, queue, kit).
  */
-export function useBarActions({ subject, aim, settingCtx, onCopied }: {
+export function useBarActions({ subject, aim, settingCtx, onCopied, flash }: {
   /** The render that is selected, read in full (its generation): the viewer's actions are for it. */
   subject: Asset | null;
   aim: TimelineAim | null;
   settingCtx: SettingCtx;
   onCopied(text: string): void;
+  flash(text: string, bad?: boolean): void;
 }) {
   const [, go] = useLocation();
   const client = useQueryClient();
@@ -141,7 +143,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
   const x: BarCtx = {
     go, client, say, tree, kinds, allProjects, projects: allProjects.filter((p) => !p.archivedAt), pins, queue, ops, bulk, jobs, setup, updates, access,
     binEmpty: bin ? !bin.count : false, binSaid: bin ? `${itemsWord(bin.count)} · ${size(bin.bytes)}` : "",
-    recipes, entities, modelSettings, openNew, selectedClip, draftOpen, aim, subject, item, formTarget, openWorkflow, openComfy, rented, deployAgain, settingCtx, onCopied, setViewing,
+    recipes, entities, modelSettings, openNew, selectedClip, draftOpen, aim, subject, item, formTarget, openWorkflow, openComfy, rented, deployAgain, settingCtx, onCopied, flash, setViewing,
     importInto,
     failed,
     good,
@@ -210,6 +212,7 @@ export function useBarActions({ subject, aim, settingCtx, onCopied }: {
       }
       case "command":
         if (it.command) return commandActions(x, it.command, it.recipe, it.preset);
+        if (it.value) return searchValueActions(x, it.value);
         return [];
       case "key": {
         // a row of the key table: the sheet opens on its place, the row lit
