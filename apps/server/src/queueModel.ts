@@ -59,6 +59,8 @@ export interface Running {
   startedAt?: number;
   /** When ComfyUI last said something of it (a step, a node starting, a preview): a render silent for long is stuck. */
   movedAt?: number;
+  /** When a system feed last read its GPU's load: with a fresh one, a silent render is known to leave its GPU idle. */
+  loadAt?: number;
   /** The seed the graph was built with, once it is sent: said on the running card. */
   seed?: number;
 }

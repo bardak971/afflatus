@@ -46,6 +46,13 @@ const keyOf = (key: string, machine: string) => (machine === FIRST_MACHINE ? key
 const STEPS_SAVE_MS = 5_000;
 /** The GPU's load (percent) from which a render that says nothing is taken as at work, not stuck. */
 const GPU_AT_WORK = 30;
+/** How recent a read of the GPU's load must be for a silent render's GPU to be known idle: system feeds report every few seconds. */
+const LOAD_FRESH_MS = 2 * 60_000;
+/**
+ * How long past its forecast a render whose GPU load is not read may stay silent before its silence counts as stuck: at most
+ * this, and at most its forecast again. Forecasts have run 1.3 to 25 times too long, and a pod is billed all the while.
+ */
+const FORECAST_SLACK_MS = 10 * 60_000;
 /** The lane of the jobs that need no ComfyUI. */
 const TOOLS = "tools";
 /** How long a running job has left, from what it was expected to take; null when that cannot be told. */
@@ -1044,22 +1051,26 @@ ${JSON.stringify(input)}`;
   }
 
   /**
-   * How long the render a machine runs has been past its forecast and silent (no step, no node, no preview from ComfyUI,
-   * its GPU idle):
-   * the shorter of the two, so that a render known to be long is never taken for stuck before its time. 0 when it runs
-   * nothing, or a render not sent yet.
+   * How long the render a machine runs has been silent (no step, no node, no preview from ComfyUI) in a way that counts
+   * towards stuck, and whether its GPU is known idle all that time. With the GPU's load read lately, the whole silence counts
+   * whatever the forecast says: a node at work keeps its GPU busy, which moves the render (GPU_AT_WORK), so a silence with an
+   * idle GPU is a hang. Without it, a long node may be at work unseen: the silence counts once the render is past its
+   * forecast, which is waited for at most twice and at most FORECAST_SLACK_MS over, as forecasts run long. 0 when it runs
+   * nothing, a render not sent yet, or one still within its forecast. `now`: the caller's clock (a test's stand-in).
    */
-  quietFor(machine: string): number {
+  quietFor(machine: string, now = Date.now()): { ms: number; gpuIdle: boolean } {
     const run = this.lanes.get(machine)?.running;
-    if (!run?.promptId || !run.movedAt || !run.startedAt) return 0;
-    const now = Date.now();
-    const pastForecast = run.expectedMs ? now - run.startedAt - run.expectedMs : Infinity;
-    return Math.max(0, Math.min(now - run.movedAt, pastForecast));
+    if (!run?.promptId || !run.movedAt || !run.startedAt) return { ms: 0, gpuIdle: false };
+    const silent = Math.max(0, now - run.movedAt);
+    if (run.loadAt && now - run.loadAt <= LOAD_FRESH_MS) return { ms: silent, gpuIdle: true };
+    const forecast = run.expectedMs ?? 0;
+    const waited = now - run.startedAt >= Math.min(2 * forecast, forecast + FORECAST_SLACK_MS);
+    return { ms: waited ? silent : 0, gpuIdle: false };
   }
 
   /**
    * The renders under way and how long each has moved by nothing (no step, no node, no preview from ComfyUI, its GPU idle),
-   * on every machine: what a render stuck is told by (notify.ts), well before a rented pod's is failed (rented.ts).
+   * on every machine: what a render stuck is told by (notify.ts). A rented pod's is failed by its own measure (quietFor).
    */
   stillFor(): Array<{ job: string; machine: string; ms: number }> {
     const now = Date.now();
@@ -1273,6 +1284,7 @@ ${JSON.stringify(input)}`;
       // a busy GPU is a render at work too: a node that says nothing on the way (a long decode, an interpolation) is not
       // taken for stuck while it computes; a render that hangs leaves its GPU idle. Its memory says nothing: it stays full
       comfy.monitor.onSystem = (load) => {
+        if (load.gpus.some((g) => g.load !== undefined)) running.loadAt = Date.now();
         if (load.gpus.some((g) => (g.load ?? 0) >= GPU_AT_WORK)) running.movedAt = Date.now();
       };
       comfy.monitor.onChange = () => {

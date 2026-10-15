@@ -166,22 +166,23 @@ describe("a rented machine", () => {
     await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: { machine: "m1" } });
     const queued = (await post(t.app, "/api/jobs", job())).json().ids[0] as string;
     const row = () => t.db.selectFrom("jobs").select(["status", "error"]).where("id", "=", queued).executeTakeFirstOrThrow();
-    await until(async () => (await row()).status === "running" && t.services.queue.quietFor(id) > 0);
+    await until(async () => (await row()).status === "running" && t.services.queue.quietFor(id).ms > 0);
     // silent, but not for long yet: it runs on
     await t.services.rented.poll();
     expect((await row()).status).toBe("running");
     // silent, but its GPU at work (a node that says nothing on the way): its silence starts again. Read off the clock, not
     // raced against it: a timer in a busy test run can be late by more than any limit a test would set
     await new Promise((r) => setTimeout(r, 300));
-    const before = t.services.queue.quietFor(id);
+    const before = t.services.queue.quietFor(id).ms;
     expect(before).toBeGreaterThanOrEqual(250);
     podComfy.send("crystools.monitor", { cpu_utilization: 10, gpus: [{ gpu_utilization: 95, vram_used: 20, vram_total: 24 }] });
-    await until(() => t.services.queue.quietFor(id) < before);
+    await until(() => t.services.queue.quietFor(id).ms < before);
     // an idle GPU does not: the silence goes on
-    const idleFrom = t.services.queue.quietFor(id);
+    const idleFrom = t.services.queue.quietFor(id).ms;
     podComfy.send("crystools.monitor", { cpu_utilization: 10, gpus: [{ gpu_utilization: 2, vram_used: 20, vram_total: 24 }] });
     await new Promise((r) => setTimeout(r, 100));
-    expect(t.services.queue.quietFor(id)).toBeGreaterThanOrEqual(idleFrom);
+    expect(t.services.queue.quietFor(id)).toMatchObject({ gpuIdle: true });
+    expect(t.services.queue.quietFor(id).ms).toBeGreaterThanOrEqual(idleFrom);
     // silent past the limit: stuck
     t.services.rented.stuckMs = 1;
     await t.services.rented.poll();
@@ -190,6 +191,86 @@ describe("a rented machine", () => {
     // dropped in its ComfyUI too (waiting there, it is taken off its queue; running, it is interrupted)
     expect(podComfy.calls).toContain("POST /queue");
     await until(async () => !t.services.queue.runningOn(id));
+  });
+
+  /** A render on the pod that its pretend ComfyUI keeps running and says nothing of, and the queue's own record of it. */
+  const silentOnPod = async () => {
+    await setKey();
+    const id = await add();
+    await post(t.app, `/api/machines/${id}/start`, {});
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
+    await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: { machine: "m1" } });
+    const queued = (await post(t.app, "/api/jobs", job())).json().ids[0] as string;
+    const row = () => t.db.selectFrom("jobs").select(["status", "error"]).where("id", "=", queued).executeTakeFirstOrThrow();
+    type Run = { promptId?: string; movedAt?: number; startedAt?: number; expectedMs?: number | null; loadAt?: number };
+    const run = () => (t.services.queue as unknown as { lanes: Map<string, { running: Run | null }> }).lanes.get(id)!.running!;
+    await until(async () => (await row()).status === "running" && Boolean(run()?.promptId && run().movedAt));
+    return { id, row, run };
+  };
+  const MIN = 60_000;
+
+  // The times below are set on the render's own record and read off the clock by the poll, not raced against it.
+  it("fails a render silent for 10 min with its GPU read idle, however long its forecast", async () => {
+    const { id, row, run } = await silentOnPod();
+    run().expectedMs = 6 * 60 * MIN;
+    podComfy.send("crystools.monitor", { cpu_utilization: 10, gpus: [{ gpu_utilization: 2, vram_used: 20, vram_total: 24 }] });
+    await until(() => Boolean(run().loadAt));
+    run().startedAt = run().movedAt = Date.now() - 9.5 * MIN;
+    await t.services.rented.poll();
+    expect((await row()).status).toBe("running");
+    run().startedAt = run().movedAt = Date.now() - 10 * MIN - 1000;
+    await t.services.rented.poll();
+    await until(async () => (await row()).status === "failed");
+    expect((await row()).error).toMatch(/^Stuck: no progress from ComfyUI for 10 min, its GPU idle, on the rented GPU comfy-5090;/);
+    await until(async () => !t.services.queue.runningOn(id));
+  });
+
+  it("keeps a long silent node whose GPU is at work, past 10 min and past its forecast", async () => {
+    const { id, row, run } = await silentOnPod();
+    run().expectedMs = 5 * MIN;
+    run().startedAt = run().movedAt = Date.now() - 40 * MIN;
+    podComfy.send("crystools.monitor", { cpu_utilization: 10, gpus: [{ gpu_utilization: 95, vram_used: 20, vram_total: 24 }] });
+    await until(() => Date.now() - run().movedAt! < MIN);
+    await t.services.rented.poll();
+    expect(t.services.queue.quietFor(id)).toMatchObject({ gpuIdle: true });
+    expect(t.services.queue.quietFor(id).ms).toBeLessThan(MIN);
+    expect((await row()).status).toBe("running");
+  });
+
+  it("with its GPU load not read, waits for a 6 h forecast only up to 10 min over it", async () => {
+    const { id, row, run } = await silentOnPod();
+    run().expectedMs = 6 * 60 * MIN;
+    // silent from its first minute on, a GPU load once read but no more (a feed gone): its forecast is waited for
+    podComfy.send("crystools.monitor", { cpu_utilization: 10, gpus: [{ gpu_utilization: 2, vram_used: 20, vram_total: 24 }] });
+    await until(() => Boolean(run().loadAt));
+    const from = (ago: number) => {
+      run().startedAt = Date.now() - ago;
+      run().movedAt = run().startedAt! + MIN;
+      run().loadAt = run().movedAt;
+    };
+    from(6 * 60 * MIN + 9 * MIN);
+    expect(t.services.queue.quietFor(id).ms).toBe(0);
+    await t.services.rented.poll();
+    expect((await row()).status).toBe("running");
+    from(6 * 60 * MIN + 10 * MIN + 1000);
+    await t.services.rented.poll();
+    await until(async () => (await row()).status === "failed");
+    expect((await row()).error).toMatch(/^Stuck: no progress from ComfyUI for 369 min, past its forecast, on the rented GPU comfy-5090;/);
+  });
+
+  it("with its GPU load not read, waits for a short forecast at most twice its length", async () => {
+    const { id, row, run } = await silentOnPod();
+    run().expectedMs = 4 * MIN;
+    run().startedAt = run().movedAt = Date.now() - 7.5 * MIN;
+    expect(t.services.queue.quietFor(id).ms).toBe(0);
+    run().startedAt = run().movedAt = Date.now() - 8 * MIN - 1000;
+    // past twice its forecast, but silent for less than 10 min: not yet
+    await t.services.rented.poll();
+    expect((await row()).status).toBe("running");
+    expect(t.services.queue.quietFor(id).ms).toBeGreaterThan(8 * MIN);
+    run().startedAt = run().movedAt = Date.now() - 10 * MIN - 1000;
+    await t.services.rented.poll();
+    await until(async () => (await row()).status === "failed");
   });
 
   it("at a cap: stops, and Start is refused", async () => {
