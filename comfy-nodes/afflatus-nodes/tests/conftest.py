@@ -178,7 +178,8 @@ def _install_stubs():
         return [[c[0], {**c[1], **values}] for c in conditioning]
 
     _module("node_helpers", conditioning_set_values=conditioning_set_values)
-    _module("folder_paths")
+    # its model folders by name, as ComfyUI has them: the pack's parts sweep reads them in a thread at the start (none here)
+    _module("folder_paths", folder_names_and_paths={})
     return torch
 
 

@@ -895,7 +895,7 @@ export class Rented {
     const now = this.now();
     const pods = (await this.costBetween(now - 7 * 24 * HOUR, now)) / 7;
     const storage = key ? await this.storage(key) : null;
-    return { pods, storage: storage ? (storage.perMonth * 24) / HOURS_A_MONTH : 0 };
+    return { pods, storage: storage ? (storage.nowMonth * 24) / HOURS_A_MONTH : 0 };
   }
 
   /** A day's or a month's cap reached: told once for that day, once for that month. */
@@ -1527,6 +1527,8 @@ export class Rented {
         // what bills with nothing running: a running pod's own disk is in its rate (runningRate) while it runs, and bills
         // at the stopped price once it stops; its container disk goes at the stop
         perMonth: volumes.reduce((n, v) => n + volumePerMonth(v.size), 0) + disks.reduce((n, p) => n + p.diskGb * STOPPED_DISK_PER_GB_MONTH, 0),
+        // the runway's storage: a running pod's disk is billed in its rate, already in the pods' pace, and is not counted twice
+        nowMonth: volumes.reduce((n, v) => n + volumePerMonth(v.size), 0) + disks.filter((p) => p.status === "EXITED").reduce((n, p) => n + p.diskGb * STOPPED_DISK_PER_GB_MONTH, 0),
         volumes: volumes.length,
         stoppedDisks: disks.filter((p) => p.status === "EXITED").length,
         unused: unused.map((v) => ({ id: v.id, name: v.name, perMonth: v.perMonth, usedAt: v.usedAt })),
@@ -1660,14 +1662,16 @@ export class Rented {
    * What going back to a version without rented GPUs (0.4.0) leaves on RunPod, read from RunPod now: this Afflatus's pods
    * that run (or start), which it would bill with no screen, no idle stop and no cap; and what keeps billing stopped, each
    * with what it costs a month (its pods' disks, the account's network volumes). RunPod not answering: the pods as last
-   * read, the storage not known (`unknown`).
+   * read, the storage not known (`unknown`), and why the pods could not be read (`unreadable`: Go back is refused then, as
+   * whether one runs is not known).
    */
-  async goingBack(): Promise<{ running: string[]; billing: string[]; unknown: boolean }> {
+  async goingBack(): Promise<{ running: string[]; billing: string[]; unknown: boolean; unreadable: string | null }> {
     const s = await readSettings(this.db);
     const mine = s.machines.filter((m) => m.rented);
-    if (!s.runpodKey || !mine.length) return { running: [], billing: [], unknown: false };
+    if (!s.runpodKey || !mine.length) return { running: [], billing: [], unknown: false, unreadable: null };
     const client = this.client(s.runpodKey);
-    const [pods, volumes] = await Promise.all([client.pods().catch(() => null), client.volumes().catch(() => null)]);
+    let unreadable: string | null = null;
+    const [pods, volumes] = await Promise.all([client.pods().catch((err: Error) => ((unreadable = err.message), null)), client.volumes().catch(() => null)]);
     const podOf = (m: Machine) => (pods ? pods.find((p) => p.id === m.rented!.pod && p.status !== "TERMINATED") ?? null : this.seen.get(m.id)?.pod ?? null);
     const running = mine.flatMap((m) => {
       const pod = podOf(m);
@@ -1678,7 +1682,7 @@ export class Rented {
       return pod?.status === "EXITED" && pod.diskGb > 0 ? [`${m.name || pod.name}, stopped: its ${pod.diskGb} GB disk, ${dollars(pod.diskGb * STOPPED_DISK_PER_GB_MONTH)}/month`] : [];
     });
     const kept = (volumes ?? []).map((v) => `volume ${v.name} (${v.size} GB, ${dollars(volumePerMonth(v.size))}/month)`);
-    return { running, billing: [...disks, ...kept], unknown: !pods || !volumes };
+    return { running, billing: [...disks, ...kept], unknown: !pods || !volumes, unreadable };
   }
 
   /**

@@ -218,6 +218,15 @@ describe("the runway", () => {
     expect(costs).toMatchObject({ runwayDays: s.runwayDays, storageDay: s.perDay.storage, pace7: 0 });
   });
 
+  it("leaves a running pod's disk out of storage: it bills in the pod's rate, with the pods' pace", async () => {
+    runpod.volumes.push({ id: "vol-1", name: "zz-test models", size: 100, dataCenter: "EU-RO-1" });
+    podA().status = "RUNNING";
+    const s = await spending();
+    expect(s.perDay.storage).toBeCloseTo((100 * 0.07 * 24) / 730, 12);
+    // what bills with nothing running still counts its disk at the stopped price
+    expect(s.storage.perMonth).toBeCloseTo(100 * 0.07 + 50 * 0.2, 9);
+  });
+
   it("tells of a low balance under a day of storage too", async () => {
     runpod.volumes.push({ id: "vol-1", name: "zz-test models", size: 2000, dataCenter: "EU-RO-1" });
     // a day of storage: (1000 GB × 0.07 + 1000 × 0.05 past the first TB + 50 × 0.20) × 24 / 730, about $4.27

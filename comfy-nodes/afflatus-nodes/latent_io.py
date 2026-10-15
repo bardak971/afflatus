@@ -389,7 +389,7 @@ class AfflatusH3TailGuide(io.ComfyNode):
             display_name="Afflatus: H3 Tail Guide",
             category="Afflatus",
             # Afflatus no longer uses it: still registered so that a saved graph naming it loads, marked deprecated so
-            # that ComfyUI hides it from the node search; it goes in the release after 0.4.0.
+            # that ComfyUI hides it from the node search; kept for graphs that name it.
             is_deprecated=True,
             description="Conditions a continuation window on the clip before's tail like the MiniMax H3 Latent Tail Guide, but the picture guide is encoded from the clip's decoded frames (connect its last frames and the video VAE) while the sound guide stays its exact audio latent. The round trip re-anchors each clip to real pixels: a chain continued from exact latents gets softer and darker clip after clip, the sound does not drift and keeps the voice. Without frames it is the exact latent tail guide.",
             inputs=[

@@ -618,11 +618,16 @@ describe("after an update", () => {
     expect((await r.post("go-back")).statusCode).toBe(409);
     await sql`UPDATE jobs SET status = 'done'`.execute(db);
     // not while a rented GPU runs, nor while a hunt may deploy one: 0.4.1 has nothing to stop them, they would bill unseen
-    const left = vi.spyOn(r.services.rented, "goingBack").mockResolvedValue({ running: ["zz-test pod (NVIDIA A40)"], billing: ["volume zz-test (50 GB, $3.50/month)"], unknown: false });
+    const left = vi.spyOn(r.services.rented, "goingBack").mockResolvedValue({ running: ["zz-test pod (NVIDIA A40)"], billing: ["volume zz-test (50 GB, $3.50/month)"], unknown: false, unreadable: null });
     const refused = await r.post("go-back");
     expect(refused.statusCode).toBe(409);
     expect((refused.json() as { error: string }).error).toMatch(/zz-test pod \(NVIDIA A40\).*0\.4\.1 has no Rented GPUs screen/);
-    left.mockResolvedValue({ running: [], billing: ["volume zz-test (50 GB, $3.50/month)"], unknown: false });
+    // nor while RunPod cannot be read: whether one runs is not known
+    left.mockResolvedValue({ running: [], billing: [], unknown: true, unreadable: "zz-test RunPod is down" });
+    const unread = await r.post("go-back");
+    expect(unread.statusCode).toBe(409);
+    expect((unread.json() as { error: string }).error).toMatch(/^RunPod could not be read: zz-test RunPod is down\./);
+    left.mockResolvedValue({ running: [], billing: ["volume zz-test (50 GB, $3.50/month)"], unknown: false, unreadable: null });
     const hunting = vi.spyOn(r.services.hunt, "view").mockReturnValue({ hunt: { status: "hunting" }, ranking: null, askedAt: null } as never);
     expect((await r.post("go-back")).statusCode).toBe(409);
     hunting.mockRestore();
@@ -647,6 +652,20 @@ describe("after an update", () => {
     expect(readdirSync(join(r.data, "backups")).some((n) => /^after-0\.4\.2-.+\.db$/.test(n))).toBe(true);
     expect(JSON.parse(readFileSync(join(r.data, "updates", "last.json"), "utf8"))).toMatchObject({ kind: "went-back", from: "0.4.2", to: "0.4.1" });
     expect(notesInPlace(r.data)).toEqual([]);
+  });
+
+  it("goes back to a version with the Rented GPUs screen while a rented GPU runs: that version stops it itself", async () => {
+    const r = await rig({
+      running: "0.5.1",
+      before: ({ versions }) => {
+        mkdirSync(join(versions, "0.5.0"));
+        writeFileSync(join(versions, "previous"), "0.5.0");
+      },
+    });
+    vi.spyOn(r.services.rented, "goingBack").mockResolvedValue({ running: ["zz-test pod (NVIDIA A40)"], billing: ["volume zz-test (50 GB, $3.50/month)"], unknown: false, unreadable: null });
+    const check = await r.app.inject({ method: "GET", url: "/api/updates/go-back", remoteAddress: "127.0.0.1" });
+    expect(check.json()).toEqual({ refused: null, billing: [], unknown: false });
+    expect(compareVersions("0.5.0", "0.4.9")).toBe(1);
   });
 
   it("brings a 0.3 library beside it in, moved and not copied, while its own is empty", async () => {

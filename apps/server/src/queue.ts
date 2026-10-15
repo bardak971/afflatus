@@ -437,6 +437,9 @@ export class Queue {
 
   /** A prompt a job sent to a ComfyUI, stopped there: on the machine the job ran on, or the first one for a job from before there were several. */
   private interruptOn(machine: string | null | undefined, promptId: string): void {
+    // a machine not known to answer now may render it on unseen once it is back: the prompt is dropped there then too
+    const lane = machine ? this.lanes.get(machine) : undefined;
+    if (lane?.machine && lane.reachable !== true) this.stale.set(lane.id, new Set([...(this.stale.get(lane.id) ?? []), promptId]));
     void this.machines()
       .then((all) => (all.find((m) => m.machine.id === machine) ?? all[0])?.comfy.client.interrupt(promptId))
       .catch(() => {});
@@ -717,8 +720,11 @@ ${JSON.stringify(input)}`;
     return new Set(rows.filter((r) => {
       if (!needsComfy(r)) return true;
       const makes = this.makes(r);
-      const pin = r.pin_machine ?? this.heldOn(r);
-      return open.some((l) => (!pin || pin === l.id) && (l.machine!.takes === "all" || l.machine!.takes === makes));
+      const held = this.heldOn(r);
+      const pin = r.pin_machine ?? held;
+      // a render waiting for the machine it was lost on is takeable only while that machine answers: an update does not
+      // wait the offline limit for a machine that is away
+      return open.some((l) => (!pin || pin === l.id) && !(held && l.reachable !== true) && (l.machine!.takes === "all" || l.machine!.takes === makes));
     }).map((r) => r.id));
   }
 
@@ -961,8 +967,9 @@ ${JSON.stringify(input)}`;
               break;
             }
             // a render before it that runs, that a machine has taken (every running render is) or that a machine is
-            // planned to take, keeps it waiting
-            if (taken.has(r.id) || r.status === "running" || where.has(r.id)) break;
+            // planned to take, keeps it waiting; so does one waiting for the machine it was lost on (heldOn), which may
+            // still render it there: an export after it would be made without that clip
+            if (taken.has(r.id) || r.status === "running" || where.has(r.id) || this.heldOn(r)) break;
           }
         }
 
