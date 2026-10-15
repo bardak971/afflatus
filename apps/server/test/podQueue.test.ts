@@ -263,6 +263,9 @@ describe("a job pinned to a pod still booting", () => {
     await answers();
     await until(() => t.services.podFiles.view(id).some((f) => f.file === CHECKPOINT && f.tier === "need" && f.jobs.includes(a)));
     expect(failing).toBeLessThan(0);
+    // ended once the job is on the pod, as the test before: left mid-start (its file still coming), the app's close waited
+    // past the hook's limit on CI's slower runner
+    await until(() => pod.prompts.size === 1, 15_000);
   });
 
   it("keeps the pod from its idle time while the files its job waits for come", async () => {

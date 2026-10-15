@@ -25,6 +25,8 @@ export const HASHED_FOLDERS = ["checkpoints", "diffusion_models", "loras", "vae"
 const ASK_AGAIN_MS = 7 * 24 * 60 * 60_000;
 /** While a render runs here, how often the hashing looks whether it may go on. */
 const PAUSE_MS = 2_000;
+/** How long a close waits for a hashing pass to end before it goes on without it. */
+const STOP_WAIT_MS = 3_000;
 
 /**
  * The hashing itself, in a worker thread: SHA-256 over a model file on the server's own thread kept it 46 to 50 % busy and
@@ -160,7 +162,11 @@ export class ModelHashes {
   async stop(): Promise<void> {
     this.stopped = true;
     await this.worker?.terminate();
-    await this.running;
+    // waited for a moment, not for ever: a pass may be asking Civitai or Hugging Face, which nothing cuts short, and a
+    // close waiting on a slow site held a test's end past its limit. A write after that only fails; the file is read again
+    let late: NodeJS.Timeout | undefined;
+    await Promise.race([this.running, new Promise<void>((done) => (late = setTimeout(done, STOP_WAIT_MS)))]);
+    clearTimeout(late);
   }
 
   private async pass(): Promise<void> {
