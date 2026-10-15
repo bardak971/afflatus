@@ -1,4 +1,5 @@
-import { roughly, secondsOf, type BuiltGraph, type MediaFacts, type Recipe } from "@afflatus/core";
+import { gpuKey, roughly, roughSpeed, secondsOf, type BuiltGraph, type MediaFacts, type Recipe } from "@afflatus/core";
+import { sql } from "kysely";
 import type { Db } from "./db";
 
 /**
@@ -191,12 +192,12 @@ export interface Like {
   /** The chunks it samples, each at its own size (chunksOf); left out, its `steps` all sample `work`. */
   chunks?: readonly Chunk[] | null;
   /**
-   * The machine it would render on (settings.ts `machines`): its own renders of the recipe as soon as it has one, else the
-   * renders of the machine that rendered it most, at its pace against that one's (`paces`, onMachine). Left out, every
-   * machine's renders as they are.
+   * The machine it would render on (settings.ts `machines`): its own renders of the recipe once it has a few, else beside
+   * those of the machines with the same GPU, or of the machine that rendered it most, at its pace against that one's
+   * (`paces`, onMachine). Left out, every machine's renders at the common pace (as they are when no pace is known).
    */
   machine?: string | null;
-  /** Each machine's learned pace (machinePaces), to read another machine's renders at `machine`'s pace. */
+  /** Each machine's pace (machinePaces), to read another machine's renders at `machine`'s pace. */
   paces?: ReadonlyMap<string, number>;
   /** Where its model's renders are read from (statRows), when they are kept between forecasts (the queue's, until the record changes). */
   rows?: (modelFile: string) => Promise<StatRows>;
@@ -205,6 +206,8 @@ export interface Like {
 /** What of a recorded render `onMachine` reads and scales. */
 interface Timed {
   machine_id: string | null;
+  /** Its GPU's name as ComfyUI gave it: the renders of another machine with the same card are read as they are. */
+  gpu?: string | null;
   recipe_id: string;
   step_ms: number | null;
   total_ms: number;
@@ -214,34 +217,72 @@ interface Timed {
 }
 
 /**
- * The renders a forecast for `like.machine` is read from. Its own renders of the recipe (with its others of the model) as
- * soon as it has one: two windows on a rented A40 (214 and 225 s) say more of the next one there than a dozen on the
- * owner's 4070 Ti. Before that, the renders of the machine that rendered it most (this computer, as a rule), at this
- * machine's pace against that one's (machinePaces, learned on the models both rendered); as they are when this machine's
- * pace is not known yet. The load is left as it was: it is the disk's, not the card's. No machine asked: every render as
- * it is.
+ * A machine's pace (machinePaces) for a model of `family`: its pace on that family where it was compared on it (a pod
+ * twice as fast on Qwen pictures was not on SCAIL windows), else its own; undefined when it is not known.
  */
-export function onMachine<R extends Timed>(rows: R[], like: Pick<Like, "machine" | "paces" | "recipeId">): R[] {
+export function paceOf(paces: ReadonlyMap<string, number> | undefined, machine: string | null | undefined, family?: string | null): number | undefined {
+  if (!paces || !machine) return undefined;
+  const ofFamily = family && paces instanceof Paces ? paces.families.get(machine)?.get(family) : undefined;
+  return ofFamily ?? paces.get(machine);
+}
+
+/** A render read at `k` times its pace: what its steps and the passes around them took, the load as it was (the disk's, not the card's). */
+function atPace<R extends Timed>(r: R, k: number): R {
+  if (k === 1) return r;
+  return { ...r, step_ms: r.step_ms === null ? null : r.step_ms * k, total_ms: r.load_ms + (r.total_ms - r.load_ms) * k, sample_ms: r.sample_ms * k, refine_ms: r.refine_ms * k };
+}
+
+/**
+ * The renders a forecast for `like.machine` is read from. Its own renders of the recipe (with its others of the model) once
+ * it has OWN_POINTS of them. With one or two, those beside the renders of the machines with the same GPU when they rendered
+ * it (one render, a model read from a cold disk, took 11 s where its twin machine's five said 6.7), else alone: two windows
+ * on a rented A40 (214 and 225 s) say more of the next one there than the owner's 4070 Ti's, whose disk and passes around
+ * the steps are not the pod's (mixed with them, 169 and 173 s). With none, the others': the renders of the machines with the
+ * same GPU, else of the machine that rendered it most among those whose pace is known, at this machine's pace against that
+ * one's (machinePaces: learned, else its GPU's, else the rough speed table's for a pod's GPU never rendered on), so that a
+ * new pod is not told another card's times; as they are when no pace is known. The load is left as it was: it is the
+ * disk's, not the card's. No machine asked: every render at the common pace (its time over its machine's pace), the figure
+ * the GPU hunt multiplies by a GPU's pace; as they are when no pace is known.
+ */
+export function onMachine<R extends Timed>(rows: R[], like: Pick<Like, "machine" | "paces" | "recipeId" | "family">): R[] {
   const machine = like.machine;
-  if (!machine) return rows;
+  const pace = (m: string | null) => paceOf(like.paces, m, like.family);
+  if (!machine) return like.paces?.size ? rows.map((r) => atPace(r, 1 / (pace(r.machine_id) ?? 1))) : rows;
   const ofRecipe = (rs: R[]) => (like.recipeId ? rs.filter((r) => r.recipe_id === like.recipeId) : rs);
   const mine = rows.filter((r) => r.machine_id === machine);
-  if (ofRecipe(mine).length) return mine;
-  // the machine with the most renders of the recipe (else of the model); a tie goes to the one that rendered last
-  const counted = ofRecipe(rows).length ? ofRecipe(rows) : rows;
+  const own = ofRecipe(mine).length;
+  if (own >= OWN_POINTS) return mine;
+  const others = rows.filter((r) => r.machine_id !== machine);
+  const target = pace(machine);
+  const at = (rs: R[], from: string | null) => {
+    const p = pace(from);
+    return target !== undefined && p !== undefined ? rs.map((r) => atPace(r, target / p)) : rs;
+  };
+  // the machines with the same card (a second PC with the same GPU, the A40 pod deployed again): theirs as they are, or at
+  // the pace each was learned at
+  const gpu = mine.find((r) => r.gpu)?.gpu ?? (like.paces instanceof Paces ? like.paces.gpus.get(machine) : undefined);
+  const twins = gpu ? others.filter((r) => r.gpu && gpuKey(r.gpu) === gpuKey(gpu)) : [];
+  const twinsAt = () => twins.flatMap((r) => at([r], r.machine_id));
+  // its own first renders beside its twins' (theirs first: of renders of one size, the first one's step is the one read,
+  // forecastFrom, and theirs are the many)
+  if (own) return ofRecipe(twins).length ? [...twinsAt(), ...mine] : mine;
+  // with none of the recipe, its renders of the model's other recipes do not stand for this one: its twins', unless they
+  // never rendered the recipe and another machine did
+  if (twins.length && (ofRecipe(twins).length || !ofRecipe(others).length)) return twinsAt();
+  // the machine with the most renders of the recipe (else of the model), among those whose pace is known when this one's
+  // is; a tie goes to the one that rendered last
+  const known = target === undefined ? [] : others.filter((r) => pace(r.machine_id) !== undefined);
+  const from = known.length ? known : others;
+  const counted = ofRecipe(from).length ? ofRecipe(from) : from;
   const counts = new Map<string | null, number>();
   for (const r of counted) counts.set(r.machine_id, (counts.get(r.machine_id) ?? 0) + 1);
   const most = [...counts].reduce<[string | null, number] | null>((best, c) => (!best || c[1] > best[1] ? c : best), null)?.[0] ?? null;
-  const theirs = rows.filter((r) => r.machine_id === most);
-  const target = like.paces?.get(machine);
-  const from = most === null ? undefined : like.paces?.get(most);
-  if (target === undefined || from === undefined) return theirs;
-  const k = target / from;
-  return theirs.map((r) => ({ ...r, step_ms: r.step_ms === null ? null : r.step_ms * k, total_ms: r.load_ms + (r.total_ms - r.load_ms) * k, sample_ms: r.sample_ms * k, refine_ms: r.refine_ms * k }));
+  const theirs = at(others.filter((r) => r.machine_id === most), most);
+  return theirs.length ? theirs : mine;
 }
 
 /** What of a recorded render a forecast reads. */
-const TIMED = ["machine_id", "recipe_id", "time_key", "kind", "width", "height", "duration_ms", "work", "steps", "step_ms", "total_ms", "sample_ms", "refine_ms", "load_ms", "cold"] as const;
+const TIMED = ["machine_id", "gpu", "recipe_id", "time_key", "kind", "width", "height", "duration_ms", "work", "steps", "step_ms", "total_ms", "sample_ms", "refine_ms", "load_ms", "cold"] as const;
 
 /** A model's last 200 whole renders that were timed, newest first: what a forecast for it is read from. */
 export function statRows(db: Db, modelFile: string) {
@@ -325,7 +366,13 @@ export async function forecast(db: Db, modelFile: string, work: number, steps: n
   const warm = warmLoads.length ? median(warmLoads) : 0;
   let load = warm;
   if (cold) {
-    const coldLoads = [pool, rows].map((rs) => rs.filter((r) => r.cold).map((r) => r.load_ms)).find((ls) => ls.length) ?? (await coldLoadsElsewhere(db, like.family));
+    // a load is the machine's disk, not its card: a pod's network volume read a picture model in 51 s that this PC reads
+    // in 15. This machine's loads of the model first, then of its family, then of any model; the others' only when it
+    // never loaded one
+    const coldOf = (rs: typeof all) => rs.filter((r) => r.cold).map((r) => r.load_ms);
+    const here = (rs: typeof all) => rs.filter((r) => r.machine_id === like.machine);
+    let coldLoads = like.machine ? [coldOf(here(pool)), coldOf(here(all))].find((ls) => ls.length) ?? (await coldLoadsElsewhere(db, like.family, like.machine)) : [];
+    if (!coldLoads.length) coldLoads = [pool, rows].map(coldOf).find((ls) => ls.length) ?? (await coldLoadsElsewhere(db, like.family, null));
     load = Math.max(warm, coldLoads.length ? median(coldLoads) : 0);
   }
   const f = forecastFrom(points, work, steps, Math.max(0, around) + load, like.chunks, stepMs);
@@ -333,11 +380,15 @@ export async function forecast(db: Db, modelFile: string, work: number, steps: n
   return f && cold ? { ...f, loadMs: Math.round(load - warm) } : f;
 }
 
-/** The loads of the latest renders that loaded their model cold: of the family's models, else of any. */
-async function coldLoadsElsewhere(db: Db, family: string | undefined): Promise<number[]> {
+/**
+ * The loads of the latest renders that loaded their model cold and sampled (a render ComfyUI answered from its cache "loaded"
+ * nothing), on `machine` when it is said: of the family's models, else of any.
+ */
+async function coldLoadsElsewhere(db: Db, family: string | undefined, machine: string | null): Promise<number[]> {
   const of = (fam: string | null) => {
-    let q = db.selectFrom("render_stats").select("load_ms").where("status", "=", "done").where("whole", "=", 1).where("cold", "=", 1).where("model_file", "!=", "");
+    let q = db.selectFrom("render_stats").select("load_ms").where("status", "=", "done").where("whole", "=", 1).where("cold", "=", 1).where("model_file", "!=", "").where("step_ms", "is not", null);
     if (fam) q = q.where("family", "=", fam);
+    if (machine) q = q.where("machine_id", "=", machine);
     return q.orderBy("created_at", "desc").limit(50).execute();
   };
   const ofFamily = family ? await of(family) : [];
@@ -508,81 +559,148 @@ export function said(f: Forecast, shape: { pixels: number; frames: number }): { 
   return { text: `About ${dur}, from your renders with this model.`, hint: null };
 }
 
-/**
- * Each machine's pace against all of them (settings.ts `machines`), learned from its own renders: for every model and set
- * of settings rendered on more than one machine, a machine's usual step against the usual step of all, and the middle of
- * those. 1 is the common pace, 2 half as fast; a machine with nothing to compare is taken at 1. The forecasts are read from
- * every machine's renders together, and a machine's is that times its pace.
- */
 /** How many renders of the same settings a machine needs before its pace is set against another's. */
 const PACE_RENDERS = 3;
+/**
+ * How many of each machine's latest renders of each model the paces are read from: the latest renders of every kind would
+ * be this PC's alone a week after a pod rendered (about 80 a day), and the pod's pace forgotten.
+ */
+const PACE_ROWS = 40;
 
-export async function machinePaces(db: Db): Promise<Map<string, number>> {
-  const rows = await db
-    .selectFrom("render_stats")
-    .select(["machine_id", "model_file", "time_key", "step_ms"])
-    .where("status", "=", "done")
-    .where("whole", "=", 1)
-    .where("step_ms", "is not", null)
-    .where("machine_id", "is not", null)
-    .where("model_file", "!=", "")
-    .orderBy("created_at", "desc")
-    .limit(600)
-    .execute();
-  const byKey = new Map<string, Map<string, number[]>>();
-  for (const r of rows) {
-    const key = `${r.model_file}\n${r.time_key}`;
-    const machines = byKey.get(key) ?? new Map<string, number[]>();
-    byKey.set(key, machines);
-    const steps = machines.get(r.machine_id!) ?? [];
-    steps.push(r.step_ms!);
-    machines.set(r.machine_id!, steps);
-  }
-  // a machine is compared on the settings it rendered a few times: one render (a model loaded cold, the card busy elsewhere)
-  // made the owner's own PC read 1.8 times slower than a pod and every estimate on it nearly doubled
-  for (const machines of byKey.values()) for (const [machine, steps] of machines) if (steps.length < PACE_RENDERS) machines.delete(machine);
-  const ratios = new Map<string, number[]>();
-  for (const machines of byKey.values()) {
-    if (machines.size < 2) continue;
-    const all = median([...machines.values()].flat());
-    if (!(all > 0)) continue;
-    for (const [machine, steps] of machines) ratios.set(machine, [...(ratios.get(machine) ?? []), median(steps) / all]);
-  }
-  return new Map([...ratios].map(([machine, rs]) => [machine, median(rs)]));
+/** A render as the paces read it: where it ran, and what a step cost for its work. */
+interface PaceRow extends RecordedWork {
+  machine_id: string | null;
+  gpu: string | null;
+  model_file: string;
+  family: string;
+  time_key: string;
+  step_ms: number;
+}
+
+/** The renders the paces are learned from: each machine's (and card's) latest PACE_ROWS of each model. */
+async function paceRows(db: Db): Promise<PaceRow[]> {
+  const { rows } = await sql<PaceRow>`
+    select machine_id, gpu, model_file, family, time_key, recipe_id, kind, width, height, duration_ms, work, step_ms from (
+      select *, row_number() over (partition by machine_id, gpu, model_file order by created_at desc) as n from render_stats
+      where status = 'done' and whole = 1 and step_ms is not null and work is not null and model_file != ''
+    ) where n <= ${PACE_ROWS}`.execute(db);
+  return rows;
+}
+
+/** One machine's (or card's) pace: against the common pace, on the models of each family it was compared on, and from how many renders. */
+interface Compared {
+  pace: number;
+  families: Map<string, number>;
+  renders: number;
 }
 
 /**
- * Each GPU's pace against all of them, by its name as ComfyUI gave it (render_stats.gpu), as machinePaces does for the
- * machines, with how many renders it rests on: what the GPU hunt (hunt.ts) ranks RunPod's GPUs by. With one GPU rendered
- * on, it is the common pace (1); a GPU with nothing to compare to the others is taken at 1 too.
+ * The paces of whatever `who` tells the renders apart by (a machine, a card). For each model and recipe rendered by more
+ * than one, each one's usual step for its work against the usual step of all, and the middle of those: compared on the
+ * step for the work, the windows of a Motion transfer cut at different lengths are one comparison. One is compared on a
+ * recipe it rendered PACE_RENDERS times: one render (a model loaded cold, the card busy elsewhere) made the owner's own PC
+ * read 1.8 times slower than a pod and every estimate on it nearly doubled. One compared with nothing has no pace; when
+ * nothing was compared at all, the one that rendered most is the common pace (1), what a pod's GPU is guessed against.
+ */
+function compared(rows: readonly PaceRow[], who: (r: PaceRow) => string | null): Map<string, Compared> {
+  const byKey = new Map<string, { family: string; costs: Map<string, number[]> }>();
+  for (const r of rows) {
+    const id = who(r);
+    // a video recorded with one frame's work (before 2026-10-10) is left out: its step reads a hundred times dearer; and one
+    // recorded with more frames than its length holds at 60 a second (the 4096 a Motion transfer's batch node said): fifty
+    // times cheaper, it made this PC's pace read 0.03
+    const work = workOfRow(r, () => undefined);
+    if (!id || work === null || !(r.step_ms > 0)) continue;
+    if (r.kind === "video" && r.width && r.height && r.duration_ms && work / (r.width * r.height) > 2 * 60 * (r.duration_ms / 1000)) continue;
+    // a render whose graph says no size (an edit of the picture it is given) is compared on the same settings' step alone
+    const key = work > 0 ? `${r.model_file}\n${r.recipe_id}` : `${r.model_file}\n${r.recipe_id}\n${r.time_key}`;
+    const at = byKey.get(key) ?? { family: r.family, costs: new Map<string, number[]>() };
+    byKey.set(key, at);
+    at.costs.set(id, [...(at.costs.get(id) ?? []), work > 0 ? r.step_ms / work : r.step_ms]);
+  }
+  for (const { costs } of byKey.values()) for (const [id, cs] of costs) if (cs.length < PACE_RENDERS) costs.delete(id);
+  const ratios = new Map<string, Array<{ family: string; ratio: number; renders: number }>>();
+  for (const { family, costs } of byKey.values()) {
+    if (costs.size < 2) continue;
+    const all = median([...costs.values()].flat());
+    if (!(all > 0)) continue;
+    for (const [id, cs] of costs) ratios.set(id, [...(ratios.get(id) ?? []), { family, ratio: median(cs) / all, renders: cs.length }]);
+  }
+  const out = new Map<string, Compared>();
+  for (const [id, rs] of ratios) {
+    const families = new Map([...new Set(rs.map((r) => r.family))].map((f) => [f, median(rs.filter((r) => r.family === f).map((r) => r.ratio))] as const));
+    out.set(id, { pace: median(rs.map((r) => r.ratio)), families, renders: rs.reduce((sum, r) => sum + r.renders, 0) });
+  }
+  // 1 is the pace of the one compared on the most renders (the owner's PC, as a rule), not the middle of them: with two
+  // machines the middle lies between them and the PC read ×1.33 against itself. Only the ratios between them count
+  const most = [...out.values()].sort((a, b) => b.renders - a.renders)[0];
+  if (most && most.pace > 0) {
+    const by = most.pace;
+    for (const c of out.values()) {
+      c.pace /= by;
+      for (const [f, p] of c.families) c.families.set(f, p / by);
+    }
+  }
+  if (!out.size) {
+    const counts = new Map<string, number>();
+    for (const { costs } of byKey.values()) for (const [id, cs] of costs) counts.set(id, (counts.get(id) ?? 0) + cs.length);
+    const most = [...counts].sort((a, b) => b[1] - a[1])[0];
+    if (most) out.set(most[0], { pace: 1, families: new Map(), renders: most[1] });
+  }
+  return out;
+}
+
+/**
+ * Each machine's pace (settings.ts `machines`), as machinePaces gives it: 1 is the common pace, 2 half as fast. Read as a
+ * map it is the machine's pace overall; `paceOf` reads it for a model's family.
+ */
+export class Paces extends Map<string, number> {
+  /** Per machine, its pace on the models of a family, where it was compared on them. */
+  readonly families = new Map<string, Map<string, number>>();
+  /** Per machine, its GPU's name: as its renders give it, else as RunPod named the pod's. */
+  readonly gpus = new Map<string, string>();
+}
+
+/**
+ * Each machine's pace against all of them. Learned from its own renders (compared), else its GPU's (the A40 pod deployed
+ * again, a second PC with the same card), else, for a pod's GPU never rendered on (RunPod names it before the pod's first
+ * render), the rough speed table's against the card rendered on most that the table knows. A machine none of them tells
+ * has no pace. A forecast on a machine reads another's renders at its pace against that one's (onMachine).
+ */
+export async function machinePaces(db: Db): Promise<Paces> {
+  const rows = await paceRows(db);
+  const own = compared(rows, (r) => r.machine_id);
+  const cards = compared(rows, (r) => (r.gpu ? gpuKey(r.gpu) : null));
+  const paces = new Paces();
+  for (const r of rows) if (r.machine_id && r.gpu && !paces.gpus.has(r.machine_id)) paces.gpus.set(r.machine_id, r.gpu);
+  const sessions = await db.selectFrom("rent_sessions").select(["machine_id", "gpu"]).where("gpu", "is not", null).orderBy("started_at", "desc").execute();
+  for (const s of sessions) if (!paces.gpus.has(s.machine_id)) paces.gpus.set(s.machine_id, s.gpu!);
+  // the table's guesses are anchored on a rented card first: a home card shares its memory with the desktop and spills the
+  // larger models (the owner's 4070 Ti read slower than an A40 the table puts under it), a rented one renders alone
+  const rented = new Set(sessions.map((s) => gpuKey(s.gpu!)));
+  const anchor = [...cards].filter(([card]) => roughSpeed(card) !== null).sort((a, b) => Number(rented.has(b[0])) - Number(rented.has(a[0])) || b[1].renders - a[1].renders)[0];
+  for (const machine of new Set([...own.keys(), ...paces.gpus.keys()])) {
+    const gpu = paces.gpus.get(machine);
+    const learned = own.get(machine) ?? (gpu ? cards.get(gpuKey(gpu)) : undefined);
+    if (learned) {
+      paces.set(machine, learned.pace);
+      if (learned.families.size) paces.families.set(machine, learned.families);
+      continue;
+    }
+    const speed = gpu ? roughSpeed(gpu) : null;
+    if (speed && anchor) paces.set(machine, (anchor[1].pace * roughSpeed(anchor[0])!) / speed);
+  }
+  return paces;
+}
+
+/**
+ * Each GPU's pace against all of them, by its name as ComfyUI gave it (render_stats.gpu), as machinePaces learns the
+ * machines', with how many renders it was compared on: what the GPU hunt (hunt.ts) ranks RunPod's GPUs by. A GPU compared
+ * with nothing is left out (the hunt guesses it from the table); with one GPU rendered on, it is the common pace (1).
  */
 export async function gpuPaces(db: Db): Promise<Array<{ gpu: string; pace: number; renders: number }>> {
-  const rows = await db
-    .selectFrom("render_stats")
-    .select(["gpu", "model_file", "time_key", "step_ms"])
-    .where("status", "=", "done")
-    .where("whole", "=", 1)
-    .where("step_ms", "is not", null)
-    .where("gpu", "is not", null)
-    .where("model_file", "!=", "")
-    .orderBy("created_at", "desc")
-    .limit(600)
-    .execute();
-  const counts = new Map<string, number>();
-  const byKey = new Map<string, Map<string, number[]>>();
-  for (const r of rows) {
-    counts.set(r.gpu!, (counts.get(r.gpu!) ?? 0) + 1);
-    const key = `${r.model_file}\n${r.time_key}`;
-    const gpus = byKey.get(key) ?? new Map<string, number[]>();
-    byKey.set(key, gpus);
-    gpus.set(r.gpu!, [...(gpus.get(r.gpu!) ?? []), r.step_ms!]);
-  }
-  const ratios = new Map<string, number[]>();
-  for (const gpus of byKey.values()) {
-    if (gpus.size < 2) continue;
-    const all = median([...gpus.values()].flat());
-    if (!(all > 0)) continue;
-    for (const [gpu, steps] of gpus) ratios.set(gpu, [...(ratios.get(gpu) ?? []), median(steps) / all]);
-  }
-  return [...counts].map(([gpu, renders]) => ({ gpu, pace: ratios.has(gpu) ? median(ratios.get(gpu)!) : 1, renders }));
+  const rows = await paceRows(db);
+  const names = new Map<string, string>();
+  for (const r of rows) if (r.gpu && !names.has(gpuKey(r.gpu))) names.set(gpuKey(r.gpu), r.gpu);
+  return [...compared(rows, (r) => (r.gpu ? gpuKey(r.gpu) : null))].map(([card, c]) => ({ gpu: names.get(card)!, pace: c.pace, renders: c.renders }));
 }

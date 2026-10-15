@@ -53,6 +53,15 @@ describe("the ranking", () => {
     expect(h100).toMatchObject({ seconds: 80, learned: 4, timeSaid: "from 4 of your renders" });
   });
 
+  it("guesses against a rented card before a home one: the home card spills larger models and reads slower than the table says", () => {
+    // the owner's 4070 Ti at the common pace on more renders, an A40 pod at 0.76 though the table puts it under the 4070 Ti
+    const learned = { gpus: [{ gpu: "NVIDIA GeForce RTX 4070 Ti", pace: 1, renders: 40 }, { gpu: "NVIDIA A40", pace: 0.76, renders: 6 }], rented: ["NVIDIA A40"], oom: [] };
+    const h100 = rankGpus(OFFERS, RENDERS, learned, ASK).find((g) => g.name === "H100 SXM")!;
+    expect(h100).toMatchObject({ timeSaid: "a guess", seconds: Math.round((100 * 0.76 * roughSpeed("A40")!) / roughSpeed("H100 SXM")!) });
+    const home = rankGpus(OFFERS, RENDERS, { ...learned, rented: [] }, ASK).find((g) => g.name === "H100 SXM")!;
+    expect(home.seconds).toBe(Math.round((100 * roughSpeed("RTX 4070 Ti")!) / roughSpeed("H100 SXM")!));
+  });
+
   it("with no GPU learned, no time: value falls back to the price", () => {
     const r = rankGpus(OFFERS, RENDERS, { gpus: [], oom: [] }, ASK);
     expect(r.every((g) => g.seconds === null && g.cost === null && g.timeSaid === "not known yet")).toBe(true);

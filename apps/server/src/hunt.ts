@@ -278,7 +278,8 @@ export class Hunt {
       .where("gpu", "is not", null)
       .groupBy("gpu")
       .execute();
-    return { gpus: await gpuPaces(this.s.db), oom, rendered: rendered.map((r) => ({ gpu: r.gpu!, renders: Number(r.renders) })), overheadMs: overhead ? overhead.bootMs + overhead.idleMs : null };
+    const rented = await this.s.db.selectFrom("rent_sessions").select("gpu").distinct().where("gpu", "is not", null).execute();
+    return { gpus: await gpuPaces(this.s.db), rented: rented.map((r) => r.gpu!), oom, rendered: rendered.map((r) => ({ gpu: r.gpu!, renders: Number(r.renders) })), overheadMs: overhead ? overhead.bootMs + overhead.idleMs : null };
   }
 
   private async rank(offers: GpuOffer[], rows: JobRow[], o: { mode: HuntMode; ceiling: number; leftOut: string[]; dataCenter: string | null }): Promise<{ ranking: RankedGpu[]; overhead: DeployOverhead | null }> {

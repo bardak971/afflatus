@@ -134,16 +134,18 @@ describe("the fallback, for a form no render is placed against", () => {
   it("takes each machine's pace out of what it learns: a pod half as fast does not make every machine's fallback slower", async () => {
     const d = await db();
     const pic = (machine: string, stepMs: number, recipe = "sdxl.text-to-picture", model = "m") => row({ recipe, model, work: 1024 * 1024, steps: 20, stepMs, load: 500, rest: 0, machine });
-    // the machines' paces are learned against each other on the same settings (machinePaces): m1 0.5, m2 1, the pod 1.5
+    // the machines' paces are learned against each other on the same settings (machinePaces): m1, compared on the most
+    // renders, is the common pace (1), m2 2, the pod 3
     await d.insertInto("render_stats").values([
       ...[1, 2, 3].flatMap(() => [pic("m1", 1000), pic("m2", 2000), pic("rp-slow", 3000)]),
+      pic("m1", 1000),
       ...[1, 2, 3].map(() => pic("rp-slow", 3000, "sdxl.redraw", "m-redraw")),
     ] as never).execute();
     const all = await rates(d);
     const redraw = recipeById("sdxl.redraw")!;
-    // rendered on the pod alone: 60 s there is 40 s at the common pace, 20 s on m1
-    expect(fromRates(all, redraw, {})!.ms).toBe(40_000 + 500);
-    expect(fromRates(all, redraw, {}, { pace: 0.5 })!.ms).toBe(20_000 + 500);
+    // rendered on the pod alone: 60 s there is 20 s at the common pace (m1's), 40 s on m2
+    expect(fromRates(all, redraw, {})!.ms).toBe(20_000 + 500);
+    expect(fromRates(all, redraw, {}, { pace: 2 })!.ms).toBe(40_000 + 500);
     await d.destroy();
   });
 });

@@ -36,6 +36,8 @@ export interface RankRender {
  */
 export interface Learned {
   gpus: Array<{ gpu: string; pace: number; renders: number }>;
+  /** The GPUs the user rented (RunPod's names): a guess is anchored on one of them first. */
+  rented?: string[];
   oom: Array<{ gpu: string; file: string }>;
   /**
    * Every GPU the record has renders on, with how many, compared with another or not. With one GPU alone (the owner's PC
@@ -194,8 +196,10 @@ export function rankGpus(offers: readonly RankOffer[], renders: readonly RankRen
   const largest = Math.max(0, ...renders.flatMap((r) => r.files.map((f) => f.size ?? 0)));
   const needed = new Set(renders.flatMap((r) => r.files.map((f) => fileKey(f.file))));
   const known = learnedGpus(learned).map((g) => ({ ...g, key: gpuKey(g.gpu) }));
-  // the GPU a guess is anchored on: the learned one the table knows, with the most renders behind it
-  const anchor = known.filter((g) => roughSpeed(g.gpu) !== null).sort((a, b) => b.renders - a.renders)[0] ?? null;
+  // the GPU a guess is anchored on: a learned one the table knows, a rented one first (a home card shares its memory with
+  // the desktop and spills the larger models), then the one with the most renders behind it
+  const rented = new Set((learned.rented ?? []).map(gpuKey));
+  const anchor = known.filter((g) => roughSpeed(g.gpu) !== null).sort((a, b) => Number(rented.has(b.key)) - Number(rented.has(a.key)) || b.renders - a.renders)[0] ?? null;
   const ceilingSaid = `over your $${ask.ceiling.toFixed(2)}/h`;
   const rows = offers.map((o) => {
     const keys = new Set([gpuKey(o.id), gpuKey(o.name)]);
