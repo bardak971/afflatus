@@ -61,7 +61,7 @@ const server = (key: "tagCheck" | "civitaiLookups" | "downloadModels" | "updateC
   get: (c) => c.server?.[key],
   set: (c, v) => c.save({ [key]: Boolean(v) }),
 });
-const barPart = (key: "snippets" | "history" | "cast", label: string, about: string, words: string): SettingEntry => ({
+const barPart = (key: "snippets" | "cast", label: string, about: string, words: string): SettingEntry => ({
   id: `bar.${key}`, label, page: "bar", about, words, scope: "Afflatus", kind: "switch",
   get: (c) => c.server?.bar?.[key],
   // the server takes `bar` whole: a part of it alone would reset the others
@@ -136,7 +136,6 @@ export const SETTINGS: SettingEntry[] = [
   { id: "bar.learn", label: "Learn what I use", page: "bar", words: "command bar ranking recent frequency", scope: "this browser", kind: "switch", about: "What you open often and lately comes first in the bar. Kept in this browser.", get: () => useBar.getState().learn, set: (_c, v) => useBar.getState().setLearn(Boolean(v)) },
   { id: "bar.preview", label: "Preview", page: "bar", words: "preview in the bar command bar shift", scope: "this browser", kind: "switch", about: "The selected result shown beside the list. Shift shows or hides it.", get: () => useBar.getState().preview, set: (_c, v) => useBar.getState().setPreview(Boolean(v)) },
   barPart("snippets", "Prompt snippets", "Type ; and a snippet's name in any prompt box: a space or Tab puts its text there.", "typed by name command bar ; expand kit"),
-  barPart("history", "Prompt history", 'Type " in the bar to search every prompt that was rendered, with its render.', "in the bar command bar quote prompts"),
   barPart("cast", "Cast with @", "Type @ in the bar to add a person of the Prompt kit to the clip selected in the timeline editor, else to the open draft.", "command bar person people kit clip"),
   {
     id: "bar.forget", label: "Forget what I used", page: "bar", words: "command bar recents ranking reset clear start over", scope: "this browser", kind: "action", verb: "forget",

@@ -39,7 +39,7 @@ Everything else is in **Settings**, saved as you change it:
 - **Designer:** an optional OpenAI-style language model that writes prompts (LM Studio, Ollama, llama.cpp or a service), its system prompts and context size.
 - **Prompts:** the prompting guide per model family that the designer follows, and the Danbooru tag check.
 - **Interface:** theme and accent colour, explanations under every setting or behind the `?`, playing videos and sound on hover; browser notifications when the queue empties or after each render.
-- **Command bar:** its shortcut, whether it learns what you use, its preview, and its optional parts (prompt snippets, prompt history).
+- **Command bar:** its shortcut, whether it learns what you use, its preview, and its optional parts (prompt snippets, `@` cast).
 - **Storage:** disk usage, the bin, takes that never play, how long render times are kept, backups.
 - **About:** the version and its updates (a new version's notes, Update and Go back on a bundle, the command for Docker and the sources), "Check for new versions" (once a day, on by default: one request to GitHub, nothing about you in it), and the start-up checks (ffmpeg, ffprobe, Node, the data folder).
 

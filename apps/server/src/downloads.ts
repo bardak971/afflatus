@@ -64,6 +64,8 @@ export interface DownloadView {
   seen?: boolean;
   /** The ComfyUI it goes to (settings.ts machines, by id), when it was asked for one. */
   machine?: string;
+  /** Failed or stopped and askable again as first asked: set by the route that lists them (downloads-api.ts), never here. */
+  again?: true;
 }
 
 /** What a download onto a machine that cannot reach Afflatus (a rented pod) is refused with when its source gives no link of its own. */

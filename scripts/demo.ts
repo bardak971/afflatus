@@ -193,7 +193,13 @@ const pretendSite = createServer(async (req, res) => {
     const file = `${(url.searchParams.get("query") ?? "model").trim().replace(/\s+/g, "_")}.safetensors`;
     return json({ items: [{ id: 501, name: "Pretend model (the demo's Civitai)", type: "Checkpoint", modelVersions: [version(file)] }] });
   }
+  // the pretend LoRA's own version (1002, below), else the search's
+  if (url.pathname === "/api/v1/model-versions/1002") return json({ ...version("zz-test-pretend-lora.safetensors"), id: 1002, modelId: 777 });
   if (url.pathname.startsWith("/api/v1/model-versions/")) return json(version("model.safetensors"));
+  // one model by its id: what a pasted link to a model's page reads (the command bar, Find models)
+  if (/^\/api\/v1\/models\/\d+$/.test(url.pathname)) {
+    return json({ id: Number(url.pathname.split("/").pop()), name: "Pretend LoRA (the demo's Civitai)", type: "LORA", creator: { username: "demo" }, stats: { downloadCount: 1234, thumbsUpCount: 56 }, modelVersions: [{ ...version("zz-test-pretend-lora.safetensors"), id: 1002, baseModel: "SDXL 1.0" }] });
+  }
   // GitHub's latest release, as the updates check reads it (DEMO_RELEASE below)
   if (url.pathname === "/releases/latest" && process.env.DEMO_RELEASE) {
     const v = process.env.DEMO_RELEASE.trim();

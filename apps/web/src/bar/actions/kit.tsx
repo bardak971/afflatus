@@ -1,10 +1,12 @@
-import { Bookmark, Clapperboard, Copy, Eye, PenLine, UserPlus } from "lucide-react";
+import { Bookmark, Clapperboard, Copy, Eye, PenLine, Search, UserPlus } from "lucide-react";
 import type { CommandEntry, PromptHistoryItem } from "../../api";
 import { mainTextOf } from "../../form";
 import { kitHref } from "../../screens/kit/link";
 import { copyText } from "../../secureContext";
 import { castPlace, withPerson } from "../castTo";
 import type { Action, BarCtx, Person } from "./ctx";
+import { retype } from "./search";
+import { valueText } from "../search";
 
 /** A preset of the Prompt kit on the open draft, as the form's preset menu applies it (refused the same way). */
 export async function applyPreset(x: BarCtx, p: { id: string; name: string }) {
@@ -71,6 +73,8 @@ export function historyActions(x: BarCtx, h: PromptHistoryItem): Action[] {
         x.good("Prompt put in the open draft", h.prompt.slice(0, 120));
       },
     },
+    // its renders: the line's prompt: with its first words (the library's words find those that hold them all)
+    { label: "Its renders", icon: <Search size={14} />, note: "prompt: with its first words", stay: true, run: retype(`prompt:${valueText(h.prompt.replace(/["\s]+/g, " ").trim().split(" ").slice(0, 6).join(" "))} `) },
     ...(h.assetId ? [{ label: "View its render", icon: <Eye size={14} />, run: () => x.view(h.assetId!).catch(x.failed("Could not open it")) }] : []),
     ...(h.draftId ? [{ label: "Open its draft", icon: <PenLine size={14} />, run: () => x.openDraft(h.draftId!) }] : []),
     { label: "Copy the prompt", icon: <Copy size={14} />, stay: true, run: () => copyText(h.prompt).then(() => x.onCopied("the prompt"), () => x.onCopied("")) },

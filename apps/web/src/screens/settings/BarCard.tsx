@@ -17,7 +17,7 @@ import { Block, Card, Fact, Row } from "./Rows";
 import { queryKeys } from "../../queryKeys";
 import { COLUMNS } from "./wide";
 
-const DEFAULT: BarSettings = { shortcut: "Ctrl+K", snippets: false, history: false, cast: false };
+const DEFAULT: BarSettings = { shortcut: "Ctrl+K", snippets: false, cast: false };
 
 /**
  * The shortcut, changed by pressing the keys: a click starts listening, the next key held with Ctrl, Alt or
@@ -140,9 +140,6 @@ export function BarCard() {
               </div>
             </Block>
           )}
-          <Row setting="bar.history" label="Prompt history" help={`Type " in the bar to search every prompt you rendered, with its render.`}>
-            <Toggle bare on={bar.history} onChange={(history) => saveBar({ history })} label="Prompt history" />
-          </Row>
           <Row setting="bar.cast" label="Cast with @" help="Type @ in the bar to add a person of the Prompt kit to the clip selected in the timeline editor, else to the open draft.">
             <Toggle bare on={bar.cast} onChange={(cast) => saveBar({ cast })} label="Cast with @" />
           </Row>

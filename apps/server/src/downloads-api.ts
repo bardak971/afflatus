@@ -2,26 +2,50 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { modelIndex } from "./comfy";
 import { httpError, notFound } from "./errors";
-import { beginDownload, downloadBody, downloadTarget } from "./fetchFile";
+import { beginDownload, downloadBody, downloadTarget, type DownloadBody } from "./fetchFile";
 import { resolveLink } from "./fromLink";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
 
 /** The downloads of model files into ComfyUI (downloads.ts, fetchFile.ts), and reading a link to a model. */
 export function registerDownloads(app: FastifyInstance, s: Services): void {
+  // what each download of this run was asked with, so that a failed or stopped one can be asked again as it was (the
+  // command bar's "Download again"); one of an earlier run is listed without it, and is downloaded again where it was found
+  const asked = new Map<string, DownloadBody>();
+  const withAgain = <T extends { id: string; status: string }>(d: T) => (asked.has(d.id) && (d.status === "error" || d.status === "stopped") ? { ...d, again: true as const } : d);
+
   /** Model files being fetched into ComfyUI, whether that is turned on, and whether this ComfyUI can do it. */
   app.get("/api/downloads", async (req) => {
     const settings = await readSettings(s.db);
-    if (!settings.downloadModels) return { on: false, items: s.downloads.list(), manager: { found: false }, via: "none" };
+    if (!settings.downloadModels) return { on: false, items: s.downloads.list().map(withAgain), manager: { found: false }, via: "none" };
     // `machine`: asked of that ComfyUI (Settings › Models, its tab); the first one otherwise
     const { comfy, dir } = await downloadTarget(s, settings, z.object({ machine: z.string().max(40).optional() }).parse(req.query).machine);
     // who would download: Afflatus itself (it can write ComfyUI's model folders), the node pack, ComfyUI-Manager, or nobody
     const [manager, via] = await Promise.all([s.downloads.manager(comfy), s.downloads.route(comfy, dir)]);
-    return { on: true, items: s.downloads.list(), manager, via };
+    return { on: true, items: s.downloads.list().map(withAgain), manager, via };
   });
 
   /** Fetch a missing model file into ComfyUI (see fetchFile.ts). Only when the user turned this on in Settings. */
-  app.post("/api/downloads", async (req) => beginDownload(s, req, downloadBody.parse(req.body)));
+  app.post("/api/downloads", async (req) => {
+    const body = downloadBody.parse(req.body);
+    const started = await beginDownload(s, req, body);
+    asked.set(started.id, body);
+    return started;
+  });
+
+  /** A failed or stopped download asked for again as it was first asked: its line is taken off, a new one starts. */
+  app.post<{ Params: { id: string } }>("/api/downloads/:id/again", async (req) => {
+    const body = asked.get(req.params.id);
+    const was = s.downloads.list().find((d) => d.id === req.params.id);
+    if (!was) throw notFound("that download");
+    if (was.status !== "error" && was.status !== "stopped") throw httpError("That download has not failed or been stopped.", 409);
+    if (!body) throw httpError("Afflatus was restarted since: download it again from where it was found.", 409);
+    const started = await beginDownload(s, req, body);
+    asked.delete(req.params.id);
+    asked.set(started.id, body);
+    s.downloads.stop(req.params.id);
+    return started;
+  });
 
   /**
    * What a link leads to (a model's page on Civitai, a file on Hugging Face): its files and sizes, the

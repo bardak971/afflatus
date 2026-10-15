@@ -185,6 +185,8 @@ export interface Download {
   seen?: boolean;
   /** The ComfyUI it goes to, by id, when one was asked for (several ComfyUIs). */
   machine?: string;
+  /** Failed or stopped, and askable again as it was asked (this run of Afflatus): `api.downloadAgain`. */
+  again?: true;
 }
 /** Who downloads model files into this ComfyUI ("none": nothing can). */
 export type DownloadVia = "afflatus" | "pack" | "manager";

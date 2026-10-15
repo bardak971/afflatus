@@ -125,6 +125,13 @@ describe("find models", () => {
     // one base model at a time: Hugging Face reads several as all of them at once
     expect(asked1.getAll("filter")).toEqual(["base_model:adapter:Wan-AI/Wan2.2-I2V-A14B", "lora"]);
     expect((await get(t.app, "/api/browse/huggingface?base=evil")).statusCode).toBe(400);
+    // one creator's only (the command bar's by:), on both sites by their own parameter
+    asked = [];
+    await get(t.app, "/api/browse/huggingface?q=wan&by=Comfy-Org");
+    expect(new URL(asked.find((u) => u.startsWith("/api/models?"))!, "http://x").searchParams.get("author")).toBe("Comfy-Org");
+    await get(t.app, "/api/browse/civitai?q=wan&by=maker");
+    expect(new URL(asked.find((u) => u.startsWith("/api/v1/models?"))!, "http://x").searchParams.get("username")).toBe("maker");
+    expect((await get(t.app, "/api/browse/civitai?by=a%20b")).statusCode).toBe(400);
     expect(res.items[0]).toMatchObject({ site: "huggingface", id: "org/wan-loras", creator: "org", modelFiles: 1, thumb: null, versions: [] });
     const files = (await get(t.app, "/api/browse/huggingface/files?repo=org/wan-loras")).json().files;
     expect(files).toEqual([{ name: "a.safetensors", bytes: 200_000_000, note: "loras", sha256: "C".repeat(64), folder: "loras", source: { kind: "url", url: "https://huggingface.co/org/wan-loras/resolve/main/loras/a.safetensors" }, have: [] }]);

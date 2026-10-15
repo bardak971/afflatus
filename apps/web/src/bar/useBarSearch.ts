@@ -5,8 +5,8 @@ import { queryKeys } from "../queryKeys";
 import type { Mode } from "./parse";
 
 /**
- * The bar's two searches asked of the server as typed: the library's items whose name could match (the index holds only a
- * few; the server looks through all of them and the bin), and the prompt history (every prompt rendered).
+ * The bar's search asked of the server as typed: the library's items whose name could match (the index holds only a few;
+ * the server looks through all of them and the bin). The prompts are the render search's (prompt:, useBarData).
  */
 export function useBarSearch(open: boolean, mode: Mode, text: string) {
   // a moment after the typing stops; the ones found before stay while it answers. Under the index's key, so that what
@@ -22,9 +22,5 @@ export function useBarSearch(open: boolean, mode: Mode, text: string) {
   });
   const foundEntries = itemsQ && mode === "all" ? found.data?.entries : undefined;
 
-  // prompt history: only while its mode is on
-  const historyQ = useDebounced(text, 150, mode === "history", "");
-  const history = useQuery({ queryKey: queryKeys.promptHistory.search(historyQ), queryFn: ({ signal }) => api.promptHistory(historyQ, 30, { signal }), enabled: open && mode === "history", placeholderData: keepPreviousData });
-
-  return { foundEntries, history };
+  return { foundEntries };
 }

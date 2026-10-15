@@ -58,6 +58,8 @@ export const queryKeys = {
     civitai: (q: object) => ["browse", "civitai", q] as const,
     huggingFace: (q: object) => ["browse", "huggingface", q] as const,
     repo: (repo: string) => ["browse", "repo", repo] as const,
+    /** A link to a model read into its card (the command bar's pasted link). */
+    link: (link: string) => ["browse", "link", link] as const,
   },
   /** The Model sets, a set's files, and what can be added to one. */
   modelSets: {
@@ -111,6 +113,10 @@ export const queryKeys = {
     tree: (folder: string | null, kind: string | null, pages: number, by: string, desc: boolean) => ["assets", "tree", folder, kind, pages, by, desc] as const,
     one: (id: string | null) => ["assets", "one", id] as const,
     unkept: (project: string) => ["assets", "unkept", "all", project] as const,
+    /** The command bar's render search: a page of what its keys find, how many, and how many each key's absence would find. */
+    barSearch: <F>(filter: F) => ["assets", "bar-search", filter] as const,
+    barCount: <F>(filter: F) => ["assets", "bar-count", filter] as const,
+    barLoosen: <F>(filters: F) => ["assets", "bar-loosen", filters] as const,
   },
   /** The models and families the library's filters offer. */
   facets: {

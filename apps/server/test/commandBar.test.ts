@@ -265,10 +265,10 @@ describe("the prompt history", () => {
 describe("the command bar's settings", () => {
   it("default to Ctrl+K with every optional part off; a part of the bar not sent takes its default", async () => {
     const s = (await get(t.app, "/api/settings")).json();
-    expect(s.bar).toEqual({ shortcut: "Ctrl+K", snippets: false, history: false, cast: false });
-    const saved = await call("PUT", "/api/settings", { bar: { shortcut: "Ctrl+Shift+P", snippets: true, history: true, cast: false } });
-    expect(saved.bar).toEqual({ shortcut: "Ctrl+Shift+P", snippets: true, history: true, cast: false });
-    expect((await call("PUT", "/api/settings", { bar: { shortcut: "Alt+Space" } })).bar).toEqual({ shortcut: "Alt+Space", snippets: false, history: false, cast: false });
+    expect(s.bar).toEqual({ shortcut: "Ctrl+K", snippets: false, cast: false });
+    const saved = await call("PUT", "/api/settings", { bar: { shortcut: "Ctrl+Shift+P", snippets: true, cast: false } });
+    expect(saved.bar).toEqual({ shortcut: "Ctrl+Shift+P", snippets: true, cast: false });
+    expect((await call("PUT", "/api/settings", { bar: { shortcut: "Alt+Space" } })).bar).toEqual({ shortcut: "Alt+Space", snippets: false, cast: false });
     const refused = async (patch: unknown) => (await t.app.inject({ method: "PUT", url: "/api/settings", payload: patch as object })).statusCode;
     expect(await refused({ bar: { shortcut: "Ctrl+ K" } })).toBe(400);
   });

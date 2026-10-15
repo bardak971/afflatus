@@ -11,14 +11,14 @@ const CALM: CommandCtx = { aim: null, queue: { paused: false, online: true, rend
 
 /** The bar's rows for what is typed, with an index of two timelines and a draft, and nothing learned. */
 function rows(typed: string, over: Partial<RowsData> = {}, command: Partial<CommandCtx> = {}) {
-  const { mode, text } = modeOf(typed, { history: true, cast: true });
+  const { mode, text } = modeOf(typed, { cast: true });
   const base = indexItems([timeline("t1", "Harbor walk", "2026-10-01T10:00:00Z"), timeline("t2", "Old pier", "2026-09-01T10:00:00Z"), draft("d1", "Night market", "2026-10-02T10:00:00Z")], [], null);
   const ctx = { ...CALM, ...command };
   return rowsFor(mode, {
     text, base, byKey: new Map(base.map((i) => [i.key, i])), templates: commandTemplates(ctx), settingRows: [], navRows: navItems([]), command: ctx,
     learn: true, ranks: {}, now: Date.parse("2026-10-10T10:00:00Z"), parsed: mode === "command" ? parseCommand(text) : null, estimateSaid: "",
     recipes: [], recipeItems: [], presetItems: [], familyOn: () => true, grid: { name: "H3", fps: 24, frames: { step: 17, offset: 5 }, size: 32 },
-    queue: null, history: [], keysHere: [], barKey: "Ctrl+K", entities: [], castTo: "→ the open draft",
+    queue: null, keysHere: [], barKey: "Ctrl+K", entities: [], castTo: "→ the open draft",
     ...over,
   });
 }

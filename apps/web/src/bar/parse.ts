@@ -5,16 +5,22 @@
 
 import { TRANSITION_KINDS, TRANSITIONS, type TransitionKind } from "@afflatus/core";
 
-export type Mode = "all" | "command" | "place" | "setting" | "calc" | "queue" | "keys" | "history" | "cast";
+export type Mode = "all" | "command" | "setting" | "calc" | "queue" | "keys" | "cast";
 
 /** The first character of what is typed, and the mode it opens. */
-export const MODE_KEYS: Record<string, Mode> = { ">": "command", "#": "place", "/": "setting", "=": "calc", "!": "queue", "?": "keys", '"': "history", "@": "cast" };
+export const MODE_KEYS: Record<string, Mode> = { ">": "command", "/": "setting", "=": "calc", "!": "queue", "?": "keys", "@": "cast" };
 
-/** The mode and what is typed after its character (trimmed at the start). History and cast only when they are on. */
-export function modeOf(typed: string, optional: { history: boolean; cast: boolean } = { history: true, cast: true }): { mode: Mode; text: string } {
+/**
+ * The characters that once were modes and are now the render search's keys, typed first in an empty bar: `"` the prompts
+ * (`prompt:`), `#` the projects and folders (`in:`). Their values list what the modes listed, and they mix with other keys.
+ */
+export const FOLDS: Record<string, string> = { '"': "prompt:", "#": "in:" };
+
+/** The mode and what is typed after its character (trimmed at the start). Cast only when it is on. */
+export function modeOf(typed: string, optional: { cast: boolean } = { cast: true }): { mode: Mode; text: string } {
   const first = typed[0];
   const mode = first ? MODE_KEYS[first] : undefined;
-  if (!mode || (mode === "history" && !optional.history) || (mode === "cast" && !optional.cast)) return { mode: "all", text: typed.trim() };
+  if (!mode || (mode === "cast" && !optional.cast)) return { mode: "all", text: typed.trim() };
   return { mode, text: typed.slice(1).trimStart() };
 }
 
@@ -80,6 +86,9 @@ export type Command =
   | { cmd: "spending" }
   | { cmd: "find-models"; words: string }
   | { cmd: "check-updates" }
+  | { cmd: "model-updates" }
+  | { cmd: "picked" }
+  | { cmd: "get-missing" }
   | { cmd: "update" }
   | { cmd: "go-back" }
   | { cmd: "test-notify"; channel?: "telegram" | "discord" }
@@ -160,6 +169,9 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "dismiss-failed", name: "Dismiss all failed…", typed: "dismiss failed", example: "dismiss failed", what: "The failed jobs the queue lists, off the history, asked first" },
   { id: "group-queue", name: "Group by model", typed: "group by model", example: "group by model", what: "Same model together, the loaded one first" },
   { id: "find-models", name: "Find models…", typed: "find models ", example: "find models wan lightning", what: "Civitai, Hugging Face and your own, in one search, to download onto this PC (with Search Hugging Face and Civitai on)" },
+  { id: "picked", name: "Picked models", typed: "picked", example: "picked", what: "The model files picked in Find models or the bar: onto this PC (asked, with their total), or open there" },
+  { id: "get-missing", name: "Get missing files", typed: "get missing files", example: "get missing files", what: "The open form's missing model files, looked up and downloaded onto this PC (asked, with their total)" },
+  { id: "model-updates", name: "Model updates", typed: "model updates", example: "model updates", what: "Newer versions of your models on Civitai: asked now, then the list in Settings › Models" },
   { id: "check-updates", name: "Check for updates", typed: "check for updates", example: "check for updates", what: "Is a newer Afflatus out: GitHub asked now, as About's Check now" },
   { id: "update", name: "Update Afflatus", typed: "update", example: "update", what: "To the latest release, as About's Update: Afflatus restarts once the queue is empty; your library stays as it is" },
   { id: "go-back", name: "Go back to the previous version…", typed: "go back", example: "go back", what: "The version before the last update, its library as it was then (asked first), as About's Go back" },
@@ -270,6 +282,9 @@ export function parseCommand(input: string): Command | null {
   if (/^(?:motion transfer(?: in windows)?|(?:to|make) (?:the )?source(?: lane)?|source lane)$/.test(low)) return { cmd: "motion-windows" };
   if (/^(?:spending|spend|spent|money|costs?|budget|(?:runpod )?balance|(?:spending )?caps?|electricity)(?: today)?$/.test(low)) return { cmd: "spending" };
   if ((m = /^(?:find|browse|search(?: for)?) (?:a )?models?(?: (.+))?$/i.exec(t))) return { cmd: "find-models", words: (m[1] ?? "").trim() };
+  if (/^picked(?: (?:models|files))?$/.test(low)) return { cmd: "picked" };
+  if (/^(?:get|download|fetch) (?:the )?missing(?: model)?(?: files| models)?$/.test(low)) return { cmd: "get-missing" };
+  if (/^(?:(?:models?|loras?|checkpoints?) updates?|newer (?:models|loras|versions)|check (?:my )?models?(?: for updates?)?)$/.test(low)) return { cmd: "model-updates" };
   if (/^(?:check (?:for )?(?:updates?|(?:a )?new version)|updates)$/.test(low)) return { cmd: "check-updates" };
   if (/^(?:update|upgrade)(?: afflatus)?(?: now)?$/.test(low)) return { cmd: "update" };
   if (/^(?:go back|roll ?back|downgrade)(?: to (?:the )?(?:previous|last|old)(?: version)?| to v?\d[\d.]*)?$/.test(low)) return { cmd: "go-back" };

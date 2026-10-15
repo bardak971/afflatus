@@ -16,13 +16,13 @@ import { queryKeys } from "../queryKeys";
 import { useCopied } from "../hooks";
 
 /** A file's name as the words kept for it are filed under: lower case, without its sub-folder. */
-const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
+export const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
 
 /**
  * The words that call a LoRA up, and where they are from: the user's own first, then what its author
  * wrote in the file, then what its page on Civitai gives, or else the words it was trained with most.
  */
-function wordsOf(info: ModelInfo | undefined, more?: ModelWords): { words: string; from: "own" | "file" | "page" | "training" | null } {
+export function wordsOf(info: ModelInfo | undefined, more?: ModelWords): { words: string; from: "own" | "file" | "page" | "training" | null } {
   if (more?.own) return { words: more.own, from: "own" };
   if (info?.trigger) return { words: info.trigger, from: "file" };
   if (more?.found) return { words: more.found, from: "page" };

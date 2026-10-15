@@ -56,7 +56,7 @@ export const optionId = (i: number) => `bar-opt-${i}`;
  * What the bar's list holds: the selected result's actions (Tab), the calculator's cards, or the results in their
  * sections; and what it says when there is nothing.
  */
-export function BarRows({ acting, actions, shownActions, mode, text, sections, flat, at, off, settingCtx, reading, looking, onSelect, onActSelect, onChoose, onRun, onType }: {
+export function BarRows({ acting, actions, shownActions, mode, text, sections, flat, at, off, settingCtx, reading, onSelect, onActSelect, onChoose, onRun, onType }: {
   acting: { item: Item; sel: number } | null;
   /** The acted-on result's actions, and those its filter shows. */
   actions: Action[];
@@ -71,9 +71,8 @@ export function BarRows({ acting, actions, shownActions, mode, text, sections, f
   /** Why the selected row's first action cannot run now, if it cannot. */
   off: string | null;
   settingCtx: SettingCtx;
-  /** The index is being read for the first time; the prompt history is being searched. */
+  /** The index is being read for the first time. */
   reading: boolean;
-  looking: boolean;
   onSelect(i: number): void;
   onActSelect(i: number): void;
   /** A row clicked: chosen as Enter would. */
@@ -90,8 +89,10 @@ export function BarRows({ acting, actions, shownActions, mode, text, sections, f
         <>
           <div className="px-3 pt-2.5 pb-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Actions</div>
           {shownActions.map((a, i) => {
-            // Enter and Ctrl+Enter on the result run the list's first two actions, wherever a filter shows them
-            const place = actions.indexOf(a);
+            // Enter and Ctrl+Enter on the result run the list's first two actions, wherever a filter shows them; on a search's
+            // value (a LoRA, a model, a place) Enter writes it in the line and Ctrl+Enter runs the first
+            const at = actions.indexOf(a);
+            const place = acting.item.complete ? (at === 0 ? 1 : -1) : at;
             return (
             <button
               key={`${a.label}:${i}`}
@@ -109,7 +110,7 @@ export function BarRows({ acting, actions, shownActions, mode, text, sections, f
               <span className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-raised", a.danger ? "text-warn-ink" : "text-ink-2")}>{a.icon ?? <Zap size={15} />}</span>
               <span className="flex min-w-0 grow flex-col">
                 <span className={cx("truncate text-[14.5px] font-semibold", a.danger ? "text-warn-ink" : "text-ink")}>{a.label}</span>
-                {(a.note || place < 2) && <span className="truncate text-xs text-ink-2">{[a.note, place === 0 ? "Enter on the result" : place === 1 ? "Ctrl+Enter on the result" : ""].filter(Boolean).join(" · ")}</span>}
+                {(a.note || (place >= 0 && place < 2)) && <span className="truncate text-xs text-ink-2">{[a.note, place === 0 ? "Enter on the result" : place === 1 ? "Ctrl+Enter on the result" : ""].filter(Boolean).join(" · ")}</span>}
               </span>
               {a.keys && <Keys keys={a.keys} size="sm" className="text-ink-2" />}
               {i === acting.sel && <span className="flex shrink-0 items-center gap-1 text-[11px] text-ink-2"><Keys keys="Enter" size="sm" /> run</span>}
@@ -189,7 +190,7 @@ export function BarRows({ acting, actions, shownActions, mode, text, sections, f
                     )}
                     {/* the key that does the same in the app, from the key table (a row of the `?` mode: its own keys, a search's lit) */}
                     {it.keys && <Keys keys={it.keys} size="sm" hits={it.keyRow?.hits} className="text-ink-2" />}
-                    {on && <span className="flex shrink-0 items-center gap-1 text-[11px] whitespace-nowrap text-ink-2"><Keys keys="Enter" size="sm" /> {it.complete ? "complete" : off ? "unavailable" : it.verb}</span>}
+                    {on && <span className="flex shrink-0 items-center gap-1 text-[11px] whitespace-nowrap text-ink-2"><Keys keys="Enter" size="sm" /> {it.complete && it.group !== "Filters" ? "complete" : off ? "unavailable" : it.verb}</span>}
                   </button>
                 );
               })}
@@ -202,7 +203,6 @@ export function BarRows({ acting, actions, shownActions, mode, text, sections, f
           {reading ? "Reading what Afflatus holds…"
             : mode === "command" ? <>No command reads that. Try <span className="font-mono text-ink-2">render clips 3-5</span>, <span className="font-mono text-ink-2">seed 1234</span>, <span className="font-mono text-ink-2">pause queue</span>.</>
             : mode === "queue" ? "Nothing runs, waits or failed lately."
-            : mode === "history" ? (looking ? "Looking…" : "No rendered prompt holds that.")
             : mode === "cast" ? "No person of the Prompt kit is called that."
             : mode === "keys" ? <>No key does that. Try another word, or a key: <Keys keys="S" size="sm" />, <Keys keys="Ctrl+Z" size="sm" />.</>
             : <>{text ? "Nothing called that." : "Nothing used or made yet."} Try <Keys keys=">" size="sm" /> for commands.</>}

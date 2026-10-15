@@ -340,6 +340,15 @@ class AssetSearch {
     return { items: await this.placedViews(page), next: rows.length > q.limit && tail ? cursor(tail) : null, prev: q.after && page[0] ? cursor(page[0]) : null };
   }
 
+  /** How many items a list's filters and words find, for the command bar's "Renders · 42" (the page and the order do not count). */
+  async count(asked: unknown) {
+    const q = listQuery.parse(asked);
+    const filtered = await filterAssets(this.s, q);
+    if (searching(q)) return { count: (await this.searched(filtered, q)).length };
+    const sum = await filtered.select((eb) => eb.fn.countAll().as("n")).executeTakeFirst();
+    return { count: Number(sum?.n ?? 0) };
+  }
+
   /**
    * The items not kept of a view (the list's filters; kept and bin are set here): how many, when the countdown of the
    * first and of the last of them started (`from`, `to`: they go to the bin a day after), and their ids when asked (`ids=1`, for Keep all).
@@ -448,6 +457,7 @@ export function registerAssetSearch(app: FastifyInstance, s: Services): void {
   app.get("/api/assets", async (req) => search.list(req.query));
   /** The items not kept of a view (AssetSearch.unkept). */
   app.get("/api/assets/unkept", async (req) => search.unkept(req.query));
+  app.get("/api/assets/count", async (req) => search.count(req.query));
   app.get("/api/assets/families", async () => search.families());
   app.get("/api/assets/models", async () => search.models());
 }

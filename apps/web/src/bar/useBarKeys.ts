@@ -59,7 +59,8 @@ export function useBarKeys({ acting, setActing, shownActions, count, at, setSel,
     if (k === "Tab") {
       e.preventDefault();
       if (acting) return setActing(null);
-      if (current?.complete) return choose(current);
+      // a key or a value completes; a value with things to do with it (a LoRA, a model, a place) lists them, as a result does
+      if (current?.complete && !actionsOf(current).length) return choose(current);
       if (current && actionsOf(current).length) {
         setDwell(current);
         setActing({ item: current, text: "", sel: 0 });
