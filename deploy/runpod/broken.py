@@ -56,6 +56,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"[afflatus-pod] the GPU does not work on this host: {ERROR}", flush=True)
+    print(f"[afflatus-pod] failed: the GPU does not work on this host: {ERROR}", flush=True)
     watch()
     ThreadingHTTPServer(("0.0.0.0", 8188), Handler).serve_forever()

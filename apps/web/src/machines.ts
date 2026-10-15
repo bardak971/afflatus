@@ -49,6 +49,16 @@ export function machineState(m: Pick<MachineState, "paused" | "online" | "rented
   return m.running ? "rendering" : gettingFiles(m) ? "getting files" : "idle";
 }
 
+/**
+ * The Queue's head with several ComfyUIs: how many answer, and how many are starting ("2 of 3 ComfyUIs online · 1
+ * starting"). A pod starting (a deployed one's first start too) is neither online nor offline: the word machineState says.
+ */
+export function onlineSaid(machines: ReadonlyArray<Parameters<typeof machineState>[0]>): string {
+  const starting = machines.filter((m) => machineState(m) === "starting").length;
+  const online = machines.filter((m) => m.online !== false && machineState(m) !== "starting").length;
+  return `${online} of ${machines.length} ComfyUIs online${starting ? ` · ${starting} starting` : ""}`;
+}
+
 /** A machine as the screens name it: its own name, else its address's host and port ("127.0.0.1:8189"). */
 export function machineLabel(m: { name: string; url: string }): string {
   if (m.name.trim()) return m.name.trim();
@@ -104,11 +114,28 @@ export function familyOnFor(own: Readonly<Record<string, boolean>>, said: Readon
   return own[family] ?? said[family] ?? found;
 }
 
+/** Where a deployed pod's first start is (the server's podBoot.ts bootOf). */
+export type RentedBoot = NonNullable<RentedState["boot"]>;
+
+/**
+ * Where a deployed pod's first start is, and for how long since its deploy: "pulling the image · 6 min" while RunPod says
+ * no uptime yet (ten minutes on a host new to the image, seconds on one that has it), "starting ComfyUI · 40 s" once its
+ * container is up, then its boot log's step ("putting in the node packs · 1 min"); a start that stopped, where.
+ */
+export function bootSaid(b: RentedBoot, now = Date.now()): string {
+  const what = b.phase === "pulling" ? "pulling the image" : b.phase === "starting" || !b.step ? "starting ComfyUI" : b.failed ? `start stopped: ${b.step}` : b.step;
+  return `${what} · ${long(Math.max(0, now - b.from))}`;
+}
+
 /**
  * A rented pod's state in a few words, for its row, the pill and the menus: "starting", "stopped · disk $0.33/day",
  * "running · $0.83". What it costs is Afflatus's figure (its time × its rate), said as it is: RunPod's bill is the reference.
+ * A deployed pod's first start says where it is (bootSaid).
  */
 export function rentedSaid(r: RentedState, now = Date.now()): string {
+  if (r.boot && !r.stopping && (r.status === "RUNNING" || r.status === "STARTING" || r.status === "PROVISIONING")) {
+    return `${bootSaid(r.boot, now)}${r.status === "RUNNING" && r.since ? ` · ${usd(rentedSpent(r, now), true)}` : ""}`;
+  }
   switch (r.status) {
     case "RUNNING": {
       // billed from its start, whether its ComfyUI answers yet or not; a deployed pod's first start is a step of its own

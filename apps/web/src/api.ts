@@ -305,7 +305,9 @@ export const api = {
   renderRecordSize: (o?: Asked) => call<{ renders: number; days: number; bytes: number }>("GET", "/renders/size", undefined, o?.signal),
   /** ComfyUI's terminal log, the last few hundred lines (`t`: when, `m`: the line). */
   /** ComfyUI's log; `since`: the stamp of the last line had, for the lines from then on only. */
-  comfyLogs: (since?: string, o?: Asked & { machine?: string }) => call<{ lines: Array<{ t: string; m: string }> }>("GET", `/comfy/logs?${new URLSearchParams({ ...(since ? { since } : {}), ...(o?.machine ? { machine: o.machine } : {}) })}`, undefined, o?.signal),
+  // `of`: whose log `since` is a stamp of; `source`: whose lines these are, a rented pod's boot log while its ComfyUI is not up
+  comfyLogs: (since?: string, o?: Asked & { machine?: string; of?: "boot" | "comfy" }) =>
+    call<{ lines: Array<{ t: string; m: string }>; source?: "boot" | "comfy" }>("GET", `/comfy/logs?${new URLSearchParams({ ...(since ? { since } : {}), ...(since && o?.of ? { of: o.of } : {}), ...(o?.machine ? { machine: o.machine } : {}) })}`, undefined, o?.signal),
   clearRenderRecord: () => call<{ ok: true }>("DELETE", "/renders"),
   /** Everything the command bar can find, in one answer. */
   /** `items`: the library's items to hold beside the newest few (those the bar used lately). */

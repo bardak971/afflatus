@@ -11,7 +11,7 @@ import { useMenu } from "../../ContextMenu";
 import { useQueue, useSettings } from "../../data";
 import { gb, plural, usd } from "../../format";
 import { useCopied, useMedia } from "../../hooks";
-import { machineLabel, rateParts, rentedSaid, rentedUp } from "../../machines";
+import { machineLabel, machineState, rateParts, rentedSaid } from "../../machines";
 import { useQueueOps } from "../../queueOps";
 import { queryKeys } from "../../queryKeys";
 import { Button, ButtonLink, cx, ErrorNote, fieldClass, Segmented } from "../../ui";
@@ -137,7 +137,10 @@ export function MachinesHead() {
   const queue = useQueue();
   const ops = useQueueOps();
   const machines = queue.data?.machines ?? [];
-  const said = [`${machines.filter((m) => m.running).length} rendering`, `${machines.filter((m) => m.paused).length} paused`, `${machines.filter((m) => m.online === false && rentedUp(m)).length} offline`, `${machines.filter((m) => !rentedUp(m)).length} stopped`].filter((x) => !x.startsWith("0 ")).join(" · ");
+  // a pod starting (a deployed one's first start too, RunPod saying it runs while its image is pulled) is neither offline
+  // nor stopped: the words every screen says (machineState)
+  const word = (w: string) => machines.filter((m) => machineState(m) === w).length;
+  const said = [`${machines.filter((m) => m.running).length} rendering`, `${machines.filter((m) => m.paused).length} paused`, `${word("starting")} starting`, `${word("offline") + word("locked")} offline`, `${word("stopped")} stopped`].filter((x) => !x.startsWith("0 ")).join(" · ");
   return (
     <div className="flex flex-wrap items-center gap-2.5 px-1">
       <span className="text-[14px] font-bold">{plural(machines.length, "ComfyUI")}</span>
@@ -302,7 +305,7 @@ const TAKES_SAID: Record<Machine["takes"], string> = { all: "takes everything", 
 /** One machine in a line (past four of them): its state, its GPU, what it takes. A click opens its card. */
 function MachineLine({ machine, index, probe, state, onOpen }: { machine: Machine; index: number; probe: MachineProbe | undefined; state: MachineState | undefined; onOpen(): void }) {
   const label = machineLabel(machine);
-  const said = state?.rented && state.rented.status !== "RUNNING" ? rentedSaid(state.rented) : state?.paused ? "paused" : probe && !probe.online ? "not answering" : state?.running ? "rendering" : probe ? "answering" : "…";
+  const said = state?.rented && (state.rented.status !== "RUNNING" || state.rented.booting) ? rentedSaid(state.rented) : state?.paused ? "paused" : probe && !probe.online ? "not answering" : state?.running ? "rendering" : probe ? "answering" : "…";
   return (
     <button
       type="button"

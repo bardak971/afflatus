@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearch } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type QueueStatus } from "../api";
+import { api, type MachineState, type QueueStatus } from "../api";
 import { useQueue } from "../data";
 import { NOTIFY_HELP, NOTIFY_REFUSED, NotifyToggle } from "../NotifyToggle";
 import { useQueueOps } from "../queueOps";
@@ -14,7 +14,7 @@ import { Costs } from "./queue/Costs";
 import { ComfyLog } from "./queue/Log";
 import { MachineMeters } from "./queue/MachineMeters";
 import { MachineLanes } from "./queue/MachineLanes";
-import { machineLabel, severalMachines } from "../machines";
+import { machineLabel, onlineSaid, severalMachines } from "../machines";
 import { RunningCard } from "./queue/RunningCard";
 import { WaitingList } from "./queue/WaitingList";
 import { queryKeys } from "../queryKeys";
@@ -54,6 +54,9 @@ function QueueControls({ q, free, pause, resume }: { q: QueueStatus | undefined;
  * failed, as a list (History). The notify switch and the machine's meters sit in a side column, small:
  * the footer has the meters that matter at every moment.
  */
+/** A rented pod running or on its way up: its log tab reads its boot log while its ComfyUI does not answer. */
+const podUp = (m: MachineState | undefined) => Boolean(m?.rented && (m.rented.status === "RUNNING" || m.rented.status === "STARTING" || m.rented.status === "PROVISIONING"));
+
 export function Queue() {
   const queue = useQueue();
   const client = useQueryClient();
@@ -100,7 +103,7 @@ export function Queue() {
           <span className="flex shrink-0 items-center gap-1.5">
             {/* not read yet, or could not be: nothing is said about ComfyUI */}
             <span className={cx("h-2 w-2 rounded-full", !q ? "bg-ink-3" : q.online ? "bg-good" : "bg-warn")} />
-            {!q ? "…" : several.length ? `${several.filter((m) => m.online !== false).length} of ${several.length} ComfyUIs online` : q.online ? "ComfyUI online" : "ComfyUI offline · queued jobs wait"}
+            {!q ? "…" : several.length ? onlineSaid(several) : q.online ? "ComfyUI online" : "ComfyUI offline · queued jobs wait"}
           </span>
           {q?.model && !several.length && <span className="truncate font-mono">{q.model} loaded</span>}
         </div>
@@ -116,7 +119,7 @@ export function Queue() {
           <Segmented oneLine size="sm" label="Whose log" value={logOf || several[0]!.id} options={several.map((m) => ({ value: m.id, label: machineLabel(m) }))} onChange={setLogOf} />
         </div>
       )}
-      {tab === "log" && <ComfyLog key={logOf || "first"} online={several.length ? several.find((m) => m.id === (logOf || several[0]!.id))?.online !== false : Boolean(q?.online)} machine={several.length ? logOf || several[0]!.id : undefined} />}
+      {tab === "log" && <ComfyLog key={logOf || "first"} online={several.length ? several.find((m) => m.id === (logOf || several[0]!.id))?.online !== false : Boolean(q?.online)} pod={podUp(several.find((m) => m.id === (logOf || several[0]?.id)))} machine={several.length ? logOf || several[0]!.id : undefined} />}
 
       {tab === "queue" && !q && !queue.error && <p className="text-sm text-ink-3">…</p>}
       {tab === "queue" && q && (

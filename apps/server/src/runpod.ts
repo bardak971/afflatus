@@ -91,6 +91,11 @@ export const podMachineId = (pod: string) => `rp-${pod.toLowerCase().replace(/[^
 
 /** The ComfyUI port a pod must expose over HTTP for Afflatus to reach it. */
 export const COMFY_PORT = 8188;
+/**
+ * The port the Afflatus image (0.1.12 on) serves its boot log on, to the pod's token only (deploy/runpod/bootlog.py):
+ * exposed on a pod deployed with that image. An older one has nothing there, and nothing is said of it (podBoot.ts).
+ */
+export const BOOT_PORT = 8189;
 /** What a running pod's own disk costs, USD per GB and month (RunPod's price for the volume disk of a running pod). */
 export const RUNNING_DISK_PER_GB_MONTH = 0.1;
 /** What a stopped pod's own disk costs, USD per GB and month (RunPod's price for the volume disk of a stopped pod). */

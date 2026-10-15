@@ -24,6 +24,8 @@ export interface FakePod {
   /** The image it runs (a deployed pod's), and the network volume mounted on it, by id. */
   image?: string;
   volumeId?: string | null;
+  /** When its container came up (its uptime counts from then); null while its image is pulled, or stopped. */
+  upAt?: string | null;
 }
 
 /** A GPU of the pretend catalog: its prices (null: not on that cloud), and where it is free and how much. */
@@ -65,6 +67,14 @@ export interface FakeRunpod {
   billLagMs: number;
   /** How long a started pod is STARTING before it runs. */
   bootMs: number;
+  /**
+   * A deployed pod of the Afflatus image, once RunPod says it runs: how long its image is pulled (RUNNING, no uptime yet, no
+   * container), then how long its start takes (its boot log written step by step, ComfyUI answering at its end). 0: at once.
+   */
+  pullMs: number;
+  startMs: number;
+  /** Its start stops on an error at this step, as start.sh says it: its boot log says so, and its ComfyUI never answers. */
+  bootFails: string | null;
   /** Misbehaving as the real one can, for a test: an action refused with this status, by pod id; the env change refused;
    * the env left out of the list; the list refused with this status, or answered in a shape of another API; actions slow. */
   failAction: Record<string, number>;
@@ -107,15 +117,43 @@ const BILLED = new Set<FakePod["status"]>(["RUNNING", "STARTING", "PROVISIONING"
 const podPerHr = (p: FakePod) =>
   BILLED.has(p.status) ? p.rate + ((p.diskGb + (p.containerGb ?? 0)) * DISK_RUNNING) / MONTH_HOURS : p.status === "TERMINATED" ? 0 : (p.diskGb * DISK_STOPPED) / MONTH_HOURS;
 
+/** Since when its container runs: none while its image is pulled (a deployed pod running, no container yet), as RunPod says it. */
+const upSince = (p: FakePod) => (p.upAt === null ? null : p.upAt ?? p.startedAt);
+
 const raw = (p: FakePod) => ({
   id: p.id, name: p.name, status: p.status, cost: BILLED.has(p.status) ? p.rate : 0, disk: p.containerGb ?? 0,
   actions: p.status === "RUNNING" ? ["stop", "restart", "terminate"] : p.status === "EXITED" || p.status === "ERROR" ? ["start", "terminate"] : ["stop", "terminate"],
   gpu: { id: p.gpu, count: 1 }, dataCenterId: p.dataCenterId, ports: p.ports, cloud: "SECURE", image: p.image ?? "runpod/comfyui:latest",
   mounts: p.volumeId ? { network: [{ volumeId: p.volumeId, path: "/workspace" }] } : p.diskGb > 0 ? { persistent: { size: p.diskGb, path: "/workspace" } } : {},
   env: p.env,
-  runtime: p.status === "RUNNING" && p.startedAt ? { uptime: Math.round((Date.now() - Date.parse(p.startedAt)) / 1000) } : null,
+  runtime: p.status === "RUNNING" && upSince(p) ? { uptime: Math.round((Date.now() - Date.parse(upSince(p)!)) / 1000) } : null,
   startedAt: p.startedAt,
 });
+
+/**
+ * What the Afflatus image's start writes to its boot log (deploy/runpod/start.sh), ComfyUI's own start after its last step;
+ * cut at `fails`, said as start.sh says a step that stopped on an error.
+ */
+function bootLines(fails: string | null): string[] {
+  const all = [
+    "[afflatus-pod] step: checking the GPU",
+    "[afflatus-pod] step: preparing ComfyUI's folders",
+    "[afflatus-pod] ComfyUI's files in /workspace/comfyui",
+    "[afflatus-pod] step: putting in the node packs",
+    "[afflatus-pod] step: setting up ComfyUI-Manager",
+    "[afflatus-pod] step: starting ComfyUI",
+    "Checkpoint files will always be loaded safely.",
+    "Total VRAM 24135 MB, total RAM 128000 MB",
+    "pytorch version: 2.10.0+cu130",
+    "Import times for custom nodes:",
+    "   0.0 seconds: /workspace/comfyui/custom_nodes/afflatus-nodes",
+    "Starting server",
+    "To see the GUI go to: http://0.0.0.0:8188",
+  ];
+  if (!fails) return all;
+  const at = all.findIndex((m) => m === `[afflatus-pod] step: ${fails}`);
+  return [...all.slice(0, at + 1), "ERROR: the step stopped", `[afflatus-pod] failed: ${fails} (exit 1)`];
+}
 
 /** The pretend catalog's GPUs, as a test or the demo starts it with none of its own. */
 export const FAKE_GPUS: FakeGpu[] = [
@@ -135,14 +173,14 @@ const WORSE = { HIGH: 0, MEDIUM: 1, LOW: 2, NONE: 3 } as const;
  * reaches it as RunPod's proxy would. A pod is deployed (POST /v2/pods) on a GPU of `gpus`, with a pretend ComfyUI `spawn`
  * makes; it is PROVISIONING for `bootMs` (its image pulled), then RUNNING.
  */
-export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod, "id" | "startedAt" | "status" | "env"> & { status?: FakePod["status"]; env?: Record<string, string> }>; balance?: number; bootMs?: number; gpus?: FakeGpu[]; volumes?: FakeVolume[]; spawn?: () => Promise<FakeComfy> }): Promise<FakeRunpod> {
+export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod, "id" | "startedAt" | "status" | "env"> & { status?: FakePod["status"]; env?: Record<string, string> }>; balance?: number; bootMs?: number; pullMs?: number; startMs?: number; gpus?: FakeGpu[]; volumes?: FakeVolume[]; spawn?: () => Promise<FakeComfy> }): Promise<FakeRunpod> {
   const pods: FakePod[] = o.pods.map((p) => {
     const status = p.status ?? "EXITED";
     p.comfy.down = status !== "RUNNING";
     return { ...p, env: p.env ?? {}, id: new URL(p.comfy.url).port, status, startedAt: status === "RUNNING" ? new Date().toISOString() : null };
   });
   const fake: Omit<FakeRunpod, "url" | "close"> = {
-    key: o.key, pods, calls: [], balance: o.balance ?? 23.4, autoBill: false, billLagMs: 0, bootMs: o.bootMs ?? 1500,
+    key: o.key, pods, calls: [], balance: o.balance ?? 23.4, autoBill: false, billLagMs: 0, bootMs: o.bootMs ?? 1500, pullMs: o.pullMs ?? 0, startMs: o.startMs ?? 0, bootFails: null,
     failAction: {}, failDetail: null, secrets: {}, failSecrets: false, stopMs: 0, failPatch: null, hideEnv: false, failList: null, oddList: false, actionDelayMs: 0,
     gpus: o.gpus ?? FAKE_GPUS, volumes: o.volumes ?? [], noCapacity: new Set(), failCreate: null, createThenFail: null, bill: [], comfyStaysDown: false, volumeBill: [],
   };
@@ -196,9 +234,16 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
    * A pod up after `bootMs`: RUNNING, its ComfyUI answering. The node pack reads AFFLATUS_TOKEN as ComfyUI starts: locked
    * from its first second, a lock the routes cannot change. A secret's reference in it is given its value at boot, as RunPod does.
    */
-  const boot = (pod: FakePod) => {
+  const later = (ms: number, run: () => void) => {
+    if (ms <= 0) return run();
     const t = setTimeout(() => {
       timers.delete(t);
+      run();
+    }, ms);
+    timers.add(t);
+  };
+  const boot = (pod: FakePod) => {
+    later(fake.bootMs, () => {
       if (pod.status !== "STARTING" && pod.status !== "PROVISIONING") return;
       settle();
       pod.status = "RUNNING";
@@ -206,10 +251,32 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
       const said = pod.env.AFFLATUS_TOKEN;
       const ref = said ? /^\{\{\s*RUNPOD_SECRET_(.+?)\s*\}\}$/.exec(said) : null;
       const token = ref ? fake.secrets[ref[1]!] : said;
-      if (token && pod.comfy.packVersion) pod.comfy.lock = { token, local: false, fixed: true };
-      pod.comfy.down = fake.comfyStaysDown;
-    }, fake.bootMs);
-    timers.add(t);
+      // the Afflatus image (0.1.12 on) serves its boot log on its own port: a pod that exposes it
+      const logged = Boolean(pod.image?.includes("afflatus-pod") && pod.ports.includes("8189/http") && token);
+      const started = pod.startedAt;
+      const up = () => {
+        if (pod.comfy.down === false || pod.startedAt !== started) return;
+        if (token && pod.comfy.packVersion) pod.comfy.lock = { token, local: false, fixed: true };
+        pod.comfy.down = fake.comfyStaysDown || fake.bootFails !== null;
+      };
+      if (!logged) {
+        pod.upAt = undefined;
+        return up();
+      }
+      // its image pulled first: RUNNING, no uptime, nothing behind its ports; then its container up, its start logged step by step
+      pod.upAt = null;
+      later(fake.pullMs, () => {
+        if (pod.status !== "RUNNING" || pod.startedAt !== started) return;
+        pod.upAt = new Date().toISOString();
+        const log = { token: token!, lines: [] as Array<{ t: string; m: string }> };
+        pod.comfy.bootLog = log;
+        const lines = bootLines(fake.bootFails);
+        lines.forEach((m, i) => later(Math.round((fake.startMs * i) / lines.length), () => {
+          if (pod.startedAt === started) log.lines.push({ t: new Date().toISOString(), m });
+        }));
+        later(fake.startMs, up);
+      });
+    });
   };
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
@@ -376,6 +443,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
       if (action === "terminate") {
         pod.status = "TERMINATED";
         pod.comfy.down = true;
+        pod.comfy.bootLog = null;
         return json(204);
       }
       if (action === "stop") {
@@ -384,7 +452,10 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
           pod.status = "EXITED";
           pod.startedAt = null;
           pod.comfy.down = true;
+          // its container gone, its boot log with it
+          pod.comfy.bootLog = null;
         };
+        pod.upAt = undefined;
         if (fake.stopMs) {
           const t = setTimeout(() => {
             timers.delete(t);

@@ -38,6 +38,8 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/pack-tests"
           "$RUNNER_TEMP/pack-tests/bin/pip" install -q "pytest==9.1.1" "numpy==2.5.4"
           "$RUNNER_TEMP/pack-tests/bin/python" -m pytest -q comfy-nodes/afflatus-nodes/tests
+      # the pod image's boot log (deploy/runpod/bootlog.py): its server answers only with the pod's token
+      - run: python3 -m unittest discover -s deploy/runpod/tests
       - run: node scripts/release/stage.mjs
 
   # the timeline player frame by frame in headless Chrome (the runner has Chrome): H3-shaped synthetic clips with their frame

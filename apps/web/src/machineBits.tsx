@@ -83,8 +83,9 @@ export function Bar({ label, value, warn, hot, tip }: { label: string; value: nu
 /** The word for the machines together: the busiest thing they do. */
 export function busiest(machines: MachineState[]): string {
   const rendering = machines.filter((m) => m.running).length;
-  const away = machines.filter((m) => m.online === false && rentedUp(m)).length;
-  const starting = machines.filter((m) => m.rented?.status === "STARTING" || m.rented?.status === "PROVISIONING").length;
+  // a deployed pod's first start is starting, not offline: RunPod says it runs while its image is pulled and ComfyUI starts
+  const starting = machines.filter((m) => machineState(m) === "starting").length;
+  const away = machines.filter((m) => m.online === false && rentedUp(m) && machineState(m) !== "starting").length;
   const paused = machines.filter((m) => m.paused).length;
   const getting = machines.filter((m) => !m.running && gettingFiles(m)).length;
   if (rendering) return `${rendering} rendering`;
@@ -97,8 +98,8 @@ export function busiest(machines: MachineState[]): string {
 
 /** What a machine does, in a few words, for its row. */
 export function doing(m: MachineState, now: number): string {
-  // a rented pod: its own state first (stopped, starting, its ComfyUI not up yet), its cost while it runs
-  if (m.rented && (m.rented.status !== "RUNNING" || m.rented.stopping || m.rented.answers === false)) return rentedSaid(m.rented, now);
+  // a rented pod: its own state first (stopped, starting, its first start, its ComfyUI not up yet), its cost while it runs
+  if (m.rented && (m.rented.status !== "RUNNING" || m.rented.stopping || m.rented.booting || m.rented.answers === false)) return rentedSaid(m.rented, now);
   const cost = m.rented?.since ? ` · ${usd(rentedSpent(m.rented, now), true)}` : "";
   if (m.online === false) return m.locked ? "locked: its token is wrong" : "offline";
   if (m.running) return `${m.running.label}${m.running.steps ? ` · ${m.running.step}/${m.running.steps}` : ` · ${Math.round(m.running.progress * 100)} %`}${cost}`;
