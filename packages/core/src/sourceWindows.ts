@@ -6,6 +6,8 @@
  * The same sums on the server (Make N clips) and in the browser (the lane's marks before anything is made).
  */
 
+import { gridAtOrBefore, type FrameGrid } from "./frameGrid";
+
 /** How a recipe takes a long source, in its own frames (VideoTraits.windows, at VideoTraits.fps). */
 export interface WindowShape {
   fps: number;
@@ -14,6 +16,8 @@ export interface WindowShape {
   least: number;
   /** Frames of the clip before that a window carries on from. */
   carried: number;
+  /** The counts the model takes (VideoTraits.frameGrid); left out, Wan's 4k + 1. */
+  grid?: FrameGrid;
 }
 
 export interface SourceWindow {
@@ -27,8 +31,8 @@ export interface SourceWindow {
   opens: boolean;
 }
 
-/** Every Wan-made part is 4k + 1 frames: the most of those in `n`. */
-const onGrid = (n: number) => Math.floor((n - 1) / 4) * 4 + 1;
+/** Wan's grid, the one every Motion transfer model makes its parts on: 4k + 1 frames. */
+const WAN_GRID: FrameGrid = { step: 4, offset: 1 };
 
 /**
  * The windows that cover `fromMs` to `toMs` of the source, each showing about `windowMs` (within what one job takes). With
@@ -37,6 +41,8 @@ const onGrid = (n: number) => Math.floor((n - 1) / 4) * 4 + 1;
  */
 export function sourceWindows(o: { fromMs: number; toMs: number; windowMs: number; shape: WindowShape; cutsMs?: number[] }): SourceWindow[] {
   const { fps, most, least, carried } = o.shape;
+  /** The most frames the model takes of `n`. */
+  const onGrid = (n: number) => gridAtOrBefore(n, o.shape.grid ?? WAN_GRID);
   const frameMs = 1000 / fps;
   const out: SourceWindow[] = [];
   let covered = o.fromMs;

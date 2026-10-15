@@ -77,6 +77,28 @@ describe("a timeline's source lane", () => {
     expect((await view(tl.id)).clips).toHaveLength(0);
   });
 
+  it("makes a swap's windows on H3's grid, each carrying on from the one before", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test swap source" });
+    const meme = await asset("video");
+    const photo = await asset("image");
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id } });
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, recipe: "h3.swap", inputs: { who: "the man in the grey t-shirt", references: [{ asset: photo.id, role: "person" }] } } });
+    const made = await call("POST", `/api/timelines/${tl.id}/source/make`);
+    // 25 s from 3 s: a 107-frame window opens, then 119 new frames each; the 0.7 s left is less than a swap's 90 frames
+    expect(made.clips).toHaveLength(5);
+    const v = await view(tl.id);
+    expect(v.clips.map((c: { joined: string }) => c.joined)).toEqual(["cut", "continue", "continue", "continue", "continue"]);
+    for (const c of v.clips) {
+      expect(c.recipe).toBe("h3.swap");
+      expect(c.inputs).toMatchObject({ source: { asset: meme.id }, who: "the man in the grey t-shirt" });
+    }
+    expect(v.clips[0].inputs.sourceStart).toBe(3);
+    expect(v.clips[0].inputs.sourceSeconds).toBeCloseTo(107.5 / 24, 3);
+    // the next part starts the 5 carried frames before where the first one's stretch stops
+    expect(v.clips[1].inputs.sourceStart).toBeCloseTo(3 + 107 / 24 - 5 / 24, 3);
+    expect(v.clips[1].inputs.sourceSeconds).toBeCloseTo(124.5 / 24, 3);
+  });
+
   it("takes the place of the clip its stretch was taken from", async () => {
     const tl = await call("POST", "/api/timelines", { name: "zz-test source" });
     const meme = await asset("video");

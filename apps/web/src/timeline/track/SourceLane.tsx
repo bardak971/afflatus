@@ -11,7 +11,7 @@ import { ROW, SOURCE } from "./rows";
 export function windowed(recipe: RecipeInfo | undefined) {
   const w = recipe?.traits?.windows;
   const driving = recipe?.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window);
-  return recipe && w && driving?.type === "clip" && driving.window ? { shape: { fps: recipe.traits!.fps, ...w }, driving: driving.id, start: driving.window.start, seconds: driving.window.seconds } : null;
+  return recipe && w && driving?.type === "clip" && driving.window ? { shape: { fps: recipe.traits!.fps, grid: recipe.traits!.frameGrid, ...w }, driving: driving.id, start: driving.window.start, seconds: driving.window.seconds } : null;
 }
 
 /** The windows a source's stretch would be made in now (before Make: the clips to come, drawn on the track; scene cuts are read by the server). */

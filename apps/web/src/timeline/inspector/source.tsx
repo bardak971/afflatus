@@ -90,6 +90,8 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, o
   const most = w ? Math.floor(((w.shape.most - w.shape.carried) / w.shape.fps) * 10) / 10 : 5;
   const main = form ? mainTextOf(form) : undefined;
   const written = main ? String(inputs[main.id] ?? "") : "";
+  // what Make waits for: the Picture of a model that takes one (Motion transfer), the words a model needs (a swap's who to replace)
+  const waitsFor = pictureSpec && !picture ? `Choose the ${pictureSpec.label.toLowerCase()} first.` : main && main.type === "prompt" && !main.optional && !written.trim() ? `Write ${main.label.toLowerCase()} first.` : null;
 
   return (
     <aside data-designer-stays style={{ width: panelWidth }} className="relative flex shrink-0 flex-col border-l border-line bg-panel">
@@ -177,7 +179,7 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, o
 
       {source && (
         <div className="flex shrink-0 flex-col gap-2 border-t border-line px-3.5 py-3">
-          {pictureSpec && !picture && <span className="text-xs text-warn-ink">Choose the {pictureSpec.label.toLowerCase()} first.</span>}
+          {waitsFor && <span className="text-xs text-warn-ink">{waitsFor}</span>}
           {/* once made, it follows the clips: those with nothing to play are rendered from here, with the timeline's machine
               slice (a "Made" with nothing to press left renders that failed or were cancelled to Render all at the top) */}
           {place?.made ? (
@@ -188,7 +190,7 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, o
               {made.left > 0 && <RenderOn pickKey={timelineKey(timeline.id)} msOn={() => null} />}
             </span>
           ) : (
-            <Button tone="primary" className="h-11 text-sm" disabled={making || !recipe || !picture || !windows.length} onClick={onMake}>
+            <Button tone="primary" className="h-11 text-sm" disabled={making || !recipe || Boolean(waitsFor) || !windows.length} onClick={onMake}>
               {making ? "Making…" : `Make ${plural(windows.length, "clip")}`}
             </Button>
           )}
