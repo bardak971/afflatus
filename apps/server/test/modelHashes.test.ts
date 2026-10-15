@@ -168,6 +168,22 @@ describe("every model file hashed once", () => {
     expect((await t.services.hashes.status()).hashed).toBe(3);
   });
 
+  it("ends a pass under way when Afflatus closes, before the database is closed under it", async () => {
+    let rendering = true;
+    t.services.hashes.runningOn = () => rendering;
+    const warned = vi.spyOn(console, "warn");
+    const run = t.services.hashes.run();
+    await until(async () => (await t.services.hashes.status()).paused);
+    // closed here: the test's own close has nothing left to close
+    const closing = t.services.close();
+    const app = t.app;
+    t.close = () => app.close().then(() => undefined);
+    rendering = false;
+    await closing;
+    await run;
+    expect(warned.mock.calls.filter((c) => c[0] === "[hashes]")).toEqual([]);
+  });
+
   it("hashes in a thread of its own: the server's thread stays free while a checkpoint is read", async () => {
     mkdirSync(join(home, "models", "checkpoints"), { recursive: true });
     const big = Buffer.alloc(256 * 2 ** 20, 7);

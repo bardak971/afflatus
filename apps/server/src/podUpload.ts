@@ -48,8 +48,12 @@ export async function uploadFile(o: UploadOptions): Promise<void> {
     throw err;
   }
   const at = `/afflatus/upload/${encodeURIComponent(id)}`;
-  const state = async (): Promise<State | null> => {
+  // the pack keeps an upload in memory: a ComfyUI restarted under it (its node packs loaded) answers 404 for it from then on,
+  // and no try of this one can gain anything. Said so that the file is sent again from the start (podFiles.ts PASSING)
+  const forgotten = () => new Error("The pod's node pack no longer knows the upload (its ComfyUI restarted): it is sent again");
+  const state = async (): Promise<State | "forgotten" | null> => {
     const res = await o.client.raw(at, { signal: AbortSignal.timeout(15_000) }).catch(() => null);
+    if (res?.status === 404) return "forgotten";
     return res?.ok ? ((await res.json().catch(() => null)) as State | null) : null;
   };
   let bytes = 0;
@@ -63,6 +67,7 @@ export async function uploadFile(o: UploadOptions): Promise<void> {
       if (bytesRead !== size) throw new Error("the file changed on this computer while it was sent");
       const before = bytes;
       let why: string;
+      let gone = false;
       try {
         const res = await o.client.raw(`${at}?offset=${bytes}`, {
           method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: buf,
@@ -75,13 +80,15 @@ export async function uploadFile(o: UploadOptions): Promise<void> {
           fails = 0;
           continue;
         }
+        gone = res.status === 404;
         why = `${res.status}: ${(await res.text()).slice(0, 200)}`;
       } catch (err) {
         if (o.signal.aborted) throw new Error("stopped");
         why = (err as Error).message;
       }
       // the piece did not arrive whole (or did, and its answer was lost): the pack says where the upload is
-      const s = await state();
+      const s = gone ? "forgotten" : await state();
+      if (s === "forgotten") throw forgotten();
       if (s?.state === "done") {
         o.onBytes?.(total, total);
         return;

@@ -200,10 +200,13 @@ describe("Go back", () => {
   it("asks first, with what it undoes, and goes back only on yes", async () => {
     const was = view({ version: "0.4.2", previous: { version: "0.4.1", restoresLibrary: true } });
     serve(was, { ...was, flow: flow({ phase: "restarting", version: "0.4.1" }) });
+    fakeApi.on("GET /updates/go-back", { refused: null, billing: ["volume zz-test (50 GB, $3.50/month)"], unknown: false });
     const { user } = draw(<><AboutCard /><ConfirmHost /></>);
     await user.click(await screen.findByRole("button", { name: "Go back to 0.4.1…" }));
     const question = await screen.findByRole("dialog", { name: "Go back to 0.4.1?" });
     expect(question.textContent).toContain("what was made since stays in the folder, not in the list");
+    // what keeps billing on RunPod after it, which 0.4.1 has no screen for
+    expect(question.textContent).toContain("Still billed on RunPod after it, with no Rented GPUs screen in 0.4.1 to see or remove them: volume zz-test (50 GB, $3.50/month).");
     expect(fakeApi.calls("POST", "/updates/go-back")).toHaveLength(0);
     await user.click(within(question).getByRole("button", { name: /Keep/ }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Go back to 0.4.1?" })).toBeNull());
@@ -214,6 +217,16 @@ describe("Go back", () => {
     await waitFor(() => expect(fakeApi.calls("POST", "/updates/go-back")).toHaveLength(1));
     // the answer says the server restarts: the page waits for it
     await waitFor(() => expect(useRestarting.getState().from).toBe("0.4.2"));
+  });
+  it("is refused while a rented GPU runs, said without a question", async () => {
+    const was = view({ version: "0.4.2", previous: { version: "0.4.1", restoresLibrary: true } });
+    serve(was);
+    fakeApi.on("GET /updates/go-back", { refused: "A rented GPU runs: zz-test pod (NVIDIA A40). Stop or terminate it first.", billing: [], unknown: false });
+    const { user } = draw(<><AboutCard /><ConfirmHost /></>);
+    await user.click(await screen.findByRole("button", { name: "Go back to 0.4.1…" }));
+    expect(await screen.findByText(/A rented GPU runs: zz-test pod/)).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Go back to 0.4.1?" })).toBeNull();
+    expect(fakeApi.calls("POST", "/updates/go-back")).toHaveLength(0);
   });
 });
 

@@ -350,6 +350,8 @@ export class Rented {
   /** A deployed pod answered for the first time: the files its deploy asked for, and the ones it left out (services.ts hands them to podFiles). */
   onUp: ((machine: string, files: PresetFile[], leaveOut: Array<{ file: string; folder: string }>) => void) | null = null;
 
+  /** What a pod was getting forgotten (podFiles.ts forget), its machine taken out; set by services.ts. */
+  forgetFiles: ((machine: string) => void) | null = null;
   /**
    * The files a machine's pod still waits for (how many, their names), all it was given, the bytes in so far, and those that
    * failed (services.ts: podFiles).
@@ -367,6 +369,17 @@ export class Rented {
   unavailable(machine: string): string | null {
     if (this.filling.has(machine)) return "filling its volume";
     return this.podDown(machine) ?? (this.seen.get(machine)?.stopAfter ? CAP_REACHED : null);
+  }
+
+  /**
+   * Whether a machine's pod is down for good as far as its container goes: stopped, failed or terminated, or not on RunPod
+   * at two reads in a row (one answer of RunPod's can come back without it). Not while it is being stopped: that may fail.
+   */
+  podGone(machine: string): boolean {
+    const s = this.seen.get(machine);
+    if (!s) return false;
+    if (s.pod) return s.pod.status === "EXITED" || s.pod.status === "ERROR" || s.pod.status === "TERMINATED";
+    return s.missing >= 2;
   }
 
   /** Whether a machine's pod is down: not running, or being stopped. Null: up (or not a rented machine). Its files follow this. */
@@ -1508,6 +1521,31 @@ export class Rented {
   }
 
   /**
+   * What going back to a version without rented GPUs (0.4.0) leaves on RunPod, read from RunPod now: this Afflatus's pods
+   * that run (or start), which it would bill with no screen, no idle stop and no cap; and what keeps billing stopped, each
+   * with what it costs a month (its pods' disks, the account's network volumes). RunPod not answering: the pods as last
+   * read, the storage not known (`unknown`).
+   */
+  async goingBack(): Promise<{ running: string[]; billing: string[]; unknown: boolean }> {
+    const s = await readSettings(this.db);
+    const mine = s.machines.filter((m) => m.rented);
+    if (!s.runpodKey || !mine.length) return { running: [], billing: [], unknown: false };
+    const client = this.client(s.runpodKey);
+    const [pods, volumes] = await Promise.all([client.pods().catch(() => null), client.volumes().catch(() => null)]);
+    const podOf = (m: Machine) => (pods ? pods.find((p) => p.id === m.rented!.pod && p.status !== "TERMINATED") ?? null : this.seen.get(m.id)?.pod ?? null);
+    const running = mine.flatMap((m) => {
+      const pod = podOf(m);
+      return pod && pod.status !== "EXITED" ? [`${m.name || pod.name}${pod.gpu ? ` (${pod.gpu})` : ""}`] : [];
+    });
+    const disks = mine.flatMap((m) => {
+      const pod = podOf(m);
+      return pod?.status === "EXITED" && pod.diskGb > 0 ? [`${m.name || pod.name}, stopped: its ${pod.diskGb} GB disk, ${dollars(pod.diskGb * STOPPED_DISK_PER_GB_MONTH)}/month`] : [];
+    });
+    const kept = (volumes ?? []).map((v) => `volume ${v.name} (${v.size} GB, ${dollars(volumePerMonth(v.size))}/month)`);
+    return { running, billing: [...disks, ...kept], unknown: !pods || !volumes };
+  }
+
+  /**
    * A machine whose pod is gone (terminated) taken out of Afflatus: its secret, when it could not be deleted on RunPod, kept
    * on the list of secrets to delete (sweepSecrets), never left on the account.
    */
@@ -1517,6 +1555,8 @@ export class Rented {
       ...(s.secretDropped ? {} : { leftSecrets: [...current.leftSecrets.filter((l) => l.pod !== m.rented!.pod), { secret: secretOf(m), pod: m.rented!.pod }] }),
     }));
     this.seen.delete(m.id);
+    // what it was getting goes with it now: once its machine is out, nothing reads it as down any more
+    this.forgetFiles?.(m.id);
     this.events.emit("setup");
   }
 

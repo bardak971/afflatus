@@ -508,6 +508,18 @@ describe("the update of a bundle", () => {
     expect(existsSync(join(r.versions, "0.4.2"))).toBe(false);
     expect(existsSync(join(r.data, "updates", "afflatus-v0.4.2-linux-x64.tar.gz"))).toBe(true);
   });
+
+  it("does not wait for a job pinned to a machine that is paused: it would never start", async () => {
+    const r = await rig();
+    await writeSettings(r.services.db, { machines: [{ id: "m1", name: "A", url: NOWHERE }, { id: "m2", name: "B", url: "http://127.0.0.1:10" }] });
+    await r.services.queue.setPaused(true, "m2");
+    publish(gh, "0.4.2");
+    await r.post("check");
+    await addJob(r.services, "zz-test-pinned", "queued");
+    await sql`UPDATE jobs SET pin_machine = 'm2' WHERE id = 'zz-test-pinned'`.execute(r.services.db);
+    await r.post("update");
+    await until(() => r.restarts > 0, 20_000);
+  });
 });
 
 describe("the queue while an update waits", () => {
@@ -605,6 +617,18 @@ describe("after an update", () => {
     await addJob(r.services, "zz-test-running", "running");
     expect((await r.post("go-back")).statusCode).toBe(409);
     await sql`UPDATE jobs SET status = 'done'`.execute(db);
+    // not while a rented GPU runs, nor while a hunt may deploy one: 0.4.1 has nothing to stop them, they would bill unseen
+    const left = vi.spyOn(r.services.rented, "goingBack").mockResolvedValue({ running: ["zz-test pod (NVIDIA A40)"], billing: ["volume zz-test (50 GB, $3.50/month)"], unknown: false });
+    const refused = await r.post("go-back");
+    expect(refused.statusCode).toBe(409);
+    expect((refused.json() as { error: string }).error).toMatch(/zz-test pod \(NVIDIA A40\).*0\.4\.1 has no Rented GPUs screen/);
+    left.mockResolvedValue({ running: [], billing: ["volume zz-test (50 GB, $3.50/month)"], unknown: false });
+    const hunting = vi.spyOn(r.services.hunt, "view").mockReturnValue({ hunt: { status: "hunting" }, ranking: null, askedAt: null } as never);
+    expect((await r.post("go-back")).statusCode).toBe(409);
+    hunting.mockRestore();
+    // what keeps billing, for its question
+    const check = await r.app.inject({ method: "GET", url: "/api/updates/go-back", remoteAddress: "127.0.0.1" });
+    expect(check.json()).toEqual({ refused: null, billing: ["volume zz-test (50 GB, $3.50/month)"], unknown: false });
     const back = await r.post("go-back");
     expect(back.statusCode).toBe(200);
     expect((back.json() as UpdatesView).flow?.phase).toBe("restarting");

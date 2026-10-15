@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, waitForOutputs, type Measured } from "@afflatus/comfy";
+import { ComfyAway, ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, waitForOutputs, type Measured } from "@afflatus/comfy";
 import { expandWildcards, modelFileName, modelName, modelOf, parseInput, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import type { Comfy, MachineComfy } from "./comfy";
 import { newId, now, OWNER, type Db } from "./db";
@@ -18,7 +18,7 @@ import { FIRST_MACHINE, readSettings, type Machine } from "./settings";
 import type { Storage } from "./storage";
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
-import { CAP_REACHED, DEFAULT_QUEUE_OPTIONS, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type QueueOptions, type Resume, type Running, type Usual } from "./queueModel";
+import { CAP_REACHED, DEFAULT_QUEUE_OPTIONS, GPU_AT_WORK, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type QueueOptions, type Resume, type Running, type Usual } from "./queueModel";
 import * as bulk from "./queueBulk";
 import { needsComfy, Offline } from "./queueOffline";
 import * as submitting from "./queueSubmit";
@@ -45,8 +45,6 @@ const LOADS_KEY = "queue.loads";
 const keyOf = (key: string, machine: string) => (machine === FIRST_MACHINE ? key : `${key}.${machine}`);
 /** At most how often a running render's step count is saved on its job, when the options do not say. */
 const STEPS_SAVE_MS = 5_000;
-/** The GPU's load (percent) from which a render that says nothing is taken as at work, not stuck. */
-const GPU_AT_WORK = 30;
 /** How recent a read of the GPU's load must be for a silent render's GPU to be known idle: system feeds report every few seconds. */
 const LOAD_FRESH_MS = 2 * 60_000;
 /**
@@ -265,8 +263,26 @@ export class Queue {
       if (lane.unloadTimer) clearTimeout(lane.unloadTimer);
       this.lanes.delete(id);
     }
+    await this.unpinGone(all.map((m) => m.machine.id));
     await Promise.all(lanes.map((l) => l.ready));
     return lanes;
+  }
+
+  /** The machines the pins were last checked against (unpinGone), one id a line. */
+  private pinnedAgainst: string | null = null;
+
+  /**
+   * A machine taken out (a pod terminated, a machine removed in the settings, while this process ran or not): the jobs
+   * pinned to it go to any machine, instead of waiting for one that will not come back (and holding an update's wait).
+   * Checked once each time the machines change, not at every pass.
+   */
+  private async unpinGone(ids: string[]): Promise<void> {
+    const key = ids.join("\n");
+    if (!ids.length || key === this.pinnedAgainst) return;
+    this.pinnedAgainst = key;
+    const freed = await this.db.updateTable("jobs").set({ pin_machine: null, updated_at: now() })
+      .where("status", "=", "queued").where("pin_machine", "is not", null).where("pin_machine", "not in", ids).executeTakeFirst();
+    if (Number(freed.numUpdatedRows) > 0) this.events.emit("queue");
   }
 
   private async refreshed(lane: Lane): Promise<Comfy> {
@@ -585,7 +601,7 @@ export class Queue {
   /** Several finished jobs again, in the order given, each as `again` does it (queueBulk.ts). */
   againAll(ids: readonly string[], opts: { dismiss?: boolean } = {}) { return bulk.againAll(this.core, (id) => this.again(id), ids, opts); }
   /** Every waiting job cancelled in one statement, or those of `ids` that still wait (queueBulk.ts). */
-  cancelWaiting(ids?: readonly string[]) { return bulk.cancelWaiting(this.core, (id) => this.failDependents(id), ids); }
+  cancelWaiting(ids?: readonly string[]) { return bulk.cancelWaiting(this.core, (id) => this.failDependents(id), (machine, promptId) => this.interruptOn(machine, promptId), ids); }
 
   /** The record of render times as it stands (how many rows, the newest), read at most once a second: what the forecasts are kept by. */
   private recordMark: { at: number; value: Promise<string> } | null = null;
@@ -682,6 +698,23 @@ ${JSON.stringify(input)}`;
     this.only = only;
     this.events.emit("queue");
     if (!only) void this.pump();
+  }
+
+  /**
+   * Of these jobs, the queued ones a machine open now could take (an update waits for those, updates.ts left): not one
+   * pinned to a machine paused, gone or that takes no work (a pod stopped), nor a render no open machine takes the kind of.
+   * A job that needs no ComfyUI always can.
+   */
+  async takeable(ids: readonly string[]): Promise<Set<string>> {
+    if (!ids.length) return new Set();
+    const rows = await this.db.selectFrom("jobs").selectAll().where("id", "in", [...ids]).where("status", "=", "queued").execute();
+    const open = this.allPaused() ? [] : (await this.refresh()).filter((l) => !l.paused && !this.unavailable(l.id));
+    return new Set(rows.filter((r) => {
+      if (!needsComfy(r)) return true;
+      const makes = this.makes(r);
+      const pin = r.pin_machine ?? this.heldOn(r);
+      return open.some((l) => (!pin || pin === l.id) && (l.machine!.takes === "all" || l.machine!.takes === makes));
+    }).map((r) => r.id));
   }
 
   /** Pause or go on: all of them (no machine), or one machine on its own. A machine that is paused finishes what it runs and takes nothing new. */
@@ -849,6 +882,7 @@ ${JSON.stringify(input)}`;
           if (!asked.has(l.id)) {
             l.reachable = await l.comfy!.client.status().then((st) => ((l.device = st.device), true), () => false);
             asked.set(l.id, l.reachable);
+            if (l.reachable) this.dropStale(l);
           }
           return asked.get(l.id)!;
         };
@@ -858,7 +892,14 @@ ${JSON.stringify(input)}`;
         for (const r of active) {
           if (r.status !== "running" || taken.has(r.id) || !needsComfy(r)) continue;
           const lane = lanes.find((l) => l.id === (r.machine_id ?? this.firstId)) ?? lanes[0]!;
-          if (!free(lane) || !(await answers(lane, Boolean(r.resume)))) continue;
+          if (!free(lane)) continue;
+          if (!(await answers(lane, Boolean(r.resume)))) {
+            // its machine away since this process started: past the wait a render gets (offlineMs), it is lost as one
+            // followed all along would be, and queued again, instead of holding its next clip, the exports after it and an update
+            if (await this.awayUnder(r)) this.dirty = true;
+            continue;
+          }
+          this.awaySince.delete(r.id);
           this.startOn(lane, r);
           taken.add(r.id);
           started = true;
@@ -887,6 +928,8 @@ ${JSON.stringify(input)}`;
             taken.add(next.id);
             started = true;
           }
+          // a render waiting for the machine it was lost on: that machine is asked again soon, and the wait ends in its time
+          if (gpuRows.some((r) => !taken.has(r.id) && this.heldOn(r))) this.retryLater();
         }
         // the machines that answered this pass, or that run a job now, say whether any ComfyUI is there
         const anyAnswered = lanes.some((l) => asked.get(l.id) === true || l.running);
@@ -896,17 +939,18 @@ ${JSON.stringify(input)}`;
         // cannot start (paused, every machine away or paused, or none takes them); an update holds back what was asked after it
         if (free(tools)) {
           for (const r of active) {
-            if (taken.has(r.id) || (r.depends_on && waitingOn.has(r.depends_on))) continue;
+            if (r.depends_on && waitingOn.has(r.depends_on)) continue;
             if (this.only && r.status === "queued" && !this.only.has(r.id)) continue;
             if (!needsComfy(r)) {
-              if (r.status !== "queued") continue;
+              if (taken.has(r.id) || r.status !== "queued") continue;
               this.startOn(tools, r);
               taken.add(r.id);
               started = true;
               break;
             }
-            // a render before it that runs, or that a machine is planned to take, keeps it waiting
-            if (r.status === "running" || where.has(r.id)) break;
+            // a render before it that runs, that a machine has taken (every running render is) or that a machine is
+            // planned to take, keeps it waiting
+            if (taken.has(r.id) || r.status === "running" || where.has(r.id)) break;
           }
         }
 
@@ -1044,7 +1088,7 @@ ${JSON.stringify(input)}`;
     return Promise.all(rows.map(async (r): Promise<Planned> => {
       const fetch = able.get(r.id)?.fetch ?? {};
       const fetchMs = Object.keys(fetch).length ? new Map(Object.entries(fetch).map(([lane, f]) => [lane, f.ms])) : undefined;
-      const base = { id: r.id, makes: this.makes(r), pin: r.pin_machine ?? null, can: able.get(r.id)?.can, ...(fetchMs ? { fetchMs } : {}), ...(r.depends_on ? { after: r.depends_on } : {}) };
+      const base = { id: r.id, makes: this.makes(r), pin: r.pin_machine ?? this.heldOn(r), can: able.get(r.id)?.can, ...(fetchMs ? { fetchMs } : {}), ...(r.depends_on ? { after: r.depends_on } : {}) };
       const recipe = r.recipe_id === CUT_JOB ? undefined : this.registry.recipe(r.recipe_id);
       const finish = finishes.get(r.id);
       if (!recipe) return { ...base, model: null, renderMs: finish?.ms ?? null, loadMs: null, ...(finish?.on.size ? { renderOn: finish.on } : {}), frees: r.recipe_id === CUT_JOB && tools.usesGpu(r) };
@@ -1280,6 +1324,7 @@ ${JSON.stringify(input)}`;
    */
   private back(lane: Lane): void {
     lane.reachable = true;
+    this.dropStale(lane);
     this.goneSaid.delete(lane.id);
     lane.comfy?.forgetScan();
   }
@@ -1340,6 +1385,8 @@ ${JSON.stringify(input)}`;
       await this.finish(row.id, "done");
     } catch (err) {
       if (this.stopped) await this.db.updateTable("jobs").set({ status: "queued", updated_at: now() }).where("id", "=", row.id).execute();
+      // stuck on a rented GPU (a finish or a RIFE pass that hangs): a failure, said as such, not a stop by the user
+      else if (run.abort.signal.reason instanceof Stuck) await this.failure(row, run.promptId, new Error(run.abort.signal.reason.message));
       else if (run.abort.signal.aborted) await this.finish(row.id, "cancelled", { error: "stopped by you" });
       else await this.failure(row, run.promptId, err as Error);
     } finally {
@@ -1362,8 +1409,10 @@ ${JSON.stringify(input)}`;
     // asked whether it took that prompt, which is then followed; one it never had is sent again. Kept for a requeue until then
     let held = resume?.unsent ? resume : null;
     if (held) {
-      const { unsent: _, ...sent } = held;
+      const { unsent: _, lostAt: _lost, ...sent } = held;
       resume = (await submitting.taken(comfy, held.promptId).catch(() => false)) ? sent : null;
+      // sent again here while the machine it was lost on may still render it: that one drops it once it answers
+      if (!resume && row.machine_id && row.machine_id !== lane.id) this.stale.set(row.machine_id, new Set([...(this.stale.get(row.machine_id) ?? []), held.promptId]));
       if (resume) await this.db.updateTable("jobs").set({ resume: JSON.stringify(resume), updated_at: now() }).where("id", "=", row.id).execute();
     }
     // a render this process finds already under way is not measured from its first moment
@@ -1550,22 +1599,86 @@ ${JSON.stringify(input)}`;
       // on record before the job says how it ended, as a render that is done
       if (onRecord) await this.note(lane, row, recipe, resume, measured, "cancelled", whole, Date.now() - resume.startedAt);
       await this.finish(row.id, "cancelled", { error: "stopped by you" });
-    } else if ((err instanceof ComfyLost || err instanceof ComfyUnreachable) && Math.max(at.attempts, row.attempts + 1) < this.opts.maxAttempts) {
+    } else if ((err instanceof ComfyLost || err instanceof ComfyUnreachable || (err instanceof ComfyError && (await this.wentDown(lane)))) && Math.max(at.attempts, row.attempts + 1) < this.opts.maxAttempts) {
       console.warn(`[queue] job ${row.id} lost (${err.message}), queued again`);
       if (resume) this.sayGone(lane, row.label);
       // ComfyUI may have the prompt all the same: one sent without an answer (it did not answer in time), and one it finished
       // or still runs while this process lost sight of it (90 s of silence, its file not fetched). Its id is kept, so that the
       // next attempt asks ComfyUI for it (taken) and follows it, instead of rendering again a video that would come out different
       const kept = resume ?? at.held;
-      const unsent = kept && !made ? JSON.stringify({ ...kept, unsent: true }) : null;
-      // each loss counts as an attempt, a prompt followed again too: one that keeps getting lost is given up in the end
-      await this.db.updateTable("jobs").set({ status: "queued", resume: unsent, attempts: Math.max(at.attempts, row.attempts + 1), warning: null, updated_at: now() }).where("id", "=", row.id).where("status", "=", "running").execute();
-      this.events.emit("queue");
+      await this.requeueLost(row, kept && !made ? kept : null, Math.max(at.attempts, row.attempts + 1), err instanceof ComfyAway || err instanceof ComfyUnreachable);
     } else {
       if (resume && (err instanceof ComfyLost || err instanceof ComfyUnreachable)) this.sayGone(lane, row.label);
       if (onRecord) await this.note(lane, row, recipe, resume, measured, "failed", whole, Date.now() - resume.startedAt);
       await this.failure(row, resume?.promptId ?? at.held?.promptId, err);
     }
+  }
+
+  /**
+   * A render lost with its machine, queued again with its prompt id kept (`kept`; null once filed or never sent). `away`:
+   * its machine stopped answering, and may render it on unseen: the job waits for that machine (Resume.lostAt, heldOn).
+   * Each loss counts as an attempt, a prompt followed again too: one that keeps getting lost is given up in the end.
+   */
+  private async requeueLost(row: JobRow, kept: Resume | null, attempts: number, away: boolean): Promise<void> {
+    const unsent = kept ? JSON.stringify({ ...kept, unsent: true, ...(away ? { lostAt: Date.now() } : {}) } satisfies Resume) : null;
+    await this.db.updateTable("jobs").set({ status: "queued", resume: unsent, attempts, warning: null, updated_at: now() }).where("id", "=", row.id).where("status", "=", "running").execute();
+    this.events.emit("queue");
+  }
+
+  /** Since when the machine of a job found running at the start has not answered, by job: from the first pass that asked. */
+  private readonly awaySince = new Map<string, number>();
+
+  /**
+   * A job found running at the start, on a machine that does not answer: lost once that has lasted the wait a render gets
+   * (offlineMs), queued again (waiting for that machine, heldOn) or failed when its attempts are spent. Whether it moved.
+   */
+  private async awayUnder(r: JobRow): Promise<boolean> {
+    const since = this.awaySince.get(r.id) ?? Date.now();
+    this.awaySince.set(r.id, since);
+    if (Date.now() - since <= (this.opts.wait.offlineMs ?? 90_000)) {
+      this.retryLater();
+      return false;
+    }
+    this.awaySince.delete(r.id);
+    const attempts = r.attempts + 1;
+    if (attempts >= this.opts.maxAttempts) await this.finish(r.id, "failed", { error: "ComfyUI went offline during the render" }, "running");
+    else await this.requeueLost(r, readJson<Resume | null>(r.resume, null), attempts, true);
+    return true;
+  }
+
+  /**
+   * The machine a render lost there waits for (Resume.lostAt): the one that may still be rendering it, while it is in the
+   * settings, not down (a pod stopped) and not away past the offline limit. Null: it goes wherever the plan sends it.
+   */
+  private heldOn(r: JobRow): string | null {
+    if (r.pin_machine || !r.machine_id || r.status !== "queued") return null;
+    const lostAt = readJson<Resume | null>(r.resume, null)?.lostAt;
+    if (lostAt === undefined || Date.now() - lostAt >= this.opts.offlineExpiryMs) return null;
+    const off = this.unavailable(r.machine_id);
+    return this.lanes.get(r.machine_id)?.machine && !(off && off !== CAP_REACHED) ? r.machine_id : null;
+  }
+
+  /**
+   * A prompt a machine may still render for a job that went elsewhere since (heldOn ran out): dropped from that machine's
+   * ComfyUI once it answers again, instead of rendering on unseen (billed on a pod).
+   */
+  private readonly stale = new Map<string, Set<string>>();
+  private dropStale(lane: Lane): void {
+    const ids = this.stale.get(lane.id);
+    if (!ids?.size || !lane.comfy) return;
+    this.stale.delete(lane.id);
+    for (const id of ids) void lane.comfy.client.interrupt(id).catch(() => {});
+  }
+
+  /**
+   * Whether a machine went down under its render: taken out of the settings (a pod terminated, on RunPod's side or by a
+   * stop), or a pod no longer running. What its address answered last (a proxy's 404 for a pod no longer there) is then no
+   * failure of the render's: it was lost with its machine, and goes again elsewhere. A pod at a cap is still up.
+   */
+  private async wentDown(lane: Lane): Promise<boolean> {
+    const off = this.unavailable(lane.id);
+    if (off && off !== CAP_REACHED) return true;
+    return !(await this.machines()).some((m) => m.machine.id === lane.id);
   }
 
   /**

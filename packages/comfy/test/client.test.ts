@@ -132,6 +132,14 @@ describe("ComfyClient, an error from the address it was given", () => {
     expect(said.length).toBeLessThanOrEqual(80);
     expect(said).not.toMatch(/[<>]|zz-test-secret/);
   });
+
+  it("takes a gateway's 502, 503, 504 or 520 to 524 for ComfyUI not answering, not for its error", async () => {
+    for (const status of [502, 503, 504, 520, 521, 522, 523, 524]) {
+      const gateway = new ComfyClient("http://comfy.test", async () => new Response("Bad Gateway", { status }));
+      await expect(gateway.history("p1")).rejects.toBeInstanceOf(ComfyUnreachable);
+    }
+    await expect(failing("{}").history("p1")).rejects.not.toBeInstanceOf(ComfyUnreachable);
+  });
 });
 
 describe("ComfyClient, answers that hide a failure", () => {

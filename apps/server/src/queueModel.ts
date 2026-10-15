@@ -34,6 +34,9 @@ export const SHUTDOWN = "shutting down";
  */
 export const CAP_REACHED = "a spending cap is reached";
 
+/** The GPU's load (percent) from which a render or a tool that says nothing is taken as at work, not stuck. */
+export const GPU_AT_WORK = 30;
+
 /**
  * The reason a render is aborted with when ComfyUI said nothing of it for too long on a rented GPU (rented.ts): it fails
  * with this message, and the pod, billed meanwhile, is free again for its next job or its idle time.
@@ -101,6 +104,11 @@ export interface Resume {
    * hearing back asks ComfyUI for that id when it starts again, and follows the prompt instead of sending it twice.
    */
   unsent?: true;
+  /**
+   * When its machine was found gone under it (ms since the epoch), the job queued again: it waits for that machine (its
+   * machine_id), which may still be rendering it, until the machine has been away past the offline limit.
+   */
+  lostAt?: number;
 }
 
 export interface QueueOptions {

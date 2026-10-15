@@ -173,6 +173,7 @@ export async function createServices(
     settings: () => readSettings(db),
     // its pod up: a pod filling its volume takes no render, but gets its files
     alive: (id) => rented.podDown(id) === null,
+    gone: (id) => rented.podGone(id),
     busy: (id) => queue.runningOn(id),
     // a file there now, or one that failed: the pod's folders and its node list (whose choices name the files) are read
     // again, and its jobs looked at again
@@ -199,6 +200,7 @@ export async function createServices(
     return row ? { ...row, files: podFiles.view(m.id), packs: podFiles.packsView(m.id) } : null;
   };
   // a deployed pod up: the files its deploy asked for come after what its jobs wait for; the ones left out never come
+  rented.forgetFiles = (id) => podFiles.forget(id);
   rented.filesLeft = (id) => {
     const files = podFiles.view(id);
     const waiting = files.filter((f) => f.state === "next" || f.state === "fetching");
@@ -227,6 +229,10 @@ export async function createServices(
       notify.stop();
       access.stop();
       await precompute?.stop();
+      // a hash pass under way (a checkpoint read in full takes a minute) ends before the database closes under it
+      clearTimeout(firstHashes);
+      clearInterval(checker);
+      await services.hashes.stop();
       queue.stop();
       await queue.idle();
       pool.forEach((c) => c.close());

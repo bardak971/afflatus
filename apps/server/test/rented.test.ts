@@ -97,6 +97,36 @@ describe("a rented machine", () => {
     await until(() => podComfy.calls.includes("POST /prompt"));
   });
 
+  it("says what going back to a version without rented GPUs would leave on RunPod: what runs, what keeps billing", async () => {
+    await setKey();
+    const id = await add();
+    await post(t.app, `/api/machines/${id}/start`, {});
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
+    expect(await t.services.rented.goingBack()).toEqual({ running: ["comfy-5090 (NVIDIA GeForce RTX 5090)"], billing: [], unknown: false });
+    await post(t.app, `/api/machines/${id}/stop`, {});
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "EXITED"));
+    expect(await t.services.rented.goingBack()).toEqual({ running: [], billing: ["comfy-5090, stopped: its 50 GB disk, $10.0/month"], unknown: false });
+  });
+
+  it("is down for good for its files only once stopped, or missing from two reads of RunPod's in a row", async () => {
+    await setKey();
+    const id = await add();
+    await t.services.rented.poll();
+    expect(t.services.rented.podGone(id)).toBe(true);
+    await post(t.app, `/api/machines/${id}/start`, {});
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
+    await t.services.rented.poll();
+    expect(t.services.rented.podGone(id)).toBe(false);
+    // one answer of RunPod's without it: down for now, its files kept
+    const [kept] = runpod.pods.splice(0, 1);
+    await t.services.rented.poll();
+    expect(t.services.rented.podDown(id)).not.toBeNull();
+    expect(t.services.rented.podGone(id)).toBe(false);
+    await t.services.rented.poll();
+    expect(t.services.rented.podGone(id)).toBe(true);
+    runpod.pods.unshift(kept!);
+  });
+
   it("stops by itself after its idle time, nothing waiting for it, and says why", async () => {
     await setKey();
     const id = await add();

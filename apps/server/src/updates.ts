@@ -865,12 +865,15 @@ export class AfflatusUpdates {
     await this.o.restart();
   }
 
-  /** The jobs of those allowed still to finish; a queued one is not waited for while the queue is paused (it would never start). */
+  /**
+   * The jobs of those allowed still to finish; a queued one is waited for only while a machine open now could take it (it
+   * would never start otherwise: the queue paused, its machine paused or gone, none taking its kind).
+   */
   private async left(allowed: Set<string>): Promise<number> {
     if (!allowed.size) return 0;
-    const rows = await this.db.selectFrom("jobs").select("status").where("id", "in", [...allowed]).where("status", "in", ["queued", "running"]).execute();
-    const paused = this.o.services.queue.isPaused;
-    return rows.filter((r) => r.status === "running" || !paused).length;
+    const rows = await this.db.selectFrom("jobs").select(["id", "status"]).where("id", "in", [...allowed]).where("status", "in", ["queued", "running"]).execute();
+    const takeable = await this.o.services.queue.takeable(rows.filter((r) => r.status === "queued").map((r) => r.id));
+    return rows.filter((r) => r.status === "running" || takeable.has(r.id)).length;
   }
 
   /** Version folders other than those kept, the update's downloads, and the database copies of updates before this one. */
@@ -889,6 +892,21 @@ export class AfflatusUpdates {
 
   // ---------------------------------------------------------------- going back
 
+  /**
+   * What Go back would leave on RunPod, asked before its question: refused (`refused` says why) while a rented GPU runs
+   * or a GPU hunt is on, as the version before has no Rented GPUs screen, no idle stop and no spending cap to stop them;
+   * else what keeps billing stopped (`billing`: disks, volumes), named in the question.
+   */
+  async goBackCheck(): Promise<{ refused: string | null; billing: string[]; unknown: boolean }> {
+    const prev = (await this.previous())?.version ?? "the previous version";
+    const left = await this.o.services.rented.goingBack();
+    const hunt = this.o.services.hunt.view().hunt;
+    const refused = left.running.length
+      ? `A rented GPU runs: ${left.running.join(", ")}. Stop or terminate it first: ${prev} has no Rented GPUs screen, idle stop or spending cap, and it would bill unseen.`
+      : hunt ? `A GPU hunt is on: cancel it first. ${prev} has no Rented GPUs screen: a pod it deploys would bill unseen.` : null;
+    return { refused, billing: left.billing, unknown: left.unknown };
+  }
+
   /** Back to the previous version, with the library as it was at the update: the database copy restored, then a restart. */
   async goBack(): Promise<void> {
     if (this.flow && this.flow.phase !== "failed") throw httpError("An update is under way: stop it first.", 409);
@@ -897,6 +915,8 @@ export class AfflatusUpdates {
     if (!prev.restoresLibrary) throw httpError(`The copy of the library taken at the update to ${this.running} is not there: going back is not done.`, 409);
     const running = await this.db.selectFrom("jobs").select("id").where("status", "=", "running").executeTakeFirst();
     if (running) throw httpError("A job is running: go back once it is done, or stop it.", 409);
+    const refused = (await this.goBackCheck()).refused;
+    if (refused) throw httpError(refused, 409);
     const versions = this.versionsDir!;
     const from = this.running!;
     const db = join(this.o.dataDir, "afflatus.db");

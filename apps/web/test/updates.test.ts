@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UpdateFlow, UpdatesView } from "../src/api";
-import { aboutState, backFromRestart, newsOf, readsAgain, securityNews, stepsOf, versionNote } from "../src/updates";
+import { aboutState, backFromRestart, goBackQuestion, newsOf, readsAgain, securityNews, stepsOf, versionNote } from "../src/updates";
 
 /** A view as the server answers it: a bundle on this computer, 0.4.1, nothing newer. */
 const view = (over: Partial<UpdatesView> = {}): UpdatesView => ({
@@ -109,5 +109,18 @@ describe("an update's steps", () => {
     const switching = stepsOf(flow({ phase: "switching" }), "0.4.1");
     expect(switching.steps.every((s) => s.at === "done")).toBe(true);
     expect(switching.done).toBe(1);
+  });
+});
+
+describe("Go back's question", () => {
+  it("names what keeps billing on RunPod after it, and is not asked while it is refused", () => {
+    const billing = ["comfy-5090, stopped: its 50 GB disk, $10.0/month", "volume zz-test (50 GB, $3.50/month)"];
+    const q = goBackQuestion("0.4.0", { refused: null, billing, unknown: false })!;
+    expect(q.title).toBe("Go back to 0.4.0?");
+    expect(q.text).toContain("Still billed on RunPod after it, with no Rented GPUs screen in 0.4.0");
+    expect(q.text).toContain(billing.join("; "));
+    expect(goBackQuestion("0.4.0", { refused: null, billing: [], unknown: false })!.text).not.toContain("RunPod");
+    expect(goBackQuestion("0.4.0", { refused: null, billing: [], unknown: true })!.text).toContain("RunPod did not answer");
+    expect(goBackQuestion("0.4.0", { refused: "A rented GPU runs", billing, unknown: false })).toBeNull();
   });
 });

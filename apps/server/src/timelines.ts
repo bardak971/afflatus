@@ -435,6 +435,19 @@ export class Timelines {
   }
 
   async edit(id: string, patch: TimelinePatch) {
+    // in the timeline's turn, read and written as one: a source saved while a Split ran wrote back the start it had read
+    // before the Split moved it, and the next Make covered the same seconds twice
+    const { moved } = await this.history.oneAtATime(id, () => this.editInTurn(id, patch));
+    // what it made followed it: which items, and from which folders, is not counted here
+    if (moved) this.events.emit("library", { change: "moved" } satisfies LibraryChange);
+    if (patch.music?.asset) await this.keep(patch.music.asset);
+    if (patch.source?.asset) await this.keep(patch.source.asset);
+    this.changed();
+    return this.view(id);
+  }
+
+  /** A timeline's own settings changed (edit), in its turn. Whether it moved (another project or folder). */
+  private async editInTurn(id: string, patch: TimelinePatch): Promise<{ moved: boolean }> {
     const before = await this.row(id);
     if (patch.project && !(await this.db.selectFrom("projects").select("id").where("id", "=", patch.project).executeTakeFirst())) throw notFound("this project");
     // the frame is one thing: a width without a height (or the other way round) would be set to nothing at all
@@ -502,12 +515,7 @@ export class Timelines {
       // what it made follows it to its new folder
       if (moved) await timelineMediaFollows(tx, id);
     });
-    // what it made followed it: which items, and from which folders, is not counted here
-    if (moved) this.events.emit("library", { change: "moved" } satisfies LibraryChange);
-    if (m?.asset) await this.keep(m.asset);
-    if (patch.source?.asset) await this.keep(patch.source.asset);
-    this.changed();
-    return this.view(id);
+    return { moved };
   }
 
   /**
