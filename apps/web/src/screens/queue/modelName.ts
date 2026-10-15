@@ -1,4 +1,4 @@
-import { REMOVED_RECIPES } from "@afflatus/core";
+import { removedName } from "@afflatus/core";
 import type { Job } from "../../api";
 import { useRecipes } from "../../data";
 import { fileLabel, recipeLabel } from "../../format";
@@ -12,7 +12,7 @@ export function useModelName(): (job: Pick<Job, "kind" | "recipe" | "label" | "u
     if (job.kind === "cut" || job.kind === "export") return "ffmpeg";
     const r = recipes.data?.recipes.find((x) => x.id === job.recipe);
     // one of a model taken out of Afflatus by the name it had ("Wan Animate 2 (removed)"), not its id
-    return r ? recipeLabel(recipes.data?.families.find((f) => f.id === r.family)?.name, r.title) : REMOVED_RECIPES[job.recipe] ? `${REMOVED_RECIPES[job.recipe]} (removed)` : job.recipe;
+    return r ? recipeLabel(recipes.data?.families.find((f) => f.id === r.family)?.name, r.title) : removedName(job.recipe) ?? job.recipe;
   };
 }
 

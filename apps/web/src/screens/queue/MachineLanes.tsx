@@ -85,14 +85,27 @@ function Thumb({ run, size }: { run: RunningJob; size: "sm" | "md" }) {
     : <span className={cx("shrink-0 rounded-[5px] bg-raised", box)} />;
 }
 
-/** What it runs, in a line: the preview small, the job's name, its phase and what is left. */
+/**
+ * What it runs: the preview small, the job's name, its phase and what is left; in a line, or beside the larger preview
+ * (`md`, a lane) the name over the phase: on one line, "sampling 18/20 · 0:27 left" left the name "zz-t…".
+ */
 function JobLine({ run, size = "sm" }: { run: RunningJob; size?: "sm" | "md" }) {
   const steps = run.steps ? ` ${run.step}/${run.steps}` : "";
+  const phase = <span className="shrink-0 truncate font-mono text-xs text-ink-2">{phaseLabel(run.phase).toLowerCase()}{steps}{run.eta ? ` · ${timeLeft(run.eta)}` : ""}</span>;
   return (
     <span className="flex min-w-0 items-center gap-2.5">
       <Thumb run={run} size={size} />
-      <span className="min-w-0 truncate font-semibold">{run.label}</span>
-      <span className="shrink-0 font-mono text-xs text-ink-2">{phaseLabel(run.phase).toLowerCase()}{steps}{run.eta ? ` · ${timeLeft(run.eta)}` : ""}</span>
+      {size === "md" ? (
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="min-w-0 truncate font-semibold" data-tip={run.label}>{run.label}</span>
+          {phase}
+        </span>
+      ) : (
+        <>
+          <span className="min-w-0 truncate font-semibold">{run.label}</span>
+          {phase}
+        </>
+      )}
     </span>
   );
 }

@@ -30,16 +30,18 @@ export function FieldRow({ label, note, htmlFor, stack, trail, children }: {
   return (
     // in the timeline editor's column dragged narrow (its container, "column"), the control goes under its label: side
     // by side, a switch or a picker beside a 124 px label was cut
-    <div className={cx("grid min-h-11 items-center gap-x-3 gap-y-1", stack ? "grid-cols-1 py-1" : trail ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-[124px_minmax(0,1fr)] @max-[21rem]/column:grid-cols-1 @max-[21rem]/column:py-1")}>
+    // at its end, a control too wide to leave the name 7rem goes under it, still at the end: SCAIL's three choices beside
+    // "Who moves like whom" left the name four lines of one word
+    <div className={cx("min-h-11 items-center gap-x-3 gap-y-1", trail && !stack ? "flex flex-wrap" : "grid", stack ? "grid-cols-1 py-1" : trail ? "" : "grid-cols-[124px_minmax(0,1fr)] @max-[21rem]/column:grid-cols-1 @max-[21rem]/column:py-1")}>
       {/* a long name goes on a second line rather than end in "…" (cut, "Turbo LoRA str…" said nothing). Its ? follows
           the last word, as on a stacked field (Label), held to it: beside a name that wraps, a ? of its own sat at the
           column's edge, where it read as the value's */}
-      <span className="min-w-0 font-semibold [overflow-wrap:anywhere]">
+      <span className={cx("font-semibold [overflow-wrap:anywhere]", trail && !stack ? "min-w-28 grow basis-0" : "min-w-0")}>
         {head && name(head)}
         <span className="whitespace-nowrap">{name(last)}{note && !explain && <Help text={note} title={label} className="relative -top-[1.5px] ml-1.5 align-middle" />}</span>
       </span>
-      <div className={cx("flex min-w-0 flex-col gap-1.5", trail && "items-end")}>{children}</div>
-      {explain && note && <span className="col-span-full text-xs text-ink-2">{note}</span>}
+      <div className={cx("flex min-w-0 flex-col gap-1.5", trail && !stack && "ml-auto items-end")}>{children}</div>
+      {explain && note && <span className="col-span-full basis-full text-xs text-ink-2">{note}</span>}
     </div>
   );
 }

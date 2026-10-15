@@ -32,6 +32,8 @@ const FREEST: Record<Availability, number> = { HIGH: 0, MEDIUM: 1, LOW: 2, NONE:
 const WHY_STOCK = "RunPod's stock: how many of these GPUs are idle in that data center now (high, medium, low). It is not a reservation: one can be taken between this list and your Deploy. Afflatus then tries the GPU's other data centers, and says so when none is left: nothing is made, nothing billed.";
 const WHY_PLACE = "The data center the pod would run in: the one with the highest stock of that GPU. The price is the same in every region; the distance hardly shows (Afflatus sends prompts and gets renders back, models come from Hugging Face and Civitai). A network volume keeps its pods in its own data center.";
 
+/** The list's price is the GPU's alone, as RunPod lists it and as the hunt's ceiling reads it: the pod's own disk is added on Deploy. */
+const WHY_PRICE = "RunPod's price of the GPU an hour. The pod's own disk adds to it while it runs ($0.10/GB a month): Deploy says the two together, its tip each part.";
 /** The columns the list of GPUs sorts by: a click on one sorts by it, a second click the other way. */
 type SortKey = "name" | "memory" | "place" | "stock" | "price";
 const SORTS: Array<{ key: SortKey; label: string; help?: string; className?: string }> = [
@@ -39,7 +41,7 @@ const SORTS: Array<{ key: SortKey; label: string; help?: string; className?: str
   { key: "memory", label: "VRAM", className: "justify-end" },
   { key: "place", label: "Data center", help: WHY_PLACE },
   { key: "stock", label: "Stock", help: WHY_STOCK },
-  { key: "price", label: "$/h", className: "justify-end" },
+  { key: "price", label: "GPU $/h", help: WHY_PRICE, className: "justify-end" },
 ];
 
 const WHY_TEMPLATE = "Afflatus: ComfyUI 0.37 with its Manager, the Afflatus node pack, and the packs most video forms use built in (DaSiWa's nodes, VideoHelperSuite, KJNodes, the MMH3 upscale). Its ComfyUI is locked from its first second (its token a RunPod secret), its watchdog armed, only ComfyUI's port open. RunPod's ComfyUI: RunPod's own image, without the Afflatus pack: not locked (anyone with its address can use it), no watchdog, no H3 continuation. Either pulls its image at its first start: a few minutes on a host that never had it.";
@@ -235,11 +237,11 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
                 <CircleAlert size={16} className="shrink-0" />
                 <span className="min-w-0 grow">
                   {wantedFree
-                    ? `The ${wantedFree.name} is free now${volume ? ` in ${volume.dataCenter}` : ""}, at ${usd(wantedFree.price)}/h.`
+                    ? `The ${wantedFree.name} is free now${volume ? ` in ${volume.dataCenter}` : ""}, at ${usd(wantedFree.price)}/h for the GPU.`
                     : gone
                       ? `No ${gone.name} is free ${volume ? `in ${volume.dataCenter} ` : ""}right now. Hunt for one, or for the best GPU that comes free.`
                       : `The best GPU below is deployed the moment one comes free${volume ? ` in ${volume.dataCenter}` : ""}.`}
-                  {alt && alt.id !== wantedFree?.id && ` The ${alt.name} is free now, at ${usd(alt.price)}/h.`}
+                  {alt && alt.id !== wantedFree?.id && ` The ${alt.name} is free now, at ${usd(alt.price)}/h for the GPU.`}
                 </span>
                 {alt && <Button size="sm" onClick={() => { set({ gpu: alt.id }); setHuntAsked(false); }}>Deploy it instead</Button>}
                 <Segmented<DeployAsk["cloud"]> size="sm" label="Cloud" value={want.cloud} options={[{ value: "SECURE", label: "Secure" }, { value: "COMMUNITY", label: "Community" }]} onChange={(cloud) => set({ cloud })} />
@@ -390,14 +392,14 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
             ? `Billed from deploy · ${picked.name} ${picked.places[0]!.id === "any" ? "on Community Cloud" : `in ${picked.places[0]!.id}`}`
             : gone
               // the one picked last time, not in stock on this cloud now: said where the choice is made, nothing moves above
-              ? <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-warn-ink">{gone.name} not in stock {volume ? `in ${volume.dataCenter} ` : ""}now{instead ? `; the ${instead.name} is, at ${usd(instead.price)}/h` : ""}{instead && <Button size="sm" onClick={() => set({ gpu: instead.id })}>Pick it</Button>}{keyed && <Button size="sm" onClick={() => { setHuntFor(gone.id); setHuntAsked(true); }}>Hunt for it</Button>}</span>
+              ? <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-warn-ink">{gone.name} not in stock {volume ? `in ${volume.dataCenter} ` : ""}now{instead ? `; the ${instead.name} is, at ${usd(instead.price)}/h for the GPU` : ""}{instead && <Button size="sm" onClick={() => set({ gpu: instead.id })}>Pick it</Button>}{keyed && <Button size="sm" onClick={() => { setHuntFor(gone.id); setHuntAsked(true); }}>Hunt for it</Button>}</span>
               : "Pick a GPU"}
         </span>
         <Button tone="quiet" onClick={onClose} className="shrink-0">Cancel <Keys keys="Esc" size="sm" /></Button>
         {/* Deploy, and on its slice what else can be done with these choices: kept as the next deploy's, without deploying */}
         <span className="flex shrink-0">
           {hunting ? (
-            <button type="button" data-tip={pickNow ? rateTip(pickNow.price) : undefined} onClick={() => huntGo.mutate()} disabled={huntGo.isPending || (changing ? !kept : imageMissing || !models.ready || !diskFits || Boolean(volume?.usedBy) || held === 0)} className="flex h-10 min-w-[150px] items-center justify-center gap-2 rounded-l-lg bg-accent px-4 text-[13px] font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="button" data-tip={pickNow ? rateTip(pickNow.price) : `Up to ${usd(huntAsk.ceiling)} an hour for the GPU; its ${diskGb} GB disk adds ${usd(diskPerHour(diskGb), true)} an hour while it runs`} onClick={() => huntGo.mutate()} disabled={huntGo.isPending || (changing ? !kept : imageMissing || !models.ready || !diskFits || Boolean(volume?.usedBy) || held === 0)} className="flex h-10 min-w-[150px] items-center justify-center gap-2 rounded-l-lg bg-accent px-4 text-[13px] font-bold text-accent-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50">
               <Search size={15} />
               {huntGo.isPending ? (changing ? "Changing…" : "Starting…") : pickNow ? `Deploy ${pickNow.name} now · ${usd(withDisk(pickNow.price))}/h` : `${changing ? "Change" : "Hunt"} · up to ${usd(huntAsk.ceiling)}/h`}
             </button>

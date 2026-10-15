@@ -235,6 +235,8 @@ export function useTimelineEditor(id: string) {
   const checks: Checks = {
     renderable: (c: Clip) => c.kind === "video" && !c.job && Boolean(ready(c).input),
     msOf: takes,
+    // the header's own plan, so that the same clips read the same time in Needs attention and Fix all
+    plan: { auto: !pickedMachine, ids: missing.map((c) => c.id), ms: plannedAll.data?.ms ?? 0 },
     why: (c: Clip) => (c.kind === "video" ? ready(c).why : undefined),
     // settled, not succeeded: a list that failed to come must not hold the checks back for ever
     known: !recipes.isPending && !setup.isPending && !settings.isPending,

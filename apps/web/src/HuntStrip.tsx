@@ -82,7 +82,7 @@ function HuntCard({ hunt, now, anchor, onClose }: { hunt: HuntSummary; now: numb
   const cancel = useMutation({ mutationFn: () => cancelHunt(client), onSuccess: onClose, onError: failed("Could not cancel the hunt") });
   const where = st?.dataCenter ? ` in ${st.dataCenter}` : "";
   const line = hunt.status === "deploying"
-    ? `Deploying it${where} at ${hunt.firstPick ? usd(hunt.firstPick.price) : "its rate"}/h, with the hunt's choices. ${plural(hunt.held, "render")} wait for it.`
+    ? `Deploying it${where} at ${hunt.firstPick ? `${usd(hunt.firstPick.price)}/h for the GPU` : "its rate"}, with the hunt's choices. ${plural(hunt.held, "render")} wait for it.`
     : [
       pick ? `First pick now: ${pick.name}, ${pick.stock}${where}.` : view?.ranking ? "No GPU fits your choices: change the hunt." : "RunPod not asked yet.",
       st?.asks ? `RunPod asked ${plural(st.asks, "time")}.` : "",

@@ -15,7 +15,7 @@ import { clock, plural, spell } from "../format";
 import { PartHead } from "../recipeForm/Part";
 import { Select } from "../Select";
 import { Button, Chip, cx, Help, Segmented } from "../ui";
-import { attention, attentionLine, canDismiss, dismissKey, fixAll, fixOf, fixWords, planFix, SHOWS, type Act, type Fix, type JoinFigures, type Row } from "./attention";
+import { attention, attentionLine, canDismiss, dismissKey, fixAll, fixOf, fixWords, planFix, plansToAsk, SHOWS, withPlans, type Act, type Fix, type JoinFigures, type Plan, type Row } from "./attention";
 
 /** The rows of Needs attention set aside, per timeline, in this browser (see dismissKey). */
 const useDismissed = create<{ by: Record<string, string[]>; set(timeline: string, keys: string[]): void }>()(
@@ -89,7 +89,7 @@ export function AttentionNote({ timeline, clips, renderable, msOf, why, known, o
  * with its clips, which select the clip, and the action that mends it; Fix all runs them all), its music,
  * its cast and look.
  */
-export function Overview({ timeline: t, aspect, clips, renderable, msOf, why, known, onPick, onMusic, onCast, onFolder, onFix, rendering, picked, onRenderPicked, fold }: {
+export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, why, known, onPick, onMusic, onCast, onFolder, onFix, rendering, picked, onRenderPicked, fold }: {
   /** The video's aspect ratio: the shapes to pick from, or the first clip rendered deciding. */
   /** `short`: what its switch says ("16:9"), where four words would not fit on one row of the panel. */
   aspect: { value: string; options: Array<{ value: string; label: string; short?: string; note?: string; detail?: string }>; onChange(value: string): void };
@@ -99,6 +99,8 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, why, kn
   renderable(c: Clip): boolean;
   /** About how long a clip takes to render; null when nothing was learned yet. */
   msOf(c: Clip): number | null;
+  /** The server's plan of the clips left to render, as the header's Render all says it: each render's time is said from it. */
+  plan?: Plan;
   /** Why a clip cannot be rendered yet, when its form is still to fill. */
   why?(c: Clip): string | undefined;
   /** The clips' forms are known (their models, the setup, the settings): until then what can render is not. */
@@ -139,7 +141,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, why, kn
     // the library hears of the move from the server (its library event); the timeline shows where its takes now are
     onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.timelines.one(t.id) }),
   });
-  const { joined, joinsOf, listed, rows, kept, dismissed, checking } = useAttention(t, clips, renderable, msOf, { why, known });
+  const { joined, joinsOf, listed, rows: own, kept, dismissed, checking } = useAttention(t, clips, renderable, msOf, { why, known });
   const measured = clips.filter((c) => c.take?.renderMs);
   const renderMs = measured.reduce((sum, c) => sum + (c.take!.renderMs ?? 0), 0);
   const rendered = measured.length;
@@ -160,10 +162,20 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, why, kn
   const worst = figured.reduce<Clip | null>((w, c) => (!w || joinsOf.get(c.id)! > joinsOf.get(w.id)! ? c : w), null);
 
   // what needs attention, one row each with the action that mends it (useAttention); Fix all once two rows or more have one
-  const setAside = listed.length - rows.length;
+  const setAside = listed.length - own.length;
   // only the keys of rows still listed are kept: a take changed, its old key goes
   const dismiss = (r: Row) => dismissed.set(t.id, [...listed.filter((x) => kept.has(dismissKey(x, clips))).map((x) => dismissKey(x, clips)), dismissKey(r, clips)]);
-  const fix = fixAll(rows, clips, msOf);
+  // each render's time as the header's Render all says it, the server's plan of those clips on Auto: the same clips
+  // read the same time everywhere (their own times added up said ~4 min where the header said ~2)
+  const summed = fixAll(own, clips, msOf);
+  const toAsk = plansToAsk(own, summed, plan);
+  const plans = useQueries({
+    queries: toAsk.map((ids) => {
+      const at = ids.map(number);
+      return { queryKey: queryKeys.timelinePlanned(t.id, at, t.updatedAt), queryFn: ({ signal }: { signal: AbortSignal }) => api.commandEstimate({ timeline: t.id, clips: at }, { signal }), staleTime: 30_000 };
+    }),
+  });
+  const { rows, fix } = withPlans(own, summed, plan, toAsk.map((ids, k) => ({ ids, ms: plans[k]?.data?.ms })));
   const run = (a: Act) => {
     const f = fixOf(a);
     if (f) onFix(f);

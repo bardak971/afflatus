@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
 import { api, fileUrl, thumbUrl, type AssetDetail, type CommandEntry, type RecipeInfo } from "../api";
-import { useTimeline } from "../data";
+import { removedName } from "@afflatus/core";
+import { useRecipes, useTimeline } from "../data";
 import { mainTextOf } from "../form";
 import { clock, plural, recipeLabel, size, took, when } from "../format";
 import { cx } from "../ui";
@@ -11,6 +12,18 @@ import { pageLabel, valueSaid } from "./settingsRegistry";
 import { queryKeys } from "../queryKeys";
 
 type Fact = { k: string; v: string };
+
+/**
+ * A recipe as the previews name it: under its model's name ("H3 · Text to video"), one taken out of Afflatus by the name it
+ * had; never an id ("model h3" said the family's id).
+ */
+function useModelOf(recipes: RecipeInfo[]): (id: string) => string {
+  const families = useRecipes().data?.families;
+  return (id) => {
+    const r = recipes.find((x) => x.id === id);
+    return r ? recipeLabel(families?.find((f) => f.id === r.family)?.name, r.title) : removedName(id) ?? id;
+  };
+}
 
 /** The facts of a result, two to a row, the values in the mono face. */
 function Facts({ facts }: { facts: Fact[] }) {
@@ -44,9 +57,10 @@ function TextCard({ children }: { children: string }) {
 function RenderPreview({ e, detail, recipes }: { e: Extract<CommandEntry, { kind: "asset" }>; detail: AssetDetail | undefined; recipes: RecipeInfo[] }) {
   const g = detail?.generation;
   const recipe = g ? recipes.find((r) => r.id === g.recipe) : undefined;
+  const modelOf = useModelOf(recipes);
   const seed = g?.resolved.seed ?? (typeof g?.inputs.seed === "number" && g.inputs.seed >= 0 ? g.inputs.seed : undefined);
   const facts: Fact[] = [
-    ...(recipe ? [{ k: "model", v: recipeLabel(g?.family, recipe.title) }] : g ? [{ k: "model", v: g.recipe }] : []),
+    ...(g ? [{ k: "model", v: modelOf(g.recipe) }] : []),
     ...(seed !== undefined ? [{ k: "seed", v: String(seed) }] : []),
     ...(typeof g?.inputs.steps === "number" ? [{ k: "steps", v: String(g.inputs.steps) }] : []),
     ...(e.width && e.height ? [{ k: "frame", v: `${e.width}×${e.height}` }] : []),
@@ -68,7 +82,7 @@ function RenderPreview({ e, detail, recipes }: { e: Extract<CommandEntry, { kind
           </span>
         )}
       </div>
-      <Title title={e.label} sub={detail?.generation ? `Made with ${recipe?.title ?? g?.recipe}` : e.assetKind === "image" ? "Image" : e.assetKind === "video" ? "Video" : "Sound"} />
+      <Title title={e.label} sub={detail?.generation ? `Made with ${recipe?.title ?? modelOf(g!.recipe)}` : e.assetKind === "image" ? "Image" : e.assetKind === "video" ? "Video" : "Sound"} />
       <Facts facts={facts} />
     </>
   );
@@ -113,6 +127,7 @@ function TimelinePreview({ e }: { e: Extract<CommandEntry, { kind: "timeline" }>
 function DraftPreview({ e, recipes }: { e: Extract<CommandEntry, { kind: "draft" }>; recipes: RecipeInfo[] }) {
   const d = useQuery({ queryKey: queryKeys.drafts.one(e.id), queryFn: ({ signal }) => api.draft(e.id, { signal }) }).data;
   const recipe = recipes.find((r) => r.id === (d?.recipe ?? e.recipe));
+  const modelOf = useModelOf(recipes);
   const form = d && recipe ? d.forms[recipe.id] ?? {} : {};
   const main = recipe ? mainTextOf(recipe) : undefined;
   const text = main ? String(form[main.id] ?? "").trim() : "";
@@ -120,7 +135,7 @@ function DraftPreview({ e, recipes }: { e: Extract<CommandEntry, { kind: "draft"
   return (
     <>
       <TextCard>{d ? text || "No prompt yet." : "…"}</TextCard>
-      <Title title={e.label} sub={`Draft · ${recipe?.title ?? e.recipe}`} />
+      <Title title={e.label} sub={`Draft · ${modelOf(d?.recipe ?? e.recipe)}`} />
       <Facts facts={[
         { k: "renders", v: String(e.renders) },
         { k: "last", v: when(e.updatedAt) },
@@ -143,6 +158,7 @@ export function Preview({ item, detail, recipes, settingCtx, extra }: {
   extra?: { text: string; facts: Fact[] };
 }) {
   const e = item.entry;
+  const modelOf = useModelOf(recipes);
   let body;
   if (e?.kind === "asset") body = <RenderPreview e={e} detail={detail} recipes={recipes} />;
   else if (e?.kind === "timeline") body = <TimelinePreview e={e} />;
@@ -192,7 +208,7 @@ export function Preview({ item, detail, recipes, settingCtx, extra }: {
       <>
         {h.assetId && <div data-stage className="flex h-40 items-center justify-center overflow-hidden rounded-xl bg-stage"><img src={thumbUrl(h.assetId)} alt="" className="h-full object-contain" /></div>}
         <TextCard>{h.prompt}</TextCard>
-        <Facts facts={[{ k: "model", v: recipes.find((r) => r.id === h.recipe)?.title ?? h.recipe }, { k: "rendered", v: when(h.createdAt) }]} />
+        <Facts facts={[{ k: "model", v: modelOf(h.recipe) }, { k: "rendered", v: when(h.createdAt) }]} />
       </>
     );
   } else if (item.kind === "person" && item.person) {

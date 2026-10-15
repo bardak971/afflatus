@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { MachineState, QueueStatus, RentedState } from "../src/api";
 import { usd } from "../src/format";
-import { rateSaid, rentedSaid, rentedSpent, rentedUp, severalMachines } from "../src/machines";
+import { rateParts, rateSaid, rentedSaid, rentedSpent, rentedUp, severalMachines } from "../src/machines";
 
 /** What a rented pod's row, its Start and the pill say (machines.ts), and when the machines' own controls show. */
 
@@ -51,5 +51,15 @@ describe("a lone rented pod", () => {
   it("has the machines' own controls, as several do; one ComfyUI of one's own does not", () => {
     expect(severalMachines({ machines: [machine({})] } as unknown as QueueStatus)).toEqual([]);
     expect(severalMachines({ machines: [machine({ rented: pod() })] } as unknown as QueueStatus)).toHaveLength(1);
+  });
+});
+
+describe("a pod's rate in its parts", () => {
+  it("says the GPU and its disk, as RunPod bills them", () => {
+    expect(rateParts({ rate: 0.6127, gpuRate: 0.59 })).toBe("GPU $0.59 + its disk $0.023 an hour while it runs, as RunPod bills it");
+  });
+  it("says nothing when the rate is the GPU's alone: no \"+ its disk $0.00\"", () => {
+    expect(rateParts({ rate: 0.59, gpuRate: 0.59 })).toBeNull();
+    expect(rateParts({ rate: 0.59, gpuRate: null })).toBeNull();
   });
 });

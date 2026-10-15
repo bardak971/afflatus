@@ -23,6 +23,18 @@ import { CloseButton, Slide } from "./parts";
 const Designer = lazy(() => import("../../Designer").then((m) => ({ default: m.Designer })));
 
 /**
+ * The clips the source is made into, as its summary says them: "3 clips of 5.0 s", "2 clips of 4.6–5.0 s". From the windows
+ * themselves, not the slider's length: a stretch shorter than the window asked for read "1 clip of 19.7 s" for 5.1 s.
+ */
+export function windowsSaid(windows: ReadonlyArray<{ fromMs: number; toMs: number }>, windowMs: number): string {
+  const lengths = windows.map((w) => (w.toMs - w.fromMs) / 1000);
+  // made already (its clips are on the track): the window it was made with
+  if (!lengths.length) return `windows of ${(windowMs / 1000).toFixed(1)} s`;
+  const [least, most] = [Math.min(...lengths).toFixed(1), Math.max(...lengths).toFixed(1)];
+  return `${plural(windows.length, "clip")} of ${least === most ? least : `${least}–${most}`} s`;
+}
+
+/**
  * The source lane opened in the column, as a clip's panel: the model's whole form (its cards, the Designer on its prompt)
  * that every window is made with, its driving video being the source's (each window its part); the source's own chapter
  * first (the stretch, the window, scene cuts); and Make N clips at the foot. The stage plays the source meanwhile, and a
@@ -153,7 +165,7 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, o
                 id: "source",
                 title: "Source",
                 help: "The stretch of the video made into clips, one a window, each carrying on from the one before. Drag the source on its lane to choose where Motion transfer starts, its right end where it stops; or split it at the playhead (right-click the lane).",
-                summary: `${mmss(source.fromMs, { decimals: 1 })}–${mmss(source.toMs, { decimals: 1 })} · ${plural(windows.length, "clip")} of ${(windowMs / 1000).toFixed(1)} s`,
+                summary: `${mmss(source.fromMs, { decimals: 1 })}–${mmss(source.toMs, { decimals: 1 })} · ${windowsSaid(windows, windowMs)}`,
                 node: (
                   <div className="flex flex-col gap-3">
                     <Slide label="Window" value={windowMs} min={leastMs} max={mostMs} step={100} show={(ms) => `${(ms / 1000).toFixed(1)} s`} onCommit={(windowMs) => onEdit({ windowMs })} />

@@ -18,6 +18,7 @@ import { Block, Card, Row } from "./Rows";
 import { tabHref } from "./settingsIndex";
 import { COLUMNS } from "./wide";
 import { openDeploy } from "../../deploy";
+import { rateParts } from "../../machines";
 import { VolumesCard } from "./VolumesCard";
 import { SecretField } from "./SecretField";
 
@@ -262,13 +263,14 @@ function RunpodPods() {
           : !p.added ? (status === "EXITED" ? "stopped" : status.toLowerCase()) : null;
         const ends = machine?.rented ? `${machine.rented.idleDo === "stop" ? "stops" : "terminates"} after ${minutesSaid(machine.rented.idleMinutes)} idle` : null;
         const volume = p.volumeId ? volumes.data?.volumes.find((v) => v.id === p.volumeId) : undefined;
+        // its rate with the same tip as its card's: the GPU and its disk, as RunPod bills them (a pod not added has only its total)
         const facts = [
           p.gpu ? shortGpu(p.gpu) : null,
-          rate ? `${usd(rate)}/h` : null,
+          rate ? <span key="rate" data-tip={(r && rateParts(r)) ?? undefined}>{usd(rate)}/h</span> : null,
           p.dataCenter,
           p.volumeId ? `on ${volume ? volume.name : "a network volume"}` : null,
           ends,
-        ].filter(Boolean).join(" · ");
+        ].filter(Boolean).flatMap((x, k) => (k ? [" · ", x] : [x]));
         return (
           <div key={p.id} className={cx("flex flex-wrap items-center gap-x-3 gap-y-2 px-[18px] py-3", !p.added && !p.comfy && !loose && "opacity-60")}>
             <span className="flex min-w-0 grow basis-[260px] flex-col gap-1">
@@ -277,7 +279,7 @@ function RunpodPods() {
                 <span className="truncate text-[13.5px] font-semibold">{machine ? machine.name || p.name : p.name}</span>
                 {said && <span className={cx("min-w-0 truncate text-[12.5px]", loose ? "text-warn-ink" : "text-ink-3")}>· {said}</span>}
               </span>
-              {!short && facts && <span className="truncate pl-[15px] text-xs text-ink-3">{facts}</span>}
+              {!short && facts.length > 0 && <span className="truncate pl-[15px] text-xs text-ink-3">{facts}</span>}
             </span>
             <span className="flex shrink-0 items-center gap-2">
               {machine && state && <RentedHead machine={machine} state={state} ops={ops} />}

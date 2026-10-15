@@ -253,6 +253,9 @@ export const REMOVED_RECIPES: Readonly<Record<string, string>> = { "wananimate.m
 /** What is said of a recipe taken out of Afflatus ("Wan Animate 2, removed from Afflatus"); null for any other id. */
 export const removedSaid = (id: string | null | undefined): string | null => (id && REMOVED_RECIPES[id] ? `${REMOVED_RECIPES[id]}, removed from Afflatus` : null);
 
+/** A recipe taken out of Afflatus where its model's name stands ("Wan Animate 2 (removed)"), never its id; null for any other id. */
+export const removedName = (id: string | null | undefined): string | null => (id && REMOVED_RECIPES[id] ? `${REMOVED_RECIPES[id]} (removed)` : null);
+
 /** The Image tools' family (an upscale, a background removal): no model of its own, no prompt. Named here for the screens that leave it out. */
 export const TOOLS_FAMILY = "tools";
 /** The background remover: a tool, where every other operation on a picture is a model's own recipe. */

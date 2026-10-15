@@ -1,8 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { ChevronDown, Film, Image as ImageIcon, Music, Plus, Search } from "lucide-react";
 import { Thumb } from "../../Thumb";
-import { fuzzyFilter } from "@afflatus/core";
-import { thumbUrl, type DraftBrief } from "../../api";
+import { fuzzyFilter, REMOVED_RECIPES, removedName } from "@afflatus/core";
+import { thumbUrl, type DraftBrief, type FamilyInfo, type RecipeInfo } from "../../api";
 import { useRecipes } from "../../data";
 import { plural, triedLabel, when } from "../../format";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
@@ -30,6 +30,30 @@ function Cover({ d, size }: { d: DraftBrief; size: number }) {
 export function openRow(current: DraftBrief, drafts: DraftBrief[]): DraftBrief {
   const row = drafts.find((d) => d.id === current.id);
   return row ? { ...row, recipe: current.recipe, name: current.name } : current;
+}
+
+/**
+ * How the drafts' rows name their models, from the models' list (undefined while it comes): the family of a draft's
+ * recipe, the other families it was tried on, and the dim line of both ("Wan 2.2 · SDXL"). A recipe taken out of
+ * Afflatus reads by the name it had ("Wan Animate 2 (removed)", as the queue says it), never its id.
+ */
+export function draftWords(data: { recipes: RecipeInfo[]; families: FamilyInfo[] } | undefined) {
+  const recipeOf = (id: string) => data?.recipes.find((r) => r.id === id);
+  const familyOf = (id: string) => {
+    const r = recipeOf(id);
+    return data?.families.find((f) => f.id === r?.family)?.name ?? r?.family ?? REMOVED_RECIPES[id] ?? "";
+  };
+  // a removed recipe's family is its id's first word ("wananimate"): what it made is counted as its own, not another try
+  const ownFamily = (id: string) => recipeOf(id)?.family ?? (REMOVED_RECIPES[id] ? id.split(".")[0] : undefined);
+  const familyName = (id: string) => data?.families.find((f) => f.id === id)?.name ?? id;
+  // a draft is an idea, its models are tries of it: the other families it made something with, the newest first
+  const othersOf = (d: DraftBrief) => (d.models ?? []).filter((m) => m.family !== ownFamily(d.recipe));
+  const modelLine = (d: DraftBrief) => {
+    const r = recipeOf(d.recipe);
+    const others = othersOf(d).map((m) => familyName(m.family));
+    return r ? triedLabel(familyOf(d.recipe), others, r.title) : [removedName(d.recipe) ?? d.recipe, ...others].join(" · ");
+  };
+  return { recipeOf, familyOf, ownFamily, othersOf, modelLine };
 }
 
 /**
@@ -64,27 +88,14 @@ export function DraftMenu({ drafts: rows, open: current, titleOf, onPick, onNew,
   const ids = useId();
   const optionId = (d: DraftBrief) => `${ids}-${d.id}`;
 
-  const recipeOf = (id: string) => recipes.data?.recipes.find((r) => r.id === id);
-  const familyOf = (id: string) => {
-    const r = recipeOf(id);
-    return recipes.data?.families.find((f) => f.id === r?.family)?.name ?? r?.family ?? "";
-  };
-  const familyName = (id: string) => recipes.data?.families.find((f) => f.id === id)?.name ?? id;
-  // a draft is an idea, its models are tries of it: the other families it made something with, the newest first
-  const othersOf = (d: DraftBrief) => (d.models ?? []).filter((m) => m.family !== recipeOf(d.recipe)?.family);
-  const modelLine = (d: DraftBrief) => {
-    const r = recipeOf(d.recipe);
-    const family = familyOf(d.recipe);
-    const others = othersOf(d).map((m) => familyName(m.family));
-    return r ? triedLabel(family, others, r.title) : [d.recipe, ...others].join(" · ");
-  };
+  const { recipeOf, familyOf, ownFamily, othersOf, modelLine } = draftWords(recipes.data);
   const nameOf = (d: DraftBrief) => titleOf(d) || `${familyOf(d.recipe) || "Untitled"} draft`;
   const countOf = (d: DraftBrief) => {
     const n = d.outputs ?? 0;
     if (!n) return "empty";
     const words = OUTPUT_WORD[recipeOf(d.recipe)?.output ?? d.coverKind ?? "image"];
     // tried on several models: how many each made, in the order of the line ("2 + 2 pictures")
-    const own = d.models?.find((m) => m.family === recipeOf(d.recipe)?.family);
+    const own = d.models?.find((m) => m.family === ownFamily(d.recipe));
     const each = [...(own ? [own] : []), ...othersOf(d)];
     return `${each.length > 1 ? each.map((m) => m.outputs).join(" + ") : n} ${n === 1 ? words[0] : words[1]}`;
   };
