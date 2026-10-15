@@ -62,6 +62,15 @@ describe("the ranking", () => {
     expect(home.seconds).toBe(Math.round((100 * roughSpeed("RTX 4070 Ti")!) / roughSpeed("H100 SXM")!));
   });
 
+  it("adds a pod's model load as it is: the load is the pod's disk, not its card, and is not read at the GPU's pace", () => {
+    // 100 s of rendering at the common pace, and 50 s a pod takes to load the model from its volume
+    const r = rankGpus(OFFERS, [{ ...RENDERS[0]!, loadMs: 50_000 }], HOME, ASK);
+    const by = Object.fromEntries(r.map((g) => [g.name, g]));
+    expect(by["RTX 4090"]!.seconds).toBe(150);
+    expect(by["H100 SXM"]!.seconds).toBe(Math.round(100 / 1.9 + 50));
+    expect(by["A40"]!.seconds).toBe(Math.round(100 / 0.45 + 50));
+  });
+
   it("with no GPU learned, no time: value falls back to the price", () => {
     const r = rankGpus(OFFERS, RENDERS, { gpus: [], oom: [] }, ASK);
     expect(r.every((g) => g.seconds === null && g.cost === null && g.timeSaid === "not known yet")).toBe(true);

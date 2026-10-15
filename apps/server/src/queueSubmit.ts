@@ -564,7 +564,7 @@ async function timingOf(core: QueueCore, recipe: Recipe<any>, chosen: Record<str
   const work = workOf(built);
   const paces = await core.paces();
   // what its lane showed: the fallback too at this machine's pace and with its load, as the queue's `expected` reads it
-  const expected = (await forecastFrom(core, recipe, chosen, built, cold, { machine: core.machineId, paces })) ?? fromRates((await core.usual()).rates, recipe, chosen, { cold, pace: core.machineId ? paces.get(core.machineId) : undefined });
+  const expected = (await forecastFrom(core, recipe, chosen, built, cold, { machine: core.machineId, paces })) ?? fromRates((await core.usual()).rates, recipe, chosen, { cold, pace: core.machineId ? paces.get(core.machineId) : undefined, samples: Object.values(built.phases).includes("sampling") });
   return {
     model: mainModel(built) ?? "", modelFile: modelFileOf(recipe, chosen, built),
     timeKey: timeKey(recipe.inputs, chosen), cold, expectedMs: expected?.ms ?? null,
@@ -771,7 +771,7 @@ export async function forecastOf(
     const on = opts.machines?.length ? Object.fromEntries((await Promise.all(opts.machines.map(async (m) => [m, await at(m)] as const))).flatMap(([m, g]) => (g ? [[m, g]] : []))) : undefined;
     return { forecast: f, shape: shape!, model, ...(on ? { on } : {}) };
   }
-  const fallback = fromRates((await core.usual()).rates, recipe, chosen, { cold: opts.cold ?? (built ? coldOf(core.lastLoads, built) : null), pace: opts.machine ? paces?.get(opts.machine) : undefined });
+  const fallback = fromRates((await core.usual()).rates, recipe, chosen, { cold: opts.cold ?? (built ? coldOf(core.lastLoads, built) : null), pace: opts.machine ? paces?.get(opts.machine) : undefined, samples: built ? Object.values(built.phases).includes("sampling") : undefined });
   return fallback ? { forecast: fallback, shape: { pixels: shape?.pixels ?? 0, frames: shape?.frames ?? 1 }, model } : null;
 }
 

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
 import { imageParts, imagePublic } from "../src/podImage";
+import { runwayNeed } from "../src/rented";
 import { POD_IMAGES } from "../src/runpod";
 import { readSettings } from "../src/settings";
 import { costToday, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
@@ -565,6 +566,25 @@ describe("a render longer than the balance lasts", () => {
     const row = (await t.services.queue.status()).waiting.find((w) => w.id === queued.ids[0]);
     // a pod with no render of its own: its forecast weighed half again (a new pod's came out at half its truth)
     expect(row?.lacks?.[id]?.balance?.needMs).toBe(45 * 60_000);
+  });
+
+  it("with no forecast at all is weighed at half an hour: nothing like it rendered yet, it went whatever the balance", async () => {
+    const id = (await deploy()).json().id as string;
+    const pod = runpod.pods[0]!;
+    await until(() => pod.status === "RUNNING");
+    await t.services.rented.poll();
+    runpod.balance = 0.0733;
+    t.services.rented.now = (() => { const real = Date.now; return () => real() + 61_000; })();
+    await get(t.app, "/api/rented/spending");
+    await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: { machine: "m1" } });
+    (t.services.queue as unknown as { expected: () => Promise<number | null> }).expected = async () => null;
+    const queued = (await post(t.app, "/api/jobs", job())).json();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(t.services.queue.runningOn(id)).toBe(false);
+    const row = (await t.services.queue.status()).waiting.find((w) => w.id === queued.ids[0]);
+    expect(row?.lacks?.[id]?.balance?.needMs).toBe(30 * 60_000);
+    // its files still to come on top, sure or not
+    expect(runwayNeed({ renderMs: null, fetchMs: 4 * 60_000, sure: true })).toBe(34 * 60_000);
   });
 
   it("a new pod's forecast is weighed half again, its files still to come on top; as it is once the pod rendered the recipe 3 times", async () => {

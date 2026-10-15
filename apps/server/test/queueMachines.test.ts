@@ -166,6 +166,28 @@ describe("each machine's pace", () => {
     expect(waiting.find((w) => w.id === b)).toMatchObject({ machine: "m1" });
     await finishAll([a, b]);
   });
+
+  it("says when the waiting list is done as the plan shares it between the machines, not the sum of its renders", async () => {
+    const at = new Date().toISOString();
+    const stat = (id: string, machine: string) => ({
+      id, owner_id: "local", recipe_id: "sdxl.text-to-picture", family: "sdxl", model: "m", model_file: "m.safetensors", time_key: "steps=20", kind: "image" as const,
+      width: 832, height: 1216, duration_ms: null, steps: 20, status: "done" as const, whole: 1, cold: 0, waited_ms: 0, total_ms: 10_000, load_ms: 0, sample_ms: 10_000,
+      refine_ms: 0, finish_ms: 0, step_ms: 500, expected_ms: null, work: 832 * 1216, vram_peak: null, heat_peak: null, asset_id: null, machine_id: machine, gpu: null, created_at: at,
+    });
+    await t.db.insertInto("render_stats").values(["a", "b", "c"].flatMap((x) => [stat(`${x}1`, "m1"), stat(`${x}2`, "m2")])).execute();
+    expect((await queue()).waitingEndsInMs).toBeNull();
+    const ids: string[] = [];
+    for (let i = 0; i < 6; i++) ids.push(await enqueue({}));
+    await until(() => sentTo(one).length === 1 && sentTo(two).length === 1);
+    const q = await queue();
+    const waiting = q.waiting as Array<{ estimateMs: number | null; startsInMs: number | null }>;
+    expect(waiting).toHaveLength(4);
+    const sum = waiting.reduce((n, w) => n + w.estimateMs!, 0);
+    // four 10 s renders behind two running ones, two machines: about 30 s, where their sum says 40
+    expect(q.waitingEndsInMs).toBeGreaterThanOrEqual(Math.max(...waiting.map((w) => w.startsInMs!)));
+    expect(q.waitingEndsInMs).toBeLessThan(sum * 0.8);
+    await finishAll(ids);
+  });
 });
 
 describe("each machine's files", () => {

@@ -27,6 +27,11 @@ export interface RankOffer {
 export interface RankRender {
   files: Array<{ file: string; size: number | null }>;
   ms: number | null;
+  /**
+   * What loading its model takes on a pod (ms), left out of `ms`: a load is the pod's disk, not its card, and is added as it
+   * is, not at the GPU's pace. Left out, `ms` holds whatever load there is.
+   */
+  loadMs?: number | null;
 }
 
 /**
@@ -191,8 +196,9 @@ function learnedGpus(learned: Learned): Array<{ gpu: string; pace: number; rende
 
 /** The GPUs ranked for these renders: the usable ones first, by the mode's key (value: cost a render; fast: time; cheap: price), then the rest. */
 export function rankGpus(offers: readonly RankOffer[], renders: readonly RankRender[], learned: Learned, ask: RankAsk): RankedGpu[] {
-  const timed = renders.flatMap((r) => (r.ms !== null && r.ms > 0 ? [r.ms] : []));
-  const meanMs = timed.length ? timed.reduce((a, b) => a + b, 0) / timed.length : null;
+  const timed = renders.filter((r) => r.ms !== null && r.ms > 0);
+  const meanMs = timed.length ? timed.reduce((a, r) => a + r.ms!, 0) / timed.length : null;
+  const meanLoad = timed.length ? timed.reduce((a, r) => a + Math.max(0, r.loadMs ?? 0), 0) / timed.length : 0;
   const largest = Math.max(0, ...renders.flatMap((r) => r.files.map((f) => f.size ?? 0)));
   const needed = new Set(renders.flatMap((r) => r.files.map((f) => fileKey(f.file))));
   const known = learnedGpus(learned).map((g) => ({ ...g, key: gpuKey(g.gpu) }));
@@ -207,11 +213,11 @@ export function rankGpus(offers: readonly RankOffer[], renders: readonly RankRen
     let seconds: number | null = null;
     let learnedFrom = 0;
     if (meanMs !== null && own) {
-      seconds = (meanMs * own.pace) / 1000;
+      seconds = (meanMs * own.pace + meanLoad) / 1000;
       learnedFrom = own.renders;
     } else if (meanMs !== null && anchor) {
       const speed = roughSpeed(o.name) ?? roughSpeed(o.id);
-      if (speed) seconds = (meanMs * anchor.pace * roughSpeed(anchor.gpu)!) / speed / 1000;
+      if (speed) seconds = ((meanMs * anchor.pace * roughSpeed(anchor.gpu)!) / speed + meanLoad) / 1000;
     }
     const oom = learned.oom.some((x) => keys.has(gpuKey(x.gpu)) && needed.has(fileKey(x.file)));
     const small = (o.memory > 0 && largest > o.memory * GIB) || oom;
