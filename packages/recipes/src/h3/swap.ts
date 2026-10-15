@@ -2,6 +2,7 @@ import { defineRecipe, gridAtOrBefore, type BuildContext, type ClipValue, type I
 import { H3_FPS, H3_GRID } from "./family";
 import { h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video } from "./video";
+import { partBounds } from "../motion/driving";
 
 /**
  * MiniMax H3 · Swap character: a person in a video replaced by someone of the cast, the rest of the video kept. The
@@ -32,6 +33,8 @@ export const SWAP_FRAMES = 141;
 const SWAP_LEAST = 90;
 /** Frames of the window before a window carries on from: pinned at its start, dropped from what it shows. */
 const SWAP_CARRIED = 5;
+/** What the Source: length field takes, in seconds. */
+const SWAP_PART = (({ least, most }) => ({ min: least, max: most }))(partBounds({ fps: H3_FPS, most: SWAP_FRAMES, least: SWAP_LEAST }));
 
 /** H3's inputs a swap does not take: its prompt is the caption, its length the source's part, its shape the source's. */
 const NOT_TAKEN = new Set([
@@ -57,9 +60,10 @@ const swapInputs: InputSpec[] = [
     note: "the video whose person is replaced. One swap holds 5.9 s of it; a longer one goes on a timeline's source lane, swapped window by window",
   },
   { id: "sourceStart", type: "number", label: "Source: start", min: 0, max: 3600, step: 0.1, default: 0, unit: " s", showWhen: "source" },
-  // (whole tenths below the 5.875 s of 141 frames for the slider's steps: from 3.775 s, still the 90 frames of the shortest
-  // window). 5.175 s by default: 124 frames, the length the swap held 3 times of 3 at, within the 4-5 s its LoRA's author found safest
-  { id: "sourceSeconds", type: "number", label: "Source: length", min: 3.775, max: SWAP_FRAMES / H3_FPS, step: 0.1, default: 5.175, unit: " s", showWhen: "source" },
+  // the bounds a Motion transfer form's part has, so that every window a timeline makes is taken (its 141 frames and the half
+  // frame windows add: 5.875 s refused them). 5.175 s by default: 124 frames, the length the swap held 3 times of 3 at,
+  // within the 4-5 s its LoRA's author found safest
+  { id: "sourceSeconds", type: "number", label: "Source: length", ...SWAP_PART, step: 0.01, default: 5.175, unit: " s", showWhen: "source" },
   ...h3Inputs.flatMap((spec): InputSpec[] => {
     if (NOT_TAKEN.has(spec.id)) return [];
     // the model's own shifts (MiniMaxH3SigmaShift's defaults), as the swap was tested, not H3's full-step 11 / 4
@@ -77,7 +81,7 @@ const swapInputs: InputSpec[] = [
     return [spec];
   }),
   {
-    // 576p: small phone clips swapped at their own 352 px held 0 of 4, at 576p 2 of 4 (Marvyn's clips, 2026-10-13)
+    // 576p: small phone clips swapped at their own 352 px held 0 of 4, at 576p 2 of 4 (a tester's clips, 2026-10-13)
     id: "swapSize", type: "choice", label: "Size", options: [...SWAP_SIZES], default: "576p",
     note: "the height it renders at, in the source's shape: 576p by default (a small phone clip swapped better made larger), or the source's own size",
   },
@@ -138,6 +142,8 @@ function asClip(input: H3Swap, swapLora: string, frames: number, carried: number
 export const h3Swap = defineRecipe<H3Swap>({
   id: "h3.swap",
   family: "h3",
+  // hidden for now (the owner's call for 0.5.0: still experimental): not offered anywhere, what was made with it still opens
+  hidden: true,
   version: 1,
   title: "Swap character",
   summary: "A person in a video replaced by someone of the cast; the scene, the motion and the sound kept.",

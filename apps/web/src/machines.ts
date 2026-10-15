@@ -3,6 +3,23 @@ import { long, usd } from "./format";
 
 /** Several ComfyUIs (Settings › ComfyUI): how a machine is named on screen, and what the screens read of them. */
 
+/** A machine's state in a word, as every screen says it (machineState). */
+export type MachineWord = "rendering" | "idle" | "paused" | "offline" | "locked" | "stopped" | "starting";
+
+/**
+ * A machine's state in a word: a rented pod not running is stopped or starting (it was "offline" on the Queue page),
+ * a ComfyUI locked against Afflatus's token is locked (it was "offline" in Ctrl+K), then paused, away, rendering, idle.
+ * The one rule the Queue's lanes, the machine menus, Ctrl+K, Generate on and the waiting list's Run on read: seven
+ * places worked it out each in its own order.
+ */
+export function machineState(m: Pick<MachineState, "paused" | "online" | "rented"> & { locked?: boolean; running: unknown }): MachineWord {
+  const r = m.rented;
+  if (r && (r.status !== "RUNNING" || r.booting)) return r.status === "STARTING" || r.status === "PROVISIONING" || r.booting ? "starting" : "stopped";
+  if (m.paused) return "paused";
+  if (m.online === false) return m.locked ? "locked" : "offline";
+  return m.running ? "rendering" : "idle";
+}
+
 /** A machine as the screens name it: its own name, else its address's host and port ("127.0.0.1:8189"). */
 export function machineLabel(m: { name: string; url: string }): string {
   if (m.name.trim()) return m.name.trim();

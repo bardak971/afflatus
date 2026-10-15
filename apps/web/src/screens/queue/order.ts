@@ -82,3 +82,18 @@ export function betterPlace<T extends Pick<Job, "id" | "kind" | "recipe">>(waiti
   }
   return best;
 }
+
+/**
+ * When the waiting jobs are all done, in ms from now, as "about N in all" says it: the server's plan's last end
+ * (`plannedEnd`, QueueStatus.waitingEndsInMs) when it gives one, else the latest a waiting job ends where the plan said
+ * when each starts, else (one machine, nothing planned) the jobs one after another after the running one. Summed with
+ * several machines, 40 jobs on 4 machines said "5 min" for what took 75 s.
+ */
+export function waitingEnds(waiting: ReadonlyArray<Pick<Job, "estimateMs" | "startsInMs">>, running: { eta: number | null } | null, plannedEnd?: number | null): number {
+  if (typeof plannedEnd === "number") return plannedEnd;
+  const left = (running?.eta ?? 0) * 1000;
+  if (waiting.some((w) => w.startsInMs !== null && w.startsInMs !== undefined)) {
+    return waiting.reduce((end, w) => Math.max(end, (w.startsInMs ?? 0) + (w.estimateMs ?? 0)), left);
+  }
+  return waiting.reduce((sum, w) => sum + (w.estimateMs ?? 0), 0) + left;
+}

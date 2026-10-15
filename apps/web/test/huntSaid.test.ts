@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { RankedGpu } from "@afflatus/core";
 import type { HuntSummary, MachineState, QueueStatus } from "../src/api";
-import { ceilingFor, deploySaid, firstPick, giveUpOptions, huntDone, huntStrip, huntTitle, minutesSaid, renderSaid, renderWhy, resumeHoldsHunt } from "../src/huntSaid";
+import { ceilingFor, deploySaid, firstPick, giveUpOptions, huntDone, huntStrip, huntTitle, renderSaid, renderWhy, resumeHoldsHunt } from "../src/huntSaid";
+import { minutesSaid } from "../src/format";
 
 const T0 = Date.parse("2026-10-14T10:00:00Z");
 const hunt = (over: Partial<HuntSummary> = {}): HuntSummary => ({
@@ -29,7 +30,7 @@ describe("the GPU hunt in words", () => {
   });
 
   it("says a render as cost and time, or not known", () => {
-    expect(renderSaid({ cost: 0.025, seconds: 130 })).toBe("$0.025 · 2m 10s");
+    expect(renderSaid({ cost: 0.025, seconds: 130 })).toBe("$0.025 · 2 min 10 s");
     expect(renderSaid({ cost: null, seconds: null })).toBe("not known yet");
   });
 
@@ -38,10 +39,10 @@ describe("the GPU hunt in words", () => {
     expect(deploySaid({ overhead: (0.24 * (5 * 60_000 + 6.5 * 60_000)) / 3_600_000 })).toBe("+$0.046 a deploy");
     expect(deploySaid({ overhead: null })).toBeNull();
     const why = renderWhy({ bootMs: 5 * 60_000, idleMs: 390_000, fetchMs: 3 * 60_000, sessions: 4 });
-    expect(why).toContain("their usual files fetched (3m, none with a network volume)");
+    expect(why).toContain("their usual files fetched (3 min, none with a network volume)");
     expect(renderWhy({ bootMs: 5 * 60_000, idleMs: 390_000, fetchMs: 0, sessions: 4 })).not.toContain("files fetched");
-    expect(why).toContain("usual boot (5m)");
-    expect(why).toContain("usual idle before they stop (6m 30s)");
+    expect(why).toContain("usual boot (5 min)");
+    expect(why).toContain("usual idle before they stop (6 min 30 s)");
     expect(why).toContain("from your last 4 sessions");
     expect(renderWhy(null)).toContain("once you have a session that ended");
   });

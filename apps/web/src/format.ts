@@ -83,6 +83,12 @@ export function aboutMs(ms: number | null | undefined): string {
 }
 
 /**
+ * A number of minutes as the settings say it: "10 min", "1 h 30 min", "2 h"; 0 is "never" (an idle limit or a watchdog
+ * off). One for the Deploy dialog, the rented pods' settings and the hunt: two of four said 90 minutes "1.5 h".
+ */
+export const minutesSaid = (n: number) => (n === 0 ? "never" : n < 60 ? `${n} min` : n % 60 ? `${Math.floor(n / 60)} h ${n % 60} min` : `${n / 60} h`);
+
+/**
  * A render time that is a guess, short, as the editor, the queue and the timeline cards say it: "~5 s", "~7 min". Empty
  * when nothing was learned yet. A measured time is said without "~" (`spell`).
  */

@@ -1,7 +1,6 @@
 import { useRef, type CSSProperties } from "react";
 import { glideTo, litOf, ticksOf, useProgressStyle, useReducedMotion, type Glide, type ProgressStyle } from "./style";
-
-const cx = (...parts: Array<string | false | null | undefined>) => parts.filter(Boolean).join(" ");
+import { cx } from "../cx";
 
 /** The short ease of Same look and Alive: what the bars always did, now on the compositor. */
 const EASE_MS = 300;

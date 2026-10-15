@@ -314,8 +314,8 @@ function TimelinePicker({ asset }: { asset: Asset }) {
 function ReferencePicker({ asset, onDone }: { asset: Asset; onDone?(): void }) {
   const recipes = useRecipes();
   const openNew = useOpenNewDraft();
-  const on = useFamilies().isOn;
-  const ways = (recipes.data?.recipes ?? []).filter((r) => on(r.family) && r.inputs.some((i) => i.type === "references"));
+  const { offers } = useFamilies();
+  const ways = (recipes.data?.recipes ?? []).filter((r) => offers(r) && r.inputs.some((i) => i.type === "references"));
   const start = useMutation({
     mutationFn: (id: string) => {
       const recipe = ways.find((r) => r.id === id)!;

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inflateSync } from "node:zlib";
@@ -466,22 +466,6 @@ function workflowOf(texts: Record<string, string>): unknown | null {
 }
 
 const isPictureBytes = (buf: Buffer) => buf.length > 12 && (buf.readUInt32BE(0) === 0x89504e47 || (buf[0] === 0xff && buf[1] === 0xd8) || buf.toString("latin1", 8, 12) === "WEBP");
-
-/**
- * The workflow a file on disk carries (POST /api/workflows/extract): read as readEmbedded reads it, a video's tags
- * straight from the file rather than through memory. Null when it carries none.
- */
-export async function embeddedWorkflowOf(file: string): Promise<unknown | null> {
-  const handle = await open(file, "r");
-  const head = Buffer.alloc(16);
-  try {
-    await handle.read(head, 0, 16, 0);
-  } finally {
-    await handle.close();
-  }
-  if (isPictureBytes(head)) return (await readEmbedded(new Uint8Array(await readFile(file)))).workflow;
-  return workflowOf(videoTexts(await tagsOfFile(file)));
-}
 
 /** Everything a dropped file says about how it was made. Never throws: a file that says nothing gives nothing. */
 export async function readEmbedded(bytes: Uint8Array): Promise<Embedded> {

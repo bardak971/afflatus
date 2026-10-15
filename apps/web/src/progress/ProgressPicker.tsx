@@ -3,8 +3,7 @@ import { useThemeChoice } from "../theme/store";
 import { Help } from "../ui";
 import { Progress, ProgressRing } from "./Progress";
 import { DEFAULT_PROGRESS, PROGRESS_STYLES, shownStyle, useReducedMotion, type ProgressStyle } from "./style";
-
-const cx = (...parts: Array<string | false | null | undefined>) => parts.filter(Boolean).join(" ");
+import { cx } from "../cx";
 
 /** The pretend render of the previews: a model loading for a moment, 20 steps at 2.5 a second, a pause on the end. */
 const STEPS = 20;

@@ -1,5 +1,6 @@
 import type { Db, Tables } from "./db";
 import type { Registry } from "./registry";
+import { shortGpu } from "@afflatus/core";
 import { machinePaces } from "./forecast";
 import { cellOf, DAY, dayOf, dayStart, digestedThrough, digestOf, machineDigestedThrough, groupKey, median, merge, parseDigest, real, spilled, sum, WHOLE_DAY, BUCKETS, type Cell, type Digest, type Line, type RenderRow, type Setting } from "./renderDigests";
 
@@ -165,13 +166,23 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   const shares = await db.selectFrom("render_stats").select(["machine_id", (eb) => eb.fn.countAll<number>().as("n"), (eb) => eb.fn.sum<number>("total_ms").as("ms")])
     .where("created_at", ">=", iso(start)).where("created_at", "<", iso(end)).groupBy("machine_id").execute();
   const paces = await machinePaces(db);
+  // a rented pod by the GPU it ran on (its last session's), for one terminated since: its id ("rp-abc…") said nothing
+  const pods = shares.flatMap((m) => (m.machine_id ? [m.machine_id] : []));
+  const gpus = new Map<string, string>();
+  if (pods.length) {
+    for (const r of await db.selectFrom("rent_sessions").select(["machine_id", "gpu", "started_at"]).where("machine_id", "in", pods).where("gpu", "is not", null).orderBy("started_at").execute()) gpus.set(r.machine_id, r.gpu!);
+  }
 
   return {
     period: typeof period === "string" ? period : ("window" as const), from: start, to: end, step, times, keepDays, since, buckets,
     /** The machine the figures are of; null: every machine. */
     machine,
     /** Each machine that rendered in the window: how many renders, their GPU time, and its learned pace (1 the common pace, 2 half as fast; null: nothing to compare yet). */
-    machines: shares.filter((m) => m.machine_id).map((m) => ({ id: m.machine_id!, renders: Number(m.n), gpuMs: Number(m.ms ?? 0), pace: paces.get(m.machine_id!) ?? null })),
+    machines: shares.filter((m) => m.machine_id).map((m) => ({
+      id: m.machine_id!, renders: Number(m.n), gpuMs: Number(m.ms ?? 0), pace: paces.get(m.machine_id!) ?? null,
+      /** A rented pod's GPU ("A40 pod"), for one no longer among the machines; null for a ComfyUI of its own. */
+      name: gpus.has(m.machine_id!) ? `${shortGpu(gpus.get(m.machine_id!)!)} pod` : null,
+    })),
     upscale,
     /**
      * The stretch of time the figures cover: the period, or since the first render when that is later. In whole minutes:

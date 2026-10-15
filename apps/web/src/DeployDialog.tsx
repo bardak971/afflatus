@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { shortGpu } from "@afflatus/core";
 import { useLocation } from "wouter";
 import { Bookmark, ChevronDown, CircleAlert, Cpu, RotateCw, Search } from "lucide-react";
 import { ContextMenu, useMenu } from "./ContextMenu";
@@ -11,7 +12,7 @@ import { HuntSection } from "./DeployHunt";
 import { DeployModels, SaveAsSet, type ModelsPicked } from "./DeployModels";
 import { DEPLOYED_READS } from "./deployReads";
 import { Dialog, DialogHead, DIALOG } from "./Dialog";
-import { gb, plural, usd } from "./format";
+import { gb, minutesSaid, plural, usd } from "./format";
 import { useDebounced, useNow } from "./hooks";
 import { ceilingFor, firstPick } from "./huntSaid";
 import { Keys } from "./Keys";
@@ -25,7 +26,6 @@ const FIRST: Omit<DeployAsk, "gpu"> = { cloud: "SECURE", template: "afflatus", v
 const IDLE = [5, 10, 15, 30, 60, 120, 0];
 const WATCH = [5, 10, 15, 30, 60, 0];
 const DISKS = [60, 120, 200, 400];
-const minutesSaid = (n: number) => (n === 0 ? "never" : n < 60 ? `${n} min` : `${n / 60} h`);
 /** RunPod's stock of a GPU in a data center, in its words, and the highest first. */
 const STOCK_SAID: Record<Availability, string> = { HIGH: "high", MEDIUM: "medium", LOW: "low", NONE: "none" };
 const FREEST: Record<Availability, number> = { HIGH: 0, MEDIUM: 1, LOW: 2, NONE: 3 };
@@ -119,7 +119,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
   const readAgo = gpus.dataUpdatedAt ? Math.max(0, Math.round((now - gpus.dataUpdatedAt) / 1000)) : null;
   const picked = free.find((g) => g.id === want.gpu) ?? null;
   // the one picked (or deployed last time) is not free now: said, with the cheapest free one as large
-  const gone = !picked && want.gpu && gpus.isSuccess ? gpus.data.gpus.find((g) => g.id === want.gpu) ?? { id: want.gpu, name: want.gpu.replace(/^NVIDIA (GeForce )?/, ""), memory: 0 } : null;
+  const gone = !picked && want.gpu && gpus.isSuccess ? gpus.data.gpus.find((g) => g.id === want.gpu) ?? { id: want.gpu, name: shortGpu(want.gpu), memory: 0 } : null;
   const instead = gone ? free.slice().sort((a, b) => a.price - b.price).find((g) => g.memory >= gone.memory) ?? null : null;
   // with a key, the GPUs not free now are listed after the others: one picked is hunted for
   const keyed = Boolean(settings.data?.hasRunpodKey);
@@ -162,12 +162,15 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
   // hunting for the GPU wanted, those it would be a step down to are left out at first: slower by what was learned, else
   // cheaper an hour. Ticked, the hunt for a 4090 deployed a free L4 at once, as the best value
   const firstRanking = rank.data?.ranking;
+  /** The GPUs left out that way, by the dialog and not by the user: their row says why. */
+  const [stepDown, setStepDown] = useState<string[]>([]);
   useEffect(() => {
     if (changing || !huntFor || !firstRanking || huntChange.leftOut) return;
     const wanted = firstRanking.find((g) => g.id === huntFor);
     if (!wanted) return;
     const below = firstRanking.filter((g) => g.id !== wanted.id && (wanted.seconds !== null && g.seconds !== null ? g.seconds > wanted.seconds : g.price < wanted.price));
     setHuntChange((was) => ({ ...was, leftOut: below.map((g) => g.id) }));
+    setStepDown(below.map((g) => g.id));
   }, [changing, huntFor, firstRanking, huntChange.leftOut]);
   // the GPU wanted free by either read of RunPod's stock (the list's, every 15 s, or the ranking's): said once, one way
   const wantedRow = rank.data?.ranking.find((g) => g.id === want.gpu) ?? null;
@@ -222,6 +225,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
             ask={huntAsk}
             change={(c) => setHuntChange((was) => ({ ...was, ...c }))}
             ranking={rank.data?.ranking ?? null}
+            stepDown={stepDown}
             overhead={rank.data?.overhead ?? null}
             failed={rank.isError ? rank.error.message : null}
             pending={rank.isFetching}

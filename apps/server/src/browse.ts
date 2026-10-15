@@ -83,7 +83,6 @@ export interface BrowseCard {
 export const FAMILY_BASES: Record<string, string[]> = {
   h3: ["MiniMax H3"],
   wan: ["Wan Video 2.2 I2V-A14B", "Wan Video 2.2 T2V-A14B", "Wan Video 2.2 TI2V-5B"],
-  wananimate: ["Wan Video 2.2 I2V-A14B"],
   scail: ["Wan Video 14B i2v 720p", "Wan Video 14B i2v 480p"],
   ltx: ["LTXV 2.3", "LTXV2"],
   ltx25: ["LTXV 2.5"],
@@ -99,7 +98,6 @@ export const FAMILY_BASES: Record<string, string[]> = {
 /** Hugging Face's base model of a family, for "LoRAs made for it" (its base_model:adapter: tag). */
 const FAMILY_HF_BASES: Record<string, string[]> = {
   wan: ["Wan-AI/Wan2.2-I2V-A14B", "Wan-AI/Wan2.2-T2V-A14B"],
-  wananimate: ["Wan-AI/Wan2.2-Animate-14B"],
   qwen: ["Qwen/Qwen-Image"],
   flux: ["black-forest-labs/FLUX.1-dev"],
   sdxl: ["stabilityai/stable-diffusion-xl-base-1.0"],

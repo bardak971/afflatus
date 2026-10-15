@@ -1,9 +1,11 @@
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
-import type { Asset, Clip, DesignerSession, MachineState, RecipeInfo, Take, Timeline } from "../api";
+import { api, type Asset, type Clip, type DesignerSession, type MachineState, type RecipeInfo, type Take, type Timeline } from "../api";
 import { useFamilies, useModelSettings, useRecipes, useSetup, useTimeline } from "../data";
 import type { DesignerTurn } from "../designer/types";
 import { notReady, plural } from "../format";
+import { queryKeys } from "../queryKeys";
 import { useBanners, useEditorColumn } from "../store";
 import { useSelectedClip } from "../bar/bridge";
 import { newTransition, TRANSITIONS } from "@afflatus/core";
@@ -105,11 +107,12 @@ export function useTimelineEditor(id: string) {
   useEffect(() => {
     if (id && frameW && frameH) rememberAspect(id, frameW, frameH);
   }, [id, frameW, frameH]);
-  // the video models that are on, and the ones a clip of this timeline is already made with
+  // the video models offered (on, and not hidden), and the ones a clip or the source of this timeline is already made with
   const families = useFamilies();
+  const sourceRecipe = t?.source?.recipe;
   const videoRecipes = useMemo(
-    () => (recipes.data?.recipes ?? []).filter((r) => r.output === "video" && (families.isOn(r.family) || clips.some((c) => c.recipe === r.id))),
-    [recipes.data, families, clips],
+    () => (recipes.data?.recipes ?? []).filter((r) => r.output === "video" && (families.offers(r) || r.id === sourceRecipe || clips.some((c) => c.recipe === r.id))),
+    [recipes.data, families, clips, sourceRecipe],
   );
   const comfyOnline = setup.data?.comfy.online ?? false;
   const current = clips.find((c) => c.id === selected) ?? null;
@@ -209,12 +212,24 @@ export function useTimelineEditor(id: string) {
   const renderable = (c: Clip) => picked.has(c.id) && c.kind === "video" && Boolean(ready(c).input);
 
   /** About how long a clip takes to render on a machine (null: Auto): the server's forecast of its whole form, learned from past renders (as the timeline card's). */
-  const takesOn = useForecasts(clips, recipes.data?.recipes ?? NONE, formOf);
+  const { takesOn, canOn } = useForecasts(clips, recipes.data?.recipes ?? NONE, formOf);
   // on the machine picked for this timeline, as that machine's own renders say it; Auto: the machine that renders it soonest
   const pickedMachine = usePickedMachine(timelineKey(id));
   const takes = (c: Clip) => takesOn(c, pickedMachine);
+  // on Auto, the server's plan of them all (queue.total): shared between the machines, each loading its model once. Added
+  // up one after another, 3 H3 clips said ~7 min where 3 machines take ~4
+  const missingAt = missing.map((c) => clips.indexOf(c) + 1);
+  const plannedAll = useQuery({
+    queryKey: queryKeys.timelinePlanned(id, missingAt, t?.updatedAt ?? ""),
+    queryFn: ({ signal }) => api.commandEstimate({ timeline: id, clips: missingAt }, { signal }),
+    enabled: Boolean(id && missingAt.length),
+    staleTime: 30_000,
+    placeholderData: keepPreviousData,
+  });
   /** What rendering every clip left to render takes on a machine (null: Auto), as Render all and its machine list say it. */
-  const allOn = (m: MachineState | null) => missing.reduce((sum, c) => sum + (takesOn(c, m) ?? 0), 0);
+  const allOn = (m: MachineState | null) => (m === null && plannedAll.data?.ms ? plannedAll.data.ms : missing.reduce((sum, c) => sum + (takesOn(c, m) ?? 0), 0));
+  /** Why a machine cannot take the clips left to render: one of them it cannot render (its files not there). */
+  const allBlocked = (m: MachineState) => (missing.some((c) => !canOn(c, m)) ? "lacks a model of these clips" : null);
   const allMs = allOn(pickedMachine ?? null);
   /** What Needs attention is worked out from (EditorColumns' Checks). */
   const checks: Checks = {
@@ -338,7 +353,7 @@ export function useTimelineEditor(id: string) {
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, inputsOf, editInputs, formOf, ready, sayOf, say, m, range, setRange, loopRange, snapQuiet,
     toggleSnapQuiet, emptyRange, toggle, toggleLoop, rangeAct, rangeItems, clipMenu, soundMenu, pinMenu, musicMenu, rangeMenu, onClip,
-    newClip, move, missing, renderable, takes, takesOn, allMs, allOn, checks, volume, muted, onVolume, onMute, cursor, setCursor, onTime,
+    newClip, move, missing, renderable, takes, takesOn, allMs, allOn, allBlocked, checks, volume, muted, onVolume, onMute, cursor, setCursor, onTime,
     trackKeys, jump, splitAt, stepTake, continueFrom, continueHere, misfits, finishedSize, fixFirst, exportNow, clipHead,
     after, render, patch, fix, edit, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan,
   };

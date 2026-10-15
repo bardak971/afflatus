@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ExternalLink } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { shortGpu } from "@afflatus/core";
 import { Link, useLocation } from "wouter";
 import { api, type RunpodPod } from "../../api";
 import { useQueue, useSettings } from "../../data";
 import { useOpenComfyUI } from "../../actions";
 import { useRentedOps } from "../../rentedOps";
 import { RentedHead } from "./RentedRows";
-import { plural, usd, when } from "../../format";
+import { minutesSaid, plural, usd, when } from "../../format";
 import { Select } from "../../Select";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
@@ -183,7 +184,7 @@ function RunpodAccount() {
       {(s?.lowBalance || spending.isError || saveCaps.isError || Boolean(s?.storage?.unused.length) || Boolean(s?.storage?.stoppedDisks)) && (
         <Block>
           {s?.lowBalance && <ErrorNote>Your RunPod balance is low: RunPod stops pods at zero, and may delete their disks after a while.</ErrorNote>}
-          {Boolean(s?.storage?.stoppedDisks) && <ErrorNote>{plural(s!.storage!.stoppedDisks, "stopped pod")} with a disk: billed while it waits. Terminate it if you will not start it again.</ErrorNote>}
+          {Boolean(s?.storage?.stoppedDisks) && <ErrorNote>{s!.storage!.stoppedDisks === 1 ? "1 stopped pod with a disk: billed while it waits. Terminate it if you will not start it again." : `${s!.storage!.stoppedDisks} stopped pods with a disk: billed while they wait. Terminate them if you will not start them again.`}</ErrorNote>}
           {s?.storage?.unused.map((v) => <ErrorNote key={v.id}>The volume {v.name} is unused {v.usedAt ? `since ${when(v.usedAt)}` : "since Afflatus first saw it"}: {usd(v.perMonth)} a month for nothing. Delete it under Network volumes if you will not deploy on it soon.</ErrorNote>)}
           {spending.isError && <ErrorNote>{spending.error.message}</ErrorNote>}
           {saveCaps.isError && <ErrorNote>{saveCaps.error.message}</ErrorNote>}
@@ -262,7 +263,7 @@ function RunpodPods() {
         const ends = machine?.rented ? `${machine.rented.idleDo === "stop" ? "stops" : "terminates"} after ${minutesSaid(machine.rented.idleMinutes)} idle` : null;
         const volume = p.volumeId ? volumes.data?.volumes.find((v) => v.id === p.volumeId) : undefined;
         const facts = [
-          p.gpu?.replace(/^NVIDIA (GeForce )?/, ""),
+          p.gpu ? shortGpu(p.gpu) : null,
           rate ? `${usd(rate)}/h` : null,
           p.dataCenter,
           p.volumeId ? `on ${volume ? volume.name : "a network volume"}` : null,
@@ -294,9 +295,6 @@ function RunpodPods() {
   );
 }
 
-/** The choices the Deploy dialog opens with: a GPU name as RunPod lists it, without its maker's words. */
-const gpuSaid = (id: string) => id.replace(/^NVIDIA (GeForce )?/, "");
-const minutesSaid = (n: number) => (n === 0 ? "never" : n < 60 ? `${n} min` : `${n / 60} h`);
 
 /** One choice of the next deploy, as a small box: what it is, the choice, a line under it. */
 function Choice({ what, children, sub, tone }: { what: string; children: ReactNode; sub?: ReactNode; tone?: "good" | "warn" }) {
@@ -324,7 +322,7 @@ function NextDeploy() {
       {!next && <Block><span className="text-xs text-ink-2">Nothing yet: the first deploy's choices are kept here.</span></Block>}
       {next && (
         <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2.5 px-[18px] py-3.5">
-          <Choice what="GPU" sub={`${next.cloud === "SECURE" ? "Secure" : "Community"} Cloud`}>{gpuSaid(next.gpu)}</Choice>
+          <Choice what="GPU" sub={`${next.cloud === "SECURE" ? "Secure" : "Community"} Cloud`}>{shortGpu(next.gpu)}</Choice>
           <Choice what="Image" tone={next.template === "afflatus" ? "good" : "warn"} sub={next.template === "afflatus" ? "locked from its start" : "not locked"}>{next.template === "afflatus" ? "Afflatus" : "RunPod's ComfyUI"}</Choice>
           <Choice what="Models" sub={next.set ? `+ ${sets.data?.items.find((x) => x.id === next.set)?.name ?? "a set since deleted"} ahead` : "no set ahead"}>What each job needs</Choice>
           <Choice what="Disk" tone={volume?.usedBy ? "warn" : undefined} sub={!next.volume ? "models fetched each deploy" : volume ? `${volume.dataCenter} · its GPUs only${volume.usedBy ? ` · in use by ${volume.usedBy.name}` : ""}` : undefined}>

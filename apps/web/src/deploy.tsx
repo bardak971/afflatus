@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { shortGpu } from "@afflatus/core";
 import { create } from "zustand";
 import { api, type DeployAsk } from "./api";
 import { ask } from "./Confirm";
@@ -38,7 +39,7 @@ export function DeployHost() {
 }
 
 /** A last deploy said in a few words: "A40 · Afflatus · no volume". */
-export const lastSaid = (last: DeployAsk, name?: string) => [name ?? last.gpu.replace(/^NVIDIA (GeForce )?/, ""), last.template === "afflatus" ? "Afflatus" : "RunPod's ComfyUI", last.volume ? "network volume" : "no volume", last.set ? "its Model set" : ""].filter(Boolean).join(" · ");
+export const lastSaid = (last: DeployAsk, name?: string) => [name ?? shortGpu(last.gpu), last.template === "afflatus" ? "Afflatus" : "RunPod's ComfyUI", last.volume ? "network volume" : "no volume", last.set ? "its Model set" : ""].filter(Boolean).join(" · ");
 
 /**
  * "Deploy again": the last deploy's choices, after one question that says the rate as RunPod says it now. Its GPU not

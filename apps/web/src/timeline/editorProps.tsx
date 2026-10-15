@@ -35,6 +35,7 @@ export function headerProps(e: LoadedEditor): ComponentProps<typeof TimelineHead
     missing: e.missing,
     allMs: e.allMs,
     allOn: e.allOn,
+    allBlocked: e.allBlocked,
     picked: { size: picked.size, renderable: clips.some(e.renderable) },
     rendering: render.isPending,
     onRename: (name) => edit.mutate({ name }),

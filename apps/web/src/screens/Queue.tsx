@@ -89,10 +89,11 @@ export function Queue() {
   }, [loaded, resetFree]);
 
   return (
-    <div className="flex min-h-0 grow flex-col overflow-hidden px-8 pb-6">
-      <header className="flex h-20 shrink-0 items-center gap-5">
+    // on a narrow window (a phone) the page scrolls as one, its parts at their own height; wide, each part scrolls in its place
+    <div className="flex min-h-0 grow flex-col overflow-y-auto px-4 pb-6 sm:px-8 lg:overflow-hidden">
+      <header className="flex min-h-20 shrink-0 flex-wrap items-center gap-x-5 gap-y-2 py-3 lg:h-20 lg:py-0">
         <h1 className="text-xl font-semibold">Queue</h1>
-        <div className="w-[460px]">
+        <div className="w-[460px] max-w-full">
           <Segmented<Tab> label="View" value={tab} options={[{ value: "queue", label: "Queue" }, { value: "times", label: "Render times" }, { value: "costs", label: "Costs" }, { value: "log", label: "ComfyUI log" }]} onChange={setTab} />
         </div>
         <div className="flex min-w-0 grow items-center gap-3 text-xs text-ink-2">
@@ -119,26 +120,36 @@ export function Queue() {
 
       {tab === "queue" && !q && !queue.error && <p className="text-sm text-ink-3">…</p>}
       {tab === "queue" && q && (
-        <div className="grid min-h-0 grow grid-cols-[minmax(0,1fr)_280px] gap-8">
-          <div className="flex min-h-0 flex-col gap-5">
+        // below 1024 px the Notify column goes over the queue, which then has the whole width (at 960 px its 280 px left
+        // the history no room for the jobs' names)
+        <div className="grid grow grid-cols-1 gap-5 lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-8">
+          <div className="flex flex-col gap-5 lg:min-h-0">
             {q.paused && (
               <div className="flex shrink-0 items-center gap-2 rounded-[10px] bg-accent-wash px-3.5 py-2.5 text-sm font-semibold text-accent">
                 Paused · nothing new goes to ComfyUI
                 <Help text="The running render finishes, then nothing new goes to ComfyUI until you resume. Exports go on: they need no GPU." />
               </div>
             )}
-            <section aria-label="Now" className="flex max-h-[55%] shrink-0 flex-col gap-1.5 overflow-y-auto">
+            {/* the machines and the waiting list each scroll in their own part, each kept at least a few rows high: four
+                machine cards left the waiting list a row and a half at 1440 × 900 */}
+            <section aria-label="Now" className="flex shrink-0 flex-col gap-1.5 lg:max-h-[60%]">
               <SectionTitle>{several.length ? "Machines" : q.running?.kind === "export" ? "Exporting" : q.running?.kind === "load" ? "Loading model" : "Running"}</SectionTitle>
-              {several.length
-                ? <MachineLanes q={q} onStop={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} />
-                : <RunningCard running={q.running} onStop={(id) => cancel.mutate(id)} />}
+              <div className="shrink lg:min-h-[5.5rem] lg:overflow-y-auto">
+                {several.length
+                  ? <MachineLanes q={q} onStop={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} />
+                  : <RunningCard running={q.running} onStop={(id) => cancel.mutate(id)} />}
+              </div>
               {/* its head says what they come to: how many, how long, the model switches, and the bulk actions */}
-              <WaitingList waiting={q.waiting} whole={q.whole} running={q.running} machines={several} onOrder={(ids) => order.mutate(ids)} onRemove={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} />
+              {q.waiting.length > 0 && (
+                <div className="shrink-[0.25] lg:min-h-[9.5rem] lg:overflow-y-auto">
+                  <WaitingList waiting={q.waiting} whole={q.whole} endsInMs={q.waitingEndsInMs} running={q.running} machines={several} onOrder={(ids) => order.mutate(ids)} onRemove={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} />
+                </div>
+              )}
             </section>
             <History />
           </div>
 
-          <div className="flex min-h-0 flex-col gap-1.5 overflow-y-auto pb-4">
+          <div className="-order-1 flex flex-col gap-1.5 lg:order-none lg:min-h-0 lg:overflow-y-auto lg:pb-4">
             {/* a title as the left column has, so that the two start level */}
             <SectionTitle>Notify</SectionTitle>
             <div className="mb-3.5 flex flex-col gap-1 rounded-[10px] border border-line px-3 py-2">

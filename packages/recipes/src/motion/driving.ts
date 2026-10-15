@@ -35,17 +35,24 @@ export interface MotionShape {
   least: number;
 }
 
-/** The inputs every Motion transfer form opens with: the picture, the driving video and its part, the prompt, the size. */
-export function motionInputs(shape: MotionShape, placeholder = "A man in a black t-shirt and a silver watch stands in a crowded room lit by red light. He raps to the camera, moving his hands to the beat."): InputSpec[] {
-  // the most one job takes, in tenths of a second as the note says it (Wan Animate's one window: 3.3 s)
-  const said = Math.floor((shape.most / shape.fps) * 10) / 10;
-  // what the field takes, in hundredths: from the fewest frames a job makes (a timeline's last window, or one ended by a scene
-  // cut, is under a second) to the most and the half frame a timeline's windows add (sourceWindows.ts), so that every window
-  // it makes is taken. Floored to a tenth the most refused every Wan Animate window (3.3958 s against 3.3) and never reached
-  // its 81 frames. The most is on the field's steps from the least, so that the slider's end reaches it
+/**
+ * The lengths a window-by-window form's part field takes, in seconds on steps of 0.01: from the fewest frames a job makes
+ * (a timeline's last window, or one ended by a scene cut, can be short) to the most and the half frame a timeline's windows
+ * add (sourceWindows.ts), so that every window it makes is taken. Floored to a tenth the most refused every window of a
+ * model of 81 frames at 24 fps (3.3958 s against 3.3) and never reached its 81 frames. The most is on the field's steps
+ * from the least, so that the slider's end reaches it.
+ */
+export function partBounds(shape: MotionShape): { least: number; most: number } {
   const hundredths = (s: number) => Math.round(s * 100) / 100;
   const least = Math.ceil((shape.least / shape.fps) * 100) / 100;
-  const most = hundredths(least + Math.ceil(((shape.most + 0.5) / shape.fps - least) * 100 - 1e-6) / 100);
+  return { least, most: hundredths(least + Math.ceil(((shape.most + 0.5) / shape.fps - least) * 100 - 1e-6) / 100) };
+}
+
+/** The inputs every Motion transfer form opens with: the picture, the driving video and its part, the prompt, the size. */
+export function motionInputs(shape: MotionShape, placeholder = "A man in a black t-shirt and a silver watch stands in a crowded room lit by red light. He raps to the camera, moving his hands to the beat."): InputSpec[] {
+  // the most one job takes, in tenths of a second as the note says it
+  const said = Math.floor((shape.most / shape.fps) * 10) / 10;
+  const { least, most } = partBounds(shape);
   return [
     // the driving video first: it says where the clip starts, and which of its frames a picture is made from
     {

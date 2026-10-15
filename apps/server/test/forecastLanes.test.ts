@@ -78,6 +78,45 @@ describe("whether a machine must load the model", () => {
   });
 });
 
+describe("a waiting render on a machine that holds nothing", () => {
+  it("is told cold: nothing was asked to load there yet (it was told warm)", async () => {
+    await rendered();
+    holds("m1", CHECKPOINT);
+    const warm = (await t.services.queue.forecast(RECIPE, INPUT))!.on!.m1!.ms;
+    // paused, the line is judged by the first machine, which holds nothing known now
+    await post(t.app, "/api/queue/pause", {});
+    holds("m1", null);
+    const waiting = (await post(t.app, "/api/jobs", job())).json().ids[0] as string;
+    const row = ((await get(t.app, "/api/queue")).json().waiting as Array<{ id: string; estimateMs: number | null }>).find((w) => w.id === waiting)!;
+    expect(row.estimateMs! - warm).toBeGreaterThan(25_000);
+  });
+});
+
+describe("a form placed from its recipe's usual times (its model never rendered)", () => {
+  it("is said on each machine, each with its own load, and only on the machines that can render it", async () => {
+    // renders of the recipe with another model: the form's own model was never rendered
+    const at = now();
+    await t.db.insertInto("render_stats").values([0, 1, 2, 3].map((i): RenderRow => ({
+      id: `o${i}`, owner_id: "local", recipe_id: RECIPE, family: "sdxl", model: "other", model_file: "other.safetensors", time_key: "steps=28",
+      kind: "image", width: 832, height: 1216, duration_ms: null, steps: 28, status: "done", whole: 1, cold: i === 0 ? 1 : 0, waited_ms: 0,
+      total_ms: (i === 0 ? 30_000 : 1_000) + 19_000, load_ms: i === 0 ? 30_000 : 1_000, sample_ms: 14_000, refine_ms: 0, finish_ms: 5_000, step_ms: 500, expected_ms: null,
+      vram_peak: null, heat_peak: null, asset_id: null, work: 832 * 1216, machine_id: "m1", gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, created_at: at,
+    }))).execute();
+    holds("m1", CHECKPOINT);
+    holds("m3", "other.safetensors");
+    fakes[1]!.models.checkpoints = ["other.safetensors"];
+    await post(t.app, "/api/setup/rescan?machine=m2", {});
+    const got = await t.services.queue.forecast(RECIPE, INPUT);
+    // every machine was given the first one's figure, warm as it held the model
+    expect(got?.on?.m3?.ms).toBeGreaterThan(got!.on!.m1!.ms + 20_000);
+    expect("can" in got! && got.can).toEqual(["m1", "m3"]);
+    // the editor's figures: m2, without the file, is not one Auto or Render on can take
+    const said = (await post(t.app, "/api/forecasts", { forms: [{ recipe: RECIPE, input: INPUT }] })).json();
+    expect(said.can[0]).toEqual(["m1", "m3"]);
+    expect(said.ms[0]).toBe(got!.on!.m1!.ms);
+  });
+});
+
 describe("Auto on the form", () => {
   it("counts only the machines that have the form's files, and shares a batch between them", async () => {
     await rendered();

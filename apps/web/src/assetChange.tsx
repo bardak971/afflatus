@@ -1,9 +1,10 @@
 import { useCallback } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { api, ApiError, type Folder, type Project } from "./api";
+import { api, type Folder, type Project } from "./api";
 import { applyChange, itemsWord, placeName, placesBefore, rollback, type Seats } from "./assetCache";
 import type { AssetChange } from "./queryKeys";
 import { moves } from "./leave";
+import { failedBanner } from "./sayFailed";
 import { useBanners } from "./store";
 import { libraryReads, queryKeys, type LibraryChange } from "./queryKeys";
 
@@ -114,10 +115,10 @@ export async function changeAssets(client: QueryClient, c: AssetChange, opts: Ch
       rollback(client, snap);
       if (said) useBanners.getState().dismiss(said);
       shake(c.ids);
-      const why = err instanceof ApiError && err.status === 409 ? `Still in use: ${err.message}` : err instanceof Error ? err.message : String(err);
       const refused = bannerId("refused");
       for (const id of c.ids) refusedFor.set(id, refused);
-      say({ id: refused, tone: "bad", title: refusedTitle(c), text: why, action: { label: "Retry", run: () => void changeAssets(client, c, opts) } });
+      // the failure's own banner (a 409 titled "Still in use"), with Retry
+      say({ ...failedBanner({ id: refused, once: true, inUse: true }, refusedTitle(c), err), action: { label: "Retry", run: () => void changeAssets(client, c, opts) } });
       return false;
     }
     return true;

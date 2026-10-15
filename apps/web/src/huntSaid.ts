@@ -1,6 +1,6 @@
 import type { RankedGpu } from "@afflatus/core";
 import type { DeployOverhead, HuntMode, HuntSummary, QueueStatus } from "./api";
-import { brief, leftWords, plural, usd } from "./format";
+import { leftWords, plural, spell, usd } from "./format";
 
 /**
  * The GPU hunt in words, for the Deploy dialog's hunt, the status bar and the hunt's card: what each mode ranks by, a
@@ -17,7 +17,6 @@ export const modeWord = (mode: HuntMode) => MODES.find((m) => m.value === mode)!
 /** When a hunt gives up, in minutes from its start; one kept from before at another length is offered too. */
 const GIVE_UP = [30, 60, 120, 240, 480, 720];
 export const giveUpOptions = (current: number) => [...new Set([...GIVE_UP, current])].sort((a, b) => a - b);
-export const minutesSaid = (n: number) => (n < 60 ? `${n} min` : n % 60 ? `${Math.floor(n / 60)} h ${n % 60} min` : `${n / 60} h`);
 
 /**
  * The price an hour a hunt opens with: the GPU wanted's, up to the next quarter dollar, so that it is in; $1.00 with
@@ -29,7 +28,7 @@ export const ceilingFor = (price: number | null | undefined) => (price ? Math.ce
 export const firstPick = (ranking: readonly RankedGpu[] | null | undefined) => ranking?.find((g) => g.fit === "yes") ?? null;
 
 /** A render on that GPU, as its row says it: "$0.025 · 2m 10s"; "not known yet" when it cannot be told. */
-export const renderSaid = (g: Pick<RankedGpu, "cost" | "seconds">) => (g.cost === null || g.seconds === null ? "not known yet" : `${usd(g.cost, true)} · ${brief(g.seconds * 1000)}`);
+export const renderSaid = (g: Pick<RankedGpu, "cost" | "seconds">) => (g.cost === null || g.seconds === null ? "not known yet" : `${usd(g.cost, true)} · ${spell(g.seconds * 1000)}`);
 
 /** A deploy's own cost on that GPU, under its render's: "+$0.071 a deploy"; null when no session tells it yet. */
 export const deploySaid = (g: Pick<RankedGpu, "overhead">) => (g.overhead === null ? null : `+${usd(g.overhead, true)} a deploy`);
@@ -38,8 +37,8 @@ export const deploySaid = (g: Pick<RankedGpu, "overhead">) => (g.overhead === nu
 export function renderWhy(o: DeployOverhead | null): string {
   const render = "A render: its time on that GPU times its price an hour.";
   if (!o) return `${render} A deploy also bills its boot, its files and its idle before it stops; said here once you have a session that ended.`;
-  const fetch = o.fetchMs > 0 ? `, their usual files fetched (${brief(o.fetchMs)}, none with a network volume)` : "";
-  return `${render} + a deploy: what each deploy bills besides its renders, at that GPU's price: your pods' usual boot (${brief(o.bootMs)})${fetch} and usual idle before they stop (${brief(o.idleMs)}), from your last ${plural(o.sessions, "session")}. The more renders a deploy takes, the less of it each one carries.`;
+  const fetch = o.fetchMs > 0 ? `, their usual files fetched (${spell(o.fetchMs)}, none with a network volume)` : "";
+  return `${render} + a deploy: what each deploy bills besides its renders, at that GPU's price: your pods' usual boot (${spell(o.bootMs)})${fetch} and usual idle before they stop (${spell(o.idleMs)}), from your last ${plural(o.sessions, "session")}. The more renders a deploy takes, the less of it each one carries.`;
 }
 
 /** The hunt's title: "Hunting · best value, up to $1.00/h". */

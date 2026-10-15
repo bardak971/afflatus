@@ -4,7 +4,7 @@ import { Progress } from "../../progress/Progress";
 import { previewUrl, type MachineState, type PodDisk, type QueueStatus, type RunningJob, type SystemLoad } from "../../api";
 import { useMenu } from "../../ContextMenu";
 import { gb, phaseLabel, plural, timeLeft } from "../../format";
-import { machineLabel } from "../../machines";
+import { machineLabel, machineState, rentedSaid, type MachineWord } from "../../machines";
 import { useQueueOps } from "../../queueOps";
 import { useSystem } from "../../store";
 import { cx } from "../../ui";
@@ -22,31 +22,32 @@ const COMPACT_PAST = 4;
 /** The columns of a machine's row, the same in every row and in an opened lane's head, so that they line up and nothing jumps. */
 const ROW = "grid grid-cols-[16px_minmax(120px,180px)_88px_minmax(0,1fr)_minmax(0,170px)_316px_64px] items-center gap-3.5";
 
+/** How a lane looks in its state (machineState): a stopped pod as a paused machine, a locked or starting one as one away. */
 type State = "rendering" | "idle" | "paused" | "offline";
-const stateOf = (m: MachineState): State => (m.paused ? "paused" : m.online === false ? "offline" : m.running ? "rendering" : "idle");
+const lookOf = (word: MachineWord): State => (word === "stopped" ? "paused" : word === "locked" || word === "starting" ? "offline" : word);
 
 /** A machine's dot: filled green while it renders, a green ring when idle, grey when paused, a warning ring when away. */
 function Dot({ state }: { state: State }) {
   return <span aria-hidden className={cx("size-2 shrink-0 rounded-full", state === "rendering" ? "bg-good" : state === "idle" ? "border-[1.5px] border-good" : state === "paused" ? "bg-ink-3" : "border-[1.5px] border-warn")} />;
 }
 
-/** Its state as a pill, in the colours the app gives them. */
-function StatePill({ state }: { state: State }) {
+/** Its state as a pill (its word: machineState), in the colours the app gives them. */
+function StatePill({ state, word }: { state: State; word: MachineWord }) {
   return (
     <span className={cx(
       "justify-self-start rounded-full px-2 py-px text-[11.5px] font-semibold",
       state === "rendering" ? "bg-accent-wash text-accent" : state === "idle" ? "border border-good/40 text-good" : state === "paused" ? "bg-hover text-ink-2" : "bg-warn-wash text-warn-ink",
     )}>
-      {state}
+      {word}
     </span>
   );
 }
 
-/** The model it holds, as a chip; a dashed one when it holds none. */
+/** The model it holds, as a chip on one line (cut short when long); a dashed one when it holds none. */
 function ModelChip({ model }: { model: string | null }) {
   return model
-    ? <span className="max-w-full justify-self-start truncate rounded-[7px] border border-line bg-raised px-2 py-0.5 text-xs text-ink-2" data-tip={`Holds ${model}: a render with it starts at once here`}>{model}</span>
-    : <span className="justify-self-start rounded-[7px] border border-dashed border-line-strong px-2 py-0.5 text-xs text-ink-3">no model</span>;
+    ? <span className="min-w-0 max-w-full justify-self-start truncate rounded-[7px] border border-line bg-raised px-2 py-0.5 text-xs whitespace-nowrap text-ink-2" data-tip={`Holds ${model}: a render with it starts at once here`}>{model}</span>
+    : <span className="shrink-0 justify-self-start rounded-[7px] border border-dashed border-line-strong px-2 py-0.5 text-xs whitespace-nowrap text-ink-3">no model</span>;
 }
 
 /** A small bar and its figure, as the status bar's meters. */
@@ -154,17 +155,24 @@ function useLane(m: MachineState, onPin: (job: string, machine: string) => void)
   const menu = useMenu<true>();
   const load = useSystem((s) => s.loads[m.id]);
   const drop = useDrop(m, onPin);
-  const state = stateOf(m);
+  const word = machineState(m);
+  const state = lookOf(word);
   const menuNode = menu.menu && <Suspense fallback={null}><MachineMenuBody at={menu.menu.at} machine={m.id} onClose={menu.close} /></Suspense>;
-  return { menu, load, drop, state, menuNode };
+  return { menu, load, drop, state, word, menuNode };
 }
 
 /** What its row says in the middle when it renders nothing. */
-const quiet = (m: MachineState, state: State) => (state === "paused" ? "takes nothing new until it resumes" : state === "offline" ? `${m.locked ? "locked: its token is wrong" : m.rented?.booting || m.rented?.status === "PROVISIONING" || m.rented?.status === "STARTING" ? "starting: its image is pulled, then ComfyUI comes up" : "not answering"} · the others take the line` : "");
+const quiet = (m: MachineState, word: MachineWord) =>
+  word === "paused" ? "takes nothing new until it resumes"
+  : word === "stopped" && m.rented ? `${rentedSaid(m.rented)} · the others take the line`
+  : word === "starting" ? "starting: its image is pulled, then ComfyUI comes up · the others take the line"
+  : word === "locked" ? "locked: its token is wrong · the others take the line"
+  : word === "offline" ? "not answering · the others take the line"
+  : "";
 
 /** A machine in one row: its state, what it renders, what it holds, its meters, its actions, and its progress along the bottom. A click opens it. */
 function MachineRow({ m, onPin, onOpen, open }: { m: MachineState; onPin(job: string, machine: string): void; onOpen(): void; open?: boolean }) {
-  const { menu, load, drop, state, menuNode } = useLane(m, onPin);
+  const { menu, load, drop, state, word, menuNode } = useLane(m, onPin);
   return (
     <div
       role="button"
@@ -184,8 +192,8 @@ function MachineRow({ m, onPin, onOpen, open }: { m: MachineState; onPin(job: st
     >
       {open ? <ChevronDown size={13} className="text-ink-2" /> : <ChevronRight size={13} className="text-ink-3" />}
       <span className="flex min-w-0 items-center gap-2"><Dot state={state} /><span className="truncate text-[14px] font-semibold">{machineLabel(m)}</span></span>
-      <StatePill state={state} />
-      {m.running && !open ? <JobLine run={m.running} /> : <span className={cx("truncate text-xs", state === "offline" ? "text-warn-ink" : "text-ink-3")}>{open ? load?.gpus[0]?.name ?? "" : quiet(m, state)}</span>}
+      <StatePill state={state} word={word} />
+      {m.running && !open ? <JobLine run={m.running} /> : <span className={cx("truncate text-xs", state === "offline" ? "text-warn-ink" : "text-ink-3")}>{open ? load?.gpus[0]?.name ?? "" : quiet(m, word)}</span>}
       <ModelChip model={m.model} />
       {open ? <span /> : <MiniMeters load={load} rendering={state === "rendering"} />}
       <Actions m={m} onMenu={(e) => menu.open(e, true)} />
@@ -222,7 +230,7 @@ function MeterTiles({ load, rendering, pace, fastest, disk }: { load: SystemLoad
 
 /** A machine opened: the same head as its row (nothing jumps), then its running card or a calm idle state, and its meters as tiles. */
 function OpenLane({ m, fastest, onStop, onPin, onFold }: { m: MachineState; fastest: number | null; onStop(id: string): void; onPin(job: string, machine: string): void; onFold(): void }) {
-  const { menu, load, drop, state, menuNode } = useLane(m, onPin);
+  const { menu, load, drop, state, word, menuNode } = useLane(m, onPin);
   const name = machineLabel(m);
   const files = gettingFiles(m);
   return (
@@ -237,7 +245,7 @@ function OpenLane({ m, fastest, onStop, onPin, onFold }: { m: MachineState; fast
           <div className="flex items-center gap-3.5 rounded-[10px] border border-dashed border-line-strong px-4 py-3 text-ink-2">
             <span className="grid size-[34px] shrink-0 place-items-center rounded-full border-[1.5px] border-line-strong"><Dot state={state} /></span>
             <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="font-semibold text-ink">{state === "paused" ? "Paused · takes nothing new until it resumes" : state === "offline" ? "Not answering · the others take the line" : "Idle · ready for the next job"}</span>
+              <span className="font-semibold text-ink">{quiet(m, word).replace(/^./, (c) => c.toUpperCase()) || "Idle · ready for the next job"}</span>
               <span className="text-xs">{m.model ? `Holds ${m.model}: a render with it starts at once here. ` : ""}Drop a waiting job on this machine to run it here.</span>
             </span>
             <span className="grow" />
@@ -257,7 +265,7 @@ function OpenLane({ m, fastest, onStop, onPin, onFold }: { m: MachineState; fast
 
 /** Four machines or fewer: a card each, side by side, the same parts as a row. A click opens it across the width. */
 function MachineCard({ m, onPin, onOpen }: { m: MachineState; onPin(job: string, machine: string): void; onOpen(): void }) {
-  const { menu, load, drop, state, menuNode } = useLane(m, onPin);
+  const { menu, load, drop, state, word, menuNode } = useLane(m, onPin);
   const gpu = load?.gpus[0];
   return (
     <section
@@ -266,7 +274,7 @@ function MachineCard({ m, onPin, onOpen }: { m: MachineState; onPin(job: string,
       onClick={onOpen}
       onContextMenu={(e) => menu.open(e, true)}
       className={cx(
-        "relative flex min-w-0 cursor-pointer flex-col gap-2.5 overflow-hidden rounded-xl border bg-panel p-3 transition-colors hover:bg-hover",
+        "@container/card relative flex min-w-0 cursor-pointer flex-col gap-2.5 overflow-hidden rounded-xl border bg-panel p-3 transition-colors hover:bg-hover",
         drop.over ? "border-accent ring-1 ring-accent" : state === "rendering" ? "border-accent/30" : state === "offline" ? "border-warn/30" : "border-line",
         state === "paused" && "opacity-70",
       )}
@@ -274,19 +282,20 @@ function MachineCard({ m, onPin, onOpen }: { m: MachineState; onPin(job: string,
       <div className="flex min-w-0 items-center gap-2">
         <Dot state={state} />
         <span className="truncate text-[14px] font-semibold">{machineLabel(m)}</span>
-        <StatePill state={state} />
+        <StatePill state={state} word={word} />
         <span className="grow" />
         <Actions m={m} onMenu={(e) => menu.open(e, true)} />
       </div>
       <div className="flex h-9 min-w-0 items-center">
-        {m.running ? <JobLine run={m.running} size="md" /> : <span className={cx("truncate text-xs", state === "offline" ? "text-warn-ink" : "text-ink-3")}>{quiet(m, state) || "Ready for the next job · drop one here to pin it"}</span>}
+        {m.running ? <JobLine run={m.running} size="md" /> : <span className={cx("truncate text-xs", state === "offline" ? "text-warn-ink" : "text-ink-3")}>{quiet(m, word) || "Ready for the next job · drop one here to pin it"}</span>}
       </div>
       <div className="flex min-w-0 items-center gap-3 text-xs text-ink-2">
         {gpu ? (
-          <span className="flex min-w-0 gap-3 truncate" data-tip={gpu.name}>
+          <span className="flex shrink-0 gap-3 whitespace-nowrap" data-tip={[gpu.name, load?.ram && `RAM ${Math.round(load.ram.percent)}%`].filter(Boolean).join(" · ")}>
             {gpu.load !== undefined && <span>GPU {Math.round(gpu.load)}%</span>}
             <span>VRAM {gb(gpu.vramUsed).replace(" GB", "")}/{gb(gpu.vramTotal)}</span>
-            {load?.ram && <span>RAM {Math.round(load.ram.percent)}%</span>}
+            {/* on a narrow card the RAM goes (it is in the tip): it was cut to "RA" beside the model */}
+            {load?.ram && <span className="@max-[400px]/card:hidden">RAM {Math.round(load.ram.percent)}%</span>}
           </span>
         ) : <span className="text-ink-3">no figures</span>}
         <span className="grow" />

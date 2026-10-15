@@ -3,7 +3,6 @@ import { dryContext, parseInput, sourceWindows, type MediaFacts } from "@afflatu
 import { scailMotion } from "../src/scail/motion";
 import { chunkLengths } from "../src/motion/driving";
 import { SCAIL_FPS } from "../src/scail/family";
-import { wanAnimateMotion } from "../src/wananimate/motion";
 
 type Node = { class_type: string; inputs: Record<string, unknown> };
 type Graph = Record<string, Node>;
@@ -107,62 +106,6 @@ describe("SCAIL-2 · Motion transfer", () => {
   });
 });
 
-describe("Wan Animate 2 · Motion transfer", () => {
-  const wslots = { unet: "wan_animate_2_int8_convrot.safetensors", turbo: "lightx2v.safetensors", clip: "umt5.safetensors", vae: "wan_2.1_vae.safetensors", clipVision: "clip_vision_h.safetensors", rife: "rife49.pth" };
-  const at24 = (seconds: number): MediaFacts => ({ width: 480, height: 854, frames: Math.round(seconds * 24), fps: 24, hasSound: true });
-  const wbuild = (over: Record<string, unknown> = {}, driving: MediaFacts = at24(81 / 24)) => {
-    const input = parseInput(wanAnimateMotion, { picture: "p1", driving: { asset: "v1" }, ...over });
-    return wanAnimateMotion.build(input, dryContext({ slots: wslots, uploads: { picture: "p.png", driving: "d.mp4" }, media: { picture: { width: 768, height: 1360 }, driving } })).graph as Graph;
-  };
-
-  it("runs as ComfyUI's template: the driving video as it is, lightx2v at 1, 6 steps of LCM at CFG 1, the reference's frame trimmed", () => {
-    const graph = wbuild();
-    const cond = of(graph, "WanAnimate2ToVideo")[0]!;
-    expect(cond.inputs).toMatchObject({ length: 81, width: 576, height: 1024, pose_strength: 1, reference_image_strength: 1 });
-    expect(of(graph, "LoraLoaderModelOnly")[0]!.inputs).toMatchObject({ lora_name: "lightx2v.safetensors", strength_model: 1 });
-    expect(of(graph, "KSamplerSelect")[0]!.inputs.sampler_name).toBe("lcm");
-    expect(of(graph, "WanAnimate2Cache")[0]!.inputs).toMatchObject({ device: "cpu", dtype: "int8" });
-    expect(of(graph, "TrimVideoLatent")).toHaveLength(1);
-    // one window: nothing carried on
-    expect(of(graph, "WanAnimate2ToVideo")).toHaveLength(1);
-  });
-
-  it("keeps the driving video's pace (24 a second, as H3's), RIFE off by default, one window a job", () => {
-    // 3.4 s at most: a longer part goes on a timeline, window after window
-    expect(() => parseInput(wanAnimateMotion, { picture: "p1", driving: { asset: "v1" }, drivingSeconds: 10 })).toThrow();
-    const graph = wbuild({ drivingSeconds: 3.3 }, at24(3.3));
-    expect(of(graph, "WanAnimate2ToVideo").map((n) => n.inputs.length)).toEqual([77]);
-    expect(of(graph, "ContextWindowsManual")).toHaveLength(0);
-    expect(of(graph, "FrameInterpolate")).toHaveLength(0);
-    expect(of(graph, "TrimAudioDuration")[0]!.inputs.duration).toBeCloseTo(77 / 24);
-  });
-
-  it("gives the motion branch its own prompt when one is written", () => {
-    const graph = wbuild({ motion: "He raps to the camera." });
-    const pose = of(graph, "WanAnimate2ToVideo")[0]!.inputs.positive_pose as [string, number];
-    expect((graph[pose[0]]!.inputs as { text: string }).text).toBe("He raps to the camera.");
-  });
-
-  it("carries on from the clip before: its last frame starts the clip, and is dropped from it", () => {
-    const input = parseInput(wanAnimateMotion, { picture: "p1", driving: { asset: "v1" }, previous: { asset: "v0" } });
-    const graph = wanAnimateMotion.build(input, dryContext({ slots: wslots, uploads: { picture: "p.png", driving: "d.mp4", previous: "prev.mp4" }, media: { picture: { width: 768, height: 1360 }, driving: at24(81 / 24) } })).graph as Graph;
-    expect(of(graph, "WanAnimate2ToVideo")[0]!.inputs.continue_motion).toBeDefined();
-    expect(of(graph, "LoadVideo").map((n) => n.inputs.file)).toContain("prev.mp4");
-    expect(of(graph, "ImageFromBatch").some((n) => Array.isArray(n.inputs.batch_index))).toBe(true);
-  });
-  it("keeps its own frames beside the clip, for the window after to carry on from", () => {
-    const wa = wanAnimateMotion.build(parseInput(wanAnimateMotion, { picture: "p1", driving: { asset: "v1" } }), dryContext({ slots: wslots, uploads: { picture: "p.png", driving: "d.mp4" }, media: { picture: { width: 768, height: 1360 }, driving: at24(81 / 24) } }));
-    expect(wa.outputs.map((o) => o.role)).toEqual(["result", "raw", "score"]);
-  });
-  it("keeps the sound of the frames it makes: from after the one carried over", () => {
-    const input = parseInput(wanAnimateMotion, { picture: "p1", driving: { asset: "v1" }, previous: { asset: "v0" } });
-    const graph = wanAnimateMotion.build(input, dryContext({ slots: wslots, uploads: { picture: "p.png", driving: "d.mp4", previous: "prev.mp4" }, media: { picture: { width: 768, height: 1360 }, driving: at24(81 / 24) } })).graph as Graph;
-    const trim = of(graph, "TrimAudioDuration")[0]!;
-    expect(trim.inputs.start_index).toBeCloseTo(1 / 24);
-    expect(trim.inputs.duration).toBeCloseTo(80 / 24);
-  });
-});
-
 describe("SCAIL-2 carrying on from the clip before", () => {
   it("anchors its first chunk on that clip's last 5 frames, dropped and colour-held as a chunk's", () => {
     const input = parseInput(scailMotion, { picture: "p1", driving: { asset: "v1" }, previous: { asset: "v0" } });
@@ -195,7 +138,6 @@ describe("SCAIL-2 carrying on from the clip before", () => {
   });
   it("says it makes a long source window by window, carrying on from the clip before", () => {
     expect(scailMotion.traits).toMatchObject({ continues: "clip", windows: { most: 321, carried: 5 } });
-    expect(wanAnimateMotion.traits).toMatchObject({ continues: "clip", windows: { most: 81, carried: 1 } });
   });
 });
 
@@ -244,7 +186,7 @@ const framesOf = (graph: Graph, ref: unknown, decoded: number): number => {
       return framesOf(graph, i.image1, decoded) + framesOf(graph, i.image2, decoded);
     case "ImageFromBatch": {
       const n = framesOf(graph, i.image, decoded);
-      // a link: what the node says (Wan Animate's frames of the clip before, 1)
+      // a link: what the node says
       const from = typeof i.batch_index === "number" ? (i.batch_index < 0 ? i.batch_index + n : i.batch_index) : 1;
       return Math.min(n - from, i.length as number);
     }
@@ -256,10 +198,8 @@ const framesOf = (graph: Graph, ref: unknown, decoded: number): number => {
 };
 
 describe("a Motion transfer window as filed", () => {
-  const wslots = { unet: "wan_animate_2_int8_convrot.safetensors", turbo: "lightx2v.safetensors", clip: "umt5.safetensors", vae: "wan_2.1_vae.safetensors", clipVision: "clip_vision_h.safetensors", rife: "rife49.pth" };
   const SHAPES = [
     { recipe: scailMotion, slots, fps: 16, shape: { fps: 16, most: 321, least: 9, carried: 5 } },
-    { recipe: wanAnimateMotion, slots: wslots, fps: 24, shape: { fps: 24, most: 81, least: 9, carried: 1 } },
   ] as const;
   const made = (recipe: (typeof SHAPES)[number]["recipe"], s: Record<string, string>, fps: number, over: Record<string, unknown>, uploads: Record<string, string> = {}) => {
     const input = parseInput(recipe as typeof scailMotion, { picture: "p1", driving: { asset: "v1" }, ...over });
@@ -285,11 +225,6 @@ describe("a Motion transfer window as filed", () => {
         }
       }
     }
-  });
-
-  it("reaches Wan Animate 2's 81 frames from its form", () => {
-    const built = made(wanAnimateMotion, wslots, 24, { drivingSeconds: 81.5 / 24 });
-    expect(of(built.graph as Graph, "WanAnimate2ToVideo")[0]!.inputs.length).toBe(81);
   });
 
   it("lasts what its part does with RIFE ×2: its frames doubled and the last one held, 2n at twice the rate, as long as its sound", () => {
@@ -333,14 +268,14 @@ describe("a Motion transfer window as filed", () => {
     }
   });
 
-  it("samples on the form's Shift: the scheduler reads the shifted model, at SCAIL-2's own 8 and Wan Animate's 5 by default", () => {
+  it("samples on the form's Shift: the scheduler reads the shifted model, at SCAIL-2's own 8 by default", () => {
     for (const { recipe, slots: s, fps } of SHAPES) {
       const scheduler = (over: Record<string, unknown>) => {
         const graph = made(recipe, s, fps, over).graph as Graph;
         return at(graph, of(graph, "BasicScheduler")[0]!.inputs.model);
       };
       expect(scheduler({}).class_type).toBe("ModelSamplingSD3");
-      expect(scheduler({}).inputs.shift).toBe(recipe === scailMotion ? 8 : 5);
+      expect(scheduler({}).inputs.shift).toBe(8);
       expect(scheduler({ shift: 3 }).inputs.shift).toBe(3);
     }
   });
@@ -387,12 +322,6 @@ describe("a Motion transfer window matched to the driving video", () => {
     // and dropped after: the clip keeps its own frames
     const after = of(graph, "ImageFromBatch").find((n) => at(graph, n.inputs.image) === look)!;
     expect(after.inputs).toMatchObject({ batch_index: 1, length: 4096 });
-    // the same in Wan Animate 2
-    const wan = wanAnimateMotion.build(parseInput(wanAnimateMotion, { picture: "p1", driving: { asset: "v1" }, previous: { asset: "v0" } }), dryContext({
-      slots: { unet: "u", turbo: "t", clip: "c", vae: "v", clipVision: "cv", rife: "r" }, uploads: { picture: "p.png", driving: "d.mp4", previous: "prev.mp4", "previous.look": "prev.png" },
-      media: { picture: { width: 768, height: 1360 }, driving: { width: 480, height: 854, frames: 81, fps: 24, hasSound: true } },
-    })).graph as Graph;
-    expect(of(wan, "ColorTransfer").map((n) => n.inputs.source_stats)).toEqual(["target_frame"]);
   });
 
   it("carrying on without the clip before's last frame as filed (not read), takes the driving video's colours as before", () => {

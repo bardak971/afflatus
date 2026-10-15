@@ -176,6 +176,8 @@ export const queryKeys = {
     search: (q: string) => ["prompt-history", q] as const,
   },
   timelineEstimate: (id: string, toRender: number | undefined, updatedAt: string) => ["timeline-estimate", id, toRender, updatedAt] as const,
+  /** The plan of a timeline's clips left to render (by number), shared between the machines, as the editor's Render all says it. */
+  timelinePlanned: (id: string, clips: readonly number[], updatedAt: string) => ["timeline-planned", id, clips.join(","), updatedAt] as const,
   finishForecast: {
     all: () => ["finishForecast"] as const,
     of: <V>(timeline: string, v: V, redo: boolean, takes: string) => ["finishForecast", timeline, v, redo, takes] as const,

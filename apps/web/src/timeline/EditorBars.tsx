@@ -17,7 +17,7 @@ import type { Slot } from "./model";
  * The editor's header: the timeline's name, its length, what is said (a save that failed, an error, a note), Undo and Redo,
  * and what is done to the whole timeline: render what is left, render the picked clips, finish, export.
  */
-export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said, onHold, undo, redo, missing, allMs, allOn, picked, rendering, onRename, onRenderMissing, onRenderPicked, onFinish, onExport }: {
+export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said, onHold, undo, redo, missing, allMs, allOn, allBlocked, picked, rendering, onRename, onRenderMissing, onRenderPicked, onFinish, onExport }: {
   t: Timeline;
   clips: Clip[];
   total: number;
@@ -35,6 +35,8 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
   allMs: number;
   /** On each machine (null: Auto), for the machine list beside Render all. */
   allOn(m: MachineState | null): number;
+  /** Why a machine cannot take the clips left to render; null: it can. */
+  allBlocked(m: MachineState): string | null;
   /** How many clips are picked with Ctrl + click, and whether any of them can be rendered. */
   picked: { size: number; renderable: boolean };
   rendering: boolean;
@@ -104,7 +106,7 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
           <Button tone="primary" className={cx(several && "rounded-r-none!")} disabled={rendering} data-tip={`Renders the clips that have no take yet and redoes the ones that no longer follow the clip before them, in order.${on ? ` On ${machineLabel(on)}.` : ""}`} onClick={onRenderMissing}>
             Render all ({missing.length})<Estimate ms={allMs} />
           </Button>
-          <RenderOn pickKey={timelineKey(t.id)} msOn={allOn} />
+          <RenderOn pickKey={timelineKey(t.id)} msOn={allOn} blocked={allBlocked} />
         </span>
       )}
       {picked.size > 0 && (

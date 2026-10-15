@@ -116,8 +116,9 @@ describe("the web's API types match what the server answers", () => {
   });
 
   it("the queue, its history and the render times", () => {
-    // the queue's view, with the GPU hunt's summary the queue adds to it, as GET /api/queue pages it (queueView.ts paged)
-    agree<ReturnType<typeof paged<Awaited<ReturnType<Queue["status"]>>, Awaited<ReturnType<Queue["status"]>>["waiting"][number], Awaited<ReturnType<Queue["status"]>>["machines"][number]>>, QueueAnswer>().toEqualTypeOf<true>();
+    // the queue's view, with the GPU hunt's summary the queue adds to it, as GET /api/queue pages it (queueView.ts paged);
+    // the plan's last end (waitingEndsInMs) is optional on the web's side, which works it out from the rows without it
+    agree<ReturnType<typeof paged<Awaited<ReturnType<Queue["status"]>>, Awaited<ReturnType<Queue["status"]>>["waiting"][number], Awaited<ReturnType<Queue["status"]>>["machines"][number]>>, QueueAnswer, "waitingEndsInMs">().toEqualTypeOf<true>();
     agree<Awaited<ReturnType<typeof history>>, HistoryPage>().toEqualTypeOf<true>();
     agree<TimesSummary, WebTimes>().toEqualTypeOf<true>();
     agree<Awaited<ReturnType<typeof list>>["items"][number], RenderItem>().toEqualTypeOf<true>();

@@ -191,11 +191,11 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
   const readyOf = (id: string) => setup.data?.recipes.find((x) => x.id === id)?.ready ?? false;
   const on = shown.filter((f) => families.isOn(f.id));
   const off = shown.filter((f) => !families.isOn(f.id));
-  const listed = recipes.data.recipes.filter((r) => families.isOn(r.family));
+  const listed = recipes.data.recipes.filter((r) => families.offers(r));
   const ready = listed.filter((r) => readyOf(r.id)).length;
 
   const row = (f: (typeof shown)[number]) => {
-    const mine = recipes.data.recipes.filter((r) => r.family === f.id);
+    const mine = recipes.data.recipes.filter((r) => r.family === f.id && !r.hidden);
     const isOn = families.isOn(f.id);
     const imported = Boolean(f.imported);
     const found = imported || families.found(f.id);

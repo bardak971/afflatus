@@ -47,11 +47,11 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
   // a new clip that carries on from this video, on the model the video was made with and with its settings: with
   // the video in its "carries on from" slot when that model can join a clip, else opening on the video's last
   // frame. A video made with nothing that can do either carries on on a model that joins clips
-  const on = useFamilies().isOn;
+  const { isOn: on, offers } = useFamilies();
   const joins = (r: RecipeInfo) => r.inputs.find((i) => i.type === "clip" && i.role === "previous");
   const opensOn = (r: RecipeInfo) => (r.output === "video" ? r.inputs.find((i) => i.type === "image" && i.role === "start") : undefined);
   const own = recipe && on(recipe.family) && (joins(recipe) || opensOn(recipe)) ? recipe : undefined;
-  const carrier = own ?? recipes.data?.recipes.find((r) => on(r.family) && joins(r));
+  const carrier = own ?? recipes.data?.recipes.find((r) => offers(r) && joins(r));
   const fromLastFrame = Boolean(carrier && !joins(carrier));
   const carryOn = useMutation({
     mutationFn: async () => {
@@ -72,7 +72,7 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
   const drafts = useDrafts(enabled);
   const ready = (r: RecipeInfo) => Boolean(setup.data?.recipes.find((x) => x.id === r.id)?.ready);
   const nameOf = (r: RecipeInfo) => recipes.data?.families.find((f) => f.id === r.family)?.name ?? r.title;
-  const openers = (recipes.data?.recipes ?? []).filter((r) => on(r.family) && r.output === "video" && r.inputs.some((i) => i.type === "image" && i.role === "start"));
+  const openers = (recipes.data?.recipes ?? []).filter((r) => offers(r) && r.output === "video" && r.inputs.some((i) => i.type === "image" && i.role === "start"));
   const opener = usedLast(openers, drafts.data?.items, ready);
   const openerName = opener ? nameOf(opener) : "";
 
@@ -118,7 +118,7 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
   });
   // a picture of someone, or a voice (a sound, or a video's sound), straight into a new draft of a model that follows them
   const voiced = asset.kind !== "image";
-  const follower = recipes.data?.recipes.find((r) => on(r.family) && r.inputs.some((i) => (voiced ? i.type === "audio" && i.role === "voice" : i.type === "references")));
+  const follower = recipes.data?.recipes.find((r) => offers(r) && r.inputs.some((i) => (voiced ? i.type === "audio" && i.role === "voice" : i.type === "references")));
   const follow = useMutation({
     mutationFn: () => {
       const slot = follower!.inputs.find((i) => (voiced ? i.type === "audio" && i.role === "voice" : i.type === "references"))!;
@@ -131,7 +131,7 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
   // Motion transfer: a picture as what moves, a video as how it moves, on the model used last among those that do it
   const pictureSlot = (r: RecipeInfo) => r.inputs.find((i) => i.type === "image" && i.role === "source");
   const drivingSlot = (r: RecipeInfo) => r.inputs.find((i) => i.type === "clip" && i.role === "source");
-  const movers = (recipes.data?.recipes ?? []).filter((r) => on(r.family) && r.output === "video" && pictureSlot(r) && drivingSlot(r));
+  const movers = (recipes.data?.recipes ?? []).filter((r) => offers(r) && r.output === "video" && pictureSlot(r) && drivingSlot(r));
   const mover = usedLast(movers, drafts.data?.items, ready);
   const moverName = mover ? nameOf(mover) : "";
   /** A Motion transfer draft with this in its place: on the model asked for (the submenu), else the one used last. */
@@ -152,7 +152,7 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
       .map((r) => ({ id: r.id, name: said(r), last: r === last, ready: ready(r) }));
   };
 
-  const all = (recipes.data?.recipes ?? []).filter((r) => on(r.family));
+  const all = (recipes.data?.recipes ?? []).filter(offers);
   /** The recipe for an operation: the one of the model the picture was made with when it has it, else one that is ready, else any. */
   const toolFor = (key: string): RecipeInfo | undefined =>
     toolOf(key, all, recipes.data?.families ?? [], madeWith?.id, (r) => Boolean(setup.data?.recipes.find((x) => x.id === r.id)?.ready));

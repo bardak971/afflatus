@@ -8,6 +8,8 @@ export interface RecipeInfo {
   family: string;
   /** Made from a workflow the user imported (Workflows), not built in. */
   imported?: true;
+  /** Not offered for now (core's Recipe.hidden): what was made with it still opens. */
+  hidden?: true;
   version: number;
   title: string;
   summary: string;

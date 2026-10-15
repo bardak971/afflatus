@@ -166,6 +166,8 @@ export interface QueueStatus {
   waiting: Job[];
   /** How many of `waiting` came whole. */
   whole: number;
+  /** In how long the plan has the last waiting job end (the machines sharing them), in ms; left out by a server without it. */
+  waitingEndsInMs?: number | null;
   recent: Job[];
   /** The GPU hunt under way, as the status bar says it; null when there is none. */
   hunt: HuntSummary | null;
@@ -277,7 +279,7 @@ export interface TimesSummary {
   /** The machine the figures are of (a Machine's id); null: every machine. One machine's are read from its renders kept one by one. */
   machine?: string | null;
   /** Each machine that rendered in the window: renders, GPU time, and its learned pace (1 the common pace, 2 half as fast; null: nothing to compare). */
-  machines?: Array<{ id: string; renders: number; gpuMs: number; pace: number | null }>;
+  machines?: Array<{ id: string; renders: number; gpuMs: number; pace: number | null; /** A rented pod's GPU ("A40 pod"); null for a ComfyUI of its own. */ name: string | null }>;
   tiles: {
     done: number; images: number; videos: number; failed: number; cancelled: number;
     videoMs: number; lostMs: number; gpuMs: number; longestMs: number;

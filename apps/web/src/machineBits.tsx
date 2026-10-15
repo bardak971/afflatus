@@ -1,6 +1,6 @@
 import type { MachineState, PodDisk, PodFile } from "./api";
 import { gb, plural, usd } from "./format";
-import { rentedSaid, rentedSpent, rentedUp } from "./machines";
+import { machineState, rentedSaid, rentedSpent, rentedUp } from "./machines";
 import { Progress } from "./progress/Progress";
 import { cx } from "./ui";
 
@@ -113,6 +113,6 @@ export function doing(m: MachineState, now: number): string {
   if (m.running) return `${m.running.label}${m.running.steps ? ` · ${m.running.step}/${m.running.steps}` : ` · ${Math.round(m.running.progress * 100)} %`}${cost}`;
   const getting = gettingFiles(m);
   if (getting) return `${m.paused ? "paused · " : ""}getting ${plural(getting.left.length, "file")} for its jobs${cost}`;
-  const state = m.paused ? "paused" : "idle";
+  const state = machineState(m);
   return `${m.model ? `${state} · holds ${m.model}` : state}${cost}`;
 }

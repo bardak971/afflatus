@@ -1,4 +1,5 @@
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { removedSaid } from "@afflatus/core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Entity } from "../../api";
 import { useEntities, useFamilies, useModelSettings, useRecipes, useSetup } from "../../data";
@@ -134,6 +135,10 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
             {`Not saved${d.failure ? ` (${d.failure})` : ""}: what is on screen is kept here until it is.`}
             <button type="button" onClick={d.retry} className="font-semibold underline underline-offset-2">Retry</button>
           </span>
+        )}
+        {/* a draft made with a model taken out of Afflatus opens on another: said, its own settings kept */}
+        {draft && !all.some((r) => r.id === draft.recipe) && removedSaid(draft.recipe) && (
+          <span className="px-1 text-xs text-warn-ink">Made with {removedSaid(draft.recipe)}: its settings are kept; pick another model below.</span>
         )}
         {recipe && draft && (
           <CastPictures recipe={recipe} input={whole} look={draft.look}>

@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { gridAtOrBefore, parseInput, sourceWindows, type Recipe } from "@afflatus/core";
-import { scailMotion, wanAnimateMotion } from "@afflatus/recipes";
+import { recipeById, scailMotion } from "@afflatus/recipes";
 import { referenceClip } from "../src/cut";
 import { windowRunUp, windowsOf } from "../src/timelineSource";
 import { FFMPEG_TIMEOUT, ffmpegThere, patternClip } from "./clipKit";
@@ -11,7 +11,7 @@ import { FFMPEG_TIMEOUT, ffmpegThere, patternClip } from "./clipKit";
  */
 
 const GRID = { step: 4, offset: 1 };
-const RECIPES = [scailMotion, wanAnimateMotion] as Recipe<any>[];
+const RECIPES = [scailMotion] as Recipe<any>[];
 
 /** The windows of 40 s of a source, those that carry on. */
 const carrying = (recipe: Recipe<any>, windowMs: number) =>
@@ -27,7 +27,7 @@ describe("a window of a source made a cut", () => {
           const shown = Math.round(((w.toMs - w.fromMs) * fps) / 1000);
           const cut = windowRunUp(recipe, form(w), "cut")!;
           const frames = Math.round((cut.drivingSeconds as number) * fps - 0.5);
-          // on the grid: the shown frames and the carried ones' remainder (SCAIL-2: 5 carried, 1 more; Wan Animate 2: 1, 1 more)
+          // on the grid: the shown frames and the carried ones' remainder (SCAIL-2: 5 carried, 1 more)
           expect((frames - 1) % 4).toBe(0);
           expect(frames - shown).toBe(carried % 4);
           // held to end where the window ends: the window after carries on from there
@@ -40,6 +40,26 @@ describe("a window of a source made a cut", () => {
           expect(again.drivingStart).toBe(w.start);
           expect(again.drivingSeconds).toBe(w.seconds);
         }
+      }
+    }
+  });
+
+  it("on H3's grid, coarser than the 5 frames carried: made a cut, starts past them (not playing them again) and ends where the window ends", () => {
+    const swap = recipeById("h3.swap")!;
+    const { fps, carried } = windowsOf(swap)!;
+    for (const windowMs of [4250, 5000, 5800]) {
+      const windows = sourceWindows({ fromMs: 1000, toMs: 41_000, windowMs, shape: windowsOf(swap)! }).filter((w) => !w.opens);
+      expect(windows.length).toBeGreaterThan(2);
+      for (const w of windows) {
+        const inputs = { who: "the man", source: { asset: "v1" }, sourceStart: w.start, sourceSeconds: w.seconds };
+        const cut = windowRunUp(swap, inputs, "cut")!;
+        const frames = Math.round((cut.sourceSeconds as number) * fps - 0.5);
+        expect(((cut.sourceStart as number) - w.start) * fps).toBeGreaterThanOrEqual(carried - 1e-6);
+        expect(((cut.sourceStart as number) + frames / fps) * 1000).toBeCloseTo(w.start * 1000 + (Math.round(w.seconds * fps - 0.5) * 1000) / fps, 0);
+        expect(() => parseInput(swap, cut)).not.toThrow();
+        const again = windowRunUp(swap, cut, "continue")!;
+        expect(again.sourceStart).toBe(w.start);
+        expect(again.sourceSeconds).toBe(w.seconds);
       }
     }
   });

@@ -12,7 +12,7 @@ export function motionSlots(inputs: readonly InputSpec[]): { picture: InputSpec;
 }
 
 /**
- * Under the Picture of a Motion transfer form whose driving video is chosen (SCAIL-2, Wan Animate 2, in Create): the picture
+ * Under the Picture of a Motion transfer form whose driving video is chosen (SCAIL-2, in Create): the picture
  * made for the user (pictureMaker.tsx), its frame chosen within the driving video's part, the cast's people offered as who
  * goes in. Shown while there is no Picture, and after one was made here (to pick another, or reroll).
  */

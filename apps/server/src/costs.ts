@@ -1,4 +1,4 @@
-import { modelStem, plural, rankGpus, volumePerMonth, type RankOffer } from "@afflatus/core";
+import { modelStem, plural, rankGpus, shortGpu, volumePerMonth, type RankOffer } from "@afflatus/core";
 import type { Selectable } from "kysely";
 import type { Db, Tables } from "./db";
 import { dollars } from "./notifyWords";
@@ -293,7 +293,7 @@ export interface CostsView {
 }
 
 /** A GPU's name as a row says it: "NVIDIA GeForce RTX 4090" → "RTX 4090". */
-export const gpuShort = (name: string | null): string => (name ? name.replace(/^cuda:\d+\s*/, "").replace(/\s*:\s*\S+\s*$/, "").replace(/\b(NVIDIA|GeForce)\s+/g, "").replace(/\s+Generation$/, "").trim() || name : "GPU");
+export const gpuShort = (name: string | null): string => (name ? shortGpu(name) : "GPU");
 
 export interface CostsDeps {
   db: Db;

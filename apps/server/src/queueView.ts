@@ -202,9 +202,11 @@ async function rendersWaiting(core: QueueCore, rows: JobRow[], planned: Readonly
     const recipe = core.registry.recipe(r.recipe_id);
     if (!recipe || r.warm) continue;
     const input = inputsOf(r);
-    const model = modelOf(recipe.inputs, input);
+    // the model as the plan reads it: a recipe that loads its family's slot (SCAIL-2) names none on its form, and was never cold
+    const model = (core.loadsModel ? await core.loadsModel(recipe, input, r) : modelOf(recipe.inputs, input)) || null;
     const was = held.get(on);
-    const cold = Boolean(model && was && !was.has(model));
+    // a machine that holds nothing known (none asked to load since it came) loads it: it was told warm
+    const cold = Boolean(model && (!was || !was.has(model)));
     if (model) held.set(on, new Set([model]));
     asked.push(core.expected(recipe, input, cold, r, lane).then((ms) => [r.id, ms]));
   }

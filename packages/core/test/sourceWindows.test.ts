@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { sourceWindows } from "../src/sourceWindows";
+import { sourceWindows, windowBounds } from "../src/sourceWindows";
 
-/** A long source made window by window: SCAIL-2's shape (16 fps, 321 frames a job, 5 carried) and Wan Animate 2's (24 fps, 81, 1). */
+/** A long source made window by window: SCAIL-2's shape (16 fps, 321 frames a job, 5 carried) and a model's whose job is short (24 fps, 81, 1). */
 const SCAIL = { fps: 16, most: 321, least: 9, carried: 5 };
-const WAN = { fps: 24, most: 81, least: 9, carried: 1 };
+const SHORT = { fps: 24, most: 81, least: 9, carried: 1 };
 /** MiniMax H3's swap: 24 fps, 141 frames a window on H3's 17k + 5, 5 carried. */
 const SWAP = { fps: 24, most: 141, least: 90, carried: 5, grid: { step: 17, offset: 5 } };
 
@@ -41,8 +41,8 @@ describe("a source's windows", () => {
     // 80 new frames and 5 carried: 85, 85 on the grid, 80 shown
     expect(b!.toMs - b!.fromMs).toBe(5000);
   });
-  it("hold one job's most: Wan Animate 2 makes about 3.3 s a window", () => {
-    const w = sourceWindows({ fromMs: 0, toMs: 10000, windowMs: 5000, shape: WAN });
+  it("hold one job's most: a model of 81 frames at 24 fps makes about 3.3 s a window", () => {
+    const w = sourceWindows({ fromMs: 0, toMs: 10000, windowMs: 5000, shape: SHORT });
     expect(Math.round(w[0]!.seconds * 24 - 0.5)).toBe(81);
     expect(w[1]!.toMs - w[1]!.fromMs).toBe(Math.round((80 / 24) * 1000));
   });
@@ -59,7 +59,7 @@ describe("a source's windows", () => {
     expect(w.length).toBe(1);
   });
   it("run to the source's end: no short last clip (the meme's 26.6 s in 5 s windows ended on a 2.1 s one)", () => {
-    for (const shape of [SCAIL, WAN]) {
+    for (const shape of [SCAIL, SHORT]) {
       const frameMs = 1000 / shape.fps;
       const w = sourceWindows({ fromMs: 0, toMs: 26_600, windowMs: 5000, shape });
       // to the end, within a grid step
@@ -70,5 +70,13 @@ describe("a source's windows", () => {
     }
     // SCAIL-2 holds 20 s a job: the last 5 s window takes the 1.6 s left
     expect(sourceWindows({ fromMs: 0, toMs: 26_600, windowMs: 5000, shape: SCAIL }).length).toBe(5);
+  });
+});
+
+describe("the window lengths a source takes", () => {
+  it("start where a window that carries on still has the fewest frames its recipe takes: H3's swap at 4.25 s, not 3.75", () => {
+    const swap = windowBounds({ fps: 24, most: 141, least: 90, carried: 5, grid: { step: 17, offset: 5 } });
+    expect(swap.leastMs).toBeCloseTo((102 / 24) * 1000, 3);
+    expect(swap.mostMs).toBeCloseTo((136 / 24) * 1000, 3);
   });
 });

@@ -6,7 +6,7 @@ import type { api, MachineState, RecipeInfo } from "./api";
 import { useQueue } from "./data";
 import { useDraftMachine } from "./draftMachine";
 import { useLoadChoices } from "./loadChoices";
-import { machineLabel, severalMachines } from "./machines";
+import { machineLabel, machineState, severalMachines } from "./machines";
 import { Popover } from "./Popover";
 import { settingHref } from "./screens/settings/settingsIndex";
 import { cx } from "./ui";
@@ -26,7 +26,8 @@ export const shortName = (m: MachineState) => {
 
 /** What a machine is doing, in a few words: its state, how many wait for it, what it holds. */
 function said(m: MachineState, waiting: number, holds: boolean): string {
-  const state = m.online === false ? "offline" : m.paused ? "paused: it waits for it" : m.running ? "rendering" : "idle";
+  const word = machineState(m);
+  const state = word === "paused" ? "paused: it waits for it" : word;
   return [state, waiting > 0 && `${waiting} waiting`, holds && "holds this model"].filter(Boolean).join(" · ");
 }
 
@@ -66,10 +67,11 @@ export function GenerateOn({ recipe, pickKey, whole, look, msOn, of }: {
 
 /**
  * The same slice beside Render all and Render picked on a timeline: where its clips render, kept for the timeline as New
- * take's is. It knows no one form, so it holds against a machine only what holds for every clip: away, or pictures only.
+ * take's is. It knows no one form: it holds against a machine what holds for every clip (away, or pictures only), and
+ * what `blocked` says of the clips to render (one it cannot render: its files not there).
  */
-export function RenderOn({ pickKey, msOn }: { pickKey: string; msOn(m: MachineState | null): number | null }) {
-  return <MachinePick pickKey={pickKey} of="timeline" msOn={msOn} file={null} why={(m) => unpickable(m, "video")} note={() => null} small />;
+export function RenderOn({ pickKey, msOn, blocked }: { pickKey: string; msOn(m: MachineState | null): number | null; blocked?(m: MachineState): string | null }) {
+  return <MachinePick pickKey={pickKey} of="timeline" msOn={msOn} file={null} why={(m) => unpickable(m, "video") ?? blocked?.(m) ?? null} note={() => null} small />;
 }
 
 function MachinePick({ pickKey, of, msOn, file, why, note, small }: {

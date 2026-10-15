@@ -32,7 +32,7 @@ function MachineShares({ d, names, onPick }: { d: TimesSummary; names: Record<st
           data-tip={m.pace !== null && Number.isFinite(fastest) ? `Learned from the same model and settings rendered on several machines: ${m.pace / fastest < 1.05 ? "the fastest" : `${(m.pace / fastest).toFixed(1)} times the fastest one's time`}. Click: this machine alone.` : "Nothing rendered on it that another machine rendered too: no pace to compare yet. Click: this machine alone."}
           className="inline-flex items-center gap-2 rounded-[10px] border border-line bg-panel px-3 py-1.5 text-xs hover:bg-hover"
         >
-          <span className="font-semibold">{names[m.id] ?? m.id}</span>
+          <span className="font-semibold">{names[m.id] ?? m.name ?? m.id}</span>
           <span className="text-ink-2">{plural(m.renders, "render")} · {took(m.gpuMs)}</span>
           {m.pace !== null && Number.isFinite(fastest) && <span className="font-mono text-ink-2">×{(m.pace / fastest).toFixed(1)}</span>}
         </button>
@@ -94,7 +94,12 @@ export function RenderTimes() {
           <div className="w-52 shrink-0">
             <Select
               size="sm" label="Machine" value={machine ?? "all"} onChange={(v) => setMachine(v === "all" ? null : v)}
-              options={[{ value: "all", label: "All machines" }, ...several.map((m) => ({ value: m.id, label: machineLabel(m) }))]}
+              options={[
+                { value: "all", label: "All machines" },
+                ...several.map((m) => ({ value: m.id, label: machineLabel(m) })),
+                // a machine that rendered in the window and is gone since (a terminated pod): its figures can still be picked
+                ...(d.machines ?? []).filter((m) => !several.some((x) => x.id === m.id)).map((m) => ({ value: m.id, label: `${m.name ?? m.id} (removed)` })),
+              ]}
             />
           </div>
         )}

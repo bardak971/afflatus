@@ -1,6 +1,6 @@
 import type { Machine, MachineState, RentedMachine } from "../../api";
 import type { PodFile, PodPack } from "../../api";
-import { plural, size, usd } from "../../format";
+import { minutesSaid, plural, size, usd } from "../../format";
 import { useCopied, useNow } from "../../hooks";
 import { rateSaid, rentedSaid } from "../../machines";
 import type { useRentedOps } from "../../rentedOps";
@@ -18,7 +18,6 @@ const portSaid = (p: string) => {
   const what: Record<string, string> = { "8080": "FileBrowser", "8888": "JupyterLab", "22": "SSH", "3000": "web UI", "7860": "web UI" };
   return `${port}${what[port!] ? ` ${what[port!]}` : ""}${kind === "tcp" ? " (TCP)" : ""}`;
 };
-const minutesSaid = (n: number) => (n === 0 ? "never" : n < 60 ? `${n} min` : `${n / 60} h`);
 
 const WHY_IDLE = "Idle: nothing rendering on it and nothing waiting that it could take; a job waiting for it keeps it on. Stop: the GPU stops billing, its volume is kept (and billed), its container disk is erased; its GPU may be taken meanwhile, and then it cannot start again. Terminate: nothing billed after, the pod gone from RunPod: deploy a new one next time. Without a volume a stop keeps nothing: terminate.";
 const WHY_PORTS = "What a pod's template opens besides ComfyUI: FileBrowser (8080), JupyterLab (8888), SSH (22). They have logins of their own, outside Afflatus's lock, some with a default password printed in the template's page: anyone who finds the pod's address can try them, and with FileBrowser reach its files, ComfyUI's custom nodes included. Closed, Afflatus takes them off the pod at each Start (RunPod's exposed ports), and only ComfyUI is reached, locked. Open them to use one (FileBrowser to put the Afflatus pack on it).";
@@ -84,7 +83,7 @@ export function RentedHead({ machine, state, ops }: { machine: Machine; state: M
       {stopped && (
         <TwoStep
           label="Start…" title={`Start ${label}?`} yes="Start" disabled={busy || r.capped}
-          note={r.capped ? "a spending cap is reached" : `${rateSaid(r)}${machine.rented?.idleMinutes ? ` · stops after ${minutesSaid(machine.rented.idleMinutes)} idle` : ""}`}
+          note={r.capped ? "a spending cap is reached" : `${rateSaid(r)}${machine.rented?.idleMinutes ? ` · ${machine.rented.idleDo === "stop" ? "stops" : "terminates"} after ${minutesSaid(machine.rented.idleMinutes)} idle` : ""}`}
           onYes={() => ops.start.mutate(machine.id)}
         />
       )}
@@ -143,9 +142,11 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
         <div className="px-[18px] pt-3 pb-1 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Stops by itself</div>
         <Row label="When it is idle" help={WHY_IDLE}>
           <span className="flex grow flex-wrap items-center justify-end gap-2 text-[12.5px]">
+            {/* in the Deploy dialog's order: "Terminate it after 10 min idle" (here it was "after 10 min · Terminate it") */}
+            <span className="w-[150px] shrink-0"><Select size="sm" label="What then" value={rented.idleDo} onChange={(v) => set({ idleDo: v as RentedMachine["idleDo"] })} options={[{ value: "stop", label: "Stop it", note: "its volume kept and billed" }, { value: "terminate", label: "Terminate it", note: "nothing billed, deploy a new one next time" }]} /></span>
             <span className="text-ink-2">after</span>
             <span className="w-[104px] shrink-0"><Select size="sm" label="Minutes idle before" value={String(rented.idleMinutes)} onChange={(v) => set({ idleMinutes: Number(v) })} options={IDLE.map((n) => ({ value: String(n), label: minutesSaid(n) }))} /></span>
-            <span className="w-[150px] shrink-0"><Select size="sm" label="What then" value={rented.idleDo} onChange={(v) => set({ idleDo: v as RentedMachine["idleDo"] })} options={[{ value: "stop", label: "Stop it", note: "its volume kept and billed" }, { value: "terminate", label: "Terminate it", note: "nothing billed, deploy a new one next time" }]} /></span>
+            <span className="text-ink-2">idle</span>
             {r?.idleAt != null && <IdleLeft at={r.idleAt} />}
           </span>
         </Row>

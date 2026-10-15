@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { ComfyAway, ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, waitForOutputs, type Measured } from "@afflatus/comfy";
-import { expandWildcards, modelFileName, modelName, modelOf, parseInput, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
+import { expandWildcards, modelFileName, modelName, modelOf, parseInput, removedSaid, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import type { Comfy, MachineComfy } from "./comfy";
 import { newId, now, OWNER, type Db } from "./db";
 import { addedBy } from "./events";
@@ -229,6 +229,7 @@ export class Queue {
       statRows: (modelFile) => this.statRows(modelFile),
       paces: () => this.paces(),
       expected: (recipe, input, cold, job, machine) => this.expected(recipe, input, cold, job, machine),
+      loadsModel: async (recipe, input, job) => modelOf(recipe.inputs, input) ?? (await this.expectedAll(recipe, input, false, job ?? null)).model,
       runTool: (row, work) => this.runTool(l, row, work),
     };
     if (id !== TOOLS) l.ready = this.readLane(l);
@@ -1004,7 +1005,7 @@ ${JSON.stringify(input)}`;
     const recipe = row && row.recipe_id !== CUT_JOB && row.recipe_id !== EXPORT_JOB ? this.registry.recipe(row.recipe_id) : undefined;
     if (!row || !recipe) return null;
     const input = readJson<Record<string, unknown>>(row.inputs, {});
-    // a recipe that loads its model from its family's slot (SCAIL-2, Wan Animate, the tools) names none on its form: the one its graph loads
+    // a recipe that loads its model from its family's slot (SCAIL-2, the tools) names none on its form: the one its graph loads
     const model = modelOf(recipe.inputs, input) ?? (await this.expectedAll(recipe, input, false, row)).model;
     const held = new Set(lane.lastLoads ? lane.lastLoads.split("|").map(modelName) : []);
     const ms = await this.expected(recipe, input, Boolean(model && !held.has(model)), row, lane.id);
@@ -1420,7 +1421,7 @@ ${JSON.stringify(input)}`;
     const comfy = lane.comfy!;
     const core = lane.core;
     const recipe = this.registry.recipe(row.recipe_id);
-    if (!recipe) return this.finish(row.id, "failed", { error: `the recipe ${row.recipe_id} no longer exists` });
+    if (!recipe) return this.finish(row.id, "failed", { error: removedSaid(row.recipe_id) ?? `the recipe ${row.recipe_id} no longer exists` });
     let resume = readJson<Resume | null>(row.resume, null);
     // saved just before its prompt was sent, by a process that did not hear back (it stopped, ComfyUI did not answer): ComfyUI is
     // asked whether it took that prompt, which is then followed; one it never had is sent again. Kept for a requeue until then
@@ -1754,7 +1755,7 @@ ${JSON.stringify(input)}`;
     const open = lanes.filter((l) => l.reachable !== false && !l.paused && !this.unavailable(l.id) && (l.machine!.takes === "all" || l.machine!.takes === makes) && (!can || can.has(l.id)));
     const auto = open.flatMap((l) => (got.on![l.id] ? [l.id] : []));
     const soonest = auto.map((id) => got.on![id]!).sort((a, b) => a.ms - b.ms)[0];
-    return { ...got, ...(soonest ? { forecast: soonest } : {}), auto };
+    return { ...got, ...(soonest ? { forecast: soonest } : {}), auto, ...(can ? { can: [...can] } : {}) };
   }
 
   /** A form as a waiting job of it would be read (by the plan, the machines' checks), queued nowhere. */
