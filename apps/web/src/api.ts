@@ -547,7 +547,9 @@ export const api = {
   /** What finishTimeline with these settings would take in all; null while one of its jobs has nothing learned yet. */
   finishForecast: (id: string, opts: Partial<FinishSettings> & { route: FinishSettings["route"]; factor: number; redo?: boolean; clips?: string[] }) => call<{ ms: number | null }>("POST", `/timelines/${id}/finish/forecast`, opts),
   /** One frame of a video, saved as a picture in the library. */
-  frame: (video: string, atMs: number, timeline?: string, once?: boolean) => call<Asset>("POST", `/assets/${video}/frame`, { atMs, ...(timeline ? { timeline } : {}), ...(once ? { once } : {}) }),
+  frame: (video: string, atMs: number, timeline?: string, once?: boolean, scratch?: boolean) => call<Asset>("POST", `/assets/${video}/frame`, { atMs, ...(timeline ? { timeline } : {}), ...(once ? { once } : {}), ...(scratch ? { scratch } : {}) }),
+  /** A box's working picture taken into the library, kept: the one picked of Make the picture's round. */
+  adopt: (asset: string) => call<Asset>("POST", `/assets/${asset}/adopt`, {}),
   mirror: (picture: string, axis: "horizontal" | "vertical") => call<Asset>("POST", `/assets/${picture}/mirror`, { axis }),
   /** A range of a video as new videos, in the queue: copied, split out, or removed. */
   /** A range of a video: copied, split out, removed, or slowed down ("slow", ×2 or ×4: RIFE on the GPU when ComfyUI has it, else ffmpeg; `engine` says which). */

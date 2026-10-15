@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { ImagePlus, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
@@ -39,22 +39,31 @@ export const usePictureSets = create<{ of: Record<string, PictureSet>; set(key: 
 
 /** Where each job of a set stands: waiting, running (how far), done (the picture it made), or failed (why). */
 function useJobsOf(ids: string[]) {
+  const client = useQueryClient();
   const queue = useQueue();
   const q = queue.data;
   const live = new Set([...(q?.waiting ?? []).map((w) => w.id), ...(q?.running ? [q.running.id] : []), ...(q?.machines ?? []).flatMap((m) => (m.running ? [m.running.id] : []))]);
+  // which of them the queue still holds: one leaving it is read again at once (the key changes), its picture shown as it lands
+  const inQueue = ids.filter((id) => live.has(id)).join(",");
   const history = useQuery({
-    queryKey: ["picture-set-jobs", ids.join(",")],
+    queryKey: ["picture-set-jobs", ids.join(","), inQueue],
     // these jobs by id: the last page of the history lost a set's jobs once others had run since (they read "queued" for ever)
     queryFn: () => api.jobs({ ids: ids.slice(-60).join(","), limit: 60 }),
     enabled: ids.length > 0,
-    // read again while one of them is still in the queue: the last one's picture shows as soon as it lands (read only while
-    // one ran, the last stayed "queued" until the page was reloaded). One in neither the queue nor the history (dismissed
-    // there) is not waited for: it polled every 1.5 s for ever
+    placeholderData: (before) => before,
+    // read again while one of them has not ended in the history: every 3 s while the queue holds it; out of the queue (just
+    // finished, its picture still being filed) ten more reads, 1.5 s apart, before it is taken as gone. Read only while the
+    // queue held it, the last picture showed after a reload only; read for ever, a dismissed one polled every 1.5 s
     refetchInterval: (query) => {
       const ended = new Set((query.state.data?.items ?? []).map((x) => x.id));
-      return ids.some((id) => !ended.has(id) && live.has(id)) ? 3000 : false;
+      const open = ids.filter((id) => !ended.has(id));
+      if (open.some((id) => live.has(id))) return 3000;
+      return open.length && query.state.dataUpdateCount < 10 ? 1500 : false;
     },
   });
+  /** Read often enough since it left the queue to say a job is gone, not just still being filed. */
+  // (dataUpdatedAt read here so that each read redraws, the same answer included)
+  const settled = history.dataUpdatedAt > 0 && !history.isPlaceholderData && (client.getQueryState(["picture-set-jobs", ids.join(","), inQueue])?.dataUpdateCount ?? 0) >= 10;
   return ids.map((id) => {
     const running = q?.running?.id === id ? q.running : (q?.machines ?? []).map((m) => m.running).find((r) => r?.id === id);
     if (running) return { id, state: "running" as const, progress: running.progress ?? 0 };
@@ -67,8 +76,8 @@ function useJobsOf(ids: string[]) {
       return { id, state: "done" as const, picture, face: h.face ?? null, copies: h.faceCopies ?? 0 };
     }
     if (h) return { id, state: "failed" as const, why: h.error ?? h.status };
-    // in neither the queue nor the history once that was read: taken out of the history
-    if (history.data) return { id, state: "gone" as const, why: "no longer in the history" };
+    // in neither the queue nor the history after reads enough to have seen it filed: taken out of the history
+    if (settled) return { id, state: "gone" as const, why: "no longer in the history" };
     return { id, state: "waiting" as const };
   });
 }
@@ -111,8 +120,9 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
   const jobs = useJobsOf(set.jobs);
   const make = useMutation({
     mutationFn: async () => {
-      // the same moment again (a Reroll) is the same frame picture, not one more in the library
-      const frame = await api.frame(video, Math.round(atMs), undefined, true);
+      // a working picture, out of the library (the frame and what is made from it: only the one picked goes in), the same
+      // one for the same moment again (a Reroll)
+      const frame = await api.frame(video, Math.round(atMs), undefined, true, true);
       // beside the driving video when no folder is open here: not the Inbox
       const into = folder ?? source.data?.folderId ?? null;
       const made = await api.enqueue(MAKER, { source: frame.id, people: set.people.map((asset) => ({ asset, role: "person" })), relight: set.relight }, ROUND, null, { label: name, ...(into ? { folder: into } : {}) });
@@ -120,6 +130,14 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
       change(keyId, { jobs: [...(usePictureSets.getState().of[keyId]?.jobs ?? []), ...made.ids] });
     },
     onError: failed("The pictures could not be started"),
+  });
+  // the one picked goes into the library (kept), the rest stay working pictures of this box, gone a day on
+  const pick = useMutation({
+    mutationFn: async (asset: string) => {
+      await api.adopt(asset);
+      onPick(asset);
+    },
+    onError: failed("The picture could not be picked"),
   });
   const addPhotos = (ids: string[]) => change(keyId, { people: [...new Set([...set.people, ...ids])].slice(0, 3) });
   const busy = jobs.some((j) => j.state === "waiting" || j.state === "running");
@@ -240,7 +258,7 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
                 ? <span className="py-1 text-center text-[11px] font-semibold text-accent">the Picture</span>
                 : (
                   <span className="flex gap-1">
-                    <Button size="sm" className="grow" onClick={() => onPick(j.picture!)} data-tip="This one as the Picture">Use</Button>
+                    <Button size="sm" className="grow" onClick={() => pick.mutate(j.picture!)} disabled={pick.isPending} data-tip="This one as the Picture: it goes into the library, the others do not">Use</Button>
                     <Button size="sm" aria-label="Delete this picture" data-tip="Delete it: out of here and to the bin (back from there for a week)" disabled={drop.isPending} onClick={() => drop.mutate(j)}><Trash2 size={13} /></Button>
                   </span>
                 ))}

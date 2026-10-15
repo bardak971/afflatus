@@ -107,6 +107,31 @@ describe("painting over a part of a picture", () => {
   });
 });
 
+describe("a box's working pictures (Make the picture)", () => {
+  it("files what is made from a working frame out of the library, takes the one picked in, kept, and forgets the rest a day on", async () => {
+    const frame = await upload(await plain(400, 600));
+    await t.db.updateTable("assets").set({ origin: "scratch", kept_at: null }).where("id", "=", frame.id).execute();
+    await graphOf("sdxl.sharper", { source: frame.id, checkpoint: CHECKPOINT });
+    await graphOf("sdxl.sharper", { source: frame.id, checkpoint: CHECKPOINT });
+    const made = (await t.db.selectFrom("assets").select(["id", "origin"]).where("generation_id", "is not", null).execute());
+    expect(made.map((a) => a.origin)).toEqual(["scratch", "scratch"]);
+    expect((await get(t.app, "/api/assets")).json().items).toEqual([]);
+
+    const picked = made[0]!.id;
+    expect((await post(t.app, `/api/assets/${picked}/adopt`)).json()).toMatchObject({ id: picked, origin: "generated", kept: true });
+    expect((await get(t.app, "/api/assets")).json().items.map((a: { id: string }) => a.id)).toEqual([picked]);
+    // an item of the library is left as it is
+    const own = await upload(await plain(40, 60));
+    expect((await post(t.app, `/api/assets/${own.id}/adopt`)).json()).toMatchObject({ origin: "uploaded" });
+
+    await sweep(t.db, t.services.storage, Date.now() + 25 * 60 * 60_000);
+    const left = (await t.db.selectFrom("assets").select("id").execute()).map((a) => a.id);
+    expect(left).toContain(picked);
+    expect(left).not.toContain(made[1]!.id);
+    expect(left).not.toContain(frame.id);
+  });
+});
+
 describe("the other things done to a picture", () => {
   it("enlarges with an upscale model this ComfyUI has, and goes over the result when it is small enough", async () => {
     const small = await upload(await plain(400, 600));

@@ -72,9 +72,10 @@ export class TimelineMedia {
    * picture (a clip rendered several times from the same last frame does not fill the library with copies). It lands in the
    * folder of `timeline`, the one it is taken in (not said: see folderForMade).
    */
-  async frame(video: AssetRow, atMs: number, once = false, timeline?: string): Promise<AssetRow> {
+  async frame(video: AssetRow, atMs: number, once = false, timeline?: string, scratch = false): Promise<AssetRow> {
     const { db, storage, events } = this.core;
-    const id = once ? createHash("sha1").update(`frame:${video.id}:${Math.round(atMs)}`).digest("hex").slice(0, 32) : newId();
+    // `scratch`: a box's working picture (Make the picture's frame), out of the library, its own id beside a kept frame's
+    const id = once ? createHash("sha1").update(`${scratch ? "scratch-" : ""}frame:${video.id}:${Math.round(atMs)}`).digest("hex").slice(0, 32) : newId();
     const have = once ? await db.selectFrom("assets").selectAll().where("id", "=", id).executeTakeFirst() : undefined;
     if (have) {
       if (have.deleted_at) await db.updateTable("assets").set({ deleted_at: null }).where("id", "=", id).execute();
@@ -94,13 +95,13 @@ export class TimelineMedia {
     await db
       .insertInto("assets")
       .values(newAssetRow({
-        id, kind: "image", origin: "frame", name: source ? frameName(source, atMs) : "", file_key: key,
+        id, kind: "image", origin: scratch ? "scratch" : "frame", name: source ? frameName(source, atMs) : "", file_key: key,
         thumb_key: thumb ? thumbKey(id) : null, mime: "image/png", bytes: bytes.length, width: size?.width ?? video.width, height: size?.height ?? video.height,
-        duration_ms: null, fps: null, has_sound: 0, folder_id: folder, generation_id: null, source_id: video.id, kept_at: at, created_at: at,
+        duration_ms: null, fps: null, has_sound: 0, folder_id: scratch ? null : folder, generation_id: null, source_id: video.id, kept_at: scratch ? null : at, created_at: at,
       }))
       .onConflict((oc) => oc.column("id").doNothing())
       .execute();
-    events.emit("library", { change: "added", items: [id], folders: [folder] } satisfies LibraryChange);
+    if (!scratch) events.emit("library", { change: "added", items: [id], folders: [folder] } satisfies LibraryChange);
     return db.selectFrom("assets").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
   }
 

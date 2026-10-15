@@ -7,6 +7,7 @@ import { fromRender, markPng } from "./aiMark";
 import { nameOf } from "./autoName";
 import { VERSION } from "./config";
 import { CutError, markedVideoFile, musicTrack } from "./cut";
+import { now } from "./db";
 import { httpError } from "./errors";
 import { compose, lookSchema, withMood } from "./entities";
 import { askedOf } from "./jobs-api";
@@ -449,13 +450,26 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     return { id: await s.queue.enqueueCut({ asset: video.id, startMs: body.startMs, endMs: body.endMs, action: body.action, crf: body.crf, ...(sound && body.even ? { even: true } : {}), timeline: body.timeline }, said) };
   });
 
+  /**
+   * A box's working picture taken into the library, kept: the one picked of Make the picture's round, which a Motion transfer
+   * then moves. Anything else is left as it is.
+   */
+  app.post<{ Params: { id: string } }>("/api/assets/:id/adopt", async (req) => {
+    const done = await s.db.updateTable("assets").set({ origin: "generated", kept_at: now() }).where("id", "=", req.params.id).where("origin", "=", "scratch").executeTakeFirst();
+    const row = await s.db.selectFrom("assets").selectAll().where("id", "=", req.params.id).executeTakeFirst();
+    if (!row) throw httpError("this picture was not found", 404);
+    if (Number(done.numUpdatedRows)) s.queue.events.emit("library", { change: "added", items: [row.id], folders: [row.folder_id] });
+    return assetView(row);
+  });
+
   /** One frame of a video, as a picture in the library: to open another clip on, or to keep. `timeline`: the one it is saved from (its folder, see folderForMade). */
   app.post<{ Params: { id: string } }>("/api/assets/:id/frame", async (req) => {
     // `once`: the same moment asked for again gives the same picture (a Reroll of Make the picture), not one more copy
-    const { atMs, timeline, once } = z.strictObject({ atMs: z.number().min(0), timeline: z.string().optional(), once: z.boolean().optional() }).parse(req.body);
+    // `scratch`: a box's working picture, kept out of the library (Make the picture's frame)
+    const { atMs, timeline, once, scratch } = z.strictObject({ atMs: z.number().min(0), timeline: z.string().optional(), once: z.boolean().optional(), scratch: z.boolean().optional() }).parse(req.body);
     const video = await s.db.selectFrom("assets").selectAll().where("id", "=", req.params.id).executeTakeFirst();
     if (!video || video.kind !== "video") throw httpError("this video was not found", 404);
-    return assetView(await t.media.frame(video, atMs, once ?? false, timeline));
+    return assetView(await t.media.frame(video, atMs, once ?? false, timeline, scratch ?? false));
   });
 }
 

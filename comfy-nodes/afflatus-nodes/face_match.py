@@ -152,11 +152,12 @@ COPY = 0.4
 
 class AfflatusFaceAt(io.ComfyNode):
     """
-    Face Match for a picture made from a frame (Motion transfer's): the face where the frame's main person stands, and the
-    copies of the person anywhere else. The best match anywhere ranked first the pictures that kept the original and pasted
-    the person in beside them, or turned the man behind into them too (HANDOVER-motion-picture-report.md: 9 of 12 such
-    pictures read 0.78 to 0.94). The main person is the frame's largest face; the made picture's face nearest its place
-    (within one face's width, the two pictures' sizes matched) is the one scored.
+    Face Match for a picture made from a frame (Motion transfer's): the person of the photos where someone stood in the
+    frame, and the copies of them anywhere else. The best match anywhere ranked first the pictures that kept the original and
+    pasted the person in beside them, or turned the man behind into them too (HANDOVER-motion-picture-report.md: 9 of 12 such
+    pictures read 0.78 to 0.94). Every face of the picture like the photos is found; one at the place of a face of the frame
+    (within that face's width, the two pictures' sizes matched) is the person put in, any other a copy. Not the frame's
+    largest face: that was a stranger in the foreground of the meme at 8.5 s, and the swaps beside him read as pasted in.
     """
 
     @classmethod
@@ -168,7 +169,7 @@ class AfflatusFaceAt(io.ComfyNode):
             description="How much the face at the frame's main person's place is the person of the photos (ArcFace, on the CPU), and how many copies of them are elsewhere in the picture. Handed back to Afflatus with the prompt's outputs.",
             inputs=[
                 io.Image.Input("image", tooltip="The picture made."),
-                io.Image.Input("frame", tooltip="The frame it was made from: its largest face is the place scored."),
+                io.Image.Input("frame", tooltip="The frame it was made from: where its people stood."),
                 io.Image.Input("photo_1", tooltip="A photo of the person."),
                 io.Image.Input("photo_2", optional=True, tooltip="Another photo of them."),
                 io.Image.Input("photo_3", optional=True, tooltip="A third."),
@@ -192,18 +193,19 @@ class AfflatusFaceAt(io.ComfyNode):
         refs = [r for r in (_reference(p) for p in (photo_1, photo_2, photo_3) if p is not None) if r is not None]
         # every face of the picture (a copy can be small, behind), each with its best match among the photos
         faces = [(max((float(np.dot(f[0], r)) for r in refs), default=-1.0), f[2]) for f in _faces(_bgr(image, 0))]
-        mains = _faces(_bgr(frame, 0), PHOTO_DET, 1)
-        nearest = None
-        if mains:
-            x0, y0, x1, y1 = mains[0][2]
-            sx, sy = image.shape[2] / frame.shape[2], image.shape[1] / frame.shape[1]
-            cx, cy, reach = (x0 + x1) / 2 * sx, (y0 + y1) / 2 * sy, (x1 - x0) * sx
-            dist = lambda b: ((b[0] + b[2]) / 2 - cx) ** 2 + ((b[1] + b[3]) / 2 - cy) ** 2  # noqa: E731
-            close = min(faces, key=lambda f: dist(f[1]), default=None)
-            nearest = close if close is not None and dist(close[1]) < reach**2 else None
-        elif faces:
-            # no face read in the frame: the best match anywhere, as Face Match
-            nearest = max(faces, key=lambda f: f[0])
-        copies = sum(1 for f in faces if f is not nearest and f[0] >= COPY)
-        face = round(nearest[0], 3) if nearest is not None and refs else None
+        sx, sy = image.shape[2] / frame.shape[2], image.shape[1] / frame.shape[1]
+        stood = [(f[2][0] * sx, f[2][1] * sy, f[2][2] * sx, f[2][3] * sy) for f in _faces(_bgr(frame, 0))]
+
+        def at_someone(b) -> bool:
+            cx, cy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+            return any(((o[0] + o[2]) / 2 - cx) ** 2 + ((o[1] + o[3]) / 2 - cy) ** 2 < (o[2] - o[0]) ** 2 for o in stood)
+
+        alike = [f for f in faces if f[0] >= COPY]
+        placed = [f for f in alike if at_someone(f[1])]
+        # the person put in: the best like them where someone stood; none there (the original kept, them pasted in beside),
+        # the best anywhere, and every one like them is a copy
+        best = max(placed or faces, key=lambda f: f[0], default=None)
+        copies = len(alike) - (1 if placed else 0)
+        face = round(best[0], 3) if best is not None and refs else None
+        nearest = best if placed else None
         return io.NodeOutput(ui={"afflatus_face": [{"face": face, "low": face, "frames": 1 if face is not None else 0, "read": 1, "photos": len(refs), "copies": copies, "placed": nearest is not None}]})

@@ -30,6 +30,11 @@ describe.skipIf(!ffmpegThere)("a timeline", { timeout: FFMPEG_TIMEOUT }, () => {
 
     const frame = await call("POST", `/api/assets/${first}/frame`, { atMs: 1000 });
     expect(frame).toMatchObject({ kind: "image", origin: "frame", width: 192, height: 320, kept: true });
+    // a box's working frame (Make the picture): out of the library, not kept, the same one for the same moment
+    const working = await call("POST", `/api/assets/${first}/frame`, { atMs: 1000, once: true, scratch: true });
+    expect(working).toMatchObject({ origin: "scratch", kept: false, folderId: null });
+    expect((await call("POST", `/api/assets/${first}/frame`, { atMs: 1000, once: true, scratch: true })).id).toBe(working.id);
+    expect(working.id).not.toBe(frame.id);
     const d = (await call("POST", `/api/timelines/${tl.id}/clips`, { asset: frame.id, as: "clip" })).timeline.clips[1];
     expect(d).toMatchObject({ kind: "video", joined: "cut", recipe: "h3.video", take: null, inputs: { start: frame.id } });
   });
