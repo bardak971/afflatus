@@ -6,7 +6,7 @@ import { newId, now, OWNER, type Db } from "./db";
 import { addedBy } from "./events";
 import { httpError } from "./errors";
 import type { HuntSummary } from "./hunt";
-import { machinePaces, rates, statRows, type StatRows } from "./forecast";
+import { machinePaces, paceOf, rates, statRows, type StatRows } from "./forecast";
 import { gathering, observeAdded, observePart } from "./serverMetrics";
 import type { Registry } from "./registry";
 import { record } from "./renders";
@@ -631,7 +631,7 @@ export class Queue {
   private async expected(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean, job: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit"> | null = null, machine: string | null = null): Promise<number | null> {
     const e = await this.expectedAll(recipe, input, cold, job);
     if (machine === null || e.ms === null) return e.ms;
-    return e.on.get(machine) ?? e.ms * ((await this.paces()).get(machine) ?? 1);
+    return e.on.get(machine) ?? e.ms * (paceOf(await this.paces(), machine, recipe.family) ?? 1);
   }
 
   /** The forecast of a form as `expected` reads it: on no machine in particular, and on each machine (one graph built for all). */
@@ -919,7 +919,7 @@ ${JSON.stringify(input)}`;
         id: l.id, takes: l.machine!.takes,
         busyForMs: l.running || l.starting ? remainingOf(l.running) ?? (await this.untilEnd(l)) : 0,
         holds: new Set(l.lastLoads ? l.lastLoads.split("|").map(modelName) : []),
-        pace: paces.get(l.id) ?? 1,
+        pace: paceOf(paces, l.id) ?? 1,
       })));
   }
 

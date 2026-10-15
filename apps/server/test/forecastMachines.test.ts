@@ -109,7 +109,9 @@ describe("a forecast on the machine the render goes to", () => {
     // the A40 has none of this recipe: this computer's, at the A40's pace (the load as it was)
     expect(onMachine(rows, { machine: A40, paces, recipeId: "scail.motion" })).toEqual([{ ...rows[0], step_ms: 50, total_ms: 100 + 900 * 0.5, sample_ms: 300 }]);
     expect(onMachine(rows, { machine: A40, paces, recipeId: "scail.other" })).toEqual([rows[1]]);
-    expect(onMachine(rows, { machine: null, paces })).toBe(rows);
+    // no machine asked: each at the common pace, the A40's steps read twice as long; with no pace known, as they are
+    expect(onMachine(rows, { machine: null, paces })).toEqual([rows[0], { ...rows[1], step_ms: 20, total_ms: 50 + 50 * 2, sample_ms: 120 }]);
+    expect(onMachine(rows, { machine: null })).toBe(rows);
   });
 });
 

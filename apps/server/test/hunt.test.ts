@@ -441,7 +441,8 @@ describe("the dialog's live ranking", () => {
       refine_ms: 0, finish_ms: 0, step_ms: stepMs, expected_ms: null, work: 832 * 1216, vram_peak: null, heat_peak: null, asset_id: null, machine_id: "m1", gpu: gpuName, created_at: at,
     });
     // the home 4090 three times, a rented H100 once at half its step (on record before the renders are queued: their
-    // forecasts are kept half a minute); then a render on an A40 that ran out of memory
+    // forecasts are kept half a minute); then a render on an A40 that ran out of memory. One render is no pace (a cold disk,
+    // the card busy elsewhere): the H100 is the speed table's guess against the 4090
     const home4090 = "cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync";
     await t.db.insertInto("render_stats").values([stat("a", home4090, 500), stat("b", home4090, 500), stat("c", home4090, 500), stat("d", "cuda:0 NVIDIA H100 80GB HBM3 : cudaMallocAsync", 250)]).execute();
     const ids = await queue();
@@ -450,9 +451,9 @@ describe("the dialog's live ranking", () => {
     const ranking = (await post(t.app, "/api/hunt/rank", { mode: "fast", ceiling: 5 })).json().ranking as Array<{ name: string; seconds: number | null; timeSaid: string; fit: string; fits: string }>;
     const by = Object.fromEntries(ranking.map((g) => [g.name, g]));
     expect(by["RTX 4090"]).toMatchObject({ timeSaid: "from 3 of your renders", fit: "yes" });
-    expect(by["H100 SXM"]).toMatchObject({ timeSaid: "from 1 of your renders", fit: "yes" });
+    expect(by["H100 SXM"]).toMatchObject({ timeSaid: "a guess", fit: "yes" });
     expect(by["RTX 4090"]!.seconds).toBeGreaterThan(0);
-    expect(by["H100 SXM"]!.seconds! / by["RTX 4090"]!.seconds!).toBeCloseTo(0.5, 1);
+    expect(by["H100 SXM"]!.seconds! / by["RTX 4090"]!.seconds!).toBeCloseTo(1 / 1.9, 1);
     expect(by["A40"]).toMatchObject({ fit: "small", fits: "too small for these files" });
     expect(ranking.map((g) => g.name)).toEqual(["H100 SXM", "RTX 4090", "A40"]);
   });
