@@ -528,6 +528,15 @@ describe("a source's own signed download link", () => {
     expect(seen.map((x) => x.url)).toEqual([api, hop]);
   });
 
+  it("is the link on Civitai's own file server under civitai.com (b2.civitai.com), not taken for one of its pages", async () => {
+    // as Civitai answered on 2026-10-15: one redirect, to a host under civitai.com that serves the file itself
+    const seen: Array<{ url: string; auth?: string; method?: string }> = [];
+    const api = "https://civitai.com/api/download/models/1691220";
+    const b2 = "https://b2.civitai.com/file/civitai-modelfiles/model/6357/cyberrealisticPony.safetensors?Authorization=signed";
+    expect(await signedLink(api, { Authorization: "Bearer civitai_key_12345" }, site({ [api]: { status: 307, location: b2 }, [b2]: { status: 200 } }, seen))).toBe(b2);
+    expect(seen.map((x) => x.url)).toEqual([api]);
+  });
+
   it("is none for a redirect anywhere else, one that carries the key, or a source that does not redirect", async () => {
     const api = "https://civitai.com/api/download/models/1";
     expect(await signedLink(api, {}, site({ [api]: { status: 302, location: "https://evil.example/x.safetensors" } }))).toBeNull();

@@ -122,8 +122,13 @@ export const PACK_DOWNLOADS = "0.11.0";
 export const PACK_SIGNED = "0.12.0";
 /** The hosts a signed download link of Hugging Face or Civitai is on: the pack takes no other (downloads.py DIRECT_HOSTS). */
 const DIRECT_HOSTS = ["huggingface.co", "hf.co", "civitai.com", "r2.cloudflarestorage.com"];
-/** The sites' own pages, which may send a request on to another of their hosts before the file: asked again, not handed over. */
-const API_HOSTS = ["huggingface.co", "civitai.com"];
+/**
+ * The sites' own pages, which may send a request on to another of their hosts before the file: asked again, not handed
+ * over. These hosts exactly, never one under them: Civitai's file server is b2.civitai.com, and taken for one of its pages
+ * it was asked again, answered with the file itself, and a pod was told the file had no link of its own.
+ */
+const API_HOSTS = ["huggingface.co", "www.huggingface.co", "civitai.com", "www.civitai.com"];
+const apiPage = (url: URL) => API_HOSTS.includes(url.hostname);
 /** Past this many fresh links, a source that keeps refusing its own links from ComfyUI's machine is given up on. */
 const MAX_RENEWALS = 4;
 
@@ -159,7 +164,7 @@ export async function signedLink(source: string, headers: Record<string, string>
       const next = new URL(location, at);
       if (!directOk(next.href) || secrets.some((s) => next.href.includes(s))) return null;
       // a file server's link is the one; a page of theirs is asked again
-      if (!hostIs(next, API_HOSTS) || hostIs(next, ["cdn.hf.co", "xethub.hf.co"])) return next.href;
+      if (!apiPage(next)) return next.href;
       at = next.href;
       continue;
     }
