@@ -189,7 +189,7 @@ export function valueRows(d: SearchData, key: SearchKey, typed: string): Section
 export const promptRows = (list: readonly PromptHistoryItem[]): Shown[] =>
   list.map((h, i) => ({
     key: `history:${i}:${h.createdAt}`, kind: "history", label: h.prompt.replace(/\s+/g, " ").slice(0, 140), group: "Prompt history",
-    meta: when(h.createdAt), verb: "use", p: prepare(h.prompt.slice(0, 140)), history: h,
+    meta: when(h.createdAt), verb: h.clip ? "open" : h.assetId ? "view" : h.draftId ? "open" : "use", p: prepare(h.prompt.slice(0, 140)), history: h,
   }));
 
 /** A found item as the bar's render row (its Tab actions are the item's own). */

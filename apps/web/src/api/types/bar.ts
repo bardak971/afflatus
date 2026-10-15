@@ -42,6 +42,8 @@ export interface PromptHistoryItem {
   draftId: string | null;
   /** Its first output still in the library; null when none is. */
   assetId: string | null;
+  /** The timeline clip that output is a take of; null for a render of a draft. */
+  clip: { timeline: string; clip: number } | null;
   createdAt: string;
 }
 

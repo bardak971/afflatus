@@ -60,9 +60,18 @@ export function kitActions(x: BarCtx, k: Extract<CommandEntry, { kind: "kit" }>)
 /** A person of `@`: cast where the bar casts, or opened in the kit. */
 export const personActions = (x: BarCtx, p: Person): Action[] => [...castActions(x, p), { label: `Open ${p.name} in the Prompt kit`, icon: <Clapperboard size={14} />, run: () => x.go(kitHref("person", p.id)) }];
 
-/** A prompt of the history: put in the open draft, its render or draft opened, or copied. */
+/**
+ * A prompt of the history: what it made opened first (a clip's take on its timeline, the clip selected; any other render
+ * in the viewer), else its draft; then put in the open draft, its renders searched, or copied.
+ */
 export function historyActions(x: BarCtx, h: PromptHistoryItem): Action[] {
+  const seen: Action[] = h.clip
+    ? [{ label: `Open clip ${h.clip.clip} on its timeline`, icon: <Eye size={14} />, run: () => x.go(`/timelines/${h.clip!.timeline}?clip=${h.clip!.clip}`) }]
+    : h.assetId ? [{ label: "View its render", icon: <Eye size={14} />, run: () => x.view(h.assetId!).catch(x.failed("Could not open it")) }] : [];
   return [
+    ...seen,
+    ...(h.draftId ? [{ label: "Open its draft", icon: <PenLine size={14} />, run: () => x.openDraft(h.draftId!) }] : []),
+    ...(h.clip && h.assetId ? [{ label: "View its render", icon: <Eye size={14} />, note: "the take alone", run: () => x.view(h.assetId!).catch(x.failed("Could not open it")) }] : []),
     {
       label: "Use in the open draft", icon: <PenLine size={14} />, note: "its main prompt",
       run: async () => {
@@ -75,8 +84,6 @@ export function historyActions(x: BarCtx, h: PromptHistoryItem): Action[] {
     },
     // its renders: the line's prompt: with its first words (the library's words find those that hold them all)
     { label: "Its renders", icon: <Search size={14} />, note: "prompt: with its first words", stay: true, run: retype(`prompt:${valueText(h.prompt.replace(/["\s]+/g, " ").trim().split(" ").slice(0, 6).join(" "))} `) },
-    ...(h.assetId ? [{ label: "View its render", icon: <Eye size={14} />, run: () => x.view(h.assetId!).catch(x.failed("Could not open it")) }] : []),
-    ...(h.draftId ? [{ label: "Open its draft", icon: <PenLine size={14} />, run: () => x.openDraft(h.draftId!) }] : []),
     { label: "Copy the prompt", icon: <Copy size={14} />, stay: true, run: () => copyText(h.prompt).then(() => x.onCopied("the prompt"), () => x.onCopied("")) },
   ];
 }

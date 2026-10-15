@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openSqlite, OWNER } from "../src/db";
-import { get, makeApp, type TestApp } from "./helpers";
+import { get, makeApp, post, type TestApp } from "./helpers";
 
 let t: TestApp;
 beforeEach(async () => {
@@ -45,11 +45,12 @@ describe("prompt history", () => {
       parse.mockRestore();
       return { items: res.json().items as Array<{ prompt: string; assetId: string | null }>, statements, parsed };
     };
-    // five prompts, all with a picture of their newest render: one page of renders and one look at the library
+    // five prompts, all with a picture of their newest render: one page of renders, one look at the library and one at the
+    // timeline clips those pictures are takes of
     const five = await read("/api/prompt-history?limit=5");
     expect(five.items.map((i) => i.prompt)).toEqual(["prompt 11", "prompt 10", "prompt 9", "prompt 8", "prompt 7"]);
     expect(five.items.map((i) => i.assetId)).toEqual(["a1199", "a1198", "a1197", "a1196", "a1195"]);
-    expect(five.statements).toBeLessThanOrEqual(2);
+    expect(five.statements).toBeLessThanOrEqual(3);
     expect(five.parsed).toBeLessThanOrEqual(500);
     // every prompt: "prompt 0" has a picture left only from its first render, 50 renders back at most, so none is offered
     const all = await read("/api/prompt-history?limit=30");
@@ -74,5 +75,22 @@ describe("prompt history", () => {
     }
     const items = (await get(t.app, "/api/prompt-history?limit=2")).json().items as Array<{ prompt: string; assetId: string | null }>;
     expect(items).toEqual([expect.objectContaining({ prompt: "old", assetId: "keep" }), expect.objectContaining({ prompt: "busy", assetId: "a600" })]);
+  });
+  it("says the timeline clip a prompt's render is a take of, so that it is opened there; a draft's render is not one", async () => {
+    const tl = (await post(t.app, "/api/timelines", { name: "zz-test prompts" })).json() as { id: string };
+    const now = at(10);
+    await t.db.insertInto("clips").values({
+      id: "c1", timeline_id: tl.id, position: 0, take_id: null, joined: "cut", recipe_id: "h3.video", inputs: "{}", kind: "video", still_asset_id: null, still_ms: 3000,
+      sound: "own", sound_asset_id: null, volume: 100, fill: 0, look: null, chat: null, created_at: now, updated_at: now,
+    } as never).execute();
+    await t.db.insertInto("generations").values([generation("gc", "a clip's prompt", 11), generation("gd", "a draft's prompt", 12)]).execute();
+    await t.db.insertInto("assets").values([asset("ac", "gc", 11), asset("ad", "gd", 12)] as never).execute();
+    await t.db.insertInto("takes").values({
+      id: "k1", clip_id: "c1", asset_id: "ac", head_ms: 0, tail_ms: 0, trim_start_ms: 0, trim_end_ms: 0, prev_take_id: null, prev_at_ms: null, next_take_id: null, next_at_ms: null,
+      finished_from: null, join_kind: null, created_at: at(11),
+    } as never).execute();
+    const items = (await get(t.app, "/api/prompt-history")).json().items as Array<{ prompt: string; clip: { timeline: string; clip: number } | null }>;
+    expect(items.find((i) => i.prompt === "a clip's prompt")?.clip).toEqual({ timeline: tl.id, clip: 1 });
+    expect(items.find((i) => i.prompt === "a draft's prompt")?.clip).toBeNull();
   });
 });
