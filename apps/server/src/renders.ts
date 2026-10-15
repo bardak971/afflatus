@@ -2,6 +2,7 @@ import type { Kysely } from "kysely";
 import type { Measured } from "@afflatus/comfy";
 import { modelOf, timeKey, TOOLS_FAMILY, type Recipe } from "@afflatus/core";
 import { now, OWNER, type Db, type Tables } from "./db";
+import { RELOAD_MS, reloadAbove } from "./forecast";
 import type { JobRow, Resume } from "./queueModel";
 import { cellOf, DAY, dayOf, digestDays, median, merge, WHOLE_DAY, type Cell, type RenderRow } from "./renderDigests";
 
@@ -44,6 +45,7 @@ export async function record(
   const refine = of("upscaling", "refining", "restoring", "detailing", "processing");
   // what is left is the finishing: decoding, smoothing, saving (and anything a workflow of its own does that has no name here)
   const finish = measured ? Math.max(0, Math.round(totalMs) - load - sample - refine) : 0;
+  const cold = Boolean(resume.timing?.cold) || (await reloaded(db, resume.timing?.modelFile ?? "", where.machine, load));
   const at = now();
   await db
     .insertInto("render_stats")
@@ -51,7 +53,7 @@ export async function record(
       id: row.id, owner_id: OWNER, recipe_id: recipe.id, family: recipe.family,
       model: resume.timing?.model ?? "", model_file: resume.timing?.modelFile ?? "", time_key: resume.timing?.timeKey ?? "",
       kind: made?.kind ?? null, width: made?.width ?? null, height: made?.height ?? null, duration_ms: made?.duration_ms ?? null,
-      steps: resume.totalSteps, status, whole: whole && measured ? 1 : 0, cold: resume.timing?.cold ? 1 : 0,
+      steps: resume.totalSteps, status, whole: whole && measured ? 1 : 0, cold: cold ? 1 : 0,
       waited_ms: Math.max(0, resume.startedAt - new Date(row.created_at).getTime()),
       total_ms: Math.round(totalMs), load_ms: load, sample_ms: sample, refine_ms: refine, finish_ms: finish,
       step_ms: measured?.stepMs ?? null, expected_ms: resume.timing?.expectedMs ?? null, work: resume.timing?.work ?? null,
@@ -61,6 +63,20 @@ export async function record(
     .onConflict((oc) => oc.column("id").doNothing())
     .execute();
   await digestDays(db, Date.now(), dayOf(at));
+}
+
+/**
+ * Whether a render sent with its model in memory loaded it all the same: whether it must load is what this app last asked
+ * ComfyUI for, not what ComfyUI holds, and ComfyUI lets a model go to make room for another. Filed warm, one such load
+ * (two minutes, of a model rendered twice) made its next renders read 140 s for 20. It did when its load is past what the
+ * model's loads in memory on this machine say (forecast.ts reloadAbove); with none on record, it is not told.
+ */
+export async function reloaded(db: Db, modelFile: string, machine: string | null, loadMs: number): Promise<boolean> {
+  if (!modelFile || loadMs <= RELOAD_MS) return false;
+  let q = db.selectFrom("render_stats").select("load_ms").where("model_file", "=", modelFile).where("status", "=", "done").where("whole", "=", 1).where("cold", "=", 0);
+  q = machine ? q.where("machine_id", "=", machine) : q.where("machine_id", "is", null);
+  const loads = (await q.orderBy("created_at", "desc").limit(30).execute()).map((r) => r.load_ms);
+  return loads.length > 0 && loadMs > reloadAbove(loads);
 }
 
 /**

@@ -456,9 +456,10 @@ describe("the next render's time is forecast from the record", () => {
     const held = await advice({});
     expect(held.loadMs).toBe(0);
     expect(held.text).toContain(`About ${roughly(held.ms)},`);
-    // another model: its load is in the figure, and said apart so that a batch loads it once
+    // another model: its load is in the figure, and said apart so that a batch loads it once; what it adds is its load less
+    // what the family's renders in memory spend before their first step (the 1 s of the first's), which it spends too
     const other = await advice({ checkpoint: "other.safetensors" });
-    expect(other.loadMs).toBe(41_000);
+    expect(other.loadMs).toBe(40_000);
     expect(other.ms).toBeGreaterThan(other.loadMs);
     expect(other.text).toContain(`About ${roughly(other.ms)},`);
   });
