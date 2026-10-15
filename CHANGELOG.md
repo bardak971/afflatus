@@ -45,7 +45,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **Settings:** ComfyUI, Rented GPUs and Models in two columns on a wide screen; Settings › Models' family panel says what each operation lacks.
 - **Inputs:** a motion transfer's in the order they are used; a tab you click wins over the one brought forward for a missing input; "txt2vid" only when a clip starts from words alone.
 - **Faster with several machines and while rendering:** the machine check keeps ComfyUI's node list and the recipes' checks (the queue answered in milliseconds instead of up to 3 s); forecasts kept until a render lands; a machine is free for its next job once a render's files are stored, its figures read after (one decode instead of eight); a picture goes up once per machine; the tab stays light while rendering (a third of the CPU it took), the Studio no longer keeps old tiles in memory, and the Queue's answer is paged.
-
+- **Afflatus's pod image 0.1.9:** the node pack 0.16.2 (a lighter Face Match); InsightFace's face models are no longer in the image (their licence is for non-commercial research): the pod fetches them from InsightFace's own release at its start, and a volume keeps them.
 
 ### Fixed
 - A form with a cast shows the voice sample the cast adds in its voice field, as it shows the cast's pictures.
