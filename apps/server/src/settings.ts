@@ -177,6 +177,8 @@ const accessSchema = z.object({
   resetTelegram: z.boolean().default(true),
   /** The SHA-256 of the token Prometheus sends for /metrics while a password is set (access.ts metricsToken); empty: none. */
   metricsToken: z.string().max(100).default(""),
+  /** When Telegram's bot or chat last changed (ISO): no reset code goes there for 24 h after (access.ts telegramChanged). */
+  telegramChangedAt: z.string().max(40).default(""),
 });
 export type AccessSettings = z.infer<typeof accessSchema>;
 

@@ -9,6 +9,7 @@ import { useSayFailed } from "../../sayFailed";
 import { Select } from "../../Select";
 import { useCopied } from "../../hooks";
 import { Button, Checkbox, Chip, cx, ErrorNote, fieldClass, Toggle, TwoStep } from "../../ui";
+import { PasswordAsk } from "./PasswordAsk";
 import { Block, Card, Row } from "./Rows";
 
 /**
@@ -17,12 +18,12 @@ import { Block, Card, Row } from "./Rows";
  * where reset codes go, and the devices signed in now.
  */
 
-const HELP = "A password for Afflatus. Set, every page, API call and /metrics needs a signed-in device (the probe's /api/health, the sign-in itself and a download ComfyUI fetches excepted; Prometheus uses the metrics token). Too many wrong tries make everyone wait a minute: devices signed in go on, and you are told on Telegram and here. Forgot it: Forgot password? on the sign-in sends a 6-digit code to Telegram or to this computer's console and data/logs/afflatus.log. Lost every way in: stop Afflatus and run Afflatus.bat reset-password (./afflatus.sh reset-password; from the sources pnpm start reset-password; Docker: docker compose run --rm afflatus node apps/server/dist/index.mjs reset-password), or start it once with AFFLATUS_RESET_PASSWORD=1. Either removes the password and signs every device out.";
+const HELP = "A password for Afflatus. Set, every page, API call and /metrics needs a signed-in device (the probe's /api/health, the sign-in itself and a download ComfyUI fetches excepted; Prometheus uses the metrics token). Too many wrong tries make everyone wait a minute: devices signed in go on, and you are told on Telegram and here. Forgot it: Forgot password? on the sign-in sends a 10-character code (K7M2P-9XQ4R) to Telegram or to this computer's console and data/logs/afflatus.log. Lost every way in: stop Afflatus and run Afflatus.bat reset-password (./afflatus.sh reset-password; from the sources pnpm start reset-password; Docker: docker compose run --rm afflatus node apps/server/dist/index.mjs reset-password), or start it once with AFFLATUS_RESET_PASSWORD=1. Either removes the password and signs every device out.";
 const LOCAL_HELP = "On: a request from the computer Afflatus runs on (a loopback address, asked as localhost, carrying no proxy header) gets in without the password. Off by default. Offered only while Afflatus listens on the network (HOST=0.0.0.0): listening on this computer only, anyone reaching it from elsewhere comes through something on this computer that forwards connections (a port proxy, ssh -R, WSL, a reverse proxy), which looks like this computer. Even on the network, any such forwarder or a reverse proxy on this computer makes every visitor look local. In Docker the host's requests come through Docker's network: nothing is exempt there.";
 const LOCAL_OFF_HELP = "Not offered: Afflatus listens on this computer only (HOST=127.0.0.1), so anyone who reaches it from elsewhere comes through something on this computer that forwards connections, which looks like this computer. The exemption would let exactly them in.";
 const METRICS_HELP = "While a password is set, /metrics needs a session or this token, sent by Prometheus as a Bearer token (authorization: credentials). Shown once when made: copy it then. Make a new one to replace it.";
 const STAY_HELP = "How long a device stays signed in when \"Remember this device\" was ticked at its sign-in. Not ticked: until the browser closes, or 12 h without use. A change counts from the next sign-in.";
-const CODES_HELP = "Where Forgot password? may send a 6-digit code (valid 10 minutes, once, only in the browser that asked for it). This computer always: Afflatus's console and data/logs/afflatus.log (docker logs on Docker), which only someone at the machine reads. Telegram: your bot's chat, once Telegram is set in Notifications; in a group chat every member sees the code.";
+const CODES_HELP = "Where Forgot password? may send a 10-character code (valid 10 minutes, once, only in the browser that asked for it). A Telegram bot or chat changed lately gets none for 24 h. This computer always: Afflatus's console and data/logs/afflatus.log (docker logs on Docker), which only someone at the machine reads. Telegram: your bot's chat, once Telegram is set in Notifications; in a group chat every member sees the code.";
 const NEW_HELP = "A notice on Telegram when a device never seen before signs in: its browser and address. Changing this, From this computer or where codes go asks for the password unless you signed in within 10 minutes.";
 
 const STAY: Array<{ value: string; label: string }> = [1, 7, 30, 90].map((d) => ({ value: String(d), label: plural(d, "day") }));
@@ -120,7 +121,6 @@ export function AccessCard() {
   };
   // a change the server asks the password for (a sign-in older than 10 minutes): held while the password is typed
   const [asking, setAsking] = useState<{ patch: AccessPatch; said: string | null } | null>(null);
-  const [current, setCurrent] = useState("");
   const [token, setToken] = useState<string | null>(null);
   const { copied, copy } = useCopied();
   const save = useMutation({
@@ -128,7 +128,6 @@ export function AccessCard() {
       "metrics" in patch ? api.metricsToken(patch.metrics, password).then((r) => setToken(r.token)) : api.accessSettings(patch, password).then(() => undefined),
     onSuccess: () => {
       setAsking(null);
-      setCurrent("");
       readAgain();
       void client.invalidateQueries({ queryKey: queryKeys.signedDevices() });
     },
@@ -230,23 +229,7 @@ export function AccessCard() {
           {a.hasMetricsToken && <Button size="sm" tone="quiet" disabled={save.isPending} onClick={() => { setToken(null); change({ metrics: false }); }}>Take off</Button>}
         </Row>
       )}
-      {asking && (
-        <Block>
-          <form
-            className="flex flex-wrap items-center justify-end gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              save.mutate({ patch: asking.patch, password: current });
-            }}
-          >
-            <span className="grow text-[12.5px] text-ink-2">This change needs the password (no sign-in in the last 10 minutes).</span>
-            <input type="password" autoFocus autoComplete="current-password" aria-label="Password" value={current} onChange={(e) => setCurrent(e.target.value)} className={cx("h-9 w-48 text-[13px]", fieldClass)} />
-            <Button size="sm" type="submit" tone="primary" disabled={!current || save.isPending}>Confirm</Button>
-            <Button size="sm" tone="quiet" onClick={() => { setAsking(null); setCurrent(""); }}>Cancel</Button>
-            {asking.said && <span className="basis-full text-right"><ErrorNote>{asking.said}</ErrorNote></span>}
-          </form>
-        </Block>
-      )}
+      {asking && <PasswordAsk said={asking.said} busy={save.isPending} onConfirm={(password) => save.mutate({ patch: asking.patch, password })} onCancel={() => setAsking(null)} />}
       {a.hasPassword && (
         <div className="flex flex-col">
           <div className="flex items-center gap-2.5 px-[18px] pt-3 pb-1.5">

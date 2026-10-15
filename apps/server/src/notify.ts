@@ -343,6 +343,17 @@ export class Notify {
     }
   }
 
+  /** A message to a bot and chat given here, not the ones saved: the chat before a change is told of it (access.ts telegramChanged). */
+  async toTelegramAt(to: { telegramToken: string; telegramChat: string }, notice: Notice): Promise<void> {
+    const n = (await readSettings(this.deps.db)).notify;
+    const at = { ...n, telegramToken: to.telegramToken, telegramChat: to.telegramChat };
+    try {
+      await this.post("telegram", at, notice, null);
+    } catch (err) {
+      throw httpError(redacted(err, secretsOf(at)), 502);
+    }
+  }
+
   /** The chats that wrote to the bot lately (getUpdates, read once): the user sends it anything first, then picks theirs. */
   async telegramChats(): Promise<Array<{ id: string; name: string; type: string }>> {
     const n = (await readSettings(this.deps.db)).notify;

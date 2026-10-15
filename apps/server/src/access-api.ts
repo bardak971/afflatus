@@ -143,6 +143,13 @@ export function registerAccessHook(app: FastifyInstance, access: Access): void {
     const session = locked && (api || metrics) && !twice ? ((await access.sessionOf(cookiesOf(req.headers.cookie)[names.session], req.socket.remoteAddress ?? ""))?.id ?? null) : null;
     req.access = { locked, local, open: bypass, session };
     const open = openRoute(req.method, route);
+    const reads = req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS";
+    // locked, a change without a session is answered before its body is read, whatever the address
+    if (locked && !bypass && !session && !open && !reads) {
+      return reply.status(401).header("X-Afflatus-Sign-In", "1").send({ error: "Sign in first: this Afflatus has a password.", signIn: true });
+    }
+    // nothing matched: a 404 before any body is read (the upload parser would write it to disk first)
+    if (!route && !reads) return reply.status(404).send({ error: "there is nothing at this address" });
     // a body sent to a route anyone may call is JSON or nothing (OPEN_BODY)
     if (open && req.method === "POST") {
       const type = String(req.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
@@ -195,6 +202,8 @@ export function registerAccess(app: FastifyInstance, s: Services): void {
       session: req.access.session !== null,
       stayDays: a.stayDays,
       telegram: a.password !== null && ways.telegram,
+      // Telegram changed lately: the Forgot screen says when it is a way again
+      telegramHeld: a.password !== null ? Math.ceil(ways.telegramHeld / 60_000) : 0,
       wait: Math.ceil(access.passwordTries.waitMs(ip(req)) / 1000),
       sendAgain: access.sendAgainS(ip(req)),
     };

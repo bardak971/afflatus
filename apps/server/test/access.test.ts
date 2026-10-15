@@ -1,10 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createServer, get as httpGet, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Access, checkPassword, deviceName, hashPassword, IDLE_MS, resetAccess, Tries, TRY_LIMITS } from "../src/access";
+import { Access, checkPassword, codeRead, codeShown, deviceName, hashPassword, IDLE_MS, resetAccess, TELEGRAM_HOLD_MS, Tries, TRY_LIMITS } from "../src/access";
 import { cookie, cookieCount, cookieNames, cookiesOf, openRoute, overHttps } from "../src/access-api";
 import { fromThisComputer } from "../src/hostCheck";
 import { readSettings, updateSettings, writeSettings } from "../src/settings";
@@ -63,6 +63,25 @@ const setPassword = async (password = PASSWORD) => {
   owner = jar(res);
 };
 const signIn = async (o: Opts & { password?: string; remember?: boolean } = {}) => ask("POST", "/api/session/sign-in", { ...o, body: { password: o.password ?? PASSWORD, remember: o.remember ?? true } });
+/** A pretend Telegram on this machine: what it was sent, as the bot and chat it was sent to and the text. */
+async function fakeTelegram(): Promise<{ heard: Array<{ url: string; chat: string; text: string }>; close(): Promise<void> }> {
+  const heard: Array<{ url: string; chat: string; text: string }> = [];
+  const site: Server = createServer((req, res) => {
+    const parts: Buffer[] = [];
+    req.on("data", (c: Buffer) => parts.push(c));
+    req.on("end", () => {
+      const body = JSON.parse(Buffer.concat(parts).toString() || "{}") as { text?: string; chat_id?: string };
+      heard.push({ url: req.url ?? "", chat: String(body.chat_id ?? ""), text: body.text ?? "" });
+      res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ ok: true, result: {} }));
+    });
+  });
+  await new Promise<void>((r) => site.listen(0, "127.0.0.1", r));
+  vi.stubEnv("TELEGRAM_URL", `http://127.0.0.1:${(site.address() as AddressInfo).port}`);
+  return { heard, close: () => new Promise((r) => site.close(() => r())) };
+}
+const BOT = "123456789:AAE_test-token-0123456789abcdef";
+const OTHER_BOT = "987654321:AAE_their-token-0123456789abcdef";
+
 /** The owner's session made older than the 10 minutes a change of the Access settings takes without the password. */
 const age = async () => {
   await t.db.updateTable("sessions").set({ created_at: new Date(Date.now() - 11 * 60_000).toISOString() }).execute();
@@ -104,7 +123,7 @@ describe("the lock", () => {
     expect(state).not.toHaveProperty("local");
     expect((await ask("POST", "/api/session/sign-out", { body: {} })).statusCode).toBe(200);
     expect((await ask("POST", "/api/session/forgot", { body: { via: "computer" } })).statusCode).toBe(200);
-    expect((await ask("POST", "/api/session/reset", { body: { code: "000000", password: "another password" } })).statusCode).toBe(400);
+    expect((await ask("POST", "/api/session/reset", { body: { code: "00000-00000", password: "another password" } })).statusCode).toBe(400);
     // the download address answers by its own token: a 404 for a token that is not good, never a 401
     expect((await ask("GET", "/api/downloads/fetch/nothing?t=x")).statusCode).toBe(404);
     expect(openRoute("HEAD", "/api/downloads/fetch/:id")).toBe(true);
@@ -401,10 +420,10 @@ describe("reset codes", () => {
     const lines: string[] = [];
     const a = new Access(t.db, t.services.notify, { now, logFile, log: { log: (l: string) => lines.push(l), warn: (l: string) => lines.push(l) } });
     // the last code written, for the browser that asked last
-    return { a, lines, code: () => [...lines.join("\n").matchAll(/RESET CODE: (\d{6})/g)].at(-1)?.[1] ?? "" };
+    return { a, lines, code: () => [...lines.join("\n").matchAll(/RESET CODE: ([0-9A-HJKMNP-TV-Z]{5}-[0-9A-HJKMNP-TV-Z]{5})/g)].at(-1)?.[1] ?? "" };
   };
   const who = { ip: LAN, ua: CHROME, device: undefined, session: null };
-  const wrongOf = (code: string) => (code === "000000" ? "111111" : "000000");
+  const wrongOf = (code: string) => (code === "00000-00000" ? "11111-11111" : "00000-00000");
 
   it("are written to the console and the log file, work once in the browser that asked, and set the new password", async () => {
     await setPassword();
@@ -413,7 +432,7 @@ describe("reset codes", () => {
       const log = join(dir, "logs", "afflatus.log");
       const { a, code } = own(Date.now, log);
       const { nonce } = await a.forgot("computer", LAN, undefined);
-      expect(code()).toMatch(/^\d{6}$/);
+      expect(code()).toMatch(/^[0-9A-HJKMNP-TV-Z]{5}-[0-9A-HJKMNP-TV-Z]{5}$/);
       expect(readFileSync(log, "utf8")).toContain(`password reset code: ${code()}`);
       // another browser (no nonce, or another one) finds no code, and spends nothing of this one
       await expect(a.reset({ ...who, nonce: undefined, code: code(), password: "a brand new one", signOutOthers: true })).rejects.toMatchObject({ statusCode: 400 });
@@ -460,7 +479,7 @@ describe("reset codes", () => {
     let now = Date.now();
     const { a, code } = own(() => now);
     // entries without a code: nothing to guess, nothing counted
-    for (let i = 0; i < 30; i++) await expect(a.reset({ ...who, ip: `10.1.0.${i}`, nonce: "y".repeat(32), code: "123456", password: "a brand new one", signOutOthers: true })).rejects.toMatchObject({ statusCode: 400 });
+    for (let i = 0; i < 30; i++) await expect(a.reset({ ...who, ip: `10.1.0.${i}`, nonce: "y".repeat(32), code: "ABCDE-FGHJK", password: "a brand new one", signOutOthers: true })).rejects.toMatchObject({ statusCode: 400 });
     const mine = (await a.forgot("computer", LAN, undefined)).nonce;
     // 20 wrong entries from many addresses, each with a code of its own: codes pause for everyone, for the window
     for (let i = 0; i < 4; i++) {
@@ -473,6 +492,61 @@ describe("reset codes", () => {
     const again = (await a.forgot("computer", LAN, mine)).nonce;
     expect(again).toBe(mine);
     await a.reset({ ...who, nonce: mine, code: code(), password: "a brand new one", signOutOthers: true });
+  });
+
+  it("never put the owner's waiting code aside for others: past 8 waiting, new ones are refused", async () => {
+    await setPassword();
+    const { a, code } = own(Date.now);
+    const mine = (await a.forgot("computer", LAN, undefined)).nonce;
+    const ownerCode = code();
+    for (let i = 0; i < 7; i++) await a.forgot("computer", `10.4.0.${i}`, undefined);
+    await expect(a.forgot("computer", "10.4.0.99", undefined)).rejects.toMatchObject({ statusCode: 429, message: expect.stringContaining("Codes are being asked for") });
+    await a.reset({ ...who, nonce: mine, code: ownerCode, password: "the owner's new one", signOutOthers: true });
+  });
+
+  it("are entered with or without the dash, in any case, I and L for 1 and O for 0", async () => {
+    await setPassword();
+    const { a, code } = own(Date.now);
+    const { nonce } = await a.forgot("computer", LAN, undefined);
+    const typed = code().toLowerCase().replace("-", " ").replace(/1/g, "l").replace(/0/g, "o");
+    await a.reset({ ...who, nonce, code: typed, password: "a brand new one", signOutOthers: true });
+  });
+
+  it("tell the owner when more than 3 are asked for in an hour, and at any wrong one", async () => {
+    const tg = await fakeTelegram();
+    try {
+      await setPassword();
+      await writeSettings(t.db, { notify: { telegramToken: BOT, telegramChat: "42" } });
+      const { a, code } = own(Date.now);
+      for (let i = 0; i < 4; i++) await a.forgot("computer", `10.5.0.${i}`, undefined);
+      await vi.waitFor(() => expect(tg.heard.some((h) => h.text.includes("4 reset codes asked for in the last hour"))).toBe(true));
+      const { nonce } = await a.forgot("computer", "10.5.0.9", undefined);
+      await a.reset({ ...who, ip: "10.5.0.9", nonce, code: wrongOf(code()), password: "a brand new one", signOutOthers: true }).catch(() => {});
+      await vi.waitFor(() => expect(tg.heard.some((h) => h.text.includes("A wrong reset code was entered from 10.5.0.9"))).toBe(true));
+      expect(a.lastAlarm?.said).toContain("wrong reset code");
+    } finally {
+      await tg.close();
+    }
+  });
+
+  it("are refused for the rest of the day past 100 wrong entries, saying the command line still resets", async () => {
+    await setPassword();
+    let now = Date.now();
+    const { a, code } = own(() => now);
+    let entered = 0;
+    for (let round = 0; entered < 100; round++) {
+      // 20 wrong entries every 15 minutes at most: the window is let pass between rounds
+      for (let i = 0; i < 4 && entered < 100; i++) {
+        const ip = `10.6.${round}.${i}`;
+        const { nonce } = await a.forgot("computer", ip, undefined);
+        for (let j = 0; j < 5; j++, entered++) await a.reset({ ...who, ip, nonce, code: wrongOf(code()), password: "a brand new one", signOutOthers: true }).catch(() => {});
+      }
+      now += 15 * 60_000 + 1;
+    }
+    const refused = await a.forgot("computer", "10.7.0.1", undefined).catch((e: Error) => e);
+    expect(refused).toMatchObject({ statusCode: 429, message: expect.stringContaining("reset-password still works") });
+    now += 24 * 3600_000;
+    await a.forgot("computer", "10.7.0.1", undefined);
   });
 
   it("do not spend a try on a new password that is too short", async () => {
@@ -505,8 +579,8 @@ describe("reset codes", () => {
       expect(sent.statusCode).toBe(200);
       const resetCookie = ([sent.headers["set-cookie"]].flat() as string[]).find((c) => c.startsWith(`${NAMES.reset}=`))!;
       expect(resetCookie).toMatch(/Path=\/api\/session; HttpOnly; SameSite=Strict; Max-Age=600/);
-      const code = /Code: (\d{6})/.exec(heard.join("\n"))?.[1];
-      expect(code).toMatch(/^\d{6}$/);
+      const code = /Code: ([0-9A-HJKMNP-TV-Z]{5}-[0-9A-HJKMNP-TV-Z]{5})/.exec(heard.join("\n"))?.[1];
+      expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{5}-[0-9A-HJKMNP-TV-Z]{5}$/);
       // without the browser's cookie the code finds nothing
       expect((await ask("POST", "/api/session/reset", { body: { code, password: "a brand new one" } })).statusCode).toBe(400);
       const reset = await ask("POST", "/api/session/reset", { cookie: jar(sent), body: { code, password: "a brand new one", signOutOthers: true } });
@@ -518,6 +592,79 @@ describe("reset codes", () => {
     } finally {
       await new Promise((r) => site.close(r));
     }
+  });
+});
+
+
+describe("Telegram's bot and chat", () => {
+  it("change only with a recent sign-in or the password: a session taken over cannot point the codes at its own bot", async () => {
+    const tg = await fakeTelegram();
+    try {
+      await setPassword();
+      expect((await ask("PUT", "/api/settings", { cookie: owner, body: { notify: { telegramToken: BOT, telegramChat: "42" } } })).statusCode).toBe(200);
+      await age();
+      const refused = await ask("PUT", "/api/settings", { cookie: owner, body: { notify: { telegramToken: OTHER_BOT, telegramChat: "666" } } });
+      expect(refused.statusCode).toBe(403);
+      expect(refused.json()).toMatchObject({ needPassword: true });
+      expect((await ask("PUT", "/api/settings", { cookie: owner, body: { notify: { telegramChat: "666" } } })).statusCode).toBe(403);
+      expect((await readSettings(t.db)).notify.telegramChat).toBe("42");
+      // the password typed again lets it through
+      expect((await ask("PUT", "/api/settings", { cookie: owner, headers: { "x-afflatus-password": PASSWORD }, body: { notify: { telegramChat: "777" } } })).statusCode).toBe(200);
+    } finally {
+      await tg.close();
+    }
+  });
+
+  it("changed, get no reset code for 24 h, and the chat before is told", async () => {
+    const tg = await fakeTelegram();
+    try {
+      let now = 0;
+      await setPassword();
+      await ask("PUT", "/api/settings", { cookie: owner, body: { notify: { telegramToken: BOT, telegramChat: "42" } } });
+      tg.heard.length = 0;
+      expect((await ask("PUT", "/api/settings", { cookie: owner, body: { notify: { telegramChat: "777" } } })).statusCode).toBe(200);
+      await vi.waitFor(() => expect(tg.heard.some((h) => h.chat === "42" && h.text.includes("Afflatus's Telegram was changed to another chat"))).toBe(true));
+      expect(tg.heard.find((h) => h.chat === "42")!.url).toContain(BOT);
+      const state = (await ask("GET", "/api/session")).json();
+      expect(state.telegram).toBe(false);
+      expect(state.telegramHeld).toBeGreaterThan(23 * 60);
+      expect((await ask("POST", "/api/session/forgot", { body: { via: "telegram" } })).statusCode).toBe(409);
+      // a day later it is a way again
+      const later = new Access(t.db, t.services.notify, { now: () => now, log: quiet });
+      now = Date.now() + TELEGRAM_HOLD_MS + 1000;
+      expect((await later.resetWays()).telegram).toBe(true);
+      later.stop();
+    } finally {
+      await tg.close();
+    }
+  });
+});
+
+describe("the body of a request nobody may make", () => {
+  it("is never read: an address with no route, or a locked change without a session, is answered first", async () => {
+    // a temporary folder of this test's own, where the upload parser would write: other tests' uploads land elsewhere
+    const own = mkdtempSync(join(tmpdir(), "afflatus-body-"));
+    for (const name of ["TMP", "TEMP", "TMPDIR"]) vi.stubEnv(name, own);
+    const uploads = () => readdirSync(own).filter((f) => f.startsWith("afflatus-upload-")).length;
+    const before = uploads();
+    expect((await ask("POST", "/nowhere", { headers: { "content-type": "application/octet-stream" }, raw: "x".repeat(64 * 1024) })).statusCode).toBe(404);
+    await setPassword();
+    expect((await ask("POST", "/api/assets/upload", { headers: { "content-type": "application/octet-stream" }, raw: "x".repeat(64 * 1024) })).statusCode).toBe(401);
+    expect([401, 404]).toContain((await ask("PUT", "/api/drafts/x", { headers: { "content-type": "image/png" }, raw: "x".repeat(64 * 1024) })).statusCode);
+    expect(uploads()).toBe(before);
+    vi.unstubAllEnvs();
+    rmSync(own, { recursive: true, force: true });
+  });
+});
+
+describe("the code itself", () => {
+  it("is 10 characters of Crockford's base32, grouped, read whatever its case, I and L as 1, O as 0", () => {
+    expect(codeShown("K7M2P9XQ4R")).toBe("K7M2P-9XQ4R");
+    expect(codeRead("k7m2p-9xq4r")).toBe("K7M2P9XQ4R");
+    expect(codeRead(" K7M2P 9XQ4R ")).toBe("K7M2P9XQ4R");
+    expect(codeRead("ILO23-45678")).toBe("1102345678");
+    expect(codeRead("K7M2P-9XQ4")).toBeNull();
+    expect(codeRead("UUUUU-UUUUU")).toBeNull();
   });
 });
 

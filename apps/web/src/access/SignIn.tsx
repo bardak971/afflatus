@@ -6,7 +6,7 @@ import { clock, plural } from "../format";
 import { useNow } from "../hooks";
 import { motionAllowed } from "../useFlip";
 import { Button, Checkbox, cx, fieldClass } from "../ui";
-import { backspaceAt, codeOf, emptyCode, typedInto } from "./codeBoxes";
+import { codeOf, codeShown } from "./codeInput";
 
 /**
  * The sign-in page of an Afflatus with a password (access.ts): the password, Forgot password? (a code to Telegram or to
@@ -55,18 +55,18 @@ export function SignIn({ state, onIn }: { state: SessionState; onIn(): void }) {
   const [waitUntil, setWaitUntil] = useState(() => (state.wait ? Date.now() + state.wait * 1000 : 0));
   const [via, setVia] = useState<Via>("computer");
   const [sendUntil, setSendUntil] = useState(0);
-  const [digits, setDigits] = useState(emptyCode);
+  const [code, setCode] = useState("");
   const [fresh, setFresh] = useState("");
   const [signOutOthers, setSignOutOthers] = useState(true);
   const field = useRef<HTMLInputElement>(null);
-  const boxes = useRef<Array<HTMLInputElement | null>>([]);
+  const codeField = useRef<HTMLInputElement>(null);
   const now = useNow(1000, waitUntil > Date.now() || sendUntil > Date.now());
   const waitLeft = Math.max(0, waitUntil - now);
   const sendLeft = Math.max(0, Math.ceil((sendUntil - now) / 1000));
   const ways = WAYS.filter((w) => w.via === "computer" || state.telegram);
 
   useEffect(() => {
-    if (screen === "code") boxes.current[0]?.focus();
+    if (screen === "code") codeField.current?.focus();
   }, [screen]);
 
   const go = (next: Screen) => {
@@ -113,7 +113,7 @@ export function SignIn({ state, onIn }: { state: SessionState; onIn(): void }) {
       const sent = await api.forgotCode(how);
       setVia(how);
       setSendUntil(Date.now() + sent.again * 1000);
-      setDigits(emptyCode());
+      setCode("");
       go("code");
     } catch (err) {
       refused(err, "Too many tries", null);
@@ -125,26 +125,20 @@ export function SignIn({ state, onIn }: { state: SessionState; onIn(): void }) {
   const reset = async (e: FormEvent) => {
     e.preventDefault();
     if (busy) return;
-    const code = codeOf(digits);
-    if (!code) return setSaid("Enter the 6 digits of the code.");
+    const typed = codeOf(code);
+    if (!typed) return setSaid("Enter the 10 characters of the code.");
     if (fresh.length < 8) return setSaid("A password is 8 characters at least.");
     setBusy(true);
     try {
-      await api.resetWithCode(code, fresh, signOutOthers);
+      await api.resetWithCode(typed, fresh, signOutOthers);
       go("done");
     } catch (err) {
-      refused(err, "Too many wrong codes", boxes.current[0]);
-      // a code used up or expired is empty again: a new one is asked for
-      if (err instanceof ApiError && err.status === 403 && !err.said.left) setDigits(emptyCode());
+      refused(err, "Too many wrong codes", codeField.current);
+      // a code used up or expired is emptied: a new one is asked for
+      if (err instanceof ApiError && (err.status === 400 || (err.status === 403 && !err.said.left))) setCode("");
     } finally {
       setBusy(false);
     }
-  };
-
-  /** A digit typed or a code pasted into box `at`, or Backspace there: the boxes and the focus follow. */
-  const put = (next: { digits: string[]; focus: number }) => {
-    setDigits(next.digits);
-    boxes.current[next.focus]?.focus();
   };
 
   const wrong = said !== null && screen === "signin";
@@ -193,7 +187,7 @@ export function SignIn({ state, onIn }: { state: SessionState; onIn(): void }) {
           <div className="flex flex-col gap-3.5">
             <div className="flex flex-col gap-1">
               <h1 className="text-base font-bold">Get a code to reset it</h1>
-              <span className="text-[12.5px] text-ink-2">A 6-digit code, valid 10 minutes, sent where only you can read it.</span>
+              <span className="text-[12.5px] text-ink-2">A 10-character code, valid 10 minutes in this browser, sent where only you can read it.</span>
             </div>
             {ways.map((w) => (
               <button
@@ -207,6 +201,7 @@ export function SignIn({ state, onIn }: { state: SessionState; onIn(): void }) {
                 </span>
               </button>
             ))}
+            {state.telegramHeld > 0 && <span className="text-xs text-ink-3">Telegram's bot or chat changed lately: codes go there again in {state.telegramHeld >= 60 ? `${Math.ceil(state.telegramHeld / 60)} h` : `${state.telegramHeld} min`}.</span>}
             {said && <span role="alert" className="m-gate-said text-[12.5px] text-warn-ink">{said}</span>}
             <span><TextButton quiet onClick={() => go("signin")}>I remember it now</TextButton></span>
           </div>
@@ -216,30 +211,16 @@ export function SignIn({ state, onIn }: { state: SessionState; onIn(): void }) {
           <form onSubmit={(e) => void reset(e)} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1">
               <h1 className="text-base font-bold">Enter the code</h1>
-              <span className="text-[12.5px] leading-[1.45] text-ink-2">{sentSaid} Valid 10 minutes, once.</span>
+              <span className="text-[12.5px] leading-[1.45] text-ink-2">{sentSaid} 10 characters, valid 10 minutes, once, in this browser.</span>
             </div>
-            <div className="flex justify-center gap-2" role="group" aria-label="The code">
-              {digits.map((d, i) => (
-                <input
-                  key={i} ref={(el) => void (boxes.current[i] = el)} value={d} inputMode="numeric" autoComplete={i === 0 ? "one-time-code" : "off"}
-                  aria-label={`Digit ${i + 1}`} aria-invalid={said !== null}
-                  onChange={(e) => put(typedInto(digits, i, e.target.value))}
-                  onPaste={(e) => {
-                    e.preventDefault();
-                    put(typedInto(digits.map((x, j) => (j === i ? "" : x)), i, e.clipboardData.getData("text")));
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Backspace") {
-                      e.preventDefault();
-                      put(backspaceAt(digits, i));
-                    } else if (e.key === "ArrowLeft" && i > 0) boxes.current[i - 1]?.focus();
-                    else if (e.key === "ArrowRight" && i < digits.length - 1) boxes.current[i + 1]?.focus();
-                  }}
-                  onFocus={(e) => e.target.select()}
-                  className="h-[52px] w-11 rounded-[10px] border border-line bg-raised text-center font-mono text-xl text-ink outline-none focus:border-accent focus:shadow-[0_0_0_3px_var(--color-accent-wash)] aria-[invalid=true]:border-warn"
-                />
-              ))}
-            </div>
+            <label className="flex flex-col gap-1.5 text-xs font-semibold text-ink-2">
+              Code
+              <input
+                ref={codeField} value={code} onChange={(e) => setCode(codeShown(e.target.value))} autoComplete="one-time-code" spellCheck={false} autoCapitalize="characters"
+                placeholder="K7M2P-9XQ4R" aria-invalid={said !== null}
+                className={cx("h-12 text-center font-mono text-xl tracking-[0.18em] placeholder:text-ink-3/50", fieldClass)}
+              />
+            </label>
             <label className="flex flex-col gap-1.5 text-xs font-semibold text-ink-2">
               New password
               <input type="password" value={fresh} onChange={(e) => setFresh(e.target.value)} autoComplete="new-password" className={cx("h-10 text-[14px] tracking-[0.1em]", fieldClass)} />

@@ -69,10 +69,10 @@ export async function failure(res: Response): Promise<ApiError> {
 }
 
 /** `signal`: a query's, so that a query that is cancelled (refetched, left) also stops its request. */
-async function call<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+async function call<T>(method: string, path: string, body?: unknown, signal?: AbortSignal, extra?: Record<string, string>): Promise<T> {
   const res = await send(`/api${path}`, {
     method,
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    headers: { ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...extra },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
   });
@@ -140,6 +140,8 @@ export const api = {
   checkHealth: () => call<Health>("POST", "/health/check"),
   settings: (o?: Asked) => call<Settings>("GET", "/settings", undefined, o?.signal),
   saveSettings: (patch: SettingsPatch) => call<Settings>("PUT", "/settings", patch),
+  /** The same with the password typed again, for a change the server holds behind it (Telegram's bot and chat, the new-device notice; access.ts mayChange). */
+  saveSettingsWith: (patch: SettingsPatch, password: string) => call<Settings>("PUT", "/settings", patch, undefined, { "X-Afflatus-Password": password }),
   /** "Afflatus: test" sent now to Telegram or Discord, with the saved settings: an error says why it did not go. */
   /** The password (access-api.ts): what the page asks first, the sign-in, the reset codes, the devices signed in. */
   session: () => call<SessionState>("GET", "/session"),

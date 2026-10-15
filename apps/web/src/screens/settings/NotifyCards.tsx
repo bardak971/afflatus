@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type NotifyKind, type SettingsPatch } from "../../api";
+import { api, ApiError, type NotifyKind, type SettingsPatch } from "../../api";
 import { useSettings } from "../../data";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
 import { allowNotifications, useNotify } from "../../store";
 import { Button, Checkbox, Chip, cx, ErrorNote, fieldClass, Help, Toggle } from "../../ui";
 import { Block, Card, Row, Status } from "./Rows";
+import { PasswordAsk } from "./PasswordAsk";
 import { SecretField } from "./SecretField";
 
 /**
@@ -50,6 +51,8 @@ const GROUPS: Array<{ title: string; kinds: Array<{ kind: NotifyKind; label: str
   },
 ];
 
+type NotifyPatch = NonNullable<SettingsPatch["notify"]>;
+
 /** The browser's word on its notifications: allowed, blocked, not asked yet, or none at all (a page over plain http elsewhere). */
 const permission = () => (typeof Notification === "undefined" ? "none" : Notification.permission);
 
@@ -67,18 +70,27 @@ function useSaveNotify() {
 /** Where the notices go: this browser, Telegram, Discord, and what the last test said. */
 export function WhereCard() {
   const n = useSettings().data?.notify;
-  const save = useSaveNotify();
   const [allowed, setAllowed] = useState(permission);
   const [chat, setChat] = useState(n?.telegramChat ?? "");
   useEffect(() => setChat(n?.telegramChat ?? ""), [n?.telegramChat]);
   const [chats, setChats] = useState<Array<{ id: string; name: string }> | null>(null);
   const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null);
   const client = useQueryClient();
+  // Telegram's bot and chat are where reset codes and alarms go: with a password set, a change asks for it again unless the
+  // sign-in is recent (access.ts mayChange); the change waits under the card while it is typed
+  const [asking, setAsking] = useState<{ notify: NotifyPatch; said: string | null } | null>(null);
   // a secret's save says what was wrong under its row (a token that cannot be one), not in a banner
   const saveSecret = useMutation({
-    mutationFn: (notify: NonNullable<SettingsPatch["notify"]>) => api.saveSettings({ notify }),
-    onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved),
+    mutationFn: ({ notify, password }: { notify: NotifyPatch; password?: string }) => (password ? api.saveSettingsWith({ notify }, password) : api.saveSettings({ notify })),
+    onSuccess: (saved) => {
+      setAsking(null);
+      client.setQueryData(queryKeys.settings(), saved);
+    },
+    onError: (err, { notify, password }) => {
+      if (err instanceof ApiError && (err.said.needPassword || (password && err.status === 403))) setAsking({ notify, said: password ? err.message : null });
+    },
   });
+  const secret = (notify: NotifyPatch) => saveSecret.mutateAsync({ notify });
   const test = useMutation({
     mutationFn: (channel: "telegram" | "discord") => api.testNotify(channel).then(() => channel),
     onSuccess: (channel) => setSaid({ ok: true, text: `${channel === "telegram" ? "Telegram" : "Discord"}: sent. Look for "Afflatus: test".` }),
@@ -89,14 +101,14 @@ export function WhereCard() {
     onSuccess: ({ chats: found }) => {
       setChats(found);
       // one chat wrote to the bot: it is the one, saved at once
-      if (found.length === 1) save.mutate({ telegramChat: found[0]!.id });
+      if (found.length === 1) void secret({ telegramChat: found[0]!.id }).catch(() => {});
       setSaid(found.length ? null : { ok: false, text: "Telegram: no message to the bot yet. Send it anything, then press Find my chat id again." });
     },
     onError: (err) => setSaid({ ok: false, text: `Telegram: ${err.message}` }),
   });
   if (!n) return null;
   const commitChat = () => {
-    if (chat.trim() !== n.telegramChat) save.mutate({ telegramChat: chat.trim() });
+    if (chat.trim() !== n.telegramChat) void secret({ telegramChat: chat.trim() }).catch(() => {});
   };
   const ask = async () => {
     await allowNotifications();
@@ -113,7 +125,7 @@ export function WhereCard() {
       <Row setting="notify.telegram" label="Telegram bot token" htmlFor="telegram-token" sub={n.hasTelegramToken ? <span className="text-good">✓ saved</span> : undefined} help={TELEGRAM_HELP}>
         <SecretField
           id="telegram-token" label="Telegram bot token" saved={n.hasTelegramToken} placeholder="123456789:AAE…" valid={(t) => t.length >= 20} busy={saveSecret.isPending}
-          onSave={(telegramToken) => saveSecret.mutateAsync({ telegramToken })} onRemove={() => saveSecret.mutate({ telegramToken: "" })}
+          onSave={(telegramToken) => secret({ telegramToken })} onRemove={() => void secret({ telegramToken: "" }).catch(() => {})}
         />
       </Row>
       <Row label="Telegram chat id" htmlFor="telegram-chat" help={CHAT_HELP}>
@@ -126,17 +138,18 @@ export function WhereCard() {
       </Row>
       {chats && chats.length > 1 && (
         <Row label="Chats that wrote to it" help="Pick the one the bot writes to.">
-          {chats.map((c) => <Chip key={c.id} tone={c.id === n.telegramChat ? "accent" : "link"} onClick={() => save.mutate({ telegramChat: c.id })} tip={c.id}>{c.name}</Chip>)}
+          {chats.map((c) => <Chip key={c.id} tone={c.id === n.telegramChat ? "accent" : "link"} onClick={() => void secret({ telegramChat: c.id }).catch(() => {})} tip={c.id}>{c.name}</Chip>)}
         </Row>
       )}
       <Row setting="notify.discord" label="Discord webhook" htmlFor="discord-webhook" sub={n.hasDiscordWebhook ? <span className="text-good">✓ saved</span> : undefined} help={DISCORD_HELP}>
         <SecretField
           id="discord-webhook" label="Discord webhook" saved={n.hasDiscordWebhook} placeholder="https://discord.com/api/webhooks/…" valid={(w) => w.startsWith("https://")} busy={saveSecret.isPending}
-          onSave={(discordWebhook) => saveSecret.mutateAsync({ discordWebhook })} onRemove={() => saveSecret.mutate({ discordWebhook: "" })}
+          onSave={(discordWebhook) => secret({ discordWebhook })} onRemove={() => void secret({ discordWebhook: "" }).catch(() => {})}
         />
         <Button onClick={() => test.mutate("discord")} disabled={!n.hasDiscordWebhook || test.isPending}>Send a test</Button>
       </Row>
-      {saveSecret.isError && <Block><ErrorNote>{saveSecret.error.message}</ErrorNote></Block>}
+      {asking && <PasswordAsk said={asking.said} busy={saveSecret.isPending} onConfirm={(password) => saveSecret.mutate({ notify: asking.notify, password })} onCancel={() => setAsking(null)} />}
+      {saveSecret.isError && !asking && <Block><ErrorNote>{saveSecret.error.message}</ErrorNote></Block>}
       {said && (
         <Block>
           {said.ok ? <span className="text-[12.5px] text-good">{said.text}</span> : <ErrorNote>{said.text}</ErrorNote>}

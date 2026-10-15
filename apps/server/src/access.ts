@@ -45,6 +45,18 @@ const SEND_GAP_MS = 60_000;
 const SENDS_PER_HOUR = 6;
 const CODES_AT_ONCE = 8;
 /**
+ * The code: 10 characters of Crockford's base32 (no I, L, O, U), some 50 bits. With 5 tries a code and the limits below
+ * a script would need many thousands of years; 6 digits were within reach in months at the same pace.
+ */
+const CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+const CODE_LENGTH = 10;
+/** Wrong entries over a day, every address together: past them codes are refused until the day is over (the command line still resets). */
+const WRONG_CODES_PER_DAY = 100;
+/** More codes than this asked for in an hour, over all, and the owner is told. */
+const CODES_TOLD_PER_HOUR = 3;
+/** A new Telegram chat or bot gets no reset code for this long: a session taken over cannot point codes at its own bot. */
+export const TELEGRAM_HOLD_MS = 24 * 3600_000;
+/**
  * Over every address, in 15 minutes: so many codes sent, and so many wrong entries, before codes pause for the rest of
  * that window. A script guessing its own browser's code is held to some 80 wrong entries an hour (a one in 12 500 chance
  * an hour, each code it asks for written where the owner sees it), while the owner is never kept from a code for more
@@ -57,6 +69,15 @@ const WRONG_CODES_PER_WINDOW = 20;
 const FRESH_MS = 10 * 60_000;
 /** The owner is told at most this often that sign-ins are being refused (alarm). */
 const ALARM_GAP_MS = 15 * 60_000;
+
+/** A code as the server keeps it: upper case, no dash nor space, I and L read as 1 and O as 0; null when it cannot be one. */
+export function codeRead(text: string): string | null {
+  const plain = text.toUpperCase().replace(/[\s-]+/g, "").replace(/[IL]/g, "1").replace(/O/g, "0");
+  return new RegExp(`^[${CODE_ALPHABET}]{${CODE_LENGTH}}$`).test(plain) ? plain : null;
+}
+
+/** A code as it is shown: "K7M2P-9XQ4R". */
+export const codeShown = (code: string) => `${code.slice(0, 5)}-${code.slice(5)}`;
 
 /** Whether Afflatus listens on loopback only: then "From this computer" cannot be on (bypassOn). */
 export const listensOnLoopback = (host: string): boolean => /^127\./.test(host) || host === "::1" || host === "[::1]" || host === "localhost";
@@ -229,9 +250,12 @@ export class Access extends EventEmitter {
   private readonly codeKey = randomBytes(32);
   private readonly sendsBy = new Map<string, number[]>();
   private sends: number[] = [];
+  private sendsHour: number[] = [];
   private wrongCodes: number[] = [];
-  /** The last time the owner was told that sign-ins are refused, and what was said (Settings › Access shows it a day). */
+  /** The last time the owner was told that sign-ins or codes look attacked, and what was said (Settings › Access shows it a day). */
   lastAlarm: { at: number; said: string } | null = null;
+  /** When each kind of alarm was last said: each at most every 15 minutes. */
+  private readonly alarmed = new Map<string, number>();
   private recheck: NodeJS.Timeout | null = null;
   private readonly cache = new Map<string, { row: SessionRow | null; at: number }>();
   /** One scrypt check at a time: a burst of sign-ins would otherwise take 32 MiB each at once. */
@@ -344,13 +368,20 @@ export class Access extends EventEmitter {
    * those refused, is told on Telegram and in Settings › Access, at most every 15 minutes. Devices signed in go on.
    */
   private async alarm(tries: Tries): Promise<void> {
-    const t = this.now();
-    if (this.lastAlarm && t - this.lastAlarm.at < ALARM_GAP_MS) return;
     const { wrong, addresses } = tries.lastMinute();
     const said = `Sign-in attempts are being refused: ${plural(wrong, "wrong try", "wrong tries")} in the last minute from ${plural(addresses, "address", "addresses")}.`;
+    await this.warnOwner("sign-in", said, "Afflatus: sign-ins refused", `${said} Devices signed in go on. Not you? Look at who reaches Afflatus; behind a proxy every visitor shares its address.`);
+  }
+
+  /** The owner told, on Telegram and in Settings › Access, at most every 15 minutes for each kind of alarm. */
+  private async warnOwner(kind: string, said: string, title: string, body: string): Promise<void> {
+    const t = this.now();
+    const last = this.alarmed.get(kind);
+    if (last !== undefined && t - last < ALARM_GAP_MS) return;
+    this.alarmed.set(kind, t);
     this.lastAlarm = { at: t, said };
     await this.audit(said, true);
-    await this.tellChanged("Afflatus: sign-ins refused", `${said} Devices signed in go on. Not you? Look at who reaches Afflatus; behind a proxy every visitor shares its address.`);
+    await this.tellChanged(title, body);
   }
 
   /**
@@ -538,17 +569,47 @@ export class Access extends EventEmitter {
 
   // ---------------------------------------------------------------- reset codes
 
-  /** Where a code may go now: this computer always, Telegram when it is set up and the Access setting allows it. */
-  async resetWays(): Promise<{ telegram: boolean; computer: true }> {
+  /**
+   * Where a code may go now: this computer always; Telegram when it is set up, the Access setting allows it, and its bot
+   * and chat have not changed in the last 24 h. `telegramHeld`: the ms left of that hold, for the Forgot screen to say.
+   */
+  async resetWays(): Promise<{ telegram: boolean; computer: true; telegramHeld: number }> {
     const a = await this.settings();
-    return { telegram: a.resetTelegram && Boolean(await this.notify?.telegramSet()), computer: true };
+    const changed = a.telegramChangedAt ? Date.parse(a.telegramChangedAt) : 0;
+    const held = Math.max(0, changed + TELEGRAM_HOLD_MS - this.now());
+    const set = a.resetTelegram && Boolean(await this.notify?.telegramSet());
+    return { telegram: set && !held, computer: true, telegramHeld: set ? held : 0 };
   }
 
-  /** Codes are paused for the rest of a 15-minute window once too many wrong ones came in it: the wait, or 0. */
-  private codesPausedMs(): number {
+  /**
+   * Telegram's bot or chat changed: no code goes there for 24 h, and the chat before (when there was one) is told, so that
+   * a session taken over cannot quietly point the codes and the alarms at its own bot.
+   */
+  async telegramChanged(before: { telegramToken: string; telegramChat: string }, ip: string): Promise<void> {
+    const at = new Date(this.now());
+    await updateSettings(this.db, (s) => ({ access: { ...s.access, telegramChangedAt: at.toISOString() } }));
+    await this.audit(`Telegram's bot or chat changed, from ${ip}: no reset code goes to Telegram for 24 h`, true);
+    if (before.telegramToken && before.telegramChat && this.notify) {
+      await this.notify.toTelegramAt(before, { title: "Afflatus: Telegram changed", body: `Afflatus's Telegram was changed to another chat at ${at.toISOString().slice(0, 16).replace("T", " ")} UTC from ${ip}. Not you? Change the password, then Sign out everywhere.` })
+        .catch((err: Error) => this.log.warn(`[access] the chat before was not told: ${err.message}`));
+    }
+  }
+
+  /**
+   * Codes are refused for the rest of a 15-minute window once too many wrong ones came in it, and for the rest of the day
+   * past 100 in a day: the wait, and whether it is the day's.
+   */
+  private codesPaused(): { ms: number; day: boolean } {
     const t = this.now();
-    this.wrongCodes = this.wrongCodes.filter((at) => t - at < WINDOW_MS);
-    return this.wrongCodes.length >= WRONG_CODES_PER_WINDOW ? this.wrongCodes[0]! + WINDOW_MS - t : 0;
+    this.wrongCodes = this.wrongCodes.filter((at) => t - at < 86_400_000);
+    if (this.wrongCodes.length >= WRONG_CODES_PER_DAY) return { ms: this.wrongCodes[this.wrongCodes.length - WRONG_CODES_PER_DAY]! + 86_400_000 - t, day: true };
+    const recent = this.wrongCodes.filter((at) => t - at < WINDOW_MS);
+    return { ms: recent.length >= WRONG_CODES_PER_WINDOW ? recent[0]! + WINDOW_MS - t : 0, day: false };
+  }
+
+  /** The refusal while codes are paused, said as such. */
+  private pausedError(p: { ms: number; day: boolean }): Error {
+    return waitError(p.ms, p.day ? "Too many wrong codes today: codes are refused until the day is over (on the computer Afflatus runs on, reset-password still works)" : "Too many wrong codes lately: codes are paused");
   }
 
   private mac(code: string): Buffer {
@@ -584,8 +645,8 @@ export class Access extends EventEmitter {
     const a = await this.settings();
     if (!a.password) throw httpError("This Afflatus has no password: nothing to reset.", 409);
     if (via === "telegram" && !(await this.resetWays()).telegram) throw httpError("Reset codes do not go to Telegram here: use This computer.", 409);
-    const paused = this.codesPausedMs();
-    if (paused) throw waitError(paused, "Too many wrong codes lately: codes are paused");
+    const paused = this.codesPaused();
+    if (paused.ms) throw this.pausedError(paused);
     const wait = this.codeTries.waitMs(ip);
     if (wait) throw waitError(wait);
     const again = this.sendAgainS(ip);
@@ -595,23 +656,30 @@ export class Access extends EventEmitter {
     if (mine.length >= SENDS_PER_HOUR) throw waitError(mine[0]! + 3600_000 - t, `${SENDS_PER_HOUR} codes this hour already`);
     this.sends = this.sends.filter((at) => t - at < WINDOW_MS);
     if (this.sends.length >= SENDS_PER_WINDOW) throw waitError(this.sends[0]! + WINDOW_MS - t, "Many codes were asked for lately");
-    mine.push(t);
-    this.sendsBy.set(ip, mine);
-    this.sends.push(t);
-    if (this.sendsBy.size > 2000) for (const [k, v] of this.sendsBy) if (!v.some((at) => t - at < 3600_000)) this.sendsBy.delete(k);
     const browser = nonce && /^[\w-]{20,100}$/.test(nonce) ? nonce : randomBytes(24).toString("base64url");
     const key = sha256(browser);
     for (const [k, v] of this.codes) if (v.expires <= t) this.codes.delete(k);
-    // a few at once: past that, the oldest goes (another browser's, never one about to be checked by this one)
+    // a few at once, and a code waiting is never put aside for another: past that, new ones wait for those to end
     if (!this.codes.has(key) && this.codes.size >= CODES_AT_ONCE) {
-      const oldest = [...this.codes.entries()].sort((x, y) => x[1].at - y[1].at)[0];
-      if (oldest) this.codes.delete(oldest[0]);
+      const first = Math.min(...[...this.codes.values()].map((c) => c.expires));
+      void this.warnOwner("codes", `${CODES_AT_ONCE} reset codes are waiting at once: new ones are refused until they end.`, "Afflatus: reset codes asked for", `${CODES_AT_ONCE} reset codes are waiting at once, each asked from a browser of its own. Not you? Someone tries to reset the password; it stays as it is without a code.`);
+      throw waitError(first - t, `Codes are being asked for: try again in ${Math.ceil((first - t) / 60_000)} min`);
     }
-    const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+    mine.push(t);
+    this.sendsBy.set(ip, mine);
+    this.sends.push(t);
+    this.sendsHour = this.sendsHour.filter((at) => t - at < 3600_000);
+    this.sendsHour.push(t);
+    if (this.sendsBy.size > 2000) for (const [k, v] of this.sendsBy) if (!v.some((at) => t - at < 3600_000)) this.sendsBy.delete(k);
+    const code = Array.from({ length: CODE_LENGTH }, () => CODE_ALPHABET[randomInt(0, CODE_ALPHABET.length)]).join("");
+    const shown = codeShown(code);
     this.codes.set(key, { mac: this.mac(code), expires: t + CODE_MS, wrong: 0, at: t });
+    if (this.sendsHour.length > CODES_TOLD_PER_HOUR) {
+      void this.warnOwner("asked", `${plural(this.sendsHour.length, "reset code")} asked for in the last hour.`, "Afflatus: reset codes asked for", `${plural(this.sendsHour.length, "reset code")} asked for in the last hour, the last from ${ip}. Not you? Someone tries to reset the password; it stays as it is without a code.`);
+    }
     if (via === "telegram") {
       try {
-        await this.notify!.toTelegram({ title: "Afflatus password reset", body: `Code: ${code}\nValid 10 minutes, once, in the browser that asked. Asked from ${ip}. Not you? Ignore it: the password stays as it is.` });
+        await this.notify!.toTelegram({ title: "Afflatus password reset", body: `Code: ${shown}\nValid 10 minutes, once, in the browser that asked. Asked from ${ip}. Not you? Ignore it: the password stays as it is.` });
       } catch (err) {
         this.codes.delete(key);
         throw err;
@@ -620,14 +688,14 @@ export class Access extends EventEmitter {
       const banner = [
         "",
         "=".repeat(60),
-        `  AFFLATUS PASSWORD RESET CODE: ${code}`,
+        `  AFFLATUS PASSWORD RESET CODE: ${shown}`,
         `  Valid 10 minutes, once, in the browser that asked. Asked from ${ip}.`,
         "  Not you? Ignore it: the password stays as it is.",
         "=".repeat(60),
         "",
       ].join("\n");
       this.log.warn(banner);
-      await this.toLogFile(`[access] password reset code: ${code} (valid 10 minutes, once; asked from ${ip})`);
+      await this.toLogFile(`[access] password reset code: ${shown} (valid 10 minutes, once; asked from ${ip})`);
     }
     await this.audit(`reset code sent to ${via === "telegram" ? "Telegram" : "this computer"}, asked from ${ip}`);
     return { via, again: Math.ceil(SEND_GAP_MS / 1000), nonce: browser };
@@ -641,8 +709,8 @@ export class Access extends EventEmitter {
   async reset(opts: { code: string; nonce: string | undefined; password: string; signOutOthers: boolean; ip: string; ua: string; device: string | undefined; session: string | null }): Promise<Granted> {
     const a = await this.settings();
     if (!a.password) throw httpError("This Afflatus has no password: nothing to reset.", 409);
-    const paused = this.codesPausedMs();
-    if (paused) throw waitError(paused, "Too many wrong codes lately: codes are paused");
+    const paused = this.codesPaused();
+    if (paused.ms) throw this.pausedError(paused);
     const wait = this.codeTries.waitMs(opts.ip);
     if (wait) throw waitError(wait);
     // the new password is looked at first: a typo there does not spend a try of the code
@@ -650,14 +718,16 @@ export class Access extends EventEmitter {
     if (problem) throw httpError(problem, 400);
     const found = this.codeOf(opts.nonce);
     if (!found) throw httpError("No code is waiting for this browser, or it expired: ask for a new one.", 400);
-    const given = /^\d{6}$/.test(opts.code) ? this.mac(opts.code) : null;
+    const read = codeRead(opts.code);
+    const given = read ? this.mac(read) : null;
     if (!(given && timingSafeEqual(found.entry.mac, given))) {
       const { waitMs, alarm } = this.codeTries.failed(opts.ip);
       this.wrongCodes.push(this.now());
       found.entry.wrong++;
       const left = CODE_TRIES - found.entry.wrong;
       await this.audit(`wrong reset code from ${opts.ip}`, true);
-      if (alarm || this.codesPausedMs()) void this.alarm(this.codeTries);
+      // any wrong code is worth telling: a right one is 50 bits away, so a wrong one is rarely the owner's typo twice
+      void this.warnOwner("wrong-code", `A wrong reset code was entered from ${opts.ip}.`, "Afflatus: wrong reset code", `A wrong reset code was entered from ${opts.ip}${alarm ? ", which now has to wait" : ""}. Not you? Someone tries to reset the password; it stays as it is without the code.`);
       if (left <= 0) {
         this.codes.delete(found.key);
         throw wrongError("Wrong code: it is used up. Ask for a new one.", 0, waitMs);

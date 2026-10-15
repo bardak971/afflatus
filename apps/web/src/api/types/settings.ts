@@ -49,6 +49,7 @@ export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiK
   access?: Partial<Omit<AccessSettings, "hasPassword" | "passwordSetAt" | "hasMetricsToken">> & {
     password?: { hash: string; setAt: string } | null;
     metricsToken?: string;
+    telegramChangedAt?: string;
   };
   /** Some of the notices' settings: what is sent is put over what is saved. The token and the webhook only when typed ("" takes one off). */
   notify?: { telegramToken?: string; telegramChat?: string; discordWebhook?: string; picture?: boolean; events?: Partial<Record<NotifyKind, { telegram?: boolean; discord?: boolean }>> };
@@ -279,6 +280,8 @@ export interface SessionState {
   stayDays: number;
   /** A reset code can go to Telegram. */
   telegram: boolean;
+  /** Minutes before Telegram is a way again, after its bot or chat changed (0: not held). */
+  telegramHeld: number;
   /** Seconds this address waits before its next try. */
   wait: number;
   /** Seconds before another reset code may be sent. */
