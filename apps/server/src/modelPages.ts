@@ -46,8 +46,6 @@ const MISS_MS = 24 * 60 * 60_000;
 /** The file's page, when one is known (a row with an address: the others are misses). */
 const known = async (db: Db, folder: string, name: string): Promise<ModelPage | null> =>
   (await db.selectFrom("model_pages").select(["url", "title"]).where("folder", "=", folder).where("name", "=", name).where("url", "!=", "").executeTakeFirst()) ?? null;
-/** The page known for a file, without asking any site. */
-export const knownPage = (db: Db, folder: string, file: string) => known(db, folder, nameOf(file));
 /** Whether the sites were asked for the file less than a day ago and had no page for it. */
 const missed = async (db: Db, folder: string, name: string): Promise<boolean> => {
   const row = await db.selectFrom("model_pages").select("found_at").where("folder", "=", folder).where("name", "=", name).where("url", "=", "").executeTakeFirst();

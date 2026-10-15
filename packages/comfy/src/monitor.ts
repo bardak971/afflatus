@@ -38,6 +38,12 @@ export interface Measured {
   /** The highest share of the GPU's memory in use, in percent, and the hottest it got; null when nothing reports them. */
   vramPeak: number | null;
   heatPeak: number | null;
+  /**
+   * Milliseconds per node class (ComfyUI's class_type), from each node's "executing" to the next one's: what "loading"
+   * holds told apart (the model's loader, a SAM3 tracking, a text encode). Missing when the classes are not known (a
+   * prompt sent before this process started).
+   */
+  nodes?: Record<string, number>;
 }
 
 export interface Progress {
@@ -86,7 +92,15 @@ interface Tracked extends Tracking {
   firstPass: { node: string; phase: string; firstAt: number; firstValue: number; lastAt: number; lastValue: number } | null;
   vramPeak: number | null;
   heatPeak: number | null;
+  /** The node executing now and since when, and the time of each node that ran, by node id. */
+  nodeAt: { node: string; at: number } | null;
+  nodeMs: Record<string, number>;
 }
+
+/** The messages that say a prompt is over: ComfyUI's history has it (or is about to), however it ended. */
+const ENDS: ReadonlySet<string> = new Set(["execution_success", "execution_error", "execution_interrupted"]);
+/** How many prompts that ended are remembered, for a wait that starts after its prompt's end was heard. */
+const ENDED_KEPT = 64;
 
 const SAMPLER_PHASES: ReadonlyArray<string> = ["sampling", "refining", "restoring", "detailing"];
 /**
@@ -205,13 +219,15 @@ export class Monitor {
     this.tracked.set(t.promptId, {
       ...t, totalSteps, done: 0, node: null, value: 0, max: 0, phase: "waiting",
       executing: null, samplingAt: null, stepsAtStart: 0, resumed: Math.min(totalSteps, Math.max(0, Math.floor(t.stepsDone ?? 0))), preview: { seq: 0 }, stages: [],
-      clock: { phase: "waiting", at: this.now() }, spent: {}, firstPass: null, vramPeak: null, heatPeak: null,
+      clock: { phase: "waiting", at: this.now() }, spent: {}, firstPass: null, vramPeak: null, heatPeak: null, nodeAt: null, nodeMs: {},
     });
     if (t.clientId && t.clientId !== this.client.clientId) this.listenAs(t.clientId, t.promptId);
   }
 
   untrack(promptId: string): void {
     this.tracked.delete(promptId);
+    // its wait is over, however it ended: a prompt lost while the socket was down leaves no waiter behind
+    this.endings.delete(promptId);
     if (this.current?.promptId === promptId) this.current = null;
     this.release(promptId);
   }
@@ -304,7 +320,51 @@ export class Monitor {
       phases.loading = phases.loading! - stepMs;
       phases[p.phase] = (phases[p.phase] ?? 0) + stepMs;
     }
-    return { phases, stepMs, vramPeak: r.vramPeak, heatPeak: r.heatPeak };
+    const classes = this.client.classesOf?.(promptId);
+    let nodes: Record<string, number> | undefined;
+    if (classes) {
+      nodes = {};
+      const ran = { ...r.nodeMs };
+      if (r.nodeAt) ran[r.nodeAt.node] = (ran[r.nodeAt.node] ?? 0) + (this.now() - r.nodeAt.at);
+      for (const [node, ms] of Object.entries(ran)) {
+        // a node of a subgraph ("12:5") is its own class when it is known, else the class of the node it is part of
+        const type = classes[node] ?? classes[node.split(":")[0]!];
+        if (type) nodes[type] = Math.round((nodes[type] ?? 0) + ms);
+      }
+    }
+    return { phases, stepMs, vramPeak: r.vramPeak, heatPeak: r.heatPeak, ...(nodes ? { nodes } : {}) };
+  }
+
+  /** The node that was executing has finished: its time is counted. */
+  private nodeDone(r: Tracked): void {
+    if (!r.nodeAt) return;
+    r.nodeMs[r.nodeAt.node] = (r.nodeMs[r.nodeAt.node] ?? 0) + (this.now() - r.nodeAt.at);
+    r.nodeAt = null;
+  }
+
+  private readonly endings = new Map<string, { done: Promise<void>; resolve: () => void }>();
+  private readonly over = new Set<string>();
+  /**
+   * Resolves when the socket says the prompt is over (done, failed or stopped): its waiter (waitForOutputs) then reads
+   * its history at once instead of asking for it every moment. Never resolves while the socket is down: the waiter's
+   * slower look at the history still finds the end.
+   */
+  ended(promptId: string): Promise<void> {
+    if (this.over.has(promptId)) return Promise.resolve();
+    let e = this.endings.get(promptId);
+    if (!e) {
+      let resolve = () => {};
+      const done = new Promise<void>((res) => (resolve = res));
+      this.endings.set(promptId, (e = { done, resolve }));
+    }
+    return e.done;
+  }
+
+  private end(promptId: string): void {
+    this.over.add(promptId);
+    if (this.over.size > ENDED_KEPT) this.over.delete(this.over.values().next().value!);
+    this.endings.get(promptId)?.resolve();
+    this.endings.delete(promptId);
   }
 
   preview(promptId: string): Preview {
@@ -343,6 +403,15 @@ export class Monitor {
       return;
     }
     const d = msg.data ?? {};
+    // the end of a prompt, whether it is tracked or not: "executing" with no node is ComfyUI's last word on it, sent once
+    // its history is written; the others come just before
+    if (ENDS.has(msg.type ?? "") || (msg.type === "executing" && d.node === null)) {
+      const id = typeof d.prompt_id === "string" ? d.prompt_id : about;
+      const ending = id ? this.tracked.get(id) : undefined;
+      if (ending) this.nodeDone(ending);
+      if (id) this.end(id);
+      return;
+    }
     // KJNodes' animated preview carries no prompt id either
     const r = typeof d.prompt_id === "string"
       ? this.tracked.get(d.prompt_id)
@@ -378,6 +447,8 @@ export class Monitor {
       if (!files.length) return;
       r.stages = [...r.stages.filter((s) => s.node !== d.node), { node: d.node, files }];
     } else if (msg.type === "executing" && typeof d.node === "string") {
+      this.nodeDone(r);
+      r.nodeAt = { node: d.node, at: this.now() };
       this.catchUp(r, d.node);
       r.executing = d.node;
       r.phase = r.phases[d.node] ?? r.phase;

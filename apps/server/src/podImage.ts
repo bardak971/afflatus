@@ -1,3 +1,5 @@
+import { envSaid } from "./config";
+
 /**
  * Whether a container image can be pulled by anyone, asked of its registry as RunPod would pull it (anonymously): its
  * manifest, read with a pull token. true: there and public; false: not there, or private (RunPod could not pull it); null:
@@ -26,17 +28,20 @@ export function imageParts(image: string): { registry: string; token: string; re
   return null;
 }
 
-export async function imagePublic(image: string, fetcher: typeof fetch = fetch): Promise<boolean | null> {
+export async function imagePublic(image: string, fetcher?: typeof fetch): Promise<boolean | null> {
   const parts = imageParts(image);
   if (!parts) return null;
+  // the demo and the tests ask no registry on the internet (AFFLATUS_PRETEND_SITES): not known, which holds no deploy back
+  if (!fetcher && envSaid.pretendSites()) return null;
+  const get = fetcher ?? fetch;
   try {
-    const t = await fetcher(parts.token, { signal: AbortSignal.timeout(10_000) });
+    const t = await get(parts.token, { signal: AbortSignal.timeout(10_000) });
     // a registry that gives no anonymous token for it: private, or not there
     if (t.status === 401 || t.status === 403 || t.status === 404) return false;
     if (!t.ok) return null;
     const token = ((await t.json().catch(() => null)) as { token?: string } | null)?.token;
     if (!token) return null;
-    const res = await fetcher(`${parts.registry}/v2/${parts.repo}/manifests/${parts.tag}`, { method: "HEAD", headers: { Authorization: `Bearer ${token}`, Accept: MANIFESTS }, signal: AbortSignal.timeout(10_000) });
+    const res = await get(`${parts.registry}/v2/${parts.repo}/manifests/${parts.tag}`, { method: "HEAD", headers: { Authorization: `Bearer ${token}`, Accept: MANIFESTS }, signal: AbortSignal.timeout(10_000) });
     if (res.ok) return true;
     return res.status === 401 || res.status === 403 || res.status === 404 ? false : null;
   } catch {

@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ShippedPresets } from "../src/presetFiles";
 import { checkTag, loadTagsSoon } from "../src/tags";
 
@@ -12,7 +12,8 @@ describe("the shipped presets", () => {
     const dir = mkdtempSync(join(tmpdir(), "afflatus-presets-"));
     try {
       writeFileSync(join(dir, "a.json"), preset("zz-test-a", "A"));
-      const shipped = new ShippedPresets(dir);
+      // looked at on every call here: the wait between two looks is the next test's
+      const shipped = new ShippedPresets(dir, 0);
       const first = shipped.list();
       expect(first.map((p) => p.name)).toEqual(["A"]);
       // nothing changed: the same list, not read again
@@ -25,6 +26,26 @@ describe("the shipped presets", () => {
       rmSync(join(dir, "a.json"));
       expect(shipped.list().map((p) => p.name)).toEqual(["B"]);
     } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("are looked at once every few seconds at most: where a pod gets each file of a search asks for them", () => {
+    const dir = mkdtempSync(join(tmpdir(), "afflatus-presets-"));
+    let clock = Date.parse("2026-10-15T12:00:00.000Z");
+    const now = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    try {
+      writeFileSync(join(dir, "a.json"), preset("zz-test-a", "A"));
+      const shipped = new ShippedPresets(dir, 5_000);
+      expect(shipped.list().map((p) => p.name)).toEqual(["A"]);
+      // a file added a moment later is not looked for yet: the folder is not listed again on every call
+      writeFileSync(join(dir, "b.json"), preset("zz-test-b", "B"));
+      clock += 4_000;
+      expect(shipped.list().map((p) => p.name)).toEqual(["A"]);
+      clock += 1_500;
+      expect(shipped.list().map((p) => p.name)).toEqual(["A", "B"]);
+    } finally {
+      now.mockRestore();
       rmSync(dir, { recursive: true, force: true });
     }
   });

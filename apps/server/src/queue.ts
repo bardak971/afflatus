@@ -1370,7 +1370,7 @@ ${JSON.stringify(input)}`;
       saving.check();
       let outputs;
       try {
-        outputs = await waitForOutputs(comfy.client, resume.promptId, { ...this.opts.wait, signal: abort.signal });
+        outputs = await waitForOutputs(comfy.client, resume.promptId, { ...this.opts.wait, signal: abort.signal, ended: comfy.monitor.ended(resume.promptId) });
       } finally {
         measured = comfy.monitor.measured(resume.promptId);
         comfy.monitor.untrack(resume.promptId);

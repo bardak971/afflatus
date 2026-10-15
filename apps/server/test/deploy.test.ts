@@ -469,6 +469,18 @@ describe("whether an image can be pulled", () => {
     expect(await imagePublic("ghcr.io/owner/afflatus-pod:0.1.0", answer(503))).toBeNull();
     expect(await imagePublic("ghcr.io/owner/afflatus-pod:0.1.0", (async () => { throw new Error("offline"); }) as typeof fetch)).toBeNull();
   });
+
+  it("asks no registry on the internet in the demo and the tests (AFFLATUS_PRETEND_SITES): not known", async () => {
+    vi.stubEnv("AFFLATUS_PRETEND_SITES", "1");
+    const asked = vi.spyOn(globalThis, "fetch");
+    try {
+      expect(await imagePublic("runpod/comfyui:1.4.0")).toBeNull();
+      expect(asked).not.toHaveBeenCalled();
+    } finally {
+      asked.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 describe("what the rented GPUs cost: RunPod's bill as the truth", () => {

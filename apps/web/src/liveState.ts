@@ -1,4 +1,4 @@
-import type { Job, ProgressUpdate, QueueStatus } from "./api";
+import type { Job, ProgressUpdate, QueueStatus, SystemLoad } from "./api";
 
 /** The pure parts of the live events (live.ts): kept apart so that they can be tested without a page. */
 
@@ -80,4 +80,21 @@ export function greetings(): { followed(): void; hello(): boolean } {
       return again;
     },
   };
+}
+
+/** The machines' load as a page has it: the first machine's, and every one's by id. */
+export interface SystemState {
+  load: SystemLoad | null;
+  loads: Record<string, SystemLoad | null>;
+}
+/**
+ * A "system" event worked into what the page has (the server's events.ts systemFrame): whole (`load` and `loads`, as a
+ * page opens), or only the machines whose load changed, with the ids of every machine (`machines`): a machine not named
+ * is gone, one named but not sent keeps its load. Null when the frame says nothing.
+ */
+export function systemAfter(had: SystemState, frame: { load?: SystemLoad | null; loads?: Record<string, SystemLoad | null>; machines?: string[] } | null): SystemState | null {
+  if (!frame) return null;
+  if (!frame.machines) return { load: frame.load ?? null, loads: frame.loads ?? {} };
+  const loads = Object.fromEntries(frame.machines.map((id) => [id, frame.loads && id in frame.loads ? frame.loads[id]! : (had.loads[id] ?? null)]));
+  return { load: frame.machines[0] !== undefined ? loads[frame.machines[0]]! : null, loads };
 }

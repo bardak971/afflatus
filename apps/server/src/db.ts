@@ -146,6 +146,8 @@ export interface Tables {
     /** The machine it ran on (settings.ts `machines`), and its GPU's name as ComfyUI gave it: each machine's speed is learned from its own rows. */
     machine_id: string | null;
     gpu: string | null;
+    /** JSON: milliseconds per node class (ComfyUI's class_type), from when each node started to when the next did; null when they were not heard. */
+    node_ms: string | null;
     created_at: string;
   };
   /** The renders of one model on one day (UTC), folded: what the charts are drawn from once the rows are gone. Recipe "*" is the day as a whole. */
@@ -161,6 +163,13 @@ export interface Tables {
   /** A day over whose renders are still rows, digested for the summaries cut into days (see Digest in renderDigests.ts); it goes when the day is folded. */
   render_digests: {
     day: string;
+    /** JSON: the digest. */
+    digest: string;
+  };
+  /** The same for one machine's renders of the day (render_stats.machine_id): what one machine's summary reads. */
+  render_machine_digests: {
+    day: string;
+    machine_id: string;
     /** JSON: the digest. */
     digest: string;
   };

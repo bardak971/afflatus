@@ -48,25 +48,50 @@ export interface WaitOptions {
   signal?: AbortSignal;
   /** Counted only while the prompt runs: time spent waiting behind other work doesn't count. */
   timeoutMs: number;
+  /** How often the history is asked for: every 750 ms, or every 5 s when `ended` tells the end. */
   pollMs?: number;
   /** How long ComfyUI may be unreachable mid-job before the job counts as lost. */
   offlineMs?: number;
-  /** While there is no history yet, look in ComfyUI's queue every this many polls. */
+  /** While there is no history yet, look in ComfyUI's queue every this many polls (8, or 2 with `ended`). */
   queueCheckEvery?: number;
+  /**
+   * Resolves when ComfyUI's websocket says the prompt is over (Monitor.ended): its history is then read at once. The
+   * history asked for every 750 ms was 68 requests a minute per running render, though the socket says when it ends.
+   */
+  ended?: Promise<unknown>;
 }
+
+/** How often the history is asked for when the socket tells the end: in case it never does (dropped, an old ComfyUI). */
+const FALLBACK_POLL_MS = 5_000;
+/** Once the end is heard, the history is read at once, then again soon after this, twice as long each time: the end is told just before it is written. */
+const AFTER_END_MS = 50;
 
 /** Wait for a submitted prompt to finish and return its outputs, by output node id. */
 export async function waitForOutputs(
   client: ComfyClient, promptId: string, opts: WaitOptions,
 ): Promise<NonNullable<HistoryEntry["outputs"]>> {
-  const pollMs = opts.pollMs ?? 750;
+  const pollMs = opts.pollMs ?? (opts.ended ? FALLBACK_POLL_MS : 750);
   const offlineMs = opts.offlineMs ?? 90_000;
-  const every = opts.queueCheckEvery ?? 8;
+  const every = opts.queueCheckEvery ?? (opts.ended ? 2 : 8);
   let deadline = Date.now() + opts.timeoutMs;
   let unreachableSince: number | null = null;
   let absentChecks = 0;
+  let heard = false;
+  // a promise that fails says nothing of the end: it is then as one never told
+  const ended = opts.ended?.then(() => { heard = true; }, () => new Promise<void>(() => {}));
+  /** Once the end is heard, how long until the history is read again: it was read at once, and it may not be written yet. */
+  let after = AFTER_END_MS;
+  // a stop is heard at once too, not at the next look at the history
+  const stopped = opts.signal && new Promise<void>((r) => (opts.signal!.aborted ? r() : opts.signal!.addEventListener("abort", () => r(), { once: true })));
   for (let i = 0; ; i++) {
-    await new Promise((r) => setTimeout(r, pollMs));
+    if (!heard) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([new Promise((r) => (timer = setTimeout(r, pollMs))), ...(ended ? [ended] : []), ...(stopped ? [stopped] : [])]);
+      clearTimeout(timer);
+    } else {
+      await new Promise((r) => setTimeout(r, after));
+      after = Math.min(pollMs, after * 2);
+    }
     if (opts.signal?.aborted) throw new ComfyCancelled();
     if (Date.now() > deadline) throw new ComfyFailed("the render took too long and was given up");
     let entry: HistoryEntry | undefined;

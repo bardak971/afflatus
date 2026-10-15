@@ -272,6 +272,14 @@ export async function digestedThrough(db: Kysely<Tables>): Promise<string | null
 }
 
 /**
+ * The last day digested machine by machine. Every day before it that is still rows has a digest for each machine that
+ * rendered then (a machine with none on a day had no render that day); a day of renders on no machine has none.
+ */
+export async function machineDigestedThrough(db: Kysely<Tables>): Promise<string | null> {
+  return (await db.selectFrom("render_machine_digests").select((eb) => eb.fn.max("day").as("day")).executeTakeFirst())?.day ?? null;
+}
+
+/**
  * Digest the days before `when`'s that are rows and have no digest yet, oldest first: after each render (usually
  * nothing to do but one look at the last day digested), and with the fold. `again`: the day of a row just written;
  * when that day was digested already (the clock set back over midnight), it is digested again with its new row.
@@ -295,5 +303,36 @@ export async function digestDays(db: Kysely<Tables>, when: number, again?: strin
   for (const day of [...days.keys()].sort()) {
     const digest = JSON.stringify(digestOf(days.get(day)!));
     await db.insertInto("render_digests").values({ day, digest }).onConflict((oc) => oc.column("day").doUpdateSet({ digest })).execute();
+  }
+  await digestMachines(db, today, again);
+}
+
+/**
+ * The same days digested for each machine on its own (one machine's summary, rendersRead.ts), from the last day so
+ * digested: one machine's "all" read every row it had kept on each call. Its own last day, apart from the days of every
+ * machine together: the days digested before there were machine digests are digested so at the first fold after.
+ */
+async function digestMachines(db: Kysely<Tables>, today: string, again?: string): Promise<void> {
+  const through = await machineDigestedThrough(db);
+  const rowsOf = (from: string | null, to: string) => {
+    let q = db.selectFrom("render_stats").selectAll().where("machine_id", "is not", null).where("created_at", "<", to);
+    if (from) q = q.where("created_at", ">=", from);
+    return q.orderBy("created_at", "desc").execute();
+  };
+  const rows = await rowsOf(through ? new Date(Date.parse(dayStart(through)) + DAY).toISOString() : null, dayStart(today));
+  if (again && through && again <= through && again < today) rows.push(...(await rowsOf(dayStart(again), new Date(Date.parse(dayStart(again)) + DAY).toISOString())));
+  const days = new Map<string, Map<string, RenderRow[]>>();
+  for (const r of rows) {
+    const day = dayOf(r.created_at);
+    const machines = days.get(day) ?? days.set(day, new Map()).get(day)!;
+    const list = machines.get(r.machine_id!);
+    if (list) list.push(r);
+    else machines.set(r.machine_id!, [r]);
+  }
+  // oldest day first, as the days of every machine, and a day's machines in one statement: a stop half way leaves every
+  // day up to the last one written digested for each of its machines
+  for (const day of [...days.keys()].sort()) {
+    const values = [...days.get(day)!].map(([machine_id, own]) => ({ day, machine_id, digest: JSON.stringify(digestOf(own)) }));
+    await db.insertInto("render_machine_digests").values(values).onConflict((oc) => oc.columns(["day", "machine_id"]).doUpdateSet((eb) => ({ digest: eb.ref("excluded.digest") }))).execute();
   }
 }

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Job, QueueStatus, RunningJob } from "../src/api";
-import { endedSince, greetings, mergeProgress, notifyTag, throttle } from "../src/liveState";
+import type { Job, QueueStatus, RunningJob, SystemLoad } from "../src/api";
+import { endedSince, greetings, mergeProgress, notifyTag, systemAfter, throttle } from "../src/liveState";
 import { mayReload, RELOAD_GAP_MS } from "../src/reload";
 
 const job = (id: string, status: Job["status"], kind: Job["kind"] = "render"): Job => ({
@@ -92,5 +92,22 @@ describe("a hello on the live connection", () => {
     const g = greetings();
     g.followed();
     expect(g.hello()).toBe(true);
+  });
+});
+
+describe("the machines' load on the live connection", () => {
+  const load = (vramPercent: number): SystemLoad => ({ source: "comfyui", disks: [], gpus: [{ name: "GPU", vramUsed: vramPercent, vramTotal: 100, vramPercent }] });
+
+  it("is taken whole as the stream opens, then only the machines that changed, a machine gone dropped", () => {
+    const opened = systemAfter({ load: null, loads: {} }, { load: load(10), loads: { m1: load(10), m2: load(20), m3: null } })!;
+    expect(opened).toEqual({ load: load(10), loads: { m1: load(10), m2: load(20), m3: null } });
+    // m2 changed; m1 and m3 as they were
+    const changed = systemAfter(opened, { machines: ["m1", "m2", "m3"], loads: { m2: load(90) } })!;
+    expect(changed).toEqual({ load: load(10), loads: { m1: load(10), m2: load(90), m3: null } });
+    // m1 removed: the first machine is now m2, whose load the screens that show one read
+    expect(systemAfter(changed, { machines: ["m2", "m3"], loads: {} })).toEqual({ load: load(90), loads: { m2: load(90), m3: null } });
+    // one added, its load sent; one that went offline sent as null
+    expect(systemAfter(changed, { machines: ["m1", "m2", "m3", "m4"], loads: { m4: load(5), m1: null } })).toEqual({ load: null, loads: { m1: null, m2: load(90), m3: null, m4: load(5) } });
+    expect(systemAfter(changed, null)).toBeNull();
   });
 });

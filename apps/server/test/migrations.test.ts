@@ -116,3 +116,24 @@ describe("migration 0055, the indexes of the counts", () => {
     await db.destroy();
   });
 });
+
+describe("migration 0070, the record of render times by machine", () => {
+  const plan = async (db: ReturnType<typeof openSqlite>, query: string) =>
+    (await sql.raw<{ detail: string }>(`explain query plan ${query}`).execute(db)).rows.map((r) => r.detail).join(" | ");
+  const columns = async (db: ReturnType<typeof openSqlite>) => (await sql<{ name: string }>`select name from pragma_table_info('render_stats')`.execute(db)).rows.map((r) => r.name);
+
+  it("finds one machine's renders by an index, keeps its days' digests and each render's time per node class; and is taken back", async () => {
+    const db = openSqlite(":memory:");
+    await migrate(db, "0069_sessions");
+    const query = "select * from render_stats where created_at >= '2026-10-01' and created_at < '2026-10-02' and machine_id = 'm3' order by created_at desc";
+    expect(await plan(db, query)).not.toContain("render_stats_by_machine");
+    expect(await migrate(db)).toContain("0070_render_machines");
+    expect(await plan(db, query)).toContain("render_stats_by_machine");
+    expect(await columns(db)).toContain("node_ms");
+    await db.insertInto("render_machine_digests").values({ day: "2026-10-01", machine_id: "m3", digest: "{}" }).execute();
+    await migrate(db, "0069_sessions");
+    expect(await plan(db, query)).not.toContain("render_stats_by_machine");
+    expect(await columns(db)).not.toContain("node_ms");
+    await db.destroy();
+  });
+});

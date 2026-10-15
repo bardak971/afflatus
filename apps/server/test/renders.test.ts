@@ -30,7 +30,7 @@ const row = (over: Partial<RenderRow> & { ago?: number } = {}): RenderRow => {
     id: `r${n++}`, owner_id: "local", recipe_id: "sdxl.text-to-picture", family: "sdxl", model: "illustrious", model_file: "illustrious", time_key: "steps=28",
     kind: "image", width: 832, height: 1216, duration_ms: null, steps: 28, status: "done", whole: 1, cold: 0, waited_ms: 0,
     total_ms: 20_000, load_ms: 1_000, sample_ms: 16_000, refine_ms: 0, finish_ms: 3_000, step_ms: 570, expected_ms: 20_000,
-    vram_peak: 70, heat_peak: 68, asset_id: null, work: 832 * 1216, machine_id: null, gpu: null, created_at: new Date(NOW - ago).toISOString(), ...rest,
+    vram_peak: 70, heat_peak: 68, asset_id: null, work: 832 * 1216, machine_id: null, gpu: null, node_ms: null, created_at: new Date(NOW - ago).toISOString(), ...rest,
   };
 };
 const put = (rows: RenderRow[]) => t.db.insertInto("render_stats").values(rows).execute();
@@ -186,6 +186,22 @@ describe("what the tab shows", () => {
     expect(JSON.stringify(later)).toBe(JSON.stringify(now));
   });
 
+  it("a day and a week the same a moment later too: their stretches end on the clock's hours, not at the millisecond", async () => {
+    await put([row({ ago: 20 * DAY }), row({ ago: 3 * DAY }), row({ ago: 3_600_000 })]);
+    // 18:10:01 and a second later, within the same minute and the same stretch
+    const at = NOW + 10 * 60_000 + 1_000;
+    for (const period of ["day", "week"] as const) {
+      const now = await summary(t.db, t.services.registry, period, 90, at);
+      const later = await summary(t.db, t.services.registry, period, 90, at + 1_234);
+      expect(JSON.stringify(later)).toBe(JSON.stringify(now));
+      // as many stretches as before, the last one the stretch now is in, and the window as long as the period
+      expect(now.times).toHaveLength(period === "day" ? 24 : 28);
+      expect(now.to - now.from).toBe(period === "day" ? DAY : 7 * DAY);
+      expect(now.to).toBeGreaterThan(at);
+      expect(now.to % now.step).toBe(0);
+    }
+  });
+
   it("the stretch the figures cover is to the minute: a first render 1 h 29 min ago leaves the GPU busy under 100 %, and the stretch the same a moment later", async () => {
     // the first render on record, 80 min of GPU time ending 1 h 29 min ago
     await put([row({ ago: 89 * 60_000, total_ms: 80 * 60_000 })]);
@@ -288,25 +304,32 @@ describe("a summary cut into days reads the days over from their digests", () =>
           duration_ms: what.kind === "video" ? pick([3_000, 5_000]) : null, status, whole: rand() < 0.9 ? 1 : 0, cold: rand() < 0.2 ? 1 : 0, waited_ms: Math.round(rand() * 60_000),
           total_ms: total, load_ms: Math.round(rand() * 20_000), sample_ms: Math.round(total * 0.6), refine_ms: pick([0, Math.round(total * 0.2)]), finish_ms: Math.round(total * 0.1),
           step_ms: rand() < 0.2 ? null : rand() * 900, expected_ms: rand() < 0.2 ? null : Math.round(total * (0.3 + rand())), vram_peak: rand() < 0.2 ? null : 50 + rand() * 50, heat_peak: 60 + rand() * 20,
+          // two machines, and renders on none (from before there were several, or a tool's)
+          machine_id: [null, "m1", "m2"][rows.length % 3]!,
         }));
       }
     }
     return rows;
   };
   const periods: Array<Parameters<typeof summary>[2]> = ["day", "week", "month", "all", { from: NOW - 3 * DAY, to: NOW - DAY }, { from: NOW - 45 * DAY, to: NOW - 5 * DAY }];
+  /** Every period's summary, of every machine together and of each machine on its own. */
   const answers = async () => {
     const all: string[] = [];
-    for (const p of periods) all.push(JSON.stringify(await summary(t.db, t.services.registry, p, 90, NOW)));
+    for (const machine of [null, "m1", "m2"]) for (const p of periods) all.push(JSON.stringify(await summary(t.db, t.services.registry, p, 90, NOW, machine)));
     return all;
   };
   /** The same summaries worked out from the rows alone, the digests set aside and put back after. */
   const fromRows = async () => {
     const kept = await t.db.selectFrom("render_digests").selectAll().execute();
+    const keptMachines = await t.db.selectFrom("render_machine_digests").selectAll().execute();
     await t.db.deleteFrom("render_digests").execute();
+    await t.db.deleteFrom("render_machine_digests").execute();
     const all = await answers();
     if (kept.length) await t.db.insertInto("render_digests").values(kept).execute();
+    if (keptMachines.length) await t.db.insertInto("render_machine_digests").values(keptMachines).execute();
     return all;
   };
+  const machineDays = async (machine: string) => (await t.db.selectFrom("render_machine_digests").select("day").where("machine_id", "=", machine).orderBy("day").execute()).map((d) => d.day);
   const digested = async () => (await t.db.selectFrom("render_digests").select("day").orderBy("day").execute()).map((d) => d.day);
 
   it("to the same byte as from the rows, with folded days, a render late into a day digested, and a fold of digested days", async () => {
@@ -319,6 +342,19 @@ describe("a summary cut into days reads the days over from their digests", () =>
     // a day's digest is read, not worked out again: a digest changed by hand shows
     const expected = await fromRows();
     expect(await answers()).toEqual(expected);
+    // each machine's days digested on their own: one machine's "all" reads them, not its every row
+    expect((await machineDays("m2")).length).toBeGreaterThan(30);
+    const m2 = await t.db.selectFrom("render_machine_digests").selectAll().where("machine_id", "=", "m2").orderBy("day", "desc").executeTakeFirstOrThrow();
+    await t.db.updateTable("render_machine_digests").set({ digest: JSON.stringify({ ...JSON.parse(m2.digest), tools: 1000 }) }).where("day", "=", m2.day).where("machine_id", "=", "m2").execute();
+    expect((await summary(t.db, t.services.registry, "all", 90, NOW, "m2")).tiles.tools).toBeGreaterThan(1000);
+    expect((await summary(t.db, t.services.registry, "all", 90, NOW, "m1")).tiles.tools).toBeLessThan(1000);
+    await t.db.updateTable("render_machine_digests").set({ digest: m2.digest }).where("day", "=", m2.day).where("machine_id", "=", "m2").execute();
+    // a record from before the machines' digests: they are written at the next fold, the days of every machine left as they were
+    await t.db.deleteFrom("render_machine_digests").execute();
+    await fold(t.db, 90, NOW);
+    expect(await digested()).toEqual(days);
+    expect((await machineDays("m2")).length).toBeGreaterThan(30);
+    expect(await answers()).toEqual(expected);
     // every part of the answer has something in it
     const all = JSON.parse(expected[3]!) as Awaited<ReturnType<typeof summary>>;
     expect(all.tiles.spills && all.tiles.tools && all.models.length === 4 && all.models.every((m) => m.setting && m.trend.length === 24)).toBeTruthy();
@@ -329,7 +365,7 @@ describe("a summary cut into days reads the days over from their digests", () =>
     await t.db.updateTable("render_digests").set({ digest: one.digest }).where("day", "=", one.day).execute();
 
     // a render written into a day digested already (the clock set back): that day is digested again
-    const late = row({ id: "zz-test-late", ago: 10 * DAY, recipe_id: "wan.video", family: "wan", kind: "video", model_file: "wan-high", duration_ms: 5_000, total_ms: 400_000 });
+    const late = row({ id: "zz-test-late", ago: 10 * DAY, recipe_id: "wan.video", family: "wan", kind: "video", model_file: "wan-high", duration_ms: 5_000, total_ms: 400_000, machine_id: "m2" });
     await put([late]);
     await digestDays(t.db, NOW, late.created_at.slice(0, 10));
     expect(await answers()).toEqual(await fromRows());
@@ -339,9 +375,12 @@ describe("a summary cut into days reads the days over from their digests", () =>
     expect((await digested())[0]! >= new Date(NOW - 30 * DAY).toISOString().slice(0, 10)).toBe(true);
     expect(await answers()).toEqual(await fromRows());
 
+    expect((await machineDays("m1"))[0]! >= new Date(NOW - 30 * DAY).toISOString().slice(0, 10)).toBe(true);
+
     // forgetting every render time forgets the digests too
     await clear(t.db);
     expect(await digested()).toEqual([]);
+    expect(await machineDays("m1")).toEqual([]);
   });
 
   it("a render on record digests the days over that were not yet", async () => {

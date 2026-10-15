@@ -1,7 +1,7 @@
 import type { Db, Tables } from "./db";
 import type { Registry } from "./registry";
 import { machinePaces } from "./forecast";
-import { cellOf, DAY, dayOf, dayStart, digestedThrough, digestOf, groupKey, median, merge, parseDigest, real, spilled, sum, WHOLE_DAY, BUCKETS, type Cell, type Digest, type Line, type RenderRow, type Setting } from "./renderDigests";
+import { cellOf, DAY, dayOf, dayStart, digestedThrough, digestOf, machineDigestedThrough, groupKey, median, merge, parseDigest, real, spilled, sum, WHOLE_DAY, BUCKETS, type Cell, type Digest, type Line, type RenderRow, type Setting } from "./renderDigests";
 
 /**
  * The record of render times read: the "Render times" tab's summary and list of renders (`summary`, `list`), how much
@@ -65,14 +65,17 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
 
   // cut into days, the days over are read from their digests, and only the rows after them (today's) are read whole;
   // bounded at the end too: a window in the past counts nothing that came after it
-  // one machine's figures (settings.ts `machines`): from its renders one by one, as long as they are kept so (the days'
-  // digests and folded figures are of every machine together)
-  const through = step === DAY && !machine ? await digestedThrough(db) : null;
+  // one machine's figures (settings.ts `machines`): from its own days' digests and its renders one by one, as long as they
+  // are kept so (the folded figures are of every machine together)
+  const through = step !== DAY ? null : machine ? await machineDigestedThrough(db) : await digestedThrough(db);
   const rowsFrom = through ? Math.max(start, Date.parse(dayStart(through)) + DAY) : start;
   let rowsOf = db.selectFrom("render_stats").selectAll().where("created_at", ">=", iso(rowsFrom)).where("created_at", "<", iso(end));
   if (machine) rowsOf = rowsOf.where("machine_id", "=", machine);
   const rows = rowsFrom < end ? await rowsOf.orderBy("created_at", "desc").execute() : [];
-  const digested = rowsFrom > start ? await db.selectFrom("render_digests").selectAll().where("day", ">=", dayOf(iso(start))).where("day", "<", dayOf(iso(Math.min(rowsFrom, end)))).execute() : [];
+  const days = { from: dayOf(iso(start)), to: dayOf(iso(Math.min(rowsFrom, end))) };
+  const digested = rowsFrom <= start ? []
+    : machine ? await db.selectFrom("render_machine_digests").select(["day", "digest"]).where("machine_id", "=", machine).where("day", ">=", days.from).where("day", "<", days.to).execute()
+    : await db.selectFrom("render_digests").select(["day", "digest"]).where("day", ">=", days.from).where("day", "<", days.to).execute();
   const folded = step === DAY && !machine ? await db.selectFrom("render_days").selectAll().where("day", ">=", dayOf(iso(start))).execute() : [];
 
   // each stretch: the digest of its rows, and the figures of days that are no longer rows
@@ -81,7 +84,7 @@ export async function summary(db: Db, registry: Registry, period: Period | Windo
   const digests: Array<Digest | null> = ownRows.map((own) => (own.length ? digestOf(own) : null));
   for (const d of digested) {
     const i = index(Date.parse(dayStart(d.day)));
-    if (i >= 0 && i < digests.length) digests[i] = parseDigest(d.day, d.digest);
+    if (i >= 0 && i < digests.length) digests[i] = parseDigest(machine ? `${d.day} ${machine}` : d.day, d.digest);
   }
   const stretch = digests.map((d) => ({
     digest: d,
@@ -244,14 +247,18 @@ async function notRendered(db: Db, from: number, to: number, keepDays: number, w
 /**
  * The window a summary covers: a named period ends now; "all" reaches back to the first render (`since`); a
  * window is as given. Cut into stretches by its length; days are whole days (UTC), so that a folded day is one stretch.
+ * A named period cut finer than days ends at the end of the stretch now is in: ending at the millisecond, its stretches
+ * moved on every call, and the page's copy of "day" and "week" was never current (no 304) however little had changed.
  */
 function windowOf(period: Period | Window, since: string | null, when: number): { start: number; end: number; step: number; times: number[] } {
-  const win: Window = typeof period === "string"
-    ? { from: period === "day" ? when - DAY : period === "week" ? when - 7 * DAY : period === "month" ? when - 30 * DAY : Math.min(when - DAY, since ? Date.parse(since) : when - DAY), to: when }
-    : { from: Math.min(period.from, period.to - 60_000), to: Math.min(period.to, when + 60_000) };
+  const length = period === "day" ? DAY : period === "week" ? 7 * DAY : period === "month" ? 30 * DAY : 0;
+  const win: Window = typeof period !== "string" ? { from: Math.min(period.from, period.to - 60_000), to: Math.min(period.to, when + 60_000) }
+    : length ? { from: when - length, to: when }
+    : { from: Math.min(when - DAY, since ? Date.parse(since) : when - DAY), to: when };
   const step = stepFor(win.to - win.from);
-  const end = step === DAY ? Date.parse(`${dayOf(new Date(win.to).toISOString())}T00:00:00.000Z`) + DAY : win.to;
-  const count = Math.max(2, Math.min(730, Math.ceil((end - win.from) / step)));
+  const whole = step < DAY && length > 0;
+  const end = step === DAY ? Date.parse(`${dayOf(new Date(win.to).toISOString())}T00:00:00.000Z`) + DAY : whole ? Math.ceil(when / step) * step : win.to;
+  const count = whole ? length / step : Math.max(2, Math.min(730, Math.ceil((end - win.from) / step)));
   const start = end - count * step;
   return { start, end, step, times: Array.from({ length: count }, (_x, i) => start + i * step) };
 }

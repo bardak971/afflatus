@@ -149,6 +149,41 @@ describe("Monitor", () => {
     }
   });
 
+  it("times each node class it ran, from one node's start to the next one's, and says when the prompt is over", async () => {
+    const clock = { now: 1_000 };
+    const client = new ComfyClient(fake.url);
+    const timed = new Monitor(client, { now: () => clock.now });
+    await timed.ready();
+    try {
+      const node = (class_type: string) => ({ class_type, inputs: {} });
+      const id = await client.submit({ "1": node("UNETLoader"), "4": node("Sam3VideoTrack"), "5": node("KSampler"), "9": node("VAEDecode"), "10": node("VAEDecode") });
+      timed.track({ ...tracking, promptId: id });
+      let over = false;
+      void timed.ended(id).then(() => (over = true));
+      const executing = () => (timed as unknown as { tracked: Map<string, { executing: string | null }> }).tracked.get(id)?.executing;
+      fake.send("execution_start", { prompt_id: id });
+      // the model's load, then a preprocessing node that all counts as "loading" in the phases, then the sampler and two decodes
+      for (const [at, ms] of [["1", 300], ["4", 900], ["5", 2000], ["9", 100], ["10", 50]] as const) {
+        fake.send("executing", { prompt_id: id, node: at });
+        await until(() => executing() === at);
+        clock.now += ms;
+      }
+      expect(over).toBe(false);
+      fake.send("execution_success", { prompt_id: id });
+      fake.send("executing", { prompt_id: id, node: null });
+      await until(() => over);
+      clock.now += 5_000;
+      expect(timed.measured(id)!.nodes).toEqual({ UNETLoader: 300, Sam3VideoTrack: 900, KSampler: 2000, VAEDecode: 150 });
+      // a wait that starts after the end was heard ends at once
+      await timed.ended(id);
+      // a prompt this client did not send (followed again after a restart): its classes are not known, and none are said
+      timed.track({ ...tracking, promptId: "from-before" });
+      expect(timed.measured("from-before")!.nodes).toBeUndefined();
+    } finally {
+      timed.close();
+    }
+  });
+
   it("counts what follows the first pass in the time left, when past renders say how long that takes", async () => {
     const clock = { now: 1_000 };
     const timed = new Monitor(new ComfyClient(fake.url), { now: () => clock.now });

@@ -32,12 +32,21 @@ export function shippedPresetsDir(): string {
 /**
  * The shipped presets on disk. Read once and kept while their files stay as they are: the command bar's index, the Prompt
  * kit and the presets' files ask for them on every read, and reading and checking every file each time cost milliseconds
- * of a held server. A file added, removed or changed (its size or its time) is read again.
+ * of a held server. A file added, removed or changed (its size or its time) is read again. The files are looked at once
+ * every `checkMs` at most: where a pod gets each of a search's files asked for them once per file, a folder listing and
+ * eighteen file checks each time, for a folder that changes with an update of Afflatus.
  */
 export class ShippedPresets {
   private kept: { stamp: string; list: ShippedPreset[] } | null = null;
-  constructor(readonly dir: string | null) {}
+  private checked: { at: number; list: ShippedPreset[] } | null = null;
+  constructor(readonly dir: string | null, private readonly checkMs = 5_000) {}
   list(): ShippedPreset[] {
+    if (this.checked && Date.now() - this.checked.at < this.checkMs) return this.checked.list;
+    const list = this.look();
+    this.checked = { at: Date.now(), list };
+    return list;
+  }
+  private look(): ShippedPreset[] {
     if (!this.dir || !existsSync(this.dir)) return [];
     const names = readdirSync(this.dir).filter((n) => n.endsWith(".json")).sort();
     const stamp = names.map((n) => {

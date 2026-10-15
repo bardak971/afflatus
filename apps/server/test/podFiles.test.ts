@@ -251,6 +251,26 @@ describe("where a pod's file comes from", () => {
     expect(await podSource(lookup(), { file: "none.safetensors", folder: "loras" })).toBeNull();
   });
 
+  it("reads the presets, a folder's hashes, Civitai matches and pages once for the many files a search or a set asks about", async () => {
+    let presets = 0;
+    const read: string[] = [];
+    const db = t.services.db;
+    // the tables read, counted: each file used to read the presets and its folder's every hash and match
+    const counted = new Proxy(db, {
+      get: (target, key) => (key === "selectFrom" ? (table: string) => (read.push(table), target.selectFrom(table as never)) : Reflect.get(target, key)),
+    });
+    const l = lookup({ db: counted as typeof db, presets: async () => (presets++, []) });
+    const theirs = Array.from({ length: 30 }, (_x, i) => ({ file: `zz-test-${i}.safetensors`, folder: "loras" }));
+    const mine = Array.from({ length: 30 }, () => ({ file: "mine.safetensors", folder: "loras" }));
+    // all at once, as a search asks; then one after the other, as the queue's plan does
+    await Promise.all([...theirs, ...mine].map((f) => podSource(l, f)));
+    for (const f of [...theirs, ...mine]) await podSource(l, f);
+    expect(presets).toBe(1);
+    expect(read.filter((x) => x === "model_hashes")).toHaveLength(1);
+    expect(read.filter((x) => x === "model_updates")).toHaveLength(1);
+    expect(read.filter((x) => x === "model_pages")).toHaveLength(1);
+  });
+
   describe("on a pretend Civitai whose model has files of the same names as this computer's", () => {
     const MINE = sha(Buffer.alloc(150_000, 9));
     const FP8 = "F".repeat(64);
