@@ -206,6 +206,13 @@ describe("what a motion render is priced on", () => {
     expect(long.frames).toBe(81);
     expect(long.totalSteps).toBe(6 * 5);
   });
+
+  it("says each chunk's frames: a window carried on into a short last chunk is priced by what it samples, not as two whole chunks", () => {
+    // Timeline 17's second window: 5.34 s of the driving video, 85 frames, a chunk of 81 and one of 9
+    const { built } = build({ drivingSeconds: 5.3438 }, part(5.3438));
+    expect(built.passes!.map((p) => [p.steps, p.frames])).toEqual([[6, 81], [6, 9]]);
+    expect(built.totalSteps).toBe(12);
+  });
 });
 
 /** The node a link points at. */

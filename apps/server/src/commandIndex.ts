@@ -6,7 +6,7 @@ import { NOT_IN_LIBRARY } from "./library";
 import { OWNER, type Db, type Tables } from "./db";
 import { httpError } from "./errors";
 import { inARow } from "./forecast";
-import { forecastsOf } from "./forecasts-api";
+import { forecastsOf, type Asked } from "./forecasts-api";
 import { promptHistory } from "./promptHistory";
 import type { Services } from "./services";
 import { inUseShown, unusedSize, unusedTakes } from "./timelineUnused";
@@ -246,11 +246,11 @@ const estimateQuery = z.object({
  */
 async function commandEstimate(s: Services, raw: unknown): Promise<CommandEstimate> {
   const q = estimateQuery.parse(raw);
-  const forms: Array<{ recipe: string; input: Record<string, unknown>; times: number }> = [];
+  const forms: Array<Asked & { times: number }> = [];
   if (q.timeline) {
     const t = await s.db.selectFrom("timelines").select("id").where("id", "=", q.timeline).executeTakeFirst();
     if (!t) throw httpError("this timeline was not found", 404);
-    const clips = await s.db.selectFrom("clips").select(["recipe_id", "inputs", "kind", "take_id", "joined"]).where("timeline_id", "=", t.id).orderBy("position").orderBy("created_at").execute();
+    const clips = await s.db.selectFrom("clips").select(["id", "recipe_id", "inputs", "kind", "take_id", "joined"]).where("timeline_id", "=", t.id).orderBy("position").orderBy("created_at").execute();
     const asked = q.clips ? new Set(q.clips.split(",").map(Number)) : null;
     for (const [i, c] of clips.entries()) {
       if (c.kind !== "video" || !c.recipe_id) continue;
@@ -263,7 +263,8 @@ async function commandEstimate(s: Services, raw: unknown): Promise<CommandEstima
       // what a timeline fills in itself (the clip it carries on from) is not the form's to say, as when it is rendered
       const own = new Set((recipe.inputs as InputSpec[]).filter((x) => x.type !== "clip").map((x) => x.id));
       const input = Object.fromEntries(Object.entries(stored).filter(([k]) => own.has(k)));
-      forms.push({ recipe: recipe.id, input, times: 1 });
+      // and planned as its render will be: at the timeline's frame, carrying on from the clip before
+      forms.push({ recipe: recipe.id, input, clip: c.id, times: 1 });
     }
   } else {
     const d = await findDraft(s.db, q.draft!);

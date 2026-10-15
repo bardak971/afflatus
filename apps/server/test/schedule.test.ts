@@ -66,4 +66,16 @@ describe("a job's files", () => {
     expect(where([lane("m1"), lane("m2")], [job("a", { can: new Set(["m1"]), pin: "m2" })])).toEqual({});
     expect(takes({ id: "m2", takes: "all" }, { makes: "image", pin: null, can: new Set() })).toBe(false);
   });
+
+  it("reads each machine's own figure for a job before the common one at its pace", () => {
+    // the common figure says 15 min, and the pod's pace from other models 0.8; its own renders of the model say 220 s
+    const lanes = [lane("home", { busyForMs: 300_000, holds: new Set(["scail"]) }), lane("pod", { pace: 0.8, holds: new Set(["scail"]) })];
+    const scail = (id: string) => job(id, { makes: "video", model: "scail", renderMs: 900_000, renderOn: new Map([["home", 900_000], ["pod", 220_000]]) });
+    const got = plan(lanes, [scail("a"), scail("b"), scail("c")]);
+    // at 220 s a window the pod takes them all, one after another, before home is free and done with one
+    expect([...got].map(([id, p]) => [id, p.lane, p.startsInMs])).toEqual([["a", "pod", 0], ["b", "pod", 220_000], ["c", "pod", 440_000]]);
+    // its load too: a pod's disk is not this computer's
+    const cold = [lane("home", { busyForMs: 300_000 }), lane("pod")];
+    expect(where(cold, [job("a", { renderOn: new Map([["home", 20_000], ["pod", 20_000]]), loadOn: new Map([["pod", 400_000]]) })])).toEqual({ a: "home" });
+  });
 });

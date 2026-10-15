@@ -34,6 +34,7 @@ export function headerProps(e: LoadedEditor): ComponentProps<typeof TimelineHead
     redo: { run: () => redo.mutate(), pending: redo.isPending },
     missing: e.missing,
     allMs: e.allMs,
+    allOn: e.allOn,
     picked: { size: picked.size, renderable: clips.some(e.renderable) },
     rendering: render.isPending,
     onRename: (name) => edit.mutate({ name }),
@@ -220,6 +221,7 @@ export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<t
     whole: e.formOf(current),
     why: e.ready(current).why ?? null,
     takesMs: e.takes(current),
+    takesOn: (m) => e.takesOn(current, m),
     busy: render.isPending,
     // a render that failed for this clip, not for another one
     error: render.isError && render.variables?.clips.some((c) => c.id === current.id) ? render.error.message : null,

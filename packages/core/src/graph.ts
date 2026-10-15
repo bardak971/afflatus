@@ -36,7 +36,16 @@ export interface BuiltGraph {
    * The sampling passes in the order they run, each with its steps. With it, progress can be picked up
    * in the middle of a render (after a restart): the passes before the one running are known to be done.
    */
-  passes?: Array<{ node: string; steps: number }>;
+  passes?: Array<{
+    node: string;
+    steps: number;
+    /**
+     * The frames this pass samples, said when a part is made in chunks of different lengths (a last chunk of 9 frames after
+     * one of 81): the forecast prices each chunk at its own size, where the graph's `frames` (its largest) priced every
+     * chunk's steps as the largest's, and a window carried on into a short second chunk read twice its time.
+     */
+    frames?: number;
+  }>;
   /** The models this graph loads. The queue frees ComfyUI's memory when the next job's list differs. */
   loads: string[];
   /**

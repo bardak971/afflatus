@@ -16,6 +16,16 @@ export function machineLabel(m: { name: string; url: string }): string {
 /** The machines of the queue, when there are several; empty with one (the screens then stay as they were). */
 export const severalMachines = (q: QueueStatus | undefined): MachineState[] => (q?.machines && (q.machines.length > 1 || q.machines.some((m) => m.rented)) ? q.machines : []);
 
+/**
+ * What a render takes on a machine: the server's figure for that machine (`on`, from its own renders of the model, else
+ * the others' at its pace) when it gave one, else the common figure at the machine's learned pace. No machine (Auto): the
+ * common figure, which the server says on the machine that renders it soonest.
+ */
+export function timeOn(ms: number | null, on: Readonly<Record<string, number>> | null | undefined, machine: Pick<MachineState, "id" | "pace"> | null | undefined): number | null {
+  if (ms === null || !machine) return ms;
+  return on?.[machine.id] ?? ms * (machine.pace ?? 1);
+}
+
 /** A machine of the queue by id, as the screens name it; the id itself when the queue does not have it (one removed since). */
 export function machineName(q: QueueStatus | undefined, id: string | null | undefined): string | null {
   if (!id) return null;

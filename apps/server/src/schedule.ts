@@ -4,8 +4,9 @@ import type { Machine } from "./settings";
  * Which machine takes which waiting job, when there are several ComfyUIs (settings.ts `machines`). Pure: the queue hands it
  * the line and what it knows of each machine, and starts what it plans. Down the line in its order, each job goes to the
  * machine that would finish it first: when that machine is free, plus loading the model when it does not hold it, plus the
- * render at that machine's learned pace. So a model stays where it is loaded, and a long job waits a little for a faster
- * machine rather than taking a slow one that is free. One machine takes the line in its order, as the queue always did.
+ * render as that machine's own renders of the model say it (else at its learned pace). So a model stays where it is
+ * loaded, and a long job waits a little for a faster machine rather than taking a slow one that is free. One machine takes
+ * the line in its order, as the queue always did.
  */
 
 /** A waiting job as the scheduler reads it. */
@@ -29,6 +30,10 @@ export interface Planned extends Waiting {
   renderMs: number | null;
   /** What loading its model adds; null when not known. */
   loadMs: number | null;
+  /** How long it renders on each machine, from that machine's own renders (or the others' at its pace): read before `renderMs` at the machine's pace. */
+  renderOn?: ReadonlyMap<string, number>;
+  /** What loading its model adds on each machine, as `renderOn`: a pod's disk is not this computer's. */
+  loadOn?: ReadonlyMap<string, number>;
 }
 
 /** A machine as the scheduler reads it: one that may take work now (not paused, not known to be away). */
@@ -70,7 +75,7 @@ export function plan(lanes: readonly Lane[], jobs: readonly Planned[]): Map<stri
       // on a pod still getting its files, it starts once they are there (they come while the pod renders what is before it)
       const starts = Math.max(at.get(lane.id)!, job.fetchMs?.get(lane.id) ?? 0);
       const cold = Boolean(job.model && !held.get(lane.id)!.has(job.model));
-      const ends = starts + (cold ? job.loadMs ?? UNKNOWN_LOAD_MS : 0) + (job.renderMs ?? 0) * lane.pace;
+      const ends = starts + (cold ? job.loadOn?.get(lane.id) ?? job.loadMs ?? UNKNOWN_LOAD_MS : 0) + (job.renderOn?.get(lane.id) ?? (job.renderMs ?? 0) * lane.pace);
       // the first machine that ends it soonest: ties go to the one named first
       if (!best || ends < best.ends) best = { lane, starts, ends };
     }

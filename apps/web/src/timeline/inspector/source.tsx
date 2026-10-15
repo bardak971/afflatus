@@ -185,7 +185,7 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, o
               <Button tone="primary" className={cx("h-11 grow text-sm", several && made.left > 0 && "rounded-r-none!")} disabled={rendering || made.left === 0} onClick={onRender}>
                 {rendering ? "Sending…" : made.left > 0 ? `Render ${plural(made.left, "clip")}` : made.queued > 0 ? `Rendering · ${made.queued} in the queue` : "Made · every clip rendered"}
               </Button>
-              {made.left > 0 && <RenderOn pickKey={timelineKey(timeline.id)} ms={null} />}
+              {made.left > 0 && <RenderOn pickKey={timelineKey(timeline.id)} msOn={() => null} />}
             </span>
           ) : (
             <Button tone="primary" className="h-11 text-sm" disabled={making || !recipe || !picture || !windows.length} onClick={onMake}>
