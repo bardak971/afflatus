@@ -1,3 +1,4 @@
+import { Link } from "wouter";
 import type { Machine, MachineState, RentedMachine } from "../../api";
 import type { PodFile, PodPack } from "../../api";
 import { minutesSaid, plural, size, usd } from "../../format";
@@ -69,8 +70,8 @@ function IdleLeft({ at }: { at: number }) {
 /** A rented machine's state for its card's head: its words, and Start or Stop. Start is the user's, its rate said first. */
 export function RentedHead({ machine, state, ops }: { machine: Machine; state: MachineState | undefined; ops: ReturnType<typeof useRentedOps> }) {
   const r = state?.rented;
-  // its running time and cost count by the second while it runs
-  const now = useNow(1000, r?.status === "RUNNING");
+  // its running time and cost count by the second while it runs, and a first start's time since its deploy
+  const now = useNow(1000, r?.status === "RUNNING" || Boolean(r?.boot));
   if (!r) return null;
   const label = machine.name || "the pod";
   const running = r.status === "RUNNING";
@@ -114,7 +115,12 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
       {/* what is happening to the pod, when something is: its first start, an error, gone from RunPod */}
       {((r?.booting && !r.error) || r?.error || gone) && (
         <Block>
-          {r?.booting && !r.error && <span className="text-xs text-ink-3">First start: its image pulled onto the host, then ComfyUI starts · a few minutes, billed · terminated by itself if not up in 20 min</span>}
+          {r?.booting && !r.error && (
+            <span className="text-xs text-ink-3">
+              First start: its image pulled onto the host, then ComfyUI starts · a few minutes, billed · terminated by itself if not up in 20 min ·{" "}
+              <Link href={`/queue?view=log&machine=${encodeURIComponent(machine.id)}`} className="font-semibold text-accent hover:underline">its boot log</Link>
+            </span>
+          )}
           {r?.error && <span className="text-xs text-warn-ink">{r.error}</span>}
           {gone && (
             <span className="flex flex-wrap items-center gap-2 text-xs text-warn-ink">

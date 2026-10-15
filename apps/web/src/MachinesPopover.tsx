@@ -4,12 +4,19 @@ import { MoreHorizontal, Pause, Play } from "lucide-react";
 import type { MachineState } from "./api";
 import { lastSaid, openDeploy, useDeployAgain } from "./deploy";
 import { gb, plural } from "./format";
-import { machineLabel } from "./machines";
+import { machineLabel, type RentedBoot } from "./machines";
 import { Bar, busiest, diskNearlyFull, diskSaid, doing, Dot, FilesLine, gettingFiles } from "./machineBits";
 import { Popover } from "./Popover";
 import { useQueueOps } from "./queueOps";
 import { useSystem } from "./store";
 import { cx } from "./ui";
+
+/** What a booting pod's second line says of its start: the step to come, or where its boot log is. */
+const bootHint = (b: RentedBoot | null) =>
+  !b || b.phase === "pulling" ? "its image is pulled onto the host (minutes on a host new to it), then ComfyUI starts"
+  : b.failed ? "its start stopped: its last lines are in its log (Queue › Log)"
+  : b.phase === "starting" ? "its container is up: ComfyUI starts"
+  : "its boot log in Queue › Log until ComfyUI answers";
 
 /**
  * The machines' pill opened (MachinesPill.tsx): every machine with all its figures, its pause and its menu, Deploy a GPU
@@ -73,7 +80,7 @@ export function MachinesPopover({ anchor, machines, metered, now, canDeploy, onP
                   <span className="text-[11.5px] text-ink-3">
                     {/* a pod being deployed does not answer for minutes, as it should: said as what it is doing, not as a fault */}
                     {m.rented && (m.rented.booting || m.rented.status === "PROVISIONING" || m.rented.status === "STARTING")
-                      ? "its image is pulled onto the host, then ComfyUI starts: a few minutes"
+                      ? bootHint(m.rented.boot ?? null)
                       : m.online === false ? (m.locked ? "locked against Afflatus's token" : "not answering") : "no figures yet"}
                   </span>
                 )}

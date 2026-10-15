@@ -112,13 +112,14 @@ for (const f of [fake, ...others]) f.packVersion = PACK;
 // and its GPU's power, as the pack reads it on an NVIDIA card: a demo render's electricity in Queue › Costs
 for (const f of [fake, ...others]) f.watts = 265;
 // DEMO_RUNPOD=1: a pretend RunPod with three pods (two with a pretend ComfyUI and the node pack, one without ComfyUI's
-// port), for adding a rented machine or deploying a GPU in Settings › Rented GPUs with the key said at start. A started or
-// deployed pod takes 8 s to come up
+// port), for adding a rented machine or deploying a GPU in Settings › Rented GPUs with the key said at start. A started
+// pod takes 8 s to come up; a deployed one 8 s, then 20 s pulling its image (no uptime yet), then 20 s of its boot log
+// (start.sh's steps, ComfyUI's start) before its ComfyUI answers
 const RUNPOD_KEY = "demo-runpod-key";
 const pod = async () => Object.assign(await pretendComfy(), { packVersion: PACK });
 const pretendRunpod = process.env.DEMO_RUNPOD === "1" ? await startFakeRunpod({
-  key: RUNPOD_KEY, bootMs: 8000,
-  // Deploy a GPU: a new pod is a new pretend ComfyUI with the node pack, up 8 s after it is made; two network volumes, the
+  key: RUNPOD_KEY, bootMs: 8000, pullMs: 20_000, startMs: 20_000,
+  // Deploy a GPU: a new pod is a new pretend ComfyUI with the node pack, up as said above; two network volumes, the
   // 5090 mounted on the first (in use while it runs), the second never used
   spawn: pod,
   volumes: [{ id: "demo-volume", name: "afflatus-models", size: 100, dataCenter: "EU-RO-1" }, { id: "demo-old", name: "old-loras", size: 50, dataCenter: "US-TX-3" }],

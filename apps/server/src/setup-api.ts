@@ -110,14 +110,29 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
   });
 
   app.get("/api/comfy/logs", async (req) => {
-    const { since, machine } = z.object({ since: z.string().max(64).optional(), machine: z.string().max(40).optional() }).parse(req.query ?? {});
-    const from = since ? Date.parse(since) : Number.NaN;
+    // `of`: whose log `since` is a stamp of (the pod's boot log's, or ComfyUI's): a stamp of the one never cuts the other's
+    const { since, of, machine } = z.object({ since: z.string().max(64).optional(), of: z.enum(["boot", "comfy"]).optional(), machine: z.string().max(40).optional() }).parse(req.query ?? {});
+    // a line whose stamp does not read is kept
+    const after = <L extends { t: string }>(lines: L[], source: "boot" | "comfy") => {
+      const from = since && (of ?? "comfy") === source ? Date.parse(since) : Number.NaN;
+      return Number.isNaN(from) ? lines : lines.filter((l) => !(Date.parse(l.t) < from));
+    };
+    const id = machine ?? (await s.machines())[0]?.machine.id ?? "";
+    // a rented pod whose ComfyUI is not up yet: its boot log (the Afflatus image's), which has ComfyUI's start in it too
+    const boot = async () => {
+      const got = await s.rented.bootLines(id);
+      return got ? { lines: after(got.lines, "boot"), source: "boot" as const } : null;
+    };
+    if (s.rented.comfyDown(id)) {
+      const got = await boot();
+      if (got) return got;
+    }
     const comfy = await s.comfyOf(machine);
     try {
-      const lines = await comfy.client.logs();
-      // a line whose stamp does not read is kept
-      return { lines: Number.isNaN(from) ? lines : lines.filter((l) => !(Date.parse(l.t) < from)) };
+      return { lines: after(await comfy.client.logs(), "comfy"), source: "comfy" as const };
     } catch (e) {
+      const got = await boot();
+      if (got) return got;
       throw httpError(`it answered: ${e instanceof Error ? e.message : String(e)}`, 502);
     }
   });

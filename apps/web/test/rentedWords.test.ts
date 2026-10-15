@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { MachineState, QueueStatus, RentedState } from "../src/api";
 import { usd } from "../src/format";
-import { rateParts, rateSaid, rentedSaid, rentedSpent, rentedUp, severalMachines } from "../src/machines";
+import { busiest, doing } from "../src/machineBits";
+import { bootSaid, machineState, rateParts, rateSaid, rentedSaid, rentedSpent, rentedUp, severalMachines } from "../src/machines";
 
 /** What a rented pod's row, its Start and the pill say (machines.ts), and when the machines' own controls show. */
 
@@ -43,6 +44,33 @@ describe("a rented pod's words", () => {
     expect(usd(0.0234, true)).toBe("$0.023");
     expect(usd(0.0234)).toBe("$0.02");
     expect(usd(1.5, true)).toBe("$1.50");
+  });
+});
+
+describe("a deployed pod's first start", () => {
+  const now = 1_800_000_000_000;
+  const boot = (over: Partial<NonNullable<RentedState["boot"]>> = {}) => ({ phase: "pulling" as const, step: null, failed: false, from: now - 6 * 60_000, ...over });
+  const row = (r: RentedState): MachineState => ({ id: "rp-1", name: "RTX 3090", url: "https://x", takes: "all", paused: false, online: false, locked: false, rented: r, model: null, pace: null, running: null } as MachineState);
+
+  it("says where it is, and for how long since its deploy: RunPod's data, then its boot log's step", () => {
+    expect(bootSaid(boot(), now)).toBe("pulling the image · 6 min");
+    expect(bootSaid(boot({ phase: "starting", from: now - 40_000 }), now)).toBe("starting ComfyUI · 40 s");
+    expect(bootSaid(boot({ phase: "step", step: "putting in the node packs" }), now)).toBe("putting in the node packs · 6 min");
+    expect(bootSaid(boot({ phase: "step", step: "putting in the node packs (exit 1)", failed: true }), now)).toBe("start stopped: putting in the node packs (exit 1) · 6 min");
+  });
+
+  it("in its row, its card's head and the pill: the same words, its cost while RunPod bills it", () => {
+    const pulling = pod({ status: "RUNNING", booting: true, answers: null, since: now - 6 * 60_000, rate: 0.6, boot: boot() });
+    expect(rentedSaid(pulling, now)).toBe("pulling the image · 6 min · $0.060");
+    expect(rentedSaid(pod({ status: "PROVISIONING", booting: true, boot: boot({ from: now - 20_000 }) }), now)).toBe("pulling the image · 20 s");
+    // before its first answer, RunPod says it runs: starting, never offline, in every place
+    expect(machineState(row(pulling))).toBe("starting");
+    expect(doing(row(pulling), now)).toBe("pulling the image · 6 min · $0.060");
+    expect(busiest([row(pulling)])).toBe("1 starting");
+    // a Stop pressed meanwhile says so, not its start
+    expect(rentedSaid({ ...pulling, stopping: true }, now)).toMatch(/^stopping/);
+    // an older server says no `boot`: as before
+    expect(rentedSaid(pod({ status: "PROVISIONING" }))).toBe("deploying · pulling its image");
   });
 });
 

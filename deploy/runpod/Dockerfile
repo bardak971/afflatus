@@ -1,8 +1,9 @@
 # The Afflatus pod: ComfyUI, its Manager and the Afflatus node pack, for a GPU deployed from Afflatus (Settings ›
-# Rented GPUs). Nothing else is open on it: one port, 8188, locked from its first second by the node pack, which reads
-# the token Afflatus gives the pod as a RunPod secret (AFFLATUS_TOKEN). The node packs and models a render needs are
-# fetched by Afflatus after it is up, through the Manager and the node pack's downloader; the packs most video renders
-# use are built in (below), so that a deploy does not install them and restart ComfyUI on billed time.
+# Rented GPUs). Nothing else is open on it: 8188, locked from its first second by the node pack, which reads the token
+# Afflatus gives the pod as a RunPod secret (AFFLATUS_TOKEN), and 8189, its boot log (bootlog.py), for that token only.
+# The node packs and models a render needs are fetched by Afflatus after it is up, through the Manager and the node pack's
+# downloader; the packs most video renders use are built in (below), so that a deploy does not install them and restart
+# ComfyUI on billed time.
 #
 #   built and pushed by .github/workflows/pod-image.yml on a pod-v* tag: ghcr.io/bardak971/afflatus-pod:<version>
 #
@@ -81,8 +82,10 @@ RUN python /opt/afflatus-pod/registry_cache.py /opt/afflatus-pod/manager-cache "
 COPY comfy-nodes/afflatus-nodes /opt/afflatus-nodes
 COPY deploy/runpod/start.sh /start.sh
 COPY deploy/runpod/broken.py /opt/afflatus-pod/broken.py
+COPY deploy/runpod/bootlog.py /opt/afflatus-pod/bootlog.py
 # a checkout on Windows may hand the script over with CRLF: sh would not read its first line
 RUN sed -i 's/\r$//' /start.sh && chmod +x /start.sh && rm -rf /opt/afflatus-nodes/tests
 
-EXPOSE 8188
+# 8188: ComfyUI; 8189: the boot log (bootlog.py), for the pod's token only
+EXPOSE 8188 8189
 CMD ["/start.sh"]

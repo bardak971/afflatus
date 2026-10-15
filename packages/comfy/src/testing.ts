@@ -77,6 +77,12 @@ export interface FakeComfy {
   down: boolean;
   /** The Afflatus pod image on a host whose GPU does not work (deploy/runpod/broken.py): GET /afflatus/pod says this error, all else 503. */
   podBroken: string | null;
+  /**
+   * The Afflatus pod image's boot log (deploy/runpod/bootlog.py), served here at ComfyUI's address (the demo's and the tests'
+   * proxy has one address per pod): GET /afflatus/boot with this token as a Bearer, whether ComfyUI is up or not; null: no
+   * boot log (RunPod's image, an older Afflatus image, or no container yet).
+   */
+  bootLog: { token: string; lines: Array<{ t: string; m: string }> } | null;
   /** The node pack's watchdog (0.13.0): each "still here" it heard, with the minutes it was given. */
   alive: Array<{ at: number; minutes: number }>;
   /** Every address the pretend node pack fetched a download from, in order (a fresh link after one expired among them). */
@@ -156,7 +162,7 @@ const body = async (req: IncomingMessage) => {
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: FakeState = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], packUploaded: [], removed: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, alive: [],
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], packUploaded: [], removed: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, bootLog: null, alive: [],
     folderPaths: init.folderPaths ?? null, hideFolderPaths: init.hideFolderPaths ?? false,
     catalog: init.catalog ?? {},
     models: init.models ?? {},
@@ -188,6 +194,12 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
         return true;
       },
     };
+    // the pod's boot log answers on its own port, ComfyUI up or not: only to its token, GET only
+    if (url.pathname === "/afflatus/boot" && fake.bootLog) {
+      if (req.headers.authorization !== `Bearer ${fake.bootLog.token}`) return r.json(401, { error: "the pod's token is needed" });
+      if (method !== "GET") return r.json(405, { error: "GET only" });
+      return r.json(200, { lines: fake.bootLog.lines.slice(-300) });
+    }
     // a stopped pod's ComfyUI: the provider's proxy answers for it, and says it is not there
     if (fake.down) return r.plain(502, "Bad Gateway: the pod is not running", "text/plain");
     if (fake.podBroken !== null) return url.pathname === "/afflatus/pod" ? r.json(200, { afflatus_pod: "gpu_failed", error: fake.podBroken }) : r.json(503, { afflatus_pod: "gpu_failed", error: fake.podBroken });

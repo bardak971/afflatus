@@ -509,6 +509,11 @@ export interface RentedState {
   stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | "filled" | "cut" | null;
   /** Deployed and on its first start (its image pulled, ComfyUI starting): a normal step. */
   booting: boolean;
+  /**
+   * While it boots, where it is: its image pulled (RunPod says no uptime yet), ComfyUI starting (its container up), or the
+   * step its boot log says (the Afflatus image, 0.1.12 on), `failed` when its start stopped there; `from`: its deploy (ms).
+   */
+  boot?: { phase: "pulling" | "starting" | "step"; step: string | null; failed: boolean; from: number } | null;
   error: string | null;
   /** The model files it is getting: what its jobs wait for, then what was asked ahead. */
   files: PodFile[];

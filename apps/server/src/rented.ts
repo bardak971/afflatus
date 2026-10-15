@@ -4,11 +4,12 @@ import type { Comfy } from "./comfy";
 import type { Db } from "./db";
 import { httpError } from "./errors";
 import { newToken } from "./lock-api";
-import { COMFY_PORT, exposesComfy, imageFor, LOCK_ENV, noCapacity, POD_IMAGES, podMachineId, podUrl, Runpod, RunpodError, RunpodShape, secretRef, HOURS_A_MONTH, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ACTION_ENV, WATCHDOG_ENV, type BillRecord, type GpuOffer, type NetworkVolume, type Pod, type PodSpec, type PodStatus } from "./runpod";
+import { BOOT_PORT, COMFY_PORT, exposesComfy, imageFor, LOCK_ENV, noCapacity, POD_IMAGES, podMachineId, podUrl, Runpod, RunpodError, RunpodShape, secretRef, HOURS_A_MONTH, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ACTION_ENV, WATCHDOG_ENV, type BillRecord, type GpuOffer, type NetworkVolume, type Pod, type PodSpec, type PodStatus } from "./runpod";
 import { gpuKey, LEARNED_RENDERS, volumePerMonth, type PresetFile } from "@afflatus/core";
 import { gpuPaces } from "./forecast";
 import { imagePublic } from "./podImage";
 import { recordMeasure } from "./podMeasures";
+import { bootOf, BootLogs, type BootLog, type BootView } from "./podBoot";
 import { SEARCHED_FOLDERS } from "./modelSets";
 import { inUseSaid, keptHoldings, noteFill, noticeVolumes, mountedOn, recordHoldings, usedBy, viewVolumes, VOLUME_MAX_GB, VOLUME_MIN_GB, type Storage, type VolumeView } from "./rentedVolumes";
 import { dollars, machineSaid, type Say } from "./notifyWords";
@@ -71,6 +72,8 @@ export interface RentedView {
   stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | "filled" | "cut" | null;
   /** Deployed and on its first start (its image pulled, ComfyUI starting): a normal step, said as one, not as an error. */
   booting: boolean;
+  /** While it boots: where it is (podBoot.ts bootOf), from RunPod's data and its boot log. */
+  boot: BootView | null;
   /** What went wrong with this pod, or asking RunPod, when something did. */
   error: string | null;
 }
@@ -190,6 +193,11 @@ const DEPLOY_SLOW_MS = 12 * 60_000;
 const FREEST = { HIGH: 0, MEDIUM: 1, LOW: 2, NONE: 3 } as const;
 /** How long a pod may run without its ComfyUI answering before its idle action applies. */
 const bootLimit = (m: Machine) => (m.rented?.deployed ? DEPLOYED_BOOT_LIMIT_MS : BOOT_LIMIT_MS);
+/**
+ * The ports of a pod that are Afflatus's own, behind its token: ComfyUI's, and on a pod deployed from Afflatus its boot log's
+ * (deploy/runpod/bootlog.py). Any other is outside the lock: said on its card, closed at a Start unless kept open.
+ */
+const ownPorts = (m: Machine) => [`${COMFY_PORT}/http`, ...(m.rented?.deployed ? [`${BOOT_PORT}/http`] : [])];
 /** The RunPod secret its token is kept in. */
 const secretOf = (m: Machine) => m.rented!.secret || tokenSecret(m.rented!.pod);
 /** After this long running without an answer, its card says so (it is billed meanwhile). */
@@ -253,6 +261,8 @@ interface Seen {
   /** When it was first seen running this time (ms), and whether its ComfyUI answered since. */
   upAt: number | null;
   answered: boolean;
+  /** When its ComfyUI first answered this run (ms): its boot log is read a while longer, for the lines of its last steps. */
+  answeredAt: number | null;
   /** The pod said its GPU does not work on its host (the Afflatus image, broken.py), with torch's words. */
   gpuFailed: string | null;
   /** How many reads in a row found no such pod on RunPod. */
@@ -277,13 +287,18 @@ interface Seen {
 
 const fresh = (): Seen => ({
   pod: null, rate: null, watchdog: "unknown", answers: null, busyAt: null, busyKept: null, busyRestored: false, stoppedBy: null, stopAfter: false, cappedAt: null,
-  stopping: false, lockTried: false, seenRunningAt: null, epoch: 0, error: null, bootNote: null, secretDropped: false, upAt: null, answered: false,
+  stopping: false, lockTried: false, seenRunningAt: null, epoch: 0, error: null, bootNote: null, secretDropped: false, upAt: null, answered: false, answeredAt: null,
   read: false, gpuFailed: null, missing: 0, stoppingSince: null, aliveAt: null, startingSince: null,
   handed: false, fillFrom: null, fillProgress: null, fillMovedAt: null, cutWhy: null,
 });
 
 /** A pod still running this long after Afflatus asked RunPod to stop it is asked again (and a stop that keeps nothing, terminated). */
 const STOP_AGAIN_MS = 2 * 60_000;
+/** How often a booting pod's boot log is read (podBoot.ts), and how long after its ComfyUI first answered it still is. */
+const BOOT_READ_MS = 10_000;
+const BOOT_TAIL_MS = 2 * 60_000;
+/** The log tab reads it every two seconds while it is open: read again at most this often then. */
+const BOOT_ASKED_MS = 2_000;
 
 /**
  * Why a deploy was refused, for the GPU hunt (hunt.ts), which goes on hunting or gives up by it: no GPU free any more where
@@ -296,6 +311,9 @@ export const refusalOf = (err: unknown): DeployRefusal | null => (err as { refus
 
 export class Rented {
   private readonly seen = new Map<string, Seen>();
+  /** The pods' boot logs, as last read (the Afflatus image's, deploy/runpod/bootlog.py), and how often (shorter in tests). */
+  readonly boots = new BootLogs();
+  bootEveryMs = BOOT_READ_MS;
   /** What went wrong asking RunPod as a whole (the key, an answer not read): said on every rented card. */
   private error: string | null = null;
   private timer: NodeJS.Timeout | null = null;
@@ -370,7 +388,9 @@ export class Rented {
     await this.poll().catch((err: Error) => console.warn(`[rented] ${err.message}`));
     // a pod starting or stopping moves within seconds; one provisioning pulls its image, minutes: read at the usual pace
     const fast = [...this.seen.values()].some((s) => s.stopping || s.pod?.status === "STARTING");
-    this.kick(fast ? this.fastMs : this.everyMs);
+    // one running whose ComfyUI has not answered yet (a boot): its card follows its boot log's steps at that log's pace
+    const booting = [...this.seen.values()].some((s) => s.pod?.status === "RUNNING" && !s.answered);
+    this.kick(fast ? this.fastMs : booting ? Math.min(this.everyMs, BOOT_READ_MS) : this.everyMs);
   }
 
   stop(): void {
@@ -446,12 +466,15 @@ export class Rented {
     const since = pod?.status === "RUNNING" && pod.startedAt ? Date.parse(pod.startedAt) : null;
     const rate = s?.rate ?? (pod?.cost || null);
     const idleMs = machine.rented.idleMinutes * 60_000;
+    const booting = Boolean(machine.rented.deployedAt) && (status === "RUNNING" || (TRANSITIONAL.has(status) && status !== "UNKNOWN")) && !s?.answered;
+    const deployedAt = Date.parse(machine.rented.deployedAt);
+    const boot = booting ? bootOf(pod, this.boots.get(machine.id), Number.isFinite(deployedAt) ? deployedAt : this.now()) : null;
     return {
       provider: "runpod", pod: machine.rented.pod, status, rate, gpuRate: pod?.gpuCost || null, gpu: pod?.gpu ?? null, dataCenter: pod?.dataCenter ?? null,
       since, spent: since && rate ? ((this.now() - since) / HOUR) * rate : 0,
       diskPerDay: pod ? (pod.diskGb * STOPPED_DISK_PER_GB_MONTH * 24) / HOURS_A_MONTH : 0,
       volume: Boolean(pod && (pod.networkVolume || pod.diskGb > 0)),
-      otherPorts: pod ? pod.ports.filter((p) => p !== `${COMFY_PORT}/http`) : [],
+      otherPorts: pod ? pod.ports.filter((p) => !ownPorts(machine).includes(p)) : [],
       closedPorts: machine.rented.closedPorts,
       watchdog: status === "RUNNING" ? s?.watchdog ?? "unknown" : "unknown",
       answers: status === "RUNNING" ? s?.answers ?? null : null,
@@ -460,8 +483,10 @@ export class Rented {
       capped: s?.stopAfter ?? false,
       stopping: s?.stopping ?? false,
       stoppedBy: s?.stoppedBy ?? null,
-      booting: Boolean(machine.rented.deployedAt) && (status === "RUNNING" || (TRANSITIONAL.has(status) && status !== "UNKNOWN")) && !s?.answered,
-      error: s?.error ?? this.error ?? s?.bootNote ?? (s?.stoppedBy === "gpu" ? s.gpuFailed : null) ?? this.unanswered(machine, s ?? null, status, bootLimit(machine)),
+      booting,
+      boot,
+      // a start that stopped on an error says so as its pod says it, before the boot limit's words
+      error: s?.error ?? this.error ?? s?.bootNote ?? (s?.stoppedBy === "gpu" ? s.gpuFailed : null) ?? (boot?.failed ? `Its start stopped: ${boot.step}. Its last lines are in its log (Queue › Log); terminated at ${bootLimit(machine) / 60_000} min if it is not up.` : null) ?? this.unanswered(machine, s ?? null, status, bootLimit(machine)),
     };
   }
 
@@ -663,7 +688,8 @@ export class Rented {
     const end = volume ? ask.idleDo : "terminate";
     const spec: PodSpec = {
       name: `Afflatus ${offer.name} ${tag}`, image: builds[0]!.image, minCuda: builds[0]!.minCuda, gpu: offer.id, cloud: ask.cloud, dataCenter: null, disk: volume ? Math.min(ask.disk, 40) : ask.disk,
-      volume: volume?.id ?? null, ports: [`${COMFY_PORT}/http`], env: { [LOCK_ENV]: kept ? secretRef(secret) : token, [WATCHDOG_ENV]: String(ask.watchdogMinutes), [WATCHDOG_ACTION_ENV]: end },
+      // the Afflatus image's boot log too, to the pod's token only: an image without it (RunPod's, 0.1.11) has nothing there
+      volume: volume?.id ?? null, ports: [`${COMFY_PORT}/http`, ...(ask.template === "afflatus" ? [`${BOOT_PORT}/http`] : [])], env: { [LOCK_ENV]: kept ? secretRef(secret) : token, [WATCHDOG_ENV]: String(ask.watchdogMinutes), [WATCHDOG_ACTION_ENV]: end },
     };
     let pod: Pod | null = null;
     try {
@@ -764,7 +790,11 @@ export class Rented {
     const settings = await readSettings(this.db);
     const rented = settings.machines.filter((m) => m.rented);
     this.filling = new Set(rented.filter((m) => m.rented!.fill).map((m) => m.id));
-    for (const id of this.seen.keys()) if (!rented.some((m) => m.id === id)) this.seen.delete(id);
+    for (const id of this.seen.keys()) {
+      if (rented.some((m) => m.id === id)) continue;
+      this.seen.delete(id);
+      this.boots.forget(id);
+    }
     // a run still open for a machine that is no longer this pod (removed from Afflatus while it ran, or added again as
     // another pod) is closed now, where it was last seen running: nothing would ever close it otherwise
     const open = await this.db.selectFrom("rent_sessions").select(["id", "machine_id", "pod", "seen_at"]).where("ended_at", "is", null).execute();
@@ -1070,6 +1100,9 @@ export class Rented {
     }
     // a pod gone stays gone: said once, not at every read
     const changed = !s.read || (before?.status ?? null) !== (pod?.status ?? null) || Boolean(pod?.cost && pod.cost !== s.rate);
+    // a deployed pod's container up (RunPod says its uptime from then): its card goes from pulling the image to ComfyUI
+    // starting at once, not at the next change
+    if (m.rented!.deployedAt && (before?.uptime ?? null) === null && pod?.uptime !== null && pod?.uptime !== undefined) this.events.emit("queue");
     s.read = true;
     s.pod = pod;
     if (pod?.cost) s.rate = pod.cost;
@@ -1124,6 +1157,7 @@ export class Rented {
       s.answers = null;
       s.upAt = null;
       s.answered = false;
+      s.answeredAt = null;
       if (s.stopping && pod?.status !== "STARTING") {
         s.stopping = false;
         s.stoppingSince = null;
@@ -1154,8 +1188,13 @@ export class Rented {
       await this.act(m, "terminate", "gpu");
       return true;
     }
-    if (answers && !s.answered) await this.noteUp(m);
+    if (answers && !s.answered) {
+      await this.noteUp(m);
+      s.answeredAt = this.now();
+    }
     if (answers) s.answered = true;
+    // its boot log while it boots, and a while after its first answer (ComfyUI's last lines of its start)
+    if (!s.answered || (s.answeredAt !== null && this.now() - s.answeredAt < BOOT_TAIL_MS)) void this.readBoot(m, pod, this.bootEveryMs);
     // its first answer since it was deployed: later starts count from when it runs. How long it took is kept (the Deploy
     // dialog's "up in"), and what its deploy asked for is handed to it now. A fill keeps its files until it ends: podFiles
     // keeps what a pod gets in memory only, so after a restart of Afflatus they are handed again (followFill)
@@ -1249,6 +1288,35 @@ export class Rented {
   private async undeploy(m: Machine): Promise<void> {
     if (!m.rented!.deployedAt) return;
     await updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id && x.rented ? { ...x, rented: { ...x.rented, deployedAt: "" } } : x)) }));
+  }
+
+  /**
+   * A pod's boot log read again (podBoot.ts), at most every `everyMs`, on a pod that exposes its port: the queue told when its
+   * step or its lines moved. Never an error: a pod without it (RunPod's image, an older Afflatus image) has nothing there.
+   */
+  private async readBoot(m: Machine, pod: Pod | null, everyMs: number): Promise<BootLog | null> {
+    if (!pod || !pod.ports.includes(`${BOOT_PORT}/http`) || !m.token) return this.boots.get(m.id);
+    const before = this.boots.get(m.id);
+    const after = await this.boots.read(m.id, m.rented!.pod, m.token, everyMs);
+    if (after && (after.step !== before?.step || after.failed !== before?.failed || after.lines.at(-1)?.t !== before?.lines.at(-1)?.t)) this.events.emit("queue");
+    return after;
+  }
+
+  /**
+   * The boot log of a rented machine's pod for its log tab, while its ComfyUI has none to give (it does not answer yet):
+   * read now (at most every BOOT_ASKED_MS), else as last read. Null for a machine that is not a rented pod.
+   */
+  async bootLines(machine: string): Promise<{ lines: BootLog["lines"] } | null> {
+    const m = (await readSettings(this.db)).machines.find((x) => x.id === machine);
+    if (!m?.rented) return null;
+    const log = await this.readBoot(m, this.seen.get(m.id)?.pod ?? null, BOOT_ASKED_MS);
+    return { lines: log?.lines ?? [] };
+  }
+
+  /** Whether a rented machine's ComfyUI is not up: its log tab reads its boot log then. False for a ComfyUI of its own. */
+  comfyDown(machine: string): boolean {
+    const s = this.seen.get(machine);
+    return Boolean(s && s.answers !== true);
   }
 
   /** Whether its ComfyUI answers without a lock (the pack's GET /afflatus/lock says locked false). */
@@ -1635,16 +1703,16 @@ export class Rented {
       });
       // its other public ports closed (a template's FileBrowser, JupyterLab, SSH: logins of their own, outside the lock), and
       // remembered: kept open, those Afflatus closed are put back
-      const comfy = `${COMFY_PORT}/http`;
+      const own = ownPorts(m);
       const closed = m.rented!.closedPorts;
-      const ports = m.rented!.openPorts ? [...new Set([...pod.ports, ...closed])] : pod.ports.filter((p) => p === comfy);
+      const ports = m.rented!.openPorts ? [...new Set([...pod.ports, ...closed])] : pod.ports.filter((p) => own.includes(p));
       const portsChange = ports.length !== pod.ports.length || ports.some((p) => !pod.ports.includes(p));
       // what its watchdog does, as its idle does: terminate a pod that keeps nothing when stopped
       const end = pod.networkVolume || pod.diskGb > 0 ? m.rented!.idleDo : "terminate";
       if (pod.env[LOCK_ENV] === token && pod.env[WATCHDOG_ENV] === minutes && pod.env[WATCHDOG_ACTION_ENV] === end && !portsChange) return null;
       await client.update(pod.id, { env: { ...pod.env, [LOCK_ENV]: token, [WATCHDOG_ENV]: minutes, [WATCHDOG_ACTION_ENV]: end }, ...(portsChange ? { ports } : {}) });
       if (portsChange) {
-        const nowClosed = m.rented!.openPorts ? [] : [...new Set([...closed, ...pod.ports.filter((p) => p !== comfy)])];
+        const nowClosed = m.rented!.openPorts ? [] : [...new Set([...closed, ...pod.ports.filter((p) => !own.includes(p))])];
         await updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id && x.rented ? { ...x, rented: { ...x.rented, closedPorts: nowClosed } } : x)) }));
       }
       return null;
@@ -1719,6 +1787,7 @@ export class Rented {
       ...(s.secretDropped ? {} : { leftSecrets: [...current.leftSecrets.filter((l) => l.pod !== m.rented!.pod), { secret: secretOf(m), pod: m.rented!.pod }] }),
     }));
     this.seen.delete(m.id);
+    this.boots.forget(m.id);
     // what it was getting goes with it now: once its machine is out, nothing reads it as down any more
     this.forgetFiles?.(m.id);
     this.events.emit("setup");
@@ -1735,6 +1804,8 @@ export class Rented {
     if (action === "start") {
       s.stopping = false;
       s.stoppingSince = null;
+      // its boot log is this start's from now: the last one's lines are not where this one is
+      this.boots.forget(m.id);
     }
     if (action !== "start") {
       if (s.stopping && why !== "you") return;

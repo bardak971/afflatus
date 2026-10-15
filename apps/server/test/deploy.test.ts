@@ -63,13 +63,13 @@ describe("what can be deployed", () => {
 });
 
 describe("a deploy", () => {
-  it("makes a pod of Afflatus's image, only ComfyUI's port open, its token a secret; adds it as a machine, locked once up", async () => {
+  it("makes a pod of Afflatus's image, only ComfyUI's port and its boot log's open, its token a secret; adds it as a machine, locked once up", async () => {
     const res = await deploy();
     expect(res.statusCode).toBe(200);
     const id = res.json().id as string;
     const pod = runpod.pods[0]!;
     // the freest data center of the A40
-    expect(pod).toMatchObject({ gpu: "NVIDIA A40", dataCenterId: "EU-RO-1", ports: ["8188/http"], image: POD_IMAGES.afflatus(), diskGb: 0, containerGb: 120 });
+    expect(pod).toMatchObject({ gpu: "NVIDIA A40", dataCenterId: "EU-RO-1", ports: ["8188/http", "8189/http"], image: POD_IMAGES.afflatus(), diskGb: 0, containerGb: 120 });
     const secret = /^\{\{ RUNPOD_SECRET_(afflatus-[a-f0-9]{8}) \}\}$/.exec(pod.env.AFFLATUS_TOKEN ?? "")?.[1];
     expect(secret).toBeTruthy();
     expect(pod.env.AFFLATUS_WATCHDOG_MINUTES).toBe("15");
@@ -429,7 +429,8 @@ describe("a deploy", () => {
 
   it("RunPod's ComfyUI image when asked for", async () => {
     await deploy({ template: "runpod" });
-    expect(runpod.pods[0]!.image).toBe(POD_IMAGES.runpod());
+    // no boot log on it: only ComfyUI's port
+    expect(runpod.pods[0]).toMatchObject({ image: POD_IMAGES.runpod(), ports: ["8188/http"] });
   });
 });
 

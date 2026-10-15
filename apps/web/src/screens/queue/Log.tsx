@@ -48,7 +48,13 @@ const rowAt = (offsets: number[], y: number) => {
   return Math.max(0, lo);
 };
 
-export function ComfyLog({ online, machine }: { online: boolean; /** With several ComfyUIs, whose log (a Machine's id); left out, the first one's. */ machine?: string }) {
+export function ComfyLog({ online, pod = false, machine }: {
+  online: boolean;
+  /** A rented pod running or on its way up: while its ComfyUI does not answer, its boot log is read (the Afflatus image's). */
+  pod?: boolean;
+  /** With several ComfyUIs, whose log (a Machine's id); left out, the first one's. */
+  machine?: string;
+}) {
   const [paused, setPaused] = useState(false);
   const [filter, setFilter] = useState("");
   const [onlyTrouble, setOnlyTrouble] = useState(false);
@@ -57,10 +63,12 @@ export function ComfyLog({ online, machine }: { online: boolean; /** With severa
   const box = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const seen = useRef(new Set<string>());
-  // the stamp of the last line read: the next read asks only for what came from then on
-  const cursor = useRef<string | undefined>(undefined);
+  // the stamp of the last line read, and whose log it is (the pod's boot log, or ComfyUI's): the next read asks only for what
+  // came from then on in the same log
+  const cursor = useRef<{ t: string; of: "boot" | "comfy" } | undefined>(undefined);
   // a read is appended once: not kept once the tab is left, or coming back would start with an old read's tail
-  const log = useQuery({ queryKey: queryKeys.comfyLog(machine), queryFn: () => api.comfyLogs(cursor.current, { machine }), refetchInterval: paused ? false : 2000, enabled: online, retry: 0, gcTime: 0 });
+  const log = useQuery({ queryKey: queryKeys.comfyLog(machine), queryFn: () => api.comfyLogs(cursor.current?.t, { machine, of: cursor.current?.of }), refetchInterval: paused ? false : 2000, enabled: online || pod, retry: 0, gcTime: 0 });
+  const boot = log.data?.source === "boot";
   // the jobs a prompt may have run for: the one running and the recent ones; drawn again when they change, not at each progress event
   const jobs = useQueueOf((q) => [...(q.running ? [q.running] : []), ...q.recent].map((j) => ({ id: j.id, label: j.label, startedAt: j.startedAt ?? null }))) ?? NO_JOBS;
   const [onlyJob, setOnlyJob] = useState<{ id: string; label: string } | null>(null);
@@ -74,6 +82,12 @@ export function ComfyLog({ online, machine }: { online: boolean; /** With severa
   useEffect(() => {
     if (!log.data) return;
     const fresh: Line[] = [];
+    const source = log.data.source ?? "comfy";
+    // ComfyUI up after the pod's boot log: its own log follows, from its start (the boot log had those lines in its time)
+    if (cursor.current && cursor.current.of !== source) {
+      const at = log.data.lines[0]?.t ?? cursor.current.t;
+      fresh.push({ key: `${at}\u0000source:${source}`, t: at, m: source === "comfy" ? "ComfyUI answers: its own log from here" : "ComfyUI does not answer: the pod's boot log from here", tone: "mark" });
+    }
     for (const e of log.data.lines) {
       const key = `${e.t}\u0000${e.m}`;
       if (seen.current.has(key)) continue;
@@ -81,7 +95,7 @@ export function ComfyLog({ online, machine }: { online: boolean; /** With severa
       fresh.push({ key, t: e.t, m: e.m, tone: toneOf(e.m) });
     }
     const last = log.data.lines.at(-1);
-    if (last) cursor.current = last.t;
+    if (last) cursor.current = { t: last.t, of: source };
     if (!fresh.length) return;
     setLines((all) => {
       const next = [...all, ...fresh];
@@ -150,7 +164,7 @@ export function ComfyLog({ online, machine }: { online: boolean; /** With severa
     setLines([]);
     heights.current.clear();
     // the lines at the last stamp come again with the next read: still known, so they are not drawn again
-    const at = cursor.current;
+    const at = cursor.current?.t;
     seen.current = new Set(at === undefined ? [] : [...seen.current].filter((k) => k.startsWith(`${at}\u0000`)));
   };
 
@@ -172,10 +186,10 @@ export function ComfyLog({ online, machine }: { online: boolean; /** With severa
         <Button size="sm" onClick={() => void copyText(shown.flatMap(raw).map((l) => `${l.t} ${l.m}`).join("\n")).catch(() => {})} data-tip="Copy the lines shown (tracebacks whole)"><Copy size={13} /> Copy</Button>
         {!stuck && <Button size="sm" tone="primary" onClick={() => { setStuck(true); if (box.current) box.current.scrollTop = box.current.scrollHeight; }}><ArrowDownToLine size={13} /> Follow the end</Button>}
         <span className="grow" />
-        <span className="text-ink-3">{shown.length} of {rows.length} rows{paused ? " · paused" : log.isFetching ? " · reading…" : ""} · read-only, straight from ComfyUI</span>
+        <span className="text-ink-3">{shown.length} of {rows.length} rows{paused ? " · paused" : log.isFetching ? " · reading…" : ""} · read-only, {boot ? "the pod's boot log until ComfyUI answers" : "straight from ComfyUI"}</span>
       </div>
-      {!online && <ErrorNote>ComfyUI is offline: there is no log to read until it is back.</ErrorNote>}
-      {online && log.isError && <ErrorNote>ComfyUI did not give its log: {log.error.message}</ErrorNote>}
+      {!online && !pod && <ErrorNote>ComfyUI is offline: there is no log to read until it is back.</ErrorNote>}
+      {(online || pod) && log.isError && <ErrorNote>ComfyUI did not give its log: {log.error.message}</ErrorNote>}
       <div
         ref={box}
         onScroll={(e) => {
@@ -189,7 +203,11 @@ export function ComfyLog({ online, machine }: { online: boolean; /** With severa
         <div ref={body} style={{ paddingTop: offsets[first], paddingBottom: offsets[shown.length]! - offsets[end]! }}>
           <LogBody rows={drawn} open={open} onToggle={toggle} onOnly={only} />
         </div>
-        {!shown.length && online && !log.isError && <span className="text-ink-3">{lines.length ? "Nothing matches." : "Waiting for ComfyUI's log…"}</span>}
+        {!shown.length && (online || pod) && !log.isError && (
+          <span className="text-ink-3">
+            {lines.length ? "Nothing matches." : boot ? "No boot log yet: the pod's image is still being pulled, or it runs an image without one (RunPod's ComfyUI image, Afflatus's before 0.1.12)." : "Waiting for ComfyUI's log…"}
+          </span>
+        )}
       </div>
     </div>
   );
