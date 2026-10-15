@@ -267,7 +267,7 @@ function ltxTwoPass(run: LtxRun): { video: Ref; audio: Ref } {
 
 /** One pass at full size, the pictures given as guides at the first and the last frame, and the keyframe at its own. */
 function ltxOnePass(run: LtxRun): { video: Ref; audio: Ref } {
-  const { g, ctx, input, loaded, cond, sampler, sound, frame, passes } = run;
+  const { g, ctx, input, loaded, sampler, sound, frame, passes } = run;
   const { width, height, frames } = frame;
   // the clip before's frames at frame 0, else the first picture; then the keyframe; then the last picture
   let { positive, negative, latent, any } = guided(run, g.out("EmptyLTXVLatentVideo", { width, height, length: frames, batch_size: 1 }), width, height, run.opens ? ctx.uploads.start : undefined);
