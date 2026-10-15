@@ -1,26 +1,14 @@
 import type { MachineState, PodDisk, PodFile } from "./api";
 import { gb, plural, usd } from "./format";
-import { machineState, rentedSaid, rentedSpent, rentedUp } from "./machines";
+import { gettingFiles, machineState, rentedSaid, rentedSpent, rentedUp } from "./machines";
+
+// the files a machine is getting: worked out with its state's word (machines.ts), read here too
+export { gettingFiles };
 import { Progress } from "./progress/Progress";
 import { cx } from "./ui";
 
 // the machines' small parts, shared by the status bar's pill and its popover (loaded later, on the first click) and the
 // Queue's lanes: a module of their own, so that none imports the others
-
-/**
- * The files a rented pod is getting for the jobs that wait for it (those asked ahead are not waited for), null when there
- * are none: how many are left, the bytes in and in all, and the file under way (else the next). `share` is null while a file
- * left has no size yet (a source that does not say it): the bytes in are said then, never a share that would read as done.
- */
-export function gettingFiles(m: MachineState): { left: PodFile[]; done: number; total: number; share: number | null; now: PodFile } | null {
-  const files = (m.rented?.files ?? []).filter((f) => f.tier === "need");
-  const left = files.filter((f) => f.state === "next" || f.state === "fetching");
-  if (!left.length) return null;
-  const done = files.reduce((n, f) => n + (f.state === "ready" ? f.total : f.bytes), 0);
-  const total = files.reduce((n, f) => n + f.total, 0);
-  const known = left.every((f) => f.total > 0);
-  return { left, done, total, share: known && total > 0 ? Math.min(1, done / total) : null, now: left.find((f) => f.state === "fetching") ?? left[0]! };
-}
 
 /** How far, in a few characters: the share, or the bytes in while a size is not known. */
 export const filesSaid = (g: NonNullable<ReturnType<typeof gettingFiles>>) => (g.share === null ? `${gb(g.done)} in` : `${Math.floor(g.share * 100)} %`);
@@ -32,9 +20,9 @@ export const diskNearlyFull = (d: PodDisk) => d.total > 0 && (d.total - d.free) 
 /** Where a pod's file comes from, as its line says it. */
 export const fromSaid = (via: PodFile["via"]) => (via === "hf" ? "Hugging Face" : via === "civitai" ? "Civitai" : via === "upload" ? "this PC" : via === "url" ? "its address" : "");
 
-/** Every file a pod is getting, a line each, for a tip: its name, how far, where from. */
+/** Every file a machine is getting, a line each, for a tip: its name, how far, where from. */
 export const filesTip = (label: string, g: NonNullable<ReturnType<typeof gettingFiles>>) =>
-  `${label}: getting ${plural(g.left.length, "file")} for its jobs, ${g.share === null ? `${gb(g.done)} in` : `${gb(g.done)} of ${gb(g.total)}`}\n${g.left
+  `${label}: getting ${plural(g.left.length, "file")}${g.ahead ? "" : " for its jobs"}, ${g.share === null ? `${gb(g.done)} in` : `${gb(g.done)} of ${gb(g.total)}`}\n${g.left
     .map((f) => `${f.state === "fetching" ? "now" : "next"}: ${f.file}${f.total ? ` · ${gb(f.total)}` : ""}${f.via ? ` · from ${fromSaid(f.via)}` : ""}`)
     .join("\n")}`;
 
@@ -112,7 +100,7 @@ export function doing(m: MachineState, now: number): string {
   if (m.online === false) return m.locked ? "locked: its token is wrong" : "offline";
   if (m.running) return `${m.running.label}${m.running.steps ? ` · ${m.running.step}/${m.running.steps}` : ` · ${Math.round(m.running.progress * 100)} %`}${cost}`;
   const getting = gettingFiles(m);
-  if (getting) return `${m.paused ? "paused · " : ""}getting ${plural(getting.left.length, "file")} for its jobs${cost}`;
+  if (getting) return `${m.paused ? "paused · " : ""}getting ${plural(getting.left.length, "file")}${getting.ahead ? "" : " for its jobs"}${cost}`;
   const state = machineState(m);
   return `${m.model ? `${state} · holds ${m.model}` : state}${cost}`;
 }

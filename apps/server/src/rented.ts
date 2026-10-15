@@ -334,7 +334,7 @@ export class Rented {
 
   constructor(
     private readonly db: Db,
-    private readonly queue: { wants(machine: string): Promise<boolean>; runningOn(machine: string): boolean; quietFor(machine: string, now?: number): { ms: number; gpuIdle: boolean }; endStuck(machine: string, why: string): Promise<boolean>; answering(machine: string): void },
+    private readonly queue: { wants(machine: string): Promise<boolean>; runningOn(machine: string): boolean; fetching(machine: string): boolean; quietFor(machine: string, now?: number): { ms: number; gpuIdle: boolean }; endStuck(machine: string, why: string): Promise<boolean>; answering(machine: string): void },
     private readonly events: EventEmitter,
     private readonly comfyOf: (machine: string) => Promise<Comfy | null>,
   ) {}
@@ -446,7 +446,8 @@ export class Rented {
       closedPorts: machine.rented.closedPorts,
       watchdog: status === "RUNNING" ? s?.watchdog ?? "unknown" : "unknown",
       answers: status === "RUNNING" ? s?.answers ?? null : null,
-      idleLeftMs: status === "RUNNING" && !s?.stopping && idleMs > 0 && s?.busyAt && !this.queue.runningOn(machine.id) ? Math.max(0, idleMs - (this.now() - s.busyAt)) : null,
+      // none while files come to it: its idle time is held then, and a countdown would read as a stop to come
+      idleLeftMs: status === "RUNNING" && !s?.stopping && idleMs > 0 && s?.busyAt && !this.queue.runningOn(machine.id) && !this.queue.fetching(machine.id) ? Math.max(0, idleMs - (this.now() - s.busyAt)) : null,
       capped: s?.stopAfter ?? false,
       stopping: s?.stopping ?? false,
       stoppedBy: s?.stoppedBy ?? null,
@@ -1365,8 +1366,10 @@ export class Rented {
     }
     const running = this.queue.runningOn(m.id);
     // work counts only for a pod whose ComfyUI answers: one that went down would otherwise keep a waiting job "for it" forever
-    // not idle before its ComfyUI first answered (a first boot pulling node packs and models): the boot limit covers that
-    if (running || !s.answered || (answers && (await this.queue.wants(m.id)))) s.busyAt = now;
+    // not idle before its ComfyUI first answered (a first boot pulling node packs and models): the boot limit covers that.
+    // Files coming to it hold it too, while their bytes move (podFiles.ts moving): a pod is never stopped mid-download by its
+    // idle stop, and a download stuck for long holds it no more
+    if (running || !s.answered || this.queue.fetching(m.id) || (answers && (await this.queue.wants(m.id)))) s.busyAt = now;
     // after a restart of Afflatus, idle since its last work as kept, not since now
     s.busyAt ??= await this.busySince(m, now);
     await this.keepBusy(m, s);

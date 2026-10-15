@@ -198,22 +198,73 @@ describe("a pod's files planned from the waiting jobs", () => {
     ]));
   });
 
-  it("are sent ahead to a pod deployed while the queue is paused, which then idles to its stop", async () => {
+  it("are sent ahead to a pod deployed while the queue is paused, which stays up while they move and stops 10 min after they are in", async () => {
     // Pause all with this computer alone, a job waiting; then a pod deployed
     await post(t.app, "/api/queue/pause", {});
     const a = await enqueue();
     const id = await deployed();
     await until(() => t.services.podFiles.view(id)[0]?.state === "ready", 15_000);
     expect(t.services.podFiles.view(id)).toEqual([expect.objectContaining({ file: CHECKPOINT, tier: "ahead", jobs: [] })]);
-    // nothing starts while paused, and a download is no work: its idle time runs from its first answer
+    // nothing starts while paused: no work for it, its files in, nothing moving any more
     expect(pod.prompts.size + home.prompts.size).toBe(0);
     expect((await row(a)).status).toBe("queued");
     expect(await t.services.queue.wants(id)).toBe(false);
+    expect(t.services.queue.fetching(id)).toBe(false);
+    // while a file moves (said so here: the real one came in a moment), past its idle time it stays up, its idle time held
+    const files = t.services.podFiles;
+    const moving = vi.spyOn(files, "moving").mockReturnValue(true);
     const real = Date.now();
     t.services.rented.now = () => real + 11 * 60_000;
     await t.services.rented.poll();
+    expect(runpod.pods[0]!.status).toBe("RUNNING");
+    expect((await t.services.queue.status()).machines.find((m) => m.id === id)?.rented?.idleLeftMs).toBeNull();
+    // the last file in: its idle time runs again from then, 10 min
+    moving.mockReturnValue(false);
+    t.services.rented.now = () => real + 20 * 60_000;
+    await t.services.rented.poll();
+    expect(runpod.pods[0]!.status).toBe("RUNNING");
+    t.services.rented.now = () => real + 22 * 60_000;
+    await t.services.rented.poll();
     expect(runpod.pods[0]?.status ?? "gone").not.toBe("RUNNING");
   });
+});
+
+describe("a pod deployed after Pause all", () => {
+  it("of several machines joins paused: nothing starts on it, its files come ahead, and Resume all sends the jobs", async () => {
+    const second = await makeFake();
+    try {
+      await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ id: await homeId(), url: home.url, dir: comfyDir }, { id: "m2", url: second.url }] } });
+      await post(t.app, "/api/queue/pause", {});
+      const a = await enqueue();
+      const id = await deployed();
+      expect((await t.services.queue.status()).machines.find((m) => m.id === id)?.paused).toBe(true);
+      await until(() => t.services.podFiles.view(id)[0]?.state === "ready", 15_000);
+      expect(t.services.podFiles.view(id)[0]).toMatchObject({ file: CHECKPOINT, tier: "ahead" });
+      await new Promise((r) => setTimeout(r, 100));
+      expect(pod.prompts.size + home.prompts.size + second.prompts.size).toBe(0);
+      expect((await row(a)).status).toBe("queued");
+      // Resume all: every machine, the pod too, and the job goes
+      await post(t.app, "/api/queue/resume", {});
+      expect((await t.services.queue.status()).machines.every((m) => !m.paused)).toBe(true);
+      await until(() => pod.prompts.size + home.prompts.size + second.prompts.size === 1);
+    } finally {
+      await second.close().catch(() => {});
+    }
+  }, 30_000);
+
+  it("of one machine is held by its switch, and Resume sends the jobs", async () => {
+    await post(t.app, "/api/queue/pause", {});
+    const a = await enqueue();
+    const id = await deployed();
+    await until(() => t.services.podFiles.view(id)[0]?.state === "ready", 15_000);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(pod.prompts.size + home.prompts.size).toBe(0);
+    expect(await t.services.queue.pausedOn(id)).toBe(true);
+    await post(t.app, "/api/queue/resume", {});
+    expect(await t.services.queue.pausedOn(id)).toBe(false);
+    await until(() => pod.prompts.size + home.prompts.size === 1);
+    expect((await row(a)).status).toBe("running");
+  }, 30_000);
 });
 
 describe("a deploy's files", () => {
@@ -335,7 +386,7 @@ describe("a job pinned to a pod still booting", () => {
     const id = await booting();
     // files that take long to come: asked for, never there during the test
     const want = vi.fn();
-    t.services.queue.podFetch = { failed: () => null, short: async () => null, untilThere: async () => 5 * 60_000, want, jobState: () => "waiting", holding: () => false };
+    t.services.queue.podFetch = { failed: () => null, short: async () => null, untilThere: async () => 5 * 60_000, want, jobState: () => "waiting", holding: () => false, moving: () => false };
     const a = await pinned(id);
     await answers();
     await until(() => want.mock.calls.some(([m, , tier, j]) => m === id && tier === "need" && j === a));

@@ -1,23 +1,50 @@
-import type { MachineState, QueueStatus, RentedState } from "./api";
+import type { MachineState, PodFile, QueueStatus, RentedState } from "./api";
 import { long, usd } from "./format";
 
 /** Several ComfyUIs (Settings › ComfyUI): how a machine is named on screen, and what the screens read of them. */
 
 /** A machine's state in a word, as every screen says it (machineState). */
-export type MachineWord = "rendering" | "idle" | "paused" | "offline" | "locked" | "stopped" | "starting";
+export type MachineWord = "rendering" | "getting files" | "idle" | "paused" | "offline" | "locked" | "stopped" | "starting";
+
+/** What a machine is getting, as gettingFiles reads it: a rented pod's files, or the downloads into a ComfyUI of one's own. */
+type WithFiles = Pick<MachineState, "rented"> & { files?: readonly PodFile[] };
+
+/**
+ * The files a machine is getting, null when there are none: a rented pod's that its jobs wait for, else the ones under way
+ * for later (asked ahead, a download into a ComfyUI of one's own) while one of them is coming; how many are left, the
+ * bytes in and in all, and the file under way (else the next). `share` is null while a file left has no size yet (a source
+ * that does not say it): the bytes in are said then, never a share that would read as done. `ahead`: none of them is waited
+ * for by a job.
+ */
+export function gettingFiles(m: WithFiles): { left: PodFile[]; done: number; total: number; share: number | null; now: PodFile; ahead: boolean } | null {
+  const all = m.rented?.files ?? m.files ?? [];
+  const leftOf = (list: readonly PodFile[]) => list.filter((f) => f.state === "next" || f.state === "fetching");
+  const need = all.filter((f) => f.tier === "need");
+  const ahead = !leftOf(need).length;
+  // files for later count only while one comes: a line of them waiting behind nothing says no more than idle
+  const files = ahead ? (all.some((f) => f.tier === "ahead" && f.state === "fetching") ? all.filter((f) => f.tier === "ahead") : []) : need;
+  const left = leftOf(files);
+  if (!left.length) return null;
+  const done = files.reduce((n, f) => n + (f.state === "ready" ? f.total : f.bytes), 0);
+  const total = files.reduce((n, f) => n + f.total, 0);
+  const known = left.every((f) => f.total > 0);
+  return { left, done, total, share: known && total > 0 ? Math.min(1, done / total) : null, now: left.find((f) => f.state === "fetching") ?? left[0]!, ahead };
+}
 
 /**
  * A machine's state in a word: a rented pod not running is stopped or starting (it was "offline" on the Queue page),
- * a ComfyUI locked against Afflatus's token is locked (it was "offline" in Ctrl+K), then paused, away, rendering, idle.
- * The one rule the Queue's lanes, the machine menus, Ctrl+K, Generate on and the waiting list's Run on read: seven
- * places worked it out each in its own order.
+ * a ComfyUI locked against Afflatus's token is locked (it was "offline" in Ctrl+K), then paused, away, rendering, getting
+ * files, idle. The one rule the Queue's lanes, the machine menus, Ctrl+K, Generate on and the waiting list's Run on read:
+ * seven places worked it out each in its own order. A machine that renders nothing while files come to it reads "getting
+ * files", never idle: a pod's idle time is held while they move (the server's podFiles.ts), and minutes of downloads read
+ * as idle before.
  */
-export function machineState(m: Pick<MachineState, "paused" | "online" | "rented"> & { locked?: boolean; running: unknown }): MachineWord {
+export function machineState(m: Pick<MachineState, "paused" | "online" | "rented"> & { locked?: boolean; running: unknown; files?: readonly PodFile[] }): MachineWord {
   const r = m.rented;
   if (r && (r.status !== "RUNNING" || r.booting)) return r.status === "STARTING" || r.status === "PROVISIONING" || r.booting ? "starting" : "stopped";
   if (m.paused) return "paused";
   if (m.online === false) return m.locked ? "locked" : "offline";
-  return m.running ? "rendering" : "idle";
+  return m.running ? "rendering" : gettingFiles(m) ? "getting files" : "idle";
 }
 
 /** A machine as the screens name it: its own name, else its address's host and port ("127.0.0.1:8189"). */

@@ -251,6 +251,24 @@ describe("a rented pod's model files", () => {
     }
   });
 
+  it("hold the pod's idle time while their bytes move, and no more once they stop coming for the stall time", async () => {
+    files.stallMs = 400;
+    expect(files.moving("pod")).toBe(false);
+    files.want("pod", [{ file: "stuck.safetensors", folder: "loras", url: `${siteUrl}/files/slow-stuck.safetensors` }], { tier: "need", job: "j1" });
+    await until(async () => (await files.tick(), files.view("pod")[0]?.state === "fetching"));
+    // under way: moving from its start, then as its first bytes come
+    expect(files.moving("pod")).toBe(true);
+    await until(async () => (await files.tick(), files.view("pod")[0]!.bytes > 0));
+    expect(files.moving("pod")).toBe(true);
+    // then nothing more comes (the site sends its first part only): past the stall time it holds the pod no more
+    await new Promise((r) => setTimeout(r, 600));
+    await files.tick();
+    expect(files.view("pod")[0]!.state).toBe("fetching");
+    expect(files.moving("pod")).toBe(false);
+    expect(files.moving("other")).toBe(false);
+    for (const d of t.services.downloads.list()) t.services.downloads.stop(d.id);
+  });
+
   it("are stopped and forgotten with the pod", async () => {
     files.want("pod", [{ file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors` }], { tier: "need" });
     files.forget("pod");

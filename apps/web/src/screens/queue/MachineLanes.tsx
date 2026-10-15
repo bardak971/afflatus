@@ -8,7 +8,7 @@ import { machineLabel, machineState, rentedSaid, type MachineWord } from "../../
 import { useQueueOps } from "../../queueOps";
 import { useSystem } from "../../store";
 import { cx } from "../../ui";
-import { diskNearlyFull, diskSaid, FilesLine, gettingFiles } from "../../machineBits";
+import { diskNearlyFull, diskSaid, FilesLine, filesSaid, gettingFiles } from "../../machineBits";
 import { RunningCard } from "./RunningCard";
 
 const MachineMenuBody = lazy(() => import("../../MachineMenu").then((m) => ({ default: m.MachineMenuBody })));
@@ -23,12 +23,12 @@ const COMPACT_PAST = 4;
 const ROW = "grid grid-cols-[16px_minmax(120px,180px)_88px_minmax(0,1fr)_minmax(0,170px)_316px_64px] items-center gap-3.5";
 
 /** How a lane looks in its state (machineState): a stopped pod as a paused machine, a locked or starting one as one away. */
-type State = "rendering" | "idle" | "paused" | "offline";
-const lookOf = (word: MachineWord): State => (word === "stopped" ? "paused" : word === "locked" || word === "starting" ? "offline" : word);
+type State = "rendering" | "getting" | "idle" | "paused" | "offline";
+const lookOf = (word: MachineWord): State => (word === "stopped" ? "paused" : word === "locked" || word === "starting" ? "offline" : word === "getting files" ? "getting" : word);
 
-/** A machine's dot: filled green while it renders, a green ring when idle, grey when paused, a warning ring when away. */
+/** A machine's dot: filled green while it renders, a ring in the accent while it gets files, a green ring when idle, grey when paused, a warning ring when away. */
 function Dot({ state }: { state: State }) {
-  return <span aria-hidden className={cx("size-2 shrink-0 rounded-full", state === "rendering" ? "bg-good" : state === "idle" ? "border-[1.5px] border-good" : state === "paused" ? "bg-ink-3" : "border-[1.5px] border-warn")} />;
+  return <span aria-hidden className={cx("size-2 shrink-0 rounded-full", state === "rendering" ? "bg-good" : state === "getting" ? "border-[1.5px] border-accent" : state === "idle" ? "border-[1.5px] border-good" : state === "paused" ? "bg-ink-3" : "border-[1.5px] border-warn")} />;
 }
 
 /** Its state as a pill (its word: machineState), in the colours the app gives them. */
@@ -36,7 +36,7 @@ function StatePill({ state, word }: { state: State; word: MachineWord }) {
   return (
     <span className={cx(
       "justify-self-start rounded-full px-2 py-px text-[11.5px] font-semibold",
-      state === "rendering" ? "bg-accent-wash text-accent" : state === "idle" ? "border border-good/40 text-good" : state === "paused" ? "bg-hover text-ink-2" : "bg-warn-wash text-warn-ink",
+      state === "rendering" ? "bg-accent-wash text-accent" : state === "getting" ? "border border-accent/40 text-accent" : state === "idle" ? "border border-good/40 text-good" : state === "paused" ? "bg-hover text-ink-2" : "bg-warn-wash text-warn-ink",
     )}>
       {word}
     </span>
@@ -176,12 +176,17 @@ function useLane(m: MachineState, onPin: (job: string, machine: string) => void)
 
 /** What its row says in the middle when it renders nothing. */
 const quiet = (m: MachineState, word: MachineWord) =>
-  word === "paused" ? "takes nothing new until it resumes"
+  word === "getting files" ? filesShort(gettingFiles(m)!)
+  // paused, its files still come (sent ahead for Resume): said, not hidden behind the pause
+  : word === "paused" ? (gettingFiles(m) ? `takes nothing new · getting ${filesShort(gettingFiles(m)!)}` : "takes nothing new until it resumes")
   : word === "stopped" && m.rented ? `${rentedSaid(m.rented)} · the others take the line`
   : word === "starting" ? "starting: its image is pulled, then ComfyUI comes up · the others take the line"
   : word === "locked" ? "locked: its token is wrong · the others take the line"
   : word === "offline" ? "not answering · the others take the line"
   : "";
+
+/** Its files in a row's few words: how many, how far, the one under way. */
+const filesShort = (g: NonNullable<ReturnType<typeof gettingFiles>>) => `${plural(g.left.length, "file")} · ${filesSaid(g)} · ${g.now.state === "fetching" ? "now" : "next"}: ${g.now.file}`;
 
 /** A machine in one row: its state, what it renders, what it holds, its meters, its actions, and its progress along the bottom. A click opens it. */
 function MachineRow({ m, onPin, onOpen, open }: { m: MachineState; onPin(job: string, machine: string): void; onOpen(): void; open?: boolean }) {
@@ -358,13 +363,14 @@ export function MachineLanes({ q, onStop, onPin }: { q: QueueStatus; onStop(id: 
 }
 
 /**
- * A pod getting the files its waiting jobs need, in place of "Idle": it is not idle, and minutes of downloads said nothing
- * on the Queue page (the owner: "no download visual cue for a rented pod"). How many, how far, and the file under way.
+ * A machine getting files (a pod's for its waiting jobs, or for later; a download into a ComfyUI of one's own), in place of
+ * "Idle": it is not idle, and minutes of downloads said nothing on the Queue page (the owner: "no download visual cue for a
+ * rented pod"). How many, how far, and the file under way.
  */
 function Getting({ files }: { files: NonNullable<ReturnType<typeof gettingFiles>> }) {
   return (
     <div className="flex flex-col justify-center gap-2 rounded-[10px] border border-line-strong px-4 py-3 text-ink-2">
-      <span className="font-semibold text-ink">Getting {plural(files.left.length, "file")} for its jobs</span>
+      <span className="font-semibold text-ink">Getting {plural(files.left.length, "file")}{files.ahead ? "" : " for its jobs"}</span>
       <FilesLine g={files} />
     </div>
   );

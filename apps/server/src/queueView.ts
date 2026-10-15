@@ -62,6 +62,8 @@ export interface LaneView {
   locked: boolean;
   /** A rented pod: its state and cost (rented.ts); null for a ComfyUI of its own. */
   rented: RentedRow | null;
+  /** Of a ComfyUI of its own: the model files downloading into it now, as a pod's are said. */
+  files?: PodFileView[];
 }
 
 export async function status(
@@ -157,6 +159,7 @@ export async function status(
       locked: l.locked,
       /** A rented pod: started, stopped, what it has cost; null for a ComfyUI of its own. */
       rented: l.rented,
+      ...(l.files?.length ? { files: l.files } : {}),
       model: c.lastLoads === null ? null : c.lastModel,
       /** Its learned pace against the others (1 the common pace, 2 half as fast); null with nothing to compare yet. */
       pace: paces.get(l.machine.id) ?? null,

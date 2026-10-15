@@ -140,6 +140,8 @@ export interface MachineState {
   locked: boolean;
   /** A rented pod: started, stopped, what it has cost; null for a ComfyUI of its own. */
   rented: RentedState | null;
+  /** Of a ComfyUI of its own: the model files downloading into it now (a pod's are in `rented.files`). */
+  files?: PodFile[];
   /** The model it was last asked to load, by name; null when none is, or it is not known. */
   model: string | null;
   /** Its learned pace against the others (1 the common pace, 2 half as fast); null with nothing to compare yet. */
