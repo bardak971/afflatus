@@ -5,6 +5,7 @@ import { wholeForm } from "./form";
 import { plural, recipeLabel } from "./format";
 import { LookBar, lookWords } from "./LookBar";
 import { useModelSettings } from "./data";
+import { useInputEdits } from "./hooks";
 import { Form } from "./RecipeForm";
 import { Select } from "./Select";
 import { AutoText } from "./ui";
@@ -35,6 +36,7 @@ export function PresetEditor({ id, def, onChange }: { id?: string; def: PresetDe
   const whole = recipe ? wholeForm(recipe, status, settings.data?.items ?? [], def.inputs) : def.inputs;
   // an emptied text or list is not "set to nothing": it leaves the preset, so that applying it leaves the form's own alone
   const setInputs = (inputs: Record<string, unknown>) => onChange({ ...def, inputs: Object.fromEntries(Object.entries(inputs).filter(([, v]) => !(v === "" || (Array.isArray(v) && v.length === 0)))) });
+  const edit = useInputEdits(def.inputs, setInputs);
 
   return (
     <div className="flex flex-col gap-3">
@@ -66,7 +68,7 @@ export function PresetEditor({ id, def, onChange }: { id?: string; def: PresetDe
           recipe={recipe}
           status={status}
           stored={def.inputs}
-          onChange={(input, value) => setInputs({ ...def.inputs, [input]: value })}
+          onChange={edit}
           onClear={(inputs) => setInputs(Object.fromEntries(Object.entries(def.inputs).filter(([k]) => !inputs.includes(k))))}
           madeSummary={nameOf(recipe)}
           look={<LookBar look={look} onChange={(l) => onChange({ ...def, look: l })} recipe={recipe} input={whole} />}

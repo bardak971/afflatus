@@ -10,6 +10,7 @@ import { recipeLabel } from "../../format";
 import { Form, mainTextOf } from "../../RecipeForm";
 import { CardPrompt } from "../../recipeForm/Part";
 import { CastPictures } from "../../castPictures";
+import { useInputEdits } from "../../hooks";
 import { Select } from "../../Select";
 import { AutoText, Button, cx, fieldClass, NumberBox, Segmented } from "../../ui";
 import { fileVersion, type ShownPatch } from "../model";
@@ -51,6 +52,7 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
 }) {
   const all = useRecipes();
   const entities = useEntities();
+  const edit = useInputEdits(stored, onInputs);
   const picker = (
     <Select
       label="Model"
@@ -102,7 +104,7 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
         given={carries ? { previous: true } : undefined}
         status={status}
         stored={stored}
-        onChange={(input, value) => onInputs({ ...stored, [input]: value })}
+        onChange={edit}
         onClear={(inputs) => onInputs(Object.fromEntries(Object.entries(stored).filter(([k]) => !inputs.includes(k))))}
         made={picker}
         madeSummary={recipeLabel(all.data?.families.find((f) => f.id === recipe.family)?.name, recipe.title)}
