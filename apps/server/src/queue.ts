@@ -948,6 +948,10 @@ ${JSON.stringify(input)}`;
           }
           // a render waiting for the machine it was lost on: that machine is asked again soon, and the wait ends in its time
           if (gpuRows.some((r) => !taken.has(r.id) && this.heldOn(r))) this.retryLater();
+        } else if (gpuRows.length) {
+          // Pause all: nothing starts, but a pod (one deployed meanwhile) is sent the waiting jobs' files ahead, so that it
+          // is ready on Resume. A download is never work (podFiles.ts): the pod still idles toward its stop meanwhile
+          this.sendFiles(gpuRows, await this.ableOf(gpuRows), where);
         }
         // the machines that answered this pass, or that run a job now, say whether any ComfyUI is there
         const anyAnswered = lanes.some((l) => asked.get(l.id) === true || l.running);
@@ -1044,6 +1048,9 @@ ${JSON.stringify(input)}`;
       const can = new Set<string>();
       const lacks: Record<string, Lack> = {};
       const fetch: Able["fetch"] = {};
+      // a job pinned to a machine (or held for the one it was lost on) runs nowhere else: no other pod is sent its files
+      // (a job pinned to this PC had its 13 GB model fetched onto the pod, ahead of a render that could never come there)
+      const pin = r.pin_machine ?? this.heldOn(r);
       // every machine of a job worked out at once (its balance, its files' time on a pod)
       await Promise.all(scans.map(async ({ lane, scan }) => {
         // a rented pod whose ComfyUI cannot be read now (booting, restarting for node packs, away) starts with nothing: what
@@ -1068,7 +1075,7 @@ ${JSON.stringify(input)}`;
         const balance = await this.balanceLack(r, lane, fetchMs);
         if (lack && !balance && sendable) {
           can.add(lane.id);
-          fetch[lane.id] = { files: lack.files, ...(lack.packs ? { packs: lack.packs } : {}), ms: fetchMs };
+          if (!pin || pin === lane.id) fetch[lane.id] = { files: lack.files, ...(lack.packs ? { packs: lack.packs } : {}), ms: fetchMs };
           return;
         }
         const failed = short ?? (lack?.sendable && lane.machine!.rented && this.podFetch ? this.podFetch.failed(lane.id, lack.files, lack.packs) : null);
@@ -1197,14 +1204,20 @@ ${JSON.stringify(input)}`;
   /**
    * The files the plan needs on rented pods, asked for: a job planned onto a pod lacking only files has them sent there
    * first ("need"); one planned elsewhere has its files sent to the pods that lack them, for later ("ahead"). Nothing is
-   * fetched that no waiting job asks for.
+   * fetched that no waiting job asks for. A job pinned to a machine has none ahead elsewhere (ableOf), and a pod paused on
+   * its own while others go (Use only this PC) gets files ahead only for a job pinned to it: what waits goes to the
+   * others. With every machine paused (Pause all) each pod gets them, as the whole line waits for Resume.
    */
   private sendFiles(rows: JobRow[], able: ReadonlyMap<string, Able>, where: ReadonlyMap<string, { lane: string }>): void {
     if (!this.podFetch) return;
+    const all = this.allPaused();
     for (const r of rows) {
       const fetch = able.get(r.id)?.fetch ?? {};
       const on = where.get(r.id)?.lane;
-      for (const [lane, f] of Object.entries(fetch)) this.podFetch.want(lane, f.files, lane === on ? "need" : "ahead", lane === on ? r.id : undefined, f.packs);
+      for (const [lane, f] of Object.entries(fetch)) {
+        if (lane !== on && !all && this.lanes.get(lane)?.paused && r.pin_machine !== lane) continue;
+        this.podFetch.want(lane, f.files, lane === on ? "need" : "ahead", lane === on ? r.id : undefined, f.packs);
+      }
     }
   }
 
