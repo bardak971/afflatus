@@ -18,7 +18,7 @@ export const PLOT = { L: 48, R: 10, T: 8, B: 20 };
  * round again, dashed, so two lines of one colour can be told apart), the stacks, the top of the scale,
  * and the functions from a stretch and a value to a point of the panel (and back, from a pixel across to a stretch).
  */
-export function useChartScale({ series, times, width, height, palette, solo, stacked, top, bottom, bars }: {
+export function useChartScale({ series, times, width, height, palette, solo, stacked, top, bottom, bars, least }: {
   series: Series[];
   times: number[];
   width: number;
@@ -31,6 +31,8 @@ export function useChartScale({ series, times, width, height, palette, solo, sta
   bottom: number;
   /** One bar per stretch, each in its own band of the width, rather than points from edge to edge. */
   bars?: boolean;
+  /** A value the scale reaches at least (a line drawn across, a cap): it stays in view above lower values. */
+  least?: number;
 }) {
   const coloured = series.map((s, i) => ({ ...s, color: s.color ?? palette[i % palette.length] ?? "currentColor", dashed: s.dashed ?? (!s.color && i >= palette.length) }));
   const shown = coloured.filter((s) => !solo || s.name === solo);
@@ -43,7 +45,7 @@ export function useChartScale({ series, times, width, height, palette, solo, sta
   const at = (px: number) => Math.max(0, Math.min(n - 1, bars ? Math.floor((px - PLOT.L) / band) : Math.round(((px - PLOT.L) / W) * (n - 1))));
   // stacked: each series sits on the sum of the ones under it
   const stacks = stackSeries(shown, n, Boolean(stacked));
-  const max = top ?? ceiling(Math.max(0, ...stacks.flatMap((s) => s.high.filter((v): v is number => v !== null))));
+  const max = top ?? ceiling(Math.max(0, least ?? 0, ...stacks.flatMap((s) => s.high.filter((v): v is number => v !== null))));
   const y = (v: number) => PLOT.T + H - ((Math.max(bottom, v) - bottom) / (max - bottom || 1)) * H;
   return { coloured, shown, stacks, max, x, at, band, y, W, H, n };
 }

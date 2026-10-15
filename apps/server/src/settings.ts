@@ -250,6 +250,11 @@ export const settingsSchema = z.object({
   runpodKey: z.string().default(""),
   /** What the rented GPUs may cost, in USD, today and this month (rented.ts); 0: no cap. At a cap the running render ends, then they stop. */
   rentCaps: z.object({ day: z.number().min(0).max(100_000).default(0), month: z.number().min(0).max(1_000_000).default(0) }).default({ day: 0, month: 0 }),
+  /**
+   * What this PC's electricity costs, for the Costs tab's "This PC" (its renders' GPU energy × the price): a kWh's price in
+   * the user's own money (null: not said, the energy alone is shown) and the symbol it is written with.
+   */
+  costs: z.object({ kwhPrice: z.number().min(0).max(100).nullable().default(null), currency: z.string().trim().min(1).max(4).default("€") }).default({ kwhPrice: null, currency: "€" }),
   /** The last deploy's choices: the Deploy dialog opens with them, and "Deploy again" repeats them. Null before the first. */
   lastDeploy: deploySchema.nullable().default(null),
   /** A network volume no pod ran on for this many days is flagged (it bills every month all the same); 0: never. */
@@ -533,6 +538,7 @@ export function publicSettings(s: Settings) {
     hasHuggingFaceToken: Boolean(s.huggingFaceToken),
     hasRunpodKey: Boolean(s.runpodKey),
     rentCaps: s.rentCaps,
+    costs: s.costs,
     lastDeploy: s.lastDeploy,
     volumeUnusedDays: s.volumeUnusedDays,
     finish: s.finish,

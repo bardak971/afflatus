@@ -183,6 +183,7 @@ export function navItems(tabs: ReadonlyArray<{ id: string; label: string; href: 
     go("settings", "Go to Settings", "ComfyUI, models, the interface…", { href: "/settings" }, "preferences options"),
     ...tabs.map((t) => go(`settings.${t.id}`, `Settings › ${t.label}`, "A tab of Settings", { href: t.href }, "settings preferences")),
     go("queue.times", "Queue › Render times", "How long renders took, by model and by day", { href: "/queue?view=times" }, "stats speed history"),
+    go("queue.costs", "Queue › Costs", "What the rented GPUs cost and where it went, a render's cost, this PC's electricity", { href: "/queue?view=costs" }, "costs money spend spending runpod pods billing balance electricity kwh power"),
     go("queue.log", "Queue › ComfyUI log", "ComfyUI's terminal, live", { href: "/queue?view=log" }, "console terminal errors"),
     go("bin", "Go to Bin", "What was moved to the bin, every project's: put back or erased", { bin: true }, "trash deleted put back restore"),
     go("projects", "Open Projects", "The Projects panel: projects, folders, timelines, drafts", { event: "afflatus:projects" }, "tree panel"),

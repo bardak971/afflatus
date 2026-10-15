@@ -44,6 +44,11 @@ export interface FakeComfy {
   headers: Record<string, Record<string, unknown>> | null;
   /** The version the pretend Afflatus node pack answers on GET /afflatus/version; null: no pack loaded (404). */
   packVersion: string | null;
+  /**
+   * The GPU's power the pretend node pack reads (GET /afflatus/power, 0.18.0 and newer): watts, or null for a machine
+   * without NVML or nvidia-smi. Undefined: the route is not there (404), as with an older pack.
+   */
+  watts?: number | null;
   /** Client ids of the websockets that connected, in order. */
   sockets: string[];
   /** What the pretend ComfyUI-Manager downloaded: where it put it and how large it was. */

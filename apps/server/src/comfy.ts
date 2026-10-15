@@ -1,11 +1,16 @@
 import { ComfyClient, ComfyLocked, Monitor, scan, systemLoadFromStatus, type InfoLookup, type Scan, type SystemLoad } from "@afflatus/comfy";
 import type { NodeCatalog } from "@afflatus/core";
 import { fileName } from "./media";
+import { PowerLog } from "./power";
 import type { Registry } from "./registry";
 import type { Machine } from "./settings";
 
 const SCAN_TTL_MS = 60_000;
 const CATALOG_TTL_MS = 10 * 60_000;
+/** How often a machine's GPU power is read at most, whoever asks: as often as the open pages read the load. */
+const POWER_EVERY_MS = 1_800;
+/** A node pack without the power route is asked again after this (it may have been updated without ComfyUI's socket closing). */
+const POWER_ABSENT_MS = 10 * 60_000;
 
 /**
  * The one ComfyUI Afflatus talks to: its client, its websocket monitor, and what was last learned
@@ -86,6 +91,8 @@ export class Comfy {
 
   /** This ComfyUI has a file it did not have: nothing learned about it holds any more. */
   forgetAll(): void {
+    // started again, maybe with a newer node pack that reads the power
+    this.powerAbsentUntil = 0;
     this.lastScan = null;
     this.nextScan = null;
     this.lastCatalog = null;
@@ -111,8 +118,40 @@ export class Comfy {
   /** Whether the last `load()` found it locked against Afflatus's token: there, but a token to paste rather than a ComfyUI to start. */
   locked = false;
 
+  /** A machine of this PC's, not a rented pod: its GPU's power is read with its other figures (a pod is billed by the hour). */
+  home = false;
+  /** Its power readings: a render's energy is worked out from them when it ends (power.ts). */
+  readonly power = new PowerLog();
+  private powerSeen: { at: number; watts: number | null } | null = null;
+  private powerAsking: Promise<number | null> | null = null;
+  /** No power route on its node pack (none, or an older one): not asked again before then, nor before ComfyUI restarts. */
+  private powerAbsentUntil = 0;
+
+  /**
+   * Its GPU's power now (watts), read from its node pack at most every POWER_EVERY_MS whoever asks (the open pages' load,
+   * a render's progress): each reading is kept for the energy of the render it falls in. Null when it is not read.
+   */
+  async readPower(): Promise<number | null> {
+    const at = Date.now();
+    if (!this.home || at < this.powerAbsentUntil) return null;
+    if (this.powerSeen && at - this.powerSeen.at < POWER_EVERY_MS) return this.powerSeen.watts;
+    this.powerAsking ??= this.client.gpuPower().then((said) => {
+      this.powerAsking = null;
+      if (said === "absent") {
+        this.powerAbsentUntil = Date.now() + POWER_ABSENT_MS;
+        return null;
+      }
+      this.powerSeen = { at: Date.now(), watts: said };
+      if (said !== null) this.power.add(said);
+      return said;
+    }, () => (this.powerAsking = null));
+    return this.powerAsking;
+  }
+
   /** The machine's load: the monitor extension's latest broadcast if it is fresh, else ComfyUI's memory numbers. */
   async load(): Promise<SystemLoad | null> {
+    // its power rides on the open pages' reading of the load: never waited for
+    if (this.home) void this.readPower();
     this.monitor.ensure();
     const live = this.monitor.system;
     if (live && Date.now() - live.at < 5_000) {

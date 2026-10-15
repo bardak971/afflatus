@@ -38,6 +38,7 @@ import { registerModelSets } from "./modelSets";
 import { registerPresetFiles } from "./presetFiles";
 import { registerProjects } from "./projects";
 import { registerRenders } from "./renders-api";
+import { registerCosts } from "./costs-api";
 import type { Services } from "./services";
 import { registerSetup } from "./setup-api";
 import { registerLock } from "./lock-api";
@@ -174,6 +175,7 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
   registerMeasures(app, s);
   registerUsage(app, s);
   registerRenders(app, s);
+  registerCosts(app, s);
   registerMetrics(app, s);
   registerEntities(app, s);
   registerDesigner(app, s);

@@ -9,6 +9,7 @@ import type { Settings as WebSettings, SettingsPatch } from "../../web/src/api/t
 import type { CommandEntry as WebEntry, CommandEstimate as WebEstimate, CommandIndex, PromptHistoryItem as WebPromptItem } from "../../web/src/api/types/bar";
 import type { Download } from "../../web/src/api/types/models";
 import type { UpdatesView as WebUpdates } from "../../web/src/api/types/updates";
+import type { CostsView as WebCosts } from "../../web/src/api/types/costs";
 import type { LibraryChange as WebLibraryChange } from "../../web/src/queryKeys";
 // the server's own: what its routes return
 import type { assetDetail } from "../src/assets-api";
@@ -29,6 +30,7 @@ import type { llmSchema, publicSettings, settingsSchema } from "../src/settings"
 import type { Timelines } from "../src/timelines";
 import type { clipPatch, timelinePatch } from "../src/timelines-api";
 import type { UpdatesView } from "../src/updates";
+import type { CostsView } from "../src/costs";
 import type { DeployModelsView } from "../src/deployModels";
 import type { ModelSetView, SetFileView } from "../src/modelSets";
 import type { DeployModels, ModelSet, SetFile } from "../../web/src/api/types/models";
@@ -158,6 +160,7 @@ describe("the web's API types match what the server answers", () => {
     agree<CommandEstimate, WebEstimate>().toEqualTypeOf<true>();
     agree<PromptHistoryItem, WebPromptItem>().toEqualTypeOf<true>();
     agree<DownloadView, Download>().toEqualTypeOf<true>();
+    agree<CostsView, WebCosts>().toEqualTypeOf<true>();
   });
 
   it("Model sets, and a deploy's files", () => {

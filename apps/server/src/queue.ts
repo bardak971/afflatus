@@ -1356,11 +1356,15 @@ ${JSON.stringify(input)}`;
       const saving = this.stepsSaver(row.id, resume, comfy);
       // a busy GPU is a render at work too: a node that says nothing on the way (a long decode, an interpolation) is not
       // taken for stuck while it computes; a render that hangs leaves its GPU idle. Its memory says nothing: it stays full
+      // its GPU's power read on the way (a machine of this PC's: for its electricity), at most every two seconds on what
+      // ComfyUI says of it anyway (a system feed's broadcast, its progress): no loop of its own
       comfy.monitor.onSystem = (load) => {
+        void comfy.readPower();
         if (load.gpus.some((g) => g.load !== undefined)) running.loadAt = Date.now();
         if (load.gpus.some((g) => (g.load ?? 0) >= GPU_AT_WORK)) running.movedAt = Date.now();
       };
       comfy.monitor.onChange = () => {
+        void comfy.readPower();
         running.movedAt = Date.now();
         this.events.emit("progress");
         saving.check();
@@ -1499,7 +1503,9 @@ ${JSON.stringify(input)}`;
   /** Put a render on the record of render times (renders.ts), under the machine it ran on. Never in the way of the render itself: a failure here is only said. */
   private async note(lane: Lane, row: JobRow, recipe: Recipe<any>, resume: Resume, measured: Measured | null, status: "done" | "failed" | "cancelled", whole: boolean, totalMs: number, generationId?: string): Promise<void> {
     try {
-      await record(this.db, row, recipe, resume, measured, status, whole, totalMs, generationId, { machine: lane.id, gpu: lane.comfy?.monitor.system?.gpus[0]?.name ?? null });
+      // what its GPU drew over its own stretch, from the power read on the way (none on a rented pod, nor without the reading)
+      const energy = lane.comfy?.home ? lane.comfy.power.energy(resume.startedAt, resume.startedAt + totalMs) : null;
+      await record(this.db, row, recipe, resume, measured, status, whole, totalMs, generationId, { machine: lane.id, gpu: lane.comfy?.monitor.system?.gpus[0]?.name ?? null, energy });
       // the record changed: the next forecast reads it again at once, not after the second the mark is kept
       this.recordMark = null;
     } catch (err) {

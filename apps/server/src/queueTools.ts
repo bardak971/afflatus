@@ -27,7 +27,8 @@ export function rifeModelIn(catalog: Record<string, unknown>): string | null {
 }
 
 /** A tool run as the record keeps it: what it is, what it makes (pixels × frames) and what its own record expected of it. */
-interface ToolNote { row: JobRow; recipe: string; model: string; timeKey: string; work: number | null; expectedMs: number | null; startedAt: number; measured: Measured | null }
+/** `comfy`: the machine it ran on, once it is sent there, for what its GPU drew (power.ts). */
+interface ToolNote { row: JobRow; recipe: string; model: string; timeKey: string; work: number | null; expectedMs: number | null; startedAt: number; measured: Measured | null; comfy?: Comfy }
 
 /** Its usual pace × what it makes: what it should take, from its own record (null until it has run once). */
 async function toolNote(core: QueueCore, row: JobRow, recipe: string, model: string, timeKey: string, work: number | null): Promise<ToolNote> {
@@ -60,8 +61,10 @@ export async function finishForecast(
 
 /** Put a tool's run on the record (never lets a failure here reach the job). */
 async function noteTool(core: QueueCore, note: ToolNote, status: "done" | "failed" | "cancelled", made: { id: string; width: number | null; height: number | null; duration_ms: number | null } | null) {
-  await recordTool(core.db, { id: note.row.id, created_at: note.row.created_at, startedAt: note.startedAt }, note, note.measured, status, Date.now() - note.startedAt,
-    { assetId: made?.id ?? null, width: made?.width ?? null, height: made?.height ?? null, durationMs: made?.duration_ms ?? null }, note.work, note.expectedMs, core.machineId).catch(() => {});
+  const end = Date.now();
+  const energy = note.comfy?.home ? note.comfy.power.energy(note.startedAt, end) : null;
+  await recordTool(core.db, { id: note.row.id, created_at: note.row.created_at, startedAt: note.startedAt }, note, note.measured, status, end - note.startedAt,
+    { assetId: made?.id ?? null, width: made?.width ?? null, height: made?.height ?? null, durationMs: made?.duration_ms ?? null }, note.work, note.expectedMs, core.machineId, energy).catch(() => {});
 }
 
 /**
@@ -101,7 +104,12 @@ async function followed(core: QueueCore, comfy: Comfy, run: Running, row: Pick<J
   }
   comfy.monitor.ensure();
   comfy.monitor.track({ promptId, totalSteps: 1, phases: g.phases });
-  comfy.monitor.onChange = () => core.events.emit("progress");
+  // its GPU's power read on its progress, as a render's is (queue.ts)
+  if (note) note.comfy = comfy;
+  comfy.monitor.onChange = () => {
+    void comfy.readPower();
+    core.events.emit("progress");
+  };
   try {
     return await awaitPrompt(comfy, promptId, outNode, signal, core.opts.wait);
   } catch (err) {

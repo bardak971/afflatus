@@ -6,7 +6,7 @@ import { PRESETS, toLocalInput, typedWindow, type View } from "./useTimesView";
  * Which window of time is looked at: a preset, ending now; or two moments typed (Enter looks at them); or twice
  * the window around its middle. A window dragged on a chart shows here as its two moments.
  */
-export function WindowBar({ view, shown, typed, onTyped, onPreset, onZoom }: {
+export function WindowBar({ view, shown, typed, onTyped, onPreset, onZoom, presets = PRESETS }: {
   view: View;
   /** The window the figures cover now. */
   shown: { from: number; to: number };
@@ -14,13 +14,15 @@ export function WindowBar({ view, shown, typed, onTyped, onPreset, onZoom }: {
   onTyped(typed: { from: string; to: string }): void;
   onPreset(label: string): void;
   onZoom(from: number, to: number): void;
+  /** The presets offered: Render times' by default; the Costs tab's has the month. */
+  presets?: ReadonlyArray<{ label: string }>;
 }) {
   const bounds = typed ?? { from: toLocalInput(shown.from), to: toLocalInput(shown.to) };
   const asked = typedWindow(typed);
   const spanMs = shown.to - shown.from;
   return (
     <>
-      <Segmented size="sm" mono oneLine label="Window" value={view.preset} options={PRESETS.map((p) => ({ value: p.label, label: p.label }))} onChange={onPreset} />
+      <Segmented size="sm" mono oneLine label="Window" value={view.preset} options={presets.map((p) => ({ value: p.label, label: p.label }))} onChange={onPreset} />
       <div className="flex items-center gap-1.5 text-xs">
         {(["from", "to"] as const).map((end, i) => (
           <span key={end} className="contents">

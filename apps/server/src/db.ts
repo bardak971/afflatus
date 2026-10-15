@@ -148,6 +148,9 @@ export interface Tables {
     gpu: string | null;
     /** JSON: milliseconds per node class (ComfyUI's class_type), from when each node started to when the next did; null when they were not heard. */
     node_ms: string | null;
+    /** What its GPU drew while it rendered (Wh) and its mean power (W), from the node pack's power reading on this PC's machines; null where none was read. */
+    energy_wh: number | null;
+    power_avg_w: number | null;
     created_at: string;
   };
   /** The renders of one model on one day (UTC), folded: what the charts are drawn from once the rows are gone. Recipe "*" is the day as a whole. */
@@ -356,7 +359,13 @@ export interface Tables {
   /** What suits one model file: the values that replace a recipe's defaults when that file is picked (JSON: input id → value). */
   model_settings: { owner_id: string; family: string; file: string; values: string; updated_at: string };
   /** A rented machine's stretches of running (rented.ts): its pod, the rate it ran at, from when to when (null: running). */
-  rent_sessions: { id: string; machine_id: string; pod: string; rate: number; started_at: string; ended_at: string | null; seen_at: string | null };
+  rent_sessions: {
+    id: string; machine_id: string; pod: string; rate: number; started_at: string; ended_at: string | null; seen_at: string | null;
+    /** Its GPU as RunPod named it, when its ComfyUI first answered (its boot's end), and the idle minutes it ran with: null on sessions before 0071. */
+    gpu: string | null; up_at: string | null; idle_minutes: number | null;
+  };
+  /** Each model file a pod got (podFiles.ts): from when its bytes started to when it was whole, the Costs tab's "Fetching files". Bytes as a number (bigint on Postgres). */
+  pod_fetches: { id: string; machine_id: string; file: string; folder: string; via: string; bytes: number | string; started_at: string; ended_at: string };
   /** What rented pods were measured at (podFiles.ts): a file's bytes over its time per source (hf, civitai, upload), a deploy's boot (ms). */
   pod_measures: { id: string; kind: string; cloud: string | null; bytes: number; ms: number; at: string };
   /** Every model file of this computer hashed once, and the site version or file it is (modelHashes.ts). Sizes and times as numbers (bigint on Postgres: read through Number). */

@@ -10,6 +10,7 @@ import { useSayFailed } from "../sayFailed";
 import { Button, cx, ErrorNote, Help, SectionTitle, Segmented } from "../ui";
 import { History } from "./queue/History";
 import { RenderTimes } from "./queue/Times";
+import { Costs } from "./queue/Costs";
 import { ComfyLog } from "./queue/Log";
 import { MachineMeters } from "./queue/MachineMeters";
 import { MachineLanes } from "./queue/MachineLanes";
@@ -17,6 +18,10 @@ import { machineLabel, severalMachines } from "../machines";
 import { RunningCard } from "./queue/RunningCard";
 import { WaitingList } from "./queue/WaitingList";
 import { queryKeys } from "../queryKeys";
+
+/** The views of the Queue screen, as the address asks for one (the command bar's "Queue › Costs"). */
+type Tab = "queue" | "times" | "costs" | "log";
+const isTab = (v: string | null): v is Tab => v === "queue" || v === "times" || v === "costs" || v === "log";
 
 /** The header's buttons: unload the models, pause or resume. With several ComfyUIs: unload every idle one, pause or resume all of them. */
 function QueueControls({ q, free, pause, resume }: { q: QueueStatus | undefined; free: { mutate(machine?: undefined): void; isPending: boolean; isSuccess: boolean }; pause: { mutate(machine?: undefined): void }; resume: { mutate(machine?: undefined): void } }) {
@@ -70,9 +75,9 @@ export function Queue() {
   useEffect(() => {
     if (askedMachine) setLogOf(askedMachine);
   }, [askedMachine]);
-  const [tab, setTab] = useState<"queue" | "times" | "log">(asked === "times" || asked === "log" ? asked : "queue");
+  const [tab, setTab] = useState<Tab>(isTab(asked) ? asked : "queue");
   useEffect(() => {
-    if (asked === "times" || asked === "log" || asked === "queue") setTab(asked);
+    if (isTab(asked)) setTab(asked);
   }, [asked]);
   const q = queue.data;
   const several = severalMachines(q);
@@ -87,8 +92,8 @@ export function Queue() {
     <div className="flex min-h-0 grow flex-col overflow-hidden px-8 pb-6">
       <header className="flex h-20 shrink-0 items-center gap-5">
         <h1 className="text-xl font-semibold">Queue</h1>
-        <div className="w-[380px]">
-          <Segmented<"queue" | "times" | "log"> label="View" value={tab} options={[{ value: "queue", label: "Queue" }, { value: "times", label: "Render times" }, { value: "log", label: "ComfyUI log" }]} onChange={setTab} />
+        <div className="w-[460px]">
+          <Segmented<Tab> label="View" value={tab} options={[{ value: "queue", label: "Queue" }, { value: "times", label: "Render times" }, { value: "costs", label: "Costs" }, { value: "log", label: "ComfyUI log" }]} onChange={setTab} />
         </div>
         <div className="flex min-w-0 grow items-center gap-3 text-xs text-ink-2">
           <span className="flex shrink-0 items-center gap-1.5">
@@ -104,6 +109,7 @@ export function Queue() {
       {queue.error && <ErrorNote>Could not read the queue: {queue.error.message}</ErrorNote>}
 
       {tab === "times" && <div className="min-h-0 grow overflow-y-auto"><RenderTimes /></div>}
+      {tab === "costs" && <div className="min-h-0 grow overflow-y-auto"><Costs /></div>}
       {tab === "log" && several.length > 0 && (
         <div className="mb-2 shrink-0">
           <Segmented oneLine size="sm" label="Whose log" value={logOf || several[0]!.id} options={several.map((m) => ({ value: m.id, label: machineLabel(m) }))} onChange={setLogOf} />

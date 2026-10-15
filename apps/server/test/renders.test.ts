@@ -30,7 +30,7 @@ const row = (over: Partial<RenderRow> & { ago?: number } = {}): RenderRow => {
     id: `r${n++}`, owner_id: "local", recipe_id: "sdxl.text-to-picture", family: "sdxl", model: "illustrious", model_file: "illustrious", time_key: "steps=28",
     kind: "image", width: 832, height: 1216, duration_ms: null, steps: 28, status: "done", whole: 1, cold: 0, waited_ms: 0,
     total_ms: 20_000, load_ms: 1_000, sample_ms: 16_000, refine_ms: 0, finish_ms: 3_000, step_ms: 570, expected_ms: 20_000,
-    vram_peak: 70, heat_peak: 68, asset_id: null, work: 832 * 1216, machine_id: null, gpu: null, node_ms: null, created_at: new Date(NOW - ago).toISOString(), ...rest,
+    vram_peak: 70, heat_peak: 68, asset_id: null, work: 832 * 1216, machine_id: null, gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, created_at: new Date(NOW - ago).toISOString(), ...rest,
   };
 };
 const put = (rows: RenderRow[]) => t.db.insertInto("render_stats").values(rows).execute();

@@ -130,6 +130,10 @@ describe("a rented pod's model files", () => {
     await settle("pod", "mine.safetensors");
     const kept = await t.services.db.selectFrom("pod_measures").select(["kind", "cloud", "bytes"]).orderBy("kind").execute();
     expect(kept).toEqual([{ kind: "upload", cloud: "SECURE", bytes: 150_000 }, { kind: "url", cloud: "SECURE", bytes: FILE.length }]);
+    // and each file by name on its pod, from when it started to when it was whole: the Costs tab's "Fetching files"
+    const fetched = await t.services.db.selectFrom("pod_fetches").selectAll().orderBy("file").execute();
+    expect(fetched.map((f) => [f.machine_id, f.file, f.via, Number(f.bytes)])).toEqual([["pod", "a.safetensors", "url", FILE.length], ["pod", "mine.safetensors", "upload", 150_000]]);
+    for (const f of fetched) expect(Date.parse(f.ended_at)).toBeGreaterThan(Date.parse(f.started_at));
   });
 
   it("fail, and their job with them, when the site gives no link of its own: a pod cannot be sent the file through Afflatus", async () => {

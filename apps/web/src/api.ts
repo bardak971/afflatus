@@ -9,11 +9,13 @@ import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerRe
 import type { DeployAsk, Health, FinishSettings, MachineProbe, SessionState, Settings, SettingsPatch, SignedDevices } from "./api/types/settings";
 import { signedOut } from "./access/signedOut";
 import type { UpdatesView } from "./api/types/updates";
+import type { CostsView } from "./api/types/costs";
 import type { CommandEntry, CommandEstimate, CommandIndex, PromptHistoryItem } from "./api/types/bar";
 import type { RecipeInfo, RecipeStatus, FamilyInfo, Scan, ModelSettings, ModelWords, UpdateReport, Opened, WorkflowBrief, WorkflowBody, LinkFound, ModelPage, PageCandidate, Embedded, Download, DownloadVia, HuggingFaceFind, CivitaiFind, DeployModels, ModelSet, SetFile, SetSearch, BrowseBases, BrowseCard, BrowseFile, BrowsePage, HashStatus } from "./api/types/models";
 
 /** Shapes of the server's answers. Kept next to the calls so a change on one side is noticed on the other. */
 export * from "./api/types/queue";
+export * from "./api/types/costs";
 export * from "./api/types/library";
 export * from "./api/types/timeline";
 export * from "./api/types/designer";
@@ -292,6 +294,8 @@ export const api = {
   /** Finished jobs again, several in one request ("Retry all"), in the order given; with `dismiss`, the ones queued again leave the history. */
   retryJobs: (ids: string[], dismiss = false) => call<{ ids: string[]; failed: number }>("POST", "/jobs/retry", { ids, dismiss }),
   /** The render times of a period or a window; of one machine (a Machine's id) when one is named. */
+  /** The Costs tab's figures for a window (ms); none: all of it. */
+  costs: (range: { from: number; to: number } | null, o?: Asked) => call<CostsView>("GET", range ? `/costs?from=${Math.round(range.from)}&to=${Math.round(range.to)}` : "/costs", undefined, o?.signal),
   renderTimes: (range: TimesPeriod | TimesWindow, o?: Asked & { machine?: string | null }) => call<TimesSummary>("GET", `${typeof range === "string" ? `/renders/summary?period=${range}` : `/renders/summary?from=${Math.round(range.from)}&to=${Math.round(range.to)}`}${o?.machine ? `&machine=${encodeURIComponent(o.machine)}` : ""}`, undefined, o?.signal),
   renders: (opts: { recipe?: string; trouble?: boolean; before?: string; limit?: number; from?: number; to?: number; machine?: string | null }, o?: Asked) =>
     call<{ total: number; more: boolean; items: RenderItem[] }>("GET", `/renders?${new URLSearchParams({ ...(opts.recipe ? { recipe: opts.recipe } : {}), ...(opts.trouble ? { only: "trouble" } : {}), ...(opts.before ? { before: opts.before } : {}), ...(opts.from ? { from: String(Math.round(opts.from)) } : {}), ...(opts.to ? { to: String(Math.round(opts.to)) } : {}), ...(opts.machine ? { machine: opts.machine } : {}), limit: String(opts.limit ?? 50) })}`, undefined, o?.signal),

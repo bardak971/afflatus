@@ -1,0 +1,62 @@
+import type { Db, Tables } from "../apps/server/src/db";
+
+/**
+ * Pretend pod sessions for the demo's Queue › Costs tab (with DEMO_RUNPOD=1): a week of them, each with its first answer,
+ * its files and its renders, written once when the demo's database has none. Only the demo: the real app keeps real ones.
+ */
+
+const MIN = 60_000;
+
+interface Plan {
+  hoursAgo: number;
+  gpu: string;
+  rate: number;
+  bootMin: number;
+  /** Files fetched: name, GB, minutes. */
+  files: Array<[string, number, number]>;
+  /** Renders: recipe, minutes each, how many, and how many of them failed. */
+  renders: Array<[string, number, number, number]>;
+  idleMin: number;
+}
+
+const PLANS: Plan[] = [
+  { hoursAgo: 2, gpu: "NVIDIA RTX 2000 Ada Generation", rate: 0.24, bootMin: 4, files: [["demo-illustrious.safetensors", 6.9, 3]], renders: [["sdxl.text-to-picture", 1, 1, 0]], idleMin: 5 },
+  { hoursAgo: 26, gpu: "NVIDIA RTX 2000 Ada Generation", rate: 0.24, bootMin: 3, files: [], renders: [["sdxl.text-to-picture", 1, 1, 1]], idleMin: 5 },
+  { hoursAgo: 28, gpu: "NVIDIA A40", rate: 0.59, bootMin: 4, files: [["wan22-i2v-fine-tune.safetensors", 26, 6]], renders: [["wan.video", 3, 15, 0]], idleMin: 4 },
+  { hoursAgo: 31, gpu: "NVIDIA A40", rate: 0.59, bootMin: 4, files: [["wan22-i2v-fine-tune.safetensors", 26, 7]], renders: [], idleMin: 10 },
+  { hoursAgo: 52, gpu: "NVIDIA RTX PRO 4000 Blackwell", rate: 0.57, bootMin: 3, files: [["klein-4b-distilled.safetensors", 7.7, 2]], renders: [["klein.edit", 1, 4, 1]], idleMin: 10 },
+  { hoursAgo: 150, gpu: "NVIDIA A40", rate: 0.59, bootMin: 5, files: [["h3-fl2va-int8.safetensors", 18, 5]], renders: [["h3.video", 4, 6, 0]], idleMin: 10 },
+];
+
+export async function seedCosts(db: Db, now = Date.now()): Promise<void> {
+  const have = await db.selectFrom("rent_sessions").select((eb) => eb.fn.countAll<number>().as("n")).executeTakeFirst();
+  if (Number(have?.n ?? 0)) return;
+  let n = 0;
+  for (const [i, p] of PLANS.entries()) {
+    const machine = `rp-demo-${i}`;
+    const from = now - p.hoursAgo * 3_600_000;
+    let t = from + p.bootMin * MIN;
+    const up = t;
+    for (const [name, gb, min] of p.files) {
+      await db.insertInto("pod_fetches").values({ id: `demo-f${n++}`, machine_id: machine, file: name, folder: "checkpoints", via: "hf", bytes: Math.round(gb * 1e9), started_at: new Date(t).toISOString(), ended_at: new Date(t + min * MIN).toISOString() }).execute();
+      t += min * MIN;
+    }
+    const rows: Array<Tables["render_stats"]> = [];
+    for (const [recipe, min, count, failed] of p.renders) {
+      for (let k = 0; k < count; k++) {
+        const bad = k >= count - failed;
+        const ms = Math.round(min * MIN * (bad ? 0.4 : 0.9 + ((k * 7) % 5) / 20));
+        t += ms;
+        rows.push({
+          id: `demo-pod-${n++}`, owner_id: "local", recipe_id: recipe, family: recipe.split(".")[0]!, model: recipe, model_file: recipe, time_key: "", kind: bad ? null : recipe.endsWith("video") ? "video" : "image",
+          width: null, height: null, duration_ms: null, steps: 8, status: bad ? "failed" : "done", whole: 1, cold: k === 0 ? 1 : 0, waited_ms: 0, total_ms: ms, load_ms: 0, sample_ms: ms, refine_ms: 0, finish_ms: 0,
+          step_ms: null, expected_ms: null, vram_peak: null, heat_peak: null, asset_id: null, machine_id: machine, gpu: p.gpu, node_ms: null, energy_wh: null, power_avg_w: null, work: null, created_at: new Date(t).toISOString(),
+        });
+        t += 20_000;
+      }
+    }
+    if (rows.length) await db.insertInto("render_stats").values(rows).execute();
+    const end = t + p.idleMin * MIN;
+    await db.insertInto("rent_sessions").values({ id: `demo-s${i}`, machine_id: machine, pod: `demo${i}`, rate: p.rate, started_at: new Date(from).toISOString(), ended_at: new Date(end).toISOString(), seen_at: new Date(end).toISOString(), gpu: p.gpu, up_at: new Date(up).toISOString(), idle_minutes: 10 }).execute();
+  }
+}

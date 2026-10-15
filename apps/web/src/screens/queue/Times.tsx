@@ -13,7 +13,7 @@ import { ModelDetail, ModelList, modelColor } from "./ModelTable";
 import { PHASES } from "./phases";
 import { RenderList } from "./RenderList";
 import { spanSaid, SummaryTiles } from "./SummaryTiles";
-import { DAY, HOUR, useTimesView } from "./useTimesView";
+import { chartTimeLabel, stretchOf, useTimesView } from "./useTimesView";
 import { WindowBar } from "./WindowBar";
 import { scrollInside } from "../../scrollInside";
 
@@ -67,11 +67,8 @@ export function RenderTimes() {
   const t = d.tiles;
   const anything = t.done + t.failed + t.cancelled > 0;
   const spanMs = d.to - d.from;
-  const stretch = d.step < HOUR ? `${Math.round(d.step / 60_000)} min` : d.step === HOUR ? "hour" : d.step < DAY ? `${Math.round(d.step / HOUR)} h` : "day";
-  const timeLabel = (time: number, full?: boolean) =>
-    new Date(time).toLocaleString(UI_LOCALE, full
-      ? d.step < DAY ? { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" } : { weekday: "short", day: "numeric", month: "short", year: "numeric" }
-      : d.step < DAY ? (spanMs > 36 * HOUR ? { weekday: "short", hour: "2-digit", minute: "2-digit" } : { hour: "2-digit", minute: "2-digit" }) : { day: "numeric", month: "short" });
+  const stretch = stretchOf(d.step);
+  const timeLabel = chartTimeLabel(spanMs, d.step);
   const chart: ChartBase = { times: d.times, timeLabel, step: d.step, onBrush: zoom, detail: (i: number) => <TopList bucket={d.buckets[i]} /> };
   const windowSaid = `${timeLabel(d.from, true)} → ${timeLabel(d.to, true)}`;
   const pickedIndex = d.models.findIndex((m) => m.key === model);

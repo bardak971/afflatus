@@ -40,6 +40,7 @@ export function fakeRoutes(fake: FakeState, hooks: { queued(promptId: string, cl
         const header = fake.headers[`${url.searchParams.get("folder") ?? ""}/${url.searchParams.get("filename") ?? ""}`];
         return header ? json(200, header) : json(404, {});
       }
+      if (path === "/afflatus/power") return fake.watts === undefined ? json(404, {}) : json(200, { watts: fake.watts, source: fake.watts === null ? null : "nvml" });
       if (path === "/afflatus/version") return fake.packVersion ? json(200, { pack: "afflatus-nodes", version: fake.packVersion }) : json(404, {});
       if (path.startsWith("/view_metadata/")) {
         const header = fake.metadata[`${decodeURIComponent(path.slice(15))}/${url.searchParams.get("filename") ?? ""}`];

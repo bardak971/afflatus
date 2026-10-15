@@ -175,6 +175,8 @@ def clean_output(output_dir: str, hours: float) -> int:
 #       time, for one no site has (uploads.py says how).
 #   GET and POST /afflatus/alive  → the watchdog of a rented machine: "still here" from Afflatus; silent past its minutes,
 #       the pod stops itself (watchdog.py says how).
+#   GET /afflatus/power  → the GPU's power draw in watts (null where it cannot be read), for the electricity Afflatus says
+#       a render on this PC cost (power.py says how).
 #   GET and POST /afflatus/lock, POST /afflatus/unlock, POST /afflatus/login-code, /afflatus/login  → the lock: once set,
 #       every route of ComfyUI's server needs this machine's token (lock.py says how, and how to take it off by hand).
 # The first two are read-only, the first bytes of a file only, nothing loaded. ComfyUI's own /view_metadata gives the metadata alone.
@@ -243,6 +245,10 @@ try:
     from .watchdog import register as _register_watchdog
 
     _register_watchdog(PromptServer.instance.routes, web)
+
+    from .power import register as _register_power
+
+    _register_power(PromptServer.instance.routes, web)
 except ImportError:
     # outside ComfyUI's server (a bare import, a test): the nodes still load, the routes are simply not there
     pass
