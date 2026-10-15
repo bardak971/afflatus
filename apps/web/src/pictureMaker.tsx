@@ -162,7 +162,7 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
 
       {/* who goes in: their photos, the first the most important */}
       <div className="flex flex-col gap-1.5">
-        <span className="flex items-center gap-1.5 text-xs text-ink-2">Who goes in <span className="text-ink-3">· 1 to 3 photos</span><Help text="Photos of one person. The first (main) matters most: sharp and front-facing. A second from another angle helps a frame where they are turned. Every photo is named in the instruction." /></span>
+        <span className="flex items-center gap-1.5 text-xs text-ink-2">Who goes in <span className="text-ink-3">· 1 to 3 photos</span><Help text="Photos of one person: who they are comes from them. The face is taken as photographed (its expression, tilt and light), so the still can look pasted; once it moves, Motion transfer takes the expression and the light from the driving video. Best: a sharp, front-facing photo in even light; a strongly coloured one can tint the face. The first (main) matters most; a second from another angle helps a frame where they are turned." /></span>
         <div className="flex flex-wrap items-center gap-1.5">
           {set.people.map((id, i) => (
             <span key={id} className="relative">
