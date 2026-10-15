@@ -14,7 +14,7 @@ import type { TrackKeys } from "./Track";
  * fills the refs it returns for the keys whose actions it holds (render, jump, split, take, the track's zoom). What each
  * key does is editorKeys.ts's, by concern.
  */
-export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canRedo, remove, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameMs, selected, setSelected, setPicked, musicOpen, closeMusic }: {
+export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canRedo, remove, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameMs, selected, setSelected, setPicked, musicOpen, closeMusic, removeOpen }: {
   clock: Clock;
   player: RefObject<PlayerHandle | null>;
   /** Play or pause (the range when there is one). */
@@ -43,6 +43,8 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
   /** The music's panel is open, and how to close it (Escape). */
   musicOpen?: boolean;
   closeMusic?(): void;
+  /** Delete with no clip picked or selected: what is open in the column goes (the source); true when something did. */
+  removeOpen?(): boolean;
 }) {
   // what changes at every render, read by the listener through refs
   const frameRef = useRef(frameMs);
@@ -53,6 +55,8 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
   musicOpenNow.current = Boolean(musicOpen);
   const closeMusicNow = useRef(closeMusic);
   closeMusicNow.current = closeMusic;
+  const removeOpenNow = useRef(removeOpen);
+  removeOpenNow.current = removeOpen;
   // set by the editor once what they call exists (some of it only once the timeline is read)
   /** Render the selected clip (a new take), as Generate does in the Studio's form: Ctrl+Enter, even from its prompt. */
   const renderNow = useRef(() => {});
@@ -67,7 +71,7 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
   useEffect(() => {
     const acts: KeyActions = {
       clock, player, toggle, undo, canUndo, redo, canRedo, remove, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow,
-      frameRef, selectedNow, musicOpenNow, closeMusicNow, renderNow, jumpNow, splitNow, takeNow, trackKeys, setSelected, setPicked,
+      frameRef, selectedNow, musicOpenNow, closeMusicNow, removeOpenNow, renderNow, jumpNow, splitNow, takeNow, trackKeys, setSelected, setPicked,
     };
     const onKey = (e: KeyboardEvent) => {
       const place = keyPlace(e);

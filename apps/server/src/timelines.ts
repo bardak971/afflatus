@@ -1,7 +1,7 @@
 import { chatJson } from "./llm";
 import type { EventEmitter } from "node:events";
 import { duckCurve, type DuckCurve } from "./duck";
-import { musicPlan, typedSeed, type ClipMusic, type InputSpec, type Transition } from "@afflatus/core";
+import { modelsDiffer, musicPlan, plural, typedSeed, type ClipMusic, type InputSpec, type Transition } from "@afflatus/core";
 import { newId, now, OWNER, type Db } from "./db";
 import type { LibraryChange } from "./events";
 import { httpError, notFound } from "./errors";
@@ -18,7 +18,7 @@ import { TimelineHistory } from "./timelineHistory";
 import { TimelineRange } from "./timelineRange";
 import { takeView, TimelineViews } from "./timelineViews";
 import { ownInputIds, recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
-import { patchedSource, planWindows, sourceOfRow, windowRunUp, type SourcePatch } from "./timelineSource";
+import { clipsOfSource, patchedSource, planWindows, sourceOfRow, windowRunUp, type SourcePatch } from "./timelineSource";
 import { TimelineTakes } from "./timelineTakes";
 import { unusedSize, unusedTakes } from "./timelineUnused";
 import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, mirroredPins, mirrorJson, mirrorOfRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow, transitionJson, transitionOfRow } from "./timelineModel";
@@ -456,11 +456,13 @@ export class Timelines {
       const end = all.reduce((sum, p) => sum + plannedLengthOf(p, p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined), 0);
       source = JSON.stringify(patchedSource(sourceOfRow(before.source), patch.source, video, end));
     }
+    // the source taken away takes the clips it made with it, rendered or not (Undo brings back the source, its clips and their takes)
+    const gone = patch.source === null && sourceOfRow(before.source) ? clipsOfSource(sourceOfRow(before.source)!, (await this.placed(id)).map((p) => p.clip), (r) => this.registry.recipe(r)) : [];
     const songMs = m?.fromMs !== undefined ? (await this.assetRow(m.asset ?? before.music_asset_id))?.duration_ms ?? null : null;
     const fromMs = m?.fromMs !== undefined ? Math.max(0, Math.min(songMs ?? Infinity, Math.round(m.fromMs / 100) * 100)) : m?.asset ? 0 : undefined;
     await this.remember(
       id,
-      patch.name !== undefined ? "the new name" : patch.width !== undefined ? "the new aspect ratio" : patch.look !== undefined ? "the change of characters" : patch.mood !== undefined ? "the look and mood" : patch.project !== undefined ? "the project" : patch.folder !== undefined ? "the folder" : patch.source === null ? "the source removed" : patch.source?.asset ? "the new source" : patch.source ? "the source's settings" : m?.asset === null ? "the music removed" : m?.asset ? "the new music" : m?.fromMs !== undefined || m?.startClip !== undefined ? "the part of the song" : "the music's settings",
+      patch.name !== undefined ? "the new name" : patch.width !== undefined ? "the new aspect ratio" : patch.look !== undefined ? "the change of characters" : patch.mood !== undefined ? "the look and mood" : patch.project !== undefined ? "the project" : patch.folder !== undefined ? "the folder" : patch.source === null ? (gone.length ? `the source and its ${plural(gone.length, "clip")} removed` : "the source removed") : patch.source?.asset ? "the new source" : patch.source ? "the source's settings" : m?.asset === null ? "the music removed" : m?.asset ? "the new music" : m?.fromMs !== undefined || m?.startClip !== undefined ? "the part of the song" : "the music's settings",
     );
     const within = (n: number, least: number, most: number) => Math.max(least, Math.min(most, Math.round(n)));
     // to another project without a folder said: a folder of the project it leaves gives way to the new one's root
@@ -492,6 +494,10 @@ export class Timelines {
         })
         .where("id", "=", id)
         .execute();
+      if (gone.length) {
+        await tx.deleteFrom("clips").where("id", "in", gone).execute();
+        await this.renumber(id, (await this.placed(id, tx)).map((p) => p.clip.id), tx);
+      }
       if (patch.source?.inputs) await this.sameForm(id, null, patch.source.inputs, tx);
       // what it made follows it to its new folder
       if (moved) await timelineMediaFollows(tx, id);
@@ -764,8 +770,17 @@ export class Timelines {
     else if (keys.length) await this.remember(clip.timeline_id, labelOf(patch));
 
     const { animate, trims, order, mirror } = checked;
+    // switched to a model of another family than the clip before's, it starts on its own: a Cut, the default across two
+    // models (Extend stays possible, set on the join after, with its warning). The clip after, carrying on from it into
+    // another family, is made a cut likewise. Left as it was, it was handed the clip before with H3's run-up, whatever its model
+    const at = all.findIndex((p) => p.clip.id === clip.id);
+    const modelOf = (p: Placed | undefined) => (p?.clip.kind === "video" && p.clip.recipe_id ? this.registry.recipe(p.clip.recipe_id) : undefined);
+    const switched = patch.recipe && patch.recipe !== clip.recipe_id ? this.registry.recipe(patch.recipe) : undefined;
+    const cutHere = Boolean(switched) && patch.joined === undefined && clip.joined === "continue" && at > 0 && modelsDiffer(modelOf(all[at - 1]), switched);
+    const next = at >= 0 ? all[at + 1] : undefined;
+    const cutNext = switched && next?.clip.joined === "continue" && modelsDiffer(switched, modelOf(next)) ? next : undefined;
     // a window of a source made a cut, or made to carry on again: its part of the driving video moves by the frames carried
-    const joined = patch.joined ?? (patch.transition ? "cut" : undefined);
+    const joined = patch.joined ?? (patch.transition || cutHere ? "cut" : undefined);
     const runUp = joined && joined !== clip.joined && !animate
       ? windowRunUp(this.registry.recipe(patch.recipe ?? clip.recipe_id ?? ""), patch.inputs ?? (JSON.parse(clip.inputs) as Record<string, unknown>), joined)
       : null;
@@ -776,7 +791,7 @@ export class Timelines {
         .set({
           ...(patch.recipe !== undefined ? { recipe_id: patch.recipe } : {}),
           ...(inputs !== undefined ? { inputs: JSON.stringify(inputs) } : {}),
-          ...(patch.joined !== undefined ? { joined: patch.joined } : patch.transition ? { joined: "cut" as const } : {}),
+          ...(patch.joined !== undefined ? { joined: patch.joined } : patch.transition || cutHere ? { joined: "cut" as const } : {}),
           ...(patch.transition !== undefined ? { transition: transitionJson(patch.transition) } : {}),
           ...(patch.take !== undefined ? { take_id: patch.take } : {}),
           ...(patch.soundAsset !== undefined ? { sound_asset_id: patch.soundAsset, sound: patch.sound ?? (patch.soundAsset ? "file" : "own") } : patch.sound !== undefined ? { sound: patch.sound } : {}),
@@ -799,6 +814,10 @@ export class Timelines {
       if (patch.soundAsset) await this.keep(patch.soundAsset, tx);
       // a window of the source's: its Picture changed is the source's and every window's (the same person in every one)
       if (patch.inputs !== undefined) await this.sameForm(clip.timeline_id, clip, patch.inputs, tx);
+      if (cutNext) {
+        const moved = windowRunUp(modelOf(cutNext), JSON.parse(cutNext.clip.inputs) as Record<string, unknown>, "cut");
+        await tx.updateTable("clips").set({ joined: "cut", ...(moved ? { inputs: JSON.stringify(moved) } : {}), updated_at: now() }).where("id", "=", cutNext.clip.id).execute();
+      }
     });
     // a picture pinned on the clip: the timeline takes its folder, as a drop would (within the step just kept)
     if (checked.pinnedNow) {

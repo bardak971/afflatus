@@ -79,6 +79,25 @@ export function patchedSource(before: SourcePlan | null, patch: NonNullable<Sour
   return next;
 }
 
+/**
+ * The clips a source made: those whose model takes a driving video window by window and whose driving video is the
+ * source's. Removing the source takes them with it (one step for Undo), rendered or not: a window's take only means
+ * something as a part of that source. The clip a stretch was taken from (an imported video) is not one of them.
+ */
+export function clipsOfSource(plan: Pick<SourcePlan, "asset">, clips: Array<{ id: string; recipe_id: string | null; inputs: string }>, recipeOf: (id: string) => Recipe<any> | undefined): string[] {
+  return clips.flatMap((c) => {
+    const recipe = c.recipe_id ? recipeOf(c.recipe_id) : undefined;
+    const driving = recipe?.traits?.windows ? recipe.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window) : undefined;
+    if (!driving) return [];
+    try {
+      const value = (JSON.parse(c.inputs) as Record<string, unknown>)[driving.id] as { asset?: unknown } | undefined;
+      return value?.asset === plan.asset ? [c.id] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
 /** A recipe that takes a source window by window, with how it takes it. */
 export function windowsOf(recipe: Recipe<any> | undefined) {
   const w = recipe?.traits?.windows;

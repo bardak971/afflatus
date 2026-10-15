@@ -433,6 +433,22 @@ export function secondsOf(specs: InputSpec[], values: Record<string, unknown>): 
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/**
+ * How long a clip of this form will be before it is rendered, in seconds: its length input, else the part of a video or a
+ * sound it is made from (a Motion transfer window's driving video, a Lip sync clip's recording), which sets its length.
+ * Null when neither says. A window carrying on from the clip before plays a few frames less than its part; close enough
+ * to place a clip not made yet.
+ */
+export function plannedSeconds(specs: InputSpec[], values: Record<string, unknown>): number | null {
+  const own = secondsOf(specs, values);
+  if (own !== null) return own;
+  for (const i of specs) {
+    const part = (i.type === "clip" || i.type === "audio") && i.window ? Number(values[i.window.seconds]) : NaN;
+    if (Number.isFinite(part) && part > 0) return part;
+  }
+  return null;
+}
+
 /** A form's values without the 0s older drafts saved for "the recipe picks it" (`oldZero`): those settings are left alone. */
 export function withoutOldZeros(specs: readonly InputSpec[], values: Record<string, unknown>): Record<string, unknown> {
   const old = new Set(specs.filter((s) => s.type === "number" && s.oldZero).map((s) => s.id));

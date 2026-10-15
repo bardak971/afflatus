@@ -347,6 +347,9 @@ describe.skipIf(!ffmpegThere)("a timeline", { timeout: FFMPEG_TIMEOUT }, () => {
     const wf = (await post(t.app, "/api/workflows", { title: "Picture to video", model: "Wan 2.2", source: "wan.json", graph: found.graph, bindings: found.suggested })).json();
     const { id } = await twoClips();
     const c = (await call("POST", `/api/timelines/${id}/clips`, { recipe: wf.id })).clip;
+    // another model than the clips before: a Cut by default; extended on purpose, it opens on their last frame
+    expect((await view(id)).clips[2].joined).toBe("cut");
+    await call("PATCH", `/api/clips/${c}`, { joined: "continue" });
     await call("POST", `/api/timelines/${id}/render`, { clips: [{ id: c, input: { prompt: "She waves." } }] });
     await finish(three!, 3);
     expect(fake.uploads.filter((u) => u.endsWith(".png"))).toHaveLength(1);

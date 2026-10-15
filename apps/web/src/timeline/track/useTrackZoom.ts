@@ -13,12 +13,14 @@ export interface TrackKeys {
  * editor's - and =, filled into `keys`), Fit all (Shift+Z). The whole timeline is fitted on arriving and when a clip is
  * added; a track showing the whole of it keeps doing so at any width, until it is zoomed by hand.
  */
-export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, clock, cursorMs, timelineId, clipCount, keys }: {
+export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clock, cursorMs, timelineId, clipCount, keys }: {
   scroller: RefObject<HTMLDivElement | null>;
   pps: number;
   onZoom(pps: number): void;
   slots: Slot[];
   totalMs: number;
+  /** What Fit all brings into view: the clips, and the source with the windows still to make when they reach further. */
+  fitMs: number;
   clock: Clock;
   cursorMs: number | null;
   timelineId: string;
@@ -61,9 +63,9 @@ export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, clock, cur
 
   const fitAll = () => {
     const room = (scroller.current?.clientWidth ?? 800) - NEW_CLIP - PAD * 3 - 40;
-    if (totalMs <= 0) return;
+    if (fitMs <= 0) return;
     whole.current = true;
-    onZoom(Math.max(ZOOM.least, Math.min(ZOOM.most, room / (totalMs / 1000))));
+    onZoom(Math.max(ZOOM.least, Math.min(ZOOM.most, room / (fitMs / 1000))));
   };
   /** One zoom step out (-1) or in (1) around the playhead: it stays where it is on screen (brought to the middle when it was out of view). */
   const zoomAtHead = (by: -1 | 1) => {
@@ -81,7 +83,7 @@ export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, clock, cur
   // arriving on a timeline, the whole of it is in view; zooming after that is the person's
   const fittedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (totalMs <= 0 || fittedFor.current === timelineId) return;
+    if (fitMs <= 0 || fittedFor.current === timelineId) return;
     // marked done only once it has run: a frame cancelled (the length settling a render later) asks again
     const id = requestAnimationFrame(() => {
       fittedFor.current = timelineId;
@@ -90,7 +92,7 @@ export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, clock, cur
     return () => cancelAnimationFrame(id);
     // once per timeline, when its length is known
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per timeline, when its length is known
-  }, [timelineId, totalMs]);
+  }, [timelineId, fitMs]);
   // a clip added (New clip, a drop, a continuation): the whole timeline in view again, the new clip with it
   // (kept asked for until it has run: the new clip's length may settle a render later)
   // the new clip's panel opens beside the track as it is added and narrows it: a fit just made is made again for the new
@@ -108,13 +110,13 @@ export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, clock, cur
     seen.observe(el);
     return () => seen.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- watched again only when the length changes; fitAll reads the latest through refs
-  }, [totalMs]);
+  }, [fitMs]);
   const counted = useRef(clipCount);
   const fitAsked = useRef(false);
   useEffect(() => {
     if (clipCount > counted.current) fitAsked.current = true;
     counted.current = clipCount;
-    if (!fitAsked.current || totalMs <= 0) return;
+    if (!fitAsked.current || fitMs <= 0) return;
     const id = requestAnimationFrame(() => {
       fitAsked.current = false;
       fitAll();
@@ -122,6 +124,6 @@ export function useTrackZoom({ scroller, pps, onZoom, slots, totalMs, clock, cur
     });
     return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fitted when clips come or go or the length changes, not when fitAll is made anew
-  }, [clipCount, totalMs]);
+  }, [clipCount, fitMs]);
   return { zoomTo, fitAll };
 }

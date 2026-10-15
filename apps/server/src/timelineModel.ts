@@ -1,5 +1,5 @@
 import type { EventEmitter } from "node:events";
-import { chunkAtOrAfter, clipMusicOf, follows, joinFade as fadeOf, landsOn, MODEL_FPS, secondsOf, transitionOf, type ClipMusic, type JoinTake, type Recipe, type Transition } from "@afflatus/core";
+import { chunkAtOrAfter, clipMusicOf, follows, joinFade as fadeOf, landsOn, MODEL_FPS, plannedSeconds, transitionOf, type ClipMusic, type JoinTake, type Recipe, type Transition } from "@afflatus/core";
 import type { Db, Tables } from "./db";
 import type { Registry } from "./registry";
 import type { Storage } from "./storage";
@@ -174,7 +174,7 @@ export const lengthOf = (p: Placed) => (p.clip.kind === "still" ? (p.still ? p.c
 export const plannedLengthOf = (p: Placed, recipe: Recipe<any> | undefined) => {
   const plays = lengthOf(p);
   if (plays > 0) return plays;
-  return Math.max(1000, ((recipe ? secondsOf(recipe.inputs, JSON.parse(p.clip.inputs) as Record<string, unknown>) : null) ?? 5) * 1000);
+  return Math.max(1000, ((recipe ? plannedSeconds(recipe.inputs, JSON.parse(p.clip.inputs) as Record<string, unknown>) : null) ?? 5) * 1000);
 };
 
 /**

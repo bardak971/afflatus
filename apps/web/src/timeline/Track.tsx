@@ -149,6 +149,9 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   const end = Math.max(clipsEnd, toCome);
   const totalMs = Math.max(slots.length ? slots.at(-1)!.startMs + slots.at(-1)!.lengthMs : 0, sourceMode && sourcePlace ? sourcePlace.atMs + sourcePlace.lengthMs : 0);
   const width = Math.max(end, sourceEnd) + NEW_CLIP + PAD * 2 + 40;
+  // what Fit all shows: the clips, the source under them and the windows still to make, its panel open or not
+  const toComeMs = sourcePlace && !sourcePlace.made && !sourcePlace.replaces && sourcePlace.windows.length ? sourcePlace.atMs + sourcePlace.windows.at(-1)!.toMs : 0;
+  const fitMs = Math.max(totalMs, toComeMs, sourcePlace ? sourcePlace.atMs + sourcePlace.lengthMs : 0);
   const xOf = (clientX: number) => clientX - (inner.current?.getBoundingClientRect().left ?? 0);
 
   const { over, dragging, draggedOf, hover, overClip, overJoin, drop, hint, legend, lineAt, leave } = useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic, onTransition: onTransition ? (clip, kind) => onTransition(clip, newTransition(kind)) : undefined, onSource });
@@ -156,7 +159,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   // ---- the range: In and Out, swept on the ruler with Shift, or dragged by their brackets; they snap to cuts, to the playhead and to quiet moments
   const { playEnd, measureOf, motion, snapRange, band, rangeMenuAt } = useRangeDrag({ slots, clips, timeline, pps, clock, snapQuiet, range, xOf, onRangeMenu });
 
-  const { zoomTo, fitAll } = useTrackZoom({ scroller, pps, onZoom, slots, totalMs, clock, cursorMs, timelineId: timeline.id, clipCount: clips.length, keys });
+  const { zoomTo, fitAll } = useTrackZoom({ scroller, pps, onZoom, slots, totalMs, fitMs, clock, cursorMs, timelineId: timeline.id, clipCount: clips.length, keys });
 
   // what the clips do when pressed: read when it happens, so that a clip draws again only when what it shows changes
   const acts = useRef<TrackClipActs>(null!);
