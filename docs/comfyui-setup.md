@@ -50,7 +50,7 @@ Every built-in form runs on ComfyUI's own nodes first. Some forms and options ne
 
 | Pack | What it unlocks |
 |---|---|
-| **afflatus-nodes**, Afflatus's own (MIT, in [comfy-nodes](../comfy-nodes)) | MiniMax H3 clips that carry on from the clip before's own latent: seamless joins on the timeline, landings on the clip after, the H3 latent re-sample finish. Reading model headers through ComfyUI. Downloads into a ComfyUI on another machine (0.11.0) |
+| **afflatus-nodes**, Afflatus's own (MIT, in [comfy-nodes](../comfy-nodes)) | MiniMax H3 clips that carry on from the clip before's own latent: seamless joins on the timeline, landings on the clip after, the H3 latent re-sample finish. Reading model headers through ComfyUI. Downloads into a ComfyUI on another machine (0.11.0). The lock (0.12.0), the watchdog of a rented pod (0.13.0), uploads to a pod (0.14.0). Face likeness figures: Face Match (0.16.0) and Face At (0.17.0), see below. The GPU's power for this PC's electricity (0.18.0). A pod's disk and room made on it (0.19.0) |
 | [ComfyUI-Manager](https://github.com/Comfy-Org/ComfyUI-Manager) | Installing the packs an imported workflow needs; downloads when neither Afflatus nor its node pack can write ComfyUI's model folders |
 | [Comfyui-MMH3-UltimateUpscale](https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale) | H3's latent re-sample: the "Latent: re-sampled" upscale and the H3 finish route |
 | [ComfyUI-DaSiWa-Nodes](https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes) | H3's step cache; the RTX upscaler and refiner node |
@@ -65,6 +65,10 @@ Every built-in form runs on ComfyUI's own nodes first. Some forms and options ne
 The list is kept in [`packages/core/src/packs.ts`](../packages/core/src/packs.ts).
 
 Models rather than packs: a **RIFE** model in `models/frame_interpolation` for 48 fps video and slow motion, and **SeedVR2**'s two files for the restoring upscale and finish.
+
+### Face likeness figures
+
+The face figures (the picture for motion transfer ranked by likeness, faces along a timeline, the drift warning) need InsightFace in ComfyUI's own Python, which the pack does not install: in ComfyUI's environment run `pip install insightface onnxruntime` (`onnxruntime-gpu` works too), then restart ComfyUI. Without it the figures are left out and everything else works. The first face scored fetches InsightFace's buffalo_l models into `models/insightface`; they are licensed for non-commercial research only. Afflatus's pod image has InsightFace already. For this PC's electricity, `pip install nvidia-ml-py` lets the pack read the GPU's power (else it asks `nvidia-smi`).
 
 ## Models
 

@@ -12,13 +12,15 @@ colour and voice at the join).
 | Afflatus: Load H3 Latent | Reads such a file back, from an upload or the input folder. |
 | Afflatus: Normalize H3 Latent | Rounds a sampled window's audio to its own frame boundary, so the window is a valid clip to continue from. |
 | Afflatus: Trim H3 Latent | Keeps a latent's first frames (a count on the 17k + 5 grid), video and audio: a clip handed over before its end is continued from there. |
-| Afflatus: H3 Tail Guide | The clip before's tail as the frame-zero guide: its last decoded frames re-encoded by the VAE for the picture, its exact latent for the sound. Without frames, the exact latent tail guide. Deprecated: Afflatus no longer uses it; kept for graphs that name it, removed in the release after Afflatus 0.4.0. |
+| Afflatus: H3 Tail Guide | The clip before's tail as the frame-zero guide: its last decoded frames re-encoded by the VAE for the picture, its exact latent for the sound. Without frames, the exact latent tail guide. Deprecated: Afflatus no longer uses it; kept for graphs that name it. |
 | Afflatus: H3 Latent Head Guide | Anchors the clip after's first tokens at the end of the window: the clip lands exactly where the clip after begins. |
 | Afflatus: H3 Latent Landing | The same from where any of the clip after's 17-frame chunks begins: a clip lands inside another, on time. |
 | Afflatus: H3 Seam Latent | A continuation's new tokens after the clip before's own last ones, to decode the two as one piece: the join then matches the whole chain decoded at once. |
+| Afflatus: Face Match | How alike the faces of pictures or a clip's frames are to a person's pictures (InsightFace buffalo_l, on the CPU). Registered only when `insightface` is installed in ComfyUI's Python. |
+| Afflatus: Face At | The same for the person at a place in a frame (the one put in where someone stood), and how many copies of them it finds. Also needs `insightface`. |
 | MiniMax H3 Guided Continuation Window | Allocates the continuation target: a hidden overlap of the previous latent's tail plus the new frames. |
 | MiniMax H3 Latent Tail Guide | Conditions the target on the previous latent's tail, video and audio, with no VAE round trip. |
-| MiniMax H3 Append Continuation | Drops the hidden overlap and appends only the new tokens to the previous latent. Deprecated (0.11.2): Afflatus joins with Seam Latent instead; removed in the release after Afflatus 0.4.0. |
+| MiniMax H3 Append Continuation | Drops the hidden overlap and appends only the new tokens to the previous latent. Deprecated (0.11.2): Afflatus joins with Seam Latent instead; kept for graphs that name it. |
 
 The last three are the MIT-licensed continuation nodes of ttulttul's
 [ComfyUI-Minimax-H3-Continuation](https://github.com/ttulttul/ComfyUI-Minimax-H3-Continuation), vendored
@@ -58,10 +60,13 @@ With the pack loaded, ComfyUI answers:
   volume, which keeps nothing when stopped), it terminates the pod instead.
 - `GET` and `POST /afflatus/lock`, `POST /afflatus/unlock`, `POST /afflatus/login-code`, `/afflatus/login` (0.12.0):
   the lock. Once Afflatus locks a ComfyUI (Settings → ComfyUI → Access), every route of its server needs the machine's
-  token: `Authorization: Bearer <token>`, `?token=` on the websocket, or the cookie the login page sets. The lock is kept
+  token: `Authorization: Bearer <token>` (Afflatus sends it so on the websocket too), `?token=` on the websocket for other tools, or the cookie the login page sets. The lock is kept
   as the token's hash in `afflatus-lock.json` in ComfyUI's user folder; nothing is locked until Afflatus locks it.
   `AFFLATUS_TOKEN=<token>` locks it from its start. **To take the lock off by hand,** delete `afflatus-lock.json`, or
   start ComfyUI with `AFFLATUS_LOCK=off`.
+
+- `GET /afflatus/power` (0.18.0): the GPU's power draw in watts (NVML through `nvidia-ml-py`, else `nvidia-smi`), for this PC's electricity; null where neither reads it.
+- `GET /afflatus/disk` and `POST /afflatus/models/remove` (0.19.0): the disk the model folders are on (bytes free and in all), and a model file taken off it to make room on a rented pod.
 
 ## Install
 

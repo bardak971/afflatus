@@ -27,7 +27,7 @@ You keep ComfyUI, your models and your node packs. Afflatus is one small server 
 - **Your own workflows, as forms.** Drop in a ComfyUI workflow file: Afflatus keeps the controls its author put forward and names the node packs and model files you are missing.
 - **Every render remembered.** Each picture and clip keeps the exact settings it was made with. Open any of them, change one thing, render again.
 - **Tools on any picture or video.** Inpaint, outpaint, edit by instruction, fix faces and hands, upscale, remove a background, guide a pose or depth with ControlNet; trim a video or a sound, save a frame, take the sound out or remove it.
-- **Picture to video, and motion transfer.** Press **M** on a picture to make it move, pinned to a first frame, a last frame or a keyframe in between. Press **Shift+M** to move it like a video instead: SCAIL-2 or Wan Animate 2 copy the body, hands and mouth of the people in a driving video, and keep your picture's room and light.
+- **Picture to video, and motion transfer.** Press **M** on a picture to make it move, pinned to a first frame, a last frame or a keyframe in between. Press **Shift+M** to move it like a video instead: SCAIL-2 copies the body, hands and mouth of the people in a driving video, and keep your picture's room and light.
 - **Lip sync.** MiniMax H3 makes a new shot around a recording: the mouth follows it, and the recording is the clip's sound.
 
 **Film**
@@ -54,7 +54,7 @@ You keep ComfyUI, your models and your node packs. Afflatus is one small server 
 You need **ComfyUI** running somewhere (a clone, the portable build or the desktop app) and any card ComfyUI runs on, or a RunPod account. Afflatus does not install ComfyUI on your PC.
 
 1. **Download and start.** Grab the bundle for your system from the [releases page](https://github.com/bardak971/afflatus/releases), unpack it and run `Afflatus.bat` (Windows) or `afflatus.sh` (Linux, macOS) in the `Afflatus` folder it holds. Your browser opens on `http://127.0.0.1:8720`.
-2. **Connect ComfyUI.** In **Settings → ComfyUI**, enter its address (`http://127.0.0.1:8188` on the same machine) and save. Give it ComfyUI's folder too, so Afflatus can install its small node pack; then press **Lock it** on the Access line, so that only Afflatus can use that ComfyUI.
+2. **Connect ComfyUI.** In **Settings → ComfyUI**, enter its address (`http://127.0.0.1:8188` on the same machine) and save. Give it ComfyUI's folder too, so Afflatus can install its small node pack; restart ComfyUI so it loads the pack, then press **Lock it** on the Access line, so that only Afflatus can use that ComfyUI.
 3. **Get a model.** **Settings → Models** shows, for each model family, what is ready and what is missing, file by file. Press **Download** and the files go straight into ComfyUI's model folders, or open **Find models…** to pick from Civitai and Hugging Face.
 4. **Make a picture.** Open the **Studio**, press **N** for the form, pick a model, write a prompt and press **Ctrl+Enter**. It lands in your library with everything it was made with.
 5. **Make it move.** Open the picture, press **M**, describe the motion and render. Then drop clips on a **Timeline** to build a film.
@@ -110,7 +110,7 @@ Hover a clip, or open its takes, and you see how clean each join is and how its 
 
 ### Motion transfer and lip sync
 
-Give a picture a video's motion: pick a driving video (a dance, a walk, someone talking) and the picture that should move. **SCAIL-2** takes up to 20 seconds of it in one job and pairs several people of the picture with those of the video; **Wan Animate 2** works at the video's own pace, 24 frames a second, in 3.3-second windows. No picture yet? Afflatus makes one from the video's frame with the people you give it (Qwen Image 2.1 puts them in and relights them), three at a time, ranked by how alike the face is.
+Give a picture a video's motion: pick a driving video (a dance, a walk, someone talking) and the picture that should move. **SCAIL-2** takes up to 20 seconds of it in one job and pairs several people of the picture with those of the video. No picture yet? Afflatus makes one from the video's frame with the people you give it (Qwen Image 2.1 puts them in and relights them), three at a time, ranked by how alike the face is.
 
 **Lip sync** turns a recording into a new MiniMax H3 shot: pick the part on its waveform, its ends snapping to the pauses, describe the scene, and the mouth follows the words.
 
@@ -165,12 +165,11 @@ These come with a ready-made form. Anything else, bring in as a workflow.
 | Wan 2.2 | | video |
 | LTX 2.3 | | video with sound: text, first and last frames, a keyframe in between |
 | SCAIL-2 | on Wan 2.1 14B | motion transfer: up to 20 s a job, several people, 16 fps (RIFE ×2 on) |
-| Wan Animate 2 | on Wan 2.1 14B | motion transfer at the video's pace: 24 fps, 3.3 s a window |
 | Image tools | SeedVR2, background removal | restore and upscale, remove the background |
 
 Each family starts on its model authors' own settings, and the Prompt kit ships presets for the official releases and for DaSiWa's fine-tunes. The default files are ComfyUI's own releases on Hugging Face. Some options need a custom node pack or a recent ComfyUI; when something is missing, Afflatus tells you what and how to get it ([the list](docs/comfyui-setup.md#node-packs)).
 
-**Model licences.** The models are other people's work under their own licences, which you accept when you download them. The shipped presets bundle nothing; each shows its licence and asks you to accept it once. Read them: several are community licences with limits on commercial use, and **MiniMax H3's licence does not grant its use in the European Union, the United Kingdom, South Korea or the United States** (its "Excluded Territories"). It also asks that machine-made content shown in public be disclosed as such: Afflatus marks a render's PNG pictures and its videos when you download or export them (IPTC's "trained algorithmic media" and an "AI-generated (Afflatus)" comment).
+**Model licences.** The models are other people's work under their own licences, which you accept when you download them. The shipped presets bundle nothing; each shows its licence and asks you to accept it once. Read them: several are community licences with limits on commercial use, and **MiniMax H3's licence does not grant its use in the European Union, the United Kingdom, South Korea or the United States** (its "Excluded Territories"). It also asks that machine-made content shown in public be disclosed as such: Afflatus marks a render's PNG pictures and its videos when you download or export them (IPTC's "trained algorithmic media" and an "AI-generated (Afflatus)" comment). The face likeness figures use InsightFace's buffalo_l models, licensed for non-commercial research only.
 
 ## What leaves your computer
 
@@ -211,10 +210,11 @@ Afflatus is under [AGPL-3.0](LICENSE). Its node pack for ComfyUI in [comfy-nodes
 
 You are responsible for what you make with Afflatus, and for following the law where you live, the licences of the models you use and the terms of any GPU provider you rent from.
 
-- [ComfyUI](https://github.com/Comfy-Org/ComfyUI), which does all the rendering, and Comfy-Org's repackaged releases of the models it runs, among them zai-org's SCAIL-2, Wan Animate 2 and SAM 3.1.
+- [ComfyUI](https://github.com/Comfy-Org/ComfyUI), which does all the rendering, and Comfy-Org's repackaged releases of the models it runs, among them zai-org's SCAIL-2 and SAM 3.1.
 - The node pack vendors the MIT continuation nodes of ttulttul's [ComfyUI-Minimax-H3-Continuation](https://github.com/ttulttul/ComfyUI-Minimax-H3-Continuation), with one small change (a guarded import).
 - The authors of the node packs listed in [ComfyUI setup](docs/comfyui-setup.md#node-packs), and Kijai for the lightx2v LoRA the motion-transfer forms run on.
 - The shipped presets point at the official model releases (Krea, MiniMax, Wan, Lightricks, Black Forest Labs, Qwen, Tongyi) on Hugging Face; each names its maker and its licence. Nothing of theirs is bundled.
 - [Darksidewalker](https://civitai.com/user/Darksidewalker) (DaSiWa, [GitHub](https://github.com/darksidewalker)), whose fine-tunes of MiniMax H3, Krea 2, LTX 2.3 and Wan 2.2 ship as presets, his recommended settings set per version and the files fetched from his Civitai pages; and whose [ComfyUI-DaSiWa-Nodes](https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes) Afflatus uses.
+- [InsightFace](https://github.com/deepinsight/insightface), whose buffalo_l face models give the face likeness figures; not bundled: they are fetched from InsightFace's own release the first time a face is scored.
 - The ffmpeg builds in the Windows and Linux bundles are the LGPL builds by [BtbN](https://github.com/BtbN/FFmpeg-Builds).
 - Every release carries `THIRD_PARTY_NOTICES.txt`: the npm packages and fonts it ships, with their licences.
