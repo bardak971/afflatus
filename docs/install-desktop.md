@@ -48,11 +48,11 @@ Update and Go back are done on the computer Afflatus runs on: another computer o
 
 ## Coming from 0.3.0
 
-A 0.3.0 bundle keeps its library inside its own folder, so 0.4.0 is the one download done by hand:
+A 0.3.0 bundle keeps its library inside its own folder, so the step from it is the one download done by hand (the latest release; updates come in the app after it):
 
 1. Close Afflatus 0.3.0.
-2. Unpack 0.4.0 **beside** the 0.3.0 folder, not into it. Both straight in one folder, or each in a folder of its own name as Windows' Extract All does, are found: `Downloads\afflatus-v0.3.0-win-x64\…\data` beside `Downloads\afflatus-v0.4.0-win-x64\Afflatus`.
-3. Start 0.4.0. While its own library is still empty it offers to **bring your library from Afflatus 0.3.0**, and says what that library holds (items, timelines, drafts, size). **Bring it over** moves its `data` folder into the new `Afflatus` folder (a rename on the same disk, no second copy) and restarts; its settings, the Prompt kit and your linked folders come with it. **Start empty** leaves it where it is.
+2. Unpack the new version **beside** the 0.3.0 folder, not into it. Both straight in one folder, or each in a folder of its own name as Windows' Extract All does, are found: `Downloads\afflatus-v0.3.0-win-x64\…\data` beside `Downloads\afflatus-v0.5.0-win-x64\Afflatus`.
+3. Start it. While its own library is still empty it offers to **bring your library from Afflatus 0.3.0**, and says what that library holds (items, timelines, drafts, size). **Bring it over** moves its `data` folder into the new `Afflatus` folder (a rename on the same disk, no second copy) and restarts; its settings, the Prompt kit and your linked folders come with it. **Start empty** leaves it where it is.
 4. Once your library is there, the 0.3.0 folder can be deleted.
 
 When the two are on different disks, or `DATA_DIR` is set, nothing is moved for you: with Afflatus stopped, move the old `data` folder into `Afflatus` yourself (or point `DATA_DIR` at it).

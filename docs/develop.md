@@ -54,6 +54,8 @@ Three read-only scripts talk to a ComfyUI: `comfy:scan <url>` (what is ready), `
 
 ## Releasing
 
+Before the tag: the version in the root `package.json` (what an install from the sources says it is) and in `chart/Chart.yaml` (`version` and `appVersion`: the chart runs that image), the CHANGELOG's `[Unreleased]` turned into the version and its date with its compare link, and `main` pushed first (the node pack is linked from `main`). The `AFFLATUS_RELEASE_KEY` secret signs the release's checksums; without it the release has no signature and the in-app updater refuses it.
+
 A release is a tag:
 
 ```
@@ -65,8 +67,8 @@ git push origin v0.2.0
 
 To build what a release holds on your own machine: `node scripts/release/stage.mjs` stages the app under `release/app` (with a `package-lock.json` of the whole dependency tree, which the image and the bundles then install with `npm ci`, and `THIRD_PARTY_NOTICES.txt`, every package that ships with its licence), and `node scripts/release/bundle.mjs --platform win-x64` (or `linux-x64`, `darwin-arm64`) packs it with a Node runtime and ffmpeg into `release/dist/`. The Docker image builds with `docker build -t afflatus .`. A release stages once and hands that `package-lock.json` to the image (`--build-arg AFFLATUS_LOCK=<path in the context>`) and to each bundle (`stage.mjs --lock <file>`), so all of them install the same tree. A tag with a `-` (`v0.3.0-rc.1`) is a pre-release: the GitHub release is marked so and the image's `latest` does not move.
 
-What a bundle carries is pinned at the top of `bundle.mjs`: `NODE_VERSION`, one exact Node release checked against nodejs.org's `SHASUMS256.txt`, and `FFMPEG_TAG`, one dated BtbN autobuild (`autobuild-YYYY-MM-DD-HH-MM`; the ffmpeg 9.0 release-branch build in it, not the master nightly) checked against the release's `checksums.sha256`, or against `scripts/release/checksums.json` when a release has none (`--record` writes the entry the first time; commit it). The script refuses to run without a tag: the rolling "latest" build is never used. Bumping either is a change to those two constants.
+What a bundle carries is pinned at the top of `bundle.mjs`: `NODE_VERSION`, one exact Node release checked against nodejs.org's `SHASUMS256.txt`, and `FFMPEG_TAG`, one dated BtbN autobuild, the last of a month (`autobuild-YYYY-MM-DD-HH-MM`: BtbN keeps a month's last build and deletes the daily ones after about two weeks, which would break a later release; the ffmpeg 9.0 release-branch build in it, not the master nightly) checked against the release's `checksums.sha256`, or against `scripts/release/checksums.json` when a release has none (`--record` writes the entry the first time; commit it). The script refuses to run without a tag: the rolling "latest" build is never used. Bumping either is a change to those two constants.
 
 ## Licence
 
-AGPL-3.0. The node pack is MIT and vendors the MIT nodes of ttulttul's ComfyUI-Minimax-H3-Continuation, with one small change (a guarded import); the ffmpeg builds in the Windows and Linux bundles are BtbN's LGPL builds.
+AGPL-3.0. The node pack is MIT and vendors the MIT nodes of ttulttul's ComfyUI-Minimax-H3-Continuation, with two small changes (a guarded import, Append Continuation marked deprecated); the ffmpeg builds in the Windows and Linux bundles are BtbN's LGPL builds.

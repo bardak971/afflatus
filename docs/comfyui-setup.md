@@ -22,7 +22,7 @@ When ComfyUI is on **another** machine:
 Each missing file in Settings → Models has a **Download** button. Who fetches it depends on where ComfyUI runs:
 
 - **ComfyUI on this machine:** Afflatus downloads the file itself, into the folder ComfyUI lists first for that kind of model (ComfyUI's own list, `extra_model_paths.yaml` included). Two files download at a time. A cut connection is picked up again where it stopped, up to five tries in a row. The free space is checked before, the size (and Hugging Face's SHA-256) after. The file is written as `<name>.part` and renamed once complete, so ComfyUI never lists half a model.
-- **ComfyUI on another machine:** Afflatus's node pack (0.11.0 or newer) downloads it the same way, fetching through Afflatus. Set `PUBLIC_URL` so ComfyUI can reach Afflatus, and restart ComfyUI after the pack is updated.
+- **ComfyUI on another machine:** Afflatus's node pack downloads it there. A file from Civitai or Hugging Face comes straight from them (0.12.0 or newer): Afflatus asks for a signed link with your key and hands the pack only that link. Any other link is fetched through Afflatus, so set `PUBLIC_URL` for ComfyUI to reach it. Restart ComfyUI after the pack is updated.
 - **Otherwise,** ComfyUI-Manager does it (below). It fetches one file at a time, and it holds a file from anywhere but Hugging Face in memory until the end before writing it, so a large one can fail; Afflatus says so before it starts.
 
 Most files on Civitai need an account: paste your Civitai API key in Settings → Models. Afflatus sends it to Civitai only, never to ComfyUI.

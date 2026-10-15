@@ -27,7 +27,7 @@ You keep ComfyUI, your models and your node packs. Afflatus is one small server 
 - **Your own workflows, as forms.** Drop in a ComfyUI workflow file: Afflatus keeps the controls its author put forward and names the node packs and model files you are missing.
 - **Every render remembered.** Each picture and clip keeps the exact settings it was made with. Open any of them, change one thing, render again.
 - **Tools on any picture or video.** Inpaint, outpaint, edit by instruction, fix faces and hands, upscale, remove a background, guide a pose or depth with ControlNet; trim a video or a sound, save a frame, take the sound out or remove it.
-- **Picture to video, and motion transfer.** Press **M** on a picture to make it move, pinned to a first frame, a last frame or a keyframe in between. Press **Shift+M** to move it like a video instead: SCAIL-2 copies the body, hands and mouth of the people in a driving video, and keep your picture's room and light.
+- **Picture to video, and motion transfer.** Press **M** on a picture to make it move, pinned to a first frame, a last frame or a keyframe in between. Press **Shift+M** to move it like a video instead: SCAIL-2 copies the body, hands and mouth of the people in a driving video, and keeps your picture's room and light.
 - **Lip sync.** MiniMax H3 makes a new shot around a recording: the mouth follows it, and the recording is the clip's sound.
 
 **Film**
