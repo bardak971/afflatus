@@ -150,7 +150,7 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
             {r?.idleAt != null ? <IdleLeft at={r.idleAt} /> : r?.status === "RUNNING" && state && gettingFiles(state) && <span className="text-ink-3">· held while its files come</span>}
           </span>
         </Row>
-        {rented.idleDo === "stop" && r && !r.volume && r.status !== "GONE" && (
+        {rented.idleDo === "stop" && r && !r.volume && r.status !== "GONE" && r.status !== "UNKNOWN" && (
           <Block><span className="text-xs text-warn-ink">No volume on this pod: a stop keeps nothing (its container disk is erased), and its GPU can be taken meanwhile. Terminate costs the same and leaves nothing billed.</span></Block>
         )}
         <Row label="Watchdog" help={WHY_WATCH} sub="stops it when this PC goes silent">

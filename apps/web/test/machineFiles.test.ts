@@ -67,6 +67,11 @@ describe("a machine's word while files come", () => {
     expect(machineState(pod([file({ state: "fetching" })], { running: { label: "x" } as MachineState["running"] }))).toBe("rendering");
   });
 
+  it("is checking, never stopped, for a pod RunPod was not read for yet (Afflatus just restarted)", () => {
+    const m = pod([]);
+    expect(machineState({ ...m, rented: { ...m.rented!, status: "UNKNOWN" } })).toBe("checking");
+  });
+
   it("says files for later without \"for its jobs\"", () => {
     const m = local({ files: [file({ file: "set.safetensors", tier: "ahead", state: "fetching", bytes: GB, total: 2 * GB, jobs: [] })] });
     const g = gettingFiles(m)!;

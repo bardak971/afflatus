@@ -371,6 +371,74 @@ describe("a rented machine", () => {
     }
   });
 
+  it("after Afflatus restarts, says its idle time left from its last work as kept, and never says it gone before RunPod is read", async () => {
+    await setKey();
+    const id = await add();
+    await post(t.app, `/api/machines/${id}/start`, {});
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
+    await t.services.rented.poll();
+    // its last work 3 min ago, as kept on its open session
+    const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+    await t.db.updateTable("rent_sessions").set({ started_at: ago(30), up_at: ago(28), busy_at: ago(3) }).where("ended_at", "is", null).execute();
+    t.services.rented.stop();
+    const again = await makeApp({ db: t.db, comfyUrl: home.url });
+    try {
+      again.services.rented.everyMs = 60_000;
+      // not read from RunPod yet: not known, never "GONE"
+      const before = (await again.services.queue.status()).machines.find((m) => m.id === id)?.rented;
+      expect(before?.status).not.toBe("GONE");
+      expect(again.services.rented.podGone(id)).toBe(false);
+      // its first read held where its ComfyUI is asked (a pod's proxy can take seconds): RunPod says it runs from then on,
+      // and its idle time left is said from then too, not only once the read ends
+      const r = again.services.rented as unknown as { alive: (...a: unknown[]) => Promise<boolean> };
+      const alive = r.alive.bind(r);
+      let release = () => {};
+      const held = new Promise<void>((done) => (release = done));
+      r.alive = async (...a) => (await held, alive(...a));
+      const polled = again.services.rented.poll();
+      const rowOf = async () => (await again.services.queue.status()).machines.find((m) => m.id === id)?.rented;
+      await until(async () => (await rowOf())?.status === "RUNNING");
+      const near7 = (ms: number | null | undefined) => ms !== null && ms !== undefined && Math.abs(ms - 7 * 60_000) < 10_000;
+      expect(near7((await rowOf())?.idleLeftMs)).toBe(true);
+      release();
+      await polled;
+      expect(near7((await rowOf())?.idleLeftMs)).toBe(true);
+      // the queue's answer says it as the moment it stops
+      const said = (await get(again.app, "/api/queue")).json().machines.find((m: { id: string }) => m.id === id).rented;
+      expect(near7(said.idleAt - Date.now())).toBe(true);
+    } finally {
+      again.services.rented.stop();
+    }
+  });
+
+  it("after Afflatus restarts with its ComfyUI not answering, keeps its idle time from its last work: never a fresh one", async () => {
+    await setKey();
+    const id = await add();
+    await post(t.app, `/api/machines/${id}/start`, {});
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
+    await t.services.rented.poll();
+    const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+    await t.db.updateTable("rent_sessions").set({ started_at: ago(30), up_at: ago(28), busy_at: ago(3) }).where("ended_at", "is", null).execute();
+    t.services.rented.stop();
+    // its ComfyUI went down meanwhile (or its proxy does not answer at that read)
+    podComfy.down = true;
+    const again = await makeApp({ db: t.db, comfyUrl: home.url });
+    try {
+      again.services.rented.everyMs = 60_000;
+      await again.services.rented.poll();
+      await again.services.rented.poll();
+      const left = (await again.services.queue.status()).machines.find((m) => m.id === id)?.rented?.idleLeftMs;
+      expect(Math.abs((left ?? 0) - 7 * 60_000)).toBeLessThan(10_000);
+      // stopped at its idle time from its last work, not 10 min after the restart
+      const real = Date.now;
+      again.services.rented.now = () => real() + 7.5 * 60_000;
+      await again.services.rented.poll();
+      expect(pod5090().status).toBe("EXITED");
+    } finally {
+      again.services.rented.stop();
+    }
+  });
+
   it("is not removed from Afflatus while it runs (billed, nothing would stop it), and is once stopped", async () => {
     await setKey();
     const id = await add();
