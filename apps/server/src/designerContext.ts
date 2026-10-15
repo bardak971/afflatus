@@ -1,5 +1,5 @@
-import { modelOf, secondsOf, type InputSpec, type LoraValue, type Recipe } from "@afflatus/core";
-import { emptyLook, type Look } from "./entities";
+import { modelOf, secondsOf, type InputSpec, type LoraValue, type Recipe, type ReferenceRole, type ReferenceValue } from "@afflatus/core";
+import { compose, emptyLook, type Look } from "./entities";
 import { madeIn } from "./provenance";
 import type { Services } from "./services";
 
@@ -28,9 +28,22 @@ export interface DesignerContext {
   madeFrom?: Array<{ what: string; steps: Array<{ title: string; with?: string; text: string; more: Array<{ label: string; text: string }>; loras: Array<{ name: string; trigger?: string }> }> }>;
   /** Who is in it, as names with their words: they are added on their own, the designer must not repeat them. */
   cast?: Array<{ name: string; words: string }>;
-  /** The look and mood of the whole video. */
+  /** The look and mood of the whole video: added at the end of the text on its own. */
   mood?: string;
+  /** The ticked style's words, added at the end on their own. */
+  style?: { name: string; words: string };
+  /** The LoRAs in the form. */
   loras?: Array<{ name: string; weight: number; trigger?: string }>;
+  /** The LoRAs the cast and the style add when it is made (their trigger words are among the cast's words already). */
+  kitLoras?: Array<{ name: string; from: string }>;
+  /**
+   * The reference pictures the model is given, the form's own and the cast's, by their number in the model's
+   * list of pictures (`first`: 2 when the picture being changed is the first), and whether Afflatus writes
+   * what each one is itself (MiniMax H3's layout) or the text has to point at them.
+   */
+  pictures?: { first: number; introduced: boolean; list: Array<{ role: ReferenceRole; whose: string | null }> };
+  /** The voice sample it speaks with: whose, or null for one picked in the form. */
+  voice?: { whose: string | null };
   /** Bits of text the user ticked: they are added after the main text on their own. */
   snippets?: Array<{ name: string; text: string }>;
   /** The model makes the sound too: people can speak in the clip. */
@@ -51,18 +64,31 @@ const shortName = (file: string) => (file.split(/[\\/]/).pop() ?? file).replace(
  * how its pictures and the clip it carries on from were made, the LoRAs with their trigger words.
  */
 export function designerContext(s: Services) {
-  /** Who is in it, with their words in the form the recipe's main text is written in. */
-  async function castOf(recipe: Recipe<any>, look: Look | null | undefined) {
-    if (emptyLook(look)) return [];
-    const rows = await s.db.selectFrom("entities").selectAll().where("id", "in", look!.cast.map((c) => c.id)).execute();
-    const tags = boxesOf(recipe).find((b) => !b.optional)?.style === "tags";
-    return look!.cast.flatMap((member) => {
-      const row = rows.find((r) => r.id === member.id);
-      if (!row) return [];
-      const d = JSON.parse(row.def) as { tags?: string; sentence?: string; outfits?: Array<{ id: string; tags: string; sentence: string }> };
-      const worn = d.outfits?.find((o) => o.id === member.outfit);
-      return [{ name: row.name, words: [tags ? d.tags : d.sentence, tags ? worn?.tags : worn?.sentence].filter(Boolean).join(tags ? ", " : " ") }];
-    });
+  /**
+   * What the cast, the style and the ticked snippets add when it is made, read from compose itself: the designer is
+   * told the very words, LoRAs, pictures and voice that will be sent, so it neither writes them again nor fights them.
+   */
+  async function kitOf(recipe: Recipe<any>, values: Record<string, unknown>, look: Look | null | undefined) {
+    const specs = recipe.inputs as InputSpec[];
+    const refSpec = specs.find((i) => i.type === "references" && !i.media);
+    const voiceSpec = specs.find((i) => i.type === "audio" && i.role === "voice");
+    const { input, added } = emptyLook(look) ? { input: values, added: null } : await compose(s.db, recipe, values, look);
+    const words = (kinds: string[]) => (added?.words ?? []).filter((w) => kinds.includes(w.kind));
+    const style = words(["style"])[0];
+    const refs = refSpec && Array.isArray(input[refSpec.id]) ? (input[refSpec.id] as ReferenceValue[]) : [];
+    const whose = new Map((added?.refs ?? []).map((r) => [r.asset, r.from]));
+    // the picture being changed comes first in the model's list (Klein's edits, Qwen's edit)
+    const source = specs.some((i) => i.type === "image" && i.role === "source" && typeof values[i.id] === "string");
+    const voice = voiceSpec ? input[voiceSpec.id] : undefined;
+    return {
+      cast: words(["person", "place"]).map((w) => ({ name: w.from, words: w.text })),
+      style: style ? { name: style.from, words: style.text } : undefined,
+      kitLoras: (added?.loras ?? []).map((l) => ({ name: shortName(l.file), from: l.from })),
+      pictures: refs.length ? { first: source ? 2 : 1, introduced: specs.some((i) => i.type === "prompt" && i.holds === "subject"), list: refs.map((r) => ({ role: r.role, whose: whose.get(r.asset) ?? null })) } : undefined,
+      voice: typeof voice === "string" && voice ? { whose: added?.voice ?? null } : undefined,
+      // with references or a voice the model takes the reference way, which has no last frame (MiniMax H3)
+      endDropped: Boolean(added?.endDropped) || (Boolean(refSpec) && specs.some((i) => i.type === "image" && i.role === "end") && (refs.length > 0 || (typeof voice === "string" && Boolean(voice)))),
+    };
   }
 
   /** The picture a form opens on, small, as something a language model that reads pictures can be shown. */
@@ -135,6 +161,7 @@ export function designerContext(s: Services) {
     const loraSpec = specs.find((i) => i.type === "loras");
     const loras = loraSpec && Array.isArray(values[loraSpec.id]) ? (values[loraSpec.id] as LoraValue[]) : [];
     const trigger = await triggersOf(loras.map((l) => l.file));
+    const kit = await kitOf(recipe, values, extra.look);
     const ticked = extra.look?.snippets?.length ? await s.db.selectFrom("entities").select(["id", "name", "def"]).where("kind", "=", "snippet").where("id", "in", extra.look.snippets).execute() : [];
     return {
       values: text,
@@ -143,10 +170,14 @@ export function designerContext(s: Services) {
       previous: extra.previous ?? (await carriedOn(recipe, values)),
       story: extra.story,
       opensOnPicture: has("start"),
-      endsOnPicture: has("end"),
+      endsOnPicture: has("end") && !kit.endDropped,
       madeFrom: await madeFrom(recipe, values),
-      cast: await castOf(recipe, extra.look),
+      cast: kit.cast,
       mood: extra.mood,
+      style: kit.style,
+      kitLoras: kit.kitLoras,
+      pictures: kit.pictures,
+      voice: kit.voice,
       loras: loras.filter((l) => l.weight !== 0).map((l) => ({ name: shortName(l.file), weight: l.weight, trigger: trigger(l.file) })),
       snippets: ticked.map((r) => ({ name: r.name, text: String((JSON.parse(r.def) as { text?: string }).text ?? "") })).filter((x) => x.text.trim()),
       speaks: Boolean(recipe.traits?.sound),
@@ -155,5 +186,5 @@ export function designerContext(s: Services) {
     };
   }
 
-  return { castOf, pictureOf, triggersOf, madeFrom, carriedOn, context };
+  return { kitOf, pictureOf, triggersOf, madeFrom, carriedOn, context };
 }

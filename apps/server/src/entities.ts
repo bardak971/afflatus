@@ -97,7 +97,7 @@ export type EntityView = ReturnType<typeof view>;
 /** What was added to a form for its cast and its style, to show before it is sent. */
 export interface Composed {
   input: Record<string, unknown>;
-  added: { words: Array<{ from: string; text: string }>; loras: Array<{ from: string; file: string }>; references: number; /** The reference pictures added, and whose they are. */ refs: Array<{ asset: string; role: ReferenceRole; from: string }>; voice: string | null; /** The voice sample added: the form shows it in its sound field. */ voiceAsset: string | null; /** The part of it set on the person. */ voicePart?: { start: number; seconds: number }; skipped: string[] };
+  added: { /** The words put in, whose they are and what kind of kit item gave them. */ words: Array<{ from: string; text: string; kind: "person" | "place" | "snippet" | "style" }>; loras: Array<{ from: string; file: string }>; references: number; /** The reference pictures added, and whose they are. */ refs: Array<{ asset: string; role: ReferenceRole; from: string }>; voice: string | null; /** The voice sample added: the form shows it in its sound field. */ voiceAsset: string | null; /** The part of it set on the person. */ voicePart?: { start: number; seconds: number }; skipped: string[]; /** The form's last frame is left out: the cast's pictures or voice make the model take the reference way (MiniMax H3). */ endDropped?: boolean };
 }
 
 /** The files an entity's definition names: its pictures, its outfits' pictures and its voice sample. */
@@ -180,7 +180,8 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
   const voiceSpec = specs.find((i) => i.type === "audio" && i.role === "voice");
   const loraSpec = specs.find((i) => i.type === "loras");
 
-  const people: string[] = [];
+  // each person's words are put together once the pictures sent are known (see below)
+  const persons: Array<{ name: string; trigger: string; look: string; worn: string; pictures: string[] }> = [];
   const places: string[] = [];
   const looks: string[] = [];
   const bits: string[] = [];
@@ -195,11 +196,7 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
       const p = defs.person.parse(JSON.parse(row.def)) as PersonDef;
       const worn = p.outfits.find((o) => o.id === member.outfit);
       const m = p.models[recipe.family];
-      const words = tags ? join([m?.trigger, p.tags, worn?.tags], ", ") : join([p.sentence, worn?.sentence], " ");
-      if (words) {
-        people.push(words);
-        added.words.push({ from: row.name, text: words });
-      }
+      persons.push({ name: row.name, trigger: m?.trigger ?? "", look: (tags ? p.tags : p.sentence) ?? "", worn: (tags ? worn?.tags : worn?.sentence) ?? "", pictures: p.pictures.slice(0, PICTURES.person) });
       if (m?.lora) loras.push({ file: m.lora, weight: m.weight, from: row.name });
       for (const asset of p.pictures.slice(0, PICTURES.person)) refs.push({ asset, role: "person", from: row.name });
       if (worn?.picture) refs.push({ asset: worn.picture, role: "clothing", from: row.name });
@@ -209,7 +206,7 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
       const words = tags ? p.tags : p.sentence;
       if (words.trim()) {
         places.push(words);
-        added.words.push({ from: row.name, text: words.trim() });
+        added.words.push({ from: row.name, text: words.trim(), kind: "place" });
       }
       for (const asset of p.pictures.slice(0, PICTURES.place)) refs.push({ asset, role: "place", from: row.name });
     }
@@ -221,14 +218,14 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
     const text = defs.snippet.parse(JSON.parse(row.def)).text.trim();
     if (!text) continue;
     bits.push(text);
-    added.words.push({ from: row.name, text });
+    added.words.push({ from: row.name, text, kind: "snippet" });
   }
   const styleRow = look!.style ? byId.get(look!.style) : undefined;
   if (styleRow?.kind === "style") {
     const m = (defs.style.parse(JSON.parse(styleRow.def)) as StyleDef).models[recipe.family];
     if (m?.words.trim()) {
       looks.push(m.words);
-      added.words.push({ from: styleRow.name, text: m.words.trim() });
+      added.words.push({ from: styleRow.name, text: m.words.trim(), kind: "style" });
     }
     for (const l of m?.loras ?? []) loras.push({ ...l, from: styleRow.name });
     if (!m) added.skipped.push(`${styleRow.name} is not set up for this model`);
@@ -236,6 +233,8 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
 
   // ---- reference pictures and the voice, for the recipes that take them
   let withRefs = false;
+  const before = refSpec ? (Array.isArray(input[refSpec.id]) ? (input[refSpec.id] as unknown[]).length : 0) : 0;
+  const hadVoice = Boolean(voiceSpec && input[voiceSpec.id]);
   if (refSpec?.type === "references" && refs.length) {
     const have = Array.isArray(input[refSpec.id]) ? (input[refSpec.id] as ReferenceValue[]) : [];
     const alive = new Set((await db.selectFrom("assets").select("id").where("id", "in", refs.map((r) => r.asset)).where("deleted_at", "is", null).where("kind", "=", "image").execute()).map((a) => a.id));
@@ -261,6 +260,29 @@ export async function compose(db: Db, recipe: Recipe<any>, raw: Record<string, u
       }
     }
   }
+
+  // a model that follows reference pictures and was given an end frame makes the clip from the references instead (MiniMax H3)
+  const endSpec = specs.find((i) => i.type === "image" && i.role === "end");
+  if (endSpec && input[endSpec.id] && !before && !hadVoice && (added.references > 0 || added.voiceAsset)) {
+    added.endDropped = true;
+    added.skipped.push(`The last frame is not used: with ${added.references > 0 ? "the cast's reference images" : "the cast's voice sample"}, it renders with its reference model, which takes no last frame`);
+  }
+
+  // ---- the people's words. A model that takes who someone is from their pictures alone (Klein, Qwen edit: no
+  // place of its own for how people look) is not told it again in words: its guides say a face a picture shows
+  // is pointed at, never described, and words that describe it fight the picture. What they wear stays.
+  const sent = new Set(refSpec?.type === "references" && Array.isArray(input[refSpec.id]) ? (input[refSpec.id] as ReferenceValue[]).map((r) => r.asset) : []);
+  const pictured = (who: (typeof persons)[number]) => !tags && !subjectSpec && who.pictures.some((a) => sent.has(a));
+  const people = persons.flatMap((who) => {
+    // a trigger is a LoRA's own words, a tag in either way of writing: in sentences it opens them, as a line of its own
+    const trigger = who.trigger.trim().replace(/[,.\s]+$/, "");
+    const words = tags
+      ? join([trigger, who.look, who.worn], ", ")
+      : join([trigger && `${trigger}.`, pictured(who) ? "" : who.look, who.worn], " ");
+    if (!words) return [];
+    added.words.push({ from: who.name, text: words, kind: "person" });
+    return [words];
+  });
 
   // ---- the words
   if (main) {

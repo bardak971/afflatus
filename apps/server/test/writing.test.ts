@@ -134,7 +134,7 @@ describe("snippets that are ticked", () => {
     const look = { cast: [], snippets: [pose.id, light.id] };
     const made = (await post(t.app, "/api/compose", { recipe: "sdxl.text-to-picture", input: { prompt: "1girl, terrace" }, look })).json();
     expect(made.input.prompt).toBe("1girl, terrace, sitting, crossed legs, {sunset|golden hour}, long shadows");
-    expect(made.added.words).toEqual([{ from: "Sitting", text: "sitting, crossed legs" }, { from: "Evening", text: "{sunset|golden hour}, long shadows" }]);
+    expect(made.added.words).toEqual([{ from: "Sitting", text: "sitting, crossed legs", kind: "snippet" }, { from: "Evening", text: "{sunset|golden hour}, long shadows", kind: "snippet" }]);
 
     // queued: the snippets are in, and the choice inside one is settled
     await post(t.app, "/api/jobs", { recipe: "sdxl.text-to-picture", input: { prompt: "1girl, terrace", checkpoint: CHECKPOINT, quality: "" }, look });

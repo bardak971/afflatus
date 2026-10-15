@@ -150,11 +150,38 @@ describe("people, places and styles", () => {
     const node = Object.values(graph).find((n) => n.class_type === "MiniMaxH3ReferenceToVideo")!;
     expect(Object.keys(node.inputs).filter((k) => k.startsWith("ref_images."))).toHaveLength(4);
     expect(node.inputs["ref_audios.ref_audio_0"]).toBeDefined();
-    expect(String(node.inputs.prompt)).toContain("<Subject 1> is the character in <Picture 1> and <Picture 2>, She has brown hair and green eyes. She wears a white summer dress.");
+    expect(String(node.inputs.prompt)).toContain("<Subject 1> is the character in <Picture 1> and <Picture 2>, she has brown hair and green eyes. She wears a white summer dress.");
     expect(Object.values(graph).find((n) => n.class_type === "UNETLoader")!.inputs.unet_name).toBe("minimax_h3_ref2va.safetensors");
     // the four pictures are the same file here: it goes up once, under the name its content gives, for all four
     expect(fake.uploads.filter((u) => u.endsWith(".png"))).toHaveLength(1);
     expect(fake.uploads.filter((u) => u.endsWith(".wav"))).toHaveLength(1);
+  });
+
+  it("are pointed at by their pictures on Klein and Qwen, not described again; their trigger opens the sentences", async () => {
+    const c = await cast();
+    const her = (await get(t.app, "/api/entities")).json().items.find((e: { id: string }) => e.id === c.her);
+    await put(`/api/entities/${c.her}`, { def: { ...her.def, models: { ...her.def.models, klein: { lora: "her_klein.safetensors", weight: 0.8, trigger: "ohwx woman" } } } });
+    const look = { cast: [{ id: c.her, outfit: "dress" }] };
+    const made = (await post(t.app, "/api/compose", { recipe: "klein.picture", input: { prompt: "She waves at a boat." }, look })).json();
+    // her face and hair come from her pictures; what she wears and the LoRA's words stay
+    expect(made.input.prompt).toBe("ohwx woman. She wears a white summer dress. She waves at a boat.");
+    expect(made.input.references.map((r: { asset: string }) => r.asset)).toEqual([c.front, c.side, c.dress]);
+    expect(made.input.loras).toEqual([{ file: "her_klein.safetensors", weight: 0.8 }]);
+    // with no picture of her sent, she is said in words
+    const mine = (await get(t.app, "/api/entities")).json().items.find((e: { id: string }) => e.id === c.her);
+    await put(`/api/entities/${c.her}`, { def: { ...mine.def, pictures: [] } });
+    const told = (await post(t.app, "/api/compose", { recipe: "klein.picture", input: { prompt: "She waves at a boat." }, look })).json();
+    expect(told.input.prompt).toBe("ohwx woman. She has brown hair and green eyes. She wears a white summer dress. She waves at a boat.");
+  });
+
+  it("say that a last frame is left out when the cast's pictures make H3 take the reference way", async () => {
+    const c = await cast();
+    const made = (await post(t.app, "/api/compose", { recipe: "h3.video", input: { description: "x", end: c.terrace }, look: { cast: [{ id: c.her }] } })).json();
+    expect(made.added.endDropped).toBe(true);
+    expect(made.added.skipped.join(" ")).toContain("The last frame is not used");
+    // the form's own references chose that already: nothing to say
+    const own = (await post(t.app, "/api/compose", { recipe: "h3.video", input: { description: "x", end: c.terrace, references: [{ asset: c.terrace, role: "place" }] }, look: { cast: [{ id: c.her }] } })).json();
+    expect(own.added.endDropped).toBeUndefined();
   });
 
   it("hand a model their first pictures in the order they were put in: the first is the face, the ones after the first three stay home", async () => {
