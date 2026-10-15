@@ -37,7 +37,9 @@ const WAN_GRID: FrameGrid = { step: 4, offset: 1 };
 /**
  * The windows that cover `fromMs` to `toMs` of the source, each showing about `windowMs` (within what one job takes). With
  * `cutsMs` (the source's scene cuts), a window ends at a cut that falls inside it, more than two seconds in, and the next
- * one opens a new shot. A last stretch shorter than a job's fewest frames is left out.
+ * one opens a new shot. The source runs to its end: a last stretch shorter than half the window before it is taken by that window
+ * when one job holds both, else the two share what is left evenly (the meme's 26.6 s in 5 s windows ended on a 2.1 s clip).
+ * A last stretch shorter than a job's fewest frames is still left out.
  */
 export function sourceWindows(o: { fromMs: number; toMs: number; windowMs: number; shape: WindowShape; cutsMs?: number[] }): SourceWindow[] {
   const { fps, most, least, carried } = o.shape;
@@ -56,6 +58,11 @@ export function sourceWindows(o: { fromMs: number; toMs: number; windowMs: numbe
     // a scene cut inside it: the window ends there, the next opens a new shot
     const cut: number | undefined = (o.cutsMs ?? []).find((c) => c > covered + 2000 && c < covered + (n - carry) * frameMs - frameMs);
     if (cut !== undefined) n = Math.max(onGrid(carry + Math.floor((cut - covered) / frameMs)), onGrid(carry + least + 3));
+    else if (left > n && (left - n) < (n - carry) / 2) {
+      // a short stretch would be left after it: this window runs to the end, or shares the rest with the next one
+      const whole = onGrid(Math.min(most, left));
+      n = left - whole < (o.shape.grid ?? WAN_GRID).step ? whole : onGrid(Math.min(most, carry + Math.ceil((left - carry) / 2)));
+    }
     const toMs = covered + (n - carry) * frameMs;
     // half a frame more, so that the part cut at the model's speed holds all `n` frames (one short would drop a grid step)
     out.push({ start: round(startMs / 1000), seconds: round((n + 0.5) / fps), fromMs: Math.round(covered), toMs: Math.round(toMs), opens });

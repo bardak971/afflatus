@@ -1,4 +1,4 @@
-import { FRAME_SLACK_MS, secondsOf } from "@afflatus/core";
+import { FRAME_SLACK_MS, plannedSeconds } from "@afflatus/core";
 import type { Asset, Clip, ClipPatch, RecipeInfo, Take } from "../api";
 import { clock } from "../format";
 
@@ -37,9 +37,9 @@ export interface Slot {
   planned: boolean;
 }
 
-/** How long a clip that is not rendered yet will be: the length its form asks for, or five seconds. */
+/** How long a clip that is not rendered yet will be: the length its form asks for (or its window's), or five seconds. */
 function plannedMs(clip: Clip, recipe: RecipeInfo | undefined): number {
-  return Math.max(1000, ((recipe ? secondsOf(recipe.inputs, clip.inputs) : null) ?? 5) * 1000);
+  return Math.max(1000, ((recipe ? plannedSeconds(recipe.inputs, clip.inputs) : null) ?? 5) * 1000);
 }
 
 /**

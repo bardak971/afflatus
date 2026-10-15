@@ -24,6 +24,15 @@ export type Over =
   /** A video onto the source lane. */
   | { kind: "source" };
 
+/**
+ * A file from the computer while it hovers: its type is known before the drop (not its name), so a sound lights the clips'
+ * sound and the music lane, a video the source lane. A type the browser does not say is taken for a picture, as before.
+ */
+function fileKindOf(e: DragEvent): "picture" | "video" | "sound" {
+  const type = [...e.dataTransfer.items].find((i) => i.kind === "file")?.type ?? "";
+  return type.startsWith("audio/") ? "sound" : type.startsWith("video/") ? "video" : "picture";
+}
+
 /** What is being dragged over the track, and what dropping it here would do. */
 export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic, onTransition, onSource }: {
   clips: Clip[];
@@ -50,8 +59,7 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
   // ---- what is being dragged, and what dropping it here would do
   const draggedOf = (e: DragEvent) => {
     const t = e.dataTransfer.types;
-    // a file from the computer is taken for a picture while it hovers (its kind is only known on the drop)
-    return t.includes(DRAG_TRANSITION) ? (onTransition ? "transition" : null) : t.includes(DRAG_CLIP) ? "clip" : t.includes(DRAG_PICTURE) ? "picture" : t.includes(DRAG_SOUND) ? "sound" : t.includes(DRAG_VIDEO) || t.includes(DRAG_TYPE) ? "video" : onUpload && t.includes("Files") ? "picture" : null;
+    return t.includes(DRAG_TRANSITION) ? (onTransition ? "transition" : null) : t.includes(DRAG_CLIP) ? "clip" : t.includes(DRAG_PICTURE) ? "picture" : t.includes(DRAG_SOUND) ? "sound" : t.includes(DRAG_VIDEO) || t.includes(DRAG_TYPE) ? "video" : onUpload && t.includes("Files") ? fileKindOf(e) : null;
   };
   const hover = (e: DragEvent, what: Over | null) => {
     const d = draggedOf(e);

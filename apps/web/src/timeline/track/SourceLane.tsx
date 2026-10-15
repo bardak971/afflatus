@@ -164,7 +164,15 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
       <div
         role="button"
         tabIndex={0}
-        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onSelect()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") onSelect();
+          // focused on the lane, Delete takes it away with its clips, as with it selected
+          else if (e.key === "Delete" && onRemove) {
+            e.preventDefault();
+            e.stopPropagation();
+            onRemove();
+          }
+        }}
         onPointerDown={editable ? down("slide") : undefined}
         onPointerMove={move}
         onPointerUp={up}
@@ -220,7 +228,7 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
             ...(onSplit !== undefined && !place.made ? [{ label: "Split at the playhead", key: "S", icon: <Split size={14} />, disabled: !onSplit, note: onSplit ? "the part before plays as it is; Motion transfer starts there" : "put the playhead inside the stretch", run: () => onSplit?.() }] : []),
             ...(onOpen ? [{ label: "Open its video", icon: <Eye size={14} />, note: "the viewer", run: () => onOpen(video) }] : []),
             "—" as const,
-            ...(onRemove ? [{ label: "Remove the source", icon: <Trash2 size={14} />, note: "the clips made from it stay", run: onRemove }] : []),
+            ...(onRemove ? [{ label: "Remove the source", icon: <Trash2 size={14} />, key: "Del", note: "with the clips made from it (Undo brings them back)", run: onRemove }] : []),
           ]}
           onClose={menu.close}
         />

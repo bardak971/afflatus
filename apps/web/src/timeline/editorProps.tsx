@@ -143,7 +143,7 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     sourceSelected: e.sourceOpen,
     onSelectSource: e.openSource,
     onOpenSource: e.setOpened,
-    onRemoveSource: () => edit.mutate({ source: null }),
+    onRemoveSource: e.removeSource,
     onStretchSource: (fromMs, toMs) => edit.mutate({ source: { fromMs, toMs } }),
     sourcePlace: e.place,
     onPeekSource: (ms) => {

@@ -151,6 +151,11 @@ export function useTimelineEditor(id: string) {
   const { after, render, patch, fix, edit, makeSource: makeSourceMut, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
   const pickedNow = useRef(picked);
   pickedNow.current = picked;
+  /** The source taken away with the clips it made, rendered or not (one step for Undo), its panel closed. */
+  const removeSource = useCallback(() => {
+    edit.mutate({ source: null });
+    setSourceOpen(false);
+  }, [edit]);
   const removePicked = useCallback(() => {
     if (pickedNow.current.size < 2) return false;
     removeMany.mutate([...pickedNow.current]);
@@ -255,7 +260,11 @@ export function useTimelineEditor(id: string) {
   // a key held down sends one undo at a time: the next only once the last is back
   const stepping = undo.isPending || redo.isPending;
   // the keys' refs for what is set below: Ctrl+Enter renders, [ and ] jump, S and Ctrl+B split, Alt+[ and Alt+] step the take; - and =, Shift+Z: the track's zoom (filled by the track)
-  const { selectedNow, renderNow, jumpNow, splitNow, takeNow, trackKeys } = useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameMs, selected: current?.id ?? null, setSelected, setPicked, musicOpen: musicOpen || sourceOpen, closeMusic: () => { setMusicOpen(false); setSourceOpen(false); } });
+  const { selectedNow, renderNow, jumpNow, splitNow, takeNow, trackKeys } = useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameMs, selected: current?.id ?? null, setSelected, setPicked, musicOpen: musicOpen || sourceOpen, closeMusic: () => { setMusicOpen(false); setSourceOpen(false); }, removeOpen: () => {
+    if (!sourceOpen || !t?.source) return false;
+    removeSource();
+    return true;
+  } });
   // what the command bar asked of this timeline: done here, as the buttons and the keys do it
   const openExport = useBarRequests({ id, t, shown, clips, slots, missing, ready, render, undo, redo, say, setNote, setSelected, select, setFin, setCursor, player, selectedNow, splitNow, takeNow });
 
@@ -324,7 +333,7 @@ export function useTimelineEditor(id: string) {
 
   return {
     id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, current,
-    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, makeSource, splitSource, place, sourcePeek, setSourcePeek, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
+    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, removeSource, makeSource, splitSource, place, sourcePeek, setSourcePeek, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, inputsOf, editInputs, formOf, ready, sayOf, say, m, range, setRange, loopRange, snapQuiet,

@@ -58,4 +58,17 @@ describe("a source's windows", () => {
     const w = sourceWindows({ fromMs: 0, toMs: 5100, windowMs: 5000, shape: SCAIL });
     expect(w.length).toBe(1);
   });
+  it("run to the source's end: no short last clip (the meme's 26.6 s in 5 s windows ended on a 2.1 s one)", () => {
+    for (const shape of [SCAIL, WAN]) {
+      const frameMs = 1000 / shape.fps;
+      const w = sourceWindows({ fromMs: 0, toMs: 26_600, windowMs: 5000, shape });
+      // to the end, within a grid step
+      expect(26_600 - w.at(-1)!.toMs).toBeLessThan(4 * frameMs + 1);
+      // no window shows less than half of the one before it, and none holds more than one job takes
+      for (let k = 1; k < w.length; k++) expect(w[k]!.toMs - w[k]!.fromMs).toBeGreaterThanOrEqual((w[k - 1]!.toMs - w[k - 1]!.fromMs) / 2 - frameMs);
+      for (const x of w) expect(Math.round(x.seconds * shape.fps - 0.5)).toBeLessThanOrEqual(shape.most);
+    }
+    // SCAIL-2 holds 20 s a job: the last 5 s window takes the 1.6 s left
+    expect(sourceWindows({ fromMs: 0, toMs: 26_600, windowMs: 5000, shape: SCAIL }).length).toBe(5);
+  });
 });

@@ -43,6 +43,7 @@ export interface KeyActions {
   selectedNow: RefObject<string | null>;
   musicOpenNow: RefObject<boolean>;
   closeMusicNow: RefObject<(() => void) | undefined>;
+  removeOpenNow: RefObject<(() => boolean) | undefined>;
   renderNow: RefObject<() => void>;
   jumpNow: RefObject<(by: -1 | 1) => void>;
   splitNow: RefObject<(only?: string | null) => void>;
@@ -186,13 +187,14 @@ export function editKey(e: KeyboardEvent, { typing, open, held, plain, designing
     a.move(a.selectedNow.current, e.key === "ArrowLeft" ? -1 : 1);
     return true;
   }
-  // Delete takes the picked clips, else the selected clip, off the timeline; Undo brings them back one by one
+  // Delete takes the picked clips, else the selected clip, off the timeline; Undo brings them back one by one. With
+  // neither, the source lane open in the column goes, with the clips it made (one step for Undo)
   if (e.key === "Delete" && !typing && !open) {
     if (a.removePicked()) e.preventDefault();
     else if (a.selectedNow.current) {
       e.preventDefault();
       a.remove(a.selectedNow.current);
-    }
+    } else if (a.removeOpenNow.current?.()) e.preventDefault();
     return true;
   }
   return false;

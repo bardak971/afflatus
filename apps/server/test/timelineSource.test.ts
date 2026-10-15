@@ -219,6 +219,35 @@ describe("the windows of a source", () => {
     const next = (await call("POST", `/api/timelines/${tl.id}/clips`, { after: ids[2] })).clip;
     expect((await view(tl.id)).clips.find((c: { id: string }) => c.id === next).recipe).toBe("h3.video");
   });
+  it("go with the source when it is taken away, rendered or not; one Undo brings back the source and its clips", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test source" });
+    const before = (await call("POST", `/api/timelines/${tl.id}/clips`, { after: null, recipe: "h3.video" })).clip;
+    const ids = await made(tl, {});
+    let v = await call("PATCH", `/api/timelines/${tl.id}`, { source: null });
+    expect(v.source).toBeNull();
+    expect(v.clips.map((c: { id: string }) => c.id)).toEqual([before]);
+    expect(v.undo).toMatch(/the source and its 5 clips removed/);
+    await call("POST", `/api/timelines/${tl.id}/undo`);
+    v = await view(tl.id);
+    expect(v.source).not.toBeNull();
+    expect(v.clips.map((c: { id: string }) => c.id)).toEqual([before, ...ids]);
+  });
+
+  it("are followed by a Cut when the clip added after them is of another model, and a clip switched to another model is cut on both sides", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test source" });
+    await call("POST", `/api/timelines/${tl.id}/clips`, { after: null, recipe: "h3.video" });
+    const ids = await made(tl, {});
+    const after = (await call("POST", `/api/timelines/${tl.id}/clips`, { after: ids.at(-1) })).clip;
+    const joinOf = async (id: string) => (await view(tl.id)).clips.find((c: { id: string }) => c.id === id).joined;
+    expect(await joinOf(after)).toBe("cut");
+    // a window in the middle switched to H3: it starts on its own, and the window after it no longer carries on from it
+    await call("PATCH", `/api/clips/${ids[2]}`, { recipe: "h3.video" });
+    expect(await joinOf(ids[2]!)).toBe("cut");
+    expect(await joinOf(ids[3]!)).toBe("cut");
+    // the same family carries on as it did: H3 after H3
+    const third = (await call("POST", `/api/timelines/${tl.id}/clips`, { after })).clip;
+    expect(await joinOf(third)).toBe("continue");
+  });
 });
 
 describe("the Picture of a source's windows", () => {
