@@ -2,10 +2,10 @@ import type { OutputFile, waitForOutputs } from "@afflatus/comfy";
 import type { ClipValue, InputSpec, Recipe, ReferenceValue } from "@afflatus/core";
 import { draftNames, labelNames, passName, promptOf } from "./autoName";
 import type { Comfy } from "./comfy";
-import { frameAt, lookOf, repairJoinAudio, runUpBreak, type Measure } from "./cut";
+import { frameAt, repairJoinAudio, type Measure } from "./cut";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { latentDriftOf } from "./latentStats";
-import { precomputeOf } from "./precompute";
+import { measureLanded, precomputeOf } from "./precompute";
 import { extOf, mimeOfFile, newAssetRow, pngSize } from "./media";
 import { makeThumb, thumbKey } from "./thumbs";
 import { ffmpegPool } from "./pool";
@@ -281,7 +281,7 @@ async function fileOne(
   const thumb = kind === "image" ? await makeThumb(bytes) : video?.frame ? await makeThumb(video.frame) : null;
   if (thumb) await put(thumbKey(id), thumb);
   return {
-    measure: video?.facts ? () => measureStored({ db, storage }, recipe, input, resume, { key, ext, latentKey, latentFrames }) : null,
+    measure: video?.facts ? () => measureStored({ db, storage }, recipe, input, resume, { id, key, ext, latentKey, latentFrames, facts: video.facts! }) : null,
     row: {
       id, kind, origin: "generated", name: "", file_key: key, thumb_key: thumb ? thumbKey(id) : null, mime, bytes: bytes.length, raw_key: rawKey, latent_key: latentKey, latent_frames: latentFrames, fine_latent_key: fineKey,
       width: size?.width ?? null, height: size?.height ?? null,
@@ -313,19 +313,14 @@ async function readStored(storage: Storage, key: string, bytes: Uint8Array, ext:
  */
 async function measureStored(
   { db, storage }: Pick<QueueCore, "db" | "storage">, recipe: Recipe<any>, input: Record<string, unknown>, resume: Resume,
-  stored: { key: string; ext: string; latentKey: string | null; latentFrames: number | null },
+  stored: { id: string; key: string; ext: string; latentKey: string | null; latentFrames: number | null; facts: VideoFacts },
 ): Promise<Measure | null> {
   const source = await sourceOf(storage, stored.key);
   const headMs = resume.overlap?.headMs ?? 0;
-  // a continuation: the step where its run-up ends and its own frames begin, kept with the look. The join figures look at
-  // the take-over point, which sits inside the run-up and copies the clip before whatever happens next; a model that steps
-  // away from its guide cuts here, and only this figure says so
-  const [measure, handover] = await Promise.all([
-    lookOf(source, stored.ext, headMs).catch(() => null),
-    headMs > 0 ? runUpBreak(source, stored.ext, headMs).catch(() => null) : null,
-  ]);
+  // the look, and for a continuation where its run-up ends, from one decode of the stored file; its motion, strip and frame
+  // means are kept from the same decode, for the timeline editor (measureLanded)
+  const measure = await measureLanded((key, bytes) => storage.put(key, bytes), stored.id, source, stored.ext, stored.facts, headMs).catch(() => null);
   if (!measure) return null;
-  if (handover !== null) measure.handover = handover;
   // a join made in the latent: how wide its regenerated run-up came out against the tail it was guided by, read from the
   // two latents (the clip before's is the one its join took)
   const overlap = resume.overlap;

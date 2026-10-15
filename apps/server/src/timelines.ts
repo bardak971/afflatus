@@ -578,6 +578,9 @@ export class Timelines {
    * step for Undo. Nothing is rendered here: the editor sends the new clips to render, as from its Render button.
    */
   async makeFromSource(timelineId: string): Promise<string[]> {
+    // the source's scene cuts read before the timeline is held (the first time, ffmpeg reads every frame of it): inside, they are read back
+    const asked = sourceOfRow((await this.row(timelineId)).source);
+    if (asked?.snap) await this.media.scenes(asked.asset).catch(() => {});
     const ids = await this.history.oneAtATime(timelineId, async () => {
       const t = await this.row(timelineId);
       const plan = sourceOfRow(t.source);
@@ -589,7 +592,7 @@ export class Timelines {
       if (!video) throw notFound("the source video");
       const driving = recipe.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window);
       if (!driving || driving.type !== "clip" || !driving.window) throw httpError(`${recipe.title} takes no driving video.`);
-      const windows = await planWindows(plan, recipe, video, this.storage);
+      const windows = await planWindows(plan, recipe, video, (id) => this.media.scenes(id));
       if (!windows.length) throw httpError("The stretch is too short for one clip: make it longer.");
       const all = await this.placed(timelineId);
       // in place of the clip the stretch was taken from (still the same video), else after the last clip

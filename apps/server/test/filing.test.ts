@@ -22,6 +22,12 @@ vi.mock("../src/cut", async (importOriginal) => {
       gate.measured++;
       return real.lookOf(...args);
     },
+    // a take's look is read in the one decode that keeps its motion, strip and means too (precompute.ts measureLanded)
+    takeMeasures: async (...args: Parameters<typeof real.takeMeasures>) => {
+      if (gate.closed) await gate.closed;
+      gate.measured++;
+      return real.takeMeasures(...args);
+    },
   };
 });
 const closeGate = () => {

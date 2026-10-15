@@ -9,6 +9,8 @@ import { get, makeApp, referenceCatalog, type TestApp } from "./helpers";
 describe("a zip made here", () => {
   it("holds the files it was given, by name, and its checksums are the standard ones", () => {
     expect(crc32(new TextEncoder().encode("123456789"))).toBe(0xcbf43926);
+    // carried on chunk by chunk, as the streamed zip of a backup reads a file: the same as the whole at once
+    expect(crc32(new TextEncoder().encode("6789"), crc32(new TextEncoder().encode("12345")))).toBe(0xcbf43926);
     const zip = zipOf([{ name: "afflatus-nodes/__init__.py", data: new TextEncoder().encode("print(1)\n".repeat(50)) }, { name: "afflatus-nodes/LICENSE", data: new Uint8Array([1, 2, 3]) }]);
     expect(zip.subarray(0, 4)).toEqual(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
     expect(zipNames(zip)).toEqual(["afflatus-nodes/__init__.py", "afflatus-nodes/LICENSE"]);

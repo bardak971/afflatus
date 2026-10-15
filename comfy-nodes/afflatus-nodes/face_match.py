@@ -5,15 +5,31 @@ is set against every face of the photos (the largest face of each photo) and the
 wherever they stand. Cosine similarity of the embeddings, -1 to 1: the same person reads about 0.6 and up, a close likeness
 0.85 and up (the meme test, 2026-10-14). Registered only when insightface is installed (`available()`), so that a ComfyUI
 without it gives no figure rather than a failed job; its model files are fetched into models/insightface the first time.
+
+On the CPU, inside the render: kept short. A photo's face is found once (cached by a hash of its pixels: the same photos
+come with every take of a person), at the full detection size; a frame's faces at half of it, the two largest only (the
+person put in fills the frame of a Motion transfer; a crowd behind them is not who is matched). ~2.3 s a render for one
+face, 12.6 s for a crowded set before (2026-10-15).
 """
 
+import hashlib
 import importlib.util
 import os
+from collections import OrderedDict
 
 import folder_paths
 from comfy_api.latest import io
 
 _app = None
+
+# The detection size for the photos (as InsightFace is prepared) and for the frames of the picture made, in pixels.
+PHOTO_DET = 640
+FRAME_DET = 320
+# How many faces of a frame are matched, the largest first.
+FRAME_FACES = 2
+# The photos' faces by a hash of their pixels: the last few dozen.
+_refs: "OrderedDict[str, object]" = OrderedDict()
+_REFS_KEPT = 32
 
 
 def available() -> bool:
@@ -30,22 +46,58 @@ def _face_app():
         roots = [os.path.join(folder_paths.models_dir, "insightface"), "/opt/insightface"]
         root = next((r for r in roots if os.path.isdir(os.path.join(r, "models", "buffalo_l"))), roots[0])
         _app = FaceAnalysis(name="buffalo_l", root=root, allowed_modules=["detection", "recognition"], providers=["CPUExecutionProvider"])
-        _app.prepare(ctx_id=-1, det_size=(640, 640))
+        _app.prepare(ctx_id=-1, det_size=(PHOTO_DET, PHOTO_DET))
     return _app
 
 
-def _faces(image, index: int = 0) -> list:
-    """The faces of one picture of a ComfyUI image batch, each a unit embedding with its width in pixels."""
+def _bgr(image, index: int):
+    """One picture of a ComfyUI image batch as InsightFace reads it: 8-bit BGR, colour only (an RGBA picture as its RGB)."""
     import numpy as np
 
-    # colour only: a picture with a transparency channel (RGBA) is read as its RGB
     rgb = (image[index, :, :, :3].detach().cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+    return rgb[:, :, ::-1].copy()
+
+
+def _faces(bgr, det: int = PHOTO_DET, most: int = 0) -> list:
+    """The faces of a picture, each a unit embedding with its width in pixels: found at `det`, the `most` largest (0: all)."""
+    import numpy as np
+
+    app = _face_app()
+    if det == PHOTO_DET and not most:
+        faces = app.get(bgr)
+    else:
+        # FaceAnalysis.get with the detection size and the count of its own: the faces found, then each recognised
+        from insightface.app.common import Face
+
+        boxes, points = app.det_model.detect(bgr, input_size=(det, det), max_num=most, metric="max")
+        faces = []
+        for i in range(boxes.shape[0]):
+            face = Face(bbox=boxes[i, 0:4], kps=points[i] if points is not None else None, det_score=boxes[i, 4])
+            for task, model in app.models.items():
+                if task != "detection":
+                    model.get(bgr, face)
+            faces.append(face)
     out = []
-    for f in _face_app().get(rgb[:, :, ::-1].copy()):
+    for f in faces:
         if f.bbox[2] - f.bbox[0] >= 32 and f.det_score >= 0.5:
             v = np.asarray(f.normed_embedding, dtype=np.float32)
             out.append((v / (np.linalg.norm(v) + 1e-9), float(f.bbox[2] - f.bbox[0])))
     return out
+
+
+def _reference(photo):
+    """The largest face of a photo, as a unit embedding (None without one): found once per photo, by a hash of its pixels."""
+    bgr = _bgr(photo, 0)
+    key = hashlib.sha1(bgr.tobytes() + repr(bgr.shape).encode()).hexdigest()
+    if key in _refs:
+        _refs.move_to_end(key)
+        return _refs[key]
+    faces = _faces(bgr)
+    ref = max(faces, key=lambda f: f[1])[0] if faces else None
+    _refs[key] = ref
+    while len(_refs) > _REFS_KEPT:
+        _refs.popitem(last=False)
+    return ref
 
 
 class AfflatusFaceMatch(io.ComfyNode):
@@ -79,19 +131,13 @@ class AfflatusFaceMatch(io.ComfyNode):
     def _measure(cls, image, photo_1, photo_2, photo_3, samples: int) -> io.NodeOutput:
         import numpy as np
 
-        refs = []
-        for photo in (photo_1, photo_2, photo_3):
-            if photo is None:
-                continue
-            faces = _faces(photo)
-            if faces:
-                refs.append(max(faces, key=lambda f: f[1])[0])
+        refs = [r for r in (_reference(p) for p in (photo_1, photo_2, photo_3) if p is not None) if r is not None]
         n = int(image.shape[0])
         picked = sorted({round(i * (n - 1) / max(1, samples - 1)) for i in range(min(samples, n))}) if n > 1 else [0]
         # each frame read: its best match among its faces (the person put in, wherever they stand); none when no face is read
         found = []
         for i in picked:
-            scores = [float(np.dot(f[0], r)) for f in _faces(image, i) for r in refs]
+            scores = [float(np.dot(f[0], r)) for f in _faces(_bgr(image, i), FRAME_DET, FRAME_FACES) for r in refs]
             if scores:
                 found.append(max(scores))
         face = round(float(np.median(found)), 3) if found else None
