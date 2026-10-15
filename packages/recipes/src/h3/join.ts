@@ -93,14 +93,17 @@ export function resolveJoin(input: H3Video, ctx: BuildContext): H3Join {
 /** The frame: a timeline's canvas, else the clip it joins, else the picture it opens or ends on, else the shape picked. */
 export function frameFor(input: H3Video, ctx: BuildContext, how: H3Uses, latentJoin: boolean): { width: number; height: number } {
   const { media } = ctx;
-  const like = input.previous ? media.previous : input.next ? media.next : how.start ? media.start : how.end ? media.end : undefined;
+  const neighbour = input.previous ? media.previous : input.next ? media.next : undefined;
+  const like = neighbour ?? (how.start ? media.start : how.end ? media.end : undefined);
   // (continued in the latent: the size is the latent's, which is the clip before's own). A canvas or a neighbour
   // is taken at its own size, within what a form may ask for, never the model's trained canvas: a 768 × 1376 clip
   // before, allowed by the form, must not be continued at 768 × 1344 with its guide squashed to fit (seen 2026-10-05)
   // A canvas gives the shape, not the size: a timeline whose first clip was enlarged ×2 in its render has a canvas
   // four times the model's pixels, and a clip rendered at it never got past its guides on a 12 GB card (seen
-  // 2026-10-07, 1152 × 1472 × 141 frames). The size is the neighbour's own (its raw frames), else the form's
-  const short = like ? Math.min(like.width, like.height) : input.short;
+  // 2026-10-07, 1152 × 1472 × 141 frames). The size is the neighbour's own (its raw frames), else the form's: a
+  // picture's own size says nothing (a phone photo is 3000 px wide), and read as the size it made a clip opening on
+  // one render at the whole canvas, 1088p on a 1080p timeline whatever the form asked (seen 2026-10-15)
+  const short = neighbour ? Math.min(neighbour.width, neighbour.height) : input.short;
   return ctx.canvas && !latentJoin
     ? h3Canvas(ctx.canvas.width, ctx.canvas.height, Math.min(ctx.canvas.width, ctx.canvas.height, short), H3_FORM_PIXELS)
     : like && (input.previous || input.next)
