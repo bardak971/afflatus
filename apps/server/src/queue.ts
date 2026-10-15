@@ -1009,6 +1009,25 @@ ${JSON.stringify(input)}`;
         if (lack || balance) lacks[lane.id] = { ...(lack ?? { off: false, files: [], sendable: false }), ...(balance ? { balance } : {}), ...(failed ? { failed } : {}) };
         else can.add(lane.id);
       }));
+      // a timeline clip of a model that joins in a kept latent (H3): on a machine that has the join's nodes (the Afflatus node
+      // pack), while any has them. Sent elsewhere, the clip saves no latent and the clip after it joins on frames with no word
+      const latentNodes = r.clip_id ? recipe.traits?.latentNodes : undefined;
+      if (latentNodes?.length && can.size > 1) {
+        const packed = new Set<string>();
+        for (const id of can) {
+          const lane = scans.find((s) => s.lane.id === id)?.lane;
+          const catalog = lane ? await lane.comfy!.catalog().catch(() => null) : null;
+          if (catalog && latentNodes.every((n) => n in catalog)) packed.add(id);
+        }
+        if (packed.size && packed.size < can.size) {
+          for (const id of [...can]) {
+            if (packed.has(id)) continue;
+            can.delete(id);
+            delete fetch[id];
+            lacks[id] = { off: false, files: [], sendable: false, why: "its ComfyUI has no Afflatus node pack, which a timeline clip's joins in the latent take" };
+          }
+        }
+      }
       out.set(r.id, { can, lacks, fetch });
     }
     return out;

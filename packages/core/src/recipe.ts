@@ -71,6 +71,11 @@ export interface VideoTraits {
    */
   latentTrim?: string;
   /**
+   * The node classes a join in a kept latent takes (Afflatus's node pack): a timeline clip of such a recipe is planned on a
+   * machine that has them while any has, since a clip made elsewhere saves no latent and the clip after it joins on frames.
+   */
+  latentNodes?: string[];
+  /**
    * A recipe that makes a long source window by window (Motion transfer on a timeline's source lane): the most and fewest
    * frames a job takes, and the frames of the clip before a window carries on from (sourceWindows.ts).
    */
