@@ -174,8 +174,15 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
 
   app.get("/api/timelines", async (req) => t.list(z.object({ project: z.string().optional() }).parse(req.query).project));
   app.post("/api/timelines", async (req) => {
-    const body = z.strictObject({ name: z.string().max(200).optional(), project: z.string().nullable().optional() }).parse(req.body ?? {});
-    // its renders land in the project's root folder unless another is chosen later
+    const body = z.strictObject({ name: z.string().max(200).optional(), project: z.string().nullable().optional(), folder: z.string().nullable().optional() }).parse(req.body ?? {});
+    // made inside a folder (the one open in the Studio): it lives and renders there, and that counts as chosen, so that a
+    // picture dropped on it later does not move it. Else its renders land in the project's root folder until one is chosen
+    if (body.folder) {
+      const f = await s.db.selectFrom("folders").select(["id", "project_id"]).where("id", "=", body.folder).executeTakeFirst();
+      if (!f) throw httpError("this folder was not found", 404);
+      if ((f.project_id ?? null) !== (body.project ?? null)) throw httpError("that folder is not in this project", 400);
+      return t.create(body.name, body.project ?? null, f.id, true);
+    }
     return t.create(body.name, body.project ?? null, await rootFolderOf(s.db, body.project));
   });
   app.get<{ Params: { id: string } }>("/api/timelines/:id", async (req) => t.view(req.params.id));

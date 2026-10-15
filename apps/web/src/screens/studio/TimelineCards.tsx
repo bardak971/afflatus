@@ -68,7 +68,8 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
   const tree = useProjectsTree("");
   const leaves = useMemo(() => new Map((tree.data?.groups ?? []).flatMap((g) => g.timelines.map((l) => [l.id, l] as const))), [tree.data]);
   const refresh = () => client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
-  const create = useMutation({ mutationFn: () => api.createTimeline(undefined, projectForNew()), onSuccess: (t) => { void refresh(); go(`/timelines/${t.id}`); } });
+  // made in the folder that is open: it lives and renders there (the project's root otherwise)
+  const create = useMutation({ mutationFn: () => api.createTimeline(undefined, projectForNew(), place.type === "folder" ? place.id : undefined), onSuccess: (t) => { void refresh(); go(`/timelines/${t.id}`); } });
   // the timeline's list, as every place shows it (projects/kindActions.tsx); a move or a delete drops the selection
   const kinds = useKindActions();
 

@@ -414,7 +414,7 @@ export class Timelines {
 
   // ---------------------------------------------------------------- editing
 
-  async create(name: string | undefined, project?: string | null, folder?: string | null) {
+  async create(name: string | undefined, project?: string | null, folder?: string | null, chosen = false) {
     const id = newId();
     const at = now();
     // numbered within its project (or the Inbox): each is its own workspace. Counted and written in the project's turn:
@@ -424,7 +424,7 @@ export class Timelines {
       await this.db
         .insertInto("timelines")
         .values({
-          id, owner_id: OWNER, name: name?.trim() || `Timeline ${count + 1}`, width: null, height: null, project_id: project ?? null, folder_id: folder ?? null, folder_chosen: 0,
+          id, owner_id: OWNER, name: name?.trim() || `Timeline ${count + 1}`, width: null, height: null, project_id: project ?? null, folder_id: folder ?? null, folder_chosen: chosen ? 1 : 0,
           music_asset_id: null, music_volume: 60, music_fade_in_ms: 1000, music_fade_out_ms: 3000, music_duck: 1, music_duck_db: 10, music_from_ms: 0, music_start_clip_id: null, export_asset_id: null, look: null, mood: null,
           created_at: at, updated_at: at,
         })

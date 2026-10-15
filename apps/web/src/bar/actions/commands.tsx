@@ -21,7 +21,7 @@ import { unloadBlock } from "../../queueRules";
 import { machineByName, machineLabel, machineUnloadBlock, rateSaid, rentedSaid } from "../../machines";
 import type { Target } from "../../projects/tree";
 import { kitHref } from "../../screens/kit/link";
-import { useBanners } from "../../store";
+import { openFolderId, useBanners } from "../../store";
 import { useTimelineRequest, useWorkflowsRequest, type TimelineRequest } from "../bridge";
 import { KIT_OF, type Command, type KitNew } from "../parse";
 import type { Action, BarCtx, Preset } from "./ctx";
@@ -213,8 +213,8 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       return [{ label: `New draft on ${recipe.title}`, icon: <Sparkles size={14} />, run: () => api.createDraft({ recipe: recipe.id }).then(x.openNew, failed("Could not make the draft")) }];
     case "new-timeline":
       return [{
-        label: c.name ? `New timeline “${c.name}”` : "New timeline", icon: <Film size={14} />, note: "in the project you work in; opens in the editor",
-        run: () => api.createTimeline(c.name || undefined, projectForNew()).then((t) => { void client.invalidateQueries({ queryKey: queryKeys.timelines.all() }); x.reindex(); go(`/timelines/${t.id}`); }, failed("Could not make the timeline")),
+        label: c.name ? `New timeline “${c.name}”` : "New timeline", icon: <Film size={14} />, note: "in the project and folder you work in; opens in the editor",
+        run: () => api.createTimeline(c.name || undefined, projectForNew(), openFolderId()).then((t) => { void client.invalidateQueries({ queryKey: queryKeys.timelines.all() }); x.reindex(); go(`/timelines/${t.id}`); }, failed("Could not make the timeline")),
       }];
     case "new-folder": {
       // at the top of the project worked in (in its root folder), as the Projects panel's "New folder inside…" on it

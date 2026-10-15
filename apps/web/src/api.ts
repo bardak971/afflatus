@@ -499,7 +499,8 @@ export const api = {
   timelines: (o?: Asked) => call<{ items: TimelineBrief[] }>("GET", `/timelines${projectParam() ? `?project=${encodeURIComponent(projectParam()!)}` : ""}`, undefined, o?.signal),
   timeline: (id: string, o?: Asked) => call<Timeline>("GET", `/timelines/${id}`, undefined, o?.signal),
   /** A new timeline, in the project the app looks at unless another is named. */
-  createTimeline: (name?: string, project?: string | null) => call<Timeline>("POST", "/timelines", { ...(name ? { name } : {}), project: project === undefined ? projectForNew() : project }),
+  /** `folder`: the folder it is made in (the one open in the Studio): it lives and renders there. Left out: the project's root. */
+  createTimeline: (name?: string, project?: string | null, folder?: string | null) => call<Timeline>("POST", "/timelines", { ...(name ? { name } : {}), project: project === undefined ? projectForNew() : project, ...(folder ? { folder } : {}) }),
   projects: (o?: Asked) => call<{ items: Project[]; inbox: { drafts: number; timelines: number; assets: number } }>("GET", "/projects", undefined, o?.signal),
   createProject: (name: string) => call<Project>("POST", "/projects", { name }),
   editProject: (id: string, patch: { name?: string; archived?: boolean }) => call<Project>("PATCH", `/projects/${id}`, patch),

@@ -138,6 +138,23 @@ describe.skipIf(!ffmpegThere)("the timeline folder rule", { timeout: FFMPEG_TIME
     expect(await folderOf(c.take.asset.id)).toBe(finals.id);
   }, 120_000);
 
+  it("lives and renders in the folder it is made in, as a chosen folder; a folder of another project is refused", async () => {
+    const p = await call("POST", "/api/projects", { name: "Film" });
+    const other = await call("POST", "/api/projects", { name: "Other" });
+    const scenes = await call("POST", "/api/folders", { name: "scenes", parentId: p.folderId });
+    const made = await call("POST", "/api/timelines", { name: "Evening", project: p.id, folder: scenes.id });
+    expect(made.folderId).toBe(scenes.id);
+    expect((await view(made.id)).folderChosen).toBe(true);
+    const { asset } = await rendered(made.id, 1);
+    expect(await folderOf(asset)).toBe(scenes.id);
+    const res = await t.app.inject({ method: "POST", url: "/api/timelines", payload: { name: "Lost", project: other.id, folder: scenes.id } });
+    expect(res.statusCode).toBe(400);
+    // nothing named: the project's root, not chosen, as before
+    const plain = await call("POST", "/api/timelines", { name: "Plain", project: p.id });
+    expect(plain.folderId).toBe(p.folderId);
+    expect((await view(plain.id)).folderChosen).toBe(false);
+  }, 120_000);
+
   it("moves what a timeline made when it changes project or folder: not a video another timeline plays, a linked file, or one in the bin", async () => {
     const p = await call("POST", "/api/projects", { name: "From" });
     const q = await call("POST", "/api/projects", { name: "To" });
