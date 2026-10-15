@@ -24,7 +24,7 @@ const ROW = "grid grid-cols-[16px_minmax(120px,180px)_88px_minmax(0,1fr)_minmax(
 
 /** How a lane looks in its state (machineState): a stopped pod as a paused machine, a locked or starting one as one away. */
 type State = "rendering" | "getting" | "idle" | "paused" | "offline";
-const lookOf = (word: MachineWord): State => (word === "stopped" ? "paused" : word === "locked" || word === "starting" ? "offline" : word === "getting files" ? "getting" : word);
+const lookOf = (word: MachineWord): State => (word === "stopped" || word === "checking" ? "paused" : word === "locked" || word === "starting" ? "offline" : word === "getting files" ? "getting" : word);
 
 /** A machine's dot: filled green while it renders, a ring in the accent while it gets files, a green ring when idle, grey when paused, a warning ring when away. */
 function Dot({ state }: { state: State }) {
@@ -180,6 +180,7 @@ const quiet = (m: MachineState, word: MachineWord) =>
   // paused, its files still come (sent ahead for Resume): said, not hidden behind the pause
   : word === "paused" ? (gettingFiles(m) ? `takes nothing new · getting ${filesShort(gettingFiles(m)!)}` : "takes nothing new until it resumes")
   : word === "stopped" && m.rented ? `${rentedSaid(m.rented)} · the others take the line`
+  : word === "checking" ? "reading its state from RunPod · the others take the line"
   : word === "starting" ? "starting: its image is pulled, then ComfyUI comes up · the others take the line"
   : word === "locked" ? "locked: its token is wrong · the others take the line"
   : word === "offline" ? "not answering · the others take the line"

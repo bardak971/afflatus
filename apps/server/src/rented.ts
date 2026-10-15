@@ -424,6 +424,8 @@ export class Rented {
     const s = this.seen.get(machine);
     if (!s) return null;
     if (s.stopping) return "being stopped";
+    // not read from RunPod yet (Afflatus just started): down until a read says it runs, never said gone
+    if (!s.read) return "not read from RunPod yet";
     const status = s.pod?.status ?? "GONE";
     return status === "RUNNING" ? null : status === "GONE" ? "not on RunPod" : status === "EXITED" ? "stopped" : status.toLowerCase();
   }
@@ -433,7 +435,9 @@ export class Rented {
     if (!machine.rented) return null;
     const s = this.seen.get(machine.id);
     const pod = s?.pod ?? null;
-    const status: RentedView["status"] = s ? (pod ? pod.status : "GONE") : "UNKNOWN";
+    // GONE only once RunPod was read without it: before the first read (Afflatus just restarted, a pod running all along)
+    // its state is not known, and a running pod said gone for a few seconds read as one lost
+    const status: RentedView["status"] = s?.read ? (pod ? pod.status : "GONE") : "UNKNOWN";
     const since = pod?.status === "RUNNING" && pod.startedAt ? Date.parse(pod.startedAt) : null;
     const rate = s?.rate ?? (pod?.cost || null);
     const idleMs = machine.rented.idleMinutes * 60_000;
@@ -1135,6 +1139,9 @@ export class Rented {
       return changed;
     }
     s.upAt ??= this.now();
+    // after a restart of Afflatus, idle since its last work as kept, not since now; set before its ComfyUI is asked (seconds
+    // through a pod's proxy), so that its card says its idle time left from the first read on, never nothing meanwhile
+    s.busyAt ??= await this.busySince(m, this.now());
     const answers = await this.alive(m, s);
     // a GPU that does not work on its host never will: terminated at once, not at its boot limit
     if (s.gpuFailed && !this.queue.runningOn(m.id)) {
@@ -1370,8 +1377,8 @@ export class Rented {
     // Files coming to it hold it too, while their bytes move (podFiles.ts moving): a pod is never stopped mid-download by its
     // idle stop, and a download stuck for long holds it no more
     if (running || !s.answered || this.queue.fetching(m.id) || (answers && (await this.queue.wants(m.id)))) s.busyAt = now;
-    // after a restart of Afflatus, idle since its last work as kept, not since now
-    s.busyAt ??= await this.busySince(m, now);
+    // set when it was first seen running (follow), from what was kept across a restart of Afflatus
+    s.busyAt ??= now;
     await this.keepBusy(m, s);
     const spent = await (this.spentThisPoll ??= this.spent());
     this.sayCap(caps, spent);
@@ -1391,11 +1398,13 @@ export class Rented {
    * What a cap does to a pod: it stops it, or terminates one that a stop would leave with nothing worth keeping: a fill pod
    * (stopped, it would keep its volume mounted, never deleted then, and fill nothing), and a pod Afflatus deployed that keeps
    * nothing when stopped (no volume of any kind: a stop would only have it found stopped and terminated after, told of as
-   * its watchdog's) or that is still on its first boot (its deploy is what it was for). A pod the user added is only stopped.
+   * its watchdog's), that is still on its first boot (its deploy is what it was for), or whose deploy said to terminate it
+   * when idle. That last one was only stopped on a network volume before: stopped, its container disk went on billing until
+   * removed by hand, and the network volume outlives a terminate anyway. A pod the user added is only stopped.
    */
   private capAction(m: Machine, pod: Pod | null): "stop" | "terminate" {
     const keeps = Boolean(pod && (pod.networkVolume || pod.diskGb > 0));
-    return m.rented!.fill || (m.rented!.deployed && (!keeps || Boolean(m.rented!.deployedAt))) ? "terminate" : "stop";
+    return m.rented!.fill || (m.rented!.deployed && (!keeps || Boolean(m.rented!.deployedAt) || m.rented!.idleDo === "terminate")) ? "terminate" : "stop";
   }
 
   /**

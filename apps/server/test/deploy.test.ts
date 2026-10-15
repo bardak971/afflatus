@@ -190,6 +190,14 @@ describe("a deploy", () => {
     expect(plan).toMatchObject({ sizeGb: 40, sets: [{ name: "zz-test set", bytes: 30_000_000_000 }] });
   });
 
+  it("counts in a fill's plan the size this computer knows of a set's file that says none", async () => {
+    const set = (await post(t.app, "/api/model-sets", { name: "zz-test set", presets: [], off: [], files: [{ file: "RealESRGAN_x4plus_anime_6B.pth", folder: "upscale_models" }] })).json().id as string;
+    await t.db.insertInto("model_hashes").values({ folder: "upscale_models", file: "RealESRGAN_x4plus_anime_6B.pth", size: 17_938_799, mtime: 1, sha256: "A".repeat(64), hashed_at: new Date().toISOString(), civitai_version: null, hf_url: null, matched_at: null }).execute();
+    const plan = (await get(t.app, `/api/runpod/volumes/vol-ro/fill?set=${set}`)).json();
+    expect(plan.missing).toEqual({ count: 1, bytes: 17_938_799, unknown: 0 });
+    expect((await get(t.app, `/api/runpod/volumes/plan`)).json().sets).toEqual([{ id: set, name: "zz-test set", bytes: 17_938_799 }]);
+  });
+
   it("fills a volume from a set: the cheapest GPU there, no render given to it, terminated once its files are in", async () => {
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: true } });
     const set = (await post(t.app, "/api/model-sets", { name: "zz-test set", presets: [], off: [], files: [
@@ -627,6 +635,35 @@ describe("a render longer than the balance lasts", () => {
     // an earlier pod of the same GPU, compared with the home card on the same settings three times each
     await t.db.insertInto("render_stats").values([0, 1, 2].flatMap((i) => [row(`h${i}`, "m1", "NVIDIA GeForce RTX 4070 Ti", 500), row(`p${i}`, "rp-old", pod.gpu, 300)])).execute();
     expect(await t.services.rented.balanceNeed(id, "sdxl.text-to-picture", 10 * 60_000, 0)).toBe(10 * 60_000);
+  });
+});
+
+describe("a deployed pod at a spending cap", () => {
+  const capNow = async () => {
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 1, month: 0 } } });
+    await t.db.insertInto("rent_sessions").values(costToday("s1")).execute();
+  };
+  const upOn = async (change: Record<string, unknown>) => {
+    const id = (await deploy(change)).json().id as string;
+    const pod = runpod.pods[0]!;
+    await until(() => pod.status === "RUNNING");
+    await until(async () => (await t.services.rented.poll(), !(await readSettings(t.db)).machines.find((m) => m.id === id)?.rented?.deployedAt));
+    return pod;
+  };
+
+  it("on a network volume, deployed to be terminated when idle: terminated, its container disk never left billing", async () => {
+    const pod = await upOn({ volume: "vol-ro", idleDo: "terminate" });
+    await capNow();
+    await until(async () => (await t.services.rented.poll(), pod.status !== "RUNNING"));
+    expect(pod.status).toBe("TERMINATED");
+    expect(runpod.calls.filter((c) => c.endsWith("action stop"))).toEqual([]);
+  });
+
+  it("deployed to be stopped when idle, with something to keep: stopped, as its own choice says", async () => {
+    const pod = await upOn({ volume: "vol-ro", idleDo: "stop" });
+    await capNow();
+    await until(async () => (await t.services.rented.poll(), pod.status !== "RUNNING"));
+    expect(pod.status).toBe("EXITED");
   });
 });
 

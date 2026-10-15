@@ -4,7 +4,7 @@ import { long, usd } from "./format";
 /** Several ComfyUIs (Settings › ComfyUI): how a machine is named on screen, and what the screens read of them. */
 
 /** A machine's state in a word, as every screen says it (machineState). */
-export type MachineWord = "rendering" | "getting files" | "idle" | "paused" | "offline" | "locked" | "stopped" | "starting";
+export type MachineWord = "rendering" | "getting files" | "idle" | "paused" | "offline" | "locked" | "stopped" | "starting" | "checking";
 
 /** What a machine is getting, as gettingFiles reads it: a rented pod's files, or the downloads into a ComfyUI of one's own. */
 type WithFiles = Pick<MachineState, "rented"> & { files?: readonly PodFile[] };
@@ -41,6 +41,8 @@ export function gettingFiles(m: WithFiles): { left: PodFile[]; done: number; tot
  */
 export function machineState(m: Pick<MachineState, "paused" | "online" | "rented"> & { locked?: boolean; running: unknown; files?: readonly PodFile[] }): MachineWord {
   const r = m.rented;
+  // a pod RunPod was not read for yet (Afflatus just started): not known, never said stopped while it may be running
+  if (r?.status === "UNKNOWN") return "checking";
   if (r && (r.status !== "RUNNING" || r.booting)) return r.status === "STARTING" || r.status === "PROVISIONING" || r.booting ? "starting" : "stopped";
   if (m.paused) return "paused";
   if (m.online === false) return m.locked ? "locked" : "offline";

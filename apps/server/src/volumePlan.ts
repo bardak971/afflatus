@@ -1,11 +1,13 @@
+import { stat } from "node:fs/promises";
 import type { PresetFile } from "@afflatus/core";
 import { notFound } from "./errors";
 import { setsWithFiles } from "./modelSets";
 import { estimateFiles, measuredRange, type FilesEstimate } from "./podMeasures";
-import { measureKind, presetSource } from "./podSources";
+import { localCopy, measureKind, presetSource } from "./podSources";
 import { licencesPending } from "./presetFiles";
 import { keptHoldings, lackingOn, missingOn, VOLUME_MAX_GB, VOLUME_MIN_GB } from "./rentedVolumes";
 import type { Services } from "./services";
+import { readSettings } from "./settings";
 
 /**
  * What Make a volume… says before anything is billed: where a volume can go (the data centers with GPUs in stock now,
@@ -35,6 +37,35 @@ export interface VolumePlan {
 
 const MONTH_MS = 30 * 24 * 3_600_000;
 
+/**
+ * A set's files with their sizes, where the set says none, as this computer knows them: its hash of the file in its
+ * ComfyUI folders (model_hashes: by the file's path, else by its name when one file has it), else the file itself there.
+ * An upscaler added to a set by its name was counted as of unknown size, and left out of a fill's time and cost, though
+ * its bytes were known here.
+ */
+export async function sized(s: Services, files: PresetFile[]): Promise<PresetFile[]> {
+  if (files.every((f) => f.size)) return files;
+  const [rows, settings] = await Promise.all([s.db.selectFrom("model_hashes").select(["folder", "file", "size"]).execute().catch(() => []), readSettings(s.db)]);
+  const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
+  const pathOf = (file: string) => file.replace(/\\/g, "/").toLowerCase();
+  const byPath = new Map(rows.map((r) => [`${r.folder}|${pathOf(r.file)}`, Number(r.size)]));
+  const byName = new Map<string, number[]>();
+  for (const r of rows) {
+    const key = `${r.folder}|${nameOf(r.file)}`;
+    byName.set(key, [...(byName.get(key) ?? []), Number(r.size)]);
+  }
+  const onDisk = async (f: PresetFile) => {
+    const path = settings.comfyDir ? await localCopy(settings.comfyDir, f.folder, f.file).catch(() => null) : null;
+    return path ? (await stat(path).catch(() => null))?.size : undefined;
+  };
+  return Promise.all(files.map(async (f) => {
+    if (f.size) return f;
+    const named = byName.get(`${f.folder}|${nameOf(f.file)}`) ?? [];
+    const size = byPath.get(`${f.folder}|${pathOf(f.file)}`) ?? (named.length === 1 ? named[0] : undefined) ?? (await onDisk(f));
+    return size ? { ...f, size } : f;
+  }));
+}
+
 /** The size a volume wants for these bytes: a quarter more, up to the next ten GB, within what RunPod takes. */
 export const sizeFor = (bytes: number) => Math.min(VOLUME_MAX_GB, Math.max(VOLUME_MIN_GB, Math.ceil((bytes * 1.25) / 1e9 / 10) * 10));
 
@@ -60,7 +91,7 @@ export async function volumePlan(s: Services, setIds: string[] | null): Promise<
   }
   for (const p of pods) if (p.dataCenter && p.status !== "TERMINATED" && byPlace.has(p.dataCenter)) byPlace.get(p.dataCenter)!.pods++;
   const places = [...byPlace.values()].map((p) => ({ ...p, gpus: p.gpus.sort((a, b) => a.price - b.price) })).sort((a, b) => b.pods - a.pods || b.gpus.length - a.gpus.length);
-  const chosen = setIds ? allSets.filter((x) => setIds.includes(x.id)) : allSets;
+  const chosen = await Promise.all((setIds ? allSets.filter((x) => setIds.includes(x.id)) : allSets).map(async (x) => ({ ...x, files: await sized(s, x.files) })));
   // each file once, over the sets weighed
   const files = new Map<string, PresetFile>();
   for (const set of chosen) for (const f of set.files) files.set(`${f.folder}|${f.file}`, f);
@@ -96,15 +127,16 @@ export async function fillPlan(s: Services, volume: string, setId: string): Prom
   if (!set) throw notFound("that model set");
   const licences = (await licencesPending(s, set.files)).map((p) => ({ id: p.id, name: p.name, licence: p.licence!.name }));
   const keys = kept.get(volume)?.keys ?? new Set<string>();
-  const lacking = lackingOn(set.files, keys);
-  const missing = missingOn(set.files, keys);
+  const files = await sized(s, set.files);
+  const lacking = lackingOn(files, keys);
+  const missing = missingOn(files, keys);
   if (!found) return { gpu: null, missing, estimate: null, licences };
   const kinds = lacking.filter((f) => f.size).map((f) => {
     const src = presetSource(f);
     return { bytes: f.size!, kind: src ? measureKind(src) : ("upload" as const) };
   });
-  const [files, boot] = await Promise.all([estimateFiles(s.db, kinds, "SECURE", found.gpu.price), measuredRange(s.db, "boot", "SECURE")]);
+  const [fetch, boot] = await Promise.all([estimateFiles(s.db, kinds, "SECURE", found.gpu.price), measuredRange(s.db, "boot", "SECURE")]);
   const usd = (ms: number) => (ms / 3_600_000) * found.gpu.price;
-  const estimate = files && boot ? { fastMs: files.fastMs + boot.low, slowMs: files.slowMs + boot.high, lowUsd: usd(files.fastMs + boot.low), highUsd: usd(files.slowMs + boot.high) } : null;
+  const estimate = fetch && boot ? { fastMs: fetch.fastMs + boot.low, slowMs: fetch.slowMs + boot.high, lowUsd: usd(fetch.fastMs + boot.low), highUsd: usd(fetch.slowMs + boot.high) } : null;
   return { gpu: { name: found.gpu.name, price: found.gpu.price }, missing, estimate, licences };
 }
