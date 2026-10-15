@@ -149,6 +149,8 @@ export interface Like {
   machine?: string | null;
   /** Each machine's learned pace (machinePaces), to read another machine's renders at `machine`'s pace. */
   paces?: ReadonlyMap<string, number>;
+  /** Where its model's renders are read from (statRows), when they are kept between forecasts (the queue's, until the record changes). */
+  rows?: (modelFile: string) => Promise<StatRows>;
 }
 
 /** What of a recorded render `onMachine` reads and scales. */
@@ -189,10 +191,9 @@ export function onMachine<R extends Timed>(rows: R[], like: Pick<Like, "machine"
   return theirs.map((r) => ({ ...r, step_ms: r.step_ms === null ? null : r.step_ms * k, total_ms: r.load_ms + (r.total_ms - r.load_ms) * k, sample_ms: r.sample_ms * k, refine_ms: r.refine_ms * k }));
 }
 
-/** What this model's past renders say about a render of `work` sampled over `steps`, with its model to load or already in memory. */
-export async function forecast(db: Db, modelFile: string, work: number, steps: number, cold: boolean, like: Like = {}): Promise<Forecast | null> {
-  if (!modelFile) return null;
-  const found = await db
+/** A model's last 200 whole renders that were timed, newest first: what a forecast for it is read from. */
+export function statRows(db: Db, modelFile: string) {
+  return db
     .selectFrom("render_stats")
     .select(["machine_id", "recipe_id", "time_key", "kind", "width", "height", "duration_ms", "work", "steps", "step_ms", "total_ms", "sample_ms", "refine_ms", "load_ms", "cold"])
     .where("model_file", "=", modelFile)
@@ -203,6 +204,13 @@ export async function forecast(db: Db, modelFile: string, work: number, steps: n
     .orderBy("created_at", "desc")
     .limit(200)
     .execute();
+}
+export type StatRows = Awaited<ReturnType<typeof statRows>>;
+
+/** What this model's past renders say about a render of `work` sampled over `steps`, with its model to load or already in memory. */
+export async function forecast(db: Db, modelFile: string, work: number, steps: number, cold: boolean, like: Like = {}): Promise<Forecast | null> {
+  if (!modelFile) return null;
+  const found = await (like.rows ?? ((file: string) => statRows(db, file)))(modelFile);
   const fps = like.fps ?? (() => undefined);
   const all = onMachine(found.flatMap((r) => {
     const w = workOfRow(r, fps);

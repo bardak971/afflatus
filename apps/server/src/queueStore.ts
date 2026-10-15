@@ -10,6 +10,7 @@ import { extOf, mimeOfFile, newAssetRow, pngSize } from "./media";
 import { makeThumb, thumbKey } from "./thumbs";
 import { readVideo } from "./video";
 import type { JobRow, QueueCore, Resume } from "./queueModel";
+import { addPart } from "./serverMetrics";
 
 /** What a finished render leaves behind: its files in storage, its rows in the library, and the record of how it was made. */
 
@@ -192,6 +193,8 @@ async function fileOne(
   const id = newId();
   const key = `assets/${id.slice(0, 2)}/${id}.${extOf(mime)}`;
   await put(key, bytes);
+  // what reading and measuring the result costs while its machine waits: /metrics' "measuring"
+  const measuring = performance.now();
   // a video is read for its size, its length and a frame to show (when ffmpeg is installed)
   const video = kind === "video" ? await readVideo(bytes, extOf(mime)) : null;
   const size = kind === "image" ? pngSize(bytes) : video?.facts ?? null;
@@ -205,6 +208,7 @@ async function fileOne(
   if (measure && resume.overlap?.headMs) measure.handover = (await runUpBreak(bytes, extOf(mime), resume.overlap.headMs).catch(() => null)) ?? undefined;
   // a clip that opens on the end of another one is shown by its own first frame, not by the other's
   const own = video?.frame && resume.overlap?.headMs ? await frameAt(bytes, extOf(mime), resume.overlap.headMs).catch(() => null) : null;
+  addPart("measuring", performance.now() - measuring);
   // a small version for the library grid; without one the grid falls back to the picture itself
   const thumb = kind === "image" ? await makeThumb(bytes) : video?.frame ? await makeThumb(own ?? video.frame) : null;
   if (thumb) await put(thumbKey(id), thumb);

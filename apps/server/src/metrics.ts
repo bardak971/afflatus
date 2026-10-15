@@ -4,6 +4,7 @@ import { allowedHosts, hostAllowed } from "./hostCheck";
 import { BUCKETS } from "./renderDigests";
 import { machinePaces } from "./forecast";
 import { tallyByRecipe, type RecipeSum } from "./rendersRead";
+import { serverRegistry } from "./serverMetrics";
 import type { Services } from "./services";
 
 /**
@@ -49,9 +50,9 @@ export function registerMetrics(app: FastifyInstance, s: Services): void {
     const put = (name: string, l: Record<string, string>, value: number) => lines.push(`${name}${labels(l)} ${Number.isFinite(value) ? value : 0}`);
 
     // ---- now
-    const q = await s.queue.status();
+    const q = await s.queue.counts();
     head("afflatus_queue_jobs", "gauge", "Jobs in Afflatus's queue, by state");
-    put("afflatus_queue_jobs", { state: "queued" }, q.waiting.length);
+    put("afflatus_queue_jobs", { state: "queued" }, q.waiting);
     put("afflatus_queue_jobs", { state: "running" }, q.running ? 1 : 0);
     // each ComfyUI asked now (the queue only knows one is away once a job found it so), labelled by its machine: its id,
     // and its name only when asked by the server's own name (a name is the user's words). With one ComfyUI the series
@@ -70,8 +71,7 @@ export function registerMetrics(app: FastifyInstance, s: Services): void {
       const l = { machine: machine.id, name: own ? machine.name : "" };
       const load = await comfy.load().catch(() => null);
       put("afflatus_comfy_online", l, load ? 1 : 0);
-      const state = q.machines.find((m) => m.id === machine.id);
-      put("afflatus_gpu_busy", l, state?.running && state.running.kind !== "export" ? 1 : 0);
+      put("afflatus_gpu_busy", l, q.busy.has(machine.id) ? 1 : 0);
       gauges.forEach(([name, , read], i) => {
         const v = load ? read(load) : undefined;
         if (v !== undefined) rows[i]!.push(`${name}${labels(l)} ${v}`);
@@ -119,6 +119,9 @@ export function registerMetrics(app: FastifyInstance, s: Services): void {
       put("afflatus_render_duration_seconds_count", tag(id), v.done);
       put("afflatus_render_duration_seconds_sum", tag(id), v.doneTotal / 1000);
     }
+
+    // ---- the server itself (serverMetrics.ts): Node's figures, and what Afflatus adds to each render per machine
+    lines.push((await serverRegistry.metrics()).trimEnd());
     reply.header("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
     return `${lines.join("\n")}\n`;
   });

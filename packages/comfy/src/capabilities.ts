@@ -1,5 +1,5 @@
 import { checkGraph, choicesOf, dryContext, folderOfFileInput, parseInput, sameBase, sameFile, type Family, type ModelInfo, type NodeCatalog, type Recipe } from "@afflatus/core";
-import { ComfyLocked, type ComfyClient, type ComfyStatus } from "./client";
+import { catalogKey, ComfyLocked, type ComfyClient, type ComfyStatus } from "./client";
 
 /**
  * What this ComfyUI can do, per family and per recipe. One answer, read by the setup page (what is
@@ -150,8 +150,10 @@ async function recipeChoices(
   return { options, emptyInputs };
 }
 
+type Readiness = Pick<RecipeStatus, "missingNodes" | "limitedBy" | "missingFiles" | "missing" | "problems">;
+
 /** Whether a recipe's plain form can run here: the nodes and the files it lacks, and what the checker says of it built. */
-function recipeReadiness(r: Recipe<any>, catalog: NodeCatalog): Pick<RecipeStatus, "missingNodes" | "limitedBy" | "missingFiles" | "missing" | "problems"> {
+function recipeReadiness(r: Recipe<any>, catalog: NodeCatalog): Readiness {
   const has = (cls: string) => cls in catalog;
   // the first variant is the recipe's plainest form; the others exercise its options
   const nodeSets = r.variants.map((v) => r.nodes(parseInput(r, v.input)));
@@ -184,14 +186,69 @@ function recipeReadiness(r: Recipe<any>, catalog: NodeCatalog): Pick<RecipeStatu
   return { missingNodes, limitedBy, missingFiles, missing, problems };
 }
 
+/** As recipeReadiness, for a recipe that cannot even say what it needs (a saved workflow gone wrong): not ready, and why. */
+function readinessOrWhy(r: Recipe<any>, catalog: NodeCatalog): Readiness {
+  try {
+    return recipeReadiness(r, catalog);
+  } catch (err) {
+    return { missingNodes: [], limitedBy: [], missingFiles: [], missing: [], problems: [(err as Error).message.slice(0, 200)] };
+  }
+}
+
+/**
+ * Each recipe's readiness on a node list, kept for the last few lists by the list's hash (client.ts catalogKey): it depends
+ * on the list alone, building and checking every recipe costs most of a scan, and several machines with the same nodes and
+ * files (pods from one image) send the same list. A recipe changed is a new object, so it is worked out again.
+ */
+const readinessKept = new Map<unknown, WeakMap<Recipe<any>, Readiness>>();
+const KEPT_LISTS = 16;
+function keptFor(catalog: NodeCatalog): WeakMap<Recipe<any>, Readiness> {
+  const key = catalogKey(catalog) ?? catalog;
+  let kept = readinessKept.get(key);
+  if (kept) readinessKept.delete(key);
+  else kept = new WeakMap();
+  // the last one used goes to the end: the oldest goes first
+  readinessKept.set(key, kept);
+  if (readinessKept.size > KEPT_LISTS) readinessKept.delete(readinessKept.keys().next().value);
+  return kept;
+}
+
+/** Every recipe's readiness on this node list; what is worked out anew is done a slice at a time, so that requests are answered meanwhile. */
+async function readinessOf(recipes: Recipe<any>[], catalog: NodeCatalog): Promise<Map<Recipe<any>, Readiness>> {
+  const kept = keptFor(catalog);
+  const out = new Map<Recipe<any>, Readiness>();
+  let since = performance.now();
+  for (const r of recipes) {
+    let got = kept.get(r);
+    if (!got) {
+      got = readinessOrWhy(r, catalog);
+      // kept before the turn is given up: another machine's scan of the same list finds it done
+      kept.set(r, got);
+      if (performance.now() - since > YIELD_MS) {
+        await new Promise((go) => setImmediate(go));
+        since = performance.now();
+      }
+    }
+    out.set(r, got);
+  }
+  return out;
+}
+/** The longest the readiness work holds the event loop before it lets other work in. */
+const YIELD_MS = 10;
+
+/**
+ * What this ComfyUI can do now. `catalogOf` gives its node list: a kept one (the server's Comfy.catalog) spares the fetch
+ * of several MB and, with readinessOf, the rebuild of every recipe; its model folders are always listed afresh.
+ */
 export async function scan(
   client: ComfyClient, families: Family[], recipes: Recipe<any>[], overrides: SlotOverrides = {}, infoOf: InfoLookup = () => undefined,
+  catalogOf: () => Promise<NodeCatalog> = () => client.catalog(),
 ): Promise<Scan> {
   const at = new Date().toISOString();
   let status: ComfyStatus;
   let catalog: NodeCatalog;
   try {
-    [status, catalog] = await Promise.all([client.status(), client.catalog()]);
+    [status, catalog] = await Promise.all([client.status(), catalogOf()]);
   } catch (err) {
     return { at, comfy: { online: false, url: client.baseUrl, error: (err as Error).message, ...(err instanceof ComfyLocked ? { locked: true } : {}) }, families: [], recipes: [] };
   }
@@ -208,19 +265,14 @@ export async function scan(
   };
 
   const familyStatus = await slotFiles(families, files, overrides, infoOf);
+  const readiness = await readinessOf(recipes, catalog);
   const recipeStatus = await Promise.all(
     recipes.map(async (r): Promise<RecipeStatus> => {
       const slots = familyStatus.find((f) => f.id === r.family)?.slots ?? [];
       const missingSlots = slots.filter((s) => (!s.optional || r.needs?.includes(s.id)) && !s.file).map((s) => s.id);
       const { options, emptyInputs } = await recipeChoices(r, families, slots, files, catalog, infoOf);
-      let readiness: ReturnType<typeof recipeReadiness>;
-      try {
-        readiness = recipeReadiness(r, catalog);
-      } catch (err) {
-        // a recipe that cannot even say what it needs (a saved workflow gone wrong) is not ready, and says why; the others are still scanned
-        readiness = { missingNodes: [], limitedBy: [], missingFiles: [], missing: [], problems: [(err as Error).message.slice(0, 200)] };
-      }
-      const { missingNodes, limitedBy, missingFiles, missing, problems } = readiness;
+      // a recipe that cannot even say what it needs (a saved workflow gone wrong) is not ready, and says why; the others are still scanned
+      const { missingNodes, limitedBy, missingFiles, missing, problems } = readiness.get(r)!;
       return {
         id: r.id, missingNodes, missingSlots, emptyInputs, missingFiles, missing, problems, limitedBy, options,
         slots: Object.fromEntries(slots.filter((s) => s.file).map((s) => [s.id, s.file!])),

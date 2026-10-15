@@ -15,6 +15,8 @@ export class Comfy {
   readonly client: ComfyClient;
   readonly monitor: Monitor;
   private lastScan: { at: number; value: Promise<Scan> } | null = null;
+  /** The scan under way in the background while the last one is still answered (see scan). */
+  private nextScan: Promise<Scan> | null = null;
   private lastCatalog: { at: number; value: Promise<NodeCatalog> } | null = null;
 
   constructor(readonly url: string, private readonly registry: Registry, token = "") {
@@ -27,32 +29,59 @@ export class Comfy {
     };
   }
 
-  /** What this ComfyUI can do. The node catalog is large, so the answer is kept for a while. */
   /** The files chosen by hand for the families' slots (Settings), read when a scan is made. */
   overrides?: () => Promise<Record<string, Record<string, string>>>;
   /** What is known of each model file from its header, read when a scan is made. */
   infoOf?: () => Promise<InfoLookup>;
 
+  /**
+   * What it can do. A scan older than a minute is answered as it is while a new one is made in the background (its node
+   * list kept for ten minutes, its model folders listed again): the queue, the setup page and /metrics never wait on it.
+   * Waited for: the first one, one asked `fresh` ("Test" in Settings, which reads the node list again too), one after
+   * forgetScan or forgetAll, and one after the last found ComfyUI away.
+   */
   async scan(fresh = false): Promise<Scan> {
-    // asked to look again ("Test" in Settings): the node list is read again too, it is what says which files there are
     if (fresh) this.lastCatalog = null;
-    if (fresh || !this.lastScan || Date.now() - this.lastScan.at > SCAN_TTL_MS) {
-      this.lastScan = { at: Date.now(), value: (async () => scan(this.client, this.registry.families(), this.registry.recipes(), (await this.overrides?.()) ?? {}, (await this.infoOf?.()) ?? (() => undefined)))() };
+    if (fresh || !this.lastScan) {
+      this.nextScan = null;
+      this.lastScan = { at: Date.now(), value: this.scanNow() };
+    } else if (Date.now() - this.lastScan.at > SCAN_TTL_MS && !this.nextScan) {
+      const last = this.lastScan;
+      const value = this.scanNow();
+      this.nextScan = value;
+      void value.then((result) => {
+        // forgotten or asked afresh meanwhile: that one stands
+        if (this.nextScan !== value) return;
+        this.nextScan = null;
+        if (this.lastScan === last) this.lastScan = { at: Date.now(), value };
+        // an unreachable ComfyUI is asked again next time, not remembered
+        if (!result.comfy.online && this.lastScan?.value === value) this.lastScan = null;
+      }, () => {
+        // a scan that failed outright leaves the last one standing, and the next call tries again
+        if (this.nextScan === value) this.nextScan = null;
+      });
     }
-    const result = await this.lastScan.value;
+    const asked = this.lastScan;
+    const result = await asked.value;
     // an unreachable ComfyUI is asked again next time, not remembered
-    if (!result.comfy.online) this.lastScan = null;
+    if (!result.comfy.online && this.lastScan === asked) this.lastScan = null;
     return result;
+  }
+
+  private scanNow(): Promise<Scan> {
+    return (async () => scan(this.client, this.registry.families(), this.registry.recipes(), (await this.overrides?.()) ?? {}, (await this.infoOf?.()) ?? (() => undefined), () => this.catalog()))();
   }
 
   /** The list of recipes changed: what was worked out no longer covers it. */
   forgetScan(): void {
     this.lastScan = null;
+    this.nextScan = null;
   }
 
   /** This ComfyUI has a file it did not have: nothing learned about it holds any more. */
   forgetAll(): void {
     this.lastScan = null;
+    this.nextScan = null;
     this.lastCatalog = null;
   }
 

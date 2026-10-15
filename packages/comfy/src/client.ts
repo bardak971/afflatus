@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Graph, NodeCatalog } from "@afflatus/core";
 
 /** ComfyUI did not answer at all. */
@@ -10,6 +10,14 @@ export class ComfyError extends Error {}
  * there, but out of reach as much as one that does not answer, so a job waits for it the same way. Its message says why.
  */
 export class ComfyLocked extends ComfyUnreachable {}
+
+/**
+ * A hash of each node list as ComfyUI sent it: machines with the same nodes and the same files send the same list, and what
+ * is worked out from it (capabilities.ts readiness) is then worked out once for all of them.
+ */
+const catalogKeys = new WeakMap<NodeCatalog, string>();
+/** The hash of a node list read by `ComfyClient.catalog`; undefined for one made otherwise (a test's). */
+export const catalogKey = (catalog: NodeCatalog): string | undefined => catalogKeys.get(catalog);
 
 /** What the pack's lock answers a call without the right token: a 401 that says it is the lock, not some other server's login. */
 export const LOCKED_HEADER = "x-afflatus-lock";
@@ -178,7 +186,12 @@ export class ComfyClient {
 
   /** Every node this ComfyUI has, with its inputs and outputs. A large response (tens of MB with many custom nodes). */
   async catalog(): Promise<NodeCatalog> {
-    return (await this.read("/object_info", (r) => r.json(), undefined, 60_000)) as NodeCatalog;
+    const text = await this.read("/object_info", (r) => r.text(), undefined, 60_000);
+    // read in a turn of its own: several machines' lists arriving together are not parsed in one block
+    await new Promise((go) => setImmediate(go));
+    const catalog = JSON.parse(text) as NodeCatalog;
+    catalogKeys.set(catalog, createHash("sha1").update(text).digest("base64"));
+    return catalog;
   }
 
   /** The model folders this ComfyUI knows ("checkpoints", "loras", …). */

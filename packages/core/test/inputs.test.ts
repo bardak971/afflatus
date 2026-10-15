@@ -36,6 +36,16 @@ describe("schemaFor", () => {
     expect(schemaFor([{ id: "x", type: "number", label: "X", min: 0.5, max: 10, step: 1, default: 1.5 }]).safeParse({ x: 2.5 }).success).toBe(true);
   });
 
+  it("is built once per list of inputs, and again for a list that grew", () => {
+    const list: InputSpec[] = [...specs];
+    const first = schemaFor(list);
+    expect(schemaFor(list)).toBe(first);
+    // an imported workflow's inputs are pushed while it is read: the kept schema would reject the new one as unknown
+    list.push({ id: "extra", type: "toggle", label: "Extra", default: false });
+    expect(schemaFor(list)).not.toBe(first);
+    expect(schemaFor(list).parse({ prompt: "a", checkpoint: "x", extra: true })).toMatchObject({ extra: true });
+  });
+
   it("requires the prompt and the model", () => {
     expect(schemaFor(specs).safeParse({ checkpoint: "x" }).success).toBe(false);
     expect(schemaFor(specs).safeParse({ prompt: "", checkpoint: "x" }).success).toBe(false);

@@ -43,3 +43,13 @@ Everything else is in **Settings**, saved as you change it:
 - **About:** the version and its updates (a new version's notes, Update and Go back on a bundle, the command for Docker and the sources), "Check for new versions" (once a day, on by default: one request to GitHub, nothing about you in it), and the start-up checks (ffmpeg, ffprobe, Node, the data folder).
 
 Nothing leaves your machine unless you turn on a download or a lookup; each such switch is off until you turn it on.
+
+## Metrics
+
+`/metrics` serves Afflatus's figures in Prometheus format, for a scraper on the inside of the network (no key; it answers any Host name). Besides the record of render times and the machines' gauges (listed in `deploy/grafana/README.md`), it has the server's own:
+
+- Node's figures, as prom-client collects them under their usual names: `process_resident_memory_bytes`, `process_cpu_seconds_total`, `nodejs_heap_size_used_bytes`, `nodejs_eventloop_lag_seconds` (with `_p50`, `_p90`, `_p99`), `nodejs_gc_duration_seconds` and the others of its default set.
+- `afflatus_render_added_seconds{machine, stage}`: what Afflatus adds around each render, per machine: `before` (from the job's start until ComfyUI has the prompt) and `filing` (from the last output until what it made is stored).
+- `afflatus_render_added_part_seconds{machine, part}`: their parts: `scan` (the node list and the machine check), `cuts` (cutting and reading the pictures, clips and sounds it is handed), `uploads` (sending them), `free` (freeing ComfyUI's memory for another model), `measuring` (reading and measuring the result).
+
+These are the seconds a GPU waits on Afflatus: a machine where they grow (a rented pod's uploads, a slow disk) shows there. The dashboard in `deploy/grafana/afflatus.json` has them in its **Server** row.

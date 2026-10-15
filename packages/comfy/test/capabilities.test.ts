@@ -150,3 +150,48 @@ describe("scan", () => {
     expect(s.recipes).toEqual([]);
   });
 });
+
+describe("scan, what is kept between scans", () => {
+  const fakes: FakeComfy[] = [];
+  afterEach(async () => {
+    await Promise.all(fakes.splice(0).map((f) => f.close()));
+  });
+  /** The toy recipe, counting how often it is built: readiness builds its plain form once per node list. */
+  const counted = () => {
+    const r = { ...recipe, id: "toy.counted", built: 0 };
+    r.build = (i, ctx) => {
+      r.built++;
+      return recipe.build(i, ctx);
+    };
+    return r;
+  };
+  const machine = async (nodes: NodeCatalog) => {
+    const f = await startFakeComfy({ catalog: nodes, models: { checkpoints: ["m.safetensors"], vae: ["toy_vae.safetensors"] } });
+    fakes.push(f);
+    return new ComfyClient(f.url);
+  };
+
+  it("works a recipe's readiness out once for machines with the same node list, and again for another list", async () => {
+    const r = counted();
+    const [a, b] = await Promise.all([machine(catalog), machine(catalog)]);
+    const [sa, sb] = await Promise.all([scan(a, [family], [r]), scan(b, [family], [r])]);
+    expect(r.built).toBe(1);
+    expect(sa.recipes[0]!.ready).toBe(true);
+    expect(sb.recipes[0]).toEqual(sa.recipes[0]);
+    // the same machine asked again: nothing built
+    await scan(a, [family], [r]);
+    expect(r.built).toBe(1);
+    // a machine without the sampler's "heun": another list, worked out on its own
+    const other = await machine({ ...catalog, Sampler: { input: { required: { model: ["MODEL", {}], method: [["euler"]] } }, output: ["IMAGE"] } });
+    await scan(other, [family], [r]);
+    expect(r.built).toBe(2);
+  });
+
+  it("takes the node list it is given instead of fetching it", async () => {
+    const client = await machine(catalog);
+    const s = await scan(client, [family], [recipe], {}, undefined, async () => catalog);
+    expect(s.recipes[0]!.ready).toBe(true);
+    expect(fakes[0]!.calls).not.toContain("GET /object_info");
+    expect(fakes[0]!.calls).toContain("GET /models/checkpoints");
+  });
+});

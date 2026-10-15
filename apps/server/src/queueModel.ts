@@ -3,7 +3,7 @@ import type { WaitOptions } from "@afflatus/comfy";
 import type { BuiltGraph, Phase, Recipe } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 import type { Db, Tables } from "./db";
-import type { Rate } from "./forecast";
+import type { Rate, StatRows } from "./forecast";
 import type { Registry } from "./registry";
 import type { Storage } from "./storage";
 import type { TakeLinks, Timelines } from "./timelines";
@@ -150,6 +150,8 @@ export interface QueueCore {
   /** Note what ComfyUI was last asked to load, here and in the database. */
   loaded(loads: string | null, model?: string | null): Promise<void>;
   usual(): Promise<Usual>;
+  /** A model's past renders as forecasts read them (forecast.ts statRows), kept until the record of render times changes. */
+  statRows(modelFile: string): Promise<StatRows>;
   /** Each machine's learned pace (forecast.ts machinePaces), for a forecast on one machine read from another's renders. */
   paces(): Promise<ReadonlyMap<string, number>>;
   /** About how long a waiting render will take, its model to load or not (the forecast, queueSubmit.forecastOf), built as its job will be (a finish on its draft, a clip with what it joins onto), on `machine` when it is said; null when nothing like it was rendered. */

@@ -166,10 +166,11 @@ export async function createServices(
     // its pod up: a pod filling its volume takes no render, but gets its files
     alive: (id) => rented.podDown(id) === null,
     busy: (id) => queue.runningOn(id),
-    // a file there now, or one that failed: the pod's folders are read again, and its jobs looked at again
+    // a file there now, or one that failed: the pod's folders and its node list (whose choices name the files) are read
+    // again, and its jobs looked at again
     settled: (id) => {
       void machineOf(id).then((m) => {
-        m?.comfy.forgetScan();
+        m?.comfy.forgetAll();
         queue.nudge();
       });
     },

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import { roughly, timeKey } from "@afflatus/core";
 import { forecast } from "../src/forecast";
@@ -363,6 +363,30 @@ describe("the next render's time is forecast from the record", () => {
     expect(timeKey(recipe.inputs, { ...base, size: { width: 1536, height: 1536 } })).not.toBe(key);
   });
 
+  it("what waits keeps its forecast until the record changes, not for half a minute (each pass rebuilt every waiting form twice a minute)", async () => {
+    const recipe = t.services.registry.recipe("sdxl.text-to-picture")!;
+    const key = timeKey(recipe.inputs, { prompt: "a", checkpoint: CHECKPOINT });
+    await put([row({ time_key: key, total_ms: 20_000 }), row({ time_key: key, total_ms: 22_000 })]);
+    await rendered();
+    await post(t.app, "/api/queue/pause");
+    await post(t.app, "/api/jobs", job({ prompt: "one" }));
+    const estimate = async () => (await get(t.app, "/api/queue")).json().waiting[0].estimateMs as number;
+    const first = await estimate();
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() });
+    try {
+      // the rows say something else now, but the record's count and newest row are as they were: nothing to read again
+      await t.db.updateTable("render_stats").set({ total_ms: 90_000 }).where("time_key", "=", key).execute();
+      vi.setSystemTime(Date.now() + 31_000);
+      expect(await estimate()).toBe(first);
+      // a render put on record: read again
+      await put([row({ time_key: key, total_ms: 90_000 })]);
+      vi.setSystemTime(Date.now() + 2_000);
+      expect(await estimate()).toBeGreaterThan(first + 30_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("what waits says what it will take, with the load when its model is not the one before it", async () => {
     const recipe = t.services.registry.recipe("sdxl.text-to-picture")!;
     const key = timeKey(recipe.inputs, { prompt: "a", checkpoint: CHECKPOINT });
@@ -459,6 +483,34 @@ describe("the figures as Prometheus reads them", () => {
     expect(body).toContain('afflatus_render_duration_seconds_sum{recipe="sdxl.text-to-picture",family="SDXL",title="txt2img"} 100');
     expect(body).toMatch(/afflatus_queue_jobs\{state="queued"\} 0/);
     expect(body).toMatch(/afflatus_comfy_online 1/);
+  });
+
+  it("counts the line from the jobs and the lanes, without the queue's whole state (its forecasts and machine checks)", async () => {
+    await post(t.app, "/api/queue/pause");
+    await post(t.app, "/api/jobs", job({ prompt: "one" }));
+    await post(t.app, "/api/jobs", job({ prompt: "two" }));
+    const status = vi.spyOn(t.services.queue, "status");
+    const body = (await get(t.app, "/metrics")).body;
+    expect(status).not.toHaveBeenCalled();
+    expect(body).toMatch(/afflatus_queue_jobs\{state="queued"\} 2/);
+    expect(body).toMatch(/afflatus_queue_jobs\{state="running"\} 0/);
+    expect(body).toMatch(/afflatus_gpu_busy\{machine="m1"[^}]*\} 0/);
+  });
+
+  it("adds the server's own figures, and what Afflatus added to each render on its machine", async () => {
+    await rendered();
+    const body = (await get(t.app, "/metrics")).body;
+    // Node's, from prom-client
+    expect(body).toMatch(/^process_resident_memory_bytes \d+/m);
+    expect(body).toMatch(/^nodejs_eventloop_lag_seconds [\d.e-]+/m);
+    expect(body).toContain("# TYPE nodejs_gc_duration_seconds histogram");
+    // before ComfyUI had the prompt, with its parts, and the filing after it
+    expect(body).toMatch(/afflatus_render_added_seconds_count\{machine="m1",stage="before"\} [1-9]/);
+    expect(body).toMatch(/afflatus_render_added_seconds_count\{machine="m1",stage="filing"\} [1-9]/);
+    expect(body).toMatch(/afflatus_render_added_part_seconds_count\{machine="m1",part="scan"\} [1-9]/);
+    expect(body).toMatch(/afflatus_render_added_part_seconds_count\{machine="m1",part="free"\} [1-9]/);
+    // the series of before are all there, once each
+    for (const name of ["afflatus_queue_jobs", "afflatus_comfy_online", "afflatus_renders_total", "afflatus_render_duration_seconds"]) expect(body.split(`# TYPE ${name} `).length).toBe(2);
   });
 
   it("name an imported workflow by a hash when asked by a name that is not the server's own: its id and title are the user's words", async () => {
