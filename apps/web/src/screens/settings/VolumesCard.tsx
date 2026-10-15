@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { volumePerMonth } from "@afflatus/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { HardDrive, Trash2 } from "lucide-react";
+import { Check, HardDrive, MoreHorizontal, Trash2 } from "lucide-react";
 import { api, type NetworkVolume, type VolumePlan } from "../../api";
+import { ContextMenu, useMenu } from "../../ContextMenu";
 import { DEPLOYED_READS } from "../../deployReads";
 import { LicenceChecks } from "../../DeployModels";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../../Dialog";
@@ -45,33 +46,83 @@ export function VolumesCard() {
   );
 }
 
+/** A small rounded label, as the app's chips: a data center, a set's state, a GPU in stock. */
+function Chip({ children, tone = "plain", tip }: { children: ReactNode; tone?: "plain" | "good" | "warn"; tip?: string }) {
+  return (
+    <span data-tip={tip} className={cx("inline-flex h-[22px] shrink-0 items-center gap-1 rounded-md px-2 text-[11.5px] whitespace-nowrap", tone === "good" ? "bg-good/12 text-good" : tone === "warn" ? "bg-warn-wash text-warn-ink" : "bg-raised text-ink-2")}>
+      {children}
+    </span>
+  );
+}
+
+/**
+ * One volume as a tile: the drive and its state (a pod on it, unused, at rest), where it is, its size and what it costs a
+ * month; what it holds per Model set; how its last fill ended; the GPUs a pod could have there now. Fill from a set first,
+ * Grow and Delete behind its ⋯ (a row of three buttons outweighed what it said, the owner: "poor").
+ */
 function VolumeRow({ v, stock, onAct }: { v: NetworkVolume; stock: Array<{ name: string; price: number }> | null; onAct(kind: "fill" | "grow" | "delete"): void }) {
   const mounted = v.mountedOn.length > 0;
+  const more = useMenu<true>();
+  const fill = v.lastFill;
+  const fillWhy = fill ? fill.failed.map((f) => `${f.file}: ${f.error}`).join("\n") || undefined : undefined;
   return (
-    <div className="flex flex-col gap-1.5 border-b border-line px-[18px] py-3 text-[12.5px] last:border-b-0">
-      <div className="flex flex-wrap items-center gap-2">
-        <span aria-hidden className={cx("size-[7px] rounded-full", v.usedBy ? "bg-good" : v.unused ? "bg-warn" : "border-[1.5px] border-ink-3")} />
-        <span className="font-semibold">{v.name}</span>
-        <span className="text-ink-3">· {v.dataCenter} · {v.size} GB · {usd(v.perMonth)} a month</span>
-        <span className="grow" />
-        <Button size="sm" onClick={() => onAct("fill")} disabled={Boolean(v.usedBy)} data-tip={v.usedBy ? `In use by ${v.usedBy.name}: one pod at a time on a volume` : undefined}>Fill from a set…</Button>
-        <Button size="sm" tone="quiet" onClick={() => onAct("grow")}>Grow…</Button>
-        <Button size="sm" tone="quiet" onClick={() => onAct("delete")} disabled={mounted} data-tip={mounted ? `Mounted on ${v.mountedOn.map((p) => p.name).join(", ")}: terminate ${v.mountedOn.length === 1 ? "that pod" : "those pods"} first` : undefined}>Delete…</Button>
-      </div>
-      {v.usedBy && <span className="text-ink-2">In use by <b className="text-ink">{v.usedBy.name}</b> · {v.usedBy.status === "RUNNING" ? "running" : "starting"}</span>}
-      {v.unused && <span className="text-warn-ink">Unused {v.usedAt ? `since ${when(v.usedAt)}` : "since Afflatus first saw it"}: {usd(v.perMonth)} a month for nothing. Delete it if you will not deploy on it soon.</span>}
-      <span className="text-ink-2">
-        {v.holds ? <>Holds {plural(v.holds.count, "model file")}, as {v.holds.seenBy} saw it {when(v.holds.seenAt)}</> : "What it holds is not known yet: no pod Afflatus follows ran on it"}
-        {v.sets.length > 0 && <> · {v.sets.map((s, i) => (
-          <span key={s.id}>{i > 0 && " · "}{s.name} {s.missing.count ? <span className="text-warn-ink">{s.missing.bytes ? gb(s.missing.bytes) : plural(s.missing.count, "file")} missing</span> : <span className="text-good">all there</span>}</span>
-        ))}</>}
+    <div className="flex gap-3.5 border-b border-line px-[18px] py-3.5 last:border-b-0">
+      <span className={cx("relative grid size-10 shrink-0 place-items-center rounded-[10px] border", v.usedBy ? "border-good/40 bg-good/10 text-good" : v.unused ? "border-warn/40 bg-warn-wash text-warn-ink" : "border-line-strong bg-raised text-ink-2")}>
+        <HardDrive size={18} />
+        {v.usedBy && <span aria-hidden className="absolute -top-1 -right-1 size-2.5 animate-pulse rounded-full border-2 border-panel bg-good" />}
       </span>
-      {v.lastFill && (v.lastFill.interrupted
-        ? <span className="text-warn-ink" data-tip={v.lastFill.failed.map((f) => `${f.file}: ${f.error}`).join("\n") || undefined}>Last fill {when(v.lastFill.at)}: cut short, {v.lastFill.interrupted}{v.lastFill.failed.length ? ` (${plural(v.lastFill.failed.length, "file")} not in)` : ""}: fill again</span>
-        : v.lastFill.failed.length
-        ? <span className="text-warn-ink" data-tip={v.lastFill.failed.map((f) => `${f.file}: ${f.error}`).join("\n")}>Last fill {when(v.lastFill.at)}: {plural(v.lastFill.failed.length, "file")} failed ({v.lastFill.failed.slice(0, 2).map((f) => f.file).join(", ")}{v.lastFill.failed.length > 2 ? "…" : ""}): fill again, or look at their sources</span>
-        : <span className="text-ink-2">Last fill {when(v.lastFill.at)}: all in</span>)}
-      {stock !== null && <span className="text-ink-3">{stock.length ? `In stock there now: ${stock.slice(0, 5).map((g) => g.name).join(", ")}${stock.length > 5 ? ` and ${stock.length - 5} more` : ""}` : "No GPU in stock there now"}</span>}
+      <div className="flex min-w-0 grow flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[14px] font-semibold">{v.name}</span>
+          <Chip>{v.dataCenter}</Chip>
+          <Chip>{v.size} GB</Chip>
+          <span className="font-mono text-xs text-ink-2">{usd(v.perMonth)}<span className="text-ink-3">/month</span></span>
+          <span className="grow" />
+          <Button size="sm" onClick={() => onAct("fill")} disabled={Boolean(v.usedBy)} data-tip={v.usedBy ? `In use by ${v.usedBy.name}: one pod at a time on a volume` : "A pod on the cheapest GPU there fetches a set's files onto it, then goes"}>Fill from a set…</Button>
+          <button type="button" aria-label={`More for ${v.name}`} onClick={(e) => more.open(e, true)} className="grid size-8 place-items-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink">
+            <MoreHorizontal size={16} />
+          </button>
+        </div>
+
+        {/* its state: the pod on it, else unused (billed for nothing), else nothing to say */}
+        {v.usedBy && <span className="text-[12.5px] text-good">In use by <b>{v.usedBy.name}</b> · {v.usedBy.status === "RUNNING" ? "running" : "starting"}</span>}
+        {v.unused && <span className="text-[12.5px] text-warn-ink">Unused {v.usedAt ? `since ${when(v.usedAt)}` : "since Afflatus first saw it"}: {usd(v.perMonth)} a month for nothing. Delete it if you will not deploy on it soon.</span>}
+
+        <div className="flex flex-wrap items-center gap-1.5 text-[12.5px]">
+          <span className="w-[92px] shrink-0 text-ink-3">Holds</span>
+          {v.holds
+            ? <Chip tip={`As ${v.holds.seenBy} saw it ${when(v.holds.seenAt)}`}>{plural(v.holds.count, "model file")}</Chip>
+            : <span className="text-ink-3">not read yet: the next pod on it reads it</span>}
+          {v.sets.map((s) => s.missing.count
+            ? <Chip key={s.id} tone="warn" tip={`${s.name}: ${plural(s.missing.count, "file")} not there`}>{s.name} · {s.missing.bytes ? gb(s.missing.bytes) : plural(s.missing.count, "file")} missing</Chip>
+            : <Chip key={s.id} tone="good"><Check size={11} />{s.name}</Chip>)}
+        </div>
+
+        {fill && (
+          <span className={cx("text-[12.5px]", fill.interrupted || fill.failed.length ? "text-warn-ink" : "text-ink-2")} data-tip={fillWhy}>
+            Last fill {when(fill.at)}: {fill.interrupted
+              ? `cut short, ${fill.interrupted}${fill.failed.length ? ` (${plural(fill.failed.length, "file")} not in)` : ""}: fill again`
+              : fill.failed.length
+                ? `${plural(fill.failed.length, "file")} failed (${fill.failed.slice(0, 2).map((f) => f.file).join(", ")}${fill.failed.length > 2 ? "…" : ""}): fill again, or look at their sources`
+                : "all in"}
+          </span>
+        )}
+
+        {stock !== null && (
+          <div className="flex flex-wrap items-center gap-1.5 text-[12.5px]">
+            <span className="w-[92px] shrink-0 text-ink-3">In stock there</span>
+            {stock.length
+              ? <>{stock.slice(0, 6).map((g) => <Chip key={g.name}>{g.name} <span className="font-mono text-ink-3">{usd(g.price)}/h</span></Chip>)}{stock.length > 6 && <span className="text-ink-3">+{stock.length - 6}</span>}</>
+              : <span className="text-ink-3">no GPU now</span>}
+          </div>
+        )}
+      </div>
+      {more.menu && (
+        <ContextMenu at={more.menu.at} label={v.name} onClose={more.close} items={[
+          { label: "Grow…", note: "never shrinks", run: () => onAct("grow") },
+          { label: "Delete…", danger: true, icon: <Trash2 size={14} />, disabled: mounted, note: mounted ? `mounted on ${v.mountedOn.map((p) => p.name).join(", ")}` : "its monthly bill stops", run: () => onAct("delete") },
+        ]} />
+      )}
     </div>
   );
 }
