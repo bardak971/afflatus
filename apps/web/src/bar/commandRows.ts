@@ -50,6 +50,14 @@ export interface CommandCtx {
   channels?: { telegram: boolean; discord: boolean };
   /** Find models searches online only with Search Hugging Face and Civitai on. */
   lookups?: boolean;
+  /** The sign-in (Settings › Interface › Access): a password set, and whether this browser holds a session to end. */
+  access?: { locked: boolean; session: boolean } | null;
+}
+
+/** Why this browser has nothing to sign out of, or null when it has. */
+export function signOutBlock(a: CommandCtx["access"]): string | null {
+  if (!a?.locked) return "No password is set: nothing to sign out of";
+  return a.session ? null : "This computer is in without the password: nothing to sign out of";
 }
 
 /** A rented pod that bills now: running, or on its way up. */
@@ -92,7 +100,7 @@ export function commandKeys(c: Command | { cmd: CommandId }): string | undefined
 }
 
 /** The commands offered only where they apply: a clip selected in the open editor, jobs waiting, failures, loads to save. */
-const LIVE: CommandId[] = ["split", "previous-take", "next-take", "mirror-pin", "slow-motion", "motion-windows", "cancel-waiting", "retry-failed", "dismiss-failed", "group-queue", "unload", "cancel-hunt", "stop-all-pods", "spending", "update", "go-back", "test-notify"];
+const LIVE: CommandId[] = ["split", "previous-take", "next-take", "mirror-pin", "slow-motion", "motion-windows", "cancel-waiting", "retry-failed", "dismiss-failed", "group-queue", "unload", "cancel-hunt", "stop-all-pods", "update", "go-back", "test-notify", "sign-out", "sign-out-everywhere"];
 /** What is done to the whole queue, listed after its jobs in the `!` mode. */
 export const QUEUE_BULK: CommandId[] = ["cancel-waiting", "retry-failed", "dismiss-failed", "group-queue"];
 
@@ -175,7 +183,10 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     "slow-motion": [`${selectedClip ? `Clip ${selectedClip.number}: slow` : "Slow"} motion ×${c.cmd === "slow-motion" ? c.factor : 2}`, !selectedClip ? "No clip selected in an open timeline" : selectedClip.slow ? `${selectedClip.timelineName} · the whole clip at ${c.cmd === "slow-motion" && c.factor === 4 ? "a quarter" : "half"} speed, as a new take` : "It has no take to slow"],
     "motion-windows": [`${selectedClip ? `Clip ${selectedClip.number}: ` : ""}Motion transfer in windows`, !selectedClip ? "No clip selected in an open timeline" : selectedClip.toSource ? `${selectedClip.timelineName} · on the source lane, made into Motion transfer clips window by window` : "Only a video brought in (no model of its own) goes on the source lane"],
     "stop-all-pods": stopAllSaid(queueNow),
-    spending: x.spending ? [`Spending today ${usd(x.spending.today)}${x.spending.caps.day ? ` of ${usd(x.spending.caps.day)}` : ""}`, spendingSaid(x.spending)] : ["Spending", "The rented GPUs: no RunPod key set, or not read yet"],
+    // with RunPod, the day's figures; without, the Costs page all the same (this PC's electricity)
+    spending: x.spending ? [`Spending today ${usd(x.spending.today)}${x.spending.caps.day ? ` of ${usd(x.spending.caps.day)}` : ""}`, `${spendingSaid(x.spending)} · Queue › Costs`] : ["Costs", "Where the money went: the rented GPUs and this PC's electricity · Queue › Costs"],
+    "sign-out": ["Sign out", upper(signOutBlock(x.access)) ?? "This browser · the sign-in page comes next"],
+    "sign-out-everywhere": ["Sign out everywhere…", x.access?.locked ? "Every device, this one too · each needs the password again · asked first" : "No password is set: nothing to sign out of"],
     "find-models": [c.cmd === "find-models" && c.words ? `Find models: “${c.words}”` : "Find models…", x.lookups ? "Civitai, Hugging Face and yours · to download onto this PC" : "Turn on Search Hugging Face and Civitai (Settings › Models) first"],
     "check-updates": ["Check for updates", x.updates?.newer && x.updates.latest ? `Afflatus ${x.updates.latest.version} is out · you have ${x.updates.version}` : x.updates ? `You have ${x.updates.version}${x.updates.checkedAt ? ` · checked ${when(x.updates.checkedAt)}` : ""} · GitHub asked now` : "GitHub asked now"],
     update: x.updates?.newer && x.updates.latest
@@ -217,7 +228,8 @@ const applies = (x: CommandCtx, id: CommandId): boolean =>
   : id === "motion-windows" ? Boolean(x.selectedClip?.toSource)
   // a pod running or starting: the one command that stops paying for all of them
   : id === "stop-all-pods" ? Boolean(x.queue?.machines.some((m) => billing(m.rented)))
-  : id === "spending" ? Boolean(x.spending)
+  : id === "sign-out" ? !signOutBlock(x.access)
+  : id === "sign-out-everywhere" ? Boolean(x.access?.locked)
   : id === "update" ? Boolean(x.updates?.newer)
   : id === "go-back" ? Boolean(x.updates?.previous)
   : id === "test-notify" ? Boolean(x.channels?.telegram || x.channels?.discord)

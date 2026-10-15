@@ -1,10 +1,10 @@
-import { Bell, Bookmark, ChevronLeft, ChevronRight, Clapperboard, CircleDollarSign, Download, Eye, FileOutput, FileUp, Film, FlipHorizontal2, FolderPlus, Gauge, Layers, Link2, MemoryStick, Pause, PenLine, Play, Plug, RotateCcw, Search, Server, Sparkles, Split, Square, Trash2, Undo2, Wand2, X } from "lucide-react";
+import { Bell, LogOut, Bookmark, ChevronLeft, ChevronRight, Clapperboard, CircleDollarSign, Download, Eye, FileOutput, FileUp, Film, FlipHorizontal2, FolderPlus, Gauge, Layers, Link2, MemoryStick, Pause, PenLine, Play, Plug, RotateCcw, Search, Server, Sparkles, Split, Square, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { TRANSITIONS } from "@afflatus/core";
 import { ask } from "../../Confirm";
 import { getOnPc, openFindModels } from "../../findModels/store";
 import { followRestart, useUpdatesSeen } from "../../updates";
 import { settingHref } from "../../screens/settings/settingsIndex";
-import { billing } from "../commandRows";
+import { billing, signOutBlock } from "../commandRows";
 import { cancelHunt, openDeploy } from "../../deploy";
 import { openLoadPanel } from "../../loadPanelHost";
 import { OPEN_MACHINES } from "../../MachinesPill";
@@ -436,7 +436,29 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       }];
     }
     case "spending":
-      return [{ label: "Open Settings › Rented GPUs", icon: <CircleDollarSign size={14} />, note: "the bill, the caps and the balance", run: () => go(settingHref("comfy.rentcaps")) }];
+      // the Costs page first (where it went, this PC's electricity too); the caps on Ctrl+Enter
+      return [
+        { label: "Open Queue › Costs", icon: <CircleDollarSign size={14} />, note: "where the money went, by project and render", run: () => go("/queue?view=costs") },
+        { label: "Open Settings › Rented GPUs", icon: <CircleDollarSign size={14} />, note: "the caps and the balance", run: () => go(settingHref("comfy.rentcaps")) },
+      ];
+    case "sign-out": {
+      const why = signOutBlock(x.access);
+      // as the Access card's Sign out on this device: the session ends, and the page read again shows the sign-in
+      return [{
+        label: "Sign out", icon: <LogOut size={14} />, disabled: Boolean(why), note: why ?? "this browser · the sign-in page comes next",
+        run: () => api.signOut().then(() => location.reload(), failed("Could not sign out")),
+      }];
+    }
+    case "sign-out-everywhere":
+      return [{
+        label: "Sign out everywhere…", icon: <LogOut size={14} />, danger: true, disabled: !x.access?.locked, note: x.access?.locked ? "every device, this one too · asked first" : "no password is set",
+        run: async () => {
+          // the card's question, as its two-step button asks it
+          const yes = await ask({ title: "Sign out every device, this one too?", text: "Each device needs the password again to come back in.", yes: "Sign out everywhere" });
+          if (!yes) return;
+          await api.signOutEverywhere(false).then(() => (x.access?.session ? location.reload() : good("Every device signed out", "This computer stays in: it needs no password.", settingHref("access"), "Open Access")), failed("Could not sign out everywhere"));
+        },
+      }];
     case "find-models": {
       // as Settings › Models' Find models…: what is picked downloads onto this PC; online only with lookups on
       const lookups = Boolean(x.settingCtx.server?.civitaiLookups);

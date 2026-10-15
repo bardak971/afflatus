@@ -82,7 +82,9 @@ export type Command =
   | { cmd: "check-updates" }
   | { cmd: "update" }
   | { cmd: "go-back" }
-  | { cmd: "test-notify"; channel?: "telegram" | "discord" };
+  | { cmd: "test-notify"; channel?: "telegram" | "discord" }
+  | { cmd: "sign-out" }
+  | { cmd: "sign-out-everywhere" };
 export type CommandId = Command["cmd"];
 
 /** A new entry of the Prompt kit, by its kind: `new person Ada`. */
@@ -131,7 +133,7 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "start-pod", name: "Start pod…", typed: "start pod ", example: "start pod comfy-5090", what: "A rented pod (RunPod), started: billed from then, at its rate; it stops by itself when idle", needs: true },
   { id: "stop-pod", name: "Stop pod…", typed: "stop pod ", example: "stop pod comfy-5090", what: "A rented pod, stopped: the GPU stops billing, its disk goes on", needs: true },
   { id: "stop-all-pods", name: "Stop all pods…", typed: "stop all pods", example: "stop all pods", what: "Every rented pod that runs or starts, stopped at once (asked first): their GPUs stop billing, their disks go on" },
-  { id: "spending", name: "Spending", typed: "spending", example: "spending", what: "What the rented GPUs cost today and this month against your caps, and how long the RunPod balance lasts" },
+  { id: "spending", name: "Spending", typed: "spending", example: "costs", what: "Queue › Costs: where the money went (the rented GPUs, this PC's electricity); with RunPod, today and this month against your caps and the balance's runway" },
   { id: "deploy-gpu", name: "Deploy a GPU…", typed: "deploy gpu", example: "deploy gpu", what: "A GPU rented on RunPod, picked from what is free now: billed from your Deploy until it ends, by itself once idle" },
   { id: "deploy-again", name: "Deploy again", typed: "deploy again", example: "deploy again", what: "The last deploy's GPU and choices, on RunPod: its rate asked first" },
   { id: "hunt-gpu", name: "Hunt a GPU…", typed: "hunt gpu", example: "hunt gpu", what: "Deploy a GPU on its hunt: RunPod asked every 30 s, the best GPU that comes free within your price deployed for the renders waiting" },
@@ -161,6 +163,8 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "check-updates", name: "Check for updates", typed: "check for updates", example: "check for updates", what: "Is a newer Afflatus out: GitHub asked now, as About's Check now" },
   { id: "update", name: "Update Afflatus", typed: "update", example: "update", what: "To the latest release, as About's Update: Afflatus restarts once the queue is empty; your library stays as it is" },
   { id: "go-back", name: "Go back to the previous version…", typed: "go back", example: "go back", what: "The version before the last update, its library as it was then (asked first), as About's Go back" },
+  { id: "sign-out", name: "Sign out", typed: "sign out", example: "sign out", what: "This browser signed out, as the Access card's Sign out on this device: the sign-in page comes next (with a password set)" },
+  { id: "sign-out-everywhere", name: "Sign out everywhere…", typed: "sign out everywhere", example: "sign out everywhere", what: "Every device signed out, this one too (asked first), as the Access card's: each needs the password again" },
   { id: "test-notify", name: "Send a test notification", typed: "test notification", example: "test notification telegram", what: "A test message to Telegram or Discord, as their card's Send a test" },
   { id: "view-last", name: "View last render", typed: "view last render", example: "last render", what: "What the last finished job made, in the viewer" },
   { id: "reconnect", name: "Reconnect to ComfyUI", typed: "reconnect", example: "reconnect", what: "ComfyUI asked again now: its address, its files, its nodes" },
@@ -245,6 +249,9 @@ export function parseCommand(input: string): Command | null {
   if ((m = /^start pod (.+)$/i.exec(t))) return { cmd: "start-pod", machine: m[1]!.trim() };
   if ((m = /^stop pod (.+)$/i.exec(t))) return { cmd: "stop-pod", machine: m[1]!.trim() };
   if ((m = /^open comfy(?:ui)?(?: (?:on|of) (.+))?$/i.exec(t))) return m[1] ? { cmd: "open-comfy", machine: m[1].trim() } : { cmd: "open-comfy" };
+  // signing out before a machine's log: "log out" is no machine called "out"
+  if (/^(?:sign|log) ?out (?:of )?(?:everywhere|all(?: devices)?|every device|all browsers)$/.test(low)) return { cmd: "sign-out-everywhere" };
+  if (/^(?:sign|log) ?out(?: (?:of )?(?:this (?:device|browser|computer)|here))?$/.test(low)) return { cmd: "sign-out" };
   if ((m = /^(?:comfyui )?(?:log|console) (?:of |on )?(.+)$/i.exec(t))) return { cmd: "machine-log", machine: m[1]!.trim() };
   if ((m = /^render times (?:of |on )?(.+)$/i.exec(t))) return { cmd: "machine-times", machine: m[1]!.trim() };
   if ((m = /^models (?:on|of) (.+)$/i.exec(t))) return { cmd: "machine-models", machine: m[1]!.trim() };
@@ -261,7 +268,7 @@ export function parseCommand(input: string): Command | null {
   if ((m = /^(?:transition|trans)(?: (.*))?$/.exec(low))) return transitionOf((m[1] ?? "").trim());
   if ((m = /^slow(?:[ -]?mo(?:tion)?)?(?: (?:x|×)?\s?([24])\s?(?:x|×)?)?$/.exec(low))) return { cmd: "slow-motion", factor: m[1] === "4" ? 4 : 2 };
   if (/^(?:motion transfer(?: in windows)?|(?:to|make) (?:the )?source(?: lane)?|source lane)$/.test(low)) return { cmd: "motion-windows" };
-  if (/^(?:spending|spend|spent|money|costs?|budget|(?:runpod )?balance|(?:spending )?caps?)(?: today)?$/.test(low)) return { cmd: "spending" };
+  if (/^(?:spending|spend|spent|money|costs?|budget|(?:runpod )?balance|(?:spending )?caps?|electricity)(?: today)?$/.test(low)) return { cmd: "spending" };
   if ((m = /^(?:find|browse|search(?: for)?) (?:a )?models?(?: (.+))?$/i.exec(t))) return { cmd: "find-models", words: (m[1] ?? "").trim() };
   if (/^(?:check (?:for )?(?:updates?|(?:a )?new version)|updates)$/.test(low)) return { cmd: "check-updates" };
   if (/^(?:update|upgrade)(?: afflatus)?(?: now)?$/.test(low)) return { cmd: "update" };
