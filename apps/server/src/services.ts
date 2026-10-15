@@ -174,6 +174,7 @@ export async function createServices(
     // its pod up: a pod filling its volume takes no render, but gets its files
     alive: (id) => rented.podDown(id) === null,
     busy: (id) => queue.runningOn(id),
+    makesRoom: async (id) => Boolean((await machineOf(id))?.machine.rented?.makeRoom),
     // a file there now, or one that failed: the pod's folders and its node list (whose choices name the files) are read
     // again, and its jobs looked at again
     settled: (id) => {
@@ -196,7 +197,7 @@ export async function createServices(
   // a pod's row says the files it is getting
   queue.rentedOf = (m) => {
     const row = rented.view(m);
-    return row ? { ...row, files: podFiles.view(m.id), packs: podFiles.packsView(m.id) } : null;
+    return row ? { ...row, files: podFiles.view(m.id), packs: podFiles.packsView(m.id), disk: podFiles.diskOf(m.id) } : null;
   };
   // a deployed pod up: the files its deploy asked for come after what its jobs wait for; the ones left out never come
   rented.filesLeft = (id) => {

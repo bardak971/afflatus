@@ -85,8 +85,12 @@ export interface FakeComfy {
   packUploaded: Array<{ file: string; offset: number; bytes: number }>;
   /** Pieces of an upload cut on their way (each answered 400, nothing kept), counted down. */
   uploadCut: number;
-  /** The bytes free on the model folders' disk, as an upload is told; left out: room enough. */
+  /** The bytes free on the model folders' disk, as an upload and a download are told and GET /afflatus/disk says (0.19.0 on); left out: room enough. */
   diskFree?: number;
+  /** The disk's size, as GET /afflatus/disk says it; left out: twice what is free. */
+  diskTotal?: number;
+  /** The model files taken off to make room (POST /afflatus/models/remove, 0.19.0 on), as folder/file. */
+  removed: string[];
   /**
    * Send a websocket message as ComfyUI does: one about a prompt goes only to the client that queued it (every
    * client when it was queued without a client id, or is not known here); a preview without a prompt id goes to
@@ -152,7 +156,7 @@ const body = async (req: IncomingMessage) => {
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: FakeState = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], packUploaded: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, alive: [],
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], files: {}, rejectWith: null, uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, userdata: {}, lock: null, refused: [], packFetched: [], packUploaded: [], removed: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, alive: [],
     folderPaths: init.folderPaths ?? null, hideFolderPaths: init.hideFolderPaths ?? false,
     catalog: init.catalog ?? {},
     models: init.models ?? {},

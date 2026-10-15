@@ -5,7 +5,7 @@ import type { MachineState } from "./api";
 import { lastSaid, openDeploy, useDeployAgain } from "./deploy";
 import { gb, plural } from "./format";
 import { machineLabel } from "./machines";
-import { Bar, busiest, doing, Dot, FilesLine, gettingFiles } from "./machineBits";
+import { Bar, busiest, diskNearlyFull, diskSaid, doing, Dot, FilesLine, gettingFiles } from "./machineBits";
 import { Popover } from "./Popover";
 import { useQueueOps } from "./queueOps";
 import { useSystem } from "./store";
@@ -66,6 +66,8 @@ export function MachinesPopover({ anchor, machines, metered, now, canDeploy, onP
                     <span className={cx(g.vramPercent >= 90 && "text-warn-ink")}>VRAM {gb(g.vramUsed)}/{gb(g.vramTotal)}</span>
                     {load?.ram && <span className={cx(load.ram.percent >= 90 && "text-warn-ink")}>RAM {Math.round(load.ram.percent)} %</span>}
                     {g.temperature !== undefined && <span className={cx(g.temperature >= 80 && "text-warn-ink")}>{Math.round(g.temperature)}°</span>}
+                    {/* a pod's disk, which its models fill (node pack 0.19.0 on) */}
+                    {m.rented?.disk && <span className={cx(diskNearlyFull(m.rented.disk) && "text-warn-ink")}>DISK {diskSaid(m.rented.disk)}</span>}
                   </span>
                 ) : (
                   <span className="text-[11.5px] text-ink-3">

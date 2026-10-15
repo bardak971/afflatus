@@ -24,6 +24,8 @@ without asking first):
   GET    /afflatus/download/<id>  → {state: downloading|done|error|stopped, bytes, total, error, note, expired}
   POST   /afflatus/download/<id>/url {url}  → a fresh signed link for a download whose link expired (`expired` true)
   DELETE /afflatus/download/<id>  → stops it, and removes its .part
+  GET    /afflatus/disk  → {free, total, downloading}: the bytes of the disk the model folders are on (0.19.0)
+  POST   /afflatus/models/remove {folder, filename}  → {removed}: a model file taken off the disk, to make room (0.19.0)
 
 Afflatus always says the file's size (the one-time address answers with its length): a download whose size is not
 known is refused, and one that sends more than it said is cut off there, so a source cannot fill the disk. At most
@@ -31,6 +33,7 @@ MAX_JOBS run at once (a 429 past that).
 """
 
 import asyncio
+import errno
 import os
 import shutil
 import re
@@ -156,6 +159,29 @@ def target(folder, filename, folder_paths):
     return root, path
 
 
+def located(folder, filename, folder_paths):
+    """The file `filename` of model folder `folder` as it is on disk, in any of the folder's paths (never a pack's code); None
+    when none holds it. Raises Refused for a name that is not a model file's, or a folder that is not a model folder."""
+    if not isinstance(filename, str) or not filename or len(filename) > 400:
+        raise Refused("a filename is needed")
+    parts = re.split(r"[\\/]", filename)
+    if any(p in ("", ".", "..") or BAD_NAME.search(p) for p in parts) or not MODEL_FILE.search(parts[-1]):
+        raise Refused(f"{filename} is not a model file's name")
+    if not isinstance(folder, str) or folder in NOT_MODELS or folder not in folder_paths.folder_names_and_paths:
+        raise Refused(f"{folder} is not a model folder")
+    code = _code_dirs(folder_paths)
+    for base in folder_paths.get_folder_paths(folder):
+        if not os.path.isdir(base):
+            continue
+        root = os.path.realpath(base)
+        if any(_inside(c, root) for c in code):
+            continue
+        path = os.path.realpath(os.path.join(root, *parts))
+        if _inside(root, path) and path != root and os.path.isfile(path):
+            return path
+    return None
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     """Afflatus's address answers itself: a redirect would lead the download anywhere."""
 
@@ -185,6 +211,8 @@ class Job:
         self.note = None
         self.ended = None
         self.cancelled = threading.Event()
+        # the bytes the other downloads under way still have to write: room this one cannot count on (register sets it)
+        self.reserved = lambda: 0
 
     @property
     def part(self):
@@ -241,6 +269,23 @@ def _within(job, size):
     return size
 
 
+# a disk with no room left: no try after this one would fare better
+DISK_FULL = {errno.ENOSPC, getattr(errno, "EDQUOT", errno.ENOSPC)}
+
+
+def _gb(n):
+    return f"{n / 2**30:.1f} GB"
+
+
+def _room(job, have):
+    """Refused at once when what is left of the file does not fit beside what the other downloads still write."""
+    free = shutil.disk_usage(os.path.dirname(job.path)).free
+    need = job.total - have
+    kept = job.reserved()
+    if free - kept < need:
+        raise Refused(f"the disk is full: {_gb(free)} free, {_gb(kept)} of it kept for other downloads, {_gb(need)} of this file to come")
+
+
 def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeout=60, renew_wait=RENEW_WAIT_S):
     """Fetch `job.url` into `job.path`, through `<path>.part`: picked up with a Range after a cut, tried again with a
     growing wait, named only once whole. Sets job.state to done, error or stopped; the .part never outlives a failure."""
@@ -273,6 +318,7 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
                             job.total = _within(job, size)
                     if not job.total:
                         raise Refused("the size of the file is not known")
+                    _room(job, have)
                     with open(part, mode) as f:
                         while True:
                             if job.cancelled.is_set():
@@ -308,6 +354,9 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
                     raise Refused(f"{where} answered {e.code}: the download is no longer there")
                 why = f"{where} answered {e.code}"
             except Exception as e:  # a cut, a timeout, a reset: tried again
+                # a full disk stays full: said at once (Afflatus fails the file, and makes room or sends its job elsewhere)
+                if isinstance(e, OSError) and e.errno in DISK_FULL:
+                    raise Refused(f"the disk is full ({e.strerror or e})")
                 why = str(e) or type(e).__name__
             # what is on disk is what counts: a write cut half way leaves less than was read
             have = os.path.getsize(part) if os.path.exists(part) else 0
@@ -375,6 +424,9 @@ def register(routes, web, folder_paths):
     # what a ComfyUI stopped half way left behind, looked for without holding up its start
     threading.Thread(target=sweep_parts, args=(folder_paths,), name="afflatus-sweep-parts", daemon=True).start()
 
+    def reserved(but=None):
+        return sum(max(0, j.total - j.bytes) for j in jobs.values() if j is not but and j.state == "downloading")
+
     def forget():
         now = time.time()
         for key in [k for k, j in jobs.items() if j.ended and now - j.ended > KEEP_S]:
@@ -402,12 +454,13 @@ def register(routes, web, folder_paths):
         if sum(j.state == "downloading" for j in jobs.values()) >= MAX_JOBS:
             return web.Response(status=429, text=f"{MAX_JOBS} downloads are under way already")
         total = body.get("total") or 0
-        # a disk without the room is said now, not once it is full
+        # a disk without the room is said now, not once it is full: beside what the downloads under way still write
         if isinstance(total, (int, float)) and total > 0:
-            free = await asyncio.to_thread(lambda: shutil.disk_usage(root).free)
+            free = await asyncio.to_thread(lambda: shutil.disk_usage(root).free) - reserved()
             if free < total:
-                return web.Response(status=507, text=f"the disk has {free} bytes free, the file is {int(total)}")
+                return web.Response(status=507, text=f"the disk has {max(0, free)} bytes free, the file is {int(total)}")
         job = Job(body["url"], path, total)
+        job.reserved = lambda: reserved(job)
         jobs[job.id] = job
         threading.Thread(target=run, args=(job,), name=f"afflatus-download-{job.id[:8]}", daemon=True).start()
         return web.json_response({"id": job.id, "path": path})
@@ -441,5 +494,41 @@ def register(routes, web, folder_paths):
             return web.Response(status=404)
         job.stop()
         return web.json_response({"ok": True})
+
+    @routes.get("/afflatus/disk")
+    async def _afflatus_disk(request):
+        # the disk of the models folder: the one model downloads fill (a pod's container disk, or its volume)
+        root = getattr(folder_paths, "models_dir", None) or model_dir("checkpoints", folder_paths)
+        if not root or not os.path.isdir(root):
+            return web.Response(status=404, text="no models folder")
+        usage = await asyncio.to_thread(shutil.disk_usage, root)
+        return web.json_response({"free": usage.free, "total": usage.total, "downloading": reserved()})
+
+    @routes.post("/afflatus/models/remove")
+    async def _afflatus_models_remove(request):
+        # a model file taken off to make room: only a model file's name, in a model folder's own paths, never one a download
+        # writes now; what ComfyUI holds in memory of it stays usable until it is let go
+        if request.content_type != "application/json":
+            return web.Response(status=415, text="a JSON body is expected")
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        if not isinstance(body, dict):
+            return web.Response(status=400, text="a JSON object is expected")
+        try:
+            found = located(body.get("folder"), body.get("filename"), folder_paths)
+        except Refused as e:
+            return web.Response(status=400, text=str(e))
+        if found is None:
+            return web.Response(status=404, text="no such file")
+        if any(j.path == found and j.state == "downloading" for j in jobs.values()):
+            return web.Response(status=409, text="it is being downloaded")
+        size = os.path.getsize(found)
+        try:
+            await asyncio.to_thread(os.remove, found)
+        except OSError as e:
+            return web.Response(status=409, text=f"it could not be removed ({e.strerror or e})")
+        return web.json_response({"removed": size})
 
     return jobs

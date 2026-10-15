@@ -143,6 +143,8 @@ export interface RentedMachine {
   files: PresetFile[];
   /** The files its deploy left out, until its first answer. */
   leaveOut: Array<{ file: string; folder: string }>;
+  /** Make room: the models Afflatus fetched there that no waiting job needs are deleted when a needed file does not fit. */
+  makeRoom: boolean;
 }
 
 /** What a GPU is deployed with: the Deploy dialog's choices, kept as the next deploy's (Settings.lastDeploy). */
@@ -169,6 +171,8 @@ export interface DeployAsk {
   accept: string[];
   /** Deploy again: nothing ticked, the remembered set's files come (false in lastDeploy). */
   again: boolean;
+  /** Make room on its disk by deleting the models it fetched that no waiting job needs. */
+  makeRoom: boolean;
 }
 /** A ComfyUI asked now (GET /api/machines): whether it answers (and why not), its version, its GPU and the Afflatus node pack it loaded. */
 export interface MachineProbe {

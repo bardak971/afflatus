@@ -555,7 +555,7 @@ export class Rented {
   async fill(volume: string, set: string, files: PresetFile[]): Promise<{ id: string; dataCenter: string | null }> {
     const found = await this.fillGpu(volume);
     if (!found) throw httpError("No GPU is free where that volume is now: try again later.", 409);
-    return this.deploy({ gpu: found.gpu.id, cloud: "SECURE", template: "afflatus", volume, disk: 20, idleMinutes: 5, idleDo: "terminate", watchdogMinutes: 15, set, files, leaveOut: [], accept: [], again: false }, { fill: true });
+    return this.deploy({ gpu: found.gpu.id, cloud: "SECURE", template: "afflatus", volume, disk: 20, idleMinutes: 5, idleDo: "terminate", watchdogMinutes: 15, set, files, leaveOut: [], accept: [], again: false, makeRoom: false }, { fill: true });
   }
 
   private async deployNow(ask: DeployAsk, fill = false): Promise<{ id: string; dataCenter: string | null }> {
@@ -644,7 +644,7 @@ export class Rented {
         let name = offer.name.slice(0, 36);
         for (let n = 2; names.has(name); n++) name = `${offer.name.slice(0, 36)} ${n}`;
         // without a volume a stop keeps nothing and its GPU may be taken meanwhile: terminated, as for a pod added
-        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString(), cloud: ask.cloud, volume: volume?.id ?? "", fill, files: ask.files, leaveOut: ask.leaveOut };
+        const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString(), cloud: ask.cloud, volume: volume?.id ?? "", fill, files: ask.files, leaveOut: ask.leaveOut, makeRoom: ask.makeRoom };
         const machines = [...current.machines, { id, name, url: podUrl(made.id), dir: "", takes: "all" as const, families: {}, token, rented }];
         // the next deploy starts from the same choices; the files are this one's. A fill is not a deploy of the user's choices
         return fill ? { machines } : { machines, lastDeploy: { ...ask, files: [], leaveOut: [], accept: [] } };

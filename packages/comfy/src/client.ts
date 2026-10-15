@@ -392,6 +392,32 @@ export class ComfyClient {
   }
 
   /**
+   * The disk the model folders are on, as the Afflatus node pack reads it (0.19.0 on, GET /afflatus/disk): its bytes free and
+   * in all, and what the pack's downloads under way still write. "absent" when the route is not there (an older pack); null
+   * when ComfyUI did not answer.
+   */
+  async disk(): Promise<{ free: number; total: number; downloading: number } | null | "absent"> {
+    const res = await this.fetcher(`${this.baseUrl}/afflatus/disk`, { signal: AbortSignal.timeout(META_TIMEOUT) }).catch(() => null);
+    if (res?.status === 404 || res?.status === 405) {
+      await res.body?.cancel().catch(() => {});
+      return "absent";
+    }
+    if (!res?.ok) return null;
+    const got = (await res.json().catch(() => ({}))) as { free?: unknown; total?: unknown; downloading?: unknown };
+    const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
+    const free = n(got.free);
+    const total = n(got.total);
+    return free === null || total === null ? null : { free, total, downloading: n(got.downloading) ?? 0 };
+  }
+
+  /** A model file taken off the disk to make room (node pack 0.19.0 on, POST /afflatus/models/remove): its bytes. Throws with the pack's reason. */
+  async removeModel(folder: string, file: string): Promise<number> {
+    const res = await this.fetcher(`${this.baseUrl}/afflatus/models/remove`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ folder, filename: file }), signal: AbortSignal.timeout(META_TIMEOUT) });
+    if (!res.ok) throw new Error(`the pod's node pack did not remove it (${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)})`);
+    return Number(((await res.json().catch(() => ({}))) as { removed?: unknown }).removed ?? 0);
+  }
+
+  /**
    * Write a file into ComfyUI's user data (user/default/<path>): "workflows/afflatus/x.json" is what its
    * Workflows sidebar lists. Replaces a file of that name.
    */

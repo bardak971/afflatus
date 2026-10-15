@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MachineState, PodFile, RentedState } from "../src/api";
-import { busiest, doing, filesTip, gettingFiles } from "../src/machineBits";
+import { busiest, doing, filesSaid, filesTip, gettingFiles } from "../src/machineBits";
 
 /** A rented pod getting the files its jobs wait for: what the pill, its popover and the Queue's lane say of it (machineBits.tsx). */
 
@@ -30,6 +30,13 @@ describe("a pod getting files", () => {
     expect(g.share).toBeCloseTo(3 / 8);
     expect(g.now.file).toBe("now.safetensors");
     expect(filesTip("A40", g)).toContain("now: now.safetensors · 4.0 GB · from Hugging Face\nnext: next.safetensors · 2.0 GB · from Civitai");
+  });
+
+  it("says the bytes in, never a share, while a file left has no size yet", () => {
+    const g = gettingFiles(pod([file({ state: "fetching", bytes: 3 * GB, total: 0 }), file({ state: "ready", total: GB })]))!;
+    expect(g.share).toBeNull();
+    expect(filesSaid(g)).toBe("4.0 GB in");
+    expect(filesSaid(gettingFiles(pod([file({ state: "fetching", bytes: GB, total: 4 * GB })]))!)).toBe("25 %");
   });
 
   it("is none with every file in, or only files asked ahead, and on a machine of this PC", () => {

@@ -144,11 +144,29 @@ export function fakeFolders(fake: FakeState): (r: FakeRequest) => boolean {
       }
       return false;
     }
+    if (fake.packVersion && atLeast(fake.packVersion, "0.19.0")) {
+      if (method === "GET" && path === "/afflatus/disk") {
+        const free = fake.diskFree ?? 1e13;
+        return json(200, { free, total: fake.diskTotal ?? 2 * free, downloading: 0 });
+      }
+      if (method === "POST" && path === "/afflatus/models/remove") {
+        const body = JSON.parse(raw.toString("utf8") || "{}") as { folder?: string; filename?: string };
+        if (!body.filename || /(^|[\\/])\.\.([\\/]|$)/.test(body.filename)) return plain(400, "refused");
+        const found = (paths[body.folder ?? ""] ?? []).map((root) => resolve(root, body.filename!)).find((p) => existsSync(p));
+        if (!found) return plain(404, "no such file");
+        const size = statSync(found).size;
+        rmSync(found);
+        fake.removed.push(`${body.folder}/${body.filename}`);
+        if (fake.diskFree !== undefined) fake.diskFree += size;
+        return json(200, { removed: size });
+      }
+    }
     if (!path.startsWith("/afflatus/download") || !fake.packVersion || !atLeast(fake.packVersion, "0.11.0")) return false;
     if (method === "POST" && path === "/afflatus/download") {
-      const body = JSON.parse(raw.toString("utf8") || "{}") as { url?: string; folder?: string; filename?: string };
+      const body = JSON.parse(raw.toString("utf8") || "{}") as { url?: string; folder?: string; filename?: string; total?: number };
       const root = paths[body.folder ?? ""]?.[0];
       if (!root || !body.url || !body.filename || /(^|[\\/])\.\.([\\/]|$)/.test(body.filename)) return plain(400, "refused");
+      if (fake.diskFree !== undefined && body.total && fake.diskFree < body.total) return plain(507, `the disk has ${fake.diskFree} bytes free, the file is ${body.total}`);
       const target = resolve(root, body.filename);
       mkdirSync(dirname(target), { recursive: true });
       const job: Job = { id: randomUUID(), state: "downloading", bytes: 0, total: 0, path: target, stop: new AbortController(), url: body.url, expired: false };

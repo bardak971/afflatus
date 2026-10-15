@@ -7,6 +7,7 @@ import type { useRentedOps } from "../../rentedOps";
 import { Select } from "../../Select";
 import { Progress } from "../../progress/Progress";
 import { Button, Checkbox, cx, TwoStep } from "../../ui";
+import { diskNearlyFull, diskSaid } from "../../machineBits";
 import { Block, Row } from "./Rows";
 
 const IDLE = [0, 5, 10, 15, 30, 60, 120];
@@ -24,6 +25,7 @@ const WHY_PORTS = "What a pod's template opens besides ComfyUI: FileBrowser (808
 const WHY_WATCH = "Afflatus runs on this PC, which can crash, sleep or lose its internet: then nothing here can stop the pod. The Afflatus node pack on the pod hears from Afflatus every minute; silent this long, it stops the pod by itself. It needs the pack on the pod (0.13 or newer).";
 
 const VIA_SAID: Record<NonNullable<PodFile["via"]>, string> = { hf: "Hugging Face", civitai: "Civitai", url: "its address", upload: "this PC" };
+const WHY_DISK = "The pod's own disk (or its volume), which the models it fetches fill: in use of all of it, as its node pack says (Afflatus's image 0.1.10 on). Make room: when a model its jobs need does not fit, Afflatus first deletes models it fetched there that no waiting or running job needs, the longest unused first; never a file it did not fetch. Off: such a job goes to another machine, and its row says why.";
 const WHY_FILES = "The model files the pod gets: what its waiting jobs need first, in the order the queue needs them (a job starts as soon as its own files are there), then the ones asked ahead (its deploy's set, a job that ran at home this time). Straight from Hugging Face or Civitai; a file no site is known for comes from this PC. A file never keeps the pod: with nothing to render it goes idle and ends on time.";
 
 /** The files a pod is getting, each with how far it is: ready, a share, next, or why it failed. */
@@ -126,6 +128,14 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
       {r && (r.files.length > 0 || r.packs.length > 0) && (
         <Row label="Models" help={WHY_FILES}>
           <PodFiles files={r.files} packs={r.packs} />
+        </Row>
+      )}
+      {r && r.status === "RUNNING" && (
+        <Row label="Disk" help={WHY_DISK}>
+          <span className="flex grow flex-wrap items-center justify-end gap-3 text-[12.5px]">
+            {r.disk && <span className={cx("font-mono", diskNearlyFull(r.disk) ? "text-warn-ink" : "text-ink-2")}>{diskSaid(r.disk)} in use</span>}
+            <Checkbox checked={rented.makeRoom} onChange={(makeRoom) => set({ makeRoom })}>Make room</Checkbox>
+          </span>
         </Row>
       )}
       {/* how it stops by itself, together: idle, and the watchdog when this PC goes silent */}

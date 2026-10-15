@@ -17,10 +17,10 @@ import { ceilingFor, firstPick } from "./huntSaid";
 import { Keys } from "./Keys";
 import { queryKeys } from "./queryKeys";
 import { Select } from "./Select";
-import { Button, cx, ErrorNote, fieldClass, Help, Segmented } from "./ui";
+import { Button, Checkbox, cx, ErrorNote, fieldClass, Help, Segmented } from "./ui";
 
 /** What a first deploy opens with: Afflatus's image, Secure Cloud, no volume, terminated after 10 min idle. */
-const FIRST: Omit<DeployAsk, "gpu"> = { cloud: "SECURE", template: "afflatus", volume: "", disk: 120, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15, set: "", files: [], leaveOut: [], accept: [], again: false };
+const FIRST: Omit<DeployAsk, "gpu"> = { cloud: "SECURE", template: "afflatus", volume: "", disk: 120, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15, set: "", files: [], leaveOut: [], accept: [], again: false, makeRoom: true };
 const IDLE = [5, 10, 15, 30, 60, 120, 0];
 const WATCH = [5, 10, 15, 30, 60, 0];
 const DISKS = [60, 120, 200, 400];
@@ -44,6 +44,7 @@ const SORTS: Array<{ key: SortKey; label: string; help?: string; className?: str
 const WHY_TEMPLATE = "Afflatus: ComfyUI 0.37 with its Manager, the Afflatus node pack, and the packs most video forms use built in (DaSiWa's nodes, VideoHelperSuite, KJNodes, the MMH3 upscale). Its ComfyUI is locked from its first second (its token a RunPod secret), its watchdog armed, only ComfyUI's port open. RunPod's ComfyUI: RunPod's own image, without the Afflatus pack: not locked (anyone with its address can use it), no watchdog, no H3 continuation. Either pulls its image at its first start: a few minutes on a host that never had it.";
 const WHY_CLOUD = "Secure Cloud: RunPod's own data centers. Community Cloud: hosts run by others, cheaper, fewer guarantees: some have a GPU that does not work (the Afflatus image finds it at its start, and the pod is terminated within minutes, its pull time billed). Both bill by the second while the pod exists.";
 const WHY_DISK = "No volume: the models are fetched onto the pod's own disk at each deploy, and go with it when it is terminated ($0.10/GB a month while it runs, nothing after). A network volume keeps them between deploys, so a pod is ready in a minute ($0.07/GB a month, billed with or without a pod), and ties the pod to the volume's data center.";
+const WHY_ROOM = "When a model its jobs need does not fit on its disk, Afflatus first deletes models it fetched there that no waiting or running job needs, the longest unused first, and fetches them again if a job needs them later. It never deletes a file it did not fetch (the image's, a volume's own). Off: a job whose models do not fit goes to another machine, and its row says why. Off by default with a network volume, whose models are kept on purpose.";
 const WHY_DONE = "Idle: nothing rendering on it and nothing waiting that it could take. Terminate: nothing billed after, nothing left on RunPod (the pod, its secret). Watchdog: if this PC goes silent (crash, sleep, no internet), the node pack on the pod stops it by itself after that long (Afflatus's image only).";
 
 /** The Deploy dialog's choices as a hunt sends them: all but the GPU, which the hunt picks. */
@@ -309,7 +310,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
           <span className="flex items-center gap-1.5 font-semibold text-ink-2">Disk <Help text={WHY_DISK} /></span>
           <span className="flex flex-wrap items-center gap-2">
             <span className="w-[280px]">
-              <Select size="sm" label="Network volume" value={want.volume || "none"} onChange={(v) => set({ volume: v === "none" ? "" : v })} options={[{ value: "none", label: "No volume" }, ...(volumes.data?.volumes ?? []).map((v) => ({ value: v.id, label: v.name, note: v.usedBy ? `in use by ${v.usedBy.name} · ${v.usedBy.status === "RUNNING" ? "running" : "starting"}` : `${v.dataCenter} · ${v.size} GB`, detail: v.usedBy ? undefined : heldSaid(v, want.set), disabled: Boolean(v.usedBy) }))]} />
+              <Select size="sm" label="Network volume" value={want.volume || "none"} onChange={(v) => set({ volume: v === "none" ? "" : v, makeRoom: v === "none" })} options={[{ value: "none", label: "No volume" }, ...(volumes.data?.volumes ?? []).map((v) => ({ value: v.id, label: v.name, note: v.usedBy ? `in use by ${v.usedBy.name} · ${v.usedBy.status === "RUNNING" ? "running" : "starting"}` : `${v.dataCenter} · ${v.size} GB`, detail: v.usedBy ? undefined : heldSaid(v, want.set), disabled: Boolean(v.usedBy) }))]} />
             </span>
             {!volume && (
               <span className="w-[110px]">
@@ -318,6 +319,11 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
             )}
             <span className="text-xs text-ink-3">{volume ? `models kept on it · GPUs of ${volume.dataCenter} only` : "models fetched at each deploy"}</span>
           </span>
+
+          <span className="flex items-center gap-1.5 font-semibold text-ink-2">Make room <Help text={WHY_ROOM} /></span>
+          <Checkbox checked={want.makeRoom} onChange={(makeRoom) => set({ makeRoom })} className="text-[13px]">
+            Delete the models it fetched that no job needs when a new one does not fit
+          </Checkbox>
 
           <span className="flex items-center gap-1.5 font-semibold text-ink-2">When done <Help text={WHY_DONE} /></span>
           <span className="flex flex-wrap items-center gap-2 text-xs text-ink-2">
