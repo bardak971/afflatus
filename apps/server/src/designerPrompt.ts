@@ -1,4 +1,4 @@
-import { hasWildcards, type Family, type Recipe } from "@afflatus/core";
+import { hasWildcards, type Family, type Recipe, type ReferenceRole } from "@afflatus/core";
 import { boxesOf, type DesignerContext } from "./designerContext";
 import { UpstreamError } from "./llm";
 import type { OutputCheck } from "./outputChecks";
@@ -24,6 +24,17 @@ export function guidedFamily(family: Family | undefined, settings: { designerGui
   return own ? { ...family, guide: own } : family;
 }
 
+const ROLE_WORDS: Record<ReferenceRole, string> = { person: "who someone is", place: "the place", clothing: "what is worn", object: "a thing in it", style: "the look" };
+
+/** The reference pictures, said by number: the text points at them, or knows that Afflatus says what each one is. */
+function pictures(p: NonNullable<DesignerContext["pictures"]>): string {
+  const lines = p.list.map((r, i) => `- picture ${p.first + i}: ${ROLE_WORDS[r.role]}${r.whose ? ` (${r.whose})` : ""}`).join("\n");
+  const how = p.introduced
+    ? "Afflatus tells the model what each one is itself: do not name or number them in the text."
+    : `Where the text needs one, point at it the way this model's guide says, by its number${p.first === 2 ? " (picture 1 is the picture being changed)" : ""}.`;
+  return `The model is given these reference pictures:\n${lines}\nWhat they show, it takes from them: never describe a face, hair, build or garment a picture already shows. ${how}`;
+}
+
 export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mode: "chat" | "enhance" | "plan", ctx: DesignerContext, plan?: { clips: number }, own = ""): string {
   const boxes = boxesOf(recipe);
   const main = boxes.find((b) => !b.optional) ?? boxes[0];
@@ -31,6 +42,8 @@ export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mo
   const guide = family?.guide ?? GENERIC[main?.style === "tags" ? "tags" : "sentences"];
   const now = boxes.map((b) => `${b.id}: ${ctx.values[b.id]?.trim() || "(empty)"}`).join("\n");
   const parts = boxes.map((b) => `- ${b.id}: "${b.label}"${b.optional ? " (may stay empty)" : ""}, written as ${b.style === "tags" ? "tags" : "sentences"}${b.note ? ` — ${b.note}` : ""}`).join("\n");
+  // the LoRAs that will be on it, named as madeFrom names them: a LoRA the source was made with may be on it again
+  const inUse = new Set([...(ctx.loras ?? []), ...(ctx.kitLoras ?? [])].map((l) => l.name));
   const where = [
     video && ctx.seconds ? `The clip is ${ctx.seconds} seconds long: it holds about ${Math.max(1, Math.round(ctx.seconds / 3))} main action${ctx.seconds >= 6 ? "s" : ""}. Do not cram a story into it.` : "",
     // how much can be said in it: a figure to fill, not only to stay under (models left to themselves write lines far shorter than fit)
@@ -55,16 +68,20 @@ export function systemPrompt(recipe: Recipe<any>, family: Family | undefined, mo
           .join("\n\n")}\nThose texts say what it shows and, for a clip, what has already happened and been said: the people and how they look, what they wear, the place, the light; a later step that changes something wins over an earlier one. ${
             video && ctx.opensOnPicture
               ? "THE PICTURE IS THE FIRST FRAME, so all of that is already on screen: do NOT write it again. Not the place, not the light, not the lens or the depth of field, not the clothes. Use those texts only to know who is there and where, keep the people the same with at most one short clause, and write what MOVES from there: the action, the expression, the camera, the sound."
-              : "Take those from them, in your own words and in the way THIS model's prompts are written; do not copy their tags or quality words, and do not add what they do not say."
-          } A LoRA named there shaped how it looks and is NOT in use now: where its look matters, say that look in plain words, never its trigger words.`
+              : `Take those from them, in your own words and in the way THIS model's prompts are written; do not copy their tags or quality words, and do not add what they do not say.${ctx.cast?.length ? " Except how the people of the cast below look: that is added on its own." : ""}`
+          } A LoRA named there ${inUse.size ? "and not listed as in use below " : ""}shaped how it looks and is NOT in use now: where its look matters, say that look in plain words, never its trigger words.`
       : "",
     ctx.opensOnPicture && !ctx.seesPicture && !ctx.madeFrom?.length ? "You cannot see that picture. Never invent a place, props, light, weather, clothing or other people for it: say nothing about the setting and describe only the motion, the expression, the sound and the camera, unless the user says what the picture shows." : "",
     ctx.opensOnPicture && !ctx.seesPicture && ctx.madeFrom?.length ? "You cannot see the picture itself: what you know of it is the prompt it was made from. Do not invent what that prompt does not say." : "",
     ctx.seesPicture ? "You are shown the picture. Describe what is really in it; do not add a place, props or people it does not show unless the user asks." : "",
-    ctx.cast?.length ? `Who is in it. Their words are added on their own when it is made: never repeat or contradict them, refer to them by what they are (the woman, he):\n${ctx.cast.map((c) => `- ${c.name}: ${c.words || "(no words)"}`).join("\n")}` : "",
-    ctx.mood?.trim() ? `The look and mood of the whole video, which every clip keeps: ${ctx.mood.trim()}` : "",
+    ctx.cast?.length ? `Who is in it. These words are added on their own when it is made, exactly as here: never repeat, reword or contradict them, refer to the people by what they are (the woman, he):\n${ctx.cast.map((c) => `- ${c.name}: ${c.words || "(no words)"}`).join("\n")}` : "",
+    ctx.pictures ? pictures(ctx.pictures) : "",
+    ctx.voice ? `The model is given a voice sample${ctx.voice.whose ? ` (${ctx.voice.whose}'s)` : ""}: the person speaks with that voice. Write what is said and how, never what the voice sounds like.` : "",
+    ctx.mood?.trim() ? `The look and mood of the whole video, which every clip keeps. It is added at the end of the text on its own when it is made: do not write it again or reword it, and write nothing that fights it:\n${ctx.mood.trim()}` : "",
+    ctx.style ? `The style ${ctx.style.name} is added at the end of the text on its own when it is made: do not write it again or reword it, and write nothing that fights it:\n${ctx.style.words.slice(0, 600)}` : "",
     ctx.snippets?.length ? `These bits of text are added after the main text on their own when it is made: do not repeat or contradict them.\n${ctx.snippets.map((x) => `- ${x.name}: ${x.text.slice(0, 400)}`).join("\n")}` : "",
     Object.values(ctx.values).some(hasWildcards) ? "Choices in braces like {red|black|white} are the user's: one is picked for each picture. Keep them exactly as written, braces and bars included, unless asked to change them." : "",
+    ctx.kitLoras?.length ? `LoRAs the cast and the style add when it is made: ${ctx.kitLoras.map((l) => `${l.name} (${l.from})`).join("; ")}. Their trigger words are added with them: never write them.` : "",
     ctx.loras?.length ? `LoRAs in use: ${ctx.loras.map((l) => `${l.name} at ${l.weight}${l.trigger ? ` (its trigger words: ${l.trigger})` : ""}`).join("; ")}. A LoRA's trigger words must stay in the text for it to act: never remove them.` : "",
     ctx.model ? `The model file in use: ${ctx.model}.` : "",
   ].filter(Boolean).join("\n\n");

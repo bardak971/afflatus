@@ -82,7 +82,8 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
   const description = /^\s*\[shot 1\]/i.test(f.description) ? f.description.trim() : `[Shot 1] ${f.description.trim()}`;
   const soundscape = f.soundscape?.trim() || "N/A";
   const music = f.music?.trim() || "N/A";
-  const who = f.subject?.trim() ? `, ${f.subject.trim().replace(/^[,\s]+|[.\s]+$/g, "")}` : "";
+  // how the people look carries on the sentence that says which pictures they are: "in <Picture 1>, she has brown hair"
+  const who = f.subject?.trim() ? `, ${f.subject.trim().replace(/^[,\s]+|[.\s]+$/g, "").replace(/^(She|He|They|It|Her|His|Their)\b/, (w) => w.toLowerCase())}` : "";
   const list = (a: string[]) => (a.length > 1 ? `${a.slice(0, -1).join(", ")} and ${a.at(-1)}` : (a[0] ?? ""));
   const pics = ref.roles.map((_r, i) => `<Picture ${i + 1}>`);
   // the model's order: the pictures, then the videos (a video's sound is an <Audio> of its own), then the voice

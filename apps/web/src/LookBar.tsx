@@ -47,7 +47,8 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
   const sent = useQuery({
     queryKey: queryKeys.compose.form(recipe?.id, settled, now),
     queryFn: () => api.compose(recipe!.id, settled ?? {}, now),
-    enabled: showing && active && Boolean(recipe),
+    // asked with the prompt folded too: what is left out (a last frame, pictures that do not fit) is said either way
+    enabled: active && Boolean(recipe),
   });
   const main = recipe?.inputs.find((i) => i.type === "prompt" && !i.optional) ?? recipe?.inputs.find((i) => i.type === "prompt");
   const subject = recipe?.inputs.find((i) => i.type === "prompt" && i.holds === "subject");
@@ -144,6 +145,7 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
           {showing ? "Hide final prompt" : "Show final prompt"}
         </button>
       )}
+      {!showing && active && recipe && sent.data?.added.skipped.map((s) => <span key={s} className="text-xs text-warn-ink">{s}</span>)}
       {showing && active && recipe && (
         <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-raised p-2.5 text-xs">
           {sent.isLoading && <span className="text-ink-2">Composing…</span>}

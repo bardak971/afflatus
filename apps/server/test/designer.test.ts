@@ -445,7 +445,32 @@ options: even warmer | add seagulls | "the camera pushes in"`);
     llm.answers.push("kind: proposal\nnote: ok\ndescription: The woman waves.");
     await post(t.app, "/api/designer", { recipe: "h3.video", values: { description: "" }, messages: [{ role: "user", content: "she waves" }], look: { cast: [{ id: her.id }], style: null } });
     expect(system()).toContain("- Her: She has brown hair and green eyes.");
-    expect(system()).toContain("never repeat or contradict them");
+    expect(system()).toContain("never repeat, reword or contradict them");
+  });
+
+  it("knows the pictures, the voice, the style and the LoRAs the kit adds, as they will be sent", async () => {
+    await useLlm();
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
+    const face = (await t.app.inject({ method: "POST", url: "/api/assets?name=face.png", headers: { "content-type": "image/png" }, payload: png })).json().id as string;
+    const her = (await post(t.app, "/api/entities", { kind: "person", name: "Her", def: { pictures: [face], sentence: "She has brown hair.", models: { klein: { lora: "her_klein.safetensors", weight: 0.8, trigger: "ohwx woman" } } } })).json();
+    const film = (await post(t.app, "/api/entities", { kind: "style", name: "Film", def: { models: { klein: { loras: [], words: "Shot on film." }, h3: { loras: [], words: "Shot on film." } } } })).json();
+    const look = { cast: [{ id: her.id }], style: film.id };
+
+    // Klein takes who she is from her picture: the text points at it, and her look is not said in words
+    llm.answers.push("kind: proposal\nprompt: The woman from picture 1 waves.\nnote: ok");
+    await post(t.app, "/api/designer", { recipe: "klein.picture", values: { prompt: "" }, messages: [{ role: "user", content: "she waves" }], look });
+    expect(system()).toContain("- Her: ohwx woman.");
+    expect(system()).not.toContain("She has brown hair.");
+    expect(system()).toContain("- picture 1: who someone is (Her)");
+    expect(system()).toContain("point at it the way this model's guide says");
+    expect(system()).toContain("The style Film is added at the end of the text on its own");
+    expect(system()).toContain("LoRAs the cast and the style add when it is made: her_klein (Her)");
+
+    // H3 writes what each picture is itself, and its end frame goes with the reference way
+    llm.answers.push("kind: proposal\ndescription: The woman waves.\nnote: ok");
+    await post(t.app, "/api/designer", { recipe: "h3.video", values: { description: "", end: face }, messages: [{ role: "user", content: "she waves" }], look });
+    expect(system()).toContain("Afflatus tells the model what each one is itself");
+    expect(system()).not.toContain("A picture is the LAST FRAME");
   });
 });
 
