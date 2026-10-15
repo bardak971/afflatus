@@ -10,7 +10,7 @@ import { DRAG_PICTURE, DRAG_TYPE } from "./dragging";
 import { clock } from "./format";
 import { Picker } from "./PictureField";
 import { useSayFailed } from "./sayFailed";
-import { Bar, Button, cx, Help, Toggle } from "./ui";
+import { AutoText, Bar, Button, cx, fieldClass, Help, Toggle } from "./ui";
 
 /**
  * The picture a Motion transfer moves, made for the user (the owner's ask, 2026-10-14; mock "Make the picture"): who goes
@@ -28,11 +28,13 @@ const ROUND = 3;
 interface PictureSet {
   /** The photos of who goes in (library ids), the first the most important. */
   people: string[];
+  /** The user's line on what the frame shows of them (the recipe's scene): their expression, what they hold, the light. */
+  scene: string;
   relight: boolean;
   /** The jobs made for this form, oldest first. */
   jobs: string[];
 }
-const EMPTY: PictureSet = { people: [], relight: true, jobs: [] };
+const EMPTY: PictureSet = { people: [], scene: "", relight: true, jobs: [] };
 export const usePictureSets = create<{ of: Record<string, PictureSet>; set(key: string, patch: Partial<PictureSet>): void }>()(
   persist((set) => ({ of: {}, set: (key, patch) => set((s) => ({ of: { ...s.of, [key]: { ...EMPTY, ...s.of[key], ...patch } } })) }), { name: "afflatus.picture-sets" }),
 );
@@ -125,7 +127,7 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
       const frame = await api.frame(video, Math.round(atMs), undefined, true, true);
       // beside the driving video when no folder is open here: not the Inbox
       const into = folder ?? source.data?.folderId ?? null;
-      const made = await api.enqueue(MAKER, { source: frame.id, people: set.people.map((asset) => ({ asset, role: "person" })), relight: set.relight }, ROUND, null, { label: name, ...(into ? { folder: into } : {}) });
+      const made = await api.enqueue(MAKER, { source: frame.id, people: set.people.map((asset) => ({ asset, role: "person" })), scene: set.scene, relight: set.relight }, ROUND, null, { label: name, ...(into ? { folder: into } : {}) });
       // the set as it is now: a picture let go of while the frame was being made stays gone
       change(keyId, { jobs: [...(usePictureSets.getState().of[keyId]?.jobs ?? []), ...made.ids] });
     },
@@ -212,6 +214,11 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
           <span className="flex items-center gap-1.5 text-xs text-ink-2">The frame at <span className="font-mono font-semibold text-ink">{clock(atMs, { decimals: 1 })}</span><Help text="The head replaced is the main person's of this frame. Pick a moment where they are seen well, facing the camera." /></span>
           {frameControl}
         </div>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <span className="flex items-center gap-1.5 text-xs text-ink-2">Frame prompt <span className="text-ink-3">· optional</span><Help text="What the frame shows of them, in plain words: their expression, their mouth, where they look, what they hold, the light. Qwen copies the photo's face as photographed (a calm, closed-mouth face); said here, it takes this frame's instead. Concrete and visible works best: &quot;laughing, mouth wide open, eyes half closed, lit by red club light&quot;, not &quot;keep the expression&quot;. It goes into the instruction before what is kept." /></span>
+        <AutoText value={set.scene} onChange={(e) => change(keyId, { scene: e.target.value })} rows={1} placeholder="laughing, mouth open, eyes half closed, lit by red club light" aria-label="Frame prompt" className={cx(fieldClass, "w-full resize-none px-2 py-1.5 text-xs")} />
       </div>
 
       <Toggle on={set.relight} onChange={(relight) => change(keyId, { relight })} label="Relight" note="a second pass into the frame's light" />

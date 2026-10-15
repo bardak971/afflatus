@@ -36,6 +36,25 @@ describe("the picture for Motion transfer (qwen21.motion-picture)", () => {
     expect(build(1).prompts[1]).toBe(MOTION_RELIGHT);
   });
 
+  it("says facial hair and no light in the first pass, and gives a form that kept the second defaults today's words", () => {
+    expect(MOTION_REPLACE).toContain("(face, hair and facial hair)");
+    expect(MOTION_REPLACE).not.toMatch(/beard|lighting|colour temperature/);
+    const second =
+      "On <image1>, replace the head of the main person (face, hair and beard) with the head of the person shown in <image2>, so that the result reads as the same individual as in <image2>, with matching facial features, face shape, hair and beard. " +
+      "The new head keeps the position, angle and tilt of the head in <image1> and takes on the lighting direction and colour temperature of the <image1> scene, with skin shading and shadows consistent with its light, so that they appear naturally filmed in this scene. " +
+      "Keep the body, pose, clothing, background, every other person and all other elements of <image1> completely unchanged.";
+    expect(build(2, { replace: second }).prompts[0]).toBe(motionReplace(2));
+  });
+
+  it("puts the user's frame prompt before what is kept, in the first pass only", () => {
+    const { prompts } = build(1, { scene: "  laughing, mouth open,\n lit by red light " });
+    expect(prompts[0]).toBe(MOTION_REPLACE.replace("Keep the body", "laughing, mouth open, lit by red light. Keep the body"));
+    expect(prompts[1]).toBe(MOTION_RELIGHT);
+    // words of the user's own without that sentence: the line goes at their end
+    expect(build(1, { replace: "Swap the head.", scene: "He laughs." }).prompts[0]).toBe("Swap the head. He laughs.");
+    expect(build(1, { scene: "   " }).prompts[0]).toBe(MOTION_REPLACE);
+  });
+
   it("relights from the picture made alone: given the photos, the relight pasted them in as more people", () => {
     const relight = build(3).nodes.filter((x) => x.class_type === "TextEncodeQwenImage21")[1]!;
     expect(Object.keys(relight.inputs).filter((k) => k.startsWith("images."))).toEqual(["images.image_1"]);
