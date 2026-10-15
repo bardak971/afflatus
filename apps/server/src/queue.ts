@@ -987,6 +987,9 @@ ${JSON.stringify(input)}`;
         // it has is not known, so it is not given the job (a ComfyUI of the user's own is not held against a job for that)
         // A pod at a spending cap says so beside the job: it takes nothing new, and stops once its render ends
         if (lane.machine!.rented && !scan?.comfy.online) {
+          // one that answers but whose scan did not (its node list too slow to come on a fresh pod) is read again soon:
+          // nothing else would plan again while it answers, and it would idle toward its stop with its jobs waiting
+          if (lane.reachable === true && !this.unavailable(lane.id)) this.retryLater();
           lacks[lane.id] = { off: false, files: [], sendable: false, why: this.unavailable(lane.id) === CAP_REACHED ? CAP_REACHED : "its ComfyUI is not answering yet" };
           return;
         }
@@ -1223,10 +1226,12 @@ ${JSON.stringify(input)}`;
     for (const lane of this.machineLanes()) {
       const answered = each.get(lane.id);
       if (answered === undefined || lane.reachable === answered) continue;
-      lane.reachable = answered;
       changed = true;
-      if (answered) this.goneSaid.delete(lane.id);
-      else if (lane.running?.gpu) this.sayGone(lane, null);
+      if (answered) this.back(lane);
+      else {
+        lane.reachable = false;
+        if (lane.running?.gpu) this.sayGone(lane, null);
+      }
     }
     this.offline.noteReachable(ok);
     if (changed) {
@@ -1234,6 +1239,30 @@ ${JSON.stringify(input)}`;
       // one back: what waited for it may go now
       void this.pump();
     }
+  }
+
+  /**
+   * A machine's ComfyUI started answering (a rented pod at the end of its boot, or back after a restart), as the rented
+   * poll found it: it runs whether a page is open or not, where the page's status poll (noteReachable) does not. What was
+   * planned while it did not answer is planned again now: a job pinned to a booting pod had its files asked for by no pass,
+   * and the pod idled toward its stop with the job waiting. Said once per change, by the caller.
+   */
+  answering(machine: string): void {
+    const lane = this.lanes.get(machine);
+    if (!lane) return;
+    this.back(lane);
+    this.events.emit("queue");
+    void this.pump();
+  }
+
+  /**
+   * A machine known to answer again: taken as reachable at once (the rented poll asks whether it has work right after, before
+   * any pass), and its scan read afresh by the next pass, not one kept from before it went.
+   */
+  private back(lane: Lane): void {
+    lane.reachable = true;
+    this.goneSaid.delete(lane.id);
+    lane.comfy?.forgetScan();
   }
 
   /** A job ends. `from`: only when it is still in that state (a job that was cancelled meanwhile stays cancelled). */
