@@ -1,5 +1,5 @@
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
-import { packOfNode, type LoraValue, type Recipe } from "@afflatus/core";
+import { folderOfFileInput, isShown, packOfNode, type LoraValue, type Recipe } from "@afflatus/core";
 import type { Machine, Settings } from "./settings";
 
 /**
@@ -48,12 +48,22 @@ export function mergeScans(scans: Array<{ machine: Machine; scan: Scan }>, setti
   return { ...base, recipes, families };
 }
 
-/** The model files and LoRAs a job asks for, by input, with the folder each goes in: what a machine must list for the job to run there. */
+/**
+ * The model files and LoRAs a job asks for, by input, with the folder each goes in: what a machine must list for the job to
+ * run there. A choice among a model folder's files (a hires upscaler, a detector, a ControlNet: its options read from a
+ * loader node's file input) asks for the file chosen, while that choice is in play: a pod planned for an SDXL job with hires
+ * fix fetched its checkpoint, text encoder and VAE, and every render then failed for the upscaler it was never sent. Its
+ * own options (`extra`: "Latent", "Same as the first pass") name no file.
+ */
 export function filesAsked(recipe: Pick<Recipe<any>, "inputs">, input: Record<string, unknown>): Array<{ input: string; file: string; folder: string }> {
   return recipe.inputs.flatMap((i) => {
     const v = input[i.id];
     if (i.type === "model" && typeof v === "string" && v) return [{ input: i.id, file: v, folder: i.folder }];
     if (i.type === "loras" && Array.isArray(v)) return (v as LoraValue[]).filter((l) => l?.file).map((l) => ({ input: i.id, file: l.file, folder: "loras" }));
+    if (i.type === "choice" && !Array.isArray(i.options) && typeof v === "string" && v && !i.extra?.includes(v) && isShown(i, input, recipe.inputs)) {
+      const folder = folderOfFileInput(i.options.node, i.options.input);
+      if (folder) return [{ input: i.id, file: v, folder }];
+    }
     return [];
   });
 }

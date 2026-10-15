@@ -153,6 +153,69 @@ describe("a job whose model file a pod lacks", () => {
   });
 });
 
+describe("a pod's files planned from the waiting jobs", () => {
+  it("never include those of a job pinned to this computer: it can never run on the pod", async () => {
+    const id = await deployed();
+    const a = (await post(t.app, "/api/jobs", { ...job(), machine: await homeId() })).json().ids[0] as string;
+    await until(() => home.prompts.size === 1);
+    // a few passes later (a free job's file is sent ahead within them: "stays home when home is sooner"), nothing came
+    await new Promise((r) => setTimeout(r, 300));
+    t.services.queue.nudge();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(t.services.podFiles.view(id)).toEqual([]);
+    complete(home, [...home.prompts.keys()][0]!);
+    await until(async () => (await row(a)).status === "done");
+  });
+
+  it("never go to a pod paused while this computer takes everything (Use only), unless a job is pinned to the pod", async () => {
+    const id = await deployed();
+    await post(t.app, "/api/queue/use-only", { machine: await homeId() });
+    const a = await enqueue();
+    await until(() => home.prompts.size === 1);
+    await new Promise((r) => setTimeout(r, 300));
+    t.services.queue.nudge();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(t.services.podFiles.view(id)).toEqual([]);
+    // one pinned to the paused pod waits for it: its files come ahead, for its Resume
+    await enqueue({ prompt: "a dog" }).then((b) => post(t.app, `/api/jobs/${b}/machine`, { machine: id }));
+    await until(() => t.services.podFiles.view(id).some((f) => f.file === CHECKPOINT && f.tier === "ahead"), 15_000);
+    complete(home, [...home.prompts.keys()][0]!);
+    await until(async () => (await row(a)).status === "done");
+  });
+
+  it("include the upscaler of a job with hires fix, sent from this computer when no site is known for it", async () => {
+    mkdirSync(join(comfyDir, "models", "upscale_models"), { recursive: true });
+    writeFileSync(join(comfyDir, "models", "upscale_models", "zz-test-upscaler.pth"), Buffer.alloc(50_000, 7));
+    home.models.upscale_models = ["zz-test-upscaler.pth"];
+    await post(t.app, `/api/setup/rescan?machine=${await homeId()}`, {});
+    const id = await deployed();
+    await post(t.app, "/api/queue/pause", { machine: await homeId() });
+    const a = await enqueue({ hires: true, hiresUpscaler: "zz-test-upscaler.pth" });
+    await until(() => t.services.podFiles.view(id).length === 2, 15_000);
+    expect(t.services.podFiles.view(id)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ file: CHECKPOINT, folder: "checkpoints", tier: "need", jobs: [a] }),
+      expect.objectContaining({ file: "zz-test-upscaler.pth", folder: "upscale_models", tier: "need", jobs: [a] }),
+    ]));
+  });
+
+  it("are sent ahead to a pod deployed while the queue is paused, which then idles to its stop", async () => {
+    // Pause all with this computer alone, a job waiting; then a pod deployed
+    await post(t.app, "/api/queue/pause", {});
+    const a = await enqueue();
+    const id = await deployed();
+    await until(() => t.services.podFiles.view(id)[0]?.state === "ready", 15_000);
+    expect(t.services.podFiles.view(id)).toEqual([expect.objectContaining({ file: CHECKPOINT, tier: "ahead", jobs: [] })]);
+    // nothing starts while paused, and a download is no work: its idle time runs from its first answer
+    expect(pod.prompts.size + home.prompts.size).toBe(0);
+    expect((await row(a)).status).toBe("queued");
+    expect(await t.services.queue.wants(id)).toBe(false);
+    const real = Date.now();
+    t.services.rented.now = () => real + 11 * 60_000;
+    await t.services.rented.poll();
+    expect(runpod.pods[0]?.status ?? "gone").not.toBe("RUNNING");
+  });
+});
+
 describe("a deploy's files", () => {
   it("are the waiting jobs' (each once, with how many use it) and the picked set's, with what earlier deploys measured", async () => {
     await post(t.app, "/api/queue/pause", {});

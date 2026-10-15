@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
-import { familyOn, filesUsed, lackOn, mergeScans } from "../src/machineScans";
+import { parseInput } from "@afflatus/core";
+import { recipes, sdxlTextToPicture } from "@afflatus/recipes";
+import { familyOn, filesAsked, filesUsed, lackOn, mergeScans } from "../src/machineScans";
 import type { Machine } from "../src/settings";
 
 const machine = (id: string, families: Record<string, boolean> = {}): Machine => ({ id, name: id, url: `http://${id}:8188`, dir: "", takes: "all", families, token: "" });
@@ -133,5 +135,51 @@ describe("lackOn, a family file the job's choices ask for", () => {
   it("counts them among the files a job uses (a pod just deployed gets them)", () => {
     expect(filesUsed(wan as never, { fast: true }, null, turboSlots).map((f) => f.file)).toEqual(["high_lightx2v.safetensors", "low_lightx2v.safetensors"]);
     expect(filesUsed(wan as never, { fast: false }, null, turboSlots)).toEqual([]);
+  });
+});
+
+describe("filesAsked, a choice among a model folder's files", () => {
+  // the SDXL picture with hires fix through an upscale model: a pod sent its checkpoint, text encoder and VAE, never its
+  // upscaler, and every render there failed with "Missing model file RealESRGAN_x4plus_anime_6B.pth"
+  const ANIME = "RealESRGAN_x4plus_anime_6B.pth";
+  const hires = (over: Record<string, unknown>) => parseInput(sdxlTextToPicture, { prompt: "a", checkpoint: "illustrious.safetensors", ...over }) as unknown as Record<string, unknown>;
+
+  it("asks for the hires upscaler chosen, in upscale_models, only while hires fix is on and an upscale model is chosen", () => {
+    expect(filesAsked(sdxlTextToPicture, hires({ hires: true, hiresUpscaler: ANIME }))).toEqual([
+      { input: "checkpoint", file: "illustrious.safetensors", folder: "checkpoints" },
+      { input: "hiresUpscaler", file: ANIME, folder: "upscale_models" },
+    ]);
+    // hires fix off: its upscaler (the default, filled in) is never loaded
+    expect(filesAsked(sdxlTextToPicture, hires({ hires: false, hiresUpscaler: ANIME })).map((f) => f.input)).toEqual(["checkpoint"]);
+    // enlarged in latent space: no file
+    expect(filesAsked(sdxlTextToPicture, hires({ hires: true, hiresUpscaler: "latent" })).map((f) => f.input)).toEqual(["checkpoint"]);
+    // a pod just deployed for the job is sent it too
+    expect(filesUsed(sdxlTextToPicture, hires({ hires: true, hiresUpscaler: ANIME }), null, [])).toContainEqual({ file: ANIME, folder: "upscale_models" });
+  });
+
+  it("asks for every recipe's choices among model files, each in its folder (a detector, a ControlNet, an upscale model)", () => {
+    const folders = new Map<string, string>();
+    for (const r of recipes) {
+      for (const i of r.inputs) {
+        if (i.type !== "choice" || Array.isArray(i.options)) continue;
+        const asked = filesAsked({ inputs: [{ ...i, showWhen: undefined }] }, { [i.id]: "zz-test.pth" });
+        for (const a of asked) folders.set(`${i.options.node}.${i.options.input}`, a.folder);
+      }
+    }
+    expect(Object.fromEntries(folders)).toMatchObject({
+      "UpscaleModelLoader.model_name": "upscale_models", "UltralyticsDetectorProvider.model_name": "ultralytics", "ControlNetLoader.control_net_name": "controlnet",
+    });
+    // a choice among settings is no file
+    expect([...folders.keys()].filter((k) => /sampler|scheduler|weight_dtype/.test(k))).toEqual([]);
+  });
+
+  it("has a machine that lacks it say so, a home machine as a pod, and a pod sent it", () => {
+    const status = { ...recipe("sdxl.text-to-picture", true, { checkpoint: ["illustrious.safetensors"], hiresUpscaler: ["latent", "4x-UltraSharp.pth"] }), missingSlots: [] };
+    const lack = lackOn(sdxlTextToPicture, hires({ hires: true, hiresUpscaler: ANIME }), scan([status]), { families: {} }, machine("home"), familyOf);
+    expect(lack).toEqual({ off: false, files: [{ file: ANIME, folder: "upscale_models" }], sendable: true });
+    expect(lackOn(sdxlTextToPicture, hires({ hires: true, hiresUpscaler: "4x-UltraSharp.pth" }), scan([status]), { families: {} }, machine("home"), familyOf)).toBeNull();
+    // a ComfyUI with no upscale model at all: the input has nothing to pick, and the job's file fills it
+    const none = { ...status, ready: false, options: { ...status.options, hiresUpscaler: ["latent"] }, emptyInputs: ["hiresUpscaler"] };
+    expect(lackOn(sdxlTextToPicture, hires({ hires: true, hiresUpscaler: ANIME }), scan([none]), { families: {} }, machine("pod"), familyOf)).toMatchObject({ files: [{ file: ANIME, folder: "upscale_models" }], sendable: true });
   });
 });
