@@ -3,7 +3,7 @@ import { HIRES_PASS_INPUTS, hiresPass, isVPred, loadSdxl, PREDICTION_INPUTS, PRE
 import { DEFAULT_NEGATIVE, SDXL_UNION } from "./family";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, kSample, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { applyGuide, guideInputs, guideNodes, type GuideSettings } from "../shared/guide";
-import { redrawInTiles, tileInputs, tileNodes, TILES_ON, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
+import { redrawInTiles, tileInputs, tileNodes, TILES_ON, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import { SDXL_AREA } from "./common";
 
 export interface SdxlTextToPicture extends DetailSettings, GuideSettings, TileSettings {
@@ -120,7 +120,7 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
     const sampler = { model, ...guided, seed: ctx.seed, cfg: input.cfg, sampler_name: input.sampler, scheduler: input.scheduler };
     let latent = kSample(g, { ...sampler, latent_image: empty, steps: input.steps, denoise: 1 }, input, ctx);
     let totalSteps = input.steps;
-    const passes = [{ node: latent[0], steps: input.steps }];
+    const passes: Array<{ node: string; steps: number; pixels?: number }> = [{ node: latent[0], steps: input.steps }];
 
     const W2 = roundTo(W * input.hiresScale, 8, 64);
     const H2 = roundTo(H * input.hiresScale, 8, 64);
@@ -138,10 +138,11 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
         tileSampler = out[0];
         return out;
       });
-      // the pass runs once for each tile
-      const rounds = input.hiresSteps * tilesOf({ width: W2, height: H2 }, input).count;
-      totalSteps += rounds;
-      passes.push({ node: tileSampler, steps: rounds });
+      // the pass runs once for each tile, at a tile's size; the first at the picture's first size
+      const rounds = tilePass({ node: tileSampler, steps: input.hiresSteps }, { width: W2, height: H2 }, input);
+      totalSteps += rounds.steps;
+      passes[0] = { ...passes[0]!, pixels: W * H };
+      passes.push(rounds);
     } else if (input.hires) {
       g.phase("upscaling");
       let enlarged: Ref;

@@ -1,6 +1,6 @@
 import { defineRecipe, GraphBuilder, roundTo, type Recipe, type Ref } from "@afflatus/core";
 import { FACTOR_INPUT, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_PREFER, type RefineColourMatch, type UpscaleSettings } from "../sdxl/common";
-import { redrawInTiles, tileInputs, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
+import { redrawInTiles, tileInputs, tilePass, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
 import { photo, SAME_PICTURE, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 
 export interface FlowSharper extends FlowBase, UpscaleSettings, TileSettings, RefineColourMatch { source: string; prompt: string; upscaler: string; refine: boolean; strength: number }
@@ -59,15 +59,15 @@ export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
       const c = cond(g, k, input, input.prompt.trim() || SAME_PICTURE);
       g.phase("refining");
       const light = { steps: Math.max(3, Math.round(Math.min(30, k.steps) * 0.5)), denoise: input.strength };
-      let pass = { node: "", steps: light.steps };
+      let pass: { node: string; steps: number; pixels?: number } = { node: "", steps: light.steps };
       let picture: Ref;
       if (tiled) {
         // each tile is a picture its own size to the model: the shift for that size
-        const { tile, count } = tilesOf(size, input);
+        const { tile } = tilesOf(size, input);
         const model = shifted(g, k.model, input, { width: tile, height: tile });
         picture = redrawInTiles(g, ctx, sized, k.vae, size, input, (l) => {
           const done = sample(g, k, input, model, c, l, ctx.seed, light);
-          pass = { ...done.pass, steps: done.pass.steps * count };
+          pass = tilePass(done.pass, size, input);
           return done.latent;
         });
       } else {

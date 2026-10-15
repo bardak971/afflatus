@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
 import { baseModels, checkGraph, choicesOf, FRAME_SLACK_MS, isChunkStart, mainModel, missingNodesSaid, modelFileName, modelName, modelOf, onGrid, parseInput, pickChoice, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuiltGraph, type ClipValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue } from "@afflatus/core";
 import { ComfyCancelled, ComfyError, ComfyUnreachable } from "@afflatus/comfy";
-import { chunksOf, forecast, fromRates, workOf, type Forecast } from "./forecast";
+import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
 import { cutFrames, frameAt, partOf, rangeKeep, referenceClip, soundPart } from "./cut";
 import type { Db, Tables } from "./db";
@@ -214,7 +214,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
     await timedPart("free", () => comfy.client.free().catch(() => {}));
     await core.loaded(null);
   }
-  const timing = await timingOf(core, recipe, chosen, built, cold);
+  const timing = await timingOf(core, recipe, chosen, sizedFrom(built, media), cold);
 
   // what Afflatus left in ComfyUI's input and output folders a day ago or more goes (best effort, at most hourly): with
   // any job, so a picture sent to the DaSiWa Director does not wait there for the next Director job
@@ -558,9 +558,12 @@ function checkMasks(recipe: Recipe<any>, media: Record<string, MediaFacts>): voi
 /** For the record of render times: what a render is filed under, whether its model had to load, and what was expected of it on the machine it runs on. */
 async function timingOf(core: QueueCore, recipe: Recipe<any>, chosen: Record<string, unknown>, built: BuiltGraph, cold: boolean): Promise<Resume["timing"]> {
   const work = workOf(built);
+  const paces = await core.paces();
+  // what its lane showed: the fallback too at this machine's pace and with its load, as the queue's `expected` reads it
+  const expected = (await forecastFrom(core, recipe, chosen, built, cold, { machine: core.machineId, paces })) ?? fromRates((await core.usual()).rates, recipe, chosen, { cold, pace: core.machineId ? paces.get(core.machineId) : undefined });
   return {
     model: mainModel(built) ?? "", modelFile: modelFileOf(recipe, chosen, built),
-    timeKey: timeKey(recipe.inputs, chosen), cold, expectedMs: ((await forecastFrom(core, recipe, chosen, built, cold, { machine: core.machineId, paces: await core.paces() })) ?? fromRates((await core.usual()).rates, recipe, chosen))?.ms ?? null,
+    timeKey: timeKey(recipe.inputs, chosen), cold, expectedMs: expected?.ms ?? null,
     expect: await usualParts(core.db, recipe, chosen).catch(() => ({})),
     // what it samples per step, kept with its figures: the next form like it is forecast from them
     work: work.pixels * work.frames,
@@ -655,7 +658,7 @@ export async function builtOf(core: QueueCore, recipeId: string, rawInput: unkno
   if (opts.finishedFrom && recipe.finishing?.(input)?.latent === "own") uploads["self.latent"] = "stand-in";
   const built = recipe.build(settled(recipe, input, catalog), { seed: opts.seed ?? 1, slots: await slots(core, comfy, recipe), uploads, media, canvas: opts.canvas, has: (cls: string) => cls in catalog });
   relocateFiles(built.graph, catalog);
-  return built;
+  return sizedFrom(built, media);
 }
 
 /** A library picture's size, as uploadImage sends it; null when it is not known (the stand-in's square is used). */
@@ -761,7 +764,7 @@ export async function forecastOf(
     const on = opts.machines?.length ? Object.fromEntries((await Promise.all(opts.machines.map(async (m) => [m, await at(m)] as const))).flatMap(([m, g]) => (g ? [[m, g]] : []))) : undefined;
     return { forecast: f, shape: shape!, model, ...(on ? { on } : {}) };
   }
-  const fallback = fromRates((await core.usual()).rates, recipe, chosen);
+  const fallback = fromRates((await core.usual()).rates, recipe, chosen, { cold: opts.cold ?? (built ? coldOf(core.lastLoads, built) : null), pace: opts.machine ? paces?.get(opts.machine) : undefined });
   return fallback ? { forecast: fallback, shape: { pixels: shape?.pixels ?? 0, frames: shape?.frames ?? 1 }, model } : null;
 }
 

@@ -45,7 +45,19 @@ export interface BuiltGraph {
      * chunk's steps as the largest's, and a window carried on into a short second chunk read twice its time.
      */
     frames?: number;
+    /**
+     * The canvas one step of this pass samples, in pixels, said when it is not the graph's largest: a tile of a picture
+     * redrawn in tiles (its steps come round once per tile, each at the tile's size, not the whole picture's), or an edit
+     * that reads pictures beside its canvas (each one costs a step more). The forecast prices each pass at its own; the
+     * work recorded of a render is its first pass's, the one its measured step is the pace of.
+     */
+    pixels?: number;
   }>;
+  /**
+   * The canvas the graph samples, in pixels, when none of its nodes says a size: a tool that works on a picture at the
+   * picture's own size (a background removal). Set by the server from what it hands the graph; the forecast reads it.
+   */
+  pixels?: number;
   /** The models this graph loads. The queue frees ComfyUI's memory when the next job's list differs. */
   loads: string[];
   /**

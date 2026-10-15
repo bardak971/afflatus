@@ -174,6 +174,22 @@ export const qwen21Picture = defineRecipe<Qwen21Picture>({
 /** How many pictures the model reads next to the instruction: the one that is edited and nine more. */
 const EDIT_IMAGES = 10;
 
+/** What a picture read beside the canvas costs a step, against the canvas: measured at 1 MP, 545 ms a step with the picture alone, 670 with one more, 880 with two, 1060 with three. */
+const PICTURE_COST = 0.4;
+
+/**
+ * What one step of an edit samples, in pixels, as the forecast reads it: its canvas (the first picture brought to about
+ * `resolution` on a side, its shape kept, on a grid of 32; at 0 its own size) and the `pictures` it reads, each at
+ * PICTURE_COST of it. Its graph says no size (the encoder makes the canvas): its renders were recorded with no work and
+ * never learned from.
+ */
+function editPixels(first: { width: number; height: number } | undefined, resolution: number, pictures: number): number {
+  const from = first?.width && first.height ? first : { width: 1024, height: 1024 };
+  const k = resolution > 0 ? resolution / Math.sqrt(from.width * from.height) : 1;
+  const canvas = roundTo(from.width * k, 32) * roundTo(from.height * k, 32);
+  return Math.round(canvas * (1 + PICTURE_COST * pictures));
+}
+
 export const qwen21Edit = defineRecipe<Qwen21Edit>({
   id: "qwen21.edit",
   family: "qwen21",
@@ -213,7 +229,8 @@ export const qwen21Edit = defineRecipe<Qwen21Edit>({
     });
     g.phase("decoding");
     const out = g.add("PreviewImage", { images: g.out("VAEDecode", { samples: sampled, vae: k.vae }) });
-    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: input.steps, passes: [{ node: sampled[0], steps: input.steps }], loads: k.loads };
+    const pass = { node: sampled[0], steps: input.steps, pixels: editPixels(ctx.media.source, input.resolution, pictures.length) };
+    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: input.steps, passes: [pass], loads: k.loads };
   },
   variants: [
     { name: "from an instruction", input: { source: "p", prompt: "a" }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 896, height: 1152 } } },
@@ -321,7 +338,11 @@ export const qwen21MotionPicture = defineRecipe<Qwen21MotionPicture>({
     // how much the face where the frame's main person stands is the person of the photos, and whether they were pasted in
     // elsewhere too (the Afflatus pack's Face At, with insightface): the box ranks by it
     const score = faceScore(g, ctx, made, shots, frame);
-    const passes = [{ node: put.sampled[0], steps: input.steps }, ...(lit ? [{ node: lit.sampled[0], steps: input.steps }] : [])];
+    // the first pass reads the frame and the photos, the relight only what the first made
+    const passes = [
+      { node: put.sampled[0], steps: input.steps, pixels: editPixels(ctx.media.source, input.resolution, 1 + shots.length) },
+      ...(lit ? [{ node: lit.sampled[0], steps: input.steps, pixels: editPixels(ctx.media.source, input.resolution, 1) }] : []),
+    ];
     return {
       graph: g.graph, phases: g.phases, totalSteps: input.steps * passes.length, passes, loads: k.loads,
       outputs: [{ node: out, kind: "image", role: "result" }, ...score],

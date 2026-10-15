@@ -137,3 +137,42 @@ describe("migration 0070, the record of render times by machine", () => {
     await db.destroy();
   });
 });
+
+describe("migration 0073, the work of the renders recorded before their recipes said it", () => {
+  it("reads it back from what was rendered: an edit's canvas and pictures, a detailer's guide size, a picture redrawn in tiles", async () => {
+    const db = openSqlite(":memory:");
+    await migrate(db, "0071_costs");
+    const at = new Date().toISOString();
+    const stat = (id: string, recipe: string, over: Record<string, unknown>) => ({
+      id, owner_id: OWNER, recipe_id: recipe, family: recipe.split(".")[0], model: "M", model_file: "m", time_key: "source+", kind: "image", width: 768, height: 1376, duration_ms: null,
+      steps: 40, status: "done", whole: 1, cold: 0, waited_ms: 0, total_ms: 50_000, load_ms: 1_000, sample_ms: 30_000, refine_ms: 0, finish_ms: 0, step_ms: 700, expected_ms: null,
+      vram_peak: null, heat_peak: null, asset_id: null, work: 0, machine_id: "m1", gpu: null, created_at: at, ...over,
+    });
+    const job = (id: string, recipe: string, inputs: unknown) => ({
+      id, owner_id: OWNER, recipe_id: recipe, label: id, inputs: JSON.stringify(inputs), status: "done", priority: 20, depends_on: null, attempts: 1, resume: null, error: null, generation_id: null,
+      created_at: at, started_at: at, finished_at: at, updated_at: at,
+    });
+    await db.insertInto("jobs").values([job("edit", "qwen21.edit", { references: [{ asset: "a" }, { asset: "b" }] }), job("motion", "qwen21.motion-picture", { people: [{ asset: "a" }] })] as never).execute();
+    await db.insertInto("render_stats").values([
+      stat("edit", "qwen21.edit", {}),
+      stat("motion", "qwen21.motion-picture", { steps: 80 }),
+      stat("face", "sdxl.fix-face", { time_key: "source+;faceSize=768;faceMax=1280", width: 832, height: 1216 }),
+      stat("cut", "tools.remove-background", { width: 512, height: 384, step_ms: null }),
+      stat("tiled", "sdxl.sharper", { time_key: "source+;refine=true;tiles=Auto;tileSize=1024;tileOverlap=128;steps=28", width: 3200, height: 3200, steps: 14, work: 3200 * 3200 }),
+      stat("whole", "sdxl.sharper", { time_key: "source+;refine=true;tiles=Auto;tileSize=1024;tileOverlap=128;steps=20", width: 1664, height: 2432, steps: 10, work: 1664 * 2432 }),
+      stat("hires", "sdxl.text-to-picture", { time_key: "size=640x640;steps=20;hires=true;hiresScale=2.5;hiresSteps=10;tiles=Tiles;tileSize=1024;tileOverlap=128", width: 1600, height: 1600, steps: 30, work: 1600 * 1600 }),
+      stat("draft", "h3.video", { kind: "video", work: 0 }),
+    ] as never).execute();
+    expect(await migrate(db)).toContain("0073_render_work");
+    const got = Object.fromEntries((await db.selectFrom("render_stats").select(["id", "work", "steps"]).execute()).map((r) => [r.id, [r.work, r.steps]]));
+    expect(got).toEqual({
+      edit: [Math.round(768 * 1376 * 2.2), 40], motion: [Math.round(768 * 1376 * 1.8), 80], face: [768 * 768, 40], cut: [512 * 384, 40],
+      // sixteen tiles of 1024², each of 14 steps; a picture gone over whole is left as it was
+      tiled: [1024 * 1024, 14 * 16], whole: [1664 * 2432, 10],
+      // the first pass at 640², then four tiles of ten steps
+      hires: [640 * 640, 20 + 10 * 4],
+      draft: [0, 40],
+    });
+    await db.destroy();
+  });
+});
