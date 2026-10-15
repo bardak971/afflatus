@@ -4,7 +4,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ChevronRight, Film, PenLine, Zap } from "lucide-react";
 import { api, type CostsView, type PodSession, type ProjectCost, type RenderCostRow } from "../../api";
 import { Dialog, DialogHead } from "../../Dialog";
-import { brief, dayMonth, est, gb, hourMinute, long, plural, usd, UI_LOCALE } from "../../format";
+import { dayMonth, est, gb, hourMinute, long, plural, spell, usd, UI_LOCALE } from "../../format";
 import { useProject } from "../../project";
 import { Initial, projectTone } from "../../projects/tone";
 import { queryKeys } from "../../queryKeys";
@@ -226,7 +226,7 @@ function SessionRow({ s, longest }: { s: PodSession; longest: number }) {
             <span key={r.id} className="grid grid-cols-[48px_minmax(0,1fr)_64px_64px] items-center gap-2">
               <span className="font-mono text-ink-3">{hourMinute(r.at)}</span>
               <span className={cx("truncate", r.status !== "done" && "text-warn-ink")}>{r.model}{r.item ? ` · ${r.item.name}` : ""}{r.status !== "done" ? ` · ${r.status}` : ""}</span>
-              <span className="text-right font-mono text-ink-2">{brief(r.ms)}</span>
+              <span className="text-right font-mono text-ink-2">{spell(r.ms)}</span>
               <span className="text-right font-mono text-ink-2">{usd(r.usd, true)}</span>
             </span>
           )) : <span className="text-ink-3">No render on it{s.fetched.files ? `: it fetched ${plural(s.fetched.files, "file")} (${gb(s.fetched.bytes)})` : ""}.</span>}
@@ -280,7 +280,7 @@ function RenderCosts({ d }: { d: CostsView }) {
           <span className="truncate text-[12.5px] text-ink-2">
             {r.on}{r.where === "guess" && <span data-tip="Not rendered on yet: its time is the GPU hunt's guess from your renders on another GPU and a rough table of speeds. A guess until it renders."> (a guess)</span>}
           </span>
-          <span className="text-right font-mono text-[12.5px]">{r.ms === null ? "—" : r.where === "guess" ? est(r.ms) : brief(r.ms)}</span>
+          <span className="text-right font-mono text-[12.5px]">{r.ms === null ? "—" : r.where === "guess" ? est(r.ms) : spell(r.ms)}</span>
           <span className="text-right font-mono text-[12.5px] text-ink-2">{r.renders || "—"}</span>
           <span
             className={cx("text-right font-mono text-[13px] font-semibold", r.where === "home" ? "text-warn-ink" : r.best ? "text-accent" : "")}

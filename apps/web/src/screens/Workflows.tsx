@@ -455,7 +455,7 @@ export function Workflows() {
           builtIn.length > 0 && (
             <div className="overflow-hidden rounded-xl border border-line bg-panel">
               {builtIn.map((f, i) => {
-                const mine = recipes.data?.recipes.filter((r) => r.family === f.id) ?? [];
+                const mine = recipes.data?.recipes.filter((r) => r.family === f.id && !r.hidden) ?? [];
                 const slots = setup.data?.families.find((x) => x.id === f.id)?.slots ?? [];
                 const statuses = mine.map((r) => setup.data?.recipes.find((x) => x.id === r.id));
                 const status = familyStatus(statuses);

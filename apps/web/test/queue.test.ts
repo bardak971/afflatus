@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { bar, brushWindow, ceiling, curve, stackSeries, statOf } from "../src/screens/queue/chartMath";
-import { betterPlace, byModel, dropped, groupingSaves, loadsAt, modelSwitches, moved } from "../src/screens/queue/order";
+import { betterPlace, byModel, dropped, groupingSaves, loadsAt, modelSwitches, moved, waitingEnds } from "../src/screens/queue/order";
 import { dayLabel, foldFailures, pinnedFailures, readableError, reasonOf, reasonsOf } from "../src/screens/queue/failures";
 import { StepClock } from "../src/screens/queue/stepRate";
 import { brushSpan } from "../src/screens/queue/useBrush";
@@ -219,5 +219,17 @@ describe("the render times' window", () => {
     expect(typedWindow({ from: "x", to: "2026-10-01T09:00" })).toBeNull();
     const w = typedWindow({ from: "2026-10-01T09:00", to: "2026-10-01T10:00" })!;
     expect(w.to - w.from).toBe(3_600_000);
+  });
+});
+
+describe("the waiting list's \"about N in all\"", () => {
+  // 40 jobs of 7.5 s on 4 machines: 10 each, done in about 75 s, not the 5 min they add up to
+  const waiting = Array.from({ length: 40 }, (_, i) => ({ estimateMs: 7500, startsInMs: Math.floor(i / 4) * 7500 }));
+  it("is the plan's last end, the machines sharing the jobs, not their sum", () => {
+    expect(waitingEnds(waiting, null)).toBe(75_000);
+    expect(waitingEnds(waiting, null, 80_000)).toBe(80_000);
+  });
+  it("with nothing planned (one machine), the jobs one after another after the running one", () => {
+    expect(waitingEnds([{ estimateMs: 1000, startsInMs: null }, { estimateMs: 2000, startsInMs: null }], { eta: 3 })).toBe(6000);
   });
 });

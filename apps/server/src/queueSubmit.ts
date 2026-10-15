@@ -771,8 +771,17 @@ export async function forecastOf(
     const on = opts.machines?.length ? Object.fromEntries((await Promise.all(opts.machines.map(async (m) => [m, await at(m)] as const))).flatMap(([m, g]) => (g ? [[m, g]] : []))) : undefined;
     return { forecast: f, shape: shape!, model, ...(on ? { on } : {}) };
   }
-  const fallback = fromRates((await core.usual()).rates, recipe, chosen, { cold: opts.cold ?? (built ? coldOf(core.lastLoads, built) : null), pace: opts.machine ? paces?.get(opts.machine) : undefined });
-  return fallback ? { forecast: fallback, shape: { pixels: shape?.pixels ?? 0, frames: shape?.frames ?? 1 }, model } : null;
+  // from its recipe's usual times: on each machine too, each with its own load and pace (every machine was given the
+  // first one's figure, cold or warm as that one held it, and Auto summed the same figure on each)
+  const rates = (await core.usual()).rates;
+  const coldAt = (machine: string | null) => opts.cold ?? (built ? coldOf(machine !== null && opts.loads ? opts.loads(machine) : core.lastLoads, built) : null);
+  const fallback = fromRates(rates, recipe, chosen, { cold: coldAt(opts.machine ?? null), pace: opts.machine ? paces?.get(opts.machine) : undefined });
+  if (!fallback) return null;
+  const on = opts.machines?.length ? Object.fromEntries(opts.machines.flatMap((m) => {
+    const g = fromRates(rates, recipe, chosen, { cold: coldAt(m), pace: paces?.get(m) });
+    return g ? [[m, g] as const] : [];
+  })) : undefined;
+  return { forecast: fallback, shape: { pixels: shape?.pixels ?? 0, frames: shape?.frames ?? 1 }, model, ...(on ? { on } : {}) };
 }
 
 /** The model file a render is recorded under (render_stats.model_file). */

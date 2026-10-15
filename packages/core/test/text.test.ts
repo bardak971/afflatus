@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isModelFile, MODEL_EXT, modelStem, plural, slug } from "../src";
+import { isModelFile, MODEL_EXT, modelStem, plural, shortGpu, slug } from "../src";
 
 describe("model files, one list for every place", () => {
   it("knows every extension a loader lists, whatever the case", () => {
@@ -28,5 +28,14 @@ describe("slug and plural", () => {
     expect(plural(1, "clip")).toBe("1 clip");
     expect(plural(0, "clip")).toBe("0 clips");
     expect(plural(2, "person", "people")).toBe("2 people");
+  });
+});
+
+describe("a GPU's short name", () => {
+  it("is one name whether ComfyUI or RunPod says it", () => {
+    expect(shortGpu("cuda:0 NVIDIA GeForce RTX 4070 Ti : cudaMallocAsync")).toBe("RTX 4070 Ti");
+    expect(shortGpu("NVIDIA GeForce RTX 4070 Ti")).toBe("RTX 4070 Ti");
+    expect(shortGpu("NVIDIA RTX 6000 Ada Generation")).toBe("RTX 6000 Ada");
+    expect(shortGpu("NVIDIA A40")).toBe("A40");
   });
 });

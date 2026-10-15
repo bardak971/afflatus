@@ -1,8 +1,9 @@
 import { useRef, type ReactNode } from "react";
 import type { RankedGpu } from "@afflatus/core";
 import type { DeployOverhead, HuntAsk } from "./api";
-import { usd } from "./format";
-import { deploySaid, firstPick, giveUpOptions, MODES, minutesSaid, renderSaid, renderWhy } from "./huntSaid";
+import { useQueue } from "./data";
+import { minutesSaid, usd } from "./format";
+import { deploySaid, firstPick, giveUpOptions, MODES, renderSaid, renderWhy } from "./huntSaid";
 import { Select } from "./Select";
 import { Checkbox, cx, ErrorNote, Help, NumberBox, Segmented } from "./ui";
 
@@ -10,10 +11,18 @@ const WHY_MODE = "What the hunt deploys first, among the GPUs ticked that fit th
 const WHY_TABLE = "Ticked: the hunt may deploy it. Fits these renders: no file of the renders waiting is larger than its memory, nor ran out of memory on it before. Now: RunPod's stock where the pod would go. The first GPU in this order that is free is deployed, once.";
 const WHY_HOLD = "Hold: the home machines are paused (a render under way finishes first) so that every render waiting goes to the GPU found; they go on when its pod stops, or when the hunt ends without one. Keep rendering: they go on, and the GPU found takes its share.";
 
-const HOLDS: Array<{ value: HuntAsk["hold"]; label: string; note: string }> = [
-  { value: "rest", label: "Hold the renders for it: this PC rests", note: "Your renders wait, this PC takes none. When the pod is up, they all go there; this PC goes on once the pod stops." },
-  { value: "keep", label: "Keep rendering here", note: "This PC goes on; the pod joins when found and takes its share." },
-];
+/** What the home machines do while it hunts, said of this PC alone or of several machines (it said "this PC rests" with four). */
+const holdsOf = (several: boolean): Array<{ value: HuntAsk["hold"]; label: string; note: string }> => several
+  ? [
+    { value: "rest", label: "Hold the renders for it: your machines rest", note: "Your renders wait, your machines take none. When the pod is up, they all go there; your machines go on once the pod stops." },
+    { value: "keep", label: "Keep rendering on your machines", note: "Your machines go on; the pod joins when found and takes its share." },
+  ]
+  : [
+    { value: "rest", label: "Hold the renders for it: this PC rests", note: "Your renders wait, this PC takes none. When the pod is up, they all go there; this PC goes on once the pod stops." },
+    { value: "keep", label: "Keep rendering here", note: "This PC goes on; the pod joins when found and takes its share." },
+  ];
+/** Whether it fits, as its row says it: one left out by the dialog (a step down from the GPU wanted) says so, not "by you". */
+const fitsSaid = (g: RankedGpu, byDialog: boolean) => (g.fit === "left" ? (byDialog ? "left out: a step down from the GPU wanted" : "left out by you") : g.fits);
 const STOCK_DOT = { free: "bg-good", "a few free": "bg-accent", "none free": "bg-line-strong" } as const;
 const COLS = "grid-cols-[28px_minmax(0,1fr)_72px_150px_150px_92px]";
 
@@ -22,10 +31,12 @@ const COLS = "grid-cols-[28px_minmax(0,1fr)_72px_150px_150px_92px]";
  * for the renders waiting (a tick leaves one out), what the home machines do meanwhile and when it gives up. The dialog
  * keeps its other choices (image, disk, when done, models): the hunt deploys with them.
  */
-export function HuntSection({ ask, change, ranking, overhead, failed, pending, volume, warning }: {
+export function HuntSection({ ask, change, ranking, stepDown = [], overhead, failed, pending, volume, warning }: {
   ask: HuntAsk;
   change(c: Partial<HuntAsk>): void;
   ranking: RankedGpu[] | null;
+  /** The GPUs the dialog left out at first (a step down from the one wanted), not the user: their row says so. */
+  stepDown?: string[];
   /** What a deploy bills besides its renders, from the user's sessions; null when none tells it yet. */
   overhead: DeployOverhead | null;
   failed: string | null;
@@ -36,6 +47,10 @@ export function HuntSection({ ask, change, ranking, overhead, failed, pending, v
   warning: ReactNode;
 }) {
   const pick = firstPick(ranking);
+  const several = useQueue().data?.machines.filter((m) => !m.rented).length ?? 0;
+  const holds = holdsOf(several > 1);
+  /** The GPUs whose tick the user changed here: one left out is theirs from then on. */
+  const ticked = useRef(new Set<string>());
   // the rows keep their places while GPUs are ticked or RunPod's stock is read again: a row moving under the pointer as it
   // is unticked is a button moving. They are put in the ranking's order again when what it ranks by changes
   // (until a tick is clicked here, the order follows the ranking: the GPUs left out at first are set by the dialog)
@@ -49,6 +64,7 @@ export function HuntSection({ ask, change, ranking, overhead, failed, pending, v
   const leave = (id: string, on: boolean) => {
     // the order as it stands is kept from here
     touched.current = true;
+    ticked.current.add(id);
     change({ leftOut: on ? ask.leftOut.filter((x) => x !== id) : [...ask.leftOut, id] });
   };
   return (
@@ -81,7 +97,8 @@ export function HuntSection({ ask, change, ranking, overhead, failed, pending, v
         {!failed && !ranking && <span className="px-3 py-2.5 text-xs text-ink-3">{pending ? "Asking RunPod…" : "Nothing to rank yet."}</span>}
         {rows?.map((g) => (
           <div key={g.id} role="row" className={cx("grid items-center gap-2.5 border-b border-line/60 px-3 py-2 text-[13px] last:border-b-0", COLS, g.fit !== "yes" && "opacity-50", g === pick && "bg-accent-wash")}>
-            <Checkbox checked={!ask.leftOut.includes(g.id)} onChange={(on) => leave(g.id, on)} label={`Hunt for ${g.name}`} />
+            {/* over the price asked, the hunt cannot deploy it whatever its tick: shown unticked, as one left out */}
+            <Checkbox checked={!ask.leftOut.includes(g.id) && g.fit !== "price"} disabled={g.fit === "price"} onChange={(on) => leave(g.id, on)} label={`Hunt for ${g.name}`} />
             <span className="flex min-w-0 items-center gap-2">
               <span className="truncate font-semibold">{g.name}</span>
               {g.memory > 0 && <span className="shrink-0 rounded-md bg-raised px-1.5 font-mono text-[11px] text-ink-2">{g.memory} GB</span>}
@@ -93,7 +110,7 @@ export function HuntSection({ ask, change, ranking, overhead, failed, pending, v
               {g.cost !== null && <span className="text-[11px] text-ink-3">{g.timeSaid}</span>}
               {deploySaid(g) && <span className="text-[11px] text-ink-3">{deploySaid(g)}</span>}
             </span>
-            <span className={cx("text-xs", g.fit === "yes" ? "text-good" : "text-ink-2")}>{g.fits}</span>
+            <span className={cx("text-xs", g.fit === "yes" ? "text-good" : "text-ink-2")}>{fitsSaid(g, stepDown.includes(g.id) && !ticked.current.has(g.id))}</span>
             <span className="flex items-center gap-1.5 text-xs text-ink-2"><span className={cx("size-2 shrink-0 rounded-full", STOCK_DOT[g.stock])} />{g.stock}</span>
           </div>
         ))}
@@ -106,7 +123,7 @@ export function HuntSection({ ask, change, ranking, overhead, failed, pending, v
       <div className="flex items-start gap-3">
         <span className="flex w-[110px] shrink-0 items-center gap-1.5 pt-2.5 text-xs font-semibold text-ink-2">While it hunts <Help text={WHY_HOLD} /></span>
         <div role="radiogroup" aria-label="While it hunts" className="flex grow flex-col gap-2">
-          {HOLDS.map((h) => (
+          {holds.map((h) => (
             <button
               key={h.value}
               type="button"
@@ -130,7 +147,7 @@ export function HuntSection({ ask, change, ranking, overhead, failed, pending, v
         <span className="w-[120px]">
           <Select size="sm" label="Give up after" value={String(ask.giveUpMinutes)} onChange={(v) => change({ giveUpMinutes: Number(v) })} options={giveUpOptions(ask.giveUpMinutes).map((n) => ({ value: String(n), label: minutesSaid(n) }))} />
         </span>
-        <span className="text-xs text-ink-3">from its start; then this PC goes on, and you are told</span>
+        <span className="text-xs text-ink-3">from its start; then {several > 1 ? "your machines go" : "this PC goes"} on, and you are told</span>
       </div>
     </section>
   );

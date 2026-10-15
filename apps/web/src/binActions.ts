@@ -5,6 +5,7 @@ import { ask } from "./Confirm";
 import { insteadOfWaiting } from "./keepFor";
 import { useBanners } from "./store";
 import { queryKeys } from "./queryKeys";
+import { failedBanner } from "./sayFailed";
 
 /**
  * What the bin itself offers (its strip over the grid, its items' menu, Del on what is ticked in it): an item erased
@@ -17,7 +18,9 @@ function readAgain(client: QueryClient) {
   for (const queryKey of [queryKeys.assets.all(), queryKeys.folders(), queryKeys.projects.all(), queryKeys.storage(), queryKeys.timelines.all()]) void client.invalidateQueries({ queryKey });
 }
 
-const say = (tone: "good" | "bad", title: string, text?: string) => useBanners.getState().push({ id: `bin:${Date.now()}`, tone, title, ...(text ? { text } : {}) });
+const say = (tone: "good", title: string, text?: string) => useBanners.getState().push({ id: `bin:${Date.now()}`, tone, title, ...(text ? { text } : {}) });
+/** Where a failure of the bin is said to be put right: the library, a 409 titled "Still in use" (failedBanner). */
+const BIN = { id: "bin", inUse: true };
 
 /** The items of the bin erased now, files and all, once asked. Answers whether it was done. */
 export async function eraseNow(client: QueryClient, ids: string[]): Promise<boolean> {
@@ -39,7 +42,7 @@ export async function eraseNow(client: QueryClient, ids: string[]): Promise<bool
     say("good", `Deleted for good · ${itemsWord(erased)}`, used ? `${itemsWord(used)} still in use stayed in the bin.` : undefined);
     return true;
   } catch (err) {
-    say("bad", "Could not delete them", err instanceof Error ? err.message : String(err));
+    useBanners.getState().push(failedBanner(BIN, "Could not delete them", err));
     return false;
   } finally {
     readAgain(client);
@@ -52,7 +55,7 @@ export async function restoreAll(client: QueryClient): Promise<void> {
     const r = await api.restoreBin();
     say("good", `Put back · ${itemsWord(r.restored)}`);
   } catch (err) {
-    say("bad", "Could not put them back", err instanceof Error ? err.message : String(err));
+    useBanners.getState().push(failedBanner(BIN, "Could not put them back", err));
   } finally {
     readAgain(client);
   }
@@ -65,7 +68,7 @@ export async function emptyAll(client: QueryClient): Promise<void> {
     const r = await api.emptyBin();
     say("good", `Erased · ${itemsWord(r.erased)}`, r.inUse ? `${itemsWord(r.inUse)} still in use stayed in the bin.` : undefined);
   } catch (err) {
-    say("bad", "Could not empty the bin", err instanceof Error ? err.message : String(err));
+    useBanners.getState().push(failedBanner(BIN, "Could not empty the bin", err));
   } finally {
     readAgain(client);
   }

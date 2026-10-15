@@ -7,7 +7,7 @@ import { COMMANDS, KIT_OF, parseCommand, type Command, type CommandId, type KitN
 import type { TimelineAim } from "./actions/ctx";
 import { est, plural, size, usd, when } from "../format";
 import { unloadBlock } from "../queueRules";
-import { rateSaid, rentedSaid } from "../machines";
+import { machineState, rateSaid, rentedSaid } from "../machines";
 
 const upper = (s: string | null) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : null);
 
@@ -24,7 +24,7 @@ interface QueueNow {
   /** The model loads that grouping the queue by model would save. */
   saves: number;
   /** With several ComfyUIs, each one by the name it is shown under: the bar offers Pause, Resume, Use only and Unload for each. */
-  machines: Array<{ id: string; label: string; paused: boolean; online: boolean | null; running: boolean; rented: RentedState | null }>;
+  machines: Array<{ id: string; label: string; paused: boolean; online: boolean | null; locked?: boolean; running: boolean; rented: RentedState | null }>;
   /** A GPU hunt is under way: Cancel the hunt is offered. */
   hunting?: boolean;
 }
@@ -241,18 +241,18 @@ const applies = (x: CommandCtx, id: CommandId): boolean =>
   : id === "test-notify" ? Boolean(x.channels?.telegram || x.channels?.discord)
   : true;
 
-/** A machine's state in a word, for its rows ("rendering", "paused"); "not found" for a name no machine has. */
 /** A machine by the name typed: the same name, else the first that begins with it. */
 function podOf(q: QueueNow | null, label: string) {
   return q?.machines.find((x) => x.label.toLowerCase() === label.toLowerCase()) ?? q?.machines.find((x) => x.label.toLowerCase().startsWith(label.toLowerCase()));
 }
 
+/** A machine's state in a word, for its rows ("rendering", "paused"); "not found" for a name no machine has. */
 function machineSaid(q: QueueNow | null, label: string): string {
   const m = podOf(q, label);
   if (!m) return "no ComfyUI by that name";
   // a rented pod says its own state: stopped is not offline
   if (m.rented && m.rented.status !== "RUNNING") return rentedSaid(m.rented);
-  return m.paused ? "paused" : m.online === false ? "offline" : m.running ? "rendering" : "idle";
+  return machineState(m);
 }
 
 /** What a Start of a rented pod says before it is chosen: its rate, or that it cannot. */

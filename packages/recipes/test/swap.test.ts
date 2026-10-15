@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { dryContext, parseInput, type MediaFacts } from "@afflatus/core";
+import { describeRecipe, dryContext, parseInput, type MediaFacts } from "@afflatus/core";
 import { h3Swap, swapCaption } from "../src/h3/swap";
 import { H3_FPS } from "../src/h3/family";
+import { recipeById } from "../src/index";
 
 type Node = { class_type: string; inputs: Record<string, unknown> };
 type Graph = Record<string, Node>;
@@ -16,6 +17,11 @@ const build = (over: Record<string, unknown> = {}, source: MediaFacts = part()) 
 };
 
 describe("MiniMax H3 · Swap character", () => {
+  it("is hidden for now: the screens that offer recipes leave it out, what was made with it still opens", () => {
+    expect(describeRecipe(h3Swap).hidden).toBe(true);
+    expect(recipeById("h3.swap")).toBe(h3Swap);
+  });
+
   it("carries on from the window before on a source lane: its last 5 frames and their sound pinned at the start, as frames, the window's count kept", () => {
     const input = parseInput(h3Swap, { who: "the man", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: false });
     const built = h3Swap.build(input, dryContext({

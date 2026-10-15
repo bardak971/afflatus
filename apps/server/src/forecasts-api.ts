@@ -21,7 +21,7 @@ export interface Asked {
  * clip's form is planned as its render will be: asked alone, a Motion transfer window was built at its picture's shape
  * (576 × 1024 where the timeline renders 480 × 864) and said 6 min for what took 3.5.
  */
-export async function forecastsOf(s: Services, forms: Asked[]): Promise<Array<{ ms: number; loadMs: number; model: string; samples: number; on: Record<string, number> | null } | null>> {
+export async function forecastsOf(s: Services, forms: Asked[]): Promise<Array<{ ms: number; loadMs: number; model: string; samples: number; on: Record<string, number> | null; can: string[] | null } | null>> {
   const seen = new Map<string, Promise<Awaited<ReturnType<Services["queue"]["forecast"]>>>>();
   const fits = await fitsOf(s, forms);
   return Promise.all(forms.map(async (f) => {
@@ -30,7 +30,9 @@ export async function forecastsOf(s: Services, forms: Asked[]): Promise<Array<{ 
     const got = await seen.get(key)!;
     if (!got) return null;
     const on = got.on ? Object.fromEntries(Object.entries(got.on).map(([m, g]) => [m, g.ms])) : null;
-    return { ms: got.forecast.ms, loadMs: got.forecast.loadMs, model: got.model, samples: got.forecast.samples, on };
+    // the machines that can render it (its files there, or on their way to a pod): a machine's figure is said only of those
+    const can = "can" in got && Array.isArray(got.can) ? got.can : null;
+    return { ms: got.forecast.ms, loadMs: got.forecast.loadMs, model: got.model, samples: got.forecast.samples, on, can };
   }));
 }
 
@@ -51,10 +53,10 @@ const forecastsBody = z.strictObject({
  * left out, with the clip it is): the same forecast as the command bar's and the timeline card's, per form, and with
  * several machines on each (`on`). Null where nothing like it was rendered here yet.
  */
-async function forecasts(s: Services, raw: unknown): Promise<{ ms: Array<number | null>; on: Array<Record<string, number> | null> }> {
+async function forecasts(s: Services, raw: unknown): Promise<{ ms: Array<number | null>; on: Array<Record<string, number> | null>; can: Array<string[] | null> }> {
   const b = forecastsBody.parse(raw);
   const got = await forecastsOf(s, b.forms);
-  return { ms: got.map((g) => g?.ms ?? null), on: got.map((g) => g?.on ?? null) };
+  return { ms: got.map((g) => g?.ms ?? null), on: got.map((g) => g?.on ?? null), can: got.map((g) => g?.can ?? null) };
 }
 
 export function registerForecasts(app: FastifyInstance, s: Services): void {

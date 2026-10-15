@@ -1,6 +1,4 @@
 import type { FastifyInstance } from "fastify";
-import { isUpload } from "./uploadBody";
-import { embeddedWorkflowOf } from "./embedded";
 import { z } from "zod";
 import { modelIndex } from "./comfy";
 import { httpError } from "./errors";
@@ -147,15 +145,6 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
   });
 
   app.get("/api/workflows", async () => ({ items: s.registry.workflows().map((d) => brief(d, s.registry.problem(d.id))) }));
-
-  // a video ComfyUI saved carries its workflow in the file's tags (a picture in its text): the file is sent as the body,
-  // read as POST /api/embedded reads it (embedded.ts)
-  app.post("/api/workflows/extract", async (req) => {
-    if (!isUpload(req.body)) throw httpError("Send the video file as the request body.");
-    const workflow = await embeddedWorkflowOf(req.body.path);
-    if (!workflow) throw httpError("This video carries no workflow. ComfyUI's video savers write one into the videos they make; a video from elsewhere has none.");
-    return { workflow };
-  });
 
   /**
    * Install, through ComfyUI-Manager, the node packs the missing node types of a workflow come from.

@@ -1,6 +1,6 @@
 import type { ComponentProps } from "react";
 import { ChevronDown, Wand2 } from "lucide-react";
-import { secondsInput } from "@afflatus/core";
+import { removedSaid, secondsInput } from "@afflatus/core";
 import { thumbUrl, type Clip, type RecipeInfo, type Take, type Timeline } from "../../api";
 import { useEntities, useRecipes } from "../../data";
 import { WritingHelp } from "../../WritingHelp";
@@ -61,7 +61,16 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
     />
   );
   // nothing renders it yet: only the choice of what does
-  if (!form || !recipe) return <div className="flex flex-col gap-1.5"><div className="text-xs font-semibold">Model</div>{picker}</div>;
+  // a clip made with a model taken out of Afflatus says so: its take plays on, a new one needs another model
+  if (!form || !recipe) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <div className="text-xs font-semibold">Model</div>
+        {picker}
+        {removedSaid(clip.recipe) && <span className="text-xs text-warn-ink">Made with {removedSaid(clip.recipe)}: {take ? "its take plays on; a new take" : "it"} needs another model.</span>}
+      </div>
+    );
+  }
   const main = mainTextOf(form);
   const written = main ? String(stored[main.id] ?? "") : "";
   const cast = clip.look === null ? (

@@ -10,9 +10,13 @@ import { queryKeys } from "../queryKeys";
  * timeline card's and the command bar's) of the whole form a render of it would send, planned as its render will be (the
  * clip named: the timeline's frame, the clip it carries on from). Its texts are left out, so typing asks nothing. On a
  * `machine` when one is picked: that machine's own figure (timeOn); else Auto's. Null for a clip with nothing like it
- * rendered yet, or while its changed form is asked.
+ * rendered yet, or while its changed form is asked, and on a machine that cannot render it (`can`: its files not there).
  */
-export function useForecasts(clips: Clip[], recipes: RecipeInfo[], formOf: (c: Clip) => Record<string, unknown> | null): (c: Clip, machine?: MachineState | null) => number | null {
+export function useForecasts(clips: Clip[], recipes: RecipeInfo[], formOf: (c: Clip) => Record<string, unknown> | null): {
+  takesOn(c: Clip, machine?: MachineState | null): number | null;
+  /** Whether a machine can render the clip, as the server's plan says (unknown: it can). */
+  canOn(c: Clip, machine: MachineState): boolean;
+} {
   const forms = useMemo(() => {
     const out = new Map<string, { recipe: string; input: Record<string, unknown>; clip: string }>();
     for (const c of clips) {
@@ -27,18 +31,26 @@ export function useForecasts(clips: Clip[], recipes: RecipeInfo[], formOf: (c: C
     queryKey: queryKeys.forecasts(asked),
     // the answer keeps the forms it is for: while a changed form is asked, the others keep their figure
     queryFn: async ({ signal }) => {
-      const { ms, on } = await api.forecasts(asked, { signal });
-      return new Map(asked.map((f, i) => [keyOf(f), { ms: ms[i] ?? null, on: on?.[i] ?? null }]));
+      const { ms, on, can } = await api.forecasts(asked, { signal });
+      return new Map(asked.map((f, i) => [keyOf(f), { ms: ms[i] ?? null, on: on?.[i] ?? null, can: can?.[i] ?? null }]));
     },
     enabled: asked.length > 0,
     placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
   const known = got.data;
-  return (c, machine) => {
+  const of = (c: Clip) => {
     const f = forms.get(c.id);
-    const one = f && known ? known.get(keyOf(f)) : undefined;
-    return one ? timeOn(one.ms, one.on, machine) : null;
+    return f && known ? known.get(keyOf(f)) : undefined;
+  };
+  const canOn = (c: Clip, machine: MachineState) => !of(c)?.can || of(c)!.can!.includes(machine.id);
+  return {
+    takesOn: (c, machine) => {
+      const one = of(c);
+      if (!one || (machine && !canOn(c, machine))) return null;
+      return timeOn(one.ms, one.on, machine);
+    },
+    canOn,
   };
 }
 

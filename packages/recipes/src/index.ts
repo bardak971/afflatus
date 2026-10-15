@@ -19,14 +19,12 @@ import { qwen, qwenEdit, qwenFixFace, qwenOutpaint, qwenPaintOver, qwenPicture, 
 import { qwen21, qwen21Edit, qwen21MotionPicture, qwen21Picture } from "./qwen21";
 import { scail } from "./scail/family";
 import { scailMotion } from "./scail/motion";
-import { wanAnimate } from "./wananimate/family";
-import { wanAnimateMotion } from "./wananimate/motion";
 import { removeBackground, seedvrPicture, tools } from "./tools";
 import { wan } from "./wan/family";
 import { wanVideo } from "./wan/video";
 import { zimage, zimageFixFace, zimageOutpaint, zimagePaintOver, zimagePicture, zimageRedraw, zimageSharper } from "./zimage";
 
-export const families: Family[] = [sdxl, klein, krea2, flux, qwen, qwen21, zimage, h3, wan, scail, wanAnimate, ltx, ltx25, tools];
+export const families: Family[] = [sdxl, klein, krea2, flux, qwen, qwen21, zimage, h3, wan, scail, ltx, ltx25, tools];
 
 /** Every built-in recipe. Imported workflows are added to this list at run time by the server. */
 export const recipes: Recipe<any>[] = [
@@ -42,7 +40,6 @@ export const recipes: Recipe<any>[] = [
   h3Swap,
   wanVideo,
   scailMotion,
-  wanAnimateMotion,
   ltxVideo,
   ltx25Video,
   removeBackground, seedvrPicture,
@@ -54,7 +51,7 @@ export const recipeById = (id: string) => recipes.find((r) => r.id === id);
 export { h3, h3Video, klein, krea2, krea2Picture, sdxl, sdxlTextToPicture, tools, wan, wanVideo };
 export { wanCanvas, wanFrames, WAN_FPS } from "./wan/family";
 export { ltx, ltxVideo, ltx25, ltx25Video };
-export { scail, scailMotion, wanAnimate, wanAnimateMotion };
+export { scail, scailMotion };
 export { flux, fluxEdit, fluxPicture, qwen, qwenEdit, qwenPicture, qwen21, qwen21Edit, qwen21Picture, zimage, zimagePicture };
 export { ltxCanvas, ltxFrames, ltxFramesAt, LTX_FPS } from "./ltx/family";
 export { LTX25_FPS } from "./ltx25/family";

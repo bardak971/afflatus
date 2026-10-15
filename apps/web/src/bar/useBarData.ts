@@ -155,7 +155,7 @@ export function useBarData({ open, mode, text, line, ranks, picked, learn, found
   const binSaid = binNow ? `${itemsWord(binNow.count)} · ${size(binNow.bytes)}` : "";
   // the queue only while open, and in full only in the queue mode (its jobs live): the bar does not draw again
   // at every sampler step for the counts it says elsewhere
-  const queueNow = useQueueOf((q) => (open ? { paused: q.paused, online: q.online, rendering: q.running?.kind === "render", running: Boolean(q.running), waiting: q.waiting.length, failed: q.recent.filter((j) => j.status === "failed").length, saves: groupingSaves(q.waiting, q.running), machines: severalMachines(q).map((m) => ({ id: m.id, label: machineLabel(m), paused: m.paused, online: m.online, running: Boolean(m.running), rented: m.rented })), hunting: Boolean(q.hunt) } : null));
+  const queueNow = useQueueOf((q) => (open ? { paused: q.paused, online: q.online, rendering: q.running?.kind === "render", running: Boolean(q.running), waiting: q.waiting.length, failed: q.recent.filter((j) => j.status === "failed").length, saves: groupingSaves(q.waiting, q.running), machines: severalMachines(q).map((m) => ({ id: m.id, label: machineLabel(m), paused: m.paused, online: m.online, locked: m.locked, running: Boolean(m.running), rented: m.rented })), hunting: Boolean(q.hunt) } : null));
   const queueFull = useQueueOf((q) => (open && mode === "queue" ? q : null));
 
   // the timeline a command acts on: the one open in the editor, else the one last opened from here, else the last changed
@@ -181,7 +181,8 @@ export function useBarData({ open, mode, text, line, ranks, picked, learn, found
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the rows follow the kept settings' values, not the identity of their list
   const settingRows = useMemo(() => settingItems([...SETTINGS, ...PAGES], settingCtx), [settingCtx, ...kept]);
-  const recipeItems = useMemo(() => recipes.map((r) => ({ r, p: prepare(`${r.family} ${r.title}`) })), [recipes]);
+  // a recipe hidden for now (core's Recipe.hidden) is no `load` or `new` row
+  const recipeItems = useMemo(() => recipes.filter((r) => !r.hidden).map((r) => ({ r, p: prepare(`${r.family} ${r.title}`) })), [recipes]);
   const presetItems = useMemo(() => (entities.data?.items ?? []).filter((e): e is Extract<Entity, { kind: "preset" }> => e.kind === "preset").map((e) => ({ e, p: prepare(e.name) })), [entities.data]);
   const navRows = useMemo(() => navItems(TABS.map((t) => ({ id: t.id, label: t.label, href: tabHref(t.id) }))), []);
   // the places of the key table open under the bar, read as it opens: the `?` mode lists their rows first, as the sheet does

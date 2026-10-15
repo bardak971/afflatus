@@ -14,7 +14,7 @@ import { useCopyNote } from "./copyNote";
 import { FailedRow } from "./FailedRow";
 import { dayLabel, dayOf, failureKey, foldFailures, pinnedFailures, reasonsOf } from "./failures";
 import { rowFacts, rowName } from "./historyText";
-import { ROW, useJobActions } from "./jobActions";
+import { MODEL_CELL, ROW, TOOK_CELL, useJobActions } from "./jobActions";
 import { modelTip, useModelName } from "./modelName";
 import { useTileMenu } from "../../TileMenu";
 import { queryKeys } from "../../queryKeys";
@@ -202,7 +202,7 @@ export const History = memo(function History() {
   return (
     // the history takes the room left under the queue (basis 0), and its list the room left in it: sized by their content,
     // each step of a running render had the browser measure the whole list again, thousands of rows, to place the queue over it
-    <section className="flex min-h-0 grow basis-0 flex-col gap-3">
+    <section className="flex min-h-[70vh] grow flex-col gap-3 lg:min-h-0 lg:basis-0">
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         <div className="w-[380px] max-w-full">
           <Segmented<Status>
@@ -233,10 +233,10 @@ export const History = memo(function History() {
 
       {pins && pins.pinned.length > 0 && <PinnedFailures jobs={pins.pinned} since={pins.since} />}
 
-      <div className="flex min-h-0 grow basis-0 flex-col gap-1 overflow-y-auto pr-1 pb-4">
+      <div className="@container/history flex min-h-0 grow basis-0 flex-col gap-1 overflow-y-auto pr-1 pb-4">
         {(days.length > 0 || jobs.isLoading) && (
           <div aria-hidden className={cx(ROW, "sticky top-0 z-10 bg-ground py-1 text-[11px] tracking-[0.06em] text-ink-3 uppercase")}>
-            <span /><span>Name</span><span>Model</span><span className="text-right">Took</span><span className="text-right">When</span>
+            <span /><span>Name</span><span className={MODEL_CELL}>Model</span><span className={cx("text-right", TOOK_CELL)}>Took</span><span className="text-right">When</span>
           </div>
         )}
         {/* the first page on its way: rows as the list draws them, with the loading shine, so it lands in place */}
@@ -285,7 +285,7 @@ function Thumb({ jobs, onOpen }: { jobs: HistoryJob[]; onOpen(assetId: string): 
   const head = jobs[0]!;
   const made = jobs.flatMap((j) => j.made);
   const first = made[0];
-  const box = "relative flex h-9 w-16 items-center justify-center overflow-hidden rounded-[7px] bg-raised text-ink-3";
+  const box = "relative flex h-9 w-16 @max-[420px]/history:w-12 items-center justify-center overflow-hidden rounded-[7px] bg-raised text-ink-3";
   if (!first || head.kind === "cut" || head.kind === "export" || first.kind === "audio") {
     const icon = head.kind === "export" ? <FileOutput size={15} /> : head.kind === "cut" ? <Scissors size={15} /> : head.kind === "load" ? <Loader2 size={15} /> : first?.kind === "audio" ? <Music size={15} /> : head.status === "cancelled" ? <X size={15} /> : <Play size={15} />;
     return first ? <button type="button" aria-label={`Open ${first.name || first.kind}`} onClick={() => onOpen(first.id)} className={cx(box, "hover:text-ink")}>{icon}</button> : <span className={box}>{icon}</span>;
@@ -312,8 +312,8 @@ function PlaceholderRow() {
         <span className="text-[13.5px]"><span className="m-skeleton inline-block h-[0.8em] w-2/5 align-middle" /></span>
         <span className="text-xs"><span className="m-skeleton inline-block h-[0.8em] w-3/5 align-middle" /></span>
       </span>
-      <span className="text-[12.5px]"><span className="m-skeleton inline-block h-[0.8em] w-24 align-middle" /></span>
-      <span className="text-right text-xs"><span className="m-skeleton inline-block h-[0.8em] w-10 align-middle" /></span>
+      <span className={cx("text-[12.5px]", MODEL_CELL)}><span className="m-skeleton inline-block h-[0.8em] w-24 align-middle" /></span>
+      <span className={cx("text-right text-xs", TOOK_CELL)}><span className="m-skeleton inline-block h-[0.8em] w-10 align-middle" /></span>
       <span className="text-right text-xs"><span className="m-skeleton inline-block h-[0.8em] w-12 align-middle" /></span>
     </div>
   );
@@ -378,8 +378,8 @@ const Row = memo(function Row({ jobs, acts, modelOf, requeueing, note }: RowProp
             {head.warning && <span className="text-warn-ink" data-tip={head.warning}> · {head.warning}</span>}
           </span>
         </span>
-        {/* what the menu does, at hand on hover or focus */}
-        <span className="flex shrink-0 items-center gap-0.5 text-ink-3 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+        {/* what the menu does, at hand on hover or focus (on a narrow list, in the menu only: their room is the name's) */}
+        <span className="flex shrink-0 items-center gap-0.5 text-ink-3 opacity-0 group-hover:opacity-100 focus-within:opacity-100 @max-[420px]/history:hidden">
           {head.kind === "render" && (
             <button type="button" data-tip={jobs.length > 1 ? `Requeue these ${jobs.length}` : "Requeue: the same job again"} aria-label="Requeue" disabled={requeueing} onClick={() => acts.again(jobs)} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><RotateCcw size={13} /></button>
           )}
@@ -389,8 +389,8 @@ const Row = memo(function Row({ jobs, acts, modelOf, requeueing, note }: RowProp
           <button type="button" data-tip="Remove from the history (what it made stays in the library)" aria-label="Remove from the history" onClick={() => acts.dismiss(jobs)} className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink"><X size={13} /></button>
         </span>
       </span>
-      <span className="truncate text-[12.5px] text-ink-2" data-tip={modelTip(modelOf(head), head.model)}>{modelOf(head)}</span>
-      <span className="text-right font-mono text-xs text-ink-2">{head.tookMs !== null && head.status === "done" ? took(head.tookMs) : "—"}</span>
+      <span className={cx("truncate text-[12.5px] text-ink-2", MODEL_CELL)} data-tip={modelTip(modelOf(head), head.model)}>{modelOf(head)}</span>
+      <span className={cx("text-right font-mono text-xs text-ink-2", TOOK_CELL)}>{head.tookMs !== null && head.status === "done" ? took(head.tookMs) : "—"}</span>
       <span className="text-right text-xs text-ink-2">{head.finishedAt ? when(head.finishedAt) : ""}</span>
     </div>
   );

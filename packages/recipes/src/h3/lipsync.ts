@@ -60,7 +60,7 @@ const lipSyncInputs: InputSpec[] = h3Inputs.flatMap((spec): InputSpec[] => {
   if (spec.id === "seconds" || spec.id === "voice" || spec.id === "voiceStart" || spec.id === "voiceSeconds" || spec.id === "voiceEven") return [];
   if (spec.id === "description" && spec.type === "prompt") {
     return [
-      { ...spec, label: "Scene", placeholder: "Nicolas at a café terrace, medium close-up, talking to the camera, calm and friendly.", note: "where they are and how they speak, without a dialogue line: the recording is what is said" },
+      { ...spec, label: "Scene", placeholder: "A man at a café terrace, medium close-up, talking to the camera, calm and friendly.", note: "where they are and how they speak, without a dialogue line: the recording is what is said" },
       ...recordingInputs,
     ];
   }

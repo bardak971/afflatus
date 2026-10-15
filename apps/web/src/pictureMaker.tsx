@@ -16,8 +16,8 @@ import { AutoText, Bar, Button, cx, fieldClass, Help, Toggle } from "./ui";
  * The picture a Motion transfer moves, made for the user (the owner's ask, 2026-10-14; mock "Make the picture"): who goes
  * in (their photos, dropped or from the cast), a frame of the driving video, and one button. Three jobs of
  * qwen21.motion-picture, each putting the person into the frame and relighting it into its light, shown as they land; the
- * one clicked becomes the Picture, Reroll makes three more. The same box in Create's Motion transfer forms (SCAIL-2, Wan
- * Animate 2) and the timeline's Source panel. Each set is kept per form in this browser (`key`: a draft, a timeline source).
+ * one clicked becomes the Picture, Reroll makes three more. The same box in Create's Motion transfer form (SCAIL-2) and the
+ * timeline's Source panel. Each set is kept per form in this browser (`key`: a draft, a timeline source).
  */
 
 /** The recipe that makes one: the frame with the person put in, then relit (packages/recipes qwen21). */

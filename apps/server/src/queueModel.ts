@@ -156,6 +156,8 @@ export interface QueueCore {
   paces(): Promise<ReadonlyMap<string, number>>;
   /** About how long a waiting render will take, its model to load or not (the forecast, queueSubmit.forecastOf), built as its job will be (a finish on its draft, a clip with what it joins onto), on `machine` when it is said; null when nothing like it was rendered. */
   expected(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean, job?: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit"> | null, machine?: string | null): Promise<number | null>;
+  /** The model a waiting render's graph loads, as the plan reads it: its form's, else the one its family's slot gives (SCAIL-2, the tools). */
+  loadsModel?(recipe: Recipe<any>, input: Record<string, unknown>, job?: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit"> | null): Promise<string | null>;
   /** A job that needs no model, claimed and closed by the state machine; `work` is the job itself. */
   runTool(row: JobRow, work: (run: Running) => Promise<void>): Promise<void>;
 }

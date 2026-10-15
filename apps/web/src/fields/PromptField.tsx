@@ -10,6 +10,7 @@ import { field, Label } from "./Label";
 import { useLoraWords } from "./Loras";
 import { useSnippetKeys } from "../bar/SnippetKeys";
 import { useKeysHere } from "../keys/here";
+import { plural } from "../format";
 
 /**
  * Under a prompt written in tags: one short line when some of its tags are not danbooru tags (what anime
@@ -54,7 +55,7 @@ function TagCheck({ text, ignore, onChange }: { text: string; ignore: string[]; 
         data-tip="Anime models learned danbooru's tags: another word does little, a typo nothing"
         className="flex items-center gap-1 self-start rounded-md text-xs text-warn-ink hover:underline"
       >
-        {issues.length} tag{issues.length > 1 ? "s are" : " is"} not on danbooru's list{fixable.length ? ` · ${fixable.length} to fix` : ""}
+        {plural(issues.length, "tag")} {issues.length > 1 ? "are" : "is"} not on danbooru's list{fixable.length ? ` · ${fixable.length} to fix` : ""}
         <ChevronDown size={12} />
       </button>
       {open && (

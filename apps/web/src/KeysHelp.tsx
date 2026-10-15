@@ -8,6 +8,7 @@ import { BAR_DEFAULT, PLACES, placeById, rowCount, type KeyRow, type PlaceId } f
 import { useSettings } from "./data";
 import { scrollInside } from "./scrollInside";
 import { cx } from "./ui";
+import { plural } from "./format";
 
 /** The last place picked, for this browser tab's session, with the places that were open then. */
 const REMEMBER = "afflatus:keys-place";
@@ -199,7 +200,7 @@ function Sheet({ barKey, at, onClose }: { barKey: string; at?: KeysAsk; onClose(
               className="h-[34px] w-full rounded-[9px] border border-line-strong bg-raised pr-3 pl-8 text-[13px] text-ink outline-none placeholder:text-ink-3 focus:border-accent focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_16%,transparent)]"
             />
           </label>
-          {found && <span className="shrink-0 text-xs text-ink-3">{found.kq ? `${found.keys.length} ${found.keys.length === 1 ? "key" : "keys"} · ` : ""}{found.said.length} {found.said.length === 1 ? "word" : "words"}</span>}
+          {found && <span className="shrink-0 text-xs text-ink-3">{found.kq ? `${plural(found.keys.length, "key")} · ` : ""}{plural(found.said.length, "word")}</span>}
           <Keys keys="Esc" />
           <button type="button" tabIndex={-1} aria-label="Close" data-tip="Close" data-tip-keys="Esc" onClick={onClose} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] text-ink-2 hover:bg-hover hover:text-ink">
             <X size={15} />

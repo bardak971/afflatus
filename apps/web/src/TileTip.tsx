@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import { api, type Asset } from "./api";
-import { clock, leftWords, when } from "./format";
+import { clock, leftWords, plural, when } from "./format";
 import { leftOf } from "./screens/library/justify";
 import { queryKeys } from "./queryKeys";
 
@@ -81,7 +81,7 @@ export function TileTip({ asset, at }: { asset: Asset; at: { left: number; top: 
   if (g) {
     const seed = g.resolved?.seed;
     const from = detail.data?.sources.length ?? 0;
-    const bits = [seed !== undefined ? `seed ${seed}` : "", from ? `from ${from} ${from > 1 ? "pictures" : "picture"}` : "", g.tookMs ? `rendered in ${clock(g.tookMs)}` : ""].filter(Boolean);
+    const bits = [seed !== undefined ? `seed ${seed}` : "", from ? `from ${plural(from, "picture")}` : "", g.tookMs ? `rendered in ${clock(g.tookMs)}` : ""].filter(Boolean);
     if (bits.length) lines.push({ text: bits.join(" · "), tone: "dim" });
   }
   const left = Math.max(8, Math.min(at.left, window.innerWidth - 272));

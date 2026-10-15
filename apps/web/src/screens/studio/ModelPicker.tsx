@@ -32,7 +32,7 @@ export function useModelPick({ recipe, draft, onPick }: {
   const kinds = [...new Set(all.map((r) => r.output))];
   const [lastOf, setLastOf] = useState<Record<string, string>>({});
   const groups = useMemo(
-    () => modelGroups(all.filter((r) => r.output === (recipe?.output ?? "image") && (families.isOn(r.family) || r.id === recipe?.id)), recipes.data?.families ?? []),
+    () => modelGroups(all.filter((r) => r.output === (recipe?.output ?? "image") && (families.offers(r) || r.id === recipe?.id)), recipes.data?.families ?? []),
     [all, recipe?.output, recipe?.id, recipes.data?.families, families],
   );
   const group = groups.find((g) => g.recipes.some((r) => r.id === recipe?.id));

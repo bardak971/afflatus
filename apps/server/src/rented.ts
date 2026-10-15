@@ -1271,7 +1271,6 @@ export class Rented {
     if (idle > 0 && now - s.busyAt >= idle) await this.act(m, m.rented!.idleDo, "idle");
   }
 
-  /** What the rented GPUs cost from `from` until now: each session's time in it, at its rate. */
   /** What each pod cost since `month` as Afflatus counts it, and since `today` (rent_sessions). */
   private async counted(month: number, today: number): Promise<Map<string, Counted>> {
     const rows = await this.db.selectFrom("rent_sessions").selectAll().where((eb) => eb.or([eb("ended_at", "is", null), eb("ended_at", ">", new Date(month).toISOString())])).execute();

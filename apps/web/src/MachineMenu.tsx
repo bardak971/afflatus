@@ -6,14 +6,15 @@ import type { MachineState } from "./api";
 import { useQueue } from "./data";
 import { openLoadPanel } from "./loadPanelHost";
 import { usd } from "./format";
-import { machineLabel, machineUnloadBlock, rateSaid, rentedSaid } from "./machines";
+import { machineLabel, machineState, machineUnloadBlock, rateSaid, rentedSaid } from "./machines";
 import { RUNPOD_CONSOLE, useRentedOps } from "./rentedOps";
 import { useQueueOps } from "./queueOps";
 
 /** A machine's state in a few words: what the status bar's summary and a menu's head say of it. */
 export function machineSaid(m: MachineState): string {
   if (m.rented && m.rented.status !== "RUNNING") return rentedSaid(m.rented);
-  const state = m.paused ? "paused" : m.online === false ? (m.locked ? "locked" : "offline") : m.running ? `rendering ${Math.round(m.running.progress * 100)} %` : "idle";
+  const word = machineState(m);
+  const state = word === "rendering" && m.running ? `rendering ${Math.round(m.running.progress * 100)} %` : word;
   return m.model ? `${state} · holds ${m.model}` : state;
 }
 

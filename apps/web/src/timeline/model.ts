@@ -1,4 +1,4 @@
-import { FRAME_SLACK_MS, plannedSeconds } from "@afflatus/core";
+import { FRAME_SLACK_MS, plannedSeconds, REMOVED_RECIPES } from "@afflatus/core";
 import type { Asset, Clip, ClipPatch, RecipeInfo, Take } from "../api";
 import { clock } from "../format";
 
@@ -92,7 +92,9 @@ export function titleOf(clip: Clip, recipe: RecipeInfo | undefined): string {
   if (clip.kind === "still") return clip.still?.name || "Still";
   const main = recipe?.inputs.find((i) => i.type === "prompt");
   const text = main ? String(clip.inputs[main.id] ?? "").trim() : "";
-  return text || (recipe ? "New clip" : clip.take?.asset.name || "Imported video");
+  // a clip of a model taken out of Afflatus (Wan Animate 2) is not an imported video
+  const removed = !recipe ? REMOVED_RECIPES[clip.recipe ?? ""] : undefined;
+  return text || (recipe ? "New clip" : removed ? `${removed} (removed)` : clip.take?.asset.name || "Imported video");
 }
 
 export type Shape = "tall" | "wide" | "square";

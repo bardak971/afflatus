@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { InputSpec } from "@afflatus/core";
 import { api, type RecipeInfo } from "../api";
 import { sameValue } from "../fields";
-import { fileLabel } from "../format";
+import { fileLabel, plural } from "../format";
 import { Button, ErrorNote } from "../ui";
 import { queryKeys } from "../queryKeys";
 
@@ -39,7 +39,7 @@ export function ModelDefaults({ recipe, file, hasSaved, values, defaults, onClea
     <div className="flex flex-col gap-2 text-xs text-ink-2">
       <span>
         {differs.length
-          ? `${differs.length} setting${differs.length > 1 ? "s differ" : " differs"} from ${model}'s defaults. They apply to this draft only.`
+          ? `${plural(differs.length, "setting")} ${differs.length > 1 ? "differ" : "differs"} from ${model}'s defaults. They apply to this draft only.`
           : hasSaved
             ? `These are the defaults you saved for ${model}.`
             : `No defaults saved for ${model} yet: these are the recipe's.`}

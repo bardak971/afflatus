@@ -4,14 +4,14 @@ import { Link } from "wouter";
 import { ArrowDownToLine, ArrowUpToLine, Layers, Pin, Server, Trash2, X } from "lucide-react";
 import { api, type Job, type MachineLack, type MachineState, type RunningJob } from "../../api";
 import { GetFile } from "../../GetFile";
-import { machineLabel } from "../../machines";
+import { machineLabel, machineState } from "../../machines";
 import { JOB_DRAG } from "./MachineLanes";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { aboutMs, est, plural, when } from "../../format";
 import { Button, Chip, cx, SectionTitle } from "../../ui";
 import { useQueueBulk } from "./bulk";
 import { useModelName } from "./modelName";
-import { betterPlace, dropped, groupingSaves, loadsAt, modelSwitches, moved } from "./order";
+import { betterPlace, dropped, groupingSaves, loadsAt, modelSwitches, moved, waitingEnds } from "./order";
 import { settingHref } from "../settings/settingsIndex";
 import { DownloadTo } from "../../useGetFile";
 
@@ -19,13 +19,14 @@ import { DownloadTo } from "../../useGetFile";
 const SHOWN = 3;
 
 /**
- * What the waiting jobs come to, over them: how many, about how long in all (with what the running job has left),
- * the model switches on the way with a "Group by model" when grouping saves loads, and "Cancel all waiting…".
+ * What the waiting jobs come to, over them: how many, about how long until they are all done (the plan's last end, the
+ * machines sharing them: waitingEnds), the model switches on the way with a "Group by model" when grouping saves loads,
+ * and "Cancel all waiting…".
  */
-function WaitingHead({ waiting, running }: { waiting: Job[]; running: RunningJob | null }) {
+function WaitingHead({ waiting, running, endsInMs }: { waiting: Job[]; running: RunningJob | null; endsInMs?: number | null }) {
   const bulk = useQueueBulk();
   const [busy, setBusy] = useState(false);
-  const ms = waiting.reduce((sum, w) => sum + (w.estimateMs ?? 0), 0) + (running?.eta ?? 0) * 1000;
+  const ms = waitingEnds(waiting, running, endsInMs);
   const switches = modelSwitches(waiting, running);
   const saves = groupingSaves(waiting, running);
   const run = (work: () => Promise<unknown>) => {
@@ -53,8 +54,10 @@ function WaitingHead({ waiting, running }: { waiting: Job[]; running: RunningJob
  * the rest unfold. With several ComfyUIs (`machines`), each row says the machine it will probably run on and when, or the
  * one it is pinned to; a row dropped on a machine's lane (MachineLanes.tsx), or "Run on" in its menu, pins it there.
  */
-export function WaitingList({ waiting: line, whole = line.length, running, machines = [], onOrder, onRemove, onPin }: {
+export function WaitingList({ waiting: line, whole = line.length, endsInMs, running, machines = [], onOrder, onRemove, onPin }: {
   waiting: Job[];
+  /** When the plan has the last of them end (QueueStatus.waitingEndsInMs). */
+  endsInMs?: number | null;
   /** How many of `waiting` are whole rows (QueueStatus.whole): the others are asked for whole when the list shows them all. */
   whole?: number;
   running: RunningJob | null; machines?: MachineState[];
@@ -98,7 +101,7 @@ export function WaitingList({ waiting: line, whole = line.length, running, machi
             items: [
               { label: "Any machine", note: "the one that ends it soonest", checked: !w.pinned, run: () => onPin(w.id, null) },
               "—" as const,
-              ...machines.map((m): MenuItem => ({ label: machineLabel(m), note: lackSaid(w.lacks?.[m.id]) ?? (m.paused ? "paused" : m.online === false ? "offline" : undefined), checked: w.pinned === m.id, run: () => onPin(w.id, m.id) })),
+              ...machines.map((m): MenuItem => ({ label: machineLabel(m), note: lackSaid(w.lacks?.[m.id]) ?? (["rendering", "idle"].includes(machineState(m)) ? undefined : machineState(m)), checked: w.pinned === m.id, run: () => onPin(w.id, m.id) })),
             ],
           } satisfies MenuItem]
         : []),
@@ -125,8 +128,9 @@ export function WaitingList({ waiting: line, whole = line.length, running, machi
 
   if (!waiting.length) return null;
   return (
-    <div className="flex flex-col" onDragOver={(e) => dragged && e.preventDefault()} onDrop={() => over !== null && drop(over)}>
-      <WaitingHead waiting={waiting} running={running} />
+    // a narrow list (a phone) keeps each row's name and time: its model and machine notes go (@container/waiting)
+    <div className="@container/waiting flex flex-col" onDragOver={(e) => dragged && e.preventDefault()} onDrop={() => over !== null && drop(over)}>
+      <WaitingHead waiting={waiting} running={running} endsInMs={endsInMs} />
       {shown.map((w, i) => (
         <Fragment key={w.id}>
           <div
@@ -163,8 +167,9 @@ export function WaitingList({ waiting: line, whole = line.length, running, machi
             )}
           >
             <span className="w-[18px] shrink-0 font-mono text-ink-3">{i + 1}</span>
-            <span className="min-w-0 grow truncate font-semibold">{w.label}</span>
-            <span className="max-w-[40%] shrink-0 truncate text-ink-2">{w.kind === "load" ? `load · ${modelOf(w)}` : modelOf(w)}</span>
+            {/* the name keeps some room: the notes after it give way first (cut short, whole in their tips) */}
+            <span className="min-w-[8rem] grow basis-0 truncate font-semibold">{w.label}</span>
+            <span className="max-w-[40%] shrink-0 truncate text-ink-2 @max-[480px]/waiting:hidden">{w.kind === "load" ? `load · ${modelOf(w)}` : modelOf(w)}</span>
             {loads[i] && !machines.length && <Chip tone="warn" tip={`ComfyUI loads ${modelOf(w)} before this one`}>loads {modelOf(w).split(" · ")[0]}</Chip>}
             {machines.length > 0 && w.pinned && (
               <Chip tip="Pinned to this machine: it runs there. Drag it onto another lane, or Run on in its menu, to move it.">
@@ -172,7 +177,7 @@ export function WaitingList({ waiting: line, whole = line.length, running, machi
               </Chip>
             )}
             {machines.length > 0 && !w.pinned && w.machine && (
-              <span className="shrink-0 text-xs text-ink-2" data-tip={w.runsOn?.length === 1 ? "The only machine that can run it: the others lack its files or have its family off (Run on in its menu says what each lacks)" : "The machine that would end it soonest: the model already loaded there, its own learned speed, how soon it is free"}>
+              <span className="shrink-0 text-xs text-ink-2 @max-[480px]/waiting:hidden" data-tip={w.runsOn?.length === 1 ? "The only machine that can run it: the others lack its files or have its family off (Run on in its menu says what each lacks)" : "The machine that would end it soonest: the model already loaded there, its own learned speed, how soon it is free"}>
                 → {machineLabel(machines.find((m) => m.id === w.machine) ?? { name: w.machine, url: "" })}{w.startsInMs ? ` · in ${est(w.startsInMs)}` : ""}{w.runsOn?.length === 1 ? " · only there" : ""}
               </span>
             )}
@@ -184,7 +189,7 @@ export function WaitingList({ waiting: line, whole = line.length, running, machi
             )}
             {/* only some machines can run it and none of those takes work now (paused, away): which, and why */}
             {machines.length > 0 && !w.pinned && !w.machine && Boolean(w.runsOn?.length) && (
-              <span className="shrink-0 text-xs text-warn-ink" data-tip="Only these machines have its files (with its family on), and none of them takes work now. Resume one, or pin it to another machine (Run on) to download what it lacks there.">
+              <span className="min-w-0 truncate text-xs text-warn-ink" data-tip="Only these machines have its files (with its family on), and none of them takes work now. Resume one, or pin it to another machine (Run on) to download what it lacks there.">
                 waits for {w.runsOn!.map((id) => {
                   const m = machines.find((x) => x.id === id);
                   return `${m ? machineLabel(m) : id}${m?.paused ? " (paused)" : m?.online === false ? " (offline)" : ""}`;
@@ -202,7 +207,7 @@ export function WaitingList({ waiting: line, whole = line.length, running, machi
                 Run on {machineLabel(freeNow(w)!)} now
               </button>
             )}
-            <span className="w-[70px] shrink-0 text-right font-mono text-ink-2">{est(w.estimateMs) || "—"}</span>
+            <span className="w-[70px] shrink-0 text-right font-mono text-ink-2 @max-[480px]/waiting:w-[52px]">{est(w.estimateMs) || "—"}</span>
             <button type="button" aria-label={`Cancel ${w.label}`} data-tip="Cancel this one (Del)" onClick={() => onRemove(w.id)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-raised hover:text-ink focus-visible:opacity-100">
               <X size={14} />
             </button>

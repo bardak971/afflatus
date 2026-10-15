@@ -1,12 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
 import { Check, Trash2 } from "lucide-react";
+import { cx } from "./cx";
 import { Progress } from "./progress/Progress";
 import { snapTo } from "./snap";
 import { PANEL, useExplain, usePanelWidth } from "./store";
 
 /** The few shapes every screen shares, so that a button looks the same wherever it is. */
 
-const cx = (...parts: Array<string | false | null | undefined>) => parts.filter(Boolean).join(" ");
 export { cx };
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { tone?: "primary" | "plain" | "quiet" | "danger"; size?: "md" | "sm" };

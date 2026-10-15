@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { windowBounds } from "@afflatus/core";
 import type { DesignerSession, Look, RecipeInfo, SourcePatch, Timeline } from "../../api";
 import type { DesignerTurn } from "../../designer/types";
 import { useQueue, useRecipes, useSetup } from "../../data";
@@ -87,7 +88,11 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, o
   const pictureSpec = recipe?.inputs.find((i) => i.type === "image" && i.role === "source");
   const picture = pictureSpec ? (inputs[pictureSpec.id] as string | undefined) : undefined;
   const windows = place?.windows ?? [];
-  const most = w ? Math.floor(((w.shape.most - w.shape.carried) / w.shape.fps) * 10) / 10 : 5;
+  // the window lengths the model takes, on the slider's steps (windowBounds: a window asked for outside them is made as the nearest)
+  const bounds = w ? windowBounds(w.shape) : { leastMs: 1000, mostMs: 5000 };
+  const leastMs = Math.max(1000, Math.ceil(bounds.leastMs / 100) * 100);
+  const mostMs = Math.max(leastMs, Math.floor(bounds.mostMs / 100) * 100);
+  const windowMs = source ? Math.min(Math.max(source.windowMs, leastMs), mostMs) : mostMs;
   const main = form ? mainTextOf(form) : undefined;
   const written = main ? String(inputs[main.id] ?? "") : "";
   // what Make waits for: the Picture of a model that takes one (Motion transfer), the words a model needs (a swap's who to replace)
@@ -131,7 +136,7 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, o
         ) : !form || !recipe ? (
           <div className="flex flex-col gap-1.5">
             <div className="text-xs font-semibold">Model</div>
-            {models.length ? <Select label="Model" value="" onChange={(id) => onEdit({ recipe: id })} placeholder="Choose the model the clips are made with" options={models.map((r) => ({ value: r.id, label: name(r) }))} /> : <span className="text-xs text-warn-ink">No model that makes a long video window by window is on: turn on SCAIL-2 or Wan Animate 2 in Settings › Models.</span>}
+            {models.length ? <Select label="Model" value="" onChange={(id) => onEdit({ recipe: id })} placeholder="Choose the model the clips are made with" options={models.map((r) => ({ value: r.id, label: name(r) }))} /> : <span className="text-xs text-warn-ink">No model that makes a long video window by window is on: turn on SCAIL-2 in Settings › Models.</span>}
           </div>
         ) : (
           <CardPrompt.Provider value>
@@ -148,10 +153,10 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, o
                 id: "source",
                 title: "Source",
                 help: "The stretch of the video made into clips, one a window, each carrying on from the one before. Drag the source on its lane to choose where Motion transfer starts, its right end where it stops; or split it at the playhead (right-click the lane).",
-                summary: `${mmss(source.fromMs, { decimals: 1 })}–${mmss(source.toMs, { decimals: 1 })} · ${windows.length} ${windows.length === 1 ? "clip" : "clips"} of ${(Math.min(source.windowMs, most * 1000) / 1000).toFixed(1)} s`,
+                summary: `${mmss(source.fromMs, { decimals: 1 })}–${mmss(source.toMs, { decimals: 1 })} · ${plural(windows.length, "clip")} of ${(windowMs / 1000).toFixed(1)} s`,
                 node: (
                   <div className="flex flex-col gap-3">
-                    <Slide label="Window" value={Math.min(source.windowMs, most * 1000)} min={1000} max={most * 1000} step={100} show={(ms) => `${(ms / 1000).toFixed(1)} s`} onCommit={(windowMs) => onEdit({ windowMs })} />
+                    <Slide label="Window" value={windowMs} min={leastMs} max={mostMs} step={100} show={(ms) => `${(ms / 1000).toFixed(1)} s`} onCommit={(windowMs) => onEdit({ windowMs })} />
                     <Toggle on={source.snap} onChange={(snap) => onEdit({ snap })} label="Cut at scene changes" note={source.snap ? "a window ends at a cut in the source; the next one opens a new shot" : "windows of the same length, end to end"} />
                     <span className="text-xs text-ink-2">
                       {place?.made

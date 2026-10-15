@@ -248,19 +248,12 @@ describe("the workflow a file carries", () => {
     });
     afterEach(() => t.close());
 
-    it("is found in a video's description by the drop and by the Workflows import alike", async () => {
+    it("is found in a video's description by the drop", async () => {
       const send = (url: string) => t.app.inject({ method: "POST", url, headers: { "content-type": "video/mp4" }, payload: Buffer.from(described!) });
       const dropped = (await send("/api/embedded")).json();
-      const imported = (await send("/api/workflows/extract")).json();
       expect(dropped.workflow).toEqual(EDITOR);
-      expect(imported.workflow).toEqual(EDITOR);
       // its graph fills the form as a picture's would
       expect(dropped.settings).toMatchObject({ source: "comfyui" });
-    });
-
-    it("a picture's too, through the import route", async () => {
-      const res = await t.app.inject({ method: "POST", url: "/api/workflows/extract", headers: { "content-type": "image/png" }, payload: Buffer.from(pngWith({ prompt: JSON.stringify(GRAPH), workflow: JSON.stringify(EDITOR) })) });
-      expect(res.json().workflow).toEqual(EDITOR);
     });
   });
 });

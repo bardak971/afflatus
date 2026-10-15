@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearch } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { shortGpu } from "@afflatus/core";
 import { ChevronDown, ChevronRight, Copy, ExternalLink, Lock, LockOpen, MoreHorizontal, Star, Trash2 } from "lucide-react";
 import { useOpenComfyUI } from "../../actions";
 import { ask } from "../../Confirm";
@@ -52,10 +53,6 @@ export function publicPlainHttp(url: string): boolean {
   return !(a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254));
 }
 
-/** A GPU as a card's facts say it: "RTX 4070 Ti" from ComfyUI's "cuda:0 NVIDIA GeForce RTX 4070 Ti : cudaMallocAsync". */
-export function gpuShort(device: string): string {
-  return device.replace(/^cuda:\d+\s*/, "").replace(/\s*:.*$/, "").replace(/^NVIDIA (GeForce )?/, "").trim() || device;
-}
 
 /**
  * A machine's facts, the line under its card's head: its GPU and memory, a pod's rate and place, ComfyUI's and the node
@@ -63,7 +60,7 @@ export function gpuShort(device: string): string {
  */
 function MachineFacts({ probe, state, rented }: { probe: MachineProbe | undefined; state: MachineState | undefined; rented: boolean }) {
   const r = state?.rented;
-  const gpu = probe?.device ? gpuShort(probe.device) : r?.gpu?.replace(/^NVIDIA (GeForce )?/, "");
+  const gpu = probe?.device ? shortGpu(probe.device) : r?.gpu ? shortGpu(r.gpu) : undefined;
   const access = probe?.access;
   const parts: ReactNode[] = [
     gpu && <span key="gpu"><b className="font-semibold text-ink-2">{gpu}</b>{probe?.vramTotal ? ` · ${gb(probe.vramTotal)}` : ""}</span>,
@@ -202,10 +199,11 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
   useEffect(() => {
     if (podStatus) void client.invalidateQueries({ queryKey: queryKeys.machines() });
   }, [podStatus, client]);
-  // asked for by its id (?machine=, a menu's "Terminate…"): its card is brought into view
+  // asked for by its id (?machine=, a menu's "Terminate…", a deploy): its card is brought into view, by the least scroll
+  // that shows it (scrolled to the top, a new pod's card sat against the window's edge)
   const asked = new URLSearchParams(useSearch()).get("machine") === machine.id;
   useEffect(() => {
-    if (asked) document.getElementById(`machine-${machine.id}`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+    if (asked) document.getElementById(`machine-${machine.id}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [asked, machine.id]);
   // a rented pod's head says its own state (stopped, starting, running and its cost), with Start or Stop
   const status = rented ? <RentedHead machine={machine} state={state} ops={rentedOps} /> : !probe ? null : state?.paused

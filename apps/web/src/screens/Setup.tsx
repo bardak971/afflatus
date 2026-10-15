@@ -45,7 +45,7 @@ function useTabMarks(): Partial<Record<Tab, ReactNode>> {
   const lowBalance = spent?.lowBalance ?? false;
   const unusedVolumes = spent?.storage?.unused.length ?? 0;
   // operations of the families that are on that cannot run: a family turned off is a choice, not a problem
-  const notReady = setup.data ? (recipes.data?.recipes ?? []).filter((r) => families.isOn(r.family) && !setup.data!.recipes.find((x) => x.id === r.id)?.ready).length : 0;
+  const notReady = setup.data ? (recipes.data?.recipes ?? []).filter((r) => families.offers(r) && !setup.data!.recipes.find((x) => x.id === r.id)?.ready).length : 0;
   return {
     comfyui: comfy && <span aria-label={comfy.online ? "connected" : "not answering"} className={cx("h-[7px] w-[7px] rounded-full", comfy.online ? "bg-good" : "bg-warn")} />,
     rented: lowBalance ? <span className="rounded-md bg-warn-wash px-1.5 font-mono text-[10.5px] text-warn-ink">balance low</span>

@@ -76,7 +76,7 @@ export function StorageCard() {
             <Segmented oneLine label="Keep what is in the bin" value={String(binDays)} options={BIN_FOR} onChange={(v) => keepFor.mutate({ binDays: Number(v) as 0 | 7 | 30 })} />
           </Row>
           {(idle.isError || empty.isError || keepFor.isError) && <Block><ErrorNote>{(idle.error ?? empty.error ?? keepFor.error)?.message}</ErrorNote></Block>}
-          {empty.data?.inUse ? <Block className="text-xs text-ink-2">{empty.data.inUse} item{empty.data.inUse === 1 ? " was" : "s were"} left in the bin: a timeline, a person or a waiting job still uses {empty.data.inUse === 1 ? "it" : "them"}.</Block> : null}
+          {empty.data?.inUse ? <Block className="text-xs text-ink-2">{plural(empty.data.inUse, "item")} {empty.data.inUse === 1 ? "was" : "were"} left in the bin: a timeline, a person or a waiting job still uses {empty.data.inUse === 1 ? "it" : "them"}.</Block> : null}
         </Card>
       </div>
       <div className="flex flex-col gap-4">

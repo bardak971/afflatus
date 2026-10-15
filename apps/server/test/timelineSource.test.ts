@@ -109,7 +109,7 @@ describe("a timeline's source lane", () => {
     await call("PATCH", `/api/clips/${second}`, { trimStartMs: 3000 });
     const before = await view(tl.id);
     const c2 = before.clips[1];
-    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id, atMs: c2.atMs - c2.take.startMs, fromMs: c2.take.startMs, toMs: c2.take.endMs, clip: second, recipe: "wananimate.motion", inputs: { picture: picture.id } } });
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id, atMs: c2.atMs - c2.take.startMs, fromMs: c2.take.startMs, toMs: c2.take.endMs, clip: second, recipe: "scail.motion", inputs: { picture: picture.id } } });
     const made = await call("POST", `/api/timelines/${tl.id}/source/make`);
     const v = await view(tl.id);
     expect(v.clips[0].id).toBe(first);

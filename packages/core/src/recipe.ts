@@ -149,6 +149,11 @@ export interface Recipe<In = Record<string, unknown>> {
   family: string;
   /** Made from a workflow the user imported (Workflows), not built in: what is wrong with it is put right there, with Edit. */
   imported?: true;
+  /**
+   * Not offered for now (no Create entry, no timeline model, no Ctrl+K row): kept so that it can come back, and so that a
+   * draft, clip or job already made with it still opens, renders and plays.
+   */
+  hidden?: true;
   /** Bumped when the graph changes in a way that changes results for the same inputs. */
   version: number;
   title: string;
@@ -224,13 +229,23 @@ export function dryContext(over: Partial<BuildContext> = {}): BuildContext {
 /** What the browser needs to render a recipe's form. */
 export function describeRecipe(r: Recipe<any>) {
   return {
-    id: r.id, family: r.family, ...(r.imported ? { imported: true as const } : {}), version: r.version, title: r.title, summary: r.summary, output: r.output,
+    id: r.id, family: r.family, ...(r.imported ? { imported: true as const } : {}), ...(r.hidden ? { hidden: true as const } : {}), version: r.version, title: r.title, summary: r.summary, output: r.output,
     inputs: r.inputs, traits: r.traits ?? null, presets: r.presets ?? [], starts: r.starts ?? [],
     ...(r.chapters?.length ? { chapters: r.chapters } : {}),
     // the model files it names itself (an imported workflow's): what its LoRAs are sorted for
     models: (r.files ?? []).filter((f) => ["checkpoints", "diffusion_models"].includes(folderOfFileInput(f.classType, f.input) ?? "")).map((f) => f.file),
   };
 }
+
+/**
+ * Built-in recipes Afflatus had and took out, by id, with the name they were shown under: a draft, a clip or a job made
+ * with one still opens, and says so (removedSaid) rather than "imported video" or an unknown id. Wan Animate 2 went in
+ * 0.5.0 (the owner's call: it never worked well, its renders took too long).
+ */
+export const REMOVED_RECIPES: Readonly<Record<string, string>> = { "wananimate.motion": "Wan Animate 2" };
+
+/** What is said of a recipe taken out of Afflatus ("Wan Animate 2, removed from Afflatus"); null for any other id. */
+export const removedSaid = (id: string | null | undefined): string | null => (id && REMOVED_RECIPES[id] ? `${REMOVED_RECIPES[id]}, removed from Afflatus` : null);
 
 /** The Image tools' family (an upscale, a background removal): no model of its own, no prompt. Named here for the screens that leave it out. */
 export const TOOLS_FAMILY = "tools";

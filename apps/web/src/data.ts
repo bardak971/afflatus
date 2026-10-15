@@ -91,7 +91,9 @@ export function useFamilies(machine?: string) {
       machine || machines.length < 2
         ? familyOnFor(own, said, family, found(family))
         : machines.some((m) => familyOnFor(m.families ?? {}, said, family, found(family)));
-    return { isOn, found, said, own };
+    /** Whether a recipe is offered where one is chosen: its family on, and the recipe not hidden for now (core's Recipe.hidden). */
+    const offers = (r: { family: string; hidden?: true }) => !r.hidden && isOn(r.family);
+    return { isOn, offers, found, said, own };
   }, [recipes.data, setup.data, settings.data, machine]);
 }
 
