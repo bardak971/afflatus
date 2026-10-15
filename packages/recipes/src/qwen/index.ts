@@ -165,6 +165,8 @@ const editModel: InputSpec = {
  * and the result is drawn over the picture itself. What is not asked to change stays.
  */
 export const qwenEdit = defineRecipe<QwenEdit>({
+  // the Lightning LoRA made for Edit, when Turbo is on and the Edit model picked is not made for a few steps (build)
+  needsWith: (input) => (input.fast && !lightning.test((input.model ?? "").split(/[\\/]/).pop() ?? "") ? ["editTurbo"] : []),
   id: "qwen.edit",
   family: "qwen",
   version: 1,

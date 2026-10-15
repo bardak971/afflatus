@@ -24,6 +24,18 @@ export const modelOf = (input: H3Video, slots: Record<string, string>) => {
 type H3Model = ReturnType<typeof modelOf>;
 
 /**
+ * Turbo's LoRA, when Turbo is on and the clip's model is not a turbo one itself (loadH3Model): the family's file the input
+ * needs (Recipe.needsWith). A reference clip on MiniMax's own reference model takes either LoRA (refTurbo, else turbo):
+ * nothing is asked for it here, as one of two cannot be said.
+ */
+export const turboNeeds = (input: H3Video): string[] => {
+  if (!input.fast) return [];
+  const picked = modelOf(input, {});
+  if (uses(input).reference && !picked.hybrid) return [];
+  return picked.turbo ? [] : ["turbo"];
+};
+
+/**
  * Where the form starts Turbo's steps and shifts by the files found: a reference clip (pictures, videos or a voice of
  * the cast) on MiniMax's reference model, a model that is not a hybrid, takes that model's own turbo LoRA when it is
  * there, and MiniMax's is made for 4 steps at 6 / 3. The render runs what the form says (loadH3Model).
