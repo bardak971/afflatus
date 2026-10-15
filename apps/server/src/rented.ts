@@ -228,6 +228,11 @@ interface Seen {
    */
   busyAt: number | null;
   busyKept: number | null;
+  /**
+   * Its last work was read back after a restart of Afflatus from a run whose ComfyUI had answered (its boot over): its
+   * ComfyUI not answering at the first read then does not give it a new idle time, as it does a pod still booting.
+   */
+  busyRestored: boolean;
   stoppedBy: RentedView["stoppedBy"];
   /** A cap is reached: Afflatus stops it as soon as its render ends; and when the cap was first seen reached. */
   stopAfter: boolean;
@@ -271,7 +276,7 @@ interface Seen {
 }
 
 const fresh = (): Seen => ({
-  pod: null, rate: null, watchdog: "unknown", answers: null, busyAt: null, busyKept: null, stoppedBy: null, stopAfter: false, cappedAt: null,
+  pod: null, rate: null, watchdog: "unknown", answers: null, busyAt: null, busyKept: null, busyRestored: false, stoppedBy: null, stopAfter: false, cappedAt: null,
   stopping: false, lockTried: false, seenRunningAt: null, epoch: 0, error: null, bootNote: null, secretDropped: false, upAt: null, answered: false,
   read: false, gpuFailed: null, missing: 0, stoppingSince: null, aliveAt: null, startingSince: null,
   handed: false, fillFrom: null, fillProgress: null, fillMovedAt: null, cutWhy: null,
@@ -1112,6 +1117,7 @@ export class Rented {
     if (pod?.status !== "RUNNING") {
       s.busyAt = null;
       s.busyKept = null;
+      s.busyRestored = false;
       s.stopAfter = false;
       s.cappedAt = null;
       s.lockTried = false;
@@ -1141,7 +1147,7 @@ export class Rented {
     s.upAt ??= this.now();
     // after a restart of Afflatus, idle since its last work as kept, not since now; set before its ComfyUI is asked (seconds
     // through a pod's proxy), so that its card says its idle time left from the first read on, never nothing meanwhile
-    s.busyAt ??= await this.busySince(m, this.now());
+    if (s.busyAt === null) ({ at: s.busyAt, restored: s.busyRestored } = await this.busySince(m, this.now()));
     const answers = await this.alive(m, s);
     // a GPU that does not work on its host never will: terminated at once, not at its boot limit
     if (s.gpuFailed && !this.queue.runningOn(m.id)) {
@@ -1376,7 +1382,9 @@ export class Rented {
     // not idle before its ComfyUI first answered (a first boot pulling node packs and models): the boot limit covers that.
     // Files coming to it hold it too, while their bytes move (podFiles.ts moving): a pod is never stopped mid-download by its
     // idle stop, and a download stuck for long holds it no more
-    if (running || !s.answered || this.queue.fetching(m.id) || (answers && (await this.queue.wants(m.id)))) s.busyAt = now;
+    // A pod whose last work was read back after a restart keeps it while its ComfyUI does not answer: a fresh idle time
+    // given at each restart that found its ComfyUI down was a run billed for nothing
+    if (running || (!s.answered && !s.busyRestored) || this.queue.fetching(m.id) || (answers && (await this.queue.wants(m.id)))) s.busyAt = now;
     // set when it was first seen running (follow), from what was kept across a restart of Afflatus
     s.busyAt ??= now;
     await this.keepBusy(m, s);
@@ -1411,13 +1419,17 @@ export class Rented {
    * When a pod last had work, as kept when Afflatus was not following it (a restart): the latest of what its open session
    * kept, its boot's end (or the session's start before that), and the end of the last job it ran. Now when nothing says.
    */
-  private async busySince(m: Machine, now: number): Promise<number> {
+  private async busySince(m: Machine, now: number): Promise<{ at: number; restored: boolean }> {
     const open = await this.db.selectFrom("rent_sessions").select(["started_at", "up_at", "busy_at"]).where("machine_id", "=", m.id).where("ended_at", "is", null).executeTakeFirst();
-    if (!open) return now;
+    if (!open) return { at: now, restored: false };
     const job = await this.db.selectFrom("jobs").select((eb) => eb.fn.max("finished_at").as("at")).where("machine_id", "=", m.id).executeTakeFirst();
     const times = [open.busy_at, open.up_at ?? open.started_at, job?.at ?? null].map((t) => (t ? Date.parse(t) : Number.NaN)).filter(Number.isFinite);
-    return times.length ? Math.min(now, Math.max(...times)) : now;
+    // its boot was over: its session kept where its ComfyUI first answered, or a deployed pod's first answer cleared its
+    // deploy's mark. A pod still booting (a deploy never answered) keeps its boot limit and its not-answered rule
+    const answeredOnce = Boolean(open.up_at) || (Boolean(m.rented!.deployed) && !m.rented!.deployedAt);
+    return { at: times.length ? Math.min(now, Math.max(...times)) : now, restored: Boolean(open.busy_at) && answeredOnce };
   }
+
 
   /** When it last had work, written on its open session as it moves: what a restart of Afflatus reads back (busySince). */
   private async keepBusy(m: Machine, s: Seen): Promise<void> {

@@ -667,6 +667,29 @@ describe("a deployed pod at a spending cap", () => {
   });
 });
 
+describe("a deployed pod that never answered, across a restart of Afflatus", () => {
+  it("still gets its boot limit: terminated for its boot, its idle time not taken from what was kept", async () => {
+    runpod.comfyStaysDown = true;
+    const id = (await deploy()).json().id as string;
+    const pod = runpod.pods[0]!;
+    await until(() => pod.status === "RUNNING");
+    await t.services.rented.poll();
+    await t.services.rented.poll();
+    // Afflatus restarted: what it knew in memory of the pod is gone, its kept time is read back
+    (t.services.rented as unknown as { seen: Map<string, unknown> }).seen.clear();
+    await t.services.rented.poll();
+    const real = Date.now;
+    // past its idle time, short of its boot limit: still waited for
+    t.services.rented.now = () => real() + 12 * 60_000;
+    await t.services.rented.poll();
+    expect(pod.status).toBe("RUNNING");
+    t.services.rented.now = () => real() + 21 * 60_000;
+    await t.services.rented.poll();
+    expect(pod.status).toBe("TERMINATED");
+    expect((await t.services.queue.status()).machines.find((m) => m.id === id)?.rented?.stoppedBy).toBe("boot");
+  });
+});
+
 describe("a deployed pod the user stopped", () => {
   it("stays stopped across a restart of Afflatus: never taken for one its watchdog stopped, never terminated for it", async () => {
     const id = (await deploy()).json().id as string;

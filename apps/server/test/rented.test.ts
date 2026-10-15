@@ -411,6 +411,34 @@ describe("a rented machine", () => {
     }
   });
 
+  it("after Afflatus restarts with its ComfyUI not answering, keeps its idle time from its last work: never a fresh one", async () => {
+    await setKey();
+    const id = await add();
+    await post(t.app, `/api/machines/${id}/start`, {});
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
+    await t.services.rented.poll();
+    const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+    await t.db.updateTable("rent_sessions").set({ started_at: ago(30), up_at: ago(28), busy_at: ago(3) }).where("ended_at", "is", null).execute();
+    t.services.rented.stop();
+    // its ComfyUI went down meanwhile (or its proxy does not answer at that read)
+    podComfy.down = true;
+    const again = await makeApp({ db: t.db, comfyUrl: home.url });
+    try {
+      again.services.rented.everyMs = 60_000;
+      await again.services.rented.poll();
+      await again.services.rented.poll();
+      const left = (await again.services.queue.status()).machines.find((m) => m.id === id)?.rented?.idleLeftMs;
+      expect(Math.abs((left ?? 0) - 7 * 60_000)).toBeLessThan(10_000);
+      // stopped at its idle time from its last work, not 10 min after the restart
+      const real = Date.now;
+      again.services.rented.now = () => real() + 7.5 * 60_000;
+      await again.services.rented.poll();
+      expect(pod5090().status).toBe("EXITED");
+    } finally {
+      again.services.rented.stop();
+    }
+  });
+
   it("is not removed from Afflatus while it runs (billed, nothing would stop it), and is once stopped", async () => {
     await setKey();
     const id = await add();

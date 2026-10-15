@@ -53,6 +53,9 @@ function FilesRing({ share, running }: { share: number | null; running: boolean 
 
 /** A machine's dot, in its state: filled in the accent while it renders, a green ring idle, grey paused, amber away; a ring that fills while it gets files. */
 export function Dot({ m }: { m: MachineState }) {
+  // a pod RunPod was not read for yet (Afflatus just started): grey and filled, as its lane says "checking", never the
+  // stopped ring while it may be running
+  if (m.rented?.status === "UNKNOWN") return <span aria-hidden data-state="checking" className="size-[7px] shrink-0 rounded-full bg-ink-3" />;
   // a rented pod that is not running: a grey ring while stopped, amber and pulsing while it starts (its first start too,
   // RunPod saying it runs while its image is pulled)
   if (m.rented && (m.rented.status !== "RUNNING" || m.rented.booting)) {
