@@ -977,11 +977,14 @@ ${JSON.stringify(input)}`;
         }
         // a lone rented pod is asked too: what it lacks may be sent to it
         const lack = (lanes.length > 1 || lane.machine!.rented) && scan?.comfy.online ? lackOn(recipe, input, scan, settings, machines.get(lane.id) ?? lane.machine!, familyOf) : null;
-        const balance = await this.balanceLack(r, lane);
-        // a pod that lacks only files it can be sent: it can run the job once they came
-        if (lack && !balance && lack.sendable && lane.machine!.rented && this.podFetch && !this.podFetch.failed(lane.id, lack.files, lack.packs)) {
+        // a pod that lacks only files it can be sent: it can run the job once they came, their time to come part of what the
+        // balance must last
+        const sendable = Boolean(lack?.sendable && lane.machine!.rented && this.podFetch && !this.podFetch.failed(lane.id, lack.files, lack.packs));
+        const fetchMs = sendable ? await this.podFetch!.untilThere(lane.id, lack!.files, lack!.packs) : 0;
+        const balance = await this.balanceLack(r, lane, fetchMs);
+        if (lack && !balance && sendable) {
           can.add(lane.id);
-          fetch[lane.id] = { files: lack.files, ...(lack.packs ? { packs: lack.packs } : {}), ms: await this.podFetch.untilThere(lane.id, lack.files, lack.packs) };
+          fetch[lane.id] = { files: lack.files, ...(lack.packs ? { packs: lack.packs } : {}), ms: fetchMs };
           return;
         }
         const failed = lack?.sendable && lane.machine!.rented && this.podFetch ? this.podFetch.failed(lane.id, lack.files, lack.packs) : null;
@@ -1068,6 +1071,11 @@ ${JSON.stringify(input)}`;
    * at zero RunPod stops every pod, the render lost. One that does not is not sent to a rented pod.
    */
   fitsBalance: (ms: number | null) => { ok: boolean; leftMs: number | null } = () => ({ ok: true, leftMs: null });
+  /**
+   * What a job needs of the balance on a rented pod (rented.ts balanceNeed), its forecast there and its files' time to come
+   * given: half again over a forecast that rests on too little of the pod's own.
+   */
+  balanceNeed: (machine: string, recipeId: string, renderMs: number, fetchMs: number) => Promise<number> = async (_m, _r, renderMs, fetchMs) => renderMs + fetchMs;
 
   /** How long a job would take on this machine, loading its model included, from its renders there or at its learned pace (ms); null: not known. */
   private async lengthOn(r: JobRow, machine: string): Promise<number | null> {
@@ -1096,10 +1104,11 @@ ${JSON.stringify(input)}`;
     return this.podFetch?.jobState(lane.id, r.id) === "ready";
   }
 
-  /** What keeps a job off a rented pod for its balance: null when it ends there before the balance does. */
-  private async balanceLack(r: JobRow, lane: Lane): Promise<Lack["balance"] | null> {
+  /** What keeps a job off a rented pod for its balance: null when it ends there, its files fetched first, before the balance does. */
+  private async balanceLack(r: JobRow, lane: Lane, fetchMs = 0): Promise<Lack["balance"] | null> {
     if (!lane.machine?.rented) return null;
-    const need = await this.lengthOn(r, lane.id);
+    const render = await this.lengthOn(r, lane.id);
+    const need = render === null ? null : await this.balanceNeed(lane.id, r.recipe_id, render, fetchMs);
     const fit = this.fitsBalance(need);
     return fit.ok || need === null || fit.leftMs === null ? null : { leftMs: fit.leftMs, needMs: need };
   }

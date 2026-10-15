@@ -563,7 +563,49 @@ describe("a render longer than the balance lasts", () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(t.services.queue.runningOn(id)).toBe(false);
     const row = (await t.services.queue.status()).waiting.find((w) => w.id === queued.ids[0]);
-    expect(row?.lacks?.[id]?.balance?.needMs).toBe(30 * 60_000);
+    // a pod with no render of its own: its forecast weighed half again (a new pod's came out at half its truth)
+    expect(row?.lacks?.[id]?.balance?.needMs).toBe(45 * 60_000);
+  });
+
+  it("a new pod's forecast is weighed half again, its files still to come on top; as it is once the pod rendered the recipe 3 times", async () => {
+    const id = (await deploy()).json().id as string;
+    const pod = runpod.pods[0]!;
+    await until(() => pod.status === "RUNNING");
+    await t.services.rented.poll();
+    const rented = t.services.rented;
+    // the review's case: a 2000 Ada told 9.8 min from another machine's renders, 21.5 min true, on a 21 min runway
+    const fits = (need: number) => rented.fitsBalance.call({ runwayMs: () => 21 * 60_000 } as unknown as typeof rented, need).ok;
+    expect(fits(9.8 * 60_000)).toBe(true);
+    expect(fits(await rented.balanceNeed(id, "sdxl.text-to-picture", 9.8 * 60_000, 0))).toBe(false);
+    expect(await rented.balanceNeed(id, "sdxl.text-to-picture", 10 * 60_000, 4 * 60_000)).toBe(19 * 60_000);
+    // a file with no source to come from counts nothing: the job never starts there for it, whatever the balance
+    expect(await rented.balanceNeed(id, "sdxl.text-to-picture", 10 * 60_000, Infinity)).toBe(15 * 60_000);
+    const at = new Date().toISOString();
+    await t.db.insertInto("render_stats").values(["a", "b", "c"].map((x) => ({
+      id: `zz-${x}`, owner_id: "local", recipe_id: "sdxl.text-to-picture", family: "sdxl", model: "sdxl", model_file: "sdxl", time_key: "", kind: "image" as const, width: 1024, height: 1024,
+      duration_ms: null, steps: 20, status: "done" as const, whole: 1, cold: 0, waited_ms: 0, total_ms: 10_000, load_ms: 0, sample_ms: 10_000, refine_ms: 0, finish_ms: 0, step_ms: 500,
+      expected_ms: null, vram_peak: null, heat_peak: null, asset_id: null, work: 1024 * 1024, machine_id: id, gpu: null, created_at: at,
+    }))).execute();
+    (rented as unknown as { sureKept: unknown }).sureKept = null;
+    expect(await rented.balanceNeed(id, "sdxl.text-to-picture", 10 * 60_000, 4 * 60_000)).toBe(14 * 60_000);
+    // another recipe there is still new to it
+    expect(await rented.balanceNeed(id, "wan.i2v", 10 * 60_000, 0)).toBe(15 * 60_000);
+  });
+
+  it("a pod whose GPU's pace is learned has its forecast weighed as it is", async () => {
+    const id = (await deploy()).json().id as string;
+    const pod = runpod.pods[0]!;
+    await until(() => pod.status === "RUNNING");
+    await t.services.rented.poll();
+    const at = new Date().toISOString();
+    const row = (n: string, machine: string, gpu: string, stepMs: number) => ({
+      id: `zz-${n}`, owner_id: "local", recipe_id: "sdxl.text-to-picture", family: "sdxl", model: "sdxl", model_file: "sdxl", time_key: "k", kind: "image" as const, width: 1024, height: 1024,
+      duration_ms: null, steps: 20, status: "done" as const, whole: 1, cold: 0, waited_ms: 0, total_ms: stepMs * 20, load_ms: 0, sample_ms: stepMs * 20, refine_ms: 0, finish_ms: 0, step_ms: stepMs,
+      expected_ms: null, vram_peak: null, heat_peak: null, asset_id: null, work: 1024 * 1024, machine_id: machine, gpu, created_at: at,
+    });
+    // an earlier pod of the same GPU, compared with the home card on the same settings three times each
+    await t.db.insertInto("render_stats").values([0, 1, 2].flatMap((i) => [row(`h${i}`, "m1", "NVIDIA GeForce RTX 4070 Ti", 500), row(`p${i}`, "rp-old", pod.gpu, 300)])).execute();
+    expect(await t.services.rented.balanceNeed(id, "sdxl.text-to-picture", 10 * 60_000, 0)).toBe(10 * 60_000);
   });
 });
 

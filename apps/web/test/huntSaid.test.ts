@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { RankedGpu } from "@afflatus/core";
 import type { HuntSummary, MachineState, QueueStatus } from "../src/api";
-import { ceilingFor, firstPick, giveUpOptions, huntDone, huntStrip, huntTitle, minutesSaid, renderSaid, resumeHoldsHunt } from "../src/huntSaid";
+import { ceilingFor, deploySaid, firstPick, giveUpOptions, huntDone, huntStrip, huntTitle, minutesSaid, renderSaid, renderWhy, resumeHoldsHunt } from "../src/huntSaid";
 
 const T0 = Date.parse("2026-10-14T10:00:00Z");
 const hunt = (over: Partial<HuntSummary> = {}): HuntSummary => ({
   status: "hunting", startedAt: new Date(T0).toISOString(), giveUpAt: new Date(T0 + 2 * 3_600_000).toISOString(), hold: "rest", held: 6, firstPick: null, machine: null, ...over,
 });
 const gpu = (id: string, fit: RankedGpu["fit"], over: Partial<RankedGpu> = {}): RankedGpu => ({
-  id, name: id, price: 0.69, memory: 24, fit, fits: fit, seconds: 130, cost: 0.025, learned: 0, timeSaid: "a guess", stock: "none free", rank: 1, ...over,
+  id, name: id, price: 0.69, memory: 24, fit, fits: fit, seconds: 130, cost: 0.025, learned: 0, overhead: null, timeSaid: "a guess", stock: "none free", rank: 1, ...over,
 });
 const machine = (id: string, rented = false) => ({ id, rented: rented ? { status: "RUNNING" } : null }) as unknown as MachineState;
 const queue = (h: HuntSummary | null, machines: MachineState[]) => ({ hunt: h, machines }) as Pick<QueueStatus, "hunt" | "machines">;
@@ -31,6 +31,17 @@ describe("the GPU hunt in words", () => {
   it("says a render as cost and time, or not known", () => {
     expect(renderSaid({ cost: 0.025, seconds: 130 })).toBe("$0.025 · 2m 10s");
     expect(renderSaid({ cost: null, seconds: null })).toBe("not known yet");
+  });
+
+  it("says what a deploy bills besides its renders, and where that comes from in its \"?\"", () => {
+    // the 2000 Ada's session: 12.8 min billed for 1.1 min of rendering; a render's cost alone said a tenth of it
+    expect(deploySaid({ overhead: (0.24 * (5 * 60_000 + 6.5 * 60_000)) / 3_600_000 })).toBe("+$0.046 a deploy");
+    expect(deploySaid({ overhead: null })).toBeNull();
+    const why = renderWhy({ bootMs: 5 * 60_000, idleMs: 390_000, sessions: 4 });
+    expect(why).toContain("usual boot (5m)");
+    expect(why).toContain("usual idle before they stop (6m 30s)");
+    expect(why).toContain("from your last 4 sessions");
+    expect(renderWhy(null)).toContain("once you have a session that ended");
   });
 
   it("offers its give-up times, with one kept from before", () => {

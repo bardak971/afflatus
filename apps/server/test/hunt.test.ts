@@ -432,6 +432,31 @@ describe("the dialog's live ranking", () => {
     expect((await post(t.app, "/api/hunt/rank", { ceiling: 1, volume: "vol-gone" })).statusCode).toBe(409);
   });
 
+  it("a GPU rendered on once is a guess, not learned; a deploy's own cost from the sessions that ended", async () => {
+    runpod.gpus.push(gpu("NVIDIA H100 80GB HBM3", "H100 SXM", 2.69, "NONE", 80));
+    const at = new Date().toISOString();
+    const stat = (id: string, gpuName: string, stepMs: number) => ({
+      id, owner_id: "local", recipe_id: "sdxl.text-to-picture", family: "sdxl", model: "illustrious", model_file: "illustrious", time_key: "steps=28", kind: "image" as const,
+      width: 832, height: 1216, duration_ms: null, steps: 28, status: "done" as const, whole: 1, cold: 0, waited_ms: 0, total_ms: stepMs * 28 + 1000, load_ms: 1000, sample_ms: stepMs * 28,
+      refine_ms: 0, finish_ms: 0, step_ms: stepMs, expected_ms: null, work: 832 * 1216, vram_peak: null, heat_peak: null, asset_id: null, machine_id: "m1", gpu: gpuName, created_at: at,
+    });
+    // the home 4090 three times, a rented H100 once at a quarter of its step: one render is no pace
+    await t.db.insertInto("render_stats").values([stat("a", "cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync", 500), stat("b", "cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync", 500), stat("c", "cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync", 500), stat("d", "NVIDIA H100 80GB HBM3", 125)]).execute();
+    // a session that booted 5 min and stopped 10 min after its last work
+    const t0 = Date.now() - 3_600_000;
+    const iso = (ms: number) => new Date(ms).toISOString();
+    await t.db.insertInto("rent_sessions").values({ id: "zz-s", machine_id: "rp-zz", pod: "zz", rate: 0.44, started_at: iso(t0), ended_at: iso(t0 + 20 * 60_000), seen_at: null, gpu: "NVIDIA A40", up_at: iso(t0 + 5 * 60_000), idle_minutes: 10 }).execute();
+    await t.db.insertInto("render_stats").values({ ...stat("e", "NVIDIA A40", 500), machine_id: "rp-zz", total_ms: 5 * 60_000, created_at: iso(t0 + 10 * 60_000) }).execute();
+    await queue();
+    const res = (await post(t.app, "/api/hunt/rank", { mode: "value", ceiling: 5 })).json() as { ranking: Array<{ name: string; price: number; cost: number | null; timeSaid: string; overhead: number | null }>; overhead: unknown };
+    const by = Object.fromEntries(res.ranking.map((g) => [g.name, g]));
+    expect(by["H100 SXM"]).toMatchObject({ timeSaid: "a guess" });
+    // its time guessed from the 4090's by the table (1.9 times as fast), not its own render (4 times)
+    expect(by["H100 SXM"]!.cost! / by["RTX 4090"]!.cost!).toBeCloseTo(2.69 / 1.9 / 0.69, 6);
+    expect(res.overhead).toEqual({ bootMs: 5 * 60_000, idleMs: 10 * 60_000, sessions: 1 });
+    for (const g of res.ranking) expect(g.overhead).toBeCloseTo((g.price * 15) / 60, 10);
+  });
+
   it("times learned from the user's renders by GPU, guessed elsewhere; a file that ran out of memory on a GPU makes it too small", async () => {
     runpod.gpus.push(gpu("NVIDIA H100 80GB HBM3", "H100 SXM", 2.69, "NONE", 80));
     const at = new Date().toISOString();
@@ -440,17 +465,17 @@ describe("the dialog's live ranking", () => {
       width: 832, height: 1216, duration_ms: null, steps: 28, status, whole: 1, cold: 0, waited_ms: 0, total_ms: stepMs * 28 + 1000, load_ms: 1000, sample_ms: stepMs * 28,
       refine_ms: 0, finish_ms: 0, step_ms: stepMs, expected_ms: null, work: 832 * 1216, vram_peak: null, heat_peak: null, asset_id: null, machine_id: "m1", gpu: gpuName, created_at: at,
     });
-    // the home 4090 three times, a rented H100 once at half its step (on record before the renders are queued: their
+    // the home 4090 three times, a rented H100 three times at half its step (on record before the renders are queued: their
     // forecasts are kept half a minute); then a render on an A40 that ran out of memory
     const home4090 = "cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync";
-    await t.db.insertInto("render_stats").values([stat("a", home4090, 500), stat("b", home4090, 500), stat("c", home4090, 500), stat("d", "cuda:0 NVIDIA H100 80GB HBM3 : cudaMallocAsync", 250)]).execute();
+    await t.db.insertInto("render_stats").values([stat("a", home4090, 500), stat("b", home4090, 500), stat("c", home4090, 500), ...["d", "e", "f"].map((id) => stat(id, "cuda:0 NVIDIA H100 80GB HBM3 : cudaMallocAsync", 250))]).execute();
     const ids = await queue();
     await t.db.insertInto("render_stats").values(stat(ids[2]!, "cuda:0 NVIDIA A40 : cudaMallocAsync", 500, "failed")).execute();
     await t.db.updateTable("jobs").set({ error: "torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB" }).where("id", "=", ids[2]!).execute();
     const ranking = (await post(t.app, "/api/hunt/rank", { mode: "fast", ceiling: 5 })).json().ranking as Array<{ name: string; seconds: number | null; timeSaid: string; fit: string; fits: string }>;
     const by = Object.fromEntries(ranking.map((g) => [g.name, g]));
     expect(by["RTX 4090"]).toMatchObject({ timeSaid: "from 3 of your renders", fit: "yes" });
-    expect(by["H100 SXM"]).toMatchObject({ timeSaid: "from 1 of your renders", fit: "yes" });
+    expect(by["H100 SXM"]).toMatchObject({ timeSaid: "from 3 of your renders", fit: "yes" });
     expect(by["RTX 4090"]!.seconds).toBeGreaterThan(0);
     expect(by["H100 SXM"]!.seconds! / by["RTX 4090"]!.seconds!).toBeCloseTo(0.5, 1);
     expect(by["A40"]).toMatchObject({ fit: "small", fits: "too small for these files" });

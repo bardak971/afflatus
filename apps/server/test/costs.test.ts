@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
-import { adviceOf, costs, fetchAdvice, idleSaving, PARTS, splitSession, type CostsView, type Fetched, type PartMs } from "../src/costs";
+import { adviceOf, costs, deployOverhead, fetchAdvice, idleSaving, PARTS, splitSession, type CostsView, type Fetched, type PartMs } from "../src/costs";
 import { openSqlite, migrate, type Db } from "../src/db";
 import { energyOf, PowerLog } from "../src/power";
 import type { Registry } from "../src/registry";
@@ -177,6 +177,14 @@ describe("the costs of a window", () => {
     // spent per stretch, by GPU, as much as the sessions
     expect(v.spend.gpus).toEqual(["A40"]);
     expect(v.spend.values[0]!.reduce((n, x) => n + x, 0)).toBeCloseTo(0.9, 9);
+  });
+
+  it("a deploy's own cost, as the Hunt says it beside a render's: the usual boot and idle at the end of the sessions that ended", async () => {
+    // s1 booted 4 min and idled 10 at its end, s2 3 and 13; a session still open says nothing of its end yet
+    await db.insertInto("rent_sessions").values({ id: "s3", machine_id: "rp-c", pod: "c", rate: 0.6, started_at: iso(NOW - 30 * MIN), ended_at: null, seen_at: null, gpu: "NVIDIA A40", up_at: iso(NOW - 2 * MIN), idle_minutes: 10 }).execute();
+    expect(await deployOverhead(db, NOW)).toEqual({ bootMs: 4 * MIN, idleMs: 13 * MIN, sessions: 2 });
+    await db.deleteFrom("rent_sessions").execute();
+    expect(await deployOverhead(db, NOW)).toBeNull();
   });
 
   it("the renders on pods by project: a timeline's clip and a draft in it, a draft in none in the Inbox", async () => {

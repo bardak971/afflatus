@@ -2,7 +2,7 @@ import { projectForNew, projectParam } from "./project";
 import { unlistOptions, type ListedOptions, type ModelInfo, type RankedGpu } from "@afflatus/core";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
-import type { Advice, FillPlan, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumePlan, Job, QueueAnswer, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
+import type { Advice, DeployOverhead, FillPlan, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumePlan, Job, QueueAnswer, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
@@ -237,7 +237,7 @@ export const api = {
   changeHunt: (change: Partial<HuntAsk>) => call<HuntView>("PATCH", "/hunt", change),
   cancelHunt: () => call<{ ok: true }>("DELETE", "/hunt"),
   /** The dialog's live ranking for these choices, and how many renders wait; RunPod is read again at most every 20 s. */
-  huntRank: (ask: Omit<HuntAsk, "giveUpMinutes" | "hold"> & { cloud: DeployAsk["cloud"]; volume: string }, o?: Asked) => call<{ ranking: RankedGpu[]; held: number }>("POST", "/hunt/rank", ask, o?.signal),
+  huntRank: (ask: Omit<HuntAsk, "giveUpMinutes" | "hold"> & { cloud: DeployAsk["cloud"]; volume: string }, o?: Asked) => call<{ ranking: RankedGpu[]; held: number; overhead: DeployOverhead | null }>("POST", "/hunt/rank", ask, o?.signal),
   /** The Deploy dialog's Models part: the waiting jobs' files, the picked set's, and what earlier deploys measured. */
   deployModels: (cloud: DeployAsk["cloud"], set: string, o?: Asked) => call<DeployModels>("GET", `/runpod/deploy/models?${new URLSearchParams({ cloud, set })}`, undefined, o?.signal),
   /** The Model sets (Settings › Models). */

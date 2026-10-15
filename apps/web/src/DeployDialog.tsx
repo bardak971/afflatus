@@ -212,6 +212,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
             ask={huntAsk}
             change={(c) => setHuntChange((was) => ({ ...was, ...c }))}
             ranking={rank.data?.ranking ?? null}
+            overhead={rank.data?.overhead ?? null}
             failed={rank.isError ? rank.error.message : null}
             pending={rank.isFetching}
             volume={changing ? (kept?.dataCenter ? { name: volumes.data?.volumes.find((v) => v.id === kept.deploy.volume)?.name ?? "its network volume", dataCenter: kept.dataCenter } : null) : volume}

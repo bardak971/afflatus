@@ -1,6 +1,6 @@
 import type { RankedGpu } from "@afflatus/core";
-import type { HuntMode, HuntSummary, QueueStatus } from "./api";
-import { brief, leftWords, usd } from "./format";
+import type { DeployOverhead, HuntMode, HuntSummary, QueueStatus } from "./api";
+import { brief, leftWords, plural, usd } from "./format";
 
 /**
  * The GPU hunt in words, for the Deploy dialog's hunt, the status bar and the hunt's card: what each mode ranks by, a
@@ -30,6 +30,16 @@ export const firstPick = (ranking: readonly RankedGpu[] | null | undefined) => r
 
 /** A render on that GPU, as its row says it: "$0.025 · 2m 10s"; "not known yet" when it cannot be told. */
 export const renderSaid = (g: Pick<RankedGpu, "cost" | "seconds">) => (g.cost === null || g.seconds === null ? "not known yet" : `${usd(g.cost, true)} · ${brief(g.seconds * 1000)}`);
+
+/** A deploy's own cost on that GPU, under its render's: "+$0.071 a deploy"; null when no session tells it yet. */
+export const deploySaid = (g: Pick<RankedGpu, "overhead">) => (g.overhead === null ? null : `+${usd(g.overhead, true)} a deploy`);
+
+/** The "?" of the A render column: what a render's cost counts, and what a deploy adds on top, from the user's sessions. */
+export function renderWhy(o: DeployOverhead | null): string {
+  const render = "A render: its time on that GPU times its price an hour.";
+  if (!o) return `${render} A deploy also bills its boot and its idle before it stops; said here once you have a session that ended.`;
+  return `${render} + a deploy: what each deploy bills besides its renders, at that GPU's price: your pods' usual boot (${brief(o.bootMs)}) and usual idle before they stop (${brief(o.idleMs)}), from your last ${plural(o.sessions, "session")}. The more renders a deploy takes, the less of it each one carries.`;
+}
 
 /** The hunt's title: "Hunting · best value, up to $1.00/h". */
 export const huntTitle = (h: { mode: HuntMode; ceiling: number }) => `Hunting · ${modeWord(h.mode)}, up to ${usd(h.ceiling)}/h`;

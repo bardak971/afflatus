@@ -205,6 +205,12 @@ export interface HuntState {
   lastError: string | null;
   found: { gpu: string; name: string; price: number; dataCenter: string | null; at: string } | null;
 }
+/** What a deploy bills besides its renders, from the user's own sessions (the server's costs.ts deployOverhead), in ms of the pod's time. */
+export interface DeployOverhead {
+  bootMs: number;
+  idleMs: number;
+  sessions: number;
+}
 /** GET /api/hunt: the hunt (null: none), its last ranking and when RunPod was last asked. */
 export interface HuntView {
   hunt: HuntState | null;

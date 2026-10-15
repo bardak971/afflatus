@@ -1,5 +1,6 @@
 import { modelStem, plural, rankGpus, volumePerMonth, type RankOffer } from "@afflatus/core";
-import type { Db } from "./db";
+import type { Selectable } from "kysely";
+import type { Db, Tables } from "./db";
 import { dollars } from "./notifyWords";
 import { median } from "./renderDigests";
 import { nameOf, windowOf } from "./rendersRead";
@@ -339,19 +340,7 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
   for (const r of rows) {
     const from = Date.parse(r.started_at);
     const to = r.ended_at ? Date.parse(r.ended_at) : now;
-    const mine = podRenders.filter((x) => x.machine_id === r.machine_id).map((x) => ({ row: x, to: Date.parse(x.created_at), from: Date.parse(x.created_at) - x.total_ms })).filter((x) => x.to > from && x.from < to);
-    const kept = fetches.filter((x) => x.machine_id === r.machine_id && Date.parse(x.ended_at) > from && Date.parse(x.started_at) < to);
-    // the sessions before 0071 have their files from pod_measures: the bigger ones, worked out from their speed
-    const old = r.up_at === null && !kept.length;
-    const guessed = old ? measures.filter((m) => m.kind !== "boot" && Date.parse(m.at) > from && Date.parse(m.at) <= to + 60_000) : [];
-    const boot = measures.find((m) => m.kind === "boot" && Date.parse(m.at) >= from && Date.parse(m.at) <= to + 60_000);
-    const upAt = r.up_at ? Date.parse(r.up_at) : boot ? Date.parse(boot.at) : null;
-    const split = splitSession({
-      from, to, upAt, usualBootMs,
-      renders: mine.map((x) => ({ from: x.from, to: x.to, ok: x.row.status === "done" })),
-      fetches: [...kept.map((x) => ({ from: Date.parse(x.started_at), to: Date.parse(x.ended_at) })), ...guessed.map((m) => ({ from: Date.parse(m.at) - Number(m.ms), to: Date.parse(m.at) }))],
-      fetchesGuessed: old,
-    });
+    const { mine, kept, guessed, split } = sessionOf(r, { renders: podRenders, fetches, measures, usualBootMs }, now);
     if (split.estimated.length) estimatedAny = true;
     const parts = partsOf(split.spans);
     const inWindow = partsOf(clipSpans(split.spans, wFrom, wTo));
@@ -436,6 +425,74 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
     storage: spending?.storage ? { perMonth: spending.storage.perMonth, volumes: spending.storage.volumes, stoppedDisks: spending.storage.stoppedDisks } : null,
     where: { ms: whereMs, usd: whereUsd, estimated: estimatedAny }, spend, projects, sessions, renderCosts, advice, home, kwh: { price: kwh.kwhPrice, currency: kwh.currency },
   };
+}
+
+type SessionRow = Selectable<Tables["rent_sessions"]>;
+
+/**
+ * One session as its pod spent it (`splitSession`), from what was kept around it: its renders (by its machine, within its
+ * time), its files (pod_fetches; the sessions before 0071 have theirs from pod_measures, the bigger ones worked out from their
+ * speed) and when its ComfyUI first answered.
+ */
+function sessionOf<R extends { machine_id: string | null; created_at: string; total_ms: number; status: string }>(
+  r: SessionRow,
+  around: { renders: readonly R[]; fetches: ReadonlyArray<Selectable<Tables["pod_fetches"]>>; measures: ReadonlyArray<Selectable<Tables["pod_measures"]>>; usualBootMs: number | null },
+  now: number,
+) {
+  const from = Date.parse(r.started_at);
+  const to = r.ended_at ? Date.parse(r.ended_at) : now;
+  const mine = around.renders.filter((x) => x.machine_id === r.machine_id).map((x) => ({ row: x, to: Date.parse(x.created_at), from: Date.parse(x.created_at) - x.total_ms })).filter((x) => x.to > from && x.from < to);
+  const kept = around.fetches.filter((x) => x.machine_id === r.machine_id && Date.parse(x.ended_at) > from && Date.parse(x.started_at) < to);
+  const old = r.up_at === null && !kept.length;
+  const guessed = old ? around.measures.filter((m) => m.kind !== "boot" && Date.parse(m.at) > from && Date.parse(m.at) <= to + 60_000) : [];
+  const boot = around.measures.find((m) => m.kind === "boot" && Date.parse(m.at) >= from && Date.parse(m.at) <= to + 60_000);
+  const upAt = r.up_at ? Date.parse(r.up_at) : boot ? Date.parse(boot.at) : null;
+  const split = splitSession({
+    from, to, upAt, usualBootMs: around.usualBootMs,
+    renders: mine.map((x) => ({ from: x.from, to: x.to, ok: x.row.status === "done" })),
+    fetches: [...kept.map((x) => ({ from: Date.parse(x.started_at), to: Date.parse(x.ended_at) })), ...guessed.map((m) => ({ from: Date.parse(m.at) - Number(m.ms), to: Date.parse(m.at) }))],
+    fetchesGuessed: old,
+  });
+  return { mine, kept, guessed, split };
+}
+
+/** How many of the latest sessions a deploy's usual boot and idle are read from. */
+const OVERHEAD_SESSIONS = 12;
+
+/** What a deploy bills besides its renders, as the Hunt says it beside a render's cost (ms of the pod's time). */
+export interface DeployOverhead {
+  /** The usual boot: from the deploy to its ComfyUI's first answer. */
+  bootMs: number;
+  /** The usual idle at the end: from its last work to its stop. */
+  idleMs: number;
+  /** How many sessions it was read from. */
+  sessions: number;
+}
+
+/**
+ * The usual boot and the usual idle at the end of this user's latest sessions that ended: what each deploy costs on top of
+ * its renders, whatever it renders. Null with no session ended yet. The files fetched are left out: they are the renders'
+ * own (another set, another time).
+ */
+export async function deployOverhead(db: Db, now = Date.now()): Promise<DeployOverhead | null> {
+  const rows = await db.selectFrom("rent_sessions").selectAll().where("ended_at", "is not", null).orderBy("started_at", "desc").limit(OVERHEAD_SESSIONS).execute();
+  if (!rows.length) return null;
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const sFrom = Math.min(...rows.map((r) => Date.parse(r.started_at)));
+  const sTo = Math.max(...rows.map((r) => Date.parse(r.ended_at!)));
+  const machines = [...new Set(rows.map((r) => r.machine_id))];
+  const renders = await db.selectFrom("render_stats").select(["machine_id", "created_at", "total_ms", "status"]).where("machine_id", "in", machines).where("created_at", ">=", iso(sFrom)).where("created_at", "<=", iso(sTo + DAY)).execute();
+  const fetches = await db.selectFrom("pod_fetches").selectAll().where("ended_at", ">=", iso(sFrom)).where("started_at", "<=", iso(sTo)).execute();
+  const measures = await db.selectFrom("pod_measures").selectAll().where("at", ">=", iso(sFrom)).where("at", "<=", iso(sTo + 60_000)).execute();
+  const usualBootMs = median((await db.selectFrom("pod_measures").select("ms").where("kind", "=", "boot").orderBy("at", "desc").limit(12).execute()).map((r) => Number(r.ms)));
+  const boots: number[] = [];
+  const idles: number[] = [];
+  for (const r of rows) {
+    const { split } = sessionOf(r, { renders, fetches, measures, usualBootMs }, now);
+    boots.push(partsOf(split.spans).boot);
+    idles.push(idleTail(split.spans, false));
+  }
+  return { bootMs: median(boots)!, idleMs: median(idles)!, sessions: rows.length };
 }
 
 const inside = (at: string, from: number, to: number) => {
@@ -545,7 +602,7 @@ async function costRows(rows: readonly RenderLine[], rented: Set<string>, rate: 
     if (mine.length && offers?.length) {
       // the hunt's ranking anchored on this model's own p50 on the cheapest GPU it ran on: that GPU at the common pace, the
       // others guessed from it by the hunt's rough table of speeds
-      const learned = { gpus: mine.map((x) => ({ gpu: x.on, pace: (x.ms ?? 0) / mine[0]!.ms!, renders: x.renders })), oom: [] };
+      const learned = { gpus: mine.map((x) => ({ gpu: x.on, pace: (x.ms ?? 0) / mine[0]!.ms!, renders: x.renders })), oom: [], minRenders: 1 };
       const ranked = rankGpus(offers, [{ files: head.model_file ? [{ file: head.model_file, size: null }] : [], ms: mine[0]!.ms! }], learned, { mode: "value", ceiling: Infinity, leftOut: [], dataCenter: null });
       const tried = new Set(mine.map((x) => x.on.toLowerCase()));
       const guess = ranked.find((g) => g.learned === 0 && g.cost !== null && g.seconds !== null && g.fit === "yes" && !tried.has(gpuShort(g.name).toLowerCase()));

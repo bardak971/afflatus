@@ -5,7 +5,8 @@ import type { Db } from "./db";
 import { httpError } from "./errors";
 import { newToken } from "./lock-api";
 import { COMFY_PORT, exposesComfy, imageFor, LOCK_ENV, noCapacity, POD_IMAGES, podMachineId, podUrl, Runpod, RunpodError, RunpodShape, secretRef, RUNNING_DISK_PER_GB_MONTH, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ACTION_ENV, WATCHDOG_ENV, type BillRecord, type GpuOffer, type NetworkVolume, type Pod, type PodSpec, type PodStatus } from "./runpod";
-import { volumePerMonth, type PresetFile } from "@afflatus/core";
+import { gpuKey, LEARNED_RENDERS, volumePerMonth, type PresetFile } from "@afflatus/core";
+import { gpuPaces } from "./forecast";
 import { imagePublic } from "./podImage";
 import { recordMeasure } from "./podMeasures";
 import { SEARCHED_FOLDERS } from "./modelSets";
@@ -106,6 +107,25 @@ const BILL_SETTLED_MS = 6 * HOUR;
 const AWAY_MS = 90_000;
 /** What is kept back of the balance when a job's length is weighed against it: a render is not started into the last minutes. */
 const RUNWAY_MARGIN_MS = 10 * 60_000;
+/**
+ * A job's forecast on a pod that rests on too little of its own is weighed against the balance at this many times: a new
+ * pod's forecast read from another machine's renders came out at half its truth (a 2000 Ada told 9.8 min took 21.5), and
+ * a render the balance runs out under is lost, and paid.
+ */
+const UNSURE_FORECAST = 1.5;
+/** The renders of a recipe a pod needs of its own before its forecast there is weighed as it is. */
+const SURE_RENDERS = 3;
+/** How long what the record says of the pods' forecasts (their own renders, the GPUs' paces) is kept before it is read again. */
+const SURE_FRESH_MS = 60_000;
+
+/**
+ * What a job needs of the balance on a pod, beside the margin (ms): its files still to come, then its render, half again
+ * when its forecast there is not `sure`. A fetch that cannot be told (a file with no source) counts nothing: that job never
+ * starts there for its files, whatever the balance.
+ */
+export function runwayNeed(o: { renderMs: number; fetchMs: number; sure: boolean }): number {
+  return (Number.isFinite(o.fetchMs) ? Math.max(0, o.fetchMs) : 0) + o.renderMs * (o.sure ? 1 : UNSURE_FORECAST);
+}
 const TRANSITIONAL: ReadonlySet<string> = new Set(["PROVISIONING", "STARTING"]);
 /**
  * Billed by RunPod: running, and on its way up (a pod provisioning or starting holds its GPU). Counted from then, so that a
@@ -751,6 +771,35 @@ export class Rented {
     const b = this.balanceSeen;
     if (!b || b.value === null || !b.spendPerHr || b.spendPerHr <= 0) return null;
     return Math.max(0, (b.value / b.spendPerHr) * HOUR - (this.now() - b.at));
+  }
+
+  private sureKept: { at: number; own: Map<string, number>; paced: Set<string> } | null = null;
+
+  /**
+   * Whether a job's forecast on this pod is weighed against the balance as it is: the pod rendered its recipe SURE_RENDERS
+   * times, or its GPU's pace is learned (the forecast then reads that GPU's renders, or others' at its pace).
+   */
+  private async forecastSure(machine: string, recipeId: string): Promise<boolean> {
+    if (!this.sureKept || this.now() - this.sureKept.at > SURE_FRESH_MS) {
+      const own = await this.db
+        .selectFrom("render_stats")
+        .select(["machine_id", "recipe_id", (eb) => eb.fn.countAll<number>().as("n")])
+        .where("status", "=", "done")
+        .where("whole", "=", 1)
+        .where("machine_id", "is not", null)
+        .groupBy(["machine_id", "recipe_id"])
+        .execute();
+      const paced = (await gpuPaces(this.db)).filter((g) => g.renders >= LEARNED_RENDERS && g.pace > 0).map((g) => gpuKey(g.gpu));
+      this.sureKept = { at: this.now(), own: new Map(own.map((r) => [`${r.machine_id}\n${r.recipe_id}`, Number(r.n)])), paced: new Set(paced) };
+    }
+    if ((this.sureKept.own.get(`${machine}\n${recipeId}`) ?? 0) >= SURE_RENDERS) return true;
+    const gpu = this.seen.get(machine)?.pod?.gpu;
+    return Boolean(gpu && this.sureKept.paced.has(gpuKey(gpu)));
+  }
+
+  /** What a job of this recipe needs of the balance on this pod (`runwayNeed`), its render forecast there and its files' time to come given (ms). */
+  async balanceNeed(machine: string, recipeId: string, renderMs: number, fetchMs: number): Promise<number> {
+    return runwayNeed({ renderMs, fetchMs, sure: await this.forecastSure(machine, recipeId) });
   }
 
   /** Whether a job of this length may be sent to a rented pod now: it ends before the balance does, with a margin. */
