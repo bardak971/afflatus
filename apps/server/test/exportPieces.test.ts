@@ -136,3 +136,94 @@ describe.skipIf(!ffmpegThere)("a long export made by ffmpeg", () => {
     expect(await step(parts([flat(100), flat(92)]))).toBeGreaterThanOrEqual(7);
   }, FFMPEG_TIMEOUT);
 });
+
+describe.skipIf(!ffmpegThere)("an export's sound against its picture", () => {
+  let dir: string;
+  let flashes: string;
+  let dark: string;
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "afflatus-sync-"));
+    const made = (name: string, args: string[]) => run("ffmpeg", ["-y", "-loglevel", "error", ...args, join(dir, name)]).then(() => join(dir, name));
+    // a white frame and a click at the same moment, every half second from 0.25 s: each part shows two, away from its
+    // joins, so that no fade dims them. The sound is kept exact (PCM) and every frame a keyframe, as a render's cut is read
+    [flashes, dark] = await Promise.all([
+      made("flashes.mkv", [
+        "-f", "lavfi", "-i", "color=c=black:s=64x36:r=24:d=4,drawbox=x=0:y=0:w=64:h=36:c=white:t=fill:enable='eq(mod(n\,12)\,6)'",
+        "-f", "lavfi", "-i", "aevalsrc='if(lt(mod(t+0.25\,0.5)\,0.01)\,0.8*sin(2*PI*1000*t)\,0)':s=48000:d=4",
+        "-c:v", "libx264", "-g", "1", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le",
+      ]),
+      made("dark.png", ["-f", "lavfi", "-i", "color=c=0x202020:s=40x40", "-frames:v", "1"]),
+    ]);
+  }, FFMPEG_TIMEOUT);
+  afterAll(() => rm(dir, { recursive: true, force: true }));
+
+  /** The moments (in seconds) the export shows a white frame, and those its sound clicks. */
+  const flashesAndClicks = (file: string) => Promise.all([
+    (async () => {
+      const said = (await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pts_time", "-of", "csv=p=0", file], { maxBuffer: 1 << 26 })).stdout;
+      const pts = said.split(/\r?\n/).filter((l) => l.trim()).map((l) => Number.parseFloat(l));
+      // one byte a frame, each frame once (as many as ffprobe listed)
+      const luma = (await run("ffmpeg", ["-loglevel", "error", "-i", file, "-map", "0:v", "-fps_mode", "passthrough", "-vf", "scale=1:1:flags=area,format=gray", "-f", "rawvideo", "-"], { encoding: "buffer", maxBuffer: 1 << 26 })).stdout;
+      expect(luma.length).toBe(pts.length);
+      return pts.filter((_, i) => luma[i]! > 128 && !(luma[i - 1]! > 128));
+    })(),
+    (async () => {
+      const start = Number.parseFloat((await run("ffprobe", ["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=start_time", "-of", "csv=p=0", file])).stdout) || 0;
+      const raw = (await run("ffmpeg", ["-loglevel", "error", "-i", file, "-map", "0:a", "-ac", "1", "-ar", "48000", "-f", "f32le", "-"], { encoding: "buffer", maxBuffer: 1 << 28 })).stdout;
+      const samples = new Float32Array(raw.buffer, raw.byteOffset, raw.length / 4);
+      // a click: loud after a twentieth of a second of quiet
+      const clicks: number[] = [];
+      let quietSince = -Infinity;
+      for (let i = 0; i < samples.length; i++) {
+        if (Math.abs(samples[i]!) < 0.2) continue;
+        if (i - quietSince > 2400) clicks.push(start + i / 48000);
+        quietSince = i;
+      }
+      return clicks;
+    })(),
+  ]);
+
+  const f = 1000 / 24;
+  const video = (startMs: number, endMs: number, extra: Partial<ExportPart> = {}): ExportPart => ({
+    kind: "video", source: flashes, ext: "mkv", startMs, endMs, hasSound: true, sound: "own", volume: 1, fill: false, ...extra,
+  });
+  const fade = (fadeSound: boolean) => ({ transitionIn: { kind: "dissolve", xfade: "fade", ms: 200, fadeSound } });
+  /**
+   * Every kind of join, each part showing two flashes: a cut, a hold, an overlap (it starts its 200 ms early), four latent
+   * joins in a row (each starts a frame early, as timelineExport makes them), transitions with the sound straight on and
+   * faded, a picture held, and a freeze after a cut inside a run.
+   */
+  const parts = (): ExportPart[] => [
+    video(0, 1000),
+    video(1000, 2000),
+    video(500, 1500, { blendMs: 170, blendMode: "hold" }),
+    video(800, 2000, { blendMs: 200, blendMode: "overlap" }),
+    video(1000 - f, 2000, { blendMs: 170, blendMode: "freeze" }),
+    video(500 - f, 1500, { blendMs: 170, blendMode: "freeze" }),
+    video(1500 - f, 2500, { blendMs: 170, blendMode: "freeze" }),
+    video(2000 - f, 3000, { blendMs: 170, blendMode: "freeze" }),
+    video(500, 1500, fade(false)),
+    { kind: "still", source: dark, ext: "png", startMs: 0, endMs: 500, hasSound: false, sound: "muted", volume: 1, fill: true },
+    video(0, 1000),
+    video(1000, 2000, fade(true)),
+    video(500 - f, 1500, { blendMs: 170, blendMode: "freeze" }),
+    video(2000, 3000, { transitionIn: { kind: "wipe", xfade: "wipeleft", ms: 200, fadeSound: false } }),
+  ];
+
+  it.each([["whole", 100], ["in pieces", 3]])("keeps each click on its flash after every kind of join (%s)", async (_, pieceParts) => {
+    const was = EXPORT_PIECE.parts;
+    EXPORT_PIECE.parts = pieceParts;
+    try {
+      const [seen, heard] = await joinVideosInto(parts(), { width: 64, height: 36 }, 24, {}, flashesAndClicks);
+      // two a part, the picture held none
+      expect(seen).toHaveLength(26);
+      expect(heard).toHaveLength(26);
+      // each click within a quarter of a frame of its flash: a latent join's sound that started a frame late was 42 ms
+      // off, and four in a row 167 ms
+      const off = heard.map((c, i) => Math.round((c - seen[i]!) * 1000));
+      expect(off.every((ms) => Math.abs(ms) <= 10), `clicks against flashes, ms: ${off.join(" ")}`).toBe(true);
+    } finally {
+      EXPORT_PIECE.parts = was;
+    }
+  }, FFMPEG_TIMEOUT);
+});

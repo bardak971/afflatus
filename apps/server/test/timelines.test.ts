@@ -1,3 +1,8 @@
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import { colourNudge, cutFrames, frameAt, MATCH } from "../src/cut";
@@ -10,6 +15,8 @@ import { get, post, until, type TestApp } from "./helpers";
 import { frames, nodes, timelineSteps, timelineSuite } from "./timelineKit";
 
 /** A timeline's clips: the frames one joins onto, its renders, and how a clip carries on from the one before. */
+
+const run = promisify(execFile);
 
 const s = timelineSuite();
 const { call, view, prompts, finish, render, twoClips, exported } = timelineSteps(s);
@@ -45,6 +52,29 @@ describe.skipIf(!ffmpegThere)("the frames a clip joins onto", { timeout: FFMPEG_
     expect(cut.frames).toBe(5);
     expect((await readVideo(cut.bytes, "mp4")).facts).toMatchObject({ hasSound: false });
     await expect(cutFrames(silent!, "mp4", facts, { counts: [22, 5], fps: 24, side: "before", at: 100 })).rejects.toThrow(/too short/);
+  });
+
+  it("after a moment, start there even when the file's last frame is missing: fewer are cut, never earlier ones", async () => {
+    // 48 frames, each a step brighter, and a sound a frame and a half longer: the file's length promises a 49th frame
+    const dir = await mkdtemp(join(tmpdir(), "afflatus-after-"));
+    try {
+      const file = join(dir, "steps.mkv");
+      await run("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "nullsrc=s=64x36:r=24:d=2,geq=lum='N*5':cb=128:cr=128", "-f", "lavfi", "-i", "sine=frequency=440:duration=2.06", "-c:v", "libx264", "-g", "1", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", file]);
+      const bytes = new Uint8Array(await readFile(file));
+      const facts = (await readVideo(bytes, "mkv")).facts!;
+      expect(Math.floor((facts.durationMs / 1000) * 24 + 0.01)).toBe(49);
+      // from frame 27 the file says 22 are left, there are 21: the shorter count is cut, from frame 27 still
+      const cut = await cutFrames(bytes, "mkv", facts, { counts: [22, 5], fps: 24, side: "after", at: 1125 });
+      expect(cut.frames).toBe(5);
+      expect(frames(cut.bytes)).toBe(5);
+      // its first frame is frame 27 of the file, read the same way (frame 26 is a step darker)
+      await writeFile(join(dir, "cut.mp4"), cut.bytes);
+      const luma = async (input: string, frame: number) =>
+        (await run("ffmpeg", ["-loglevel", "error", "-i", input, "-vf", `trim=start_frame=${frame},scale=1:1:flags=area,format=gray`, "-frames:v", "1", "-f", "rawvideo", "-"], { encoding: "buffer" })).stdout[0]!;
+      expect(Math.abs((await luma(join(dir, "cut.mp4"), 0)) - (await luma(file, 27)))).toBeLessThanOrEqual(2);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("one frame comes out as a picture, the last one when the moment is past the end", async () => {

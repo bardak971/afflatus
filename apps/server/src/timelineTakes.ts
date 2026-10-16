@@ -2,7 +2,7 @@ import { joinKindOf } from "@afflatus/core";
 import { nameTake } from "./autoName";
 import { newId, now, type Db } from "./db";
 import { precomputeOf } from "./precompute";
-import { lengthOnGrid, type AssetRow, type ClipRow, type TimelineCore } from "./timelineModel";
+import { lengthOnGrid, setTrims, type AssetRow, type ClipRow, type TimelineCore } from "./timelineModel";
 import type { TakeLinks } from "./timelinePlan";
 
 /**
@@ -30,10 +30,14 @@ export class TimelineTakes {
     // that the finish does not play its hidden run-up (a finish made from frames is the draft's frames, enlarged)
     const drafted = finishedFrom && !from && overlap.headMs <= 0 && asset.source_id ? await this.overlapOf(asset.source_id, db) : undefined;
     const own = drafted ?? overlap;
+    // a finish redone while the clip plays a finish of the same draft takes that one's trims: they are the part the clip
+    // plays now. Its draft has them too since setTrims, but a split, trim or hand-over made before that is on it alone
+    const playing = from ? await db.selectFrom("clips").innerJoin("takes", "takes.id", "clips.take_id").select(["takes.trim_start_ms as trim_start_ms", "takes.trim_end_ms as trim_end_ms", "takes.finished_from as finished_from"]).where("clips.id", "=", clipId).executeTakeFirst() : undefined;
+    const trims = playing && playing.finished_from === from?.id ? playing : from;
     await db
       .insertInto("takes")
       .values({
-        id, clip_id: clipId, asset_id: asset.id, head_ms: from?.head_ms ?? own.headMs, tail_ms: from?.tail_ms ?? own.tailMs, trim_start_ms: from?.trim_start_ms ?? 0, trim_end_ms: from?.trim_end_ms ?? 0,
+        id, clip_id: clipId, asset_id: asset.id, head_ms: from?.head_ms ?? own.headMs, tail_ms: from?.tail_ms ?? own.tailMs, trim_start_ms: trims?.trim_start_ms ?? 0, trim_end_ms: trims?.trim_end_ms ?? 0,
         // a finish made from frames joins as its draft did; one rendered again (H3's latent re-sample) as its own render says:
         // seamless only when its join was decoded as one piece with the clip before's re-sampled latent
         join_kind: from && overlap.headMs <= 0 ? from.join_kind : joinKindOf(own),
@@ -90,7 +94,7 @@ export class TimelineTakes {
         const next = await db.selectFrom("takes").select(["id", "head_ms", "trim_start_ms"]).where("id", "=", links.next.take).executeTakeFirst();
         if (next && links.next.at > next.head_ms + next.trim_start_ms + 20) {
           await this.core.remember(clip.timeline_id, "the landing on the clip after", undefined, db);
-          await db.updateTable("takes").set({ trim_start_ms: Math.round(links.next.at - next.head_ms) }).where("id", "=", next.id).execute();
+          await setTrims(db, next.id, { trim_start_ms: Math.round(links.next.at - next.head_ms) });
         }
       }
       // the take carried on from before the clip before's frozen tail: that clip now stops where the take picks up
@@ -101,7 +105,7 @@ export class TimelineTakes {
           const end = length - prev.tail_ms - prev.trim_end_ms;
           if (links.prev.at < end - 40) {
             await this.core.remember(clip.timeline_id, "the hand-over before the frozen tail", undefined, db);
-            await db.updateTable("takes").set({ trim_end_ms: Math.round(length - prev.tail_ms - links.prev.at) }).where("id", "=", prev.id).execute();
+            await setTrims(db, prev.id, { trim_end_ms: Math.round(length - prev.tail_ms - links.prev.at) });
           }
         }
       }

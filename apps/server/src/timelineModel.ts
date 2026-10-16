@@ -274,6 +274,16 @@ export function trimsOf(x: Taken, ask: { shownFromMs?: number; shownToMs?: numbe
   return { start, end };
 }
 
+/**
+ * A take's trims written, and its draft's with them when it is a finished take: a finish is redone from its draft, and the
+ * draft plays again when the finish is removed, so both play the same part (a finish keeps its draft's length: their trims
+ * are in the same time). Written on the finished take alone, a redo put back the seconds a split or a hand-over had cut.
+ */
+export async function setTrims(db: Db, takeId: string, trims: { trim_start_ms?: number; trim_end_ms?: number }): Promise<void> {
+  const draft = (await db.selectFrom("takes").select("finished_from").where("id", "=", takeId).executeTakeFirst())?.finished_from;
+  await db.updateTable("takes").set(trims).where("id", "in", draft ? [takeId, draft] : [takeId]).execute();
+}
+
 /** The clips that play, on the timeline's clock. */
 export function laidOut(all: Placed[]): Laid[] {
   let at = 0;

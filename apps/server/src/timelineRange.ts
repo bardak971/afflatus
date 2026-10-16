@@ -10,7 +10,7 @@ import { isLinked, linkedToBin } from "./linked";
 import { sourceOf } from "./storage";
 import { inUse } from "./sweep";
 import { readVideo, videoFacts } from "./video";
-import { clockOf, laidOut, landingOnGrid, lengthOf, lengthOnGrid, plays, STILL_MS, visible, type AssetRow, type ClipRow, type Laid, type Placed, type TimelineCore } from "./timelineModel";
+import { clockOf, laidOut, landingOnGrid, lengthOf, lengthOnGrid, plays, setTrims, STILL_MS, visible, type AssetRow, type ClipRow, type Laid, type Placed, type TimelineCore } from "./timelineModel";
 import { precomputeOf } from "./precompute";
 import { windowRunUp } from "./timelineSource";
 
@@ -258,7 +258,7 @@ export class TimelineRange {
       .execute();
     await db.updateTable("clips").set({ take_id: second, updated_at: at }).where("id", "=", id).execute();
     // the first half stops at the moment
-    await db.updateTable("takes").set({ trim_end_ms: Math.max(0, Math.round(lengthOnGrid(asset) - take.tail_ms - atMs)) }).where("id", "=", take.id).execute();
+    await setTrims(db, take.id, { trim_end_ms: Math.max(0, Math.round(lengthOnGrid(asset) - take.tail_ms - atMs)) });
     return id;
   }
 
@@ -284,14 +284,14 @@ export class TimelineRange {
     if (p.clip.kind === "still") return void (await db.updateTable("clips").set({ still_ms: Math.max(STILL_MS.least, Math.round(keepMs)), updated_at: now() }).where("id", "=", p.clip.id).execute());
     const x = p.active!;
     const total = lengthOnGrid(x.asset);
-    await db.updateTable("takes").set({ trim_end_ms: Math.max(0, Math.round(total - x.take.tail_ms - (visible(x).start + keepMs))) }).where("id", "=", x.take.id).execute();
+    await setTrims(db, x.take.id, { trim_end_ms: Math.max(0, Math.round(total - x.take.tail_ms - (visible(x).start + keepMs))) });
   }
 
   /** A clip plays from `fromMs` into what it played. It no longer starts where the clip before stopped: a cut. */
   private async startAt(p: Placed, fromMs: number, db: Db) {
     if (p.clip.kind === "still") return void (await db.updateTable("clips").set({ still_ms: Math.max(STILL_MS.least, Math.round(p.clip.still_ms - fromMs)), updated_at: now() }).where("id", "=", p.clip.id).execute());
     const x = p.active!;
-    await db.updateTable("takes").set({ trim_start_ms: Math.max(0, Math.round(x.take.trim_start_ms + fromMs)) }).where("id", "=", x.take.id).execute();
+    await setTrims(db, x.take.id, { trim_start_ms: Math.max(0, Math.round(x.take.trim_start_ms + fromMs)) });
     if (p.clip.joined === "continue") await db.updateTable("clips").set({ joined: "cut", inputs: this.cutInputs(p.clip), updated_at: now() }).where("id", "=", p.clip.id).execute();
   }
 
