@@ -3,7 +3,7 @@ import { z } from "zod";
 import { costs, type CostsView } from "./costs";
 import { csvName, sendCsv } from "./csv";
 import { costsCsv } from "./csvExports";
-import type { Spending } from "./rented";
+import type { Spending } from "./rentedBilling";
 import { readSettings } from "./settings";
 import type { Services } from "./services";
 

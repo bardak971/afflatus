@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
 import { imageParts, imagePublic } from "../src/podImage";
-import { runwayNeed } from "../src/rented";
+import { runwayNeed } from "../src/rentedBilling";
 import { POD_IMAGES } from "../src/runpod";
 import { MEASURED_FROM, recordMeasure } from "../src/podMeasures";
 import { readSettings, updateSettings, writeSettings } from "../src/settings";

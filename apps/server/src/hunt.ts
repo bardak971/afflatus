@@ -9,7 +9,7 @@ import { filesUsed } from "./machineScans";
 import { dollars, took, type Say } from "./notifyWords";
 import { readJson, type JobRow } from "./queueModel";
 import { needsComfy } from "./queueOffline";
-import { refusalOf } from "./rented";
+import { refusalOf } from "./rentedDeploy";
 import { OUT_OF_MEMORY } from "./rendersRead";
 import { inUseSaid } from "./rentedVolumes";
 import type { GpuOffer, PodSpec } from "./runpod";

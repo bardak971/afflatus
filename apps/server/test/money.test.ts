@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
-import { shareIn } from "../src/rented";
+import { shareIn } from "../src/rentedBilling";
 import { runningRate } from "../src/runpod";
 import { get, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
