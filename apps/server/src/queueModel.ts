@@ -5,6 +5,7 @@ import type { Comfy } from "./comfy";
 import type { Db, Tables } from "./db";
 import type { Rate, StatRows } from "./forecast";
 import type { Registry } from "./registry";
+import type { Machine } from "./settings";
 import type { Storage } from "./storage";
 import type { TakeLinks, Timelines } from "./timelines";
 
@@ -168,4 +169,45 @@ export interface QueueCore {
   loadsModel?(recipe: Recipe<any>, input: Record<string, unknown>, job?: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit"> | null): Promise<string | null>;
   /** A job that needs no model, claimed and closed by the state machine; `work` is the job itself. */
   runTool(row: JobRow, work: (run: Running) => Promise<void>): Promise<void>;
+}
+
+/** A machine's lane: its ComfyUI, the job it runs, what it was last asked to load, whether it is paused by hand. */
+export interface Lane {
+  id: string;
+  machine: Machine | null;
+  comfy: Comfy | null;
+  running: Running | null;
+  /** The job being started on it, from the moment the pass picks it until it runs or turns out taken. */
+  starting: string | null;
+  /** ComfyUI holds a model this app had it load. Unknown after a restart: taken as not. */
+  holds: boolean;
+  unloadTimer: NodeJS.Timeout | null;
+  /**
+   * The base models the last job loaded (checkpoint or diffusion model, text encoders, VAE), file names joined by "|". A job
+   * that needs a base model that is not among them frees the memory first; another LoRA or upscaler does not. Stored, so
+   * that a restart of this app does not have ComfyUI unload a model the next job uses again; unknown (null) only before
+   * the first job ever and after the memory was freed by hand.
+   */
+  lastLoads: string | null;
+  /** The name of the model that is loaded, when it is known. */
+  lastModel: string | null;
+  /** Paused by hand on its own (Pause all is the queue's). */
+  paused: boolean;
+  /** Whether its ComfyUI answered the last time it was asked; null before. */
+  reachable: boolean | null;
+  /** The GPU its ComfyUI renders on, as it said when it last answered (its first device); null before. */
+  device: string | null;
+  /**
+   * The prompts its ComfyUI has that are not Afflatus's (queued from its own page, another tool), running and waiting, as
+   * its queue was last read; null before that, or when it could not be read. A machine with any takes no new job: its GPU
+   * is someone else's until they are done.
+   */
+  outside: { running: number; pending: number } | null;
+  /** When its queue was last read for them (readOutside), and the read under way with whether another is wanted after it. */
+  outsideAt: number;
+  outsideRead: Promise<void> | null;
+  outsideAgain: boolean;
+  /** Its state as kept across restarts, read once. */
+  ready: Promise<void>;
+  core: QueueCore;
 }

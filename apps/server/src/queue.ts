@@ -1,31 +1,32 @@
 import { EventEmitter } from "node:events";
 import { ComfyAway, ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, waitForOutputs, type Measured } from "@afflatus/comfy";
-import { expandWildcards, modelFileName, modelName, modelOf, parseInput, removedSaid, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
+import { expandWildcards, modelFileName, modelOf, parseInput, removedSaid, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import type { Comfy, MachineComfy } from "./comfy";
 import { newId, now, OWNER, type Db } from "./db";
 import { addedBy } from "./events";
 import { httpError } from "./errors";
 import type { HuntSummary } from "./hunt";
-import { machinePaces, paceOf, rates, statRows, type StatRows } from "./forecast";
+import { paceOf } from "./forecast";
 import { gathering, observeAdded, observePart } from "./serverMetrics";
 import type { Registry } from "./registry";
 import { record } from "./renders";
-import { runwayNeed } from "./rented";
-import { lackOn, type Lack } from "./machineScans";
 import { machineSaid, type Say } from "./notifyWords";
-import type { PodFiles, PodFileView } from "./podFiles";
-import { plan, planTotal, type Lane as Schedulable, type Planned, type Waiting } from "./schedule";
+import type { PodFileView } from "./podFiles";
+import { plan, planTotal } from "./schedule";
 import { FIRST_MACHINE, readSettings, type Machine } from "./settings";
 import type { Storage } from "./storage";
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
-import { CAP_REACHED, DEFAULT_QUEUE_OPTIONS, GPU_AT_WORK, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type QueueOptions, type Resume, type Running, type Usual } from "./queueModel";
+import { CAP_REACHED, DEFAULT_QUEUE_OPTIONS, GPU_AT_WORK, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type Lane, type QueueOptions, type Resume, type Running } from "./queueModel";
 import * as bulk from "./queueBulk";
 import { needsComfy, Offline } from "./queueOffline";
 import * as submitting from "./queueSubmit";
 import * as storing from "./queueStore";
 import * as tools from "./queueTools";
 import * as view from "./queueView";
+import { Forecasts } from "./queueForecast";
+import { Planner, type Able, type PodFetch } from "./queuePlan";
+import { Outside, outsideBusy } from "./queueOutside";
 
 // what the routes and the services name from here: the options, and the RIFE model lookup the timelines routes share with the slow-motion tool
 export { DEFAULT_QUEUE_OPTIONS, type QueueOptions };
@@ -55,21 +56,10 @@ const LOAD_FRESH_MS = 2 * 60_000;
  * this, and at most its forecast again. Forecasts have run 1.3 to 25 times too long, and a pod is billed all the while.
  */
 const FORECAST_SLACK_MS = 10 * 60_000;
-/**
- * How often an open page's poll reads a machine's ComfyUI queue (lookOutside) while its socket says it has prompts: each
- * entry carries its whole graph. A change its socket hears is read at once.
- */
-const OUTSIDE_EVERY_MS = 10_000;
-/** How long after its job ended a prompt is still known as Afflatus's: one stopped leaves ComfyUI's queue a moment after. */
-const OWN_KEPT_MS = 2 * 60_000;
 /** The lane of the jobs that need no ComfyUI. */
 const TOOLS = "tools";
-/** The longest a waiting job's forecast is kept while the record of render times does not change (see `kept`). */
-const FORECASTS_MS = 5 * 60_000;
-/** How long a running job has left, from what it was expected to take; null when that cannot be told. */
 /** Whether a render was lost because its machine stopped answering (silent past the wait, or not reached at all), not because its ComfyUI answered without the prompt. */
 const awayErr = (err: Error) => err instanceof ComfyAway || err instanceof ComfyUnreachable;
-const remainingOf = (run: Running | null): number | null => (run?.expectedMs && run.startedAt ? Math.max(0, run.expectedMs - (Date.now() - run.startedAt)) : null);
 
 /**
  * The GPU a machine's render is recorded under (render_stats.gpu): the one its ComfyUI says it renders on, its first device
@@ -81,95 +71,6 @@ export function gpuOf(device: string | null, gpus: ReadonlyArray<{ name: string 
   const name = (device ?? "").replace(/^\w+:\d+\s+/, "").replace(/\s+:\s+\S+$/, "").trim();
   if (name && name.toLowerCase() !== "cpu") return gpus.find((g) => g.name.toLowerCase() === name.toLowerCase())?.name ?? name;
   return gpus.length === 1 ? gpus[0]!.name : null;
-}
-
-/** A machine's lane: its ComfyUI, the job it runs, what it was last asked to load, whether it is paused by hand. */
-interface Lane {
-  id: string;
-  machine: Machine | null;
-  comfy: Comfy | null;
-  running: Running | null;
-  /** The job being started on it, from the moment the pass picks it until it runs or turns out taken. */
-  starting: string | null;
-  /** ComfyUI holds a model this app had it load. Unknown after a restart: taken as not. */
-  holds: boolean;
-  unloadTimer: NodeJS.Timeout | null;
-  /**
-   * The base models the last job loaded (checkpoint or diffusion model, text encoders, VAE), file names joined by "|". A job
-   * that needs a base model that is not among them frees the memory first; another LoRA or upscaler does not. Stored, so
-   * that a restart of this app does not have ComfyUI unload a model the next job uses again; unknown (null) only before
-   * the first job ever and after the memory was freed by hand.
-   */
-  lastLoads: string | null;
-  /** The name of the model that is loaded, when it is known. */
-  lastModel: string | null;
-  /** Paused by hand on its own (Pause all is the queue's). */
-  paused: boolean;
-  /** Whether its ComfyUI answered the last time it was asked; null before. */
-  reachable: boolean | null;
-  /** The GPU its ComfyUI renders on, as it said when it last answered (its first device); null before. */
-  device: string | null;
-  /**
-   * The prompts its ComfyUI has that are not Afflatus's (queued from its own page, another tool), running and waiting, as
-   * its queue was last read; null before that, or when it could not be read. A machine with any takes no new job: its GPU
-   * is someone else's until they are done.
-   */
-  outside: { running: number; pending: number } | null;
-  /** When its queue was last read for them (readOutside), and the read under way with whether another is wanted after it. */
-  outsideAt: number;
-  outsideRead: Promise<void> | null;
-  outsideAgain: boolean;
-  /** Its state as kept across restarts, read once. */
-  ready: Promise<void>;
-  core: QueueCore;
-}
-
-/** A form's forecast as the queue reads it (ms): on no machine in particular, and on each machine it was asked for. */
-/** `model`: the model file its renders are filed under (render_stats.model_file), also for a recipe that loads it from its family's slot; null when it cannot be built. */
-/** `samples`: how many past renders it rests on (0 when none). */
-type Expected = { ms: number | null; on: ReadonlyMap<string, number>; model: string | null; samples: number };
-
-/**
- * Of a waiting render, with several machines: the machines that can run it, and what keeps it off each of the others. A
- * rented pod that lacks only files it can be sent (`fetch`) is among the ones that can, with how long until they are there.
- */
-type Able = { can: Set<string>; lacks: Record<string, Lack>; fetch: Record<string, { files: Lack["files"]; packs?: string[]; ms: number }> };
-
-/**
- * The model files a rented pod can be sent (podFiles.ts), as the queue reads them: a job that lacks only files on a pod may
- * still go there, once they came. Set by services.ts; null: no machine is ever sent a file.
- */
-export interface PodFetch {
-  /** Why these files (or node packs) cannot come to that machine: one of them failed there already. Null: they can. */
-  failed(machine: string, files: Lack["files"], packs?: string[]): string | null;
-  /** Why these files do not fit on that pod's disk, beside what it could delete when it makes room; null: they fit, or it is not known. */
-  short(machine: string, files: Lack["files"]): Promise<string | null>;
-  /** How long until these files (and node packs) are on that machine (ms): what is left of each, at the slow end of the speeds measured. */
-  untilThere(machine: string, files: Lack["files"], packs?: string[]): Promise<number>;
-  /** Have them sent: for a job that will run there ("need"), or for one that went elsewhere this time ("ahead": files only, never packs, which restart its ComfyUI). */
-  want(machine: string, files: Lack["files"], tier: "need" | "ahead", job?: string, packs?: string[]): void;
-  /** A job's files on that machine: all there, still coming, one failed (null: it asked for none). */
-  jobState(machine: string, job: string): "ready" | "waiting" | "failed" | null;
-  /** The machine's node packs wait for its ComfyUI to restart, or it restarts now: no job starts there meanwhile. */
-  holding(machine: string): boolean;
-  /** Files are coming to that machine now, their bytes moving: what holds a rented pod's idle time (podFiles.ts moving). */
-  moving(machine: string): boolean;
-}
-
-/** A rented pod's files as the queue reads them, from podFiles.ts. */
-export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "short" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding" | "moving">): PodFetch {
-  return {
-    short: (machine, list) => files.short(machine, list),
-    failed: (machine, list, packs = []) => list.map((f) => files.failed(machine, f.folder, f.file)).find((why) => why !== null) ?? files.failedPacks(machine, packs),
-    untilThere: (machine, list, packs) => files.untilThere(machine, list, packs),
-    want: (machine, list, tier, job, packs) => {
-      files.want(machine, list, { tier, ...(job ? { job } : {}) });
-      if (tier === "need" && job && packs?.length) files.wantPacks(machine, packs, job);
-    },
-    jobState: (machine, job) => files.jobState(machine, job)?.state ?? null,
-    holding: (machine) => files.holding(machine),
-    moving: (machine) => files.moving(machine),
-  };
 }
 
 export class Queue {
@@ -188,6 +89,12 @@ export class Queue {
   private firstId = FIRST_MACHINE;
   /** No ComfyUI away and back (queueOffline.ts). */
   private readonly offline: Offline;
+  /** The forecasts, kept while the record of render times does not change (queueForecast.ts). */
+  private readonly forecasts: Forecasts;
+  /** The plan the scheduler is given at each pass (queuePlan.ts). */
+  private readonly planner: Planner;
+  /** Work from outside Afflatus on each machine's ComfyUI (queueOutside.ts). */
+  private readonly outside: Outside;
   private retry: NodeJS.Timeout | null = null;
   private stopped = false;
   /** While an update waits for the queue (updates.ts): only these jobs may start, the rest wait for the new version. Null: any. */
@@ -203,7 +110,6 @@ export class Queue {
   onOutside: ((machine: string, outside: { running: number; pending: number } | null) => void) | null = null;
   /** The machines a ComfyUI gone mid-render was said of, until they answer again: said once, however it is found out. */
   private goneSaid = new Set<string>();
-  /** How many passes picked another job over a waiting one: a job is passed over a few times at most. */
 
   constructor(
     private readonly db: Db,
@@ -233,6 +139,37 @@ export class Queue {
     });
     // a machine got a file, or its families were switched: a job that waited for one may go there now
     this.events.on("setup", () => void this.pump());
+    this.forecasts = new Forecasts({
+      db,
+      machines: () => this.machineLanes().map((l) => l.id),
+      forecastOf: (recipeId, input, o) => submitting.forecastOf(this.core, recipeId, input, o),
+    });
+    // read through the queue at each call: services.ts sets the balance checks and the pods' files after the queue is made,
+    // and a test may stand in for `expected`
+    const self = this;
+    this.planner = new Planner({
+      db, registry,
+      machineLanes: () => this.machineLanes(),
+      lane: (id) => this.lanes.get(id),
+      unavailable: (machine) => this.unavailable(machine),
+      get podFetch() { return self.podFetch; },
+      heldOn: (r) => this.heldOn(r),
+      allPaused: () => this.allPaused(),
+      retryLater: () => this.retryLater(),
+      paces: () => this.forecasts.paces(),
+      expected: (recipe, input, cold, job, machine) => this.expected(recipe, input, cold, job, machine),
+      expectedAll: (recipe, input, cold, job) => this.forecasts.expectedAll(recipe, input, cold, job),
+      fitsBalance: (ms) => this.fitsBalance(ms),
+      balanceNeed: (machine, recipeId, renderMs, fetchMs) => this.balanceNeed(machine, recipeId, renderMs, fetchMs),
+    });
+    this.outside = new Outside({
+      db, events: this.events,
+      machineLanes: () => this.machineLanes(),
+      stale: (machine) => this.stale.get(machine),
+      stopped: () => this.stopped,
+      onOutside: (machine, outside) => this.onOutside?.(machine, outside),
+      pump: () => void this.pump(),
+    });
   }
 
   /** The door the submitting, storing, tools and view modules reach the first machine's lane through (queueModel.ts): what screens that know one ComfyUI read. */
@@ -264,11 +201,11 @@ export class Queue {
       get lastModel() { return l.lastModel; },
       get offlineSince() { return self.offline.since; },
       loaded: (loads, model) => this.loaded(l, loads, model),
-      usual: () => this.usual(),
-      statRows: (modelFile) => this.statRows(modelFile),
-      paces: () => this.paces(),
+      usual: () => this.forecasts.usual(),
+      statRows: (modelFile) => this.forecasts.statRows(modelFile),
+      paces: () => this.forecasts.paces(),
       expected: (recipe, input, cold, job, machine) => this.expected(recipe, input, cold, job, machine),
-      loadsModel: async (recipe, input, job) => modelOf(recipe.inputs, input) ?? (await this.expectedAll(recipe, input, false, job ?? null)).model,
+      loadsModel: async (recipe, input, job) => modelOf(recipe.inputs, input) ?? (await this.forecasts.expectedAll(recipe, input, false, job ?? null)).model,
       runTool: (row, work) => this.runTool(l, row, work),
     };
     if (id !== TOOLS) l.ready = this.readLane(l);
@@ -300,7 +237,7 @@ export class Queue {
       // a lane keeps the client its running job started with: a new address is taken up between jobs
       if (!lane.running || !lane.comfy) lane.comfy = comfy;
       // its ComfyUI's queue changed (a prompt queued from its own page, one done): whose its prompts are is read again
-      if (lane.comfy?.monitor) lane.comfy.monitor.onQueue = () => void this.readOutside(lane);
+      if (lane.comfy?.monitor) lane.comfy.monitor.onQueue = () => void this.outside.readOutside(lane);
       return lane;
     });
     // a machine taken out of the settings: its lane goes once it is idle
@@ -591,7 +528,7 @@ export class Queue {
     const asked = machine ? lanes.filter((l) => l.id === machine) : lanes;
     if (machine && !asked.length) throw httpError("there is no ComfyUI with that id");
     // nor where ComfyUI runs work from outside Afflatus: its models are in use, by someone else
-    const free = asked.filter((l) => !l.running?.gpu && !this.outsideBusy(l));
+    const free = asked.filter((l) => !l.running?.gpu && !outsideBusy(l));
     if (!free.length) {
       throw httpError(asked.some((l) => !l.running?.gpu) ? "ComfyUI is busy with work queued outside Afflatus, and its models are in use. Wait for it to end." : "A render is under way and its model is loaded. Wait for it, or cancel it first.");
     }
@@ -680,86 +617,15 @@ export class Queue {
   /** Every waiting job cancelled in one statement, or those of `ids` that still wait (queueBulk.ts). */
   cancelWaiting(ids?: readonly string[]) { return bulk.cancelWaiting(this.core, (id) => this.failDependents(id), (machine, promptId) => this.interruptOn(machine, promptId), ids); }
 
-  /** The record of render times as it stands (how many rows, the newest), read at most once a second: what the forecasts are kept by. */
-  private recordMark: { at: number; value: Promise<string> } | null = null;
-  private mark(): Promise<string> {
-    if (!this.recordMark || Date.now() - this.recordMark.at > 1_000) {
-      const value = this.db.selectFrom("render_stats").select((eb) => [eb.fn.countAll<number>().as("n"), eb.fn.max("created_at").as("at")]).executeTakeFirstOrThrow()
-        .then((r) => `${r.n}|${r.at ?? ""}`, () => `unread ${Date.now()}`);
-      this.recordMark = { at: Date.now(), value };
-    }
-    return this.recordMark.value;
-  }
-
-  /**
-   * The waiting jobs' forecasts by form, and what they are worked out from (each model's renders, the recipes' usual times):
-   * a job waits unchanged, so it is worked out once, and again when the record of render times changes (a render ended, the
-   * hourly fold, the record forgotten), not every half minute; at the latest after FORECASTS_MS, for what else moves a forecast
-   * (the clips a waiting clip joins onto, a ComfyUI back that builds the graphs it could not).
-   */
-  private kept: { mark: string; at: number; by: Map<string, Promise<Expected>>; usual: Promise<Usual> | null; rows: Map<string, Promise<StatRows>> } = { mark: "", at: 0, by: new Map(), usual: null, rows: new Map() };
-  private async forecasts() {
-    const mark = await this.mark();
-    if (mark !== this.kept.mark || Date.now() - this.kept.at > FORECASTS_MS) this.kept = { mark, at: Date.now(), by: new Map(), usual: null, rows: new Map() };
-    return this.kept;
-  }
-
-  /** What the forecast falls back on: read once while the record stays as it is, however many forms ask at once. */
-  private async usual(): Promise<Usual> {
-    const kept = await this.forecasts();
-    if (!kept.usual) {
-      const usual = rates(this.db).then((r) => ({ rates: r }));
-      kept.usual = usual;
-      usual.catch(() => {
-        if (kept.usual === usual) kept.usual = null;
-      });
-    }
-    return kept.usual;
-  }
-
-  /** A model's past renders (forecast.ts statRows), read once while the record stays as it is: every waiting job on every machine reads them. */
-  private async statRows(modelFile: string): Promise<StatRows> {
-    const kept = await this.forecasts();
-    let rows = kept.rows.get(modelFile);
-    if (!rows) {
-      const read = statRows(this.db, modelFile);
-      rows = read;
-      kept.rows.set(modelFile, read);
-      read.catch(() => {
-        if (kept.rows.get(modelFile) === read) kept.rows.delete(modelFile);
-      });
-    }
-    return rows;
-  }
   /**
    * About how long a render will take: the forecast of its form, with what loading its model adds when it is not the one
    * loaded before it. On `machine` when it is said: its own renders of the model, else the others' at its pace (forecast.ts
    * onMachine); a form placed from its recipe's usual times alone (no graph built) at the machine's pace.
    */
   private async expected(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean, job: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit"> | null = null, machine: string | null = null): Promise<number | null> {
-    const e = await this.expectedAll(recipe, input, cold, job);
+    const e = await this.forecasts.expectedAll(recipe, input, cold, job);
     if (machine === null || e.ms === null) return e.ms;
-    return e.on.get(machine) ?? e.ms * (paceOf(await this.paces(), machine, recipe.family) ?? 1);
-  }
-
-  /** The forecast of a form as `expected` reads it: on no machine in particular, and on each machine (one graph built for all). */
-  private async expectedAll(recipe: Recipe<any>, input: Record<string, unknown>, cold: boolean, job: Pick<JobRow, "finished_from" | "clip_id" | "clip_fit"> | null): Promise<Expected> {
-    const kept = await this.forecasts();
-    const machines = this.machineLanes().map((l) => l.id);
-    const key = `${recipe.id}
-${cold}
-${job?.finished_from}
-${job?.clip_id}
-${job?.clip_fit}
-${machines.join(",")}
-${JSON.stringify(input)}`;
-    let got = kept.by.get(key);
-    if (!got) {
-      got = submitting.forecastOf(this.core, recipe.id, input, { cold, finishedFrom: job?.finished_from, clip: job?.clip_id ? { id: job.clip_id, fit: Boolean(job.clip_fit) } : null, machines })
-        .then((f) => ({ ms: f?.forecast.ms ?? null, on: new Map(Object.entries(f?.on ?? {}).map(([m, g]) => [m, g.ms])), model: f?.model || null, samples: f?.forecast.samples ?? 0 }), () => ({ ms: null, on: new Map<string, number>(), model: null, samples: 0 }));
-      kept.by.set(key, got);
-    }
-    return got;
+    return e.on.get(machine) ?? e.ms * (paceOf(await this.forecasts.paces(), machine, recipe.family) ?? 1);
   }
 
   /** Whether the queue is paused by hand (Pause all): a queued render does not start. */
@@ -788,7 +654,7 @@ ${JSON.stringify(input)}`;
     const open = this.allPaused() ? [] : (await this.refresh()).filter((l) => !l.paused && !this.unavailable(l.id));
     return new Set(rows.filter((r) => {
       if (!needsComfy(r)) return true;
-      const makes = this.makes(r);
+      const makes = this.planner.makes(r);
       const held = this.heldOn(r);
       const pin = r.pin_machine ?? held;
       // a render waiting for the machine it was lost on is takeable only while that machine answers: an update does not
@@ -893,9 +759,9 @@ ${JSON.stringify(input)}`;
     const paused = this.allPaused();
     const lanes = await this.refresh();
     const rows = await this.db.selectFrom("jobs").selectAll().where("status", "=", "queued").orderBy("priority").orderBy("created_at").execute();
-    const able = await this.ableOf(rows.filter(needsComfy));
-    const planned = paused ? new Map<string, { lane: string; startsInMs: number; endsInMs: number }>() : await this.forecastPlan(lanes, rows, able);
-    const status = await view.status(this.core, views, paused, planned, await this.paces(), able);
+    const able = await this.planner.ableOf(rows.filter(needsComfy));
+    const planned = paused ? new Map<string, { lane: string; startsInMs: number; endsInMs: number }>() : await this.planner.forecastPlan(lanes, rows, able);
+    const status = await view.status(this.core, views, paused, planned, await this.forecasts.paces(), able);
     // when the waiting renders are all done, as the plan shares them between the machines (ms from now): the last end, not
     // their sum (40 jobs on 4 machines were said 5 min, and done in 75 s); null with none planned, or one whose end cannot be told
     const ends = [...planned.values()].map((p) => p.endsInMs);
@@ -917,7 +783,7 @@ ${JSON.stringify(input)}`;
       const r = l.running ? ran.find((x) => x.id === l.running!.id) : undefined;
       if (r && r.recipe_id !== EXPORT_JOB) busy.add(l.id);
       // its GPU at work for someone else (ComfyUI's own page, another tool) is busy all the same
-      if (this.outsideBusy(l)) busy.add(l.id);
+      if (outsideBusy(l)) busy.add(l.id);
     }
     return { waiting: Number(waiting.n), running: ran.length > 0, busy };
   }
@@ -1008,17 +874,17 @@ ${JSON.stringify(input)}`;
         if (!this.paused && gpuRows.length) {
           // each free machine is asked whether it answers (a busy one does); the plan is made with those that may take work
           // and one that answers, whether its ComfyUI has work of someone else's (its own page, another tool): it takes nothing then
-          for (const l of open) if (free(l) && (await answers(l))) await this.freshOutside(l);
-          const able = await this.ableOf(gpuRows);
-          where = plan(await this.schedulable(open), await this.planned(gpuRows, able));
-          this.sendFiles(gpuRows, able, where);
+          for (const l of open) if (free(l) && (await answers(l))) await this.outside.freshOutside(l);
+          const able = await this.planner.ableOf(gpuRows);
+          where = plan(await this.planner.schedulable(open), await this.planner.planned(gpuRows, able));
+          this.planner.sendFiles(gpuRows, able, where);
           for (const lane of open) {
-            if (!free(lane) || lane.reachable === false || this.outsideBusy(lane)) continue;
+            if (!free(lane) || lane.reachable === false || outsideBusy(lane)) continue;
             // on a pod getting files, the first job planned there whose own files are all there
             // a pod whose node packs wait for its ComfyUI to restart (or that restarts now) takes nothing until it is back: the
             // job that needs them is first in its line, and a job sent meanwhile would be lost in the restart
             if (this.podFetch?.holding(lane.id)) continue;
-            const next = gpuRows.find((r) => !taken.has(r.id) && where.get(r.id)?.lane === lane.id && this.filesThere(r, lane, able));
+            const next = gpuRows.find((r) => !taken.has(r.id) && where.get(r.id)?.lane === lane.id && this.planner.filesThere(r, lane, able));
             if (!next) continue;
             this.startOn(lane, next);
             taken.add(next.id);
@@ -1029,7 +895,7 @@ ${JSON.stringify(input)}`;
         } else if (gpuRows.length) {
           // Pause all: nothing starts, but a pod (one deployed meanwhile) is sent the waiting jobs' files ahead, so that it
           // is ready on Resume. Its idle time is held while they move (podFiles.ts moving), and runs again once they are in
-          this.sendFiles(gpuRows, await this.ableOf(gpuRows), where);
+          this.planner.sendFiles(gpuRows, await this.planner.ableOf(gpuRows), where);
         }
         // the machines that answered this pass, or that run a job now, say whether any ComfyUI is there. A paused machine is
         // asked nothing for the plan: before every ComfyUI is called away (whileOffline gives the jobs up after a while),
@@ -1077,168 +943,6 @@ ${JSON.stringify(input)}`;
     }
   }
 
-  /** The machines that may take work now, as the scheduler reads them: free in how long, what they hold, their learned pace. */
-  private async schedulable(open: Lane[]): Promise<Schedulable[]> {
-    const paces = await this.paces();
-    return Promise.all(open
-      .filter((l) => l.reachable !== false && !this.unavailable(l.id))
-      .map(async (l) => ({
-        id: l.id, takes: l.machine!.takes,
-        // busy with work from outside Afflatus: free at a time that cannot be told, so that a machine free now is planned first
-        busyForMs: l.running || l.starting ? remainingOf(l.running) ?? (await this.untilEnd(l)) : this.outsideBusy(l) ? null : 0,
-        holds: new Set(l.lastLoads ? l.lastLoads.split("|").map(modelName) : []),
-        pace: paceOf(paces, l.id) ?? 1,
-      })));
-  }
-
-  /**
-   * How long a machine's job has left when it does not say yet: one being started or sent (its expected time comes back
-   * with the prompt) is taken at its own forecast on that machine, as the waiting list has it, less what it ran; null when
-   * nothing like it was rendered (then the machine is not waited for).
-   */
-  private async untilEnd(lane: Lane): Promise<number | null> {
-    const id = lane.running?.id ?? lane.starting;
-    const row = id ? await this.db.selectFrom("jobs").selectAll().where("id", "=", id).executeTakeFirst() : undefined;
-    const recipe = row && row.recipe_id !== CUT_JOB && row.recipe_id !== EXPORT_JOB ? this.registry.recipe(row.recipe_id) : undefined;
-    if (!row || !recipe) return null;
-    const input = readJson<Record<string, unknown>>(row.inputs, {});
-    // a recipe that loads its model from its family's slot (SCAIL-2, the tools) names none on its form: the one its graph loads
-    const model = modelOf(recipe.inputs, input) ?? (await this.expectedAll(recipe, input, false, row)).model;
-    const held = new Set(lane.lastLoads ? lane.lastLoads.split("|").map(modelName) : []);
-    const ms = await this.expected(recipe, input, Boolean(model && !held.has(model)), row, lane.id);
-    if (ms === null) return null;
-    const ran = lane.running?.startedAt ? Date.now() - lane.running.startedAt : 0;
-    return Math.max(0, ms - ran);
-  }
-
-  /**
-   * With several machines, the machines that can run each waiting render: its recipe ready there, its family on there, the
-   * files it asks for listed there (machineScans.ts lackOn), and what keeps it off each of the others. A machine known to be
-   * away, or whose scan cannot be read, is not held against a job. Nothing with one machine: it takes everything, as it always did.
-   */
-  private async ableOf(rows: JobRow[]): Promise<Map<string, Able>> {
-    const out = new Map<string, Able>();
-    const lanes = this.machineLanes().filter((l) => l.machine && l.comfy);
-    // one machine takes everything, unless it is a rented pod whose balance a job would outlast
-    if ((lanes.length < 2 && !lanes.some((l) => l.machine!.rented)) || !rows.length) return out;
-    const settings = await readSettings(this.db).catch(() => null);
-    if (!settings) return out;
-    const machines = new Map(settings.machines.map((m) => [m.id, m]));
-    // a machine known to be away, or a rented pod not running, is not asked (a dead pod's address would hold the pass)
-    const scans = await Promise.all(lanes.map(async (l) => ({ lane: l, scan: l.reachable === false || this.unavailable(l.id) ? null : await l.comfy!.scan().catch(() => null) })));
-    const familyOf = (id: string) => this.registry.recipe(id)?.family;
-    for (const r of rows) {
-      const recipe = r.recipe_id === CUT_JOB || r.recipe_id === EXPORT_JOB ? undefined : this.registry.recipe(r.recipe_id);
-      if (!recipe) continue;
-      const input = readJson<Record<string, unknown>>(r.inputs, {});
-      const can = new Set<string>();
-      const lacks: Record<string, Lack> = {};
-      const fetch: Able["fetch"] = {};
-      // a job pinned to a machine (or held for the one it was lost on) runs nowhere else: no other pod is sent its files
-      // (a job pinned to this PC had its 13 GB model fetched onto the pod, ahead of a render that could never come there)
-      const pin = r.pin_machine ?? this.heldOn(r);
-      // every machine of a job worked out at once (its balance, its files' time on a pod)
-      await Promise.all(scans.map(async ({ lane, scan }) => {
-        // a rented pod whose ComfyUI cannot be read now (booting, restarting for node packs, away) starts with nothing: what
-        // it has is not known, so it is not given the job (a ComfyUI of the user's own is not held against a job for that)
-        // A pod at a spending cap says so beside the job: it takes nothing new, and stops once its render ends
-        if (lane.machine!.rented && !scan?.comfy.online) {
-          // one that answers but whose scan did not (its node list too slow to come on a fresh pod) is read again soon:
-          // nothing else would plan again while it answers, and it would idle toward its stop with its jobs waiting
-          if (lane.reachable === true && !this.unavailable(lane.id)) this.retryLater();
-          lacks[lane.id] = { off: false, files: [], sendable: false, why: this.unavailable(lane.id) === CAP_REACHED ? CAP_REACHED : "its ComfyUI is not answering yet" };
-          return;
-        }
-        // a lone rented pod is asked too: what it lacks may be sent to it
-        const lack = (lanes.length > 1 || lane.machine!.rented) && scan?.comfy.online ? lackOn(recipe, input, scan, settings, machines.get(lane.id) ?? lane.machine!, familyOf) : null;
-        // a pod that lacks only files it can be sent: it can run the job once they came, their time to come part of what the
-        // balance must last
-        const fits = Boolean(lack?.sendable && lane.machine!.rented && this.podFetch && !this.podFetch.failed(lane.id, lack.files, lack.packs));
-        // files that do not fit on its disk (beside what it could delete): the job goes elsewhere, and its row says why
-        const short = fits ? await this.podFetch!.short(lane.id, lack!.files) : null;
-        const sendable = fits && !short;
-        const fetchMs = sendable ? await this.podFetch!.untilThere(lane.id, lack!.files, lack!.packs) : 0;
-        const balance = await this.balanceLack(r, lane, fetchMs);
-        if (lack && !balance && sendable) {
-          can.add(lane.id);
-          if (!pin || pin === lane.id) fetch[lane.id] = { files: lack.files, ...(lack.packs ? { packs: lack.packs } : {}), ms: fetchMs };
-          return;
-        }
-        const failed = short ?? (lack?.sendable && lane.machine!.rented && this.podFetch ? this.podFetch.failed(lane.id, lack.files, lack.packs) : null);
-        if (lack || balance) lacks[lane.id] = { ...(lack ?? { off: false, files: [], sendable: false }), ...(balance ? { balance } : {}), ...(failed ? { failed } : {}) };
-        else can.add(lane.id);
-      }));
-      // a timeline clip of a model that joins in a kept latent (H3): on a machine that has the join's nodes (the Afflatus node
-      // pack), while any has them. Sent elsewhere, the clip saves no latent and the clip after it joins on frames with no word
-      const latentNodes = r.clip_id ? recipe.traits?.latentNodes : undefined;
-      if (latentNodes?.length && can.size > 1) {
-        const packed = new Set<string>();
-        for (const id of can) {
-          const lane = scans.find((s) => s.lane.id === id)?.lane;
-          const catalog = lane ? await lane.comfy!.catalog().catch(() => null) : null;
-          if (catalog && latentNodes.every((n) => n in catalog)) packed.add(id);
-        }
-        if (packed.size && packed.size < can.size) {
-          for (const id of [...can]) {
-            if (packed.has(id)) continue;
-            can.delete(id);
-            delete fetch[id];
-            lacks[id] = { off: false, files: [], sendable: false, why: "its ComfyUI has no Afflatus node pack, which a timeline clip's joins in the latent take" };
-          }
-        }
-      }
-      out.set(r.id, { can, lacks, fetch });
-    }
-    return out;
-  }
-
-  /**
-   * The waiting jobs as the scheduler reads them: what each makes, its pin, the machines that can run it, the job it waits
-   * for, its model and its forecast with and without loading it. A finish on the GPU is priced from its route's own finishes
-   * on each machine (queueView finishesOf), and frees the model before the render after it.
-   */
-  private async planned(rows: JobRow[], able: ReadonlyMap<string, Able> = new Map()): Promise<Planned[]> {
-    const paces = await this.paces();
-    const finishes = await view.finishesOf(this.db, rows, this.machineLanes().map((l) => ({ id: l.id, pace: paces.get(l.id) ?? 1 })));
-    return Promise.all(rows.map(async (r): Promise<Planned> => {
-      const fetch = able.get(r.id)?.fetch ?? {};
-      const fetchMs = Object.keys(fetch).length ? new Map(Object.entries(fetch).map(([lane, f]) => [lane, f.ms])) : undefined;
-      const base = { id: r.id, makes: this.makes(r), pin: r.pin_machine ?? this.heldOn(r), can: able.get(r.id)?.can, ...(fetchMs ? { fetchMs } : {}), ...(r.depends_on ? { after: r.depends_on } : {}) };
-      const recipe = r.recipe_id === CUT_JOB ? undefined : this.registry.recipe(r.recipe_id);
-      const finish = finishes.get(r.id);
-      if (!recipe) return { ...base, model: null, renderMs: finish?.ms ?? null, loadMs: null, ...(finish?.on.size ? { renderOn: finish.on } : {}), frees: r.recipe_id === CUT_JOB && tools.usesGpu(r) };
-      const input = readJson<Record<string, unknown>>(r.inputs, {});
-      const [warm, cold] = await Promise.all([this.expectedAll(recipe, input, false, r), this.expectedAll(recipe, input, true, r)]);
-      // each machine's own figures when its renders (or its pace) say them: the scheduler reads those before the common one at its pace
-      const loadOn = new Map([...warm.on].flatMap(([m, ms]) => (cold.on.has(m) ? [[m, Math.max(0, cold.on.get(m)! - ms)] as const] : [])));
-      // loading ahead renders nothing: its cost is the load alone
-      return {
-        // the model its graph loads when its form names none (a recipe loading it from its family's slot): where it is held
-        // is where it goes, as for any other model, and a machine holding another is not taken for warm
-        ...base, model: modelOf(recipe.inputs, input) ?? warm.model, renderMs: r.warm ? 0 : warm.ms, loadMs: warm.ms !== null && cold.ms !== null ? Math.max(0, cold.ms - warm.ms) : null,
-        ...(r.warm ? {} : { renderOn: warm.on }), loadOn,
-      };
-    }));
-  }
-
-  private paceCache: { at: number; value: Promise<Map<string, number>> } | null = null;
-  /** Each machine's learned pace (forecast.ts machinePaces), read again once a minute. */
-  private paces(): Promise<Map<string, number>> {
-    if (!this.paceCache || Date.now() - this.paceCache.at > 60_000) this.paceCache = { at: Date.now(), value: machinePaces(this.db).catch(() => new Map<string, number>()) };
-    return this.paceCache.value;
-  }
-
-  /** Where each waiting job will probably run and when it starts, as the screens show it: the plan of now, no machine asked again. */
-  private async forecastPlan(lanes: Lane[], rows: JobRow[], able: ReadonlyMap<string, Able>): Promise<Map<string, { lane: string; startsInMs: number; endsInMs: number }>> {
-    return plan(await this.schedulable(lanes.filter((l) => !l.paused && l.machine)), await this.planned(rows.filter(needsComfy), able));
-  }
-
-  /** What a job makes, as a machine's "takes" reads it: a picture, or a video (a clip, a sound, a finish, a slow motion). */
-  private makes(r: JobRow): Waiting["makes"] {
-    if (r.recipe_id === CUT_JOB || r.recipe_id === EXPORT_JOB) return "video";
-    return this.registry.recipe(r.recipe_id)?.output === "image" ? "image" : "video";
-  }
-
   /** A job started on a lane: claimed there by `run` or `runTool`, and a new pass once it ends. */
   private startOn(lane: Lane, row: JobRow): void {
     lane.starting = row.id;
@@ -1261,7 +965,6 @@ ${JSON.stringify(input)}`;
     }, this.opts.offlineRetryMs);
   }
 
-  /** What the page's status poll (events.ts) found of the ComfyUIs: whether any answered (queueOffline.ts), and each machine's own answer. */
   /**
    * A machine that cannot take work now, and why: a rented pod that is not running (rented.ts sets it). It is never asked,
    * never planned for; what is pinned to it waits for it. Asked at each pass.
@@ -1282,51 +985,6 @@ ${JSON.stringify(input)}`;
    */
   balanceNeed: (machine: string, recipeId: string, renderMs: number, fetchMs: number) => Promise<number> = async (_m, _r, renderMs, fetchMs) => renderMs + fetchMs;
 
-  /** How long a job would take on this machine, loading its model included, from its renders there or at its learned pace (ms); null: not known. */
-  private async lengthOn(r: JobRow, machine: string): Promise<number | null> {
-    const recipe = r.recipe_id === CUT_JOB || r.recipe_id === EXPORT_JOB ? undefined : this.registry.recipe(r.recipe_id);
-    if (!recipe) return null;
-    return this.expected(recipe, readJson<Record<string, unknown>>(r.inputs, {}), true, r, machine);
-  }
-
-  /**
-   * The files the plan needs on rented pods, asked for: a job planned onto a pod lacking only files has them sent there
-   * first ("need"); one planned elsewhere has its files sent to the pods that lack them, for later ("ahead"). Nothing is
-   * fetched that no waiting job asks for. A job pinned to a machine has none ahead elsewhere (ableOf), and a pod paused on
-   * its own while others go (Use only this PC) gets files ahead only for a job pinned to it: what waits goes to the
-   * others. With every machine paused (Pause all) each pod gets them, as the whole line waits for Resume.
-   */
-  private sendFiles(rows: JobRow[], able: ReadonlyMap<string, Able>, where: ReadonlyMap<string, { lane: string }>): void {
-    if (!this.podFetch) return;
-    const all = this.allPaused();
-    for (const r of rows) {
-      const fetch = able.get(r.id)?.fetch ?? {};
-      const on = where.get(r.id)?.lane;
-      for (const [lane, f] of Object.entries(fetch)) {
-        if (lane !== on && !all && this.lanes.get(lane)?.paused && r.pin_machine !== lane) continue;
-        this.podFetch.want(lane, f.files, lane === on ? "need" : "ahead", lane === on ? r.id : undefined, f.packs);
-      }
-    }
-  }
-
-  /** Whether a job planned onto this machine has its files there: always, unless it is a pod still getting them. */
-  private filesThere(r: JobRow, lane: Lane, able: ReadonlyMap<string, Able>): boolean {
-    if (!able.get(r.id)?.fetch[lane.id]) return true;
-    return this.podFetch?.jobState(lane.id, r.id) === "ready";
-  }
-
-  /**
-   * What keeps a job off a rented pod for its balance: null when it ends there, its files fetched first, before the balance
-   * does. A render with no forecast is weighed at a floor (rented.ts runwayNeed): left out, it went whatever the balance.
-   */
-  private async balanceLack(r: JobRow, lane: Lane, fetchMs = 0): Promise<Lack["balance"] | null> {
-    if (!lane.machine?.rented) return null;
-    const render = await this.lengthOn(r, lane.id);
-    const need = render === null ? runwayNeed({ renderMs: null, fetchMs, sure: false }) : await this.balanceNeed(lane.id, r.recipe_id, render, fetchMs);
-    const fit = this.fitsBalance(need);
-    return fit.ok || need === null || fit.leftMs === null ? null : { leftMs: fit.leftMs, needMs: need };
-  }
-
   /** Rented pods' files: set by services.ts. */
   podFetch: PodFetch | null = null;
 
@@ -1346,12 +1004,6 @@ ${JSON.stringify(input)}`;
     return Boolean(lane?.running || lane?.starting);
   }
 
-  /** Whether a machine's ComfyUI has work from outside Afflatus (its own page, another tool), running or waiting, as last read. */
-  private outsideBusy(lane: Lane | undefined): boolean {
-    const o = lane?.outside;
-    return Boolean(o && o.running + o.pending > 0);
-  }
-
   /**
    * Whether a machine's ComfyUI has work from outside Afflatus, its queue read now: for a rented pod's idle time (rented.ts),
    * which runs with no page open. A machine whose queue cannot be read has none.
@@ -1360,108 +1012,20 @@ ${JSON.stringify(input)}`;
     // a pod added since the last pass has no lane yet: the machines are read for it
     const lane = this.lanes.get(machine) ?? (await this.refresh()).find((l) => l.id === machine);
     if (!lane?.machine) return false;
-    await this.readOutside(lane);
-    return this.outsideBusy(lane);
+    await this.outside.readOutside(lane);
+    return outsideBusy(lane);
   }
 
   /** Whether a machine is at work, Afflatus's or someone else's in its ComfyUI, as last read: not restarted, nor its disk hashed, under it. */
   busyOn(machine: string): boolean {
-    return this.runningOn(machine) || this.outsideBusy(this.lanes.get(machine));
+    return this.runningOn(machine) || outsideBusy(this.lanes.get(machine));
   }
 
-  /**
-   * Every machine's work from outside Afflatus, looked at by an open page's poll (events.ts): read when its socket says its
-   * ComfyUI has prompts (or cannot say), at most every OUTSIDE_EVERY_MS; none when it says it has none. A status message
-   * missed is caught here.
-   */
-  async lookOutside(): Promise<void> {
-    await Promise.all(this.machineLanes().map(async (l) => {
-      if (l.reachable === false) return;
-      if (l.comfy?.monitor?.queueRemaining === 0) return this.noteOutside(l, { running: 0, pending: 0 });
-      if (Date.now() - l.outsideAt >= OUTSIDE_EVERY_MS) await this.readOutside(l);
-    }));
+  /** Every machine's work from outside Afflatus, looked at by an open page's poll (events.ts; queueOutside.ts lookOutside). */
+  lookOutside(): Promise<void> {
+    return this.outside.lookOutside();
   }
 
-  /** Before a free machine is given a job: its work from outside Afflatus, read unless its socket says its ComfyUI has none. */
-  private async freshOutside(lane: Lane): Promise<void> {
-    // opened, its socket says each change from then on, and the next pass needs no read
-    lane.comfy?.monitor?.ensure();
-    if (lane.comfy?.monitor?.queueRemaining === 0) this.noteOutside(lane, { running: 0, pending: 0 });
-    else await this.readOutside(lane);
-  }
-
-  /**
-   * The prompts that are Afflatus's own on a machine: the jobs running (their prompt id is saved before it is sent, and kept
-   * across a restart of Afflatus, whose client id is then another), the jobs queued again with the prompt their machine may
-   * still have (sent without an answer, lost from sight, a finish stopped by a restart: the next attempt asks for it and
-   * follows it), the ones that ended a moment ago (a stopped prompt leaves ComfyUI's queue just after), the prompts dropped
-   * there for a job gone elsewhere, and what this client sent. Taken for work from outside Afflatus, such a prompt held its
-   * own machine as busy: the job waiting to follow it was never started there, and the pod's idle time counted it as used.
-   */
-  private async ownPrompts(lane: Lane): Promise<(promptId: string) => boolean> {
-    const ids = new Set<string>(this.stale.get(lane.id) ?? []);
-    if (lane.running?.promptId) ids.add(lane.running.promptId);
-    const since = new Date(Date.now() - OWN_KEPT_MS).toISOString();
-    const rows = await this.db.selectFrom("jobs").select("resume").where("resume", "is not", null)
-      .where((eb) => eb.or([eb("status", "in", ["running", "queued"]), eb("finished_at", ">=", since)])).execute();
-    for (const r of rows) {
-      const id = readJson<{ promptId?: unknown }>(r.resume, {}).promptId;
-      if (typeof id === "string") ids.add(id);
-    }
-    const client = lane.comfy?.client;
-    return (promptId) => ids.has(promptId) || client?.classesOf?.(promptId) !== undefined;
-  }
-
-  /** A machine's ComfyUI queue read for work from outside Afflatus; one read at a time, and one more after it when asked meanwhile. */
-  private readOutside(lane: Lane): Promise<void> {
-    if (lane.outsideRead) {
-      lane.outsideAgain = true;
-      return lane.outsideRead;
-    }
-    lane.outsideRead = (async () => {
-      do {
-        lane.outsideAgain = false;
-        lane.outsideAt = Date.now();
-        const comfy = lane.comfy;
-        // stopped (shutting down): its database may be closed already, and what it would find is not shown anywhere
-        if (!comfy?.client.queue || this.stopped) return;
-        const q = await comfy.client.queue().catch(() => null);
-        if (!q) {
-          // not known while its ComfyUI does not answer: it reads as away, not as busy
-          this.noteOutside(lane, null);
-          continue;
-        }
-        // a read that fails (the database closing) leaves what was known: it is read again at the next change
-        const own = this.stopped ? null : await this.ownPrompts(lane).catch(() => null);
-        if (!own) return;
-        this.noteOutside(lane, { running: q.running.filter((e) => !own(e.promptId)).length, pending: q.pending.filter((e) => !own(e.promptId)).length });
-      } while (lane.outsideAgain);
-    })().finally(() => {
-      lane.outsideRead = null;
-    });
-    return lane.outsideRead;
-  }
-
-  /** A machine's work from outside Afflatus as just found: the screens told when it changed, and the line read again once it is done. */
-  private noteOutside(lane: Lane, next: Lane["outside"]): void {
-    // a render of Afflatus's waiting in ComfyUI behind it moves by nothing meanwhile: its silence counts from when it is done
-    if (next?.running && lane.running) lane.running.movedAt = Date.now();
-    this.onOutside?.(lane.id, next);
-    const was = lane.outside;
-    lane.outside = next;
-    if (was?.running === next?.running && was?.pending === next?.pending) return;
-    this.events.emit("queue");
-    if (was && was.running + was.pending > 0 && !this.outsideBusy(lane)) void this.pump();
-  }
-
-  /**
-   * How long the render a machine runs has been silent (no step, no node, no preview from ComfyUI) in a way that counts
-   * towards stuck, and whether its GPU is known idle all that time. With the GPU's load read lately, the whole silence counts
-   * whatever the forecast says: a node at work keeps its GPU busy, which moves the render (GPU_AT_WORK), so a silence with an
-   * idle GPU is a hang. Without it, a long node may be at work unseen: the silence counts once the render is past its
-   * forecast, which is waited for at most twice and at most FORECAST_SLACK_MS over, as forecasts run long. 0 when it runs
-   * nothing, a render not sent yet, or one still within its forecast. `now`: the caller's clock (a test's stand-in).
-   */
   /**
    * Whether Afflatus's render on a machine has not started in its ComfyUI, waiting there behind work from outside Afflatus:
    * at a spending cap it is not waited for (rented.ts), or the pod would bill on for someone else's work up to the cap's
@@ -1475,6 +1039,14 @@ ${JSON.stringify(input)}`;
     return !monitor || monitor.progress(run.promptId).phase === "waiting";
   }
 
+  /**
+   * How long the render a machine runs has been silent (no step, no node, no preview from ComfyUI) in a way that counts
+   * towards stuck, and whether its GPU is known idle all that time. With the GPU's load read lately, the whole silence counts
+   * whatever the forecast says: a node at work keeps its GPU busy, which moves the render (GPU_AT_WORK), so a silence with an
+   * idle GPU is a hang. Without it, a long node may be at work unseen: the silence counts once the render is past its
+   * forecast, which is waited for at most twice and at most FORECAST_SLACK_MS over, as forecasts run long. 0 when it runs
+   * nothing, a render not sent yet, or one still within its forecast. `now`: the caller's clock (a test's stand-in).
+   */
   quietFor(machine: string, now = Date.now()): { ms: number; gpuIdle: boolean } {
     const lane = this.lanes.get(machine);
     const run = lane?.running;
@@ -1533,10 +1105,11 @@ ${JSON.stringify(input)}`;
     const rows = active.filter((r) => r.status === "queued" && needsComfy(r) && !(r.depends_on && waitingOn.has(r.depends_on)) && !(this.only && !this.only.has(r.id)));
     if (!rows.length) return false;
     const open = (await this.refresh()).filter((l) => !l.paused && l.machine);
-    const where = plan(await this.schedulable(open), await this.planned(rows, await this.ableOf(rows)));
+    const where = plan(await this.planner.schedulable(open), await this.planner.planned(rows, await this.planner.ableOf(rows)));
     return rows.some((r) => where.get(r.id)?.lane === machine);
   }
 
+  /** What the page's status poll (events.ts) found of the ComfyUIs: whether any answered (queueOffline.ts), and each machine's own answer. */
   noteReachable(ok: boolean, each: ReadonlyMap<string, boolean> = new Map()): void {
     // each machine's own answer: a paused or idle machine is asked nothing by the queue, and was shown online after its
     // ComfyUI had stopped (and away after it was back, until a job went to it)
@@ -1995,7 +1568,7 @@ ${JSON.stringify(input)}`;
       const energy = lane.comfy?.home ? lane.comfy.power.energy(resume.startedAt, resume.startedAt + totalMs) : null;
       await record(this.db, row, recipe, resume, measured, status, whole, totalMs, generationId, { machine: lane.id, gpu: gpuOf(lane.device, lane.comfy?.monitor.system?.gpus ?? []), energy });
       // the record changed: the next forecast reads it again at once, not after the second the mark is kept
-      this.recordMark = null;
+      this.forecasts.recorded();
     } catch (err) {
       console.warn(`[queue] the time of job ${row.id} was not put on record: ${(err as Error).message}`);
     }
@@ -2028,7 +1601,7 @@ ${JSON.stringify(input)}`;
     const makes = this.registry.recipe(recipeId)?.output === "image" ? "image" : "video";
     // the machines it can run on, as a waiting job of it would be told (its files there, or on their way to a pod)
     const form = this.standIn("form", { recipe: recipeId, input: rawInput, finishedFrom: opts.finishedFrom, clip: opts.clip });
-    const can = (await this.ableOf([form]).catch(() => new Map<string, Able>())).get(form.id)?.can;
+    const can = (await this.planner.ableOf([form]).catch(() => new Map<string, Able>())).get(form.id)?.can;
     const open = lanes.filter((l) => l.reachable !== false && !l.paused && !this.unavailable(l.id) && (l.machine!.takes === "all" || l.machine!.takes === makes) && (!can || can.has(l.id)));
     const auto = open.flatMap((l) => (got.on![l.id] ? [l.id] : []));
     const soonest = auto.map((id) => got.on![id]!).sort((a, b) => a.ms - b.ms)[0];
@@ -2055,7 +1628,7 @@ ${JSON.stringify(input)}`;
     if (!parts.length) return { ms: null, samples: 0 };
     const all = await this.refresh();
     const open = all.filter((l) => !l.paused && l.reachable !== false && !this.unavailable(l.id));
-    const lanes = (await this.schedulable(open.length ? open : all.slice(0, 1))).map((l) => ({ ...l, busyForMs: 0 }));
+    const lanes = (await this.planner.schedulable(open.length ? open : all.slice(0, 1))).map((l) => ({ ...l, busyForMs: 0 }));
     // with nothing open at all (every machine away), the first one as it was
     if (!lanes.length && all[0]) lanes.push({ id: all[0].id, takes: "all", busyForMs: 0, holds: new Set(), pace: 1 });
     const rows: JobRow[] = [];
@@ -2064,13 +1637,13 @@ ${JSON.stringify(input)}`;
       for (let k = 0; k < Math.max(1, p.times ?? 1); k++) rows.push(this.standIn(`part.${i}.${k}`, { ...p, after: p.after !== undefined ? last[p.after] : null }));
       last[i] = rows[rows.length - 1]!.id;
     }
-    const jobs = await this.planned(rows, await this.ableOf(rows.filter(needsComfy)).catch(() => new Map<string, Able>()));
+    const jobs = await this.planner.planned(rows, await this.planner.ableOf(rows.filter(needsComfy)).catch(() => new Map<string, Able>()));
     // a render nothing like was rendered yet makes the whole unknown, not a sum that leaves it out
     if (jobs.some((j) => j.renderMs === null && !j.renderOn?.size)) return { ms: null, samples: 0 };
     const renders = rows.filter((r) => r.recipe_id !== CUT_JOB);
     const samples = renders.length ? Math.min(...(await Promise.all(renders.map(async (r) => {
       const recipe = this.registry.recipe(r.recipe_id);
-      return recipe ? (await this.expectedAll(recipe, readJson<Record<string, unknown>>(r.inputs, {}), false, r)).samples : 0;
+      return recipe ? (await this.forecasts.expectedAll(recipe, readJson<Record<string, unknown>>(r.inputs, {}), false, r)).samples : 0;
     })))) : 0;
     return { ms: planTotal(lanes, jobs), samples };
   }
