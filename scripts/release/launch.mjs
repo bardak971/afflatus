@@ -1,8 +1,7 @@
 // The bundle's own start, one per version: R/versions/<v>/app/launch.mjs, run by R/Afflatus.bat or R/afflatus.sh
 // with that version's node. It sets the environment of a bundle (AFFLATUS_INSTALL, AFFLATUS_ROOT, DATA_DIR, the
 // ffmpeg beside it), runs the server, and answers for it to the launcher through its exit code: 75 starts
-// R/versions/current again (after an update, Go back, the move of a 0.3.0 library, or a fall back); anything
-// else stops.
+// R/versions/current again (after an update, Go back, or a fall back); anything else stops.
 //
 // The launchers are kept minimal and never change once unpacked (a running .bat is read from disk as it goes, so
 // rewriting it under itself breaks it); what may change from one release to the next lives here instead, and is

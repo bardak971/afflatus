@@ -18,7 +18,6 @@ const view = (over: Partial<UpdatesView> = {}): UpdatesView => ({
   previous: null,
   last: null,
   fallback: null,
-  move: null,
   ...over,
 });
 const release = { version: "0.4.2", tag: "v0.4.2", name: "Afflatus 0.4.2", notes: "- Faster joins", highlights: ["Faster joins"], url: "https://example.test/r", publishedAt: null, prerelease: false, security: null };
@@ -91,7 +90,7 @@ describe("the updates event", () => {
     // the hello says the build's name, with the tag's v; the view the bare version: the same server, not back yet
     expect(backFromRestart("0.4.1", "v0.4.1", false)).toBe(false);
     expect(backFromRestart("0.4.1", "v0.4.2", false)).toBe(true);
-    // the move restarts on the same version
+    // a restart on the same version is known by the connection opened again
     expect(backFromRestart("0.4.1", "0.4.1", true)).toBe(true);
   });
 });

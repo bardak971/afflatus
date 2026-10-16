@@ -123,7 +123,6 @@ export function stepsOf(flow: UpdateFlow, running: string): { steps: Array<{ lab
 
 const SEEN_KEY = "afflatus.updates.seen";
 const SECURITY_KEY = "afflatus.updates.security";
-const MOVE_KEY = "afflatus.updates.move";
 
 function readKey(key: string): string | null {
   try {
@@ -141,23 +140,20 @@ function writeKey(key: string, value: string): void {
 }
 
 /**
- * What this browser has seen of the news, by version: the release About was opened on (the dot goes), the security
- * banner closed, and the 0.3 library left where it was ("Start empty"), by its folder. `asked`: Check now was pressed in
- * this page, which says the news even with the checks off (not kept: the next page goes by the switch again).
+ * What this browser has seen of the news, by version: the release About was opened on (the dot goes), and the security
+ * banner closed. `asked`: Check now was pressed in this page, which says the news even with the checks off (not kept:
+ * the next page goes by the switch again).
  */
 export const useUpdatesSeen = create<{
   seen: string | null;
   security: string | null;
-  moveDeclined: string | null;
   asked: boolean;
   ask(): void;
   see(version: string): void;
   closeSecurity(version: string): void;
-  declineMove(from: string): void;
 }>((set) => ({
   seen: readKey(SEEN_KEY),
   security: readKey(SECURITY_KEY),
-  moveDeclined: readKey(MOVE_KEY),
   asked: false,
   ask: () => set({ asked: true }),
   see: (version) => {
@@ -168,16 +164,12 @@ export const useUpdatesSeen = create<{
     writeKey(SECURITY_KEY, version);
     set({ security: version });
   },
-  declineMove: (from) => {
-    writeKey(MOVE_KEY, from);
-    set({ moveDeclined: from });
-  },
 }));
 
 // ---------------------------------------------------------------- the restart
 
 /**
- * An update, Go back or the move restarting the server: the page says "Restarting…" over everything, and reads itself
+ * An update or Go back restarting the server: the page says "Restarting…" over everything, and reads itself
  * again when the server is back (live.ts, on its next hello). `from`: the version that was running.
  */
 export const useRestarting = create<{ from: string | null; since: number | null; begin(from: string): void }>((set, get) => ({

@@ -5,7 +5,7 @@ import type { AfflatusUpdates } from "./updates";
 
 /**
  * Afflatus's own updates (updates.ts), for Settings → About. Anyone who can open the page reads where they stand; only
- * the computer Afflatus runs on changes anything (checks, updates, goes back, brings a 0.3 library over): the LAN may be
+ * the computer Afflatus runs on changes anything (checks, updates, goes back): the LAN may be
  * open by choice, and installing stays with whoever sits at the machine. A request through a proxy (one that says whom
  * it forwards for) is not taken as from this computer, even when the proxy itself runs on it; nor is one whose Host is
  * not a loopback name, which a proxy on this computer that says nothing of whom it forwards for still passes on as the
@@ -17,7 +17,7 @@ export function registerUpdates(app: FastifyInstance, updates: AfflatusUpdates):
     if (!fromThisComputer(req)) throw httpError("Updates are done on the computer Afflatus runs on, not from another one.", 403);
   };
 
-  /** Where Afflatus stands: its version, the latest release, an update under way, the previous version, the 0.3 move. */
+  /** Where Afflatus stands: its version, the latest release, an update under way, the previous version. */
   app.get("/api/updates", async (req) => updates.view(fromThisComputer(req)));
 
   /** Ask GitHub now (Check now). */
@@ -51,13 +51,6 @@ export function registerUpdates(app: FastifyInstance, updates: AfflatusUpdates):
   app.post("/api/updates/go-back", async (req) => {
     here(req);
     await updates.goBack();
-    return updates.view(true);
-  });
-
-  /** Bring the 0.3 library beside this bundle in (moved, not copied); Afflatus restarts. */
-  app.post("/api/updates/move", async (req) => {
-    here(req);
-    await updates.moveIn();
     return updates.view(true);
   });
 }

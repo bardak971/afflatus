@@ -99,7 +99,6 @@ const BROWSER: Record<string, string> = {
   "afflatus.check.": "internal: a start-up check already said, per check",
   "afflatus.updates.seen": "internal: the new version About was last seen with, for the rail's dot",
   "afflatus.updates.security": "internal: the security fix whose banner was closed",
-  "afflatus.updates.move": "internal: the 0.3 library left where it was (Start empty)",
 };
 
 // a row's key, or one of the bar's ids the row stands for (`also`)

@@ -1,20 +1,15 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FolderInput, RefreshCw } from "lucide-react";
-import { api, type UpdatesView } from "./api";
-import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
+import { RefreshCw } from "lucide-react";
 import { useBanners } from "./store";
-import { plural, size } from "./format";
-import { Button, ErrorNote } from "./ui";
+import { Button } from "./ui";
 import { followRestart, securityNews, useRestarting, useUpdates, useUpdatesSeen } from "./updates";
-import { queryKeys } from "./queryKeys";
 
 /** A restart that takes longer than this is said, with a way to read the page again by hand. */
 const LONG_MS = 60_000;
 
 /**
  * What Afflatus's own updates put over every screen: the banner of a release that fixes a security issue (once per
- * version), the 0.3 library's move offered on a fresh bundle, and "Restarting…" while the server switches.
+ * version), and "Restarting…" while the server switches.
  */
 export function UpdateNews() {
   const updates = useUpdates();
@@ -41,52 +36,7 @@ export function UpdateNews() {
   useEffect(() => {
     if (v) followRestart(v.version, v.flow);
   }, [v]);
-  return (
-    <>
-      {v?.move && v.here && <MoveDialog move={v.move} />}
-      <Restarting />
-    </>
-  );
-}
-
-/** What the 0.3 library holds, as the dialog says it: "1240 items · 12 timelines · 85 drafts · 38.2 GB"; the counts its database did not give are left out. */
-export function libraryLine(m: NonNullable<UpdatesView["move"]>): string {
-  const counts = ([[m.items, "item"], [m.timelines, "timeline"], [m.drafts, "draft"]] as const).filter(([n]) => n !== null).map(([n, word]) => plural(n!, word));
-  return [...counts, size(m.bytes)].join(" · ");
-}
-
-/** The 0.3 library found beside this fresh bundle: brought over (moved, not copied), or left where it is. */
-function MoveDialog({ move: found }: { move: NonNullable<UpdatesView["move"]> }) {
-  const { from, version } = found;
-  const client = useQueryClient();
-  const declined = useUpdatesSeen((s) => s.moveDeclined);
-  const decline = useUpdatesSeen((s) => s.declineMove);
-  const move = useMutation({
-    mutationFn: api.moveLibrary,
-    onSuccess: (view) => {
-      client.setQueryData(queryKeys.updates(), view);
-      followRestart(view.version, view.flow);
-    },
-  });
-  if (declined === from || move.isSuccess) return null;
-  return (
-    <Dialog label={`Bring your library from Afflatus ${version}?`} onClose={() => decline(from)} className={DIALOG.replace("max-w-md", "max-w-lg")}>
-      <DialogHead icon={<FolderInput size={15} />} title={`Bring your library from Afflatus ${version}?`} />
-      <span className="text-[13px] text-ink-2">Found beside this one:</span>
-      <div className="flex flex-col gap-1.5 rounded-[10px] border border-line bg-ground px-3.5 py-3">
-        <code className="font-mono text-xs break-all">{from}</code>
-        <span className="text-[13px] text-ink-2">{libraryLine(found)}</span>
-      </div>
-      <p className="m-0 text-[13px] leading-relaxed text-ink-2">
-        It is moved, not copied: no second copy on your disk. Its settings, the Prompt kit and your linked folders come with it. The {version} folder can be deleted afterwards.
-      </p>
-      {move.isError && <ErrorNote>{move.error.message}</ErrorNote>}
-      <DialogFoot>
-        <Button onClick={() => decline(from)}>Start empty</Button>
-        <Button tone="primary" disabled={move.isPending} onClick={() => move.mutate()}>{move.isPending ? "Bringing it over…" : "Bring it over"}</Button>
-      </DialogFoot>
-    </Dialog>
-  );
+  return <Restarting />;
 }
 
 /** "Restarting…" over the page while the server switches; the page reads itself again when it is back (live.ts). */
