@@ -369,7 +369,7 @@ export class Rented {
 
   constructor(
     private readonly db: Db,
-    private readonly queue: { wants(machine: string): Promise<boolean>; runningOn(machine: string): boolean; fetching(machine: string): boolean; quietFor(machine: string, now?: number): { ms: number; gpuIdle: boolean }; endStuck(machine: string, why: string): Promise<boolean>; answering(machine: string): void },
+    private readonly queue: { wants(machine: string): Promise<boolean>; runningOn(machine: string): boolean; busyOn(machine: string): boolean; busyOutside(machine: string): Promise<boolean>; fetching(machine: string): boolean; quietFor(machine: string, now?: number): { ms: number; gpuIdle: boolean }; endStuck(machine: string, why: string): Promise<boolean>; answering(machine: string): void },
     private readonly events: EventEmitter,
     private readonly comfyOf: (machine: string) => Promise<Comfy | null>,
   ) {}
@@ -492,7 +492,8 @@ export class Rented {
       answers: status === "RUNNING" ? s?.answers ?? null : null,
       // none while files come to it: its idle time is held then, and a countdown would read as a stop to come
       // none before its first answer either (a boot): its idle time counts only from then (keepOrStop), its boot is said instead
-      idleLeftMs: status === "RUNNING" && !s?.stopping && (s?.answered || s?.busyRestored) && idleMs > 0 && s?.busyAt && !this.queue.runningOn(machine.id) && !this.queue.fetching(machine.id) ? Math.max(0, idleMs - (this.now() - s.busyAt)) : null,
+      // none while its ComfyUI runs work from outside Afflatus: that holds its idle time too
+      idleLeftMs: status === "RUNNING" && !s?.stopping && (s?.answered || s?.busyRestored) && idleMs > 0 && s?.busyAt && !this.queue.busyOn(machine.id) && !this.queue.fetching(machine.id) ? Math.max(0, idleMs - (this.now() - s.busyAt)) : null,
       capped: s?.stopAfter ?? false,
       stopping: s?.stopping ?? false,
       stoppedBy: s?.stoppedBy ?? null,
@@ -1503,7 +1504,8 @@ export class Rented {
       const s = this.seen.get(m.id);
       if (s?.pod?.status !== "RUNNING" || s.stopping || s.stopAfter) continue;
       const idle = m.rented!.idleMinutes * 60_000;
-      const keep = this.queue.runningOn(m.id) || idle === 0 || (s.busyAt !== null && now - s.busyAt < idle);
+      // at work for Afflatus or, as last read, for someone else in its ComfyUI (keepOrStop holds its idle time for that too)
+      const keep = this.queue.busyOn(m.id) || idle === 0 || (s.busyAt !== null && now - s.busyAt < idle);
       if (keep) await this.alive(m, s).catch(() => false);
     }
   }
@@ -1565,7 +1567,9 @@ export class Rented {
     // idle stop, and a download stuck for long holds it no more
     // A pod whose last work was read back after a restart keeps it while its ComfyUI does not answer: a fresh idle time
     // given at each restart that found its ComfyUI down was a run billed for nothing
-    if (running || (!s.answered && !s.busyRestored) || this.queue.fetching(m.id) || (answers && (await this.queue.wants(m.id)))) s.busyAt = now;
+    // Work queued in its ComfyUI from outside Afflatus (its own page, another tool) is work too: the pod is not stopped under
+    // it by its idle time. A cap below acts all the same: it reads Afflatus's own render alone
+    if (running || (!s.answered && !s.busyRestored) || this.queue.fetching(m.id) || (answers && ((await this.queue.wants(m.id)) || (await this.queue.busyOutside(m.id))))) s.busyAt = now;
     // set when it was first seen running (follow), from what was kept across a restart of Afflatus
     s.busyAt ??= now;
     await this.keepBusy(m, s);

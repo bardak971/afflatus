@@ -114,7 +114,10 @@ export const gb = (bytes: number) => `${(bytes / 2 ** 30).toFixed(1)} GB`;
 export { plural } from "@afflatus/core";
 
 const PHASES: Record<string, string> = {
-  waiting: "Queued on ComfyUI", loading: "Loading model", sampling: "Sampling", upscaling: "Upscale",
+  waiting: "Queued on ComfyUI",
+  // sent, and waiting there behind work queued in that ComfyUI from elsewhere (its own page, another tool)
+  behind: "Queued on ComfyUI · waiting behind work outside Afflatus",
+  loading: "Loading model", sampling: "Sampling", upscaling: "Upscale",
   refining: "Refine pass", restoring: "SeedVR2 restore", detailing: "Detailer", processing: "Processing", decoding: "VAE decode", interpolating: "Frame interpolation", encoding: "Encoding",
   exporting: "Exporting", cutting: "Cutting",
 };

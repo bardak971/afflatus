@@ -177,7 +177,8 @@ export async function createServices(
     // its pod up: a pod filling its volume takes no render, but gets its files
     alive: (id) => rented.podDown(id) === null,
     gone: (id) => rented.podGone(id),
-    busy: (id) => queue.runningOn(id),
+    // its ComfyUI is not restarted under work from outside Afflatus either (its own page's): that would be lost with it
+    busy: (id) => queue.busyOn(id),
     makesRoom: async (id) => Boolean((await machineOf(id))?.machine.rented?.makeRoom),
     // a file there now, or one that failed: the pod's folders and its node list (whose choices name the files) are read
     // again, and its jobs looked at again
@@ -268,7 +269,8 @@ export async function createServices(
   await services.hunt.run();
   // every model file hashed once, a minute after the start (and on "Hash now"), waiting while this computer renders
   services.hashes = new ModelHashes(services);
-  services.hashes.runningOn = (id) => queue.runningOn(id);
+  // work queued in its ComfyUI from outside Afflatus holds the disk as a render of Afflatus's does
+  services.hashes.runningOn = (id) => queue.busyOn(id);
   const firstHashes = setTimeout(() => void services.hashes.run(), 60_000);
   firstHashes.unref();
   // the daily check for newer model versions rides on the hourly sweep: it only runs when the user asked for it. What

@@ -118,7 +118,7 @@ export class ModelHashes {
   private noFolder = false;
   private found = 0;
   private looked = false;
-  /** Whether a machine runs a job now (services.ts: the queue's). */
+  /** Whether a machine runs a job now, or work queued from outside Afflatus (services.ts: the queue's busyOn). */
   runningOn: (machine: string) => boolean = () => false;
   /** This computer's machines (not rented ones), as the settings said at the pass's start: their renders hold the disk. */
   private home: string[] = [];

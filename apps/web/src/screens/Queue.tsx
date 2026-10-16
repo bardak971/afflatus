@@ -14,7 +14,7 @@ import { Costs } from "./queue/Costs";
 import { ComfyLog } from "./queue/Log";
 import { MachineMeters } from "./queue/MachineMeters";
 import { MachineLanes } from "./queue/MachineLanes";
-import { machineLabel, onlineSaid, severalMachines } from "../machines";
+import { machineLabel, machineUnloadBlock, onlineSaid, outsideSaid, severalMachines } from "../machines";
 import { RunningCard } from "./queue/RunningCard";
 import { WaitingList } from "./queue/WaitingList";
 import { queryKeys } from "../queryKeys";
@@ -26,15 +26,16 @@ const isTab = (v: string | null): v is Tab => v === "queue" || v === "times" || 
 /** The header's buttons: unload the models, pause or resume. With several ComfyUIs: unload every idle one, pause or resume all of them. */
 function QueueControls({ q, free, pause, resume }: { q: QueueStatus | undefined; free: { mutate(machine?: undefined): void; isPending: boolean; isSuccess: boolean }; pause: { mutate(machine?: undefined): void }; resume: { mutate(machine?: undefined): void } }) {
   const several = severalMachines(q);
-  const idle = several.filter((m) => !m.running && m.online !== false);
-  const why = several.length ? (idle.length ? null : "every machine renders or is away") : unloadBlock(q);
+  // a machine busy outside Afflatus is skipped too: its models are in use by someone else's work (the server skips it)
+  const idle = several.filter((m) => !machineUnloadBlock(m));
+  const why = several.length ? (idle.length ? null : "every machine is at work or away") : unloadBlock(q);
   return (
     <>
       {q?.online && (
         <Button
           className="h-10 px-4"
           disabled={free.isPending || Boolean(why)}
-          data-tip={several.length ? `Unloads the models of every machine that is not rendering (${idle.map(machineLabel).join(", ") || "none now"}). Each lane's menu unloads one.` : "Unloads ComfyUI's models from VRAM and RAM, for a game or another program. The next render loads what it needs again. Not while a job is running."}
+          data-tip={several.length ? `Unloads the models of every machine that is not rendering nor busy outside Afflatus (${idle.map(machineLabel).join(", ") || "none now"}). Each lane's menu unloads one.` : "Unloads ComfyUI's models from VRAM and RAM, for a game or another program. The next render loads what it needs again. Not while a job is running."}
           onClick={() => free.mutate(undefined)}
         >
           {free.isPending ? "Unloading…" : free.isSuccess ? "Models unloaded" : several.length ? "Unload idle" : "Unload models"}
@@ -140,7 +141,7 @@ export function Queue() {
               <div className="shrink lg:min-h-[5.5rem] lg:overflow-y-auto">
                 {several.length
                   ? <MachineLanes q={q} onStop={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} />
-                  : <RunningCard running={q.running} onStop={(id) => cancel.mutate(id)} />}
+                  : <RunningCard running={q.running} onStop={(id) => cancel.mutate(id)} outside={q.machines?.[0] ? outsideSaid(q.machines[0]) : null} />}
               </div>
               {/* its head says what they come to: how many, how long, the model switches, and the bulk actions */}
               {q.waiting.length > 0 && (

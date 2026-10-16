@@ -1,4 +1,4 @@
-import type { Entity, PodFile, RecipeInfo, RentedSpending, RentedState, UpdatesView } from "../api";
+import type { Entity, MachineState, PodFile, RecipeInfo, RentedSpending, RentedState, UpdatesView } from "../api";
 import { TRANSITIONS, type TransitionKind } from "@afflatus/core";
 import { rowKeys, type RowId } from "../keys/table";
 import type { Item } from "./items";
@@ -25,7 +25,7 @@ interface QueueNow {
   /** The model loads that grouping the queue by model would save. */
   saves: number;
   /** With several ComfyUIs, each one by the name it is shown under: the bar offers Pause, Resume, Use only and Unload for each. */
-  machines: Array<{ id: string; label: string; paused: boolean; online: boolean | null; locked?: boolean; running: boolean; rented: RentedState | null; files?: PodFile[] }>;
+  machines: Array<{ id: string; label: string; paused: boolean; online: boolean | null; locked?: boolean; running: boolean; rented: RentedState | null; files?: PodFile[]; outside?: MachineState["outside"] }>;
   /** A GPU hunt is under way: Cancel the hunt is offered. */
   hunting?: boolean;
 }

@@ -58,7 +58,7 @@ export function registerMetrics(app: FastifyInstance, s: Services): void {
     // and its name only when asked by the server's own name (a name is the user's words). With one ComfyUI the series
     // are those of before, with machine="m1"
     head("afflatus_comfy_online", "gauge", "1 when a ComfyUI answers");
-    head("afflatus_gpu_busy", "gauge", "1 while an Afflatus render holds a machine's GPU");
+    head("afflatus_gpu_busy", "gauge", "1 while a render holds a machine's GPU: Afflatus's, or work queued in its ComfyUI from elsewhere");
     const gauges: Array<[string, string, (l: NonNullable<Awaited<ReturnType<Awaited<ReturnType<typeof s.comfy>>["load"]>>>) => number | undefined]> = [
       ["afflatus_gpu_memory_percent", "Share of the GPU's memory in use, as the machine reports it", (l) => l.gpus[0]?.vramPercent],
       ["afflatus_gpu_temperature_celsius", "The GPU's temperature", (l) => l.gpus[0]?.temperature],

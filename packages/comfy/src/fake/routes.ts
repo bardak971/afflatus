@@ -7,6 +7,9 @@ import type { FakeRequest, FakeState } from "../testing";
  */
 export function fakeRoutes(fake: FakeState, hooks: { queued(promptId: string, clientId: string | null): void }): (r: FakeRequest) => boolean {
   let n = 0;
+  /** The client id each prompt was queued under, as GET /queue says it in each entry's extra_data. */
+  const clientOf = new Map<string, string>();
+  const entry = (id: string, i: number) => [i, id, {}, clientOf.has(id) ? { client_id: clientOf.get(id) } : {}, []];
   // the log's lines are stamped once, when the fake started: read again, they are the same lines
   const started = new Date().toISOString();
   return ({ method, path, url, headers, raw, json, plain }) => {
@@ -51,7 +54,7 @@ export function fakeRoutes(fake: FakeState, hooks: { queued(promptId: string, cl
         return json(200, fake.history[id] ? { [id]: fake.history[id] } : {});
       }
       if (path === "/queue") {
-        return json(200, { queue_running: fake.running.map((id) => [0, id]), queue_pending: fake.pending.map((id) => [0, id]) });
+        return json(200, { queue_running: fake.running.map(entry), queue_pending: fake.pending.map(entry) });
       }
       if (path === "/view") {
         const file = fake.files[url.searchParams.get("filename") ?? ""];
@@ -68,6 +71,7 @@ export function fakeRoutes(fake: FakeState, hooks: { queued(promptId: string, cl
       // the id the client chose, as ComfyUI takes it; else one of its own
       const id = typeof sent.prompt_id === "string" && sent.prompt_id ? sent.prompt_id : `prompt-${++n}`;
       fake.prompts.set(id, sent.prompt);
+      if (typeof sent.client_id === "string") clientOf.set(id, sent.client_id);
       fake.pending.push(id);
       hooks.queued(id, typeof sent.client_id === "string" ? sent.client_id : null);
       return json(200, { prompt_id: id });

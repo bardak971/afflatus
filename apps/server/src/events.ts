@@ -114,6 +114,8 @@ export function registerEvents(app: FastifyInstance, s: Services, version: strin
     const read = await Promise.all(all.map(async ({ machine, comfy }) => ({ id: machine.id, load: await comfy.load().catch(() => null), answered: comfy.answered })));
     const heard = read.filter((r) => r.answered !== null);
     if (heard.length) s.queue.noteReachable(heard.some((r) => r.answered), new Map(heard.map((r) => [r.id, r.answered!])));
+    // and whether a ComfyUI runs work from outside Afflatus (its own page): a change its socket said that was missed is caught here
+    void s.queue.lookOutside().catch(() => {});
     if (!clients.size) return;
     const frame = systemFrame(shown?.keys ?? new Map(), read);
     const first = !shown;

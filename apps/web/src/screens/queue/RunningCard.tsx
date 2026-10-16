@@ -4,6 +4,7 @@ import type { RunningJob } from "../../api";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { elapsed, phaseLabel, timeLeft } from "../../format";
 import { LivePreview, StageStrip } from "../../LivePreview";
+import { OUTSIDE_TIP } from "../../machines";
 import { Bar, Button, cx, Help } from "../../ui";
 import { useCopyNote } from "./copyNote";
 import { useModelName } from "./modelName";
@@ -25,13 +26,23 @@ function Elapsed({ since }: { since: string }) {
  * under it), to judge a render by and stop one that is not going where it should. Under the bar, its figures
  * in a row: the phase and step, the s/it over the last steps, elapsed, time left and the seed once it is sent.
  */
-export function RunningCard({ running, onStop }: { running: RunningJob | null; onStop(id: string): void }) {
+export function RunningCard({ running, onStop, outside }: {
+  running: RunningJob | null; onStop(id: string): void;
+  /** With one ComfyUI: the work it runs from outside Afflatus, in a few words (outsideSaid), which is why nothing is sent to it. */
+  outside?: string | null;
+}) {
   const menu = useMenu<true>();
   const [large, setLarge] = useState(false);
   const modelOf = useModelName();
   const rate = useStepRate();
   const seedCopy = useCopyNote();
-  if (!running) return <div className="rounded-xl border border-line px-3 py-2.5 text-sm text-ink-2">Nothing running.</div>;
+  if (!running) {
+    return (
+      <div className="rounded-xl border border-line px-3 py-2.5 text-sm text-ink-2">
+        {outside ? <span data-tip={OUTSIDE_TIP}>Busy outside Afflatus · {outside}: the queue waits until it is done.</span> : "Nothing running."}
+      </div>
+    );
+  }
   const seen = running.previewSeq > 0;
   const seed = running.seed ?? null;
   const pace = rate?.id === running.id ? rate.secondsPerStep : null;

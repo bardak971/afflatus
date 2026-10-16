@@ -11,7 +11,7 @@ What is there:
 |---|---|---|---|
 | `afflatus_queue_jobs` | gauge | `state` queued / running | Jobs in the queue |
 | `afflatus_comfy_online` | gauge | `machine`, `name` | 1 when that ComfyUI answers |
-| `afflatus_gpu_busy` | gauge | `machine`, `name` | 1 while an Afflatus render holds that machine's GPU |
+| `afflatus_gpu_busy` | gauge | `machine`, `name` | 1 while a render holds that machine's GPU: Afflatus's, or work queued in its ComfyUI from elsewhere |
 | `afflatus_gpu_memory_percent`, `afflatus_gpu_temperature_celsius`, `afflatus_gpu_load_percent` | gauge | `machine`, `name` | As each ComfyUI's machine reports them (a monitor extension gives heat and load) |
 | `afflatus_machine_pace` | gauge | `machine`, `name` | A machine's learned pace against the others on the same model and settings: 1 the common pace, 2 half as fast |
 | `afflatus_renders_total` | counter | `recipe`, `family`, `title`, `status` done / failed / cancelled | Renders that ran on ComfyUI |

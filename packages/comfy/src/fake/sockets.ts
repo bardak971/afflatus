@@ -14,11 +14,15 @@ export function fakeSockets(server: Server, fake: FakeState, letIn: (req: Incomi
   // a locked ComfyUI (the node pack's lock) refuses the socket of a caller without its token, before it opens
   const wss = new WebSocketServer({ server, path: "/ws", verifyClient: ({ req }: { req: IncomingMessage }) => letIn(req) });
   const idOf = new Map<WebSocket, string>();
+  /** ComfyUI's "status": how many prompts it has, running and waiting, whoever queued them. */
+  const statusOf = (sid?: string) => JSON.stringify({ type: "status", data: { status: { exec_info: { queue_remaining: fake.running.length + fake.pending.length } }, ...(sid ? { sid } : {}) } });
   wss.on("connection", (socket, req) => {
     const id = new URL(req.url ?? "/", "http://fake").searchParams.get("clientId") ?? "";
     idOf.set(socket, id);
     fake.sockets.push(id);
     socket.on("close", () => idOf.delete(socket));
+    // as ComfyUI greets a socket: its queue as it stands, with the client id it took
+    socket.send(statusOf(id));
   });
   /** The client id each prompt was queued with (null: none, so everyone hears it). */
   const owners = new Map<string, string | null>();
@@ -40,6 +44,10 @@ export function fakeSockets(server: Server, fake: FakeState, letIn: (req: Incomi
         current = target;
       } else if (to === undefined && PREVIEWS.has(type)) target = current;
       deliver(target, JSON.stringify({ type, data }));
+    },
+    /** The queue changed: its count to every client, as ComfyUI broadcasts it on each change. */
+    status() {
+      deliver(null, statusOf());
     },
     sendBinary(bytes: Uint8Array) {
       deliver(current, bytes);

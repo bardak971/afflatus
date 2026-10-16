@@ -58,6 +58,8 @@ export interface LaneView {
   core: QueueCore;
   paused: boolean;
   reachable: boolean | null;
+  /** The prompts its ComfyUI has from outside Afflatus (its own page, another tool), running and waiting; null when not known. */
+  outside?: { running: number; pending: number } | null;
   /** Its ComfyUI answered, but locked against the token Afflatus has for it. */
   locked: boolean;
   /** A rented pod: its state and cost (rented.ts); null for a ComfyUI of its own. */
@@ -137,7 +139,7 @@ export async function status(
     const monitor = own && lane ? (await lane.core.comfy()).monitor : null;
     // the seed it was built with, once sent: from memory, or from the job when another process sent it
     const seed = own?.seed ?? readJson<Partial<Resume>>(r.resume, {}).seed ?? null;
-    return { ...brief(r), seed, ...figures(monitor, own, own?.promptId, idle(r)), spilling: own && lane ? await spillingNow(lane.core) : false };
+    return { ...brief(r), seed, ...behind(figures(monitor, own, own?.promptId, idle(r)), lane), spilling: own && lane ? await spillingNow(lane.core) : false };
   };
   const ran = rows.filter((r) => r.status === "running");
   const cards = await Promise.all(lanes.map((l) => {
@@ -157,6 +159,11 @@ export async function status(
       online: l.reachable ?? (core.offlineSince === null ? null : false),
       /** Offline because it is locked against Afflatus's token (Settings › ComfyUI: paste its token), not because it is away. */
       locked: l.locked,
+      /**
+       * The prompts its ComfyUI has from outside Afflatus (queued from its own page, another tool), running and waiting: it
+       * takes no job while it has any. Null when not known (not read yet, or not answering).
+       */
+      outside: l.outside ?? null,
       /** A rented pod: started, stopped, what it has cost; null for a ComfyUI of its own. */
       rented: l.rented,
       ...(l.files?.length ? { files: l.files } : {}),
@@ -243,6 +250,14 @@ export async function finishesOf(db: Db, rows: readonly JobRow[], machines: Read
   return out;
 }
 
+/**
+ * A job sent to a ComfyUI that runs work from outside Afflatus (its own page, another tool) waits there behind it: its phase
+ * says so ("behind"), where "waiting" read as Afflatus's own line.
+ */
+function behind<F extends { phase: string }>(f: F, lane: Pick<LaneView, "outside"> | null): F {
+  return f.phase === "waiting" && lane?.outside?.running ? ({ ...f, phase: "behind" } as F) : f;
+}
+
 /** The running job's progress, its preview and what it showed on the way: from the monitor, by its prompt; `idle` names its phase while it has none. */
 function figures(monitor: Comfy["monitor"] | null, running: QueueCore["running"], promptId: string | undefined, idle: "exporting" | "cutting" | "waiting") {
   // no monitor (a job this process does not follow yet) or no prompt: nothing to read but its phase
@@ -270,7 +285,7 @@ export async function progress(lanes: LaneView[]) {
   for (const lane of lanes) {
     const run = lane.core.running;
     if (!run) continue;
-    all.push({ id: run.id, machine: lane.machine?.id ?? null, ...figures((await lane.core.comfy()).monitor, run, run.promptId, run.tool ?? "waiting"), seed: run.seed ?? null, spilling: await spillingNow(lane.core) });
+    all.push({ id: run.id, machine: lane.machine?.id ?? null, ...behind(figures((await lane.core.comfy()).monitor, run, run.promptId, run.tool ?? "waiting"), lane), seed: run.seed ?? null, spilling: await spillingNow(lane.core) });
   }
   return all.length ? { ...all[0]!, all } : null;
 }

@@ -132,6 +132,14 @@ export class Monitor {
   onSystem: (load: SystemLoad) => void = () => {};
   /** Called when the socket opens; `again` after the first time, which is how a ComfyUI restart shows (what it had may have changed). */
   onOpen: (again: boolean) => void = () => {};
+  /**
+   * How many prompts ComfyUI has, running and waiting, whoever queued them: what its "status" broadcast said last (sent to
+   * every client on each change of its queue, and on connecting). Null before one was heard, and while the socket is down.
+   * Work queued from ComfyUI's own page shows only here: its progress goes to that page's client alone.
+   */
+  queueRemaining: number | null = null;
+  /** Called on each status ComfyUI sends (its queue changed, or the socket opened): its queue (GET /queue) says whose the prompts are. */
+  onQueue: (remaining: number) => void = () => {};
   private opened = 0;
   private readonly now: () => number;
 
@@ -159,6 +167,8 @@ export class Monitor {
       ws.onclose = () => {
         if (this.ws !== ws) return;
         this.ws = null;
+        // the count goes unheard until the socket is open again: not known meanwhile, rather than the last one held
+        this.queueRemaining = null;
         // dropped while prompts are followed: opened again, so their progress does not wait for the next submit
         if (this.tracked.size) this.retry("own", () => this.ensure());
       };
@@ -187,6 +197,7 @@ export class Monitor {
     this.retries.delete("own");
     const ws = this.ws;
     this.ws = null;
+    this.queueRemaining = null;
     try {
       ws?.close();
     } catch {
@@ -403,6 +414,19 @@ export class Monitor {
       return;
     }
     const d = msg.data ?? {};
+    // ComfyUI's queue changed (or the socket just opened): how many prompts it has, its own page's and other tools' too
+    if (msg.type === "status") {
+      const n = (d.status as { exec_info?: { queue_remaining?: unknown } } | undefined)?.exec_info?.queue_remaining;
+      // told on every one, the same count too: a prompt that ended and another queued leave it as it was
+      if (typeof n !== "number") return;
+      this.queueRemaining = n;
+      try {
+        this.onQueue(n);
+      } catch {
+        /* a listener's problem is not the socket's */
+      }
+      return;
+    }
     // the end of a prompt, whether it is tracked or not: "executing" with no node is ComfyUI's last word on it, sent once
     // its history is written; the others come just before
     if (ENDS.has(msg.type ?? "") || (msg.type === "executing" && d.node === null)) {

@@ -65,6 +65,18 @@ describe("ComfyClient, jobs", () => {
     expect(await client.queuePosition(id)).toBe("absent");
   });
 
+  it("reads the whole queue, whoever queued each prompt, with the client id it was queued under", async () => {
+    const mine = await client.submit(graph);
+    const other = new ComfyClient(fake.url);
+    const theirs = await other.submit(graph);
+    fake.pending = fake.pending.filter((p) => p !== mine);
+    fake.running = [mine, "from-its-own-page"];
+    expect(await client.queue()).toEqual({
+      running: [{ promptId: mine, clientId: client.clientId }, { promptId: "from-its-own-page", clientId: null }],
+      pending: [{ promptId: theirs, clientId: other.clientId }],
+    });
+  });
+
   it("queues a graph under the prompt id it was given", async () => {
     const id = await client.submit(graph, { promptId: "chosen-1" });
     expect(id).toBe("chosen-1");

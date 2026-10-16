@@ -4,7 +4,7 @@ import { Link } from "wouter";
 import { ArrowDownToLine, ArrowUpToLine, Layers, Pin, Server, Trash2, X } from "lucide-react";
 import { api, type Job, type MachineLack, type MachineState, type RunningJob } from "../../api";
 import { GetFile } from "../../GetFile";
-import { machineLabel, machineState, rentedUp } from "../../machines";
+import { busyOutside, machineLabel, machineState, OUTSIDE_TIP, rentedUp } from "../../machines";
 import { JOB_DRAG } from "./MachineLanes";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { aboutMs, est, plural, when } from "../../format";
@@ -90,7 +90,9 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
   /** The model each row loads first (the running job counts as the one before the first): one chip per switch the head counts. */
   const loads = loadsAt(waiting, running);
   /** A machine free now that could start it, when the plan keeps it for another one (a faster one, one that holds its model). */
-  const freeNow = (w: Job) => (w.pinned || !w.machine || !w.startsInMs ? undefined : machines.find((m) => m.id !== w.machine && !m.running && !m.paused && m.online !== false && (!w.runsOn || w.runsOn.includes(m.id))));
+  const freeNow = (w: Job) => (w.pinned || !w.machine || !w.startsInMs ? undefined : machines.find((m) => m.id !== w.machine && !m.running && !m.paused && m.online !== false && !busyOutside(m) && (!w.runsOn || w.runsOn.includes(m.id))));
+  /** The machine it goes to (or is pinned to), when that one's ComfyUI is busy outside Afflatus: why it waits. */
+  const heldOutside = (w: Job) => machines.find((m) => m.id === (w.pinned ?? w.machine) && !m.running && busyOutside(m));
   const itemsOf = (j: { id: string; index: number }): MenuItem[] => {
     const place = betterPlace(waiting, j.id, running);
     const w = waiting.find((x) => x.id === j.id);
@@ -182,6 +184,7 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
                 → {machineLabel(machines.find((m) => m.id === w.machine) ?? { name: w.machine, url: "" })}{w.startsInMs ? ` · in ${est(w.startsInMs)}` : ""}{w.runsOn?.length === 1 ? " · only there" : ""}
               </span>
             )}
+            {heldOutside(w) && <span className="min-w-0 truncate text-xs text-ink-2" data-tip={`${machineLabel(heldOutside(w)!)}: ${OUTSIDE_TIP}`}>· {machineLabel(heldOutside(w)!)} busy outside Afflatus</span>}
             <FetchNote w={w} machines={machines} />
             {machines.length > 0 && !w.pinned && w.runsOn?.length === 0 && (
               <Link href={settingHref("models.families")} className="shrink-0">
@@ -193,7 +196,7 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
               <span className="min-w-0 truncate text-xs text-warn-ink" data-tip="Only these machines have its files (with its family on), and none of them takes work now. Resume one, or pin it to another machine (Run on) to download what it lacks there.">
                 waits for {w.runsOn!.map((id) => {
                   const m = machines.find((x) => x.id === id);
-                  return `${m ? machineLabel(m) : id}${m?.paused ? " (paused)" : m?.online === false ? " (offline)" : ""}`;
+                  return `${m ? machineLabel(m) : id}${m?.paused ? " (paused)" : m?.online === false ? " (offline)" : m && busyOutside(m) ? " (busy outside Afflatus)" : ""}`;
                 }).join(", ")}
               </span>
             )}

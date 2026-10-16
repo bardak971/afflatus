@@ -175,7 +175,7 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
     (r: FakeRequest) => lock.route(r),
     fakeManager(fake, init),
     fakeFolders(fake),
-    fakeRoutes(fake, { queued: (id, clientId) => { sockets.own(id, clientId); simulate?.start(id); } }),
+    fakeRoutes(fake, { queued: (id, clientId) => { sockets.own(id, clientId); sockets.status(); simulate?.start(id); } }),
   ];
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://fake");
@@ -208,6 +208,19 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
     r.json(404, { error: `fake ComfyUI has no ${method} ${url.pathname}` });
   });
   const sockets = fakeSockets(server, fake, (req) => !fake.down && lock.letIn(req.headers, new URL(req.url ?? "/", "http://fake")));
+  // the queue as ComfyUI says it on each change (its "status" broadcast): whenever it is set anew, by a test's hand or the
+  // fake's own (a prompt taken off, started, ended); a prompt queued says it through `queued`
+  for (const key of ["running", "pending"] as const) {
+    let list = fake[key];
+    Object.defineProperty(fake, key, {
+      enumerable: true,
+      get: () => list,
+      set: (next: string[]) => {
+        list = next;
+        sockets.status();
+      },
+    });
+  }
   if (init.simulate) simulate = fakeSimulate(fake, init.simulate, sockets);
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

@@ -388,3 +388,29 @@ describe("Monitor: what a prompt shows on the way", () => {
     expect(monitor.stages("nowhere")).toEqual([]);
   });
 });
+
+describe("Monitor, ComfyUI's queue", () => {
+  it("keeps how many prompts ComfyUI has, whoever queued them, from its status: on connecting and on each change", async () => {
+    // greeted with the queue as it stands
+    await until(() => monitor.queueRemaining === 0);
+    const heard: number[] = [];
+    monitor.onQueue = (n) => heard.push(n);
+    // a prompt queued from ComfyUI's own page: its progress goes to that page, its count to every client
+    fake.running = ["from-its-own-page"];
+    fake.pending = ["another"];
+    await until(() => monitor.queueRemaining === 2);
+    fake.running = [];
+    await until(() => monitor.queueRemaining === 1);
+    expect(heard).toEqual([1, 2, 1]);
+    // told the same count again (one ended, one queued): the listener hears it, the queue's makeup may have changed
+    fake.send("status", { status: { exec_info: { queue_remaining: 1 } } });
+    await until(() => heard.length === 4);
+    expect(heard.at(-1)).toBe(1);
+  });
+
+  it("does not know the count once its socket is closed", async () => {
+    await until(() => monitor.queueRemaining === 0);
+    monitor.close();
+    expect(monitor.queueRemaining).toBeNull();
+  });
+});
