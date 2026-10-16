@@ -152,6 +152,21 @@ describe("ComfyClient, an error from the address it was given", () => {
     }
     await expect(failing("{}").history("p1")).rejects.not.toBeInstanceOf(ComfyUnreachable);
   });
+
+  it("takes them on POST /prompt for ComfyUI not answering too, and the lock's 401 for the lock, never for the job refused", async () => {
+    const graph = { "1": { class_type: "SaveImage", inputs: {} } };
+    for (const status of [502, 524]) {
+      const gateway = new ComfyClient("http://comfy.test", async () => new Response("Bad Gateway", { status }));
+      const err = await gateway.submit(graph, { promptId: "p1" }).catch((e: Error) => e);
+      expect(err).toBeInstanceOf(ComfyUnreachable);
+      expect((err as Error).message).not.toMatch(/rejected/);
+    }
+    const locked = new ComfyClient("http://comfy.test", async () => new Response("{}", { status: 401, headers: { "x-afflatus-lock": "1" } }));
+    await expect(locked.submit(graph)).rejects.toBeInstanceOf(ComfyLocked);
+    // ComfyUI's own refusal stays a refusal
+    await expect(failing("{}").submit(graph)).rejects.toBeInstanceOf(ComfyError);
+    await expect(failing("{}").submit(graph)).rejects.not.toBeInstanceOf(ComfyUnreachable);
+  });
 });
 
 describe("ComfyClient, answers that hide a failure", () => {

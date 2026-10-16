@@ -21,6 +21,8 @@ export interface OfflineQueue {
   retryLater(): void;
   /** A job given up on, when it is still in the state it was read in. */
   fail(r: JobRow, error: string): Promise<void>;
+  /** Whether a job waits for a machine paused by hand or by a GPU hunt (pinned there, or held for it): for its Resume, not for ComfyUI. */
+  pausedFor(r: JobRow): boolean;
 }
 
 export class Offline {
@@ -70,7 +72,7 @@ export class Offline {
     for (const r of active) {
       // how long each job has waited for it: one queued after ComfyUI had long been away gets its full wait
       if (Date.now() - Math.max(since, Date.parse(r.created_at) || 0) > this.q.opts.offlineExpiryMs) {
-        if (!needsComfy(r) || this.q.running()?.id === r.id) continue;
+        if (!needsComfy(r) || this.q.running()?.id === r.id || this.q.pausedFor(r)) continue;
         await this.q.fail(r, "ComfyUI stayed offline. Try again when it is back.");
       }
     }
