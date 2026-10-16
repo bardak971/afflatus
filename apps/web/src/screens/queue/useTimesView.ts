@@ -41,6 +41,19 @@ export const toLocalInput = (ms: number) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
+/** The Render times CSV's query (the server's GET /api/renders.csv): the window (none for "All"), and the list's filters where set. */
+export function csvQuery(o: { window: { from: number; to: number } | null; machine: string | null; model: string | null; only: "all" | "trouble" }): string {
+  const q = new URLSearchParams();
+  if (o.window) {
+    q.set("from", String(Math.round(o.window.from)));
+    q.set("to", String(Math.round(o.window.to)));
+  }
+  if (o.machine) q.set("machine", o.machine);
+  if (o.model) q.set("recipe", o.model);
+  if (o.only === "trouble") q.set("only", "trouble");
+  return q.toString();
+}
+
 /** A typed window, when it is one: both ends read, the end after the start. */
 export function typedWindow(typed: { from: string; to: string } | null): { from: number; to: number } | null {
   if (!typed) return null;

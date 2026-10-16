@@ -13,7 +13,8 @@ import { ModelDetail, ModelList, modelColor } from "./ModelTable";
 import { PHASES } from "./phases";
 import { RenderList } from "./RenderList";
 import { spanSaid, SummaryTiles } from "./SummaryTiles";
-import { chartTimeLabel, stretchOf, useTimesView } from "./useTimesView";
+import { chartTimeLabel, csvQuery, stretchOf, useTimesView } from "./useTimesView";
+import { ExportCsv } from "./ExportCsv";
 import { WindowBar } from "./WindowBar";
 import { scrollInside } from "../../scrollInside";
 
@@ -104,6 +105,8 @@ export function RenderTimes() {
           </div>
         )}
         <span className="text-xs text-ink-3">drag a chart: zoom</span>
+        {/* the window shown and the list's filters (its machine, its model, failed or cancelled): every render of them */}
+        <ExportCsv path={`/renders.csv?${csvQuery({ window: view.preset === "All" ? null : d, machine, model, only })}`} fallbackName="afflatus-renders.csv" disabled={!anything} />
       </div>
       {machine && <p className="-mt-3 text-xs text-ink-3">One machine's figures come from its renders kept one by one ({d.keepDays ? `the last ${d.keepDays} days, Settings › Storage` : "all of them"}); the days before are kept only as totals of every machine.</p>}
       {!machine && several.length > 0 && (d.machines?.length ?? 0) > 1 && <MachineShares d={d} names={Object.fromEntries(several.map((m) => [m.id, machineLabel(m)]))} onPick={setMachine} />}
