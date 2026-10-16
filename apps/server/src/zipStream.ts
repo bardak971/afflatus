@@ -10,10 +10,14 @@ import { crc32 } from "./zip";
  * record and its locator are written when anything did; a small backup stays a plain zip.
  *
  * The reader can go away half way (the download was cancelled): a write then fails instead of waiting
- * for room that never comes, so the producer stops and releases what it holds.
+ * for room that never comes, so the producer stops and releases what it holds. A reader that stays but stops
+ * reading (a download paused with its tab open) is given up after `stallMs` without room: a backup holds every
+ * file deletion while it runs (backup.ts), and nothing else ends a response that is not read.
  */
 const LIMIT32 = 0xffffffff;
 const LIMIT16 = 0xffff;
+/** How long a write waits for the reader to take more before the zip is given up: 10 minutes. */
+const STALL_MS = 10 * 60_000;
 
 export class ZipStream {
   readonly out = new PassThrough();
@@ -22,8 +26,10 @@ export class ZipStream {
   private count = 0;
   private zip64 = false;
   private failed: Error | null = null;
+  private readonly stallMs: number;
 
-  constructor() {
+  constructor(opts: { stallMs?: number } = {}) {
+    this.stallMs = opts.stallMs ?? STALL_MS;
     const gone = (err?: Error) => {
       this.failed ??= err ?? new Error("the download was cancelled before the end");
     };
@@ -39,6 +45,7 @@ export class ZipStream {
     if (this.out.write(b)) return Promise.resolve();
     return new Promise((done, fail) => {
       const stop = () => {
+        clearTimeout(stalled);
         this.out.off("drain", ok).off("close", broke).off("error", broke);
       };
       const ok = () => {
@@ -50,6 +57,12 @@ export class ZipStream {
         fail(this.failed ?? err ?? new Error("the download was cancelled before the end"));
       };
       this.out.once("drain", ok).once("close", broke).once("error", broke);
+      const stalled = setTimeout(() => {
+        stop();
+        this.abort(new Error(`the download was not read for ${Math.round(this.stallMs / 60_000)} minutes: given up`));
+        fail(this.failed);
+      }, this.stallMs);
+      stalled.unref?.();
     });
   }
 

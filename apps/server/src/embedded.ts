@@ -144,9 +144,11 @@ function exifUserComment(exif: Buffer): string | null {
   const head = t.toString("latin1", uc.off, uc.off + 8);
   const body = t.subarray(uc.off + 8, uc.off + uc.count);
   if (head.startsWith("UNICODE")) {
-    // written big-endian by some tools and little-endian by others: whichever reads as text
-    const be = Buffer.from(body).swap16().toString("utf16le");
-    const lev = body.toString("utf16le");
+    // written big-endian by some tools and little-endian by others: whichever reads as text. Read in whole 16-bit units:
+    // swap16 throws on an odd count of bytes, which a tool that wrote one too many or too few gave
+    const even = body.subarray(0, body.length & ~1);
+    const be = Buffer.from(even).swap16().toString("utf16le");
+    const lev = even.toString("utf16le");
     const printable = (x: string) => (x.match(/[\x20-\x7e\n]/g)?.length ?? 0) / Math.max(1, x.length);
     return (printable(be) >= printable(lev) ? be : lev).replace(/\0+$/, "");
   }

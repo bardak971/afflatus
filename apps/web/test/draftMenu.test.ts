@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { draftWords, openRow } from "../src/screens/studio/DraftMenu";
 import type { DraftBrief } from "../src/api";
 
-const brief = (over: Partial<DraftBrief>): DraftBrief => ({ id: "d1", recipe: "h3-t2v", title: "a red kite", name: null, target: "local", updatedAt: "2026-10-15T10:00:00Z", empty: false, projectId: null, ...over });
+const brief = (over: Partial<DraftBrief>): DraftBrief => ({ id: "d1", recipe: "h3-t2v", title: "a red kite", name: null, updatedAt: "2026-10-15T10:00:00Z", empty: false, projectId: null, ...over });
 
 describe("the open draft's row in the drafts menu", () => {
   it("says the model the open draft is on now, not the list's row from before the save", () => {

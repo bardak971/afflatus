@@ -243,4 +243,13 @@ describe("the streamed zip", () => {
     zip.out.destroy();
     await expect(zip.add("x.bin", Readable.from([Buffer.alloc(1024)]))).rejects.toThrow(/cancelled/);
   });
+
+  it("is given up when its reader stays but stops reading (a paused download), so that the backup lets go of the deletions it holds", async () => {
+    const zip = new ZipStream({ stallMs: 100 });
+    // nobody reads zip.out: past its buffer, a write waits for room that never comes
+    const added = zip.add("big.bin", Readable.from([Buffer.alloc(1 << 20)]));
+    const waited = new Promise((done) => setTimeout(() => done("still waiting"), 3000));
+    expect(await Promise.race([added.then(() => "written", (err: Error) => err.message), waited])).toMatch(/not read for/);
+    expect(zip.out.destroyed).toBe(true);
+  });
 });

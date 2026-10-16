@@ -46,13 +46,18 @@ describe("a picture a draft still uses, on its way to the bin", () => {
     expect((await del(`/api/assets/${b}`)).statusCode).toBe(409);
   });
 
-  it("makes a draft that edits it a new picture", async () => {
+  it("is not pinned by a draft's target: none is taken, and an old row's 'asset:' one still loads and pins nothing", async () => {
     const a = await picture();
-    const d = (await post(t.app, "/api/drafts", { recipe: RECIPE, target: `asset:${a}`, forms: { [RECIPE]: { prompt: "a cat" } } })).json();
-    expect((await post(t.app, "/api/drafts/using", { ids: [a] })).json().drafts.map((x: { id: string }) => x.id)).toEqual([d.id]);
-    await post(t.app, "/api/drafts/release", { ids: [a] });
-    expect((await get(t.app, `/api/drafts/${d.id}`)).json().target).toBe("new");
+    // the old Edit-draft flow's field is refused, never stored
+    expect((await post(t.app, "/api/drafts", { recipe: RECIPE, target: `asset:${a}`, forms: { [RECIPE]: { prompt: "a cat" } } })).statusCode).toBe(400);
+    // a row saved by that flow before: it opens as it was, and the picture it once edited is free
+    const at = new Date().toISOString();
+    const old = newId();
+    await t.db.insertInto("drafts").values({ id: old, owner_id: OWNER, project_id: null, target: `asset:${a}`, recipe_id: RECIPE, title: "a cat", name: "zz-test old edit", forms: JSON.stringify({ [RECIPE]: { prompt: "a cat" } }), count: 1, chat: null, look: null, created_at: at, updated_at: at } as never).execute();
+    expect((await get(t.app, `/api/drafts/${old}`)).json()).toMatchObject({ id: old, name: "zz-test old edit", forms: { [RECIPE]: { prompt: "a cat" } } });
+    expect((await post(t.app, "/api/drafts/using", { ids: [a] })).json().drafts).toEqual([]);
     expect((await del(`/api/assets/${a}`)).statusCode).toBe(200);
+    expect((await t.db.selectFrom("drafts").select("target").where("id", "=", old).executeTakeFirstOrThrow()).target).toBe(`asset:${a}`);
   });
 
   it("goes to the bin once the draft is deleted; the bulk bin says how many it left", async () => {

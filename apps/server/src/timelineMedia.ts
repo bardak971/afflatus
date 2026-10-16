@@ -198,6 +198,12 @@ export class TimelineMedia {
       })().catch(() => null);
       this.alongs.set(asset.id, got);
       capped(this.alongs, 200);
+      // a failure is not kept: the player would get no colour match at this video's joins until a restart, while the
+      // export measures the file itself and nudges. The next ask measures it again
+      const settling = got;
+      void settling.then((made) => {
+        if (made === null && this.alongs.get(asset.id) === settling) this.alongs.delete(asset.id);
+      });
     }
     return got;
   }

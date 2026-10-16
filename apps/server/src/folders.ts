@@ -104,6 +104,11 @@ export function registerFolders(app: FastifyInstance, s: Services): void {
       }
       await mustExist(body.parentId);
     }
+    // a folder inside another is in its parent's project: given another one where it is, it and its timelines moved
+    // there while the tree still showed it under its parent. It changes project by moving to the top of the other one
+    if (body.parentId === undefined && folder.parent_id && body.project !== undefined && body.project !== folder.project_id) {
+      throw httpError("A folder inside another one is in its parent's project: move it to the top of the other project instead.");
+    }
     // its project: the new parent's when it moves, the one named when it is given one at the top
     const parentProject = body.parentId ? (await mustExist(body.parentId)).project_id : body.parentId === null ? (body.project !== undefined ? body.project : folder.project_id) : undefined;
     const project = parentProject !== undefined ? parentProject : body.project !== undefined ? body.project : folder.project_id;

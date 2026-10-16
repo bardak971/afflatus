@@ -85,8 +85,7 @@ export async function commandIndex(s: Services, opts: { items?: string[] } = {})
       .where("deleted_at", "is", null).where("origin", "not in", NOT_IN_LIBRARY).groupBy("folder_id").execute(),
     db.selectFrom("assets").select(ITEM).where("deleted_at", "is", null).where("origin", "not in", NOT_IN_LIBRARY).orderBy("created_at", "desc").orderBy("id", "desc").limit(NEWEST).execute(),
     named.length ? db.selectFrom("assets").select(ITEM).where("id", "in", named).where("origin", "not in", NOT_IN_LIBRARY).execute() : Promise.resolve([]),
-    // a clip's own draft belongs to its timeline, not to the Studio's list
-    db.selectFrom("drafts").select(["id", "name", "title", "recipe_id", "project_id", "created_at", "updated_at"]).where("owner_id", "=", OWNER).where("target", "not like", "clip:%").orderBy("updated_at", "desc").execute(),
+    db.selectFrom("drafts").select(["id", "name", "title", "recipe_id", "project_id", "created_at", "updated_at"]).where("owner_id", "=", OWNER).orderBy("updated_at", "desc").execute(),
     // by family too: the models a draft was tried on, the newest first
     db.selectFrom("generations").select((eb) => ["draft_id", "family", eb.fn.countAll().as("n"), eb.fn.max("created_at").as("last")]).where("draft_id", "is not", null).groupBy(["draft_id", "family"]).orderBy("last", "desc").execute(),
     // its figures (clips, lengths, exported) need only the takes that play

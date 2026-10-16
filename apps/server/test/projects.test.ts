@@ -84,6 +84,25 @@ describe("projects", () => {
     expect((await of(inner.id)).projectId).toBeNull();
   });
 
+  it("keeps a folder inside another in its parent's project: another project is refused unless it moves to the top", async () => {
+    const p = await call("POST", "/api/projects", { name: "Parent's" });
+    const q = await call("POST", "/api/projects", { name: "Other" });
+    const shots = await call("POST", "/api/folders", { name: "shots", parentId: p.folderId });
+    const inner = await call("POST", "/api/folders", { name: "close-ups", parentId: shots.id });
+    const tl = await t.services.timelines.create("zz-test cut", p.id, shots.id);
+    const res = await t.app.inject({ method: "PATCH", url: `/api/folders/${shots.id}`, payload: { project: q.id } });
+    expect(res.statusCode).toBe(400);
+    const of = async (id: string) => ((await get(t.app, "/api/folders")).json().items as Array<{ id: string; parentId: string | null; projectId: string | null }>).find((f) => f.id === id)!;
+    expect(await of(shots.id)).toMatchObject({ parentId: p.folderId, projectId: p.id });
+    expect((await of(inner.id)).projectId).toBe(p.id);
+    expect((await t.db.selectFrom("timelines").select("project_id").where("id", "=", tl.id).executeTakeFirstOrThrow()).project_id).toBe(p.id);
+    // its own project said again, a rename with it, or a move to the top of the other: all go through
+    await call("PATCH", `/api/folders/${shots.id}`, { name: "shots 2", project: p.id });
+    await call("PATCH", `/api/folders/${shots.id}`, { parentId: null, project: q.id });
+    expect(await of(shots.id)).toMatchObject({ parentId: null, projectId: q.id });
+    expect((await of(inner.id)).projectId).toBe(q.id);
+  });
+
   it("takes the timelines filed in a folder along when the folder goes to another project", async () => {
     const q = await call("POST", "/api/projects", { name: "Seaside" });
     const shots = await call("POST", "/api/folders", { name: "Harbor", parentId: null });

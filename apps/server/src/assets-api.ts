@@ -295,7 +295,7 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
   app.post<{ Params: { id: string } }>("/api/assets/:id/sound", async (req) => {
     const video = await asset(req.params.id);
     if (video.kind !== "video" || !video.has_sound) throw httpError("This video has no audio to extract.");
-    const bytes = await soundOf(await s.storage.get(video.file_key), extOf(video.mime));
+    const bytes = await soundOf(await s.storage.get(video.file_key), extOf(video.mime), video.duration_ms);
     // "Big Air · c2 · t5 · audio": after the name the video goes by (worked out from where it came from when it has none)
     const source = await nameOf(s.db, video);
     return addBeside(video, { bytes, ext: "m4a", thumb: null }, {
@@ -309,7 +309,7 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
     const video = await asset(req.params.id);
     if (video.kind !== "video" || !video.has_sound) throw httpError("This video has no sound to remove.");
     const ext = extOf(video.mime);
-    const bytes = await silentOf(await s.storage.get(video.file_key), ext);
+    const bytes = await silentOf(await s.storage.get(video.file_key), ext, video.duration_ms);
     // the same frames: the source's thumbnail serves the copy too
     const thumb = video.thumb_key ? await s.storage.get(video.thumb_key).catch(() => null) : null;
     const source = await nameOf(s.db, video);

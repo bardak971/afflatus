@@ -1,4 +1,4 @@
-import { httpError } from "./errors";
+import { httpError, notFound } from "./errors";
 import type { FastifyInstance } from "fastify";
 import { said } from "./forecast";
 import { allowedHosts, hostAllowed } from "./hostCheck";
@@ -145,7 +145,10 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
   app.post("/api/comfy/restart", async (req) => {
     const { machine } = z.object({ machine: z.string().max(40).optional() }).parse(req.body ?? {});
     const all = await s.machines();
-    const on = all.find((m) => m.machine.id === machine) ?? all[0]!;
+    // the first machine only when none was named: a machine named and gone (a pod removed in another tab) is not
+    // another one to restart, least of all the first ComfyUI, rebooted unasked
+    const on = machine === undefined ? all[0]! : all.find((m) => m.machine.id === machine);
+    if (!on) throw notFound("this machine");
     if ((await s.queue.status()).machines.find((m) => m.id === on.machine.id)?.running) throw httpError("A render is running: restart ComfyUI once it is done.", 409);
     const comfy = on.comfy;
     let res: Response | null = null;

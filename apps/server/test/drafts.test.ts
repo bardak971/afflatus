@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, type FakeComfy } from "@afflatus/comfy/testing";
 import { get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
-import { IDLE_DRAFT_MS, sweepIdleDrafts } from "../src/drafts";
+import { IDLE_DRAFT_MS, sweepIdleDrafts, unusedDrafts } from "../src/drafts";
+import { newId, OWNER } from "../src/db";
 
 let t: TestApp;
 beforeEach(async () => {
@@ -47,7 +48,7 @@ describe("a draft's name", () => {
 describe("drafts", () => {
   it("are created, saved while typing, listed newest first and deleted", async () => {
     const a = (await post(t.app, "/api/drafts", { recipe: RECIPE })).json();
-    expect(a).toMatchObject({ recipe: RECIPE, title: "", forms: {}, count: 1, target: "new" });
+    expect(a).toMatchObject({ recipe: RECIPE, title: "", forms: {}, count: 1 });
     const b = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { prompt: "a quiet harbour at dawn" } }, count: 2 })).json();
     expect(b.title).toBe("a quiet harbour at dawn");
 
@@ -228,6 +229,40 @@ describe("drafts emptied, left alone", () => {
     expect((await get(t.app, `/api/drafts/${old.id}`)).statusCode).toBe(404);
     // a save to one that went answers 404: the page makes it again with what it holds
     expect((await put(`/api/drafts/${old.id}`, { count: 2 })).statusCode).toBe(404);
+  });
+
+  it("count as made from only while what was made is still there (library or bin) or a render of theirs is to come", async () => {
+    const emptied = async () => {
+      const d = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { prompt: "for now" } } })).json();
+      await put(`/api/drafts/${d.id}`, { forms: { [RECIPE]: { steps: 30 } } });
+      return d.id as string;
+    };
+    const [erased, binned, kept, rendering] = [await emptied(), await emptied(), await emptied(), await emptied()];
+    const at = new Date().toISOString();
+    const generation = async (draft: string) => {
+      const id = newId();
+      await t.db.insertInto("generations").values({ id, owner_id: OWNER, recipe_id: RECIPE, recipe_version: 1, family: "sdxl", inputs: "{}", resolved: "{}", gen_ms: 1, draft_id: draft, created_at: at }).execute();
+      return id;
+    };
+    const output = async (gen: string, deleted: string | null) => {
+      await t.db.insertInto("assets").values({
+        id: newId(), owner_id: OWNER, kind: "image", origin: "generated", name: "", file_key: `assets/${newId()}.png`, thumb_key: null, mime: "image/png", bytes: 1, width: 1, height: 1, duration_ms: null,
+        fps: null, has_sound: 0, folder_id: null, generation_id: gen, kept_at: at, deleted_at: deleted, created_at: at,
+      } as never).execute();
+    };
+    // its outputs erased for good: its generation stays (the prompt history reads it), the draft is unused all the same
+    await generation(erased);
+    await output(await generation(binned), at);
+    await output(await generation(kept), null);
+    await t.db.insertInto("jobs").values({
+      id: newId(), owner_id: OWNER, recipe_id: RECIPE, label: "zz-test", inputs: "{}", status: "queued", warm: 0, look: null, priority: 0, depends_on: null, attempts: 0,
+      resume: null, error: null, generation_id: null, clip_id: null, timeline_id: null, clip_fit: 0, finished_from: null, draft_id: rendering, folder_id: null, created_at: at, started_at: null, finished_at: null, updated_at: at,
+    } as never).execute();
+    expect((await unusedDrafts(t.db)).map((d) => d.id)).toEqual([erased]);
+    const long = new Date(Date.now() - IDLE_DRAFT_MS - 60_000).toISOString();
+    await t.db.updateTable("drafts").set({ updated_at: long }).where("id", "in", [erased, binned, kept, rendering]).execute();
+    expect(await sweepIdleDrafts(t.db, t.services.registry)).toBe(1);
+    expect((await t.db.selectFrom("drafts").select("id").execute()).map((d) => d.id).sort()).toEqual([binned, kept, rendering].sort());
   });
 });
 

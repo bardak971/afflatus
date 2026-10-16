@@ -21,7 +21,6 @@ const createBody = z.strictObject({
   recipe: z.string().min(1),
   forms: forms.default({}),
   count: z.number().int().min(1).max(8).default(1),
-  target: z.string().max(100).default("new"),
   look: lookSchema.nullable().optional(),
   /** The project it is made in; null or left out: the Inbox. */
   project: z.string().nullable().optional(),
@@ -59,14 +58,16 @@ async function liveLook(db: Db, look: Look | null | undefined): Promise<Look | n
 const idsBody = z.strictObject({ ids: z.array(z.string().regex(/^[0-9a-f]{32}$/)).min(1).max(2000) });
 const ID_IN_JSON = /"([0-9a-f]{32})"/g;
 
-/** The drafts that use any of these items (their forms name one, or they edit one), with which; by when they were last saved. */
+/**
+ * The drafts that use any of these items (their forms name one), with which; by when they were last saved. A draft's
+ * `target` is not read: "asset:" and "clip:" ones were the old Edit-draft flow's, and a row from then that still holds
+ * one pins nothing (no screen could release it).
+ */
 export async function draftsUsing(db: Db, ids: ReadonlySet<string>): Promise<Array<{ id: string; name: string; assets: string[] }>> {
-  const rows = await db.selectFrom("drafts").select(["id", "name", "title", "forms", "target"]).orderBy("updated_at", "desc").execute();
+  const rows = await db.selectFrom("drafts").select(["id", "name", "title", "forms"]).orderBy("updated_at", "desc").execute();
   const out: Array<{ id: string; name: string; assets: string[] }> = [];
   for (const d of rows) {
     const named = new Set([...d.forms.matchAll(ID_IN_JSON)].map((m) => m[1]!).filter((id) => ids.has(id)));
-    const edits = /^asset:([0-9a-f]{32})$/.exec(d.target)?.[1];
-    if (edits && ids.has(edits)) named.add(edits);
     if (named.size) out.push({ id: d.id, name: d.name ?? d.title, assets: [...named] });
   }
   return out;
@@ -140,14 +141,28 @@ export function writeDraft(db: Db, id: string): Promise<void> {
  */
 export const IDLE_DRAFT_MS = 30 * 60_000;
 
+/**
+ * The drafts among `ids` that something was made from and is still there: an item in the library or the bin, or a render
+ * queued or running. The generations alone are not enough: their rows are kept for good (the prompt history reads
+ * them), so a draft whose outputs were all erased would never count as unused again.
+ */
+async function madeFrom(db: Db, ids: string[]): Promise<Set<string>> {
+  if (!ids.length) return new Set();
+  const [outputs, jobs] = await Promise.all([
+    db.selectFrom("generations").innerJoin("assets", "assets.generation_id", "generations.id").select("generations.draft_id").distinct().where("generations.draft_id", "in", ids).execute(),
+    db.selectFrom("jobs").select("draft_id").distinct().where("draft_id", "in", ids).where("status", "in", ["queued", "running"]).execute(),
+  ]);
+  return new Set([...outputs, ...jobs].map((r) => r.draft_id).filter((id): id is string => id !== null));
+}
+
 /** The drafts not worth keeping and nobody touched for `IDLE_DRAFT_MS`, deleted. Run by the hourly sweep (services.ts): a listing only reads. */
 export async function sweepIdleDrafts(db: Db, registry: Services["registry"], at = Date.now()): Promise<number> {
   const before = new Date(at - IDLE_DRAFT_MS).toISOString();
   const m = unwrittenOf(db);
   for (const [id, d] of m) if (d.updated_at < before) m.delete(id);
-  const old = (await db.selectFrom("drafts").selectAll().where("target", "=", "new").where("name", "is", null).where("updated_at", "<", before).execute()).filter((d) => !holdsSomething(registry, d));
+  const old = (await db.selectFrom("drafts").selectAll().where("name", "is", null).where("updated_at", "<", before).execute()).filter((d) => !holdsSomething(registry, d));
   if (!old.length) return 0;
-  const made = new Set((await db.selectFrom("generations").select("draft_id").where("draft_id", "in", old.map((d) => d.id)).execute()).map((g) => g.draft_id));
+  const made = await madeFrom(db, old.map((d) => d.id));
   const idle = old.filter((d) => !made.has(d.id)).map((d) => d.id);
   if (idle.length) await db.deleteFrom("drafts").where("id", "in", idle).execute();
   return idle.length;
@@ -160,15 +175,15 @@ const inProject = (db: Db, project: string | undefined) => {
   else if (project) q = q.where("project_id", "=", project);
   return q;
 };
-/** Drafts with no prompt, no name, no conversation and nothing ever made from them: settings picked and left. `keep`: never that one. */
+/** Drafts with no prompt, no name, no conversation and nothing made from them still there: settings picked and left. `keep`: never that one. */
 export async function unusedDrafts(db: Db, project?: string, keep?: string): Promise<Array<Tables["drafts"]>> {
   const bare = (await inProject(db, project).where("title", "=", "").where("name", "is", null).execute()).filter((d) => d.id !== keep && (!d.chat || d.chat === "[]"));
   if (!bare.length) return [];
-  const made = new Set((await db.selectFrom("generations").select("draft_id").where("draft_id", "in", bare.map((d) => d.id)).execute()).map((g) => g.draft_id));
+  const made = await madeFrom(db, bare.map((d) => d.id));
   return bare.filter((d) => !made.has(d.id));
 }
 
-const brief = (d: Tables["drafts"]) => ({ id: d.id, recipe: d.recipe_id, title: d.title, name: d.name, target: d.target, createdAt: d.created_at, updatedAt: d.updated_at, empty: holdsNothing(d), projectId: d.project_id });
+const brief = (d: Tables["drafts"]) => ({ id: d.id, recipe: d.recipe_id, title: d.title, name: d.name, createdAt: d.created_at, updatedAt: d.updated_at, empty: holdsNothing(d), projectId: d.project_id });
 const full = (d: Tables["drafts"]) => ({
   ...brief(d), forms: JSON.parse(d.forms) as Record<string, Record<string, unknown>>, count: d.count, look: d.look ? (JSON.parse(d.look) as Look) : null,
   chat: d.chat ? (JSON.parse(d.chat) as unknown[]) : [],
@@ -267,8 +282,10 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
     if (json.length > MAX_BYTES) throw tooBig();
     const look = await liveLook(s.db, body.look);
     const at = now();
+    // `target` is a column of the old Edit-draft flow (0003, not null): every draft is a new one now, and the rows from
+    // then keep theirs unread, so that nothing they held is lost
     const row: Tables["drafts"] = {
-      id: newId(), owner_id: OWNER, target: body.target, recipe_id: body.recipe, title: titleOf(s.registry.recipe(body.recipe), body.forms),
+      id: newId(), owner_id: OWNER, target: "new", recipe_id: body.recipe, title: titleOf(s.registry.recipe(body.recipe), body.forms),
       name: body.name?.trim() || null, forms: json, count: body.count, chat: null, look: look ? JSON.stringify(look) : null, project_id: body.project ?? null, created_at: at, updated_at: at,
     };
     if (holdsSomething(s.registry, row)) await s.db.insertInto("drafts").values(row).execute();
@@ -320,7 +337,7 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
 
   /**
    * The drafts that use these library items, asked before deleting them (the bin refuses an item a draft still uses):
-   * each with the items it uses, as sweep.ts inUse finds them (an id anywhere in its forms, or the item it edits).
+   * each with the items it uses, as sweep.ts inUse finds them (an id anywhere in its forms).
    */
   app.post("/api/drafts/using", async (req) => {
     const { ids } = idsBody.parse(req.body);
@@ -328,8 +345,7 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
   });
 
   /**
-   * These library items taken out of every draft that uses them: an input that held one follows its default again, and a
-   * draft that edits one becomes a new picture. Each draft in its own save's turn, so that a save under way is not lost.
+   * These library items taken out of every draft that uses them: an input that held one follows its default again. Each draft in its own save's turn, so that a save under way is not lost.
    */
   app.post("/api/drafts/release", async (req) => {
     const ids = new Set(idsBody.parse(req.body).ids);
@@ -339,8 +355,7 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
         const row = await findDraft(s.db, d.id);
         if (!row) return;
         const forms = formsWithout(JSON.parse(row.forms) as Record<string, Record<string, unknown>>, ids);
-        const target = ids.has(row.target.replace(/^asset:/, "")) ? "new" : row.target;
-        await s.db.updateTable("drafts").set({ forms: JSON.stringify(forms), target, title: titleOf(s.registry.recipe(row.recipe_id), forms), updated_at: now() }).where("id", "=", row.id).execute();
+        await s.db.updateTable("drafts").set({ forms: JSON.stringify(forms), title: titleOf(s.registry.recipe(row.recipe_id), forms), updated_at: now() }).where("id", "=", row.id).execute();
         changed++;
       });
     }
