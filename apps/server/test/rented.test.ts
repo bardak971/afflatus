@@ -243,7 +243,9 @@ describe("a rented machine", () => {
     // the home machine paused: a job free to go anywhere goes to the pod, which has work until it is done
     await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: { machine: "m1" } });
     const queued = (await post(t.app, "/api/jobs", job())).json().ids[0] as string;
-    expect(await t.services.queue.wants(id)).toBe(true);
+    // Asked until it says so: wants() looks at the pod's lane, then reads the waiting jobs, and a pass that claims the job
+    // in between (a loaded run) leaves it in neither for that one answer.
+    await until(() => t.services.queue.wants(id));
     await until(async () => (await t.db.selectFrom("jobs").select("status").where("id", "=", queued).executeTakeFirstOrThrow()).status === "running");
     expect(await t.services.queue.wants(id)).toBe(true);
     // a job pinned to the home machine (paused) is no work for the pod
@@ -283,8 +285,8 @@ describe("a rented machine", () => {
     // an idle GPU does not: the silence goes on
     const idleFrom = t.services.queue.quietFor(id).ms;
     podComfy.send("crystools.monitor", { cpu_utilization: 10, gpus: [{ gpu_utilization: 2, vram_used: 20, vram_total: 24 }] });
-    await new Promise((r) => setTimeout(r, 100));
-    expect(t.services.queue.quietFor(id)).toMatchObject({ gpuIdle: true });
+    // Waited for until the message has come in over the socket, rather than for a fixed time a loaded run outlasts.
+    await until(() => t.services.queue.quietFor(id).gpuIdle === true);
     expect(t.services.queue.quietFor(id).ms).toBeGreaterThanOrEqual(idleFrom);
     // silent past the limit: stuck
     t.services.rented.stuckMs = 1;
@@ -343,9 +345,14 @@ describe("a rented machine", () => {
   it("keeps a long silent node whose GPU is at work, past 10 min and past its forecast", async () => {
     const { id, row, run } = await silentOnPod();
     run().expectedMs = 5 * MIN;
+    // No background read may end it as stuck while the GPU's load is on its way: in a loaded run one came in between and
+    // failed the render 40 min silent before the load was read. The poll below is the one the test asks about.
+    const stuckMs = t.services.rented.stuckMs;
+    t.services.rented.stuckMs = Number.POSITIVE_INFINITY;
     run().startedAt = run().movedAt = Date.now() - 40 * MIN;
     podComfy.send("crystools.monitor", { cpu_utilization: 10, gpus: [{ gpu_utilization: 95, vram_used: 20, vram_total: 24 }] });
     await until(() => Date.now() - run().movedAt! < MIN);
+    t.services.rented.stuckMs = stuckMs;
     await t.services.rented.poll();
     expect(t.services.queue.quietFor(id)).toMatchObject({ gpuIdle: true });
     expect(t.services.queue.quietFor(id).ms).toBeLessThan(MIN);

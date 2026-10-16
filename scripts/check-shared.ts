@@ -4,11 +4,13 @@
  *   - a plural made inline (`=== 1 ? "" : "s"`): format's `plural` (core's, for the server and the packages);
  *   - a failure banner made inline (`tone: "bad"` with an error's `.message`): sayFailed.ts's `useSayFailed` or `failedBanner`;
  *   - a list of model-file extensions in a pattern: core's modelFiles.ts (`MODEL_EXT`, `isModelFile`, `modelStem`).
- * Only the sources are read (apps/<name>/src, packages/<name>/src), not the tests. `pnpm lint` from the repository root.
+ * Only the sources are read (apps/<name>/src, packages/<name>/src, and the scripts that `pnpm check:*` and the rest run),
+ * not the tests. `pnpm lint` from the repository root.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { plural } from "@afflatus/core";
 
 /** One thing written by hand that a helper does. */
 export interface Finding {
@@ -31,7 +33,8 @@ export function sharedFindings(file: string, text: string): Finding[] {
   const found: Finding[] = [];
   const lines = text.split("\n");
   for (const rule of RULES) {
-    if (rule.except?.test(file)) continue;
+    // This file spells every pattern out in its rules and its header, so it would refuse itself.
+    if (rule.except?.test(file) || /(^|[\\/])scripts[\\/]check-shared\.ts$/.test(file)) continue;
     lines.forEach((l, i) => {
       if (rule.test.test(l)) found.push({ file, line: i + 1, text: l.trim().slice(0, 140), why: rule.why });
     });
@@ -39,8 +42,13 @@ export function sharedFindings(file: string, text: string): Finding[] {
   return found;
 }
 
-/** The source files the guard reads: TypeScript under apps/<name>/src and packages/<name>/src. */
-function sources(root: string): string[] {
+/**
+ * The source files the guard reads: TypeScript under apps/<name>/src, packages/<name>/src and scripts/. The scripts are
+ * read because an inline plural slipped into check-graphs.ts while they were left out; their .mjs run on bare Node,
+ * cannot import core, and are not read.
+ * @internal exported for the test
+ */
+export function sources(root: string): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -60,6 +68,7 @@ function sources(root: string): string[] {
       }
     }
   }
+  walk(join(root, "scripts"));
   return out;
 }
 
@@ -68,7 +77,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const found = sources(root).flatMap((p) => sharedFindings(relative(root, p).replace(/\\/g, "/"), readFileSync(p, "utf8")));
   for (const f of found) console.error(`${f.file}:${f.line}: ${f.why}\n    ${f.text}`);
   if (found.length) {
-    console.error(`\n${found.length} place${found.length === 1 ? "" : "s"} written by hand beside a shared helper (scripts/check-shared.ts).`);
+    console.error(`\n${plural(found.length, "place")} written by hand beside a shared helper (scripts/check-shared.ts).`);
     process.exit(1);
   }
 }

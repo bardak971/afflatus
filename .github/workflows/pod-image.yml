@@ -22,7 +22,26 @@ env:
   PUBLISH: ${{ github.event_name == 'push' }}
 
 jobs:
+  # what the image ships, tested first: the node pack (its lock, watchdog and frame arithmetic) and the pod's own scripts
+  # (the boot log, broken.py, Manager's registry list, start.sh's failure path). Every pod deployed from a broken image
+  # bills its boot for nothing
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: python3 -m py_compile comfy-nodes/afflatus-nodes/*.py deploy/runpod/*.py
+      - run: |
+          python3 -m venv "$RUNNER_TEMP/pack-tests"
+          "$RUNNER_TEMP/pack-tests/bin/pip" install -q "pytest==9.1.1" "numpy==2.5.4"
+          "$RUNNER_TEMP/pack-tests/bin/python" -m pytest -q comfy-nodes/afflatus-nodes/tests
+      - run: python3 -m unittest discover -s deploy/runpod/tests
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
+      - run: shellcheck deploy/runpod/start.sh
+
   image:
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

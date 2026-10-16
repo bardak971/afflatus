@@ -6,6 +6,10 @@ export default defineConfig({
     // takes 2 s alone can take 6; the default 5 s failed three of them now and then. A passing test is no slower for it
     testTimeout: 30_000,
     hookTimeout: 30_000,
+    // Half the cores on a workstation: with one worker per core but one, the server tests (ffmpeg, pretend ComfyUIs and
+    // RunPods, their timers) starved each other into timeouts, and the whole run was no faster (100 s against 94 s at half,
+    // on 20 cores). CI's runners have few cores, and keep vitest's own count.
+    maxWorkers: process.env.CI ? undefined : "50%",
     // the tests ask pretend sites on this machine, over plain http, and never the real ones (civitai.ts pretendSites)
     env: { AFFLATUS_PRETEND_SITES: "1" },
     projects: [
