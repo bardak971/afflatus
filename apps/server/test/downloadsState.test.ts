@@ -15,12 +15,24 @@ const idsIn = (file: string) => (JSON.parse(readFileSync(file, "utf8")) as Array
 /** The downloads' state file between two runs: what was under way when Afflatus stopped is said to have been interrupted. */
 describe("the downloads' state file", () => {
   let dir = "";
+  // Every Downloads a test makes, so that its writes can be waited for before its folder goes.
+  let made: Downloads[] = [];
+  const open = (events: EventEmitter, file?: string) => {
+    const d = new Downloads(events, file);
+    made.push(d);
+    return d;
+  };
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "afflatus-downloads-"));
   });
-  // a state file still being written as a test ends (it is saved in the background) keeps Windows from removing its
-  // folder for a moment: asked again a few times
-  afterEach(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
+  // The state file is saved in the background, and a test can end with a write under way (a restore that found an
+  // interrupted download, a failure marked read): removing the folder then raced the open .tmp under load (review O-8).
+  // The writes are waited for first; the retries stay for Windows, which can hold a closed file a moment longer.
+  afterEach(async () => {
+    await Promise.all(made.map((d) => d.flushed()));
+    made = [];
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  });
 
   it("lists an interrupted download as failed at the next start, keeps a finished one, drops an old one, and dismisses on stop", async () => {
     const file = join(dir, "downloads.json");
@@ -33,7 +45,7 @@ describe("the downloads' state file", () => {
     const events = new EventEmitter();
     let told = 0;
     events.on("downloads", () => told++);
-    const downloads = new Downloads(events, file);
+    const downloads = open(events, file);
     await downloads.restored;
     const list = downloads.list();
     expect(list.map((d) => [d.id, d.status])).toEqual([["b", "done"], ["a", "error"]]);
@@ -53,7 +65,7 @@ describe("the downloads' state file", () => {
     writeFileSync(file, JSON.stringify([
       { id: "f", file: "failed.safetensors", folder: "diffusion_models", title: "Failed", bytes: 10, total: 50, status: "error", error: "cut", finishedAt: Date.now() - 60_000 },
     ]));
-    const first = new Downloads(new EventEmitter(), file);
+    const first = open(new EventEmitter(), file);
     await first.restored;
     expect(first.list()[0]!.seen).toBeUndefined();
     expect(first.seen("f")).toBe(true);
@@ -62,7 +74,7 @@ describe("the downloads' state file", () => {
     expect(first.list()).toMatchObject([{ id: "f", status: "error", seen: true }]);
     await until(() => (JSON.parse(readFileSync(file, "utf8")) as Array<{ seen?: boolean }>)[0]?.seen === true);
     // the next start reads it back as read
-    const again = new Downloads(new EventEmitter(), file);
+    const again = open(new EventEmitter(), file);
     await again.restored;
     expect(again.list()).toMatchObject([{ id: "f", status: "error", seen: true }]);
   });
@@ -70,7 +82,7 @@ describe("the downloads' state file", () => {
   it("lists one ComfyUI-Manager was saving as done, and writes the file whole, through a file beside it", async () => {
     const file = join(dir, "downloads.json");
     writeFileSync(file, JSON.stringify([{ id: "s", file: "sent.safetensors", folder: "loras", title: "Sent", bytes: 10, total: 10, status: "saving" }]));
-    const downloads = new Downloads(new EventEmitter(), file);
+    const downloads = open(new EventEmitter(), file);
     await downloads.restored;
     expect(downloads.list()).toMatchObject([{ id: "s", status: "done" }]);
     expect(downloads.list()[0]!.error).toBeUndefined();
@@ -84,7 +96,7 @@ describe("the downloads' state file", () => {
     const part = join(dir, "big.safetensors.part");
     writeFileSync(part, "half");
     writeFileSync(file, JSON.stringify([{ id: "h", file: "big.safetensors", folder: "loras", title: "Big", bytes: 4, total: 8, status: "downloading", via: "afflatus", part }]));
-    const downloads = new Downloads(new EventEmitter(), file);
+    const downloads = open(new EventEmitter(), file);
     await downloads.restored;
     expect(downloads.list()).toMatchObject([{ id: "h", status: "error", via: "afflatus" }]);
     // the path of the .part stays in the state file, never in what the browser is told
@@ -102,7 +114,7 @@ describe("the downloads' state file", () => {
       { id: "done", file: "c.safetensors", folder: "loras", title: "C", bytes: 1, total: 1, status: "done", finishedAt: hours(3) },
       { id: "too-old", file: "d.safetensors", folder: "loras", title: "D", bytes: 0, total: 0, status: "error", error: "cut", finishedAt: hours(25) },
     ]));
-    const downloads = new Downloads(new EventEmitter(), file);
+    const downloads = open(new EventEmitter(), file);
     await downloads.restored;
     expect(downloads.list().map((d) => d.id)).toEqual(["unread"]);
     // read now: an hour after it ended, it goes
@@ -111,12 +123,12 @@ describe("the downloads' state file", () => {
   });
 
   it("is nothing without a state file, and does not mind one it cannot read", async () => {
-    const bare = new Downloads(new EventEmitter());
+    const bare = open(new EventEmitter());
     await bare.restored;
     expect(bare.list()).toEqual([]);
     const broken = join(dir, "broken.json");
     writeFileSync(broken, "{not json");
-    const d = new Downloads(new EventEmitter(), broken);
+    const d = open(new EventEmitter(), broken);
     await d.restored;
     expect(d.list()).toEqual([]);
   });

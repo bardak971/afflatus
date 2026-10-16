@@ -1,4 +1,4 @@
-# A release on every tag v*: the tests, the image on GHCR (amd64 and arm64, tagged like the tag), the bundles
+# A release on every tag v*: the whole CI (ci.yml), the image on GHCR (amd64 and arm64, tagged like the tag), the bundles
 # for Windows, Linux and macOS, and a GitHub release that carries them with generated notes. A tag with a "-"
 # (v0.3.0-rc.1) is a pre-release: its GitHub release is marked so, and the image does not move `latest`.
 #
@@ -39,17 +39,11 @@ env:
   PUBLISH: ${{ github.event_name == 'push' }}
 
 jobs:
+  # the whole of ci.yml on the tagged commit (lint, knip, cycles, the tests, check:graphs, the node pack's and the pod's
+  # tests, shellcheck, the player in Chrome, Postgres): ci.yml skips v* tags, and a release gated on the types and the
+  # tests alone could publish a commit that had failed the rest
   test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with: { node-version: 24, cache: pnpm }
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm test
+    uses: ./.github/workflows/ci.yml
 
   # the pod image Afflatus deploys (runpod.ts) built from this commit's pod files: a release whose start.sh or node pack
   # changed after that image's tag would deploy pods running older code than it says (0.5.0 shipped with pod-v0.1.12, whose

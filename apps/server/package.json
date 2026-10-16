@@ -1,6 +1,6 @@
 {
   "name": "@afflatus/server",
-  "version": "0.2.1",
+  "version": "0.0.1",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",

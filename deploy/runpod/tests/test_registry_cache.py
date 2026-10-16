@@ -36,6 +36,13 @@ def unreachable(req, timeout):
     raise OSError("api.comfy.org unreachable")
 
 
+class CacheName(unittest.TestCase):
+    def test_is_the_name_manager_gives_the_registrys_list(self):
+        # The file a ComfyUI-Manager made for api.comfy.org/nodes in its user/__manager/cache: a name of our own would be
+        # a file Manager never reads, and every pod would read the whole registry again at its start.
+        self.assertEqual(registry_cache.cache_name(), "881334633_nodes.json")
+
+
 class Main(unittest.TestCase):
     def test_writes_the_list_as_manager_keeps_it(self):
         with tempfile.TemporaryDirectory() as d:

@@ -286,6 +286,18 @@ export class Downloads {
       .catch((err) => console.warn(`[downloads] the list could not be saved: ${(err as Error).message}`));
   }
 
+  /**
+   * Done once every write of the state file asked for so far has ended (a write queued meanwhile is waited for too). For
+   * the tests: a test that ends while a write is under way would remove its folder under the open file. @internal
+   */
+  async flushed(): Promise<void> {
+    let at: Promise<void>;
+    do {
+      at = this.writing;
+      await at;
+    } while (at !== this.writing);
+  }
+
   private tell(now = false): void {
     // bytes arrive many times a second: say so twice a second at most; the state file is written on the changes of state only
     if (now) this.persist();

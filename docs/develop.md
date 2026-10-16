@@ -54,7 +54,7 @@ Three read-only scripts talk to a ComfyUI: `comfy:scan <url>` (what is ready), `
 
 ## Releasing
 
-Before the tag: the version in the root `package.json` (what an install from the sources says it is) and in `chart/Chart.yaml` (`version` and `appVersion`: the chart runs that image), the CHANGELOG's `[Unreleased]` turned into the version and its date with its compare link, and `main` pushed first (the node pack is linked from `main`). The `AFFLATUS_RELEASE_KEY` secret signs the release's checksums; without it the release has no signature and the in-app updater refuses it.
+Before the tag: the version in the root `package.json` (what an install from the sources says it is) and in `chart/Chart.yaml` (`version` and `appVersion`: the chart runs that image), the Argo CD example's `targetRevision` in [install-cluster.md](install-cluster.md), the CHANGELOG's `[Unreleased]` turned into the version and its date with its compare link, and `main` pushed first (the node pack is linked from `main`). The `AFFLATUS_RELEASE_KEY` secret signs the release's checksums; without it the release has no signature and the in-app updater refuses it. The workspaces' own `package.json` (apps/*, packages/*) stay at 0.0.1: nothing reads their version.
 
 A release is a tag:
 

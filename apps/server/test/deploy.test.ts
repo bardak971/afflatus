@@ -602,10 +602,14 @@ describe("what the rented GPUs cost: RunPod's bill as the truth", () => {
     runpod.bootMs = 400;
     const before = Date.now();
     await deploy();
+    const deployed = Date.now();
     await until(() => runpod.pods[0]!.status === "RUNNING");
     await t.services.rented.poll();
     const run = (await t.db.selectFrom("rent_sessions").selectAll().execute())[0]!;
-    expect(Date.parse(run.started_at) - before).toBeLessThan(300);
+    // Within the deploy's own call, and not after RunPod says the pod runs: a fixed bound from `before` failed whenever a
+    // loaded run made the deploy itself slower than that.
+    expect(Date.parse(run.started_at)).toBeGreaterThanOrEqual(before);
+    expect(Date.parse(run.started_at)).toBeLessThanOrEqual(Math.min(deployed, Date.parse(runpod.pods[0]!.startedAt!)));
     // its GPU and its idle kept with it, and its ComfyUI's first answer: where its boot ended (the Costs tab)
     expect(run).toMatchObject({ gpu: runpod.pods[0]!.gpu, idle_minutes: 10 });
     await until(async () => Boolean((await t.db.selectFrom("rent_sessions").select("up_at").executeTakeFirstOrThrow()).up_at) || (await t.services.rented.poll(), false));
@@ -616,6 +620,9 @@ describe("what the rented GPUs cost: RunPod's bill as the truth", () => {
   it("says how long the balance lasts at what the account spends now, and holds back a job longer than that", async () => {
     await deploy();
     await until(() => runpod.pods[0]!.status === "RUNNING");
+    // A read of the balance the deploy's follow-up started before the pod ran is let finish first: the spending below
+    // would join it (one read of RunPod at a time) and say the old balance, without the pod's spend, in a loaded run.
+    await t.services.rented.poll();
     runpod.balance = 0.0733; // ten minutes at $0.44/h
     t.services.rented.now = (() => { const real = Date.now; return () => real() + 61_000; })();
     const s = await spending();
@@ -643,9 +650,11 @@ describe("a render longer than the balance lasts", () => {
     // a render known to take half an hour (its forecast, as learned renders would give it)
     (t.services.queue as unknown as { expected: () => Promise<number> }).expected = async () => 30 * 60_000;
     const queued = (await post(t.app, "/api/jobs", job())).json();
-    await new Promise((r) => setTimeout(r, 300));
+    // Waited for until a pass has weighed it against the balance, rather than for a fixed time a loaded run outlasts.
+    const waiting = async () => (await t.services.queue.status()).waiting.find((w) => w.id === queued.ids[0]);
+    await until(async () => Boolean((await waiting())?.lacks?.[id]?.balance));
     expect(t.services.queue.runningOn(id)).toBe(false);
-    const row = (await t.services.queue.status()).waiting.find((w) => w.id === queued.ids[0]);
+    const row = await waiting();
     // a pod with no render of its own: its forecast weighed half again (a new pod's came out at half its truth)
     expect(row?.lacks?.[id]?.balance?.needMs).toBe(45 * 60_000);
   });
@@ -661,9 +670,11 @@ describe("a render longer than the balance lasts", () => {
     await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: { machine: "m1" } });
     (t.services.queue as unknown as { expected: () => Promise<number | null> }).expected = async () => null;
     const queued = (await post(t.app, "/api/jobs", job())).json();
-    await new Promise((r) => setTimeout(r, 300));
+    // Waited for until a pass has weighed it against the balance, rather than for a fixed time a loaded run outlasts.
+    const waiting = async () => (await t.services.queue.status()).waiting.find((w) => w.id === queued.ids[0]);
+    await until(async () => Boolean((await waiting())?.lacks?.[id]?.balance));
     expect(t.services.queue.runningOn(id)).toBe(false);
-    const row = (await t.services.queue.status()).waiting.find((w) => w.id === queued.ids[0]);
+    const row = await waiting();
     expect(row?.lacks?.[id]?.balance?.needMs).toBe(30 * 60_000);
     // its files still to come on top, sure or not
     expect(runwayNeed({ renderMs: null, fetchMs: 4 * 60_000, sure: true })).toBe(34 * 60_000);

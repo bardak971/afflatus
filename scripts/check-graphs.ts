@@ -5,7 +5,7 @@
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { baseModels, checkGraph, dryContext, parseInput, warmGraph, type NodeCatalog } from "@afflatus/core";
+import { baseModels, checkGraph, dryContext, parseInput, plural, warmGraph, type NodeCatalog } from "@afflatus/core";
 import { recipes } from "@afflatus/recipes";
 
 const saved = fileURLToPath(new URL("../reference/comfy-object-info.json", import.meta.url));
@@ -41,5 +41,5 @@ for (const recipe of recipes) {
     }
   }
 }
-console.log(`\n${count} variants, ${bad} problem${bad === 1 ? "" : "s"}`);
+console.log(`\n${count} variants, ${plural(bad, "problem")}`);
 process.exit(bad ? 1 : 0);

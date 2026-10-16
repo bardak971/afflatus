@@ -1,4 +1,6 @@
-# On every push and pull request: the types and the tests, and that the release stage builds.
+# On every push and pull request: the types and the tests, and that the release stage builds. release.yml runs it too
+# (workflow_call) before it publishes anything: a v* tag is not built here, so a tag on a commit that failed a check
+# would otherwise ship.
 name: CI
 
 on:
@@ -6,6 +8,7 @@ on:
     branches: ["**"]
     tags-ignore: ["v*"]
   pull_request:
+  workflow_call:
 
 # the checks only read the repository
 permissions:
@@ -19,7 +22,7 @@ jobs:
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 24, cache: pnpm }
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg shellcheck
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       # the hooks rules and a few rules for outright mistakes (.oxlintrc.json); a disable comment says why
@@ -31,6 +34,9 @@ jobs:
       # and nothing the app exports that only tests use (a test hook says so with @internal); the scripts count as the app
       - run: npx -y knip@6.39.0 --no-progress --production --include exports,types
       - run: pnpm test
+      # every recipe's every variant built and checked against the saved ComfyUI node catalog, with the graph that loads
+      # its models ahead (no GPU, no ComfyUI)
+      - run: pnpm check:graphs
       # the node pack: every file compiles, and its frame and token arithmetic holds (on stand-ins for torch and ComfyUI)
       - run: python3 -m py_compile comfy-nodes/afflatus-nodes/*.py
       # with numpy, which ComfyUI has, so that the Face Match tests run (they are skipped without it)
@@ -40,6 +46,8 @@ jobs:
           "$RUNNER_TEMP/pack-tests/bin/python" -m pytest -q comfy-nodes/afflatus-nodes/tests
       # the pod image's boot log (deploy/runpod/bootlog.py): its server answers only with the pod's token
       - run: python3 -m unittest discover -s deploy/runpod/tests
+      # the pod's start decides what a failed boot costs (its failure path hands over to broken.py): POSIX sh, checked
+      - run: shellcheck deploy/runpod/start.sh
       - run: node scripts/release/stage.mjs
 
   # the timeline player frame by frame in headless Chrome (the runner has Chrome): H3-shaped synthetic clips with their frame

@@ -296,9 +296,9 @@ describe("a deploy's files", () => {
     // a job that uses the file left out stays home
     await post(t.app, "/api/queue/pause", { machine: await homeId() });
     const a = await enqueue();
-    await new Promise((r) => setTimeout(r, 200));
+    // Waited for until a pass has said what the pod lacks for it, rather than for a fixed time a loaded run outlasts.
+    await until(async () => Boolean((await t.services.queue.status()).waiting.find((w) => w.id === a)?.lacks?.[id]));
     expect(pod.prompts.size).toBe(0);
-    expect((await t.services.queue.status()).waiting.find((w) => w.id === a)?.lacks?.[id]).toBeTruthy();
   });
 
   it("of a preset under a licence are refused until it is accepted in the dialog", async () => {
