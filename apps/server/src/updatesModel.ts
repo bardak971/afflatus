@@ -89,10 +89,16 @@ export interface LastChange { kind: "updated" | "went-back" | "failed"; from: st
 
 /**
  * A last.json as read back. One of another kind, such as the "moved" that the retired move of a 0.3 library left, is no
- * last change here and says nothing; neither does one that is not an object.
+ * last change here and says nothing; neither does one that is not an object, nor one that is not JSON at all (a file cut
+ * short by a disk full or a copy by hand): it only says "Updated today", and must never stop Afflatus from starting.
  */
 export function readLastChange(text: string): LastChange | null {
-  const kept = JSON.parse(text) as Partial<LastChange> | null;
+  let kept: Partial<LastChange> | null;
+  try {
+    kept = JSON.parse(text) as Partial<LastChange> | null;
+  } catch {
+    return null;
+  }
   return kept && (kept.kind === "updated" || kept.kind === "went-back" || kept.kind === "failed") ? (kept as LastChange) : null;
 }
 

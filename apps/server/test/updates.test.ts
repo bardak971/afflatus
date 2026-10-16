@@ -727,6 +727,16 @@ describe("after an update", () => {
     });
     expect((await r.view()).last).toBeNull();
   });
+
+  it("reads a last.json that is not JSON as no last change, and starts", async () => {
+    const r = await rig({
+      before: ({ data }) => {
+        mkdirSync(join(data, "updates"));
+        writeFileSync(join(data, "updates", "last.json"), '{"kind":"updated","fr');
+      },
+    });
+    expect((await r.view()).last).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------- from this computer only
