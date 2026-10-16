@@ -1,4 +1,4 @@
-import { fileUrl, type Asset } from "./api";
+import { failure, fileUrl, raw, type Asset } from "./api";
 
 /** A file into the browser's downloads: one helper for a file of the server, an item of the library, or a file made here. */
 
@@ -27,3 +27,14 @@ function saveBlob(blob: Blob, name: string): void {
 
 /** A value as a JSON file, saved. */
 export const saveJson = (value: unknown, name: string) => saveBlob(new Blob([JSON.stringify(value, null, 2) + "\n"], { type: "application/json" }), name);
+
+/**
+ * A file the server makes on asking (a CSV of a Queue tab), saved under the name it gives: fetched rather than followed as
+ * a link, so that a refusal (signed out, a bad window) is said as a failure instead of saved as the file.
+ */
+export async function saveFromServer(path: string, fallbackName: string): Promise<void> {
+  const res = await raw("GET", path);
+  if (!res.ok) throw await failure(res);
+  const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? fallbackName;
+  saveBlob(await res.blob(), name);
+}

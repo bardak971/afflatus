@@ -15,6 +15,7 @@ import { settingHref } from "../settings/settingsIndex";
 import { TimeChart, useChartColors } from "./Chart";
 import { BOOT_SAID, bootSaid, bootSplit, COST_PRESETS, lowerFirst, NOT_SPLIT, nothingShare, PART_SAID, presetWindow, runwayNowSaid, runwaySaid, runwayWhy, sessionBits, totalMs, totalsSaid } from "./costsView";
 import { chartTimeLabel, stretchOf, type View } from "./useTimesView";
+import { ExportCsv } from "./ExportCsv";
 import { WindowBar } from "./WindowBar";
 
 /**
@@ -437,6 +438,12 @@ export function Costs() {
     <div className={cx("flex flex-col gap-4 pb-4 [&>*:not(:first-child)]:transition-opacity", costs.isPlaceholderData && "[&>*:not(:first-child)]:opacity-55")} aria-busy={costs.isPlaceholderData}>
       <div className="flex flex-wrap items-center gap-3">
         <WindowBar view={view} shown={{ from: d.from, to: d.to }} typed={typed} onTyped={setTyped} onPreset={pick} onZoom={zoom} presets={COST_PRESETS} />
+        <span className="grow" />
+        {/* the window shown, as the figures were read for it; "All" asks for no bounds, as the figures did */}
+        <ExportCsv
+          path={view.preset === "All" ? "/costs.csv" : `/costs.csv?from=${Math.round(d.from)}&to=${Math.round(d.to)}`}
+          fallbackName="afflatus-costs.csv" disabled={!d.sessions.length && !d.storage}
+        />
       </div>
       <p className="-mt-1 text-xs text-ink-3">{totalsSaid(d)}</p>
       {pods && <TopFigures d={d} />}

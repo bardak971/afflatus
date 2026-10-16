@@ -17,7 +17,7 @@ export const OUT_OF_MEMORY = /out of memory|\boom\b|allocat|not enough memory/i;
  * The failed renders among `rows` that ran out of memory (OOM): their job's error says so. A job no longer kept is
  * not counted: a full memory alone does not say why a render failed. In slices: SQLite takes so many values in one `in`.
  */
-async function outOfMemory(db: Db, rows: Array<Pick<RenderRow, "id" | "status">>): Promise<Set<string>> {
+export async function outOfMemory(db: Db, rows: Array<Pick<RenderRow, "id" | "status">>): Promise<Set<string>> {
   const failed = rows.filter((r) => r.status === "failed");
   const errors = new Map<string, string | null>();
   for (let i = 0; i < failed.length; i += 400) {

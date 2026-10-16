@@ -1,5 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { csvName, sendCsv } from "./csv";
+import { rendersCsv } from "./csvExports";
 import { clear } from "./renders";
 import { list, size, summary } from "./rendersRead";
 import { readSettings } from "./settings";
@@ -20,6 +22,19 @@ export function registerRenders(app: FastifyInstance, s: Services): void {
       from: z.coerce.number().int().optional(), to: z.coerce.number().int().optional(), machine: z.string().min(1).max(40).optional(),
     }).parse(req.query);
     return list(s.db, s.registry, { recipe: q.recipe, trouble: q.only === "trouble", before: q.before, limit: q.limit, from: q.from, to: q.to, machine: q.machine });
+  });
+
+  /**
+   * Every render of the window and filters as a CSV file (csvExports.ts rendersCsv): all of them, where the list above
+   * pages by 500 at most. The filters are the list's: a machine, a model (its recipe), "trouble" for the failed and cancelled.
+   */
+  app.get("/api/renders.csv", async (req, reply) => {
+    const q = z.object({
+      recipe: z.string().max(200).optional(), only: z.enum(["trouble"]).optional(),
+      from: z.coerce.number().int().optional(), to: z.coerce.number().int().optional(), machine: z.string().min(1).max(40).optional(),
+    }).parse(req.query);
+    const body = await rendersCsv(s.db, s.registry, await readSettings(s.db), { from: q.from, to: q.to, machine: q.machine, recipe: q.recipe, trouble: q.only === "trouble" });
+    return sendCsv(reply, csvName("renders", { from: q.from, to: q.to }), body);
   });
 
   /** How much of it there is, for the storage card. */
