@@ -148,6 +148,12 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
     else if (held && !held.moved) onSelect();
     setHeld(null);
   };
+  // a drag the browser took back (a touch turned into a scroll, the window lost): nothing is saved, and the stage leaves
+  // the moment it was showing for the drag, where it stayed
+  const cancel = () => {
+    if (held?.moved) onPeek?.(null);
+    setHeld(null);
+  };
   const bound = place.made
     ? timeline.clips.flatMap((c: Clip) => {
         const b = windowed(recipes.find((r) => r.id === c.recipe));
@@ -176,7 +182,7 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
         onPointerDown={editable ? down("slide") : undefined}
         onPointerMove={move}
         onPointerUp={up}
-        onPointerCancel={() => setHeld(null)}
+        onPointerCancel={cancel}
         onClick={() => !editable && onSelect()}
         onDragOver={onDragOver}
         onContextMenu={(e) => menu.open(e, true)}
@@ -212,7 +218,7 @@ export function SourceLane({ timeline, place, recipes, pps, width, selected, ove
             onPointerDown={down("end")}
             onPointerMove={move}
             onPointerUp={up}
-            onPointerCancel={() => setHeld(null)}
+            onPointerCancel={cancel}
             className="absolute inset-y-0 z-10 w-2 cursor-ew-resize rounded-r bg-accent"
             style={{ left: inLane(toMs) - 8 }}
           />

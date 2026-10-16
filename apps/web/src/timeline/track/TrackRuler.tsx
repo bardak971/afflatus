@@ -104,6 +104,10 @@ export function TrackRuler({ clock, durationMs, slots, totalMs, playEnd, pps, xO
           sweep.current = null;
           e.currentTarget.releasePointerCapture(e.pointerId);
         }}
+        // a press the browser took back ends the Shift sweep too: left set, the next plain drag drew a range
+        onPointerCancel={() => {
+          sweep.current = null;
+        }}
         onDragStart={(e) => e.preventDefault()}
         className="absolute inset-x-0 top-0 cursor-ew-resize touch-none border-b border-line"
         style={{ height: RULER }}

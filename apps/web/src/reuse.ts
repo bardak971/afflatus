@@ -35,5 +35,7 @@ export function useReuse({ leave, onError }: { leave?(): void; onError?(err: Err
     newSeed: (g: Generation) => mutation.mutate({ g, seed: "new" }),
     isPending: mutation.isPending,
     error: mutation.error,
+    /** When it was last asked (0: never), for a place that says the latest of its failures. */
+    submittedAt: mutation.submittedAt,
   };
 }

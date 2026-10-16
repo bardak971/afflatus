@@ -4,8 +4,19 @@ import { failure, fileUrl, raw, type Asset } from "./api";
 
 const FORMATS: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "video/mp4": "mp4", "video/webm": "webm", "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/wav": "wav", "audio/ogg": "ogg", "audio/flac": "flac" };
 
-/** The name an item is saved under: its own, else its id with the extension of its type. */
-export const downloadName = (asset: Pick<Asset, "id" | "name" | "mime">) => asset.name || `${asset.id}.${FORMATS[asset.mime] ?? "bin"}`;
+/**
+ * The name an item is saved under: its own, else its id, with the extension of its type when the name lacks it (a
+ * timeline's export is named after the timeline: saved bare, the file opened with nothing). A sign no system takes in a
+ * file name (the times of an export's range, "0:05–0:10") becomes a dot.
+ */
+export function downloadName(asset: Pick<Asset, "id" | "name" | "mime">): string {
+  const ext = FORMATS[asset.mime];
+  const name = (asset.name || asset.id).replace(/[\\/:*?"<>|\u0000-\u001f]/g, ".");
+  if (!asset.name) return `${name}.${ext ?? "bin"}`;
+  // a type it has no extension for here (a .mov) keeps its name as it is
+  const said = name.toLowerCase();
+  return !ext || said.endsWith(`.${ext}`) || (ext === "jpg" && said.endsWith(".jpeg")) ? name : `${name}.${ext}`;
+}
 
 /** What is at `href`, saved as `name`. */
 function saveAs(href: string, name: string): void {

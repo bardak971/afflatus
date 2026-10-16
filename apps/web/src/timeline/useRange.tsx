@@ -61,6 +61,11 @@ export function useRange({ id, clips, durationMs, clock, player, playing, setPla
   loopRef.current = loopRange;
   /** Playing the range: it stops at Out (or goes back to In). */
   const playingRange = useRef(false);
+  // a pause by any way (the picture clicked, a clip's end, a key) ends playing the range: a later play by the picture
+  // stopped at Out, or went back to In, as if the range still played
+  useEffect(() => {
+    if (!playing) playingRange.current = false;
+  }, [playing]);
   const emptyRange = Boolean(range && range.outMs - range.inMs < FRAME_SLACK_MS);
   // the range stays within what plays when the timeline changes under it
   useEffect(() => {

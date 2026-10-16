@@ -78,7 +78,7 @@ export function Track({ timeline, recipes, pps, onZoom, selected, musicSelected,
   onPinMenu?(clip: Clip, where: PinWhere, e: React.MouseEvent): void;
   onMusicMenu?(e: React.MouseEvent): void;
   /** The music's place changed on its lane: which part of the song plays, the clip it starts with. */
-  onMusicEdit?(patch: TimelinePatch): void;
+  onMusicEdit?(patch: TimelinePatch): Promise<unknown> | void;
   /** What a clip asks of the music under it (null: as the rest). */
   onClipMusic?(clip: Clip, music: ClipMusic | null): void;
   /** The join dot before a clip was clicked: it extends the clip before, or is a cut. */

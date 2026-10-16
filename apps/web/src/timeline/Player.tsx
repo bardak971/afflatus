@@ -250,17 +250,27 @@ export const Player = forwardRef<PlayerHandle, {
       return;
     }
     pos.current.at = performance.now();
+    let unwait: (() => void) | undefined;
     if (now?.take) {
-      const el = els.current.get(now.take.id);
+      const id = now.take.id;
+      const el = els.current.get(id);
       // a video just put on the page plays only once it knows where to start (its metadata sets the moment): started
-      // before, it played from its first frame and the range's loop looked as if it went back to the clip's start
-      const go = () => void el?.play().catch(() => onPlaying(false));
-      if (el && el.readyState < 1) el.addEventListener("loadedmetadata", go, { once: true });
-      else go();
+      // before, it played from its first frame and the range's loop looked as if it went back to the clip's start. By
+      // then it may have been paused (Space twice before a far clip's file came) or have left the screen: it then stays
+      // still, else it played with its sound while the playhead and the button said paused
+      const go = () => {
+        if (!playingRef.current || els.current.get(id) !== el) return;
+        void el?.play().catch(() => onPlaying(false));
+      };
+      if (el && el.readyState < 1) {
+        el.addEventListener("loadedmetadata", go, { once: true });
+        unwait = () => el.removeEventListener("loadedmetadata", go);
+      } else go();
     }
     void clipSound.current?.play().catch(() => {});
     // the music plays from where the plan says, once it has started (tuned on every frame after)
     if (now) tuneMusic(now.atMs + pos.current.local);
+    return unwait;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- started on play and on a new clip; the rest is read as it stands then, and tuned on every frame after
   }, [playing, nowKey, onPlaying, Boolean(music)]);
 

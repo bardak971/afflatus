@@ -44,6 +44,11 @@ export interface KeyActions {
   musicOpenNow: RefObject<boolean>;
   closeMusicNow: RefObject<(() => void) | undefined>;
   removeOpenNow: RefObject<(() => boolean) | undefined>;
+  /**
+   * A removal is on its way, from the press that sent it (not the next render: a second press can come first) until the
+   * timeline is read again without the clip. Delete waits for it.
+   */
+  removing: RefObject<boolean>;
   renderNow: RefObject<() => void>;
   jumpNow: RefObject<(by: -1 | 1) => void>;
   splitNow: RefObject<(only?: string | null) => void>;
@@ -190,9 +195,18 @@ export function editKey(e: KeyboardEvent, { typing, open, held, plain, designing
   // Delete takes the picked clips, else the selected clip, off the timeline; Undo brings them back one by one. With
   // neither, the source lane open in the column goes, with the clips it made (one step for Undo)
   if (e.key === "Delete" && !typing && !open) {
-    if (a.removePicked()) e.preventDefault();
-    else if (a.selectedNow.current) {
+    // held down, or pressed again before the last removal is back: one removal (the next was sent for a clip already
+    // gone, and answered 404 in the header)
+    if (e.repeat || a.removing.current) {
       e.preventDefault();
+      return true;
+    }
+    if (a.removePicked()) {
+      e.preventDefault();
+      a.removing.current = true;
+    } else if (a.selectedNow.current) {
+      e.preventDefault();
+      a.removing.current = true;
       a.remove(a.selectedNow.current);
     } else if (a.removeOpenNow.current?.()) e.preventDefault();
     return true;

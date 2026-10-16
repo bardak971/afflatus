@@ -69,6 +69,13 @@ describe("files saved", () => {
     expect(downloadName({ id: "x", name: "", mime: "video/mp4" })).toBe("x.mp4");
     expect(downloadName({ id: "x", name: "", mime: "model/gltf" })).toBe("x.bin");
   });
+  it("gives a name without its type's extension the extension, and no sign a system refuses", () => {
+    // a timeline's export is named after the timeline, its range's times with colons
+    expect(downloadName({ id: "x", name: "Harbor walk · 0:05–0:10", mime: "video/mp4" })).toBe("Harbor walk · 0.05–0.10.mp4");
+    expect(downloadName({ id: "x", name: 'a\\b/c*d?"e"<f>|g', mime: "image/png" })).toBe("a.b.c.d..e..f..g.png");
+    expect(downloadName({ id: "x", name: "Shot.JPEG", mime: "image/jpeg" })).toBe("Shot.JPEG");
+    expect(downloadName({ id: "x", name: "phone.mov", mime: "video/quicktime" })).toBe("phone.mov");
+  });
   it("writes a preset as the shipped files are, and reads it back", () => {
     const e = { id: "e1", kind: "preset", name: "Soft Light!", source: "user", def: { recipe: "flux", inputs: { steps: 20 }, look: { cast: [], style: null } } } as unknown as Extract<Entity, { kind: "preset" }>;
     const file = presetToFile(e);

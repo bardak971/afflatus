@@ -35,7 +35,8 @@ export function MusicLane({ timeline, slots, pps, width, selected, over, measure
   onDragOver(e: DragEvent): void;
   onSelectMusic(): void;
   onMusicMenu?(e: React.MouseEvent): void;
-  onMusicEdit?(patch: TimelinePatch): void;
+  /** The music's part or start changed by a drag: its save, whose failure lets go of what the drag shows. */
+  onMusicEdit?(patch: TimelinePatch): Promise<unknown> | void;
   onClipMusic?(clip: Clip, music: ClipMusic | null): void;
 }) {
   const music = timeline.music;
@@ -118,8 +119,10 @@ export function MusicLane({ timeline, slots, pps, width, selected, over, measure
       else onSelectMusic();
       return;
     }
-    if (d.kind === "song" && held?.fromMs !== undefined && held.fromMs !== music.fromMs) onMusicEdit?.({ music: { fromMs: held.fromMs } });
-    else if (d.kind === "start" && held?.startClip !== undefined && held.startClip !== music.startClip) onMusicEdit?.({ music: { startClip: held.startClip } });
+    // a save that fails lets go of the part dragged to: it stayed drawn, while the player and the export used the one saved
+    const save = (patch: TimelinePatch) => void Promise.resolve(onMusicEdit?.(patch)).catch(() => setHeld(null));
+    if (d.kind === "song" && held?.fromMs !== undefined && held.fromMs !== music.fromMs) save({ music: { fromMs: held.fromMs } });
+    else if (d.kind === "start" && held?.startClip !== undefined && held.startClip !== music.startClip) save({ music: { startClip: held.startClip } });
     else setHeld(null);
   };
 

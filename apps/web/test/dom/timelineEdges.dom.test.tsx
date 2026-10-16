@@ -1,0 +1,195 @@
+import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
+import type { Clip, RecipeInfo, Timeline } from "../../src/api";
+import { useNewClock } from "../../src/timeline/clock";
+import { layout } from "../../src/timeline/model";
+import { MusicLane } from "../../src/timeline/track/MusicLane";
+import { SourceLane } from "../../src/timeline/track/SourceLane";
+import { TrackRuler } from "../../src/timeline/track/TrackRuler";
+import { useClipEdits } from "../../src/timeline/useClipEdits";
+import { usePlayhead } from "../../src/timeline/usePlayhead";
+import { useRange } from "../../src/timeline/useRange";
+import { useTimelineMutations } from "../../src/timeline/useTimelineMutations";
+import { fakeApi, jsonAnswer, later } from "./fakeApi";
+import { draw } from "./render";
+
+/** A model whose clips open on a picture and end on one, with a prompt. */
+const model = {
+  id: "zz-test.pins", family: "zz-test", title: "zz-test pins", output: "video", summary: "",
+  inputs: [
+    { id: "prompt", type: "prompt", label: "Prompt" },
+    { id: "first", type: "image", role: "start", label: "First frame", optional: true },
+    { id: "last", type: "image", role: "end", label: "Last frame", optional: true },
+  ],
+} as unknown as RecipeInfo;
+
+const video = { id: "zz-test-take-video", name: "zz-test take", kind: "video", mime: "video/mp4", fps: 24, durationMs: 6000 };
+const clip = {
+  id: "zz-test-clip", kind: "video", recipe: model.id, joined: "cut", atMs: 0, lengthMs: 5000, inputs: { prompt: "as saved" }, music: null,
+  take: { id: "zz-test-take", asset: video, headMs: 0, tailMs: 0, startMs: 0, endMs: 5000, roomMs: 6000 },
+} as unknown as Clip;
+const timeline = {
+  id: "zz-test-timeline", name: "zz-test timeline", clips: [clip], look: null, mood: null, folderId: null, music: null, durationMs: 5000,
+  source: { asset: "zz-test-video", video: { id: "zz-test-video", name: "zz-test.mp4" }, atMs: 0, fromMs: 2000, toMs: 8000, recipe: model.id, windowMs: 5000, inputs: {}, snap: false, clip: null },
+} as unknown as Timeline;
+const none = { data: undefined, isSuccess: false } as never;
+const refused = (error: string, status = 409) => jsonAnswer({ error }, status);
+
+/** The editor's clip forms and mutations, the latest of each read through `now()`, the first render's through `first`. */
+function rig() {
+  const seen: Array<{ edits: ReturnType<typeof useClipEdits>; m: ReturnType<typeof useTimelineMutations> }> = [];
+  function Editor() {
+    const edits = useClipEdits({ timeline, clips: timeline.clips, recipes: none, setup: none, settings: none, comfyOnline: true });
+    const m = useTimelineMutations(timeline.id, {
+      timeline, clipsNow: { current: timeline.clips }, recipes: [model], firstRecipe: () => undefined, edits,
+      on: { note: () => {}, select: () => {}, unpick: () => {}, writing: () => {}, open: () => {} },
+    });
+    seen.push({ edits, m });
+    return null;
+  }
+  draw(<Editor />);
+  return { now: () => seen.at(-1)!, first: seen[0]! };
+}
+
+describe("the timeline editor's mutations, drawn", () => {
+  it("says why Make clips from the source and Split source failed (W-2)", async () => {
+    fakeApi.on("POST /timelines/:id/source/make", () => refused("zz-test: the source has no stretch to make"));
+    fakeApi.on("POST /timelines/:id/source/split", () => refused("zz-test: the playhead is not in the stretch"));
+    const { now } = rig();
+    act(() => now().m.makeSource.mutate());
+    await waitFor(() => expect(now().m.error?.message).toBe("zz-test: the source has no stretch to make"));
+    act(() => now().m.splitSource.mutate(3000));
+    // the latest failure, not the first of the list
+    await waitFor(() => expect(now().m.error?.message).toBe("zz-test: the playhead is not in the stretch"));
+  });
+
+  it("keeps what was typed while Loop clip's first frame was being saved (W-5)", async () => {
+    const frame = later<unknown>();
+    fakeApi.on("POST /assets/:id/frame", () => frame.promise);
+    fakeApi.on("PATCH /clips/:id", {});
+    const { now } = rig();
+    act(() => now().m.loop.mutate(clip));
+    await waitFor(() => expect(fakeApi.calls("POST", "/assets/zz-test-take-video/frame")).toHaveLength(1));
+    act(() => now().edits.editInputs(clip, { prompt: "typed meanwhile" }));
+    frame.answer({ ...video, id: "zz-test-frame", kind: "image", mime: "image/png" });
+    await waitFor(() => expect(now().m.loop.isSuccess).toBe(true));
+    expect(now().edits.inputsOf(clip)).toEqual({ prompt: "typed meanwhile", first: "zz-test-frame", last: "zz-test-frame" });
+    // and sent so: the form's save carries it (and nothing is left to send once the test is over)
+    await act(() => now().edits.save());
+    expect(fakeApi.calls("PATCH", "/clips/zz-test-clip").at(-1)?.body).toEqual({ inputs: { prompt: "typed meanwhile", first: "zz-test-frame", last: "zz-test-frame" } });
+  });
+
+  it("pins a file onto a clip over the form as it stands when the upload lands, not as it was at the drop (W-4)", async () => {
+    fakeApi.on("PATCH /clips/:id", {});
+    const { now, first } = rig();
+    act(() => now().edits.editInputs(clip, { prompt: "typed during the upload" }));
+    // the drop's own callback, from the render the file was dropped in, once the upload is back
+    act(() => first.edits.editInputs(clip, (was) => ({ ...was, first: "zz-test-uploaded" })));
+    expect(now().edits.inputsOf(clip)).toEqual({ prompt: "typed during the upload", first: "zz-test-uploaded" });
+    await act(() => now().edits.save());
+  });
+});
+
+describe("the range played, drawn", () => {
+  it("plays past Out once a range played alone was paused by a click on the picture (W-8)", () => {
+    let r!: ReturnType<typeof useRange>;
+    let p!: ReturnType<typeof usePlayhead>;
+    let playingNow = false;
+    let setPlayingNow!: (on: boolean) => void;
+    const seek = vi.fn();
+    function Transport() {
+      const clock = useNewClock();
+      const [playing, setPlaying] = useState(false);
+      playingNow = playing;
+      setPlayingNow = setPlaying;
+      const player = { current: { seek, fullscreen: () => {}, where: () => null } };
+      r = useRange({ id: timeline.id, clips: timeline.clips, durationMs: 10_000, clock, player, playing, setPlaying, on: { after: () => {}, select: () => {}, note: () => {}, say: () => {}, writeBetween: () => {} } });
+      p = usePlayhead({ clock, clips: timeline.clips, player, rangeRef: r.rangeRef, loopRef: r.loopRef, playingRange: r.playingRange, setPlaying });
+      return null;
+    }
+    draw(<Transport />);
+    act(() => r.setRange({ inMs: 1000, outMs: 3000 }));
+    act(() => r.playRange());
+    expect(playingNow).toBe(true);
+    // the picture clicked: paused, then played again, both straight through setPlaying
+    act(() => setPlayingNow(false));
+    act(() => setPlayingNow(true));
+    act(() => p.onTime(3000));
+    expect(playingNow).toBe(true);
+    // a range played with Play still stops at Out
+    act(() => setPlayingNow(false));
+    act(() => r.toggle());
+    act(() => p.onTime(3000));
+    expect(playingNow).toBe(false);
+  });
+});
+
+describe("drags on the track, drawn", () => {
+  // the pointer held on an element as a browser holds it
+  const captured = new Set<number>();
+  const capture = () => {
+    vi.spyOn(HTMLElement.prototype, "setPointerCapture").mockImplementation((id: number) => void captured.add(id));
+    vi.spyOn(HTMLElement.prototype, "hasPointerCapture").mockImplementation((id: number) => captured.has(id));
+    vi.spyOn(HTMLElement.prototype, "releasePointerCapture").mockImplementation((id: number) => void captured.delete(id));
+  };
+
+  it("lets go of the music dragged to another part when its save fails (W-10)", async () => {
+    capture();
+    const withMusic = { ...timeline, music: { asset: { id: "zz-test-song", name: "zz-test song", kind: "audio", durationMs: 60_000 }, volume: 100, fadeInMs: 0, fadeOutMs: 0, duck: false, duckDb: 0, fromMs: 0, startClip: null } } as unknown as Timeline;
+    let refuse!: (err: Error) => void;
+    const onMusicEdit = vi.fn(() => new Promise((_, no) => (refuse = no)));
+    draw(
+      <MusicLane timeline={withMusic} slots={layout(withMusic.clips, 50, [model])} pps={50} width={2000} selected={false} over={false}
+        measureOf={() => undefined} onDragOver={() => {}} onSelectMusic={() => {}} onMusicEdit={onMusicEdit} />,
+    );
+    const part = screen.getByRole("button", { name: /Music under clip 1/ });
+    fireEvent.pointerDown(part, { button: 0, clientX: 300, pointerId: 1 });
+    // the song dragged left by 100 px at 50 px a second: 2 s later in the song plays
+    fireEvent.pointerMove(part, { clientX: 200, pointerId: 1 });
+    fireEvent.pointerUp(part, { clientX: 200, pointerId: 1 });
+    expect(onMusicEdit).toHaveBeenCalledWith({ music: { fromMs: 2000 } });
+    // shown at once, while it is saved
+    expect(screen.getByText(/^from 0:02/)).toBeTruthy();
+    // refused: the lane draws the part the player and the export use again
+    await act(async () => refuse(new Error("zz-test refused")));
+    await waitFor(() => expect(screen.queryByText(/^from /)).toBeNull());
+  });
+
+  it("forgets a Shift sweep on the ruler that the browser cancelled: the next drag moves the playhead (W-11)", () => {
+    capture();
+    const onRange = vi.fn();
+    const onSeek = vi.fn();
+    function Ruler() {
+      const clock = useNewClock();
+      return <TrackRuler clock={clock} durationMs={5000} slots={layout(timeline.clips, 50, [model])} totalMs={5000} playEnd={5000} pps={50} xOf={(x) => x} range={null} onRange={onRange} onSeek={onSeek} band={null} motion={[]} snapRange={(ms) => ms} />;
+    }
+    draw(<Ruler />);
+    const ruler = screen.getByRole("slider", { name: "Move the playhead" });
+    fireEvent.pointerDown(ruler, { shiftKey: true, clientX: 100, pointerId: 1 });
+    expect(onRange).toHaveBeenCalledOnce();
+    fireEvent.pointerCancel(ruler, { pointerId: 1 });
+    captured.clear();
+    fireEvent.pointerDown(ruler, { clientX: 120, pointerId: 2 });
+    fireEvent.pointerMove(ruler, { clientX: 150, pointerId: 2 });
+    expect(onRange).toHaveBeenCalledOnce();
+    expect(onSeek).toHaveBeenCalledTimes(2);
+  });
+
+  it("takes the stage off the source's moment when a drag of its lane is cancelled (W-11)", () => {
+    capture();
+    const onPeek = vi.fn();
+    const onStretch = vi.fn();
+    draw(
+      <SourceLane timeline={timeline} place={{ atMs: 5000, lengthMs: 20_000, made: false, windows: [], replaces: null }} recipes={[model]} pps={50} width={2000} selected={false} over={false}
+        onDragOver={() => {}} onSelect={() => {}} onStretch={onStretch} onPeek={onPeek} />,
+    );
+    const lane = screen.getByRole("button", { name: "Source: zz-test.mp4" });
+    fireEvent.pointerDown(lane, { button: 0, clientX: 300, pointerId: 1 });
+    fireEvent.pointerMove(lane, { clientX: 250, pointerId: 1 });
+    expect(onPeek).toHaveBeenLastCalledWith(3000);
+    fireEvent.pointerCancel(lane, { pointerId: 1 });
+    expect(onPeek).toHaveBeenLastCalledWith(null);
+    expect(onStretch).not.toHaveBeenCalled();
+  });
+});

@@ -14,7 +14,7 @@ import type { TrackKeys } from "./Track";
  * fills the refs it returns for the keys whose actions it holds (render, jump, split, take, the track's zoom). What each
  * key does is editorKeys.ts's, by concern.
  */
-export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canRedo, remove, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameMs, selected, setSelected, setPicked, musicOpen, closeMusic, removeOpen }: {
+export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canRedo, remove, removing = false, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameMs, selected, setSelected, setPicked, musicOpen, closeMusic, removeOpen }: {
   clock: Clock;
   player: RefObject<PlayerHandle | null>;
   /** Play or pause (the range when there is one). */
@@ -25,6 +25,8 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
   redo(): void;
   canRedo: boolean;
   remove(clip: string): void;
+  /** A removal is on its way (until the timeline is read again): Delete waits for it (held down, or pressed twice, it removes once). */
+  removing?: boolean;
   /** One place earlier (-1) or later (1). */
   move(clip: string, by: -1 | 1): void;
   /** Several clips are picked with Ctrl + click: Delete removes them all; true when it did. */
@@ -57,6 +59,12 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
   closeMusicNow.current = closeMusic;
   const removeOpenNow = useRef(removeOpen);
   removeOpenNow.current = removeOpen;
+  // set by the press that removes, at once; let go once the removal is back (or another clip is selected: a removal
+  // whose pending state never showed does not leave Delete dead)
+  const removingNow = useRef(false);
+  useEffect(() => {
+    if (!removing) removingNow.current = false;
+  }, [removing, selected]);
   // set by the editor once what they call exists (some of it only once the timeline is read)
   /** Render the selected clip (a new take), as Generate does in the Studio's form: Ctrl+Enter, even from its prompt. */
   const renderNow = useRef(() => {});
@@ -70,7 +78,7 @@ export function useEditorKeys({ clock, player, toggle, undo, canUndo, redo, canR
   const trackKeys = useRef<TrackKeys | null>(null);
   useEffect(() => {
     const acts: KeyActions = {
-      clock, player, toggle, undo, canUndo, redo, canRedo, remove, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow,
+      clock, player, toggle, undo, canUndo, redo, canRedo, remove, removing: removingNow, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow,
       frameRef, selectedNow, musicOpenNow, closeMusicNow, removeOpenNow, renderNow, jumpNow, splitNow, takeNow, trackKeys, setSelected, setPicked,
     };
     const onKey = (e: KeyboardEvent) => {

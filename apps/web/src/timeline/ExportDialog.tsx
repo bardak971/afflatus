@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 import { Download, Film } from "lucide-react";
-import { fileUrl, projectUrl, type Asset, type Clip, type Timeline } from "../api";
+import { projectUrl, type Asset, type Clip, type Timeline } from "../api";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
 import { FieldRow } from "../fields";
 import { Keys } from "../Keys";
 import { Button, ButtonLink, Chip, ErrorNote, Segmented, Toggle } from "../ui";
 import { stamp, type TimeRange } from "./model";
 import { plural } from "../format";
+import { saveAsset } from "../download";
 
 /** The export box: open, what was asked, and the export that was there before (to tell the new one). `for`: one video, or the clips and a project file for a video editor. */
 export type ExportAsk = { for: "video" | "editor"; scale: 1 | 1.5 | 2; music: boolean; smooth: boolean; range: boolean; blend: boolean; match: boolean; fit: "timeline" | "largest"; web: 0 | 10 | 25; before: string | null; asked: boolean };
@@ -50,7 +51,7 @@ export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, r
         <DialogHead icon={<Film size={16} />} title="Export video" sub={`${t.name} · ${editor ? "its clips and a project file, as a zip" : "one MP4 in your library"}`} onClose={onClose} />
         <div className="flex flex-wrap gap-1.5">
           <Chip>{exp.range && range ? `${stamp(range.inMs)} → ${stamp(range.outMs)} · ${((range.outMs - range.inMs) / 1000).toFixed(1)} s of ${stamp(t.durationMs)}` : `${stamp(t.durationMs)} · ${playable < clips.length ? `${playable} of ${clips.length} clips` : `${plural(playable, "clip")}`}`}</Chip>
-          {misfits > 0 && !editor && !exportDone && !busy && <Chip tone="warn" tip={`${misfits} clip${misfits > 1 ? "s have" : " has"} another aspect ratio and will be letterboxed (shown with bars).`}>{plural(misfits, "clip")} letterboxed</Chip>}
+          {misfits > 0 && !editor && !exportDone && !busy && <Chip tone="warn" tip={`${plural(misfits, "clip")} of another aspect ratio: letterboxed (shown with bars).`}>{plural(misfits, "clip")} letterboxed</Chip>}
         </div>
         {exportDone ? (
           <>
@@ -58,7 +59,8 @@ export function ExportDialog({ timeline: t, clips, ask: exp, onChange: setExp, r
             <DialogFoot>
               <Button tone="quiet" onClick={onClose}>Close <Keys keys="Esc" size="sm" /></Button>
               <Button onClick={() => { onOpen(exportDone); onClose(); }}>Open</Button>
-              <ButtonLink tone="primary" href={fileUrl(exportDone.id)} download={`${(exportDone.name || t.name).replace(/[:<>"/\|?*]/g, ".")}.mp4`}><Download size={15} /> Download</ButtonLink>
+              {/* saved as the library saves an item: under the one name rule, marked as made by a model */}
+              <Button tone="primary" onClick={() => saveAsset(exportDone)}><Download size={15} /> Download</Button>
             </DialogFoot>
           </>
         ) : busy ? (

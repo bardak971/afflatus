@@ -4,7 +4,9 @@
  * ComfyUI) gets H3-shaped synthetic clips chained seamlessly (apps/server/test/framesKit.ts: each frame shows its clip and
  * index as a barcode), the real editor plays the timeline in headless Chrome, and every frame the player shows is read off
  * the video that is visible at that moment. It fails on a frame shown out of order, a flash of the clip before after the
- * hand-over, a hidden run-up frame shown, or more dropped frames than a busy machine explains.
+ * hand-over, a hidden run-up frame shown, or more dropped frames than a busy machine explains. Then, in a fresh page: Space
+ * pressed twice on a clip whose video has not loaded yet must leave it still (it started on its own, with its sound, once
+ * its file came), and a range looped (I, O, L) must go back to In at Out, again and again, without playing on past it.
  *
  * Needs the web app built (`pnpm build`), ffmpeg, and Chrome (or CHROME=<path to a Chromium>).
  */
@@ -12,7 +14,8 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium } from "playwright-core";
+import { chromium, type Page } from "playwright-core";
+import { plural } from "@afflatus/core";
 import { buildApp } from "../apps/server/src/app";
 import { migrate, openSqlite } from "../apps/server/src/db";
 import { createServices } from "../apps/server/src/services";
@@ -48,31 +51,11 @@ const call = async (method: string, url: string, payload?: unknown) => {
   return res.json();
 };
 
-let failed = false;
-const browser = await chromium.launch({
-  ...(process.env.CHROME ? { executablePath: process.env.CHROME } : { channel: "chrome" }),
-  headless: true,
-  args: ["--autoplay-policy=no-user-gesture-required", "--mute-audio"],
-});
-try {
-  // the chain: three clips, each after the first carrying on from the one before, decoded as one piece with it
-  const tl = await call("POST", "/api/timelines", { name: "player check" });
-  for (const clip of [1, 2, 3]) {
-    const res = await app.inject({ method: "POST", url: `/api/assets?name=c${clip}.mp4`, headers: { "content-type": "video/mp4" }, payload: Buffer.from(synth(clip, FILE, 48)) });
-    const asset = res.json() as { id: string };
-    await db.updateTable("assets").set({ latent_frames: N }).where("id", "=", asset.id).execute();
-    await call("POST", `/api/timelines/${tl.id}/clips`, { asset: asset.id });
-  }
-  const clips = (await call("GET", `/api/timelines/${tl.id}`)).clips as Array<{ id: string; take: { id: string } }>;
-  for (let i = 1; i < clips.length; i++) {
-    await call("PATCH", `/api/clips/${clips[i]!.id}`, { joined: "continue" });
-    await db.updateTable("takes").set({ head_ms: 917, join_kind: "seamless", prev_take_id: clips[i - 1]!.take.id, prev_at_ms: Math.round((N * 1000) / 24) }).where("id", "=", clips[i]!.take.id).execute();
-  }
-
-  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
-  // every frame a video presents, read off it when it is the one seen (the hidden pre-roll is near transparent). Plain text:
-  // a function passed here would be compiled with helpers (esbuild's __name) the page does not have
-  await page.addInitScript(`(() => {
+/**
+ * Every frame a video presents, read off it when it is the one seen (the hidden pre-roll is near transparent). Plain text:
+ * a function passed here would be compiled with helpers (esbuild's __name) the page does not have.
+ */
+const WATCH = `(() => {
     const W = ${W}, H = ${H}, BITS = ${BITS};
     const shown = [];
     window.__shown = shown;
@@ -99,7 +82,34 @@ try {
     const all = () => document.querySelectorAll("video").forEach(watch);
     window.__watch = all;
     new MutationObserver(all).observe(document, { subtree: true, childList: true });
-  })();`);
+  })();`;
+
+/** The frames a page has seen so far, as `WATCH` read them. */
+const shownIn = (page: Page) => page.evaluate(() => (window as unknown as { __shown: Array<{ clip: number; index: number }> }).__shown.slice());
+
+let failed = false;
+const browser = await chromium.launch({
+  ...(process.env.CHROME ? { executablePath: process.env.CHROME } : { channel: "chrome" }),
+  headless: true,
+  args: ["--autoplay-policy=no-user-gesture-required", "--mute-audio"],
+});
+try {
+  // the chain: three clips, each after the first carrying on from the one before, decoded as one piece with it
+  const tl = await call("POST", "/api/timelines", { name: "player check" });
+  for (const clip of [1, 2, 3]) {
+    const res = await app.inject({ method: "POST", url: `/api/assets?name=c${clip}.mp4`, headers: { "content-type": "video/mp4" }, payload: Buffer.from(synth(clip, FILE, 48)) });
+    const asset = res.json() as { id: string };
+    await db.updateTable("assets").set({ latent_frames: N }).where("id", "=", asset.id).execute();
+    await call("POST", `/api/timelines/${tl.id}/clips`, { asset: asset.id });
+  }
+  const clips = (await call("GET", `/api/timelines/${tl.id}`)).clips as Array<{ id: string; take: { id: string; asset: { id: string } } }>;
+  for (let i = 1; i < clips.length; i++) {
+    await call("PATCH", `/api/clips/${clips[i]!.id}`, { joined: "continue" });
+    await db.updateTable("takes").set({ head_ms: 917, join_kind: "seamless", prev_take_id: clips[i - 1]!.take.id, prev_at_ms: Math.round((N * 1000) / 24) }).where("id", "=", clips[i]!.take.id).execute();
+  }
+
+  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+  await page.addInitScript(WATCH);
 
   await page.goto(`${base}/timelines/${tl.id}`);
   await page.waitForFunction(() => document.querySelectorAll("video").length > 0, null, { timeout: 30_000 });
@@ -108,7 +118,7 @@ try {
   await page.locator("body").press("Space");
   // the whole chain, and a margin
   await page.waitForTimeout(16_500);
-  const raw = await page.evaluate(() => (window as unknown as { __shown: Array<{ clip: number; index: number }> }).__shown);
+  const raw = await shownIn(page);
 
   // what was seen: consecutive repeats of one frame are one frame (a repaint)
   const seen = raw.filter((f, i) => !(i && raw[i - 1]!.clip === f.clip && raw[i - 1]!.index === f.index));
@@ -143,6 +153,60 @@ try {
   if (gaps.length) console.log(`  dropped (clip:frame): ${gaps.join(" ")}`);
   const late = gaps.filter((g) => Number(g.split(":")[1]!.split("–")[0]) >= LAST_SECOND && Number(g.split(":")[0]) < 3).length;
   if (late && late >= gaps.length / 2) console.log(`  ! ${late} of ${gaps.length} drops fall in the last second before a hand-over: the next clip pre-rolling under the one seen`);
+
+  // ---- Space twice before a far clip's video has loaded: it stays still. In a fresh page, clip 3's file held back four
+  // seconds; [ ] go to clip 2 (clip 3's video put on the page under it, waiting for its file), then to clip 3
+  const fresh = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+  await fresh.addInitScript(WATCH);
+  const slowFile = `**/api/assets/${clips[2]!.take.asset.id}/file*`;
+  await fresh.route(slowFile, async (route) => {
+    await new Promise((done) => setTimeout(done, 4000));
+    await route.continue().catch(() => {});
+  });
+  await fresh.goto(`${base}/timelines/${tl.id}`);
+  await fresh.waitForFunction(() => document.querySelectorAll("video").length > 0, null, { timeout: 30_000 });
+  await fresh.waitForTimeout(1500);
+  await fresh.evaluate(() => (window as unknown as { __watch: () => void }).__watch());
+  await fresh.locator("body").press("]");
+  await fresh.waitForTimeout(300);
+  await fresh.locator("body").press("]");
+  await fresh.waitForTimeout(300);
+  const unloaded = await fresh.evaluate(() => [...document.querySelectorAll("video")].some((v) => v.readyState < 1));
+  await fresh.locator("body").press("Space");
+  await fresh.waitForTimeout(120);
+  await fresh.locator("body").press("Space");
+  const before = (await shownIn(fresh)).length;
+  // the file comes, and a second more
+  await fresh.waitForTimeout(5500);
+  const playing = await fresh.evaluate(() => [...document.querySelectorAll("video")].filter((v) => !v.paused).length);
+  const after = new Set((await shownIn(fresh)).slice(before).filter((f) => f.clip === 3).map((f) => f.index));
+  if (!unloaded) console.log("  ! Space twice before load: clip 3's video was not waiting for its file (nothing checked)");
+  else if (playing || after.size > 2) problems.push(`Space twice before clip 3's video loaded: ${playing ? `${plural(playing, "video")} playing` : "paused"}, ${after.size} frames of clip 3 shown once its file came (it started on its own)`);
+  else console.log("player check: Space twice before a video loaded leaves it still");
+  await fresh.unroute(slowFile);
+
+  // ---- a range looped: In at clip 2's start, Out 40 frames on, L plays it round. Each pass goes back to In at Out
+  await fresh.locator("body").press("Home");
+  await fresh.locator("body").press("]");
+  await fresh.waitForTimeout(600);
+  await fresh.locator("body").press("i");
+  for (let k = 0; k < 4; k++) await fresh.keyboard.press("Shift+ArrowRight");
+  await fresh.waitForTimeout(600);
+  await fresh.locator("body").press("o");
+  const outAt = (await shownIn(fresh)).at(-1);
+  const from = (await shownIn(fresh)).length;
+  await fresh.locator("body").press("l");
+  await fresh.waitForTimeout(4000);
+  await fresh.locator("body").press("Space");
+  const looped = (await shownIn(fresh)).slice(from).filter((f, i, all) => !(i && all[i - 1]!.clip === f.clip && all[i - 1]!.index === f.index));
+  const rounds = looped.filter((f, i) => i && f.clip === looped[i - 1]!.clip && f.index < looped[i - 1]!.index - 10).length;
+  const past = outAt ? looped.filter((f) => f.clip > outAt.clip || (f.clip === outAt.clip && f.index > outAt.index + 6)) : [];
+  if (!outAt || outAt.clip !== 2) problems.push(`range loop: Out stood on ${outAt ? `clip ${outAt.clip} frame ${outAt.index}` : "no frame seen"}, not in clip 2`);
+  else if (rounds < 2) problems.push(`range loop: back to In ${plural(rounds, "time")} in 4 s of a 0.8 s range (${looped.length} frames seen)`);
+  else if (past.length) problems.push(`range loop: ${past.length} frames shown past Out (clip ${outAt.clip} frame ${outAt.index}), as far as clip ${past.at(-1)!.clip} frame ${past.at(-1)!.index}`);
+  else console.log(`player check: a range looped ${rounds} times back to In, never past Out`);
+  await fresh.close();
+
   for (const p of problems) console.error(`  ✗ ${p}`);
   failed = problems.length > 0;
 } finally {

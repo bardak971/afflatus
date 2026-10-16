@@ -33,6 +33,37 @@ function fileKindOf(e: DragEvent): "picture" | "video" | "sound" {
   return type.startsWith("audio/") ? "sound" : type.startsWith("video/") ? "video" : "picture";
 }
 
+/** What can be dragged over the track. */
+export type Dragged = "clip" | "picture" | "video" | "sound" | "transition";
+
+/**
+ * What a drop on a clip would do, by what is dragged and where along the clip it is (`fx`, 0 at its left edge to 1 at its
+ * right, the clip `width` px wide): a sound replaces its audio; a transition goes on the nearer join; a picture pins its
+ * first frame (left half), its last (right half) or a keyframe (the middle third, to the half second) when the model has
+ * that pin, else it goes in beside the clip, as does anything else; near an edge everything goes in beside it. null:
+ * nothing happens there.
+ */
+export function clipTarget(d: Dragged, s: Slot, fx: number, width: number, clips: Clip[], pins: ReturnType<typeof pinInputs>): Over | null {
+  if (d === "sound") return s.planned && s.clip.kind !== "still" ? null : { kind: "sound", clip: s.clip.id };
+  // a transition goes on the nearer join: before this clip, or before the next one
+  if (d === "transition") {
+    const at = fx < 0.5 ? s.index : s.index + 1;
+    return at > 0 && at < clips.length ? { kind: "join", clip: clips[at]!.id } : null;
+  }
+  const half: Over = { kind: "insert", index: fx < 0.5 ? s.index : s.index + 1 };
+  if (d !== "picture" || s.clip.kind === "still") return half;
+  const carries = s.index > 0 && s.clip.joined === "continue";
+  const edge = Math.min(0.2, 18 / Math.max(1, width));
+  if (fx < edge || fx > 1 - edge) return half;
+  // the middle third, for a model that can pass through a picture: pinned at that moment, to the half second
+  if (pins.mid && fx > 0.3 && fx < 0.7) {
+    const seconds = Math.max(1, s.lengthMs / 1000);
+    return { kind: "pin", clip: s.clip.id, where: "mid", atS: Math.max(0.5, Math.round(fx * seconds * 2) / 2) };
+  }
+  if (fx < 0.5) return pins.start && !carries ? { kind: "pin", clip: s.clip.id, where: "start" } : half;
+  return pins.end ? { kind: "pin", clip: s.clip.id, where: "end" } : half;
+}
+
 /** What is being dragged over the track, and what dropping it here would do. */
 export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onInsert, onPin, onClipSound, onMusic, onTransition, onSource }: {
   clips: Clip[];
@@ -52,7 +83,7 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
 }) {
 
   const [over, setOver] = useState<Over | null>(null);
-  const [dragging, setDragging] = useState<"clip" | "picture" | "video" | "sound" | "transition" | null>(null);
+  const [dragging, setDragging] = useState<Dragged | null>(null);
 
   const recipeOf = (c: Clip) => recipes.find((r) => r.id === c.recipe);
 
@@ -72,27 +103,8 @@ export function useTrackDrop({ clips, slots, end, recipes, onUpload, onMove, onI
   const overClip = (e: DragEvent, s: Slot) => {
     const d = draggedOf(e);
     if (!d) return;
-    if (d === "sound") return hover(e, s.planned && s.clip.kind !== "still" ? null : { kind: "sound", clip: s.clip.id });
     const r = e.currentTarget.getBoundingClientRect();
-    const fx = (e.clientX - r.left) / Math.max(1, r.width);
-    // a transition goes on the nearer join: before this clip, or before the next one
-    if (d === "transition") {
-      const at = fx < 0.5 ? s.index : s.index + 1;
-      return hover(e, at > 0 && at < clips.length ? { kind: "join", clip: clips[at]!.id } : null);
-    }
-    const half: Over = { kind: "insert", index: fx < 0.5 ? s.index : s.index + 1 };
-    if (d !== "picture" || s.clip.kind === "still") return hover(e, half);
-    const pins = pinInputs(recipeOf(s.clip));
-    const carries = s.index > 0 && s.clip.joined === "continue";
-    const edge = Math.min(0.2, 18 / Math.max(1, r.width));
-    if (fx < edge || fx > 1 - edge) return hover(e, half);
-    // the middle third, for a model that can pass through a picture: pinned at that moment, to the half second
-    if (pins.mid && fx > 0.3 && fx < 0.7) {
-      const seconds = Math.max(1, s.lengthMs / 1000);
-      return hover(e, { kind: "pin", clip: s.clip.id, where: "mid", atS: Math.max(0.5, Math.round(fx * seconds * 2) / 2) });
-    }
-    if (fx < 0.5) return hover(e, pins.start && !carries ? { kind: "pin", clip: s.clip.id, where: "start" } : half);
-    return hover(e, pins.end ? { kind: "pin", clip: s.clip.id, where: "end" } : half);
+    hover(e, clipTarget(d, s, (e.clientX - r.left) / Math.max(1, r.width), r.width, clips, pinInputs(recipeOf(s.clip))));
   };
   /** Something is dragged over a join itself (its dot, its transition): a transition goes on that join. */
   const overJoin = (e: DragEvent, s: Slot) => {

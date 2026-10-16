@@ -50,7 +50,7 @@ export function useTrimKeys(o: {
         case "ArrowRight": e.preventDefault(); v?.pause(); seek(stepFrames(at, arrows, fps, duration)); break;
         case "l": case "L": e.preventDefault(); now.current.toggleLoop(); break;
         case "z": case "Z": e.preventDefault(); zoomTo(zoom ? null : roomy(range)); break;
-        case " ": e.preventDefault(); if (v) { if (v.paused) void v.play(); else v.pause(); } break;
+        case " ": e.preventDefault(); if (v) { if (v.paused) void v.play().catch(() => {}); else v.pause(); } break;
         case "Home": e.preventDefault(); seek(0); break;
         case "End": e.preventDefault(); seek(duration); break;
         case "Escape": e.preventDefault(); now.current.onClose(); break;
