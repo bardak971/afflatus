@@ -14,7 +14,7 @@ import { displayOf, type Scope, type useStudio } from "../../store";
 import { PlaceCrumbs } from "../library/FolderPanel";
 import { KINDS, type LibraryFilters } from "./useLibraryFilters";
 import type { Selection } from "./useSelection";
-import { binFor, daysSaid, insteadOfWaiting, unkeptMs, useKeepFor } from "../../keepFor";
+import { binFor, daysSaid, insteadOfWaiting, unkeepTip, unkeptMs, useKeepFor } from "../../keepFor";
 
 // "Kept" is not a scope any more: Kept only, in Filters, does it. "All recent": the last two days of every folder, whatever folder is open
 // short, so the three stay a segmented control at any width
@@ -233,7 +233,7 @@ function SelectionBar({ place, count, onSelectAll, selection, compact }: { place
             />
           </div>
           {chosen.some((a) => !a.kept) && <Button size="sm" aria-label={compact ? "Keep" : undefined} data-tip={compact ? "Keep them" : undefined} onClick={() => bulk("keep")}><Star size={13} />{!compact && " Keep"}</Button>}
-          {chosen.length > 0 && chosen.every((a) => a.kept) && <Button size="sm" data-tip="They go back on the one-day countdown" onClick={() => bulk("unkeep")}>Unkeep</Button>}
+          {chosen.length > 0 && chosen.every((a) => a.kept) && <Button size="sm" data-tip={unkeepTip()} onClick={() => bulk("unkeep")}>Unkeep</Button>}
           <Button size="sm" aria-label={compact ? "Bin" : undefined} data-tip={`To the bin, where they wait ${binFor() ?? "until it is emptied"} (Del)`} onClick={() => void binChosen()}><Trash2 size={13} />{!compact && " Bin"}</Button>
         </>
       )}

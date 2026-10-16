@@ -1,3 +1,4 @@
+import { hourMinute } from "../../format";
 import { Kbd } from "../../Keys";
 import { Button, cx, fieldClass, Segmented } from "../../ui";
 import { PRESETS, toLocalInput, typedWindow, type View } from "./useTimesView";
@@ -47,4 +48,13 @@ export function WindowBar({ view, shown, typed, onTyped, onPreset, onZoom, prese
       </div>
     </>
   );
+}
+
+/**
+ * A background refetch that failed while a tab's figures are shown: they stay, said as of their last good read, rather
+ * than one missed minute blanking the whole tab until the next good one.
+ */
+export function StaleNote({ error, at }: { error: Error | null; at: number }) {
+  if (!error) return null;
+  return <span role="status" className="text-xs text-warn-ink">Not refreshed since {hourMinute(at)}: {error.message}</span>;
 }

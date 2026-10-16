@@ -16,7 +16,7 @@ import { TimeChart, useChartColors } from "./Chart";
 import { BOOT_SAID, bootSaid, bootSplit, COST_PRESETS, lowerFirst, NOT_SPLIT, nothingShare, OUTSIDE_WHY, PART_SAID, presetWindow, runwayNowSaid, runwaySaid, runwayWhy, sessionBits, totalMs, totalsSaid } from "./costsView";
 import { chartTimeLabel, stretchOf, type View } from "./useTimesView";
 import { ExportCsv } from "./ExportCsv";
-import { WindowBar } from "./WindowBar";
+import { StaleNote, WindowBar } from "./WindowBar";
 
 /**
  * Queue › Costs: what the rented GPUs cost and where it went, what a render costs where it runs, what would cost less, and
@@ -432,7 +432,8 @@ function useCostsView() {
 export function Costs() {
   const { view, typed, setTyped, costs, zoom, pick } = useCostsView();
   const d = costs.data;
-  if (costs.isError) return <ErrorNote>{costs.error.message}</ErrorNote>;
+  // the error alone only with nothing read: a failed refetch keeps the last figures (StaleNote says so)
+  if (costs.isError && !d) return <ErrorNote>{costs.error.message}</ErrorNote>;
   if (!d) return <div className="text-ink-2">Loading costs…</div>;
   const pods = d.runpod || d.sessions.length > 0;
   // another window's figures while this one comes: faded under the window bar until they are its own
@@ -440,6 +441,7 @@ export function Costs() {
     <div className={cx("flex flex-col gap-4 pb-4 [&>*:not(:first-child)]:transition-opacity", costs.isPlaceholderData && "[&>*:not(:first-child)]:opacity-55")} aria-busy={costs.isPlaceholderData}>
       <div className="flex flex-wrap items-center gap-3">
         <WindowBar view={view} shown={{ from: d.from, to: d.to }} typed={typed} onTyped={setTyped} onPreset={pick} onZoom={zoom} presets={COST_PRESETS} />
+        <StaleNote error={costs.error} at={costs.dataUpdatedAt} />
         <span className="grow" />
         {/* the window shown, as the figures were read for it; "All" asks for no bounds, as the figures did */}
         <ExportCsv

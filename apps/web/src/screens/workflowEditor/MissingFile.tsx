@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { ChevronRight, Download as DownloadIcon } from "lucide-react";
 import { folderOfFileInput } from "@afflatus/core";
 import { api } from "../../api";
-import { fileLabel, size } from "../../format";
+import { fileLabel, plural, size } from "../../format";
 import { CivitaiMatch, civitaiSays, civitaiTip, DownloadRow, HfMatch } from "../../GetFile";
 import { Select } from "../../Select";
 import { Button, cx, Help } from "../../ui";
@@ -125,7 +125,7 @@ export function MissingFile({ f, m, hints, where }: { f: MissingFileOf; m: Mappi
             <details className="group text-xs" open={!best}>
               <summary className="flex cursor-pointer list-none items-center gap-1 text-ink-2 hover:text-ink [&::-webkit-details-marker]:hidden">
                 <ChevronRight size={12} className="transition-transform group-open:rotate-90" />
-                {best ? `${more} more match${more === 1 ? "" : "es"}` : `${more} match${more === 1 ? "" : "es"}, none to download as is`}
+                {best ? plural(more, "more match", "more matches") : `${plural(more, "match", "matches")}, none to download as is`}
               </summary>
               <div className="flex flex-col gap-1.5 pt-1.5">
                 <span className="text-ink-2">

@@ -166,7 +166,7 @@ export function DraftMenu({ drafts: rows, open: current, titleOf, onPick, onNew,
         aria-expanded={shown}
         aria-label={`Drafts: ${current ? nameOf(current) : "no draft yet"}`}
         data-tip={shownRow ? modelLine(shownRow) : undefined}
-        onClick={() => (shown ? close() : (setShown(true), setAt(Math.max(0, drafts.findIndex((d) => d.id === current?.id)))))}
+        onClick={() => (shown ? close() : (setShown(true), setAt(Math.max(0, list.findIndex((d) => d.id === current?.id)))))}
         className={cx("flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg border bg-raised pr-2.5 pl-1.5 text-left font-semibold", shown ? "border-accent" : "border-line-strong hover:border-accent")}
       >
         {shownRow ? <Cover d={shownRow} size={24} /> : <Kind size={14} className="text-ink-3" />}

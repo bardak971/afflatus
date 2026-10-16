@@ -15,7 +15,7 @@ import { RenderList } from "./RenderList";
 import { spanSaid, SummaryTiles } from "./SummaryTiles";
 import { chartTimeLabel, csvQuery, stretchOf, useTimesView } from "./useTimesView";
 import { ExportCsv } from "./ExportCsv";
-import { WindowBar } from "./WindowBar";
+import { StaleNote, WindowBar } from "./WindowBar";
 import { scrollInside } from "../../scrollInside";
 
 /**
@@ -62,7 +62,8 @@ export function RenderTimes() {
   const tones = useChartColors();
   const d = times.data;
   const flags = useMemo(() => (d ? flagsOf(d, lanes.data?.items) : []), [d, lanes.data]);
-  if (times.isError) return <ErrorNote>{times.error.message}</ErrorNote>;
+  // the error alone only with nothing read: a failed refetch keeps the last figures (StaleNote says so)
+  if (times.isError && !d) return <ErrorNote>{times.error.message}</ErrorNote>;
   if (!d) return <div className="text-ink-2">Loading render history…</div>;
 
   const t = d.tiles;
@@ -85,6 +86,7 @@ export function RenderTimes() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-3">
         <WindowBar view={view} shown={{ from: d.from, to: d.to }} typed={typed} onTyped={setTyped} onPreset={pick} onZoom={zoom} />
+        <StaleNote error={times.error} at={times.dataUpdatedAt} />
         <span className="text-xs text-ink-2">
           {windowSaid} · per {stretch}{d.prior ? ` · Δ vs prior ${spanSaid(d.prior.to - d.prior.from)}` : ""}
         </span>

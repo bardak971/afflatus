@@ -94,7 +94,8 @@ export function useLibraryFilters({ place, view, draftId, initialKind = "all", o
     unkept: (place.type !== "bin" && unkept) || undefined,
   };
   // every page kept: the grid draws only the rows in view (MediaGrid.tsx), so a long scroll costs no more to draw
-  const assets = useAssets(filter, true, false);
+  // not read at all while the timelines are shown: their cards are drawn instead, and the pages would be fetched for nothing
+  const assets = useAssets(filter, !showTimelines, false);
   const items = showTimelines ? [] : assets.data?.pages.flatMap((p) => p.items) ?? [];
   const filtered = Boolean(q || made || lora || filter.kept || filter.unkept);
   return { kind, setKind, typed, setTyped, q, made, setMade, lora, setLora, kept, setKept, unkept, setUnkept, showTimelines, reach, filter, assets, items, filtered };
