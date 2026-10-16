@@ -43,13 +43,16 @@ class Stamp(unittest.TestCase):
     def test_the_tail_is_bounded(self):
         with tempfile.TemporaryDirectory() as d:
             log = os.path.join(d, "boot.log")
-            with open(log, "w", encoding="utf-8") as f:
+            with open(log, "w", encoding="utf-8", newline="
+") as f:
                 for i in range(1000):
                     f.write(f"2026-10-16T10:00:00.000Z line {i}\n")
             lines = bootlog.tail(log)
             self.assertEqual(len(lines), bootlog.MAX_LINES)
             self.assertEqual(lines[-1]["m"], "line 999")
-            self.assertLessEqual(len(json.dumps(bootlog.tail(log, 10_000, 4096))), 4096 + 2048)
+            # the bytes read, and each line's {"t": …, "m": …} around it: a bound whatever the lines' length
+            cut = bootlog.tail(log, 10_000, 4096)
+            self.assertLessEqual(len(json.dumps(cut)), 4096 + 20 * len(cut))
             self.assertEqual(bootlog.tail(os.path.join(d, "none.log")), [])
 
 
