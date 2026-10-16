@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MachineState, QueueStatus, RentedState } from "../src/api";
 import { usd } from "../src/format";
 import { busiest, doing } from "../src/machineBits";
-import { bootSaid, machineState, onlineSaid, rateParts, rateSaid, rentedSaid, rentedSpent, rentedUp, severalMachines } from "../src/machines";
+import { bootNote, bootSaid, clock, machineState, onlineSaid, rateParts, rateSaid, rentedSaid, rentedSpent, rentedUp, severalMachines } from "../src/machines";
 
 /** What a rented pod's row, its Start and the pill say (machines.ts), and when the machines' own controls show. */
 
@@ -17,15 +17,15 @@ describe("a rented pod's words", () => {
     const now = 1_800_000_000_000;
     expect(rentedSaid(pod())).toBe("stopped · disk $0.33/day");
     expect(rentedSaid(pod({ status: "STARTING" }))).toBe("starting");
-    expect(rentedSaid(pod({ status: "PROVISIONING" }))).toBe("deploying · pulling its image");
+    expect(rentedSaid(pod({ status: "PROVISIONING" }))).toBe("deploying · pulling image");
     // a deployed pod's first start is a normal step, said as one
     expect(rentedSaid(pod({ status: "RUNNING", booting: true, answers: false, since: null }))).toBe("deploying");
     expect(rentedSaid(pod({ status: "GONE" }))).toBe("not on RunPod");
     const running = pod({ status: "RUNNING", since: now - 120_000, answers: true });
     expect(rentedSpent(running, now)).toBeCloseTo((2 / 60) * 0.69, 6);
-    expect(rentedSaid(running, now)).toBe("running 2 min · $0.023");
+    expect(rentedSaid(running, now)).toBe("running 2m 00s · $0.023");
     // billed from its start, whether its ComfyUI answers yet or not
-    expect(rentedSaid(pod({ status: "RUNNING", since: now - 30_000, answers: false }), now)).toMatch(/^running, ComfyUI not up yet 30 s/);
+    expect(rentedSaid(pod({ status: "RUNNING", since: now - 30_000, answers: false }), now)).toMatch(/^running, ComfyUI not up yet 30s/);
     expect(rentedSaid(pod({ status: "RUNNING", since: now - 30_000, stopping: true }), now)).toMatch(/^stopping/);
   });
 
@@ -52,20 +52,48 @@ describe("a deployed pod's first start", () => {
   const boot = (over: Partial<NonNullable<RentedState["boot"]>> = {}) => ({ phase: "pulling" as const, step: null, failed: false, from: now - 6 * 60_000, ...over });
   const row = (r: RentedState): MachineState => ({ id: "rp-1", name: "RTX 3090", url: "https://x", takes: "all", paused: false, online: false, locked: false, rented: r, model: null, pace: null, running: null } as MachineState);
 
-  it("says where it is, and for how long since its deploy: RunPod's data, then its boot log's step", () => {
-    expect(bootSaid(boot(), now)).toBe("pulling the image · 6 min");
-    expect(bootSaid(boot({ phase: "starting", from: now - 40_000 }), now)).toBe("starting ComfyUI · 40 s");
-    expect(bootSaid(boot({ phase: "step", step: "putting in the node packs" }), now)).toBe("putting in the node packs · 6 min");
-    expect(bootSaid(boot({ phase: "step", step: "putting in the node packs (exit 1)", failed: true }), now)).toBe("start stopped: putting in the node packs (exit 1) · 6 min");
+  it("says where it is, and for how long since its deploy to the second: RunPod's data, then its boot log's step", () => {
+    expect(bootSaid(boot({ from: now - 134_000 }), now)).toBe("pulling image · 2m 14s");
+    expect(bootSaid(boot({ phase: "starting", from: now - 31_000 }), now)).toBe("starting ComfyUI · 31s");
+    expect(bootSaid(boot({ phase: "step", step: "putting in the node packs" }), now)).toBe("linking node packs · 6m 00s");
+    // start.sh's pip installs, counted (0.1.12 on), and without a count (a log of before)
+    expect(bootSaid(boot({ phase: "step", step: "installing the Python packages of ComfyUI-KJNodes (3/14)", from: now - 62_000 }), now)).toBe("pip: ComfyUI-KJNodes (3/14) · 1m 02s");
+    expect(bootSaid(boot({ phase: "step", step: "installing the Python packages of insightface" }), now)).toBe("pip: insightface · 6m 00s");
+    // ComfyUI's own course, as the server reads it, and a step not known here as the pod says it
+    expect(bootSaid(boot({ phase: "step", step: "loading custom nodes" }), now)).toBe("loading custom nodes · 6m 00s");
+    expect(bootSaid(boot({ phase: "step", step: "something new" }), now)).toBe("something new · 6m 00s");
+    // a start that stopped: where, and that it is terminated (at once, by the server)
+    expect(bootSaid(boot({ phase: "step", step: "putting in the node packs (exit 1)", failed: true }), now)).toBe("start failed: linking node packs (exit 1) · terminated");
+    expect(bootSaid(boot({ phase: "step", step: "the GPU does not work on this host: CUDA unknown error", failed: true }), now)).toBe("start failed: GPU fault: CUDA unknown error · terminated");
   });
 
-  it("in its row, its card's head and the pill: the same words, its cost while RunPod bills it", () => {
+  it("counts its time in minutes and seconds, never rounded to the minute", () => {
+    expect(clock(0)).toBe("0s");
+    expect(clock(59_999)).toBe("59s");
+    expect(clock(60_000)).toBe("1m 00s");
+    expect(clock(20 * 60_000 + 5_000)).toBe("20m 05s");
+    expect(clock(3_723_000)).toBe("1h 02m");
+    expect(clock(-5)).toBe("0s");
+  });
+
+  it("says its second line in power-user words, the plain explanation in its ?", () => {
+    expect(bootNote(boot()).said).toBe("boot · auto-terminate at 20m if ComfyUI doesn't answer");
+    expect(bootNote(boot({ phase: "step", step: "x (exit 1)", failed: true })).said).toBe("boot · start failed: terminated at once");
+    expect(bootNote(boot()).tip).toMatch(/pulls its image onto the host/);
+    expect(bootNote(boot()).tip).toMatch(/billed from the deploy/);
+  });
+
+  it("in its row, its card's head, the pill's tooltip and its popover: the one line, its cost while RunPod bills it", () => {
     const pulling = pod({ status: "RUNNING", booting: true, answers: null, since: now - 6 * 60_000, rate: 0.6, boot: boot() });
-    expect(rentedSaid(pulling, now)).toBe("pulling the image · 6 min · $0.060");
-    expect(rentedSaid(pod({ status: "PROVISIONING", booting: true, boot: boot({ from: now - 20_000 }) }), now)).toBe("pulling the image · 20 s");
+    expect(rentedSaid(pulling, now)).toBe("pulling image · 6m 00s · $0.060");
+    expect(rentedSaid(pod({ status: "PROVISIONING", booting: true, boot: boot({ from: now - 20_000 }) }), now)).toBe("pulling image · 20s");
+    // its time and its cost from the one clock: the A40 that read "$0.022" in the pill and "$0.020" on its card at once
+    const a40 = pod({ status: "RUNNING", booting: true, answers: null, since: now - 134_000, rate: 0.44, boot: boot({ from: now - 134_000 }) });
+    expect(rentedSaid(a40, now)).toBe("pulling image · 2m 14s · $0.016");
+    expect(doing(row(a40), now)).toBe(rentedSaid(a40, now));
     // before its first answer, RunPod says it runs: starting, never offline, in every place
     expect(machineState(row(pulling))).toBe("starting");
-    expect(doing(row(pulling), now)).toBe("pulling the image · 6 min · $0.060");
+    expect(doing(row(pulling), now)).toBe("pulling image · 6m 00s · $0.060");
     expect(busiest([row(pulling)])).toBe("1 starting");
     // the Queue's head: neither online nor offline
     const home = { ...row(pod()), id: "m1", rented: null, online: true } as MachineState;
@@ -74,7 +102,7 @@ describe("a deployed pod's first start", () => {
     // a Stop pressed meanwhile says so, not its start
     expect(rentedSaid({ ...pulling, stopping: true }, now)).toMatch(/^stopping/);
     // an older server says no `boot`: as before
-    expect(rentedSaid(pod({ status: "PROVISIONING" }))).toBe("deploying · pulling its image");
+    expect(rentedSaid(pod({ status: "PROVISIONING" }))).toBe("deploying · pulling image");
   });
 });
 

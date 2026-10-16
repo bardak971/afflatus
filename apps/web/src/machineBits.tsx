@@ -1,11 +1,12 @@
+import { Link } from "wouter";
 import type { MachineState, PodDisk, PodFile } from "./api";
 import { gb, plural, usd } from "./format";
-import { gettingFiles, machineState, rentedSaid, rentedSpent, rentedUp } from "./machines";
+import { bootNote, gettingFiles, machineState, rentedSaid, rentedSpent, rentedUp, type RentedBoot } from "./machines";
 
 // the files a machine is getting: worked out with its state's word (machines.ts), read here too
 export { gettingFiles };
 import { Progress } from "./progress/Progress";
-import { cx } from "./ui";
+import { cx, Help } from "./ui";
 
 // the machines' small parts, shared by the status bar's pill and its popover (loaded later, on the first click) and the
 // Queue's lanes: a module of their own, so that none imports the others
@@ -52,15 +53,25 @@ function FilesRing({ share, running }: { share: number | null; running: boolean 
 }
 
 /** A machine's dot, in its state: filled in the accent while it renders, a green ring idle, grey paused, amber away; a ring that fills while it gets files. */
+/**
+ * A machine on its way up, as its dot says it in the pill, its popover and its Queue lane: the idle ring it will be,
+ * pulsing. Neither the warning of one away nor the accent of one getting files.
+ */
+export const STARTING_DOT = "animate-pulse border-[1.5px] border-good";
+
 export function Dot({ m }: { m: MachineState }) {
   // a pod RunPod was not read for yet (Afflatus just started): grey and filled, as its lane says "checking", never the
   // stopped ring while it may be running
   if (m.rented?.status === "UNKNOWN") return <span aria-hidden data-state="checking" className="size-[7px] shrink-0 rounded-full bg-ink-3" />;
-  // a rented pod that is not running: a grey ring while stopped, amber and pulsing while it starts (its first start too,
-  // RunPod saying it runs while its image is pulled)
+  // a rented pod that is not running: a grey ring while stopped, the starting look while it starts (its first start too,
+  // RunPod saying it runs while its image is pulled). It was a pulsing warning dot, which read as an error in a theme
+  // whose warning is red: the warning is for a start that failed, as for a machine away
   if (m.rented && (m.rented.status !== "RUNNING" || m.rented.booting)) {
+    if (m.rented.boot?.failed) return <span aria-hidden data-state="failed" className="size-[7px] shrink-0 rounded-full bg-warn" />;
     const starting = m.rented.status === "STARTING" || m.rented.status === "PROVISIONING" || m.rented.booting;
-    return <span aria-hidden className={cx("size-[7px] shrink-0 rounded-full", starting ? "animate-pulse bg-warn" : "border-[1.5px] border-ink-3")} />;
+    return starting
+      ? <span aria-hidden data-state="starting" className={cx("size-[7px] shrink-0 rounded-full", STARTING_DOT)} />
+      : <span aria-hidden data-state="stopped" className="size-[7px] shrink-0 rounded-full border-[1.5px] border-ink-3" />;
   }
   if (m.online === false) return <span aria-hidden className="size-[7px] shrink-0 rounded-full bg-warn" />;
   // minutes of downloads read as idle before (the owner: "the pills could show when something is downloading")
@@ -107,4 +118,22 @@ export function doing(m: MachineState, now: number): string {
   if (getting) return `${m.paused ? "paused · " : ""}getting ${plural(getting.left.length, "file")}${getting.ahead ? "" : " for its jobs"}${cost}`;
   const state = machineState(m);
   return `${m.model ? `${state} · holds ${m.model}` : state}${cost}`;
+}
+
+/**
+ * A booting pod's second line, the one the pill's popover and its card say (bootNote): what bounds its boot, its boot log's
+ * link (Queue › Log), the plain words in its "?". `inside`: within a row that is a button of its own (the popover's).
+ */
+export function BootNote({ machine, boot, inside, className }: { machine: string; boot: RentedBoot; inside?: boolean; className?: string }) {
+  const { said, tip } = bootNote(boot);
+  return (
+    <span className={cx("inline-flex min-w-0 items-center gap-1.5 text-ink-3", className)}>
+      <span className="min-w-0 truncate">
+        {said} ·{" "}
+        {/* a click on the link is not one on the popover's row (which picks the machine for the pill's meters) */}
+        <Link href={`/queue?view=log&machine=${encodeURIComponent(machine)}`} onClick={(e) => e.stopPropagation()} className="font-semibold text-accent hover:underline">boot log</Link>
+      </span>
+      <Help text={tip} inside={inside} />
+    </span>
+  );
 }

@@ -87,12 +87,23 @@ if [ "$BASE" != /comfyui ]; then
   unset PIP_NO_CACHE_DIR
   export PIP_CACHE_DIR="$BASE/.pip-cache"
 fi
-for req in "$BASE"/custom_nodes/*/requirements.txt; do
-  [ -f "$req" ] || continue
-  [ "$req" = "$BASE/custom_nodes/afflatus-nodes/requirements.txt" ] && continue
+# the lists to install, counted first: each step says which of how many it is ("(3/14)"), what Afflatus shows while it
+# boots. POSIX sh (no arrays): the same test in both rounds
+wanted() {
+  [ -f "$1" ] || return 1
+  [ "$1" = "$BASE/custom_nodes/afflatus-nodes/requirements.txt" ] && return 1
   # the built-in ones' packages are in the image already (DaSiWa's list on purpose not)
-  grep -qxF "$(basename "$(dirname "$req")")" /opt/packs/BUILT_IN && continue
-  step "installing the Python packages of $(basename "$(dirname "$req")")"
+  ! grep -qxF "$(basename "$(dirname "$1")")" /opt/packs/BUILT_IN
+}
+n=0
+for req in "$BASE"/custom_nodes/*/requirements.txt; do
+  if wanted "$req"; then n=$((n + 1)); fi
+done
+i=0
+for req in "$BASE"/custom_nodes/*/requirements.txt; do
+  wanted "$req" || continue
+  i=$((i + 1))
+  step "installing the Python packages of $(basename "$(dirname "$req")") ($i/$n)"
   timeout 600 pip install -q -c /constraints.txt -r "$req" || echo "[afflatus-pod] could not install $req"
 done
 

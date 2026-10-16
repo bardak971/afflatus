@@ -18,7 +18,8 @@ import { Block, Card, Row } from "./Rows";
 import { tabHref } from "./settingsIndex";
 import { COLUMNS } from "./wide";
 import { openDeploy } from "../../deploy";
-import { rateParts } from "../../machines";
+import { podsAdded, rateParts } from "../../machines";
+import { BootNote, STARTING_DOT } from "../../machineBits";
 import { VolumesCard } from "./VolumesCard";
 import { SecretField } from "./SecretField";
 
@@ -224,8 +225,8 @@ function RunpodPods() {
     const r = p.added ? states.find((m) => m.id === p.added)?.rented : undefined;
     return { status: r?.status ?? p.status, rate: r?.rate ?? p.cost };
   };
-  // running first, then the others as RunPod lists them
-  const list = [...(pods.data?.pods ?? [])].sort((a, b) => Number(live(b).status === "RUNNING") - Number(live(a).status === "RUNNING"));
+  // a pod is a machine as soon as the settings say so (podsAdded); running first, then the others as RunPod lists them
+  const list = podsAdded(pods.data?.pods ?? [], machines).sort((a, b) => Number(live(b).status === "RUNNING") - Number(live(a).status === "RUNNING"));
   const running = list.filter((p) => live(p).status === "RUNNING");
   const stopped = list.filter((p) => live(p).status === "EXITED").length;
   const perHour = running.reduce((n, p) => n + (live(p).rate ?? 0), 0);
@@ -275,11 +276,13 @@ function RunpodPods() {
           <div key={p.id} className={cx("flex flex-wrap items-center gap-x-3 gap-y-2 px-[18px] py-3", !p.added && !p.comfy && !loose && "opacity-60")}>
             <span className="flex min-w-0 grow basis-[260px] flex-col gap-1">
               <span className="flex min-w-0 items-center gap-2">
-                <span aria-hidden className={cx("size-[7px] shrink-0 rounded-full", loose ? "bg-warn" : isRunning ? "bg-good" : "border-[1.5px] border-ink-3")} />
+                <span aria-hidden className={cx("size-[7px] shrink-0 rounded-full", loose || r?.boot?.failed ? "bg-warn" : r?.booting ? STARTING_DOT : isRunning ? "bg-good" : "border-[1.5px] border-ink-3")} />
                 <span className="truncate text-[13.5px] font-semibold">{machine ? machine.name || p.name : p.name}</span>
                 {said && <span className={cx("min-w-0 truncate text-[12.5px]", loose ? "text-warn-ink" : "text-ink-3")}>· {said}</span>}
               </span>
               {!short && facts.length > 0 && <span className="truncate pl-[15px] text-xs text-ink-3">{facts}</span>}
+              {/* a deployed pod's first start: the second line its card and the pill's popover say */}
+              {machine && r?.booting && r.boot && !r.error && <BootNote machine={machine.id} boot={r.boot} className="pl-[15px] text-xs" />}
             </span>
             <span className="flex shrink-0 items-center gap-2">
               {machine && state && <RentedHead machine={machine} state={state} ops={ops} />}

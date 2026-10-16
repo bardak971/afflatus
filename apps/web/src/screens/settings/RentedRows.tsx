@@ -1,14 +1,13 @@
-import { Link } from "wouter";
 import type { Machine, MachineState, RentedMachine } from "../../api";
 import type { PodFile, PodPack } from "../../api";
 import { minutesSaid, plural, size, usd } from "../../format";
-import { useCopied, useNow } from "../../hooks";
+import { useCopied, useNow, useSecond } from "../../hooks";
 import { gettingFiles, rateSaid, rentedSaid } from "../../machines";
 import type { useRentedOps } from "../../rentedOps";
 import { Select } from "../../Select";
 import { Progress } from "../../progress/Progress";
 import { Button, Checkbox, cx, TwoStep } from "../../ui";
-import { diskNearlyFull, diskSaid } from "../../machineBits";
+import { BootNote, diskNearlyFull, diskSaid } from "../../machineBits";
 import { Block, Row } from "./Rows";
 
 const IDLE = [0, 5, 10, 15, 30, 60, 120];
@@ -70,8 +69,9 @@ function IdleLeft({ at }: { at: number }) {
 /** A rented machine's state for its card's head: its words, and Start or Stop. Start is the user's, its rate said first. */
 export function RentedHead({ machine, state, ops }: { machine: Machine; state: MachineState | undefined; ops: ReturnType<typeof useRentedOps> }) {
   const r = state?.rented;
-  // its running time and cost count by the second while it runs, and a first start's time since its deploy
-  const now = useNow(1000, r?.status === "RUNNING" || Boolean(r?.boot));
+  // its running time and cost count by the second while it runs, and a first start's time since its deploy: on the clock
+  // the pill reads too (useSecond), so that both say the same figure at once
+  const now = useSecond(r?.status === "RUNNING" || Boolean(r?.boot));
   if (!r) return null;
   const label = machine.name || "the pod";
   const running = r.status === "RUNNING";
@@ -113,14 +113,9 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
   return (
     <>
       {/* what is happening to the pod, when something is: its first start, an error, gone from RunPod */}
-      {((r?.booting && !r.error) || r?.error || gone) && (
+      {((r?.booting && !r.error && r.boot) || r?.error || gone) && (
         <Block>
-          {r?.booting && !r.error && (
-            <span className="text-xs text-ink-3">
-              First start: its image pulled onto the host, then ComfyUI starts · a few minutes, billed · terminated by itself if not up in 20 min ·{" "}
-              <Link href={`/queue?view=log&machine=${encodeURIComponent(machine.id)}`} className="font-semibold text-accent hover:underline">its boot log</Link>
-            </span>
-          )}
+          {r?.booting && !r.error && r.boot && <BootNote machine={machine.id} boot={r.boot} className="text-xs" />}
           {r?.error && <span className="text-xs text-warn-ink">{r.error}</span>}
           {gone && (
             <span className="flex flex-wrap items-center gap-2 text-xs text-warn-ink">

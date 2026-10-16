@@ -8,7 +8,7 @@ import { machineLabel, machineState, rentedSaid, type MachineWord } from "../../
 import { useQueueOps } from "../../queueOps";
 import { useSystem } from "../../store";
 import { cx } from "../../ui";
-import { diskNearlyFull, diskSaid, FilesLine, filesSaid, gettingFiles } from "../../machineBits";
+import { diskNearlyFull, diskSaid, FilesLine, filesSaid, gettingFiles, STARTING_DOT } from "../../machineBits";
 import { RunningCard } from "./RunningCard";
 
 const MachineMenuBody = lazy(() => import("../../MachineMenu").then((m) => ({ default: m.MachineMenuBody })));
@@ -22,13 +22,16 @@ const COMPACT_PAST = 4;
 /** The columns of a machine's row, the same in every row and in an opened lane's head, so that they line up and nothing jumps. */
 const ROW = "grid grid-cols-[16px_minmax(120px,180px)_88px_minmax(0,1fr)_minmax(0,170px)_316px_64px] items-center gap-3.5";
 
-/** How a lane looks in its state (machineState): a stopped pod as a paused machine, a locked or starting one as one away. */
-type State = "rendering" | "getting" | "idle" | "paused" | "offline";
-const lookOf = (word: MachineWord): State => (word === "stopped" || word === "checking" ? "paused" : word === "locked" || word === "starting" ? "offline" : word === "getting files" ? "getting" : word);
+/**
+ * How a lane looks in its state (machineState): a stopped pod as a paused machine, a locked one as one away, a starting one
+ * as on its way up (the pill's dot), a pod whose start failed as one away.
+ */
+type State = "rendering" | "getting" | "idle" | "paused" | "offline" | "starting";
+const lookOf = (word: MachineWord, failed = false): State => (word === "stopped" || word === "checking" ? "paused" : word === "locked" || (word === "starting" && failed) ? "offline" : word === "getting files" ? "getting" : word);
 
 /** A machine's dot: filled green while it renders, a ring in the accent while it gets files, a green ring when idle, grey when paused, a warning ring when away. */
 function Dot({ state }: { state: State }) {
-  return <span aria-hidden className={cx("size-2 shrink-0 rounded-full", state === "rendering" ? "bg-good" : state === "getting" ? "border-[1.5px] border-accent" : state === "idle" ? "border-[1.5px] border-good" : state === "paused" ? "bg-ink-3" : "border-[1.5px] border-warn")} />;
+  return <span aria-hidden data-state={state} className={cx("size-2 shrink-0 rounded-full", state === "rendering" ? "bg-good" : state === "getting" ? "border-[1.5px] border-accent" : state === "idle" ? "border-[1.5px] border-good" : state === "starting" ? STARTING_DOT : state === "paused" ? "bg-ink-3" : "border-[1.5px] border-warn")} />;
 }
 
 /** Its state as a pill (its word: machineState), in the colours the app gives them. */
@@ -36,7 +39,7 @@ function StatePill({ state, word }: { state: State; word: MachineWord }) {
   return (
     <span className={cx(
       "justify-self-start rounded-full px-2 py-px text-[11.5px] font-semibold",
-      state === "rendering" ? "bg-accent-wash text-accent" : state === "getting" ? "border border-accent/40 text-accent" : state === "idle" ? "border border-good/40 text-good" : state === "paused" ? "bg-hover text-ink-2" : "bg-warn-wash text-warn-ink",
+      state === "rendering" ? "bg-accent-wash text-accent" : state === "getting" ? "border border-accent/40 text-accent" : state === "idle" ? "border border-good/40 text-good" : state === "starting" ? "border border-good/40 text-ink-2" : state === "paused" ? "bg-hover text-ink-2" : "bg-warn-wash text-warn-ink",
     )}>
       {word}
     </span>
@@ -169,7 +172,7 @@ function useLane(m: MachineState, onPin: (job: string, machine: string) => void)
   const load = useSystem((s) => s.loads[m.id]);
   const drop = useDrop(m, onPin);
   const word = machineState(m);
-  const state = lookOf(word);
+  const state = lookOf(word, Boolean(m.rented?.boot?.failed));
   const menuNode = menu.menu && <Suspense fallback={null}><MachineMenuBody at={menu.menu.at} machine={m.id} onClose={menu.close} /></Suspense>;
   return { menu, load, drop, state, word, menuNode };
 }
@@ -181,6 +184,8 @@ const quiet = (m: MachineState, word: MachineWord) =>
   : word === "paused" ? (gettingFiles(m) ? `takes nothing new · getting ${filesShort(gettingFiles(m)!)}` : "takes nothing new until it resumes")
   : word === "stopped" && m.rented ? `${rentedSaid(m.rented)} · the others take the line`
   : word === "checking" ? "reading its state from RunPod · the others take the line"
+  // a deployed pod's first start: its phase line, as the pill and its card say it
+  : word === "starting" && m.rented?.boot ? `${rentedSaid(m.rented)} · the others take the line`
   : word === "starting" ? "starting: its image is pulled, then ComfyUI comes up · the others take the line"
   : word === "locked" ? "locked: its token is wrong · the others take the line"
   : word === "offline" ? "not answering · the others take the line"

@@ -1,5 +1,6 @@
 import type { MachineState, PodFile, QueueStatus, RentedState } from "./api";
-import { long, usd } from "./format";
+import { stepSaid } from "@afflatus/core";
+import { usd } from "./format";
 
 /** Several ComfyUIs (Settings › ComfyUI): how a machine is named on screen, and what the screens read of them. */
 
@@ -117,14 +118,39 @@ export function familyOnFor(own: Readonly<Record<string, boolean>>, said: Readon
 /** Where a deployed pod's first start is (the server's podBoot.ts bootOf). */
 export type RentedBoot = NonNullable<RentedState["boot"]>;
 
+/** How long a deployed pod may take to answer before Afflatus terminates it (the server's DEPLOYED_BOOT_LIMIT_MS). */
+export const BOOT_LIMIT_MIN = 20;
+
+/** A pod's running time, as its boot and its run say it, to the second under an hour: "31s", "2m 14s", "1h 05m". */
+export function clock(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const two = (n: number) => String(n).padStart(2, "0");
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${two(s % 60)}s`;
+  return `${Math.floor(s / 3600)}h ${two(Math.floor((s % 3600) / 60))}m`;
+}
+
 /**
- * Where a deployed pod's first start is, and for how long since its deploy: "pulling the image · 6 min" while RunPod says
- * no uptime yet (ten minutes on a host new to the image, seconds on one that has it), "starting ComfyUI · 40 s" once its
- * container is up, then its boot log's step ("putting in the node packs · 1 min"); a start that stopped, where.
+ * Where a deployed pod's first start is, and for how long since its deploy, to the second: "pulling image · 2m 14s"
+ * while RunPod says no uptime yet, "starting ComfyUI · 31s" once its container is up, then its boot log's step ("pip:
+ * ComfyUI-KJNodes (3/14) · 1m 02s"); a start that stopped, where, and that the pod is terminated for it (the server does so
+ * at once). The one phase line the pill's row, its tooltip, its popover and both cards say (through rentedSaid).
  */
 export function bootSaid(b: RentedBoot, now = Date.now()): string {
-  const what = b.phase === "pulling" ? "pulling the image" : b.phase === "starting" || !b.step ? "starting ComfyUI" : b.failed ? `start stopped: ${b.step}` : b.step;
-  return `${what} · ${long(Math.max(0, now - b.from))}`;
+  if (b.failed && b.step) return `start failed: ${stepSaid(b.step)} · terminated`;
+  const what = b.phase === "pulling" ? "pulling image" : b.phase === "starting" || !b.step ? "starting ComfyUI" : stepSaid(b.step);
+  return `${what} · ${clock(now - b.from)}`;
+}
+
+/**
+ * A booting pod's second line, the same in the pill's popover and on its card: what the boot is bound by, in a few words
+ * (the boot log's link after it, the screen's), and the plain explanation for its "?" only.
+ */
+export function bootNote(b: RentedBoot): { said: string; tip: string } {
+  return {
+    said: b.failed ? "boot · start failed: terminated at once" : `boot · auto-terminate at ${BOOT_LIMIT_MIN}m if ComfyUI doesn't answer`,
+    tip: `A pod's first start after its deploy. RunPod first pulls its image onto the host: seconds on a host that has it, minutes on one new to it. Then its container starts and ComfyUI loads its custom nodes. It is billed from the deploy, the pull included. If ComfyUI does not answer within ${BOOT_LIMIT_MIN} min of the deploy, Afflatus terminates the pod by itself, so that a pod that never comes up does not go on billing; a start that stops on an error is terminated at once. The boot log (Queue › Log) shows each step until ComfyUI answers.`,
+  };
 }
 
 /**
@@ -134,17 +160,19 @@ export function bootSaid(b: RentedBoot, now = Date.now()): string {
  */
 export function rentedSaid(r: RentedState, now = Date.now()): string {
   if (r.boot && !r.stopping && (r.status === "RUNNING" || r.status === "STARTING" || r.status === "PROVISIONING")) {
+    // its time and its cost from the one `now`, so that the two never disagree in one line (each screen passes the shared clock, useSecond)
     return `${bootSaid(r.boot, now)}${r.status === "RUNNING" && r.since ? ` · ${usd(rentedSpent(r, now), true)}` : ""}`;
   }
   switch (r.status) {
     case "RUNNING": {
       // billed from its start, whether its ComfyUI answers yet or not; a deployed pod's first start is a step of its own
       const what = r.stopping ? "stopping" : r.booting ? "deploying" : r.answers === false ? "running, ComfyUI not up yet" : "running";
-      return r.since ? `${what} ${long(now - r.since)} · ${usd(rentedSpent(r, now), true)}` : what;
+      // its time as its boot said it (clock), so that the line goes on from "linking node packs · 1m 02s" in one style
+      return r.since ? `${what} ${clock(now - r.since)} · ${usd(rentedSpent(r, now), true)}` : what;
     }
     case "STARTING": return "starting";
     // a pod just deployed: RunPod pulls its image onto the host first, minutes on one that never had it
-    case "PROVISIONING": return "deploying · pulling its image";
+    case "PROVISIONING": return "deploying · pulling image";
     case "EXITED": return r.diskPerDay > 0.005 ? `stopped · disk ${usd(r.diskPerDay)}/day` : "stopped";
     case "GONE": case "TERMINATED": return "not on RunPod";
     case "ERROR": return "in error on RunPod";
@@ -178,3 +206,11 @@ export const rateSaid = (r: RentedState) => (r.rate ? `${usd(r.rate)} / h from n
 
 /** Whether a rented pod takes work now: only while it runs. A machine of one's own always may. */
 export const rentedUp = (m: { rented?: RentedState | null }) => !m.rented || m.rented.status === "RUNNING";
+
+/**
+ * The account's pods (Settings › Rented GPUs), each a machine as soon as the settings say so: RunPod's list, read every
+ * 15 s, may have been read just before a deploy saved its machine, and its pod showed as one to add until the next read.
+ */
+export function podsAdded<P extends { id: string; added: string | null }>(pods: readonly P[], machines: ReadonlyArray<{ id: string; rented?: { pod: string } | null }>): P[] {
+  return pods.map((p) => ({ ...p, added: p.added ?? machines.find((m) => m.rented?.pod === p.id)?.id ?? null }));
+}
