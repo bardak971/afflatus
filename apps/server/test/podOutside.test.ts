@@ -103,6 +103,24 @@ describe("a pod's work from outside Afflatus", () => {
     expect((await rows()).map((r) => [r.from, r.to])).toEqual([[iso(T0), iso(T0 + 45 * S)], [iso(T0 + 300 * S), null]]);
   });
 
+  it("a stretch whose session ended (its pod stopped while the work ran, nothing read meanwhile) is closed, not carried into the next run", async () => {
+    const o = make();
+    o.note("rp", running);
+    now = T0 + 20 * S;
+    o.note("rp", running);
+    await o.settled();
+    // the pod stopped, its ComfyUI never read again; started later as a new session, the work found running at once
+    await db.updateTable("rent_sessions").set({ ended_at: iso(T0 + 60 * S) }).where("id", "=", "s1").execute();
+    await db.insertInto("rent_sessions").values({ id: "s2", machine_id: "rp", pod: "p", rate: 0.2, started_at: iso(T0 + 3600 * S), ended_at: null, seen_at: iso(T0 + 3600 * S), gpu: null, up_at: null, idle_minutes: 10, busy_at: null }).execute();
+    now = T0 + 3700 * S;
+    o.note("rp", running);
+    await o.settled();
+    expect(await rows()).toEqual([
+      { session: "s1", machine: "rp", from: iso(T0), seen: iso(T0 + 20 * S), to: iso(T0 + 20 * S) },
+      { session: "s2", machine: "rp", from: iso(T0 + 3700 * S), seen: iso(T0 + 3700 * S), to: null },
+    ]);
+  });
+
   it("is not kept for a machine with no open session (this PC's own, a pod not billed), and starts no earlier than its session", async () => {
     const o = make();
     o.note("m1", running);

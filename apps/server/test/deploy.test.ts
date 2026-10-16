@@ -461,9 +461,13 @@ describe("a deploy", () => {
 });
 
 describe("a deployed pod removed, or left out of a list", () => {
-  it("removed from Afflatus while it runs: left on RunPod, its secret kept until the pod is gone, then deleted", async () => {
+  it("removed from Afflatus once stopped: left on RunPod, its secret kept until the pod is gone, then deleted", async () => {
     const id = (await deploy()).json().id as string;
     const secret = (await readSettings(t.db)).machines.find((m) => m.id === id)!.rented!.secret;
+    // starting, billed: refused until it is stopped, its state read from RunPod first when none was read yet
+    expect((await post(t.app, `/api/machines/${id}/remove`, {})).statusCode).toBe(409);
+    await post(t.app, `/api/machines/${id}/stop`, { how: "stop" });
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]!.status === "EXITED"));
     expect((await post(t.app, `/api/machines/${id}/remove`, {})).statusCode).toBe(200);
     expect((await readSettings(t.db)).machines.some((m) => m.id === id)).toBe(false);
     await t.services.rented.poll();

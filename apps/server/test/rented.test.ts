@@ -313,6 +313,18 @@ describe("a rented machine", () => {
   const MIN = 60_000;
 
   // The times below are set on the render's own record and read off the clock by the poll, not raced against it.
+  it("fails a stuck render while RunPod's list cannot be read too: that check asks nothing of RunPod", async () => {
+    const { id, row, run } = await silentOnPod();
+    podComfy.send("crystools.monitor", { cpu_utilization: 10, gpus: [{ gpu_utilization: 2, vram_used: 20, vram_total: 24 }] });
+    await until(() => Boolean(run().loadAt));
+    run().startedAt = run().movedAt = Date.now() - 10 * MIN - 1000;
+    runpod.failList = 503;
+    await t.services.rented.poll();
+    await until(async () => (await row()).status === "failed");
+    expect((await row()).error).toMatch(/^Stuck: no progress from ComfyUI for 10 min, its GPU idle/);
+    await until(async () => !t.services.queue.runningOn(id));
+  });
+
   it("fails a render silent for 10 min with its GPU read idle, however long its forecast", async () => {
     const { id, row, run } = await silentOnPod();
     run().expectedMs = 6 * 60 * MIN;

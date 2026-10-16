@@ -581,7 +581,10 @@ function sessionOf<R extends { machine_id: string | null; created_at: string; to
   const kept = around.fetches.filter((x) => x.machine_id === r.machine_id && Date.parse(x.ended_at) > from && Date.parse(x.started_at) < to);
   const old = r.up_at === null && !kept.length;
   const guessed = old ? around.measures.filter((m) => m.kind !== "boot" && Date.parse(m.at) > from && Date.parse(m.at) <= to + 60_000) : [];
-  const boot = around.measures.find((m) => m.kind === "boot" && Date.parse(m.at) >= from && Date.parse(m.at) <= to + 60_000);
+  // a boot measure keeps no machine: in a session's time it is taken as that session's boot only for sessions from before 0071
+  // (no idle minutes kept), which had nothing else. A later one whose first answer was not kept (Afflatus restarted mid-boot)
+  // would take another pod's deploy for its own boot
+  const boot = r.idle_minutes === null ? around.measures.find((m) => m.kind === "boot" && Date.parse(m.at) >= from && Date.parse(m.at) <= to + 60_000) : undefined;
   const upAt = r.up_at ? Date.parse(r.up_at) : boot ? Date.parse(boot.at) : null;
   const split = splitSession({
     from, to, upAt, usualBootMs: around.usualBootMs,
