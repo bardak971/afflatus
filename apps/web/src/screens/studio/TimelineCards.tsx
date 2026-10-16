@@ -21,6 +21,7 @@ import { Button, Chip, cx, Empty, ErrorNote } from "../../ui";
 import type { Place } from "../Library";
 import { chipsOf, factsOf, stripOf } from "./timelineCard";
 import { queryKeys } from "../../queryKeys";
+import { useSayFailed } from "../../sayFailed";
 
 // M: four to a row beside the form, five without it; S and L one more and one fewer
 const CARD = { S: "minmax(250px,1fr)", M: "minmax(320px,1fr)", L: "minmax(440px,1fr)" } as const;
@@ -131,10 +132,7 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
   };
   // a folder of its project: where it is listed, and where its renders land
   const folderList = useFolders();
-  const toFolder = useMutation({
-    mutationFn: (v: { ids: string[]; folder: string | null }) => Promise.all(v.ids.map((id) => api.editTimeline(id, { folder: v.folder }))),
-    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.timelines.all() }),
-  });
+  const toFolder = useMoveTimelines();
   // the header's slot for the selection bar (LibraryHeader), found once it is drawn
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   useEffect(() => setSlot(document.getElementById("timeline-selection-slot")), []);
@@ -383,4 +381,24 @@ function PlaceholderCard({ size }: { size: "S" | "M" | "L" }) {
       </span>
     </div>
   );
+}
+
+/**
+ * The selected timelines put in a folder (or the project's root). Each is moved on its own: when some are refused, the
+ * rest still go, the list is read again either way, and how many were not moved is said.
+ */
+export function useMoveTimelines() {
+  const client = useQueryClient();
+  const sayFailed = useSayFailed({ id: "timeline" });
+  return useMutation({
+    mutationFn: async (v: { ids: string[]; folder: string | null }) => {
+      const done = await Promise.allSettled(v.ids.map((id) => api.editTimeline(id, { folder: v.folder })));
+      const refused = done.flatMap((r) => (r.status === "rejected" ? [r.reason as unknown] : []));
+      if (!refused.length) return;
+      const first = refused[0] instanceof Error ? refused[0].message : String(refused[0]);
+      throw new Error(`${refused.length} of ${plural(v.ids.length, "timeline")} not moved: ${first}`);
+    },
+    onError: sayFailed("The timelines were not moved"),
+    onSettled: () => client.invalidateQueries({ queryKey: queryKeys.timelines.all() }),
+  });
 }

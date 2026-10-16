@@ -19,6 +19,10 @@ export const daysSaid = (days: number) => (days === 1 ? "a day" : days === 7 ? "
 /** How long a render nobody kept has, in ms; null when it never goes to the bin on its own. */
 export const unkeptMs = (days = useKeepFor.getState().unkeptDays): number | null => (days > 0 ? days * DAY_MS : null);
 
+/** What Unkeep does, as its tip: back on the countdown to the bin, from now; or, when nothing goes on its own, nothing to fear. */
+export const unkeepTip = (days = useKeepFor.getState().unkeptDays): string =>
+  days > 0 ? `They go to the bin by themselves in ${daysSaid(days)}, counted from now` : "They stay until you bin them: nothing goes to the bin on its own";
+
 /** How long the bin keeps what is in it, said ("a week"); null when it keeps it until it is emptied. */
 export const binFor = (days = useKeepFor.getState().binDays): string | null => (days > 0 ? daysSaid(days) : null);
 

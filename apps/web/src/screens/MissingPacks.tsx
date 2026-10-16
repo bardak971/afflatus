@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 import { api, type PacksStarted } from "../api";
@@ -12,6 +12,8 @@ const link = "font-semibold text-accent underline underline-offset-2 hover:text-
 export type Inspected = Inspection & { graph: WorkflowDef["graph"]; wiring?: Wiring };
 /** How long the installs are watched: past that, Manager is not answering for them. */
 const WATCH_MS = 15 * 60_000;
+/** How long ComfyUI is waited for after its restart: past that, it is said not to have come back. */
+const BACK_MS = 5 * 60_000;
 
 /**
  * The node types a workflow uses that this ComfyUI lacks, by the pack each comes from, with one button
@@ -66,27 +68,47 @@ export function MissingPacks({ missing, packs, graph, wiring, editor, onInspecte
   const failed = states.filter((s) => s.state === "failed").length;
   const client = useQueryClient();
   const [back, setBack] = useState<"waiting" | "back" | null>(null);
+  // why the workflow could not be read again after the restart (ComfyUI not back in time, or the file refused)
+  const [notBack, setNotBack] = useState<string | null>(null);
+  // the next try, and whether the editor is still open: once it is left, nothing is tried, read or invalidated any more
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const open = useRef(true);
+  useEffect(() => {
+    open.current = true;
+    return () => {
+      open.current = false;
+      clearTimeout(timer.current);
+    };
+  }, []);
   // Manager's reboot route; then the workflow is read again every few seconds until ComfyUI answers, and the list is the new one
   const restart = useMutation({
     mutationFn: () => api.restartComfy(),
     onSuccess: () => {
       setBack("waiting");
+      setNotBack(null);
       const started = Date.now();
       const again = async () => {
         try {
           // from the editor's file when there is one: its nodes of the new packs were read without their fields before
           const found = await api.inspectWorkflow(editor ?? { graph, wiring });
+          if (!open.current) return;
           onInspected(found);
           setBack("back");
-          void client.invalidateQueries();
+          // what the new packs change: the forms' setup, the recipes and the machines (not every query of the app)
+          for (const queryKey of [queryKeys.setup(), queryKeys.recipes(), queryKeys.machines()]) void client.invalidateQueries({ queryKey });
         } catch (err) {
+          if (!open.current) return;
           // only ComfyUI not answering yet is waited out; a file it refuses is refused again on every try
-          const down = /has to be running|not answering|answered 5\d\d/.test((err as Error).message);
-          if (down && Date.now() - started < 5 * 60_000) setTimeout(() => void again(), 3000);
-          else setBack(null);
+          const message = (err as Error).message;
+          const down = /has to be running|not answering|answered 5\d\d/.test(message);
+          if (down && Date.now() - started < BACK_MS) timer.current = setTimeout(() => void again(), 3000);
+          else {
+            setBack(null);
+            setNotBack(down ? `ComfyUI did not come back in ${BACK_MS / 60_000} minutes: see its console, then reopen this workflow.` : `The workflow could not be read again: ${message}`);
+          }
         }
       };
-      setTimeout(() => void again(), 4000);
+      timer.current = setTimeout(() => void again(), 4000);
     },
   });
 
@@ -150,6 +172,7 @@ export function MissingPacks({ missing, packs, graph, wiring, editor, onInspecte
                   )}
           {noManager && <span>ComfyUI-Manager was not found in your ComfyUI: turn it on first (Settings → Models → Missing models says how).</span>}
           {start.isError && <span>{(start.error as Error).message}</span>}
+          {notBack && <span>{notBack}</span>}
         </div>
       )}
     </div>

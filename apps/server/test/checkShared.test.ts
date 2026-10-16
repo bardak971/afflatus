@@ -11,6 +11,10 @@ describe("the shared helpers' guard", () => {
     expect(why("apps/web/src/x.tsx", "const s = `${n} clip${n === 1 ? \"\" : \"s\"}`;")).toEqual(["a plural made inline"]);
     expect(why("apps/server/src/x.ts", "const s = `file${n !== 1 ? \"s\" : \"\"}`;")).toEqual(["a plural made inline"]);
     expect(why("apps/web/src/x.tsx", "const s = plural(n, \"clip\");")).toEqual([]);
+    // The "es" forms too, which slipped past a rule that looked for "s" alone (review S-14).
+    expect(why("apps/web/src/x.tsx", "const s = `${n} match${n === 1 ? \"\" : \"es\"}`;")).toEqual(["a plural made inline"]);
+    expect(why("apps/web/src/x.tsx", "const s = `switch${n !== 1 ? \"es\" : \"\"}`;")).toEqual(["a plural made inline"]);
+    expect(why("apps/web/src/x.tsx", "const s = plural(n, \"match\", \"matches\");")).toEqual([]);
   });
 
   it("refuses a failure banner made inline, but not in sayFailed.ts", () => {

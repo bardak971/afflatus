@@ -3,6 +3,7 @@ import { describeRecipe, folderOfFileInput, fuzzyFilter, fuzzyScore } from "@aff
 import { MODEL_FILE, recipeFromWorkflow, videoId, type Bindings, type Control, type Inspection, type Section, type Target, type Toggle, type Wiring, type WorkflowDef } from "@afflatus/workflows";
 import { useSettled } from "../../hooks";
 import type { Inspected } from "../MissingPacks";
+import { editorWithSwaps, type FileSwap } from "./editorFile";
 import { keyOf, plainLabel } from "./parts";
 
 /** A workflow being imported or changed: the file, what was found in it, and the mapping so far. */
@@ -43,10 +44,13 @@ export function useMapping(start: Editing) {
   // the workflow itself changes in two cases: a file it names is replaced by one this ComfyUI has, and it is read again
   const [graph, setGraph] = useState(start.graph);
   const [wiring, setWiring] = useState(start.wiring);
-  // a file replaced in the workflow is a change of its own, even when no control shows it
-  const [replaced, setReplaced] = useState(false);
+  // a file replaced in the workflow is a change of its own, even when no control shows it; each one is kept with the
+  // value the workflow first had there, to be written into the editor's own file on save (editorWithSwaps)
+  const [swaps, setSwaps] = useState<Record<string, FileSwap>>({});
+  const replaced = Object.keys(swaps).length > 0;
   const replaceFile = (at: Target, file: string) => {
-    setReplaced(true);
+    const first = start.graph[at.node]?.inputs[at.input];
+    setSwaps((old) => ({ ...old, [keyOf(at)]: { node: at.node, from: old[keyOf(at)] ? old[keyOf(at)]!.from : typeof first === "string" ? first : null, to: file } }));
     setGraph((old) => ({ ...old, [at.node]: { ...old[at.node]!, inputs: { ...old[at.node]!.inputs, [at.input]: file } } }));
     setB((old) => ({ ...old, controls: old.controls.map((c) => (keyOf(c.target) === keyOf(at) ? { ...c, default: file } : c)) }));
   };
@@ -235,11 +239,14 @@ export function useMapping(start: Editing) {
     });
   };
 
+  // the editor's own file, with the files replaced here in it (or none, the server then writes one from the graph)
+  const editor = useMemo(() => editorWithSwaps(start.editor, Object.values(swaps)), [start.editor, swaps]);
+
   // something to lose: the mapping, name, model or a file differs from what the screen opened with
   const dirty = replaced || title !== start.title || model !== start.model || (b !== first && JSON.stringify(b) !== JSON.stringify(first));
 
   return {
-    start, dirty, found, reread, authorDiff, followAuthor, title, setTitle, model, setModel, b, set, unset, filter, setFilter, graph, wiring, replaceFile, values, setValues,
+    start, dirty, found, reread, authorDiff, followAuthor, title, setTitle, model, setModel, b, set, unset, filter, setFilter, graph, wiring, replaceFile, values, setValues, editor,
     textOptions, pickText, pickImage, modelFileOf, pickModel, videoRoleOf, setVideoRole, pickSound, toggleLoras, toggleControl, change, toggleSwitch,
     switchFor, setSwitchFor, saveSwitch, dropSwitch, setSections, nodeList, changeSwitch, taken, groups, switches, preview, video, noteFor, looseNotes,
   };

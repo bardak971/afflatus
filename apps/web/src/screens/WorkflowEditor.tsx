@@ -25,7 +25,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
   const client = useQueryClient();
   const save = useMutation({
     mutationFn: () => {
-      const body = { title: title.trim(), model: model.trim(), source: start.source, graph, wiring: m.wiring, editor: start.editor, bindings: b };
+      const body = { title: title.trim(), model: model.trim(), source: start.source, graph, wiring: m.wiring, editor: m.editor, bindings: b };
       return start.id ? api.saveWorkflow(start.id, body) : api.createWorkflow(body);
     },
     onSuccess: async () => {
@@ -50,7 +50,7 @@ export function WorkflowEditor({ start, onDone }: { start: Editing; onDone(saved
     b.model && "model file", b.prompt && "prompt", b.negative && "negative prompt", b.startImage && (video ? "first frame" : "image"), b.endImage && "last frame",
     b.sourceVideo && "source video", b.previousVideo && "previous clip", b.nextVideo && "next clip", b.sound && "sound",
     b.size && "resolution", video && b.length && "duration", b.seeds.length && "seed", b.loras.length && (b.loras.length > 1 ? `${b.loras.length} LoRA lists` : "LoRAs"),
-    b.toggles.length && `${b.toggles.length} switch${b.toggles.length === 1 ? "" : "es"}`, b.controls.length && `${plural(b.controls.length, "widget")}`,
+    b.toggles.length && plural(b.toggles.length, "switch", "switches"), b.controls.length && plural(b.controls.length, "widget"),
     `${b.result.kind === "image" ? "image" : b.result.kind === "video" ? (b.result.sound ? "video with audio" : "video") : "audio"} output`,
   ].filter((x): x is string => Boolean(x));
   const lacks = [!b.prompt && "prompt", video && !b.startImage && "first frame", !b.seeds.length && "seed", !b.size && "resolution", video && !b.length && "duration"].filter((x): x is string => Boolean(x));

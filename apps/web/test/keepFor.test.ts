@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SETTINGS } from "../src/bar/settingsRegistry";
-import { binFor, daysSaid, insteadOfWaiting, restorable, unkeptMs, useKeepFor } from "../src/keepFor";
+import { binFor, daysSaid, insteadOfWaiting, restorable, unkeepTip, unkeptMs, useKeepFor } from "../src/keepFor";
 import { leftOf } from "../src/screens/library/justify";
 import { expiringSaid } from "../src/screens/studio/expiring";
 import { useNotify } from "../src/store";
@@ -18,6 +18,16 @@ describe("how long the library waits on its own (Settings › Storage)", () => {
     expect(restorable(true, 0)).toBe("it can be restored from it until it is emptied");
     expect(insteadOfWaiting(7)).toBe("after a week in the bin");
     expect(insteadOfWaiting(0)).toBe("waiting until the bin is emptied");
+  });
+
+  // review S-13: Unkeep's tip said "the one-day countdown" whatever the setting
+  it("says what Unkeep does from the setting, as the server read it", () => {
+    expect(unkeepTip(1)).toBe("They go to the bin by themselves in a day, counted from now");
+    expect(unkeepTip(3)).toBe("They go to the bin by themselves in 3 days, counted from now");
+    expect(unkeepTip(0)).toBe("They stay until you bin them: nothing goes to the bin on its own");
+    useKeepFor.setState({ unkeptDays: 7 });
+    expect(unkeepTip()).toBe("They go to the bin by themselves in a week, counted from now");
+    useKeepFor.setState({ unkeptDays: 1 });
   });
 
   it("counts an unkept render down to its days, and not at all when nothing goes on its own", () => {

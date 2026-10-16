@@ -11,7 +11,7 @@ import { fakeApi, jsonAnswer } from "./fakeApi";
 import { draw } from "./render";
 
 const draft = (id: string): Draft => ({
-  id, recipe: "zz-test.text", title: "", name: null, target: "new", updatedAt: "", empty: false, projectId: null,
+  id, recipe: "zz-test.text", title: "", name: null, updatedAt: "", empty: false, projectId: null,
   forms: { "zz-test.text": { prompt: "as saved" } }, count: 1, look: null, chat: [], designer: null,
 });
 

@@ -1,7 +1,7 @@
 /**
  * The guard behind the shared helpers: `pnpm lint` runs it after oxlint. It fails on what was written by hand again
  * beside a helper that does it, the patterns the 2026-10-11 review found copied a few dozen times:
- *   - a plural made inline (`=== 1 ? "" : "s"`): format's `plural` (core's, for the server and the packages);
+ *   - a plural made inline (`=== 1 ? "" : "s"`, or "es"): format's `plural` (core's, for the server and the packages);
  *   - a failure banner made inline (`tone: "bad"` with an error's `.message`): sayFailed.ts's `useSayFailed` or `failedBanner`;
  *   - a list of model-file extensions in a pattern: core's modelFiles.ts (`MODEL_EXT`, `isModelFile`, `modelStem`).
  * Only the sources are read (apps/<name>/src, packages/<name>/src, and the scripts that `pnpm check:*` and the rest run),
@@ -22,7 +22,8 @@ export interface Finding {
 
 const EXT = "(?:safetensors|sft|ckpt|pth?|bin|gguf|onnx|engine)";
 const RULES: Array<{ test: RegExp; why: string; except?: RegExp }> = [
-  { test: /=== 1 \? "" : "s"|!== 1 \? "s" : ""/, why: 'a plural made inline: use plural(n, "word") (format.ts, or core for the server)' },
+  // Any ending, not only "s": "match"/"es" and "switch"/"es" slipped past a rule that looked for "s" alone.
+  { test: /=== 1 \? "" : "[a-z]+"|!== 1 \? "[a-z]+" : ""/, why: 'a plural made inline: use plural(n, "word") (format.ts, or core for the server)' },
   { test: /tone: "bad"[^\n]*\.message\b|\.message\b[^\n]*tone: "bad"/, why: "a failure banner made inline: use useSayFailed or failedBanner (sayFailed.ts)", except: /apps[\\/]web[\\/]src[\\/]sayFailed\.ts$/ },
   // three extensions or more in one alternation: a model-file list (a pair such as safetensors|sft is a single format)
   { test: new RegExp(`\\b${EXT}(?:\\|${EXT}){2,}\\b`), why: "a list of model-file extensions: use MODEL_EXT, isModelFile or modelStem (core's modelFiles.ts)", except: /packages[\\/]core[\\/]src[\\/]modelFiles\.ts$/ },

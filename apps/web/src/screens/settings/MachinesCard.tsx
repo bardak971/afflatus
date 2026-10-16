@@ -21,6 +21,7 @@ import { RentRow } from "./RentedCard";
 import { RentedHead, RentedRows } from "./RentedRows";
 import { Block, Card, Row, Status } from "./Rows";
 import { COLUMNS, WIDE } from "./wide";
+import { publicPlainHttp } from "./plainHttp";
 
 const MachineMenuBody = lazy(() => import("../../MachineMenu").then((m) => ({ default: m.MachineMenuBody })));
 
@@ -32,27 +33,6 @@ const TAKES: Array<{ value: Machine["takes"]; label: string; tip: string }> = [
 ];
 
 const WHY_SEVERAL = "Each ComfyUI is one machine the queue sends work to: a second GPU of this computer (a ComfyUI of its own, started with --cuda-device 1 --port 8189), another computer, a rented instance. One line of jobs; each machine runs one at a time, the one that would finish it soonest (the model already loaded there, its own learned speed). A job pinned to a machine runs there. The first one is the one the setup, the downloads and the node packs talk to.";
-
-/**
- * Whether an address is out on the internet over plain http: anyone who finds it could run code on that ComfyUI. Loopback,
- * the private ranges, Tailscale's (100.64/10) and .local names are not.
- */
-export function publicPlainHttp(url: string): boolean {
-  let u: URL;
-  try {
-    u = new URL(url);
-  } catch {
-    return false;
-  }
-  if (u.protocol !== "http:") return false;
-  const host = u.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  if (host === "localhost" || host.endsWith(".local") || host.endsWith(".lan") || host.endsWith(".internal") || host === "::1" || /^f[cd]/.test(host)) return false;
-  const ip = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(host);
-  if (!ip) return !host.includes(".") ? false : true;
-  const [a, b] = [Number(ip[1]), Number(ip[2])];
-  return !(a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254));
-}
-
 
 /**
  * A machine's facts, the line under its card's head: its GPU and memory, a pod's rate and place, ComfyUI's and the node

@@ -8,6 +8,7 @@ import { queryKeys } from "../../queryKeys";
 import { useQueue } from "../../data";
 import { useDraftMachine } from "../../draftMachine";
 import { severalMachines } from "../../machines";
+import { useSayFailed } from "../../sayFailed";
 
 /**
  * What Generate does: the whole form, checked, sent to the queue as many times as the batch says, filed in
@@ -24,6 +25,7 @@ export function useGenerate({ recipe, draft, defaults, folder, d, blocked }: {
 }) {
   const client = useQueryClient();
   const queue = useQueue();
+  const sayFailed = useSayFailed({ id: "seed-moved", go: "Open the Studio" });
   const send = useMutation({
     /** `on`: a machine to render on this once (the command bar's "generate on"); left out, the draft's own pick, else Auto. */
     mutationFn: async (on?: string) => {
@@ -44,10 +46,12 @@ export function useGenerate({ recipe, draft, defaults, folder, d, blocked }: {
       await api.enqueue(recipe.id, input, count, draft.look, { draft: id, folder, seedMode, machine });
       if (seedMode) {
         const next = seedAfter(input.seed as number, mode, count);
-        await d.editDraft(id, (x) => ({ ...x, forms: { ...x.forms, [recipe.id]: { ...x.forms[recipe.id], seed: next } } }));
+        // The jobs are queued by now: a failure to move the seed (the draft switched meanwhile, and its save refused) is
+        // said on its own, never as Generate failing, which would invite a second click queueing the same seeds again.
+        await d.editDraft(id, (x) => ({ ...x, forms: { ...x.forms, [recipe.id]: { ...x.forms[recipe.id], seed: next } } })).catch(sayFailed(`Queued; the seed was not moved to ${next}`));
       }
     },
-    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.queue() }),
+    onSettled: () => client.invalidateQueries({ queryKey: queryKeys.queue() }),
   });
 
   const make = useRef(() => {});
