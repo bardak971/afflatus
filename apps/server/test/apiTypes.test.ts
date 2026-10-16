@@ -29,7 +29,7 @@ import type { list, TimesSummary } from "../src/rendersRead";
 import type { llmSchema, publicSettings, settingsSchema } from "../src/settings";
 import type { Timelines } from "../src/timelines";
 import type { clipPatch, timelinePatch } from "../src/timelines-api";
-import type { UpdatesView } from "../src/updates";
+import type { UpdatesView } from "../src/updatesModel";
 import type { CostsView } from "../src/costs";
 import type { DeployModelsView } from "../src/deployModels";
 import type { ModelSetView, SetFileView } from "../src/modelSets";
