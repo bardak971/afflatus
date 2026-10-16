@@ -369,7 +369,7 @@ export class Rented {
 
   constructor(
     private readonly db: Db,
-    private readonly queue: { wants(machine: string): Promise<boolean>; runningOn(machine: string): boolean; busyOn(machine: string): boolean; busyOutside(machine: string): Promise<boolean>; fetching(machine: string): boolean; quietFor(machine: string, now?: number): { ms: number; gpuIdle: boolean }; endStuck(machine: string, why: string): Promise<boolean>; answering(machine: string): void },
+    private readonly queue: { wants(machine: string): Promise<boolean>; runningOn(machine: string): boolean; busyOn(machine: string): boolean; busyOutside(machine: string): Promise<boolean>; waitingBehindOutside(machine: string): boolean; fetching(machine: string): boolean; quietFor(machine: string, now?: number): { ms: number; gpuIdle: boolean }; endStuck(machine: string, why: string): Promise<boolean>; answering(machine: string): void },
     private readonly events: EventEmitter,
     private readonly comfyOf: (machine: string) => Promise<Comfy | null>,
   ) {}
@@ -1567,22 +1567,25 @@ export class Rented {
     // idle stop, and a download stuck for long holds it no more
     // A pod whose last work was read back after a restart keeps it while its ComfyUI does not answer: a fresh idle time
     // given at each restart that found its ComfyUI down was a run billed for nothing
-    // Work queued in its ComfyUI from outside Afflatus (its own page, another tool) is work too: the pod is not stopped under
-    // it by its idle time. A cap below acts all the same: it reads Afflatus's own render alone
-    if (running || (!s.answered && !s.busyRestored) || this.queue.fetching(m.id) || (answers && ((await this.queue.wants(m.id)) || (await this.queue.busyOutside(m.id))))) s.busyAt = now;
-    // set when it was first seen running (follow), from what was kept across a restart of Afflatus
-    s.busyAt ??= now;
-    await this.keepBusy(m, s);
+    // the caps first, before anything is asked of its ComfyUI: a slow answer there never holds a cap back
     const spent = await (this.spentThisPoll ??= this.spent());
     this.sayCap(caps, spent);
     s.stopAfter = capReached(caps, spent);
     s.cappedAt = s.stopAfter ? s.cappedAt ?? now : null;
     // at a cap: once its render ends, or an hour after the cap when the render does not end
-    // Whether it renders is read again here, the cap now set: a render that ended while the bill was read is not waited for
-    if (s.stopAfter && (!this.queue.runningOn(m.id) || now - s.cappedAt! > CAP_GRACE_MS)) {
+    // Whether it renders is read again here, the cap now set: a render that ended while the bill was read is not waited for.
+    // A render still waiting in its ComfyUI behind work from outside Afflatus has not started: it is not waited for, the pod
+    // would bill on for that other work
+    if (s.stopAfter && (!this.queue.runningOn(m.id) || this.queue.waitingBehindOutside(m.id) || now - s.cappedAt! > CAP_GRACE_MS)) {
       await this.act(m, this.capAction(m, s.pod), "cap");
       return;
     }
+    // Work queued in its ComfyUI from outside Afflatus (its own page, another tool) is work too: the pod is not stopped under
+    // it by its idle time. The caps above act all the same
+    if (running || (!s.answered && !s.busyRestored) || this.queue.fetching(m.id) || (answers && ((await this.queue.wants(m.id)) || (await this.queue.busyOutside(m.id))))) s.busyAt = now;
+    // set when it was first seen running (follow), from what was kept across a restart of Afflatus
+    s.busyAt ??= now;
+    await this.keepBusy(m, s);
     const idle = m.rented!.idleMinutes * 60_000;
     if (idle > 0 && now - s.busyAt >= idle) await this.act(m, m.rented!.idleDo, "idle");
   }

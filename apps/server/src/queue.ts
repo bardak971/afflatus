@@ -1417,6 +1417,19 @@ ${JSON.stringify(input)}`;
    * forecast, which is waited for at most twice and at most FORECAST_SLACK_MS over, as forecasts run long. 0 when it runs
    * nothing, a render not sent yet, or one still within its forecast. `now`: the caller's clock (a test's stand-in).
    */
+  /**
+   * Whether Afflatus's render on a machine has not started in its ComfyUI, waiting there behind work from outside Afflatus:
+   * at a spending cap it is not waited for (rented.ts), or the pod would bill on for someone else's work up to the cap's
+   * grace. Without a socket to say where it is, it is taken as not started, the cheaper reading.
+   */
+  waitingBehindOutside(machine: string): boolean {
+    const lane = this.lanes.get(machine);
+    const run = lane?.running;
+    if (!run?.promptId || !lane?.outside?.running) return false;
+    const monitor = lane.comfy?.monitor;
+    return !monitor || monitor.progress(run.promptId).phase === "waiting";
+  }
+
   quietFor(machine: string, now = Date.now()): { ms: number; gpuIdle: boolean } {
     const lane = this.lanes.get(machine);
     const run = lane?.running;

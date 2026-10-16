@@ -189,6 +189,23 @@ describe("a rented machine", () => {
     expect((await rowOf(id)).rented?.stoppedBy).toBe("cap");
   });
 
+  it("at a cap, does not wait for a render of Afflatus's still queued in its ComfyUI behind work from outside Afflatus", async () => {
+    await setKey();
+    const id = await add();
+    await post(t.app, `/api/machines/${id}/start`, {});
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
+    await post(t.app, "/api/jobs", { ...job(), machine: id });
+    await until(() => podComfy.calls.includes("POST /prompt"));
+    // sent, and then someone queued a workflow on the pod's own page that ComfyUI runs first: Afflatus's waits behind it
+    podComfy.running = ["from-its-own-page"];
+    await until(async () => (await rowOf(id)).outside?.running === 1);
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 0.0000001, month: 0 } } });
+    await t.services.rented.poll();
+    // not an hour's grace for a render that has not started: stopped at once
+    expect(pod5090().status).toBe("EXITED");
+    expect((await rowOf(id)).rented?.stoppedBy).toBe("cap");
+  });
+
   it("is locked from its first second: the token in its environment before it starts, nobody can lock it first", async () => {
     await setKey();
     const id = await add();
