@@ -85,6 +85,8 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
   };
   app.post("/api/jobs/warm", async (req) => {
     const body = warmBody.parse(req.body);
+    // loading a model on a machine there is not would wait for ever, as a render pinned there would (/api/jobs)
+    if (body.machine && !(await s.machines()).some((m) => m.machine.id === body.machine)) throw httpError("there is no ComfyUI with that id");
     return { id: await s.queue.enqueue(body.recipe, await withCast(body), { label: `Load the model: ${s.registry.recipe(body.recipe)?.title ?? body.recipe}`, warm: true, machine: body.machine ?? null }) };
   });
 

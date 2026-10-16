@@ -67,6 +67,8 @@ const TOOLS = "tools";
 /** The longest a waiting job's forecast is kept while the record of render times does not change (see `kept`). */
 const FORECASTS_MS = 5 * 60_000;
 /** How long a running job has left, from what it was expected to take; null when that cannot be told. */
+/** Whether a render was lost because its machine stopped answering (silent past the wait, or not reached at all), not because its ComfyUI answered without the prompt. */
+const awayErr = (err: Error) => err instanceof ComfyAway || err instanceof ComfyUnreachable;
 const remainingOf = (run: Running | null): number | null => (run?.expectedMs && run.startedAt ? Math.max(0, run.expectedMs - (Date.now() - run.startedAt)) : null);
 
 /**
@@ -218,7 +220,16 @@ export class Queue {
       },
       pump: () => void this.pump(),
       retryLater: () => this.retryLater(),
-      fail: (r, error) => this.finish(r.id, "failed", { error }, r.status),
+      fail: async (r, error) => {
+        if (!(await this.finish(r.id, "failed", { error }, r.status))) return;
+        // given up while every machine was away: the one that had its prompt may render it on unseen once it is back
+        const sent = readJson<{ promptId?: unknown }>(r.resume, {}).promptId;
+        if (typeof sent === "string") this.interruptOn(r.machine_id, sent, true);
+      },
+      pausedFor: (r) => {
+        const machine = r.pin_machine ?? this.heldOn(r);
+        return Boolean(machine && this.lanes.get(machine)?.paused);
+      },
     });
     // a machine got a file, or its families were switched: a job that waited for one may go there now
     this.events.on("setup", () => void this.pump());
@@ -341,6 +352,16 @@ export class Queue {
   /** After a restart: jobs that were mid-run without a prompt id start over; the others are waited on again. */
   async start(): Promise<void> {
     await this.load();
+    // a finish or a RIFE pass that had sent its prompt (cut short by a crash, or queued again by the last shutdown) waits for
+    // the machine that has it (Resume.lostAt, heldOn), which may still render it, and follows it there (queueTools followed):
+    // sent to another machine meanwhile, it ran twice, the first one billed on a pod for a result nobody collected
+    const sent = await this.db.selectFrom("jobs").select(["id", "resume", "status"]).where("status", "in", ["running", "queued"]).where("recipe_id", "=", CUT_JOB)
+      .where("resume", "is not", null).where("machine_id", "is not", null).execute();
+    for (const r of sent) {
+      const kept = readJson<{ promptId?: unknown; lostAt?: unknown } | null>(r.resume, null);
+      if (typeof kept?.promptId !== "string" || kept.lostAt !== undefined) continue;
+      await this.db.updateTable("jobs").set({ resume: JSON.stringify({ ...kept, lostAt: Date.now() }) }).where("id", "=", r.id).where("status", "=", r.status).execute();
+    }
     // a tool job (an export, a cut, a finish) is run again from its start: what it already made is noted on it (queueTools.ts)
     await this.db
       .updateTable("jobs")
@@ -411,6 +432,9 @@ export class Queue {
     }
     // the person's own form beside it, when a cast was worked in: the fields the cast changed, as they were (JSON leaves out the ones that were not there)
     const asked = opts.asked && Object.keys(opts.asked).length ? JSON.stringify({ ...input, ...opts.asked }) : null;
+    // a pin to a machine no longer in the settings (a job done again after its pod was terminated) would wait for ever: no
+    // machine takes it, and unpinGone frees pins only when the machines change
+    const pin = opts.machine && (await this.machines()).some((m) => m.machine.id === opts.machine) ? opts.machine : null;
     const id = newId();
     const at = now();
     await this.db
@@ -419,7 +443,7 @@ export class Queue {
         id, owner_id: OWNER, recipe_id: recipe.id, label: opts.label?.trim() || recipe.title, inputs: JSON.stringify(input), asked,
         status: "queued", warm: opts.warm ? 1 : 0, look: opts.look ? JSON.stringify(opts.look) : null, priority: recipe.output === "image" ? 0 : 10, depends_on: opts.dependsOn ?? null,
         attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip?.id ?? null, clip_fit: opts.clip?.fit ? 1 : 0, clip_mirror: opts.clip?.mirror?.length ? JSON.stringify(opts.clip.mirror) : null,
-        draft_id: opts.draft ?? null, folder_id: opts.folder ?? null, finished_from: opts.finishedFrom ?? null, pin_machine: opts.machine ?? null,
+        draft_id: opts.draft ?? null, folder_id: opts.folder ?? null, finished_from: opts.finishedFrom ?? null, pin_machine: pin,
         created_at: at, started_at: null, finished_at: null, updated_at: at,
       })
       .execute();
@@ -472,10 +496,15 @@ export class Queue {
     return id;
   }
 
-  /** A prompt a job sent to a ComfyUI, stopped there: on the machine the job ran on, or the first one for a job from before there were several. */
-  private interruptOn(machine: string | null | undefined, promptId: string): void {
+  /**
+   * A prompt a job sent to a ComfyUI, stopped there: on the machine the job ran on, or the first one for a job from before
+   * there were several. `away`: that machine just stopped answering (a render given up while it was away), whatever its
+   * lane last read: it is taken as away until it answers again, which drops the prompt there (back, dropStale).
+   */
+  private interruptOn(machine: string | null | undefined, promptId: string, away = false): void {
     // a machine not known to answer now may render it on unseen once it is back: the prompt is dropped there then too
-    const lane = machine ? this.lanes.get(machine) : undefined;
+    const lane = this.lanes.get(machine ?? this.firstId);
+    if (lane?.machine && away) lane.reachable = false;
     if (lane?.machine && lane.reachable !== true) this.stale.set(lane.id, new Set([...(this.stale.get(lane.id) ?? []), promptId]));
     void this.machines()
       .then((all) => (all.find((m) => m.machine.id === machine) ?? all[0])?.comfy.client.interrupt(promptId))
@@ -1002,8 +1031,15 @@ ${JSON.stringify(input)}`;
           // is ready on Resume. Its idle time is held while they move (podFiles.ts moving), and runs again once they are in
           this.sendFiles(gpuRows, await this.ableOf(gpuRows), where);
         }
-        // the machines that answered this pass, or that run a job now, say whether any ComfyUI is there
-        const anyAnswered = lanes.some((l) => asked.get(l.id) === true || l.running);
+        // the machines that answered this pass, or that run a job now, say whether any ComfyUI is there. A paused machine is
+        // asked nothing for the plan: before every ComfyUI is called away (whileOffline gives the jobs up after a while),
+        // one paused that answers says it is there, its jobs waiting for its Resume, not for a ComfyUI to come back
+        let anyAnswered = lanes.some((l) => asked.get(l.id) === true || l.running);
+        if (!anyAnswered && [...asked.values()].some((ok) => !ok)) {
+          for (const l of lanes) if (l.paused && l.machine && !asked.has(l.id) && (await answers(l))) anyAnswered = true;
+          // the machines that may take work are asked again in a while all the same, as while every one is away
+          if (anyAnswered) this.retryLater();
+        }
         const noneAnswered = !anyAnswered && [...asked.values()].some((ok) => !ok);
 
         // what needs no ComfyUI (an export, a cut by ffmpeg) goes on in its turn: after the renders before it, unless those
@@ -1356,15 +1392,18 @@ ${JSON.stringify(input)}`;
 
   /**
    * The prompts that are Afflatus's own on a machine: the jobs running (their prompt id is saved before it is sent, and kept
-   * across a restart of Afflatus, whose client id is then another), the ones that ended a moment ago (a stopped prompt
-   * leaves ComfyUI's queue just after), the prompts dropped there for a job gone elsewhere, and what this client sent.
+   * across a restart of Afflatus, whose client id is then another), the jobs queued again with the prompt their machine may
+   * still have (sent without an answer, lost from sight, a finish stopped by a restart: the next attempt asks for it and
+   * follows it), the ones that ended a moment ago (a stopped prompt leaves ComfyUI's queue just after), the prompts dropped
+   * there for a job gone elsewhere, and what this client sent. Taken for work from outside Afflatus, such a prompt held its
+   * own machine as busy: the job waiting to follow it was never started there, and the pod's idle time counted it as used.
    */
   private async ownPrompts(lane: Lane): Promise<(promptId: string) => boolean> {
     const ids = new Set<string>(this.stale.get(lane.id) ?? []);
     if (lane.running?.promptId) ids.add(lane.running.promptId);
     const since = new Date(Date.now() - OWN_KEPT_MS).toISOString();
     const rows = await this.db.selectFrom("jobs").select("resume").where("resume", "is not", null)
-      .where((eb) => eb.or([eb("status", "=", "running"), eb("finished_at", ">=", since)])).execute();
+      .where((eb) => eb.or([eb("status", "in", ["running", "queued"]), eb("finished_at", ">=", since)])).execute();
     for (const r of rows) {
       const id = readJson<{ promptId?: unknown }>(r.resume, {}).promptId;
       if (typeof id === "string") ids.add(id);
@@ -1545,8 +1584,8 @@ ${JSON.stringify(input)}`;
     lane.comfy?.forgetScan();
   }
 
-  /** A job ends. `from`: only when it is still in that state (a job that was cancelled meanwhile stays cancelled). */
-  private async finish(id: string, status: "done" | "failed" | "cancelled", extra: { error?: string; generationId?: string; trace?: string | null } = {}, from?: JobRow["status"]) {
+  /** A job ends. `from`: only when it is still in that state (a job that was cancelled meanwhile stays cancelled). Whether this call ended it. */
+  private async finish(id: string, status: "done" | "failed" | "cancelled", extra: { error?: string; generationId?: string; trace?: string | null } = {}, from?: JobRow["status"]): Promise<boolean> {
     // a generation the job wrote before it ended badly stays named on it: what it made is in the library all the same
     let q = this.db
       .updateTable("jobs")
@@ -1561,6 +1600,7 @@ ${JSON.stringify(input)}`;
     // only a clip's render, a cut or an export changes a timeline: a picture's end does not read them again
     const of = await this.db.selectFrom("jobs").select(["clip_id", "timeline_id"]).where("id", "=", id).executeTakeFirst();
     if (of?.clip_id || of?.timeline_id) this.events.emit("timeline");
+    return ended;
   }
 
   /** The jobs that wait on this one can never run now: each fails (and what waits on those), whichever way this one ended. */
@@ -1596,6 +1636,10 @@ ${JSON.stringify(input)}`;
     lane.running = run;
     lane.starting = null;
     this.events.emit("queue");
+    // a finish or a RIFE pass whose prompt went to another machine before (held there until heldOn ran out, that machine
+    // away or stopped): it is sent again here, so the first one is dropped there, now or once that machine answers
+    const before = readJson<{ promptId?: unknown }>(row.resume, {}).promptId;
+    if (machine && row.machine_id && row.machine_id !== machine && typeof before === "string") this.interruptOn(row.machine_id, before);
     try {
       await work(run);
       await this.finish(row.id, "done");
@@ -1604,7 +1648,7 @@ ${JSON.stringify(input)}`;
       // stuck on a rented GPU (a finish or a RIFE pass that hangs): a failure, said as such, not a stop by the user
       else if (run.abort.signal.reason instanceof Stuck) await this.failure(row, run.promptId, new Error(run.abort.signal.reason.message));
       else if (run.abort.signal.aborted) await this.finish(row.id, "cancelled", { error: "stopped by you" });
-      else await this.failure(row, run.promptId, err as Error);
+      else if (!(await this.toolLost(lane, row, err as Error))) await this.failure(row, run.promptId, err as Error);
     } finally {
       lane.running = null;
       // a finish or a RIFE pass loaded models into ComfyUI: the idle unload counts from its end, as after a render
@@ -1615,11 +1659,38 @@ ${JSON.stringify(input)}`;
     }
   }
 
+  /**
+   * A finish or a RIFE pass whose machine did not answer (a proxy's 502 on its prompt, silent past the wait) or lost its
+   * prompt: queued again with its prompt id while attempts remain, as a render is (requeueLost), so that the next attempt
+   * asks that ComfyUI for it and follows it rather than running it twice; held for that machine when it was away. Given
+   * up, the prompt is dropped there, now or once it answers. Whether it was queued again.
+   */
+  private async toolLost(lane: Lane, row: JobRow, err: Error): Promise<boolean> {
+    if (lane.id === TOOLS || !(err instanceof ComfyLost || err instanceof ComfyUnreachable)) return false;
+    const saved = await this.db.selectFrom("jobs").select("resume").where("id", "=", row.id).executeTakeFirst();
+    const promptId = readJson<{ promptId?: unknown }>(saved?.resume, {}).promptId;
+    if (typeof promptId !== "string") return false;
+    if (row.attempts + 1 < this.opts.maxAttempts) {
+      console.warn(`[queue] job ${row.id} lost (${err.message}), queued again`);
+      const resume = JSON.stringify({ promptId, ...(awayErr(err) ? { lostAt: Date.now() } : {}) });
+      const queued = await this.db.updateTable("jobs").set({ status: "queued", resume, warning: null, updated_at: now() }).where("id", "=", row.id).where("status", "=", "running").executeTakeFirst();
+      if (Number(queued.numUpdatedRows) > 0) {
+        this.events.emit("queue");
+        return true;
+      }
+    }
+    this.interruptOn(lane.id, promptId, awayErr(err));
+    return false;
+  }
+
   private async run(lane: Lane, row: JobRow): Promise<void> {
     const comfy = lane.comfy!;
     const core = lane.core;
     const recipe = this.registry.recipe(row.recipe_id);
-    if (!recipe) return this.finish(row.id, "failed", { error: removedSaid(row.recipe_id) ?? `the recipe ${row.recipe_id} no longer exists` });
+    if (!recipe) {
+      await this.finish(row.id, "failed", { error: removedSaid(row.recipe_id) ?? `the recipe ${row.recipe_id} no longer exists` });
+      return;
+    }
     let resume = readJson<Resume | null>(row.resume, null);
     // saved just before its prompt was sent, by a process that did not hear back (it stopped, ComfyUI did not answer): ComfyUI is
     // asked whether it took that prompt, which is then followed; one it never had is sent again. Kept for a requeue until then
@@ -1817,16 +1888,22 @@ ${JSON.stringify(input)}`;
       await this.finish(row.id, "cancelled", { error: "stopped by you" });
     } else if ((err instanceof ComfyLost || err instanceof ComfyUnreachable || (err instanceof ComfyError && (await this.wentDown(lane)))) && Math.max(at.attempts, row.attempts + 1) < this.opts.maxAttempts) {
       console.warn(`[queue] job ${row.id} lost (${err.message}), queued again`);
-      if (resume) this.sayGone(lane, row.label);
+      // said offline only when it stopped answering: a ComfyUI that answered but no longer has the prompt (it restarted, or
+      // a job followed after a restart on a machine that never had it) is not offline, and the render goes again anyway
+      if (resume && awayErr(err)) this.sayGone(lane, row.label);
       // ComfyUI may have the prompt all the same: one sent without an answer (it did not answer in time), and one it finished
       // or still runs while this process lost sight of it (90 s of silence, its file not fetched). Its id is kept, so that the
       // next attempt asks ComfyUI for it (taken) and follows it, instead of rendering again a video that would come out different
       const kept = resume ?? at.held;
       await this.requeueLost(row, kept && !made ? kept : null, Math.max(at.attempts, row.attempts + 1), err instanceof ComfyAway || err instanceof ComfyUnreachable);
     } else {
-      if (resume && (err instanceof ComfyLost || err instanceof ComfyUnreachable)) this.sayGone(lane, row.label);
+      if (resume && awayErr(err)) this.sayGone(lane, row.label);
       if (onRecord) await this.note(lane, row, recipe, resume, measured, "failed", whole, Date.now() - resume.startedAt);
-      await this.failure(row, resume?.promptId ?? at.held?.promptId, err);
+      const sent = resume?.promptId ?? at.held?.promptId;
+      await this.failure(row, sent, err);
+      // given up while its machine did not answer: that ComfyUI may still have the prompt and render it once it is back,
+      // its GPU busy for nothing and billed on a pod. It is dropped there now if it answers, else once it does
+      if (sent && (err instanceof ComfyLost || err instanceof ComfyUnreachable)) this.interruptOn(lane.id, sent, awayErr(err));
     }
   }
 
@@ -1857,8 +1934,10 @@ ${JSON.stringify(input)}`;
     }
     this.awaySince.delete(r.id);
     const attempts = r.attempts + 1;
-    if (attempts >= this.opts.maxAttempts) await this.finish(r.id, "failed", { error: "ComfyUI went offline during the render" }, "running");
-    else await this.requeueLost(r, readJson<Resume | null>(r.resume, null), attempts, true);
+    const kept = readJson<Resume | null>(r.resume, null);
+    if (attempts < this.opts.maxAttempts) await this.requeueLost(r, kept, attempts, true);
+    // given up: the prompt its machine had is dropped there once it answers, not rendered on unseen
+    else if (await this.finish(r.id, "failed", { error: "ComfyUI went offline during the render" }, "running") && kept?.promptId) this.interruptOn(r.machine_id, kept.promptId, true);
     return true;
   }
 

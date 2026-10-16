@@ -153,12 +153,12 @@ export class ComfyClient {
     return new (WebSocket as unknown as new (url: string, init?: { headers: Record<string, string> }) => WebSocket)(this.socketUrl(clientId), init);
   }
 
-  private async request(path: string, init?: RequestInit, timeoutMs = META_TIMEOUT): Promise<Response> {
-    // a caller's own signal (a job's Stop) ends it too, as its time limit does
-    const timeout = AbortSignal.timeout(timeoutMs);
-    const res = await this.fetcher(`${this.baseUrl}${path}`, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout }).catch((err) => {
-      throw new ComfyUnreachable(`ComfyUI did not answer at ${this.baseUrl}: ${(err as Error).message}`);
-    });
+  /**
+   * Throws when an answer did not come from ComfyUI itself: the pack's lock refusing the token (ComfyLocked), or a gateway
+   * in front of it that could not reach it (ComfyUnreachable). Every call goes through it, POST /prompt too: a proxy's 502
+   * there is ComfyUI not answering, which a job waits through, not ComfyUI refusing the job.
+   */
+  private async reached(res: Response, path: string): Promise<void> {
     if (res.status === 401 && res.headers.get(LOCKED_HEADER)) {
       await res.body?.cancel().catch(() => {});
       throw new ComfyLocked(this.token ? `ComfyUI at ${this.baseUrl} is locked, and refused the token Afflatus has for it: paste its token in Settings › ComfyUI.` : `ComfyUI at ${this.baseUrl} is locked: paste its token in Settings › ComfyUI.`);
@@ -169,6 +169,15 @@ export class ComfyClient {
       await res.body?.cancel().catch(() => {});
       throw new ComfyUnreachable(`ComfyUI did not answer at ${this.baseUrl} (${path.split("?")[0]}: ${res.status} from the proxy in front of it)`);
     }
+  }
+
+  private async request(path: string, init?: RequestInit, timeoutMs = META_TIMEOUT): Promise<Response> {
+    // a caller's own signal (a job's Stop) ends it too, as its time limit does
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const res = await this.fetcher(`${this.baseUrl}${path}`, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout }).catch((err) => {
+      throw new ComfyUnreachable(`ComfyUI did not answer at ${this.baseUrl}: ${(err as Error).message}`);
+    });
+    await this.reached(res, path);
     if (!res.ok) {
       throw new ComfyError(`ComfyUI ${path.split("?")[0]} failed (${res.status}): ${errorSnippet(await res.text().catch(() => ""))}`);
     }
@@ -315,6 +324,7 @@ export class ComfyClient {
     }).catch((err) => {
       throw new ComfyUnreachable(`ComfyUI did not answer at ${this.baseUrl}: ${(err as Error).message}`);
     });
+    await this.reached(res, "/prompt");
     const text = await res.text().catch(() => "");
     let id: string | undefined;
     let failed: string[] = [];

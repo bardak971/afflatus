@@ -7,7 +7,7 @@ import { ComfyUnreachable } from "@afflatus/comfy";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { newId, now, OWNER } from "../src/db";
 import { FFMPEG_TIMEOUT } from "./clipKit";
-import { CHECKPOINT, complete, get, job, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
+import { CHECKPOINT, complete, FAST, get, job, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
 /**
  * The queue and the timeline edits it meets: a failed render that says where it failed, a lost render that is not rendered
@@ -98,6 +98,50 @@ describe("a render lost from sight after ComfyUI made it", () => {
     await until(async () => (await statusOf(id)).status === "done");
     expect(first).toBe(false);
     expect(submitted()).toHaveLength(1);
+  });
+});
+
+describe("a render's prompt answered by a gateway's error (a pod's proxy, Cloudflare)", () => {
+  it("is queued again and followed by its id, not failed as refused nor sent a second time", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const comfy = await t.services.comfy();
+    const client = comfy.client as unknown as { fetcher: typeof fetch };
+    const through = client.fetcher;
+    let gateway = 0;
+    // ComfyUI took the prompt, but the proxy in front of it answered 524 (it waited too long for ComfyUI's answer)
+    client.fetcher = async (input, init) => {
+      const res = await through(input, init);
+      if (String(input).endsWith("/prompt") && init?.method === "POST" && gateway++ === 0) return new Response("A timeout occurred", { status: 524 });
+      return res;
+    };
+    const id = (await post(t.app, "/api/jobs", job())).json().ids[0] as string;
+    await until(() => submitted().length === 1);
+    await until(async () => (await statusOf(id)).status === "running" && gateway === 1);
+    complete(fake, submitted()[0]!);
+    await until(async () => ["done", "failed"].includes((await statusOf(id)).status));
+    expect((await statusOf(id)).error).toBeNull();
+    expect((await statusOf(id)).status).toBe("done");
+    // one POST /prompt in all: the attempt after the 524 asked ComfyUI for the prompt and followed it
+    expect(gateway).toBe(1);
+    expect(submitted()).toHaveLength(1);
+  });
+});
+
+describe("a render ComfyUI answered for but no longer had (it restarted)", () => {
+  it("is queued again without saying its machine is offline", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const told: string[] = [];
+    t.services.queue.tell = (kind, n) => void told.push(`${kind}: ${n.title}`);
+    const id = (await post(t.app, "/api/jobs", job())).json().ids[0] as string;
+    await until(async () => submitted().length === 1 && (await statusOf(id)).status === "running" && Boolean((await statusOf(id)).resume));
+    // gone from its queue with no history: ComfyUI started again and dropped it, answering all along
+    const first = submitted()[0]!;
+    fake.pending = fake.pending.filter((p) => p !== first);
+    fake.running = [];
+    await until(() => fake.calls.filter((c) => c === "POST /prompt").length === 2);
+    for (const p of submitted()) if (!fake.history[p]) complete(fake, p);
+    await until(async () => (await statusOf(id)).status === "done");
+    expect(told.filter((s) => s.startsWith("comfyGone"))).toEqual([]);
   });
 });
 
@@ -240,6 +284,113 @@ describe.skipIf(!clipBytes)("a finish stopped by a restart", () => {
     await again.services.queue.idle();
     await again.app.close();
   });
+});
+
+describe.skipIf(!clipBytes)("a finish stopped by a restart, with several machines", () => {
+  let pod: FakeComfy;
+  beforeEach(async () => {
+    pod = await startFakeComfy({ catalog: referenceCatalog(), models: FILES });
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ id: "m1", name: "Studio PC", url: fake.url }, { id: "m2", name: "Pod", url: pod.url }] } });
+    t.services.queue.stop();
+    await t.services.queue.idle();
+  });
+  afterEach(async () => {
+    await pod.close().catch(() => {});
+  });
+
+  /** A finish the last process ran on the pod (m2), its prompt sent there, found running by the next start. */
+  async function finishOnPod(): Promise<string> {
+    const draft = await video("zz-test draft", clipBytes!, { width: 64, height: 64, duration_ms: 1000 });
+    const id = newId();
+    const at = now();
+    await t.db.insertInto("jobs").values({
+      id, owner_id: OWNER, recipe_id: "afflatus.cut", label: "zz-test finish", status: "running", warm: 0, look: null, priority: 20, depends_on: null, attempts: 1,
+      inputs: JSON.stringify({ asset: draft, startMs: 0, endMs: 1000, action: "finish", route: "model", by: 2, upscaleModel: "x2.pth" }),
+      resume: JSON.stringify({ promptId: "sent-before" }), error: null, generation_id: null, clip_id: null, clip_fit: 0, timeline_id: null, draft_id: null, folder_id: null,
+      finished_from: null, created_at: at, started_at: at, finished_at: null, updated_at: at, machine_id: "m2",
+    } as never).execute();
+    return id;
+  }
+  const queueOf = async (expiryMs: number) => {
+    const { Queue } = await import("../src/queue");
+    const q = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, { ...FAST, offlineExpiryMs: expiryMs });
+    q.clips = t.services.queue.clips;
+    await q.start();
+    return q;
+  };
+  const sends = (f: FakeComfy) => f.calls.filter((c) => c === "POST /prompt").length;
+
+  it("waits for the machine that has its prompt and follows it there, never sending it to the free one", async () => {
+    // the pod still renders it, unseen while it does not answer
+    pod.running = ["sent-before"];
+    pod.down = true;
+    const id = await finishOnPod();
+    const q = await queueOf(60_000);
+    try {
+      await new Promise((r) => setTimeout(r, 400));
+      expect(sends(fake)).toBe(0);
+      expect((await statusOf(id)).status).toBe("queued");
+      // back, its prompt in its ComfyUI's queue is Afflatus's own (no work from outside to wait behind): followed there
+      pod.down = false;
+      q.noteReachable(true, new Map([["m1", true], ["m2", true]]));
+      await until(async () => (await statusOf(id)).status === "running");
+      expect((await statusOf(id)).machine_id).toBe("m2");
+      pod.files["done.mp4"] = clipBytes!;
+      pod.running = [];
+      pod.history["sent-before"] = { status: { completed: true }, outputs: { "99": { gifs: [{ filename: "done.mp4", subfolder: "", type: "temp" }] } } };
+      await until(async () => ["done", "failed"].includes((await statusOf(id)).status), 20_000);
+      expect((await statusOf(id)).error).toBeNull();
+      expect(sends(fake) + sends(pod)).toBe(0);
+    } finally {
+      q.stop();
+      await q.idle();
+    }
+  }, FFMPEG_TIMEOUT);
+
+  it("goes to another machine once its own is away past the offline limit, and its first prompt is dropped there when it answers", async () => {
+    pod.running = ["sent-before"];
+    pod.down = true;
+    await finishOnPod();
+    const q = await queueOf(150);
+    try {
+      await until(() => sends(fake) === 1, 20_000);
+      const before = pod.calls.length;
+      pod.down = false;
+      q.noteReachable(true, new Map([["m1", true], ["m2", true]]));
+      await until(() => pod.calls.slice(before).includes("POST /queue"));
+      expect(sends(pod)).toBe(0);
+    } finally {
+      q.stop();
+      await q.idle();
+    }
+  }, FFMPEG_TIMEOUT);
+});
+
+describe.skipIf(!clipBytes)("a finish whose prompt a gateway answered with an error", () => {
+  it("is queued again and follows the prompt ComfyUI took, not run on the GPU twice", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const comfy = await t.services.comfy();
+    const client = comfy.client as unknown as { fetcher: typeof fetch };
+    const through = client.fetcher;
+    let posts = 0;
+    client.fetcher = async (input, init) => {
+      const res = await through(input, init);
+      if (String(input).endsWith("/prompt") && init?.method === "POST" && posts++ === 0) return new Response("Bad Gateway", { status: 502 });
+      return res;
+    };
+    const draft = await video("zz-test draft", clipBytes!, { width: 64, height: 64, duration_ms: 1000 });
+    const id = await t.services.queue.enqueueCut({ asset: draft, startMs: 0, endMs: 1000, action: "finish", route: "model", by: 2, upscaleModel: "x2.pth" } as never, "zz-test finish");
+    await until(() => submitted().length === 1, 20_000);
+    await until(async () => (await statusOf(id)).status === "running" && posts === 1, 20_000);
+    const sent = submitted()[0]!;
+    const out = Object.entries(fake.prompts.get(sent)!).find(([, n]) => /SaveVideo|VHS_VideoCombine|SaveAnimated/i.test(n.class_type))?.[0] ?? "99";
+    fake.files["done.mp4"] = clipBytes!;
+    fake.pending = fake.pending.filter((p) => p !== sent);
+    fake.history[sent] = { status: { completed: true }, outputs: { [out]: { gifs: [{ filename: "done.mp4", subfolder: "", type: "temp" }] } } };
+    await until(async () => ["done", "failed"].includes((await statusOf(id)).status), 20_000);
+    expect((await statusOf(id)).error).toBeNull();
+    expect(posts).toBe(1);
+  }, FFMPEG_TIMEOUT);
 });
 
 describe.skipIf(!clipBytes)("a finish that hangs", () => {

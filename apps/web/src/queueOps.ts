@@ -49,12 +49,12 @@ export function useQueueOps() {
     onError: failed("Could not unload the models"),
   });
   const reconnect = useMutation({
-    // Settings' Test again, then the queue asked to look now rather than at its next try (a paused queue stays paused)
+    // Settings' Test again. The rescan itself has the queue look again now rather than at its next try (setup-api.ts emits
+    // "setup"), every pause left as it is: a Resume sent from here resumed every machine of several, the ones paused by hand
+    // and the ones a GPU hunt rests, past resumeHoldsHunt's question, and a pod deployed for those renders idled, billed
     mutationFn: async () => {
       const scan = await api.rescanSetup();
       client.setQueryData(queryKeys.setup(), scan);
-      const q = client.getQueryData<QueueStatus>(queryKeys.queue());
-      if (scan.comfy.online && q && !q.paused) settle(await api.resume());
       return scan;
     },
     onSuccess: (scan) => {

@@ -294,6 +294,105 @@ describe("a render whose machine stops answering under it", () => {
   });
 });
 
+describe("a render given up while its machine is away", () => {
+  /** A queue of its own over the same database and ComfyUIs, with these options over the fast ones. */
+  const queueOf = async (over: Partial<typeof FAST> = {}) => {
+    t.services.queue.stop();
+    await t.services.queue.idle();
+    const { Queue } = await import("../src/queue");
+    const q = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, { ...FAST, ...over });
+    await q.start();
+    return q;
+  };
+  /** Whether a ComfyUI was asked to drop a prompt (ComfyClient.interrupt) after its first `from` calls. */
+  const dropped = (fake: FakeComfy, from: number) => fake.calls.slice(from).includes("POST /queue");
+
+  it("has its prompt dropped there once it answers, when its attempts are spent under it", async () => {
+    const q = await queueOf({ maxAttempts: 1 });
+    try {
+      await q.setPaused(true, "m2");
+      const a = await q.enqueue("sdxl.text-to-picture", job({ prompt: "a cat" }).input);
+      await until(async () => Boolean((await row(a)).resume) && sentTo(one).length === 1);
+      one.down = true;
+      await until(async () => (await row(a)).status === "failed");
+      const before = one.calls.length;
+      // back: the render it would still run, billed on a pod, is dropped there
+      one.down = false;
+      q.noteReachable(true, new Map([["m1", true]]));
+      await until(() => dropped(one, before));
+    } finally {
+      q.stop();
+      await q.idle();
+    }
+  });
+
+  it("has its prompt dropped there once it answers, when it was found running at a start and its machine stayed away", async () => {
+    await post(t.app, "/api/queue/use-only", { machine: "m2" });
+    const a = await enqueue({});
+    await until(() => sentTo(two).length === 1);
+    await until(async () => Boolean((await row(a)).resume));
+    two.down = true;
+    const q = await queueOf({ maxAttempts: 1 });
+    try {
+      await until(async () => (await row(a)).status === "failed");
+      const before = two.calls.length;
+      two.down = false;
+      q.noteReachable(true, new Map([["m2", true]]));
+      await until(() => dropped(two, before));
+    } finally {
+      q.stop();
+      await q.idle();
+    }
+  });
+
+  it("has its prompt dropped there once it answers, when every machine stayed away past the offline limit", async () => {
+    const q = await queueOf();
+    try {
+      await q.setPaused(true, "m2");
+      const a = await q.enqueue("sdxl.text-to-picture", job({ prompt: "a cat" }).input);
+      await until(async () => Boolean((await row(a)).resume) && sentTo(one).length === 1);
+      await q.setPaused(false, "m2");
+      two.down = true;
+      one.down = true;
+      await until(async () => (await row(a)).status === "failed");
+      expect((await row(a)).error).toMatch(/stayed offline/);
+      const before = one.calls.length;
+      one.down = false;
+      q.noteReachable(true, new Map([["m1", true]]));
+      await until(() => dropped(one, before));
+    } finally {
+      q.stop();
+      await q.idle();
+    }
+  });
+});
+
+describe("the offline limit", () => {
+  it("does not give up the jobs while a paused machine answers, nor a job pinned to a paused machine", async () => {
+    t.services.queue.stop();
+    await t.services.queue.idle();
+    const { Queue } = await import("../src/queue");
+    const q = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, FAST);
+    await q.start();
+    try {
+      // the PC paused by hand (or by a GPU hunt) answers; the other machine is switched off for the night
+      await q.setPaused(true, "m1");
+      two.down = true;
+      const pinned = await q.enqueue("sdxl.text-to-picture", job({ prompt: "a cat" }).input, { machine: "m1" });
+      const any = await q.enqueue("sdxl.text-to-picture", job({ prompt: "a dog" }).input);
+      await new Promise((r) => setTimeout(r, 600));
+      expect([(await row(pinned)).status, (await row(any)).status]).toEqual(["queued", "queued"]);
+      // the paused PC away too: what waits for any ComfyUI is given up in the end, what waits for that PC's Resume is not
+      one.down = true;
+      await until(async () => (await row(any)).status === "failed");
+      expect((await row(pinned)).status).toBe("queued");
+    } finally {
+      q.stop();
+      await q.idle();
+    }
+  });
+});
+
 describe("each machine's pace", () => {
   it("is learned from renders of the same model and settings on several machines, and says where a waiting job will run", async () => {
     const { machinePaces } = await import("../src/forecast");
@@ -442,6 +541,21 @@ describe("a job sent to a machine", () => {
     expect((await row(a)).pin_machine).toBeNull();
     await finishAll([a]);
     expect((await row(a)).machine_id).toBe("m1");
+  });
+
+  it("done again after its machine was taken out, goes to any machine; a model load asked of a machine there is not is refused", async () => {
+    await post(t.app, "/api/queue/pause", { machine: "m2" });
+    const a = (await post(t.app, "/api/jobs", { ...job({ prompt: "a dog" }), machine: "m2" })).json().ids[0] as string;
+    expect(await t.services.queue.cancel(a)).toBe(true);
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ id: "m1", name: "Studio PC", url: one.url }] } });
+    t.services.queue.nudge();
+    await until(async () => (await queue()).machines.length === 1);
+    // the machines did not change since: nothing else would free its pin, and it would wait for ever
+    const b = await t.services.queue.again(a);
+    expect((await row(b)).pin_machine).toBeNull();
+    await until(() => sentTo(one).length === 1);
+    await finishAll([b]);
+    expect((await post(t.app, "/api/jobs/warm", { ...job({}), machine: "m9" })).statusCode).toBe(400);
   });
 });
 
