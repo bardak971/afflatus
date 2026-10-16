@@ -152,6 +152,23 @@ describe("the ranking", () => {
     expect(rankGpus(OFFERS, RENDERS, HOME, ASK).every((g) => g.overhead === null)).toBe(true);
   });
 
+  it("value counts a deploy's overhead and the renders waiting: with few renders, the cheaper hour wins (K-3)", () => {
+    // a $2/h GPU at 30 s a render, a $0.50/h one at 150 s, learned; 10 min of usual boot and idle
+    const offers = [offer("NVIDIA H100 80GB HBM3", "H100 SXM", 2, 80), offer("NVIDIA A40", "A40", 0.5, 48)];
+    const learned = { gpus: [{ gpu: "NVIDIA H100 80GB HBM3", pace: 0.3, renders: 10 }, { gpu: "NVIDIA A40", pace: 1.5, renders: 10 }], oom: [] };
+    const one = [{ files: [], ms: 100_000 }];
+    // per render the H100 is cheaper (1.7 ¢ against 2.1 ¢): without the overhead known, it ranks first
+    expect(rankGpus(offers, one, learned, ASK).map((g) => g.name)).toEqual(["H100 SXM", "A40"]);
+    // one render and the overhead: $0.35 against $0.10 for the session, the A40 first and the pick
+    const withOverhead = { ...learned, overheadMs: 10 * 60_000 };
+    const r = rankGpus(offers, one, withOverhead, ASK);
+    expect(r.map((g) => g.name)).toEqual(["A40", "H100 SXM"]);
+    expect(firstFree(r)?.name).toBe("A40");
+    // with many renders waiting the per-render cost weighs most again: 200 renders, $3.67 against $4.25
+    const many = Array.from({ length: 200 }, () => ({ files: [], ms: 100_000 }));
+    expect(rankGpus(offers, many, withOverhead, ASK).map((g) => g.name)).toEqual(["H100 SXM", "A40"]);
+  });
+
   it("stock in the pinned data center, else anywhere; the first free usable one is the pick", () => {
     const offers = [
       offer("NVIDIA GeForce RTX 4090", "RTX 4090", 0.69, 24, "HIGH", [{ id: "US-TX-3", availability: "HIGH" }, { id: "EU-RO-1", availability: "NONE" }]),

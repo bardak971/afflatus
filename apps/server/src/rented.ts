@@ -4,7 +4,7 @@ import type { Comfy } from "./comfy";
 import type { Db } from "./db";
 import { httpError } from "./errors";
 import { newToken } from "./lock-api";
-import { BOOT_PORT, COMFY_PORT, exposesComfy, imageFor, LOCK_ENV, noCapacity, POD_IMAGES, podMachineId, podUrl, Runpod, RunpodError, RunpodShape, secretRef, HOURS_A_MONTH, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ACTION_ENV, WATCHDOG_ENV, type BillRecord, type GpuOffer, type NetworkVolume, type Pod, type PodSpec, type PodStatus } from "./runpod";
+import { BOOT_PORT, COMFY_PORT, exposesComfy, imageFor, LOCK_ENV, noCapacity, POD_IMAGES, podMachineId, podUrl, Runpod, RunpodError, RunpodShape, secretRef, HOURS_A_MONTH, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ACTION_ENV, WATCHDOG_ENV, type BillRecord, type GpuOffer, type NetworkVolume, type Pod, type PodSpec, type PodStatus, type VolumeBill } from "./runpod";
 import { gpuKey, LEARNED_RENDERS, stepSaid, volumePerMonth, type PresetFile } from "@afflatus/core";
 import { gpuPaces } from "./forecast";
 import { imagePublic } from "./podImage";
@@ -80,8 +80,15 @@ export interface RentedView {
 }
 
 export interface Spending {
+  /**
+   * Today's compute, weighed against the day cap: the pods while they run, not a stopped pod's disk (an hour of RunPod's
+   * bill with no run of that pod in Afflatus counts without its disk), not the network volumes.
+   */
   today: number;
+  /** This month's whole bill, weighed against the month cap: the pods, stopped pods' disks and the network volumes. */
   month: number;
+  /** Of `month`, the network volumes' bill (null when RunPod did not give it: not in `month` then). */
+  monthVolumes: number | null;
   caps: { day: number; month: number };
   /** The account's balance on RunPod, when it says it (asked at most once a minute). */
   balance: number | null;
@@ -100,12 +107,15 @@ export interface Spending {
   runwayDays: number | null;
   /** Today and this month are RunPod's own bill (with Afflatus's count for the hours RunPod has not billed yet); false: Afflatus's count alone. */
   billed: boolean;
-  /** What storage costs (volumes, the pods' own disks); null when RunPod was not read. Never counted against the caps. */
+  /** What storage costs (volumes, the pods' own disks); null when RunPod was not read. In the month cap, never in the day cap. */
   storage: Storage | null;
 }
 
-/** What a pod cost as Afflatus counts it (rent_sessions), today and this month, and whether a run of it is still open. */
-type Counted = { today: number; month: number; open: boolean; lastEnd: number };
+/**
+ * What a pod cost as Afflatus counts it (rent_sessions), today and this month, whether a run of it is still open, and its
+ * runs this month (ms): an hour of RunPod's bill outside all of them was a stopped pod's disk alone.
+ */
+type Counted = { today: number; month: number; open: boolean; lastEnd: number; runs: Array<{ start: number; end: number }> };
 
 const LOW_BALANCE = 5;
 /** The balance is told of as low under this at least (notify.ts), and under a day of the last week's spend when that is more. */
@@ -119,6 +129,11 @@ const BILL_EVERY_MS = 5 * 60_000;
  * reached late.
  */
 const BILL_SETTLED_MS = 6 * HOUR;
+/**
+ * A deploy's name RunPod has not listed for this long is forgotten (settlePending): RunPod lists a pod it made within
+ * seconds, and late within minutes, never hours.
+ */
+const PENDING_FORGET_MS = 30 * 60_000;
 /** A pod not seen for longer than this was run while Afflatus was away (asleep, closed): when it stopped is not known. */
 const AWAY_MS = 90_000;
 /** What is kept back of the balance when a job's length is weighed against it: a render is not started into the last minutes. */
@@ -574,6 +589,7 @@ export class Rented {
     const s = await readSettings(this.db);
     if (!s.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
     if (!Number.isInteger(size) || size < VOLUME_MIN_GB || size > VOLUME_MAX_GB) throw httpError(`A volume is ${VOLUME_MIN_GB} to ${VOLUME_MAX_GB} GB.`);
+    await this.monthCapped();
     const made = await this.client(s.runpodKey).createVolume(name, size, dataCenter).catch((err: Error) => {
       throw httpError(err.message, 502);
     });
@@ -600,6 +616,7 @@ export class Rented {
     })).find((v) => v.id === id);
     if (!volume) throw httpError("That network volume is not on this account any more.", 404);
     if (!Number.isInteger(size) || size <= volume.size || size > VOLUME_MAX_GB) throw httpError(`A volume only grows: more than ${volume.size} GB, ${VOLUME_MAX_GB} at most.`);
+    await this.monthCapped();
     await client.growVolume(id, size).catch((err: Error) => {
       throw httpError(err.message, 502);
     });
@@ -717,6 +734,12 @@ export class Rented {
       // the Afflatus image's boot log too, to the pod's token only: an image without it (RunPod's, 0.1.11) has nothing there
       volume: volume?.id ?? null, ports: [`${COMFY_PORT}/http`, ...(ask.template === "afflatus" ? [`${BOOT_PORT}/http`] : [])], env: { [LOCK_ENV]: kept ? secretRef(secret) : token, [WATCHDOG_ENV]: String(ask.watchdogMinutes), [WATCHDOG_ACTION_ENV]: end },
     };
+    // its name kept before RunPod is asked: a stop of Afflatus before its machine is saved, or an answer lost, would leave a
+    // pod billed that nothing follows; the next read of RunPod finds it by this name and terminates it (settlePending)
+    await updateSettings(this.db, (current) => ({ pendingDeploys: [...current.pendingDeploys, { name: spec.name, secret: kept ? secret : "", at: new Date(this.now()).toISOString() }] }));
+    const settled = () => updateSettings(this.db, (current) => ({ pendingDeploys: current.pendingDeploys.filter((p) => p.name !== spec.name) }));
+    // RunPod may have made the pod after all (no answer, and none listed by its name after looking again): its name is kept
+    let lost = false;
     let pod: Pod | null = null;
     try {
       // one data center after the other, the freest first: RunPod takes one GPU type and one place at a time, and says only
@@ -734,6 +757,7 @@ export class Rented {
               const made = await client.pods().then((all) => all.find((p) => p.name === spec.name && p.status !== "TERMINATED") ?? null, () => null);
               if (made) return made;
             }
+            lost = true;
             throw err;
           });
           if (pod) break;
@@ -741,10 +765,15 @@ export class Rented {
         if (pod) break;
       }
     } catch (err) {
-      if (kept) await client.deleteSecret(secret).catch(() => {});
+      // a pod that may be there keeps its name and its secret (it reads its lock from it at its start) until it is settled
+      if (!lost) {
+        await settled();
+        if (kept) await client.deleteSecret(secret).catch(() => {});
+      }
       throw (err as RunpodError).status === 402 ? refused((err as Error).message, "balance") : httpError((err as Error).message, 502);
     }
     if (!pod) {
+      await settled();
       if (kept) await client.deleteSecret(secret).catch(() => {});
       throw refused(none, "noGpu");
     }
@@ -758,13 +787,19 @@ export class Rented {
         // without a volume a stop keeps nothing and its GPU may be taken meanwhile: terminated, as for a pod added
         const rented = { provider: "runpod" as const, pod: made.id, idleMinutes: ask.idleMinutes, idleDo: volume ? ask.idleDo : ("terminate" as const), watchdogMinutes: ask.watchdogMinutes, openPorts: false, closedPorts: [], secret: kept ? secret : "", deployed: true, deployedAt: new Date(this.now()).toISOString(), cloud: ask.cloud, volume: volume?.id ?? "", fill, files: ask.files, leaveOut: ask.leaveOut, makeRoom: ask.makeRoom };
         const machines = [...current.machines, { id, name, url: podUrl(made.id), dir: "", takes: "all" as const, families: {}, token, rented }];
+        // a machine now: followed as any, its name no longer pending (in the same write, never one without the other)
+        const pendingDeploys = current.pendingDeploys.filter((p) => p.name !== spec.name);
         // the next deploy starts from the same choices; the files are this one's. A fill is not a deploy of the user's choices
-        return fill ? { machines } : { machines, lastDeploy: { ...ask, files: [], leaveOut: [], accept: [] } };
+        return fill ? { machines, pendingDeploys } : { machines, pendingDeploys, lastDeploy: { ...ask, files: [], leaveOut: [], accept: [] } };
       });
     } catch (err) {
-      // not kept as a machine: nothing here would ever stop it, so it goes at once
-      await client.act(made.id, "terminate").catch(() => {});
-      if (kept) await client.deleteSecret(secret).catch(() => {});
+      // not kept as a machine: nothing here would ever stop it, so it goes at once; a terminate refused keeps its name
+      // pending, for the next read to terminate it again
+      const gone = await client.act(made.id, "terminate").then(() => true, () => false);
+      if (gone) {
+        await settled().catch(() => {});
+        if (kept) await client.deleteSecret(secret).catch(() => {});
+      }
       throw err;
     }
     // a fill takes no render from its first second, not from the next read
@@ -830,7 +865,7 @@ export class Rented {
     for (const r of open.filter((x) => !rented.some((m) => m.id === x.machine_id && m.rented!.pod === x.pod))) {
       await this.db.updateTable("rent_sessions").set({ ended_at: r.seen_at ?? new Date(this.now()).toISOString() }).where("id", "=", r.id).execute();
     }
-    if (!rented.length && !settings.leftSecrets.length) return;
+    if (!rented.length && !settings.leftSecrets.length && !settings.pendingDeploys.length) return;
     if (!settings.runpodKey) {
       if (!rented.length) return;
       this.error = "No RunPod API key: set it in Settings › Rented GPUs.";
@@ -856,6 +891,7 @@ export class Rented {
       return;
     }
     await this.sweepSecrets(settings, pods);
+    await this.settlePending(settings, pods);
     await this.readBalance(settings.runpodKey);
     let changed = false;
     for (const m of rented) {
@@ -974,13 +1010,14 @@ export class Rented {
     if (!this.tell) return;
     const d = new Date(this.now());
     const reached = [
-      { key: `day:${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`, cap: caps.day, spent: spent.today, said: "Today's" },
-      { key: `month:${d.getFullYear()}-${d.getMonth() + 1}`, cap: caps.month, spent: spent.month, said: "This month's" },
+      { key: `day:${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`, cap: caps.day, spent: spent.today, said: "Today's", also: "" },
+      // the month's is the whole bill, the volumes in it: a volume made or grown is refused at it too (monthCapped)
+      { key: `month:${d.getFullYear()}-${d.getMonth() + 1}`, cap: caps.month, spent: spent.month, said: "This month's", also: " Make volume and Grow are refused too." },
     ];
     for (const r of reached) {
       if (r.cap <= 0 || r.spent < r.cap || this.capsTold.has(r.key)) continue;
       this.capsTold.add(r.key);
-      this.tell("capReached", { title: `${r.said} cap reached: ${dollars(r.spent)} of ${dollars(r.cap)}`, body: "The rented GPUs stop once their render ends, and Start is refused until the cap is raised or the period ends.", key: r.key });
+      this.tell("capReached", { title: `${r.said} cap reached: ${dollars(r.spent)} of ${dollars(r.cap)}`, body: `The rented GPUs stop once their render ends, and Start is refused until the cap is raised or the period ends.${r.also}`, key: r.key });
     }
   }
 
@@ -1048,6 +1085,26 @@ export class Rented {
     });
   }
 
+  private volumeBillSeen: { at: number; from: number; records: VolumeBill[] | null } | null = null;
+
+  /**
+   * RunPod's bill of the network volumes since `from`, by the day, read again at most every few minutes as the pods' bill
+   * is. A read that fails keeps the month's last records read: a month cap is never let go for one refused read.
+   */
+  private async volumeBill(key: string, from: number): Promise<VolumeBill[] | null> {
+    const seen = this.volumeBillSeen;
+    if (seen && seen.from === from && (this.now() - seen.at < BILL_EVERY_MS || this.now() < this.quietUntil)) return seen.records;
+    return this.once(`volumeBill:${from}`, async () => {
+      const records = await this.client(key).volumeBilling(from, this.now()).catch((err: Error) => {
+        console.warn(`[rented] RunPod's bill of the volumes not read: ${err.message}`);
+        return null;
+      });
+      const kept = records ?? (seen?.from === from ? seen.records : null);
+      this.volumeBillSeen = { at: this.now(), from, records: kept };
+      return kept;
+    });
+  }
+
   /** One read of RunPod at a time for each thing read: the spending reads its bill, balance and storage together, and storage reads the bill too. */
   private once<T>(what: string, read: () => Promise<T>): Promise<T> {
     const out = this.asking.get(what);
@@ -1055,6 +1112,42 @@ export class Rented {
     const value = read().finally(() => this.asking.delete(what));
     this.asking.set(what, value);
     return value;
+  }
+
+  /**
+   * The deploys whose machine was never saved (pendingDeploys), settled while no deploy runs (one under way has its own name
+   * there, its pod not a machine yet): a pod RunPod lists by that name that no machine has is terminated (nothing here
+   * follows it: no idle stop, no cap, and a RunPod-image pod has no watchdog); one a machine has was saved after all; a name
+   * RunPod has not listed for PENDING_FORGET_MS is forgotten. Each settled name's secret goes to leftSecrets, deleted once
+   * its pod is gone.
+   */
+  private async settlePending(settings: Settings, pods: Pod[]): Promise<void> {
+    if (this.deploying || !settings.pendingDeploys.length) return;
+    const client = this.client(settings.runpodKey);
+    const done: Array<{ name: string; secret: string; pod: string }> = [];
+    for (const p of settings.pendingDeploys) {
+      const pod = pods.find((x) => x.name === p.name && x.status !== "TERMINATED");
+      if (pod && settings.machines.some((m) => m.rented?.pod === pod.id)) {
+        done.push({ name: p.name, secret: "", pod: pod.id });
+        continue;
+      }
+      if (pod) {
+        const ok = await client.act(pod.id, "terminate").then(() => true, (err: Error) => (console.warn(`[rented] ${pod.name}, deployed and not followed, not terminated (${err.message}): asked again at the next read`), false));
+        if (!ok) continue;
+        console.log(`[rented] ${pod.name} terminated: Afflatus deployed it and lost it before following it`);
+        this.tell?.("podStopped", { title: `${pod.name} terminated`, body: "Why: Afflatus lost its deploy before following it (it stopped mid-deploy, or RunPod's answer was lost), so nothing here would have stopped it.", key: `pending:${pod.id}` });
+        done.push({ ...p, pod: pod.id });
+        continue;
+      }
+      if (this.now() - Date.parse(p.at) > PENDING_FORGET_MS) done.push({ ...p, pod: "" });
+    }
+    if (!done.length) return;
+    const names = new Set(done.map((d) => d.name));
+    const secrets = done.filter((d) => d.secret).map((d) => ({ secret: d.secret, pod: d.pod }));
+    await updateSettings(this.db, (current) => ({
+      pendingDeploys: current.pendingDeploys.filter((p) => !names.has(p.name)),
+      ...(secrets.length ? { leftSecrets: [...current.leftSecrets, ...secrets] } : {}),
+    }));
   }
 
   /** The secrets of pods removed from Afflatus (leftSecrets) whose pod is gone from RunPod now: deleted, and forgotten. */
@@ -1713,7 +1806,8 @@ export class Rented {
       const end = r.ended_at ? Date.parse(r.ended_at) : now;
       if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
       const part = (from: number) => (end > Math.max(from, start) ? ((end - Math.max(from, start)) / HOUR) * r.rate : 0);
-      const c = out.get(r.pod) ?? { today: 0, month: 0, open: false, lastEnd: 0 };
+      const c = out.get(r.pod) ?? { today: 0, month: 0, open: false, lastEnd: 0, runs: [] };
+      c.runs.push({ start, end });
       c.month += part(month);
       c.today += part(today);
       c.open ||= !r.ended_at;
@@ -1727,8 +1821,11 @@ export class Rented {
    * Today's and this month's cost of the rented GPUs: RunPod's own bill (its GPU and its disk, every pod of the account) for a
    * pod it has billed in full; for one that runs, or ran a short while ago, the higher of RunPod's bill so far and Afflatus's
    * count. A cap is never reached late, and the figures end as RunPod's. Afflatus's count alone when RunPod's bill is not read.
+   * The two caps weigh different things, as the owner chose: the day cap is compute, so today leaves out a stopped pod's
+   * disk (a 150 GB disk bills about $1 a day: a $1 day cap would be reached with nothing running, and Start refused); the
+   * month cap is everything RunPod bills, so the month has the stopped disks and the network volumes' bill too.
    */
-  private async spent(): Promise<{ today: number; month: number; billed: boolean }> {
+  private async spent(): Promise<{ today: number; month: number; monthVolumes: number | null; billed: boolean }> {
     const d = new Date(this.now());
     const today = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const month = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
@@ -1741,7 +1838,9 @@ export class Rented {
       if (r.end <= month) continue;
       const b = billed.get(r.pod) ?? { today: 0, month: 0 };
       b.month += r.amount * shareIn(r, month, Infinity);
-      b.today += r.amount * shareIn(r, today, Infinity);
+      // an hour no run of this pod was in: the pod was stopped (or not started yet), and what it billed then was its disk
+      const ran = counted.get(r.pod)?.runs.some((x) => x.end > r.start && x.start < Math.max(r.end, r.start + 1)) ?? false;
+      b.today += (ran ? r.amount : Math.max(0, r.amount - r.disk)) * shareIn(r, today, Infinity);
       billed.set(r.pod, b);
     }
     let sumToday = 0;
@@ -1753,7 +1852,17 @@ export class Rented {
       sumToday += settled ? b.today : Math.max(b?.today ?? 0, c?.today ?? 0);
       sumMonth += settled ? b.month : Math.max(b?.month ?? 0, c?.month ?? 0);
     }
-    return { today: sumToday, month: sumMonth, billed: records !== null };
+    const volumeBills = key ? await this.volumeBill(key, month) : null;
+    const monthVolumes = volumeBills ? volumeBills.reduce((n, r) => n + (r.end > month ? r.amount * shareIn(r, month, Infinity) : 0), 0) : null;
+    return { today: sumToday, month: sumMonth + (monthVolumes ?? 0), monthVolumes, billed: records !== null };
+  }
+
+  /** Refused at a reached month cap: a volume made or grown bills every month (the day cap is compute only, it is not asked). */
+  private async monthCapped(): Promise<void> {
+    const cap = (await readSettings(this.db)).rentCaps.month;
+    if (cap <= 0) return;
+    const spent = await this.spent();
+    if (spent.month >= cap) throw httpError(`This month's cap is reached (${dollars(spent.month)} of ${dollars(cap)}), and a network volume bills every month: raise the cap in Settings › Rented GPUs first.`, 409);
   }
 
   /** Whether a spending cap is reached now: a deploy and a Start are refused, and the GPU hunt ends (hunt.ts). */
@@ -1804,7 +1913,7 @@ export class Rented {
     const [volumes, pods, volumeBills, podBills] = await Promise.all([
       client.volumes().catch(() => null),
       client.pods().catch(() => null),
-      client.volumeBilling(month, this.now()).catch(() => null),
+      this.volumeBill(key, month),
       this.bill(key, month),
     ]);
     let value: Storage | null = null;
@@ -1958,10 +2067,13 @@ export class Rented {
    * with what it costs a month (its pods' disks, the account's network volumes). RunPod not answering: the pods as last
    * read, the storage not known (`unknown`), and why the pods could not be read (`unreadable`: Go back is refused then, as
    * whether one runs is not known).
+   * Back to a version with rented GPUs, `known` is what the library restored knows (its copy taken at the update): only this
+   * Afflatus's pods that copy has no machine for are said, as that version would not follow them (no idle stop, no cap, no
+   * pings); its volumes it sees itself, and they are not said.
    */
-  async goingBack(): Promise<{ running: string[]; billing: string[]; unknown: boolean; unreadable: string | null }> {
+  async goingBack(known?: ReadonlySet<string>): Promise<{ running: string[]; billing: string[]; unknown: boolean; unreadable: string | null }> {
     const s = await readSettings(this.db);
-    const mine = s.machines.filter((m) => m.rented);
+    const mine = s.machines.filter((m) => m.rented && !known?.has(m.rented.pod));
     if (!s.runpodKey || !mine.length) return { running: [], billing: [], unknown: false, unreadable: null };
     const client = this.client(s.runpodKey);
     let unreadable: string | null = null;
@@ -1975,8 +2087,8 @@ export class Rented {
       const pod = podOf(m);
       return pod?.status === "EXITED" && pod.diskGb > 0 ? [`${m.name || pod.name}, stopped: its ${pod.diskGb} GB disk, ${dollars(pod.diskGb * STOPPED_DISK_PER_GB_MONTH)}/month`] : [];
     });
-    const kept = (volumes ?? []).map((v) => `volume ${v.name} (${v.size} GB, ${dollars(volumePerMonth(v.size))}/month)`);
-    return { running, billing: [...disks, ...kept], unknown: !pods || !volumes, unreadable };
+    const kept = known ? [] : (volumes ?? []).map((v) => `volume ${v.name} (${v.size} GB, ${dollars(volumePerMonth(v.size))}/month)`);
+    return { running, billing: [...disks, ...kept], unknown: !pods || (!known && !volumes), unreadable };
   }
 
   /**

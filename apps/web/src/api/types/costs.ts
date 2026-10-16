@@ -89,14 +89,16 @@ export interface CostsView {
   billReadAt: number | null;
   /** A RunPod key or a rented pod: the pods' figures mean something. */
   runpod: boolean;
+  /** This month's whole bill (the pods, stopped pods' disks, the network volumes): what the month cap is weighed against. */
   month: number;
+  /** Today's compute (the pods while they run): what the day cap is weighed against. */
   today: { usd: number; sessions: number; ms: number };
   caps: { day: number; month: number };
   /** USD a day at this pace: the pods over the last 7 days, and storage. */
   pace7: number;
   storageDay: number;
   monthEnd: number;
-  /** This month's bill beyond Afflatus's count of the pods' time (below 0: under it). */
+  /** This month's bill of the pods beyond Afflatus's count of their time (below 0: under it). */
   notSplit: number;
   balance: number | null;
   /** How long the balance lasts at pace7 + storageDay (the one Settings says); and at what is spent an hour now (ms). */

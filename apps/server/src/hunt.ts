@@ -182,7 +182,7 @@ export class Hunt {
       const made = (await readSettings(this.s.db)).machines.find((m) => m.rented && !m.rented.fill && !st.before.includes(m.id));
       if (!made) {
         this.state = st;
-        return this.end("Afflatus stopped while deploying a GPU: look on RunPod for a pod it may have made");
+        return this.end("Afflatus stopped while deploying a GPU: a pod it made then is terminated once RunPod lists it");
       }
       Object.assign(st, { status: "up", machine: made.id, deployingSince: null });
     }

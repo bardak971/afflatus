@@ -269,6 +269,13 @@ export const settingsSchema = z.object({
    * so it stays as long as the pod does, and is deleted once the pod is gone (rented.ts). Never given to the page.
    */
   leftSecrets: z.array(z.object({ secret: z.string().max(80), pod: z.string().max(80) })).max(500).default([]),
+  /**
+   * The deploys asked of RunPod whose machine is not saved yet (rented.ts): each pod's name, kept before RunPod is asked to
+   * make it, and its secret. A name still here while no deploy runs is a pod Afflatus may have made and does not follow (it
+   * stopped mid-deploy, or RunPod's answer was lost and its list showed the pod late): terminated once RunPod lists it,
+   * forgotten when it never does. Never given to the page.
+   */
+  pendingDeploys: z.array(z.object({ name: z.string().max(120), secret: z.string().max(80), at: z.string().max(40) })).max(50).default([]),
   /** Missing model files may be looked for on Civitai. Off: Afflatus never contacts Civitai. */
   civitaiLookups: z.boolean().default(false),
   /** Once a day, Civitai is asked whether it has newer versions of the models here (only with lookups on; hashes of the files are sent). */
@@ -425,6 +432,7 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
   if (unknown.length) throw httpError(`unknown setting: ${unknown.join(", ")}`);
   // the secrets of pods taken out of Afflatus, deleted on RunPod by name: the server's list, never the page's to write
   if (fromPage) delete sent.leftSecrets;
+  if (fromPage) delete sent.pendingDeploys;
   const current = await readSettings(db);
   // "llm" changes the model in use (or makes the first one): the short way, for one model
   if (sent.llm && typeof sent.llm === "object") {

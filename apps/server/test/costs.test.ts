@@ -322,17 +322,18 @@ describe("the costs of a window", () => {
     expect(v.advice[1]!.why).toMatch(/^wan's 26\.0 GB came twice\. A 30 GB volume \(\$2\.10\/month\)/);
   });
 
-  // RunPod's spending as rented.ts says it: this month's bill $1.30 against the sessions' $0.90 counted
+  // RunPod's spending as rented.ts says it: this month's bill $1.50, the volumes' $0.20 in it, against the sessions' $0.90 counted
   const spending: Spending = {
-    today: 0.9, month: 1.3, caps: { day: 2, month: 0 }, balance: 20, lowBalance: false, spendPerHr: 0.62, runwayMs: 20 / 0.62 * HOUR, billed: true,
+    today: 0.9, month: 1.5, monthVolumes: 0.2, caps: { day: 2, month: 0 }, balance: 20, lowBalance: false, spendPerHr: 0.62, runwayMs: 20 / 0.62 * HOUR, billed: true,
     perDay: { pods: 0.9 / 7, storage: 0.5 }, runwayDays: 20 / (0.9 / 7 + 0.5),
     storage: { volumesMonth: 0.2, disksMonth: 0.1, perMonth: 15, nowMonth: 15, volumes: 1, stoppedDisks: 1, unused: [] },
   };
 
   it("says the month's bill beyond the count as not split, and the runway and month end with storage, as Settings does", async () => {
     const v = await view({ spending });
-    expect(v.month).toBe(1.3);
-    // the two sessions, $0.90 counted: $0.40 billed beyond them (disks, pods not in Afflatus, rounding)
+    // the whole month, the volumes in it: what the month cap is weighed against
+    expect(v.month).toBe(1.5);
+    // the two sessions, $0.90 counted: $0.40 billed for the pods beyond them (disks, pods not in Afflatus, rounding), the volumes apart
     expect(v.notSplit).toBeCloseTo(0.4, 9);
     // the same pace and runway as rented.ts gives Settings: the pods' 7 days and storage a day
     expect(v.pace7).toBe(0.9 / 7);
@@ -341,7 +342,7 @@ describe("the costs of a window", () => {
     expect(v).toMatchObject({ spendPerHr: 0.62, runwayNowMs: spending.runwayMs });
     const d = new Date(NOW);
     const left = (new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime() - NOW) / 86_400_000;
-    expect(v.monthEnd).toBeCloseTo(1.3 + 0.2 + (0.9 / 7 + 0.5) * left, 9);
+    expect(v.monthEnd).toBeCloseTo(1.5 + (0.9 / 7 + 0.5) * left, 9);
   });
 
   it("stands a stretch of the chart at RunPod's bill: what it billed beyond the count is drawn as not split", async () => {

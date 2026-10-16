@@ -7,7 +7,7 @@ import { imageParts, imagePublic } from "../src/podImage";
 import { runwayNeed } from "../src/rented";
 import { POD_IMAGES } from "../src/runpod";
 import { MEASURED_FROM, recordMeasure } from "../src/podMeasures";
-import { readSettings, writeSettings } from "../src/settings";
+import { readSettings, updateSettings, writeSettings } from "../src/settings";
 import { costToday, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /**
@@ -179,8 +179,10 @@ describe("a deploy", () => {
     expect(spending.storage).toMatchObject({ volumesMonth: 0.23, disksMonth: 0.02, volumes: 2, stoppedDisks: 0 });
     // 150 GB of volumes at $0.07
     expect(spending.storage.perMonth).toBeCloseTo(10.5, 5);
-    // storage is never counted against the caps: the month is the pods' bill alone
-    expect(spending.month).toBeCloseTo(0.5, 5);
+    // the month cap weighs the whole bill: the pods' and the volumes'; the day cap compute alone (no run of gone-pod: its disk is left out)
+    expect(spending.month).toBeCloseTo(0.73, 5);
+    expect(spending.monthVolumes).toBeCloseTo(0.23, 5);
+    expect(spending.today).toBeCloseTo(0.48, 5);
   });
 
   it("plans a volume: the data centers with GPUs in stock (the user's pods there first), the size the sets want", async () => {
@@ -349,6 +351,46 @@ describe("a deploy", () => {
     const machine = (await readSettings(t.db)).machines.find((m) => m.id === res.json().id)!;
     expect(machine.rented?.pod).toBe(runpod.pods[0]!.id);
     expect(runpod.secrets[machine.rented!.secret]).toBe(machine.token);
+  });
+
+  it("a pod RunPod made with its answer lost and not listed then: terminated at the next read, its secret gone after (P-5)", async () => {
+    t.services.rented.lookAgainMs = 5;
+    runpod.createThenFail = 504;
+    // the list refused while the deploy looks for it: the pod is made, Afflatus cannot know it
+    runpod.failList = 500;
+    expect((await deploy()).statusCode).toBe(502);
+    runpod.failList = null;
+    runpod.createThenFail = null;
+    const pod = runpod.pods[0]!;
+    expect(pod.status).not.toBe("TERMINATED");
+    expect((await readSettings(t.db)).pendingDeploys).toEqual([expect.objectContaining({ name: pod.name })]);
+    await t.services.rented.poll();
+    expect(pod.status).toBe("TERMINATED");
+    expect((await readSettings(t.db)).pendingDeploys).toEqual([]);
+    await t.services.rented.poll();
+    expect(runpod.secrets).toEqual({});
+  });
+
+  it("a pod made before Afflatus stopped mid-deploy: terminated at the first read after, not while a deploy runs (P-5)", async () => {
+    const res = await deploy();
+    expect(res.statusCode).toBe(200);
+    expect((await readSettings(t.db)).pendingDeploys).toEqual([]);
+    const pod = runpod.pods[0]!;
+    const machine = (await readSettings(t.db)).machines.find((m) => m.id === res.json().id)!;
+    // as a stop between RunPod's answer and the machine saved leaves it: its name pending, no machine
+    await updateSettings(t.db, (current) => ({ machines: current.machines.filter((m) => m.id !== machine.id), pendingDeploys: [{ name: pod.name, secret: machine.rented!.secret, at: new Date().toISOString() }] }));
+    // a deploy under way has its own name pending, its pod not a machine yet: nothing is settled meanwhile
+    (t.services.rented as unknown as { deploying: boolean }).deploying = true;
+    await t.services.rented.poll();
+    expect(pod.status).not.toBe("TERMINATED");
+    (t.services.rented as unknown as { deploying: boolean }).deploying = false;
+    await t.services.rented.poll();
+    expect(pod.status).toBe("TERMINATED");
+    expect((await readSettings(t.db)).pendingDeploys).toEqual([]);
+    // a name RunPod never lists is forgotten after a while
+    await updateSettings(t.db, () => ({ pendingDeploys: [{ name: "zz-test never made", secret: "", at: new Date(Date.now() - 31 * 60_000).toISOString() }] }));
+    await t.services.rented.poll();
+    expect((await readSettings(t.db)).pendingDeploys).toEqual([]);
   });
 
   it("an image that never pulls: terminated 20 min after the deploy, said on its card, its secret gone", async () => {

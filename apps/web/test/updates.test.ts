@@ -124,10 +124,10 @@ describe("Go back's question", () => {
     expect(goBackQuestion("0.4.0", { refused: "A rented GPU runs", billing, unknown: false })).toBeNull();
   });
 
-  it("names nothing on RunPod going back to a version with the Rented GPUs screen (0.5.0 on)", () => {
-    const billing = ["volume zz-test (50 GB, $3.50/month)"];
-    expect(goBackQuestion("0.5.0", { refused: null, billing, unknown: true })!.text).not.toContain("RunPod");
-    expect(goBackQuestion("v0.6.1", { refused: null, billing, unknown: false })!.text).not.toContain("RunPod");
+  it("names only the pods its library does not know going back to a version with the Rented GPUs screen (0.5.0 on)", () => {
+    expect(goBackQuestion("0.5.0", { refused: null, billing: [], unknown: true })!.text).not.toContain("RunPod");
+    const billing = ["zz-test since, stopped: its 20 GB disk, $4.00/month"];
+    expect(goBackQuestion("v0.6.1", { refused: null, billing, unknown: false })!.text).toContain(`which the library of v0.6.1 does not know: ${billing[0]}.`);
     expect(goBackQuestion("0.5.0-rc.1", { refused: null, billing, unknown: false })!.text).toContain("no Rented GPUs screen in 0.5.0-rc.1");
   });
 });

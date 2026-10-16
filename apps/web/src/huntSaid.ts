@@ -8,7 +8,7 @@ import { leftWords, plural, spell, usd } from "./format";
  */
 
 export const MODES: Array<{ value: HuntMode; label: string; note: string }> = [
-  { value: "value", label: "Best value", note: "Best value: the lowest cost a render, the time a render takes on it times its price." },
+  { value: "value", label: "Best value", note: "Best value: the lowest cost for the renders waiting, the time a render takes on it times its price, with your usual boot and idle at that price once learned." },
   { value: "fast", label: "Fastest", note: "Fastest: the shortest render, whatever it costs within your price." },
   { value: "cheap", label: "Cheapest an hour", note: "Cheapest an hour: the lowest price an hour that fits these renders." },
 ];

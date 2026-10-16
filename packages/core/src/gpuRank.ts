@@ -194,7 +194,12 @@ function learnedGpus(learned: Learned): Array<{ gpu: string; pace: number; rende
   return keys.size === 1 && renders >= least ? [{ gpu: learned.rendered[0]!.gpu, pace: 1, renders }] : [];
 }
 
-/** The GPUs ranked for these renders: the usable ones first, by the mode's key (value: cost a render; fast: time; cheap: price), then the rest. */
+/**
+ * The GPUs ranked for these renders: the usable ones first, by the mode's key (value: what the deploy costs for the renders
+ * waiting, its usual boot and idle with them when learned, then cost a render; fast: time; cheap: price), then the rest.
+ * Value counts the overhead because a deploy pays it whatever the GPU's pace: with one render waiting and 10 min of usual
+ * boot and idle, a $2/h GPU 5 times faster than a $0.50/h one cost about 4 times as much for the session.
+ */
 export function rankGpus(offers: readonly RankOffer[], renders: readonly RankRender[], learned: Learned, ask: RankAsk): RankedGpu[] {
   const timed = renders.filter((r) => r.ms !== null && r.ms > 0);
   const meanMs = timed.length ? timed.reduce((a, r) => a + r.ms!, 0) / timed.length : null;
@@ -228,13 +233,16 @@ export function rankGpus(offers: readonly RankOffer[], renders: readonly RankRen
     return { id: o.id, name: o.name, price: o.price, memory: o.memory, fit, fits, seconds: seconds === null ? null : Math.round(seconds), cost: seconds === null ? null : (o.price * seconds) / 3600, learned: learnedFrom, overhead, timeSaid, stock: stockOf(o, ask.dataCenter), rank: 0 };
   });
   // a GPU whose time is not known comes after those whose time is, by its price ("value" falls back to the price with none known)
-  const key = (g: RankedGpu): number | null => (ask.mode === "cheap" ? g.price : ask.mode === "fast" ? g.seconds : g.cost);
+  const session = (g: RankedGpu): number | null => (g.cost === null ? null : renders.length * g.cost + (g.overhead ?? 0));
+  const key = (g: RankedGpu): number | null => (ask.mode === "cheap" ? g.price : ask.mode === "fast" ? g.seconds : session(g));
   const order = (a: RankedGpu, b: RankedGpu) => {
     if ((a.fit === "yes") !== (b.fit === "yes")) return a.fit === "yes" ? -1 : 1;
     const ka = key(a);
     const kb = key(b);
     if (ka !== null && kb !== null && ka !== kb) return ka - kb;
     if ((ka === null) !== (kb === null)) return ka === null ? 1 : -1;
+    // value at the same cost for the session: the lower cost a render
+    if (ask.mode === "value" && a.cost !== null && b.cost !== null && a.cost !== b.cost) return a.cost - b.cost;
     return a.price - b.price || a.name.localeCompare(b.name);
   };
   return rows.sort(order).map((g, i) => ({ ...g, rank: i + 1 }));

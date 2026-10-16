@@ -448,8 +448,12 @@ export interface RunpodPod {
 
 /** What the rented GPUs cost (Afflatus's figures: their time × their rate), the caps, and RunPod's balance. */
 export interface RentedSpending {
+  /** Today's compute, weighed against the day cap: the pods while they run, not a stopped pod's disk, not the volumes. */
   today: number;
+  /** This month's whole bill, weighed against the month cap: the pods, stopped pods' disks and the network volumes. */
   month: number;
+  /** Of `month`, the network volumes' bill (null when RunPod did not give it). */
+  monthVolumes: number | null;
   caps: { day: number; month: number };
   balance: number | null;
   lowBalance: boolean;
@@ -463,7 +467,7 @@ export interface RentedSpending {
   runwayDays: number | null;
   /** Today and this month are RunPod's own bill (the last hours counted by Afflatus); false: Afflatus's count alone. */
   billed: boolean;
-  /** What storage costs (volumes, the pods' own disks); null when RunPod was not read. Never counted against the caps. */
+  /** What storage costs (volumes, the pods' own disks); null when RunPod was not read. In the month cap, never in the day cap. */
   storage: {
     /** The volumes' bill this month, as RunPod has written it; null when it did not give it. */
     volumesMonth: number | null;

@@ -71,14 +71,19 @@ export function RentRow() {
 
 type CapKey = "day" | "month";
 
+/** What each cap weighs: the day's is compute alone, the month's everything RunPod bills (rented.ts spent says the same). */
+const CAP_DAY_WHY = "Compute only: what your pods cost today while they run, their GPU and their disk. A stopped pod's disk and the network volumes are not in it: they bill whether anything runs or not, and the month cap has them.";
+const CAP_MONTH_WHY = "Everything RunPod bills this month: the pods, the disks of stopped pods and the network volumes. At it the pods stop, and Start, Deploy, Make volume and Grow are refused.";
+
 /** A figure against its cap, in a few words: "$1.18 of $5", or the figure alone without a cap. */
 const against = (value: number, cap: number) => `${usd(value, true)}${cap > 0 ? ` of ${usd(cap)}` : ""}`;
 
 /**
  * A cap in dollars: a small box, saved when it is left. Empty or 0: no cap. Its parent remounts it (a new `key`) when a
- * save of it failed, so that it shows the cap as saved again rather than the amount typed, which is not in force.
+ * save of it failed, so that it shows the cap as saved again rather than the amount typed, which is not in force. Its "?"
+ * says what it weighs: the two caps do not weigh the same bill.
  */
-function CapBox({ label, value, onSave }: { label: string; value: number; onSave(v: number): void }) {
+function CapBox({ label, value, help, onSave }: { label: string; value: number; help: string; onSave(v: number): void }) {
   const [text, setText] = useState(value ? String(value) : "");
   useEffect(() => setText(value ? String(value) : ""), [value]);
   const commit = () => {
@@ -90,12 +95,16 @@ function CapBox({ label, value, onSave }: { label: string; value: number; onSave
     }
     if (n !== value) onSave(n);
   };
+  // its "?" beside the label, not in it: a click on it never lands in the box
   return (
-    <label className="flex items-center gap-1.5 text-[12.5px]">
-      <span className="text-ink-2">{label}</span>
-      <span className="text-ink-3">$</span>
-      <input value={text} onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} inputMode="decimal" placeholder="none" aria-label={`Cap ${label}`} className={cx("h-8 w-[68px] font-mono text-xs", fieldClass)} />
-    </label>
+    <span className="flex items-center gap-1">
+      <label className="flex items-center gap-1.5 text-[12.5px]">
+        <span className="text-ink-2">{label}</span>
+        <span className="text-ink-3">$</span>
+        <input value={text} onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} inputMode="decimal" placeholder="none" aria-label={`Cap ${label}`} className={cx("h-8 w-[68px] font-mono text-xs", fieldClass)} />
+      </label>
+      <Help text={help} title={`Cap ${label}`} />
+    </span>
   );
 }
 
@@ -163,7 +172,7 @@ function RunpodAccount() {
   return (
     <Card
       title="RunPod account"
-      help="What your rented pods cost, every pod of the account, its GPU and its disk: RunPod's own bill. RunPod writes it some hours after the fact, so the last hours are Afflatus's count (each pod's time × its rate, from its deploy), the higher of the two while a pod runs, so that a cap is never reached late. A network volume is billed apart, every month. The balance lasts at this pace (the pods' last 7 days and storage), and at what the account spends now while a pod runs: at zero RunPod stops every pod, and a render that would end after it is not sent to a rented pod."
+      help="What your rented pods cost, every pod of the account, its GPU and its disk: RunPod's own bill. RunPod writes it some hours after the fact, so the last hours are Afflatus's count (each pod's time × its rate, from its deploy), the higher of the two while a pod runs, so that a cap is never reached late. A network volume is billed apart, every month: it counts in the month cap, not the day's. The balance lasts at this pace (the pods' last 7 days and storage), and at what the account spends now while a pod runs: at zero RunPod stops every pod, and a render that would end after it is not sent to a rented pod."
       status={(
         <span className="flex items-center gap-3 text-[12.5px]">
           {s && s.balance !== null && (
@@ -190,9 +199,9 @@ function RunpodAccount() {
         )}
       {has && (
         // today and this month under the caps, which they are weighed against
-        <Row setting="comfy.rentcaps" label="Caps" sub={s ? `today ${against(s.today, caps.day)} · this month ${against(s.month, caps.month)}` : undefined} help="At a cap, the render running finishes, then the pods stop; what waits goes to your other machines, and Start says the cap is reached. Empty: no cap. Today and this month are RunPod's bill, its last hours counted here.">
-          <CapBox key={`day-${resets.day}`} label="a day" value={caps.day} onSave={(day) => changeCaps("day", day)} />
-          <CapBox key={`month-${resets.month}`} label="a month" value={caps.month} onSave={(month) => changeCaps("month", month)} />
+        <Row setting="comfy.rentcaps" label="Caps" sub={s ? `today ${against(s.today, caps.day)} · this month ${against(s.month, caps.month)}` : undefined} help="At a cap, the render running finishes, then the pods stop; what waits goes to your other machines, and Start and Deploy say the cap is reached. Empty: no cap. The day cap is compute only, the month cap the whole bill. Both are RunPod's bill, its last hours counted here.">
+          <CapBox key={`day-${resets.day}`} label="a day" value={caps.day} help={CAP_DAY_WHY} onSave={(day) => changeCaps("day", day)} />
+          <CapBox key={`month-${resets.month}`} label="a month" value={caps.month} help={CAP_MONTH_WHY} onSave={(month) => changeCaps("month", month)} />
         </Row>
       )}
       {has && (

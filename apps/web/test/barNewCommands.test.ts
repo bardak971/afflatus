@@ -56,7 +56,7 @@ describe("the commands added after 0.4.0", () => {
   });
 
   it("says the spending against its caps, and the balance's runway", () => {
-    const s = { today: 1.2, month: 14, caps: { day: 5, month: 0 }, balance: 20, lowBalance: false, spendPerHr: 0.7, runwayMs: 28 * 3_600_000, billed: true, storage: null, perDay: { pods: 1.5, storage: 0.5 }, runwayDays: 10 } satisfies RentedSpending;
+    const s = { today: 1.2, month: 14, monthVolumes: null, caps: { day: 5, month: 0 }, balance: 20, lowBalance: false, spendPerHr: 0.7, runwayMs: 28 * 3_600_000, billed: true, storage: null, perDay: { pods: 1.5, storage: 0.5 }, runwayDays: 10 } satisfies RentedSpending;
     const row = commandRow(ctx({ spending: s }), { cmd: "spending" });
     expect(row.label).toBe("Spending today $1.20 of $5.00");
     expect(row.meta).toContain("this month $14.00");

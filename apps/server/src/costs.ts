@@ -318,7 +318,9 @@ export interface CostsView {
   billed: boolean;
   billReadAt: number | null;
   runpod: boolean;
+  /** This month's whole bill (the pods, stopped pods' disks, the network volumes): what the month cap is weighed against. */
   month: number;
+  /** Today's compute (the pods while they run): what the day cap is weighed against. */
   today: { usd: number; sessions: number; ms: number };
   caps: { day: number; month: number };
   /**
@@ -328,7 +330,7 @@ export interface CostsView {
   pace7: number;
   storageDay: number;
   monthEnd: number;
-  /** Of this month's total, what RunPod billed beyond Afflatus's count of the pods' time (pods not in Afflatus, disks, rounding); below 0 when it billed less than counted. */
+  /** Of this month's total, what RunPod billed the pods beyond Afflatus's count of their time (pods not in Afflatus, disks, rounding); below 0 when it billed less than counted. */
   notSplit: number;
   balance: number | null;
   /** How long the balance lasts at `pace7` + `storageDay` (rented.ts spending: the one Settings says too). */
@@ -526,9 +528,11 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
   const todaySessions = (await db.selectFrom("rent_sessions").select(["started_at", "ended_at", "rate"]).where((eb) => eb.or([eb("ended_at", "is", null), eb("ended_at", ">", iso(todayFrom))])).execute());
   const todayMs = todaySessions.reduce((n, r) => n + Math.max(0, (r.ended_at ? Date.parse(r.ended_at) : now) - Math.max(todayFrom, Date.parse(r.started_at))), 0);
   const monthCount = await d.costBetween(new Date(nowDate.getFullYear(), nowDate.getMonth(), 1).getTime(), now);
+  // the whole month's bill, the volumes' in it: the figure the month cap is weighed against (rented.ts spent)
   const month = spending?.month ?? monthCount;
-  // the month's bill beyond the count: said under it, so that it and "Where it went" over the month add up
-  const notSplit = spending?.billed ? month - monthCount : 0;
+  // the month's bill of the pods beyond the count: said under it, so that it and "Where it went" over the month add up
+  // (the volumes are not pod time, and are not split)
+  const notSplit = spending?.billed ? month - (spending.monthVolumes ?? 0) - monthCount : 0;
   const today = spending?.today ?? (await d.costBetween(todayFrom, now));
 
   const advice = adviceOf({ where: { ms: whereMs, usd: whereUsd, boot: { ms: bootMs, usd: bootUsd } }, tails, fetched, bootsSeen, boots: bootsOf, rows: renderCosts, sessions: sessions.length });
@@ -536,7 +540,7 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
   return {
     from: wFrom, to: wTo, step, times, billed: spending?.billed ?? false, billReadAt: d.billReadAt, runpod: Boolean(spending), month,
     today: { usd: today, sessions: todaySessions.length, ms: todayMs }, caps: d.settings.rentCaps, pace7, storageDay, notSplit,
-    monthEnd: month + (spending?.storage?.volumesMonth ?? 0) + (pace7 + storageDay) * ((monthEndAt - now) / DAY),
+    monthEnd: month + (pace7 + storageDay) * ((monthEndAt - now) / DAY),
     balance: spending?.balance ?? null, runwayDays: spending?.runwayDays ?? null, spendPerHr: spending?.spendPerHr ?? null, runwayNowMs: spending?.runwayMs ?? null,
     storage: spending?.storage ? { perMonth: spending.storage.perMonth, volumes: spending.storage.volumes, stoppedDisks: spending.storage.stoppedDisks } : null,
     where: { ms: whereMs, usd: whereUsd, boot: { ms: bootMs, usd: bootUsd }, estimated: estimatedAny }, spend, projects, sessions, renderCosts, advice, home, kwh: { price: kwh.kwhPrice, currency: kwh.currency },

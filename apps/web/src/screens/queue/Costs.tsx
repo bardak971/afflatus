@@ -66,7 +66,7 @@ function TopFigures({ d }: { d: CostsView }) {
         {Math.abs(d.notSplit) >= 0.01 && (
           <span className="flex items-center gap-1 text-xs text-ink-2">
             {d.notSplit > 0 ? `${usd(d.notSplit)} of it not split` : `${usd(-d.notSplit)} under Afflatus's count`}
-            <Help text={d.notSplit > 0 ? `RunPod's bill this month, less Afflatus's count of the pods' time at their rates (what Where it went and the chart split, over the month): pods not added to Afflatus, stopped pods' disks, the bill's rounding. The chart shows it per ${stretchOf(d.step)} as Not split.` : "RunPod billed less than Afflatus counted (a run that ended while Afflatus was away is counted to the latest it could have run). The bill is the reference."} />
+            <Help text={d.notSplit > 0 ? `RunPod's bill of the pods this month, less Afflatus's count of the pods' time at their rates (what Where it went and the chart split, over the month): pods not added to Afflatus, stopped pods' disks, the bill's rounding. The chart shows it per ${stretchOf(d.step)} as Not split.` : "RunPod billed less than Afflatus counted (a run that ended while Afflatus was away is counted to the latest it could have run). The bill is the reference."} />
           </span>
         )}
       </Tile>
