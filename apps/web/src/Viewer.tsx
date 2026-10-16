@@ -25,7 +25,7 @@ const PngInfo = lazy(() => import("./PngInfo").then((m) => ({ default: m.PngInfo
 const madeElsewhere = (a: Asset) => a.origin === "uploaded" || (a.origin === "imported" && a.kind !== "audio");
 
 /** One item, large, with how it was made and what can be done with it. */
-export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onDetails, into }: {
+export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onDetails, onEscape, into }: {
   asset: Asset;
   /** The list it was opened from: the arrow keys go to the item before and after. */
   items?: Asset[];
@@ -37,6 +37,8 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   inline?: boolean;
   /** In place: open it over the screen, with everything about it. */
   onDetails?(): void;
+  /** In place, Esc with nothing else to close: what the place does with it (the stage goes back to the render under way). */
+  onEscape?(): void;
   /** What is queued from here belongs to this draft and lands in this folder. */
   into?: { draft?: string; folder?: string };
 }) {
@@ -167,8 +169,12 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
         setPinned(null);
         return;
       }
-      if (inline) return;
-      if (!document.querySelector("[data-keys-help], [role=listbox], [role=menu]") && !info) onClose();
+      const open = document.querySelector("[data-keys-help], [role=listbox], [role=menu]") || info;
+      if (inline) {
+        if (!open) onEscape?.();
+        return;
+      }
+      if (!open) onClose();
       return;
     }
     if (info || !plainKey(e, { over: "[data-keys-help]" })) return;

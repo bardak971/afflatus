@@ -100,6 +100,8 @@ export function DraftResults({ draft, folder, list, title, empty }: {
             </div>
           </div>
         )}
+        {/* a result picked while a render is under way: the way back to it, on the stage itself (and Esc) */}
+        {!live && running && <BackToLive id={running} onClick={() => setPicked("live")} />}
         {!live && shown && (
           <Viewer
             inline
@@ -109,6 +111,7 @@ export function DraftResults({ draft, folder, list, title, empty }: {
             onOpen={(a) => setPicked(a.id)}
             onClose={() => {}}
             onDetails={() => setDetails(shown)}
+            onEscape={running ? () => setPicked("live") : undefined}
             into={{ draft, folder }}
           />
         )}
@@ -257,6 +260,20 @@ function LiveProgress({ id }: { id: string }) {
       <span className="font-semibold">{phaseLabel(job.phase)}{job.steps ? ` · step ${job.step} of ${job.steps}` : ""}{job.eta ? ` · ${timeLeft(job.eta)}` : ""}</span>
       <div className="w-full"><Bar value={job.progress * 100} steps={job.steps} loading={!job.progress} /></div>
     </>
+  );
+}
+
+/** Over a result picked while a render is under way: that render's step, and back to its live preview. */
+function BackToLive({ id, onClick }: { id: string; onClick(): void }) {
+  const job = useRunning(id);
+  if (!job) return null;
+  return (
+    <button type="button" onClick={onClick} data-tip="Back to the live preview of the render under way" className="mb-2 flex shrink-0 items-center gap-2 self-center rounded-lg border border-line-strong bg-panel px-2.5 py-1 text-xs hover:bg-hover">
+      <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-accent" />
+      <span className="font-semibold">Live preview</span>
+      <span className="font-mono text-[11px] text-ink-2">{phaseLabel(job.phase)}{job.steps ? ` · ${job.step}/${job.steps}` : ""}</span>
+      <Keys keys="Esc" size="sm" />
+    </button>
   );
 }
 

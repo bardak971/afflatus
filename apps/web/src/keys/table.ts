@@ -237,7 +237,7 @@ export const PLACES: KeyPlace[] = [
           { keys: "Shift+L", does: "Reuse · new seed" },
           { keys: "V", does: "Variation", note: "same parameters, new seed, queued" },
           { keys: "P", does: "Details", note: "its parameters; for a file made elsewhere, PNG info" },
-          { keys: "Esc", does: "Stop comparing, then close" },
+          { keys: "Esc", does: "Stop comparing, then close", note: "on the stage while a render runs: back to its live preview" },
         ],
       },
       {
