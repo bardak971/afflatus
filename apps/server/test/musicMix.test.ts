@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { musicPlan, type MusicBase } from "@afflatus/core";
-import { musicChain, musicGainWav } from "../src/cut";
+import { musicChain, musicGainWav } from "../src/exportJoin";
 import { eased } from "../src/duck";
 
 const base: MusicBase = { volume: 80, fadeInMs: 0, fadeOutMs: 0, duck: false, duckDb: 10, fromMs: 0, durationMs: 60_000, startClip: null };

@@ -14,7 +14,7 @@ import type { LibraryChange as WebLibraryChange } from "../../web/src/queryKeys"
 // the server's own: what its routes return
 import type { assetDetail } from "../src/assets-api";
 import type { CommandEntry, CommandEstimate, commandIndex, commandItems } from "../src/commandIndex";
-import type { Measure } from "../src/cut";
+import type { Measure } from "../src/measure";
 import type { DownloadView } from "../src/downloads";
 import type { DraftView, draftsList, saveBody } from "../src/drafts";
 import type { EntityView } from "../src/entities";
@@ -29,7 +29,7 @@ import type { list, TimesSummary } from "../src/rendersRead";
 import type { llmSchema, publicSettings, settingsSchema } from "../src/settings";
 import type { Timelines } from "../src/timelines";
 import type { clipPatch, timelinePatch } from "../src/timelines-api";
-import type { UpdatesView } from "../src/updates";
+import type { UpdatesView } from "../src/updatesModel";
 import type { CostsView } from "../src/costs";
 import type { DeployModelsView } from "../src/deployModels";
 import type { ModelSetView, SetFileView } from "../src/modelSets";

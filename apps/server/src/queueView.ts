@@ -11,7 +11,7 @@ import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
 import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel";
 import type { Db } from "./db";
 import type { Machine } from "./settings";
-import type { RentedView } from "./rented";
+import type { RentedView } from "./rentedModel";
 
 /** What a machine row says of a rented pod (rented.ts). */
 /** A rented pod's row: its state, and the model files it is getting (podFiles.ts). */

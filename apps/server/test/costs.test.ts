@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import { adviceOf, BOOT_PARTS, bootPartsOf, costs, deployOverhead, fetchAdvice, idleSaving, NOT_SPLIT, PARTS, partsOf, splitSession, type BootMs, type CostsDeps, type CostsView, type Fetched, type PartMs } from "../src/costs";
-import type { Spending } from "../src/rented";
+import type { Spending } from "../src/rentedBilling";
 import { openSqlite, migrate, type Db } from "../src/db";
 import { energyOf, PowerLog } from "../src/power";
 import type { Registry } from "../src/registry";

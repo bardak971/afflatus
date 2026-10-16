@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CostsView, SessionView } from "../src/costs";
 import { csvCell, csvName, csvOf, dollars4, seconds, utc } from "../src/csv";
 import { COSTS_HEADERS, costsCsv, RENDERS_HEADERS } from "../src/csvExports";
-import type { Spending } from "../src/rented";
+import type { Spending } from "../src/rentedBilling";
 import { readSettings, updateSettings } from "../src/settings";
 import { get, makeApp, type TestApp } from "./helpers";
 

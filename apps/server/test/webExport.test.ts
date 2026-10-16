@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { joinVideosInto, webCut } from "../src/cut";
+import { joinVideosInto, webCut } from "../src/exportJoin";
 import { readVideo } from "../src/video";
 
 /** A copy for the web: brought down to 1280 on its long side, 30 frames a second, under the size asked for. */

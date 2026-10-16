@@ -15,7 +15,11 @@ import { createServices, type Services } from "../src/services";
 import { writeSettings } from "../src/settings";
 import { check, NewerLibraryError, start } from "../src/start";
 import { LocalStorage } from "../src/storage";
-import { AfflatusUpdates, compareVersions, librarySummary, nodeIn, readRelease, readSums, systemTar, verifySignature, versionName, type InstallKind, type UpdatesView } from "../src/updates";
+import { AfflatusUpdates } from "../src/updates";
+import { compareVersions, readRelease } from "../src/updatesCheck";
+import { nodeIn, readSums, systemTar, verifySignature, versionName } from "../src/updatesInstall";
+import type { InstallKind, UpdatesView } from "../src/updatesModel";
+import { librarySummary } from "../src/updatesMove03";
 import { FAST, job, makeApp, makeFake, NOWHERE, post, until } from "./helpers";
 
 /**

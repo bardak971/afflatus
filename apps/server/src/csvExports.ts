@@ -3,7 +3,7 @@ import type { CostsView } from "./costs";
 import { csvOf, dollars4, seconds, utc, type CsvCell } from "./csv";
 import { machineSaid } from "./notifyWords";
 import type { Registry } from "./registry";
-import type { Spending } from "./rented";
+import type { Spending } from "./rentedBilling";
 import { nameOf, outOfMemory } from "./rendersRead";
 import type { Settings } from "./settings";
 

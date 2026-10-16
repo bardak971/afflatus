@@ -3,7 +3,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { rangeKeep, scenesOf, silentOf, soundOf } from "../src/cut";
+import { rangeKeep, silentOf, soundOf } from "../src/cut";
+import { scenesOf } from "../src/measure";
 import { TimelineMedia } from "../src/timelineMedia";
 import type { AssetRow, TimelineCore } from "../src/timelineModel";
 

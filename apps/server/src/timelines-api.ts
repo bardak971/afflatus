@@ -6,7 +6,8 @@ import { RANDOM_SEED, TRANSITION_KINDS, TRANSITION_MS, hiddenRunUp, movedSeed, r
 import { fromRender, markPng } from "./aiMark";
 import { nameOf } from "./autoName";
 import { VERSION } from "./config";
-import { CutError, markedVideoFile, musicTrack } from "./cut";
+import { CutError, markedVideoFile } from "./cut";
+import { musicTrack } from "./exportJoin";
 import { now } from "./db";
 import { httpError } from "./errors";
 import { compose, lookSchema, withMood } from "./entities";

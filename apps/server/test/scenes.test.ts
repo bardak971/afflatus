@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSceneTimes } from "../src/cut";
+import { parseSceneTimes } from "../src/measure";
 
 describe("where a video cuts between shots", () => {
   it("reads the moments from ffmpeg's showinfo lines, in order, skipping the start and near-duplicates", () => {

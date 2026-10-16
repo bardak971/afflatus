@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { modelsDiffer, transitionOf, transitionSpan, TRANSITION_KINDS, TRANSITIONS, type TransitionKind } from "@afflatus/core";
-import { joinVideosInto, type ExportPart } from "../src/cut";
+import { joinVideosInto, type ExportPart } from "../src/exportJoin";
 
 /** A cut's transition: what is kept of one, how long it plays at a join, and the export's picture and clock with one. */
 

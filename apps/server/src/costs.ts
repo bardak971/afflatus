@@ -5,7 +5,7 @@ import { dollars } from "./notifyWords";
 import { median } from "./renderDigests";
 import { nameOf, windowOf } from "./rendersRead";
 import type { Registry } from "./registry";
-import type { Spending } from "./rented";
+import type { Spending } from "./rentedBilling";
 import type { Settings } from "./settings";
 
 /**

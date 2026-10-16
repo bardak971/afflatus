@@ -1,5 +1,6 @@
 import { FRAME_SLACK_MS, latentFrameAtOrBefore, MODEL_FPS, modelsDiffer, type Recipe } from "@afflatus/core";
-import { FfmpegMissing, frozenTailAt } from "./cut";
+import { FfmpegMissing } from "./cut";
+import { frozenTailAt } from "./measure";
 import { newId, now, type Db } from "./db";
 import { httpError, notFound } from "./errors";
 import type { Registry } from "./registry";

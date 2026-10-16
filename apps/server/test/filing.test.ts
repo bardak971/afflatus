@@ -13,8 +13,8 @@ import { H3_FILES, timelineSteps, timelineSuite } from "./timelineKit";
 
 // the look of a take is measured behind a gate the test opens: what waits for it, and what does not, can be seen
 const gate = vi.hoisted(() => ({ closed: null as Promise<void> | null, open: () => {}, measured: 0 }));
-vi.mock("../src/cut", async (importOriginal) => {
-  const real = await importOriginal<typeof import("../src/cut")>();
+vi.mock("../src/measure", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/measure")>();
   return {
     ...real,
     lookOf: async (...args: Parameters<typeof real.lookOf>) => {

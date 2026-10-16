@@ -14,7 +14,8 @@ import { resetAccess } from "./access";
 import { installNodePack } from "./nodePack";
 import { LocalStorage } from "./storage";
 import { preflight, runPreflight } from "./preflight";
-import { AfflatusUpdates, RESTART_CODE, type UpdatesOptions } from "./updates";
+import { AfflatusUpdates, RESTART_CODE } from "./updates";
+import type { UpdatesOptions } from "./updatesModel";
 
 /** The built web app, when there is one (`pnpm build`). In development Vite serves it instead. */
 export function webDir(): string | undefined {
