@@ -18,6 +18,10 @@ import type { Settings } from "./settings";
  * a render under way is Rendering (Failed renders when it did not finish), a file coming is Fetching files, before its
  * ComfyUI first answered is Booting, and the rest is Idle. A session before those were kept has its boot's end and its files
  * worked out from what there is, and says so ("estimated").
+ *
+ * Booting is cut further where its parts were kept (0076): pulling the image until its container came up, installing its node
+ * packs' Python packages as its boot log says, starting ComfyUI for the rest; a start that failed is a failed start from its
+ * container's start to its end. What is not known of a boot (a session before, a pod with no boot log) stays plain booting.
  */
 
 export type Part = "render" | "boot" | "fetch" | "idle" | "failed";
@@ -26,6 +30,11 @@ export const NOT_SPLIT = "Not split";
 export const PARTS: readonly Part[] = ["render", "boot", "fetch", "idle", "failed"];
 export type PartMs = Record<Part, number>;
 const noParts = (): PartMs => ({ render: 0, boot: 0, fetch: 0, idle: 0, failed: 0 });
+/** Booting's parts: pulling the image, the node packs, starting ComfyUI, a start that failed, and a boot not known in parts. */
+export type BootPart = "pull" | "packs" | "comfy" | "startFailed" | "boot";
+export const BOOT_PARTS: readonly BootPart[] = ["pull", "packs", "comfy", "startFailed", "boot"];
+export type BootMs = Record<BootPart, number>;
+const noBoot = (): BootMs => ({ pull: 0, packs: 0, comfy: 0, startFailed: 0, boot: 0 });
 
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
@@ -36,6 +45,18 @@ export interface Span {
   from: number;
   to: number;
   part: Part;
+  /** Of a boot span, which part of the boot. */
+  boot?: BootPart;
+}
+
+/** What was kept of a session's boot (0076): null where nothing said it. */
+export interface BootFacts {
+  /** When its container came up: its image pulled. */
+  pulledAt: number | null;
+  /** Its node packs' step, from its start to the step after. */
+  packs: { from: number; to: number } | null;
+  /** Its start failed (its boot log said a step, its GPU did not work, its ComfyUI never answered). */
+  failed: boolean;
 }
 
 /** What is known of one session, as `splitSession` reads it. */
@@ -52,6 +73,22 @@ export interface SessionFacts {
   fetchesGuessed: boolean;
   /** The usual boot of the pods here (ms), for a session with nothing else to tell its boot's end by. */
   usualBootMs: number | null;
+  /** Its boot's parts, where kept. */
+  boot?: BootFacts;
+}
+
+/**
+ * Which part of its boot a moment of it was: before its container came up, pulling the image; of a start that failed, the
+ * failed start after that; within its node packs' step, the packs; else starting ComfyUI once its container is known up (or
+ * its packs over). Plain booting where none of that was kept.
+ */
+function bootPartAt(b: BootFacts | undefined, t: number): BootPart {
+  if (!b) return "boot";
+  if (b.pulledAt !== null && t < b.pulledAt) return "pull";
+  if (b.failed) return "startFailed";
+  if (b.packs && b.packs.from <= t && t < b.packs.to) return "packs";
+  if (b.pulledAt !== null || (b.packs && t >= b.packs.to)) return "comfy";
+  return "boot";
 }
 
 /**
@@ -65,6 +102,8 @@ export function splitSession(f: SessionFacts): { spans: Span[]; estimated: strin
   const firstWork = Math.min(...f.renders.map((r) => r.from), ...f.fetches.map((x) => x.from));
   let bootEnd: number;
   if (f.upAt !== null) bootEnd = f.upAt;
+  // a start that failed never answered: all of it was its boot, nothing estimated
+  else if (f.boot?.failed) bootEnd = f.to;
   else if (Number.isFinite(firstWork)) {
     // its ComfyUI answered by its first render or file at the latest
     bootEnd = firstWork;
@@ -80,6 +119,8 @@ export function splitSession(f: SessionFacts): { spans: Span[]; estimated: strin
   bootEnd = Math.max(f.from, Math.min(f.to, bootEnd));
   const clip = (t: number) => Math.max(f.from, Math.min(f.to, t));
   const marks = new Set<number>([f.from, f.to, bootEnd]);
+  // where a boot's parts change, within its boot
+  for (const t of [f.boot?.pulledAt, f.boot?.packs?.from, f.boot?.packs?.to]) if (t !== undefined && t !== null && t < bootEnd) marks.add(clip(t));
   for (const r of [...f.renders, ...f.fetches]) {
     marks.add(clip(r.from));
     marks.add(clip(r.to));
@@ -92,9 +133,12 @@ export function splitSession(f: SessionFacts): { spans: Span[]; estimated: strin
     const mid = (a + b) / 2;
     const render = f.renders.find((r) => r.from <= mid && mid < r.to);
     const part: Part = render ? (render.ok ? "render" : "failed") : f.fetches.some((x) => x.from <= mid && mid < x.to) ? "fetch" : mid < bootEnd ? "boot" : "idle";
+    // a boot span says its part, but for a plain one (as before 0076)
+    const sub = part === "boot" ? bootPartAt(f.boot, mid) : "boot";
+    const boot = sub === "boot" ? undefined : sub;
     const last = spans.at(-1);
-    if (last && last.part === part && last.to === a) last.to = b;
-    else spans.push({ from: a, to: b, part });
+    if (last && last.part === part && last.boot === boot && last.to === a) last.to = b;
+    else spans.push(boot ? { from: a, to: b, part, boot } : { from: a, to: b, part });
   }
   return { spans, estimated };
 }
@@ -104,12 +148,19 @@ export const clipSpans = (spans: readonly Span[], from: number, to: number): Spa
   spans.flatMap((s) => {
     const a = Math.max(from, s.from);
     const b = Math.min(to, s.to);
-    return b > a ? [{ from: a, to: b, part: s.part }] : [];
+    return b > a ? [{ ...s, from: a, to: b }] : [];
   });
 
 export function partsOf(spans: readonly Span[]): PartMs {
   const out = noParts();
   for (const s of spans) out[s.part] += s.to - s.from;
+  return out;
+}
+
+/** Its boot's time by part (ms): adds up to its Booting. */
+export function bootPartsOf(spans: readonly Span[]): BootMs {
+  const out = noBoot();
+  for (const s of spans) if (s.part === "boot") out[s.boot ?? "boot"] += s.to - s.from;
   return out;
 }
 
@@ -200,7 +251,7 @@ export interface RenderCostRow {
 }
 
 export interface CostAdvice {
-  kind: Part | "gpu";
+  kind: Part | BootPart | "gpu";
   title: string;
   why: string;
   /** What it would have saved over the window, USD; null when it says no figure. */
@@ -218,6 +269,10 @@ export interface SessionView {
   usd: number;
   /** Its time by part (ms), in its own order and adding up to its length. */
   parts: PartMs;
+  /** Its Booting by part (ms), adding up to it; and what its boot log said: the step its start failed at, its packs' installs. */
+  boot: BootMs;
+  startFailed: string | null;
+  packs: Array<{ pack: string; ms: number }>;
   estimated: string[];
   why: string;
   idleMinutes: number;
@@ -277,8 +332,8 @@ export interface CostsView {
   spendPerHr: number | null;
   runwayNowMs: number | null;
   storage: { perMonth: number; volumes: number; stoppedDisks: number } | null;
-  /** The window's pod time by part: ms and USD. */
-  where: { ms: PartMs; usd: Record<Part, number>; estimated: boolean };
+  /** The window's pod time by part: ms and USD; and its Booting by part, adding up to it. */
+  where: { ms: PartMs; usd: Record<Part, number>; boot: { ms: BootMs; usd: BootMs }; estimated: boolean };
   /**
    * USD per stretch of `times`, by GPU (Afflatus's count), and NOT_SPLIT: what RunPod billed in a stretch beyond that
    * count, so that a stretch billed in full stands at its bill (what the day cap is weighed against).
@@ -357,6 +412,9 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
   const sessions: SessionView[] = [];
   const whereMs = noParts();
   const whereUsd: Record<Part, number> = { render: 0, boot: 0, fetch: 0, idle: 0, failed: 0 };
+  const bootMs = noBoot();
+  const bootUsd = noBoot();
+  const bootsOf: BootSeen[] = [];
   let estimatedAny = false;
   const tails: Array<{ tailMs: number; rate: number; idle: number }> = [];
   const fetched: Fetched[] = [];
@@ -369,11 +427,20 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
     const { mine, kept, guessed, split } = sessionOf(r, { renders: podRenders, fetches, measures, usualBootMs }, now);
     if (split.estimated.length) estimatedAny = true;
     const parts = partsOf(split.spans);
-    const inWindow = partsOf(clipSpans(split.spans, wFrom, wTo));
+    const boot = bootPartsOf(split.spans);
+    const clipped = clipSpans(split.spans, wFrom, wTo);
+    const inWindow = partsOf(clipped);
     for (const p of PARTS) {
       whereMs[p] += inWindow[p];
       whereUsd[p] += usdOf(inWindow[p], r.rate);
     }
+    const bootInWindow = bootPartsOf(clipped);
+    for (const p of BOOT_PARTS) {
+      bootMs[p] += bootInWindow[p];
+      bootUsd[p] += usdOf(bootInWindow[p], r.rate);
+    }
+    const packs = packsOf(r.boot_packs);
+    if (inWindow.boot) bootsOf.push({ pullMs: r.pulled_at ? boot.pull : null, packs: packs.map((x) => x.pack), packsKnown: r.packs_from !== null });
     if (parts.boot) bootsSeen.push(parts.boot);
     const idle = r.idle_minutes ?? machineOf.get(r.machine_id)?.rented?.idleMinutes ?? lastDeployIdle;
     tails.push({ tailMs: idleTail(split.spans, !r.ended_at), rate: r.rate, idle });
@@ -384,7 +451,7 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
     for (const x of mine) renderRate.set(x.row.id, r.rate);
     const its = mine.map((x) => ({ id: x.row.id, at: x.to, ms: x.row.total_ms, status: x.row.status, model: nameOf(d.registry, x.row.recipe_id), usd: usdOf(x.row.total_ms, r.rate), item: refs.get(x.row.id)?.item ?? null }));
     sessions.push({
-      id: r.id, machine: r.machine_id, gpu, rate: r.rate, from, to, open: !r.ended_at, usd: usdOf(to - from, r.rate), parts, estimated: split.estimated, why: whyOf(its), idleMinutes: idle,
+      id: r.id, machine: r.machine_id, gpu, rate: r.rate, from, to, open: !r.ended_at, usd: usdOf(to - from, r.rate), parts, boot, startFailed: r.start_failed, packs, estimated: split.estimated, why: whyOf(its), idleMinutes: idle,
       fetched: { files: kept.length + guessed.length, bytes: [...kept.map((f) => Number(f.bytes)), ...guessed.map((m) => Number(m.bytes))].reduce((n, b) => n + b, 0) },
       renders: its.sort((a, b) => a.at - b.at),
     });
@@ -458,7 +525,7 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
   const notSplit = spending?.billed ? month - monthCount : 0;
   const today = spending?.today ?? (await d.costBetween(todayFrom, now));
 
-  const advice = adviceOf({ where: { ms: whereMs, usd: whereUsd }, tails, fetched, bootsSeen, rows: renderCosts, sessions: sessions.length });
+  const advice = adviceOf({ where: { ms: whereMs, usd: whereUsd, boot: { ms: bootMs, usd: bootUsd } }, tails, fetched, bootsSeen, boots: bootsOf, rows: renderCosts, sessions: sessions.length });
 
   return {
     from: wFrom, to: wTo, step, times, billed: spending?.billed ?? false, billReadAt: d.billReadAt, runpod: Boolean(spending), month,
@@ -466,11 +533,31 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
     monthEnd: month + (spending?.storage?.volumesMonth ?? 0) + (pace7 + storageDay) * ((monthEndAt - now) / DAY),
     balance: spending?.balance ?? null, runwayDays: spending?.runwayDays ?? null, spendPerHr: spending?.spendPerHr ?? null, runwayNowMs: spending?.runwayMs ?? null,
     storage: spending?.storage ? { perMonth: spending.storage.perMonth, volumes: spending.storage.volumes, stoppedDisks: spending.storage.stoppedDisks } : null,
-    where: { ms: whereMs, usd: whereUsd, estimated: estimatedAny }, spend, projects, sessions, renderCosts, advice, home, kwh: { price: kwh.kwhPrice, currency: kwh.currency },
+    where: { ms: whereMs, usd: whereUsd, boot: { ms: bootMs, usd: bootUsd }, estimated: estimatedAny }, spend, projects, sessions, renderCosts, advice, home, kwh: { price: kwh.kwhPrice, currency: kwh.currency },
   };
 }
 
 type SessionRow = Selectable<Tables["rent_sessions"]>;
+
+/** A session's packs installed as its boot log said them (0076's JSON); none when not kept or not read. */
+function packsOf(json: string | null): Array<{ pack: string; ms: number }> {
+  try {
+    const said = JSON.parse(json ?? "[]") as unknown;
+    return Array.isArray(said) ? said.filter((x): x is { pack: string; ms: number } => typeof x?.pack === "string" && typeof x?.ms === "number") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Its boot's parts as kept on the session (0076); undefined for a session that kept none, its boot plain. */
+export function bootFactsOf(r: Pick<SessionRow, "pulled_at" | "packs_from" | "packs_to" | "start_failed">): BootFacts | undefined {
+  const at = (iso: string | null) => (iso ? Date.parse(iso) : Number.NaN);
+  const pulledAt = at(r.pulled_at);
+  const [from, to] = [at(r.packs_from), at(r.packs_to)];
+  const packs = Number.isFinite(from) && Number.isFinite(to) && to > from ? { from, to } : null;
+  if (!Number.isFinite(pulledAt) && !packs && !r.start_failed) return undefined;
+  return { pulledAt: Number.isFinite(pulledAt) ? pulledAt : null, packs, failed: r.start_failed !== null };
+}
 
 /**
  * One session as its pod spent it (`splitSession`), from what was kept around it: its renders (by its machine, within its
@@ -495,6 +582,7 @@ function sessionOf<R extends { machine_id: string | null; created_at: string; to
     renders: mine.map((x) => ({ from: x.from, to: x.to, ok: x.row.status === "done" })),
     fetches: [...kept.map((x) => ({ from: Date.parse(x.started_at), to: Date.parse(x.ended_at) })), ...guessed.map((m) => ({ from: Date.parse(m.at) - Number(m.ms), to: Date.parse(m.at) }))],
     fetchesGuessed: old,
+    boot: bootFactsOf(r),
   });
   return { mine, kept, guessed, split };
 }
@@ -670,16 +758,36 @@ async function costRows(rows: readonly RenderLine[], onPod: (r: RenderLine) => b
   return out;
 }
 
+/** A session's boot in the window, as the advice weighs it: its pull (null: not kept), the packs it installed, whether they were read. */
+export interface BootSeen {
+  pullMs: number | null;
+  packs: string[];
+  packsKnown: boolean;
+}
+
+/** A pull longer than this is a host new to the image: the pulls said are those. */
+export const LONG_PULL_MS = 5 * 60_000;
+/** Node pack installs are said from this much of the window's money on: a few seconds of them are no advice. */
+export const PACKS_SAID_USD = 0.05;
+
+/** Names said in a line: "A", "A and B", "A, B and C", "A, B, C and 2 more". */
+const namesSaid = (names: readonly string[]): string => {
+  const shown = names.length > 4 ? [...names.slice(0, 3), `${names.length - 3} more`] : [...names];
+  return shown.length > 1 ? `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}` : shown[0] ?? "";
+};
+
 /**
  * What would cost less, by fixed rules on the window's figures (no language model): the idle at the end of sessions against a
- * shorter idle, the boots, the same files fetched on several deploys against a volume, and the cheapest GPU per model. Only
- * what has something to say: none of them when the window has nothing worth saying.
+ * shorter idle, the boots, the image pulls and the node packs' installs in them, the same files fetched on several deploys
+ * against a volume, and the cheapest GPU per model. Only what has something to say: none of them when the window has
+ * nothing worth saying.
  */
 export function adviceOf(f: {
-  where: { ms: PartMs; usd: Record<Part, number> };
+  where: { ms: PartMs; usd: Record<Part, number>; boot?: { ms: BootMs; usd: BootMs } };
   tails: ReadonlyArray<{ tailMs: number; rate: number; idle: number }>;
   fetched: readonly Fetched[];
   bootsSeen: readonly number[];
+  boots?: readonly BootSeen[];
   rows: readonly RenderCostRow[];
   sessions: number;
 }): CostAdvice[] {
@@ -706,6 +814,32 @@ export function adviceOf(f: {
     const hi = Math.max(...f.bootsSeen);
     const range = Math.round(lo / 60_000) === Math.round(hi / 60_000) ? min(lo) : `${Math.round(lo / 60_000)}–${min(hi)}`;
     out.push({ kind: "boot", title: `Booting: ${min(f.where.ms.boot)}, ${dollars(f.where.usd.boot)}`, why: `Each deploy boots ${range}. Deploying fewer, longer sessions (queue the batch first) boots less.`, save: null });
+  }
+  // in the boots: the image pulled onto hosts new to it, and the node packs' Python packages installed at every start
+  const boot = f.where.boot;
+  const boots = f.boots ?? [];
+  const pulled = boots.filter((b) => b.pullMs !== null);
+  const longPulls = pulled.filter((b) => b.pullMs! > LONG_PULL_MS).length;
+  if (boot && longPulls && boot.usd.pull >= 0.01) {
+    out.push({
+      kind: "pull", title: `Image pulls: ${min(boot.ms.pull)}, ${dollars(boot.usd.pull)}`,
+      why: `${longPulls === pulled.length ? (longPulls === 1 ? "Its boot" : `All ${longPulls} boots`) : `${longPulls} of ${pulled.length} boots`} spent over ${min(LONG_PULL_MS)} pulling the image: a host new to it pulls it first, billed while it comes. A host that has it starts in seconds.`,
+      save: null,
+    });
+  }
+  if (boot && boot.usd.packs >= PACKS_SAID_USD) {
+    const read = boots.filter((b) => b.packsKnown);
+    const times = new Map<string, number>();
+    for (const b of read) for (const p of new Set(b.packs)) times.set(p, (times.get(p) ?? 0) + 1);
+    // the packs installed on most of the deploys whose boot log was read, the most often first
+    const most = [...times].filter(([, n]) => n * 2 > read.length).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([p]) => p);
+    const on = read.length === 1 ? "your deploy" : times.get(most.at(-1)!) === read.length ? (read.length === 2 ? "both of your deploys" : `all ${read.length} of your deploys`) : `most of your ${read.length} deploys`;
+    const what = most.length ? `${namesSaid(most)} ${most.length > 1 ? "are" : "is"} installed on ${on}` : "Node packs' Python packages are installed on your deploys";
+    out.push({
+      kind: "packs", title: `Node pack installs: ${min(boot.ms.packs)}, ${dollars(boot.usd.packs)}`,
+      why: `${what}: the packs on the volume get their Python packages at every start. A pack you no longer use, taken off the volume, stops costing it.`,
+      save: null,
+    });
   }
   // the same files on several deploys: a volume keeps them
   const again = fetchAdvice(f.fetched);

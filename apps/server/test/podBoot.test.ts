@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
-import { bootOf, BootLogs, bootStep, parseBootLog } from "../src/podBoot";
+import { bootOf, BootLogs, bootPacks, bootStep, parseBootLog } from "../src/podBoot";
 import { readSettings, updateSettings } from "../src/settings";
 import { get, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
@@ -36,6 +36,25 @@ describe("where a boot is, from RunPod's data and the boot log", () => {
     expect(bootStep([line("[afflatus-pod] step: checking the GPU"), line("[afflatus-pod] failed: the GPU does not work on this host: RuntimeError: CUDA unknown error")]).failed).toMatch(/^the GPU does not work/);
     // a container started again begins anew: the failure before is not this start's
     expect(bootStep([...failed.lines, line("[afflatus-pod] step: checking the GPU")])).toEqual({ step: "checking the GPU", failed: null });
+  });
+
+  it("its node packs' time: from their step to the step after their installs, each install up to the next step", () => {
+    const at = (s: number) => new Date(Date.parse("2026-10-16T10:00:00.000Z") + s * 1000).toISOString();
+    const steps = [
+      line("[afflatus-pod] step: checking the GPU", at(0)),
+      line("[afflatus-pod] step: putting in the node packs", at(10)),
+      line("[afflatus-pod] step: installing the Python packages of ComfyUI-KJNodes", at(12)),
+      line("Collecting kornia", at(20)),
+      line("[afflatus-pod] step: installing the Python packages of was-node-suite", at(72)),
+      line("[afflatus-pod] step: setting up ComfyUI-Manager", at(102)),
+      line("[afflatus-pod] step: starting ComfyUI", at(104)),
+    ];
+    expect(bootPacks(steps.slice(0, 1))).toBeNull();
+    // under way: its start known, its end not yet, the installs done so far
+    expect(bootPacks(steps.slice(0, 5))).toEqual({ from: at(10), to: null, installs: [{ pack: "ComfyUI-KJNodes", ms: 60_000 }] });
+    expect(bootPacks(steps)).toEqual({ from: at(10), to: at(102), installs: [{ pack: "ComfyUI-KJNodes", ms: 60_000 }, { pack: "was-node-suite", ms: 30_000 }] });
+    // a container started again begins a new course
+    expect(bootPacks([...steps, line("[afflatus-pod] step: checking the GPU", at(200))])).toBeNull();
   });
 
   it("takes only the log's shape, bounded", () => {
@@ -152,6 +171,16 @@ describe("a deployed pod's boot on its card, its row and its log tab", () => {
     expect((await rowOf(id)).idleLeftMs).toBeGreaterThan(0);
     // up: ComfyUI's own log
     expect((await get(t.app, `/api/comfy/logs?machine=${id}`)).json().source).toBe("comfy");
+    // its boot kept in parts on its session, for Queue › Costs: its container up after its pull, its node packs' step and
+    // the pack whose Python packages were installed, before its ComfyUI's first answer
+    const kept = await t.db.selectFrom("rent_sessions").selectAll().executeTakeFirstOrThrow();
+    const [from, pulled, packsFrom, packsTo, up] = [kept.started_at, kept.pulled_at!, kept.packs_from!, kept.packs_to!, kept.up_at!].map(Date.parse);
+    expect(from).toBeLessThan(pulled!);
+    expect(pulled).toBeLessThanOrEqual(packsFrom!);
+    expect(packsFrom).toBeLessThan(packsTo!);
+    expect(packsTo).toBeLessThanOrEqual(up!);
+    expect(JSON.parse(kept.boot_packs!).map((p: { pack: string }) => p.pack)).toEqual(["ComfyUI-KJNodes"]);
+    expect(kept.start_failed).toBeNull();
   });
 
   it("a start that stops on an error is terminated at once, not billed to its boot limit; its card and its log say why", async () => {
@@ -170,6 +199,10 @@ describe("a deployed pod's boot on its card, its row and its log tab", () => {
     // its last lines kept, after its pod is gone
     const lines = (await get(t.app, `/api/comfy/logs?machine=${id}`)).json().lines as Array<{ m: string }>;
     expect(lines.map((l) => l.m)).toContain("ERROR: the step stopped");
+    // its session says its start failed there: Queue › Costs counts its boot as a failed start
+    const kept = await t.db.selectFrom("rent_sessions").selectAll().executeTakeFirstOrThrow();
+    expect(kept).toMatchObject({ start_failed: "putting in the node packs (exit 1)", up_at: null, packs_to: null });
+    expect(kept.pulled_at).not.toBeNull();
   });
 
   it("never terminates a pod the user added for what a boot log says: only one deployed from here", async () => {
@@ -184,14 +217,27 @@ describe("a deployed pod's boot on its card, its row and its log tab", () => {
     expect(pod.status).toBe("RUNNING");
   });
 
-  it("RunPod's ComfyUI image: RunPod's data only, its boot log never asked", async () => {
-    runpod.comfyStaysDown = true;
+  it("RunPod's ComfyUI image: pulling, starting, then up, from RunPod's GraphQL (its REST list says no uptime); its boot log never asked", async () => {
     const id = (await post(t.app, "/api/runpod/deploy", { ...ASK, template: "runpod" })).json().id as string;
     const pod = runpod.pods[0]!;
     await until(() => pod.status === "RUNNING");
-    const row = await rowOf(id);
-    expect(row).toMatchObject({ boot: { phase: "starting", step: null, failed: false }, error: null });
+    expect(await rowOf(id)).toMatchObject({ booting: true, boot: { phase: "pulling", step: null, failed: false }, error: null });
+    // as the real API: no uptime in the REST list, only in the GraphQL
+    const listed = (await (await fetch(`${runpod.url}/v2/pods`, { headers: { Authorization: `Bearer ${KEY}` } })).json()) as { pods: Array<{ runtime?: unknown }> };
+    expect(listed.pods[0]!.runtime).toBeUndefined();
+    await until(async () => (await rowOf(id)).boot?.phase === "starting");
+    expect(runpod.calls).toContain("POST /graphql");
     expect((await get(t.app, `/api/comfy/logs?machine=${id}`)).json()).toEqual({ lines: [], source: "boot" });
+    await until(async () => (await rowOf(id)).booting === false);
     expect(pod.comfy.calls).not.toContain("GET /afflatus/boot");
+    // its container's start kept on its session: its pull, then its ComfyUI starting, before its first answer
+    const kept = await t.db.selectFrom("rent_sessions").selectAll().executeTakeFirstOrThrow();
+    expect(Date.parse(kept.pulled_at!)).toBeGreaterThan(Date.parse(kept.started_at));
+    expect(Date.parse(kept.pulled_at!)).toBeLessThanOrEqual(Date.parse(kept.up_at!));
+    // known once: RunPod's GraphQL is not asked of it again for its uptime at every read
+    const asked = runpod.calls.filter((c) => c === "POST /graphql").length;
+    await rowOf(id);
+    await rowOf(id);
+    expect(runpod.calls.filter((c) => c === "POST /graphql").length - asked).toBeLessThanOrEqual(1);
   });
 });

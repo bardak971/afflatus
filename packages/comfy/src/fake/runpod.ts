@@ -26,6 +26,8 @@ export interface FakePod {
   volumeId?: string | null;
   /** When its container came up (its uptime counts from then); null while its image is pulled, or stopped. */
   upAt?: string | null;
+  /** Its image is on its host: pulled at its first start, not again at a start after a stop. */
+  pulled?: boolean;
 }
 
 /** A GPU of the pretend catalog: its prices (null: not on that cloud), and where it is free and how much. */
@@ -119,6 +121,8 @@ const podPerHr = (p: FakePod) =>
 
 /** Since when its container runs: none while its image is pulled (a deployed pod running, no container yet), as RunPod says it. */
 const upSince = (p: FakePod) => (p.upAt === null ? null : p.upAt ?? p.startedAt);
+/** Its container's uptime (s) as RunPod's GraphQL says it (`pod { runtime { uptimeInSeconds } }`); null while none runs. */
+const uptimeOf = (p: FakePod) => (p.status === "RUNNING" && upSince(p) ? Math.round((Date.now() - Date.parse(upSince(p)!)) / 1000) : null);
 
 const raw = (p: FakePod) => ({
   id: p.id, name: p.name, status: p.status, cost: BILLED.has(p.status) ? p.rate : 0, disk: p.containerGb ?? 0,
@@ -126,7 +130,7 @@ const raw = (p: FakePod) => ({
   gpu: { id: p.gpu, count: 1 }, dataCenterId: p.dataCenterId, ports: p.ports, cloud: "SECURE", image: p.image ?? "runpod/comfyui:latest",
   mounts: p.volumeId ? { network: [{ volumeId: p.volumeId, path: "/workspace" }] } : p.diskGb > 0 ? { persistent: { size: p.diskGb, path: "/workspace" } } : {},
   env: p.env,
-  runtime: p.status === "RUNNING" && upSince(p) ? { uptime: Math.round((Date.now() - Date.parse(upSince(p)!)) / 1000) } : null,
+  // no runtime here: RunPod's REST /v2/pods says no uptime of a booting pod (seen on a real one), only its GraphQL does
   startedAt: p.startedAt,
 });
 
@@ -140,6 +144,7 @@ function bootLines(fails: string | null): string[] {
     "[afflatus-pod] step: preparing ComfyUI's folders",
     "[afflatus-pod] ComfyUI's files in /workspace/comfyui",
     "[afflatus-pod] step: putting in the node packs",
+    "[afflatus-pod] step: installing the Python packages of ComfyUI-KJNodes",
     "[afflatus-pod] step: setting up ComfyUI-Manager",
     "[afflatus-pod] step: starting ComfyUI",
     "Checkpoint files will always be loaded safely.",
@@ -177,7 +182,8 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
   const pods: FakePod[] = o.pods.map((p) => {
     const status = p.status ?? "EXITED";
     p.comfy.down = status !== "RUNNING";
-    return { ...p, env: p.env ?? {}, id: new URL(p.comfy.url).port, status, startedAt: status === "RUNNING" ? new Date().toISOString() : null };
+    // pods there already: their image on their host, a start does not pull it
+    return { pulled: true, ...p, env: p.env ?? {}, id: new URL(p.comfy.url).port, status, startedAt: status === "RUNNING" ? new Date().toISOString() : null };
   });
   const fake: Omit<FakeRunpod, "url" | "close"> = {
     key: o.key, pods, calls: [], balance: o.balance ?? 23.4, autoBill: false, billLagMs: 0, bootMs: o.bootMs ?? 1500, pullMs: o.pullMs ?? 0, startMs: o.startMs ?? 0, bootFails: null,
@@ -259,14 +265,25 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
         if (token && pod.comfy.packVersion) pod.comfy.lock = { token, local: false, fixed: true };
         pod.comfy.down = fake.comfyStaysDown || fake.bootFails !== null;
       };
+      // another image (RunPod's ComfyUI): pulled at its first start too, then its ComfyUI starts, with no boot log
       if (!logged) {
-        pod.upAt = undefined;
-        return up();
+        if (pod.pulled || fake.pullMs <= 0) {
+          pod.upAt = undefined;
+          return up();
+        }
+        pod.upAt = null;
+        return later(fake.pullMs, () => {
+          if (pod.status !== "RUNNING" || pod.startedAt !== started) return;
+          pod.pulled = true;
+          pod.upAt = new Date().toISOString();
+          later(fake.startMs, up);
+        });
       }
       // its image pulled first: RUNNING, no uptime, nothing behind its ports; then its container up, its start logged step by step
       pod.upAt = null;
       later(fake.pullMs, () => {
         if (pod.status !== "RUNNING" || pod.startedAt !== started) return;
+        pod.pulled = true;
         pod.upAt = new Date().toISOString();
         const log = { token: token!, lines: [] as Array<{ t: string; m: string }> };
         pod.comfy.bootLog = log;
@@ -293,6 +310,13 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
     if (req.headers.authorization !== `Bearer ${fake.key}`) return json(401, { title: "Unauthorized", status: 401, detail: "invalid api key" });
     // the balance goes down as the pods run, by the second, as RunPod's does
     if (req.method === "POST" && url.pathname === "/graphql") {
+      // one pod's container uptime, as Afflatus asks it of a booting pod
+      const asked = /pod\(input:\s*\{\s*podId:\s*"([^"]+)"/.exec(String(body.query ?? ""));
+      if (asked) {
+        const p = fake.pods.find((x) => x.id === asked[1] && x.status !== "TERMINATED");
+        const up = p ? uptimeOf(p) : null;
+        return json(200, { data: { pod: p ? { id: p.id, runtime: up === null ? null : { uptimeInSeconds: up } } : null } });
+      }
       const perHr = fake.pods.reduce((n, p) => n + podPerHr(p), 0) + fake.volumes.reduce((n, v) => n + volumePerMonth(v.size), 0) / MONTH_HOURS;
       return json(200, { data: { myself: { clientBalance: fake.balance - spent(), currentSpendPerHr: perHr } } });
     }

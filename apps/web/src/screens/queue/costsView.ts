@@ -1,5 +1,5 @@
-import type { CostPart, CostsView, PartMs, PodSession } from "../../api";
-import { gb, long, plural, usd } from "../../format";
+import type { BootMs, BootPart, CostPart, CostsView, PartMs, PodSession } from "../../api";
+import { gb, long, plural, spell, usd } from "../../format";
 
 /**
  * What the Costs tab works out apart from drawing it: its windows, the parts of a pod's time as said, a session's bar, how
@@ -36,6 +36,27 @@ export const PART_SAID: ReadonlyArray<{ part: CostPart; name: string; color: str
   { part: "idle", name: "Idle", color: "color-mix(in srgb, var(--color-warn) 45%, var(--color-ink-2))" },
   { part: "failed", name: "Failed renders", color: "var(--color-warn)" },
 ];
+
+/**
+ * Booting's parts in the order they are drawn and said, each a shade of Booting's colour (a failed start toward the warning's):
+ * in its place in the bars, its legend under Booting's.
+ */
+export const BOOT_SAID: ReadonlyArray<{ part: BootPart; name: string; color: string }> = [
+  { part: "pull", name: "Pulling the image", color: "color-mix(in srgb, var(--color-ink-3) 55%, var(--color-line))" },
+  { part: "packs", name: "Node packs", color: "color-mix(in srgb, var(--color-ink-3) 70%, var(--color-ink))" },
+  { part: "comfy", name: "Starting ComfyUI", color: "var(--color-ink-3)" },
+  { part: "startFailed", name: "Failed starts", color: "color-mix(in srgb, var(--color-warn) 75%, var(--color-ink))" },
+  { part: "boot", name: "Not split", color: "color-mix(in srgb, var(--color-ink-3) 80%, var(--color-ink-2))" },
+];
+
+/** A name within a line: its first letter small ("Starting ComfyUI" → "starting ComfyUI"). */
+export const lowerFirst = (name: string) => name.charAt(0).toLowerCase() + name.slice(1);
+
+/** Booting's parts that have time, in their order; none when the boots were all plain (nothing kept to split them by). */
+export function bootSplit(ms: BootMs): Array<(typeof BOOT_SAID)[number]> {
+  const said = BOOT_SAID.filter((p) => ms[p.part] > 0);
+  return said.length === 1 && said[0]!.part === "boot" ? [] : said;
+}
 
 /** Of the pods' money, the share that made nothing: all but the renders that finished (0 to 1). */
 export function nothingShare(usd: Record<CostPart, number>): number {
@@ -74,8 +95,11 @@ export function runwayWhy(perDay: { pods: number; storage: number }): string {
   return `At this pace: the balance over ${usd(perDay.pods + perDay.storage)} a day, the pods' last 7 days (${usd(perDay.pods)} a day, Afflatus's count) and storage as it stands (${usd(perDay.storage)} a day: network volumes, stopped pods' disks). Now: at what RunPod says the account spends an hour, said while a pod runs; a render that would end after it is not sent to a rented pod. At $0 RunPod stops every pod.`;
 }
 
-/** A session's bar: each part's share of the longest session's length (0 to 1), and its tip; parts it did not have left out. */
-export function sessionBits(s: PodSession, longest: number): Array<{ part: CostPart; share: number; color: string; tip: string }> {
+/**
+ * A session's bar: each part's share of the longest session's length (0 to 1), and its tip; parts it did not have left out.
+ * Its Booting in its parts where they were kept.
+ */
+export function sessionBits(s: PodSession, longest: number): Array<{ key: string; part: CostPart; share: number; color: string; tip: string }> {
   const guessed = (part: CostPart) => (s.estimated.some((e) => (part === "boot" ? e.startsWith("its boot") : part === "fetch" ? e.startsWith("its files") : false)) ? " (estimated)" : "");
   const done = s.renders.filter((r) => r.status === "done").length;
   const failed = s.renders.length - done;
@@ -85,7 +109,36 @@ export function sessionBits(s: PodSession, longest: number): Array<{ part: CostP
     : part === "render" ? `${plural(done, "render")} · ${long(ms)}`
     : part === "failed" ? `${plural(failed, "failed render")} · ${long(ms)}`
     : `Idle · ${long(ms)}`;
-  return PART_SAID.filter((p) => s.parts[p.part] > 0).map((p) => ({ part: p.part, share: longest > 0 ? s.parts[p.part] / longest : 0, color: p.color, tip: tip(p.part, s.parts[p.part]) }));
+  const share = (ms: number) => (longest > 0 ? ms / longest : 0);
+  const boots = bootSplit(s.boot);
+  return PART_SAID.filter((p) => s.parts[p.part] > 0).flatMap((p) =>
+    p.part === "boot" && boots.length
+      ? boots.map((b) => ({ key: `boot-${b.part}`, part: p.part, share: share(s.boot[b.part]), color: b.color, tip: bootTip(s, b.part, s.boot[b.part]) }))
+      : [{ key: p.part, part: p.part, share: share(s.parts[p.part]), color: p.color, tip: tip(p.part, s.parts[p.part]) }],
+  );
+}
+
+/** A part of a session's boot, as its tip says it: what it was and how long, with the packs and the step its boot log said. */
+export function bootTip(s: Pick<PodSession, "startFailed" | "packs" | "estimated">, part: BootPart, ms: number): string {
+  if (part === "pull") return `Pulling the image · ${long(ms)}`;
+  if (part === "packs") return `Node packs · ${long(ms)}${s.packs.length ? `: ${s.packs.map((p) => `${p.pack} ${spell(p.ms)}`).join(", ")}` : ""}`;
+  if (part === "comfy") return `Starting ComfyUI · ${long(ms)}`;
+  if (part === "startFailed") return `Failed start${s.startFailed ? ` at "${s.startFailed}"` : ""} · ${long(ms)}`;
+  return `Booting · ${long(ms)}${s.estimated.some((e) => e.startsWith("its boot")) ? " (estimated)" : ""}`;
+}
+
+/** A session's boot in its parts, as its open row says it: each with its time and cost, the packs and the failed step said. */
+export function bootSaid(s: Pick<PodSession, "boot" | "rate" | "startFailed" | "packs">): string | null {
+  const parts = bootSplit(s.boot);
+  if (!parts.length) return null;
+  return `Boot: ${parts
+    .map((b) => {
+      const ms = s.boot[b.part];
+      const what = b.part === "startFailed" ? `failed start${s.startFailed ? ` at "${s.startFailed}"` : ""}` : lowerFirst(b.name);
+      const packs = b.part === "packs" && s.packs.length ? ` (${s.packs.map((p) => `${p.pack} ${spell(p.ms)}`).join(", ")})` : "";
+      return `${what} ${long(ms)}, ${usd((ms / HOUR) * s.rate, true)}${packs}`;
+    })
+    .join(" · ")}`;
 }
 
 /** The top note: where the totals come from, and how old RunPod's bill is. */

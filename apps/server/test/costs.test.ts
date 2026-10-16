@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
-import { adviceOf, costs, deployOverhead, fetchAdvice, idleSaving, NOT_SPLIT, PARTS, splitSession, type CostsDeps, type CostsView, type Fetched, type PartMs } from "../src/costs";
+import { adviceOf, BOOT_PARTS, bootPartsOf, costs, deployOverhead, fetchAdvice, idleSaving, NOT_SPLIT, PARTS, splitSession, type BootMs, type CostsDeps, type CostsView, type Fetched, type PartMs } from "../src/costs";
 import type { Spending } from "../src/rented";
 import { openSqlite, migrate, type Db } from "../src/db";
 import { energyOf, PowerLog } from "../src/power";
@@ -14,6 +14,7 @@ import { complete, get, job, makeApp, makeFake, post, until, type TestApp } from
 const MIN = 60_000;
 const HOUR = 3_600_000;
 const sum = (p: PartMs) => PARTS.reduce((n, k) => n + p[k], 0);
+const bootSum = (p: BootMs) => BOOT_PARTS.reduce((n, k) => n + p[k], 0);
 
 describe("a session's time", () => {
   const facts = { from: 0, to: 60 * MIN, upAt: 4 * MIN, renders: [] as Array<{ from: number; to: number; ok: boolean }>, fetches: [] as Array<{ from: number; to: number }>, fetchesGuessed: false, usualBootMs: null };
@@ -47,6 +48,31 @@ describe("a session's time", () => {
     expect(usual.estimated).toEqual(["its boot, from the usual boot here"]);
     const files = splitSession({ ...facts, fetches: [{ from: 5 * MIN, to: 7 * MIN }], fetchesGuessed: true });
     expect(files.estimated).toEqual(["its files, from their speeds (files over 100 MB only)"]);
+  });
+
+  it("its boot in parts where kept: the pull, the node packs, starting ComfyUI; adding up to its boot and its length", () => {
+    const boot = { pulledAt: 1.5 * MIN, packs: { from: 2 * MIN, to: 3 * MIN }, failed: false };
+    const { spans, estimated } = splitSession({ ...facts, boot, renders: [{ from: 10 * MIN, to: 20 * MIN, ok: true }] });
+    expect(estimated).toEqual([]);
+    expect(spans.map((s) => [s.part, s.boot ?? null, (s.to - s.from) / MIN])).toEqual([["boot", "pull", 1.5], ["boot", "comfy", 0.5], ["boot", "packs", 1], ["boot", "comfy", 1], ["idle", null, 6], ["render", null, 10], ["idle", null, 40]]);
+    const b = bootPartsOf(spans);
+    expect(b).toEqual({ pull: 1.5 * MIN, packs: MIN, comfy: 1.5 * MIN, startFailed: 0, boot: 0 });
+    expect(bootSum(b)).toBe(4 * MIN);
+    expect(spans.reduce((n, s) => n + s.to - s.from, 0)).toBe(60 * MIN);
+    // a pull said past its first answer (a clock off) is cut at the boot's end: nothing counted twice
+    expect(bootPartsOf(splitSession({ ...facts, boot: { pulledAt: 9 * MIN, packs: null, failed: false } }).spans)).toEqual({ pull: 4 * MIN, packs: 0, comfy: 0, startFailed: 0, boot: 0 });
+  });
+
+  it("a failed start: its pull, then all of it a failed start, nothing estimated; a boot not kept in parts stays plain", () => {
+    const failed = splitSession({ ...facts, to: 12 * MIN, upAt: null, boot: { pulledAt: 7 * MIN, packs: { from: 8 * MIN, to: 9 * MIN }, failed: true } });
+    expect(failed.estimated).toEqual([]);
+    expect(failed.spans.map((s) => [s.part, s.boot, (s.to - s.from) / MIN])).toEqual([["boot", "pull", 7], ["boot", "startFailed", 5]]);
+    // its container never up (its boot limit while pulling): all of it a failed start
+    expect(bootPartsOf(splitSession({ ...facts, upAt: null, boot: { pulledAt: null, packs: null, failed: true } }).spans)).toMatchObject({ startFailed: 60 * MIN, pull: 0, boot: 0 });
+    // nothing kept (a session before, RunPod's image read at no uptime): plain boot
+    expect(bootPartsOf(splitSession(facts).spans)).toEqual({ pull: 0, packs: 0, comfy: 0, startFailed: 0, boot: 4 * MIN });
+    // its packs read but not its pull (Afflatus away at the start): before them plain, after them starting ComfyUI
+    expect(bootPartsOf(splitSession({ ...facts, boot: { pulledAt: null, packs: { from: MIN, to: 2 * MIN }, failed: false } }).spans)).toEqual({ pull: 0, packs: MIN, comfy: 2 * MIN, startFailed: 0, boot: MIN });
   });
 });
 
@@ -84,6 +110,36 @@ describe("the advice", () => {
     });
     expect(advice.map((a) => [a.kind, a.title])).toEqual([["boot", "Booting: 8 min, $0.08"], ["gpu", "Wan · Motion on the A40 is your cheapest so far"]]);
     expect(advice[0]!.why).toBe("Each deploy boots 3–5 min. Deploying fewer, longer sessions (queue the batch first) boots less.");
+  });
+});
+
+describe("the advice on boots", () => {
+  const where = (pull: number, packs: number) => ({
+    ms: { render: 60 * MIN, boot: 20 * MIN, fetch: 0, idle: 0, failed: 0 }, usd: { render: 0.6, boot: 0.2, fetch: 0, idle: 0, failed: 0 },
+    boot: { ms: { pull: pull * MIN, packs: packs * MIN, comfy: (20 - pull - packs) * MIN, startFailed: 0, boot: 0 }, usd: { pull: pull / 100, packs: packs / 100, comfy: (20 - pull - packs) / 100, startFailed: 0, boot: 0 } },
+  });
+  const ask = (w: ReturnType<typeof where>, boots: Array<{ pullMs: number | null; packs: string[]; packsKnown: boolean }>) => adviceOf({ where: w, tails: [], fetched: [], bootsSeen: [], boots, rows: [], sessions: 1 });
+
+  it("the image pulls, when a boot spent over 5 min pulling", () => {
+    const boots = [{ pullMs: 9 * MIN, packs: [], packsKnown: false }, { pullMs: 30_000, packs: [], packsKnown: false }, { pullMs: null, packs: [], packsKnown: false }];
+    expect(ask(where(10, 0), boots)).toEqual([{ kind: "pull", title: "Image pulls: 10 min, $0.10", why: "1 of 2 boots spent over 5 min pulling the image: a host new to it pulls it first, billed while it comes. A host that has it starts in seconds.", save: null }]);
+    // short pulls only: nothing to say
+    expect(ask(where(1, 0), [boots[1]!])).toEqual([]);
+  });
+
+  it("the node packs' installs above a few cents, naming the packs installed on most deploys", () => {
+    const boots = [
+      { pullMs: 0, packs: ["ComfyUI-KJNodes", "was-node-suite"], packsKnown: true },
+      { pullMs: 0, packs: ["ComfyUI-KJNodes"], packsKnown: true },
+      { pullMs: 0, packs: ["ComfyUI-KJNodes", "was-node-suite", "rgthree"], packsKnown: true },
+      { pullMs: 0, packs: [], packsKnown: false },
+    ];
+    const [packs] = ask(where(0, 6), boots);
+    expect(packs).toEqual({ kind: "packs", title: "Node pack installs: 6 min, $0.06", why: "ComfyUI-KJNodes and was-node-suite are installed on most of your 3 deploys: the packs on the volume get their Python packages at every start. A pack you no longer use, taken off the volume, stops costing it.", save: null });
+    expect(ask(where(0, 6), boots.slice(1, 2))[0]!.why).toMatch(/^ComfyUI-KJNodes is installed on your deploy:/);
+    expect(ask(where(0, 6), boots.slice(0, 2))[0]!.why).toMatch(/^ComfyUI-KJNodes is installed on both of your deploys:/);
+    // a few seconds of them: no advice
+    expect(ask(where(0, 4), boots)).toEqual([]);
   });
 });
 
@@ -279,6 +335,41 @@ describe("the costs of a window", () => {
     expect(v.home[0]).toMatchObject({ wh: 40, cost: null });
     await db.updateTable("render_stats").set({ energy_wh: null, power_avg_w: null }).execute();
     expect((await view({ price: 0.25 })).home[0]).toMatchObject({ read: 0, wh: 0, avgW: null, cost: null });
+  });
+
+  it("a boot kept in parts and a failed start: each session's parts and its boot's add up to its length and its cost", async () => {
+    // s3: pulled 6 min, its node packs 2 min (one pack 90 s), ComfyUI up 1 min after; s4: its start failed after 3 min of pull
+    await db.insertInto("rent_sessions").values([
+      { id: "s3", machine_id: "rp-c", pod: "c", rate: 0.74, started_at: iso(T0 + 130 * MIN), ended_at: iso(T0 + 150 * MIN), seen_at: null, gpu: "NVIDIA L40S", up_at: iso(T0 + 139 * MIN), idle_minutes: 10, pulled_at: iso(T0 + 136 * MIN), packs_from: iso(T0 + 136.5 * MIN), packs_to: iso(T0 + 138.5 * MIN), boot_packs: JSON.stringify([{ pack: "ComfyUI-KJNodes", ms: 90_000 }]) },
+      { id: "s4", machine_id: "rp-d", pod: "d", rate: 0.31, started_at: iso(T0 + 155 * MIN), ended_at: iso(T0 + 162.25 * MIN), seen_at: null, gpu: "NVIDIA A40", up_at: null, idle_minutes: 10, pulled_at: iso(T0 + 158 * MIN), start_failed: "putting in the node packs (exit 1)" },
+    ]).execute();
+    const v = await view({});
+    const s3 = v.sessions.find((s) => s.id === "s3")!;
+    expect(s3.boot).toEqual({ pull: 6 * MIN, packs: 2 * MIN, comfy: 1 * MIN, startFailed: 0, boot: 0 });
+    expect(bootSum(s3.boot)).toBe(s3.parts.boot);
+    expect(sum(s3.parts)).toBe(20 * MIN);
+    expect(s3.packs).toEqual([{ pack: "ComfyUI-KJNodes", ms: 90_000 }]);
+    const s4 = v.sessions.find((s) => s.id === "s4")!;
+    expect(s4).toMatchObject({ startFailed: "putting in the node packs (exit 1)", estimated: [], parts: { boot: 7.25 * MIN, render: 0, fetch: 0, idle: 0, failed: 0 } });
+    expect(s4.boot).toEqual({ pull: 3 * MIN, packs: 0, comfy: 0, startFailed: 4.25 * MIN, boot: 0 });
+    // the sessions before 0076: their boot plain
+    const s1 = v.sessions.find((s) => s.id === "s1")!;
+    expect(s1.boot).toEqual({ pull: 0, packs: 0, comfy: 0, startFailed: 0, boot: 4 * MIN });
+    // each one's cost, part by part, is its length at its rate
+    for (const s of v.sessions) {
+      expect(sum(s.parts)).toBe(s.to - s.from);
+      expect(bootSum(s.boot)).toBe(s.parts.boot);
+      const parts = PARTS.filter((p) => p !== "boot").reduce((n, p) => n + (s.parts[p] / HOUR) * s.rate, 0) + BOOT_PARTS.reduce((n, p) => n + (s.boot[p] / HOUR) * s.rate, 0);
+      expect(parts).toBeCloseTo(s.usd, 12);
+    }
+    // the window's Booting by part: its parts' ms and money add up to it
+    expect(bootSum(v.where.boot.ms)).toBe(v.where.ms.boot);
+    expect(v.where.boot.ms).toEqual({ pull: 9 * MIN, packs: 2 * MIN, comfy: 1 * MIN, startFailed: 4.25 * MIN, boot: 7 * MIN });
+    expect(BOOT_PARTS.reduce((n, p) => n + v.where.boot.usd[p], 0)).toBeCloseTo(v.where.usd.boot, 12);
+    expect(v.where.boot.usd.pull).toBeCloseTo((6 / 60) * 0.74 + (3 / 60) * 0.31, 12);
+    expect(PARTS.reduce((n, p) => n + v.where.usd[p], 0)).toBeCloseTo(0.9 + (20 / 60) * 0.74 + (7.25 / 60) * 0.31, 12);
+    // the pull over 5 min said in the advice
+    expect(v.advice.find((a) => a.kind === "pull")?.why).toMatch(/^1 of 2 boots spent over 5 min pulling the image/);
   });
 
   it("an older session (no first answer kept) is split from its boot measure and its files' speeds, said estimated", async () => {
