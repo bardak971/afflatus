@@ -226,9 +226,20 @@ export class Hunt {
     return offers;
   }
 
-  /** RunPod's GPUs and prices on the secure cloud, as the hunt last read them (read again past FRESH_MS): the Costs tab's guesses. */
+  private offersAsked: Promise<GpuOffer[]> | null = null;
+
+  /**
+   * RunPod's GPUs and prices on the secure cloud, as the hunt last read them: the Costs tab's guesses. A read older than
+   * FRESH_MS is given at once and read again behind it (a price moves by the day; waiting for RunPod each time kept the tab
+   * on "Loading costs…"); only the first read is waited for.
+   */
   async offersNow(): Promise<GpuOffer[]> {
-    return this.offers("SECURE");
+    const seen = this.offersSeen.get("SECURE");
+    if (seen && this.now() - seen.at < this.freshMs) return seen.offers;
+    this.offersAsked ??= this.offers("SECURE").finally(() => (this.offersAsked = null));
+    if (!seen) return this.offersAsked;
+    this.offersAsked.catch(() => {});
+    return seen.offers;
   }
 
   /** A volume's data center (the dialog's live ranking), from a read of the account's volumes this recent. */

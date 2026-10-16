@@ -47,11 +47,14 @@ describe("the Costs tab", () => {
     const bits = sessionBits(s, 60 * MIN);
     expect(bits.map((b) => [b.part, b.share])).toEqual([["render", 1 / 6], ["boot", 4 / 60], ["fetch", 0.1], ["idle", 1 / 6]]);
     expect(bits.map((b) => b.tip)).toEqual(["1 render · 10 min", "Booting · 4 min (estimated)", "Fetching 2 files, 26.0 GB · 6 min", "Idle · 10 min"]);
-    // beside boots split in parts, a plain one is drawn as Not split, not in the shade Node packs has
+    // beside boots split in parts, a plain one is drawn as an earlier boot, not in the shade Node packs has; "Not split" is the
+    // month's bill beyond Afflatus's count, on the same page
     const beside = sessionBits(s, 60 * MIN, true);
     expect(beside.map((b) => [b.key, b.share])).toEqual([["render", 1 / 6], ["boot-boot", 4 / 60], ["fetch", 0.1], ["idle", 1 / 6]]);
     expect(beside[1]!.color).toBe(BOOT_SAID.find((p) => p.part === "boot")!.color);
-    expect(beside[1]!.tip).toBe("Booting · 4 min (estimated)");
+    expect(beside[1]!.tip).toBe("Earlier boot · 4 min (estimated)");
+    expect(BOOT_SAID.find((p) => p.part === "boot")!.name).toBe("Earlier boots");
+    expect(BOOT_SAID.map((p) => p.name)).not.toContain("Not split");
   });
 
   it("draws every part and every part of a boot apart, the boot's in Booting's own hue and a failed start striped", () => {
@@ -77,8 +80,9 @@ describe("the Costs tab", () => {
     expect(bits.reduce((n, b) => n + b.share, 0)).toBe(1);
     expect(bits[2]!.tip).toBe("Node packs · 2 min: ComfyUI-KJNodes 1 min 30 s");
     expect(bootSaid(s)).toBe("Boot: pulling the image 6 min, $0.060 · node packs 2 min, $0.020 (ComfyUI-KJNodes 1 min 30 s) · starting ComfyUI 2 min, $0.020");
-    // a failed start says its step; a boot all plain is not split
+    // a failed start says its step; a part no boot log said is booting; a boot all plain has no parts to say
     expect(bootSaid({ ...s, boot: { pull: 3 * MIN, packs: 0, comfy: 0, startFailed: 4 * MIN, boot: 0 }, startFailed: "putting in the node packs (exit 1)" })).toBe('Boot: pulling the image 3 min, $0.030 · failed start at "putting in the node packs (exit 1)" 4 min, $0.040');
+    expect(bootSaid({ ...s, boot: { pull: 0, packs: 2 * MIN, comfy: 2 * MIN, startFailed: 0, boot: 3 * MIN }, packs: [] })).toBe("Boot: node packs 2 min, $0.020 · starting ComfyUI 2 min, $0.020 · booting 3 min, $0.030");
     expect(bootSplit({ pull: 0, packs: 0, comfy: 0, startFailed: 0, boot: 4 * MIN })).toEqual([]);
     expect(bootSaid({ ...s, boot: { pull: 0, packs: 0, comfy: 0, startFailed: 0, boot: 4 * MIN } })).toBeNull();
   });

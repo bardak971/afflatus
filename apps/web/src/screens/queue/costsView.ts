@@ -42,8 +42,9 @@ const BOOT_PALE = "color-mix(in srgb, var(--color-boot) 30%, var(--color-panel))
 /**
  * Booting's parts in the order they are drawn and said, in Booting's own hue so that they read as one apart from rendering,
  * fetching and idle: toward the ink, as it is, toward the card. A failed start is the warning striped on Booting's palest,
- * so that it never reads as a failed render's plain warning (by its stripes too, where red and the hue look alike); a boot
- * not split is Booting striped on its palest, the parts it holds not known. In its place in the bars, its legend under
+ * so that it never reads as a failed render's plain warning (by its stripes too, where red and the hue look alike); an
+ * earlier boot (from before Afflatus recorded a boot's parts, shown whole) is Booting striped on its palest. Not "not split":
+ * that is the month's bill beyond Afflatus's count, on the same page. In its place in the bars, its legend under
  * Booting's: a background, not a colour, for the stripes.
  */
 export const BOOT_SAID: ReadonlyArray<{ part: BootPart; name: string; color: string }> = [
@@ -51,7 +52,7 @@ export const BOOT_SAID: ReadonlyArray<{ part: BootPart; name: string; color: str
   { part: "packs", name: "Node packs", color: "var(--color-boot)" },
   { part: "comfy", name: "Starting ComfyUI", color: "color-mix(in srgb, var(--color-boot) 50%, var(--color-panel))" },
   { part: "startFailed", name: "Failed starts", color: `repeating-linear-gradient(135deg, var(--color-warn) 0 3px, ${BOOT_PALE} 3px 6px)` },
-  { part: "boot", name: "Not split", color: `repeating-linear-gradient(135deg, var(--color-boot) 0 3px, ${BOOT_PALE} 3px 6px)` },
+  { part: "boot", name: "Earlier boots", color: `repeating-linear-gradient(135deg, var(--color-boot) 0 3px, ${BOOT_PALE} 3px 6px)` },
 ];
 
 /** A name within a line: its first letter small ("Starting ComfyUI" → "starting ComfyUI"). */
@@ -103,7 +104,7 @@ export function runwayWhy(perDay: { pods: number; storage: number }): string {
 /**
  * A session's bar: each part's share of the longest session's length (0 to 1), and its tip; parts it did not have left out.
  * Its Booting in its parts where they were kept. Where other boots of the window were split (`split`), a boot all plain is
- * drawn as Not split: in Booting's own shade it would read as Node packs beside them.
+ * drawn as an earlier boot: in Booting's own shade it would read as Node packs beside them.
  */
 export function sessionBits(s: PodSession, longest: number, split = false): Array<{ key: string; part: CostPart; share: number; color: string; tip: string }> {
   const guessed = (part: CostPart) => (s.estimated.some((e) => (part === "boot" ? e.startsWith("its boot") : part === "fetch" ? e.startsWith("its files") : false)) ? " (estimated)" : "");
@@ -131,7 +132,7 @@ export function bootTip(s: Pick<PodSession, "startFailed" | "packs" | "estimated
   if (part === "packs") return `Node packs · ${long(ms)}${s.packs.length ? `: ${s.packs.map((p) => `${p.pack} ${spell(p.ms)}`).join(", ")}` : ""}`;
   if (part === "comfy") return `Starting ComfyUI · ${long(ms)}`;
   if (part === "startFailed") return `Failed start${s.startFailed ? ` at "${s.startFailed}"` : ""} · ${long(ms)}`;
-  return `Booting · ${long(ms)}${s.estimated.some((e) => e.startsWith("its boot")) ? " (estimated)" : ""}`;
+  return `Earlier boot · ${long(ms)}${s.estimated.some((e) => e.startsWith("its boot")) ? " (estimated)" : ""}`;
 }
 
 /** A session's boot in its parts, as its open row says it: each with its time and cost, the packs and the failed step said. */
@@ -141,7 +142,8 @@ export function bootSaid(s: Pick<PodSession, "boot" | "rate" | "startFailed" | "
   return `Boot: ${parts
     .map((b) => {
       const ms = s.boot[b.part];
-      const what = b.part === "startFailed" ? `failed start${s.startFailed ? ` at "${s.startFailed}"` : ""}` : lowerFirst(b.name);
+      // a boot's part not recorded is said as booting: "earlier boots" is the window's word for those boots, not a session's
+      const what = b.part === "startFailed" ? `failed start${s.startFailed ? ` at "${s.startFailed}"` : ""}` : b.part === "boot" ? "booting" : lowerFirst(b.name);
       const packs = b.part === "packs" && s.packs.length ? ` (${s.packs.map((p) => `${p.pack} ${spell(p.ms)}`).join(", ")})` : "";
       return `${what} ${long(ms)}, ${usd((ms / HOUR) * s.rate, true)}${packs}`;
     })
