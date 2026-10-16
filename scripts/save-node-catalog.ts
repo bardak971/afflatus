@@ -3,6 +3,7 @@
  * (model names and pictures describe one person's disk and do not belong in the repository).
  * Read-only on ComfyUI: one GET /object_info.
  *   pnpm catalog:save http://127.0.0.1:8188
+ * A ComfyUI locked by Afflatus's node pack takes its token from COMFY_TOKEN (Afflatus gives it: POST /api/machines/<id>/token/copy).
  */
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -13,7 +14,7 @@ if (!url) {
   console.error("usage: pnpm catalog:save <ComfyUI address>");
   process.exit(1);
 }
-const client = new ComfyClient(url);
+const client = new ComfyClient(url, undefined, process.env.COMFY_TOKEN ?? "");
 const catalog = await client.catalog();
 const stripped = stripFileLists(catalog);
 // checked against the files this ComfyUI really has: none of their names may be left anywhere
