@@ -51,6 +51,43 @@ function RunpodKey({ setting, label, onSaved, onCancel }: { setting: string; lab
   );
 }
 
+const WHY_S3 = "Optional. A volume's Files are read through the pod running on it, with no key to set. With RunPod's S3 API key, they are read and cleaned with no pod running too. Make one on RunPod's Credentials page (S3 API Keys tab) and paste its secret (rps_…) here: RunPod shows it once, and Afflatus keeps it, never shown again. Its access key is your RunPod user id, which Afflatus reads with the API key. Not every data center has the S3 API: RunPod says which.";
+
+/** RunPod's S3 API key, for a volume's Files with no pod running: its secret pasted once (the access key is the account's id), never shown again. */
+function S3Key() {
+  const settings = useSettings();
+  const client = useQueryClient();
+  const has = Boolean(settings.data?.hasRunpodS3Secret);
+  const [changing, setChanging] = useState(false);
+  const save = useMutation({
+    mutationFn: (secret: string) => api.saveSettings({ runpodS3Secret: secret }),
+    onSuccess: (saved) => {
+      client.setQueryData(queryKeys.settings(), saved);
+      void client.invalidateQueries({ queryKey: queryKeys.runpodVolumes() });
+      setChanging(false);
+    },
+  });
+  const make = <a href="https://console.runpod.io/user/credentials" target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 text-[12.5px] font-semibold text-ink-2 hover:text-ink">Make one <ExternalLink size={12} /></a>;
+  if (has && !changing) {
+    return (
+      <Row setting="rented.s3" label="S3 API key" help={WHY_S3}>
+        <span className="grow text-xs text-ink-2">set · kept in Afflatus, never shown again</span>
+        <Button size="sm" tone="quiet" onClick={() => setChanging(true)}>Change key</Button>
+      </Row>
+    );
+  }
+  return (
+    <>
+      <Row setting="rented.s3" label="S3 API key" sub="optional: Files with no pod running" help={WHY_S3}>
+        {make}
+        <SecretField label="S3 API key's secret" saved={false} placeholder="rps_…" valid={(key) => key.length >= 10} busy={save.isPending} onSave={(key) => save.mutateAsync(key)} />
+        {changing && <Button tone="quiet" onClick={() => setChanging(false)}>Cancel</Button>}
+      </Row>
+      {save.isError && <Block><ErrorNote>{save.error.message}</ErrorNote></Block>}
+    </>
+  );
+}
+
 /**
  * "Or a RunPod pod", under "Add a ComfyUI": the API key once, and then the way to Settings › Rented GPUs, where the
  * account's pods are added. The key saved here opens that tab.
@@ -204,6 +241,7 @@ function RunpodAccount() {
           <CapBox key={`month-${resets.month}`} label="a month" value={caps.month} help={CAP_MONTH_WHY} onSave={(month) => changeCaps("month", month)} />
         </Row>
       )}
+      {has && <S3Key />}
       {has && (
         <Row setting="rented.unused" label="Unused volumes" help="A network volume no pod ran on for this long is flagged here and on the tab: it bills every month all the same.">
           <span className="w-[120px]"><Select size="sm" label="Flag a volume unused after" value={String(settings.data?.volumeUnusedDays ?? 7)} onChange={(v) => !saveUnused.isPending && saveUnused.mutate(Number(v))} options={UNUSED_DAYS.map((n) => ({ value: String(n), label: n ? `after ${plural(n, "day")}` : "never" }))} /></span>

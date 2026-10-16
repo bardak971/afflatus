@@ -36,6 +36,8 @@ const SERVER: Record<string, string> = {
   hasCivitaiKey: "models.civitaiKey",
   hasHuggingFaceToken: "models.huggingFaceToken",
   hasRunpodKey: "comfy.runpod",
+  runpodS3User: "rented.s3",
+  hasRunpodS3Secret: "rented.s3",
   rentCaps: "comfy.rentcaps",
   costs: "costs.kwh",
   volumeUnusedDays: "rented.unused",

@@ -76,10 +76,11 @@ describe("a backup and the keys", () => {
     token: "zztest-comfy-lock-token-0123456789",
     telegram: "123456789:AAEzztestTelegramToken0123456789",
     discord: "https://discord.com/api/webhooks/1/zztest-discord-0123456789",
+    s3: "rps_zztestS3Secret0123456789",
   };
   beforeEach(async () => {
     await updateSettings(t.db, (c) => ({
-      runpodKey: SECRETS.runpod, civitaiKey: SECRETS.civitai, huggingFaceToken: SECRETS.hf,
+      runpodKey: SECRETS.runpod, civitaiKey: SECRETS.civitai, huggingFaceToken: SECRETS.hf, runpodS3User: "user_zztest", runpodS3Secret: SECRETS.s3,
       llms: [{ id: "main", baseUrl: "https://llm.example.com/v1", model: "zz-test", apiKey: SECRETS.llm }],
       machines: c.machines.map((m) => ({ ...m, token: SECRETS.token })),
       notify: { ...c.notify, telegramToken: SECRETS.telegram, telegramChat: "42", discordWebhook: SECRETS.discord },
@@ -111,7 +112,7 @@ describe("a backup and the keys", () => {
     const zip = res.rawPayload;
     for (const [what, secret] of Object.entries(SECRETS)) expect(zip.includes(Buffer.from(secret)), what).toBe(false);
     const kept = settingsIn(databaseOf(zip));
-    expect([kept.runpodKey, kept.civitaiKey, kept.huggingFaceToken, kept.llms[0].apiKey, kept.llm.apiKey, kept.notify.telegramToken, kept.notify.discordWebhook]).toEqual(["", "", "", "", "", "", ""]);
+    expect([kept.runpodKey, kept.civitaiKey, kept.huggingFaceToken, kept.runpodS3Secret, kept.llms[0].apiKey, kept.llm.apiKey, kept.notify.telegramToken, kept.notify.discordWebhook]).toEqual(["", "", "", "", "", "", "", ""]);
     expect(kept.machines.map((m: { token: string }) => m.token).every((x: string) => x === "")).toBe(true);
     // the rest of the settings come back as they were
     expect(kept.llms[0]).toMatchObject({ baseUrl: "https://llm.example.com/v1", model: "zz-test" });

@@ -403,6 +403,43 @@ export interface NetworkVolume {
   lastFill: { at: string; failed: Array<{ file: string; error: string }>; interrupted?: string } | null;
   /** Each Model set as it held it last time a pod ran there: what it lacks (empty when nothing is known). */
   sets: Array<{ id: string; name: string; missing: { count: number; bytes: number; unknown: number } }>;
+  /** Its models' bytes as last listed with sizes (its pod, or the S3 API), and when; null: never listed so. */
+  listed: { bytes: number; at: string } | null;
+}
+
+/** A model file of a network volume, as its Files list it. */
+export interface VolumeFile {
+  /** Its path on the volume (what a delete names). */
+  key: string;
+  folder: string;
+  /** Its name within its folder, a subfolder kept. */
+  name: string;
+  /** Null in a listing made by a pod, which says names only. */
+  bytes: number | null;
+  modified: string | null;
+  /** The model folder ComfyUI knows it by, when its pod listed it. */
+  comfy: string | null;
+  /** When a render on a pod of this volume last needed it; null: none known. */
+  usedAt: string | null;
+  sets: Array<{ id: string; name: string }>;
+  /** This PC has a file of that name and size. */
+  here: boolean;
+  /** A render running on the volume needs it now: it cannot be deleted. */
+  inUse: boolean;
+}
+
+/** What a network volume holds: read now through the pod on it ("pod") or RunPod's S3 API ("s3"), as last listed ("kept"), or not known. */
+export interface VolumeFilesView {
+  volume: { id: string; name: string; size: number; dataCenter: string; perMonth: number; usedBy: PodOn | null };
+  source: "pod" | "s3" | "kept" | "none";
+  /** Its files can be deleted now (through its pod, or S3); `why` says why not when they cannot. */
+  canDelete: boolean;
+  why: string | null;
+  readAt: string | null;
+  readBy: string | null;
+  files: VolumeFile[];
+  /** All of the volume in use, as the pod on it read its disk; null while no pod says it. */
+  used: number | null;
 }
 
 /** What Make a volume… says first: where (GPUs in stock now, the user's pods there), the size the sets want, whether it pays for itself. */

@@ -64,6 +64,10 @@ export interface FakeRunpod {
    * they provision, start and run (their GPU and their disks), the stopped pods' disks and the volumes, by the second.
    */
   balance: number;
+  /** The account's user id (GraphQL myself.id): the access key of its S3 API keys. */
+  userId: string;
+  /** The data centers whose volumes RunPod's S3 API serves (GraphQL dataCenters' s3apiEnabled). */
+  s3DataCenters: string[];
   /** The bill is written by itself from what the pods ran (hour by hour, `billLagMs` late), in place of `bill` set by hand. */
   autoBill: boolean;
   billLagMs: number;
@@ -193,7 +197,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
     return { pulled: true, ...p, env: p.env ?? {}, id: new URL(p.comfy.url).port, status, startedAt: status === "RUNNING" ? new Date().toISOString() : null };
   });
   const fake: Omit<FakeRunpod, "url" | "close"> = {
-    key: o.key, pods, calls: [], balance: o.balance ?? 23.4, autoBill: false, billLagMs: 0, bootMs: o.bootMs ?? 1500, pullMs: o.pullMs ?? 0, startMs: o.startMs ?? 0, bootFails: null,
+    key: o.key, pods, calls: [], balance: o.balance ?? 23.4, userId: "user_fake", s3DataCenters: ["EU-RO-1", "EU-CZ-1", "US-KS-2"], autoBill: false, billLagMs: 0, bootMs: o.bootMs ?? 1500, pullMs: o.pullMs ?? 0, startMs: o.startMs ?? 0, bootFails: null,
     failAction: {}, failDetail: null, secrets: {}, failSecrets: false, stopMs: 0, failPatch: null, hideEnv: false, failList: null, unlisted: new Set(), failOne: null, oddList: false, actionDelayMs: 0, latencyMs: 0,
     gpus: o.gpus ?? FAKE_GPUS, volumes: o.volumes ?? [], noCapacity: new Set(), failCreate: null, createThenFail: null, bill: [], comfyStaysDown: false, volumeBill: [],
   };
@@ -324,6 +328,11 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
         const p = fake.pods.find((x) => x.id === asked[1] && x.status !== "TERMINATED");
         const up = p ? uptimeOf(p) : null;
         return json(200, { data: { pod: p ? { id: p.id, runtime: up === null ? null : { uptimeInSeconds: up } } : null } });
+      }
+      // the account's id and its data centers, which say where the S3 API is
+      if (/dataCenters/.test(String(body.query ?? ""))) {
+        const ids = [...new Set([...fake.gpus.flatMap((g) => g.dataCenters.map((d) => d.id)), ...fake.volumes.map((v) => v.dataCenter), ...fake.s3DataCenters])];
+        return json(200, { data: { myself: { id: fake.userId }, dataCenters: ids.map((id) => ({ id, s3apiEnabled: fake.s3DataCenters.includes(id) })) } });
       }
       const perHr = fake.pods.reduce((n, p) => n + podPerHr(p), 0) + fake.volumes.reduce((n, v) => n + volumePerMonth(v.size), 0) / MONTH_HOURS;
       return json(200, { data: { myself: { clientBalance: fake.balance - spent(), currentSpendPerHr: perHr } } });

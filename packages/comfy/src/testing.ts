@@ -11,6 +11,7 @@ import { fakeSockets } from "./fake/sockets";
 
 export { makePng } from "./fake/png";
 export { FAKE_GPUS, NO_CAPACITY, startFakeRunpod, type FakeGpu, type FakePod, type FakeRunpod, type FakeVolume } from "./fake/runpod";
+export { startFakeS3, type FakeS3, type FakeS3File } from "./fake/s3";
 
 /**
  * A stand-in for ComfyUI's HTTP API, for tests: enough of it to exercise the client, the capabilities

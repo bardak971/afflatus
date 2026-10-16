@@ -161,6 +161,14 @@ export function fakeFolders(fake: FakeState): (r: FakeRequest) => boolean {
         return json(200, { removed: size });
       }
     }
+    if (fake.packVersion && atLeast(fake.packVersion, "0.21.0") && method === "GET" && path === "/afflatus/models/list") {
+      // each folder's files, its own directory's name as the path's first part, as the pack names them under models/
+      const files = Object.entries(paths).flatMap(([folder, roots]) => (roots[0] ? filesUnder(roots[0]).map((name) => {
+        const st = statSync(join(roots[0]!, name));
+        return { folder, path: `${folder}/${name.split(/[\/]/).join("/")}`, name: name.split(/[\/]/).join("/"), bytes: st.size, modified: st.mtimeMs / 1000 };
+      }) : []));
+      return json(200, { files });
+    }
     if (!path.startsWith("/afflatus/download") || !fake.packVersion || !atLeast(fake.packVersion, "0.11.0")) return false;
     if (method === "POST" && path === "/afflatus/download") {
       const body = JSON.parse(raw.toString("utf8") || "{}") as { url?: string; folder?: string; filename?: string; total?: number };

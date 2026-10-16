@@ -4,6 +4,7 @@ import { deployFiles, deployModels } from "./deployModels";
 import { setsWithFiles } from "./modelSets";
 import { keptHoldings, missingOn } from "./rentedVolumes";
 import { fillPlan, volumePlan } from "./volumePlan";
+import { deleteVolumeFiles, volumeFiles } from "./volumeFiles";
 import { httpError } from "./errors";
 import { podMachineId, podUrl } from "./runpod";
 import type { Services } from "./services";
@@ -64,6 +65,15 @@ export function registerRented(app: FastifyInstance, s: Services): void {
     const files = await deployFiles(s, { set, files: [], accept, again: true });
     if (!files.length) throw httpError("That set brings no file.");
     return s.rented.fill(z.object({ id: z.string().max(80) }).parse(req.params).id, set, files);
+  });
+
+  /** What a volume holds (its Files): read through RunPod's S3 API when it can, else as its last pod listed it. Read-only. */
+  app.get("/api/runpod/volumes/:id/files", async (req) => volumeFiles(s, z.object({ id: z.string().max(80) }).parse(req.params).id));
+
+  /** Files of a volume's models folder deleted for good, through S3: refused for a file a render on its pod needs now. */
+  app.post("/api/runpod/volumes/:id/files/delete", async (req) => {
+    const { keys } = z.strictObject({ keys: z.array(z.string().min(1).max(1024)).min(1).max(500) }).parse(req.body);
+    return deleteVolumeFiles(s, z.object({ id: z.string().max(80) }).parse(req.params).id, keys);
   });
 
   /** A network volume made larger (Grow…). */

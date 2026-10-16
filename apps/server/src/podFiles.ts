@@ -110,6 +110,8 @@ export interface PodFilesDeps {
   settled?(machine: string): void;
   /** Whether the pod makes room on its disk (its Make room, rentedSchema.makeRoom): the models it fetched that no waiting job needs are deleted. */
   makesRoom?(machine: string): Promise<boolean>;
+  /** Whether the machine's pod runs on a network volume: its models are on the volume, whose room is then what is said full. */
+  onVolume?(machine: string): Promise<boolean>;
 }
 
 /** A file whose size nothing says yet is planned as this large. */
@@ -137,6 +139,8 @@ const STALL_MS = 5 * 60_000;
  * the downloads under way; uploads.py and a download asked for with its size: 507). It stays full: never asked again as is.
  */
 const DISK_FULL = /disk is full|no space left|\(507[:)]/i;
+/** A file Afflatus itself held back for want of room on the pod's disk or its volume (roomFor, diskFull). */
+const NO_ROOM = /^(the pod's disk|its volume) is full/;
 /** Room kept free on a pod's disk beside its models: ComfyUI's outputs, its temporary files, the pack's .part files. */
 const DISK_MARGIN = 2 * 2 ** 30;
 /** How often a pod's disk is read again (GET /afflatus/disk): its row says it, and a file is held against it before it starts. */
@@ -165,9 +169,16 @@ export class PodFiles {
     return this.making.get(machine) ?? false;
   }
   private async readMakes(machine: string): Promise<boolean> {
-    const makes = (await this.d.makesRoom?.(machine).catch(() => false)) ?? false;
-    this.making.set(machine, makes);
-    return makes;
+    const [makes, volume] = await Promise.all([this.d.makesRoom?.(machine).catch(() => false), this.d.onVolume?.(machine).catch(() => false)]);
+    this.making.set(machine, makes ?? false);
+    this.onVolumes.set(machine, volume ?? false);
+    return makes ?? false;
+  }
+  /** Each pod's being on a network volume, as last read with its Make room. */
+  private readonly onVolumes = new Map<string, boolean>();
+  /** What is full when a file finds no room: the volume the pod's models are on, or the pod's own disk. */
+  private fullSaid(machine: string): string {
+    return this.onVolumes.get(machine) ? "its volume is full" : "the pod's disk is full";
   }
 
   /**
@@ -274,7 +285,7 @@ export class PodFiles {
       if (room() >= bytes) return null;
     }
     const free = Math.max(0, this.disks.get(machine)!.free - this.underway(machine, but));
-    return `the pod's disk is full: ${gbSaid(free)} free, ${gbSaid(bytes)} needed${makes ? ", and nothing it fetched can be deleted (its waiting jobs need it)" : " (Make room is off)"}`;
+    return `${this.fullSaid(machine)}: ${gbSaid(free)} free, ${gbSaid(bytes)} needed${makes ? ", and nothing it fetched can be deleted (its waiting jobs need it)" : " (Make room is off)"}`;
   }
 
   /**
@@ -300,7 +311,7 @@ export class PodFiles {
     const spare = this.makes(machine) ? (await this.spare(machine, keys)).reduce((n, e) => n + e.total, 0) : 0;
     const room = disk.free - this.underway(machine) - DISK_MARGIN + spare;
     if (need <= room) return null;
-    return `its disk is short: ${gbSaid(need)} to fetch, ${gbSaid(Math.max(0, disk.free - this.underway(machine)))} free${this.makes(machine) ? `, ${gbSaid(spare)} it could delete` : " (Make room is off)"}`;
+    return `${this.onVolumes.get(machine) ? "its volume is short" : "its disk is short"}: ${gbSaid(need)} to fetch, ${gbSaid(Math.max(0, disk.free - this.underway(machine)))} free${this.makes(machine) ? `, ${gbSaid(spare)} it could delete` : " (Make room is off)"}`;
   }
 
   /** The node packs pods get for their jobs, beside the files. */
@@ -556,6 +567,28 @@ export class PodFiles {
   /** A pod's files as its row lists them: needed ones in the order they are fetched, then the ones ahead. */
   view(machine: string): PodFileView[] {
     return this.ordered(machine).map((e) => this.viewOf(e));
+  }
+
+  /**
+   * Files deleted from the pod's volume (the volume viewer): no longer there, and the room they took free again. A file that
+   * failed for want of room goes back in line, its disk is read again before it starts, and the pod's folders are read again.
+   */
+  freed(machine: string, files: ReadonlyArray<{ folder: string; file: string }>): void {
+    const pod = this.pods.get(machine);
+    for (const f of files) if (pod?.get(keyOf(f.folder, f.file))?.state === "ready") pod.delete(keyOf(f.folder, f.file));
+    for (const e of pod?.values() ?? []) {
+      if (e.state !== "failed" || !(NO_ROOM.test(e.error ?? "") || DISK_FULL.test(e.error ?? ""))) continue;
+      e.state = "next";
+      e.bytes = 0;
+      delete e.error;
+      delete e.downloadId;
+      e.roomTried = false;
+    }
+    const d = this.disks.get(machine);
+    if (d) this.disks.set(machine, { ...d, at: 0 });
+    this.d.settled?.(machine);
+    this.d.changed?.();
+    void this.tick();
   }
 
   /** The pod is gone (terminated, stopped, removed): what it was getting is stopped and forgotten. */
@@ -832,7 +865,7 @@ export class PodFiles {
       this.d.changed?.();
       return true;
     }
-    const said = /^the pod's disk/.test(why) ? why : `the pod's disk is full (${why.replace(/^.*?(the disk|no space)/i, "$1").slice(0, 200)})${this.makes(machine) ? "" : "; Make room is off"}`;
+    const said = /^(the pod's disk|its volume) is full/.test(why) ? why : `${this.fullSaid(machine)} (${why.replace(/^.*?(the disk|no space)/i, "$1").slice(0, 200)})${this.makes(machine) ? "" : "; Make room is off"}`;
     return this.fail(machine, e, said);
   }
 

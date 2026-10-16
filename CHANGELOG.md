@@ -4,6 +4,10 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+- **A network volume's Files** (Settings › Rented GPUs, beside the volume's id): what it really holds in its models folders, each folder's size against the volume's, and each file's size, the last render that used it, its Model sets and whether this PC has it; a fuzzy search across folders; files deleted for good to make room, never one a render needs now, the bill unchanged (a volume bills its size). Read through the pod running on it (node pack 0.21.0, `GET /afflatus/models/list`), with no key to set; with no pod running, through RunPod's S3 API with an optional S3 API key (its secret pasted once in Settings; the access key is the account's id, read with the API key), in the data centers RunPod says have it; else as it was last listed. ComfyUI itself and its pictures and videos are never listed nor touched.
+- **Open the volume:** a pod's download refused for want of room on its network volume (the red banner), a waiting render that cannot get its file there, and a pod's Disk row open the volume's Files on the folder of the file, the files no render used in 30 days picked. Once room is made, the file is fetched again by itself. The volume tile says its models' size, in amber past 90 %.
+
 ### Fixed
 - **A pod whose start fails no longer bills on unseen:** a start that stopped at a step (a full volume, a write refused) exited, RunPod started it again, it failed at the same step, and so on with no watchdog, since the watchdog runs inside ComfyUI. It now stays up with its watchdog armed from the pod's settings, as a pod whose GPU fails does: Afflatus terminates it at once when it reads the failed step, and with Afflatus away the pod stops itself after the watchdog's minutes.
 - **The watchdog's stop:** a stop RunPod refuses or does not carry out was asked again every 5 minutes forever. After 3 tries the watchdog terminates the pod instead (a network volume keeps its files); it says so in the console and in `GET /afflatus/alive` (`tries`, `end`).

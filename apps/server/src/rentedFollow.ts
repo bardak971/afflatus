@@ -696,7 +696,7 @@ export class RentedFollow extends RentedBilling {
       const started = Number.isFinite(said) && said > lastEnd ? said : now;
       const from = !last && Number.isFinite(deployedAt) ? Math.min(started, deployedAt) : started;
       // its GPU and its idle minutes kept with it: the Costs tab says the one and weighs a shorter idle against the other
-      await this.db.insertInto("rent_sessions").values({ id: randomUUID(), machine_id: m.id, pod: pod.id, rate: pod.cost || s.rate || 0, started_at: new Date(Math.min(from, now)).toISOString(), ended_at: null, seen_at: iso, gpu: pod.gpu, up_at: null, idle_minutes: m.rented!.idleMinutes, busy_at: null }).execute();
+      await this.db.insertInto("rent_sessions").values({ id: randomUUID(), machine_id: m.id, pod: pod.id, rate: pod.cost || s.rate || 0, started_at: new Date(Math.min(from, now)).toISOString(), ended_at: null, seen_at: iso, gpu: pod.gpu, up_at: null, idle_minutes: m.rented!.idleMinutes, busy_at: null, volume: pod.volumeId || m.rented!.volume || null }).execute();
       s.sessionFrom = Math.min(from, now);
     } else if (open) {
       // closed now when it was seen running a moment ago. One that ended while Afflatus was away (off, asleep) is closed at

@@ -188,6 +188,7 @@ export async function createServices(
     // its ComfyUI is not restarted under work from outside Afflatus either (its own page's): that would be lost with it
     busy: (id) => queue.busyOn(id),
     makesRoom: async (id) => Boolean((await machineOf(id))?.machine.rented?.makeRoom),
+    onVolume: async (id) => Boolean((await machineOf(id))?.machine.rented?.volume),
     // a file there now, or one that failed: the pod's folders and its node list (whose choices name the files) are read
     // again, and its jobs looked at again
     settled: (id) => {

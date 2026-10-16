@@ -76,6 +76,7 @@ import m0074 from "./0074-rent-busy";
 import m0075 from "./0075-kept-bytes";
 import m0076 from "./0076-rent-boot";
 import m0077 from "./0077-pod-outside";
+import m0078 from "./0078-session-volume";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -160,4 +161,5 @@ export const migrations: Record<string, Migration> = {
   "0075_kept_bytes": m0075,
   "0076_rent_boot": m0076,
   "0077_pod_outside": m0077,
+  "0078_session_volume": m0078,
 };

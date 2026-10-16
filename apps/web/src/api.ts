@@ -2,7 +2,7 @@ import { projectForNew, projectParam } from "./project";
 import { unlistOptions, type ListedOptions, type ModelInfo, type RankedGpu } from "@afflatus/core";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
-import type { Advice, DeployOverhead, FillPlan, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumePlan, Job, QueueAnswer, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
+import type { Advice, DeployOverhead, FillPlan, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumeFilesView, VolumePlan, Job, QueueAnswer, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
@@ -243,6 +243,8 @@ export const api = {
   makeVolume: (body: { name: string; size: number; dataCenter: string }) => call<{ volume: NetworkVolume }>("POST", "/runpod/volumes", body),
   growVolume: (id: string, size: number) => call<{ ok: true }>("PATCH", `/runpod/volumes/${encodeURIComponent(id)}`, { size }),
   deleteVolume: (id: string) => call<{ ok: true }>("DELETE", `/runpod/volumes/${encodeURIComponent(id)}`),
+  volumeFiles: (id: string, o?: Asked) => call<VolumeFilesView>("GET", `/runpod/volumes/${encodeURIComponent(id)}/files`, undefined, o?.signal),
+  deleteVolumeFiles: (id: string, keys: string[]) => call<{ deleted: string[]; kept: Array<{ key: string; why: string }> }>("POST", `/runpod/volumes/${encodeURIComponent(id)}/files/delete`, { keys }),
   fillPlan: (id: string, set: string, o?: Asked) => call<FillPlan>("GET", `/runpod/volumes/${encodeURIComponent(id)}/fill?set=${encodeURIComponent(set)}`, undefined, o?.signal),
   fillVolume: (id: string, set: string, accept: string[] = []) => call<{ id: string }>("POST", `/runpod/volumes/${encodeURIComponent(id)}/fill`, { set, accept }),
   /** A GPU deployed, as the dialog asked: billed from now. Its machine's id. */

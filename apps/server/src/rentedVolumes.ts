@@ -44,6 +44,8 @@ export interface VolumeView extends NetworkVolume {
   mountedOn: PodOn[];
   /** What it costs a month, USD, at RunPod's price for a standard volume. */
   perMonth: number;
+  /** Its models' bytes as last listed with sizes (its pod, or the S3 API), and when; null: never listed so. */
+  listed: { bytes: number; at: string } | null;
 }
 
 /**
@@ -99,6 +101,7 @@ export function viewVolumes(volumes: readonly NetworkVolume[], pods: readonly Po
       ...v, usedBy, mountedOn: on, perMonth: Math.round(volumePerMonth(v.size) * 100) / 100,
       holds: k?.keys && k.seenAt && k.seenBy ? { count: k.keys.size, seenAt: k.seenAt, seenBy: k.seenBy } : null,
       usedAt, unused: !usedBy && unusedDays > 0 && now - since >= unusedDays * 86_400_000, lastFill: k?.fill ?? null,
+      listed: k?.listing && k.seenAt ? { bytes: k.listing.reduce((n, f) => n + (f.bytes ?? 0), 0), at: k.seenAt } : null,
     };
   });
 }
@@ -118,12 +121,14 @@ export interface KeptHoldings {
   usedAt: string | null;
   noticedAt: string;
   fill: FillNote | null;
+  /** Its model files as last listed with their sizes; null: never listed so (a pod's listing by names only). */
+  listing: KeptFile[] | null;
 }
 
 /** Every volume's holdings as kept. */
 export async function keptHoldings(db: Db): Promise<Map<string, KeptHoldings>> {
   const rows = await db.selectFrom("volume_files").selectAll().execute();
-  return new Map(rows.map((r) => [r.volume_id, { keys: r.files === null ? null : new Set(JSON.parse(r.files) as string[]), seenAt: r.seen_at, seenBy: r.seen_by, usedAt: r.used_at, noticedAt: r.noticed_at, fill: r.fill_note ? (JSON.parse(r.fill_note) as FillNote) : null }]));
+  return new Map(rows.map((r) => [r.volume_id, { keys: r.files === null ? null : new Set(JSON.parse(r.files) as string[]), seenAt: r.seen_at, seenBy: r.seen_by, usedAt: r.used_at, noticedAt: r.noticed_at, fill: r.fill_note ? (JSON.parse(r.fill_note) as FillNote) : null, listing: r.listing ? (JSON.parse(r.listing) as KeptFile[]) : null }]));
 }
 
 /** The volumes Afflatus sees for the first time, noted with now: one never used is counted unused from then. */
@@ -137,11 +142,57 @@ export async function noticeVolumes(db: Db, volumes: readonly NetworkVolume[], k
 /** A file's key as a volume's listing is kept: its folder and its own name (a subfolder on the pod does not count). */
 const keyOf = (folder: string, file: string) => fileKey({ folder, file: fileName(file) });
 
+/** Where ComfyUI's models are on a volume, as Afflatus's pod image lays it out (deploy/runpod/start.sh: /workspace/comfyui). */
+export const MODELS_PREFIX = "comfyui/models/";
+
+/** The directories ComfyUI reads for another model folder: a file in models/unet is a diffusion model to a Model set. */
+const DIR_FOLDER: Readonly<Record<string, string>> = { unet: "diffusion_models", clip: "text_encoders" };
+
 /**
- * What a volume holds, listed through the ComfyUI of the pod running on it, kept with when and by whom. A folder that
- * does not answer keeps what was seen in it before.
+ * A model file of a volume as its Files list it and as it is kept (volume_files.listing): its path on the volume (`key`,
+ * what S3 names it), the models directory it is in and its name there, its bytes and when it was written (null: not said),
+ * and the model folder ComfyUI knows it by (`comfy`: what the pod's node pack removes it with; null from S3).
+ */
+export interface KeptFile {
+  key: string;
+  folder: string;
+  name: string;
+  bytes: number | null;
+  modified: string | null;
+  comfy: string | null;
+}
+
+/** The model folder a file of a volume belongs to, as Model sets name them: ComfyUI's own when the pod said it. */
+export const folderOf = (f: Pick<KeptFile, "folder" | "comfy">) => f.comfy ?? DIR_FOLDER[f.folder] ?? f.folder;
+
+/** The models folder as the pod's node pack lists it (0.21.0 on), as a volume's files. */
+export function podListing(files: ReadonlyArray<{ folder: string; path: string; bytes: number; modified: number }>): KeptFile[] {
+  return files.flatMap((f) => {
+    const cut = f.path.indexOf("/");
+    if (cut <= 0) return [];
+    return [{ key: `${MODELS_PREFIX}${f.path}`, folder: f.path.slice(0, cut), name: f.path.slice(cut + 1), bytes: f.bytes, modified: f.modified > 0 ? new Date(f.modified * 1000).toISOString() : null, comfy: f.folder }];
+  });
+}
+
+/**
+ * A volume's files as listed with their sizes (its pod, or the S3 API), kept: its holdings (what Fill and Deploy say it
+ * lacks) and its listing (its Files when nothing can read it, its tile's size). `used`: a pod listed it, so it was used now.
+ */
+export async function keepListing(db: Db, volume: string, files: readonly KeptFile[], by: string, used: boolean, now = Date.now()): Promise<void> {
+  const at = new Date(now).toISOString();
+  const keys = JSON.stringify([...new Set(files.map((f) => keyOf(folderOf(f), f.name)))].sort());
+  const row = { files: keys, listing: JSON.stringify(files), seen_at: at, seen_by: by, ...(used ? { used_at: at } : {}) };
+  await db.insertInto("volume_files").values({ volume_id: volume, used_at: null, ...row, noticed_at: at }).onConflict((oc) => oc.column("volume_id").doUpdateSet(row)).execute();
+}
+
+/**
+ * What a volume holds, listed through the ComfyUI of the pod running on it, kept with when and by whom: with sizes when its
+ * node pack lists the models folder (0.21.0 on), else by names through ComfyUI, where a folder that does not answer keeps
+ * what was seen in it before.
  */
 export async function recordHoldings(db: Db, volume: string, comfy: Comfy, by: string, folders: readonly string[], now = Date.now()): Promise<void> {
+  const files = await comfy.client.modelFiles().catch(() => null);
+  if (Array.isArray(files)) return keepListing(db, volume, podListing(files), by, true, now);
   const before = (await keptHoldings(db)).get(volume);
   const lists = await Promise.all(folders.map(async (folder) => ({ folder, names: await comfy.client.models(folder).catch(() => null) })));
   const keys = new Set<string>();
@@ -150,7 +201,7 @@ export async function recordHoldings(db: Db, volume: string, comfy: Comfy, by: s
     else for (const k of before?.keys ?? []) if (k.startsWith(`${folder}|`)) keys.add(k);
   }
   const at = new Date(now).toISOString();
-  const row = { files: JSON.stringify([...keys].sort()), seen_at: at, seen_by: by, used_at: at };
+  const row = { files: JSON.stringify([...keys].sort()), listing: null, seen_at: at, seen_by: by, used_at: at };
   await db.insertInto("volume_files").values({ volume_id: volume, ...row, noticed_at: at }).onConflict((oc) => oc.column("volume_id").doUpdateSet(row)).execute();
 }
 

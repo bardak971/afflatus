@@ -251,3 +251,17 @@ export const rentedUp = (m: { rented?: RentedState | null }) => !m.rented || m.r
 export function podsAdded<P extends { id: string; added: string | null }>(pods: readonly P[], machines: ReadonlyArray<{ id: string; rented?: { pod: string } | null }>): P[] {
   return pods.map((p) => ({ ...p, added: p.added ?? machines.find((m) => m.rented?.pod === p.id)?.id ?? null }));
 }
+
+/** A failure that says the room ran out: on a pod's own disk, or on the network volume its models are on (podFiles.ts, the node pack). */
+export const NO_ROOM = /disk is full|disk is short|volume is (full|short)|no space left|\(507[:)]/i;
+
+/** The network volume a machine's pod runs on, by id, from the settings' machines; null: none, or not a pod. */
+export function volumeOf(machines: ReadonlyArray<{ id: string; rented?: { volume?: string } | null }> | undefined, id: string | null | undefined): string | null {
+  return machines?.find((m) => m.id === id)?.rented?.volume || null;
+}
+
+/**
+ * Where "Open the volume" leads: the volume's Files in Settings › Rented GPUs, on the folder of the file that did not fit,
+ * with the files no render used lately picked (`full`).
+ */
+export const volumeHref = (volume: string, folder?: string) => `/settings/rented?volume=${encodeURIComponent(volume)}&full=1${folder ? `&folder=${encodeURIComponent(folder)}` : ""}`;

@@ -74,6 +74,8 @@ export const envSaid = {
   sqliteWorker: () => process.env.AFFLATUS_SQLITE_WORKER === "1",
   /** RunPod's API, for a pretend RunPod (the demo, the tests). */
   runpodApi: () => process.env.RUNPOD_API_URL,
+  /** RunPod's S3 API of every data center, for a pretend S3 (the demo, the tests). */
+  runpodS3: () => process.env.RUNPOD_S3_URL,
   /** How a pod's ComfyUI is reached, {id} and {port} in it: RunPod's proxy unless set (a pretend RunPod's pods). */
   runpodProxy: () => process.env.RUNPOD_PROXY,
   /** The image a GPU deployed from Afflatus runs with the Afflatus template, when not the one this version names (a test build). */
