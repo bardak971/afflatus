@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PodSession } from "../src/api";
-import { bootSaid, bootSplit, nothingShare, presetWindow, runwayNowSaid, runwaySaid, sessionBits, totalsSaid } from "../src/screens/queue/costsView";
+import { BOOT_SAID, bootSaid, bootSplit, nothingShare, PART_SAID, presetWindow, runwayNowSaid, runwaySaid, sessionBits, totalsSaid } from "../src/screens/queue/costsView";
 
 /** What the Costs tab works out from the server's figures before drawing them (costsView.ts). */
 
@@ -47,6 +47,21 @@ describe("the Costs tab", () => {
     const bits = sessionBits(s, 60 * MIN);
     expect(bits.map((b) => [b.part, b.share])).toEqual([["render", 1 / 6], ["boot", 4 / 60], ["fetch", 0.1], ["idle", 1 / 6]]);
     expect(bits.map((b) => b.tip)).toEqual(["1 render · 10 min", "Booting · 4 min (estimated)", "Fetching 2 files, 26.0 GB · 6 min", "Idle · 10 min"]);
+    // beside boots split in parts, a plain one is drawn as Not split, not in the shade Node packs has
+    const beside = sessionBits(s, 60 * MIN, true);
+    expect(beside.map((b) => [b.key, b.share])).toEqual([["render", 1 / 6], ["boot-boot", 4 / 60], ["fetch", 0.1], ["idle", 1 / 6]]);
+    expect(beside[1]!.color).toBe(BOOT_SAID.find((p) => p.part === "boot")!.color);
+    expect(beside[1]!.tip).toBe("Booting · 4 min (estimated)");
+  });
+
+  it("draws every part and every part of a boot apart, the boot's in Booting's own hue and a failed start striped", () => {
+    // Booting itself is drawn only where no boot was split, so its parts (Node packs in its very shade) never sit beside it
+    const colours = [...PART_SAID.filter((p) => p.part !== "boot").map((p) => p.color), ...BOOT_SAID.map((p) => p.color)];
+    expect(new Set(colours).size).toBe(colours.length);
+    for (const b of BOOT_SAID) expect(b.color, b.name).toContain("var(--color-boot)");
+    expect(PART_SAID.find((p) => p.part === "boot")!.color).toBe("var(--color-boot)");
+    expect(BOOT_SAID.find((p) => p.part === "startFailed")!.color).toMatch(/^repeating-linear-gradient\(.*var\(--color-warn\)/);
+    expect(PART_SAID.find((p) => p.part === "failed")!.color).toBe("var(--color-warn)");
   });
 
   it("a boot kept in parts: its bits in Booting's place, each with its tip; its open row's line with time and cost", () => {

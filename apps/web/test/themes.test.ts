@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chartColours, contrast, FAMILIES, hueGap, LEGIBLE, legible, mix, themeById, THEMES, TINT, tokensOf, VISIBLE, WARN_GAP, warnFor } from "../src/theme/themes";
+import { bootColour, chartColours, contrast, FAMILIES, hueGap, LEGIBLE, legible, mix, themeById, THEMES, TINT, tokensOf, VISIBLE, WARN_GAP, warnFor } from "../src/theme/themes";
 
 describe("the themes' text", () => {
   // every theme, with every accent it offers: the inks and the accent (links, picked items) read on the panels and on the page
@@ -88,6 +88,22 @@ describe("the charts' colours", () => {
   it("starts with the accent in use", () => {
     expect(chartColours(themeById("mocha"), "teal")[0]).toBe("#94e2d5");
     expect(hueGap(chartColours(themeById("latte"), "yellow")[0]!, "#df8e1d")).toBeLessThan(3);
+  });
+});
+
+describe("Queue › Costs' boot colour", () => {
+  it("stands apart in hue from the accent, the picture blue and the warning, and is seen on a light theme", () => {
+    for (const theme of THEMES) {
+      for (const accent of Object.keys(theme.accents)) {
+        const t = tokensOf(theme, accent);
+        const raw = theme.accents[accent]!;
+        const warn = warnFor(theme, raw);
+        expect(t.boot, `${theme.id} ${accent}`).toBe(bootColour(theme, raw, warn));
+        // never one of the three it is drawn beside
+        for (const beside of [raw, theme.base.picture, warn]) expect(hueGap(t.boot, beside), `${theme.id} ${accent}`).toBeGreaterThanOrEqual(20);
+        if (theme.light) for (const on of [t.panel, t.ground]) expect(contrast(t.boot, on), `${theme.id} ${accent}`).toBeGreaterThanOrEqual(VISIBLE);
+      }
+    }
   });
 });
 

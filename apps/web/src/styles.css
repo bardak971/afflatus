@@ -32,6 +32,8 @@
   /* the colour of shadows */
   --color-shade: #000000;
   --color-picture: #86aeff;
+  /* what Queue › Costs draws a pod's boot in: a hue apart from the accent, the picture blue and the warning */
+  --color-boot: #b9a2e0;
   /* what pictures and videos are shown on: a near black that sways no colour, in every theme */
   --color-stage: #08090b;
 }

@@ -11,7 +11,7 @@ export const TOKENS = [
   "ink", "ink-2", "ink-3", "ink-strong",
   "accent", "accent-ink", "accent-wash",
   "good", "warn", "warn-wash", "warn-ink", "warn-on",
-  "picture", "shade", "knob", "stage",
+  "picture", "shade", "knob", "stage", "boot",
 ] as const;
 
 type Warning = Pick<Tokens, "warn" | "warn-wash" | "warn-ink">;
@@ -27,7 +27,7 @@ export interface Theme {
   /** Of a light theme: the dark theme whose tokens go on everything marked `data-stage`. */
   stage?: string;
   /** Everything but the accent. Its `stage` is what pictures and videos are shown on: near black in every theme. */
-  base: Omit<Tokens, "accent" | "accent-ink" | "accent-wash" | "knob">;
+  base: Omit<Tokens, "accent" | "accent-ink" | "accent-wash" | "knob" | "boot">;
   /** The family's reds and oranges a warning can be in, its own first: another is taken when the accent is too like it. */
   alerts: string[];
   /** The warning's tokens in one of `alerts`. */
@@ -351,6 +351,19 @@ export function warnFor(theme: Theme, accent: string): string {
   return theme.alerts.reduce((best, c) => (hueGap(accent, c) > hueGap(accent, best) ? c : best), own);
 }
 
+/**
+ * What Queue › Costs draws a pod's boot in (its parts in shades of it): of the theme's accents, the one whose hue stands
+ * furthest from the three it is drawn beside (the accent in use for rendering, the picture blue for fetching, the warning
+ * for failed renders), so that a boot never reads as one of them whatever the accent. On a light theme it is taken just
+ * dark enough to be seen on the cards and the page, as a chart's series are.
+ */
+export function bootColour(theme: Theme, accent: string, warn: string): string {
+  const beside = [accent, theme.base.picture, warn];
+  const far = (c: string) => Math.min(...beside.map((b) => hueGap(c, b)));
+  const best = Object.values(theme.accents).reduce((a, c) => (far(c) > far(a) ? c : a));
+  return theme.light ? legible(best, [theme.base.panel, theme.base.raised, theme.base.ground], true, VISIBLE) : best;
+}
+
 /** A theme's tokens with an accent of its family (its first one when the name is not one of its own). */
 export function tokensOf(theme: Theme, accent: string | undefined): Tokens {
   const name = accent && accent in theme.accents ? accent : Object.keys(theme.accents)[0]!;
@@ -387,5 +400,6 @@ export function tokensOf(theme: Theme, accent: string | undefined): Tokens {
     "accent-wash": wash,
     // the knob of a switch that is on: whatever is written on the accent
     knob: written,
+    boot: bootColour(theme, theme.accents[name]!, warn),
   };
 }

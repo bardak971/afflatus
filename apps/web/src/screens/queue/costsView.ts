@@ -31,22 +31,27 @@ export function presetWindow(label: string, now = Date.now()): { from: number; t
 /** The parts in the order they are drawn and said, with their names and colours (theme tokens). */
 export const PART_SAID: ReadonlyArray<{ part: CostPart; name: string; color: string }> = [
   { part: "render", name: "Rendering", color: "var(--color-accent)" },
-  { part: "boot", name: "Booting", color: "var(--color-ink-3)" },
+  { part: "boot", name: "Booting", color: "var(--color-boot)" },
   { part: "fetch", name: "Fetching files", color: "var(--color-picture)" },
-  { part: "idle", name: "Idle", color: "color-mix(in srgb, var(--color-warn) 45%, var(--color-ink-2))" },
+  { part: "idle", name: "Idle", color: "var(--color-ink-3)" },
   { part: "failed", name: "Failed renders", color: "var(--color-warn)" },
 ];
 
+/** Booting's palest shade, behind the stripes of the two that are striped. */
+const BOOT_PALE = "color-mix(in srgb, var(--color-boot) 30%, var(--color-panel))";
 /**
- * Booting's parts in the order they are drawn and said, each a shade of Booting's colour (a failed start toward the warning's):
- * in its place in the bars, its legend under Booting's.
+ * Booting's parts in the order they are drawn and said, in Booting's own hue so that they read as one apart from rendering,
+ * fetching and idle: toward the ink, as it is, toward the card. A failed start is the warning striped on Booting's palest,
+ * so that it never reads as a failed render's plain warning (by its stripes too, where red and the hue look alike); a boot
+ * not split is Booting striped on its palest, the parts it holds not known. In its place in the bars, its legend under
+ * Booting's: a background, not a colour, for the stripes.
  */
 export const BOOT_SAID: ReadonlyArray<{ part: BootPart; name: string; color: string }> = [
-  { part: "pull", name: "Pulling the image", color: "color-mix(in srgb, var(--color-ink-3) 55%, var(--color-line))" },
-  { part: "packs", name: "Node packs", color: "color-mix(in srgb, var(--color-ink-3) 70%, var(--color-ink))" },
-  { part: "comfy", name: "Starting ComfyUI", color: "var(--color-ink-3)" },
-  { part: "startFailed", name: "Failed starts", color: "color-mix(in srgb, var(--color-warn) 75%, var(--color-ink))" },
-  { part: "boot", name: "Not split", color: "color-mix(in srgb, var(--color-ink-3) 80%, var(--color-ink-2))" },
+  { part: "pull", name: "Pulling the image", color: "color-mix(in srgb, var(--color-boot) 55%, var(--color-ink))" },
+  { part: "packs", name: "Node packs", color: "var(--color-boot)" },
+  { part: "comfy", name: "Starting ComfyUI", color: "color-mix(in srgb, var(--color-boot) 50%, var(--color-panel))" },
+  { part: "startFailed", name: "Failed starts", color: `repeating-linear-gradient(135deg, var(--color-warn) 0 3px, ${BOOT_PALE} 3px 6px)` },
+  { part: "boot", name: "Not split", color: `repeating-linear-gradient(135deg, var(--color-boot) 0 3px, ${BOOT_PALE} 3px 6px)` },
 ];
 
 /** A name within a line: its first letter small ("Starting ComfyUI" → "starting ComfyUI"). */
@@ -97,9 +102,10 @@ export function runwayWhy(perDay: { pods: number; storage: number }): string {
 
 /**
  * A session's bar: each part's share of the longest session's length (0 to 1), and its tip; parts it did not have left out.
- * Its Booting in its parts where they were kept.
+ * Its Booting in its parts where they were kept. Where other boots of the window were split (`split`), a boot all plain is
+ * drawn as Not split: in Booting's own shade it would read as Node packs beside them.
  */
-export function sessionBits(s: PodSession, longest: number): Array<{ key: string; part: CostPart; share: number; color: string; tip: string }> {
+export function sessionBits(s: PodSession, longest: number, split = false): Array<{ key: string; part: CostPart; share: number; color: string; tip: string }> {
   const guessed = (part: CostPart) => (s.estimated.some((e) => (part === "boot" ? e.startsWith("its boot") : part === "fetch" ? e.startsWith("its files") : false)) ? " (estimated)" : "");
   const done = s.renders.filter((r) => r.status === "done").length;
   const failed = s.renders.length - done;
@@ -110,7 +116,8 @@ export function sessionBits(s: PodSession, longest: number): Array<{ key: string
     : part === "failed" ? `${plural(failed, "failed render")} · ${long(ms)}`
     : `Idle · ${long(ms)}`;
   const share = (ms: number) => (longest > 0 ? ms / longest : 0);
-  const boots = bootSplit(s.boot);
+  const own = bootSplit(s.boot);
+  const boots = own.length || !split ? own : BOOT_SAID.filter((p) => s.boot[p.part] > 0);
   return PART_SAID.filter((p) => s.parts[p.part] > 0).flatMap((p) =>
     p.part === "boot" && boots.length
       ? boots.map((b) => ({ key: `boot-${b.part}`, part: p.part, share: share(s.boot[b.part]), color: b.color, tip: bootTip(s, b.part, s.boot[b.part]) }))
