@@ -15,6 +15,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **The ComfyUI lock:** a ComfyUI locked through its lock file stops, naming the file and `AFFLATUS_LOCK=off`, if the lock cannot be put in front of its server (it ran open before; a pod's environment token already stopped it). A renewed token is in force at once, also on a disk whose clock ticks coarsely (FAT, exFAT, some network shares).
 
 ### Changed
+- **Afflatus's pod image 0.1.15: ComfyUI 0.41.2** (was 0.37.0), the release Afflatus is now tested against, and what Drama-3's voice nodes (0.40) and Veda Sparse Attention (0.38) need.
 - **Afflatus's pod image 0.1.14:** the node pack 0.21.0, whose model listing lets a volume's Files read and clean a volume through the pod running on it.
 - **Afflatus's pod image 0.1.13:** the node pack 0.20.0 and the fixes above, and the boot steps' count (`pip: ComfyUI-KJNodes (3/14)`) the 0.5.0 notes describe, which 0.1.12 did not have yet. A published image is built only with Manager's registry list in it (a pod of an image without it waits on billed time before Manager can install a pack by name), and a release checks that the pod image it deploys is built from its own pod files.
 
