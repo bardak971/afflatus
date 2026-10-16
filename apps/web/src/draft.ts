@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { create } from "zustand";
+import { formsWithout } from "@afflatus/core";
 import { api, failure, lookAdds, raw, type Draft } from "./api";
 import { KEEPALIVE_MAX, useAutosave } from "./autosave";
 import { useDrafts } from "./data";
@@ -10,6 +12,18 @@ import { queryKeys } from "./queryKeys";
 import { failedBanner } from "./sayFailed";
 
 const SAVE_AFTER_MS = 500;
+
+/**
+ * Drafts changed on the server by something else than their form (library items taken out of them, drafts deleted, so
+ * that the items could go to the bin: draftUse.ts): the draft open on screen follows, else its next save would write the
+ * items back, or make a deleted draft again.
+ */
+export const useDraftsChanged = create<{ n: number; released: string[]; deleted: string[]; say(c: { released?: string[]; deleted?: string[] }): void }>()((set) => ({
+  n: 0,
+  released: [],
+  deleted: [],
+  say: (c) => set((s) => ({ n: s.n + 1, released: c.released ?? [], deleted: c.deleted ?? [] })),
+}));
 
 /** Nothing was done in it: no value set, nobody in it, no conversation, no name. Such a draft is not worth keeping. */
 const holdsNothing = (d: Draft) =>
@@ -206,6 +220,24 @@ export function useDraft(firstRecipe: string | undefined) {
     },
     [unsaved, schedule],
   );
+
+  // items taken out of the drafts, or drafts deleted, for the bin: the open one follows on screen (its save then holds them no more)
+  const changedElsewhere = useDraftsChanged((s) => s.n);
+  useEffect(() => {
+    if (!changedElsewhere) return;
+    const { released, deleted } = useDraftsChanged.getState();
+    const d = shown.current;
+    if (!d) return;
+    if (deleted.includes(d.id)) {
+      unsaved.current = null;
+      setDraft(null);
+      open(null);
+    } else if (released.length) {
+      const forms = formsWithout(d.forms, new Set(released));
+      if (JSON.stringify(forms) !== JSON.stringify(d.forms)) change((x) => ({ ...x, forms }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only each change said, not the draft's own edits
+  }, [changedElsewhere]);
 
   /**
    * An edit for one draft by its id, whichever is open when it lands: the open one is changed on screen; another

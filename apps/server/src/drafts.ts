@@ -1,5 +1,5 @@
 import { chatJson } from "./llm";
-import type { Recipe } from "@afflatus/core";
+import { formsWithout, type Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { NOT_IN_LIBRARY } from "./library";
@@ -54,6 +54,22 @@ async function liveLook(db: Db, look: Look | null | undefined): Promise<Look | n
   const ids = [...look.cast.map((c) => c.id), ...(look.style ? [look.style] : []), ...look.snippets];
   const there = new Set((await db.selectFrom("entities").select("id").where("id", "in", ids).execute()).map((e) => e.id));
   return { ...look, cast: look.cast.filter((c) => there.has(c.id)), style: look.style && there.has(look.style) ? look.style : null, snippets: look.snippets.filter((x) => there.has(x)) };
+}
+
+const idsBody = z.strictObject({ ids: z.array(z.string().regex(/^[0-9a-f]{32}$/)).min(1).max(2000) });
+const ID_IN_JSON = /"([0-9a-f]{32})"/g;
+
+/** The drafts that use any of these items (their forms name one, or they edit one), with which; by when they were last saved. */
+export async function draftsUsing(db: Db, ids: ReadonlySet<string>): Promise<Array<{ id: string; name: string; assets: string[] }>> {
+  const rows = await db.selectFrom("drafts").select(["id", "name", "title", "forms", "target"]).orderBy("updated_at", "desc").execute();
+  const out: Array<{ id: string; name: string; assets: string[] }> = [];
+  for (const d of rows) {
+    const named = new Set([...d.forms.matchAll(ID_IN_JSON)].map((m) => m[1]!).filter((id) => ids.has(id)));
+    const edits = /^asset:([0-9a-f]{32})$/.exec(d.target)?.[1];
+    if (edits && ids.has(edits)) named.add(edits);
+    if (named.size) out.push({ id: d.id, name: d.name ?? d.title, assets: [...named] });
+  }
+  return out;
 }
 
 /** Drafts are kept until deleted, but the list shows the recent ones. */
@@ -301,6 +317,35 @@ export function registerDrafts(app: FastifyInstance, s: Services): void {
     } else pending.set(current.id, after);
     return full(after);
   };
+
+  /**
+   * The drafts that use these library items, asked before deleting them (the bin refuses an item a draft still uses):
+   * each with the items it uses, as sweep.ts inUse finds them (an id anywhere in its forms, or the item it edits).
+   */
+  app.post("/api/drafts/using", async (req) => {
+    const { ids } = idsBody.parse(req.body);
+    return { drafts: await draftsUsing(s.db, new Set(ids)) };
+  });
+
+  /**
+   * These library items taken out of every draft that uses them: an input that held one follows its default again, and a
+   * draft that edits one becomes a new picture. Each draft in its own save's turn, so that a save under way is not lost.
+   */
+  app.post("/api/drafts/release", async (req) => {
+    const ids = new Set(idsBody.parse(req.body).ids);
+    let changed = 0;
+    for (const d of await draftsUsing(s.db, ids)) {
+      await oneAtATime(s.db, `draft:${d.id}`, async () => {
+        const row = await findDraft(s.db, d.id);
+        if (!row) return;
+        const forms = formsWithout(JSON.parse(row.forms) as Record<string, Record<string, unknown>>, ids);
+        const target = ids.has(row.target.replace(/^asset:/, "")) ? "new" : row.target;
+        await s.db.updateTable("drafts").set({ forms: JSON.stringify(forms), target, title: titleOf(s.registry.recipe(row.recipe_id), forms), updated_at: now() }).where("id", "=", row.id).execute();
+        changed++;
+      });
+    }
+    return { changed };
+  });
 
   app.delete<{ Params: { id: string } }>("/api/drafts/:id", async (req) => oneAtATime(s.db, `draft:${req.params.id}`, async () => {
     await get(req.params.id);

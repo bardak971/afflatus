@@ -44,6 +44,15 @@ export function ConfirmDialog({ open }: { open: Open }) {
       <Dialog label={open.title} onClose={() => open.answer(null)} z="z-[95]" className={DIALOG.replace("max-w-md", "max-w-lg")}>
         <DialogHead icon={<CircleAlert size={16} />} tone="warn" title={open.title} />
         <p className="m-0 whitespace-pre-line text-ink-2">{open.text}</p>
+        {open.links && open.links.length > 0 && (
+          <ul className="m-0 flex max-h-48 list-none flex-col gap-1 overflow-y-auto p-0">
+            {open.links.map((l, i) => (
+              <li key={i}>
+                <button type="button" className="max-w-full truncate text-left font-semibold text-accent hover:underline" onClick={() => { open.answer(null); l.run(); }}>{l.label}</button>
+              </li>
+            ))}
+          </ul>
+        )}
         <DialogFoot>
           <Button autoFocus onClick={() => open.answer(null)}>{open.no} <Keys keys="Esc" size="sm" /></Button>
           {open.choices.map((c) => <Button key={c.value} onClick={() => open.answer(c.value)}>{c.label}</Button>)}

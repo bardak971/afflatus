@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api, type Folder, type Project } from "./api";
 import { applyChange, itemsWord, placeName, placesBefore, rollback, type Seats } from "./assetCache";
+import { clearDraftUse } from "./draftUse";
 import type { AssetChange } from "./queryKeys";
 import { moves } from "./leave";
 import { failedBanner } from "./sayFailed";
@@ -88,6 +89,8 @@ export interface ChangeOptions {
  */
 export async function changeAssets(client: QueryClient, c: AssetChange, opts: ChangeOptions = {}): Promise<boolean> {
   if (!c.ids.length) return true;
+  // the bin refuses an item a draft still uses: the drafts in the way are asked about first (an Undo's own bin is not)
+  if (c.kind === "bin" && !opts.quiet && !(await clearDraftUse(client, c.ids))) return false;
   const say = useBanners.getState().push;
   for (const id of c.ids) {
     const old = refusedFor.get(id);
@@ -110,7 +113,11 @@ export async function changeAssets(client: QueryClient, c: AssetChange, opts: Ch
     // seconds; a refusal takes this banner back and says why instead
     const said = opts.quiet ? null : sayDone(client, c, before, left);
     try {
-      await send(c);
+      const answer = (await send(c)) as { inUse?: number } | undefined;
+      // several at once: what something else still uses (a timeline, the kit, a job to run) stayed where it was
+      if (c.kind === "bin" && answer?.inUse) {
+        say({ id: bannerId("spared"), tone: "bad", title: `${itemsWord(answer.inUse)} stayed out of the bin`, text: "Still in use by a timeline, the Prompt kit or a job still to run." });
+      }
     } catch (err) {
       rollback(client, snap);
       if (said) useBanners.getState().dismiss(said);

@@ -14,6 +14,7 @@ import { deleteQuestion } from "./kindActions";
 import { planBin, planDrop, type Moving, type Row, type Target } from "./tree";
 import { insteadOfWaiting, restorable } from "../keepFor";
 import { queryKeys } from "../queryKeys";
+import { clearDraftUse } from "../draftUse";
 
 /** Before a folder of the disk is unlinked: the question both folder trees ask (the folder panel's and the Projects panel's). */
 const askUnlink = (name: string) =>
@@ -113,6 +114,8 @@ export function useTreeActions() {
         return;
       }
       const binned = list.filter((r) => r.kind === "item").length;
+      // the bin refuses an item a draft still uses: those drafts asked about first, as for items alone (assetChange.tsx)
+      if (binned && !(await clearDraftUse(client, list.filter((r) => r.kind === "item").map((r) => r.id!)))) return;
       const ok = await run(one ? `${list[0]!.label} could not be deleted` : "Some could not be deleted", async () => {
         const items = list.filter((r) => r.kind === "item").map((r) => r.id!);
         if (items.length) await api.bulkAssets(items, "bin");

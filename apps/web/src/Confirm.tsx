@@ -26,6 +26,8 @@ interface ChoiceQuestion {
   title: string;
   text: string;
   choices: Array<{ value: string; label: string }>;
+  /** Places to look at first, listed under the text (the drafts that use an item): one answers null and goes there. */
+  links?: Array<{ label: string; run(): void }>;
   /** What the button that does nothing says. */
   no: string;
 }

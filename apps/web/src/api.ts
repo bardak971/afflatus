@@ -414,7 +414,12 @@ export const api = {
   asset: (id: string, o?: Asked) => call<AssetDetail>("GET", `/assets/${id}`, undefined, o?.signal),
   keep: (id: string, kept: boolean) => call<Asset>("POST", `/assets/${id}/keep`, { kept }),
   /** Several items at once: kept or not, to the bin, or back from it. */
-  bulkAssets: (ids: string[], action: "keep" | "unkeep" | "bin" | "restore") => call<{ changed: number }>("POST", "/assets/bulk", { ids, action }),
+  /** `inUse`: how many were left as they were because something still uses them (a timeline, the kit, a draft, a job to run). */
+  bulkAssets: (ids: string[], action: "keep" | "unkeep" | "bin" | "restore") => call<{ changed: number; inUse?: number }>("POST", "/assets/bulk", { ids, action }),
+  /** The drafts that use these items (their forms name one, or they edit one), with which, the last saved first. */
+  draftsUsing: (ids: string[]) => call<{ drafts: Array<{ id: string; name: string; assets: string[] }> }>("POST", "/drafts/using", { ids }),
+  /** These items taken out of every draft that uses them: the fields that held one follow their default again. */
+  releaseFromDrafts: (ids: string[]) => call<{ changed: number }>("POST", "/drafts/release", { ids }),
   bin: (id: string) => call<{ ok: true }>("DELETE", `/assets/${id}`),
   restore: (id: string) => call<Asset>("POST", `/assets/${id}/restore`),
   /** The drafts of the project the app looks at (see project.ts). */
