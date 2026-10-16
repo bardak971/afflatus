@@ -148,7 +148,7 @@ export const h3Inputs: InputSpec[] = [
   ...COLOUR_MATCH_INPUTS,
   {
     id: "upscaleDenoise", type: "number", label: "Upscale denoise", min: 0.05, max: 0.6, step: 0.01, default: 0.15, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
-    note: "denoising strength of the re-sampling, on the model's shift: at shift 11, 0.15 starts near sigma 0.66 (DaSiWa's tiled upscaler runs about 0.6), 0.3 near 0.82. More draws more detail but shifts colour and light and lets each tile decide on its own. A plain resize of the latent (no H3 latent upscaler file) needs 0.3 or more, else it stays soft",
+    note: "denoising strength of the re-sampling, on the model's shift: at shift 11, 0.15 starts near sigma 0.66, 0.3 near 0.82. More draws more detail but shifts colour and light and lets each tile decide on its own. A plain resize of the latent (no H3 latent upscaler file) needs 0.3 or more, else it stays soft",
   },
   { id: "upscaleSteps", type: "number", label: "Upscale steps", min: 1, max: 6, step: 1, default: 2, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "steps of the re-sampling: 1 only sharpens, 2 adds detail, more is rarely worth it; each step is a pass over the whole clip" },
   {

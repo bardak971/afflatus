@@ -7,7 +7,7 @@ describe("the render search's grammar", () => {
   it("reads keys and the words left, in any order", () => {
     expect(keys("video: harbor")).toEqual(["video"]);
     expect(parseSearch("video: harbor").words).toBe("harbor");
-    expect(keys("image: lora:dasiwa_v2 kept since:3d")).toEqual(["image", "lora=dasiwa_v2", "kept", "since=3d"]);
+    expect(keys("image: lora:warm_light_v2 kept since:3d")).toEqual(["image", "lora=warm_light_v2", "kept", "since=3d"]);
     expect(keys('prompt:"red bicycle" klein', ["klein"])).toEqual(["prompt=red bicycle", "model=klein?"]);
     expect(parseSearch('prompt:"red bicycle" studio').words).toBe("studio");
   });
@@ -42,7 +42,7 @@ describe("the render search's grammar", () => {
 
   it("writes a chosen key or value in place of what was being typed", () => {
     expect(completeLast("image: lo", "lora:")).toBe("image: lora:");
-    expect(completeLast("lora:da", `lora:${valueText("dasiwa v2")}`)).toBe('lora:"dasiwa v2" ');
+    expect(completeLast("lora:wa", `lora:${valueText("warm light v2")}`)).toBe('lora:"warm light v2" ');
     expect(completeLast("video: ", "kept")).toBe("video: kept ");
     expect(completeLast("", "lora:")).toBe("lora:");
     expect(without("video: model:wan kept since:today harbor", parseSearch("video: model:wan kept since:today harbor").tokens[3]!)).toBe("video: model:wan kept harbor");

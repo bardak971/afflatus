@@ -25,9 +25,8 @@ export const isH3Layout = (text: string) => /integrated_multimodal_description:|
 
 /**
  * Said before the description of a clip that carries on from another: what its opening frames are and what to keep
- * across the join. The idea is DaSiWa's continuity runtime's (the words are ours); measured 2026-10-08 on a full-step
- * chain it kept a little more detail (+9 %) on top of the exact latent. Not shown in the form: it is the same for every
- * continuation, and a text already in H3's layout is sent as written.
+ * across the join. Measured 2026-10-08 on a full-step chain, it kept a little more detail (+9 %) on top of the exact
+ * latent. Not shown in the form: it is the same for every continuation, and a text already in H3's layout is sent as written.
  */
 function continuationPreamble(c: { overlap: number; seconds: number; lands: boolean }): string {
   const s = (n: number) => n.toFixed(2);

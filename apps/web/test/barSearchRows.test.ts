@@ -7,7 +7,7 @@ import { filterOf, keyRows, loosened, resultSections, valueRows, type SearchData
 
 const families = [{ id: "klein", name: "FLUX.2 Klein" }, { id: "sdxl", name: "SDXL" }] as FamilyInfo[];
 const used = {
-  loras: [{ file: "loras/dasiwa_v2.safetensors", count: 12 }, { file: "film-grain.safetensors", count: 1 }],
+  loras: [{ file: "loras/warm_light_v2.safetensors", count: 12 }, { file: "film-grain.safetensors", count: 1 }],
   models: [{ file: "illustrious-xl.safetensors", count: 30 }],
 };
 const place = (kind: "project" | "folder", id: string, label: string, inbox?: true): Item => ({
@@ -26,7 +26,7 @@ describe("the render search's keys as the library's list query", () => {
   });
 
   it("finds a LoRA, a model and a place by part of their name", () => {
-    expect(of("lora:dasiwa").filter.lora).toBe("loras/dasiwa_v2.safetensors");
+    expect(of("lora:warm").filter.lora).toBe("loras/warm_light_v2.safetensors");
     expect(of("model:klein").filter.family).toBe("klein");
     expect(of("model:flux.2").filter.family).toBe("klein");
     expect(of("model:illustrious").filter.model).toBe("illustrious-xl.safetensors");
@@ -39,7 +39,7 @@ describe("the render search's keys as the library's list query", () => {
   it("says a value that names nothing, and a minus it cannot read", () => {
     expect(of("lora:zzz").missing.map((t) => t.key)).toEqual(["lora"]);
     expect(of("since:soon").missing.map((t) => t.key)).toEqual(["since"]);
-    expect(of("-lora:dasiwa").unsupported.map((t) => t.key)).toEqual(["lora"]);
+    expect(of("-lora:warm").unsupported.map((t) => t.key)).toEqual(["lora"]);
     expect(of("-kept").filter.unkept).toBe(true);
   });
 
@@ -62,8 +62,8 @@ describe("the render search's rows", () => {
 
   it("lists a key's values, the most used first, each writing its value and naming what Tab acts on", () => {
     const [loras] = valueRows(data("lora:"), "lora", "");
-    expect(loras!.rows.map((r) => [r.label, r.meta, r.complete])).toEqual([["dasiwa_v2", "12 renders", "lora:dasiwa_v2 "], ["film-grain", "1 render", "lora:film-grain "]]);
-    expect(loras!.rows[0]!.value).toEqual({ kind: "lora", file: "loras/dasiwa_v2.safetensors" });
+    expect(loras!.rows.map((r) => [r.label, r.meta, r.complete])).toEqual([["warm_light_v2", "12 renders", "lora:warm_light_v2 "], ["film-grain", "1 render", "lora:film-grain "]]);
+    expect(loras!.rows[0]!.value).toEqual({ kind: "lora", file: "loras/warm_light_v2.safetensors" });
     const [fams] = valueRows(data("model:kl"), "model", "kl");
     expect(fams!.rows.map((r) => r.complete)).toEqual(["model:klein "]);
     expect(valueRows(data('in:"night'), "in", "night")[0]!.rows.map((r) => r.complete)).toEqual(['in:"night shots" ']);

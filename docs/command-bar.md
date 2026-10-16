@@ -61,7 +61,7 @@ Anywhere in plain search, `key:value` words find renders: the library's own list
 | --- | --- | --- |
 | `image:` `video:` `sound:` | that kind | `video: harbor` |
 | `prompt:` | renders whose prompt holds the words; its values are the last prompts rendered (`"` typed first) | `prompt:"red bicycle"` |
-| `lora:` | made with a LoRA (part of its name); its values are the library's LoRAs, the most used first | `lora:dasiwa` |
+| `lora:` | made with a LoRA (part of its name); its values are the library's LoRAs, the most used first | `lora:warm` |
 | `model:` | a model family (`klein`, `h3`) or a model file | `model:wan` |
 | `draft:` | made from a draft | `draft:harbor` |
 | `in:` | in a project, a folder or the Inbox (`#` typed first) | `in:showcase` |

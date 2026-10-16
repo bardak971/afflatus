@@ -1,6 +1,6 @@
 /**
  * The bar's render search, read by fixed rules from what is typed (docs/command-bar.md, "Searching renders"): keys and
- * their values (`video:`, `lora:dasiwa_v2`, `prompt:"red bicycle"`, `since:3d`, `kept`), a `-` in front to leave out, and
+ * their values (`video:`, `lora:warm_light_v2`, `prompt:"red bicycle"`, `since:3d`, `kept`), a `-` in front to leave out, and
  * the words left, which look in a render's name and its prompt. Pure, run at every keystroke; what the keys mean to the
  * server is said in `toQuery`.
  */

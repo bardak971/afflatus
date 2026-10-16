@@ -64,7 +64,7 @@ describe("NAG on LTX", () => {
 });
 
 describe("H3's re-sample defaults", () => {
-  it("start light: 0.15 in 2 steps (near sigma 0.66 at shift 11, what DaSiWa's tiled upscaler runs)", () => {
+  it("start light: 0.15 in 2 steps (near sigma 0.66 at shift 11)", () => {
     const parsed = parseInput(h3Video, { description: "a" }) as { upscaleDenoise: number; upscaleSteps: number };
     expect(parsed.upscaleDenoise).toBe(0.15);
     expect(parsed.upscaleSteps).toBe(2);

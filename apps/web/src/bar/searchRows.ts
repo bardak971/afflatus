@@ -35,7 +35,7 @@ export interface SearchData {
   newer?(file: string): UpdateRow | undefined;
 }
 
-/** A file's name as it is typed: no folder, no extension ("loras/dasiwa_v2.safetensors" → dasiwa_v2). */
+/** A file's name as it is typed: no folder, no extension ("loras/warm_light_v2.safetensors" → warm_light_v2). */
 export const stem = (file: string) => file.replace(/^.*[\\/]/, "").replace(/\.[a-z0-9]+$/i, "");
 
 /** The best of `list` for what was typed: the same name, else one that begins with it, else one that holds it. */
