@@ -118,6 +118,18 @@ describe("money safety", () => {
     expect((await readSettings(t.db)).machines.find((m) => m.id === id)?.rented?.closedPorts).toEqual([]);
   });
 
+  it("takes a page write of its Make room box, and keeps a rented machine the page's list leaves out", async () => {
+    const ia = await add(podA().id);
+    const ib = await add(podB().id);
+    expect((await readSettings(t.db)).machines.find((m) => m.id === ia)?.rented?.makeRoom).toBe(false);
+    // the card sends the whole list, as the page has it: pod A's box ticked, pod B left out (a stale list)
+    const machines = (await readSettings(t.db)).machines.filter((m) => m.id !== ib).map(({ token: _token, ...m }) => (m.id === ia ? { ...m, rented: { ...m.rented!, makeRoom: true } } : m));
+    expect((await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines } })).statusCode).toBe(200);
+    const after = (await readSettings(t.db)).machines;
+    expect(after.find((m) => m.id === ia)?.rented?.makeRoom).toBe(true);
+    expect(after.find((m) => m.id === ib)?.rented?.pod).toBe(podB().id);
+  });
+
   it("deletes the pod's secret however it is terminated: by its idle, or on RunPod", async () => {
     podB().diskGb = 0;
     const ia = await add(podA().id);

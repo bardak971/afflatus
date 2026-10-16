@@ -18,7 +18,7 @@ import { plural, size, usd } from "../../format";
 import { rowKeys } from "../../keys/table";
 import { projectForNew, useProject } from "../../project";
 import { unloadBlock } from "../../queueRules";
-import { machineByName, machineLabel, machineUnloadBlock, rateSaid, rentedSaid } from "../../machines";
+import { machineByName, machineLabel, machinesByName, machineUnloadBlock, rateSaid, rentedSaid } from "../../machines";
 import type { Target } from "../../projects/tree";
 import { kitHref } from "../../screens/kit/link";
 import { openFolderId, useBanners } from "../../store";
@@ -163,16 +163,19 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
     }
     case "start-pod":
     case "stop-pod": {
-      // a rented pod, by its name: Start (the user's own, its rate said) or Stop, as its card and menu do
-      const m = machineByName(queue?.machines, c.machine);
-      const r = m?.rented;
-      if (!m || !r) return [{ label: `No rented pod called ${c.machine}`, icon: <Server size={14} />, disabled: true, run: () => {} }];
-      const name = machineLabel(m);
-      if (c.cmd === "start-pod") {
-        const can = r.status === "EXITED" || r.status === "ERROR";
-        return [{ label: `Start ${name}`, icon: <Server size={14} />, note: r.capped ? "a spending cap is reached" : !can ? rentedSaid(r) : rateSaid(r), disabled: !can || r.capped, run: () => rented.start.mutate(m.id) }];
-      }
-      return [{ label: `Stop ${name}`, icon: <Server size={14} />, note: r.status !== "RUNNING" ? rentedSaid(r) : r.diskPerDay > 0.005 ? `the disk keeps billing ${usd(r.diskPerDay)}/day` : "the GPU stops billing", disabled: r.status !== "RUNNING", run: () => rented.stop.mutate({ machine: m.id, how: "stop" }) }];
+      // a rented pod, by its name: Start (the user's own, its rate said) or Stop, asked first as its card and menu do (a
+      // render on it is lost). A name that starts two pods' names gives a row for each: never one picked for the user
+      const pods = machinesByName(queue?.machines, c.machine).filter((m) => m.rented);
+      if (!pods.length) return [{ label: `No rented pod called ${c.machine}`, icon: <Server size={14} />, disabled: true, run: () => {} }];
+      return pods.map((m) => {
+        const r = m.rented!;
+        const name = machineLabel(m);
+        if (c.cmd === "start-pod") {
+          const can = r.status === "EXITED" || r.status === "ERROR";
+          return { label: `Start ${name}…`, icon: <Server size={14} />, note: r.capped ? "a spending cap is reached" : !can ? rentedSaid(r) : rateSaid(r), disabled: !can || r.capped, run: () => void rented.askStart(m) };
+        }
+        return { label: `Stop ${name}…`, icon: <Server size={14} />, note: r.status !== "RUNNING" ? rentedSaid(r) : m.running ? "its render is lost" : r.diskPerDay > 0.005 ? `the disk keeps billing ${usd(r.diskPerDay)}/day` : "the GPU stops billing", disabled: r.status !== "RUNNING", run: () => void rented.askStop(m) };
+      });
     }
     case "deploy-gpu":
       // the dialog: what RunPod has free now; nothing is billed before its Deploy

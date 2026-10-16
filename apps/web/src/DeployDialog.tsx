@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { shortGpu } from "@afflatus/core";
 import { useLocation } from "wouter";
@@ -19,6 +19,8 @@ import { Keys } from "./Keys";
 import { diskPerHour } from "./machines";
 import { queryKeys } from "./queryKeys";
 import { Select } from "./Select";
+import { useSayFailed } from "./sayFailed";
+import { useBanners } from "./store";
 import { Button, Checkbox, cx, ErrorNote, fieldClass, Help, Segmented } from "./ui";
 
 /** What a first deploy opens with: Afflatus's image, Secure Cloud, no volume, terminated after 10 min idle. */
@@ -79,6 +81,17 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
   const settings = useSettings();
   const client = useQueryClient();
   const [, go] = useLocation();
+  // whether the dialog is still on screen: a deploy or a hunt answered after it was closed is said in a banner, since its
+  // own note went with it, and moves no one to another page
+  const shown = useRef(true);
+  useEffect(() => {
+    shown.current = true;
+    return () => {
+      shown.current = false;
+    };
+  }, []);
+  const sayFailed = useSayFailed({ id: "deploy", href: "/settings/rented", go: "Open Rented GPUs" });
+  const say = useBanners((b) => b.push);
   const [want, setWant] = useState<DeployAsk>(() => settings.data?.lastDeploy ?? { ...FIRST, gpu: "" });
   const set = (change: Partial<DeployAsk>) => setWant((w) => ({ ...w, ...change }));
   const gpus = useQuery({ queryKey: queryKeys.runpodGpus(want.cloud), queryFn: ({ signal }) => api.runpodGpus(want.cloud, { signal }), refetchInterval: 15_000, staleTime: 10_000, retry: false });
@@ -197,8 +210,17 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
     mutationFn: () => api.deployGpu({ ...want, files: models.files, leaveOut: models.leaveOut, accept: models.accept }),
     onSuccess: ({ id }) => {
       for (const queryKey of DEPLOYED_READS) void client.invalidateQueries({ queryKey });
+      // closed while "Deploying…" (Esc, Cancel): the pod is billed all the same, so it is said, but no one is moved to its card
+      if (!shown.current) {
+        say({ id: `deployed:${id}`, tone: "good", title: "Deployed", text: "Billed from now: its card says its first start.", href: `/settings?machine=${encodeURIComponent(id)}`, go: "Open its card" });
+        return;
+      }
       onClose();
       go(`/settings?machine=${encodeURIComponent(id)}`);
+    },
+    // the dialog's own note says a refusal while it is open; closed, only a banner can (else a pod is believed coming)
+    onError: (err) => {
+      if (!shown.current) sayFailed("Not deployed")(err);
     },
   });
   // the hunt started with these choices, or the hunt under way changed (only what was changed here is sent)
@@ -206,7 +228,10 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
     mutationFn: () => (changing ? api.changeHunt(huntChange) : api.startHunt({ ...huntAsk, deploy: { ...withoutGpu(want), files: models.files, leaveOut: models.leaveOut, accept: models.accept, again: false } })),
     onSuccess: async () => {
       await huntReads(client);
-      onClose();
+      if (shown.current) onClose();
+    },
+    onError: (err) => {
+      if (!shown.current) sayFailed(changing ? "The hunt was not changed" : "The hunt did not start")(err);
     },
   });
   const more = useMenu<true>();
@@ -347,6 +372,8 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
             <span className="w-[92px]"><Select size="sm" label="Minutes idle" value={String(want.idleMinutes)} onChange={(v) => set({ idleMinutes: Number(v) })} options={IDLE.map((n) => ({ value: String(n), label: minutesSaid(n) }))} /></span>
             idle · watchdog
             <span className="w-[92px]"><Select size="sm" label="Watchdog minutes" value={String(want.watchdogMinutes)} onChange={(v) => set({ watchdogMinutes: Number(v) })} options={WATCH.map((n) => ({ value: String(n), label: n === 0 ? "off" : minutesSaid(n) }))} /></span>
+            {/* "after never idle" reads as if it stopped: said plainly, since it bills until stopped by hand */}
+            {want.idleMinutes === 0 && <span className="basis-full text-warn-ink">Never stops when idle: it bills until you stop it, or until a spending cap is reached.</span>}
           </span>
         </section>
         )}

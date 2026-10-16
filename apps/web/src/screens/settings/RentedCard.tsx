@@ -17,8 +17,9 @@ import { runwayNowSaid, runwaySaid, runwayWhy } from "../queue/costsView";
 import { Block, Card, Row } from "./Rows";
 import { tabHref } from "./settingsIndex";
 import { COLUMNS } from "./wide";
+import { capAmount } from "./capAmount";
 import { openDeploy } from "../../deploy";
-import { podsAdded, rateParts } from "../../machines";
+import { idleEndSaid, podsAdded, rateParts } from "../../machines";
 import { BootNote, STARTING_DOT } from "../../machineBits";
 import { VolumesCard } from "./VolumesCard";
 import { SecretField } from "./SecretField";
@@ -68,18 +69,22 @@ export function RentRow() {
   );
 }
 
+type CapKey = "day" | "month";
+
 /** A figure against its cap, in a few words: "$1.18 of $5", or the figure alone without a cap. */
 const against = (value: number, cap: number) => `${usd(value, true)}${cap > 0 ? ` of ${usd(cap)}` : ""}`;
 
-/** A cap in dollars: a small box, saved when it is left. Empty or 0: no cap. */
+/**
+ * A cap in dollars: a small box, saved when it is left. Empty or 0: no cap. Its parent remounts it (a new `key`) when a
+ * save of it failed, so that it shows the cap as saved again rather than the amount typed, which is not in force.
+ */
 function CapBox({ label, value, onSave }: { label: string; value: number; onSave(v: number): void }) {
   const [text, setText] = useState(value ? String(value) : "");
   useEffect(() => setText(value ? String(value) : ""), [value]);
   const commit = () => {
-    const cleaned = text.replace(/[$€\s]/g, "").replace(",", ".");
-    // empty: no cap; anything that does not read as an amount keeps the cap as it was (never a cap silently gone)
-    const n = cleaned === "" ? 0 : Number(cleaned);
-    if (!Number.isFinite(n) || n < 0) {
+    // empty: no cap; anything that does not read as one amount for sure keeps the cap as it was (never a cap silently gone)
+    const n = capAmount(text);
+    if (n === null || !Number.isFinite(n)) {
       setText(value ? String(value) : "");
       return;
     }
@@ -133,12 +138,24 @@ function RunpodAccount() {
   // never brings the first one's old value back (a cap is money)
   const latestCaps = useRef<{ day: number; month: number } | null>(null);
   const capsQueue = useRef<Promise<unknown>>(Promise.resolve());
-  const changeCaps = (change: Partial<{ day: number; month: number }>) => {
-    const next = { ...(latestCaps.current ?? caps), ...change };
+  // a cap whose save failed: said under the boxes until that same cap saves (a save of the other one says nothing of it),
+  // and its box remounted (`resets`) to show the cap as saved, not the amount typed, which is not in force
+  const [notSaved, setNotSaved] = useState<Partial<Record<CapKey, string>>>({});
+  const [resets, setResets] = useState<Record<CapKey, number>>({ day: 0, month: 0 });
+  const changeCaps = (key: CapKey, value: number) => {
+    const next = { ...(latestCaps.current ?? caps), [key]: value };
     latestCaps.current = next;
     capsQueue.current = capsQueue.current
       .then(() => saveCaps.mutateAsync(next))
-      .catch(() => {})
+      .then(
+        () => setNotSaved(({ [key]: _was, ...rest }) => rest),
+        (err: unknown) => {
+          // the edits queued after this one were made on top of it: they start again from the caps as saved
+          latestCaps.current = null;
+          setNotSaved((was) => ({ ...was, [key]: err instanceof Error ? err.message : String(err) }));
+          setResets((was) => ({ ...was, [key]: was[key] + 1 }));
+        },
+      )
       .finally(() => {
         if (latestCaps.current === next) latestCaps.current = null;
       });
@@ -174,8 +191,8 @@ function RunpodAccount() {
       {has && (
         // today and this month under the caps, which they are weighed against
         <Row setting="comfy.rentcaps" label="Caps" sub={s ? `today ${against(s.today, caps.day)} · this month ${against(s.month, caps.month)}` : undefined} help="At a cap, the render running finishes, then the pods stop; what waits goes to your other machines, and Start says the cap is reached. Empty: no cap. Today and this month are RunPod's bill, its last hours counted here.">
-          <CapBox label="a day" value={caps.day} onSave={(day) => changeCaps({ day })} />
-          <CapBox label="a month" value={caps.month} onSave={(month) => changeCaps({ month })} />
+          <CapBox key={`day-${resets.day}`} label="a day" value={caps.day} onSave={(day) => changeCaps("day", day)} />
+          <CapBox key={`month-${resets.month}`} label="a month" value={caps.month} onSave={(month) => changeCaps("month", month)} />
         </Row>
       )}
       {has && (
@@ -183,13 +200,13 @@ function RunpodAccount() {
           <span className="w-[120px]"><Select size="sm" label="Flag a volume unused after" value={String(settings.data?.volumeUnusedDays ?? 7)} onChange={(v) => !saveUnused.isPending && saveUnused.mutate(Number(v))} options={UNUSED_DAYS.map((n) => ({ value: String(n), label: n ? `after ${plural(n, "day")}` : "never" }))} /></span>
         </Row>
       )}
-      {(s?.lowBalance || spending.isError || saveCaps.isError || Boolean(s?.storage?.unused.length) || Boolean(s?.storage?.stoppedDisks)) && (
+      {(s?.lowBalance || spending.isError || Object.keys(notSaved).length > 0 || Boolean(s?.storage?.unused.length) || Boolean(s?.storage?.stoppedDisks)) && (
         <Block>
           {s?.lowBalance && <ErrorNote>Your RunPod balance is low: RunPod stops pods at zero, and may delete their disks after a while.</ErrorNote>}
           {Boolean(s?.storage?.stoppedDisks) && <ErrorNote>{s!.storage!.stoppedDisks === 1 ? "1 stopped pod with a disk: billed while it waits. Terminate it if you will not start it again." : `${s!.storage!.stoppedDisks} stopped pods with a disk: billed while they wait. Terminate them if you will not start them again.`}</ErrorNote>}
           {s?.storage?.unused.map((v) => <ErrorNote key={v.id}>The volume {v.name} is unused {v.usedAt ? `since ${when(v.usedAt)}` : "since Afflatus first saw it"}: {usd(v.perMonth)} a month for nothing. Delete it under Network volumes if you will not deploy on it soon.</ErrorNote>)}
           {spending.isError && <ErrorNote>{spending.error.message}</ErrorNote>}
-          {saveCaps.isError && <ErrorNote>{saveCaps.error.message}</ErrorNote>}
+          {(Object.keys(notSaved) as CapKey[]).map((key) => <ErrorNote key={key}>{`The ${key} cap was not saved (still ${caps[key] ? usd(caps[key]) : "none"}): ${notSaved[key]}`}</ErrorNote>)}
         </Block>
       )}
     </Card>
@@ -262,7 +279,8 @@ function RunpodPods() {
         const said = loose ? `running, not in Afflatus: billed, nothing here stops it${p.comfy ? "" : " · port 8188 not exposed"}`
           : !p.added && !p.comfy ? "ComfyUI not exposed: add port 8188 (HTTP) on RunPod"
           : !p.added ? (status === "EXITED" ? "stopped" : status.toLowerCase()) : null;
-        const ends = machine?.rented ? `${machine.rented.idleDo === "stop" ? "stops" : "terminates"} after ${minutesSaid(machine.rented.idleMinutes)} idle` : null;
+        // a pod that never stops when idle bills until it is stopped by hand: said in the warning tone
+        const ends = machine?.rented ? <span key="ends" className={machine.rented.idleMinutes ? undefined : "text-warn-ink"}>{idleEndSaid(machine.rented)}</span> : null;
         const volume = p.volumeId ? volumes.data?.volumes.find((v) => v.id === p.volumeId) : undefined;
         // its rate with the same tip as its card's: the GPU and its disk, as RunPod bills them (a pod not added has only its total)
         const facts = [
@@ -333,7 +351,8 @@ function NextDeploy() {
           <Choice what="Disk" tone={volume?.usedBy ? "warn" : undefined} sub={!next.volume ? "models fetched each deploy" : volume ? `${volume.dataCenter} · its GPUs only${volume.usedBy ? ` · in use by ${volume.usedBy.name}` : ""}` : undefined}>
             {!next.volume ? `Its own, ${next.disk} GB` : volume ? volume.name : volumes.isSuccess ? "A volume since deleted" : "A network volume"}
           </Choice>
-          <Choice what="When done" sub={`after ${minutesSaid(next.idleMinutes)} idle · watchdog ${next.watchdogMinutes ? minutesSaid(next.watchdogMinutes) : "off"}`}>{next.idleDo === "stop" ? "Stop" : "Terminate"}</Choice>
+          {/* 0 minutes: it never stops when idle, and bills until stopped by hand (never "after never idle") */}
+          <Choice what="When done" tone={next.idleMinutes ? undefined : "warn"} sub={`${next.idleMinutes ? `after ${minutesSaid(next.idleMinutes)} idle` : "when idle: billed until you stop it"} · watchdog ${next.watchdogMinutes ? minutesSaid(next.watchdogMinutes) : "off"}`}>{!next.idleMinutes ? "Never stops" : next.idleDo === "stop" ? "Stop" : "Terminate"}</Choice>
         </div>
       )}
     </Card>

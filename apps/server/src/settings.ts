@@ -415,7 +415,8 @@ export function updateSettings(db: Db, change: (current: Settings) => Record<str
  * `fromPage`: a write from the page (PUT /api/settings), whose list of machines may be older than the server's. A rented
  * machine it leaves out is kept (removed only through its own route: a pod dropped by a stale list would bill with
  * nothing watching it), and what only the server knows of one (its pod, its secret, its deploy, the ports it closed) is
- * the server's: the page sets only its idle, its end, its watchdog and whether its ports stay open.
+ * the server's: the page sets only its idle, its end, its watchdog, whether its ports stay open and whether it makes room
+ * on its disk (its card's Make room box).
  */
 async function written(db: Db, patch: unknown, fromPage = false): Promise<Settings> {
   // which keys were sent is read from the body itself: parsing it would fill in every default
@@ -450,7 +451,7 @@ async function written(db: Db, patch: unknown, fromPage = false): Promise<Settin
           return rest;
         }
         const asked = (m.rented && typeof m.rented === "object" ? m.rented : {}) as Record<string, unknown>;
-        const pick = Object.fromEntries(["idleMinutes", "idleDo", "watchdogMinutes", "openPorts"].filter((k) => k in asked).map((k) => [k, asked[k]]));
+        const pick = Object.fromEntries(["idleMinutes", "idleDo", "watchdogMinutes", "openPorts", "makeRoom"].filter((k) => k in asked).map((k) => [k, asked[k]]));
         return { ...m, rented: { ...was.rented, ...pick } };
       };
       const kept = current.machines.filter((c) => c.rented && !list.some((m) => m.id === c.id));
