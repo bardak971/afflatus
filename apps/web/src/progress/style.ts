@@ -16,7 +16,7 @@ export const PROGRESS_STYLES: ReadonlyArray<{ id: ProgressStyle; label: string; 
   { id: "same", label: "Same look", tip: "A short ease to each new value, as Afflatus always drew it" },
   { id: "glide", label: "Glide", tip: "The bar glides at the render's own pace, reaching each step as the next one is due" },
   { id: "steps", label: "Steps", tip: "One tick per step, the ring as dots: nothing moves between two steps" },
-  { id: "alive", label: "Alive", tip: "As Same look, with a light sweeping along the bar and a dot circling the ring" },
+  { id: "alive", label: "Alive", tip: "A short ease to each new value, with a light sweeping along the bar and a dot circling the ring" },
 ];
 
 export const DEFAULT_PROGRESS: ProgressStyle = "glide";

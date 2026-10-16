@@ -125,7 +125,7 @@ describe("Settings › Interface › Progress", () => {
     act(() => useThemeChoice.getState().set({ progress: "alive" }));
     const { rerender } = draw(<><ProgressPicker /><Progress value={0.5} steps={10} /></>);
     expect(screen.getAllByRole("progressbar").at(-1)!.dataset.progress).toBe("steps");
-    expect(screen.getByText(/drawn as Steps/)).toBeTruthy();
+    expect(screen.getByText(/drawn without its motion/)).toBeTruthy();
     act(() => useThemeChoice.getState().set({ progress: "same" }));
     rerender(<Progress value={0.6} />);
     expect(fill().style.transition).toBe("none");

@@ -282,7 +282,7 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
         <Segmented oneLine label={`What ${label} takes`} value={machine.takes} options={TAKES} onChange={(takes) => put({ takes })} />
       </Row>
       {rented && <RentedRows machine={machine} state={state} put={(r) => put({ rented: r })} ops={rentedOps} remove={() => save.mutate(all.filter((m) => m.id !== machine.id))} />}
-      <AccessRow id={machine.id} label={label} probe={probe} url={machine.url} rented={rented} />
+      <AccessRow id={machine.id} label={label} probe={probe} url={machine.url} rented={rented} compact />
       {(access.failed || removeRented.isError) && <Block>{access.failed && <ErrorNote>{access.failed.message}</ErrorNote>}{removeRented.isError && <ErrorNote>{removeRented.error.message}</ErrorNote>}</Block>}
       {/* the token's end at the foot of one of your own (a pod's foot is its address and Terminate) */}
       {!rented && probe?.tokenEnd && (

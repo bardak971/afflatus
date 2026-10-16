@@ -22,7 +22,7 @@ export function InterfaceTab() {
           status={<div className="w-64"><ThemeMode /></div>}
         >
           <Block setting="interface.theme interface.accent" className="gap-3.5 py-4"><ThemePickers /></Block>
-          <Block setting="interface.progress" className="pt-0 pb-4"><ProgressPicker /></Block>
+          <Block setting="interface.progress" className="pt-3 pb-4"><ProgressPicker /></Block>
           <Row setting="explain" label="Explain every setting in the forms" help="Off: the explanation of a setting sits behind the ? beside its name. On: it is written under each setting.">
             <Toggle bare on={explain.on} onChange={explain.set} label="Explain every setting in the forms" />
           </Row>

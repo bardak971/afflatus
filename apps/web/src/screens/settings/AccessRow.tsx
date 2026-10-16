@@ -42,15 +42,17 @@ export function useAccessActions(id: string, label: string, probe: MachineProbe 
   const unlock = useMutation({ mutationFn: () => api.unlockMachine(id), onSuccess: told });
   const access = probe?.access;
   const locked = access?.state === "locked";
+  const askRenew = () => void ask({ title: `Renew ${label}'s token?`, text: "What used the old one is refused from then on.", yes: "Renew" }).then((yes) => yes && renew.mutate(Boolean(access?.local)));
+  const askUnlock = () => void ask({ title: `Unlock ${label}?`, text: "Anything that reaches it can use it again.", yes: "Unlock" }).then((yes) => yes && unlock.mutate());
   const items: MenuItem[] = [
     ...(probe?.tokenEnd ? [{ label: copied ? "Token copied" : "Copy its token", icon: <Copy size={14} />, run: () => copyToken.mutate() }] : []),
     ...(locked && !access.fixed ? [
-      { label: "Renew the token…", icon: <KeyRound size={14} />, disabled: renew.isPending, run: () => void ask({ title: `Renew ${label}'s token?`, text: "What used the old one is refused from then on.", yes: "Renew" }).then((yes) => yes && renew.mutate(access.local)) },
-      { label: "Unlock…", icon: <LockOpen size={14} />, disabled: unlock.isPending, run: () => void ask({ title: `Unlock ${label}?`, text: "Anything that reaches it can use it again.", yes: "Unlock" }).then((yes) => yes && unlock.mutate()) },
+      { label: "Renew the token…", icon: <KeyRound size={14} />, disabled: renew.isPending, run: askRenew },
+      { label: "Unlock…", icon: <LockOpen size={14} />, disabled: unlock.isPending, run: askUnlock },
     ] : []),
   ];
   const failed = [copyToken, renew, unlock].find((m) => m.isError)?.error;
-  return { items, copyToken: () => copyToken.mutate(), copied, failed };
+  return { items, copyToken: () => copyToken.mutate(), copied, renew: askRenew, unlock: askUnlock, busy: renew.isPending || unlock.isPending, failed };
 }
 
 /** A small pill: the lock's state at a glance, its icon and word in the state's colour. */
@@ -69,7 +71,19 @@ function Pill({ locked, children }: { locked: boolean; children: string }) {
  * its token's actions are in the card's menu); under it, ComfyUI-Manager when it is too old. Nothing while it does not
  * answer and is not locked.
  */
-export function AccessRow({ id, label, probe, url, rented = false }: { id: string; label: string; probe: MachineProbe | undefined; url: string; /** A rented pod: its address is public, and its lock is set in its environment from its start. */ rented?: boolean }) {
+export function AccessRow({ id, label, probe, url, rented = false, compact = false }: {
+  id: string;
+  label: string;
+  probe: MachineProbe | undefined;
+  url: string;
+  /** A rented pod: its address is public, and its lock is set in its environment from its start. */
+  rented?: boolean;
+  /**
+   * In a machine's card, whose facts say the lock and whose menu has the token's actions: locked, only the switch. The
+   * one ComfyUI's Connection card has neither, and keeps the whole line (the lock, the token's end, Renew, Unlock).
+   */
+  compact?: boolean;
+}) {
   const client = useQueryClient();
   const [checked, flashChecks] = useFlash(false, 2400);
   const [pasted, setPasted] = useState("");
@@ -78,10 +92,11 @@ export function AccessRow({ id, label, probe, url, rented = false }: { id: strin
   };
   const lock = useMutation({ mutationFn: (o: { local?: boolean; renew?: boolean }) => api.lockMachine(id, o), onSuccess: (_, o) => { if (!o.renew && o.local === undefined) flashChecks(true); told(); } });
   const paste = useMutation({ mutationFn: (token: string) => api.machineToken(id, token), onSuccess: () => { setPasted(""); told(); } });
+  const actions = useAccessActions(id, label, probe);
   const access = probe?.access;
   if (!access || access.state === "unknown") return null;
-  const failed = [lock, paste].find((m) => m.isError)?.error;
-  const busy = lock.isPending;
+  const failed = [lock, paste].find((m) => m.isError)?.error ?? (compact ? undefined : actions.failed);
+  const busy = lock.isPending || actions.busy;
 
   let line;
   if (checked || (lock.isPending && access.state === "open")) {
@@ -99,6 +114,24 @@ export function AccessRow({ id, label, probe, url, rented = false }: { id: strin
           <input aria-label={`${label}: its token`} value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder="Paste its token…" spellCheck={false} autoComplete="off" className={cx("mt-1 h-9 max-w-[360px] font-mono text-xs", fieldClass)} />
         </span>
         <Button onClick={() => paste.mutate(pasted.trim())} disabled={pasted.trim().length < 16 || paste.isPending}>Use it</Button>
+      </>
+    );
+  } else if (access.state === "locked" && !compact) {
+    line = (
+      <>
+        <span className="flex min-w-0 grow flex-wrap items-center gap-2.5">
+          <Pill locked>Locked</Pill>
+          {access.fixed
+            ? <span className="text-xs text-ink-2">{rented ? "from its first second: Afflatus set it in the pod's environment" : "by its start settings (AFFLATUS_TOKEN)"}</span>
+            : probe.tokenEnd && <span className="font-mono text-[11.5px] text-ink-3" data-tip="The token's end: the token itself stays in Afflatus">token ••••••••{probe.tokenEnd}</span>}
+          {probe.tokenEnd && <button type="button" className="text-xs font-semibold text-ink-2 hover:text-ink" onClick={actions.copyToken}>{actions.copied ? "Copied" : "Copy"}</button>}
+        </span>
+        {!access.fixed && (
+          <span className="flex shrink-0 items-center gap-1">
+            <Button size="sm" tone="quiet" onClick={actions.renew} disabled={busy}>Renew…</Button>
+            <Button size="sm" tone="quiet" onClick={actions.unlock} disabled={busy}>Unlock…</Button>
+          </span>
+        )}
       </>
     );
   } else if (access.state === "locked") {
@@ -127,10 +160,9 @@ export function AccessRow({ id, label, probe, url, rented = false }: { id: strin
 
   return (
     <>
-      {line
-        ? <Row setting="comfy.access" label="Access" help={WHY_LOCK} start={checked}>{line}</Row>
-        // locked: its one setting, as a switch (a lock set by the environment, a pod's, has none)
-        : !access.fixed && (
+      {line && <Row setting="comfy.access" label="Access" help={WHY_LOCK} start={checked}>{line}</Row>}
+      {/* locked: its one setting, as a switch (a lock set by the environment, a pod's, has none) */}
+      {access.state === "locked" && !checked && !access.fixed && (
           <Row setting="comfy.access" label="No token needed from this PC" help={`${WHY_LOCAL} ${WHY_LOCK}`}>
             <Toggle bare on={access.local} disabled={busy} onChange={(local) => lock.mutate({ local })} label="No token needed from this PC" />
           </Row>
