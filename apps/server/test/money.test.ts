@@ -240,6 +240,28 @@ describe("the runway", () => {
   });
 });
 
+describe("Queue › Costs", () => {
+  it("waits for RunPod once: its bill, balance, storage and GPUs asked together, each once; a kept read given at once after", async () => {
+    const LAT = 250;
+    runpod.latencyMs = LAT;
+    runpod.calls.length = 0;
+    const at = Date.now();
+    expect((await get(t.app, "/api/costs")).statusCode).toBe(200);
+    const took = Date.now() - at;
+    // one round trip of RunPod's (each read under way asked once, the bill too though storage reads it as well), where one
+    // after the other they took four
+    expect(took).toBeLessThan(2 * LAT);
+    expect(runpod.calls.filter((c) => c.startsWith("GET /v2/billing/pods"))).toHaveLength(1);
+    expect(runpod.calls.filter((c) => c === "POST /graphql")).toHaveLength(1);
+    // past its freshness the GPUs' read is given at once, read again behind it
+    t.services.hunt.now = () => Date.now() + 60_000;
+    const again = Date.now();
+    expect((await get(t.app, `/api/costs?from=${Date.now() - HOUR}&to=${Date.now()}`)).statusCode).toBe(200);
+    expect(Date.now() - again).toBeLessThan(LAT);
+    await until(() => runpod.calls.filter((c) => c === "GET /v2/catalog/gpus").length === 2);
+  });
+});
+
 describe("a batch of renders' cost (Queue empty)", () => {
   it("counts the runs it overlaps from their start (boot and files), never before the batch before ended (M-1)", async () => {
     const at = (m: number) => new Date(Date.parse("2026-10-14T12:00:00.000Z") + m * MIN).toISOString();

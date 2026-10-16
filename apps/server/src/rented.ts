@@ -341,6 +341,8 @@ export class Rented {
   private billSeen: { at: number; from: number; records: BillRecord[] | null } | null = null;
   /** RunPod said to slow down: not asked again before this (ms). */
   private quietUntil = 0;
+  /** RunPod's reads under way, by what they read: a second ask while one is out waits for it rather than asking again. */
+  private asking = new Map<string, Promise<unknown>>();
   /** How often RunPod is read: every `everyMs`, every `fastMs` while a pod is starting or stopping. */
   everyMs = 20_000;
   fastMs = 3_000;
@@ -916,9 +918,11 @@ export class Rented {
   /** The balance and what is spent an hour, read again at most once a minute. */
   private async readBalance(key: string): Promise<void> {
     if (this.now() < this.quietUntil || (this.balanceSeen && this.now() - this.balanceSeen.at <= 60_000)) return;
-    const got = await this.client(key).balance().catch(() => ({ balance: null, spendPerHr: null }));
-    this.balanceSeen = { at: this.now(), value: got.balance, spendPerHr: got.spendPerHr };
-    if (got.balance !== null) await this.sayBalance(got.balance, key).catch((err: Error) => console.warn(`[rented] the balance's line not worked out: ${err.message}`));
+    return this.once("balance", async () => {
+      const got = await this.client(key).balance().catch(() => ({ balance: null, spendPerHr: null }));
+      this.balanceSeen = { at: this.now(), value: got.balance, spendPerHr: got.spendPerHr };
+      if (got.balance !== null) await this.sayBalance(got.balance, key).catch((err: Error) => console.warn(`[rented] the balance's line not worked out: ${err.message}`));
+    });
   }
 
   /**
@@ -1021,12 +1025,23 @@ export class Rented {
   /** RunPod's bill since `from` (ms), read again every few minutes; null when RunPod does not give it. */
   private async bill(key: string, from: number): Promise<BillRecord[] | null> {
     if (this.billSeen && this.billSeen.from === from && (this.now() - this.billSeen.at < BILL_EVERY_MS || this.now() < this.quietUntil)) return this.billSeen.records;
-    const records = await this.client(key).billing(from, this.now()).catch((err: Error) => {
-      console.warn(`[rented] RunPod's bill not read: ${err.message}`);
-      return null;
+    return this.once(`bill:${from}`, async () => {
+      const records = await this.client(key).billing(from, this.now()).catch((err: Error) => {
+        console.warn(`[rented] RunPod's bill not read: ${err.message}`);
+        return null;
+      });
+      this.billSeen = { at: this.now(), from, records };
+      return records;
     });
-    this.billSeen = { at: this.now(), from, records };
-    return records;
+  }
+
+  /** One read of RunPod at a time for each thing read: the spending reads its bill, balance and storage together, and storage reads the bill too. */
+  private once<T>(what: string, read: () => Promise<T>): Promise<T> {
+    const out = this.asking.get(what);
+    if (out) return out as Promise<T>;
+    const value = read().finally(() => this.asking.delete(what));
+    this.asking.set(what, value);
+    return value;
   }
 
   /** The secrets of pods removed from Afflatus (leftSecrets) whose pod is gone from RunPod now: deleted, and forgotten. */
@@ -1672,11 +1687,10 @@ export class Rented {
   /** Today's and this month's cost, the caps, RunPod's balance, and what storage costs. */
   async spending(): Promise<Spending> {
     const s = await readSettings(this.db);
-    const spent = await this.spent();
-    // RunPod is asked at most once a minute: the card reads this every 10 s while a pod runs
-    if (s.runpodKey) await this.readBalance(s.runpodKey);
+    // RunPod is asked at most once a minute: the card reads this every 10 s while a pod runs. Its bill, balance and storage
+    // are read together: one after the other they kept Queue › Costs waiting for three answers of RunPod's in a row
+    const [spent, , storage] = await Promise.all([this.spent(), s.runpodKey ? this.readBalance(s.runpodKey) : undefined, s.runpodKey ? this.storage(s.runpodKey) : null]);
     const balance = this.balanceSeen?.value ?? null;
-    const storage = s.runpodKey ? await this.storage(s.runpodKey) : null;
     // the one runway said everywhere (Settings, Queue › Costs): the balance over a day at this pace, storage in it
     const perDay = await this.perDay(s.runpodKey);
     const day = perDay.pods + perDay.storage;
@@ -1695,6 +1709,11 @@ export class Rented {
    */
   private async storage(key: string): Promise<Storage | null> {
     if (this.storageSeen && (this.now() - this.storageSeen.at < BILL_EVERY_MS || this.now() < this.quietUntil)) return this.storageSeen.value;
+    return this.once("storage", () => this.readStorage(key));
+  }
+
+  /** Storage as RunPod says it now: its volumes, its pods' disks and their bills this month. */
+  private async readStorage(key: string): Promise<Storage | null> {
     const d = new Date(this.now());
     const month = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
     const client = this.client(key);

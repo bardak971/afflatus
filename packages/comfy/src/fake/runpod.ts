@@ -92,6 +92,8 @@ export interface FakeRunpod {
   failList: number | null;
   oddList: boolean;
   actionDelayMs: number;
+  /** How long every answer takes, as a real one's round trip does (0: at once). */
+  latencyMs: number;
   /** The GPUs a deploy picks from (GET /v2/catalog/gpus), and the account's network volumes. */
   gpus: FakeGpu[];
   volumes: FakeVolume[];
@@ -188,7 +190,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
   });
   const fake: Omit<FakeRunpod, "url" | "close"> = {
     key: o.key, pods, calls: [], balance: o.balance ?? 23.4, autoBill: false, billLagMs: 0, bootMs: o.bootMs ?? 1500, pullMs: o.pullMs ?? 0, startMs: o.startMs ?? 0, bootFails: null,
-    failAction: {}, failDetail: null, secrets: {}, failSecrets: false, stopMs: 0, failPatch: null, hideEnv: false, failList: null, oddList: false, actionDelayMs: 0,
+    failAction: {}, failDetail: null, secrets: {}, failSecrets: false, stopMs: 0, failPatch: null, hideEnv: false, failList: null, oddList: false, actionDelayMs: 0, latencyMs: 0,
     gpus: o.gpus ?? FAKE_GPUS, volumes: o.volumes ?? [], noCapacity: new Set(), failCreate: null, createThenFail: null, bill: [], comfyStaysDown: false, volumeBill: [],
   };
   let volumesMade = 0;
@@ -302,6 +304,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
     const body = chunks.length ? (JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") as Record<string, unknown>) : {};
     const url = new URL(req.url ?? "/", "http://fake");
     fake.calls.push(`${req.method} ${url.pathname}${body.action ? ` ${String(body.action)}` : ""}`);
+    if (fake.latencyMs) await new Promise((r) => setTimeout(r, fake.latencyMs));
     // what was billed until now, at what the pods and volumes were before this call changes them
     settle();
     const json = (status: number, value?: unknown) => {

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { ChevronRight, Film, PenLine, Zap } from "lucide-react";
 import { api, type CostsView, type PodSession, type ProjectCost, type RenderCostRow } from "../../api";
 import { Dialog, DialogHead } from "../../Dialog";
@@ -139,13 +139,14 @@ function WhereItWent({ d }: { d: CostsView }) {
             Booting:
             <Help
               title="Booting, in its parts"
-              text="Pulling the image: from the deploy (or Start) until RunPod says its container is up; a host new to the image pulls it for minutes. Node packs: the Afflatus image's boot log, from putting in the node packs until its next step: the packs on the volume get their Python packages installed at every start. Starting ComfyUI: the rest, until ComfyUI first answered. Failed starts: the boots that never came up (a step that failed, a GPU that did not work, no answer by the boot limit), from their container's start to their end. Not split: boots before this version, and parts no boot log said."
+              text="Pulling the image: from the deploy (or Start) until RunPod says its container is up; a host new to the image pulls it for minutes. Node packs: the Afflatus image's boot log, from putting in the node packs until its next step: the packs on the volume get their Python packages installed at every start. Starting ComfyUI: the rest, until ComfyUI first answered. Failed starts: the boots that never came up (a step that failed, a GPU that did not work, no answer by the boot limit), from their container's start to their end. Earlier boots: boots from before Afflatus recorded their parts (and parts no boot log said), shown whole."
             />
           </span>
           {boots.map((b) => (
             <span key={b.part} className="flex items-center gap-1.5">
               <span className="size-2 shrink-0 rounded-[3px]" style={{ background: b.color }} />
               <span className="text-ink-2">{b.name}</span>
+              {b.part === "boot" && <Help title="Earlier boots" text="Boots from before Afflatus recorded their parts, shown whole: how much of each was pulling the image, node packs or starting ComfyUI was not kept." />}
               <span className="font-mono text-ink-2">{usd(d.where.boot.usd[b.part])} · {long(d.where.boot.ms[b.part])}</span>
             </span>
           ))}
@@ -392,16 +393,25 @@ function ThisPc({ d }: { d: CostsView }) {
   );
 }
 
+/** The last answer of any window, the newest: shown while another window comes, never a blank "Loading costs…". */
+function lastCosts(client: QueryClient): CostsView | undefined {
+  const kept = client.getQueryCache().findAll({ queryKey: queryKeys.costs.all() }).filter((q) => q.state.data !== undefined);
+  return kept.sort((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt)[0]?.state.data as CostsView | undefined;
+}
+
 /** The tab's window: a preset that ends now (the month from its 1st), or one typed or dragged on the chart. */
 function useCostsView() {
+  const client = useQueryClient();
   const [view, setView] = useState<View>({ preset: "30D" });
   const [typed, setTyped] = useState<{ from: string; to: string } | null>(null);
   const key = "from" in view ? `${Math.round(view.from)}-${Math.round(view.to)}` : view.preset;
   const costs = useQuery({
     queryKey: queryKeys.costs.of(key),
     queryFn: ({ signal }) => api.costs("from" in view ? { from: view.from, to: view.to } : presetWindow(view.preset), { signal }),
-    placeholderData: keepPreviousData,
+    placeholderData: (previous) => previous ?? lastCosts(client),
     refetchInterval: 60_000,
+    // kept a while once the tab is left: back on it, the last answer is there at once while it is asked again
+    gcTime: 30 * 60_000,
   });
   return {
     view, typed, setTyped, costs,
@@ -422,8 +432,9 @@ export function Costs() {
   if (costs.isError) return <ErrorNote>{costs.error.message}</ErrorNote>;
   if (!d) return <div className="text-ink-2">Loading costs…</div>;
   const pods = d.runpod || d.sessions.length > 0;
+  // another window's figures while this one comes: faded under the window bar until they are its own
   return (
-    <div className="flex flex-col gap-4 pb-4">
+    <div className={cx("flex flex-col gap-4 pb-4 [&>*:not(:first-child)]:transition-opacity", costs.isPlaceholderData && "[&>*:not(:first-child)]:opacity-55")} aria-busy={costs.isPlaceholderData}>
       <div className="flex flex-wrap items-center gap-3">
         <WindowBar view={view} shown={{ from: d.from, to: d.to }} typed={typed} onTyped={setTyped} onPreset={pick} onZoom={zoom} presets={COST_PRESETS} />
       </div>

@@ -20,13 +20,17 @@ export function registerCosts(app: FastifyInstance, s: Services): void {
     if (hit && Date.now() - hit.at < FRESH_MS) return hit.value;
     const value = (async () => {
       const settings = await readSettings(s.db);
-      // RunPod is read only with a key or a pod: its bill, balance and storage as the Rented GPUs card has them (cached there)
-      const spending = settings.runpodKey || settings.machines.some((m) => m.rented) ? await s.rented.spending().catch(() => null) : null;
+      // RunPod is read only with a key or a pod: its bill, balance and storage as the Rented GPUs card has them (cached there),
+      // and its GPUs for the guesses, asked together: one wait for RunPod at most, not one after the other
+      const [spending, offers] = await Promise.all([
+        settings.runpodKey || settings.machines.some((m) => m.rented) ? s.rented.spending().catch(() => null) : null,
+        settings.runpodKey ? s.hunt.offersNow().catch(() => null) : null,
+      ]);
       return costs({
         db: s.db, registry: s.registry, settings, spending, billReadAt: s.rented.billRead?.ok ? s.rented.billRead.at : null,
         costBetween: (from, to) => s.rented.costBetween(from, to),
         billedIn: (times, step) => s.rented.billedIn(times, step),
-        offers: async () => (settings.runpodKey ? s.hunt.offersNow().catch(() => null) : null),
+        offers: async () => offers,
       }, q);
     })();
     kept.set(key, { at: Date.now(), value });
