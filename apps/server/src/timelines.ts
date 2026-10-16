@@ -21,7 +21,7 @@ import { ownInputIds, recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, 
 import { clipsOfSource, patchedSource, planWindows, sourceOfRow, windowRunUp, type SourcePatch } from "./timelineSource";
 import { TimelineTakes } from "./timelineTakes";
 import { unusedSize, unusedTakes } from "./timelineUnused";
-import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, mirroredPins, mirrorJson, mirrorOfRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow, transitionJson, transitionOfRow } from "./timelineModel";
+import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, markJoins, plannedLengthOf, setTrims, STILL_MS, stillRef, takeFollows, takeLandsOn, trimsOf, type AssetRow, type ClipRow, type Placed, type TakeRow, type Taken, type TimelineCore, type TimelineRow, mirroredPins, mirrorJson, mirrorOfRow, musicBaseOf, musicClipsOf, musicJson, musicOfRow, transitionJson, transitionOfRow } from "./timelineModel";
 
 /**
  * Timelines: clips played one after the other. A clip is a place on the timeline with a form (what to
@@ -725,7 +725,7 @@ export class Timelines {
       await this.remember(timelineId, made.kind === "still" ? "the image added" : "the clip added");
       // the clip, its place among the others and its take land together, or not at all
       const added = await this.db.transaction().execute(async (tx) => {
-        if (stopping && trims) await tx.updateTable("takes").set({ trim_end_ms: trims.end }).where("id", "=", stopping.take.id).execute();
+        if (stopping && trims) await setTrims(tx, stopping.take.id, { trim_end_ms: trims.end });
         return this.planner.insertClip(timelineId, all, index, made, tx);
       });
       if (made.asset) await this.adoptFolder(t, made.asset, all);
@@ -817,7 +817,7 @@ export class Timelines {
         })
         .where("id", "=", id)
         .execute();
-      if (trims) await tx.updateTable("takes").set({ trim_start_ms: trims.start, trim_end_ms: trims.end }).where("id", "=", trims.take).execute();
+      if (trims) await setTrims(tx, trims.take, { trim_start_ms: trims.start, trim_end_ms: trims.end });
       if (order) await this.renumber(clip.timeline_id, order, tx);
       if (patch.soundAsset) await this.keep(patch.soundAsset, tx);
       // a window of the source's: its Picture changed is the source's and every window's (the same person in every one)

@@ -312,6 +312,37 @@ describe.skipIf(!ffmpegThere)("a clip's take, trimmed on the timeline", { timeou
     await until(async () => (await t.db.selectFrom("jobs").select("status").where("status", "in", ["queued", "running"]).execute()).length === 0, 10_000);
   }, 90_000);
 
+  it("redoes a finish after a split: each half's finish plays the half, not its draft's old trims", async () => {
+    const tl = (await call("POST", "/api/timelines", { name: "Redo" })).id as string;
+    const a = (await call("POST", `/api/timelines/${tl}/clips`, { recipe: "h3.video" })).clip as string;
+    await render(tl, [{ id: a }]);
+    await finish(three!, 1);
+    const model = { route: "model", factor: 2, upscaleModel: "RealESRGAN_x4plus.pth" };
+    await call("POST", `/api/timelines/${tl}/finish`, model);
+    await finish(three!, 2);
+    // split on the finished take: the first half stops at 1.5 s, the second starts there
+    const { clip: b } = await call("POST", `/api/clips/${a}/split`, { atMs: 1500 });
+    const lengths = async () => (await view(tl)).clips.map((c: { lengthMs: number }) => Math.round(c.lengthMs / 100) * 100);
+    expect(await lengths()).toEqual([1500, 1500]);
+    const redo = await call("POST", `/api/timelines/${tl}/finish`, { ...model, redo: true, clips: [a, b] });
+    expect(redo.jobs).toHaveLength(2);
+    await finish(three!, 3);
+    await finish(three!, 4);
+    const v = await view(tl);
+    // both play a new finish of their own draft, each its half: the first did not grow back to the draft's 3 s
+    for (const c of v.clips) expect(c.take.finishedFrom).toBe(c.takes[0].id);
+    expect(v.clips.map((c: { take: { id: string } }) => c.take.id)).not.toContain(undefined);
+    expect(await lengths()).toEqual([1500, 1500]);
+    expect(v.durationMs).toBeCloseTo(3000, -2);
+    // each draft plays the same part as its finish: removed, the finish leaves the clip as long as it was
+    for (const c of v.clips) expect([c.takes[0].startMs, c.takes[0].endMs]).toEqual([c.take.startMs, c.take.endMs]);
+    // a timeline split before its drafts were trimmed with it: the redo takes the trims of the finish that plays
+    await t.db.updateTable("takes").set({ trim_start_ms: 0, trim_end_ms: 0 }).where("finished_from", "is", null).execute();
+    await call("POST", `/api/timelines/${tl}/finish`, { ...model, redo: true, clips: [a] });
+    await finish(three!, 5);
+    expect(await lengths()).toEqual([1500, 1500]);
+  }, 60_000);
+
   it("scores how smoothly each take meets the clips around it", async () => {
     const { tl, a, b } = await twoRendered();
     const first = (await get(t.app, `/api/clips/${a}/joins`)).json().items as Array<{ take: string; in: number | null; out: number | null }>;

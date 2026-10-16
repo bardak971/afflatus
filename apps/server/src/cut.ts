@@ -161,14 +161,17 @@ export async function cutFrames(
   const moment = (ms: number) => Math.max(0, Math.min(total, Math.round((ms / 1000) * fps)));
   const edge = want.side === "before" ? (want.at === undefined ? total : moment(want.at)) : want.at === undefined ? 0 : moment(want.at);
   const room = want.side === "before" ? edge : total - edge;
-  const count = counts.find((c) => c <= room);
-  if (!count) throw new CutError(`That clip is too short to join onto there: it has ${room} frames, and at least ${Math.min(...counts)} are needed.`);
+  const fits = counts.find((c) => c <= room);
+  if (!fits) throw new CutError(`That clip is too short to join onto there: it has ${room} frames, and at least ${Math.min(...counts)} are needed.`);
+  let count = fits;
   let start = want.side === "before" ? edge - count : edge;
 
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "cut.mp4");
-    // the last frame a length promises is not always there: when the cut comes out short, it is taken one frame earlier
+    // the last frame a length promises is not always there (a file's length is its sound's when that runs longer): when the
+    // cut comes out short, the frames before a moment are taken one frame earlier. The frames after one keep their start,
+    // the moment the clip after is landed on (its latent is cut there too, finishLatent): the next count is cut instead
     for (let attempt = 0; ; attempt++) {
       const from = start / fps;
       const to = (start + count) / fps;
@@ -179,8 +182,10 @@ export async function cutFrames(
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "10", "-pix_fmt", "yuv420p", out,
       ], { signal: want.signal });
       if ((await countFrames(out)) === count) break;
-      if (attempt >= 2 || start === 0) throw new CutError("The frames to join onto could not be cut from that clip.");
-      start--;
+      const fewer = want.side === "after" ? counts.find((c) => c < count) : undefined;
+      if (attempt >= 2 || (want.side === "after" ? !fewer : start === 0)) throw new CutError("The frames to join onto could not be cut from that clip.");
+      if (fewer) count = fewer;
+      else start--;
     }
     return { bytes: new Uint8Array(await readFile(out)), frames: count };
   });
@@ -937,11 +942,14 @@ async function partChains(parts: ExportPart[], files: string[], which: number[],
     const into = i > 0 && p.transitionIn ? p.transitionIn.ms / 2 : 0;
     const pad = (padMs > 0 ? `,tpad=stop_mode=clone:stop_duration=${sec(padMs)}` : "")
       + (out > 0 || into > 0 ? `,tpad=${[into > 0 ? `start_mode=clone:start_duration=${sec(into)}` : "", out > 0 ? `stop_mode=clone:stop_duration=${sec(out)}` : ""].filter(Boolean).join(":")}` : "");
-    const padded = sec(p.endMs - p.startMs + padMs);
+    // a freeze's picture starts a frame before its own first moment (fadeRuns): its sound starts at that moment, where the
+    // run's sound reaches it. Started with the picture, each latent join put the sound a frame later, piling up along a chain
+    const early = earlyOf(p, fps);
     // the sound is not held with the picture when the part after carries it on (see "freeze"), nor over a transition (it
     // runs straight on, its clock the clips'); it fades out and in over the halves when the transition asks
-    const heard = next?.blendMode === "freeze" || out > 0 ? sec(p.endMs - p.startMs) : padded;
-    const fades = [into > 0 && p.transitionIn!.fadeSound ? `afade=t=in:d=${sec(into)}` : "", out > 0 && next!.transitionIn!.fadeSound ? `afade=t=out:st=${sec(p.endMs - p.startMs - out)}:d=${sec(out)}` : ""].filter(Boolean).map((f) => `,${f}`).join("");
+    const heardMs = (next?.blendMode === "freeze" || out > 0 ? p.endMs - p.startMs : p.endMs - p.startMs + padMs) - early;
+    const heard = sec(heardMs);
+    const fades = [into > 0 && p.transitionIn!.fadeSound ? `afade=t=in:d=${sec(into)}` : "", out > 0 && next!.transitionIn!.fadeSound ? `afade=t=out:st=${sec(heardMs - out)}:d=${sec(out)}` : ""].filter(Boolean).map((f) => `,${f}`).join("");
     chains.push(
       p.kind === "still"
         ? `[${main}:v]fps=${fps},${fit},setsar=1,format=yuv420p,trim=duration=${length},setpts=PTS-STARTPTS${pad}[v${i}]`
@@ -951,7 +959,7 @@ async function partChains(parts: ExportPart[], files: string[], which: number[],
     );
     const loud = `volume=${Math.max(0, p.volume).toFixed(2)}`;
     if (p.sound === "own" && p.kind === "video" && p.hasSound) {
-      chains.push(`[${main}:a]atrim=start=${sec(p.startMs)}:end=${sec(p.endMs)},asetpts=PTS-STARTPTS,${STEREO},${loud},apad,atrim=duration=${heard}${fades}[a${i}]`);
+      chains.push(`[${main}:a]atrim=start=${sec(p.startMs + early)}:end=${sec(p.endMs)},asetpts=PTS-STARTPTS,${STEREO},${loud},apad,atrim=duration=${heard}${fades}[a${i}]`);
     } else if (p.sound === "file" && p.soundFile) {
       const sound = (await inputs.add(`sound${i}.${p.soundFile.ext}`, p.soundFile.source)).index;
       chains.push(`[${sound}:a]${STEREO},${loud},apad,atrim=duration=${heard},asetpts=PTS-STARTPTS${fades}[a${i}]`);
@@ -961,6 +969,12 @@ async function partChains(parts: ExportPart[], files: string[], which: number[],
   }
   return chains;
 }
+
+/**
+ * How long before its own first moment a part's picture starts: a frame for a freeze (timelineExport starts its part a frame
+ * early, and fadeRuns starts its dissolve on the last frame of the part before). Its sound starts at its own first moment.
+ */
+const earlyOf = (p: ExportPart, fps: number) => (p.blendMode === "freeze" && !p.transitionIn ? 1000 / fps : 0);
 
 /**
  * The parts that fade into the one before, crossfaded in runs (runsOf; added to `chains`); each run's picture and sound out
@@ -997,7 +1011,7 @@ function fadeRuns(parts: ExportPart[], runs: number[][], fps: number, chains: st
         // the part before was held for x: the fade runs over that hold, from where the part before really ends. A freeze
         // starts on that last frame itself (begun a frame later, the still showed for 3 frames; the part after starts a
         // frame early to make up for it, see timelineExport)
-        const early = parts[j]!.blendMode === "freeze" ? 1000 / fps : 0;
+        const early = earlyOf(parts[j]!, fps);
         chains.push(`[${v}][v${j}]xfade=transition=fade:duration=${sec(x)}:offset=${sec(len - early)}[vx${j}]`);
         // the sound crossfades over the hold, or (freeze) runs straight on: it was not held
         chains.push(parts[j]!.blendMode === "freeze" ? `[${a}][a${j}]concat=n=2:v=0:a=1[ax${j}]` : `[${a}][a${j}]acrossfade=d=${sec(x)}:c1=tri:c2=tri[ax${j}]`);
