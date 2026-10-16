@@ -13,7 +13,7 @@ import { Button, cx, ErrorNote, Help } from "../../ui";
 import { KwhForm } from "../settings/ElectricityCard";
 import { settingHref } from "../settings/settingsIndex";
 import { TimeChart, useChartColors } from "./Chart";
-import { BOOT_SAID, bootSaid, bootSplit, COST_PRESETS, lowerFirst, NOT_SPLIT, nothingShare, PART_SAID, presetWindow, runwayNowSaid, runwaySaid, runwayWhy, sessionBits, totalMs, totalsSaid } from "./costsView";
+import { BOOT_SAID, bootSaid, bootSplit, COST_PRESETS, lowerFirst, NOT_SPLIT, nothingShare, OUTSIDE_WHY, PART_SAID, presetWindow, runwayNowSaid, runwaySaid, runwayWhy, sessionBits, totalMs, totalsSaid } from "./costsView";
 import { chartTimeLabel, stretchOf, type View } from "./useTimesView";
 import { ExportCsv } from "./ExportCsv";
 import { WindowBar } from "./WindowBar";
@@ -105,18 +105,18 @@ function WhereItWent({ d }: { d: CostsView }) {
     <section className={CARD} aria-label="Where it went">
       <Head
         title="Where it went" note={`${long(all)} of pod time, ${usd(money)}`}
-        help="Each pod's time from its deploy (or Start) to its end, cut into what it did: rendering, booting until its ComfyUI first answered, fetching model files, idle (waiting for work, or for its idle time to stop it), and renders that failed or were cancelled. RunPod bills all of it."
+        help="Each pod's time from its deploy (or Start) to its end, cut into what it did: rendering, booting until its ComfyUI first answered, fetching model files, work queued in its ComfyUI from outside Afflatus (its own page, another tool), idle (waiting for work, or for its idle time to stop it), and renders that failed or were cancelled. RunPod bills all of it."
       >
         <span className="flex items-center gap-1 text-[12.5px] text-warn-ink">
           {Math.round(nothingShare(d.where.usd) * 100)} % of it made nothing
-          <Help text="All but the renders that finished: booting, fetching files, idle and failed renders. Some of it cannot be helped (a pod boots before it renders); What would cost less says what can." />
+          <Help text="All but the renders that finished and the work outside Afflatus: booting, fetching files, idle and failed renders. Some of it cannot be helped (a pod boots before it renders); What would cost less says what can." />
         </span>
       </Head>
       <div className="flex h-7 gap-0.5 overflow-hidden rounded-lg">
         {PART_SAID.filter((p) => d.where.usd[p.part] > 0).flatMap((p) =>
           p.part === "boot" && boots.length
             ? boots.map((b) => <span key={`boot-${b.part}`} data-tip={`Booting, ${lowerFirst(b.name)}: ${usd(d.where.boot.usd[b.part])} · ${long(d.where.boot.ms[b.part])}`} className="min-w-[3px]" style={{ flexGrow: d.where.boot.usd[b.part], background: b.color }} />)
-            : [<span key={p.part} data-tip={`${p.name}: ${usd(d.where.usd[p.part])} · ${long(d.where.ms[p.part])}`} className="min-w-[3px]" style={{ flexGrow: d.where.usd[p.part], background: p.color }} />],
+            : [<span key={p.part} data-tip={`${p.name}: ${usd(d.where.usd[p.part])} · ${long(d.where.ms[p.part])}${p.part === "outside" ? `. ${OUTSIDE_WHY}` : ""}`} className="min-w-[3px]" style={{ flexGrow: d.where.usd[p.part], background: p.color }} />],
         )}
       </div>
       <div className="flex flex-wrap gap-x-5 gap-y-2">
@@ -124,6 +124,7 @@ function WhereItWent({ d }: { d: CostsView }) {
           <span key={p.part} className="flex items-center gap-2 text-[12.5px]">
             <span className="size-2.5 shrink-0 rounded-[3px]" style={{ background: p.color }} />
             <span className="font-semibold">{p.name}</span>
+            {p.part === "outside" && <Help title="Outside Afflatus" text={OUTSIDE_WHY} />}
             <span className="font-mono text-ink-2">{usd(d.where.usd[p.part])} · {long(d.where.ms[p.part])}</span>
           </span>
         ))}
@@ -257,6 +258,7 @@ function SessionRow({ s, longest, split }: { s: PodSession; longest: number; spl
         <div className="mb-1 ml-1.5 flex flex-col gap-0.5 border-l border-line py-1 pl-3 text-xs">
           {s.estimated.length > 0 && <span className="text-ink-3">Estimated: {s.estimated.join("; ")}.</span>}
           {boot && <span className={cx(s.startFailed ? "text-warn-ink" : "text-ink-3")}>{boot}</span>}
+          {s.parts.outside > 0 && <span className="text-ink-3" data-tip={OUTSIDE_WHY}>Outside Afflatus: {long(s.parts.outside)}, {usd((s.parts.outside / 3_600_000) * s.rate, true)}</span>}
           {s.renders.length ? s.renders.map((r) => (
             // the time's column holds the longest spell() gives on one line ("59 min 59 s"): at 64px it wrapped
             <span key={r.id} className="grid grid-cols-[48px_minmax(0,1fr)_88px_64px] items-center gap-2">

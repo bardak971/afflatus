@@ -194,6 +194,11 @@ export class Queue {
   clips: Timelines | null = null;
   /** Where what the user is told of goes (notify.ts; set by services.ts): a ComfyUI gone mid-render. Null: nothing is said. */
   tell: Say | null = null;
+  /**
+   * Told every read of a machine's work from outside Afflatus, changed or not (set by services.ts): a rented pod's time at
+   * that work is kept for the Costs tab (podOutside.ts), its last sight with it. Null: not kept.
+   */
+  onOutside: ((machine: string, outside: { running: number; pending: number } | null) => void) | null = null;
   /** The machines a ComfyUI gone mid-render was said of, until they answer again: said once, however it is found out. */
   private goneSaid = new Set<string>();
   /** How many passes picked another job over a waiting one: a job is passed over a few times at most. */
@@ -1402,6 +1407,7 @@ ${JSON.stringify(input)}`;
   private noteOutside(lane: Lane, next: Lane["outside"]): void {
     // a render of Afflatus's waiting in ComfyUI behind it moves by nothing meanwhile: its silence counts from when it is done
     if (next?.running && lane.running) lane.running.movedAt = Date.now();
+    this.onOutside?.(lane.id, next);
     const was = lane.outside;
     lane.outside = next;
     if (was?.running === next?.running && was?.pending === next?.pending) return;

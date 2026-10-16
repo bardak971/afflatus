@@ -28,11 +28,15 @@ export function presetWindow(label: string, now = Date.now()): { from: number; t
   return { from: now - p.ms, to: now };
 }
 
-/** The parts in the order they are drawn and said, with their names and colours (theme tokens). */
+/**
+ * The parts in the order they are drawn and said, with their names and colours (theme tokens). Work from outside Afflatus is
+ * the pod used, by someone else than Afflatus: in the good tone, apart from rendering's accent and from idle's grey.
+ */
 export const PART_SAID: ReadonlyArray<{ part: CostPart; name: string; color: string }> = [
   { part: "render", name: "Rendering", color: "var(--color-accent)" },
   { part: "boot", name: "Booting", color: "var(--color-boot)" },
   { part: "fetch", name: "Fetching files", color: "var(--color-picture)" },
+  { part: "outside", name: "Outside Afflatus", color: "var(--color-good)" },
   { part: "idle", name: "Idle", color: "var(--color-ink-3)" },
   { part: "failed", name: "Failed renders", color: "var(--color-warn)" },
 ];
@@ -64,10 +68,16 @@ export function bootSplit(ms: BootMs): Array<(typeof BOOT_SAID)[number]> {
   return said.length === 1 && said[0]!.part === "boot" ? [] : said;
 }
 
-/** Of the pods' money, the share that made nothing: all but the renders that finished (0 to 1). */
+/** What work queued in a pod's ComfyUI from outside Afflatus is, for its "?" and its tips. */
+export const OUTSIDE_WHY = "Work queued in the pod's ComfyUI from elsewhere (its own page, another tool): billed, and not idle.";
+
+/**
+ * Of the pods' money, the share that made nothing: all but the renders that finished and the work from outside Afflatus,
+ * which used the pod too (0 to 1).
+ */
 export function nothingShare(usd: Record<CostPart, number>): number {
   const total = Object.values(usd).reduce((n, v) => n + v, 0);
-  return total > 0 ? 1 - usd.render / total : 0;
+  return total > 0 ? 1 - (usd.render + usd.outside) / total : 0;
 }
 
 export const totalMs = (ms: PartMs) => Object.values(ms).reduce((n, v) => n + v, 0);
@@ -115,6 +125,7 @@ export function sessionBits(s: PodSession, longest: number, split = false): Arra
     : part === "fetch" ? `Fetching ${s.fetched.files ? `${plural(s.fetched.files, "file")}, ${gb(s.fetched.bytes)}` : "files"} · ${long(ms)}${guessed("fetch")}`
     : part === "render" ? `${plural(done, "render")} · ${long(ms)}`
     : part === "failed" ? `${plural(failed, "failed render")} · ${long(ms)}`
+    : part === "outside" ? `Outside Afflatus · ${long(ms)}: work queued in its ComfyUI from elsewhere`
     : `Idle · ${long(ms)}`;
   const share = (ms: number) => (longest > 0 ? ms / longest : 0);
   const own = bootSplit(s.boot);

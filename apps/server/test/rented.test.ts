@@ -182,6 +182,9 @@ describe("a rented machine", () => {
     expect(row.outside).toEqual({ running: 1, pending: 0 });
     // no countdown to a stop while it is at work
     expect(row.rented?.idleLeftMs).toBeNull();
+    // its time at that work kept on its session, for Queue › Costs: used, not idle
+    await t.services.podOutside.settled();
+    expect(await t.db.selectFrom("pod_outside").select(["session_id", "ended_at"]).execute()).toEqual([{ session_id: (await sessions())[0]!.id, ended_at: null }]);
     // a spending cap is the user's word: it stops the pod whatever runs there that is not Afflatus's
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 0.0000001, month: 0 } } });
     await t.services.rented.poll();

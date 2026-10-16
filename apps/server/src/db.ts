@@ -375,6 +375,11 @@ export interface Tables {
   };
   /** Each model file a pod got (podFiles.ts): from when its bytes started to when it was whole, the Costs tab's "Fetching files". Bytes as a number (bigint on Postgres). */
   pod_fetches: { id: string; machine_id: string; file: string; folder: string; via: string; bytes: number | string; started_at: string; ended_at: string };
+  /**
+   * When a pod's ComfyUI ran work from outside Afflatus, by session (podOutside.ts, 0077): from the read that first found it
+   * running to the one that found none; `seen_at` the last read that found it, what an interval left open is closed at.
+   */
+  pod_outside: { id: string; session_id: string; machine_id: string; started_at: string; seen_at: string; ended_at: string | null };
   /** What rented pods were measured at (podFiles.ts): a file's bytes over its time per source (hf, civitai, upload), a deploy's boot (ms). */
   pod_measures: { id: string; kind: string; cloud: string | null; bytes: number; ms: number; at: string };
   /** Every model file of this computer hashed once, and the site version or file it is (modelHashes.ts). Sizes and times as numbers (bigint on Postgres: read through Number). */

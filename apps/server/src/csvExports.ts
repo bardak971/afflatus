@@ -24,7 +24,7 @@ const machineName = (settings: Settings, id: string | null): string | null => {
 export const COSTS_HEADERS = [
   "kind", "started_utc", "ended_utc", "machine", "gpu", "rate_usd_per_hour",
   "boot_s", "image_pull_s", "node_packs_s", "comfyui_start_s", "failed_start_s", "failed_start_step",
-  "fetch_s", "render_s", "failed_render_s", "idle_s", "renders", "files_fetched", "fetched_bytes", "idle_stop_minutes", "estimated",
+  "fetch_s", "render_s", "failed_render_s", "outside_s", "idle_s", "renders", "files_fetched", "fetched_bytes", "idle_stop_minutes", "estimated",
   "volumes", "counted_usd", "billed_usd",
 ] as const;
 
@@ -44,7 +44,7 @@ export function costsCsv(view: CostsView, spending: Spending | null, settings: S
     rows.push([
       "session", utc(s.from), s.open ? null : utc(s.to), machineName(settings, s.machine), s.gpu === "GPU" ? null : s.gpu, dollars4(s.rate),
       seconds(s.parts.boot), part(s.boot.pull), part(s.boot.packs), part(s.boot.comfy), part(s.boot.startFailed), s.startFailed,
-      seconds(s.parts.fetch), seconds(s.parts.render), seconds(s.parts.failed), seconds(s.parts.idle), s.renders.length, s.fetched.files, s.fetched.bytes, s.idleMinutes, s.estimated.join("; ") || null,
+      seconds(s.parts.fetch), seconds(s.parts.render), seconds(s.parts.failed), seconds(s.parts.outside), seconds(s.parts.idle), s.renders.length, s.fetched.files, s.fetched.bytes, s.idleMinutes, s.estimated.join("; ") || null,
       null, dollars4(s.usd), null,
     ]);
   }
@@ -55,7 +55,7 @@ export function costsCsv(view: CostsView, spending: Spending | null, settings: S
     rows.push([
       "volumes", utc(monthFrom), utc(now), null, null, null,
       null, null, null, null, null, null,
-      null, null, null, null, null, null, null, null, null,
+      null, null, null, null, null, null, null, null, null, null,
       spending!.storage!.volumes, null, dollars4(volumesBill),
     ]);
   }

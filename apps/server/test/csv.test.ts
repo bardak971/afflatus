@@ -75,7 +75,7 @@ describe("the CSV writer", () => {
 
 const session = (over: Partial<SessionView>): SessionView => ({
   id: "s", machine: "rp-a", gpu: "A40", rate: 0.6, from: 0, to: HOUR, open: false, usd: 0.6,
-  parts: { render: 30 * MIN, boot: 4 * MIN, fetch: 6 * MIN, idle: 17 * MIN, failed: 3 * MIN },
+  parts: { render: 30 * MIN, boot: 4 * MIN, fetch: 6 * MIN, outside: 5 * MIN, idle: 12 * MIN, failed: 3 * MIN },
   boot: { pull: MIN, packs: MIN, comfy: 2 * MIN, startFailed: 0, boot: 0 }, startFailed: null, packs: [], estimated: [], why: "", idleMinutes: 10,
   fetched: { files: 1, bytes: 26e9 }, renders: [], ...over,
 });
@@ -101,7 +101,7 @@ describe("the Costs tab's file", () => {
       const [early, late, volumes] = recordsOf(text);
       expect(early).toMatchObject({
         kind: "session", started_utc: iso(T0), ended_utc: iso(T0 + HOUR), machine: "'=A40 pod", gpu: "A40", rate_usd_per_hour: "0.6",
-        boot_s: "240", image_pull_s: "60", node_packs_s: "60", comfyui_start_s: "120", failed_start_s: "0", fetch_s: "360", render_s: "1800", failed_render_s: "180", idle_s: "1020",
+        boot_s: "240", image_pull_s: "60", node_packs_s: "60", comfyui_start_s: "120", failed_start_s: "0", fetch_s: "360", render_s: "1800", failed_render_s: "180", outside_s: "300", idle_s: "720",
         files_fetched: "1", fetched_bytes: "26000000000", idle_stop_minutes: "10", counted_usd: "0.6", billed_usd: "",
       });
       // still running: no end; a boot from before its parts were kept: its parts empty, its whole there; a removed pod by its id
@@ -199,7 +199,7 @@ describe("the CSV routes", () => {
     expect(res.body.startsWith("﻿")).toBe(true);
     const records = recordsOf(res.body);
     expect(records).toHaveLength(1);
-    expect(records[0]).toMatchObject({ kind: "session", started_utc: iso(now - 3 * HOUR), ended_utc: iso(now - 2 * HOUR), gpu: "A40", boot_s: "240", idle_s: "3360", counted_usd: "0.6" });
+    expect(records[0]).toMatchObject({ kind: "session", started_utc: iso(now - 3 * HOUR), ended_utc: iso(now - 2 * HOUR), gpu: "A40", boot_s: "240", outside_s: "0", idle_s: "3360", counted_usd: "0.6" });
     // the whole record: both sessions
     const all = await get(t.app, "/api/costs.csv");
     expect(recordsOf(all.body)).toHaveLength(2);

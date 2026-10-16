@@ -388,6 +388,9 @@ export class Rented {
 
   private running = false;
 
+  /** Whether work from outside Afflatus is being timed on a pod (podOutside.ts; set by services.ts): its queue is read at each pass then. */
+  outsideTimed: (machine: string) => boolean = () => false;
+
   /** The next read in `ms`, the one waiting put off: a pod just started or stopped is followed at the fast pace at once. */
   private kick(ms: number): void {
     if (!this.running) return;
@@ -1582,7 +1585,15 @@ export class Rented {
     }
     // Work queued in its ComfyUI from outside Afflatus (its own page, another tool) is work too: the pod is not stopped under
     // it by its idle time. The caps above act all the same
-    if (running || (!s.answered && !s.busyRestored) || this.queue.fetching(m.id) || (answers && ((await this.queue.wants(m.id)) || (await this.queue.busyOutside(m.id))))) s.busyAt = now;
+    let outsideRead = false;
+    const outside = () => {
+      outsideRead = true;
+      return this.queue.busyOutside(m.id);
+    };
+    if (running || (!s.answered && !s.busyRestored) || this.queue.fetching(m.id) || (answers && ((await this.queue.wants(m.id)) || (await outside())))) s.busyAt = now;
+    // While its ComfyUI's work from outside Afflatus is being timed (podOutside.ts), its queue is read at every pass all the
+    // same, Afflatus's own work there or not: the stretch is kept to this pass's sight of it, not closed early at an older one
+    if (answers && !outsideRead && this.outsideTimed(m.id)) await this.queue.busyOutside(m.id);
     // set when it was first seen running (follow), from what was kept across a restart of Afflatus
     s.busyAt ??= now;
     await this.keepBusy(m, s);

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
-import { adviceOf, BOOT_PARTS, bootPartsOf, costs, deployOverhead, fetchAdvice, idleSaving, NOT_SPLIT, PARTS, splitSession, type BootMs, type CostsDeps, type CostsView, type Fetched, type PartMs } from "../src/costs";
+import { adviceOf, BOOT_PARTS, bootPartsOf, costs, deployOverhead, fetchAdvice, idleSaving, NOT_SPLIT, PARTS, partsOf, splitSession, type BootMs, type CostsDeps, type CostsView, type Fetched, type PartMs } from "../src/costs";
 import type { Spending } from "../src/rented";
 import { openSqlite, migrate, type Db } from "../src/db";
 import { energyOf, PowerLog } from "../src/power";
@@ -28,10 +28,29 @@ describe("a session's time", () => {
     expect(estimated).toEqual([]);
     expect(spans.map((s) => s.part)).toEqual(["boot", "fetch", "render", "idle", "failed", "idle", "render", "idle"]);
     const parts = Object.fromEntries(PARTS.map((p) => [p, spans.filter((s) => s.part === p).reduce((n, s) => n + s.to - s.from, 0) / MIN]));
-    expect(parts).toEqual({ boot: 4, fetch: 6, render: 30, failed: 3, idle: 17 });
+    expect(parts).toEqual({ boot: 4, fetch: 6, render: 30, failed: 3, outside: 0, idle: 17 });
     expect(spans.reduce((n, s) => n + s.to - s.from, 0)).toBe(60 * MIN);
     // one after the other, from its start to its end
     spans.slice(1).forEach((s, i) => expect(s.from).toBe(spans[i]!.to));
+  });
+
+  it("work from outside Afflatus takes idle time only: a render, a file and the boot keep theirs, and it adds up to its length", () => {
+    const { spans, estimated } = splitSession({
+      ...facts,
+      fetches: [{ from: 4 * MIN, to: 10 * MIN }],
+      renders: [{ from: 20 * MIN, to: 30 * MIN, ok: true }],
+      // from within the boot (a clock off) over the file to the render's middle; then one past the session's end
+      outside: [{ from: 2 * MIN, to: 25 * MIN }, { from: 50 * MIN, to: 70 * MIN }],
+    });
+    expect(estimated).toEqual([]);
+    expect(spans.map((s) => [s.part, (s.to - s.from) / MIN])).toEqual([["boot", 4], ["fetch", 6], ["outside", 10], ["render", 10], ["idle", 20], ["outside", 10]]);
+    const parts = Object.fromEntries(PARTS.map((p) => [p, spans.filter((s) => s.part === p).reduce((n, s) => n + s.to - s.from, 0) / MIN]));
+    expect(parts).toEqual({ boot: 4, fetch: 6, render: 10, failed: 0, outside: 20, idle: 20 });
+    expect(spans.reduce((n, s) => n + s.to - s.from, 0)).toBe(60 * MIN);
+    spans.slice(1).forEach((s, i) => expect(s.from).toBe(spans[i]!.to));
+    // two stretches that overlap count once; none (a session before 0077) leaves it all idle as before
+    expect(partsOf(splitSession({ ...facts, outside: [{ from: 10 * MIN, to: 30 * MIN }, { from: 20 * MIN, to: 40 * MIN }] }).spans)).toMatchObject({ outside: 30 * MIN, idle: 26 * MIN });
+    expect(partsOf(splitSession(facts).spans)).toMatchObject({ outside: 0, idle: 56 * MIN });
   });
 
   it("a render under way while a file comes is rendering; nothing past its ends counts", () => {
@@ -81,7 +100,7 @@ describe("the advice", () => {
     // 10 min idle at the end of a $0.60/h pod, 3 at the end of another: at 5 min, 5 min of the first are saved
     expect(idleSaving([{ tailMs: 10 * MIN, rate: 0.6 }, { tailMs: 3 * MIN, rate: 0.6 }], 5)).toBeCloseTo(0.05, 6);
     const advice = adviceOf({
-      where: { ms: { render: 30 * MIN, boot: 4 * MIN, fetch: 0, idle: 13 * MIN, failed: 0 }, usd: { render: 0.3, boot: 0.04, fetch: 0, idle: 0.13, failed: 0 } },
+      where: { ms: { render: 30 * MIN, boot: 4 * MIN, fetch: 0, outside: 0, idle: 13 * MIN, failed: 0 }, usd: { render: 0.3, boot: 0.04, fetch: 0, outside: 0, idle: 0.13, failed: 0 } },
       tails: [{ tailMs: 10 * MIN, rate: 0.6, idle: 10 }, { tailMs: 3 * MIN, rate: 0.6, idle: 10 }], fetched: [], bootsSeen: [4 * MIN], rows: [], sessions: 2,
     });
     expect(advice).toEqual([{ kind: "idle", title: "Idle: 13 min, $0.13", why: "Your pods wait 10 min before they stop. At 5 min the same sessions would have cost $0.05 less.", save: expect.closeTo(0.05, 6) }]);
@@ -93,16 +112,16 @@ describe("the advice", () => {
     const again = fetchAdvice([f("a", 6 * MIN), f("b", 4 * MIN)])!;
     // 26 GB with room: a 30 GB volume at $0.07 a GB, $2.10 a month; fetching it once is 5 min at $0.60/h, $0.05
     expect(again).toMatchObject({ bytes: 26e9, times: 2, volumeGb: 30, perMonth: expect.closeTo(2.1, 6), onceUsd: expect.closeTo(0.05, 6), deploys: 42 });
-    const advice = adviceOf({ where: { ms: { render: 0, boot: 0, fetch: 10 * MIN, idle: 0, failed: 0 }, usd: { render: 0, boot: 0, fetch: 0.1, idle: 0, failed: 0 } }, tails: [], fetched: [f("a", 6 * MIN), f("b", 4 * MIN)], bootsSeen: [], rows: [], sessions: 2 });
+    const advice = adviceOf({ where: { ms: { render: 0, boot: 0, fetch: 10 * MIN, outside: 0, idle: 0, failed: 0 }, usd: { render: 0, boot: 0, fetch: 0.1, outside: 0, idle: 0, failed: 0 } }, tails: [], fetched: [f("a", 6 * MIN), f("b", 4 * MIN)], bootsSeen: [], rows: [], sessions: 2 });
     expect(advice).toEqual([{ kind: "fetch", title: "Files fetched: 52 GB, 10 min", why: "wan's 26.0 GB came twice. A 30 GB volume ($2.10/month) keeps them: it pays for itself at about 42 deploys a month.", save: null }]);
   });
 
   it("the boots when they are a good part of it, and the cheapest GPU per model; nothing when there is nothing to say", () => {
-    const quiet = adviceOf({ where: { ms: { render: 60 * MIN, boot: 4 * MIN, fetch: 0, idle: 0, failed: 0 }, usd: { render: 0.6, boot: 0.04, fetch: 0, idle: 0, failed: 0 } }, tails: [], fetched: [], bootsSeen: [4 * MIN], rows: [], sessions: 1 });
+    const quiet = adviceOf({ where: { ms: { render: 60 * MIN, boot: 4 * MIN, fetch: 0, outside: 0, idle: 0, failed: 0 }, usd: { render: 0.6, boot: 0.04, fetch: 0, outside: 0, idle: 0, failed: 0 } }, tails: [], fetched: [], bootsSeen: [4 * MIN], rows: [], sessions: 1 });
     expect(quiet).toEqual([]);
     const row = { key: "m", model: "Wan · Motion", file: "wan", local: null, wh: null };
     const advice = adviceOf({
-      where: { ms: { render: 10 * MIN, boot: 8 * MIN, fetch: 0, idle: 0, failed: 0 }, usd: { render: 0.1, boot: 0.08, fetch: 0, idle: 0, failed: 0 } }, tails: [], fetched: [], bootsSeen: [3 * MIN, 5 * MIN], sessions: 2,
+      where: { ms: { render: 10 * MIN, boot: 8 * MIN, fetch: 0, outside: 0, idle: 0, failed: 0 }, usd: { render: 0.1, boot: 0.08, fetch: 0, outside: 0, idle: 0, failed: 0 } }, tails: [], fetched: [], bootsSeen: [3 * MIN, 5 * MIN], sessions: 2,
       rows: [
         { ...row, where: "pod", on: "A40", ms: 200_000, renders: 12, usd: 0.033, best: true },
         { ...row, where: "pod", on: "RTX 4090", ms: 150_000, renders: 3, usd: 0.042, best: false },
@@ -115,7 +134,7 @@ describe("the advice", () => {
 
 describe("the advice on boots", () => {
   const where = (pull: number, packs: number) => ({
-    ms: { render: 60 * MIN, boot: 20 * MIN, fetch: 0, idle: 0, failed: 0 }, usd: { render: 0.6, boot: 0.2, fetch: 0, idle: 0, failed: 0 },
+    ms: { render: 60 * MIN, boot: 20 * MIN, fetch: 0, outside: 0, idle: 0, failed: 0 }, usd: { render: 0.6, boot: 0.2, fetch: 0, outside: 0, idle: 0, failed: 0 },
     boot: { ms: { pull: pull * MIN, packs: packs * MIN, comfy: (20 - pull - packs) * MIN, startFailed: 0, boot: 0 }, usd: { pull: pull / 100, packs: packs / 100, comfy: (20 - pull - packs) / 100, startFailed: 0, boot: 0 } },
   });
   const ask = (w: ReturnType<typeof where>, boots: Array<{ pullMs: number | null; packs: string[]; packsKnown: boolean }>) => adviceOf({ where: w, tails: [], fetched: [], bootsSeen: [], boots, rows: [], sessions: 1 });
@@ -223,17 +242,44 @@ describe("the costs of a window", () => {
   it("each session adds up to its length and its cost; the window's parts to the sessions'", async () => {
     const v = await view();
     const [s2, s1] = v.sessions;
-    expect(s1!.parts).toEqual({ boot: 4 * MIN, fetch: 6 * MIN, render: 30 * MIN, failed: 3 * MIN, idle: 17 * MIN });
+    expect(s1!.parts).toEqual({ boot: 4 * MIN, fetch: 6 * MIN, render: 30 * MIN, failed: 3 * MIN, outside: 0, idle: 17 * MIN });
     expect(sum(s1!.parts)).toBe(60 * MIN);
     expect(s1!.usd).toBeCloseTo(0.6, 9);
     expect(PARTS.reduce((n, p) => n + (s1!.parts[p] / HOUR) * s1!.rate, 0)).toBeCloseTo(s1!.usd, 9);
-    expect(s2!.parts).toEqual({ boot: 3 * MIN, fetch: 4 * MIN, render: 10 * MIN, failed: 0, idle: 13 * MIN });
+    expect(s2!.parts).toEqual({ boot: 3 * MIN, fetch: 4 * MIN, render: 10 * MIN, failed: 0, outside: 0, idle: 13 * MIN });
     expect(s1).toMatchObject({ gpu: "A40", estimated: [], fetched: { files: 1, bytes: 26e9 }, why: "zz-test hunt · 3 renders, 1 failed" });
     expect(sum(v.where.ms)).toBe(90 * MIN);
     expect(PARTS.reduce((n, p) => n + v.where.usd[p], 0)).toBeCloseTo(0.9, 9);
     // spent per stretch, by GPU, as much as the sessions
     expect(v.spend.gpus).toEqual(["A40"]);
     expect(v.spend.values[0]!.reduce((n, x) => n + x, 0)).toBeCloseTo(0.9, 9);
+  });
+
+  it("work from outside Afflatus kept on a session: taken out of its idle, never its render's; still adding up, and not idle in the advice", async () => {
+    // s2: up at 93, its file 93–97, its render 97–107, idle to its end at 120. Outside work 100–112 (its render keeps 100–107),
+    // and 116 on, left open (Afflatus stopped) and last seen past the session's end: cut at 120. Another session's is not its
+    await db.insertInto("pod_outside").values([
+      { id: "o1", session_id: "s2", machine_id: "rp-b", started_at: iso(T0 + 100 * MIN), seen_at: iso(T0 + 112 * MIN), ended_at: iso(T0 + 112 * MIN) },
+      { id: "o2", session_id: "s2", machine_id: "rp-b", started_at: iso(T0 + 116 * MIN), seen_at: iso(T0 + 125 * MIN), ended_at: null },
+      { id: "o3", session_id: "gone", machine_id: "rp-b", started_at: iso(T0 + 100 * MIN), seen_at: iso(T0 + 120 * MIN), ended_at: iso(T0 + 120 * MIN) },
+    ]).execute();
+    const v = await view();
+    const [s2, s1] = v.sessions;
+    expect(s2!.parts).toEqual({ boot: 3 * MIN, fetch: 4 * MIN, render: 10 * MIN, failed: 0, outside: 9 * MIN, idle: 4 * MIN });
+    expect(sum(s2!.parts)).toBe(30 * MIN);
+    expect(PARTS.reduce((n, p) => n + (s2!.parts[p] / HOUR) * s2!.rate, 0)).toBeCloseTo(s2!.usd, 12);
+    // the session kept none: as it was
+    expect(s1!.parts).toMatchObject({ outside: 0, idle: 17 * MIN });
+    expect(v.where.ms).toMatchObject({ outside: 9 * MIN, idle: 21 * MIN });
+    expect(sum(v.where.ms)).toBe(90 * MIN);
+    expect(v.where.usd.outside).toBeCloseTo((9 / 60) * 0.6, 12);
+    expect(PARTS.reduce((n, p) => n + v.where.usd[p], 0)).toBeCloseTo(0.9, 9);
+    // the idle said is the idle left; s2 ended at work from outside, not idle: only s1's 10 min at its end weigh a shorter idle
+    const idle = v.advice.find((a) => a.kind === "idle")!;
+    expect(idle.title).toBe("Idle: 21 min, $0.21");
+    expect(idle.save).toBeCloseTo((5 / 60) * 0.6, 9);
+    // a deploy's usual idle at its end: s2 had none
+    expect(await deployOverhead(db, NOW)).toMatchObject({ idleMs: 5 * MIN });
   });
 
   it("a deploy's own cost, as the Hunt says it beside a render's: the usual boot and idle at the end of the sessions that ended", async () => {
@@ -379,7 +425,7 @@ describe("the costs of a window", () => {
       { id: "m2", kind: "civitai", cloud: "SECURE", bytes: 6.9e9, ms: 2 * MIN, at: iso(T0 - 23 * MIN) },
     ]).execute();
     const s0 = (await view()).sessions.find((s) => s.id === "s0")!;
-    expect(s0.parts).toEqual({ boot: 4 * MIN, fetch: 2 * MIN, render: 0, failed: 0, idle: 14 * MIN });
+    expect(s0.parts).toEqual({ boot: 4 * MIN, fetch: 2 * MIN, render: 0, failed: 0, outside: 0, idle: 14 * MIN });
     expect(s0.estimated).toEqual(["its files, from their speeds (files over 100 MB only)"]);
     expect(s0.why).toBe("no render");
   });

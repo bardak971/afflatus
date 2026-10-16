@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PodSession } from "../src/api";
-import { BOOT_SAID, bootSaid, bootSplit, nothingShare, PART_SAID, presetWindow, runwayNowSaid, runwaySaid, sessionBits, totalsSaid } from "../src/screens/queue/costsView";
+import { BOOT_SAID, bootSaid, bootSplit, nothingShare, OUTSIDE_WHY, PART_SAID, presetWindow, runwayNowSaid, runwaySaid, sessionBits, totalsSaid } from "../src/screens/queue/costsView";
 
 /** What the Costs tab works out from the server's figures before drawing them (costsView.ts). */
 
@@ -14,9 +14,10 @@ describe("the Costs tab", () => {
     expect(presetWindow("All", now)).toBeNull();
   });
 
-  it("what made nothing: all but the renders that finished", () => {
-    expect(nothingShare({ render: 0.45, boot: 0.2, fetch: 0.11, idle: 0.29, failed: 0.04 })).toBeCloseTo(0.587, 3);
-    expect(nothingShare({ render: 0, boot: 0, fetch: 0, idle: 0, failed: 0 })).toBe(0);
+  it("what made nothing: all but the renders that finished and the work from outside Afflatus, which used the pod too", () => {
+    expect(nothingShare({ render: 0.45, boot: 0.2, fetch: 0.11, outside: 0, idle: 0.29, failed: 0.04 })).toBeCloseTo(0.587, 3);
+    expect(nothingShare({ render: 0.45, boot: 0.2, fetch: 0.11, outside: 0.2, idle: 0.09, failed: 0.04 })).toBeCloseTo(0.44 / 1.09, 6);
+    expect(nothingShare({ render: 0, boot: 0, fetch: 0, outside: 0, idle: 0, failed: 0 })).toBe(0);
   });
 
   it("how long the balance lasts, in the unit that reads", () => {
@@ -40,7 +41,7 @@ describe("the Costs tab", () => {
   it("a session's bar to the longest one's scale, each part with its tip, an estimated boot said", () => {
     const s: PodSession = {
       id: "s", machine: "rp", gpu: "A40", rate: 0.6, from: 0, to: 30 * MIN, open: false, usd: 0.3, why: "", idleMinutes: 10,
-      parts: { boot: 4 * MIN, fetch: 6 * MIN, render: 10 * MIN, failed: 0, idle: 10 * MIN }, estimated: ["its boot, up to its first work"],
+      parts: { boot: 4 * MIN, fetch: 6 * MIN, render: 10 * MIN, failed: 0, outside: 0, idle: 10 * MIN }, estimated: ["its boot, up to its first work"],
       boot: { pull: 0, packs: 0, comfy: 0, startFailed: 0, boot: 4 * MIN }, startFailed: null, packs: [],
       fetched: { files: 2, bytes: 26 * 2 ** 30 }, renders: [{ id: "r", at: 20 * MIN, ms: 10 * MIN, status: "done", model: "SCAIL", usd: 0.1, item: null }],
     };
@@ -57,6 +58,21 @@ describe("the Costs tab", () => {
     expect(BOOT_SAID.map((p) => p.name)).not.toContain("Not split");
   });
 
+  it("work from outside Afflatus: its own bit after the files and before idle, in its own colour, its tip saying what it is", () => {
+    const s: PodSession = {
+      id: "s", machine: "rp", gpu: "RTX 3070", rate: 0.14, from: 0, to: 10 * MIN, open: false, usd: 0.14 / 6, why: "no render, work outside Afflatus", idleMinutes: 10,
+      parts: { boot: 2 * MIN, fetch: 0, render: 0, failed: 0, outside: 4 * MIN, idle: 4 * MIN }, estimated: [],
+      boot: { pull: 0, packs: 0, comfy: 0, startFailed: 0, boot: 2 * MIN }, startFailed: null, packs: [],
+      fetched: { files: 0, bytes: 0 }, renders: [],
+    };
+    const bits = sessionBits(s, 10 * MIN);
+    expect(bits.map((b) => [b.part, b.share])).toEqual([["boot", 0.2], ["outside", 0.4], ["idle", 0.4]]);
+    expect(bits[1]!.tip).toBe("Outside Afflatus · 4 min: work queued in its ComfyUI from elsewhere");
+    expect(bits[1]!.color).toBe("var(--color-good)");
+    expect(PART_SAID.find((p) => p.part === "outside")!.name).toBe("Outside Afflatus");
+    expect(OUTSIDE_WHY).toBe("Work queued in the pod's ComfyUI from elsewhere (its own page, another tool): billed, and not idle.");
+  });
+
   it("draws every part and every part of a boot apart, the boot's in Booting's own hue and a failed start striped", () => {
     // Booting itself is drawn only where no boot was split, so its parts (Node packs in its very shade) never sit beside it
     const colours = [...PART_SAID.filter((p) => p.part !== "boot").map((p) => p.color), ...BOOT_SAID.map((p) => p.color)];
@@ -70,7 +86,7 @@ describe("the Costs tab", () => {
   it("a boot kept in parts: its bits in Booting's place, each with its tip; its open row's line with time and cost", () => {
     const s: PodSession = {
       id: "s", machine: "rp", gpu: "A40", rate: 0.6, from: 0, to: 20 * MIN, open: false, usd: 0.2, why: "", idleMinutes: 10,
-      parts: { boot: 10 * MIN, fetch: 0, render: 10 * MIN, failed: 0, idle: 0 }, estimated: [],
+      parts: { boot: 10 * MIN, fetch: 0, render: 10 * MIN, failed: 0, outside: 0, idle: 0 }, estimated: [],
       boot: { pull: 6 * MIN, packs: 2 * MIN, comfy: 2 * MIN, startFailed: 0, boot: 0 }, startFailed: null, packs: [{ pack: "ComfyUI-KJNodes", ms: 90_000 }],
       fetched: { files: 0, bytes: 0 }, renders: [{ id: "r", at: 20 * MIN, ms: 10 * MIN, status: "done", model: "SCAIL", usd: 0.1, item: null }],
     };
