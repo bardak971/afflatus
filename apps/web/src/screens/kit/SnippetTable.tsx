@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckSquare, ChevronDown, ChevronRight, Copy, Trash2 } from "lucide-react";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { ask } from "../../Confirm";
 import { fuzzyFilter } from "@afflatus/core";
-import { api, type Entity } from "../../api";
+import { api, raw, type Entity } from "../../api";
+import { useAutosave } from "../../autosave";
 import { Select } from "../../Select";
 import { AutoText, Button, Checkbox, cx, Empty, ErrorNote, fieldClass, Segmented, TwoStep } from "../../ui";
 import { remember, remembered, textOf } from "./shared";
@@ -24,7 +25,9 @@ const STYLE_WORDS = { any: "Any prompt", tags: "Tags", sentences: "Natural langu
 /**
  * One snippet as a row that is changed where it stands. Its name and its category are kept when the
  * field is left (a row does not jump to another place while it is typed in); its text also a moment
- * after the typing stops.
+ * after the typing stops. Saved through autosave.ts, as the kit's items are: what was typed in the last
+ * moment goes as the row is folded away or the screen left, and as the tab closes by a request that
+ * outlives the page; a save that fails is sent again by the next one, and the browser asks before the tab closes.
  */
 function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; ticked: boolean; onTick(on: boolean): void; fresh: boolean }) {
   const client = useQueryClient();
@@ -34,26 +37,28 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
   // moved to another category from the bar above, or renamed elsewhere: the row follows
   useEffect(() => setCategory(snippet.def.category), [snippet.def.category]);
   useEffect(() => setName(snippet.name), [snippet.name]);
-  const save = useMutation({
-    mutationFn: (next: { name: string; def: Snippet["def"] }) => api.saveEntity(snippet.id, next),
-    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.entities() }),
+  type Body = { name: string; def: Snippet["def"] };
+  const save = useAutosave<Body>({
+    delayMs: 800,
+    save: async (next) => {
+      await api.saveEntity(snippet.id, next);
+      await client.invalidateQueries({ queryKey: queryKeys.entities() });
+    },
+    keepalive: (next) => void raw("PUT", `/entities/${snippet.id}`, next, { keepalive: true }).catch(() => {}),
   });
   const remove = useMutation({ mutationFn: () => api.deleteEntity(snippet.id), onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.entities() }) });
-  const commit = (over: { name?: string; category?: string; text?: string; style?: Snippet["def"]["style"] } = {}) => {
+  /** The row as it is now, with `over` changed, waits to be saved; `now`: sent at once (a field left, a style chosen). */
+  const commit = (over: { name?: string; category?: string; text?: string; style?: Snippet["def"]["style"] } = {}, now = true) => {
     const next = {
       name: (over.name ?? name).trim() || "Unnamed",
       def: { text: over.text ?? text, category: (over.category ?? category).trim(), style: over.style !== undefined ? over.style : snippet.def.style },
     };
-    if (next.name === snippet.name && next.def.text === snippet.def.text && next.def.category === snippet.def.category && next.def.style === snippet.def.style) return;
-    save.mutate(next);
+    const same = next.name === snippet.name && next.def.text === snippet.def.text && next.def.category === snippet.def.category && next.def.style === snippet.def.style;
+    // a change typed and then undone by hand still goes: the one before it is waiting, or on its way
+    if (same && !save.pending.current) return;
+    save.queue(next);
+    if (now) void save.flush();
   };
-  // the latest of it, for the save that waits for the typing to stop
-  const latest = useRef(commit);
-  latest.current = commit;
-  const wait = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (wait.current) clearTimeout(wait.current);
-  }, []);
   const leaveOnEnter = (e: KeyboardEvent<HTMLInputElement>) => e.key === "Enter" && e.currentTarget.blur();
   // right-click on the row (not in its fields, which keep the browser's own menu for the text)
   const menu = useMenu<true>();
@@ -86,15 +91,10 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
       <AutoText
         aria-label={`Text of ${snippet.name}`} rows={1} value={text} placeholder="Its text. {a|b|c} is a wildcard: one is picked each time"
         onChange={(e) => {
-          const value = e.target.value;
-          setText(value);
-          if (wait.current) clearTimeout(wait.current);
-          wait.current = setTimeout(() => latest.current({ text: value }), 800);
+          setText(e.target.value);
+          commit({ text: e.target.value }, false);
         }}
-        onBlur={() => {
-          if (wait.current) clearTimeout(wait.current);
-          commit();
-        }}
+        onBlur={() => commit()}
         className={cx(cell, "py-1.5 leading-normal")}
       />
       <Select
@@ -104,7 +104,7 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
         options={(["any", "tags", "sentences"] as const).map((v) => ({ value: v, label: STYLE_WORDS[v] }))}
       />
       <TwoStep title={`Delete the snippet ${snippet.name}`} stay yes="Delete" onYes={() => remove.mutate()} />
-      {(save.isError || remove.isError) && <div className="col-span-6"><ErrorNote>{(save.error ?? remove.error)?.message}</ErrorNote></div>}
+      {(save.failure || remove.isError) && <div className="col-span-6"><ErrorNote>{save.failure ?? remove.error?.message}</ErrorNote></div>}
     </div>
   );
 }

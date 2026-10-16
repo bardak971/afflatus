@@ -143,4 +143,26 @@ describe("an autosave of clip forms (keyed)", () => {
     expect(last()).toEqual(["failed", "Afflatus is not answering"]);
     expect(s.mustAsk()).toBe(true);
   });
+
+  it("lets go of a dropped change, its failure with it, and says the rest as it stands", async () => {
+    const { s, sent, last } = rig();
+    s.queue("c1", "a");
+    s.queue("c2", "x");
+    void s.flush();
+    await settle();
+    sent[0]!.fail("refused");
+    await settle();
+    expect(last()).toEqual(["failed", "refused"]);
+    // the thing is gone (a draft deleted): no longer said failed, nor asked about as the tab closes; c2 still waits
+    s.drop("c1");
+    expect(s.pending.has("c1")).toBe(false);
+    expect(s.mustAsk()).toBe(false);
+    expect(last()?.[0]).toBe("saving");
+    sent[1]!.done();
+    await settle();
+    expect(last()).toEqual(["saved", null]);
+    // nothing sent again for it
+    await s.retry();
+    expect(sent.map((x) => x.key)).toEqual(["c1", "c2"]);
+  });
 });

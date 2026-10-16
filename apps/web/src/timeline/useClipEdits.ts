@@ -1,9 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, raw, type Clip, type Timeline } from "../api";
 import { KEEPALIVE_MAX, useKeyedAutosave } from "../autosave";
 import type { useModelSettings, useRecipes, useSetup } from "../data";
 import { wholeForm } from "../form";
 import { notReady } from "../format";
+import { queryKeys } from "../queryKeys";
+
+/**
+ * The key the source lane's form is kept under among the clips' forms: saved as they are (after the last change, as the
+ * editor is left, as the tab closes, before Undo), not by its panel, which closing within a moment of typing lost it.
+ */
+export const sourceKey = (timelineId: string) => `source:${timelineId}`;
+/** The timeline whose source form a key is, or null for a clip's. */
+const sourceOf = (key: string) => (key.startsWith("source:") ? key.slice("source:".length) : null);
 
 /**
  * The clips' forms as the editor holds them: what was typed over each clip, its saving, and what a clip's
@@ -22,11 +32,19 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
   // closes by a request that outlives the page (autosave.ts, as drafts are). A save that fails keeps the form pending,
   // says so in the header, is sent again by the next save or by Retry, and the browser asks before the tab closes
   const [edits, setEdits] = useState<Record<string, Record<string, unknown>>>({});
+  const client = useQueryClient();
   const autosave = useKeyedAutosave<Record<string, unknown>>({
-    save: async (clipId, inputs) => {
-      await api.editClip(clipId, { inputs });
+    save: async (key, inputs) => {
+      const source = sourceOf(key);
+      if (!source) return void (await api.editClip(key, { inputs }));
+      await api.editTimeline(source, { source: { inputs } });
+      // read again for its Undo; the source panel keeps what is typed over what is read until it is saved
+      void client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
     },
-    keepalive: (clipId, inputs) => void raw("PATCH", `/clips/${clipId}`, { inputs }, { keepalive: true }).catch(() => {}),
+    keepalive: (key, inputs) => {
+      const source = sourceOf(key);
+      void raw("PATCH", source ? `/timelines/${source}` : `/clips/${key}`, source ? { source: { inputs } } : { inputs }, { keepalive: true }).catch(() => {});
+    },
     goesWhole: (_, inputs) => JSON.stringify({ inputs }).length <= KEEPALIVE_MAX,
     gone: clipGone,
   });
@@ -52,6 +70,10 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
     setEdits((e) => ({ ...e, [c.id]: next }));
     queue(c.id, next);
   };
+  /** The source lane's form typed (its panel's), saved as a clip's form is. */
+  const typeSource = useCallback((timelineId: string, inputs: Record<string, unknown>) => queue(sourceKey(timelineId), inputs), [queue]);
+  /** The source lane's form as typed and not saved yet (on its way, or failed), or undefined when the server has it. */
+  const sourceTyped = useCallback((timelineId: string) => unsaved.get(sourceKey(timelineId)), [unsaved]);
   /** Every edit dropped: what the server has now is what counts (after an undo or a redo, which saved first). */
   const dropEdits = () => setEdits({});
   /** The timeline as it is on screen: with what was typed and is not saved yet. */
@@ -100,7 +122,7 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
     [recipes.data, setup.data, setup.isSuccess, comfyOnline, inputsOf, settings.data, clips],
   );
 
-  return { edits, dropEdits, saveFailed, save, turn, inputsOf, editInputs, savedElsewhere, shown, formOf, ready };
+  return { edits, dropEdits, saveFailed, save, turn, inputsOf, editInputs, savedElsewhere, typeSource, sourceTyped, shown, formOf, ready };
 }
 
 /** A clip's save answered 404: the clip was removed (here, by Undo, in another tab), and its form has nowhere to go. */

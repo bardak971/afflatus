@@ -7,7 +7,7 @@ import { movingSeed, seedAfter, useSeedMode } from "../seedMode";
 import type { Fix } from "./attention";
 import type { ExportOptions } from "./ExportDialog";
 import { pinInputs, type ShownPatch } from "./model";
-import type { useClipEdits } from "./useClipEdits";
+import { sourceKey, type useClipEdits } from "./useClipEdits";
 import { queryKeys } from "../queryKeys";
 
 /** A new clip as the server takes it; `stopAtMs`: the clip it goes after stops being seen there first, in the same step. */
@@ -22,7 +22,7 @@ export function useTimelineMutations(id: string, o: {
   /** The clips as they are on screen now (read when a designer's reply comes back). */
   clipsNow: RefObject<Clip[]>;
   recipes: RecipeInfo[];
-  edits: Pick<ReturnType<typeof useClipEdits>, "save" | "turn" | "ready" | "inputsOf" | "editInputs" | "dropEdits" | "savedElsewhere">;
+  edits: Pick<ReturnType<typeof useClipEdits>, "save" | "turn" | "ready" | "inputsOf" | "editInputs" | "dropEdits" | "savedElsewhere" | "sourceTyped">;
   /** The model a first clip is given. */
   firstRecipe(): string | undefined;
   on: {
@@ -38,7 +38,7 @@ export function useTimelineMutations(id: string, o: {
     open(asset: Asset): void;
   };
 }) {
-  const { save, turn, ready, inputsOf, editInputs, dropEdits, savedElsewhere } = o.edits;
+  const { save, turn, ready, inputsOf, editInputs, dropEdits, savedElsewhere, sourceTyped } = o.edits;
   const client = useQueryClient();
   const refresh = useCallback(() => client.invalidateQueries({ queryKey: queryKeys.timelines.all() }), [client]);
   const after = () => {
@@ -91,8 +91,19 @@ export function useTimelineMutations(id: string, o: {
     onSuccess: after,
   });
   const edit = useMutation({ mutationFn: (p: TimelinePatch) => api.editTimeline(id, p), onSuccess: after });
-  /** The source lane's stretch made into clips (their ids, to send to render once the timeline is read again). */
-  const makeSource = useMutation({ mutationFn: () => api.makeFromSource(id), onSuccess: after });
+  /**
+   * The source lane's stretch made into clips (their ids, to send to render once the timeline is read again). The server
+   * makes them from the source's form it has: what was typed in it is saved first, else the clips were queued to render
+   * with the form as it was before. A save that failed keeps what was typed, said in the header: nothing is made then.
+   */
+  const makeSource = useMutation({
+    mutationFn: async () => {
+      await save(sourceKey(id));
+      if (sourceTyped(id)) throw new Error("The source's form is not saved: nothing was made.");
+      return api.makeFromSource(id);
+    },
+    onSuccess: after,
+  });
   /** The source split at a moment of it: the part before plays as it is, a clip of its own. */
   const splitSource = useMutation({ mutationFn: (atMs: number) => api.splitSource(id, atMs), onSuccess: after });
   const add = useMutation({

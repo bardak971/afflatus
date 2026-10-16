@@ -86,7 +86,7 @@ export function TimelineHeader({ t, clips, total, saveFailed, onRetrySave, said,
       {saveFailed ? (
         // what was typed is still on screen and not on the server: said, with the way to send it again
         <span className="flex min-w-0 max-w-sm items-center gap-2 text-warn-ink" data-tip={saveFailed}>
-          <span className="truncate">Could not save the clip's form: {saveFailed}</span>
+          <span className="truncate">Could not save the form: {saveFailed}</span>
           <Button size="sm" onClick={onRetrySave}>Retry</Button>
         </span>
       ) : (error || note) ? (

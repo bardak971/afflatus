@@ -6,7 +6,7 @@ import { bringFiles } from "../bringFiles";
 import { ask, askAboutDisk, askText } from "../Confirm";
 import { plural, size } from "../format";
 import { IMPORT_UNDER_WAY, pathOf, useFolderImport } from "../folderImport";
-import { duplicateDraft } from "../draft";
+import { duplicateDraft, useDraftsChanged } from "../draft";
 import { useProject } from "../project";
 import { useSayFailed } from "../sayFailed";
 import { useBanners, useOpenDraft } from "../store";
@@ -116,6 +116,7 @@ export function useTreeActions() {
       const binned = list.filter((r) => r.kind === "item").length;
       // the bin refuses an item a draft still uses: those drafts asked about first, as for items alone (assetChange.tsx)
       if (binned && !(await clearDraftUse(client, list.filter((r) => r.kind === "item").map((r) => r.id!)))) return;
+      const drafts: string[] = [];
       const ok = await run(one ? `${list[0]!.label} could not be deleted` : "Some could not be deleted", async () => {
         const items = list.filter((r) => r.kind === "item").map((r) => r.id!);
         if (items.length) await api.bulkAssets(items, "bin");
@@ -125,6 +126,11 @@ export function useTreeActions() {
           else if (r.kind === "timeline") await api.deleteTimeline(r.id!);
           else {
             await api.deleteDraft(r.id!);
+            // the open draft's form lets go of its edit that waits or failed, as for drafts deleted for the bin
+            // (draftUse.ts): sent after the delete, it was answered "gone" and made the draft again. Said before another
+            // draft opens in its place, and with every one deleted so far, should two of these be heard as one
+            drafts.push(r.id!);
+            useDraftsChanged.getState().say({ deleted: [...drafts] });
             client.removeQueries({ queryKey: queryKeys.drafts.one(r.id) });
             if (useOpenDraft.getState().id === r.id) useOpenDraft.getState().open(null);
           }
