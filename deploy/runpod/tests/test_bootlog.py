@@ -43,8 +43,7 @@ class Stamp(unittest.TestCase):
     def test_the_tail_is_bounded(self):
         with tempfile.TemporaryDirectory() as d:
             log = os.path.join(d, "boot.log")
-            with open(log, "w", encoding="utf-8", newline="
-") as f:
+            with open(log, "w", encoding="utf-8", newline="\n") as f:
                 for i in range(1000):
                     f.write(f"2026-10-16T10:00:00.000Z line {i}\n")
             lines = bootlog.tail(log)
