@@ -4,7 +4,7 @@ import { Progress } from "../../progress/Progress";
 import { previewUrl, type MachineState, type PodDisk, type QueueStatus, type RunningJob, type SystemLoad } from "../../api";
 import { useMenu } from "../../ContextMenu";
 import { gb, phaseLabel, plural, timeLeft } from "../../format";
-import { machineLabel, machineState, rentedSaid, type MachineWord } from "../../machines";
+import { machineLabel, machineState, OUTSIDE_TIP, outsideSaid, rentedSaid, type MachineWord } from "../../machines";
 import { useQueueOps } from "../../queueOps";
 import { useSystem } from "../../store";
 import { cx } from "../../ui";
@@ -26,28 +26,35 @@ const ROW = "grid grid-cols-[16px_minmax(120px,180px)_88px_minmax(0,1fr)_minmax(
  * How a lane looks in its state (machineState): a stopped pod as a paused machine, a locked one as one away, a starting one
  * as on its way up (the pill's dot), a pod whose start failed as one away.
  */
-type State = "rendering" | "getting" | "idle" | "paused" | "offline" | "starting";
-const lookOf = (word: MachineWord, failed = false): State => (word === "stopped" || word === "checking" ? "paused" : word === "locked" || (word === "starting" && failed) ? "offline" : word === "getting files" ? "getting" : word);
+type State = "rendering" | "outside" | "getting" | "idle" | "paused" | "offline" | "starting";
+const lookOf = (word: MachineWord, failed = false): State => (word === "stopped" || word === "checking" ? "paused" : word === "locked" || (word === "starting" && failed) ? "offline" : word === "getting files" ? "getting" : word === "busy outside Afflatus" ? "outside" : word);
 
-/** A machine's dot: filled green while it renders, a ring in the accent while it gets files, a green ring when idle, grey when paused, a warning ring when away. */
+/**
+ * A machine's dot: filled green while it renders, a ring in the accent while it gets files, that ring filled with the
+ * accent's wash while its ComfyUI is busy outside Afflatus, a green ring when idle, grey when paused, a warning ring when away.
+ */
 function Dot({ state }: { state: State }) {
-  return <span aria-hidden data-state={state} className={cx("size-2 shrink-0 rounded-full", state === "rendering" ? "bg-good" : state === "getting" ? "border-[1.5px] border-accent" : state === "idle" ? "border-[1.5px] border-good" : state === "starting" ? STARTING_DOT : state === "paused" ? "bg-ink-3" : "border-[1.5px] border-warn")} />;
+  return <span aria-hidden data-state={state} className={cx("size-2 shrink-0 rounded-full", state === "rendering" ? "bg-good" : state === "outside" ? "border-[1.5px] border-accent bg-accent-wash" : state === "getting" ? "border-[1.5px] border-accent" : state === "idle" ? "border-[1.5px] border-good" : state === "starting" ? STARTING_DOT : state === "paused" ? "bg-ink-3" : "border-[1.5px] border-warn")} />;
 }
 
 /** Its state as a pill (its word: machineState), in the colours the app gives them. */
 function StatePill({ state, word }: { state: State; word: MachineWord }) {
   return (
-    <span className={cx(
+    <span data-tip={state === "outside" ? OUTSIDE_TIP : undefined} className={cx(
       "justify-self-start rounded-full px-2 py-px text-[11.5px] font-semibold",
-      state === "rendering" ? "bg-accent-wash text-accent" : state === "getting" ? "border border-accent/40 text-accent" : state === "idle" ? "border border-good/40 text-good" : state === "starting" ? "border border-good/40 text-ink-2" : state === "paused" ? "bg-hover text-ink-2" : "bg-warn-wash text-warn-ink",
+      state === "rendering" ? "bg-accent-wash text-accent" : state === "outside" ? "border border-accent/40 bg-accent-wash text-accent" : state === "getting" ? "border border-accent/40 text-accent" : state === "idle" ? "border border-good/40 text-good" : state === "starting" ? "border border-good/40 text-ink-2" : state === "paused" ? "bg-hover text-ink-2" : "bg-warn-wash text-warn-ink",
     )}>
       {word}
     </span>
   );
 }
 
-/** The model it holds, as a chip on one line (cut short when long); a dashed one when it holds none. */
-function ModelChip({ model }: { model: string | null }) {
+/**
+ * The model it holds, as a chip on one line (cut short when long); a dashed one when it holds none, or when its ComfyUI runs
+ * work from outside Afflatus: that work loads what it wants, and what Afflatus last loaded there may be gone.
+ */
+function ModelChip({ model, outside }: { model: string | null; outside?: boolean }) {
+  if (outside) return <span className="shrink-0 justify-self-start rounded-[7px] border border-dashed border-line-strong px-2 py-0.5 text-xs whitespace-nowrap text-ink-3" data-tip="Work queued from outside Afflatus runs there: it loads its own models">model unknown</span>;
   return model
     ? <span className="min-w-0 max-w-full justify-self-start truncate rounded-[7px] border border-line bg-raised px-2 py-0.5 text-xs whitespace-nowrap text-ink-2" data-tip={`Holds ${model}: a render with it starts at once here`}>{model}</span>
     : <span className="shrink-0 justify-self-start rounded-[7px] border border-dashed border-line-strong px-2 py-0.5 text-xs whitespace-nowrap text-ink-3">no model</span>;
@@ -179,7 +186,8 @@ function useLane(m: MachineState, onPin: (job: string, machine: string) => void)
 
 /** What its row says in the middle when it renders nothing. */
 const quiet = (m: MachineState, word: MachineWord) =>
-  word === "getting files" ? filesShort(gettingFiles(m)!)
+  word === "busy outside Afflatus" ? `${outsideSaid(m)} · the others take the line`
+  : word === "getting files" ? filesShort(gettingFiles(m)!)
   // paused, its files still come (sent ahead for Resume): said, not hidden behind the pause
   : word === "paused" ? (gettingFiles(m) ? `takes nothing new · getting ${filesShort(gettingFiles(m)!)}` : "takes nothing new until it resumes")
   : word === "stopped" && m.rented ? `${rentedSaid(m.rented)} · the others take the line`
@@ -218,7 +226,7 @@ function MachineRow({ m, onPin, onOpen, open }: { m: MachineState; onPin(job: st
       <span className="flex min-w-0 items-center gap-2"><Dot state={state} /><span className="truncate text-[14px] font-semibold">{machineLabel(m)}</span></span>
       <StatePill state={state} word={word} />
       {m.running && !open ? <JobLine run={m.running} /> : <span className={cx("truncate text-xs", state === "offline" ? "text-warn-ink" : "text-ink-3")}>{open ? load?.gpus[0]?.name ?? "" : quiet(m, word)}</span>}
-      <ModelChip model={m.model} />
+      <ModelChip model={m.model} outside={Boolean(m.outside?.running)} />
       {open ? <span /> : <MiniMeters load={load} rendering={state === "rendering"} />}
       <Actions m={m} onMenu={(e) => menu.open(e, true)} />
       {!open && <ProgressEdge run={m.running} />}
@@ -270,7 +278,8 @@ function OpenLane({ m, fastest, onStop, onPin, onFold }: { m: MachineState; fast
             <span className="grid size-[34px] shrink-0 place-items-center rounded-full border-[1.5px] border-line-strong"><Dot state={state} /></span>
             <span className="flex min-w-0 flex-col gap-0.5">
               <span className="font-semibold text-ink">{quiet(m, word).replace(/^./, (c) => c.toUpperCase()) || "Idle · ready for the next job"}</span>
-              <span className="text-xs">{m.model ? `Holds ${m.model}: a render with it starts at once here. ` : ""}Drop a waiting job on this machine to run it here.</span>
+              {/* busy outside Afflatus: why nothing is sent there, rather than a model it may no longer hold */}
+              <span className="text-xs">{state === "outside" ? `${OUTSIDE_TIP} ` : m.model ? `Holds ${m.model}: a render with it starts at once here. ` : ""}Drop a waiting job on this machine to run it here{state === "outside" ? " once it is done" : ""}.</span>
             </span>
             <span className="grow" />
             {state === "idle" && (
@@ -323,7 +332,7 @@ function MachineCard({ m, onPin, onOpen }: { m: MachineState; onPin(job: string,
           </span>
         ) : <span className="text-ink-3">no figures</span>}
         <span className="grow" />
-        <ModelChip model={m.model} />
+        <ModelChip model={m.model} outside={Boolean(m.outside?.running)} />
       </div>
       <ProgressEdge run={m.running} />
       {menuNode}

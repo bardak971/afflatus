@@ -6,7 +6,7 @@ import type { MachineState } from "./api";
 import { useQueue } from "./data";
 import { openLoadPanel } from "./loadPanelHost";
 import { usd } from "./format";
-import { machineLabel, machineState, machineUnloadBlock, rateSaid, rentedSaid } from "./machines";
+import { machineLabel, machineState, machineUnloadBlock, outsideSaid, rateSaid, rentedSaid } from "./machines";
 import { RUNPOD_CONSOLE, useRentedOps } from "./rentedOps";
 import { useQueueOps } from "./queueOps";
 
@@ -14,6 +14,8 @@ import { useQueueOps } from "./queueOps";
 export function machineSaid(m: MachineState): string {
   if (m.rented && m.rented.status !== "RUNNING") return rentedSaid(m.rented);
   const word = machineState(m);
+  // busy outside Afflatus: that work, rather than a model it may no longer hold
+  if (word === "busy outside Afflatus") return `${word} · ${outsideSaid(m)}`;
   const state = word === "rendering" && m.running ? `rendering ${Math.round(m.running.progress * 100)} %` : word;
   return m.model ? `${state} · holds ${m.model}` : state;
 }

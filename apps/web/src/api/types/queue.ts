@@ -147,6 +147,11 @@ export interface MachineState {
   /** Its learned pace against the others (1 the common pace, 2 half as fast); null with nothing to compare yet. */
   pace: number | null;
   running: RunningJob | null;
+  /**
+   * The prompts its ComfyUI has from outside Afflatus (queued from its own page, another tool), running and waiting: it takes
+   * no job while it has any. Null when not known.
+   */
+  outside?: { running: number; pending: number } | null;
 }
 export interface QueueStatus {
   /** Pause all; each machine says its own in `machines`. */

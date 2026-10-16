@@ -1,7 +1,7 @@
 import { Link } from "wouter";
 import type { MachineState, PodDisk, PodFile } from "./api";
 import { gb, plural, usd } from "./format";
-import { bootNote, gettingFiles, machineState, rentedSaid, rentedSpent, rentedUp, type RentedBoot } from "./machines";
+import { bootNote, busyOutside, gettingFiles, machineState, outsideSaid, rentedSaid, rentedSpent, rentedUp, type RentedBoot } from "./machines";
 
 // the files a machine is getting: worked out with its state's word (machines.ts), read here too
 export { gettingFiles };
@@ -52,7 +52,10 @@ function FilesRing({ share, running }: { share: number | null; running: boolean 
   );
 }
 
-/** A machine's dot, in its state: filled in the accent while it renders, a green ring idle, grey paused, amber away; a ring that fills while it gets files. */
+/**
+ * A machine's dot, in its state: filled in the accent while it renders, an accent ring on its wash while its ComfyUI is busy
+ * outside Afflatus, a green ring idle, grey paused, amber away; a ring that fills while it gets files.
+ */
 /**
  * A machine on its way up, as its dot says it in the pill, its popover and its Queue lane: the idle ring it will be,
  * pulsing. Neither the warning of one away nor the accent of one getting files.
@@ -74,6 +77,9 @@ export function Dot({ m }: { m: MachineState }) {
       : <span aria-hidden data-state="stopped" className="size-[7px] shrink-0 rounded-full border-[1.5px] border-ink-3" />;
   }
   if (m.online === false) return <span aria-hidden className="size-[7px] shrink-0 rounded-full bg-warn" />;
+  // its ComfyUI at work for someone else (its own page): an accent ring filled with its wash, as its Queue lane has it,
+  // never the idle ring
+  if (!m.running && !m.paused && busyOutside(m)) return <span aria-hidden data-state="outside" className="size-[7px] shrink-0 rounded-full border-[1.5px] border-accent bg-accent-wash" />;
   // minutes of downloads read as idle before (the owner: "the pills could show when something is downloading")
   const getting = gettingFiles(m);
   if (getting) return <FilesRing share={getting.share} running={Boolean(m.running)} />;
@@ -99,7 +105,9 @@ export function busiest(machines: MachineState[]): string {
   const away = machines.filter((m) => m.online === false && rentedUp(m) && machineState(m) !== "starting").length;
   const paused = machines.filter((m) => m.paused).length;
   const getting = machines.filter((m) => !m.running && gettingFiles(m)).length;
+  const outside = machines.filter((m) => machineState(m) === "busy outside Afflatus").length;
   if (rendering) return `${rendering} rendering`;
+  if (outside) return `${outside} busy outside Afflatus`;
   if (getting) return `${getting} getting files`;
   if (starting) return `${starting} starting`;
   if (away) return `${away} offline`;
@@ -114,6 +122,7 @@ export function doing(m: MachineState, now: number): string {
   const cost = m.rented?.since ? ` · ${usd(rentedSpent(m.rented, now), true)}` : "";
   if (m.online === false) return m.locked ? "locked: its token is wrong" : "offline";
   if (m.running) return `${m.running.label}${m.running.steps ? ` · ${m.running.step}/${m.running.steps}` : ` · ${Math.round(m.running.progress * 100)} %`}${cost}`;
+  if (!m.paused && busyOutside(m)) return `busy outside Afflatus · ${outsideSaid(m)}${cost}`;
   const getting = gettingFiles(m);
   if (getting) return `${m.paused ? "paused · " : ""}getting ${plural(getting.left.length, "file")}${getting.ahead ? "" : " for its jobs"}${cost}`;
   const state = machineState(m);

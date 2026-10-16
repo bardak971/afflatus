@@ -11,7 +11,7 @@ import { useMenu } from "../../ContextMenu";
 import { useQueue, useSettings } from "../../data";
 import { gb, plural, usd } from "../../format";
 import { useCopied, useMedia, useSecond } from "../../hooks";
-import { machineLabel, machineState, rateParts, rentedSaid } from "../../machines";
+import { busyOutside, machineLabel, machineState, OUTSIDE_TIP, outsideSaid, rateParts, rentedSaid } from "../../machines";
 import { useQueueOps } from "../../queueOps";
 import { queryKeys } from "../../queryKeys";
 import { Button, ButtonLink, cx, ErrorNote, fieldClass, Segmented } from "../../ui";
@@ -140,7 +140,7 @@ export function MachinesHead() {
   // a pod starting (a deployed one's first start too, RunPod saying it runs while its image is pulled) is neither offline
   // nor stopped: the words every screen says (machineState)
   const word = (w: string) => machines.filter((m) => machineState(m) === w).length;
-  const said = [`${machines.filter((m) => m.running).length} rendering`, `${machines.filter((m) => m.paused).length} paused`, `${word("starting")} starting`, `${word("offline") + word("locked")} offline`, `${word("stopped")} stopped`].filter((x) => !x.startsWith("0 ")).join(" · ");
+  const said = [`${machines.filter((m) => m.running).length} rendering`, `${word("busy outside Afflatus")} busy outside Afflatus`, `${machines.filter((m) => m.paused).length} paused`, `${word("starting")} starting`, `${word("offline") + word("locked")} offline`, `${word("stopped")} stopped`].filter((x) => !x.startsWith("0 ")).join(" · ");
   return (
     <div className="flex flex-wrap items-center gap-2.5 px-1">
       <span className="text-[14px] font-bold">{plural(machines.length, "ComfyUI")}</span>
@@ -211,7 +211,7 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
   // a rented pod's head says its own state (stopped, starting, running and its cost), with Start or Stop
   const status = rented ? <RentedHead machine={machine} state={state} ops={rentedOps} /> : !probe ? null : state?.paused
     ? <span className="text-[12.5px] font-semibold text-ink-2">Ⅱ Paused</span>
-    : <Status ok={probe.online}>{probe.online ? (state?.running ? "Rendering" : "Answering") : "Not answering"}</Status>;
+    : <Status ok={probe.online}>{probe.online ? (state?.running ? "Rendering" : state && busyOutside(state) ? <span data-tip={OUTSIDE_TIP}>Busy outside Afflatus · {outsideSaid(state)}</span> : "Answering") : "Not answering"}</Status>;
   // its ComfyUI in a tab of its own, logged in by a one-time code (lock-api.ts pageUrl): once it answers (a pod, once it runs)
   const openComfy = useOpenComfyUI();
   const canOpen = rented ? state?.rented?.status === "RUNNING" && !state.rented.booting && state.rented.answers !== false : Boolean(probe?.online);
@@ -307,7 +307,7 @@ function MachineLine({ machine, index, probe, state, onOpen }: { machine: Machin
   const label = machineLabel(machine);
   // a pod's boot counts by the second here too, on the clock the pill and its card read
   const now = useSecond(Boolean(state?.rented?.boot));
-  const said = state?.rented && (state.rented.status !== "RUNNING" || state.rented.booting) ? rentedSaid(state.rented, now) : state?.paused ? "paused" : probe && !probe.online ? "not answering" : state?.running ? "rendering" : probe ? "answering" : "…";
+  const said = state?.rented && (state.rented.status !== "RUNNING" || state.rented.booting) ? rentedSaid(state.rented, now) : state?.paused ? "paused" : probe && !probe.online ? "not answering" : state?.running ? "rendering" : state && busyOutside(state) ? "busy outside Afflatus" : probe ? "answering" : "…";
   return (
     <button
       type="button"

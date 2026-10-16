@@ -3,7 +3,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { useOpenInComfy } from "../../actions";
 import type { useRentedOps } from "../../rentedOps";
 import type { useDeployAgain } from "../../deploy";
-import type { Asset, CommandEntry, Entity, RecipeInfo, RentedState, UpdatesView } from "../../api";
+import type { Asset, CommandEntry, Entity, MachineState, RecipeInfo, RentedState, UpdatesView } from "../../api";
 import type { useModelSettings, useProjects, useSetup } from "../../data";
 import type { useOpenNewDraft } from "../../draft";
 import type { FormTarget } from "../../formTarget";
@@ -68,7 +68,7 @@ export interface BarCtx {
   queue: {
     paused: boolean; online: boolean; rendering: boolean; running: boolean; waiting: Array<{ id: string }>; failed: string[];
     /** With several ComfyUIs, each one as the per-machine commands read it ("pause studio pc"). */
-    machines: Array<{ id: string; name: string; url: string; paused: boolean; online: boolean | null; locked: boolean; running: boolean; rented: RentedState | null }>;
+    machines: Array<{ id: string; name: string; url: string; paused: boolean; online: boolean | null; locked: boolean; running: boolean; rented: RentedState | null; outside?: MachineState["outside"] }>;
   } | undefined;
   /** The queue's pause, resume, unload and reconnect, as the Queue screen and the status bar have them. */
   ops: ReturnType<typeof useQueueOps>;

@@ -39,6 +39,11 @@ export interface OutputFile {
   subfolder: string;
   type: string;
 }
+/** A prompt in ComfyUI's queue (ComfyClient.queue): its id, and the client id it was queued under (null: none). */
+export interface QueueEntry {
+  promptId: string;
+  clientId: string | null;
+}
 export interface HistoryEntry {
   status?: { status_str?: string; completed?: boolean; messages?: Array<[string, Record<string, unknown>]> };
   /** images: PreviewImage / SaveImage; gifs: VideoHelperSuite's combine node (videos too). */
@@ -270,6 +275,21 @@ export class ComfyClient {
     if (q.queue_running?.some((e) => e[1] === promptId)) return "running";
     if (q.queue_pending?.some((e) => e[1] === promptId)) return "pending";
     return "absent";
+  }
+
+  /**
+   * ComfyUI's whole queue: the prompts running and waiting, whoever queued them (Afflatus, ComfyUI's own page, another
+   * tool), each with the client id it was queued under (null when it named none). Each entry is
+   * `[number, prompt_id, prompt, extra_data, outputs]`; a prompt id is what tells Afflatus's own from the others.
+   */
+  async queue(): Promise<{ running: QueueEntry[]; pending: QueueEntry[] }> {
+    const q = (await this.read("/queue", (r) => r.json())) as { queue_running?: unknown[][]; queue_pending?: unknown[][] };
+    const entries = (list: unknown[][] | undefined): QueueEntry[] => (list ?? []).flatMap((e) => {
+      if (!Array.isArray(e) || typeof e[1] !== "string") return [];
+      const client = (e[3] as { client_id?: unknown } | null | undefined)?.client_id;
+      return [{ promptId: e[1], clientId: typeof client === "string" ? client : null }];
+    });
+    return { running: entries(q.queue_running), pending: entries(q.queue_pending) };
   }
 
   // ---------------------------------------------------------------- these use the GPU or change ComfyUI's state

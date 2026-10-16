@@ -166,6 +166,29 @@ describe("a rented machine", () => {
     expect((await sessions())[0]!.ended_at).not.toBeNull();
   });
 
+  it("is not stopped by its idle time while its ComfyUI runs work queued outside Afflatus; a cap stops it all the same", async () => {
+    await setKey();
+    const id = await add();
+    await post(t.app, `/api/machines/${id}/start`, {});
+    await until(async () => (await t.services.rented.poll(), pod5090().status === "RUNNING"));
+    await t.services.rented.poll();
+    // a workflow run from the pod's own ComfyUI page: Afflatus has nothing there, the GPU is at work all the same
+    podComfy.running = ["from-its-own-page"];
+    const real = Date.now;
+    t.services.rented.now = () => real() + 11 * 60_000;
+    await t.services.rented.poll();
+    expect(pod5090().status).toBe("RUNNING");
+    const row = await rowOf(id);
+    expect(row.outside).toEqual({ running: 1, pending: 0 });
+    // no countdown to a stop while it is at work
+    expect(row.rented?.idleLeftMs).toBeNull();
+    // a spending cap is the user's word: it stops the pod whatever runs there that is not Afflatus's
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 0.0000001, month: 0 } } });
+    await t.services.rented.poll();
+    expect(pod5090().status).toBe("EXITED");
+    expect((await rowOf(id)).rented?.stoppedBy).toBe("cap");
+  });
+
   it("is locked from its first second: the token in its environment before it starts, nobody can lock it first", async () => {
     await setKey();
     const id = await add();

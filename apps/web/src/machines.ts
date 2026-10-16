@@ -1,11 +1,25 @@
 import type { MachineState, PodFile, QueueStatus, RentedState } from "./api";
 import { stepSaid } from "@afflatus/core";
-import { usd } from "./format";
+import { plural, usd } from "./format";
 
 /** Several ComfyUIs (Settings › ComfyUI): how a machine is named on screen, and what the screens read of them. */
 
 /** A machine's state in a word, as every screen says it (machineState). */
-export type MachineWord = "rendering" | "getting files" | "idle" | "paused" | "offline" | "locked" | "stopped" | "starting" | "checking";
+export type MachineWord = "rendering" | "busy outside Afflatus" | "getting files" | "idle" | "paused" | "offline" | "locked" | "stopped" | "starting" | "checking";
+
+/** The plain words for "busy outside Afflatus", for its "?" and its tips. */
+export const OUTSIDE_TIP = "ComfyUI is running work queued from elsewhere (its own page, another tool); Afflatus sends nothing there until it is done.";
+
+/** Whether a machine's ComfyUI has work queued from outside Afflatus (its own page, another tool), running or waiting. */
+export const busyOutside = (m: { outside?: MachineState["outside"] }): boolean => Boolean(m.outside && m.outside.running + m.outside.pending > 0);
+
+/** That work in a few words: "1 prompt running, 2 queued in ComfyUI"; null when it has none. */
+export function outsideSaid(m: { outside?: MachineState["outside"] }): string | null {
+  const o = m.outside;
+  if (!o || !busyOutside(m)) return null;
+  if (o.running && o.pending) return `${plural(o.running, "prompt")} running, ${o.pending} queued in ComfyUI`;
+  return o.running ? `${plural(o.running, "prompt")} running in ComfyUI` : `${plural(o.pending, "prompt")} queued in ComfyUI`;
+}
 
 /** What a machine is getting, as gettingFiles reads it: a rented pod's files, or the downloads into a ComfyUI of one's own. */
 type WithFiles = Pick<MachineState, "rented"> & { files?: readonly PodFile[] };
@@ -38,16 +52,17 @@ export function gettingFiles(m: WithFiles): { left: PodFile[]; done: number; tot
  * files, idle. The one rule the Queue's lanes, the machine menus, Ctrl+K, Generate on and the waiting list's Run on read:
  * seven places worked it out each in its own order. A machine that renders nothing while files come to it reads "getting
  * files", never idle: a pod's idle time is held while they move (the server's podFiles.ts), and minutes of downloads read
- * as idle before.
+ * as idle before. Nor does one whose ComfyUI runs work queued from outside Afflatus (its own page, another tool): it reads
+ * "busy outside Afflatus", and takes no job until that is done.
  */
-export function machineState(m: Pick<MachineState, "paused" | "online" | "rented"> & { locked?: boolean; running: unknown; files?: readonly PodFile[] }): MachineWord {
+export function machineState(m: Pick<MachineState, "paused" | "online" | "rented"> & { locked?: boolean; running: unknown; files?: readonly PodFile[]; outside?: MachineState["outside"] }): MachineWord {
   const r = m.rented;
   // a pod RunPod was not read for yet (Afflatus just started): not known, never said stopped while it may be running
   if (r?.status === "UNKNOWN") return "checking";
   if (r && (r.status !== "RUNNING" || r.booting)) return r.status === "STARTING" || r.status === "PROVISIONING" || r.booting ? "starting" : "stopped";
   if (m.paused) return "paused";
   if (m.online === false) return m.locked ? "locked" : "offline";
-  return m.running ? "rendering" : gettingFiles(m) ? "getting files" : "idle";
+  return m.running ? "rendering" : busyOutside(m) ? "busy outside Afflatus" : gettingFiles(m) ? "getting files" : "idle";
 }
 
 /**
@@ -99,11 +114,13 @@ export function machineByName<M extends { id: string; name: string; url: string 
 
 /**
  * Whether a machine's models can be unloaded now, and the few words why not: the rule unloadBlock (queueRules.ts) has
- * for one ComfyUI, for one of several: not while it is away, nor while it runs a job.
+ * for one ComfyUI, for one of several: not while it is away, nor while it runs a job, nor while its ComfyUI runs work from
+ * outside Afflatus (its models are someone else's then).
  */
-export function machineUnloadBlock(m: { online: boolean | null; running: unknown }): string | null {
+export function machineUnloadBlock(m: { online: boolean | null; running: unknown; outside?: MachineState["outside"] }): string | null {
   if (m.online === false) return "it is offline";
   if (m.running) return "not while it renders";
+  if (busyOutside(m)) return "it is busy outside Afflatus";
   return null;
 }
 

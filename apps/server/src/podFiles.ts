@@ -102,7 +102,7 @@ export interface PodFilesDeps {
    * getting is forgotten, its container went with it. Without it, a pod not alive is.
    */
   gone?(machine: string): boolean;
-  /** Whether a job runs on the machine now: its ComfyUI is not restarted under a render (podPacks.ts). */
+  /** Whether a job runs on the machine now, or work from outside Afflatus: its ComfyUI is not restarted under a render (podPacks.ts). */
   busy(machine: string): boolean;
   /** Something changed: the pod's row says it. */
   changed?(): void;

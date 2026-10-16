@@ -4,7 +4,7 @@ import { Clock, Download } from "lucide-react";
 import { useMenu } from "./ContextMenu";
 import { Link, useLocation } from "wouter";
 import { Progress } from "./progress/Progress";
-import { api, type Job, type QueueStatus, type RunningJob } from "./api";
+import { api, type Job, type MachineState, type QueueStatus, type RunningJob } from "./api";
 import { useAsset, useProjects, useQueue, useSettings } from "./data";
 import { Keys } from "./Keys";
 import { BAR_DEFAULT } from "./keys/barDefault";
@@ -13,7 +13,7 @@ import { elapsed, gb, phaseLabel, timeLeft, when } from "./format";
 import { StripModel, StripPlace, stripGhost } from "./ModelLoad";
 import { LoadPanelHost } from "./loadPanelHost";
 import { MachinesPill, OPEN_MACHINES } from "./MachinesPill";
-import { machineName, severalMachines } from "./machines";
+import { busyOutside, machineLabel, machineName, OUTSIDE_TIP, outsideSaid, severalMachines } from "./machines";
 import { lazyPart, loadExpiringPanel, loadHuntStrip } from "./lazyParts";
 import { useProject } from "./project";
 import { useQueueOps } from "./queueOps";
@@ -69,7 +69,7 @@ export function StatusBar() {
     <>
       <LoadPanelHost />
       <footer className="flex h-10 shrink-0 items-center gap-2.5 overflow-hidden border-t border-line bg-panel px-3 text-xs">
-        {huntSlot && hunt ? <Suspense fallback={null}><HuntStrip hunt={hunt} slot /></Suspense> : run ? <Running run={run} /> : q?.online === false ? <Offline q={q} /> : q?.paused ? <Paused waiting={waiting} /> : <Idle last={lastMade(q)} />}
+        {huntSlot && hunt ? <Suspense fallback={null}><HuntStrip hunt={hunt} slot /></Suspense> : run ? <Running run={run} /> : q?.online === false ? <Offline q={q} /> : q?.paused ? <Paused waiting={waiting} /> : <Idle last={lastMade(q)} machines={q?.machines ?? []} />}
         {several.filter((m) => m.running).length > 1 && (
           <button type="button" className="inline-flex h-6 shrink-0 items-center rounded-full border border-line px-2 text-xs hover:bg-hover" data-tip="Renders running on the other ComfyUIs: click for each machine" onClick={() => window.dispatchEvent(new Event(OPEN_MACHINES))}>
             +{several.filter((m) => m.running).length - 1}
@@ -239,8 +239,13 @@ function Paused({ waiting }: { waiting: number }) {
   );
 }
 
-/** Nothing renders: said so, with the last thing that finished (opened in the viewer when it made something still in the library). */
-function Idle({ last }: { last: Job | null }) {
+/**
+ * Nothing renders: said so, with the last thing that finished (opened in the viewer when it made something still in the
+ * library). A ComfyUI running work queued from outside Afflatus (its own page) is not idle: that is said instead, with the
+ * work (one ComfyUI) or the machines (several).
+ */
+function Idle({ last, machines }: { last: Job | null; machines: MachineState[] }) {
+  const outside = machines.filter((m) => !m.running && !m.paused && m.online !== false && busyOutside(m));
   const [, go] = useLocation();
   const [open, setOpen] = useState<string | null>(null);
   const asset = useAsset(open);
@@ -263,10 +268,18 @@ function Idle({ last }: { last: Job | null }) {
   }
   return (
     <>
-      <span className="inline-flex h-7 shrink-0 items-center gap-1.5 pl-0.5 text-ink-2">
-        <span className={cx(dot, "bg-ink-3")} />
-        Idle
-      </span>
+      {outside.length ? (
+        <span className="inline-flex h-7 min-w-0 items-center gap-1.5 pl-0.5 text-ink-2" data-tip={OUTSIDE_TIP}>
+          <span className={cx(dot, "border-[1.5px] border-accent bg-accent-wash")} />
+          <span className="shrink-0">Busy outside Afflatus</span>
+          <span className="truncate">· {machines.length > 1 ? outside.map(machineLabel).join(", ") : outsideSaid(outside[0]!)}</span>
+        </span>
+      ) : (
+        <span className="inline-flex h-7 shrink-0 items-center gap-1.5 pl-0.5 text-ink-2">
+          <span className={cx(dot, "bg-ink-3")} />
+          Idle
+        </span>
+      )}
       {said}
       {asset.data && <Suspense fallback={null}><Viewer asset={asset.data} onClose={() => setOpen(null)} /></Suspense>}
     </>

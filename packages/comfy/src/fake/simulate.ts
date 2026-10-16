@@ -52,8 +52,9 @@ export function fakeSimulate(fake: FakeState, opts: NonNullable<FakeInit["simula
     const stepMs = opts.stepMs;
     const graph = fake.prompts.get(id)!;
     if (!stillWanted(id)) return;
+    // running before it leaves the waiting line: the count ComfyUI broadcasts on each change never dips between the two
+    fake.running = [...fake.running, id];
     fake.pending = fake.pending.filter((p) => p !== id);
-    fake.running.push(id);
     const nodes = Object.entries(graph);
     const samples = (node: Graph[string]) => /KSampler$|KSamplerAdvanced|SamplerCustom/.test(node.class_type);
     const first = nodes.find(([, node]) => samples(node));

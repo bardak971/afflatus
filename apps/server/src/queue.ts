@@ -55,6 +55,13 @@ const LOAD_FRESH_MS = 2 * 60_000;
  * this, and at most its forecast again. Forecasts have run 1.3 to 25 times too long, and a pod is billed all the while.
  */
 const FORECAST_SLACK_MS = 10 * 60_000;
+/**
+ * How often an open page's poll reads a machine's ComfyUI queue (lookOutside) while its socket says it has prompts: each
+ * entry carries its whole graph. A change its socket hears is read at once.
+ */
+const OUTSIDE_EVERY_MS = 10_000;
+/** How long after its job ended a prompt is still known as Afflatus's: one stopped leaves ComfyUI's queue a moment after. */
+const OWN_KEPT_MS = 2 * 60_000;
 /** The lane of the jobs that need no ComfyUI. */
 const TOOLS = "tools";
 /** The longest a waiting job's forecast is kept while the record of render times does not change (see `kept`). */
@@ -100,6 +107,16 @@ interface Lane {
   reachable: boolean | null;
   /** The GPU its ComfyUI renders on, as it said when it last answered (its first device); null before. */
   device: string | null;
+  /**
+   * The prompts its ComfyUI has that are not Afflatus's (queued from its own page, another tool), running and waiting, as
+   * its queue was last read; null before that, or when it could not be read. A machine with any takes no new job: its GPU
+   * is someone else's until they are done.
+   */
+  outside: { running: number; pending: number } | null;
+  /** When its queue was last read for them (readOutside), and the read under way with whether another is wanted after it. */
+  outsideAt: number;
+  outsideRead: Promise<void> | null;
+  outsideAgain: boolean;
   /** Its state as kept across restarts, read once. */
   ready: Promise<void>;
   core: QueueCore;
@@ -214,6 +231,7 @@ export class Queue {
     const self = this;
     lane = {
       id, machine: null, comfy: null, running: null, starting: null, holds: false, unloadTimer: null, lastLoads: null, lastModel: null, paused: false, reachable: null, device: null,
+      outside: null, outsideAt: 0, outsideRead: null, outsideAgain: false,
       ready: Promise.resolve(),
       core: null as unknown as QueueCore,
     };
@@ -265,6 +283,8 @@ export class Queue {
       lane.machine = machine;
       // a lane keeps the client its running job started with: a new address is taken up between jobs
       if (!lane.running || !lane.comfy) lane.comfy = comfy;
+      // its ComfyUI's queue changed (a prompt queued from its own page, one done): whose its prompts are is read again
+      if (lane.comfy?.monitor) lane.comfy.monitor.onQueue = () => void this.readOutside(lane);
       return lane;
     });
     // a machine taken out of the settings: its lane goes once it is idle
@@ -536,8 +556,11 @@ export class Queue {
     const lanes = await this.refresh();
     const asked = machine ? lanes.filter((l) => l.id === machine) : lanes;
     if (machine && !asked.length) throw httpError("there is no ComfyUI with that id");
-    const free = asked.filter((l) => !l.running?.gpu);
-    if (!free.length) throw httpError("A render is under way and its model is loaded. Wait for it, or cancel it first.");
+    // nor where ComfyUI runs work from outside Afflatus: its models are in use, by someone else
+    const free = asked.filter((l) => !l.running?.gpu && !this.outsideBusy(l));
+    if (!free.length) {
+      throw httpError(asked.some((l) => !l.running?.gpu) ? "ComfyUI is busy with work queued outside Afflatus, and its models are in use. Wait for it to end." : "A render is under way and its model is loaded. Wait for it, or cancel it first.");
+    }
     for (const lane of free) await this.unload(lane);
     // every open screen says which model is loaded: they are told it no longer is
     this.events.emit("queue");
@@ -825,7 +848,7 @@ ${JSON.stringify(input)}`;
     const lanes = await this.refresh();
     const tools = this.lane(TOOLS);
     return [
-      ...lanes.map((l, i) => ({ machine: l.machine, core: l.core, paused: l.paused, reachable: l.reachable, locked: l.comfy?.locked ?? false, rented: l.machine ? this.rentedOf(l.machine) : null, files: l.machine && !l.machine.rented ? this.downloadsOf(l.machine, i === 0) : [] })),
+      ...lanes.map((l, i) => ({ machine: l.machine, core: l.core, paused: l.paused, reachable: l.reachable, outside: l.outside, locked: l.comfy?.locked ?? false, rented: l.machine ? this.rentedOf(l.machine) : null, files: l.machine && !l.machine.rented ? this.downloadsOf(l.machine, i === 0) : [] })),
       { machine: null, core: tools.core, paused: false, reachable: null, locked: false, rented: null },
     ];
   }
@@ -849,7 +872,7 @@ ${JSON.stringify(input)}`;
 
   /**
    * The line counted as /metrics says it: how many jobs wait, whether one runs, and the machines whose running job is a
-   * render (not an export): two small statements and the lanes in memory, where status() builds every row, forecast and
+   * render (not an export) or whose ComfyUI runs work from outside Afflatus: two small statements and the lanes in memory, where status() builds every row, forecast and
    * machine check. Each scrape asked status() before, which kept the checks and forecasts going with no page open.
    */
   async counts(): Promise<{ waiting: number; running: boolean; busy: Set<string> }> {
@@ -859,6 +882,8 @@ ${JSON.stringify(input)}`;
     for (const l of this.machineLanes()) {
       const r = l.running ? ran.find((x) => x.id === l.running!.id) : undefined;
       if (r && r.recipe_id !== EXPORT_JOB) busy.add(l.id);
+      // its GPU at work for someone else (ComfyUI's own page, another tool) is busy all the same
+      if (this.outsideBusy(l)) busy.add(l.id);
     }
     return { waiting: Number(waiting.n), running: ran.length > 0, busy };
   }
@@ -948,12 +973,13 @@ ${JSON.stringify(input)}`;
         let where = new Map<string, { lane: string; startsInMs: number }>();
         if (!this.paused && gpuRows.length) {
           // each free machine is asked whether it answers (a busy one does); the plan is made with those that may take work
-          for (const l of open) if (free(l)) await answers(l);
+          // and one that answers, whether its ComfyUI has work of someone else's (its own page, another tool): it takes nothing then
+          for (const l of open) if (free(l) && (await answers(l))) await this.freshOutside(l);
           const able = await this.ableOf(gpuRows);
           where = plan(await this.schedulable(open), await this.planned(gpuRows, able));
           this.sendFiles(gpuRows, able, where);
           for (const lane of open) {
-            if (!free(lane) || lane.reachable === false) continue;
+            if (!free(lane) || lane.reachable === false || this.outsideBusy(lane)) continue;
             // on a pod getting files, the first job planned there whose own files are all there
             // a pod whose node packs wait for its ComfyUI to restart (or that restarts now) takes nothing until it is back: the
             // job that needs them is first in its line, and a job sent meanwhile would be lost in the restart
@@ -1017,7 +1043,8 @@ ${JSON.stringify(input)}`;
       .filter((l) => l.reachable !== false && !this.unavailable(l.id))
       .map(async (l) => ({
         id: l.id, takes: l.machine!.takes,
-        busyForMs: l.running || l.starting ? remainingOf(l.running) ?? (await this.untilEnd(l)) : 0,
+        // busy with work from outside Afflatus: free at a time that cannot be told, so that a machine free now is planned first
+        busyForMs: l.running || l.starting ? remainingOf(l.running) ?? (await this.untilEnd(l)) : this.outsideBusy(l) ? null : 0,
         holds: new Set(l.lastLoads ? l.lastLoads.split("|").map(modelName) : []),
         pace: paceOf(paces, l.id) ?? 1,
       })));
@@ -1278,6 +1305,110 @@ ${JSON.stringify(input)}`;
     return Boolean(lane?.running || lane?.starting);
   }
 
+  /** Whether a machine's ComfyUI has work from outside Afflatus (its own page, another tool), running or waiting, as last read. */
+  private outsideBusy(lane: Lane | undefined): boolean {
+    const o = lane?.outside;
+    return Boolean(o && o.running + o.pending > 0);
+  }
+
+  /**
+   * Whether a machine's ComfyUI has work from outside Afflatus, its queue read now: for a rented pod's idle time (rented.ts),
+   * which runs with no page open. A machine whose queue cannot be read has none.
+   */
+  async busyOutside(machine: string): Promise<boolean> {
+    // a pod added since the last pass has no lane yet: the machines are read for it
+    const lane = this.lanes.get(machine) ?? (await this.refresh()).find((l) => l.id === machine);
+    if (!lane?.machine) return false;
+    await this.readOutside(lane);
+    return this.outsideBusy(lane);
+  }
+
+  /** Whether a machine is at work, Afflatus's or someone else's in its ComfyUI, as last read: not restarted, nor its disk hashed, under it. */
+  busyOn(machine: string): boolean {
+    return this.runningOn(machine) || this.outsideBusy(this.lanes.get(machine));
+  }
+
+  /**
+   * Every machine's work from outside Afflatus, looked at by an open page's poll (events.ts): read when its socket says its
+   * ComfyUI has prompts (or cannot say), at most every OUTSIDE_EVERY_MS; none when it says it has none. A status message
+   * missed is caught here.
+   */
+  async lookOutside(): Promise<void> {
+    await Promise.all(this.machineLanes().map(async (l) => {
+      if (l.reachable === false) return;
+      if (l.comfy?.monitor?.queueRemaining === 0) return this.noteOutside(l, { running: 0, pending: 0 });
+      if (Date.now() - l.outsideAt >= OUTSIDE_EVERY_MS) await this.readOutside(l);
+    }));
+  }
+
+  /** Before a free machine is given a job: its work from outside Afflatus, read unless its socket says its ComfyUI has none. */
+  private async freshOutside(lane: Lane): Promise<void> {
+    // opened, its socket says each change from then on, and the next pass needs no read
+    lane.comfy?.monitor?.ensure();
+    if (lane.comfy?.monitor?.queueRemaining === 0) this.noteOutside(lane, { running: 0, pending: 0 });
+    else await this.readOutside(lane);
+  }
+
+  /**
+   * The prompts that are Afflatus's own on a machine: the jobs running (their prompt id is saved before it is sent, and kept
+   * across a restart of Afflatus, whose client id is then another), the ones that ended a moment ago (a stopped prompt
+   * leaves ComfyUI's queue just after), the prompts dropped there for a job gone elsewhere, and what this client sent.
+   */
+  private async ownPrompts(lane: Lane): Promise<(promptId: string) => boolean> {
+    const ids = new Set<string>(this.stale.get(lane.id) ?? []);
+    if (lane.running?.promptId) ids.add(lane.running.promptId);
+    const since = new Date(Date.now() - OWN_KEPT_MS).toISOString();
+    const rows = await this.db.selectFrom("jobs").select("resume").where("resume", "is not", null)
+      .where((eb) => eb.or([eb("status", "=", "running"), eb("finished_at", ">=", since)])).execute();
+    for (const r of rows) {
+      const id = readJson<{ promptId?: unknown }>(r.resume, {}).promptId;
+      if (typeof id === "string") ids.add(id);
+    }
+    const client = lane.comfy?.client;
+    return (promptId) => ids.has(promptId) || client?.classesOf?.(promptId) !== undefined;
+  }
+
+  /** A machine's ComfyUI queue read for work from outside Afflatus; one read at a time, and one more after it when asked meanwhile. */
+  private readOutside(lane: Lane): Promise<void> {
+    if (lane.outsideRead) {
+      lane.outsideAgain = true;
+      return lane.outsideRead;
+    }
+    lane.outsideRead = (async () => {
+      do {
+        lane.outsideAgain = false;
+        lane.outsideAt = Date.now();
+        const comfy = lane.comfy;
+        // stopped (shutting down): its database may be closed already, and what it would find is not shown anywhere
+        if (!comfy?.client.queue || this.stopped) return;
+        const q = await comfy.client.queue().catch(() => null);
+        if (!q) {
+          // not known while its ComfyUI does not answer: it reads as away, not as busy
+          this.noteOutside(lane, null);
+          continue;
+        }
+        // a read that fails (the database closing) leaves what was known: it is read again at the next change
+        const own = this.stopped ? null : await this.ownPrompts(lane).catch(() => null);
+        if (!own) return;
+        this.noteOutside(lane, { running: q.running.filter((e) => !own(e.promptId)).length, pending: q.pending.filter((e) => !own(e.promptId)).length });
+      } while (lane.outsideAgain);
+    })().finally(() => {
+      lane.outsideRead = null;
+    });
+    return lane.outsideRead;
+  }
+
+  /** A machine's work from outside Afflatus as just found: the screens told when it changed, and the line read again once it is done. */
+  private noteOutside(lane: Lane, next: Lane["outside"]): void {
+    // a render of Afflatus's waiting in ComfyUI behind it moves by nothing meanwhile: its silence counts from when it is done
+    if (next?.running && lane.running) lane.running.movedAt = Date.now();
+    const was = lane.outside;
+    lane.outside = next;
+    if (was?.running === next?.running && was?.pending === next?.pending) return;
+    this.events.emit("queue");
+    if (was && was.running + was.pending > 0 && !this.outsideBusy(lane)) void this.pump();
+  }
+
   /**
    * How long the render a machine runs has been silent (no step, no node, no preview from ComfyUI) in a way that counts
    * towards stuck, and whether its GPU is known idle all that time. With the GPU's load read lately, the whole silence counts
@@ -1287,8 +1418,10 @@ ${JSON.stringify(input)}`;
    * nothing, a render not sent yet, or one still within its forecast. `now`: the caller's clock (a test's stand-in).
    */
   quietFor(machine: string, now = Date.now()): { ms: number; gpuIdle: boolean } {
-    const run = this.lanes.get(machine)?.running;
-    if (!run?.promptId || !run.movedAt || !run.startedAt) return { ms: 0, gpuIdle: false };
+    const lane = this.lanes.get(machine);
+    const run = lane?.running;
+    // ComfyUI running work from outside Afflatus: the render waits behind it there, and says nothing for that reason
+    if (!run?.promptId || !run.movedAt || !run.startedAt || lane?.outside?.running) return { ms: 0, gpuIdle: false };
     const silent = Math.max(0, now - run.movedAt);
     if (run.loadAt && now - run.loadAt <= LOAD_FRESH_MS) return { ms: silent, gpuIdle: true };
     // a render like nothing rendered before has no forecast: it is waited for the slack alone, not counted silent from its start
@@ -1303,7 +1436,8 @@ ${JSON.stringify(input)}`;
    */
   stillFor(): Array<{ job: string; machine: string; ms: number }> {
     const now = Date.now();
-    return this.machineLanes().flatMap((l) => (l.running?.promptId && l.running.movedAt && l.running.gpu ? [{ job: l.running.id, machine: l.id, ms: now - l.running.movedAt }] : []));
+    // one waiting in its ComfyUI behind work from outside Afflatus is not stuck (quietFor)
+    return this.machineLanes().flatMap((l) => (l.running?.promptId && l.running.movedAt && l.running.gpu && !l.outside?.running ? [{ job: l.running.id, machine: l.id, ms: now - l.running.movedAt }] : []));
   }
 
   /** A machine's ComfyUI went while it rendered: told once, until it answers again. `label`: the render's, when known. */
