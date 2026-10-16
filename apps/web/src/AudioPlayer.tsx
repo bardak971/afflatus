@@ -87,8 +87,12 @@ export function AudioPlayer({ asset, src, name, range, strip, bare, className, o
     return () => cancelAnimationFrame(frame);
   }, [on, from, to]);
 
-  // gone from the screen: silent
-  useEffect(() => () => releasePlayback(audio.current), []);
+  // gone from the screen: no longer the one that plays. The element is taken now: by the cleanup, React has let go of
+  // the ref (null), and the module kept the element gone from the page as the one playing
+  useEffect(() => {
+    const el = audio.current;
+    return () => releasePlayback(el);
+  }, []);
 
   const toggle = () => {
     const el = audio.current;

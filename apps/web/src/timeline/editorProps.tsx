@@ -186,7 +186,9 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
       const pins = pinInputs(e.recipes.data?.recipes.find((r) => r.id === clip.recipe));
       const input = pins[where];
       if (!input) return;
-      e.editInputs(clip, { ...e.inputsOf(clip), [input]: asset, ...(where === "mid" && pins.midAt && atS ? { [pins.midAt]: atS } : {}) });
+      // over the form as it stands when the file lands: a file from the computer is uploaded first, and what was typed
+      // over the clip meanwhile stays
+      e.editInputs(clip, (was) => ({ ...was, [input]: asset, ...(where === "mid" && pins.midAt && atS ? { [pins.midAt]: atS } : {}) }));
       e.select(clip.id);
     },
     onClipSound: (clip, asset) => patch.mutate({ clip, patch: { soundAsset: asset } }),
@@ -200,7 +202,8 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     onSoundMenu: (clip, ev) => e.soundMenu.open(ev, clip),
     onPinMenu: (clip, where, ev) => e.pinMenu.open(ev, { clip, where }),
     onMusicMenu: (ev) => e.musicMenu.open(ev, true),
-    onMusicEdit: (p) => edit.mutate(p),
+    // (its failure is said in the header as edit's; the lane lets go of what it drew)
+    onMusicEdit: (p) => edit.mutateAsync(p),
     onClipMusic: (clip, music) => patch.mutate({ clip: clip.id, patch: { music } }),
     range: e.range,
     onRange: e.setRange,

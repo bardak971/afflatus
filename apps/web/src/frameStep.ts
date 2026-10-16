@@ -26,3 +26,14 @@ export function frameSpan(ms: number, fps: number): { startMs: number; endMs: nu
   const k = frameAt(ms, fps);
   return { startMs: frameStart(k, fps), endMs: frameStart(k + 1, fps) };
 }
+
+/**
+ * The first and the last frame of a range set with In and Out (Generate between), as moments to take them at: each
+ * frame's middle. Out is where the frame after the range starts (frameSpan's end): taken there, the last frame was the
+ * one after Out.
+ */
+export function rangeEnds(range: { startMs: number; endMs: number }, fps: number): { firstMs: number; lastMs: number } {
+  const half = 500 / fps;
+  const firstMs = range.startMs + half;
+  return { firstMs, lastMs: Math.max(firstMs, range.endMs - half) };
+}

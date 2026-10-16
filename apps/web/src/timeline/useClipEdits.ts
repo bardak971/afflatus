@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, raw, type Clip, type Timeline } from "../api";
 import { KEEPALIVE_MAX, useKeyedAutosave } from "../autosave";
@@ -66,9 +66,17 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
   const savedElsewhere = useCallback((clipId: string, inputs: Record<string, unknown>) => {
     setEdits((e) => withServerInputs(e, clipId, inputs, unsaved));
   }, [unsaved]);
-  const editInputs = (c: Clip, next: Record<string, unknown>) => {
-    setEdits((e) => ({ ...e, [c.id]: next }));
-    queue(c.id, next);
+  // the forms and the clips as they stand now: a change that lands after an await (a file uploaded onto a pin, a loop's
+  // frame saved) is made over the form as it is then, not over the one it began with, which put back what was typed meanwhile
+  const latest = useRef({ edits, clips });
+  latest.current = { edits, clips };
+  /** A clip's form changed: to these inputs, or to what `next` makes of its inputs as they stand at this moment. */
+  const editInputs = (c: Clip, next: Record<string, unknown> | ((was: Record<string, unknown>) => Record<string, unknown>)) => {
+    const was = latest.current.edits[c.id] ?? latest.current.clips.find((x) => x.id === c.id)?.inputs ?? c.inputs;
+    const value = typeof next === "function" ? next(was) : next;
+    latest.current.edits = { ...latest.current.edits, [c.id]: value };
+    setEdits((e) => ({ ...e, [c.id]: value }));
+    queue(c.id, value);
   };
   /** The source lane's form typed (its panel's), saved as a clip's form is. */
   const typeSource = useCallback((timelineId: string, inputs: Record<string, unknown>) => queue(sourceKey(timelineId), inputs), [queue]);

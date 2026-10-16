@@ -132,7 +132,8 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
     setLooping(true);
     if (!v) return;
     if (at < range.startMs - 1 || at > range.endMs - frameMs) seek(range.startMs + frameMs / 2);
-    if (v.paused) void v.play();
+    // (a play cut short by a pause, Space twice, is not a failure)
+    if (v.paused) void v.play().catch(() => {});
   };
 
   const root = useRef<HTMLDivElement>(null);
@@ -197,7 +198,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
           the playhead and the range with what makes a new clip from them; then what is cut out of the video. The
           frame at the playhead is Save frame (G), which the viewer's own list keeps while Trim is open */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <Button size="sm" tone={playing ? "primary" : "plain"} aria-pressed={playing} aria-label="Play / pause" onClick={() => { const v = player.current; if (!v) return; if (v.paused) void v.play(); else v.pause(); }} data-tip="Play / pause (Space)">{playing ? <Pause size={13} /> : <Play size={13} />}</Button>
+        <Button size="sm" tone={playing ? "primary" : "plain"} aria-pressed={playing} aria-label="Play / pause" onClick={() => { const v = player.current; if (!v) return; if (v.paused) void v.play().catch(() => {}); else v.pause(); }} data-tip="Play / pause (Space)">{playing ? <Pause size={13} /> : <Play size={13} />}</Button>
         <div role="group" aria-label="Range" className="flex items-center gap-1">
           <Button size="sm" onClick={() => moveIn(frameSpan(at, fps).startMs)} data-tip="Set in on the frame shown">In <Kbd>I</Kbd></Button>
           <Button size="sm" onClick={() => moveOut(frameSpan(at, fps).endMs)} data-tip="Set out after the frame shown">Out <Kbd>O</Kbd></Button>

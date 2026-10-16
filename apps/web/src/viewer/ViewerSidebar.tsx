@@ -23,6 +23,7 @@ import { SeedButton } from "./SeedButton";
 import { ViewerHeader } from "./ViewerHeader";
 import type { ViewerActions } from "./useViewerActions";
 import { useCopied } from "../hooks";
+import { latestFailure } from "../sayFailed";
 
 // what a source was to the render: the quiet line under its name
 const ROLES: Record<string, string> = { start: "first frame", end: "last frame", source: "source image", previous: "previous clip", next: "next clip",
@@ -428,7 +429,7 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
   onNaming(naming: boolean): void;
   onClose(): void;
 }) {
-  const { a, g, recipe, madeWith, recipes, leave, reuse, saveFrame, takeSound, animate, carryOn, cutRange, between, extendHere, mirror, follow, toolFor, openTool } = acts;
+  const { a, g, recipe, madeWith, recipes, leave, reuse, saveFrame, takeSound, silence, everyScene, animate, carryOn, cutRange, between, extendHere, mirror, follow, toolFor, openTool } = acts;
   /** An action's own list (Image to video's models, Motion transfer's), open under its button. */
   const choose = useMenu<ItemAction>();
   const family = recipes.data?.families.find((f) => f.id === (recipe?.family ?? g?.family));
@@ -455,7 +456,11 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
   useLayoutEffect(() => {
     scroller.current?.scrollTo({ top: 0 });
   }, [a.id]);
-  const failed = reuse.error ?? saveFrame.error ?? takeSound.error ?? animate.error ?? carryOn.error ?? cutRange.error ?? between.error ?? extendHere.error ?? mirror.error ?? follow.error ?? openTool.error;
+  // the latest that failed on the item shown: one of the item before (the viewer stepped on with the arrows) is not about
+  // this one, and an old one does not hide a newer one
+  const [shownSince, setShownSince] = useState(() => ({ id: a.id, at: Date.now() }));
+  if (shownSince.id !== a.id) setShownSince({ id: a.id, at: Date.now() });
+  const failed = latestFailure([reuse, saveFrame, takeSound, silence, everyScene, animate, carryOn, cutRange, between, extendHere, mirror, follow, openTool], shownSince.at).error;
   return (
     <aside className="flex w-[420px] shrink-0 flex-col border-l border-line bg-panel">
       <ViewerHeader acts={acts} asset={asset} detail={detail} title={title} trail={trail} crumbs={crumbs} onTrail={setTrail} items={items} naming={naming} onNaming={onNaming} onClose={onClose} />

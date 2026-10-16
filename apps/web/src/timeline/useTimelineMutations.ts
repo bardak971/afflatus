@@ -9,6 +9,7 @@ import type { ExportOptions } from "./ExportDialog";
 import { pinInputs, type ShownPatch } from "./model";
 import { sourceKey, type useClipEdits } from "./useClipEdits";
 import { queryKeys } from "../queryKeys";
+import { latestFailure } from "../sayFailed";
 
 /** A new clip as the server takes it; `stopAtMs`: the clip it goes after stops being seen there first, in the same step. */
 type NewClip = Parameters<typeof api.addClip>[1];
@@ -120,9 +121,15 @@ export function useTimelineMutations(id: string, o: {
     await save(clip);
     await turn(() => api.deleteClip(clip));
   };
-  const remove = useMutation({ mutationFn: removeClip, onSuccess: after });
+  // pending until the timeline is read again without them: Delete pressed again meanwhile sent the removal of a clip
+  // already gone (editorKeys.ts waits for it)
+  const readAgain = () => {
+    void client.invalidateQueries({ queryKey: queryKeys.queue() });
+    return refresh();
+  };
+  const remove = useMutation({ mutationFn: removeClip, onSuccess: readAgain });
   // the clips picked with Ctrl + click, removed one after the other (each comes back with Undo)
-  const removeMany = useMutation({ mutationFn: async (ids: string[]) => { for (const id of ids) await removeClip(id); }, onSuccess: () => { o.on.unpick(); after(); } });
+  const removeMany = useMutation({ mutationFn: async (ids: string[]) => { for (const id of ids) await removeClip(id); }, onSuccess: () => { o.on.unpick(); return readAgain(); } });
   const split = useMutation({ mutationFn: (v: { clip: string; atMs: number }) => api.splitClip(v.clip, v.atMs), onSuccess: after });
   // the designer writing a clip put between two others: its texts go into the form unless something was typed there meanwhile
   const writeBetween = useMutation({
@@ -183,14 +190,16 @@ export function useTimelineMutations(id: string, o: {
   const loop = useMutation({
     mutationFn: async (c: Clip) => {
       const pins = pinInputs(o.recipes.find((r) => r.id === c.recipe));
-      if (!pins.end) return;
+      const end = pins.end;
+      if (!end) return;
       const stored = inputsOf(c);
       const flows = (o.clipsNow.current?.indexOf(c) ?? 0) > 0 && c.joined === "continue";
       const opening = !flows && pins.start && typeof stored[pins.start] === "string" ? (stored[pins.start] as string) : null;
-      if (opening) return editInputs(c, { ...stored, [pins.end]: opening });
+      if (opening) return editInputs(c, { ...stored, [end]: opening });
       if (!c.take) return;
       const first = await api.frame(c.take.asset.id, c.take.startMs + 20, id);
-      editInputs(c, { ...stored, ...(pins.start && !flows ? { [pins.start]: first.id } : {}), [pins.end]: first.id });
+      // over the form as it stands once the frame is saved: what was typed while ffmpeg took it stays
+      editInputs(c, (was) => ({ ...was, ...(pins.start && !flows ? { [pins.start]: first.id } : {}), [end]: first.id }));
       o.on.note("It will loop from the next take: it now ends on its own first frame.");
     },
   });
@@ -213,8 +222,6 @@ export function useTimelineMutations(id: string, o: {
   });
   // the latest that failed, not the first of the list: an old error does not hide a new one
   // (with when it was asked, `errorAt`, for the editor to weigh it against its own range actions')
-  const { error, at: errorAt } = [plan, loop, render, fix, patch, edit, add, remove, removeMany, removeTake, stop, undo, redo, exportIt, frame, split, duplicate]
-    .filter((x) => x.error)
-    .reduce<{ error: Error | null; at: number }>((last, x) => (x.submittedAt >= last.at ? { error: x.error, at: x.submittedAt } : last), { error: null, at: -1 });
+  const { error, at: errorAt } = latestFailure([plan, loop, render, fix, patch, edit, makeSource, splitSource, add, remove, removeMany, removeTake, stop, undo, redo, exportIt, frame, split, duplicate]);
   return { after, render, patch, fix, edit, makeSource, splitSource, add, remove, removeMany, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan, error, errorAt };
 }

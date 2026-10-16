@@ -277,7 +277,7 @@ export function useTimelineEditor(id: string) {
   // a key held down sends one undo at a time: the next only once the last is back
   const stepping = undo.isPending || redo.isPending;
   // the keys' refs for what is set below: Ctrl+Enter renders, [ and ] jump, S and Ctrl+B split, Alt+[ and Alt+] step the take; - and =, Shift+Z: the track's zoom (filled by the track)
-  const { selectedNow, renderNow, jumpNow, splitNow, takeNow, trackKeys } = useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameMs, selected: current?.id ?? null, setSelected, setPicked, musicOpen: musicOpen || sourceOpen, closeMusic: () => { setMusicOpen(false); setSourceOpen(false); }, removeOpen: () => {
+  const { selectedNow, renderNow, jumpNow, splitNow, takeNow, trackKeys } = useEditorKeys({ clock, player, toggle, undo: undo.mutate, canUndo: Boolean(t?.undo) && !stepping, redo: redo.mutate, canRedo: Boolean(t?.redo) && !stepping, remove: remove.mutate, removing: remove.isPending || removeMany.isPending, move, removePicked, rangeRef, setRange, totalRef, toggleLoopNow, frameMs, selected: current?.id ?? null, setSelected, setPicked, musicOpen: musicOpen || sourceOpen, closeMusic: () => { setMusicOpen(false); setSourceOpen(false); }, removeOpen: () => {
     if (!sourceOpen || !t?.source) return false;
     removeSource();
     return true;

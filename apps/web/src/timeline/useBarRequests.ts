@@ -8,6 +8,7 @@ import type { useClipEdits } from "./useClipEdits";
 import type { useTimelineMutations } from "./useTimelineMutations";
 import { plural } from "../format";
 import { failedBanner } from "../sayFailed";
+import { clipWords } from "./attention";
 
 type Mutations = ReturnType<typeof useTimelineMutations>;
 
@@ -88,7 +89,7 @@ export function useBarRequests({ id, t, shown, clips, slots, missing, ready, ren
     const list = request.do === "render-missing" ? missing : clips.filter((c, i) => request.clips.includes(i + 1) && c.kind === "video" && !c.job && ready(c).input);
     if (!list.length) {
       asked?.reply(null);
-      say({ id: `bar-render:${Date.now()}`, tone: "bad", title: request.do === "render-missing" ? `${t.name} has no clip left to render` : `Nothing to render in clip${request.clips.length > 1 ? "s" : ""} ${request.clips.join(", ")}`, text: request.do === "render" ? "A clip renders when it is a video clip with its form filled, and is not already in the queue." : undefined, href: `/timelines/${id}`, go: "Open the timeline" });
+      say({ id: `bar-render:${Date.now()}`, tone: "bad", title: request.do === "render-missing" ? `${t.name} has no clip left to render` : `Nothing to render in ${clipWords(request.clips)}`, text: request.do === "render" ? "A clip renders when it is a video clip with its form filled, and is not already in the queue." : undefined, href: `/timelines/${id}`, go: "Open the timeline" });
       return;
     }
     // (the promise, not the mutation's own callbacks: those are dropped when the editor is left before the answer)

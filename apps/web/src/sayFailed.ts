@@ -32,3 +32,14 @@ export function useSayFailed(where: FailedWhere = {}) {
   const say = useBanners((b) => b.push);
   return (title: string) => (err: unknown) => say(failedBanner(where, title, err));
 }
+
+/**
+ * The latest of a place's actions that failed, not the first of its list: an old error does not hide a newer one. `since`:
+ * what was asked before it is not said (a viewer stepped on to another item, which an error of the one before is not about).
+ * With when it was asked, `at`, for a place to weigh it against other actions of its own.
+ */
+export function latestFailure(actions: ReadonlyArray<{ error: Error | null; submittedAt: number }>, since = -1): { error: Error | null; at: number } {
+  return actions
+    .filter((x) => x.error && x.submittedAt >= since)
+    .reduce<{ error: Error | null; at: number }>((last, x) => (x.submittedAt >= last.at ? { error: x.error, at: x.submittedAt } : last), { error: null, at: -1 });
+}

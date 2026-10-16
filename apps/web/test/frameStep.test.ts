@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { frameAt, frameSpan, lastFrame, stepFrames } from "../src/frameStep";
+import { frameAt, frameSpan, lastFrame, rangeEnds, stepFrames } from "../src/frameStep";
 
 describe("frame stepping", () => {
   it("steps by the index of the frame shown, to the middle of the next one", () => {
@@ -37,5 +37,22 @@ describe("frame stepping", () => {
     const span = frameSpan(145.8, 24);
     expect(span.startMs).toBeCloseTo(125, 6);
     expect(span.endMs).toBeCloseTo(166.67, 2);
+  });
+});
+
+describe("a range's first and last frame (Generate between)", () => {
+  it("takes the last frame inside Out, not the one after it", () => {
+    // In on frame 10, Out after frame 20 (where frame 21 starts), as Trim's I and O set them
+    for (const fps of [24, 16, 30]) {
+      const range = { startMs: frameSpan(10 * (1000 / fps) + 1, fps).startMs, endMs: frameSpan(20 * (1000 / fps) + 1, fps).endMs };
+      const { firstMs, lastMs } = rangeEnds(range, fps);
+      expect(frameAt(firstMs, fps)).toBe(10);
+      expect(frameAt(lastMs, fps)).toBe(20);
+    }
+  });
+  it("gives one frame twice for a range of one frame", () => {
+    const { firstMs, lastMs } = rangeEnds(frameSpan(100, 24), 24);
+    expect(frameAt(firstMs, 24)).toBe(2);
+    expect(frameAt(lastMs, 24)).toBe(2);
   });
 });

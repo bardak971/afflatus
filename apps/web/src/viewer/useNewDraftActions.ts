@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { secondsInput } from "@afflatus/core";
 import type { Range } from "../Trim";
+import { rangeEnds } from "../frameStep";
 import { api, type Asset, type AssetDetail, type Look, type RecipeInfo } from "../api";
 import { useDrafts, useFamilies, useRecipes, useSetup, type useAsset } from "../data";
 import { useOpenNewDraft } from "../draft";
@@ -80,8 +81,10 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
   const between = useMutation({
     mutationFn: async (range: Range) => {
       const to = opener!;
-      const first = await api.frame(asset.id, Math.round(range.startMs));
-      const last = await api.frame(asset.id, Math.round(range.endMs));
+      // each frame at its middle: Out is where the frame after the range starts, which the last frame was taken from
+      const ends = rangeEnds(range, a.fps && a.fps > 0 ? a.fps : 24);
+      const first = await api.frame(asset.id, ends.firstMs);
+      const last = await api.frame(asset.id, ends.lastMs);
       const start = to.inputs.find((i) => i.type === "image" && i.role === "start")!;
       const end = to.inputs.find((i) => i.type === "image" && i.role === "end");
       const seconds = secondsInput(to.inputs);
