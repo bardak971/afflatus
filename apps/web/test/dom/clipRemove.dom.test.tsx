@@ -20,7 +20,7 @@ function rig() {
   function Editor() {
     m = useTimelineMutations("zz-test-timeline", {
       timeline: undefined, clipsNow: { current: [] }, recipes: [], firstRecipe: () => undefined,
-      edits: { save: (only?: string) => saves.flush(only), turn: saves.turn, ready: () => ({}), inputsOf: () => ({}), editInputs: () => {}, dropEdits: () => {}, savedElsewhere: () => {} },
+      edits: { save: (only?: string) => saves.flush(only), turn: saves.turn, ready: () => ({}), inputsOf: () => ({}), editInputs: () => {}, dropEdits: () => {}, savedElsewhere: () => {}, sourceTyped: () => undefined },
       on: { note: () => {}, select: () => {}, unpick: () => {}, writing: () => {}, open: () => {} },
     });
     return null;

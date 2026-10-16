@@ -7,7 +7,6 @@ import { timelineKey } from "../../draftMachine";
 import { RenderOn } from "../../GenerateOn";
 import { severalMachines } from "../../machines";
 import { clock as mmss, plural, recipeLabel } from "../../format";
-import { useSettled } from "../../hooks";
 import { PictureMaker, usePictureSets } from "../../pictureMaker";
 import { appendTo } from "../../promptText";
 import { Form, mainTextOf } from "../../RecipeForm";
@@ -40,7 +39,7 @@ export function windowsSaid(windows: ReadonlyArray<{ fromMs: number; toMs: numbe
  * first (the stretch, the window, scene cuts); and Make N clips at the foot. The stage plays the source meanwhile, and a
  * picture is made from the frame the playhead stands on. Each made clip keeps its own form afterwards.
  */
-export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, onMake, making, made, onRender, rendering, onClose }: {
+export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, typed, onLook, onMake, making, made, onRender, rendering, onClose }: {
   timeline: Timeline;
   place: SourcePlace | null;
   /** The video models of this timeline: those that make a source window by window are offered. */
@@ -48,6 +47,10 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, o
   /** The timeline's clock: where the stage stands on the source (the track's own time). */
   clock: Clock;
   onEdit(patch: SourcePatch | null): void;
+  /** Its form typed: kept by the editor and saved as the clips' forms are (useClipEdits), so that closing the panel loses none of it. */
+  onType(inputs: Record<string, unknown>): void;
+  /** Its form as typed and not saved yet, if so: what the panel opens on, over what the server had. */
+  typed(): Record<string, unknown> | undefined;
   onLook(look: Look): void;
   onMake(): void;
   making: boolean;
@@ -75,23 +78,27 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onLook, o
     () => (recipe && w ? { ...recipe, inputs: recipe.inputs.filter((i) => i.type !== "clip" && i.id !== w.start && i.id !== w.seconds) } : undefined),
     [recipe, w?.start, w?.seconds], // eslint-disable-line react-hooks/exhaustive-deps -- w follows the recipe
   );
-  // what is typed, kept here and saved once it stops changing (one step for Undo, not one a key)
-  const [inputs, setInputs] = useState<Record<string, unknown>>(source?.inputs ?? {});
-  const saved = useRef(JSON.stringify(source?.inputs ?? {}));
+  // what is typed, shown at once and handed to the editor, which saves it once it stops changing (one step for Undo, not
+  // one a key), as the editor is left or the tab closes, and before Make
+  const [inputs, shownInputs] = useState<Record<string, unknown>>(() => typed() ?? source?.inputs ?? {});
+  const latest = useRef(inputs);
+  const setInputs = (edit: (x: Record<string, unknown>) => Record<string, unknown>) => {
+    const next = edit(latest.current);
+    latest.current = next;
+    shownInputs(next);
+    onType(next);
+  };
+  // the server's form read again (an Undo, another tab) is shown, unless something typed here is still to be saved: a read
+  // back from before its save would put the older text over it
+  const read = useRef(JSON.stringify(source?.inputs ?? {}));
   useEffect(() => {
     const now = JSON.stringify(source?.inputs ?? {});
-    if (now !== saved.current) {
-      saved.current = now;
-      setInputs(source?.inputs ?? {});
-    }
-  }, [source?.inputs]);
-  const settled = useSettled(inputs, 600);
-  useEffect(() => {
-    const now = JSON.stringify(settled);
-    if (now === saved.current) return;
-    saved.current = now;
-    onEdit({ inputs: settled });
-  }, [settled]); // eslint-disable-line react-hooks/exhaustive-deps -- saved when what is typed settles
+    if (now === read.current) return;
+    read.current = now;
+    if (typed()) return;
+    latest.current = source?.inputs ?? {};
+    shownInputs(latest.current);
+  }, [source?.inputs]); // eslint-disable-line react-hooks/exhaustive-deps -- typed() is read as the server's form changes
   const [designing, setDesigning] = useState(false);
   const [turns, setTurns] = useState<DesignerTurn[]>([]);
   const [session, setSession] = useState<DesignerSession | null>(null);

@@ -109,6 +109,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             onLook={(look) => e.edit.mutate({ look })}
             recipes={e.videoRecipes}
             onEdit={(source) => e.edit.mutate({ source })}
+            onType={(inputs) => e.typeSource(t.id, inputs)}
+            typed={() => e.sourceTyped(t.id)}
             onMake={e.makeSource.run}
             making={e.makeSource.pending}
             made={{ left: sourceLeft.length, queued: clips.filter((c) => fromSource.has(c.id) && c.job).length }}

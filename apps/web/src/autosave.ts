@@ -59,6 +59,12 @@ export function autosaver<T>(opts: () => AutosaveOpts<T>, said: (state: SaveStat
       timers.delete(k);
     }
   };
+  // the whole said as it stands: failed while a key's last save has, saved once nothing waits, else on its way
+  const settle = () => {
+    const left = [...failures.values()];
+    if (left.length) set("failed", left[left.length - 1]!);
+    else set(pending.size ? "saving" : "saved", null);
+  };
   const send = async (key: string) => {
     const item = pending.get(key);
     if (item === undefined) return;
@@ -66,9 +72,7 @@ export function autosaver<T>(opts: () => AutosaveOpts<T>, said: (state: SaveStat
     const done = () => {
       failures.delete(key);
       if (pending.get(key) === item) pending.delete(key);
-      const left = [...failures.values()];
-      if (left.length) set("failed", left[left.length - 1]!);
-      else if (!pending.size) set("saved", null);
+      settle();
     };
     try {
       await opts().save(key, item);
@@ -99,6 +103,16 @@ export function autosaver<T>(opts: () => AutosaveOpts<T>, said: (state: SaveStat
     pending.set(key, item);
     schedule(key);
   };
+  /**
+   * What waits under `key` is dropped, not saved: the thing is gone (a draft deleted). Its failure goes with it, else
+   * the whole stayed said failed, and the tab asked before closing, for something no longer there.
+   */
+  const drop = (key: string) => {
+    stop(key);
+    pending.delete(key);
+    failures.delete(key);
+    settle();
+  };
   const retry = () => {
     set("saving", null);
     return flush();
@@ -118,7 +132,7 @@ export function autosaver<T>(opts: () => AutosaveOpts<T>, said: (state: SaveStat
     if (cut) void flush();
     return cut || state === "failed";
   };
-  return { pending, turn, flush, schedule, queue, retry, hide, mustAsk };
+  return { pending, turn, flush, schedule, queue, drop, retry, hide, mustAsk };
 }
 
 /**
@@ -182,7 +196,7 @@ export function useAutosave<T>(opts: {
     goesWhole: (_, item) => own.current.goesWhole?.(item) ?? true,
     delayMs: opts.delayMs,
   });
-  const { pending: map, flush, schedule, queue, retry, turn, state, failure } = keyed;
+  const { pending: map, flush, schedule, queue, drop, retry, turn, state, failure } = keyed;
   const pending = useMemo(() => ({
     get current(): T | null {
       return map.get(ONE) ?? null;
@@ -197,8 +211,10 @@ export function useAutosave<T>(opts: {
     flush: () => flush(),
     schedule: () => schedule(ONE),
     queue: (item: T) => queue(ONE, item),
+    /** What waits is dropped, not saved, its failure with it: the thing is gone. */
+    drop: () => drop(ONE),
     retry: () => void retry(),
     turn,
-  }), [flush, schedule, queue, retry, turn]);
+  }), [flush, schedule, queue, drop, retry, turn]);
   return useMemo(() => ({ ...fns, pending, state, failure }), [fns, pending, state, failure]);
 }

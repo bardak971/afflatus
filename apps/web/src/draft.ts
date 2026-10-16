@@ -146,7 +146,14 @@ export function useDraft(firstRecipe: string | undefined) {
         saved = await remade(d);
         const from = d.id;
         const to = saved.id;
-        if (unsaved.current && unsaved.current.id === from) unsaved.current = { ...unsaved.current, id: to };
+        // what was sent is all in the new one: nothing is left to save. A change made meanwhile goes on under the new id,
+        // a change of its own: rewritten, it is no longer what was sent, and was left waiting with no save to come (the
+        // header said "Saving…" until the next edit)
+        if (unsaved.current === d) unsaved.current = null;
+        else if (unsaved.current && unsaved.current.id === from) {
+          unsaved.current = { ...unsaved.current, id: to };
+          schedule();
+        }
         setDraft((x) => (x && x.id === from ? { ...x, id: to } : x));
         client.removeQueries({ queryKey: queryKeys.drafts.one(from) });
         if (useOpenDraft.getState().id === from) open(to);
@@ -162,7 +169,7 @@ export function useDraft(firstRecipe: string | undefined) {
     },
     goesWhole: (d) => closingBody(d)?.chat !== undefined,
   });
-  const { pending: unsaved, flush, turn, schedule } = save;
+  const { pending: unsaved, flush, turn, schedule, drop } = save;
 
   // what the server has replaces what is on screen only when another draft is opened
   useEffect(() => {
@@ -229,7 +236,8 @@ export function useDraft(firstRecipe: string | undefined) {
     const d = shown.current;
     if (!d) return;
     if (deleted.includes(d.id)) {
-      unsaved.current = null;
+      // its failure too: a deleted draft is not said unsaved, nor sent again (which made it again)
+      drop();
       setDraft(null);
       open(null);
     } else if (released.length) {
@@ -308,7 +316,7 @@ export function useDraft(firstRecipe: string | undefined) {
       open(d.id);
     },
     async remove(id: string) {
-      if (unsaved.current?.id === id) unsaved.current = null;
+      if (unsaved.current?.id === id) drop();
       await api.deleteDraft(id);
       client.removeQueries({ queryKey: queryKeys.drafts.one(id) });
       // the list first, so that what opens next is chosen among drafts that still exist
