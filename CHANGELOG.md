@@ -4,6 +4,8 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-16
+
 ### Added
 - **Several ComfyUIs, one queue** (Settings › ComfyUI › Add a ComfyUI): a second GPU on its own port, another PC or a rented pod, up to 12. Each takes jobs from one shared line, a lane each on the Queue page, and every job goes to the machine that will finish it first: when it is free, plus the model load if it does not hold the model, plus the render at that machine's pace, learned from your renders (compared once it has 3 of the same settings). **Takes** (Everything / Pictures / Videos), pins (drag a waiting row onto a lane, or **Run on ▸**), **Use only X**, Pause all. With one ComfyUI nothing changes on screen.
 - **Models per machine:** Settings › Models gets a tab per machine and an **All** grid of families against machines, each machine with its own family switches; a job goes only where its files are, and one pinned to a machine that lacks them lists them with **Download to X**.
@@ -221,6 +223,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 The first release: the Studio and its library, a form per model family, timelines, the prompt kit, imported workflows, the queue, the node pack, the Docker image, the Helm chart and the desktop bundles.
 
-[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/bardak971/afflatus/releases/tag/v0.5.0
 [0.4.0]: https://github.com/bardak971/afflatus/releases/tag/v0.4.0
 [0.3.0]: https://github.com/bardak971/afflatus/releases/tag/v0.3.0
