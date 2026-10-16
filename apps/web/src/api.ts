@@ -92,7 +92,23 @@ async function call<T>(method: string, path: string, body?: unknown, signal?: Ab
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
   });
-  const text = await res.text().catch(() => "");
+  return answer<T>(res);
+}
+
+/**
+ * What an answer says, as `call` hands it on: the JSON of a success, or the server's refusal thrown. A body cut off on
+ * its way (the connection dropped mid-answer) is the server not answering, never an empty success the screen would take
+ * for real (a queue with no lanes, an upload with no id); a request given up on stays an abort.
+ */
+async function answer<T>(res: Response): Promise<T> {
+  let text = "";
+  try {
+    text = await res.text();
+  } catch (err) {
+    if ((err as Error).name === "AbortError") throw err;
+    // a refusal whose words were lost is still said by its status, below
+    if (res.ok) throw new ApiError(NOT_ANSWERING);
+  }
   let data: { error?: string; left?: number; wait?: number; needPassword?: boolean } = {};
   try {
     if (text) data = JSON.parse(text) as { error?: string; left?: number; wait?: number; needPassword?: boolean };
@@ -340,9 +356,7 @@ export const api = {
   /** What a file from the computer says about how it was made. The file is the request body; nothing is stored. */
   embedded: async (file: File, recipe?: string) => {
     const res = await send(`/api/embedded${recipe ? `?recipe=${encodeURIComponent(recipe)}` : ""}`, { method: "POST", headers: { "Content-Type": /^(image|video|audio)\//.test(file.type) ? file.type : "application/octet-stream" }, body: file });
-    const data = (await res.json().catch(() => ({}))) as Embedded & { error?: string };
-    if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`, res.status);
-    return data;
+    return answer<Embedded>(res);
   },
   /** The same for a picture or a video already in the library. */
   assetEmbedded: (id: string, recipe?: string) => call<Embedded>("GET", `/assets/${id}/embedded${recipe ? `?recipe=${encodeURIComponent(recipe)}` : ""}`),
@@ -483,9 +497,7 @@ export const api = {
   upload: async (file: File, opts: { /** The painted part of a picture: kept, but not shown in the library. */ mask?: boolean; /** A picture for a person or a place of the Prompt kit: kept with them, not shown in the library. */ kit?: boolean; /** The folder it goes into. */ folder?: string; /** Without a folder: the project whose root folder it goes into. */ project?: string | null } = {}) => {
     if (!/^(image|video|audio)\//.test(file.type)) throw new ApiError("This file is not a picture, a video or a sound.");
     const res = await send(`/api/assets?name=${encodeURIComponent(file.name)}${opts.mask ? "&as=mask" : opts.kit ? "&as=kit" : ""}${opts.folder ? `&folder=${encodeURIComponent(opts.folder)}` : ""}${opts.project ? `&project=${encodeURIComponent(opts.project)}` : ""}`, { method: "POST", headers: { "Content-Type": file.type }, body: file });
-    const data = (await res.json().catch(() => ({}))) as Asset & { error?: string };
-    if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`, res.status);
-    return data as Asset;
+    return answer<Asset>(res);
   },
   workflows: (o?: Asked) => call<{ items: WorkflowBrief[] }>("GET", "/workflows", undefined, o?.signal),
   workflow: (id: string, o?: Asked) => call<WorkflowDef>("GET", `/workflows/${id}`, undefined, o?.signal),

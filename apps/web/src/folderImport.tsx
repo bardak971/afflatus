@@ -51,19 +51,31 @@ export function folderMaker(into: string | null, known: Array<Pick<Folder, "id" 
   return folderFor;
 }
 
+/** What a second import is told while one runs: one at a time, so that the note says how far the one under way is. */
+export const IMPORT_UNDER_WAY = "An import is under way: wait for it to end";
+
 /**
  * The library's lists follow by themselves while it runs: every upload is a "library" event, and live.ts
  * reads the lists again at most once a second. The QueryClient is kept for the folders made here.
+ * `inside`: `into` is the picked folder itself, already made (the Inbox's), so each file's path is read
+ * under it, without the picked folder's own name. `start` is false when it was refused (`busy`: another
+ * import runs), for the caller to say so.
  */
-export const useFolderImport = create<{ run: Run | null; start(files: File[], into: string | null, client: QueryClient): Promise<void>; dismiss(): void }>((set, get) => ({
+export const useFolderImport = create<{
+  run: Run | null;
+  busy(): boolean;
+  start(files: File[], into: string | null, client: QueryClient, inside?: boolean): Promise<boolean>;
+  dismiss(): void;
+}>((set, get) => ({
   run: null,
+  busy: () => Boolean(get().run && !get().run!.over),
   dismiss: () => set({ run: null }),
-  async start(files, into, client) {
-    if (get().run && !get().run!.over) return;
+  async start(files, into, client, inside = false) {
+    if (get().busy()) return false;
     const media = files.filter((f) => /^(image|video|audio)\//.test(f.type));
     const name = pathOf(files[0] ?? new File([], ""))[0] ?? "a folder";
     set({ run: { name, done: 0, total: media.length, failed: 0, skipped: files.length - media.length, over: media.length === 0 } });
-    if (!media.length) return;
+    if (!media.length) return true;
     const step = (patch: Partial<Run>) => set((s) => (s.run ? { run: { ...s.run, ...patch } } : s));
     try {
       const folderFor = folderMaker(into, (await api.folders()).items, async (leaf, parent) => (await api.createFolder(leaf, parent, parent ? undefined : projectForNew())).id);
@@ -72,7 +84,7 @@ export const useFolderImport = create<{ run: Run | null; start(files: File[], in
       await Promise.all(Array.from({ length: 3 }, async () => {
         for (let file = left.shift(); file; file = left.shift()) {
           try {
-            const folder = await folderFor(pathOf(file));
+            const folder = await folderFor(inside ? pathOf(file).slice(1) : pathOf(file));
             await api.upload(file, { folder: folder ?? undefined, project: projectForNew() });
             step({ done: get().run!.done + 1 });
           } catch {
@@ -87,6 +99,7 @@ export const useFolderImport = create<{ run: Run | null; start(files: File[], in
       step({ over: true });
       void client.invalidateQueries({ queryKey: queryKeys.folders() });
     }
+    return true;
   },
 }));
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { queryKeys } from "../queryKeys";
@@ -17,6 +17,9 @@ export function Gate({ children }: { children: ReactNode }) {
   const session = useQuery({ queryKey: queryKeys.session(), queryFn: () => api.session(), staleTime: Infinity, retry: 2 });
   const out = useSignedOut((s) => s.out);
   const [entered, setEntered] = useState(false);
+  // Whether the app was drawn once: from then on a session that ends brings the sign-in over it, never in its place, or
+  // the open editors, dialogs and a draft's edit not yet saved would go with it.
+  const drawn = useRef(false);
   // the 401 said this browser is out: what the sign-in needs (the days, whether Telegram is a way) read again
   const { refetch } = session;
   useEffect(() => {
@@ -27,7 +30,7 @@ export function Gate({ children }: { children: ReactNode }) {
   if (session.isPending) return <div className="h-full bg-ground" />;
   const state = session.data;
   // a server that does not answer: the app, which says so in its own way (and a 401 later brings the sign-in)
-  if (state && state.locked && !state.signedIn && !entered) {
+  if (state && state.locked && !state.signedIn && !entered && !drawn.current) {
     return (
       <SignIn
         state={state}
@@ -39,6 +42,7 @@ export function Gate({ children }: { children: ReactNode }) {
       />
     );
   }
+  drawn.current = true;
   return (
     <>
       <div className={cx("h-full", entered && "m-gate-in")}>{children}</div>
