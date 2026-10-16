@@ -1,6 +1,6 @@
 import type { MachineState, PodFile, QueueStatus, RentedState } from "./api";
 import { stepSaid } from "@afflatus/core";
-import { plural, usd } from "./format";
+import { minutesSaid, plural, usd } from "./format";
 
 /** Several ComfyUIs (Settings › ComfyUI): how a machine is named on screen, and what the screens read of them. */
 
@@ -113,6 +113,17 @@ export function machineByName<M extends { id: string; name: string; url: string 
 }
 
 /**
+ * Every machine a typed name may mean, for a command that costs money (a pod's Start or Stop): the one named exactly, else
+ * each whose name starts so, one row each, so that the bar never picks one of two pods for the user.
+ */
+export function machinesByName<M extends { id: string; name: string; url: string }>(machines: readonly M[] | undefined, typed: string): M[] {
+  const want = typed.trim().toLowerCase();
+  const all = machines ?? [];
+  const exact = all.find((m) => m.id === want || machineLabel(m).toLowerCase() === want);
+  return exact ? [exact] : all.filter((m) => machineLabel(m).toLowerCase().startsWith(want));
+}
+
+/**
  * Whether a machine's models can be unloaded now, and the few words why not: the rule unloadBlock (queueRules.ts) has
  * for one ComfyUI, for one of several: not while it is away, nor while it runs a job, nor while its ComfyUI runs work from
  * outside Afflatus (its models are someone else's then).
@@ -220,6 +231,15 @@ export function rateParts(r: Pick<RentedState, "rate" | "gpuRate">): string | nu
 
 /** A rented pod's rate as Start says it: RunPod says it only once the pod has run (it says 0 while it is stopped). */
 export const rateSaid = (r: RentedState) => (r.rate ? `${usd(r.rate)} / h from now` : "rate known once it has run · billed from now");
+
+/** What a pod set never to stop when idle is said as (idleEndSaid), in its warning tone wherever it shows. */
+export const NEVER_IDLE = "never stops when idle";
+
+/**
+ * How a pod ends by itself when idle, in a few words: "terminates after 10 min idle". At 0 it never does, and bills until it
+ * is stopped by hand or at a cap: said so, never as "after never idle", which reads as if it stopped.
+ */
+export const idleEndSaid = (r: { idleMinutes: number; idleDo: "stop" | "terminate" }) => (r.idleMinutes ? `${r.idleDo === "stop" ? "stops" : "terminates"} after ${minutesSaid(r.idleMinutes)} idle` : NEVER_IDLE);
 
 /** Whether a rented pod takes work now: only while it runs. A machine of one's own always may. */
 export const rentedUp = (m: { rented?: RentedState | null }) => !m.rented || m.rented.status === "RUNNING";

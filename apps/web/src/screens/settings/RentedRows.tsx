@@ -2,7 +2,7 @@ import type { Machine, MachineState, RentedMachine } from "../../api";
 import type { PodFile, PodPack } from "../../api";
 import { minutesSaid, plural, size, usd } from "../../format";
 import { useCopied, useNow, useSecond } from "../../hooks";
-import { gettingFiles, rateSaid, rentedSaid } from "../../machines";
+import { gettingFiles, idleEndSaid, rateSaid, rentedSaid } from "../../machines";
 import type { useRentedOps } from "../../rentedOps";
 import { Select } from "../../Select";
 import { Progress } from "../../progress/Progress";
@@ -84,7 +84,7 @@ export function RentedHead({ machine, state, ops }: { machine: Machine; state: M
       {stopped && (
         <TwoStep
           label="Start…" title={`Start ${label}?`} yes="Start" disabled={busy || r.capped}
-          note={r.capped ? "a spending cap is reached" : `${rateSaid(r)}${machine.rented?.idleMinutes ? ` · ${machine.rented.idleDo === "stop" ? "stops" : "terminates"} after ${minutesSaid(machine.rented.idleMinutes)} idle` : ""}`}
+          note={r.capped ? "a spending cap is reached" : `${rateSaid(r)}${machine.rented ? ` · ${idleEndSaid(machine.rented)}` : ""}`}
           onYes={() => ops.start.mutate(machine.id)}
         />
       )}
@@ -104,7 +104,7 @@ export function RentedHead({ machine, state, ops }: { machine: Machine; state: M
  * gets, how it stops by itself (idle, the watchdog), its public ports, and at its foot its address and Terminate. Its GPU,
  * rate and place are in the card's facts; its page on RunPod in the menu. `put` saves a change of its rented settings.
  */
-export function RentedRows({ machine, state, put, ops, remove }: { machine: Machine; state: MachineState | undefined; put(rented: RentedMachine): void; ops: ReturnType<typeof useRentedOps>; /** Takes it out of Afflatus. */ remove(): void }) {
+export function RentedRows({ machine, state, put, ops, remove }: { machine: Machine; state: MachineState | undefined; put(rented: RentedMachine): void; ops: ReturnType<typeof useRentedOps>; /** Takes it out of Afflatus, by its own route: a whole-list save keeps every rented machine it leaves out. */ remove(): void }) {
   const rented = machine.rented!;
   const r = state?.rented;
   const set = (change: Partial<RentedMachine>) => put({ ...rented, ...change });
@@ -151,6 +151,9 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
             {r?.idleAt != null ? <IdleLeft at={r.idleAt} /> : r?.status === "RUNNING" && state && gettingFiles(state) && <span className="text-ink-3">· held while its files come</span>}
           </span>
         </Row>
+        {rented.idleMinutes === 0 && (
+          <Block><span className="text-xs text-warn-ink">Never stops when idle: it bills until you stop it, or until a spending cap is reached.</span></Block>
+        )}
         {rented.idleDo === "stop" && r && !r.volume && r.status !== "GONE" && r.status !== "UNKNOWN" && (
           <Block><span className="text-xs text-warn-ink">No volume on this pod: a stop keeps nothing (its container disk is erased), and its GPU can be taken meanwhile. Terminate costs the same and leaves nothing billed.</span></Block>
         )}

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MachineState, QueueStatus, RentedState } from "../src/api";
 import { usd } from "../src/format";
 import { busiest, doing } from "../src/machineBits";
-import { bootNote, bootSaid, clock, machineState, onlineSaid, rateParts, rateSaid, rentedSaid, rentedSpent, rentedUp, severalMachines } from "../src/machines";
+import { bootNote, bootSaid, clock, idleEndSaid, machinesByName, machineState, onlineSaid, rateParts, rateSaid, rentedSaid, rentedSpent, rentedUp, severalMachines } from "../src/machines";
 
 /** What a rented pod's row, its Start and the pill say (machines.ts), and when the machines' own controls show. */
 
@@ -32,6 +32,20 @@ describe("a rented pod's words", () => {
   it("says the rate before a Start, or that RunPod says it only once the pod has run", () => {
     expect(rateSaid(pod())).toBe("$0.69 / h from now");
     expect(rateSaid(pod({ rate: null }))).toBe("rate known once it has run · billed from now");
+  });
+
+  it("says how it ends when idle, and that it never does at 0 rather than \"after never idle\"", () => {
+    expect(idleEndSaid({ idleMinutes: 10, idleDo: "terminate" })).toBe("terminates after 10 min idle");
+    expect(idleEndSaid({ idleMinutes: 90, idleDo: "stop" })).toBe("stops after 1 h 30 min idle");
+    expect(idleEndSaid({ idleMinutes: 0, idleDo: "terminate" })).toBe("never stops when idle");
+  });
+
+  it("gives every pod a typed name may mean, so that a Start or Stop never picks one of two", () => {
+    const pods = [{ id: "a", name: "A40 one", url: "https://a" }, { id: "b", name: "A40 two", url: "https://b" }, { id: "c", name: "A40", url: "https://c" }];
+    expect(machinesByName(pods, "a40").map((m) => m.id)).toEqual(["c"]);
+    expect(machinesByName(pods.slice(0, 2), "a40").map((m) => m.id)).toEqual(["a", "b"]);
+    expect(machinesByName(pods, "A40 TWO").map((m) => m.id)).toEqual(["b"]);
+    expect(machinesByName(pods, "h100")).toEqual([]);
   });
 
   it("takes work only while it runs", () => {
