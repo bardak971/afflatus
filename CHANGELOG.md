@@ -4,6 +4,15 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Fixed
+- **A pod whose start fails no longer bills on unseen:** a start that stopped at a step (a full volume, a write refused) exited, RunPod started it again, it failed at the same step, and so on with no watchdog, since the watchdog runs inside ComfyUI. It now stays up with its watchdog armed from the pod's settings, as a pod whose GPU fails does: Afflatus terminates it at once when it reads the failed step, and with Afflatus away the pod stops itself after the watchdog's minutes.
+- **The watchdog's stop:** a stop RunPod refuses or does not carry out was asked again every 5 minutes forever. After 3 tries the watchdog terminates the pod instead (a network volume keeps its files); it says so in the console and in `GET /afflatus/alive` (`tries`, `end`).
+- **InsightFace's face models:** a pod ended while they were being unpacked left a part of them on its volume, and every later pod on it gave no Face Match or Face At figure. They are fetched beside the models folder and moved in once whole, and a folder without both model files is fetched again.
+- **The ComfyUI lock:** a ComfyUI locked through its lock file stops, naming the file and `AFFLATUS_LOCK=off`, if the lock cannot be put in front of its server (it ran open before; a pod's environment token already stopped it). A renewed token is in force at once, also on a disk whose clock ticks coarsely (FAT, exFAT, some network shares).
+
+### Changed
+- **Afflatus's pod image 0.1.13:** the node pack 0.20.0 and the fixes above, and the boot steps' count (`pip: ComfyUI-KJNodes (3/14)`) the 0.5.0 notes describe, which 0.1.12 did not have yet. A published image is built only with Manager's registry list in it (a pod of an image without it waits on billed time before Manager can install a pack by name), and a release checks that the pod image it deploys is built from its own pod files.
+
 ## [0.5.1] - 2026-10-16
 
 ### Added

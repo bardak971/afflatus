@@ -56,7 +56,7 @@ describe("a deployed pod's first start", () => {
     expect(bootSaid(boot({ from: now - 134_000 }), now)).toBe("pulling image · 2m 14s");
     expect(bootSaid(boot({ phase: "starting", from: now - 31_000 }), now)).toBe("starting ComfyUI · 31s");
     expect(bootSaid(boot({ phase: "step", step: "putting in the node packs" }), now)).toBe("linking node packs · 6m 00s");
-    // start.sh's pip installs, counted (0.1.12 on), and without a count (a log of before)
+    // start.sh's pip installs, counted (0.1.13 on), and without a count (a log of before)
     expect(bootSaid(boot({ phase: "step", step: "installing the Python packages of ComfyUI-KJNodes (3/14)", from: now - 62_000 }), now)).toBe("pip: ComfyUI-KJNodes (3/14) · 1m 02s");
     expect(bootSaid(boot({ phase: "step", step: "installing the Python packages of insightface" }), now)).toBe("pip: insightface · 6m 00s");
     // ComfyUI's own course, as the server reads it, and a step not known here as the pod says it

@@ -51,6 +51,29 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
 
+  # the pod image Afflatus deploys (runpod.ts) built from this commit's pod files: a release whose start.sh or node pack
+  # changed after that image's tag would deploy pods running older code than it says (0.5.0 shipped with pod-v0.1.12, whose
+  # start.sh lacked the boot steps' count). The fix is a new pod-v* tag and runpod.ts pointed at it
+  pod-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # the tags, to compare with the pod image's
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the pod image is this commit's
+        run: |
+          v=$(grep -oE 'afflatus-pod:[0-9]+\.[0-9]+\.[0-9]+' apps/server/src/runpod.ts | head -n 1 | cut -d: -f2)
+          if [ -z "$v" ]; then echo "::error::apps/server/src/runpod.ts names no afflatus-pod:<version>"; exit 1; fi
+          if ! git rev-parse -q --verify "refs/tags/pod-v$v" > /dev/null; then echo "::error::runpod.ts deploys afflatus-pod:$v, and there is no tag pod-v$v"; exit 1; fi
+          set -- deploy/runpod comfy-nodes ':(exclude)deploy/runpod/tests' ':(exclude)comfy-nodes/afflatus-nodes/tests' ':(exclude)*.md'
+          if ! git diff --quiet "pod-v$v" HEAD -- "$@"; then
+            git diff --stat "pod-v$v" HEAD -- "$@"
+            echo "::error::the pod's files changed since pod-v$v: tag a new pod image (pod-v*) and point runpod.ts at it"
+            exit 1
+          fi
+
   # the release staged once, for the package-lock.json it resolves: the image and the bundles install that one
   stage:
     runs-on: ubuntu-latest
@@ -84,7 +107,7 @@ jobs:
           if-no-files-found: error
 
   image:
-    needs: [test, stage]
+    needs: [test, pod-image, stage]
     runs-on: ubuntu-latest
     # pushes the image to GHCR
     permissions:
@@ -129,7 +152,7 @@ jobs:
           provenance: false
 
   bundles:
-    needs: [test, stage]
+    needs: [test, pod-image, stage]
     strategy:
       fail-fast: false
       matrix:

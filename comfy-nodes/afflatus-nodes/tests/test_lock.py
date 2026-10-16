@@ -242,6 +242,19 @@ def test_a_lock_file_that_does_not_read_keeps_it_locked(lock, mw):
     assert call(mw, Request(headers=bearer(TOKEN))).status == 401
 
 
+def test_a_renew_within_one_tick_of_the_clock_is_in_force_at_once(lock, mw):
+    lock.write(TOKEN, local=False)
+    assert lock.state()["hash"] == L.hash_of(TOKEN)
+    before = os.stat(lock.path)
+    lock.write(OTHER, local=False)
+    # a coarse clock (FAT, exFAT, some network shares) gives the renewed file the old one's time, and its size is the same
+    os.utime(lock.path, ns=(before.st_atime_ns, before.st_mtime_ns))
+    assert os.stat(lock.path).st_size == before.st_size
+    assert lock.state()["hash"] == L.hash_of(OTHER)
+    assert call(mw, Request(headers=bearer(TOKEN))).status == 401
+    assert call(mw, Request(headers=bearer(OTHER))).text == "handled"
+
+
 def test_ways_out(tmp_path):
     folder = str(tmp_path)
     L.Lock(folder, env={}).write(TOKEN, local=False)
@@ -330,3 +343,39 @@ def test_the_cookie_counts_only_from_comfyuis_own_page(lock, mw):
     assert call(mw, Request(cookies=cookie, host="pod-8188.proxy.example", headers={"Origin": "https://pod-8188.proxy.example"})).text == "handled"
     # the token itself goes on working from anywhere
     assert call(mw, Request(headers={**bearer(TOKEN), "Sec-Fetch-Site": "same-site"})).text == "handled"
+
+
+def _lock_fails_to_go_in(monkeypatch, tmp_path, env):
+    """The pack's start with the lock failing to go in (an aiohttp or ComfyUI change): whether ComfyUI was stopped."""
+    import sys
+
+    import afflatus_nodes as pack
+
+    monkeypatch.setitem(sys.modules, "aiohttp", types.SimpleNamespace(web=web))
+    monkeypatch.setitem(sys.modules, "server", types.SimpleNamespace(PromptServer=types.SimpleNamespace(instance=object())))
+    monkeypatch.setattr(sys.modules["folder_paths"], "get_user_directory", lambda: str(tmp_path), raising=False)
+
+    def broken(*args):
+        raise RuntimeError("no middlewares")
+
+    monkeypatch.setattr(L, "install", broken)
+    for name in ("AFFLATUS_TOKEN", "AFFLATUS_LOCK"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    exits = []
+    monkeypatch.setattr(pack.os, "_exit", lambda code: exits.append(code))
+    pack._lock_first()
+    return exits
+
+
+def test_a_comfyui_locked_through_its_file_stops_when_the_lock_cannot_go_in(monkeypatch, tmp_path):
+    L.Lock(str(tmp_path), env={}).write(TOKEN, local=False)
+    assert _lock_fails_to_go_in(monkeypatch, tmp_path, {}) == [1]
+    # the way out it names
+    assert _lock_fails_to_go_in(monkeypatch, tmp_path, {"AFFLATUS_LOCK": "off"}) == []
+
+
+def test_a_comfyui_never_locked_runs_on_when_the_lock_cannot_go_in(monkeypatch, tmp_path):
+    assert _lock_fails_to_go_in(monkeypatch, tmp_path, {}) == []
+    assert _lock_fails_to_go_in(monkeypatch, tmp_path, {"AFFLATUS_TOKEN": OTHER}) == [1]

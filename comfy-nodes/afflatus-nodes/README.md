@@ -57,13 +57,16 @@ With the pack loaded, ComfyUI answers:
   `{"minutes": 15}` every minute or so; silent that long, the pod stops itself (on RunPod: `runpodctl stop pod`, or
   RunPod's API with the pod's `RUNPOD_API_KEY`). Nothing is armed until Afflatus says it; `{"minutes": 0}` disarms it.
   With `AFFLATUS_WATCHDOG_ACTION=terminate` in the pod's environment (0.13.1: Afflatus sets it for a pod without a
-  volume, which keeps nothing when stopped), it terminates the pod instead.
+  volume, which keeps nothing when stopped), it terminates the pod instead. A stop that fails or leaves the pod running is
+  asked again; after 3 tries it terminates the pod instead (0.20.0), and `GET` says how many it made (`tries`) and what it
+  asks now (`end`).
 - `GET` and `POST /afflatus/lock`, `POST /afflatus/unlock`, `POST /afflatus/login-code`, `/afflatus/login` (0.12.0):
   the lock. Once Afflatus locks a ComfyUI (Settings → ComfyUI → Access), every route of its server needs the machine's
   token: `Authorization: Bearer <token>` (Afflatus sends it so on the websocket too), `?token=` on the websocket for other tools, or the cookie the login page sets. The lock is kept
   as the token's hash in `afflatus-lock.json` in ComfyUI's user folder; nothing is locked until Afflatus locks it.
   `AFFLATUS_TOKEN=<token>` locks it from its start. **To take the lock off by hand,** delete `afflatus-lock.json`, or
-  start ComfyUI with `AFFLATUS_LOCK=off`.
+  start ComfyUI with `AFFLATUS_LOCK=off`. A ComfyUI locked so whose lock cannot be put in front of its server (an
+  aiohttp or ComfyUI change) stops at its start rather than run open, and says the same two ways out (0.20.0).
 
 - `GET /afflatus/power` (0.18.0): the GPU's power draw in watts (NVML through `nvidia-ml-py`, else `nvidia-smi`), for this PC's electricity; null where neither reads it.
 - `GET /afflatus/disk` and `POST /afflatus/models/remove` (0.19.0): the disk the model folders are on (bytes free and in all), and a model file taken off it to make room on a rented pod.

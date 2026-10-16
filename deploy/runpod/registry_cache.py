@@ -7,7 +7,11 @@ Manager knows every pack from its first second, and still reads the registry aga
 
 Written as Manager's own code writes it (comfyui_manager common/cnr_utils.py and manager_util.py): the file named after the
 registry's address, the list under "nodes", each pack with a latest_version. A build that cannot reach the registry still
-succeeds, without the file: Manager then reads it at the pod's start, as before.
+succeeds, without the file: Manager then reads it at the pod's start, as before. Except with --required, which the published
+image is built with (pod-image.yml): every pod of an image without the list would spend billed minutes of its start before
+Manager could install a pack by its name, so a registry that cannot be read then fails the build, to be run again later.
+
+  python registry_cache.py <out dir> <ComfyUI version> [--required]
 """
 
 import json
@@ -51,10 +55,16 @@ def fetch_all(comfyui_version, opener=urllib.request.urlopen):
     return list(nodes.values())
 
 
-def main(out_dir, comfyui_version):
+def main(out_dir, comfyui_version, required=False, opener=urllib.request.urlopen):
     try:
-        nodes = fetch_all(comfyui_version)
+        nodes = fetch_all(comfyui_version, opener)
+        # an empty list is a registry that answered wrong: Manager would resolve nothing from it
+        if not nodes:
+            raise ValueError("no node packs listed")
     except Exception as err:
+        if required:
+            print(f"[afflatus-pod] the registry was not read ({err}): a published image needs it, build again later", flush=True)
+            return 1
         print(f"[afflatus-pod] the registry was not read ({err}): Manager reads it at the pod's start", flush=True)
         return 0
     os.makedirs(out_dir, exist_ok=True)
@@ -65,4 +75,5 @@ def main(out_dir, comfyui_version):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else "unknown"))
+    args = [a for a in sys.argv[1:] if a != "--required"]
+    sys.exit(main(args[0], args[1] if len(args) > 1 else "unknown", required="--required" in sys.argv[1:]))
