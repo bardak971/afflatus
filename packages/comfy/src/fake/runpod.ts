@@ -90,6 +90,10 @@ export interface FakeRunpod {
   failPatch: number | null;
   hideEnv: boolean;
   failList: number | null;
+  /** Pods the list leaves out (an answer of RunPod's that came back short); read on their own, they are there. */
+  unlisted: Set<string>;
+  /** What a read of one pod on its own (GET /v2/pods/{id}) answers instead of it, as a RunPod outage does; null: the pod. */
+  failOne: number | null;
   oddList: boolean;
   actionDelayMs: number;
   /** How long every answer takes, as a real one's round trip does (0: at once). */
@@ -190,7 +194,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
   });
   const fake: Omit<FakeRunpod, "url" | "close"> = {
     key: o.key, pods, calls: [], balance: o.balance ?? 23.4, autoBill: false, billLagMs: 0, bootMs: o.bootMs ?? 1500, pullMs: o.pullMs ?? 0, startMs: o.startMs ?? 0, bootFails: null,
-    failAction: {}, failDetail: null, secrets: {}, failSecrets: false, stopMs: 0, failPatch: null, hideEnv: false, failList: null, oddList: false, actionDelayMs: 0, latencyMs: 0,
+    failAction: {}, failDetail: null, secrets: {}, failSecrets: false, stopMs: 0, failPatch: null, hideEnv: false, failList: null, unlisted: new Set(), failOne: null, oddList: false, actionDelayMs: 0, latencyMs: 0,
     gpus: o.gpus ?? FAKE_GPUS, volumes: o.volumes ?? [], noCapacity: new Set(), failCreate: null, createThenFail: null, bill: [], comfyStaysDown: false, volumeBill: [],
   };
   let volumesMade = 0;
@@ -408,7 +412,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
     }
     if (req.method === "GET" && url.pathname === "/v2/pods") {
       if (fake.failList) return json(fake.failList, { title: "Error", status: fake.failList, detail: fake.failList === 429 ? "rate limited" : "unavailable" });
-      const listed = fake.pods.filter((p) => p.status !== "TERMINATED").map((p) => {
+      const listed = fake.pods.filter((p) => p.status !== "TERMINATED" && !fake.unlisted.has(p.id)).map((p) => {
         const r = raw(p) as Record<string, unknown>;
         if (fake.hideEnv) delete r.env;
         return r;
@@ -443,6 +447,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
     // one pod, read on its own
     const one = /^\/v2\/pods\/([^/]+)$/.exec(url.pathname);
     if (req.method === "GET" && one) {
+      if (fake.failOne) return json(fake.failOne, { title: "Error", status: fake.failOne, detail: "unavailable" });
       const found = fake.pods.find((p) => p.id === decodeURIComponent(one[1]!) && p.status !== "TERMINATED");
       if (!found) return json(404, { title: "Not Found", status: 404, detail: "pod not found" });
       const r = raw(found) as Record<string, unknown>;

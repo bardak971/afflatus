@@ -429,6 +429,17 @@ describe("the costs of a window", () => {
     expect(s0.estimated).toEqual(["its files, from their speeds (files over 100 MB only)"]);
     expect(s0.why).toBe("no render");
   });
+
+  it("a newer session without its first answer kept never takes another pod's boot measure as its boot's end", async () => {
+    // s5 ran after 0071 (its idle minutes kept) but its first answer was not (Afflatus restarted mid-run); the boot measure in
+    // its time is another pod's deploy, as pod_measures keeps no machine
+    await db.insertInto("rent_sessions").values({ id: "s5", machine_id: "rp-e", pod: "e", rate: 0.24, started_at: iso(T0 - 30 * MIN), ended_at: iso(T0 - 10 * MIN), seen_at: null, gpu: "NVIDIA A40", up_at: null, idle_minutes: 10 }).execute();
+    await db.insertInto("pod_measures").values({ id: "m1", kind: "boot", cloud: "SECURE", bytes: 0, ms: 4 * MIN, at: iso(T0 - 22 * MIN) }).execute();
+    const s5 = (await view()).sessions.find((s) => s.id === "s5")!;
+    // its boot from the usual boot here (that measure's 4 min), not ended at the measure's time (8 min in)
+    expect(s5.estimated).toContain("its boot, from the usual boot here");
+    expect(s5.parts.boot).toBe(4 * MIN);
+  });
 });
 
 // ---------------------------------------------------------------- the power a render of this PC drew, through the queue

@@ -249,10 +249,17 @@ interface Seen {
   cappedAt: number | null;
   /** Afflatus is stopping it now: it takes no new work, and a second stop is not sent. */
   stopping: boolean;
+  /**
+   * What was asked of RunPod to stop it (the user's Stop or Terminate, a cap's or the idle time's action): what a stop asked
+   * again sends, never the idle action in its place, which could make a user's Stop a Terminate and delete its disk.
+   */
+  stopAction: "stop" | "terminate" | null;
   /** Locking it once it is up was tried this session (lockPod): once, not at every read. */
   lockTried: boolean;
   /** When a read last saw it running (ms): a run found ended is closed there. */
   seenRunningAt: number | null;
+  /** When its open session started (ms), as kept there (session): what its card counts "so far" from. */
+  sessionFrom: number | null;
   /** Bumped by every action of the user's or Afflatus's: a read begun before it is not taken over it. */
   epoch: number;
   error: string | null;
@@ -297,7 +304,7 @@ interface Seen {
 
 const fresh = (): Seen => ({
   pod: null, rate: null, watchdog: "unknown", answers: null, busyAt: null, busyKept: null, busyRestored: false, stoppedBy: null, stopAfter: false, cappedAt: null,
-  stopping: false, lockTried: false, seenRunningAt: null, epoch: 0, error: null, bootNote: null, secretDropped: false, upAt: null, answered: false, answeredAt: null,
+  stopping: false, stopAction: null, lockTried: false, seenRunningAt: null, sessionFrom: null, epoch: 0, error: null, bootNote: null, secretDropped: false, upAt: null, answered: false, answeredAt: null,
   read: false, gpuFailed: null, startFailed: null, missing: 0, stoppingSince: null, aliveAt: null, startingSince: null,
   handed: false, fillFrom: null, fillProgress: null, fillMovedAt: null, cutWhy: null, pulledKept: false, packsKept: null, containerAt: null,
 });
@@ -478,7 +485,9 @@ export class Rented {
     // GONE only once RunPod was read without it: before the first read (Afflatus just restarted, a pod running all along)
     // its state is not known, and a running pod said gone for a few seconds read as one lost
     const status: RentedView["status"] = s?.read ? (pod ? pod.status : "GONE") : "UNKNOWN";
-    const since = pod?.status === "RUNNING" && pod.startedAt ? Date.parse(pod.startedAt) : null;
+    // from its open session's start, never RunPod's startedAt: right after a Start, RunPod may still say the run before's,
+    // and the card would count the hours it was stopped as spent (session() keeps the guard against that)
+    const since = pod?.status === "RUNNING" ? s?.sessionFrom ?? null : null;
     const rate = s?.rate ?? (pod?.cost || null);
     const idleMs = machine.rented.idleMinutes * 60_000;
     const booting = Boolean(machine.rented.deployedAt) && (status === "RUNNING" || (TRANSITIONAL.has(status) && status !== "UNKNOWN")) && !s?.answered;
@@ -829,7 +838,7 @@ export class Rented {
       return;
     }
     if (this.now() < this.quietUntil) {
-      await this.pingAll(rented);
+      await this.pingAll(rented, settings.rentCaps);
       return;
     }
     // what each machine's state was before this read: an action taken while it was under way wins over what it read
@@ -841,8 +850,8 @@ export class Rented {
     } catch (err) {
       this.error = (err as Error).message;
       if (err instanceof RunpodError && err.status === 429) this.quietUntil = this.now() + BACK_OFF_MS;
-      // RunPod not answering is not this PC going silent: the pods still hear "still here", and render on
-      await this.pingAll(rented);
+      // RunPod not answering is not this PC going silent: the pods still hear "still here", and render on, short of a cap
+      await this.pingAll(rented, settings.rentCaps);
       this.events.emit("queue");
       return;
     }
@@ -1066,7 +1075,9 @@ export class Rented {
    */
   async remove(machine: string): Promise<void> {
     // a pod still running (or starting) is billed with nothing here to stop it once it is out of Afflatus: stopped first
-    const status = this.seen.get(machine)?.pod?.status;
+    const settings = await readSettings(this.db);
+    const rented = settings.machines.find((x) => x.id === machine)?.rented;
+    const status = rented ? await this.statusForRemove(machine, rented.pod, settings.runpodKey) : null;
     if (status && BILLED.has(status)) throw httpError("It is running on RunPod, billed: stop or terminate it first, then remove it.", 409);
     let found = false;
     await updateSettings(this.db, (current) => {
@@ -1082,6 +1093,23 @@ export class Rented {
     if (!found) throw httpError("there is no ComfyUI with that id", 404);
     this.seen.delete(machine);
     this.events.emit("setup");
+  }
+
+  /**
+   * A pod's status before its machine is removed: as last read when that is known, read from RunPod now when it is not
+   * (Afflatus just started, RunPod's last read failed, or a read had it missing once). Refused when RunPod cannot say: a pod
+   * running unseen would bill with nothing following it, and one from RunPod's own image has no watchdog to stop it.
+   */
+  private async statusForRemove(machine: string, pod: string, key: string): Promise<string | null> {
+    const s = this.seen.get(machine);
+    if (s?.read && this.error === null && (s.pod !== null || s.missing >= 2)) return s.pod?.status ?? null;
+    const unknown = "Its state on RunPod is not known yet";
+    if (!key) throw httpError(`${unknown} (no RunPod API key): set the key in Settings › Rented GPUs, or stop it on RunPod, then remove it.`, 409);
+    try {
+      return (await this.client(key).pod(pod))?.status ?? null;
+    } catch (err) {
+      throw httpError(`${unknown} (${(err as Error).message}): remove it once RunPod answers, or stop it on RunPod first.`, 409);
+    }
   }
 
   /**
@@ -1119,6 +1147,11 @@ export class Rented {
   private async follow(m: Machine, s: Seen, pod: Pod | null, caps: { day: number; month: number }, key: string): Promise<boolean> {
     const before = s.pod;
     s.missing = pod ? 0 : s.missing + 1;
+    // one read without a pod that the read before had: taken as a read that did not come, not as the pod gone (an answer of
+    // RunPod's can come back short), unless RunPod says of that pod itself that it is gone. Its session, idle clock, cap and
+    // a stop under way are kept as they were; only a second read without it closes its run, or each short answer would give
+    // an idle pod a new idle time, drop a stop's retry and split its run in two
+    if (!pod && s.missing < 2 && s.pod !== null && (await this.client(key).exists(m.rented!.pod)) !== false) return false;
     // gone from RunPod (terminated there, or by its watchdog): only once RunPod says so of that pod itself, at a second read
     // without it. Its list may lag a pod just made (whose secret it still has to read at its boot), an answer of RunPod's may
     // come back empty, and a key of another account lists none of these: none of that is a pod gone
@@ -1216,10 +1249,13 @@ export class Rented {
     if (s.stopping) {
       if (s.stoppingSince !== null && this.now() - s.stoppingSince >= STOP_AGAIN_MS) {
         const why = s.stoppedBy ?? "idle";
+        // the action first sent, asked again: a stop stays a stop on a pod that keeps something (the user's Stop, a cap's),
+        // and becomes a terminate only on one that keeps nothing
+        const sent = s.stopAction ?? m.rented!.idleDo;
         s.stopping = false;
         s.stoppingSince = null;
         console.warn(`[rented] ${m.name || m.id}: still running ${STOP_AGAIN_MS / 60_000} min after its stop: asked again`);
-        await this.act(m, pod.networkVolume || pod.diskGb > 0 ? m.rented!.idleDo : "terminate", why, true);
+        await this.act(m, sent === "stop" && (pod.networkVolume || pod.diskGb > 0) ? "stop" : "terminate", why, true);
       }
       return changed;
     }
@@ -1470,6 +1506,7 @@ export class Rented {
         // opened at a lower rate takes the higher too: a run opened before its disk was counted in its rate (0.5.0), its
         // whole time billed with that disk
         await this.db.updateTable("rent_sessions").set({ seen_at: iso, ...(pod.cost > open.rate ? { rate: pod.cost } : {}) }).where("id", "=", open.id).execute();
+        s.sessionFrom = Date.parse(open.started_at);
         return;
       }
       // from when the pod says it started; a deployed pod's first run from its deploy, when the money starts. A start time
@@ -1483,6 +1520,7 @@ export class Rented {
       const from = !last && Number.isFinite(deployedAt) ? Math.min(started, deployedAt) : started;
       // its GPU and its idle minutes kept with it: the Costs tab says the one and weighs a shorter idle against the other
       await this.db.insertInto("rent_sessions").values({ id: randomUUID(), machine_id: m.id, pod: pod.id, rate: pod.cost || s.rate || 0, started_at: new Date(Math.min(from, now)).toISOString(), ended_at: null, seen_at: iso, gpu: pod.gpu, up_at: null, idle_minutes: m.rented!.idleMinutes, busy_at: null }).execute();
+      s.sessionFrom = Math.min(from, now);
     } else if (open) {
       // closed now when it was seen running a moment ago. One that ended while Afflatus was away (off, asleep) is closed at
       // the latest it could have run: its watchdog stops it that long after the last "still here" (RunPod's bill, once
@@ -1494,18 +1532,39 @@ export class Rented {
       await this.db.updateTable("rent_sessions").set({ ended_at: new Date(Math.min(end, now)).toISOString() }).where("id", "=", open.id).execute();
       s.seenRunningAt = null;
     }
+    if (!(pod && BILLED.has(pod.status))) s.sessionFrom = null;
   }
 
   /**
    * "Still here" to the pods last seen running, when RunPod itself cannot be read: Afflatus is not silent for that. Only to a
    * pod with work (a job running there), or still within its idle time and short of a cap: one that would be stopped now
    * hears nothing, so that its own watchdog stops it while Afflatus cannot ask RunPod to.
+   * The caps and the stuck-render check go on meanwhile, as neither needs RunPod's list: a cap reached during an outage gives
+   * the pod no new job (unavailable), and no "still here" past the render it runs, within the hour a cap waits for one.
    */
-  private async pingAll(rented: Machine[]): Promise<void> {
+  private async pingAll(rented: Machine[], caps: { day: number; month: number }): Promise<void> {
     const now = this.now();
-    for (const m of rented) {
-      const s = this.seen.get(m.id);
-      if (s?.pod?.status !== "RUNNING" || s.stopping || s.stopAfter) continue;
+    const up = rented.filter((m) => this.seen.get(m.id)?.pod?.status === "RUNNING");
+    if (!up.length) return;
+    // what was spent counts the open sessions to now, and RunPod's bill as last read: a cap is seen without its list
+    const capped = caps.day > 0 || caps.month > 0;
+    const spent = capped ? await this.spent().catch((err: Error) => (console.warn(`[rented] spending not read: ${err.message}`), null)) : null;
+    if (spent) this.sayCap(caps, spent);
+    for (const m of up) {
+      const s = this.seen.get(m.id)!;
+      // a spending that could not be read leaves the cap as last seen
+      if (spent || !capped) {
+        s.stopAfter = spent ? capReached(caps, spent) : false;
+        s.cappedAt = s.stopAfter ? s.cappedAt ?? now : null;
+      }
+      await this.endIfStuck(m, now);
+      if (s.stopping) continue;
+      if (s.stopAfter) {
+        // at a cap: kept alive only for the render it runs, as keepOrStop waits for it; not for one waiting in its ComfyUI
+        // behind work from outside Afflatus, nor past the hour. Silent otherwise, so that its watchdog stops it
+        if (this.queue.runningOn(m.id) && !this.queue.waitingBehindOutside(m.id) && now - s.cappedAt! <= CAP_GRACE_MS) await this.alive(m, s).catch(() => false);
+        continue;
+      }
       const idle = m.rented!.idleMinutes * 60_000;
       // at work for Afflatus or, as last read, for someone else in its ComfyUI (keepOrStop holds its idle time for that too)
       const keep = this.queue.busyOn(m.id) || idle === 0 || (s.busyAt !== null && now - s.busyAt < idle);
@@ -1553,16 +1612,23 @@ export class Rented {
     return true;
   }
 
-  /** Idle long enough, or a cap reached once its render ends: stopped (or deleted, as its idle choice says). */
-  private async keepOrStop(m: Machine, s: Seen, caps: { day: number; month: number }, answers: boolean): Promise<void> {
-    const now = this.now();
-    // a render ComfyUI has said nothing of for long, with its GPU idle or past its forecast: failed, so that the pod is free
-    // for the next job or its idle time, instead of billed for a render that never ends
+  /**
+   * A render ComfyUI has said nothing of for long, with its GPU idle or past its forecast: failed, so that the pod is free for
+   * the next job or its idle time, instead of billed for a render that never ends. At every read, and while RunPod's list
+   * cannot be read (pingAll), as it asks nothing of RunPod.
+   */
+  private async endIfStuck(m: Machine, now: number): Promise<void> {
     const quiet = this.queue.quietFor(m.id, now);
     const why = quiet.gpuIdle ? "its GPU idle" : "past its forecast";
     if (quiet.ms >= this.stuckMs && (await this.queue.endStuck(m.id, `Stuck: no progress from ComfyUI for ${Math.round(quiet.ms / 60_000)} min, ${why}, on the rented GPU ${m.name || m.id}; failed so that the pod is not billed for a render that never ends`))) {
       console.log(`[rented] ${m.name || m.id}: a render stuck for ${Math.round(quiet.ms / 60_000)} min (${why}) failed`);
     }
+  }
+
+  /** Idle long enough, or a cap reached once its render ends: stopped (or deleted, as its idle choice says). */
+  private async keepOrStop(m: Machine, s: Seen, caps: { day: number; month: number }, answers: boolean): Promise<void> {
+    const now = this.now();
+    await this.endIfStuck(m, now);
     const running = this.queue.runningOn(m.id);
     // work counts only for a pod whose ComfyUI answers: one that went down would otherwise keep a waiting job "for it" forever
     // not idle before its ComfyUI first answered (a first boot pulling node packs and models): the boot limit covers that.
@@ -1940,12 +2006,14 @@ export class Rented {
     if (action === "start") {
       s.stopping = false;
       s.stoppingSince = null;
+      s.stopAction = null;
       // its boot log is this start's from now: the last one's lines are not where this one is
       this.boots.forget(m.id);
     }
     if (action !== "start") {
       if (s.stopping && why !== "you") return;
       s.stopping = true;
+      s.stopAction = action;
       // a job the queue started on it a moment ago: idle and cap stops wait for it (the user's own Stop does not)
       if (why !== "you" && why !== "cap" && this.queue.runningOn(m.id)) {
         s.stopping = false;

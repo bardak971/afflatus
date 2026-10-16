@@ -18,6 +18,8 @@ const SEEN_EVERY_MS = 15_000;
 
 interface Open {
   id: string;
+  /** The rent session it was opened under. */
+  session: string;
   from: number;
   seen: number;
   kept: number;
@@ -55,8 +57,18 @@ export class PodOutside {
   }
 
   private async step(machine: string, outside: { running: number; pending: number } | null, at: number): Promise<void> {
-    const o = this.open.get(machine);
+    let o = this.open.get(machine);
     if (outside && outside.running > 0) {
+      // a pod's open session only: a home machine, or a pod not billed now, has no time to split
+      const session = await this.db.selectFrom("rent_sessions").select(["id", "started_at"]).where("machine_id", "=", machine).where("ended_at", "is", null).executeTakeFirst();
+      // its session is no longer open (its pod stopped while the work ran, and its ComfyUI was not read again until a later
+      // run): it ended at its last sight, as far as is known. Carried on, the next run's outside time would be counted under
+      // the old session, and the new one's said idle
+      if (o && o.session !== session?.id) {
+        this.open.delete(machine);
+        await this.db.updateTable("pod_outside").set({ seen_at: iso(o.seen), ended_at: iso(o.seen) }).where("id", "=", o.id).execute();
+        o = undefined;
+      }
       if (o) {
         o.seen = Math.max(o.seen, at);
         if (o.seen - o.kept < SEEN_EVERY_MS) return;
@@ -64,13 +76,11 @@ export class PodOutside {
         await this.db.updateTable("pod_outside").set({ seen_at: iso(o.seen) }).where("id", "=", o.id).execute();
         return;
       }
-      // a pod's open session only: a home machine, or a pod not billed now, has no time to split
-      const session = await this.db.selectFrom("rent_sessions").select(["id", "started_at"]).where("machine_id", "=", machine).where("ended_at", "is", null).executeTakeFirst();
       if (!session) return;
       const from = Math.max(at, Date.parse(session.started_at));
       const id = randomUUID();
       await this.db.insertInto("pod_outside").values({ id, session_id: session.id, machine_id: machine, started_at: iso(from), seen_at: iso(from), ended_at: null }).execute();
-      this.open.set(machine, { id, from, seen: from, kept: from });
+      this.open.set(machine, { id, session: session.id, from, seen: from, kept: from });
       return;
     }
     if (!o) return;

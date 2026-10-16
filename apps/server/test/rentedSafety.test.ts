@@ -302,6 +302,108 @@ describe("money safety", () => {
   });
 });
 
+describe("when RunPod is not read normally", () => {
+  const actions = () => runpod.calls.filter((c) => /\/action (stop|terminate)$/.test(c)).map((c) => c.split(" ").pop());
+  const idleDo = async (id: string, how: "stop" | "terminate") => {
+    const machines = (await readSettings(t.db)).machines.map(({ token: _token, ...m }) => (m.id === id ? { ...m, rented: { ...m.rented!, idleDo: how } } : m));
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines } });
+  };
+
+  it("a cap reached while RunPod's list cannot be read: no new job on the pod, and no \"still here\" with no render", async () => {
+    const id = await add(podA().id);
+    await started(id, podA);
+    await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: { machine: "m1" } });
+    runpod.failList = 503;
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 0.0000001, month: 0 } } });
+    const heard = a.alive.length;
+    await t.services.rented.poll();
+    // within its idle time, but at a cap: silent, so that its watchdog stops it while RunPod cannot be asked to
+    expect(a.alive.length).toBe(heard);
+    expect((await rowOf(id)).rented?.capped).toBe(true);
+    expect(t.services.queue.unavailable(id)).not.toBeNull();
+    const next = (await post(t.app, "/api/jobs", job())).json().ids[0] as string;
+    await new Promise((r) => setTimeout(r, 300));
+    expect(a.prompts.size).toBe(0);
+    expect(await statusOf(next)).toBe("queued");
+  });
+
+  it("one read without the pod keeps its run: its session, its state, a stop under way and that stop asked again", async () => {
+    const id = await add(podA().id);
+    await started(id, podA);
+    runpod.stopMs = 10 * 60_000;
+    await post(t.app, `/api/machines/${id}/stop`, { how: "stop" });
+    expect(podA().status).toBe("RUNNING");
+    // an answer of RunPod's that came back without it
+    runpod.unlisted.add(podA().id);
+    await t.services.rented.poll();
+    expect((await rowOf(id)).rented).toMatchObject({ status: "RUNNING", stopping: true });
+    expect((await sessions()).map((r) => r.ended_at)).toEqual([null]);
+    runpod.unlisted.clear();
+    later(3 * 60_000);
+    await t.services.rented.poll();
+    expect(actions()).toEqual(["stop", "stop"]);
+    expect(await sessions()).toHaveLength(1);
+  });
+
+  it("a stop asked again is the one sent: the user's Stop on a pod with a disk set to terminate when idle stays a stop", async () => {
+    const id = await add(podA().id);
+    await idleDo(id, "terminate");
+    await started(id, podA);
+    runpod.stopMs = 10 * 60_000;
+    await post(t.app, `/api/machines/${id}/stop`, { how: "stop" });
+    later(3 * 60_000);
+    await t.services.rented.poll();
+    expect(actions()).toEqual(["stop", "stop"]);
+    expect(podA().status).toBe("RUNNING");
+  });
+
+  it("a cap's stop asked again stays a stop on a pod with a disk set to terminate when idle", async () => {
+    const id = await add(podA().id);
+    await idleDo(id, "terminate");
+    await started(id, podA);
+    runpod.stopMs = 10 * 60_000;
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 0.0000001, month: 0 } } });
+    await t.services.rented.poll();
+    expect(actions()).toEqual(["stop"]);
+    later(3 * 60_000);
+    await t.services.rented.poll();
+    expect(actions()).toEqual(["stop", "stop"]);
+    expect(podA().status).toBe("RUNNING");
+  });
+
+  it("is not removed while its state on RunPod is not known: read first, refused while it runs or when RunPod cannot say", async () => {
+    const id = await add(podA().id);
+    await started(id, podA);
+    // Afflatus restarted while RunPod's list cannot be read: nothing is known of the pod yet
+    t.services.rented.stop();
+    runpod.failList = 500;
+    const again = await makeApp({ db: t.db, comfyUrl: home.url });
+    try {
+      await again.services.rented.poll();
+      const running = await post(again.app, `/api/machines/${id}/remove`, {});
+      expect(running.statusCode).toBe(409);
+      expect(running.json().error).toMatch(/running on RunPod, billed/);
+      runpod.failOne = 500;
+      const unknown = await post(again.app, `/api/machines/${id}/remove`, {});
+      expect(unknown.statusCode).toBe(409);
+      expect(unknown.json().error).toMatch(/^Its state on RunPod is not known yet/);
+      expect((await readSettings(t.db)).machines.some((m) => m.id === id)).toBe(true);
+    } finally {
+      again.services.rented.stop();
+    }
+  });
+
+  it("the card's run cost counts from its session's start, never from a start time RunPod still says of the run before", async () => {
+    const id = await add(podA().id);
+    await started(id, podA);
+    podA().startedAt = new Date(Date.now() - 5 * 3_600_000).toISOString();
+    await t.services.rented.poll();
+    const row = (await rowOf(id)).rented!;
+    expect(row.since).toBe(Date.parse((await sessions())[0]!.started_at));
+    expect(row.spent).toBeLessThan(0.05);
+  });
+});
+
 describe("what a real pod showed", () => {
   it("an older ComfyUI without the pack (405 to the watchdog's call) answers: it is up, with no watchdog", async () => {
     a.packVersion = null;
