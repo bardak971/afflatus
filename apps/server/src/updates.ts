@@ -3,10 +3,10 @@ import { basename, dirname, join } from "node:path";
 import { envSaid } from "./config";
 import { now } from "./db";
 import { readSettings } from "./settings";
-import { type CheckState, type Fallback, type LastChange, type LibrarySummary, type UpdatesView, writeAtomic } from "./updatesModel";
+import { type CheckState, type Fallback, readLastChange, type UpdatesView, writeAtomic } from "./updatesModel";
 import { bareVersion, CHECK_KEY, readRelease, withoutAssets } from "./updatesCheck";
+import { UpdatesGoBack } from "./updatesGoBack";
 import { readVersion, versionName } from "./updatesInstall";
-import { librarySummary, UpdatesMove03 } from "./updatesMove03";
 
 /**
  * Afflatus updating itself (HANDOVER-updater.md). Once a day, when the user leaves it on, GitHub is asked for the latest
@@ -19,8 +19,8 @@ import { librarySummary, UpdatesMove03 } from "./updatesMove03";
  * versions/current names the new version and the process exits with 75, which the launcher reads as "start me again".
  * Docker and a checkout get the notice alone: they are updated with their own commands.
  *
- * Also here: going back to the previous version (its database copy restored), the move of a 0.3 library into a fresh
- * 0.4 bundle beside it, and the note the launcher leaves when a new version did not start (data/updates/fallback.json).
+ * Also here: going back to the previous version (its database copy restored), and the note the launcher leaves when a
+ * new version did not start (data/updates/fallback.json).
  */
 
 /** The timer that sees whether a check is due; the check itself is once a day. */
@@ -28,18 +28,15 @@ const TICK_MS = 60 * 60_000;
 /** The first look after the start: not during it. */
 const FIRST_TICK_MS = 30_000;
 
-/** The exit code that asks the launcher to start Afflatus again (after an update, Go back or the move). */
+/** The exit code that asks the launcher to start Afflatus again (after an update or Go back). */
 export const RESTART_CODE = 75;
 
-export class AfflatusUpdates extends UpdatesMove03 {
+export class AfflatusUpdates extends UpdatesGoBack {
   private fallback: Fallback | null = null;
-
-  /** What the 0.3 library holds, read once (a walk of its files folder) on the first view that offers the move. */
-  private moveSummary: Promise<LibrarySummary> | null = null;
 
   private timers: NodeJS.Timeout[] = [];
 
-  /** Read what the last run left (the last check, the launcher's note, the last change) and look for a 0.3 library. */
+  /** Read what the last run left: the last check, the launcher's note, the last change. */
   async init(): Promise<void> {
     const row = await this.db.selectFrom("settings").select("value").where("key", "=", CHECK_KEY).executeTakeFirst().catch(() => undefined);
     if (row) {
@@ -68,8 +65,7 @@ export class AfflatusUpdates extends UpdatesMove03 {
     }
     await rm(fallbackFile, { force: true }).catch(() => {});
     this.failed = await readFile(join(this.updatesDir, "failed.json"), "utf8").then((t) => versionName((JSON.parse(t) as { version?: unknown }).version), () => null);
-    this.last = await readFile(join(this.updatesDir, "last.json"), "utf8").then((t) => JSON.parse(t) as LastChange, () => null);
-    this.moveFrom = await this.findOldLibrary().catch(() => null);
+    this.last = await readFile(join(this.updatesDir, "last.json"), "utf8").then(readLastChange, () => null);
     if (this.o.timers !== false) {
       const tick = () => void this.daily().catch((err) => console.warn("[updates]", (err as Error).message));
       const first = setTimeout(tick, FIRST_TICK_MS);
@@ -124,7 +120,6 @@ export class AfflatusUpdates extends UpdatesMove03 {
       previous: await this.previous(),
       last: this.last,
       fallback: this.fallback,
-      move: here && (await this.moveOffer()) ? { ...this.moveFrom!, ...(await (this.moveSummary ??= librarySummary(this.moveFrom!.from))) } : null,
     };
   }
 }

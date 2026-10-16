@@ -4,7 +4,6 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { sql } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
@@ -19,13 +18,12 @@ import { AfflatusUpdates } from "../src/updates";
 import { compareVersions, readRelease } from "../src/updatesCheck";
 import { nodeIn, readSums, systemTar, verifySignature, versionName } from "../src/updatesInstall";
 import type { InstallKind, UpdatesView } from "../src/updatesModel";
-import { librarySummary } from "../src/updatesMove03";
 import { FAST, job, makeApp, makeFake, NOWHERE, post, until } from "./helpers";
 
 /**
  * Afflatus updating itself (updates.ts), against a pretend release server (a stand-in for GitHub's latest release and
  * its downloads, at UPDATES_URL) and a key made for the test: the check, the update of a bundle from download to
- * restart, what refuses it, Go back, the 0.3 move, and the loopback-only actions.
+ * restart, what refuses it, Go back, and the loopback-only actions.
  */
 
 /**
@@ -167,11 +165,10 @@ interface Rig {
 
 const rigs: Rig[] = [];
 
-async function rig(o: { running?: string; version?: string; install?: InstallKind; free?: (dir: string) => Promise<number>; extracted?: boolean; ownNode?: boolean; before?: (r: { base: string; root: string; versions: string; data: string }) => void } = {}): Promise<Rig> {
+async function rig(o: { running?: string; version?: string; install?: InstallKind; free?: (dir: string) => Promise<number>; ownNode?: boolean; before?: (r: { base: string; root: string; versions: string; data: string }) => void } = {}): Promise<Rig> {
   const running = o.running ?? "0.4.1";
   const base = mkdtempSync(join(tmpdir(), "afflatus-zz-test-updates-"));
-  // `extracted`: unpacked by Windows' Extract All, into a folder named after the archive first
-  const root = o.extracted ? join(base, "afflatus-v0.4.0-win-x64", "Afflatus") : join(base, "Afflatus");
+  const root = join(base, "Afflatus");
   const versions = join(root, "versions");
   const data = join(root, "data");
   mkdirSync(join(versions, running), { recursive: true });
@@ -277,7 +274,7 @@ describe("the check", () => {
     publish(gh, "0.4.2", { notes: "- Faster joins\n\nSecurity: the upload route checked no size\n" });
     expect((await r.post("check")).statusCode).toBe(200);
     const v = await r.view();
-    expect(v).toMatchObject({ version: "0.4.1", install: "bundle", checks: true, newer: true, here: true, canUpdate: true, cannot: null, checkError: null, flow: null, previous: null, fallback: null, move: null });
+    expect(v).toMatchObject({ version: "0.4.1", install: "bundle", checks: true, newer: true, here: true, canUpdate: true, cannot: null, checkError: null, flow: null, previous: null, fallback: null });
     expect(v.latest).toMatchObject({ version: "0.4.2", highlights: ["Faster joins"], security: "the upload route checked no size" });
     expect(v.latest).not.toHaveProperty("assets");
     expect(v.checkedAt).toEqual(expect.any(String));
@@ -547,7 +544,7 @@ describe("the queue while an update waits", () => {
   });
 });
 
-// ---------------------------------------------------------------- what the launcher left, Go back, the move
+// ---------------------------------------------------------------- what the launcher left, Go back
 
 describe("after an update", () => {
   it("says once that the new version did not start and the launcher went back", async () => {
@@ -721,75 +718,14 @@ describe("after an update", () => {
     }
   });
 
-  it("brings a 0.3 library beside it in, moved and not copied, while its own is empty", async () => {
-    let old = "";
+  it("reads the \"moved\" a 0.3 library's move left in last.json as no last change, and starts", async () => {
     const r = await rig({
-      before: ({ base }) => {
-        old = join(base, "afflatus-v0.3.0-win-x64", "data");
-        mkdirSync(join(old, "files"), { recursive: true });
-        writeFileSync(join(old, "afflatus.db"), "zz-test old library");
-        writeFileSync(join(old, "files", "zz-test.png"), "png");
+      before: ({ data }) => {
+        mkdirSync(join(data, "updates"));
+        writeFileSync(join(data, "updates", "last.json"), JSON.stringify({ kind: "moved", from: "0.3.0", to: "0.4.0", at: "2026-10-11T10:00:00.000Z" }));
       },
     });
-    expect((await r.view()).move).toEqual({ from: old, version: "0.3.0", items: null, timelines: null, drafts: null, bytes: 3 });
-    // another computer is not offered it
-    expect((await r.view("192.168.1.20")).move).toBeNull();
-    expect((await r.post("move")).statusCode).toBe(200);
-    await until(() => r.restarts > 0 && existsSync(join(r.data, "updates", "last.json")));
-    expect(readFileSync(join(r.data, "afflatus.db"), "utf8")).toBe("zz-test old library");
-    expect(existsSync(join(r.data, "files", "zz-test.png"))).toBe(true);
-    expect(existsSync(old)).toBe(false);
-    expect(readdirSync(r.root).some((n) => /^data-empty-/.test(n))).toBe(true);
-    expect(JSON.parse(readFileSync(join(r.data, "updates", "last.json"), "utf8"))).toMatchObject({ kind: "moved", from: "0.3.0" });
-    expect(notesInPlace(r.data)).toEqual([]);
-  });
-
-  it("finds a 0.3 library unpacked by Windows' Extract All, a folder deeper, beside this one's own", async () => {
-    let old = "";
-    const r = await rig({
-      extracted: true,
-      before: ({ base }) => {
-        old = join(base, "afflatus-v0.3.0-win-x64", "afflatus-v0.3.0-win-x64", "data");
-        mkdirSync(old, { recursive: true });
-        writeFileSync(join(old, "afflatus.db"), "zz-test old library");
-      },
-    });
-    expect((await r.view()).move).toEqual({ from: old, version: "0.3.0", items: null, timelines: null, drafts: null, bytes: 0 });
-  });
-
-  it("says what the 0.3 library holds: its items out of the bin, timelines, drafts, read without writing to it, and its files' size", async () => {
-    let old = "";
-    const r = await rig({
-      before: ({ base }) => {
-        old = join(base, "afflatus-v0.3.0-win-x64", "data");
-        mkdirSync(join(old, "files", "a"), { recursive: true });
-        writeFileSync(join(old, "files", "zz-test.png"), Buffer.alloc(1000));
-        writeFileSync(join(old, "files", "a", "zz-test.mp4"), Buffer.alloc(24));
-        // the tables as far as the counts read them
-        const db = new DatabaseSync(join(old, "afflatus.db"));
-        db.exec("CREATE TABLE assets (id TEXT, deleted_at TEXT); CREATE TABLE timelines (id TEXT); CREATE TABLE drafts (id TEXT);");
-        db.exec("INSERT INTO assets VALUES ('a', NULL), ('b', NULL), ('c', '2026-01-01'); INSERT INTO timelines VALUES ('t'); INSERT INTO drafts VALUES ('d1'), ('d2'), ('d3');");
-        db.close();
-      },
-    });
-    const before = readFileSync(join(old, "afflatus.db"));
-    expect((await r.view()).move).toEqual({ from: old, version: "0.3.0", items: 2, timelines: 1, drafts: 3, bytes: 1024 });
-    expect(readFileSync(join(old, "afflatus.db")).equals(before)).toBe(true);
-    // no database to read: the counts are unknown, not zero
-    expect(await librarySummary(join(r.base, "nowhere"))).toEqual({ items: null, timelines: null, drafts: null, bytes: 0 });
-  });
-
-  it("offers no move once its own library has something in it", async () => {
-    const r = await rig({
-      before: ({ base }) => {
-        mkdirSync(join(base, "afflatus-v0.3.0-win-x64", "data"), { recursive: true });
-        writeFileSync(join(base, "afflatus-v0.3.0-win-x64", "data", "afflatus.db"), "zz-test");
-      },
-    });
-    expect((await r.view()).move).not.toBeNull();
-    await r.app.inject({ method: "POST", url: "/api/timelines", headers: { "x-afflatus": "1" }, payload: { name: "zz-test timeline" } });
-    expect((await r.view()).move).toBeNull();
-    expect((await r.post("move")).statusCode).toBe(409);
+    expect((await r.view()).last).toBeNull();
   });
 });
 
@@ -800,7 +736,7 @@ describe("the actions", () => {
     const r = await rig();
     publish(gh, "0.4.2");
     await r.post("check");
-    for (const path of ["check", "update", "cancel", "go-back", "move"]) {
+    for (const path of ["check", "update", "cancel", "go-back"]) {
       expect((await r.post(path, "192.168.1.20")).statusCode).toBe(403);
       expect((await r.post(path, "127.0.0.1", { "x-forwarded-for": "192.168.1.20" })).statusCode).toBe(403);
     }
@@ -855,15 +791,16 @@ describe("the server's side of the launcher's contract", () => {
     }
   });
 
-  it("writes the started marker once it listens, and exits with 75 after the move, the port and the page's stream let go", async () => {
+  it("writes the started marker once it listens, and exits with 75 after Go back, the port and the page's stream let go", async () => {
     const base = mkdtempSync(join(tmpdir(), "afflatus-zz-test-start-"));
     const root = join(base, "Afflatus");
     const data = join(root, "data");
-    const old = join(base, "afflatus-0.3.1", "data");
     mkdirSync(join(root, "versions", "0.4.0"), { recursive: true });
+    mkdirSync(join(root, "versions", "0.3.9"));
     writeFileSync(join(root, "versions", "current"), "0.4.0");
-    mkdirSync(old, { recursive: true });
-    writeFileSync(join(old, "afflatus.db"), "zz-test old library");
+    // the library's copy taken at the update, which Go back puts in place
+    mkdirSync(join(data, "backups"), { recursive: true });
+    writeFileSync(join(data, "backups", "before-0.4.0.db"), "zz-test library at the update");
     const marker = join(root, "versions", "0.4.0", ".started-1");
     // the first start after the update to 0.4.0, which also had a previous version
     writeFileSync(join(root, "versions", "trial"), "0.4.0");
@@ -890,13 +827,14 @@ describe("the server's side of the launcher's contract", () => {
       const events = await fetch(`http://127.0.0.1:${port}/api/events`, { signal: stream.signal });
       expect(events.status).toBe(200);
       const view = (await (await fetch(`http://127.0.0.1:${port}/api/updates`)).json()) as UpdatesView;
-      expect(view.move).toMatchObject({ from: old, version: "0.3.1" });
-      const moved = await fetch(`http://127.0.0.1:${port}/api/updates/move`, { method: "POST", headers: { "x-afflatus": "1" } });
-      expect(moved.status).toBe(200);
+      expect(view.previous).toEqual({ version: "0.3.9", restoresLibrary: true });
+      const back = await fetch(`http://127.0.0.1:${port}/api/updates/go-back`, { method: "POST", headers: { "x-afflatus": "1" } });
+      expect(back.status).toBe(200);
       await until(() => exits.length > 0, 15_000);
       stream.abort();
       expect(exits).toEqual([75]);
-      expect(readFileSync(join(data, "afflatus.db"), "utf8")).toBe("zz-test old library");
+      expect(readFileSync(join(data, "afflatus.db"), "utf8")).toBe("zz-test library at the update");
+      expect(readFileSync(join(root, "versions", "current"), "utf8")).toBe("0.3.9");
       expect(started.app.server.listening).toBe(false);
     } finally {
       delete process.env.AFFLATUS_STARTED_FILE;

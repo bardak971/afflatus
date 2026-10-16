@@ -13,6 +13,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 ### Changed
 - **Afflatus's pod image 0.1.13:** the node pack 0.20.0 and the fixes above, and the boot steps' count (`pip: ComfyUI-KJNodes (3/14)`) the 0.5.0 notes describe, which 0.1.12 did not have yet. A published image is built only with Manager's registry list in it (a pod of an image without it waits on billed time before Manager can install a pack by name), and a release checks that the pod image it deploys is built from its own pod files.
 
+### Removed
+- **The move of a 0.3.0 library:** a bundle started beside a 0.3.0 folder no longer offers to bring its library over. Coming from 0.3.0, move its `data` folder into the new `Afflatus` folder by hand, with both closed (docs/install-desktop.md).
+
 ## [0.5.1] - 2026-10-16
 
 ### Added

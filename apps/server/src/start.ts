@@ -129,9 +129,9 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<St
     await app?.close();
     await services?.close();
   };
-  // an update, Go back or the 0.3 move: everything closed (the database too, for a file to be swapped or a folder
-  // renamed in `between`), then exit 75, which the bundle's launcher reads as "start me again". What fails on the way
-  // is logged and the exit still comes: the launcher then starts whichever version versions/current names
+  // an update or Go back: everything closed (the database too, for a file to be swapped in `between`), then exit 75,
+  // which the bundle's launcher reads as "start me again". What fails on the way is logged and the exit still comes:
+  // the launcher then starts whichever version versions/current names
   let restarting = false;
   const restart = async (between?: () => Promise<void>) => {
     if (restarting) return;

@@ -84,8 +84,17 @@ export interface UpdateFlow {
 /** What the launcher wrote when a new version exited before it was up, and it started the previous one again. */
 export interface Fallback { version: string; previous: string; at: string; code: number | null }
 
-/** The last update, Go back or move done here (data/updates/last.json), for "Updated today" and the like. */
-export interface LastChange { kind: "updated" | "went-back" | "moved" | "failed"; from: string; to: string; at: string; error?: string }
+/** The last update or Go back done here (data/updates/last.json), for "Updated today" and the like. */
+export interface LastChange { kind: "updated" | "went-back" | "failed"; from: string; to: string; at: string; error?: string }
+
+/**
+ * A last.json as read back. One of another kind, such as the "moved" that the retired move of a 0.3 library left, is no
+ * last change here and says nothing; neither does one that is not an object.
+ */
+export function readLastChange(text: string): LastChange | null {
+  const kept = JSON.parse(text) as Partial<LastChange> | null;
+  return kept && (kept.kind === "updated" || kept.kind === "went-back" || kept.kind === "failed") ? (kept as LastChange) : null;
+}
 
 export interface UpdatesView {
   /** The version running, as the build names it ("0.4.1", "dev"). */
@@ -114,15 +123,7 @@ export interface UpdatesView {
   last: LastChange | null;
   /** The launcher went back to the previous version because the new one did not start (read once, at this start). */
   fallback: Fallback | null;
-  /** A 0.3 library beside this fresh bundle, which the move would bring in: its data folder, its version and what it holds. */
-  move: (OldLibrary & LibrarySummary) | null;
 }
-
-/** A 0.3 bundle's library found beside this one: its data folder and its version. */
-export interface OldLibrary { from: string; version: string }
-
-/** What a library holds, for the move's dialog: its counts (null when its database could not be read) and its files' size. */
-export interface LibrarySummary { items: number | null; timelines: number | null; drafts: number | null; bytes: number }
 
 /** Kept between restarts: the last answer and its ETag. */
 export interface CheckState { etag: string | null; checkedAt: string | null; triedAt: string | null; error: string | null; release: Release | null }
@@ -158,8 +159,8 @@ export interface UpdatesOptions {
 
 /**
  * What every part of the updater shares (updates.ts): its options, where it runs from, the flow the web follows, and the
- * last change noted. The parts are layered, each reading only those below it: the check, the update, going back, the 0.3
- * move, then updates.ts (the start, what the web reads).
+ * last change noted. The parts are layered, each reading only those below it: the check, the update, going back, then
+ * updates.ts (the start, what the web reads).
  */
 export class UpdatesCore {
   readonly version: string;
@@ -178,7 +179,6 @@ export class UpdatesCore {
   /** A version that did not start here (the launcher went back from it): not offered again; the next release is. */
   protected failed: string | null = null;
   protected last: LastChange | null = null;
-  protected moveFrom: OldLibrary | null = null;
 
   private lastProgress = 0;
   protected goingAway = false;
@@ -222,10 +222,8 @@ export class UpdatesCore {
 
   // ---------------------------------------------------------------- the update
 
-  protected async note(change: LastChange, dataDir = this.o.dataDir): Promise<void> {
-    await mkdir(join(dataDir, "updates"), { recursive: true });
-    await writeAtomic(join(dataDir, "updates", "last.json"), JSON.stringify(change));
+  protected async note(change: LastChange): Promise<void> {
+    await mkdir(this.updatesDir, { recursive: true });
+    await writeAtomic(join(this.updatesDir, "last.json"), JSON.stringify(change));
   }
-
-  // ---------------------------------------------------------------- the 0.3 move
 }

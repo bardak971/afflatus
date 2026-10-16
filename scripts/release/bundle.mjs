@@ -297,7 +297,7 @@ writeFileSync(join(top, "README.txt"), [
   "Your data (library, settings, timelines) lives in the data folder next to this file, made at the first start.",
   "Afflatus updates itself: Settings > About says when a release is out and installs it. The releases it has are in",
   "versions/: the one it runs, and the one before it to go back to.",
-  "Coming from 0.3.0: unpack this beside the old folder and start it; it offers to bring your library over.",
+  "Coming from 0.3.0: with both closed, move the old folder's data folder in here (in place of this one's, if it has one), then start this.",
   platform === "darwin-arm64" ? "ffmpeg is needed for trims, exports and video previews: brew install ffmpeg" : `ffmpeg and ffprobe (LGPL builds by BtbN) are in versions/${folder}/bin/, with their build named in VERSIONS.txt there.`,
   "",
   "Afflatus is free software under the AGPL-3.0: https://github.com/bardak971/afflatus",

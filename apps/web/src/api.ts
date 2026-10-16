@@ -196,7 +196,7 @@ export const api = {
   /** A picture or a video sent as it is to the Telegram chat or Discord channel of the notifications. */
   shareAsset: (id: string, channel: "telegram" | "discord") => call<{ ok: true }>("POST", `/assets/${id}/share`, { channel }),
   telegramChats: () => call<{ chats: Array<{ id: string; name: string; type: string }> }>("POST", "/notify/telegram-chat"),
-  /** Afflatus's own updates: where it stands (the latest release, an update under way, the previous version, the 0.3 move). */
+  /** Afflatus's own updates: where it stands (the latest release, an update under way, the previous version). */
   updates: (o?: Asked) => call<UpdatesView>("GET", "/updates", undefined, o?.signal),
   /** The rest only from the computer Afflatus runs on (403 from another): GitHub asked now. */
   checkUpdates: () => call<UpdatesView>("POST", "/updates/check"),
@@ -208,8 +208,6 @@ export const api = {
   goBack: () => call<UpdatesView>("POST", "/updates/go-back"),
   /** What Go back would leave on RunPod: refused (why) while a rented GPU runs or a hunt is on; what keeps billing stopped. */
   goBackCheck: () => call<GoBackCheck>("GET", "/updates/go-back"),
-  /** The 0.3 library beside this bundle brought in (moved, not copied); Afflatus restarts. */
-  moveLibrary: () => call<UpdatesView>("POST", "/updates/move"),
   presetFiles: (o?: Asked) => call<{ online: boolean; items: PresetFilesView[] }>("GET", "/presets/files", undefined, o?.signal),
   nodePack: (o?: Asked) => call<{ pack: string; path: string; written: boolean; loaded: boolean; canWrite: boolean }>("GET", "/comfy/node-pack", undefined, o?.signal),
   getPresetFiles: (id: string, body: { accept?: boolean; optional?: boolean } = {}) => call<{ started: Download[]; failed: Array<{ file: string; error: string }>; skipped: number }>("POST", `/presets/${encodeURIComponent(id)}/get`, body),

@@ -47,9 +47,9 @@ export interface GoBackCheck {
   unknown: boolean;
 }
 
-/** The last update, Go back or move done here, for "Updated today" and the like. */
+/** The last update or Go back done here, for "Updated today" and the like. */
 export interface LastChange {
-  kind: "updated" | "went-back" | "moved" | "failed";
+  kind: "updated" | "went-back" | "failed";
   from: string;
   to: string;
   at: string;
@@ -69,7 +69,7 @@ export interface UpdatesView {
   latest: Release | null;
   /** The latest release is newer than what runs. */
   newer: boolean;
-  /** This page is open on the computer Afflatus runs on: Update, Go back and the move are offered only there. */
+  /** This page is open on the computer Afflatus runs on: Update and Go back are offered only there. */
   here: boolean;
   /** Update can be pressed now. */
   canUpdate: boolean;
@@ -82,9 +82,4 @@ export interface UpdatesView {
   last: LastChange | null;
   /** The launcher went back to the previous version because the new one did not start. */
   fallback: { version: string; previous: string; at: string; code: number | null } | null;
-  /**
-   * A 0.3 library beside this fresh bundle, which the move would bring in: its data folder, its version, its items (out of
-   * the bin), timelines and drafts (null when its database could not be read) and the size of its files.
-   */
-  move: { from: string; version: string; items: number | null; timelines: number | null; drafts: number | null; bytes: number } | null;
 }

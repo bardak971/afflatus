@@ -26,7 +26,6 @@ const view = (over: Partial<UpdatesView> = {}): UpdatesView => ({
   previous: null,
   last: null,
   fallback: null,
-  move: null,
   ...over,
 });
 const release = { version: "0.4.2", tag: "v0.4.2", name: "Afflatus 0.4.2", notes: "- zz-test faster joins", highlights: ["zz-test faster joins"], url: "https://example.test/releases/v0.4.2", publishedAt: null, prerelease: false, security: null };
@@ -39,7 +38,7 @@ const ranChecks = [{ id: "node", label: "Node", ok: true, detail: "zz-test v24",
 /** The server answers GET /updates with `v`, and each action with `after` (default: `v`); its start-up checks ran unless said. */
 function serve(v: UpdatesView, after: UpdatesView = v, checks: unknown[] = ranChecks) {
   fakeApi.on("GET /updates", v);
-  for (const action of ["check", "update", "cancel", "go-back", "move"]) fakeApi.on(`POST /updates/${action}`, after);
+  for (const action of ["check", "update", "cancel", "go-back"]) fakeApi.on(`POST /updates/${action}`, after);
   fakeApi.on("GET /health", { ok: true, version: v.version, database: "sqlite", checks, checkedAt: null });
 }
 
@@ -268,44 +267,12 @@ describe("the security banner", () => {
   });
 });
 
-describe("the 0.3.0 move", () => {
-  const offered = () => view({ move: { from: "C:\\zz-test\\afflatus-0.3.0-win-x64\\data", version: "0.3.0", items: 1240, timelines: 1, drafts: 85, bytes: 38.2 * 2 ** 30 } });
-
-  it("offers to bring the library over, and Bring it over sends the move", async () => {
-    serve(offered(), { ...offered(), move: null, flow: flow({ phase: "restarting", version: "0.4.1" }) });
-    const { user } = draw(<UpdateNews />);
-    const dialog = await screen.findByRole("dialog", { name: "Bring your library from Afflatus 0.3.0?" });
-    expect(dialog.textContent).toContain("afflatus-0.3.0-win-x64");
-    expect(dialog.textContent).toContain("It is moved, not copied");
-    expect(within(dialog).getByText("1240 items · 1 timeline · 85 drafts · 38.2 GB")).toBeTruthy();
-    await user.click(within(dialog).getByRole("button", { name: "Bring it over" }));
-    await waitFor(() => expect(fakeApi.calls("POST", "/updates/move")).toHaveLength(1));
+describe("the restart", () => {
+  it("puts Restarting… over the page when the view read says the server restarts", async () => {
+    useRestarting.setState({ from: null, since: null });
+    serve(view({ flow: flow({ phase: "restarting", version: "0.4.1" }) }));
+    draw(<UpdateNews />);
     expect(await screen.findByRole("alertdialog", { name: "Restarting" })).toBeTruthy();
-  });
-
-  it("Start empty leaves it, and it is not asked again in this browser", async () => {
-    serve(offered());
-    const { user, unmount } = draw(<UpdateNews />);
-    await user.click(within(await screen.findByRole("dialog", { name: "Bring your library from Afflatus 0.3.0?" })).getByRole("button", { name: "Start empty" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(fakeApi.calls("POST", "/updates/move")).toHaveLength(0);
-    unmount();
-    draw(<UpdateNews />);
-    await waitFor(() => expect(fakeApi.calls("GET", "/updates").length).toBeGreaterThan(1));
-    expect(screen.queryByRole("dialog")).toBeNull();
-  });
-
-  it("says only the size when the old library's database could not be read", async () => {
-    serve(view({ move: { ...offered().move!, items: null, timelines: null, drafts: null, bytes: 340 * 2 ** 20 } }));
-    draw(<UpdateNews />);
-    const dialog = await screen.findByRole("dialog", { name: "Bring your library from Afflatus 0.3.0?" });
-    expect(within(dialog).getByText("340 MB")).toBeTruthy();
-  });
-
-  it("is not offered from another computer", async () => {
-    serve({ ...offered(), here: false });
-    draw(<UpdateNews />);
-    await waitFor(() => expect(fakeApi.calls("GET", "/updates")).toHaveLength(1));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(useRestarting.getState().from).toBe("0.4.1");
   });
 });

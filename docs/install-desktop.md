@@ -48,14 +48,15 @@ Update and Go back are done on the computer Afflatus runs on: another computer o
 
 ## Coming from 0.3.0
 
-A 0.3.0 bundle keeps its library inside its own folder, so the step from it is the one download done by hand (the latest release; updates come in the app after it):
+A 0.3.0 bundle keeps its library inside its own folder, so the step from it is the one download done by hand (the latest release; updates come in the app after it), and its library is moved by hand:
 
 1. Close Afflatus 0.3.0.
-2. Unpack the new version **beside** the 0.3.0 folder, not into it. Both straight in one folder, or each in a folder of its own name as Windows' Extract All does, are found: `Downloads\afflatus-v0.3.0-win-x64\…\data` beside `Downloads\afflatus-v0.5.0-win-x64\Afflatus`.
-3. Start it. While its own library is still empty it offers to **bring your library from Afflatus 0.3.0**, and says what that library holds (items, timelines, drafts, size). **Bring it over** moves its `data` folder into the new `Afflatus` folder (a rename on the same disk, no second copy) and restarts; its settings, the Prompt kit and your linked folders come with it. **Start empty** leaves it where it is.
-4. Once your library is there, the 0.3.0 folder can be deleted.
+2. Unpack the new version anywhere but into the 0.3.0 folder.
+3. Move the 0.3.0 folder's `data` folder into the new `Afflatus` folder, beside `versions/`. If the new version was started once already, it has a `data` folder of its own there: delete it or set it aside first. On the same disk the move is a rename, no second copy; the settings, the Prompt kit and your linked folders come with it.
+4. Start the new version: it brings the library up to date at its first start.
+5. Once your library is there, the 0.3.0 folder can be deleted.
 
-When the two are on different disks, or `DATA_DIR` is set, nothing is moved for you: with Afflatus stopped, move the old `data` folder into `Afflatus` yourself (or point `DATA_DIR` at it).
+Instead of moving the folder, `DATA_DIR` can point at it where it is.
 
 ## Options
 
@@ -68,7 +69,7 @@ The launcher reads a few environment variables. On Windows set them in the conso
 | `ALLOWED_HOSTS` | empty | The names Afflatus answers to, comma-separated, besides `localhost`, `127.0.0.1`, the `HOST` address and the host of `PUBLIC_URL`. A request that names any other host (a page on another site pointing one of its names at this machine) gets a 403. When you open Afflatus by your PC's name or LAN address, put that name or address here: `ALLOWED_HOSTS=pc.lan,192.168.x.y` |
 | `PUBLIC_URL` | empty | The address other machines reach Afflatus at (`http://192.168.x.y:8720`), given to ComfyUI's node pack for model downloads when ComfyUI runs elsewhere; its host is answered to as well |
 | `LINK_ROOTS` | empty | Only the folders named here (and what is inside them) can be linked from Settings → Folders, separated as PATH is (`;` on Windows, `:` elsewhere). Set it whenever Afflatus can be reached from other machines: without it, anyone who can open the page can link any folder of the disk Afflatus can read and have its pictures, videos and sounds served and written to. The system's own folders (Windows, Program Files, AppData, a drive's root, the home folder itself) are never linked, whatever is set |
-| `DATA_DIR` | the `data` folder beside the launcher | Where everything is kept. When it is set, a 0.3.0 library is not offered for the move |
+| `DATA_DIR` | the `data` folder beside the launcher | Where everything is kept |
 | `FFMPEG`, `FFPROBE` | the bundled ones (`versions/<version>/bin/`), or the PATH on macOS | The tools' paths |
 | `AFFLATUS_NO_BROWSER` | empty | `1`: the launcher opens no browser tab when Afflatus starts (a machine without a desktop, a start at log-in) |
 
