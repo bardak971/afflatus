@@ -75,9 +75,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
 ENV PIP_CONSTRAINT=/constraints.txt
 
 # the registry's list of node packs, as Manager caches it: a pod just up installs a pack by its name at once, instead of
-# after Manager's own reading of the whole registry (minutes). start.sh puts it in Manager's cache folder
+# after Manager's own reading of the whole registry (minutes). start.sh puts it in Manager's cache folder. REGISTRY_REQUIRED
+# set (pod-image.yml, for an image it publishes): a registry that cannot be read fails the build rather than ship an image
+# whose every pod waits on billed time for Manager's own reading; a local build goes on without the list
+ARG REGISTRY_REQUIRED=
 COPY deploy/runpod/registry_cache.py /opt/afflatus-pod/registry_cache.py
-RUN python /opt/afflatus-pod/registry_cache.py /opt/afflatus-pod/manager-cache "${COMFYUI_VERSION#v}"
+RUN python /opt/afflatus-pod/registry_cache.py /opt/afflatus-pod/manager-cache "${COMFYUI_VERSION#v}" ${REGISTRY_REQUIRED:+--required}
 
 COPY comfy-nodes/afflatus-nodes /opt/afflatus-nodes
 COPY deploy/runpod/start.sh /start.sh

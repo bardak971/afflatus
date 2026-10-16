@@ -162,6 +162,12 @@ class Lock:
             with open(part, "w", encoding="utf-8") as f:
                 json.dump({"hash": hash_of(token), "local": bool(local), "origin": origin_ok(origin), "at": int(time.time())}, f)
             os.replace(part, self.path)
+            # the new state in force at once, not when state() sees the file change: a renew of the same size within one
+            # tick of a coarse clock (FAT, exFAT, some network shares) leaves (mtime, size) as they were, and the old
+            # token would stay good
+            st = os.stat(self.path)
+            self._state = {"hash": hash_of(token), "local": bool(local), "origin": origin_ok(origin)}
+            self._seen = (st.st_mtime_ns, st.st_size)
             self._codes.clear()
 
     def remove(self):
@@ -170,6 +176,7 @@ class Lock:
                 os.remove(self.path)
             except FileNotFoundError:
                 pass
+            self._seen, self._state = None, None
             self._codes.clear()
 
     def code(self, now=None):

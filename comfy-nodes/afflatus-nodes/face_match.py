@@ -20,6 +20,8 @@ from collections import OrderedDict
 import folder_paths
 from comfy_api.latest import io
 
+from . import face_models
+
 _app = None
 
 # The detection size for the photos (as InsightFace is prepared) and for the frames of the picture made, in pixels.
@@ -41,11 +43,11 @@ def _face_app():
     if _app is None:
         from insightface.app import FaceAnalysis
 
-        # ComfyUI's own models folder (where InstantID, PuLID and the like keep these), else the Afflatus pod's built-in copy;
-        # with neither, InsightFace fetches them into the first the first time
-        roots = [os.path.join(folder_paths.models_dir, "insightface"), "/opt/insightface"]
-        root = next((r for r in roots if os.path.isdir(os.path.join(r, "models", "buffalo_l"))), roots[0])
-        _app = FaceAnalysis(name="buffalo_l", root=root, allowed_modules=["detection", "recognition"], providers=["CPUExecutionProvider"])
+        # ComfyUI's own models folder (where InstantID, PuLID and the like keep these): fetched whole there the first time,
+        # a folder left half-extracted replaced (face_models.py), before InsightFace, which takes any folder as complete
+        root = os.path.join(folder_paths.models_dir, "insightface")
+        face_models.fetch(root)
+        _app = FaceAnalysis(name=face_models.NAME, root=root, allowed_modules=["detection", "recognition"], providers=["CPUExecutionProvider"])
         _app.prepare(ctx_id=-1, det_size=(PHOTO_DET, PHOTO_DET))
     return _app
 

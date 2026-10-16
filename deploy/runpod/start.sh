@@ -19,15 +19,27 @@ exec > "$FIFO" 2>&1
 # the log served for the pod's whole life, to its token only (AFFLATUS_TOKEN); never the environment, never the token
 python -u /opt/afflatus-pod/bootlog.py serve "$LOG" &
 
-# A step said: Afflatus shows the last one. A start that stops on an error says at which step, and stays up a while so that
-# its log can still be read (a container that exits is started again by RunPod, its log with it); Afflatus terminates a
-# pod whose ComfyUI never answers at its boot limit, as before
+# --- the failure path (deploy/runpod/tests/test_start.py runs this part on its own)
+# A step said: Afflatus shows the last one. A start that stops on an error says at which step, and does not exit: a
+# container that exits is started again by RunPod, fails at the same step (a full volume stays full) and bills on, with
+# no watchdog, since the node pack's runs only in ComfyUI. So broken.py takes over, as when the GPU fails: it arms the
+# watchdog from the pod's environment (the pod stops by itself when Afflatus is away) and answers on ComfyUI's port; the
+# boot log, still served, says the step, and Afflatus terminates the pod at once when it reads it. Should broken.py itself
+# not run, the start waits as before, so that its log can still be read
+POD=/opt/afflatus-pod
 STEP="the start"
 step() {
   STEP="$*"
   echo "[afflatus-pod] step: $*"
 }
-trap 'code=$?; if [ "$code" != 0 ]; then echo "[afflatus-pod] failed: $STEP (exit $code)"; sleep 1200; fi' EXIT
+failed() {
+  [ "$1" != 0 ] || return 0
+  echo "[afflatus-pod] failed: $STEP (exit $1)"
+  python -u "$POD/broken.py" --start "$STEP" "$1" || echo "[afflatus-pod] broken.py did not run: no watchdog"
+  sleep 1200
+}
+trap 'failed $?' EXIT
+# --- end of the failure path
 
 step "checking the GPU"
 
@@ -42,7 +54,7 @@ fi
 if ! python -c "import torch; torch.cuda.init(); torch.zeros(1, device='cuda')" 2>/tmp/afflatus-gpu.txt; then
   cat /tmp/afflatus-gpu.txt
   trap - EXIT
-  exec python /opt/afflatus-pod/broken.py /tmp/afflatus-gpu.txt
+  exec python "$POD/broken.py" /tmp/afflatus-gpu.txt
 fi
 
 step "preparing ComfyUI's folders"
@@ -56,10 +68,12 @@ echo "[afflatus-pod] ComfyUI's files in $BASE"
 # InsightFace's face models for the node pack's Face Match, fetched from InsightFace's own release while ComfyUI starts
 # (the image does not carry them: their licence is for non-commercial research). In the background, so the start is not
 # held up; once in the models folder a volume keeps them, and a render that needs them first fetches them itself
-# Its own output (download bars) in a file of its own; the boot log says when it ends, and its last line when it fails
-if [ ! -d "$BASE/models/insightface/models/buffalo_l" ]; then
+# Its own output (download bars) in a file of its own; the boot log says when it ends, and its last line when it fails.
+# Whole or not at all (face_models.py): fetched beside the models folder and moved in when complete, and a folder a pod
+# ended mid-extraction left is not taken for them, so the check is for the two files Face Match loads, not the folder
+if [ ! -s "$BASE/models/insightface/models/buffalo_l/det_10g.onnx" ] || [ ! -s "$BASE/models/insightface/models/buffalo_l/w600k_r50.onnx" ]; then
   echo "[afflatus-pod] fetching InsightFace's face models, in the background"
-  (if python -c "from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_l', root='$BASE/models/insightface', allowed_modules=['detection', 'recognition'], providers=['CPUExecutionProvider']).prepare(ctx_id=-1)" > /tmp/afflatus-insightface.log 2>&1; then
+  (if python /opt/afflatus-nodes/face_models.py "$BASE/models/insightface" > /tmp/afflatus-insightface.log 2>&1; then
     echo "[afflatus-pod] InsightFace's face models fetched"
   else
     echo "[afflatus-pod] InsightFace's face models not fetched: $(tail -n 1 /tmp/afflatus-insightface.log)"

@@ -30,7 +30,8 @@ def _lock_first():
     """The lock in front of ComfyUI's server before anything else of the pack: nothing the pack does after (a route, an
     import) can leave a locked ComfyUI open by failing first. With AFFLATUS_TOKEN set (a rented pod, reached at a public
     address) and no lock in, ComfyUI stops rather than run open to anyone with its address: the pod never answers, and
-    Afflatus ends it at its boot limit."""
+    Afflatus ends it at its boot limit. The same with a lock file in ComfyUI's user folder (a ComfyUI locked from Afflatus,
+    often behind --listen): it was meant to be locked, so it stops too, and says how to start it open on purpose."""
     try:
         import folder_paths
         from aiohttp import web
@@ -44,9 +45,32 @@ def _lock_first():
         install(PromptServer.instance, web, folder_paths)
     except Exception as err:
         print(f"[afflatus-nodes] the lock could not be put in front of ComfyUI's server: {err}")
-        if (os.environ.get("AFFLATUS_TOKEN") or "").strip():
-            print("[afflatus-nodes] AFFLATUS_TOKEN is set and the lock is not in: ComfyUI stops rather than run open.")
+        why = _locked_without_lock(folder_paths)
+        if why:
+            print(f"[afflatus-nodes] {why}")
             os._exit(1)
+
+
+# lock.py's LOCK_FILE, named here as well: this is read when lock.py itself may be what failed to load
+_LOCK_FILE = "afflatus-lock.json"
+
+
+def _locked_without_lock(folder_paths, env=None):
+    """Why ComfyUI must stop when the lock could not be put in, or None when it may run open: the lock is off on purpose
+    (AFFLATUS_LOCK=off), or nothing said it should be locked (no AFFLATUS_TOKEN, no lock file)."""
+    env = os.environ if env is None else env
+    if (env.get("AFFLATUS_LOCK") or "").strip().lower() == "off":
+        return None
+    if (env.get("AFFLATUS_TOKEN") or "").strip():
+        return "AFFLATUS_TOKEN is set and the lock is not in: ComfyUI stops rather than run open."
+    try:
+        path = os.path.join(folder_paths.get_user_directory(), _LOCK_FILE)
+    except Exception:
+        # no user folder to read: nothing tells that a lock was set, and a ComfyUI of one's own is not stopped on a guess
+        return None
+    if os.path.exists(path):
+        return f"this ComfyUI is locked ({path}) and the lock is not in: ComfyUI stops rather than run open. To start it open, delete that file or start ComfyUI with AFFLATUS_LOCK=off."
+    return None
 
 
 _lock_first()

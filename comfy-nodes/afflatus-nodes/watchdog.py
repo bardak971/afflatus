@@ -7,7 +7,9 @@ without it.
 
 How it stops the pod: on RunPod (RUNPOD_POD_ID set in the pod), with `runpodctl stop pod <id>`, or RunPod's API with the
 RUNPOD_API_KEY of the pod when runpodctl is not there. Elsewhere it cannot, and says so (`can` false): Afflatus then says
-"no watchdog" on the machine. A stop that fails is tried again every few minutes, and said in ComfyUI's console.
+"no watchdog" on the machine. A stop that fails is tried again every few minutes, and said in ComfyUI's console; after
+ESCALATE_AFTER stops that failed or left the pod running, it is terminated instead (a pod RunPod will not stop bills on, and
+a volume keeps its files through a terminate), said in the console and in GET /afflatus/alive.
 
 Nothing is armed until Afflatus says "still here" with minutes, or the pod's environment says AFFLATUS_WATCHDOG_MINUTES (set by
 Afflatus before it starts the pod): then it is armed from ComfyUI's start, so that a PC gone silent right after pressing Start
@@ -15,7 +17,8 @@ still has the pod stop. Installing the pack on a ComfyUI of one's own changes no
 
 Routes (through the lock when there is one; a JSON body only):
   POST /afflatus/alive {minutes}  → {watching, minutes, can}
-  GET  /afflatus/alive  → the same, and how long since the last "still here"
+  GET  /afflatus/alive  → the same, and how long since the last "still here", how many times it asked the provider to end
+                          the pod since then (tries) and what it asks now (end: "stop" or "terminate")
 """
 
 import json
@@ -30,6 +33,10 @@ CHECK_S = 30
 RETRY_S = 300
 # a stop the provider took, and the pod still running this long after (this code still runs): asked again
 AGAIN_S = 300
+# Stops asked that failed or left the pod running, after which it is terminated instead: a stop the provider keeps refusing
+# (or takes and never does) would otherwise be asked every few minutes forever while the pod bills, and nobody is there to
+# see the console. Three tries is about a quarter of an hour of billing for a stuck stop.
+ESCALATE_AFTER = 3
 
 
 def how_to_stop(env=None):
@@ -68,10 +75,14 @@ def stop_pod(way, run=subprocess.run, opener=urllib.request.urlopen, end=None):
 
 
 class Watchdog:
-    def __init__(self, way=None, now=time.time, stop=stop_pod):
+    def __init__(self, way=None, now=time.time, stop=stop_pod, env=None):
         self.way = way
         self.now = now
         self.stop = stop
+        # what ending the pod means for it (pod_end), read once: a terminate stays a terminate
+        self.base_end = pod_end(env)
+        # how many times the provider was asked to end the pod since Afflatus last said "still here"
+        self.tries = 0
         self.minutes = 0
         self.last = None
         self.tried = None
@@ -84,11 +95,18 @@ class Watchdog:
             self.minutes = max(0, int(minutes))
             self.last = self.now()
             self.stopped = False
+            # Afflatus is back: a stop asked while it was silent is history, and the next silence starts with a stop again
+            self.tries = 0
+            self.tried = None
         return self.view()
+
+    def end(self):
+        """What the next ask is: the pod's own end, or "terminate" once ESCALATE_AFTER stops failed or left it running."""
+        return "terminate" if self.base_end == "terminate" or self.tries >= ESCALATE_AFTER else "stop"
 
     def view(self):
         since = None if self.last is None else round(self.now() - self.last)
-        return {"watching": self.minutes > 0 and self.last is not None, "minutes": self.minutes, "can": self.way is not None, "silent_s": since}
+        return {"watching": self.minutes > 0 and self.last is not None, "minutes": self.minutes, "can": self.way is not None, "silent_s": since, "tries": self.tries, "end": self.end()}
 
     def check(self):
         """Once: stop the pod when Afflatus has been silent past its minutes. True when it was stopped now."""
@@ -105,9 +123,14 @@ class Watchdog:
             if self.tried is not None and self.now() - self.tried < RETRY_S:
                 return False
             self.tried = self.now()
-        print(f"[afflatus-nodes] Afflatus has been silent for {self.minutes} min: the watchdog {'terminates' if pod_end() == 'terminate' else 'stops'} this pod.")
+            end = self.end()
+            escalated = end == "terminate" and self.base_end != "terminate"
+            self.tries += 1
+        if escalated:
+            print(f"[afflatus-nodes] the pod still runs after {ESCALATE_AFTER} stops asked: the watchdog terminates it instead.")
+        print(f"[afflatus-nodes] Afflatus has been silent for {self.minutes} min: the watchdog {'terminates' if end == 'terminate' else 'stops'} this pod.")
         try:
-            ok = bool(self.stop(self.way))
+            ok = bool(self.stop(self.way, end=end))
         except Exception as err:
             ok = False
             print(f"[afflatus-nodes] the watchdog could not stop the pod: {err}")

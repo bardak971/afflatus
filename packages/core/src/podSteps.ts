@@ -12,7 +12,7 @@ const STEP_SAID: Array<[RegExp, (m: RegExpExecArray) => string]> = [
   [/^checking the GPU$/, () => "checking GPU"],
   [/^preparing ComfyUI's folders$/, () => "creating model folders"],
   [/^putting in the node packs$/, () => "linking node packs"],
-  // one pip install per node pack a volume holds, counted by start.sh (0.1.12 on): "pip: ComfyUI-KJNodes (3/14)"
+  // one pip install per node pack a volume holds, counted by start.sh (0.1.13 on): "pip: ComfyUI-KJNodes (3/14)"
   [/^installing the Python packages of (.+?)(?: \((\d+\/\d+)\))?$/, (m) => `pip: ${m[1]}${m[2] ? ` (${m[2]})` : ""}`],
   [/^setting up ComfyUI-Manager$/, () => "configuring ComfyUI-Manager"],
   [/^the GPU does not work on this host: (.+)$/, (m) => `GPU fault: ${m[1]}`],
