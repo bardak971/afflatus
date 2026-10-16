@@ -383,6 +383,8 @@ export const kleinSharper = defineRecipe<KleinSharper>({
       return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: 1, loads };
     }
     g.phase("loading");
+    // the pass runs the form's Steps (20 for the base model, 4 for a distilled one), as kleinSample's default: the last
+    // quarter of that schedule is what is run
     const k = loadKlein(g, input, ctx);
     let image: Ref;
     let pass: { node: string; steps: number; pixels?: number } = { node: "", steps: 0 };
@@ -390,14 +392,14 @@ export const kleinSharper = defineRecipe<KleinSharper>({
       g.phase("refining");
       // each tile is shown its own piece of the picture as the reference it keeps
       image = redrawInTiles(g, ctx, sized, k.vae, size, input, (latent, tiles, tile) => {
-        const done = kleinSampleLatent(g, k, kleinCond(g, k, SAME, [tiles]), latent, { width: tile, height: tile }, ctx.seed, { steps: 20, strength: 0.25, phase: "refining" });
+        const done = kleinSampleLatent(g, k, kleinCond(g, k, SAME, [tiles]), latent, { width: tile, height: tile }, ctx.seed, { strength: 0.25, phase: "refining" });
         pass = tilePass(done.pass, size, input);
         return done.sampled;
       });
     } else {
       const cond = kleinCond(g, k, SAME, [source]);
       g.phase("refining");
-      const done = kleinSample(g, k, cond, g.out("VAEEncode", { pixels: sized, vae: k.vae }), size, ctx.seed, { steps: 20, strength: 0.25 });
+      const done = kleinSample(g, k, cond, g.out("VAEEncode", { pixels: sized, vae: k.vae }), size, ctx.seed, { strength: 0.25 });
       image = done.image;
       pass = done.pass;
     }

@@ -138,6 +138,20 @@ describe("lackOn, a family file the job's choices ask for", () => {
   });
 });
 
+describe("lackOn, Turbo with the model left to the family's file (review K-10)", () => {
+  const qwenPicture = recipes.find((r) => r.id === "qwen.text-to-picture")!;
+  const turbo = { id: "turbo", label: "Turbo LoRA", folder: "loras", optional: true, file: null, get: { file: "qwen_lightning.safetensors", url: "https://huggingface.co/x/qwen_lightning.safetensors" } };
+  const pod = (unet: string): Scan => ({ ...scan([recipe("qwen.text-to-picture", true)]), families: [{ id: "qwen", slots: [{ id: "unet", label: "Model", folder: "diffusion_models", optional: false, file: unet }, turbo] }] as Scan["families"] });
+
+  it("asks no turbo LoRA when the family's file there is made for a few steps, and asks it for a plain one", () => {
+    expect(lackOn(qwenPicture, { fast: true }, pod("qwen_image_lightning_8steps.safetensors"), { families: {} }, machine("pod"), () => "qwen")).toBeNull();
+    expect(lackOn(qwenPicture, { fast: true }, pod("qwen_image_fp8.safetensors"), { families: {} }, machine("pod"), () => "qwen")).toMatchObject({ files: [{ file: "qwen_lightning.safetensors" }] });
+    const used = (unet: string) => filesUsed(qwenPicture, { fast: true }, pod(unet), pod(unet).families[0]!.slots).map((f) => f.file);
+    expect(used("qwen_image_lightning_8steps.safetensors")).not.toContain("qwen_lightning.safetensors");
+    expect(used("qwen_image_fp8.safetensors")).toContain("qwen_lightning.safetensors");
+  });
+});
+
 describe("filesAsked, a choice among a model folder's files", () => {
   // the SDXL picture with hires fix through an upscale model: a pod sent its checkpoint, text encoder and VAE, never its
   // upscaler, and every render there failed with "Missing model file RealESRGAN_x4plus_anime_6B.pth"

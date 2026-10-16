@@ -76,12 +76,20 @@ export function sourceWindows(o: { fromMs: number; toMs: number; windowMs: numbe
     // a scene cut inside it: the window ends there (or as near after it as the fewest frames allow), the next opens a new shot
     const cut: number | undefined = (o.cutsMs ?? []).find((c) => c > covered + 2000 && c < covered + (n - carry) * frameMs - frameMs);
     if (cut !== undefined) n = Math.min(n, Math.max(onGrid(carry + Math.floor((cut - covered) / frameMs)), gridAtLeast(carry + least, grid)));
-    else if (left > n && (left - n) < (n - carry) / 2) {
-      // a short stretch would be left after it: this window runs to the end, or shares the rest with the next one. Shared,
-      // each half must still be one the recipe takes (H3's swap, 90 frames at least, made 73): else this one takes what it can
+    else if (left > n) {
+      /** Whether what is left after a window of `k` frames is a part the next window can take (it carries `carried` back). */
+      const restTakes = (k: number) => onGrid(Math.min(most, left - k + carried)) - carried >= least;
       const whole = onGrid(Math.min(most, left));
-      const shared = onGrid(Math.min(most, carry + Math.ceil((left - carry) / 2)));
-      n = left - whole < grid.step || !takes(shared) ? whole : shared;
+      if ((left - n) < (n - carry) / 2) {
+        // a short stretch would be left after it: this window runs to the end, or shares the rest with the next one. Shared,
+        // each half must still be one the recipe takes (H3's swap, 90 frames at least, made 73), the next one's too: else
+        // this one takes what it can (shared, the swap's rest was left out, 4.25 s where taking whole left out 2.8)
+        const shared = onGrid(Math.min(most, carry + Math.ceil((left - carry) / 2)));
+        n = left - whole < grid.step || !takes(shared) || !restTakes(shared) ? whole : shared;
+      } else if (!restTakes(n)) {
+        // the rest is too short for a job of its own: this window takes as much of it as one job holds, rather than all of it left out
+        n = whole;
+      }
     }
     const toMs = covered + (n - carry) * frameMs;
     // half a frame more, so that the part cut at the model's speed holds all `n` frames (one short would drop a grid step)

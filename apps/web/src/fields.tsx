@@ -101,7 +101,18 @@ export function Field({ spec, value, values, specs, options, family, model, onCh
       const mark = typeof standard === "number" ? standard : undefined;
       return (
         <FieldRow label={spec.label} note={spec.note}>
-          <Slider label={spec.label} value={n} min={spec.min} max={spec.max} step={spec.step} unit={spec.unit} mark={mark} onChange={onChange} />
+          {spec.auto ? (
+            // 0 ("by size") sits one step left of the range, so that the steps from it land on the range's own grid (1, 5, 9 …)
+            <span className="flex min-w-0 items-center gap-3">
+              <Slider
+                label={spec.label} value={n > 0 ? n : spec.min - spec.step} min={spec.min - spec.step} max={spec.max} step={spec.step} box={false} className="grow"
+                format={(v) => (v < spec.min ? spec.auto! : `${v}${spec.unit ?? ""}`)} onChange={(v) => onChange(v < spec.min ? 0 : v)}
+              />
+              <span className="shrink-0 font-mono text-xs text-ink-2">{n > 0 ? `${n}${spec.unit ?? ""}` : spec.auto}</span>
+            </span>
+          ) : (
+            <Slider label={spec.label} value={n} min={spec.min} max={spec.max} step={spec.step} unit={spec.unit} mark={mark} onChange={onChange} />
+          )}
           {spec.picks && (
             <div className="flex flex-wrap gap-1">
               {spec.picks.map((p) => (

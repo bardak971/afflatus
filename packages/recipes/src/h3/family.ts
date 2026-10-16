@@ -58,12 +58,12 @@ export const h3 = defineFamily({
       get: { file: "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors", url: `${HF}/loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors` },
     },
     {
-      id: "swapUnet", label: "Reference model for Swap (ref2va)", folder: "diffusion_models", detect: ["minimax_h3.*ref2va"], optional: true,
+      id: "swapUnet", label: "Reference model for Swap (ref2va)", folder: "diffusion_models", detect: ["minimax_h3.*ref2va"], optional: true, onlyFor: ["h3.swap"],
       hint: "For Swap character: MiniMax's own reference model, the one the Character-Swap LoRA was trained on (a hybrid fine-tune redrew the room), in ComfyUI's models/diffusion_models folder.",
       get: { file: "minimax_h3_ref2va_pruned_int8_convrot.safetensors", url: `${HF}/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors` },
     },
     {
-      id: "swapLora", label: "Character-Swap LoRA", folder: "loras", detect: ["character.?swap"], optional: true,
+      id: "swapLora", label: "Character-Swap LoRA", folder: "loras", detect: ["character.?swap"], optional: true, onlyFor: ["h3.swap"],
       hint: "For Swap character: akatz-ai's Character-Swap LoRA for the reference model, in ComfyUI's models/loras folder.",
       get: { file: "h3_character_swap_pro4500_1000.safetensors", url: "https://huggingface.co/akatz-ai/MiniMax-H3-Character-Swap-LoRA/resolve/main/h3_character_swap_pro4500_1000.safetensors" },
     },

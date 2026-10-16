@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { checkGraph, choicesOf, dryContext, parseInput, pickChoice, ruledDefaults, schemaFor, type ChoiceInput, type NodeCatalog } from "@afflatus/core";
-import { seedvrChunk, familyById, krea2Picture, h3Canvas, h3Frames, h3Prompt, h3Video, introduce, kleinSize, padsFor, recipeById, recipes, sdxlTextToPicture, wanCanvas, wanFrames, wanVideo, ltxCanvas, ltxFrames, ltxVideo, LTX_REFINE_SIGMAS, LTX_SIGMAS, fluxEdit, fluxPicture, qwenEdit, qwenPicture, flux, qwen, wan, ltx, zimage, zimagePicture } from "../src";
+import { seedvrChunk, families, familyById, krea2Picture, h3Canvas, h3Frames, h3Prompt, h3Video, introduce, kleinSize, padsFor, recipeById, recipes, sdxlTextToPicture, wanCanvas, wanFrames, wanVideo, ltxCanvas, ltxFrames, ltxVideo, LTX_REFINE_SIGMAS, LTX_SIGMAS, fluxEdit, fluxPicture, qwenEdit, qwenPicture, flux, qwen, wan, ltx, zimage, zimagePicture } from "../src";
 
 const catalog = JSON.parse(
   readFileSync(fileURLToPath(new URL("../../../reference/comfy-object-info.json", import.meta.url)), "utf-8"),
@@ -122,6 +122,50 @@ describe("every recipe, its inputs as parsed", () => {
         expect(stays, `${r.id}: ${node} is used by every variant, with or without it in ComfyUI`).toBe(false);
       }
     }
+  });
+
+  it("a free size is held within the most pixels its model takes, max × max typed or saved (review K-4)", () => {
+    let checked = 0;
+    for (const r of recipes) {
+      const spec = r.inputs.find((i) => i.type === "size" && !i.ratioOnly && i.maxPixels) as Extract<(typeof r.inputs)[number], { type: "size" }> | undefined;
+      if (!spec) continue;
+      const most = spec.maxPixels!;
+      for (const typed of [{ width: spec.max, height: spec.max }, { width: spec.max, height: spec.min }]) {
+        const parsed = (parseInput(r, { ...r.variants[0]!.input, [spec.id]: typed }) as Record<string, { width: number; height: number }>)[spec.id]!;
+        expect(parsed.width * parsed.height, `${r.id} ${typed.width}×${typed.height}`).toBeLessThanOrEqual(most);
+        expect(parsed.width % spec.grid + (parsed.height % spec.grid), r.id).toBe(0);
+        // the proportions kept, within a step of the grid
+        expect(Math.abs(parsed.width / parsed.height - typed.width / typed.height), r.id).toBeLessThan(0.05 * (typed.width / typed.height));
+      }
+      // a size within it is left as it is
+      const shape = spec.shapes[0]!;
+      expect((parseInput(r, { ...r.variants[0]!.input, [spec.id]: { width: shape.width, height: shape.height } }) as Record<string, unknown>)[spec.id]).toEqual({ width: shape.width, height: shape.height });
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(2);
+  });
+
+  it("a slot used by one recipe alone names it, and Swap's two files are only Swap's (review K-9)", () => {
+    for (const f of families) for (const slot of f.slots) for (const id of slot.onlyFor ?? []) expect(recipeById(id), `${f.id}.${slot.id} → ${id}`).toBeDefined();
+    const h3Slots = families.find((f) => f.id === "h3")!.slots;
+    expect(h3Slots.filter((x) => x.onlyFor?.includes("h3.swap")).map((x) => x.id)).toEqual(["swapUnet", "swapLora"]);
+  });
+
+  it("Colour match leaves out a First frame the clip does not use, carrying on from a Previous clip (review K-6)", () => {
+    let checked = 0;
+    for (const r of recipes) {
+      if (!r.inputs.some((i) => i.id === "colourMatch") || !r.inputs.some((i) => i.id === "start")) continue;
+      for (const v of r.variants) {
+        if (!(v.input as Record<string, unknown>).previous) continue;
+        const input = parseInput(r, { ...v.input, start: "p", colourMatch: true });
+        const ctx = dryContext({ slots: v.slots ?? {}, uploads: { ...v.uploads, start: "zz-unrelated.png" }, media: { ...v.media, start: { width: 640, height: 640 } }, canvas: v.canvas });
+        const graph = r.build(input, ctx).graph;
+        expect(Object.values(graph).filter((n) => n.class_type === "ColorTransfer"), `${r.id} · ${v.name}`).toEqual([]);
+        expect(Object.values(graph).some((n) => n.inputs.image === "zz-unrelated.png"), `${r.id} · ${v.name}`).toBe(false);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(1);
   });
 });
 
@@ -522,6 +566,19 @@ describe("things done to a picture", () => {
     expect(Object.values(whole.graph).some((n) => n.class_type === "SamplerCustomAdvanced")).toBe(true);
     expect(Object.values(whole.graph).some((n) => n.class_type === "SplitImageToTileList")).toBe(false);
     expect(whole.loads).toContain("diffusion_models/k.safetensors");
+  });
+
+  it("run the img2img pass with the form's Steps, whole or in tiles (review K-5)", () => {
+    const sharper = recipeById("klein.sharper")!;
+    const slots = { unet: "k.safetensors", clip: "q.safetensors", vae: "v.safetensors" };
+    const scheduled = (width: number, steps: number) => {
+      const b = sharper.build(parseInput(sharper, { source: "p", upscaler: "u.pth", steps }), dryContext({ slots, uploads: { source: "s.png" }, media: { source: { width, height: width } } }));
+      return Object.values(b.graph).filter((n) => n.class_type === "Flux2Scheduler").map((n) => n.inputs.steps);
+    };
+    // a distilled Klein's 4, not the base model's 20
+    expect(scheduled(640, 4)).toEqual([4]);
+    expect(scheduled(2048, 4)).toEqual([4]);
+    expect(scheduled(640, 20)).toEqual([20]);
   });
 });
 
@@ -1576,6 +1633,17 @@ describe("the upscale routes of the video forms", () => {
     expect(seedvrChunk(2.4)).toBe(5);
     expect(seedvrChunk(6.8, 13)).toBe(13);
     expect(seedvrChunk(1.7, 7)).toBe(5);
+  });
+
+  it("SeedVR2's frames together: the arrows go 1, 5, 9 … 49 with 0 for by the frame's size, and an older 4n runs as 4n + 1 (review K-2)", () => {
+    const spec = wanVideo.inputs.find((i) => i.id === "seedvrFrames") as { min: number; max: number; step: number; default: number; auto?: string };
+    expect([spec.min, spec.max, spec.step, spec.default]).toEqual([1, 49, 4, 0]);
+    expect(spec.auto).toBeTruthy();
+    const takes = (v: number) => schemaFor([wanVideo.inputs.find((i) => i.id === "seedvrFrames")!]).safeParse({ seedvrFrames: v }).success;
+    expect([0, 1, 5, 49].map(takes)).toEqual([true, true, true, true]);
+    expect([-1, 50].map(takes)).toEqual([false, false]);
+    // a draft saved when the arrows gave 4, 8 … 48: the lighter pass asked for, not one frame at a time
+    expect([4, 8, 48].map((n) => seedvrChunk(1.7, n))).toEqual([5, 9, 49]);
   });
 
   it("every video form offers the routes; only H3 offers the latent one", () => {

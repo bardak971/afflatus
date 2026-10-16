@@ -166,7 +166,7 @@ const editModel: InputSpec = {
  */
 export const qwenEdit = defineRecipe<QwenEdit>({
   // the Lightning LoRA made for Edit, when Turbo is on and the Edit model picked is not made for a few steps (build)
-  needsWith: (input) => (input.fast && !lightning.test((input.model ?? "").split(/[\\/]/).pop() ?? "") ? ["editTurbo"] : []),
+  needsWith: (input, slots = {}) => (input.fast && !lightning.test((input.model ?? slots.edit ?? "").split(/[\\/]/).pop() ?? "") ? ["editTurbo"] : []),
   id: "qwen.edit",
   family: "qwen",
   version: 1,

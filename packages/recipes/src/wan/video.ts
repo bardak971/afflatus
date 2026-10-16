@@ -193,9 +193,10 @@ function wanPasses(g: GraphBuilder, ctx: BuildContext, input: WanVideo, models: 
  * Turbo's two LoRAs, when Turbo is on and the model picked is not made for a few steps (modelsOf): without them on the
  * machine the clip would take the full steps, as if Turbo were off (a pod was never sent them: 20 steps for 4, 2026-10-15).
  */
-const turboNeeds = (input: WanVideo): string[] => {
+const turboNeeds = (input: WanVideo, slots: Record<string, string> = {}): string[] => {
   if (!input.fast) return [];
-  const name = input.model?.split(/[\\/]/).pop() ?? "";
+  // the high model the build loads: the one picked when it is made for this way, else the way's usual file
+  const name = (modelsOf(input, slots).high ?? input.model)?.split(/[\\/]/).pop() ?? "";
   if (input.turboIn === "Yes" || (input.turboIn !== "No" && namedTurbo.test(name))) return [];
   return uses(input).words ? ["t2vTurboHigh", "t2vTurboLow"] : ["i2vTurboHigh", "i2vTurboLow"];
 };

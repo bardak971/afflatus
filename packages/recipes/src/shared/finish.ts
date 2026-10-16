@@ -14,13 +14,17 @@ export const COLOUR_MATCH_INPUTS: InputSpec[] = [
   },
   { id: "colourStrength", type: "number", label: "Colour match strength", min: 0.1, max: 1, step: 0.05, default: 0.75, showWhen: "colourMatch", advanced: true, section: "out" },
 ];
+/** A form's colour match with its start picture only when the clip opens on it: not when it carries on from a previous clip. */
+export const openingStart = <T extends Partial<ColourMatch> & { start?: string; previous?: unknown }>(input: T): Partial<ColourMatch> & { start?: string } =>
+  ({ colourMatch: input.colourMatch, colourStrength: input.colourStrength, start: input.previous ? undefined : input.start });
 /** The node the colour match brings in: ComfyUI's own, optional on older ComfyUIs. */
 export const COLOUR_MATCH_NODES = ["ColorTransfer"];
 
 /**
  * The frames' colours pulled towards the start picture's: one transform pooled over every frame (`uniform`),
  * so a clip does not flicker the way a per-frame match does, and nothing when it is off, there is no start
- * picture, or this ComfyUI has no ColorTransfer.
+ * picture, or this ComfyUI has no ColorTransfer. `start` is the picture the clip opens on: a clip carrying on from a
+ * previous one does not (H3 and LTX leave it out then, see `openingStart`), and matched to it would jump in colour at the join.
  */
 export function colourMatched(g: GraphBuilder, ctx: BuildContext, images: Ref, input: Partial<ColourMatch> & { start?: string }): Ref {
   const start = input.start ? ctx.uploads.start : undefined;

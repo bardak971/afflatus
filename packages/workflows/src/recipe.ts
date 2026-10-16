@@ -470,6 +470,9 @@ function buildWorkflow(def: WorkflowDef, form: Form, input: Record<string, unkno
     const node = graph[point.node];
     if (!node) return;
     const list = separate ? p : 0;
+    // a further list the form does not show (a recipe imported before its lists were named) keeps the LoRAs it came
+    // with: the form's one list is the first node's, not the low model's too
+    if (point.power && !separate && p > 0) return;
     const loras = ((input[loraInput(list)] as LoraValue[] | undefined) ?? loraDefault(list)).filter((l) => l.weight !== 0);
     if (point.power) {
       // the node is a list of LoRAs: the user's list replaces the one it came with

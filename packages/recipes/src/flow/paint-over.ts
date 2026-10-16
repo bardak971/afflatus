@@ -65,6 +65,11 @@ export function flowPaintOver(spec: FlowSpec, kit: FlowKit): Recipe<FlowPaintOve
         input: { source: "p", mask: "m", prompt: "a", strength: 1, ...tuned } as Partial<FlowPaintOver>,
         slots: files, uploads: { source: "s.png", mask: "m.png" }, media: { source: photo },
       },
+      // Turbo's branch: the LoRA put on, its steps at CFG 1 (the operations' other variants have no turbo file)
+      ...(kit.turboFiles ? [{
+        name: "Turbo with its LoRA", input: { source: "p", mask: "m", prompt: "a", fast: true, turboSteps: 6 } as Partial<FlowPaintOver>,
+        slots: kit.turboFiles, uploads: { source: "s.png", mask: "m.png" }, media: { source: photo, mask: { ...photo, box: { x: 300, y: 500, width: 600, height: 500 } } },
+      }] : []),
     ],
   });
 }

@@ -18,8 +18,8 @@ describe("the slider's snap", () => {
         const snapped = snapTo(v, spec.min, spec.max, step);
         expect(takes(spec, snapped), `${recipe} ${spec.id}: ${v} → ${snapped}`).toBe(true);
       }
-      // a built-in range ends on its own grid, so that End reaches its max (SeedVR2's 0 is "auto", then 1, 5, 9…: one step cannot say both)
-      if (spec.id !== "seedvrFrames") expect(snapTo(spec.max, spec.min, spec.max, step), `${recipe} ${spec.id}`).toBe(spec.max);
+      // a built-in range ends on its own grid, so that End reaches its max (SeedVR2's 1, 5, 9 … 49 too, its "by size" 0 below the range)
+      expect(snapTo(spec.max, spec.min, spec.max, step), `${recipe} ${spec.id}`).toBe(spec.max);
     }
   });
 

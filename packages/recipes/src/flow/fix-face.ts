@@ -49,6 +49,8 @@ export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
     variants: [
       { name: "plain", input: { source: "p", detector: "bbox/face.pt" } as Partial<FlowFixFace>, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
       { name: "with words, a fine-tune and a LoRA", input: { source: "p", prompt: "green eyes", detector: "bbox/face.pt", ...tuned } as Partial<FlowFixFace>, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
+      // Turbo's branch: the LoRA put on, its steps at CFG 1 (the operations' other variants have no turbo file)
+      ...(kit.turboFiles ? [{ name: "Turbo with its LoRA", input: { source: "p", detector: "bbox/face.pt", fast: true, turboSteps: 6 } as Partial<FlowFixFace>, slots: kit.turboFiles, uploads: { source: "s.png" }, media: { source: photo } }] : []),
     ],
   });
 }

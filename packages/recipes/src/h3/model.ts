@@ -28,9 +28,9 @@ type H3Model = ReturnType<typeof modelOf>;
  * needs (Recipe.needsWith). A reference clip on MiniMax's own reference model takes either LoRA (refTurbo, else turbo):
  * nothing is asked for it here, as one of two cannot be said.
  */
-export const turboNeeds = (input: H3Video): string[] => {
+export const turboNeeds = (input: H3Video, slots: Record<string, string> = {}): string[] => {
   if (!input.fast) return [];
-  const picked = modelOf(input, {});
+  const picked = modelOf(input, slots);
   if (uses(input).reference && !picked.hybrid) return [];
   return picked.turbo ? [] : ["turbo"];
 };

@@ -181,6 +181,43 @@ describe("inspect: a large workflow whose controls are renamed nodes", () => {
   });
 });
 
+describe("inspect: two Power Lora Loaders left at their default title (review K-1)", () => {
+  // the control panel with a list of LoRAs after each model, neither renamed: the high model's list
+  // must not be written into the low model's node
+  const power = (model: string, lora: string) => ({ class_type: "Power Lora Loader (rgthree)", inputs: { model: [model, 0] as [string, number], lora_1: { on: true, lora, strength: 1 } } });
+  const graph: Graph = {
+    ...structuredClone(panel),
+    "3001": power("1502", "high_lightx2v.safetensors"),
+    "3002": power("1501", "low_lightx2v.safetensors"),
+  };
+  graph["2027"]!.inputs.model = ["3001", 0];
+  graph["2028"]!.inputs.model = ["3002", 0];
+  const found = inspect(graph, catalog);
+  const ctx = () => dryContext({ seed: 5, uploads: { startImage: "a.png [temp]", endImage: "b.png [temp]" } });
+
+  it("names each list after the model it follows, so the form has one list each", () => {
+    expect(found.suggested!.loras).toEqual([
+      { node: "3001", output: 0, label: "Wan22_I2V_High", power: true },
+      { node: "3002", output: 0, label: "Wan22_I2V_Low", power: true },
+    ]);
+    const recipe = recipeFromWorkflow(defOf(graph, "Two power lists", "Wan 2.2"));
+    const lists = recipe.inputs.filter((i) => i.type === "loras");
+    expect(lists.map((i) => [i.id, i.label])).toEqual([["loras", "LoRAs · Wan22_I2V_High"], ["loras_2", "LoRAs · Wan22_I2V_Low"]]);
+    const built = recipe.build(parseInput(recipe, {}), ctx());
+    expect(built.graph["3001"]!.inputs.lora_1).toMatchObject({ lora: "high_lightx2v.safetensors" });
+    expect(built.graph["3002"]!.inputs.lora_1).toMatchObject({ lora: "low_lightx2v.safetensors" });
+  });
+
+  it("a recipe imported before, with both lists unnamed, replaces only the first list's LoRAs", () => {
+    const bindings = { ...found.suggested!, loras: found.suggested!.loras.map((p) => ({ ...p, label: "" })) };
+    const recipe = recipeFromWorkflow(workflowDef.parse({ id: "workflow.old-power", title: "Old power", model: "Wan 2.2", source: "test.json", graph, bindings }));
+    expect(recipe.inputs.filter((i) => i.type === "loras").map((i) => i.id)).toEqual(["loras"]);
+    const built = recipe.build(parseInput(recipe, { loras: [{ file: "mine.safetensors", weight: 1 }] }), ctx());
+    expect(built.graph["3001"]!.inputs.lora_1).toMatchObject({ lora: "mine.safetensors" });
+    expect(built.graph["3002"]!.inputs.lora_1).toMatchObject({ lora: "low_lightx2v.safetensors" });
+  });
+});
+
 describe("inspect: a workflow whose prompt, size and length sit on one all-in-one node", () => {
   // the shape of a "director" workflow: the node takes the words itself, the length in seconds, and the
   // seed comes from a seed node under another name

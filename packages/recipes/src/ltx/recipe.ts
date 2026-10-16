@@ -4,7 +4,7 @@ import { UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNodes } from "../video
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
-import { colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, type ColourMatch } from "../shared/finish";
+import { colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, openingStart, type ColourMatch } from "../shared/finish";
 import { applyLoras, livePreview, loraLoads } from "../shared/model";
 
 /**
@@ -562,7 +562,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       g.phase("decoding");
       const images = g.out("VAEDecodeTiled", { samples: made.video, vae: loaded.vae, tile_size: input.tile, overlap: 64, temporal_size: input.tileFrames, temporal_overlap: spec.decode.overlap });
       const heard = g.out("LTXVAudioVAEDecode", { samples: made.audio, audio_vae: loaded.audioVae });
-      const done = finishFrames(g, ctx, colourMatched(g, ctx, images, input), input, { frame: { width, height }, rife: input.smooth && !temporal, fps, audio: heard, doubled: temporal });
+      const done = finishFrames(g, ctx, colourMatched(g, ctx, images, openingStart(input)), input, { frame: { width, height }, rife: input.smooth && !temporal, fps, audio: heard, doubled: temporal });
 
       return {
         graph: g.graph,

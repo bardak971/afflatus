@@ -568,6 +568,21 @@ function findMedia(r: Reading, reach: Set<string>): { videos: Inspection["videos
   return { videos, sounds, previous, next, source: source?.binding, otherVideos, sound, otherSounds, keys: loaders.map((l) => `${l.id}.${l.input}`) };
 }
 
+/** The model file a node's model comes from, followed up the model links (through other LoRA lists, a shift node). */
+function modelFileBefore(graph: Graph, id: string): string | undefined {
+  const seen = new Set<string>();
+  let at: string | undefined = id;
+  while (at && !seen.has(at)) {
+    seen.add(at);
+    const n: Graph[string] | undefined = graph[at];
+    if (!n) return undefined;
+    const model: unknown = n.inputs.model;
+    if (!isRef(model)) return Object.values(n.inputs).find((v): v is string => typeof v === "string" && MODEL_FILE.test(v));
+    at = model[0];
+  }
+  return undefined;
+}
+
 // ---- where LoRAs can go
 function findLoraPoints(r: Reading): { loraPoints: Inspection["loraPoints"]; chosen: Inspection["loraPoints"] } {
   const { graph, ids, catalog, editor, names } = r;
@@ -589,6 +604,17 @@ function findLoraPoints(r: Reading): { loraPoints: Inspection["loraPoints"]; cho
   // the workflow's own LoRA lists when it has them; else one loader, or a pair (a high and a low model, each
   // with its own LoRAs); with more the user says which
   const lists = loraPoints.filter((p) => p.power);
+  // several lists left at their default title would all read "", and the form would then show one list and write it
+  // into every node (a high model's LoRAs run on the low model): each is named, after the model file it follows
+  if (lists.length > 1) {
+    const taken = new Set<string>();
+    lists.forEach((p, i) => {
+      const file = p.label ? undefined : modelFileBefore(graph, p.node);
+      const label = p.label || (file ? stem(file) : "");
+      p.label = label && !taken.has(label) ? label : `List ${i + 1}`;
+      taken.add(p.label);
+    });
+  }
   const chosen = lists.length ? lists.slice(0, 4) : loraPoints.length <= 2 ? loraPoints : [];
   return { loraPoints, chosen };
 }

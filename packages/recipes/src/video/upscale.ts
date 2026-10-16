@@ -44,7 +44,9 @@ const SEEDVR_CHUNK_AT_MPX = 1.7;
  */
 export function seedvrChunk(megapixels: number, asked = 0): number {
   const fourN1 = (n: number) => Math.max(1, Math.floor((n - 1) / 4) * 4 + 1);
-  if (asked > 0) return fourN1(Math.round(asked));
+  // a number asked for goes to the nearest of 1, 5, 9 … (a tie to the fewer frames, the lighter on memory): the 4, 8 … 48
+  // the form's arrows once gave, still in older drafts, then run 5, 9 … 49, not one frame at a time for 4
+  if (asked > 0) return Math.max(1, Math.ceil((Math.round(asked) - 1) / 4 - 0.5) * 4 + 1);
   return fourN1(Math.min(SEEDVR_CHUNK, (SEEDVR_CHUNK * SEEDVR_CHUNK_AT_MPX) / Math.max(0.1, megapixels)));
 }
 export const SEEDVR_NODES = ["ResizeImageMaskNode", "SeedVR2Preprocess", "VAEEncodeTiled", "SeedVR2Conditioning", "KSampler", "SeedVR2TemporalChunk", "SeedVR2TemporalMerge", "VAEDecodeTiled", "SeedVR2PostProcessing", "UNETLoader", "VAELoader"];
@@ -87,8 +89,8 @@ export function upscaleInputs(opts: { latent?: boolean } = {}): InputSpec[] {
       note: "the restored frames matched in colour to the originals: lab (the most faithful), wavelet (keeps the new fine detail), adain (a global tint), none",
     },
     {
-      id: "seedvrFrames", type: "number", label: "SeedVR2 frames together", min: 0, max: 49, step: 4, default: 0, section: "out", advanced: true, showWhen: { input: "upscale", in: [UPSCALE.seedvr] },
-      note: "how many frames SeedVR2 restores in one pass (1, 5, 9, 13…). 0: by the frame's size, 9 at about 1.7 megapixels and fewer for larger frames. More frames see more of their neighbours (steadier) but need more video memory; past what the card holds it spills into system memory and slows to a crawl, and fewer is then faster",
+      id: "seedvrFrames", type: "number", label: "SeedVR2 frames together", min: 1, max: 49, step: 4, default: 0, auto: "by size", section: "out", advanced: true, showWhen: { input: "upscale", in: [UPSCALE.seedvr] },
+      note: "how many frames SeedVR2 restores in one pass (1, 5, 9, 13…). By size (the left end): 9 at about 1.7 megapixels and fewer for larger frames. More frames see more of their neighbours (steadier) but need more video memory; past what the card holds it spills into system memory and slows to a crawl, and fewer is then faster",
     },
     {
       id: "upscaleBy", type: "number", label: "Upscale factor", min: 1.25, max: 3, step: 0.25, default: 2, unit: " ×", section: "out",

@@ -214,9 +214,12 @@ export function flowKit(spec: FlowSpec) {
    * Turbo's LoRA, when Turbo is on and the model picked is not made for a few steps (load): the family's file this input
    * needs (Recipe.needsWith), so that a pod is sent it and a machine without it does not take the job at the full steps.
    */
-  const turboNeeds = (input: FlowBase): string[] =>
-    spec.turbo && input.fast && !spec.turbo.named.test((input.model ?? "").split(/[\\/]/).pop() ?? "") ? [spec.turbo.slot] : [];
+  const turboNeeds = (input: FlowBase, slots: Record<string, string> = {}): string[] =>
+    spec.turbo && input.fast && !spec.turbo.named.test((input.model ?? slots.unet ?? "").split(/[\\/]/).pop() ?? "") ? [spec.turbo.slot] : [];
 
-  return { inputs, loadNodes, SOMETIMES, SECOND_PASS, load, shifted, condFrom, cond, sample, sizeOf, tuned, turboNeeds };
+  /** The family's files with a turbo LoRA among them, for each operation's "Turbo with its LoRA" variant; null without Turbo. */
+  const turboFiles = spec.turbo ? { ...spec.files, [spec.turbo.slot]: "turbo.safetensors" } : null;
+
+  return { inputs, loadNodes, SOMETIMES, SECOND_PASS, load, shifted, condFrom, cond, sample, sizeOf, tuned, turboNeeds, turboFiles };
 }
 export type FlowKit = ReturnType<typeof flowKit>;

@@ -22,6 +22,11 @@ interface ModelSlot {
   unless?: string;
   /** Where its usual file can be had, when that is known: the name to save it under and its address. */
   get?: { file: string; url: string };
+  /**
+   * The recipes that alone use it. While every one of them is hidden, it is not offered for download (Settings › Models
+   * showed Swap's two files, the reference model twice, for a recipe nobody could open).
+   */
+  onlyFor?: string[];
 }
 
 /** One model architecture: what its files are and how its prompts are written. */
@@ -176,9 +181,11 @@ export interface Recipe<In = Record<string, unknown>> {
   /**
    * Slots of its family this particular input cannot do what it asks without (Wan's Turbo: the lightx2v LoRAs, unless the
    * model is made for a few steps). A machine without their files does not take the job, and a rented pod is sent them:
-   * the recipe left alone would render without them, the full steps where Turbo was asked.
+   * the recipe left alone would render without them, the full steps where Turbo was asked. `slots`: the family's files
+   * found on that machine (slot id → file), which the build loads for a model left out of the form (a distilled one needs
+   * no turbo LoRA); left out, only the form's own pick is read.
    */
-  needsWith?(input: In): string[];
+  needsWith?(input: In, slots?: Record<string, string>): string[];
   /** Node classes this particular input needs (checked against ComfyUI before queueing). */
   nodes(input: In): string[];
   /** Node classes build() uses only when this ComfyUI has them (ctx.has): speed-ups and finishing touches. */

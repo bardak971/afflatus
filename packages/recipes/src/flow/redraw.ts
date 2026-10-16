@@ -40,6 +40,8 @@ export function flowRedraw(spec: FlowSpec, kit: FlowKit): Recipe<FlowRedraw> {
     variants: [
       { name: "plain", input: { source: "p", prompt: "a" } as Partial<FlowRedraw>, slots: files, uploads: { source: "s.png" }, media: { source: { width: 896, height: 1152 } } },
       { name: "a large picture, a fine-tune, a LoRA, strong", input: { source: "p", prompt: "a", strength: 0.8, ...tuned } as Partial<FlowRedraw>, slots: files, uploads: { source: "s.png" }, media: { source: { width: 3000, height: 2000 } } },
+      // Turbo's branch: the LoRA put on, its steps at CFG 1 (the operations' other variants have no turbo file)
+      ...(kit.turboFiles ? [{ name: "Turbo with its LoRA", input: { source: "p", prompt: "a", fast: true, turboSteps: 6 } as Partial<FlowRedraw>, slots: kit.turboFiles, uploads: { source: "s.png" }, media: { source: { width: 896, height: 1152 } } }] : []),
     ],
   });
 }

@@ -82,6 +82,18 @@ describe("scan", () => {
     expect(s.recipes[0]!.problems).toEqual(["an unknown Director version"]);
   });
 
+  it("offers no download for a file only hidden recipes use (review K-9)", async () => {
+    const get = { file: "toy_swap.safetensors", url: "https://example.com/toy_swap.safetensors" };
+    const withSwap = defineFamily({ ...family, slots: [...family.slots, { id: "swap", label: "Swap LoRA", folder: "loras", detect: ["toy.*swap"], hint: "for Swap", optional: true, get, onlyFor: ["toy.swap"] }] });
+    const swap = defineRecipe<ToyInput>({ ...recipe, id: "toy.swap", hidden: true });
+    fake = await startFakeComfy({ catalog, models: { vae: ["toy_vae.safetensors"], loras: [], checkpoints: ["m.safetensors"] } });
+    const hidden = await scan(new ComfyClient(fake.url), [withSwap], [recipe, swap]);
+    expect(hidden.families[0]!.slots.find((x) => x.id === "swap")!.get).toBeUndefined();
+    // shown again, it is offered again
+    const shown = await scan(new ComfyClient(fake.url), [withSwap], [recipe, { ...swap, hidden: undefined }]);
+    expect(shown.families[0]!.slots.find((x) => x.id === "swap")!.get).toEqual(get);
+  });
+
   it("says what is missing: a required file, a model to pick, a node", async () => {
     const { Sampler: _gone, ...without } = catalog;
     const s = await run({ catalog: without, models: { vae: [], loras: [], checkpoints: [] } });

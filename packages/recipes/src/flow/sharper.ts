@@ -87,6 +87,8 @@ export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
       { name: "too large to go over whole: in tiles", input: { source: "p", upscaler: "u.pth" } as Partial<FlowSharper>, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
       { name: "too large, asked whole: gone over whole", input: { source: "p", upscaler: "u.pth", tiles: "Whole picture" } as Partial<FlowSharper>, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
       { name: "a fine-tune with its shift, a prompt and a LoRA", input: { source: "p", upscaler: "u.pth", prompt: "a", ...tuned } as Partial<FlowSharper>, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
+      // Turbo's branch: the LoRA put on, its steps at CFG 1 (the operations' other variants have no turbo file)
+      ...(kit.turboFiles ? [{ name: "Turbo with its LoRA", input: { source: "p", upscaler: "u.pth", fast: true, turboSteps: 6 } as Partial<FlowSharper>, slots: kit.turboFiles, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } }] : []),
     ],
   });
 }

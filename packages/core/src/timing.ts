@@ -12,7 +12,13 @@ import { modelFileName } from "./warm";
  * (drivingStart) is one: with it in the key, every window of a timeline was filed under a key of its own, and no two
  * machines' renders of the same windows were ever compared (forecast.ts machinePaces).
  */
-const NO_TIME = /^(seed|crf|shift|drivingStart$)/i;
+const NO_TIME = /^(seed|crf|drivingStart)$|^shift/i;
+/**
+ * Settings said in the key only when moved from their default. SeedVR2's frames together changes its render time
+ * several-fold, but every video form holds it: said always, it would have changed the key of every video render and
+ * left them without the times recorded before it was counted.
+ */
+const SAID_WHEN_SET = new Set(["seedvrFrames"]);
 
 /**
  * What of a form decides how long its render takes: its numbers, its switches and its choices, its
@@ -28,6 +34,7 @@ export function timeKey(specs: InputSpec[], values: Record<string, unknown>): st
       case "toggle":
       case "choice":
         if (NO_TIME.test(spec.id)) break;
+        if (SAID_WHEN_SET.has(spec.id) && (value ?? spec.default) === spec.default) break;
         parts.push(`${spec.id}=${String(value ?? spec.default)}`);
         break;
       case "size": {

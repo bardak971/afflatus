@@ -78,6 +78,10 @@ function pickedFor(recipe: Pick<Recipe<any>, "inputs" | "needs">, input: Record<
   return recipe.inputs.some((i) => i.type === "model" && Boolean(input[i.id]) && (i.slot === slot.id || (!i.slot && i.folder === slot.folder && required.length === 1 && required[0]!.id === slot.id)));
 }
 
+/** A family's files found on a machine, by slot: what a build reads for a model left out of the form. */
+const slotFilesOf = (slots: Array<{ id: string; file?: string | null }>): Record<string, string> =>
+  Object.fromEntries(slots.flatMap((x) => (x.file ? [[x.id, x.file]] : [])));
+
 /**
  * Every model file a job uses, as a machine that has none of them would need them (a pod just deployed): the files its
  * inputs name and its family's files its recipe needs, as `scan` (this computer's) finds them, else the family's usual one.
@@ -85,7 +89,7 @@ function pickedFor(recipe: Pick<Recipe<any>, "inputs" | "needs">, input: Record<
 export function filesUsed(recipe: Pick<Recipe<any>, "family" | "inputs" | "needs" | "needsWith">, input: Record<string, unknown>, scan: Scan | null, slots: Array<{ id: string; folder: string; optional?: boolean; get?: { file: string; url: string } }>): Array<{ file: string; folder: string; url?: string }> {
   const out: Array<{ file: string; folder: string; url?: string }> = filesAsked(recipe, input).map(({ file, folder }) => ({ file, folder }));
   const found = scan?.families.find((f) => f.id === recipe.family)?.slots ?? [];
-  const asks = recipe.needsWith?.(input) ?? [];
+  const asks = recipe.needsWith?.(input, slotFilesOf(found)) ?? [];
   for (const slot of slots) {
     // a slot the job's own pick fills is that file, asked above
     if ((slot.optional && !recipe.needs?.includes(slot.id) && !asks.includes(slot.id)) || pickedFor(recipe, input, slot, slots)) continue;
@@ -132,8 +136,9 @@ export function lackOn(recipe: Pick<Recipe<any>, "id" | "family" | "inputs" | "n
   const wanted = filesAsked(recipe, input);
   const asked = wanted.filter(({ input: id, file }) => status?.options[id] && !status.options[id]!.includes(file));
   const slots = scan.families.find((f) => f.id === recipe.family)?.slots ?? [];
-  // the family's files this input asks for (Turbo's LoRAs): without them it would run, but not as asked
-  const asks = recipe.needsWith?.(input) ?? [];
+  // the family's files this input asks for (Turbo's LoRAs): without them it would run, but not as asked. A model left
+  // out of the form is the family's file there, as the build loads it (a distilled one asks for no turbo LoRA)
+  const asks = recipe.needsWith?.(input, slotFilesOf(slots)) ?? [];
   const lacking = slots.filter((x) => asks.includes(x.id) && !x.file);
   if (status?.ready && on && !asked.length && !lacking.length) return null;
   // a family file the job's own pick fills is not asked for as the family's usual file (a pod would fetch a model it never uses)
