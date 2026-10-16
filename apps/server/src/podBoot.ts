@@ -70,6 +70,50 @@ export function bootStep(lines: readonly BootLine[]): { step: string | null; fai
   return { step, failed };
 }
 
+/** What a boot log says of its node packs: when that step began and the next one, and the Python packages installed per pack. */
+export interface BootPacks {
+  /** ISO, the pod's clock; `to` null while the step after has not come yet. */
+  from: string;
+  to: string | null;
+  installs: Array<{ pack: string; ms: number }>;
+}
+
+const PACKS_STEP = "putting in the node packs";
+const INSTALL_STEP = /^installing the Python packages of (.+)$/;
+
+/**
+ * Its node packs' time, from the boot log's steps: from "putting in the node packs" to the first step after the installs of
+ * their Python packages, each install as long as up to the step after it. A start again (its first step said anew) begins a
+ * new course, as bootStep has it. Null before that step was said.
+ */
+export function bootPacks(lines: readonly BootLine[]): BootPacks | null {
+  let out: BootPacks | null = null;
+  let installing: { pack: string; at: number } | null = null;
+  for (const { t, m } of lines) {
+    const said = STEP.exec(m);
+    if (!said) continue;
+    const step = said[1]!.trim();
+    const at = Date.parse(t);
+    if (step === "checking the GPU") {
+      out = null;
+      installing = null;
+      continue;
+    }
+    if (step === PACKS_STEP) {
+      out = { from: t, to: null, installs: [] };
+      installing = null;
+      continue;
+    }
+    if (!out || out.to !== null) continue;
+    if (installing && Number.isFinite(at)) out.installs.push({ pack: installing.pack, ms: Math.max(0, at - installing.at) });
+    installing = null;
+    const pack = INSTALL_STEP.exec(step);
+    if (pack && Number.isFinite(at)) installing = { pack: pack[1]!.trim(), at };
+    else out.to = t;
+  }
+  return out;
+}
+
 /** The pod's answer read: its lines (bounded, as the pod bounds them), its step. Null when it is not the boot log's shape. */
 export function parseBootLog(body: unknown): BootLog | null {
   const raw = (body as { lines?: unknown } | null)?.lines;

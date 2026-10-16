@@ -2,6 +2,9 @@
 
 export type CostPart = "render" | "boot" | "fetch" | "idle" | "failed";
 export type PartMs = Record<CostPart, number>;
+/** Booting's parts: pulling the image, the node packs' installs, starting ComfyUI, a start that failed, and a boot not known in parts. */
+export type BootPart = "pull" | "packs" | "comfy" | "startFailed" | "boot";
+export type BootMs = Record<BootPart, number>;
 export type ItemRef = { kind: "timeline" | "draft"; id: string; name: string };
 
 /** A model where it ran: a pod's GPU, a GPU not tried yet (a guess from the GPU hunt's ranking), or one of this PC's machines. */
@@ -24,7 +27,7 @@ export interface RenderCostRow {
 }
 
 export interface CostAdvice {
-  kind: CostPart | "gpu";
+  kind: CostPart | BootPart | "gpu";
   title: string;
   why: string;
   /** What it would have saved over the window (USD); null: no figure. */
@@ -42,6 +45,10 @@ export interface PodSession {
   usd: number;
   /** Its time by part (ms), adding up to its length. */
   parts: PartMs;
+  /** Its Booting by part (ms), adding up to it; the step its start failed at; its node packs' installs, as its boot log said them. */
+  boot: BootMs;
+  startFailed: string | null;
+  packs: Array<{ pack: string; ms: number }>;
   /** What was worked out rather than kept (an older session's boot, its files). */
   estimated: string[];
   why: string;
@@ -97,7 +104,7 @@ export interface CostsView {
   spendPerHr: number | null;
   runwayNowMs: number | null;
   storage: { perMonth: number; volumes: number; stoppedDisks: number } | null;
-  where: { ms: PartMs; usd: Record<CostPart, number>; estimated: boolean };
+  where: { ms: PartMs; usd: Record<CostPart, number>; boot: { ms: BootMs; usd: BootMs }; estimated: boolean };
   spend: { gpus: string[]; values: number[][] };
   projects: ProjectCost[];
   sessions: PodSession[];

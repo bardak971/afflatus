@@ -367,6 +367,11 @@ export interface Tables {
     gpu: string | null; up_at: string | null; idle_minutes: number | null;
     /** When it last had work while it ran (rented.ts keepBusy), read back after a restart: null on sessions before 0074. */
     busy_at: string | null;
+    /**
+     * Its boot in parts (0076): its container up (its image pulled), its boot log's node packs step and the step after, the
+     * Python packages installed per pack (JSON: [{ pack, ms }]), the step its start failed at. Null when not seen.
+     */
+    pulled_at: string | null; packs_from: string | null; packs_to: string | null; boot_packs: string | null; start_failed: string | null;
   };
   /** Each model file a pod got (podFiles.ts): from when its bytes started to when it was whole, the Costs tab's "Fetching files". Bytes as a number (bigint on Postgres). */
   pod_fetches: { id: string; machine_id: string; file: string; folder: string; via: string; bytes: number | string; started_at: string; ended_at: string };

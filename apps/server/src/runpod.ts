@@ -422,6 +422,23 @@ export class Runpod {
   }
 
   /**
+   * A pod's container uptime (s) from RunPod's GraphQL: its REST list says none of a booting pod, so this tells its image
+   * pulled (no container yet: null) from its container started. Null too where RunPod does not answer or says nothing.
+   */
+  async uptime(id: string): Promise<number | null> {
+    const res = await this.fetcher(`${apiBase()}/graphql`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ query: `query { pod(input: { podId: ${JSON.stringify(id)} }) { id runtime { uptimeInSeconds } } }` }),
+      signal: AbortSignal.timeout(15_000),
+    }).catch(() => null);
+    const body = res?.ok ? ((await res.json().catch(() => null)) as { data?: { pod?: { runtime?: { uptimeInSeconds?: unknown } | null } | null } } | null) : null;
+    if (!res?.ok) await res?.body?.cancel().catch(() => {});
+    const up = body?.data?.pod?.runtime?.uptimeInSeconds;
+    return typeof up === "number" && Number.isFinite(up) && up >= 0 ? up : null;
+  }
+
+  /**
    * The account's balance in USD and what it spends an hour now (every pod and volume of the account), from RunPod's
    * GraphQL; null where it does not say. At zero RunPod stops every pod, and terminates those without a volume.
    */

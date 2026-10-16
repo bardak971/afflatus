@@ -9,7 +9,7 @@ import { gpuKey, LEARNED_RENDERS, volumePerMonth, type PresetFile } from "@affla
 import { gpuPaces } from "./forecast";
 import { imagePublic } from "./podImage";
 import { recordMeasure } from "./podMeasures";
-import { bootOf, BootLogs, type BootLog, type BootView } from "./podBoot";
+import { bootOf, BootLogs, bootPacks, type BootLog, type BootView } from "./podBoot";
 import { SEARCHED_FOLDERS } from "./modelSets";
 import { inUseSaid, keptHoldings, noteFill, noticeVolumes, mountedOn, recordHoldings, usedBy, viewVolumes, VOLUME_MAX_GB, VOLUME_MIN_GB, type Storage, type VolumeView } from "./rentedVolumes";
 import { dollars, machineSaid, type Say } from "./notifyWords";
@@ -287,13 +287,19 @@ interface Seen {
   fillMovedAt: number | null;
   /** Why a fill is being cut short, for its note. */
   cutWhy: string | null;
+  /** Its container's start (its image pulled) kept on its session this run: once, not at every read. */
+  pulledKept: boolean;
+  /** When its container started (ms), once known (RunPod's uptime, its boot log): its uptime from then while RunPod says none. */
+  containerAt: number | null;
+  /** What its boot log said of its node packs, as last kept on its session (JSON): written again only when it changes. */
+  packsKept: string | null;
 }
 
 const fresh = (): Seen => ({
   pod: null, rate: null, watchdog: "unknown", answers: null, busyAt: null, busyKept: null, busyRestored: false, stoppedBy: null, stopAfter: false, cappedAt: null,
   stopping: false, lockTried: false, seenRunningAt: null, epoch: 0, error: null, bootNote: null, secretDropped: false, upAt: null, answered: false, answeredAt: null,
   read: false, gpuFailed: null, startFailed: null, missing: 0, stoppingSince: null, aliveAt: null, startingSince: null,
-  handed: false, fillFrom: null, fillProgress: null, fillMovedAt: null, cutWhy: null,
+  handed: false, fillFrom: null, fillProgress: null, fillMovedAt: null, cutWhy: null, pulledKept: false, packsKept: null, containerAt: null,
 });
 
 /** A pod still running this long after Afflatus asked RunPod to stop it is asked again (and a stop that keeps nothing, terminated). */
@@ -1105,6 +1111,8 @@ export class Rented {
     }
     // a pod gone stays gone: said once, not at every read
     const changed = !s.read || (before?.status ?? null) !== (pod?.status ?? null) || Boolean(pod?.cost && pod.cost !== s.rate);
+    if (pod?.status === "RUNNING") await this.containerUp(m, s, pod, key);
+    else s.containerAt = null;
     // a deployed pod's container up (RunPod says its uptime from then): its card goes from pulling the image to ComfyUI
     // starting at once, not at the next change
     if (m.rented!.deployedAt && (before?.uptime ?? null) === null && pod?.uptime !== null && pod?.uptime !== undefined) this.events.emit("queue");
@@ -1114,9 +1122,16 @@ export class Rented {
     // the rate of its last run here, until RunPod says one (it says 0 while the pod is stopped)
     s.rate ??= (await this.db.selectFrom("rent_sessions").select("rate").where("pod", "=", m.rented!.pod).orderBy("started_at", "desc").executeTakeFirst())?.rate || null;
     await this.session(m, pod, s);
+    // its container up (RunPod says its uptime from then): its image pulled, kept on its session for the Costs tab's split of
+    // its boot. From its uptime, not from now: right after a restart of Afflatus mid-boot too
+    if (pod?.status === "RUNNING" && pod.uptime !== null && !s.pulledKept) {
+      s.pulledKept = true;
+      await this.notePulled(m, this.now() - pod.uptime * 1000);
+    }
     // deployed and never up yet, for too long: its image does not pull, or its container does not start; billed for nothing
     const deployedAt = m.rented!.deployedAt ? Date.parse(m.rented!.deployedAt) : Number.NaN;
     if (pod && TRANSITIONAL.has(pod.status) && Number.isFinite(deployedAt) && this.now() - deployedAt >= DEPLOYED_BOOT_LIMIT_MS) {
+      await this.noteFailed(m, "its start, never under way");
       await this.act(m, "terminate", "boot");
       return true;
     }
@@ -1127,6 +1142,7 @@ export class Rented {
     // nothing: stopped as its idle choice says, as a boot that never answers is
     s.startingSince = pod && TRANSITIONAL.has(pod.status) ? s.startingSince ?? this.now() : null;
     if (s.startingSince !== null && !Number.isFinite(deployedAt) && this.now() - s.startingSince >= bootLimit(m) && !s.stopping) {
+      await this.noteFailed(m, "its start, never under way");
       await this.act(m, m.rented!.idleDo, "boot");
       return true;
     }
@@ -1163,6 +1179,8 @@ export class Rented {
       s.upAt = null;
       s.answered = false;
       s.answeredAt = null;
+      s.pulledKept = false;
+      s.packsKept = null;
       if (s.stopping && pod?.status !== "STARTING") {
         s.stopping = false;
         s.stoppingSince = null;
@@ -1193,12 +1211,14 @@ export class Rented {
     const failed = m.rented!.deployed && !s.answered ? this.boots.get(m.id)?.failed : null;
     if (failed && !this.queue.runningOn(m.id)) {
       s.startFailed = `Terminated: its start stopped at "${failed}", as its boot log says (its last lines are in its log, Queue › Log). Nothing billed after; deploy again.`;
+      await this.noteFailed(m, failed);
       await this.act(m, "terminate", "start");
       return true;
     }
     const answers = await this.alive(m, s);
     // a GPU that does not work on its host never will: terminated at once, not at its boot limit
     if (s.gpuFailed && !this.queue.runningOn(m.id)) {
+      await this.noteFailed(m, "checking the GPU");
       await this.act(m, "terminate", "gpu");
       return true;
     }
@@ -1222,6 +1242,7 @@ export class Rented {
     // A deployed pod's first boot counts from its deploy (its image pulled first); one that never came up is terminated
     const bootFrom = Number.isFinite(deployedAt) ? Math.min(deployedAt, s.upAt) : s.upAt;
     if (!s.answered && this.now() - bootFrom >= bootLimit(m) && !this.queue.runningOn(m.id)) {
+      await this.noteFailed(m, this.boots.get(m.id)?.step ?? "ComfyUI never answered");
       await this.act(m, Number.isFinite(deployedAt) ? "terminate" : m.rented!.idleDo, "boot");
       return true;
     }
@@ -1312,6 +1333,7 @@ export class Rented {
     if (!pod || !pod.ports.includes(`${BOOT_PORT}/http`) || !m.token) return this.boots.get(m.id);
     const before = this.boots.get(m.id);
     const after = await this.boots.read(m.id, m.rented!.pod, m.token, everyMs);
+    if (after) await this.notePacks(m, after);
     if (after && (after.step !== before?.step || after.failed !== before?.failed || after.lines.at(-1)?.t !== before?.lines.at(-1)?.t)) this.events.emit("queue");
     return after;
   }
@@ -1353,6 +1375,64 @@ export class Rented {
     const iso = new Date(this.now()).toISOString();
     const since = new Date(this.now() - DEPLOYED_BOOT_LIMIT_MS).toISOString();
     await this.db.updateTable("rent_sessions").set({ up_at: iso }).where("machine_id", "=", m.id).where("ended_at", "is", null).where("up_at", "is", null).where("started_at", ">=", since).execute().catch(() => {});
+  }
+
+  /**
+   * Its container's start, said as its uptime: RunPod's REST list gives a booting pod none (a real one read none; only its
+   * GraphQL says it). The first of its REST uptime, its boot log answering (the Afflatus image serves it from its container's
+   * start: its first line), and RunPod's GraphQL, asked only while it boots and until known, its failures taken as nothing.
+   * Known once, its uptime counts from then: what its card says (pulling the image, then starting) and its session keeps.
+   */
+  private async containerUp(m: Machine, s: Seen, pod: Pod, key: string): Promise<void> {
+    if (pod.uptime !== null) s.containerAt ??= this.now() - pod.uptime * 1000;
+    else if (s.containerAt === null && !s.answered) {
+      const first = this.boots.get(m.id)?.lines[0]?.t;
+      const logged = first ? Date.parse(first) : Number.NaN;
+      // a log of this run only: one kept from a run before (a stop, a start again) is not its container's start
+      const run = pod.startedAt ? Date.parse(pod.startedAt) - 60_000 : Number.NEGATIVE_INFINITY;
+      if (Number.isFinite(logged) && logged >= run) s.containerAt = Math.min(logged, this.now());
+      else {
+        const up = await this.client(key).uptime(pod.id).catch(() => null);
+        if (up !== null) s.containerAt = this.now() - up * 1000;
+      }
+    }
+    if (pod.uptime === null && s.containerAt !== null) pod.uptime = Math.max(0, Math.round((this.now() - s.containerAt) / 1000));
+  }
+
+  /**
+   * Its container's start (its image pulled, ms) kept on its open session, before its ComfyUI first answered: the Costs tab's
+   * "pulling the image". Never over one kept (a container started again later is not its pull).
+   */
+  private async notePulled(m: Machine, at: number): Promise<void> {
+    await this.db.updateTable("rent_sessions").set({ pulled_at: new Date(Math.min(at, this.now())).toISOString() }).where("machine_id", "=", m.id).where("ended_at", "is", null).where("pulled_at", "is", null).where("up_at", "is", null).execute().catch(() => {});
+  }
+
+  /**
+   * What its boot log says of its node packs (podBoot.ts bootPacks), kept on its open session as it comes: a restart of
+   * Afflatus mid-boot keeps it, and a log read later that has lost its first lines (it keeps its last 300) changes nothing kept.
+   */
+  private async notePacks(m: Machine, log: BootLog): Promise<void> {
+    const packs = bootPacks(log.lines);
+    const s = this.seen.get(m.id);
+    if (!packs || !s) return;
+    const said = JSON.stringify(packs);
+    if (s.packsKept === said) return;
+    s.packsKept = said;
+    const open = await this.db.selectFrom("rent_sessions").select(["id", "packs_from", "packs_to", "boot_packs"]).where("machine_id", "=", m.id).where("ended_at", "is", null).executeTakeFirst().catch(() => undefined);
+    // its first course kept: a container started again afterwards (RunPod restarts one that stopped) is not its boot's
+    if (!open || open.packs_to || (open.packs_from && open.packs_from !== packs.from)) return;
+    const kept = JSON.parse(open.boot_packs ?? "[]") as Array<{ pack: string; ms: number }>;
+    await this.db
+      .updateTable("rent_sessions")
+      .set({ packs_from: open.packs_from ?? packs.from, packs_to: packs.to, boot_packs: packs.installs.length >= kept.length ? JSON.stringify(packs.installs) : open.boot_packs })
+      .where("id", "=", open.id)
+      .execute()
+      .catch(() => {});
+  }
+
+  /** The step its start failed at, kept on its open session: the Costs tab's "failed starts". The first said stays. */
+  private async noteFailed(m: Machine, step: string): Promise<void> {
+    await this.db.updateTable("rent_sessions").set({ start_failed: step.slice(0, 200) }).where("machine_id", "=", m.id).where("ended_at", "is", null).where("start_failed", "is", null).execute().catch(() => {});
   }
 
   /** The running session kept as a row: opened when it is seen running, kept seen while it runs, closed when it is not. */

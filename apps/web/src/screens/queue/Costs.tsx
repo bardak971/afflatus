@@ -13,7 +13,7 @@ import { Button, cx, ErrorNote, Help } from "../../ui";
 import { KwhForm } from "../settings/ElectricityCard";
 import { settingHref } from "../settings/settingsIndex";
 import { TimeChart, useChartColors } from "./Chart";
-import { COST_PRESETS, NOT_SPLIT, nothingShare, PART_SAID, presetWindow, runwayNowSaid, runwaySaid, runwayWhy, sessionBits, totalMs, totalsSaid } from "./costsView";
+import { BOOT_SAID, bootSaid, bootSplit, COST_PRESETS, lowerFirst, NOT_SPLIT, nothingShare, PART_SAID, presetWindow, runwayNowSaid, runwaySaid, runwayWhy, sessionBits, totalMs, totalsSaid } from "./costsView";
 import { chartTimeLabel, stretchOf, type View } from "./useTimesView";
 import { WindowBar } from "./WindowBar";
 
@@ -97,6 +97,8 @@ function TopFigures({ d }: { d: CostsView }) {
 function WhereItWent({ d }: { d: CostsView }) {
   const all = totalMs(d.where.ms);
   const money = Object.values(d.where.usd).reduce((n, v) => n + v, 0);
+  // Booting in its parts, in its place in the bar and under its legend, where any boot of the window was kept in parts
+  const boots = bootSplit(d.where.boot.ms);
   if (!all) return null;
   return (
     <section className={CARD} aria-label="Where it went">
@@ -110,9 +112,11 @@ function WhereItWent({ d }: { d: CostsView }) {
         </span>
       </Head>
       <div className="flex h-7 gap-0.5 overflow-hidden rounded-lg">
-        {PART_SAID.filter((p) => d.where.usd[p.part] > 0).map((p) => (
-          <span key={p.part} data-tip={`${p.name}: ${usd(d.where.usd[p.part])} · ${long(d.where.ms[p.part])}`} className="min-w-[3px]" style={{ flexGrow: d.where.usd[p.part], background: p.color }} />
-        ))}
+        {PART_SAID.filter((p) => d.where.usd[p.part] > 0).flatMap((p) =>
+          p.part === "boot" && boots.length
+            ? boots.map((b) => <span key={`boot-${b.part}`} data-tip={`Booting, ${lowerFirst(b.name)}: ${usd(d.where.boot.usd[b.part])} · ${long(d.where.boot.ms[b.part])}`} className="min-w-[3px]" style={{ flexGrow: d.where.boot.usd[b.part], background: b.color }} />)
+            : [<span key={p.part} data-tip={`${p.name}: ${usd(d.where.usd[p.part])} · ${long(d.where.ms[p.part])}`} className="min-w-[3px]" style={{ flexGrow: d.where.usd[p.part], background: p.color }} />],
+        )}
       </div>
       <div className="flex flex-wrap gap-x-5 gap-y-2">
         {PART_SAID.map((p) => (
@@ -129,6 +133,24 @@ function WhereItWent({ d }: { d: CostsView }) {
           </span>
         )}
       </div>
+      {boots.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
+          <span className="flex items-center gap-1 text-ink-3">
+            Booting:
+            <Help
+              title="Booting, in its parts"
+              text="Pulling the image: from the deploy (or Start) until RunPod says its container is up; a host new to the image pulls it for minutes. Node packs: the Afflatus image's boot log, from putting in the node packs until its next step: the packs on the volume get their Python packages installed at every start. Starting ComfyUI: the rest, until ComfyUI first answered. Failed starts: the boots that never came up (a step that failed, a GPU that did not work, no answer by the boot limit), from their container's start to their end. Not split: boots before this version, and parts no boot log said."
+            />
+          </span>
+          {boots.map((b) => (
+            <span key={b.part} className="flex items-center gap-1.5">
+              <span className="size-2 shrink-0 rounded-[3px]" style={{ background: b.color }} />
+              <span className="text-ink-2">{b.name}</span>
+              <span className="font-mono text-ink-2">{usd(d.where.boot.usd[b.part])} · {long(d.where.boot.ms[b.part])}</span>
+            </span>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -216,21 +238,23 @@ function ByProject({ d }: { d: CostsView }) {
 function SessionRow({ s, longest }: { s: PodSession; longest: number }) {
   const [open, setOpen] = useState(false);
   const bits = sessionBits(s, longest);
+  const boot = bootSaid(s);
   return (
     <div className="flex flex-col">
       <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="grid grid-cols-[minmax(0,230px)_minmax(0,1fr)_64px] items-center gap-3.5 rounded-lg px-1.5 py-1 text-left hover:bg-hover">
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-[13px] font-semibold">{s.gpu ?? "GPU"} <span className="font-normal text-ink-3">· ${s.rate.toFixed(2)}/h</span></span>
-          <span className="truncate text-[11.5px] text-ink-3">{dayMonth(s.from)} {hourMinute(s.from)} · {s.open ? "running now" : s.why}</span>
+          <span className="truncate text-[11.5px] text-ink-3">{dayMonth(s.from)} {hourMinute(s.from)} · {s.open ? "running now" : s.startFailed ? "its start failed" : s.why}</span>
         </span>
         <span className="flex h-[18px] gap-0.5">
-          {bits.map((b) => <span key={b.part} data-tip={b.tip} className="min-w-[3px] rounded" style={{ width: `${b.share * 100}%`, background: b.color }} />)}
+          {bits.map((b) => <span key={b.key} data-tip={b.tip} className="min-w-[3px] rounded" style={{ width: `${b.share * 100}%`, background: b.color }} />)}
         </span>
         <span className="text-right font-mono text-[13px]">{usd(s.usd)}</span>
       </button>
       {open && (
         <div className="mb-1 ml-1.5 flex flex-col gap-0.5 border-l border-line py-1 pl-3 text-xs">
           {s.estimated.length > 0 && <span className="text-ink-3">Estimated: {s.estimated.join("; ")}.</span>}
+          {boot && <span className={cx(s.startFailed ? "text-warn-ink" : "text-ink-3")}>{boot}</span>}
           {s.renders.length ? s.renders.map((r) => (
             <span key={r.id} className="grid grid-cols-[48px_minmax(0,1fr)_64px_64px] items-center gap-2">
               <span className="font-mono text-ink-3">{hourMinute(r.at)}</span>
@@ -309,10 +333,10 @@ function RenderCosts({ d }: { d: CostsView }) {
 }
 
 function AdviceCard({ d }: { d: CostsView }) {
-  const dot = (kind: string) => PART_SAID.find((p) => p.part === kind)?.color ?? "var(--color-accent)";
+  const dot = (kind: string) => PART_SAID.find((p) => p.part === kind)?.color ?? BOOT_SAID.find((p) => p.part === kind)?.color ?? "var(--color-accent)";
   return (
     <section className={CARD} aria-label="What would cost less">
-      <Head title="What would cost less" help="Fixed rules on this window's sessions and renders: the idle at the end of sessions against a shorter idle, the boots, the same files fetched on several deploys against a network volume, and the cheapest GPU per model." />
+      <Head title="What would cost less" help="Fixed rules on this window's sessions and renders: the idle at the end of sessions against a shorter idle, the boots (the image pulled onto hosts new to it, the node packs' installs), the same files fetched on several deploys against a network volume, and the cheapest GPU per model." />
       {d.advice.length ? d.advice.map((a) => (
         <div key={a.title} className="flex gap-3 rounded-[11px] bg-hover/60 p-3">
           <span className="mt-[5px] size-2.5 shrink-0 rounded-full" style={{ background: dot(a.kind) }} />
