@@ -14,7 +14,7 @@ import type { LibraryChange as WebLibraryChange } from "../../web/src/queryKeys"
 // the server's own: what its routes return
 import type { assetDetail } from "../src/assets-api";
 import type { CommandEntry, CommandEstimate, commandIndex, commandItems } from "../src/commandIndex";
-import type { Measure } from "../src/cut";
+import type { Measure } from "../src/measure";
 import type { DownloadView } from "../src/downloads";
 import type { DraftView, draftsList, saveBody } from "../src/drafts";
 import type { EntityView } from "../src/entities";

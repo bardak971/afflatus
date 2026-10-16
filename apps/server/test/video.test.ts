@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { frozenTailAt } from "../src/cut";
+import { frozenTailAt } from "../src/measure";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import { wan } from "../../../packages/workflows/test/fixtures";

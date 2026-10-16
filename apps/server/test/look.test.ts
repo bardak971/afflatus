@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { lookOf, runUpBreak } from "../src/cut";
+import { lookOf } from "../src/measure";
+import { runUpBreak } from "../src/joinScore";
 import { FFMPEG_TIMEOUT, ffmpegMade, ffmpegThere } from "./clipKit";
 
 /** A test clip of a second (two with a hard cut at one second: the picture inverts there), crisp or blurred and darkened, with a 330 Hz tone or silent, made with ffmpeg. Skipped where ffmpeg is not installed. */

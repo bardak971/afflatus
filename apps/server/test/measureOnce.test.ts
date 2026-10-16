@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { measureApart, measureOf } from "../src/cut";
+import { measureApart, measureOf } from "../src/measure";
 import { pool } from "../src/pool";
 
 let dir: string;
