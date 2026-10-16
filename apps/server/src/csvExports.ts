@@ -42,7 +42,7 @@ export function costsCsv(view: CostsView, spending: Spending | null, settings: S
     const split = s.boot.boot === 0;
     const part = (ms: number) => (split ? seconds(ms) : null);
     rows.push([
-      "session", utc(s.from), s.open ? null : utc(s.to), machineName(settings, s.machine), s.gpu, s.rate,
+      "session", utc(s.from), s.open ? null : utc(s.to), machineName(settings, s.machine), s.gpu === "GPU" ? null : s.gpu, dollars4(s.rate),
       seconds(s.parts.boot), part(s.boot.pull), part(s.boot.packs), part(s.boot.comfy), part(s.boot.startFailed), s.startFailed,
       seconds(s.parts.fetch), seconds(s.parts.render), seconds(s.parts.failed), seconds(s.parts.idle), s.renders.length, s.fetched.files, s.fetched.bytes, s.idleMinutes, s.estimated.join("; ") || null,
       null, dollars4(s.usd), null,
