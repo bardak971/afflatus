@@ -4,19 +4,12 @@ import { MoreHorizontal, Pause, Play } from "lucide-react";
 import type { MachineState } from "./api";
 import { lastSaid, openDeploy, useDeployAgain } from "./deploy";
 import { gb, plural } from "./format";
-import { machineLabel, type RentedBoot } from "./machines";
-import { Bar, busiest, diskNearlyFull, diskSaid, doing, Dot, FilesLine, gettingFiles } from "./machineBits";
+import { machineLabel } from "./machines";
+import { Bar, BootNote, busiest, diskNearlyFull, diskSaid, doing, Dot, FilesLine, gettingFiles } from "./machineBits";
 import { Popover } from "./Popover";
 import { useQueueOps } from "./queueOps";
 import { useSystem } from "./store";
 import { cx } from "./ui";
-
-/** What a booting pod's second line says of its start: the step to come, or where its boot log is. */
-const bootHint = (b: RentedBoot | null) =>
-  !b || b.phase === "pulling" ? "its image is pulled onto the host (minutes on a host new to it), then ComfyUI starts"
-  : b.failed ? "its start stopped: its last lines are in its log (Queue › Log)"
-  : b.phase === "starting" ? "its container is up: ComfyUI starts"
-  : "its boot log in Queue › Log until ComfyUI answers";
 
 /**
  * The machines' pill opened (MachinesPill.tsx): every machine with all its figures, its pause and its menu, Deploy a GPU
@@ -76,11 +69,13 @@ export function MachinesPopover({ anchor, machines, metered, now, canDeploy, onP
                     {/* a pod's disk, which its models fill (node pack 0.19.0 on) */}
                     {m.rented?.disk && <span className={cx(diskNearlyFull(m.rented.disk) && "text-warn-ink")}>DISK {diskSaid(m.rented.disk)}</span>}
                   </span>
+                ) : m.rented?.boot && (m.rented.booting || m.rented.status === "PROVISIONING" || m.rented.status === "STARTING") ? (
+                  // a pod being deployed does not answer for minutes, as it should: its boot's line, the one its card says
+                  <BootNote machine={m.id} boot={m.rented.boot} inside className="text-[11.5px]" />
                 ) : (
                   <span className="text-[11.5px] text-ink-3">
-                    {/* a pod being deployed does not answer for minutes, as it should: said as what it is doing, not as a fault */}
                     {m.rented && (m.rented.booting || m.rented.status === "PROVISIONING" || m.rented.status === "STARTING")
-                      ? bootHint(m.rented.boot ?? null)
+                      ? "ComfyUI not up yet"
                       : m.online === false ? (m.locked ? "locked against Afflatus's token" : "not answering") : "no figures yet"}
                   </span>
                 )}

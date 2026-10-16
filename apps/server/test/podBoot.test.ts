@@ -26,8 +26,8 @@ describe("where a boot is, from RunPod's data and the boot log", () => {
   it("follows ComfyUI's own start after its step, and says where a start stopped", () => {
     const comfy = ["[afflatus-pod] step: starting ComfyUI", "Total VRAM 24135 MB, total RAM 128000 MB", "Import times for custom nodes:", "Starting server"].map((m) => line(m));
     expect(bootStep(comfy.slice(0, 1)).step).toBe("starting ComfyUI");
-    expect(bootStep(comfy.slice(0, 2)).step).toBe("ComfyUI loading its nodes");
-    expect(bootStep(comfy).step).toBe("ComfyUI starting its server");
+    expect(bootStep(comfy.slice(0, 2)).step).toBe("loading custom nodes");
+    expect(bootStep(comfy).step).toBe("starting ComfyUI server");
     // ComfyUI's words count only once start.sh started it
     expect(bootStep([line("[afflatus-pod] step: checking the GPU"), line("Total VRAM 1 MB")]).step).toBe("checking the GPU");
     const failed = parseBootLog({ lines: [line("[afflatus-pod] step: putting in the node packs"), line("cp: no space left on device"), line("[afflatus-pod] failed: putting in the node packs (exit 1)")] })!;

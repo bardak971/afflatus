@@ -4,7 +4,7 @@ import { ChevronDown, Download } from "lucide-react";
 import { useMenu } from "./ContextMenu";
 import { useQueue, useSettings } from "./data";
 import { gb, plural } from "./format";
-import { useNow } from "./hooks";
+import { useSecond } from "./hooks";
 import { machineLabel, severalMachines } from "./machines";
 import { queryKeys } from "./queryKeys";
 import { useMeteredMachine, useSystem } from "./store";
@@ -43,7 +43,10 @@ export function MachinesPill() {
   // (idleAt), and the queue read once then, to see it stopped. Every tab read it every 15 s before, which kept the server's
   // machine checks going on an idle server.
   const rentedOn = machines.some((m) => m.rented && m.rented.status !== "EXITED" && m.rented.status !== "GONE" && m.rented.status !== "TERMINATED");
-  const now = useNow(1000, open && rentedOn);
+  // a pod's boot counts by the second in the pill's tooltip as well, from the clock its card reads (useSecond): the same
+  // time and cost in both places
+  const booting = machines.some((m) => m.rented?.boot);
+  const now = useSecond((open && rentedOn) || booting);
   const idleAt = machines.reduce<number | null>((soonest, m) => (m.rented?.idleAt != null && (soonest === null || m.rented.idleAt < soonest) ? m.rented.idleAt : soonest), null);
   useEffect(() => {
     if (idleAt === null) return;
@@ -72,7 +75,7 @@ export function MachinesPill() {
         aria-expanded={open}
         onClick={() => setOpen(!open)}
         onContextMenu={(e) => { setOpen(false); menu.open(e, null); }}
-        data-tip={`${machines.map((m) => `${machineLabel(m)}: ${doing(m, Date.now())}`).join("\n")}\nClick for each machine's figures and actions.`}
+        data-tip={`${machines.map((m) => `${machineLabel(m)}: ${doing(m, now)}`).join("\n")}\nClick for each machine's figures and actions.`}
         className={cx("inline-flex h-7 min-w-0 shrink-0 items-center gap-2 rounded-full border border-line px-2.5 text-xs whitespace-nowrap hover:bg-hover", open && "ring-1 ring-accent")}
       >
         <span className="inline-flex shrink-0 items-center gap-1">

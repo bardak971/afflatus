@@ -140,6 +140,8 @@ function bootLines(fails: string | null): string[] {
     "[afflatus-pod] step: preparing ComfyUI's folders",
     "[afflatus-pod] ComfyUI's files in /workspace/comfyui",
     "[afflatus-pod] step: putting in the node packs",
+    "[afflatus-pod] step: installing the Python packages of ComfyUI-KJNodes (1/2)",
+    "[afflatus-pod] step: installing the Python packages of ComfyUI-VideoHelperSuite (2/2)",
     "[afflatus-pod] step: setting up ComfyUI-Manager",
     "[afflatus-pod] step: starting ComfyUI",
     "Checkpoint files will always be loaded safely.",

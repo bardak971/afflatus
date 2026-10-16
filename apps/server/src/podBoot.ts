@@ -42,8 +42,8 @@ const FAILED = /^\[afflatus-pod\] failed: (.+)$/;
  * the custom nodes load, the longest part on a volume full of packs), the custom nodes loaded (then its server starts).
  */
 const COMFY_STEPS: Array<[RegExp, string]> = [
-  [/^Total VRAM /, "ComfyUI loading its nodes"],
-  [/^Import times for custom nodes/, "ComfyUI starting its server"],
+  [/^Total VRAM /, "loading custom nodes"],
+  [/^Import times for custom nodes/, "starting ComfyUI server"],
 ];
 
 /** A boot log's step and failure, from its lines: the last step said, ComfyUI's own course after "starting ComfyUI". */

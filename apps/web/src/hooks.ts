@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { copyText } from "./secureContext";
 
 /** The small hooks several screens share. */
@@ -86,4 +86,38 @@ export function useNow(ms = 1000, on = true): number {
     return () => clearInterval(t);
   }, [ms, on]);
   return now;
+}
+
+/** The whole second the shared clock is at, and who reads it: one interval for every screen that counts by the second. */
+let second = Math.floor(Date.now() / 1000) * 1000;
+const readers = new Set<() => void>();
+let ticking: ReturnType<typeof setInterval> | null = null;
+const tick = () => {
+  second = Math.floor(Date.now() / 1000) * 1000;
+  for (const read of readers) read();
+};
+function readSecond(read: () => void): () => void {
+  readers.add(read);
+  if (!ticking) {
+    tick();
+    ticking = setInterval(tick, 1000);
+  }
+  return () => {
+    readers.delete(read);
+    if (!readers.size && ticking) {
+      clearInterval(ticking);
+      ticking = null;
+    }
+  };
+}
+const unread = () => () => {};
+
+/**
+ * The time to the whole second, from one clock shared by every screen that reads it, ticking while `on`: two places that
+ * say the same running figure (a pod's boot time and cost in the pill and on its card) say it at the same second, where
+ * each its own useNow could be a second and a tenth of a cent apart. Off, the time as the screen is drawn.
+ */
+export function useSecond(on = true): number {
+  const shared = useSyncExternalStore(on ? readSecond : unread, () => second);
+  return on ? shared : Math.floor(Date.now() / 1000) * 1000;
 }
