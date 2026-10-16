@@ -1,22 +1,15 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
-import { api, type Asset, type Clip, type DesignerSession, type MachineState, type RecipeInfo, type Take, type Timeline } from "../api";
+import type { Asset, Clip, DesignerSession, RecipeInfo, Take, Timeline } from "../api";
 import { useFamilies, useModelSettings, useRecipes, useSetup, useTimeline } from "../data";
 import type { DesignerTurn } from "../designer/types";
 import { notReady, plural } from "../format";
-import { queryKeys } from "../queryKeys";
 import { useBanners, useEditorColumn } from "../store";
-import { useSelectedClip } from "../bar/bridge";
-import { newTransition, TRANSITIONS } from "@afflatus/core";
 import { useQueueOf } from "../screens/studio/queueOf";
-import { timelineKey } from "../draftMachine";
-import { usePickedMachine } from "../GenerateOn";
 import { useNewClock } from "./clock";
 import { rememberAspect } from "./EditorSkeleton";
 import type { ExportAsk } from "./ExportDialog";
-import type { Checks } from "./EditorColumns";
-import { layout, moveAfter, otherShape, pinMirrors, ZOOM } from "./model";
+import { layout, moveAfter, otherShape, ZOOM } from "./model";
 import { sourcePlace } from "./track/SourceLane";
 import type { PlayerHandle } from "./Player";
 import { useClipEdits } from "./useClipEdits";
@@ -26,9 +19,11 @@ import { useBarRequests } from "./useBarRequests";
 import { useEditorKeys } from "./useEditorKeys";
 import { useErrorShown, useHeaderNote } from "./useHeaderNote";
 import { usePlayhead } from "./usePlayhead";
-import { useForecasts } from "./useForecasts";
 import { useRange } from "./useRange";
 import { useTimelineMutations } from "./useTimelineMutations";
+import { useEditorPanels } from "./useEditorPanels";
+import { useRenderPlan } from "./useRenderPlan";
+import { useSelectedClipBridge } from "./useSelectedClipBridge";
 
 const NONE: RecipeInfo[] = [];
 
@@ -47,10 +42,7 @@ export function useTimelineEditor(id: string) {
   const panelWidth = useEditorColumn((st) => st.width);
   const folded = useEditorColumn((st) => st.folded);
 
-  const [selected, setSelected] = useState<string | null>(null);
-  /** The clips picked with Ctrl + click on the track, to render together. */
-  const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [musicOpen, setMusicOpen] = useState(false);
+  const { selected, setSelected, picked, setPicked, musicOpen, setMusicOpen, joinOpen, setJoinOpen, sourceOpen, setSourceOpen, select, openSource, openJoin } = useEditorPanels();
   const [playing, setPlaying] = useState(false);
   // the moment of what plays: not state, so that a tick redraws the track and the readout, not the whole editor
   const clock = useNewClock();
@@ -70,32 +62,8 @@ export function useTimelineEditor(id: string) {
   const [fin, setFin] = useState(false);
   const [writing, setWriting] = useState<string | null>(null);
   const player = useRef<PlayerHandle>(null);
-  /** The clip whose join with the clip before is open in the column (its dot on the track was clicked). */
-  const [joinOpen, setJoinOpen] = useState<string | null>(null);
-  /** The source lane is open in the column. */
-  const [sourceOpen, setSourceOpen] = useState(false);
   /** The moment of the source a drag on its lane stands on: the stage shows it meanwhile. */
   const [sourcePeek, setSourcePeek] = useState<number | null>(null);
-  /** A clip selected, its panel open in place of the music's. */
-  const select = (clip: string | null) => {
-    setSelected(clip);
-    setMusicOpen(false);
-    setJoinOpen(null);
-    setSourceOpen(false);
-  };
-  /** The source lane, opened in the column: no clip selected meanwhile. */
-  const openSource = () => {
-    setSelected(null);
-    setMusicOpen(false);
-    setJoinOpen(null);
-    setSourceOpen(true);
-  };
-  /** The join before a clip, opened in the column: the clip is selected with it. */
-  const openJoin = (clip: string) => {
-    setSelected(clip);
-    setMusicOpen(false);
-    setJoinOpen(clip);
-  };
 
   const t = timeline.data;
   const clips = useMemo(() => t?.clips ?? [], [t]);
@@ -158,7 +126,7 @@ export function useTimelineEditor(id: string) {
   const removeSource = useCallback(() => {
     edit.mutate({ source: null });
     setSourceOpen(false);
-  }, [edit]);
+  }, [edit, setSourceOpen]);
   const removePicked = useCallback(() => {
     if (pickedNow.current.size < 2) return false;
     removeMany.mutate([...pickedNow.current]);
@@ -190,7 +158,7 @@ export function useTimelineEditor(id: string) {
     const now = made.filter((c) => ready(c).input);
     if (now.length) render.mutate({ clips: now });
     if (why) setNote(`${plural(made.length, "clip")} made from the source, not rendered: ${why}`);
-  }, [clips, toRender, render, ready, setNote]);
+  }, [clips, toRender, render, ready, setNote, setSourceOpen]);
   /** The source's stretch made into clips, sent to render in order (each waits for the one it carries on from). */
   const makeSource = {
     pending: makeSourceMut.isPending || Boolean(toRender),
@@ -207,71 +175,13 @@ export function useTimelineEditor(id: string) {
     if (to !== undefined) patch.mutate({ clip, patch: { after: to } });
   }, [patch]);
 
-  /** What is left to render: clips without a take, clips whose join went stale, and clips whose take was made with other flips than Mirror asks now. */
-  const missing = clips.filter((c) => c.kind === "video" && !c.job && (!c.take || c.join === "stale" || c.mirrorChanged) && ready(c).input);
-  const renderable = (c: Clip) => picked.has(c.id) && c.kind === "video" && Boolean(ready(c).input);
-
-  /** About how long a clip takes to render on a machine (null: Auto): the server's forecast of its whole form, learned from past renders (as the timeline card's). */
-  const { takesOn, canOn } = useForecasts(clips, recipes.data?.recipes ?? NONE, formOf);
-  // on the machine picked for this timeline, as that machine's own renders say it; Auto: the machine that renders it soonest
-  const pickedMachine = usePickedMachine(timelineKey(id));
-  const takes = (c: Clip) => takesOn(c, pickedMachine);
-  // on Auto, the server's plan of them all (queue.total): shared between the machines, each loading its model once. Added
-  // up one after another, 3 H3 clips said ~7 min where 3 machines take ~4
-  const missingAt = missing.map((c) => clips.indexOf(c) + 1);
-  const plannedAll = useQuery({
-    queryKey: queryKeys.timelinePlanned(id, missingAt, t?.updatedAt ?? ""),
-    queryFn: ({ signal }) => api.commandEstimate({ timeline: id, clips: missingAt }, { signal }),
-    enabled: Boolean(id && missingAt.length),
-    staleTime: 30_000,
-    placeholderData: keepPreviousData,
+  // what is left to render, and what rendering it takes on each machine (useRenderPlan.ts)
+  const { missing, renderable, takes, takesOn, allMs, allOn, allBlocked, checks } = useRenderPlan({
+    id, t, clips, picked, recipes: recipes.data?.recipes ?? NONE, ready, formOf, known: !recipes.isPending && !setup.isPending && !settings.isPending,
   });
-  /** What rendering every clip left to render takes on a machine (null: Auto), as Render all and its machine list say it. */
-  const allOn = (m: MachineState | null) => (m === null && plannedAll.data?.ms ? plannedAll.data.ms : missing.reduce((sum, c) => sum + (takesOn(c, m) ?? 0), 0));
-  /** Why a machine cannot take the clips left to render: one of them it cannot render (its files not there). */
-  const allBlocked = (m: MachineState) => (missing.some((c) => !canOn(c, m)) ? "lacks a model of these clips" : null);
-  const allMs = allOn(pickedMachine ?? null);
-  /** What Needs attention is worked out from (EditorColumns' Checks). */
-  const checks: Checks = {
-    renderable: (c: Clip) => c.kind === "video" && !c.job && Boolean(ready(c).input),
-    msOf: takes,
-    // the header's own plan, so that the same clips read the same time in Needs attention and Fix all
-    plan: { auto: !pickedMachine, ids: missing.map((c) => c.id), ms: plannedAll.data?.ms ?? 0 },
-    why: (c: Clip) => (c.kind === "video" ? ready(c).why : undefined),
-    // settled, not succeeded: a list that failed to come must not hold the checks back for ever
-    known: !recipes.isPending && !setup.isPending && !settings.isPending,
-  };
 
-  // what the bar's clip commands call, read when they run (they are new at every render: kept out of the effect's deps)
-  const barActs = useRef({ rangeAct, edit, openSource });
-  barActs.current = { rangeAct, edit, openSource };
-  // the selected clip, for the command bar's `@name`: who is in it and the Inspector's own change of its cast
-  const patchNow = patch.mutateAsync;
-  const castRecipe = current?.recipe ? recipes.data?.recipes.find((r) => r.id === current.recipe) ?? null : null;
-  const castNumber = current ? clips.indexOf(current) + 1 : 0;
-  useEffect(() => {
-    if (!current || !t) return void useSelectedClip.getState().set(null);
-    useSelectedClip.getState().set({
-      timeline: id, timelineName: t.name, id: current.id, number: castNumber, kind: current.kind, recipe: castRecipe,
-      look: current.look ?? t.look, own: current.look !== null, setLook: (look) => patchNow({ clip: current.id, patch: { look } }),
-      // its pinned frames' Mirror, for the bar's `> mirror pin`: its form as it stands, the Inspector's edits not yet saved included
-      pins: pinMirrors(current, castRecipe ?? undefined, inputsOf(current), castNumber > 1 && current.joined === "continue" && current.kind === "video"),
-      mirror: (input, on) => patchNow({ clip: current.id, patch: { pinMirror: { [input]: on } } }),
-      // the join before it, for the bar's `> transition`: what the column's join choice reads and writes
-      cutIn: castNumber <= 1 ? "none" : current.joined === "continue" ? "extends" : "cut",
-      transition: current.transition?.kind ?? null,
-      setTransition: (kind) => patchNow({ clip: current.id, patch: { transition: kind ? (current.transition ? { ...current.transition, kind, ms: TRANSITIONS[kind].ms } : newTransition(kind)) : null } }),
-      // its menu's Slow motion and Motion transfer in windows, on the same conditions (menus.tsx)
-      slow: current.kind === "video" && current.take ? (factor) => barActs.current.rangeAct.mutate({ slow: factor, inMs: current.atMs, outMs: current.atMs + current.lengthMs }) : null,
-      toSource: current.kind === "video" && current.take && !current.recipe ? () => {
-        const take = current.take!;
-        // as the menu does it: the source sits so that what the clip plays stays where it is; the clips made from it take its place
-        barActs.current.edit.mutate({ source: { asset: take.asset.id, atMs: current.atMs - take.startMs, fromMs: take.startMs, toMs: take.endMs, clip: current.id } });
-        barActs.current.openSource();
-      } : null,
-    });
-  }, [current, t, id, castNumber, castRecipe, patchNow, inputsOf]);
-  useEffect(() => () => useSelectedClip.getState().set(null), []);
+  // the selected clip, told to the command bar (useSelectedClipBridge.ts)
+  useSelectedClipBridge({ id, t, clips, current, recipes: recipes.data?.recipes, patch, inputsOf, rangeAct, edit, openSource });
 
   const { volume, muted, onVolume, onMute, cursor, setCursor, onTime, frameMs } = usePlayhead({ clock, clips, player, rangeRef, loopRef, playingRange, setPlaying });
   // a key held down sends one undo at a time: the next only once the last is back
