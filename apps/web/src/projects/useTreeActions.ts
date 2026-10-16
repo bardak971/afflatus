@@ -5,7 +5,7 @@ import { changeAssets } from "../assetChange";
 import { bringFiles } from "../bringFiles";
 import { ask, askAboutDisk, askText } from "../Confirm";
 import { plural, size } from "../format";
-import { pathOf, useFolderImport } from "../folderImport";
+import { IMPORT_UNDER_WAY, pathOf, useFolderImport } from "../folderImport";
 import { duplicateDraft } from "../draft";
 import { useProject } from "../project";
 import { useSayFailed } from "../sayFailed";
@@ -251,14 +251,21 @@ export function useTreeActions() {
      */
     async importFolder(files: File[], t: Target, client: QueryClient) {
       if (!files.length) return;
+      // one import at a time: refused before anything is made or said imported
+      const busy = () => say({ id: "tree-import-busy", tone: "bad", title: IMPORT_UNDER_WAY });
+      if (useFolderImport.getState().busy()) return busy();
       const at = await self.landing(t);
       if (!at) return;
+      let { folder } = at;
+      let inside = false;
       if (t.kind === "group" && t.group === null) {
+        // the files go into the folder made here, never into another project's top folder of the same name
         const top = pathOf(files[0]!)[0];
-        if (top && !(await run(`${top} could not be made in the Inbox`, () => api.createFolder(top, null, null)))) return;
+        if (top && !(await run(`${top} could not be made in the Inbox`, async () => { folder = (await api.createFolder(top, null, null)).id; }))) return;
+        inside = Boolean(top);
       }
       if (at.made) say({ id: `tree-root:${Date.now()}`, tone: "good", title: `${t.name} has a root folder now`, text: "The folder is imported into it.", href: "/", go: "Open the Studio" });
-      await useFolderImport.getState().start(files, at.folder, client);
+      if (!(await useFolderImport.getState().start(files, folder, client, inside))) busy();
       refresh();
     },
     /** Files dropped from the computer: uploaded (pictures, videos, sounds) where they were dropped, into its directory for a folder of the disk. Folders dropped are not read. */

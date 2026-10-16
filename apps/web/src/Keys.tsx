@@ -78,7 +78,10 @@ export function plainKey(e: KeyboardEvent, opts: { over?: string } = {}): boolea
 export function useSearchKey(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const shown = (el: Element) => el.getClientRects().length > 0;
+      // A modal open (a question, the Deploy dialog) keeps the keys: only a search box inside the topmost one is reached,
+      // never one behind it, where the focus would go out of sight of the dialog (as Dialog.tsx's dialogOver says).
+      const top = [...document.querySelectorAll("[role=dialog][aria-modal=true]")].at(-1);
+      const shown = (el: Element) => el.getClientRects().length > 0 && (!top || top.contains(el));
       // "/" pressed inside a search box goes on to the next search box on screen (the shelf's, the form's, the view's), round and round
       const active = document.activeElement;
       if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey && active instanceof HTMLInputElement && active.matches("input[data-search]")) {

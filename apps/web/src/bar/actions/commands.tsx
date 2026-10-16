@@ -191,7 +191,9 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       // the first ComfyUI, or the one named: its own page (locked, through its login: lock-api.ts pageUrl)
       const m = c.machine ? machineByName(queue?.machines, c.machine) : queue?.machines[0];
       if (c.machine && !m) return [{ label: `No ComfyUI called ${c.machine}`, icon: <Server size={14} />, disabled: true, run: () => {} }];
-      return [{ label: m && c.machine ? `Open ComfyUI on ${machineLabel(m)}` : "Open ComfyUI", icon: <Server size={14} />, note: "its own page, in a new tab", disabled: m?.online === false && !m.locked, run: () => openComfy.mutate(m?.id ?? "m1") }];
+      // The machines not read yet (or none set up): off, rather than a guessed id that names a removed machine.
+      if (!m) return [{ label: "Open ComfyUI", icon: <Server size={14} />, note: queue ? "no ComfyUI set up" : "the machines are not read yet", disabled: true, run: () => {} }];
+      return [{ label: c.machine ? `Open ComfyUI on ${machineLabel(m)}` : "Open ComfyUI", icon: <Server size={14} />, note: "its own page, in a new tab", disabled: m.online === false && !m.locked, run: () => openComfy.mutate(m.id) }];
     }
     case "load-panel": {
       // the panel by the status bar (LoadPanel.tsx), on the machine named when there is one
