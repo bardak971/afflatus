@@ -63,6 +63,28 @@ describe("a ComfyUI busy outside Afflatus", () => {
     expect((await row(b)).machine_id).toBe("m1");
   });
 
+  it("is timed on a machine with an open pod session, for Queue › Costs: from the read that finds it running to the one that finds it over", async () => {
+    const stretches = () => t.db.selectFrom("pod_outside").select(["session_id", "machine_id", "ended_at"]).execute();
+    // this PC's own machine: no session, nothing kept
+    const theirs = await queueFromItsPage(one);
+    one.pending = [];
+    one.running = [theirs];
+    expect(await t.services.queue.busyOutside("m1")).toBe(true);
+    await t.services.podOutside.settled();
+    expect(await stretches()).toEqual([]);
+    // the same machine as a pod billed now (an open rent session): kept while it runs, closed when a read finds it over
+    await t.db.insertInto("rent_sessions").values({ id: "s1", machine_id: "m1", pod: "p", rate: 0.2, started_at: new Date(Date.now() - 60_000).toISOString(), ended_at: null, seen_at: null, gpu: null, up_at: null, idle_minutes: 10, busy_at: null }).execute();
+    expect(await t.services.queue.busyOutside("m1")).toBe(true);
+    await t.services.podOutside.settled();
+    expect(await stretches()).toEqual([{ session_id: "s1", machine_id: "m1", ended_at: null }]);
+    expect(t.services.podOutside.timing("m1")).toBe(true);
+    one.running = [];
+    expect(await t.services.queue.busyOutside("m1")).toBe(false);
+    await t.services.podOutside.settled();
+    expect((await stretches())[0]!.ended_at).not.toBeNull();
+    expect(t.services.podOutside.timing("m1")).toBe(false);
+  });
+
   it("is not unloaded by Unload idle, and counts as busy for /metrics", async () => {
     const theirs = await queueFromItsPage(one);
     // a pass that reads the machines finds it (an open page's poll, or a job to place)

@@ -200,3 +200,23 @@ describe("migration 0073, the work of the renders recorded before their recipes 
     await db.destroy();
   });
 });
+
+describe("migration 0077, a pod's work from outside Afflatus", () => {
+  const tables = async (db: ReturnType<typeof openSqlite>) => (await sql<{ name: string }>`select name from sqlite_master where type = 'table'`.execute(db)).rows.map((r) => r.name);
+
+  it("keeps its stretches by session, an open one without its end; and is taken back", async () => {
+    const db = openSqlite(":memory:");
+    await migrate(db, "0076_rent_boot");
+    expect(await tables(db)).not.toContain("pod_outside");
+    expect(await migrate(db)).toContain("0077_pod_outside");
+    const at = new Date().toISOString();
+    await db.insertInto("pod_outside").values([
+      { id: "o1", session_id: "s1", machine_id: "rp", started_at: at, seen_at: at, ended_at: at },
+      { id: "o2", session_id: "s1", machine_id: "rp", started_at: at, seen_at: at, ended_at: null },
+    ]).execute();
+    expect(await db.selectFrom("pod_outside").select("id").where("session_id", "=", "s1").where("ended_at", "is", null).execute()).toEqual([{ id: "o2" }]);
+    await migrate(db, "0076_rent_boot");
+    expect(await tables(db)).not.toContain("pod_outside");
+    await db.destroy();
+  });
+});

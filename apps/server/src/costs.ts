@@ -16,20 +16,21 @@ import type { Settings } from "./settings";
  *
  * A session's time is cut into what the pod did, which always adds up to its length (and its cost to its length × its rate):
  * a render under way is Rendering (Failed renders when it did not finish), a file coming is Fetching files, before its
- * ComfyUI first answered is Booting, and the rest is Idle. A session before those were kept has its boot's end and its files
- * worked out from what there is, and says so ("estimated").
+ * ComfyUI first answered is Booting, work queued in its ComfyUI from outside Afflatus (its own page, another tool: pod_outside)
+ * is Outside Afflatus, and the rest is Idle. A session before those were kept has its boot's end and its files worked out from
+ * what there is, and says so ("estimated"); one before 0077 has no outside work, all of that time idle as it was.
  *
  * Booting is cut further where its parts were kept (0076): pulling the image until its container came up, installing its node
  * packs' Python packages as its boot log says, starting ComfyUI for the rest; a start that failed is a failed start from its
  * container's start to its end. What is not known of a boot (a session before, a pod with no boot log) stays plain booting.
  */
 
-export type Part = "render" | "boot" | "fetch" | "idle" | "failed";
+export type Part = "render" | "boot" | "fetch" | "outside" | "idle" | "failed";
 /** The chart's series for what RunPod billed beyond Afflatus's count of the pods' time. */
 export const NOT_SPLIT = "Not split";
-export const PARTS: readonly Part[] = ["render", "boot", "fetch", "idle", "failed"];
+export const PARTS: readonly Part[] = ["render", "boot", "fetch", "outside", "idle", "failed"];
 export type PartMs = Record<Part, number>;
-const noParts = (): PartMs => ({ render: 0, boot: 0, fetch: 0, idle: 0, failed: 0 });
+const noParts = (): PartMs => ({ render: 0, boot: 0, fetch: 0, outside: 0, idle: 0, failed: 0 });
 /** Booting's parts: pulling the image, the node packs, starting ComfyUI, a start that failed, and a boot not known in parts. */
 export type BootPart = "pull" | "packs" | "comfy" | "startFailed" | "boot";
 export const BOOT_PARTS: readonly BootPart[] = ["pull", "packs", "comfy", "startFailed", "boot"];
@@ -75,6 +76,8 @@ export interface SessionFacts {
   usualBootMs: number | null;
   /** Its boot's parts, where kept. */
   boot?: BootFacts;
+  /** When its ComfyUI ran work from outside Afflatus (pod_outside, 0077); none before. */
+  outside?: Array<{ from: number; to: number }>;
 }
 
 /**
@@ -93,8 +96,9 @@ function bootPartAt(b: BootFacts | undefined, t: number): BootPart {
 
 /**
  * A session's time cut into what its pod did, in order, adding up to its length: Rendering or Failed renders under a render,
- * else Fetching files under a file, else Booting before its ComfyUI first answered, else Idle. `estimated` says what was
- * worked out rather than kept.
+ * else Fetching files under a file, else Booting before its ComfyUI first answered, else Outside Afflatus under work from
+ * outside it, else Idle. Outside work only ever takes idle time: where it overlaps a render, a file or the boot, those keep
+ * their time, so that nothing is counted twice. `estimated` says what was worked out rather than kept.
  */
 export function splitSession(f: SessionFacts): { spans: Span[]; estimated: string[] } {
   const estimated: string[] = [];
@@ -121,7 +125,8 @@ export function splitSession(f: SessionFacts): { spans: Span[]; estimated: strin
   const marks = new Set<number>([f.from, f.to, bootEnd]);
   // where a boot's parts change, within its boot
   for (const t of [f.boot?.pulledAt, f.boot?.packs?.from, f.boot?.packs?.to]) if (t !== undefined && t !== null && t < bootEnd) marks.add(clip(t));
-  for (const r of [...f.renders, ...f.fetches]) {
+  const outside = f.outside ?? [];
+  for (const r of [...f.renders, ...f.fetches, ...outside]) {
     marks.add(clip(r.from));
     marks.add(clip(r.to));
   }
@@ -132,7 +137,7 @@ export function splitSession(f: SessionFacts): { spans: Span[]; estimated: strin
     if (b <= a) continue;
     const mid = (a + b) / 2;
     const render = f.renders.find((r) => r.from <= mid && mid < r.to);
-    const part: Part = render ? (render.ok ? "render" : "failed") : f.fetches.some((x) => x.from <= mid && mid < x.to) ? "fetch" : mid < bootEnd ? "boot" : "idle";
+    const part: Part = render ? (render.ok ? "render" : "failed") : f.fetches.some((x) => x.from <= mid && mid < x.to) ? "fetch" : mid < bootEnd ? "boot" : outside.some((x) => x.from <= mid && mid < x.to) ? "outside" : "idle";
     // a boot span says its part, but for a plain one (as before 0076)
     const sub = part === "boot" ? bootPartAt(f.boot, mid) : "boot";
     const boot = sub === "boot" ? undefined : sub;
@@ -390,6 +395,7 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
     .execute();
   const fetches = await db.selectFrom("pod_fetches").selectAll().where("ended_at", ">=", iso(sFrom)).where("started_at", "<=", iso(sTo)).execute();
   const measures = await db.selectFrom("pod_measures").selectAll().where("at", ">=", iso(sFrom)).where("at", "<=", iso(sTo + 60_000)).execute();
+  const outside = await outsideOf(db, sFrom, sTo);
   const boots = (await db.selectFrom("pod_measures").select("ms").where("kind", "=", "boot").orderBy("at", "desc").limit(12).execute()).map((r) => Number(r.ms));
   const usualBootMs = median(boots);
   const lastDeployIdle = d.settings.lastDeploy?.idleMinutes ?? 10;
@@ -411,7 +417,7 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
 
   const sessions: SessionView[] = [];
   const whereMs = noParts();
-  const whereUsd: Record<Part, number> = { render: 0, boot: 0, fetch: 0, idle: 0, failed: 0 };
+  const whereUsd: Record<Part, number> = noParts();
   const bootMs = noBoot();
   const bootUsd = noBoot();
   const bootsOf: BootSeen[] = [];
@@ -424,7 +430,7 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
   for (const r of rows) {
     const from = Date.parse(r.started_at);
     const to = r.ended_at ? Date.parse(r.ended_at) : now;
-    const { mine, kept, guessed, split } = sessionOf(r, { renders: podRenders, fetches, measures, usualBootMs }, now);
+    const { mine, kept, guessed, split } = sessionOf(r, { renders: podRenders, fetches, measures, usualBootMs, outside }, now);
     if (split.estimated.length) estimatedAny = true;
     const parts = partsOf(split.spans);
     const boot = bootPartsOf(split.spans);
@@ -451,7 +457,7 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
     for (const x of mine) renderRate.set(x.row.id, r.rate);
     const its = mine.map((x) => ({ id: x.row.id, at: x.to, ms: x.row.total_ms, status: x.row.status, model: nameOf(d.registry, x.row.recipe_id), usd: usdOf(x.row.total_ms, r.rate), item: refs.get(x.row.id)?.item ?? null }));
     sessions.push({
-      id: r.id, machine: r.machine_id, gpu, rate: r.rate, from, to, open: !r.ended_at, usd: usdOf(to - from, r.rate), parts, boot, startFailed: r.start_failed, packs, estimated: split.estimated, why: whyOf(its), idleMinutes: idle,
+      id: r.id, machine: r.machine_id, gpu, rate: r.rate, from, to, open: !r.ended_at, usd: usdOf(to - from, r.rate), parts, boot, startFailed: r.start_failed, packs, estimated: split.estimated, why: whyOf(its, parts.outside), idleMinutes: idle,
       fetched: { files: kept.length + guessed.length, bytes: [...kept.map((f) => Number(f.bytes)), ...guessed.map((m) => Number(m.bytes))].reduce((n, b) => n + b, 0) },
       renders: its.sort((a, b) => a.at - b.at),
     });
@@ -566,7 +572,7 @@ export function bootFactsOf(r: Pick<SessionRow, "pulled_at" | "packs_from" | "pa
  */
 function sessionOf<R extends { machine_id: string | null; created_at: string; total_ms: number; status: string }>(
   r: SessionRow,
-  around: { renders: readonly R[]; fetches: ReadonlyArray<Selectable<Tables["pod_fetches"]>>; measures: ReadonlyArray<Selectable<Tables["pod_measures"]>>; usualBootMs: number | null },
+  around: { renders: readonly R[]; fetches: ReadonlyArray<Selectable<Tables["pod_fetches"]>>; measures: ReadonlyArray<Selectable<Tables["pod_measures"]>>; usualBootMs: number | null; outside: OutsideBySession },
   now: number,
 ) {
   const from = Date.parse(r.started_at);
@@ -583,8 +589,28 @@ function sessionOf<R extends { machine_id: string | null; created_at: string; to
     fetches: [...kept.map((x) => ({ from: Date.parse(x.started_at), to: Date.parse(x.ended_at) })), ...guessed.map((m) => ({ from: Date.parse(m.at) - Number(m.ms), to: Date.parse(m.at) }))],
     fetchesGuessed: old,
     boot: bootFactsOf(r),
+    outside: around.outside.get(r.id) ?? [],
   });
   return { mine, kept, guessed, split };
+}
+
+/** Each session's stretches of work from outside Afflatus (pod_outside), by its id. */
+type OutsideBySession = Map<string, Array<{ from: number; to: number }>>;
+
+/**
+ * The stretches of work from outside Afflatus seen between two moments, by session: each to its end, or, one still open (its
+ * session running, or Afflatus stopped before its end was read), to its last sight, never further than what was seen.
+ * `splitSession` clips them to their session.
+ */
+async function outsideOf(db: Db, from: number, to: number): Promise<OutsideBySession> {
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const rows = await db.selectFrom("pod_outside").select(["session_id", "started_at", "seen_at", "ended_at"]).where("seen_at", ">=", iso(from)).where("started_at", "<=", iso(to)).execute();
+  const out: OutsideBySession = new Map();
+  for (const r of rows) {
+    const span = { from: Date.parse(r.started_at), to: Date.parse(r.ended_at ?? r.seen_at) };
+    if (span.to > span.from) out.set(r.session_id, [...(out.get(r.session_id) ?? []), span]);
+  }
+  return out;
 }
 
 /** How many of the latest sessions a deploy's usual boot and idle are read from. */
@@ -620,11 +646,12 @@ export async function deployOverhead(db: Db, now = Date.now(), o: { volume?: boo
   const fetches = await db.selectFrom("pod_fetches").selectAll().where("ended_at", ">=", iso(sFrom)).where("started_at", "<=", iso(sTo)).execute();
   const measures = await db.selectFrom("pod_measures").selectAll().where("at", ">=", iso(sFrom)).where("at", "<=", iso(sTo + 60_000)).execute();
   const usualBootMs = median((await db.selectFrom("pod_measures").select("ms").where("kind", "=", "boot").orderBy("at", "desc").limit(12).execute()).map((r) => Number(r.ms)));
+  const outside = await outsideOf(db, sFrom, sTo);
   const boots: number[] = [];
   const idles: number[] = [];
   const fetched: number[] = [];
   for (const r of rows) {
-    const { split } = sessionOf(r, { renders, fetches, measures, usualBootMs }, now);
+    const { split } = sessionOf(r, { renders, fetches, measures, usualBootMs, outside }, now);
     const parts = partsOf(split.spans);
     boots.push(parts.boot);
     idles.push(idleTail(split.spans, false));
@@ -645,9 +672,9 @@ function groupBy<T>(list: readonly T[], key: (x: T) => string): Map<string, T[]>
   return out;
 }
 
-/** What a session was for, as its row says it: what it rendered most of, or that it rendered nothing. */
-function whyOf(renders: ReadonlyArray<{ status: string; item: ItemRef | null; usd: number }>): string {
-  if (!renders.length) return "no render";
+/** What a session was for, as its row says it: what it rendered most of, or that it rendered nothing (but work from outside Afflatus). */
+function whyOf(renders: ReadonlyArray<{ status: string; item: ItemRef | null; usd: number }>, outsideMs = 0): string {
+  if (!renders.length) return outsideMs > 0 ? "no render, work outside Afflatus" : "no render";
   const failed = renders.filter((r) => r.status !== "done").length;
   const byItem = groupBy(renders.filter((r) => r.item), (r) => r.item!.id);
   const top = [...byItem.values()].sort((a, b) => b.reduce((n, r) => n + r.usd, 0) - a.reduce((n, r) => n + r.usd, 0))[0];

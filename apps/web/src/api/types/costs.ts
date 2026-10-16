@@ -1,6 +1,6 @@
 /** The Queue's Costs tab (GET /api/costs; the server's costs.ts): what the rented GPUs cost and where it went, and this PC's electricity. */
 
-export type CostPart = "render" | "boot" | "fetch" | "idle" | "failed";
+export type CostPart = "render" | "boot" | "fetch" | "outside" | "idle" | "failed";
 export type PartMs = Record<CostPart, number>;
 /** Booting's parts: pulling the image, the node packs' installs, starting ComfyUI, a start that failed, and a boot not known in parts. */
 export type BootPart = "pull" | "packs" | "comfy" | "startFailed" | "boot";

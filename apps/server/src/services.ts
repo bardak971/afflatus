@@ -7,6 +7,7 @@ import type { LibraryChange } from "./events";
 import { Downloads } from "./downloads";
 import { ModelHashes } from "./modelHashes";
 import { PodFiles } from "./podFiles";
+import { PodOutside } from "./podOutside";
 import { presetsWithFiles } from "./presetFiles";
 import { ShippedPresets, shippedPresetsDir } from "./presetFiles";
 import { DEFAULT_QUEUE_OPTIONS, podFetchOf, Queue, type QueueOptions } from "./queue";
@@ -57,6 +58,8 @@ export interface Services {
   hunt: Hunt;
   /** The model files rented pods are getting (podFiles.ts). */
   podFiles: PodFiles;
+  /** The pods' time at work from outside Afflatus, for Queue › Costs (podOutside.ts). */
+  podOutside: PodOutside;
   /** The presets that ship with Afflatus (the repository's `presets/` folder). */
   shippedPresets: ShippedPresets;
   /** Newer versions of the model files on Civitai. */
@@ -135,6 +138,10 @@ export async function createServices(
   queue.balanceNeed = (machine, recipeId, renderMs, fetchMs) => rented.balanceNeed(machine, recipeId, renderMs, fetchMs);
   // a pod up and not locked is locked (its address is public)
   rented.lockPod = (id) => lockMachine({ db, queue, machines }, id, { local: false, renew: false });
+  // a pod's time at work queued in its ComfyUI from outside Afflatus, kept for Queue › Costs: used, not idle
+  const podOutside = new PodOutside(db);
+  queue.onOutside = (id, outside) => podOutside.note(id, outside);
+  rented.outsideTimed = (id) => podOutside.timing(id);
   rented.run();
   // a render's end, a pod stopped, a cap: told where the user asked (notify.ts), never in the way of what it is about
   const notify = new Notify({ db, storage, registry, events: queue.events, stillFor: () => queue.stillFor(), batchCost: (from, to, notBefore) => rented.batchCost(from, to, notBefore) });
@@ -236,7 +243,7 @@ export async function createServices(
   const podFilesTimer = setInterval(() => void podFiles.tick().catch((err) => console.warn("[pod files]", (err as Error).message)), 1000);
   podFilesTimer.unref();
   const services: Services = {
-    db, dbKind, storage, linked, registry, comfy, machines, comfyOf, queue, timelines, rented, notify, access, podFiles, downloads,
+    db, dbKind, storage, linked, registry, comfy, machines, comfyOf, queue, timelines, rented, notify, access, podFiles, podOutside, downloads,
     shippedPresets,
     updates: null as unknown as Updates,
     hashes: null as unknown as ModelHashes,
@@ -257,6 +264,7 @@ export async function createServices(
       await services.hashes.stop();
       queue.stop();
       await queue.idle();
+      await podOutside.settled();
       pool.forEach((c) => c.close());
       await db.destroy();
     },
