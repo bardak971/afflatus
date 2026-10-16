@@ -10,7 +10,7 @@ import { api, type Machine, type MachineProbe, type MachineState } from "../../a
 import { useMenu } from "../../ContextMenu";
 import { useQueue, useSettings } from "../../data";
 import { gb, plural, usd } from "../../format";
-import { useCopied, useMedia } from "../../hooks";
+import { useCopied, useMedia, useSecond } from "../../hooks";
 import { machineLabel, machineState, rateParts, rentedSaid } from "../../machines";
 import { useQueueOps } from "../../queueOps";
 import { queryKeys } from "../../queryKeys";
@@ -305,7 +305,9 @@ const TAKES_SAID: Record<Machine["takes"], string> = { all: "takes everything", 
 /** One machine in a line (past four of them): its state, its GPU, what it takes. A click opens its card. */
 function MachineLine({ machine, index, probe, state, onOpen }: { machine: Machine; index: number; probe: MachineProbe | undefined; state: MachineState | undefined; onOpen(): void }) {
   const label = machineLabel(machine);
-  const said = state?.rented && (state.rented.status !== "RUNNING" || state.rented.booting) ? rentedSaid(state.rented) : state?.paused ? "paused" : probe && !probe.online ? "not answering" : state?.running ? "rendering" : probe ? "answering" : "…";
+  // a pod's boot counts by the second here too, on the clock the pill and its card read
+  const now = useSecond(Boolean(state?.rented?.boot));
+  const said = state?.rented && (state.rented.status !== "RUNNING" || state.rented.booting) ? rentedSaid(state.rented, now) : state?.paused ? "paused" : probe && !probe.online ? "not answering" : state?.running ? "rendering" : probe ? "answering" : "…";
   return (
     <button
       type="button"
