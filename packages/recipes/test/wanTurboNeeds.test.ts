@@ -38,3 +38,20 @@ describe("Turbo's LoRA in the other families", () => {
     expect(h3Video.needsWith!({ ...clip, fast: false } as never)).toEqual([]);
   });
 });
+
+describe("Turbo's needs with the model left to the family's file (review K-10)", () => {
+  it("read the file the build loads: a few-step file in the slot asks for no LoRA, a plain one does", async () => {
+    const { qwenPicture, qwenEdit } = await import("../src/qwen/index");
+    const { h3Video } = await import("../src/h3/video");
+    expect(qwenPicture.needsWith!({ fast: true } as never, { unet: "qwen_image_lightning_8steps.safetensors" })).toEqual([]);
+    expect(qwenPicture.needsWith!({ fast: true } as never, { unet: "qwen_image_fp8.safetensors" })).toEqual(["turbo"]);
+    expect(qwenEdit.needsWith!({ fast: true } as never, { edit: "qwen_image_edit_2511_lightning.safetensors" })).toEqual([]);
+    const clip = { fast: true, turboIn: "From the name", hybrid: "From the name", references: [], refVideos: [], voice: null };
+    expect(h3Video.needsWith!(clip as never, { unet: "DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors" })).toEqual([]);
+    expect(h3Video.needsWith!(clip as never, { unet: "minimax_h3_fl2va.safetensors" })).toEqual(["turbo"]);
+    // Wan: the way's own usual file when the model picked is not for this way (or none is)
+    const wan = { start: "p", fast: true, turboIn: "From the name" };
+    expect(wanVideo.needsWith!(wan as never, { i2vHigh: "wan2.2_i2v_high_lightx2v_4steps.safetensors" })).toEqual([]);
+    expect(wanVideo.needsWith!(wan as never, { i2vHigh: "wan2.2_i2v_high_noise_14B_fp8.safetensors" })).toEqual(["i2vTurboHigh", "i2vTurboLow"]);
+  });
+});

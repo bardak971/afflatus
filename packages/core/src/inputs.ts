@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { endsIn, MODEL_EXTS } from "./modelFiles";
+import { withinPixels } from "./frame";
 import { gridAtOrBefore, type FrameGrid } from "./frameGrid";
 
 /**
@@ -96,7 +97,11 @@ interface SizeInput extends Base {
    * short side"). The form then offers shapes, not pixels to type.
    */
   ratioOnly?: boolean;
-  /** With `ratioOnly`: the number input that gives the short side, and the most pixels the frame may have, so the form can say what frame comes out (see frameOf). */
+  /**
+   * With `ratioOnly`: the number input that gives the short side, and the most pixels the frame may have, so the form can say
+   * what frame comes out (see frameOf). Without it, `maxPixels` holds a size typed in pixels within what the model takes
+   * (see withinPixels): each edge alone within `max` still let a FLUX.1 picture be 2048 × 2048, twice what it draws.
+   */
   short?: string;
   maxPixels?: number;
   /** Inputs that decide the shape when they hold something (a start image, a clip joined): the shape then does nothing, and says so. */
@@ -118,6 +123,11 @@ interface NumberInput extends Base {
    * draft or saved setting holds is read as left alone (the default, or where a choice moves it), never as 0.
    */
   oldZero?: true;
+  /**
+   * 0 is taken too, below `min`, and means the recipe picks the value (said as this word): the steps then count from
+   * `min`, so that a grid like SeedVR2's 1, 5, 9 … 49 is what the arrows give, with 0 for "by the frame's size".
+   */
+  auto?: string;
 }
 interface ToggleInput extends Base {
   type: "toggle";
@@ -312,12 +322,16 @@ function schemaOf(spec: InputSpec): z.ZodType {
     case "size": {
       const shape = spec.shapes.find((s) => s.id === spec.default) ?? spec.shapes[0]!;
       const edge = z.number().min(spec.min).max(spec.max).transform((n) => multipleOf(n, spec.grid));
-      return z.object({ width: edge, height: edge }).default({ width: shape.width, height: shape.height });
+      const size = z.object({ width: edge, height: edge });
+      const most = !spec.ratioOnly ? spec.maxPixels : undefined;
+      return (most ? size.transform((v) => withinPixels(v, { grid: spec.grid, maxPixels: most, min: spec.min })) : size).default({ width: shape.width, height: shape.height });
     }
     case "number": {
       // a whole step from a whole start (steps, frames, a resolution): what takes it is an INT, which refuses 7.5
       const whole = [spec.step, spec.min, spec.default].every(Number.isInteger);
-      const n = (whole ? z.number().int() : z.number()).min(spec.min).max(spec.max).default(spec.default);
+      const base = whole ? z.number().int() : z.number();
+      if (spec.auto) return base.max(spec.max).refine((v) => v === 0 || v >= spec.min, { message: `0 (${spec.auto}) or at least ${spec.min}` }).default(spec.default);
+      const n = base.min(spec.min).max(spec.max).default(spec.default);
       return spec.oldZero ? z.preprocess((v) => (v === 0 ? undefined : v), n) : n;
     }
     case "toggle":

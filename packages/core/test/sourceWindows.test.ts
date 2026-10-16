@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { sourceWindows, windowBounds } from "../src/sourceWindows";
+import { gridAtOrBefore } from "../src/frameGrid";
+import { sourceWindows, windowBounds, type WindowShape } from "../src/sourceWindows";
 
 /** A long source made window by window: SCAIL-2's shape (16 fps, 321 frames a job, 5 carried) and a model's whose job is short (24 fps, 81, 1). */
 const SCAIL = { fps: 16, most: 321, least: 9, carried: 5 };
@@ -7,7 +8,32 @@ const SHORT = { fps: 24, most: 81, least: 9, carried: 1 };
 /** MiniMax H3's swap: 24 fps, 141 frames a window on H3's 17k + 5, 5 carried. */
 const SWAP = { fps: 24, most: 141, least: 90, carried: 5, grid: { step: 17, offset: 5 } };
 
+/**
+ * Every source length from 3 s to 60 s, a window asked at the shortest, 5 s and the longest: what is left out at the end is
+ * under a step of the grid, unless the last window already holds a job's most (then the rest was too short for a job).
+ */
+function leftOutBadly(shape: WindowShape): string[] {
+  const grid = shape.grid ?? { step: 4, offset: 1 };
+  const most = gridAtOrBefore(shape.most, grid);
+  const bounds = windowBounds(shape);
+  const bad: string[] = [];
+  for (const windowMs of [bounds.leastMs, 5000, bounds.mostMs]) {
+    for (let toMs = 3000; toMs <= 60000; toMs += 7) {
+      const w = sourceWindows({ fromMs: 0, toMs, windowMs, shape });
+      const last = w.at(-1);
+      if (!last) continue;
+      const n = Math.round(last.seconds * shape.fps - 0.5);
+      if (toMs - last.toMs > (grid.step * 1000) / shape.fps && n < most) bad.push(`${windowMs} ms windows to ${toMs}: ${toMs - last.toMs} ms left out after ${n} frames`);
+    }
+  }
+  return bad;
+}
+
 describe("a source's windows", () => {
+  it("leave out no more of the end than taking the last window whole would, for every shape (review K-7)", () => {
+    // H3's swap to 25.7 s ended at 21.5 s: the last two shared what was left, and the rest was too short for a job
+    for (const shape of [SWAP, SCAIL, SHORT]) expect(leftOutBadly(shape).slice(0, 3), JSON.stringify(shape)).toEqual([]);
+  });
   it("are on the model's own grid when it has one: H3's swap windows are 17k + 5 frames, the carried 5 among them", () => {
     const w = sourceWindows({ fromMs: 3000, toMs: 28000, windowMs: 5000, shape: SWAP });
     const frames = (x: { seconds: number }) => Math.round(x.seconds * 24 - 0.5);

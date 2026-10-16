@@ -8,6 +8,8 @@ describe("defaults", () => {
     for (const r of recipes) {
       for (const i of r.inputs) {
         if (i.type !== "number" || typeof i.default !== "number") continue;
+        // a number with an "auto" 0 below its range (SeedVR2's frames together, by size) may start on it
+        if (i.auto && i.default === 0) continue;
         if ((i.min !== undefined && i.default < i.min) || (i.max !== undefined && i.default > i.max)) out.push(`${r.id} ${i.id}: ${i.default} not in ${i.min}–${i.max}`);
       }
     }

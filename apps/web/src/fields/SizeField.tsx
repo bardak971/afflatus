@@ -1,5 +1,5 @@
 import { ArrowLeftRight } from "lucide-react";
-import { frameOf, megapixels, type InputSpec, type SizeValue } from "@afflatus/core";
+import { frameOf, megapixels, withinPixels, type InputSpec, type SizeValue } from "@afflatus/core";
 import { scaleOf, upscaledFrame } from "../form";
 import { Select } from "../Select";
 import { cx, NumberBox, Segmented } from "../ui";
@@ -33,6 +33,8 @@ export function SizeField({ spec, value: size, values, onChange }: { spec: Extra
   const decidedBy = (spec.decidedBy ?? []).find((id) => { const v = values?.[id]; return Array.isArray(v) ? v.length > 0 : Boolean(v); });
   const deciderLabel = decidedBy ? (/previous|next|clip/i.test(decidedBy) ? "the clip it joins" : "the start image") : null;
   const snap = (n: number) => snapEdge(spec, n);
+  // an edge typed past the most pixels the model takes: it is kept and the other edge gives way, as the render would hold it
+  const typed = (v: SizeValue, keep: "width" | "height") => (spec.maxPixels ? withinPixels(v, { grid: spec.grid, maxPixels: spec.maxPixels, min: spec.min }, keep) : v);
   // the pixels to keep when the proportions change: those of the size now, or of the recipe's own shape before one is set
   const first = spec.shapes.find((s) => s.id === spec.default) ?? spec.shapes[0]!;
   const area = size.width && size.height ? size.width * size.height : first.width * first.height;
@@ -77,11 +79,11 @@ export function SizeField({ spec, value: size, values, onChange }: { spec: Extra
       )}
       {!spec.ratioOnly && (
         <div className="flex items-center gap-2 text-ink-2">
-          <NumberBox label="Width, in pixels" value={size.width} min={spec.min} max={spec.max} step={spec.grid} unit="px" onCommit={(width) => onChange({ width: snap(width), height: size.height })} />
+          <NumberBox label="Width, in pixels" value={size.width} min={spec.min} max={spec.max} step={spec.grid} unit="px" onCommit={(width) => onChange(typed({ width: snap(width), height: size.height }, "width"))} />
           <button type="button" aria-label="Swap width and height" data-tip="Swap width and height" onClick={() => onChange({ width: size.height, height: size.width })} className="flex h-8 w-8 items-center justify-center rounded-md border border-line-strong hover:bg-hover">
             <ArrowLeftRight size={14} />
           </button>
-          <NumberBox label="Height, in pixels" value={size.height} min={spec.min} max={spec.max} step={spec.grid} unit="px" onCommit={(height) => onChange({ width: size.width, height: snap(height) })} />
+          <NumberBox label="Height, in pixels" value={size.height} min={spec.min} max={spec.max} step={spec.grid} unit="px" onCommit={(height) => onChange(typed({ width: size.width, height: snap(height) }, "height"))} />
           <span className="text-xs">width × height</span>
         </div>
       )}

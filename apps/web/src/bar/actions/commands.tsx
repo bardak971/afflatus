@@ -1,5 +1,5 @@
 import { Bell, LogOut, Bookmark, ChevronLeft, ChevronRight, Clapperboard, CircleDollarSign, Download, Eye, FileOutput, FileUp, Film, FlipHorizontal2, FolderPlus, Gauge, Layers, Link2, MemoryStick, Pause, PenLine, Play, Plug, RotateCcw, Search, Server, Sparkles, Split, Square, Trash2, Undo2, Wand2, X } from "lucide-react";
-import { TRANSITIONS } from "@afflatus/core";
+import { TRANSITIONS, withinPixels } from "@afflatus/core";
 import { ask } from "../../Confirm";
 import { openFindModels } from "../../findModels/store";
 import { askGoBack, followRestart, useUpdatesSeen } from "../../updates";
@@ -97,13 +97,15 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
         const where = `In the open draft (${t.recipe.title}).`;
         if (c.cmd === "size") {
           if (spec.type !== "size") return;
-          const fit = { width: snapEdge(spec, c.width), height: snapEdge(spec, c.height) };
+          const edges = { width: snapEdge(spec, c.width), height: snapEdge(spec, c.height) };
+          // and within the most pixels the model takes, as the render holds it
+          const fit = spec.maxPixels ? withinPixels(edges, { grid: spec.grid, maxPixels: spec.maxPixels, min: spec.min }) : edges;
           t.set(spec.id, fit);
           const moved = fit.width !== c.width || fit.height !== c.height;
-          return good(`${spec.label || "Size"} set to ${fit.width}×${fit.height}`, moved ? `${c.width}×${c.height} put on its grid of ${spec.grid}, ${spec.min} to ${spec.max} px a side. ${where}` : where);
+          return good(`${spec.label || "Size"} set to ${fit.width}×${fit.height}`, moved ? `${c.width}×${c.height} put on its grid of ${spec.grid}, ${spec.min} to ${spec.max} px a side${spec.maxPixels ? ", within the pixels the model takes" : ""}. ${where}` : where);
         }
         const value = c.cmd === "length" ? c.seconds : c.value;
-        if (spec.type === "number" && (value < spec.min || value > spec.max)) return say({ id: "bar:form", tone: "bad", title: `${spec.label} goes from ${spec.min} to ${spec.max}`, href: "/", go: "Open the Studio" });
+        if (spec.type === "number" && !(spec.auto && value === 0) && (value < spec.min || value > spec.max)) return say({ id: "bar:form", tone: "bad", title: `${spec.label} goes from ${spec.min} to ${spec.max}`, href: "/", go: "Open the Studio" });
         t.set(spec.id, value);
         good(`${spec.label || c.cmd} set to ${value}`, where);
       };

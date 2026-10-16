@@ -17,7 +17,8 @@ export function carryOver(from: RecipeInfo, to: RecipeInfo, stored: Record<strin
         if (was.type === "prompt" && was.style === i.style) out[i.id] = value;
         break;
       case "number":
-        if (was.type === "number" && was.default === i.default && typeof value === "number") out[i.id] = Math.min(i.max, Math.max(i.min, value));
+        // a number's "auto" 0 sits below its range and is kept as it is
+        if (was.type === "number" && was.default === i.default && typeof value === "number") out[i.id] = i.auto && value === 0 ? 0 : Math.min(i.max, Math.max(i.min, value));
         break;
       case "toggle":
         if (was.type === "toggle" && was.default === i.default) out[i.id] = value;

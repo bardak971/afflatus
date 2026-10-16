@@ -37,6 +37,20 @@ export function frameOf(shape: { width: number; height: number }, short: number,
 }
 
 /**
+ * A size typed in pixels held within the most pixels the model takes, on its grid. `keep`: the edge just typed stays
+ * and the other gives way; else both shrink alike, the proportions kept (a size saved before the limit was enforced).
+ * A size within it comes back as it is.
+ */
+export function withinPixels(size: { width: number; height: number }, by: { grid: number; maxPixels: number; min?: number }, keep?: "width" | "height"): { width: number; height: number } {
+  if (size.width * size.height <= by.maxPixels) return size;
+  const least = Math.max(by.grid, by.min ?? by.grid);
+  const down = (n: number) => Math.max(least, Math.floor(n / by.grid) * by.grid);
+  if (keep === "width") return { width: size.width, height: down(by.maxPixels / size.width) };
+  if (keep === "height") return { width: down(by.maxPixels / size.height), height: size.height };
+  return frameOf(size, Math.min(size.width, size.height), by);
+}
+
+/**
  * The run-up of a continuation a finish need not restore: the frames it shares with the clip before, hidden under that
  * clip's end, less a margin. They are never seen (a trim only moves the start later; a seamless join shows one frame early,
  * the export half a frame), yet they are 0.9 s of a 5.9 s H3 continuation. The finish enlarges them plainly (lanczos), so

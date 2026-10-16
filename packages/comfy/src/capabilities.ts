@@ -81,7 +81,7 @@ type FamilyStatus = Scan["families"][number];
  * Each family's slots: the file found for each (by hand, by name, or by what its weights say), what can be
  * chosen, and the slots another one makes unneeded.
  */
-async function slotFiles(families: Family[], files: Files, overrides: SlotOverrides, infoOf: InfoLookup): Promise<FamilyStatus[]> {
+async function slotFiles(families: Family[], files: Files, overrides: SlotOverrides, infoOf: InfoLookup, shown: Set<string>): Promise<FamilyStatus[]> {
   const found = await Promise.all(
     families.map(async (f) => ({
       id: f.id,
@@ -94,8 +94,10 @@ async function slotFiles(families: Family[], files: Files, overrides: SlotOverri
           const auto = detect(list, s.detect) ?? byWeights[0] ?? null;
           const byHand = Boolean(chosen && list.includes(chosen));
           const patterns = s.detect.map((d) => new RegExp(d, "i"));
+          // a file only hidden recipes use is not offered for download: what it is for cannot be opened
+          const offered = s.get && (!s.onlyFor || s.onlyFor.some((id) => shown.has(id)));
           return {
-            id: s.id, label: s.label, folder: s.folder, optional: Boolean(s.optional), hint: s.hint, ...(s.get ? { get: s.get } : {}),
+            id: s.id, label: s.label, folder: s.folder, optional: Boolean(s.optional), hint: s.hint, ...(offered ? { get: s.get } : {}),
             file: byHand ? chosen! : auto, auto, chosen: byHand,
             choices: [...new Set([...list.filter((x) => patterns.some((re) => re.test(x))), ...byWeights, ...(byHand ? [chosen!] : [])])],
           };
@@ -264,7 +266,7 @@ export async function scan(
     return p;
   };
 
-  const familyStatus = await slotFiles(families, files, overrides, infoOf);
+  const familyStatus = await slotFiles(families, files, overrides, infoOf, new Set(recipes.filter((r) => !r.hidden).map((r) => r.id)));
   const readiness = await readinessOf(recipes, catalog);
   const recipeStatus = await Promise.all(
     recipes.map(async (r): Promise<RecipeStatus> => {
