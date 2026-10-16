@@ -4,6 +4,23 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-16
+
+### Added
+- **Export CSV** on the Queue's **Costs** and **Render times** tabs: what the tab shows (its window and filters), every row, built by the server. Costs: one row per pod session (its boot split, files fetched, render, idle, its cost) and this month's volumes; Render times: one row per render (machine, GPU, model, size, steps, its time split, VRAM and temperature peaks, its cost). Standard CSV (comma, dot decimals, UTF-8, times in UTC), no prompts; cells that would read as a formula in a spreadsheet are guarded.
+- **Busy outside Afflatus:** a ComfyUI running work queued from elsewhere (its own page, another tool) reads so on the machines pill, its card, the Queue and the status bar ("1 prompt running, 2 queued in ComfyUI") instead of idle. Afflatus sends it nothing meanwhile (another machine takes the job, or it waits in Afflatus's queue), does not unload its models, and does not call a render waiting behind that work stuck. A rented pod is not stopped by its idle time while that work runs; spending caps still stop it.
+- **Outside Afflatus in Costs:** a pod's time on that work is recorded and shown as its own part of the session, no longer as idle; the idle advice and the CSV (`outside_s`) count it as used.
+- **Create's stage:** a result picked while a render runs shows **Live preview** over it, with the render's step; it or Esc goes back to the live preview.
+- **Binning an item a draft still uses** asks once, naming the drafts (each opens it): take the item out of them (its field goes back to empty) or delete them, then it goes to the bin. Several items, one question. The open draft follows on screen.
+
+### Fixed
+- **Settings › ComfyUI:** a locked ComfyUI's Access line is whole again in the Connection card: the lock, the token's end, **Copy**, **Renew** and **Unlock** (0.5.0 showed only the switch there, its token out of reach).
+- **Spending caps on rented pods:** a cap is read before anything is asked of the pod's ComfyUI, and a render still queued in ComfyUI behind other work is not waited for at a cap (it could bill up to the cap's hour of grace).
+- **Several items to the bin at once:** those something still uses (a timeline, the Prompt kit, a job to run) stayed out without a word; it is said now.
+
+### Changed
+- Settings › Interface › Progress: the tiles show the motion alone, the help says each by its place.
+
 ## [0.5.0] - 2026-10-16
 
 ### Added
@@ -223,7 +240,8 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 The first release: the Studio and its library, a form per model family, timelines, the prompt kit, imported workflows, the queue, the node pack, the Docker image, the Helm chart and the desktop bundles.
 
-[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/bardak971/afflatus/releases/tag/v0.5.1
 [0.5.0]: https://github.com/bardak971/afflatus/releases/tag/v0.5.0
 [0.4.0]: https://github.com/bardak971/afflatus/releases/tag/v0.4.0
 [0.3.0]: https://github.com/bardak971/afflatus/releases/tag/v0.3.0
