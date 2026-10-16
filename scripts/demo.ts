@@ -11,7 +11,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { startFakeComfy, startFakeRunpod } from "@afflatus/comfy/testing";
+import { startFakeComfy, startFakeRunpod, startFakeS3 } from "@afflatus/comfy/testing";
 import type { Graph, NodeCatalog } from "@afflatus/core";
 import { buildApp } from "../apps/server/src/app";
 import { migrate, openSqlite, takeOver } from "../apps/server/src/db";
@@ -137,6 +137,34 @@ if (pretendRunpod) {
   process.env.RUNPOD_API_URL = pretendRunpod.url;
   process.env.RUNPOD_PROXY = "http://127.0.0.1:{id}";
 }
+// and its S3 API (a volume's Files): the first volume's models folder, some files untouched for weeks; the second volume is
+// in a data center RunPod's S3 API does not serve, so its Files say so
+const S3_USER = "user_demo";
+const S3_SECRET = "rps_demo_secret_0123";
+const GB = 2 ** 30;
+const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+const pretendS3 = pretendRunpod ? await startFakeS3({
+  user: S3_USER,
+  volumes: {
+    "demo-volume": Object.fromEntries(([
+      ["diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors", 14.3, 2],
+      ["diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors", 14.3, 2],
+      ["diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors", 20.4, 41],
+      ["text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors", 6.7, 2],
+      ["text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors", 9.4, 41],
+      ["checkpoints/illustrious.safetensors", 6.9, 9],
+      ["loras/Wan21_I2V_lightx2v_4steps_rank64.safetensors", 0.74, 2],
+      ["loras/Qwen-Image-Lightning-8steps-V2.0.safetensors", 0.85, 50],
+      ["loras/styles/zz-test watercolor.safetensors", 0.22, 60],
+      ["vae/wan_2.1_vae.safetensors", 0.25, 2],
+      ["vae/qwen_image_vae.safetensors", 0.25, 41],
+      ["upscale_models/4x-UltraSharp.pth", 0.067, 20],
+    ] as const).map(([path, gb, days]) => [`comfyui/models/${path}`, { size: Math.round(gb * GB), modified: daysAgo(days) }])),
+  },
+}) : null;
+if (pretendS3) process.env.RUNPOD_S3_URL = pretendS3.url;
+// the account's id, which the S3 key's access key is: RunPod tells it with the API key
+if (pretendRunpod) pretendRunpod.userId = S3_USER;
 
 /**
  * A pretend language model for the designer: it answers in the designer's format with what it was told,
@@ -270,6 +298,7 @@ const port = Number(process.env.PORT) || 8720;
 await app.listen({ host: "127.0.0.1", port });
 await services.queue.start();
 if (pretendRunpod) console.log(`Pretend RunPod at ${pretendRunpod.url}: its API key is ${RUNPOD_KEY}`);
+if (pretendS3) console.log(`Pretend S3 at ${pretendS3.url}: its S3 API key's secret is ${S3_SECRET}`);
 console.log(`Afflatus demo on http://127.0.0.1:${port}  (pretend ComfyUI at ${fake.url}, pretend designer at ${llmUrl}, data in ${process.env.DEMO_DATA ?? "data-demo"}/)`);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

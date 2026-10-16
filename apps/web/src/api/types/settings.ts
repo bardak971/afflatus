@@ -43,7 +43,7 @@ export type LlmPatch = Omit<LlmInfo, "hasApiKey"> & { apiKey?: string };
  * refused). As the answer says them, but for what the answer hides: the Civitai key itself, the models with their keys,
  * and `llm`, the model in use changed the short way. Held to the server's schema by test/apiTypes.test.ts.
  */
-export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiKey" | "hasHuggingFaceToken" | "hasRunpodKey" | "machines" | "notify" | "access">> & {
+export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiKey" | "hasHuggingFaceToken" | "hasRunpodKey" | "hasRunpodS3Secret" | "machines" | "notify" | "access">> & {
   /** Some of the password's settings; the password itself has its own routes (api.setPassword), never this. */
   /** Refused from the page: the Access settings go through api.accessSettings, which asks for the password. */
   access?: Partial<Omit<AccessSettings, "hasPassword" | "passwordSetAt" | "hasMetricsToken">> & {
@@ -58,6 +58,7 @@ export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiK
   civitaiKey?: string;
   huggingFaceToken?: string;
   runpodKey?: string;
+  runpodS3Secret?: string;
   /** The server's own list of secrets to delete once their pods are gone: the page never sends it. */
   leftSecrets?: Array<{ secret: string; pod: string }>;
   /** The server's own list of deploys whose machine is not saved yet: the page never sends it. */
@@ -235,6 +236,9 @@ export interface Settings {
   hasHuggingFaceToken: boolean;
   /** A RunPod API key is set (rented machines). */
   hasRunpodKey: boolean;
+  /** RunPod's S3 API key for the volume viewer: its access key (the user's id), and whether its secret is set. */
+  runpodS3User: string;
+  hasRunpodS3Secret: boolean;
   /** What the rented GPUs may cost, in USD, today and this month; 0: no cap. */
   rentCaps: { day: number; month: number };
   /** This PC's electricity, for the Costs tab: a kWh's price in the user's money (null: not said) and its symbol. */

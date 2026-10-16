@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { useLocation, useSearch } from "wouter";
 import { volumePerMonth } from "@afflatus/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { HardDrive, MoreHorizontal, Trash2 } from "lucide-react";
+import { FolderOpen, HardDrive, MoreHorizontal, Trash2 } from "lucide-react";
 import { api, type NetworkVolume, type VolumePlan } from "../../api";
 import { ContextMenu, useMenu } from "../../ContextMenu";
 import { DEPLOYED_READS } from "../../deployReads";
@@ -13,8 +14,9 @@ import { queryKeys } from "../../queryKeys";
 import { Select } from "../../Select";
 import { Button, cx, ErrorNote, fieldClass } from "../../ui";
 import { Block, Card } from "./Rows";
+import { VolumeFiles } from "./VolumeFiles";
 
-const WHY_VOLUMES = "A network volume keeps your models between deploys: a pod on it is up in a minute with what it holds, instead of fetching them each time. It bills every month, with or without a pod ($0.07 per GB, $0.05 past the first TB), and ties its pods to its data center. One pod at a time on a volume: Afflatus never puts a second one on it. What it holds is read through the last pod that ran on it (nothing can read a volume without a pod).";
+const WHY_VOLUMES = "A network volume keeps your models between deploys: a pod on it is up in a minute with what it holds, instead of fetching them each time. It bills every month, with or without a pod ($0.07 per GB, $0.05 past the first TB), and ties its pods to its data center. One pod at a time on a volume: Afflatus never puts a second one on it. Files shows what it holds, read through the pod running on it (or with no pod running, through RunPod's S3 API, with its optional key), and deletes what you no longer need to make room.";
 
 /** What a volume of that size costs a month at RunPod's price, to the cent (core's volumePerMonth, as the server says it). */
 const perMonth = (gbs: number) => Math.round(volumePerMonth(gbs) * 100) / 100;
@@ -31,8 +33,19 @@ export function VolumesCard() {
   const volumes = useQuery({ queryKey: queryKeys.runpodVolumes(), queryFn: ({ signal }) => api.runpodVolumes({ signal }), refetchInterval: 30_000, staleTime: 10_000, retry: false });
   // the GPUs in stock where each volume is: the plan reads RunPod's stock (the sets weighed are all of them)
   const plan = useQuery({ queryKey: queryKeys.volumePlan(null), queryFn: ({ signal }) => api.volumePlan(null, { signal }), staleTime: 60_000, retry: false });
-  const [open, setOpen] = useState<null | { kind: "make" } | { kind: "fill" | "grow" | "delete"; volume: NetworkVolume }>(null);
+  const [open, setOpen] = useState<null | { kind: "make" } | { kind: "fill" | "grow" | "delete"; volume: NetworkVolume } | { kind: "files"; volume: NetworkVolume; folder?: string; full?: boolean }>(null);
   const list = volumes.data?.volumes ?? [];
+  // a volume's Files asked for by its id (?volume=, a "volume is full" message's Open the volume): opened once it is listed,
+  // on the folder of the file that did not fit, the files no render used lately picked
+  const asked = new URLSearchParams(useSearch());
+  const [, go] = useLocation();
+  const askedVolume = list.find((v) => v.id === asked.get("volume")) ?? null;
+  useEffect(() => {
+    if (!askedVolume) return;
+    setOpen({ kind: "files", volume: askedVolume, folder: asked.get("folder") ?? undefined, full: asked.has("full") });
+    go("/settings/rented", { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per ask: the address is cleared at once
+  }, [askedVolume?.id]);
   return (
     <Card
       title="Network volumes"
@@ -58,6 +71,7 @@ export function VolumesCard() {
       {open?.kind === "fill" && <FillVolume volume={open.volume} onClose={() => setOpen(null)} />}
       {open?.kind === "grow" && <GrowVolume volume={open.volume} onClose={() => setOpen(null)} />}
       {open?.kind === "delete" && <DeleteVolume volume={open.volume} onClose={() => setOpen(null)} />}
+      {open?.kind === "files" && <VolumeFiles volume={open.volume.id} name={open.volume.name} folder={open.folder} pickUnused={open.full} onClose={() => setOpen(null)} />}
     </Card>
   );
 }
@@ -76,7 +90,7 @@ function Chip({ children, tone = "plain", tip }: { children: ReactNode; tone?: "
  * month; how many model files it holds; how its last fill ended; the GPUs a pod could have there now. Fill from a set first,
  * Grow and Delete behind its ⋯ (a row of three buttons outweighed what it said, the owner: "poor").
  */
-function VolumeRow({ v, stock, onAct }: { v: NetworkVolume; stock: Array<{ name: string; price: number }> | null; onAct(kind: "fill" | "grow" | "delete"): void }) {
+function VolumeRow({ v, stock, onAct }: { v: NetworkVolume; stock: Array<{ name: string; price: number }> | null; onAct(kind: "fill" | "grow" | "delete" | "files"): void }) {
   const mounted = v.mountedOn.length > 0;
   const more = useMenu<true>();
   const fill = v.lastFill;
@@ -90,6 +104,8 @@ function VolumeRow({ v, stock, onAct }: { v: NetworkVolume; stock: Array<{ name:
       <div className="flex min-w-0 grow flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[14px] font-semibold">{v.name}</span>
+          <span className="font-mono text-[11.5px] text-ink-3">{v.id}</span>
+          <Button size="sm" onClick={() => onAct("files")} data-tip="What it holds, with sizes and when a render last used each file: delete what you no longer need to make room"><FolderOpen size={13} /> Files</Button>
           <Chip>{v.dataCenter}</Chip>
           <Chip>{v.size} GB</Chip>
           <span className="font-mono text-xs text-ink-2">{usd(v.perMonth)}<span className="text-ink-3">/month</span></span>
@@ -107,8 +123,19 @@ function VolumeRow({ v, stock, onAct }: { v: NetworkVolume; stock: Array<{ name:
         <div className="flex flex-wrap items-center gap-1.5 text-[12.5px]">
           <span className="w-[92px] shrink-0 text-ink-3">Holds</span>
           {v.holds
-            ? <Chip tip={`As ${v.holds.seenBy} saw it ${when(v.holds.seenAt)}`}>{plural(v.holds.count, "model file")}</Chip>
-            : <span className="text-ink-3">not read yet: the next pod on it reads it</span>}
+            ? <button type="button" onClick={() => onAct("files")} className="rounded-md hover:brightness-125"><Chip tip={`As ${v.holds.seenBy} saw it ${when(v.holds.seenAt)}: open its Files`}>{plural(v.holds.count, "model file")}{v.listed && <> · {gb(v.listed.bytes)}</>}</Chip></button>
+            : <span className="text-ink-3">not read yet: open its Files, or the next pod on it reads it</span>}
+          {/* the models against its size, as last read through S3: amber from 90 %, where a big model no longer fits */}
+          {v.listed && (() => {
+            const share = v.listed.bytes / (v.size * 2 ** 30);
+            const full = share >= 0.9;
+            return (
+              <>
+                <span aria-hidden className="h-1.5 w-[140px] overflow-hidden rounded-sm bg-hover"><span className={cx("block h-1.5", full ? "bg-warn" : "bg-ink-3")} style={{ width: `${Math.min(100, share * 100)}%` }} /></span>
+                <span className={cx(full ? "text-warn-ink" : "text-ink-3")}>{full ? `${gb(v.listed.bytes)} of ${v.size} GB in models: a large model may no longer fit` : `of ${v.size} GB, ComfyUI's own files aside`}</span>
+              </>
+            );
+          })()}
         </div>
 
         {fill && (

@@ -436,3 +436,22 @@ def test_the_disk_is_said_and_a_model_file_removed_only_from_a_model_folder(tmp_
         assert asyncio.run(remove(_Request({"folder": folder, "filename": name}))).status == 400
     assert (tmp_path / "custom_nodes" / "b.safetensors").exists()
     assert asyncio.run(remove(_Request("{}", content_type="text/plain"))).status == 415
+
+
+def test_the_models_folder_is_listed_with_sizes_each_file_once_and_never_a_packs_code(tmp_path):
+    found, routes, web = _routes()
+    fp = _FolderPaths(str(tmp_path))
+    fp.models_dir = str(tmp_path)
+    # two folders reading one directory, as unet and diffusion_models do
+    fp.folder_names_and_paths["unet"] = ([str(tmp_path / "loras")], set())
+    downloads.register(routes, web, fp)
+    listing = found[("GET", "/afflatus/models/list")]
+    (tmp_path / "loras" / "wan").mkdir()
+    (tmp_path / "loras" / "wan" / "a.safetensors").write_bytes(b"x" * 1000)
+    (tmp_path / "loras" / "notes.txt").write_bytes(b"x")
+    (tmp_path / "loras" / ".hidden").mkdir()
+    (tmp_path / "loras" / ".hidden" / "c.safetensors").write_bytes(b"x")
+    (tmp_path / "custom_nodes" / "b.safetensors").write_bytes(b"x")
+    files = asyncio.run(listing(_Request())).body["files"]
+    assert [(f["folder"], f["path"], f["name"], f["bytes"]) for f in files] == [("loras", "loras/wan/a.safetensors", "wan/a.safetensors", 1000)]
+    assert files[0]["modified"] > 0

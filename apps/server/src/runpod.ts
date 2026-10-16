@@ -455,6 +455,29 @@ export class Runpod {
   }
 
   /**
+   * What the S3 API needs that the API key can tell, from RunPod's GraphQL: the account's user id (an S3 API key's access
+   * key) and the data centers whose volumes the S3 API serves (`dataCenters`' `s3apiEnabled`: asked and answered on
+   * 2026-10-16, though RunPod's published spec does not list that query). Null where RunPod does not say.
+   */
+  async s3Facts(): Promise<{ user: string | null; dataCenters: string[] | null }> {
+    const res = await this.fetcher(`${apiBase()}/graphql`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "query { myself { id } dataCenters { id s3apiEnabled } }" }),
+      signal: AbortSignal.timeout(15_000),
+    }).catch(() => null);
+    const body = res?.ok ? ((await res.json().catch(() => null)) as { data?: { myself?: { id?: unknown }; dataCenters?: unknown } } | null) : null;
+    if (!res?.ok) await res?.body?.cancel().catch(() => {});
+    const me = body?.data?.myself;
+    // an empty list is not "none has it": RunPod said nothing then
+    const list = Array.isArray(body?.data?.dataCenters) && body.data.dataCenters.length ? (body.data.dataCenters as Array<{ id?: unknown; s3apiEnabled?: unknown }>) : null;
+    return {
+      user: typeof me?.id === "string" && me.id ? me.id : null,
+      dataCenters: list ? list.flatMap((d) => (typeof d.id === "string" && d.s3apiEnabled === true ? [d.id] : [])) : null,
+    };
+  }
+
+  /**
    * What RunPod billed each pod, hour by hour, since `from` (ms): the reference for what the rented GPUs cost (its GPU and its
    * disk, every pod of the account). RunPod writes these some hours after the fact: the latest hours may be missing yet.
    */

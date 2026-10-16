@@ -541,7 +541,7 @@ describe("a rented pod's node packs", () => {
 describe("a rented pod's disk", () => {
   const GB2 = 2 * 2 ** 30;
   /** The pod's files, with its pack saying its disk (0.19.0) and Make room as given. */
-  function withDisk(makesRoom: boolean) {
+  function withDisk(makesRoom: boolean, onVolume = false) {
     pod.packVersion = "0.19.0";
     const comfy = new Comfy(pod.url, t.services.registry);
     const made = new PodFiles({
@@ -550,6 +550,7 @@ describe("a rented pod's disk", () => {
       lookup: { db: t.services.db, presets: async () => [], families: () => [], comfyDir: async () => home },
       settings: async () => ({ civitaiKey: "", downloadModels: true, civitaiLookups: true }),
       makesRoom: async () => makesRoom,
+      onVolume: async () => onVolume,
     });
     made.diskFreshMs = 0;
     return made;
@@ -571,6 +572,19 @@ describe("a rented pod's disk", () => {
     expect(v.error).toMatch(/^the pod's disk is full: .* \(Make room is off\)$/);
     expect(pod.packFetched).toEqual([]);
     expect(on.diskOf("pod")).toMatchObject({ free: GB2 + 100_000 });
+  });
+
+  it("says a pod's network volume full, and fetches the file once room is made on the volume (its Files)", async () => {
+    const on = withDisk(false, true);
+    pod.diskFree = GB2 + 100_000;
+    on.want("pod", [{ file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors`, size: FILE.length }], { tier: "need", job: "j1" });
+    await settleOn(on, "a.safetensors");
+    expect(on.view("pod")[0]).toMatchObject({ state: "failed", error: expect.stringMatching(/^its volume is full: /) });
+    // files deleted from the volume through S3: room again, and the file that found none goes back in line
+    pod.diskFree = 50 * GB2;
+    on.freed("pod", [{ folder: "loras", file: "old.safetensors" }]);
+    await settleOn(on, "a.safetensors");
+    expect(on.view("pod")[0]?.state).toBe("ready");
   });
 
   it("deletes what it fetched and no job needs, the longest unused first, to make room for a file a job needs", async () => {

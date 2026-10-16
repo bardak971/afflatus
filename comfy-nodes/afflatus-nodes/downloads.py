@@ -26,6 +26,8 @@ without asking first):
   DELETE /afflatus/download/<id>  → stops it, and removes its .part
   GET    /afflatus/disk  → {free, total, downloading}: the bytes of the disk the model folders are on (0.19.0)
   POST   /afflatus/models/remove {folder, filename}  → {removed}: a model file taken off the disk, to make room (0.19.0)
+  GET    /afflatus/models/list  → {files: [{folder, path, bytes, modified}]}: every model file of the models folder, with its
+         size, for Afflatus's view of a network volume (0.21.0)
 
 Afflatus always says the file's size (the one-time address answers with its length): a download whose size is not
 known is refused, and one that sends more than it said is cut off there, so a source cannot fill the disk. At most
@@ -180,6 +182,55 @@ def located(folder, filename, folder_paths):
         if _inside(root, path) and path != root and os.path.isfile(path):
             return path
     return None
+
+
+def listed_models(folder_paths):
+    """Every model file under ComfyUI's models folder (models_dir), for Afflatus's view of what a network volume holds: its
+    model folder (the name `located` and the remove route take), its path from the models folder ("loras/wan/a.safetensors",
+    as the volume's own listing names it), its bytes and when it was written (seconds). A file two folders share (unet and
+    diffusion_models read the same directory) is listed once; a pack's code and the folders outside the models folder (an
+    extra_model_paths.yaml) are not listed."""
+    root = getattr(folder_paths, "models_dir", None)
+    if not root or not os.path.isdir(root):
+        return []
+    root = os.path.realpath(root)
+    code = _code_dirs(folder_paths)
+    seen = set()
+    out = []
+    for folder in list(folder_paths.folder_names_and_paths):
+        if folder in NOT_MODELS:
+            continue
+        try:
+            paths = folder_paths.get_folder_paths(folder)
+        except Exception:
+            continue
+        for base in paths:
+            if not os.path.isdir(base):
+                continue
+            real = os.path.realpath(base)
+            if not _inside(root, real) or any(_inside(c, real) for c in code):
+                continue
+            for top, dirs, files in os.walk(real):
+                dirs[:] = [d for d in dirs if not d.startswith(".")]
+                for name in files:
+                    if not MODEL_FILE.search(name):
+                        continue
+                    path = os.path.join(top, name)
+                    if path in seen:
+                        continue
+                    seen.add(path)
+                    try:
+                        st = os.stat(path)
+                    except OSError:
+                        continue
+                    out.append({
+                        "folder": folder,
+                        "path": os.path.relpath(path, root).replace(os.sep, "/"),
+                        "name": os.path.relpath(path, real).replace(os.sep, "/"),
+                        "bytes": st.st_size,
+                        "modified": st.st_mtime,
+                    })
+    return out
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -503,6 +554,11 @@ def register(routes, web, folder_paths):
             return web.Response(status=404, text="no models folder")
         usage = await asyncio.to_thread(shutil.disk_usage, root)
         return web.json_response({"free": usage.free, "total": usage.total, "downloading": reserved()})
+
+    @routes.get("/afflatus/models/list")
+    async def _afflatus_models_list(request):
+        # what the models folder holds, with sizes: on a pod with a network volume, what the volume holds
+        return web.json_response({"files": await asyncio.to_thread(listed_models, folder_paths)})
 
     @routes.post("/afflatus/models/remove")
     async def _afflatus_models_remove(request):

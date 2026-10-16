@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, X } from "lucide-react";
 import { api, type Job } from "./api";
-import { useQueue } from "./data";
+import { useQueue, useSettings } from "./data";
 import { useDownloads } from "./useGetFile";
 import { moves } from "./leave";
 import { Kbd } from "./Keys";
@@ -11,7 +11,7 @@ import { OUT_MS } from "./motion";
 import { useBanners, useHandover, useNotify, type Banner } from "./store";
 import { cx } from "./ui";
 import { askViewer, passFrom } from "./viewer/ask";
-import { machineName } from "./machines";
+import { machineName, NO_ROOM, volumeHref, volumeOf } from "./machines";
 import { queryKeys } from "./queryKeys";
 
 /**
@@ -66,6 +66,10 @@ export function Banners() {
   // the machines by name for the downloads said below, read as they are then (the downloads, not the queue, say when)
   const queueNow = useRef(queue.data);
   queueNow.current = queue.data;
+  // and each machine's network volume: a pod's download that found no room there opens the volume's Files
+  const settings = useSettings();
+  const settingsNow = useRef(settings.data);
+  settingsNow.current = settings.data;
   const client = useQueryClient();
   const downloads = useDownloads();
   // what was already finished when the page opened is old news
@@ -134,7 +138,11 @@ export function Banners() {
       // on a machine of its own (a rented pod, another ComfyUI): said there, and its card opened, where its files are listed
       const on = d.machine ? machineName(queueNow.current, d.machine) : null;
       if (d.status === "done") push({ id: `download:${d.id}`, tone: "good", title: on ? `${name} on ${on}` : `${name} installed in ComfyUI`, ...(on ? { href: `/settings?machine=${encodeURIComponent(d.machine!)}`, go: `Open ${on}` } : { href: "/settings/models", go: "Open settings" }) });
-      if (d.status === "error") push({ id: `download:${d.id}`, tone: "bad", title: `Download of ${name} failed`, text: d.error, href: "/settings", go: "Open settings", onDismiss: () => void api.downloadSeen(d.id).catch(() => {}) });
+      if (d.status === "error") {
+        const volume = NO_ROOM.test(d.error ?? "") ? volumeOf(settingsNow.current?.machines, d.machine) : null;
+        const where = volume ? { title: `${name} can't get onto ${on}`, text: `${(d.error ?? "").replace(/\.$/, "")}. Delete what you no longer use on its volume, and it is fetched again.`, href: volumeHref(volume, d.folder), go: "Open the volume" } : { title: `Download of ${name} failed`, text: d.error, href: "/settings", go: "Open settings" };
+        push({ id: `download:${d.id}`, tone: "bad", ...where, onDismiss: () => void api.downloadSeen(d.id).catch(() => {}) });
+      }
     }
     seenDownloads.current = new Map(list.map((d) => [d.id, d.status]));
   }, [downloads.data, push]);

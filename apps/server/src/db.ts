@@ -372,6 +372,8 @@ export interface Tables {
      * Python packages installed per pack (JSON: [{ pack, ms }]), the step its start failed at. Null when not seen.
      */
     pulled_at: string | null; packs_from: string | null; packs_to: string | null; boot_packs: string | null; start_failed: string | null;
+    /** The network volume it ran on, by id (0078); null: none, or a session from before. */
+    volume?: string | null;
   };
   /** Each model file a pod got (podFiles.ts): from when its bytes started to when it was whole, the Costs tab's "Fetching files". Bytes as a number (bigint on Postgres). */
   pod_fetches: { id: string; machine_id: string; file: string; folder: string; via: string; bytes: number | string; started_at: string; ended_at: string };
@@ -385,7 +387,11 @@ export interface Tables {
   /** Every model file of this computer hashed once, and the site version or file it is (modelHashes.ts). Sizes and times as numbers (bigint on Postgres: read through Number). */
   model_hashes: { folder: string; file: string; size: number | string; mtime: number | string; sha256: string; hashed_at: string; civitai_version: number | string | null; hf_url: string | null; matched_at: string | null };
   /** What each network volume holds, as the last pod on it listed its folders (rentedVolumes.ts): file keys as JSON. */
-  volume_files: { volume_id: string; files: string | null; seen_at: string | null; seen_by: string | null; used_at: string | null; noticed_at: string; fill_note: string | null };
+  volume_files: {
+    volume_id: string; files: string | null; seen_at: string | null; seen_by: string | null; used_at: string | null; noticed_at: string; fill_note: string | null;
+    /** Its model files as last listed with their sizes (0078, JSON: volumeFiles.ts KeptFile[]); null: never listed so. */
+    listing?: string | null;
+  };
   /** The devices signed in while a password is set (access.ts): the id is the SHA-256 of the cookie's token; `remember` 1 or 0. */
   sessions: { id: string; device_id: string; created_at: string; last_seen_at: string; expires_at: string; ip: string; user_agent: string; remember: number };
   /** Every device that ever signed in, by the SHA-256 of its own cookie: a sign-in from one not here is told of (newDevice). */

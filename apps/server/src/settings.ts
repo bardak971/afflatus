@@ -253,6 +253,12 @@ export const settingsSchema = z.object({
   huggingFaceToken: z.string().default(""),
   /** The RunPod API key, for rented machines (runpod.ts): a secret, never given to the page. */
   runpodKey: z.string().default(""),
+  /**
+   * RunPod's S3 API key (RunPod â€º Settings â€º S3 API Keys), for the volume viewer (runpodS3.ts): its access key, the RunPod
+   * user's id, shown; and its secret, never given to the page. Not the API key above.
+   */
+  runpodS3User: z.string().trim().max(120).default(""),
+  runpodS3Secret: z.string().trim().max(200).default(""),
   /** What the rented GPUs may cost, in USD, today and this month (rented.ts); 0: no cap. At a cap the running render ends, then they stop. */
   rentCaps: z.object({ day: z.number().min(0).max(100_000).default(0), month: z.number().min(0).max(1_000_000).default(0) }).default({ day: 0, month: 0 }),
   /**
@@ -551,6 +557,8 @@ export function publicSettings(s: Settings) {
     hasCivitaiKey: Boolean(s.civitaiKey),
     hasHuggingFaceToken: Boolean(s.huggingFaceToken),
     hasRunpodKey: Boolean(s.runpodKey),
+    runpodS3User: s.runpodS3User,
+    hasRunpodS3Secret: Boolean(s.runpodS3Secret),
     rentCaps: s.rentCaps,
     costs: s.costs,
     lastDeploy: s.lastDeploy,

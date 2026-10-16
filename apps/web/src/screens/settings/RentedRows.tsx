@@ -2,7 +2,8 @@ import type { Machine, MachineState, RentedMachine } from "../../api";
 import type { PodFile, PodPack } from "../../api";
 import { minutesSaid, plural, size, usd } from "../../format";
 import { useCopied, useNow, useSecond } from "../../hooks";
-import { gettingFiles, idleEndSaid, rateSaid, rentedSaid } from "../../machines";
+import { Link } from "wouter";
+import { gettingFiles, idleEndSaid, rateSaid, rentedSaid, volumeHref } from "../../machines";
 import type { useRentedOps } from "../../rentedOps";
 import { Select } from "../../Select";
 import { Progress } from "../../progress/Progress";
@@ -134,6 +135,8 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
         <Row label="Disk" help={WHY_DISK}>
           <span className="flex grow flex-wrap items-center justify-end gap-3 text-[12.5px]">
             {r.disk && <span className={cx("font-mono", diskNearlyFull(r.disk) ? "text-warn-ink" : "text-ink-2")}>{diskSaid(r.disk)} in use</span>}
+            {/* on a network volume, its disk is the volume: its Files, where what is no longer used is deleted */}
+            {rented.volume && <Link href={volumeHref(rented.volume)} className={cx("font-semibold hover:underline", r.disk && diskNearlyFull(r.disk) ? "text-accent" : "text-ink-2")}>Open the volume</Link>}
             <Checkbox checked={rented.makeRoom} onChange={(makeRoom) => set({ makeRoom })}>Make room</Checkbox>
           </span>
         </Row>

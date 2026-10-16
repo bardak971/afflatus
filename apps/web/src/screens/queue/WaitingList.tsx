@@ -4,7 +4,8 @@ import { Link } from "wouter";
 import { ArrowDownToLine, ArrowUpToLine, Layers, Pin, Server, Trash2, X } from "lucide-react";
 import { api, type Job, type MachineLack, type MachineState, type RunningJob } from "../../api";
 import { GetFile } from "../../GetFile";
-import { busyOutside, machineLabel, machineState, OUTSIDE_TIP, rentedUp } from "../../machines";
+import { busyOutside, machineLabel, machineState, NO_ROOM, OUTSIDE_TIP, rentedUp, volumeHref, volumeOf } from "../../machines";
+import { useSettings } from "../../data";
 import { JOB_DRAG } from "./MachineLanes";
 import { ContextMenu, useMenu, type MenuItem } from "../../ContextMenu";
 import { aboutMs, est, plural, when } from "../../format";
@@ -273,6 +274,9 @@ function lackSaid(lack: MachineLack | undefined): string | null {
  * to that machine. It starts once they are there (the queue looks again when a download ends).
  */
 function PinnedLacks({ machine, id, lack }: { machine: string; id: string; lack: MachineLack }) {
+  // no room on the network volume its pod runs on: the volume's Files, where what is no longer used is deleted
+  const volume = volumeOf(useSettings().data?.machines, id);
+  const full = volume && NO_ROOM.test(`${lack.failed ?? ""} ${lack.why ?? ""}`) ? <Link href={volumeHref(volume)} className="ml-1 font-semibold text-accent hover:underline">Open the volume</Link> : null;
   return (
     <DownloadTo.Provider value={id}>
       <div className="mb-1 ml-[44px] flex flex-col gap-1.5 rounded-[10px] border border-line bg-raised px-3 py-2 text-xs text-ink-2">
@@ -282,7 +286,7 @@ function PinnedLacks({ machine, id, lack }: { machine: string; id: string; lack:
           </span>
         ) : lack.failed ? (
           <span>
-            Cannot run on {machine}: {lack.failed}. Run it on another machine from its menu. It does not keep {machine} on: with nothing else to render, the pod goes idle and ends on time.
+            Cannot run on {machine}: {lack.failed}. {full ?? <>Run it on another machine from its menu. It does not keep {machine} on: with nothing else to render, the pod goes idle and ends on time.</>}
           </span>
         ) : lack.off ? (
           <span>
@@ -300,7 +304,7 @@ function PinnedLacks({ machine, id, lack }: { machine: string; id: string; lack:
             ))}
           </>
         ) : lack.why ? (
-          <span>Waits for {machine}: {lack.why}. Run on another machine from its menu.</span>
+          <span>Waits for {machine}: {lack.why}. {full ?? "Run on another machine from its menu."}</span>
         ) : (
           <span>Waits: {machine} cannot run it (a custom node it needs is missing there). Run on another machine from its menu.</span>
         )}

@@ -70,6 +70,7 @@ With the pack loaded, ComfyUI answers:
 
 - `GET /afflatus/power` (0.18.0): the GPU's power draw in watts (NVML through `nvidia-ml-py`, else `nvidia-smi`), for this PC's electricity; null where neither reads it.
 - `GET /afflatus/disk` and `POST /afflatus/models/remove` (0.19.0): the disk the model folders are on (bytes free and in all), and a model file taken off it to make room on a rented pod.
+- `GET /afflatus/models/list` (0.21.0): every model file of the models folder with its size and date, each once; on a pod with a network volume, what the volume holds (Afflatus's volume Files).
 
 ## Install
 

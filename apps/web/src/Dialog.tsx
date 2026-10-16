@@ -67,9 +67,11 @@ function firstStop(el: HTMLElement): HTMLElement {
   return field ?? all.find((x) => !x.hasAttribute("data-help") && !x.hasAttribute("data-dialog-close")) ?? all[0] ?? el;
 }
 
-export function Dialog({ label, onClose, children, className, z = "z-40" }: {
+export function Dialog({ label, onClose, onEscape, children, className, z = "z-40" }: {
   label: string;
   onClose(): void;
+  /** Escape for something of the dialog's own first (a search cleared): true when it took it, and the dialog stays. */
+  onEscape?(): boolean;
   children: ReactNode;
   /** The panel's classes, in place of the usual card (a width, a padding, a shape). */
   className?: string;
@@ -80,6 +82,8 @@ export function Dialog({ label, onClose, children, className, z = "z-40" }: {
   const me = useRef(Symbol("dialog"));
   const closeNow = useRef(onClose);
   closeNow.current = onClose;
+  const escapeFirst = useRef(onEscape);
+  escapeFirst.current = onEscape;
   // a press that started inside the panel and ends on the backdrop (a slider dragged out) is not a click on the backdrop
   const downOnBackdrop = useRef(false);
   const leaving = useLeave<HTMLDivElement>("m-out");
@@ -99,7 +103,7 @@ export function Dialog({ label, onClose, children, className, z = "z-40" }: {
       if (e.key === "Escape" && !document.querySelector(OVER)) {
         e.preventDefault();
         e.stopPropagation();
-        closeNow.current();
+        if (!escapeFirst.current?.()) closeNow.current();
         return;
       }
       // Tab stays inside the dialog (a dropdown or a menu open over it keeps its own keys)
