@@ -235,9 +235,9 @@ function ByProject({ d }: { d: CostsView }) {
   );
 }
 
-function SessionRow({ s, longest }: { s: PodSession; longest: number }) {
+function SessionRow({ s, longest, split }: { s: PodSession; longest: number; split: boolean }) {
   const [open, setOpen] = useState(false);
-  const bits = sessionBits(s, longest);
+  const bits = sessionBits(s, longest, split);
   const boot = bootSaid(s);
   return (
     <div className="flex flex-col">
@@ -256,10 +256,11 @@ function SessionRow({ s, longest }: { s: PodSession; longest: number }) {
           {s.estimated.length > 0 && <span className="text-ink-3">Estimated: {s.estimated.join("; ")}.</span>}
           {boot && <span className={cx(s.startFailed ? "text-warn-ink" : "text-ink-3")}>{boot}</span>}
           {s.renders.length ? s.renders.map((r) => (
-            <span key={r.id} className="grid grid-cols-[48px_minmax(0,1fr)_64px_64px] items-center gap-2">
+            // the time's column holds the longest spell() gives on one line ("59 min 59 s"): at 64px it wrapped
+            <span key={r.id} className="grid grid-cols-[48px_minmax(0,1fr)_88px_64px] items-center gap-2">
               <span className="font-mono text-ink-3">{hourMinute(r.at)}</span>
               <span className={cx("truncate", r.status !== "done" && "text-warn-ink")}>{r.model}{r.item ? ` · ${r.item.name}` : ""}{r.status !== "done" ? ` · ${r.status}` : ""}</span>
-              <span className="text-right font-mono text-ink-2">{spell(r.ms)}</span>
+              <span className="text-right font-mono whitespace-nowrap text-ink-2">{spell(r.ms)}</span>
               <span className="text-right font-mono text-ink-2">{usd(r.usd, true)}</span>
             </span>
           )) : <span className="text-ink-3">No render on it{s.fetched.files ? `: it fetched ${plural(s.fetched.files, "file")} (${gb(s.fetched.bytes)})` : ""}.</span>}
@@ -274,12 +275,13 @@ function Sessions({ d }: { d: CostsView }) {
   if (!d.sessions.length) return null;
   const longest = Math.max(...d.sessions.map((s) => s.to - s.from));
   const shown = all ? d.sessions : d.sessions.slice(0, 12);
+  const split = bootSplit(d.where.boot.ms).length > 0;
   return (
     <section className={CARD} aria-label="Pod sessions">
       <Head title="Pod sessions" note="each from its deploy to its end, in what it did">
         <span className="text-xs text-ink-3">click: its renders</span>
       </Head>
-      {shown.map((s) => <SessionRow key={s.id} s={s} longest={longest} />)}
+      {shown.map((s) => <SessionRow key={s.id} s={s} longest={longest} split={split} />)}
       <span className="flex items-center gap-3 text-[11.5px] text-ink-3">
         Bars to one scale: the longest, {long(longest)}.
         {d.sessions.length > shown.length && <Button size="sm" onClick={() => setAll(true)}>Show all {d.sessions.length}</Button>}
