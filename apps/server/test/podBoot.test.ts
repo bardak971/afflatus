@@ -164,8 +164,9 @@ describe("a deployed pod's boot on its card, its row and its log tab", () => {
     await until(async () => (await rowOf(id), pod.status === "TERMINATED"));
     const row = (await t.services.queue.status()).machines.find((m) => m.id === id)!.rented!;
     expect(row).toMatchObject({ stoppedBy: "start", status: "GONE", boot: null });
-    expect(row.error).toMatch(/^Terminated: its start stopped at "putting in the node packs \(exit 1\)", as its boot log says/);
-    expect(told.map((x) => x.body).join("\n")).toMatch(/its start stopped on an error: putting in the node packs \(exit 1\)/);
+    // in the words its phase line said (stepSaid, shared with the screens), not the pod's own
+    expect(row.error).toMatch(/^Terminated: start failed at linking node packs \(exit 1\), as its boot log says/);
+    expect(told.map((x) => x.body).join("\n")).toMatch(/its start failed: linking node packs \(exit 1\)/);
     expect(runpod.secrets).toEqual({});
     // its last lines kept, after its pod is gone
     const lines = (await get(t.app, `/api/comfy/logs?machine=${id}`)).json().lines as Array<{ m: string }>;

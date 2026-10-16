@@ -53,15 +53,25 @@ function FilesRing({ share, running }: { share: number | null; running: boolean 
 }
 
 /** A machine's dot, in its state: filled in the accent while it renders, a green ring idle, grey paused, amber away; a ring that fills while it gets files. */
+/**
+ * A machine on its way up, as its dot says it in the pill, its popover and its Queue lane: the idle ring it will be,
+ * pulsing. Neither the warning of one away nor the accent of one getting files.
+ */
+export const STARTING_DOT = "animate-pulse border-[1.5px] border-good";
+
 export function Dot({ m }: { m: MachineState }) {
   // a pod RunPod was not read for yet (Afflatus just started): grey and filled, as its lane says "checking", never the
   // stopped ring while it may be running
   if (m.rented?.status === "UNKNOWN") return <span aria-hidden data-state="checking" className="size-[7px] shrink-0 rounded-full bg-ink-3" />;
-  // a rented pod that is not running: a grey ring while stopped, amber and pulsing while it starts (its first start too,
-  // RunPod saying it runs while its image is pulled)
+  // a rented pod that is not running: a grey ring while stopped, the starting look while it starts (its first start too,
+  // RunPod saying it runs while its image is pulled). It was a pulsing warning dot, which read as an error in a theme
+  // whose warning is red: the warning is for a start that failed, as for a machine away
   if (m.rented && (m.rented.status !== "RUNNING" || m.rented.booting)) {
+    if (m.rented.boot?.failed) return <span aria-hidden data-state="failed" className="size-[7px] shrink-0 rounded-full bg-warn" />;
     const starting = m.rented.status === "STARTING" || m.rented.status === "PROVISIONING" || m.rented.booting;
-    return <span aria-hidden className={cx("size-[7px] shrink-0 rounded-full", starting ? "animate-pulse bg-warn" : "border-[1.5px] border-ink-3")} />;
+    return starting
+      ? <span aria-hidden data-state="starting" className={cx("size-[7px] shrink-0 rounded-full", STARTING_DOT)} />
+      : <span aria-hidden data-state="stopped" className="size-[7px] shrink-0 rounded-full border-[1.5px] border-ink-3" />;
   }
   if (m.online === false) return <span aria-hidden className="size-[7px] shrink-0 rounded-full bg-warn" />;
   // minutes of downloads read as idle before (the owner: "the pills could show when something is downloading")

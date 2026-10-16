@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
 import { runningRate } from "../src/runpod";
-import { readSettings } from "../src/settings";
+import { readSettings, updateSettings } from "../src/settings";
 import { get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /** Rented machines (rented.ts) against a pretend RunPod: added, started by the user only, stopped when idle or at a cap. */
@@ -56,6 +56,25 @@ describe("adding a pod", () => {
     expect(machine).toMatchObject({ name: "comfy-5090", url: podComfy.url, rented: { provider: "runpod", pod: pod5090().id, idleMinutes: 10, idleDo: "stop", watchdogMinutes: 15 } });
     expect(runpod.calls.filter((c) => c.includes("/action"))).toEqual([]);
     expect((await post(t.app, "/api/runpod/add", { pod: pod5090().id })).statusCode).toBe(409);
+  });
+
+  it("lists a pod whose machine was saved while RunPod was read as added, never as one to add", async () => {
+    await setKey();
+    const { rented } = t.services;
+    const real = rented.client;
+    // a deploy ending while the list is read: its machine saved after the read began, before RunPod answered
+    rented.client = (key) => {
+      const c = real(key);
+      const pods = c.pods.bind(c);
+      c.pods = async () => {
+        const list = await pods();
+        await updateSettings(t.db, (cur) => ({ machines: [...cur.machines, { id: "rp-new", name: "A40", url: "http://x", dir: "", takes: "all", families: {}, token: "", rented: { provider: "runpod", pod: pod5090().id, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 10, openPorts: false, closedPorts: [], secret: "" } }] }));
+        return list;
+      };
+      return c;
+    };
+    const pods = (await get(t.app, "/api/runpod/pods")).json().pods as Array<{ name: string; added: string | null }>;
+    expect(pods.find((p) => p.name === "comfy-5090")?.added).toBe("rp-new");
   });
 
   it("a wrong key is said as RunPod's refusal", async () => {

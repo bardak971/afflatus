@@ -1,4 +1,5 @@
 import type { MachineState, PodFile, QueueStatus, RentedState } from "./api";
+import { stepSaid } from "@afflatus/core";
 import { usd } from "./format";
 
 /** Several ComfyUIs (Settings › ComfyUI): how a machine is named on screen, and what the screens read of them. */
@@ -130,31 +131,6 @@ export function clock(ms: number): string {
 }
 
 /**
- * The boot log's steps (start.sh's, ComfyUI's own course read by the server's podBoot.ts, broken.py's GPU check) in the
- * words of someone who knows a pod: what runs, not what it is for. A step not known here is said as the pod says it.
- */
-const STEP_SAID: Array<[RegExp, (m: RegExpExecArray) => string]> = [
-  [/^checking the GPU$/, () => "checking GPU"],
-  [/^preparing ComfyUI's folders$/, () => "creating model folders"],
-  [/^putting in the node packs$/, () => "linking node packs"],
-  // one pip install per node pack a volume holds, counted by start.sh (0.1.12 on): "pip: ComfyUI-KJNodes (3/14)"
-  [/^installing the Python packages of (.+?)(?: \((\d+\/\d+)\))?$/, (m) => `pip: ${m[1]}${m[2] ? ` (${m[2]})` : ""}`],
-  [/^setting up ComfyUI-Manager$/, () => "configuring ComfyUI-Manager"],
-  [/^the GPU does not work on this host: (.+)$/, (m) => `GPU fault: ${m[1]}`],
-];
-
-/** A boot log's step in those words; a failed one keeps its exit code ("checking GPU (exit 1)"). */
-export function stepSaid(step: string): string {
-  const exit = / \(exit \d+\)$/.exec(step);
-  const bare = exit ? step.slice(0, exit.index) : step;
-  for (const [mark, said] of STEP_SAID) {
-    const m = mark.exec(bare);
-    if (m) return `${said(m)}${exit?.[0] ?? ""}`;
-  }
-  return step;
-}
-
-/**
  * Where a deployed pod's first start is, and for how long since its deploy, to the second: "pulling image · 2m 14s"
  * while RunPod says no uptime yet, "starting ComfyUI · 31s" once its container is up, then its boot log's step ("pip:
  * ComfyUI-KJNodes (3/14) · 1m 02s"); a start that stopped, where, and that the pod is terminated for it (the server does so
@@ -230,3 +206,11 @@ export const rateSaid = (r: RentedState) => (r.rate ? `${usd(r.rate)} / h from n
 
 /** Whether a rented pod takes work now: only while it runs. A machine of one's own always may. */
 export const rentedUp = (m: { rented?: RentedState | null }) => !m.rented || m.rented.status === "RUNNING";
+
+/**
+ * The account's pods (Settings › Rented GPUs), each a machine as soon as the settings say so: RunPod's list, read every
+ * 15 s, may have been read just before a deploy saved its machine, and its pod showed as one to add until the next read.
+ */
+export function podsAdded<P extends { id: string; added: string | null }>(pods: readonly P[], machines: ReadonlyArray<{ id: string; rented?: { pod: string } | null }>): P[] {
+  return pods.map((p) => ({ ...p, added: p.added ?? machines.find((m) => m.rented?.pod === p.id)?.id ?? null }));
+}

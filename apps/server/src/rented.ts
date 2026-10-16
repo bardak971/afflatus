@@ -5,7 +5,7 @@ import type { Db } from "./db";
 import { httpError } from "./errors";
 import { newToken } from "./lock-api";
 import { BOOT_PORT, COMFY_PORT, exposesComfy, imageFor, LOCK_ENV, noCapacity, POD_IMAGES, podMachineId, podUrl, Runpod, RunpodError, RunpodShape, secretRef, HOURS_A_MONTH, STOPPED_DISK_PER_GB_MONTH, tokenSecret, WATCHDOG_ACTION_ENV, WATCHDOG_ENV, type BillRecord, type GpuOffer, type NetworkVolume, type Pod, type PodSpec, type PodStatus } from "./runpod";
-import { gpuKey, LEARNED_RENDERS, volumePerMonth, type PresetFile } from "@afflatus/core";
+import { gpuKey, LEARNED_RENDERS, stepSaid, volumePerMonth, type PresetFile } from "@afflatus/core";
 import { gpuPaces } from "./forecast";
 import { imagePublic } from "./podImage";
 import { recordMeasure } from "./podMeasures";
@@ -491,7 +491,7 @@ export class Rented {
       booting,
       boot,
       // a start that stopped on an error says so as its pod says it, before the boot limit's words
-      error: s?.error ?? this.error ?? s?.bootNote ?? (s?.stoppedBy === "gpu" ? s.gpuFailed : null) ?? (s?.stoppedBy === "start" ? s.startFailed : null) ?? (boot?.failed ? `Its start stopped: ${boot.step}. Terminated now, nothing billed after; its last lines are in its log (Queue › Log).` : null) ?? this.unanswered(machine, s ?? null, status, bootLimit(machine)),
+      error: s?.error ?? this.error ?? s?.bootNote ?? (s?.stoppedBy === "gpu" ? s.gpuFailed : null) ?? (s?.stoppedBy === "start" ? s.startFailed : null) ?? (boot?.failed && boot.step ? `Start failed: ${stepSaid(boot.step)}. Terminated now, nothing billed after; its last lines are in its log (Queue › Log).` : null) ?? this.unanswered(machine, s ?? null, status, bootLimit(machine)),
     };
   }
 
@@ -761,8 +761,11 @@ export class Rented {
     const pods = await this.client(s.runpodKey).pods().catch((err: Error) => {
       throw httpError(err.message, 502);
     });
+    // which are machines, read once RunPod answered: a deploy that ended meanwhile saved its machine after the settings above
+    // were read, and its pod was listed as one to add ("Afflatus A40 … provisioning") until the next read
+    const { machines } = await readSettings(this.db);
     // never a pod's environment: it may hold a token in the clear (a pod whose key could not make a secret), or the user's own
-    return pods.filter((p) => p.status !== "TERMINATED").map(({ env: _env, ...p }) => ({ ...p, env: {}, comfy: exposesComfy(p as Pod), added: s.machines.find((m) => m.rented?.pod === p.id)?.id ?? null }));
+    return pods.filter((p) => p.status !== "TERMINATED").map(({ env: _env, ...p }) => ({ ...p, env: {}, comfy: exposesComfy(p as Pod), added: machines.find((m) => m.rented?.pod === p.id)?.id ?? null }));
   }
 
   /**
@@ -1192,7 +1195,8 @@ export class Rented {
     // first answer; its last lines stay in its log tab, the boot limit stays the backstop
     const failed = m.rented!.deployed && !s.answered ? this.boots.get(m.id)?.failed : null;
     if (failed && !this.queue.runningOn(m.id)) {
-      s.startFailed = `Terminated: its start stopped at "${failed}", as its boot log says (its last lines are in its log, Queue › Log). Nothing billed after; deploy again.`;
+      // in the words its phase line said it (stepSaid, shared with the screens), never the pod's own
+      s.startFailed = `Terminated: start failed at ${stepSaid(failed)}, as its boot log says (its last lines are in its log, Queue › Log). Nothing billed after; deploy again.`;
       await this.act(m, "terminate", "start");
       return true;
     }
@@ -1745,7 +1749,7 @@ export class Rented {
       cap: "a spending cap was reached",
       boot: `its ComfyUI never answered in ${bootLimit(m) / 60_000} min`,
       gpu: "its GPU did not work on that host",
-      start: `its start stopped on an error: ${this.boots.get(m.id)?.failed ?? "see its log"}`,
+      start: `its start failed: ${stepSaid(this.boots.get(m.id)?.failed ?? "see its log")}`,
       watchdog: "its watchdog had stopped it while Afflatus was away, and it kept nothing",
       filled: "its volume is filled",
       cut: `its fill was cut short: ${s.cutWhy ?? "it stopped moving"}`,
