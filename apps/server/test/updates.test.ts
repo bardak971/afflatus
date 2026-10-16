@@ -8,6 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import { sql } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
+import { startFakeRunpod } from "@afflatus/comfy/testing";
 import { buildApp } from "../src/app";
 import { migrate, openSqlite } from "../src/db";
 import { createServices, type Services } from "../src/services";
@@ -666,6 +667,54 @@ describe("after an update", () => {
     const check = await r.app.inject({ method: "GET", url: "/api/updates/go-back", remoteAddress: "127.0.0.1" });
     expect(check.json()).toEqual({ refused: null, billing: [], unknown: false });
     expect(compareVersions("0.5.0", "0.4.9")).toBe(1);
+  });
+
+  it("back to a version with the Rented GPUs screen, refuses while a pod its library does not know runs (D-1)", async () => {
+    const podComfy = await makeFake();
+    const otherComfy = await makeFake();
+    const RP_KEY = "rpa_test_key_0123456789";
+    const runpod = await startFakeRunpod({
+      key: RP_KEY, pods: [
+        { name: "zz-test known", rate: 0.5, gpu: "NVIDIA A40", dataCenterId: "EU-RO-1", ports: ["8188/http"], diskGb: 20, comfy: podComfy },
+        { name: "zz-test since", rate: 0.5, gpu: "NVIDIA A40", dataCenterId: "EU-RO-1", ports: ["8188/http"], diskGb: 20, comfy: otherComfy },
+      ],
+    });
+    vi.stubEnv("RUNPOD_API_URL", runpod.url);
+    vi.stubEnv("RUNPOD_PROXY", "http://127.0.0.1:{id}");
+    try {
+      const r = await rig({
+        running: "0.5.1",
+        before: ({ versions }) => {
+          mkdirSync(join(versions, "0.5.0"));
+          writeFileSync(join(versions, "previous"), "0.5.0");
+        },
+      });
+      const add = async (pod: string) => expect((await r.app.inject({ method: "POST", url: "/api/runpod/add", payload: { pod } })).json()).toMatchObject({ id: expect.any(String) });
+      const [known, since] = runpod.pods as [typeof runpod.pods[number], typeof runpod.pods[number]];
+      // the copy taken at the update knows the first pod; the second was added since
+      await writeSettings(r.services.db, { runpodKey: RP_KEY });
+      await add(known.id);
+      mkdirSync(join(r.data, "backups"));
+      await sql`VACUUM INTO ${join(r.data, "backups", "before-0.5.1.db")}`.execute(r.services.db);
+      await add(since.id);
+      const check = async () => (await r.app.inject({ method: "GET", url: "/api/updates/go-back", remoteAddress: "127.0.0.1" })).json() as { refused: string | null; billing: string[] };
+      // the pod it knows runs: 0.5.0 follows it itself; the one it does not know is stopped, its disk named
+      known.status = "RUNNING";
+      expect(await check()).toEqual({ refused: null, billing: ["zz-test since, stopped: its 20 GB disk, $4.00/month"], unknown: false });
+      // the one it does not know runs: refused, by name
+      since.status = "RUNNING";
+      const refused = await r.post("go-back");
+      expect(refused.statusCode).toBe(409);
+      expect((refused.json() as { error: string }).error).toMatch(/^A rented GPU runs: zz-test since \(NVIDIA A40\)\. Stop or terminate it first: the library of 0\.5\.0 \(as it was at the update\) does not know it/);
+      // with the copy's key another account's, the copy knows none of these pods
+      since.status = "EXITED";
+      await writeSettings(r.services.db, { runpodKey: "rpa_test_key_other" });
+      runpod.key = "rpa_test_key_other";
+      expect((await check()).refused).toMatch(/^A rented GPU runs: zz-test known \(NVIDIA A40\)\./);
+    } finally {
+      vi.unstubAllEnvs();
+      await Promise.all([runpod, podComfy, otherComfy].map((x) => x.close().catch(() => {})));
+    }
   });
 
   it("brings a 0.3 library beside it in, moved and not copied, while its own is empty", async () => {

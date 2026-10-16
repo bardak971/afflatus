@@ -191,6 +191,63 @@ describe("a cap", () => {
   });
 });
 
+describe("what each cap weighs (P-8, D-2: the day compute, the month the whole bill)", () => {
+  const hourToday = () => {
+    const d = new Date();
+    const start = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    return { startTime: new Date(start).toISOString(), endTime: new Date(start + HOUR).toISOString() };
+  };
+
+  it("a stopped pod's disk is not in the day cap, and is in the month's", async () => {
+    // pod-a, stopped, billed $1 for an hour of its disk alone today: no run of it in Afflatus then
+    runpod.bill = [{ podId: podA().id, ...hourToday(), totalAmount: 1, diskAmount: 1 }];
+    const id = await add(podA().id);
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 0.5, month: 0 } } });
+    const s = await spending();
+    expect(s.today).toBeCloseTo(0, 9);
+    expect(s.month).toBeCloseTo(1, 9);
+    // nothing ran today: the day cap is not reached, Start goes
+    expect((await post(t.app, `/api/machines/${id}/start`, {})).statusCode).toBe(200);
+    await post(t.app, `/api/machines/${id}/stop`, { how: "stop" });
+    // the month cap weighs the disk: Start refused
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 0, month: 0.5 } } });
+    expect((await post(t.app, `/api/machines/${id}/start`, {})).statusCode).toBe(409);
+  });
+
+  it("a running pod's hour counts whole in the day cap, its disk in it", async () => {
+    // the hour it runs in, billed $1, $0.10 of it its disk (set first: the bill is read again only every few minutes)
+    const now = Date.now();
+    runpod.bill = [{ podId: podA().id, startTime: new Date(now - 30 * MIN).toISOString(), endTime: new Date(now + 30 * MIN).toISOString(), totalAmount: 1, diskAmount: 0.1 }];
+    const id = await add(podA().id);
+    await startUp(id, podA);
+    const s = await spending();
+    const d = new Date(now);
+    const today = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    expect(s.today).toBeCloseTo(now - 30 * MIN >= today ? 1 : (now + 30 * MIN - today) / HOUR, 6);
+  });
+
+  it("the volumes' bill is in the month cap and not the day's; at the month cap Make volume and Grow are refused", async () => {
+    runpod.volumes.push({ id: "vol-1", name: "zz-test models", size: 50, dataCenter: "EU-RO-1" });
+    runpod.volumeBill = [{ networkVolumeId: "vol-1", ...hourToday(), totalAmount: 2 }];
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 1, month: 0 } } });
+    const s = await spending();
+    expect(s).toMatchObject({ today: 0, monthVolumes: 2 });
+    expect(s.month).toBeCloseTo(2, 9);
+    const make = () => post(t.app, "/api/runpod/volumes", { name: "zz-test volume", size: 20, dataCenter: "EU-RO-1" });
+    const grow = (size: number) => t.app.inject({ method: "PATCH", url: "/api/runpod/volumes/vol-1", payload: { size } });
+    // the day cap is compute: a volume is not refused at it
+    expect((await make()).statusCode).toBe(200);
+    expect((await grow(60)).statusCode).toBe(200);
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 0, month: 2 } } });
+    const refused = await make();
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toMatch(/^This month's cap is reached \(\$2\.00 of \$2\.00\)/);
+    expect((await grow(70)).statusCode).toBe(409);
+    expect(runpod.volumes.find((v) => v.id === "vol-1")?.size).toBe(60);
+    expect(runpod.volumes).toHaveLength(2);
+  });
+});
+
 describe("the bill", () => {
   it("an hour across midnight counts for its part after it, today (M-9)", async () => {
     const d = new Date();

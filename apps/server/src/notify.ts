@@ -18,7 +18,8 @@ import { makeStill } from "./thumbs";
  *
  * A notice never stands in the way of what it is about: say() returns at once, a send that fails is logged once (the
  * token and the webhook taken out of what is logged) and is never thrown to the caller. Within a minute the same notice
- * (kind and key) goes once, failures within 30 s go as one message, and past 20 messages a minute the rest are dropped.
+ * (kind and key) goes once, failures within 30 s go as one message, and past 20 messages a minute the rest are dropped,
+ * except the notices about money (MONEY_KINDS), which always go.
  */
 
 export type Channel = "telegram" | "discord";
@@ -37,6 +38,12 @@ export interface NotifyOptions {
   /** How long a send may take. */
   timeoutMs: number;
 }
+
+/**
+ * The notices about money: a cap reached, a pod stopped, the balance low, a hunt given up. They are said once (rented.ts
+ * marks a cap as told before saying it), so one dropped by a minute full of renders done would never reach the owner.
+ */
+const MONEY_KINDS: ReadonlySet<NotifyKind> = new Set(["capReached", "podStopped", "balanceLow", "huntGaveUp"]);
 
 export const NOTIFY_DEFAULTS: NotifyOptions = { foldMs: 30_000, sameMs: 60_000, perMinute: 20, stuckMs: 20 * 60_000, stuckEveryMs: 60_000, timeoutMs: 10_000 };
 
@@ -181,7 +188,7 @@ export class Notify {
     const to: Channel[] = [];
     if (ticked.telegram && n.telegramToken && n.telegramChat) to.push("telegram");
     if (ticked.discord && n.discordWebhook) to.push("discord");
-    if (!to.length || !this.roomThisMinute()) return;
+    if (!to.length || !this.roomThisMinute(MONEY_KINDS.has(kind))) return;
     const picture = n.picture && notice.asset ? await this.still(notice.asset) : null;
     await Promise.all(to.map((channel) => this.post(channel, n, notice, picture).then(
       () => void this.failing.delete(channel),
@@ -197,11 +204,14 @@ export class Notify {
     console.warn(`[notify] ${channel} not sent: ${said}`);
   }
 
-  /** One more message this minute, or none: past the limit, the rest are dropped (said once in the log). */
-  private roomThisMinute(): boolean {
+  /**
+   * One more message this minute, or none: past the limit, the rest are dropped (said once in the log). A notice about
+   * money always has room; it still counts towards the minute's messages.
+   */
+  private roomThisMinute(money = false): boolean {
     const now = Date.now();
     this.sent = this.sent.filter((at) => now - at < 60_000);
-    if (this.sent.length >= this.opts.perMinute) {
+    if (!money && this.sent.length >= this.opts.perMinute) {
       if (!this.droppedLogged) console.warn(`[notify] more than ${this.opts.perMinute} notices in a minute: the rest of this minute's are not sent`);
       this.droppedLogged = true;
       return false;

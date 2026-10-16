@@ -60,6 +60,8 @@ export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiK
   runpodKey?: string;
   /** The server's own list of secrets to delete once their pods are gone: the page never sends it. */
   leftSecrets?: Array<{ secret: string; pod: string }>;
+  /** The server's own list of deploys whose machine is not saved yet: the page never sends it. */
+  pendingDeploys?: Array<{ name: string; secret: string; at: string }>;
   llms?: LlmPatch[];
   llm?: Partial<Omit<LlmPatch, "id">>;
 };

@@ -868,21 +868,59 @@ export class AfflatusUpdates {
 
   /**
    * What Go back would leave on RunPod, asked before its question: refused (`refused` says why) while a rented GPU runs,
-   * RunPod cannot be read to know it, or a GPU hunt is on, as a version before 0.5.0 has no Rented GPUs screen, no idle
-   * stop and no spending cap to stop them; else what keeps billing stopped (`billing`: disks, volumes), named in the
-   * question. Back to a version with that screen, nothing is refused or named: it sees its pods itself.
+   * RunPod cannot be read to know it, or a GPU hunt or a deploy is on, as a version before 0.5.0 has no Rented GPUs screen,
+   * no idle stop and no spending cap to stop them; else what keeps billing stopped (`billing`: disks, volumes), named in
+   * the question. Back to a version with that screen, it sees its pods itself, but only those its library knows: the copy
+   * restored was taken at the update, and a pod deployed or added since has no machine there. Such a pod is weighed as for
+   * a version without the screen (refused while it runs, its disk named while stopped).
    */
   async goBackCheck(): Promise<{ refused: string | null; billing: string[]; unknown: boolean }> {
-    const before = (await this.previous())?.version;
-    if (before && hasRentedScreen(before)) return { refused: null, billing: [], unknown: false };
-    const prev = before ?? "the previous version";
-    const left = await this.o.services.rented.goingBack();
+    const prev = await this.previous();
+    const before = prev?.version;
+    const screen = Boolean(before && hasRentedScreen(before));
+    const name = before ?? "the previous version";
+    // no copy to restore: Go back is refused for that, nothing here to weigh
+    if (screen && !prev!.restoresLibrary) return { refused: null, billing: [], unknown: false };
+    const known = screen ? await this.podsKnownTo(this.backupOf(this.running!)) : undefined;
+    const rented = this.o.services.rented;
+    const left = await rented.goingBack(known);
     const hunt = this.o.services.hunt.view().hunt;
+    const unseen = screen ? `the library of ${name} (as it was at the update) does not know it, so ${name} would not follow it: no idle stop, no spending cap` : `${name} has no Rented GPUs screen, idle stop or spending cap`;
     const refused = left.running.length
-      ? `A rented GPU runs: ${left.running.join(", ")}. Stop or terminate it first: ${prev} has no Rented GPUs screen, idle stop or spending cap, and it would bill unseen.`
-      : left.unreadable ? `RunPod could not be read: ${left.unreadable}. Whether a rented GPU runs is not known, and ${prev} has no Rented GPUs screen: try again once RunPod answers.`
-      : hunt ? `A GPU hunt is on: cancel it first. ${prev} has no Rented GPUs screen: a pod it deploys would bill unseen.` : null;
+      ? `A rented GPU runs: ${left.running.join(", ")}. Stop or terminate it first: ${unseen}, and it would bill unseen.`
+      : left.unreadable ? `RunPod could not be read: ${left.unreadable}. Whether a rented GPU runs is not known, and ${screen ? `the library of ${name} does not know every pod of this one` : `${name} has no Rented GPUs screen`}: try again once RunPod answers.`
+      : hunt ? `A GPU hunt is on: cancel it first. ${screen ? `The library of ${name} would not know a pod it deploys` : `${name} has no Rented GPUs screen`}: it would bill unseen.`
+      : rented.busy ? `A deploy is under way: wait for it to end. ${screen ? `The library of ${name} would not know its pod` : `${name} has no Rented GPUs screen`}: it would bill unseen.` : null;
     return { refused, billing: left.billing, unknown: left.unknown };
+  }
+
+  /**
+   * The pods the library copy taken at the update has machines for, read from that copy (read-only), when it has the same
+   * RunPod key as now; none when it has another key or none (it would see none of this account's pods), or cannot be read.
+   */
+  private async podsKnownTo(copy: string): Promise<Set<string>> {
+    const known = new Set<string>();
+    const key = (await readSettings(this.db)).runpodKey;
+    try {
+      const db = new DatabaseSync(copy, { readOnly: true });
+      try {
+        const value = (k: string): unknown => {
+          const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(k) as { value: string } | undefined;
+          return row ? JSON.parse(row.value) : undefined;
+        };
+        if (!key || value("runpodKey") !== key) return known;
+        const machines = value("machines");
+        for (const m of Array.isArray(machines) ? machines : []) {
+          const pod = (m as { rented?: { pod?: unknown } } | null)?.rented?.pod;
+          if (typeof pod === "string") known.add(pod);
+        }
+      } finally {
+        db.close();
+      }
+    } catch (err) {
+      console.warn(`[updates] the library copy's pods not read (${(err as Error).message}): every pod counts as unknown to it`);
+    }
+    return known;
   }
 
   /** Back to the previous version, with the library as it was at the update: the database copy restored, then a restart. */

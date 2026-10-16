@@ -35,12 +35,16 @@ export function aboutState(v: UpdatesView): AboutState {
 
 /**
  * Go back's question (About's and the command bar's): what it restores, and what keeps billing on RunPod after it, which the
- * version before has no screen for. Null when it is refused (`check.refused` says why).
+ * version before has no screen for, or (0.5.0 on) which its library does not know. Null when it is refused (`check.refused`
+ * says why).
  */
 export function goBackQuestion(version: string, check: GoBackCheck): { title: string; text: string; yes: string } | null {
   if (check.refused) return null;
-  // a version with the Rented GPUs screen (0.5.0 on) shows what bills there itself: nothing to name
-  const billed = hasRentedScreen(version) ? "" : check.billing.length
+  // a version with the Rented GPUs screen (0.5.0 on) shows what bills there itself, but only the pods its library (as at
+  // the update) has: the server names a stopped pod added or deployed since, whose disk would bill unseen there
+  const billed = hasRentedScreen(version)
+    ? check.billing.length ? ` Still billed on RunPod after it, pods added or deployed since the update, which the library of ${version} does not know: ${check.billing.join("; ")}.` : ""
+    : check.billing.length
     ? ` Still billed on RunPod after it, with no Rented GPUs screen in ${version} to see or remove them: ${check.billing.join("; ")}.`
     : check.unknown ? ` RunPod did not answer: what stays billed there (stopped pods' disks, volumes) could not be read, and ${version} has no Rented GPUs screen.` : "";
   return {

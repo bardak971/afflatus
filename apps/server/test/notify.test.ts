@@ -214,10 +214,22 @@ describe("the limits", () => {
     // past the minute's limit: dropped, said once in the log
     const warn = vi.spyOn(console, "warn");
     n.opts.perMinute = 5;
-    for (let i = 0; i < 4; i++) n.say("podStopped", { title: `P${i}`, body: "x", key: String(i) });
+    for (let i = 0; i < 4; i++) n.say("comfyGone", { title: `P${i}`, body: "x", key: String(i) });
     await new Promise((r) => setTimeout(r, 150));
     expect(texts()).toHaveLength(5);
     expect(warn.mock.calls.filter((c) => String(c[0]).includes("in a minute"))).toHaveLength(1);
+  });
+
+  it("a notice about money goes even past the minute's limit (20 renders done, then a cap reached)", async () => {
+    await setUp({ renderDone: { telegram: true, discord: true } });
+    const n = t.services.notify;
+    for (let i = 0; i < 20; i++) n.say("renderDone", { title: `Done: zz-test ${i}`, body: "x", key: String(i) });
+    await until(() => texts().length === 20);
+    n.say("renderDone", { title: "Done: zz-test dropped", body: "x", key: "late" });
+    for (const kind of ["capReached", "podStopped", "balanceLow", "huntGaveUp"] as const) n.say(kind, { title: `Money: ${kind}`, body: "x", key: kind });
+    await until(() => texts().filter((x) => x.startsWith("<b>Money: ")).length === 4 && discordTexts().filter((x) => x.startsWith("**Money: ")).length === 4);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(texts().some((x) => x.includes("dropped"))).toBe(false);
   });
 
   it("sends a small picture of what it is about as a photo", async () => {
