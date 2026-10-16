@@ -541,6 +541,18 @@ async function copyBefore(db: Db, migrator: Migrator): Promise<void> {
   if (!main?.file || !existsSync(main.file)) return;
   const dir = dirname(main.file);
   const stem = `${basename(main.file)}.pre-`;
-  for (const old of readdirSync(dir).filter((f) => f.startsWith(stem))) rmSync(join(dir, old), { force: true });
-  await sql`vacuum into ${join(dir, `${stem}${pending.name}`)}`.execute(db);
+  const name = `${stem}${pending.name}`;
+  // written aside first, under a name nothing reads (start.ts takes the newest .pre- copy for Go back), and put in place
+  // whole: the copy before the previous update is deleted only then. Deleted first, a vacuum that failed (a full disk)
+  // left no copy at all, and the start stopped on it
+  const aside = join(dir, `${basename(main.file)}.copying-${pending.name}`);
+  rmSync(aside, { force: true });
+  try {
+    await sql`vacuum into ${aside}`.execute(db);
+    renameSync(aside, join(dir, name));
+  } catch (err) {
+    rmSync(aside, { force: true });
+    throw err;
+  }
+  for (const old of readdirSync(dir).filter((f) => f.startsWith(stem) && f !== name)) rmSync(join(dir, old), { force: true });
 }

@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, type ExecFileException } from "node:child_process";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { FRAME_SLACK_MS, JOIN_FADE_MS, musicGainAt, type MusicPlan } from "@afflatus/core";
 import { gainWav, type DuckCurve } from "./duck";
@@ -34,16 +34,29 @@ async function onDisk(dir: string, name: string, source: Media): Promise<string>
   return file;
 }
 
+/**
+ * How long a run that reads a whole video may take, from the video's length: a re-encode at crf 10 of a 10-minute 1080p
+ * import takes more than the usual two minutes on many CPUs, and was stopped half way. Two minutes, and ten times the
+ * length on top, at most three hours (as a slow motion or an export). A length not known: the usual two minutes.
+ */
+export const forLength = (durationMs: number | null | undefined): number => Math.min(3 * 60 * 60_000, 120_000 + 10 * Math.max(0, Number(durationMs) || 0));
+
+/** Why a run of ffmpeg ended without its result, as the user reads it. */
+function failureOf(err: ExecFileException, stderr: unknown, timeout: number): CutError {
+  if (err.code === "ENOENT") return new FfmpegMissing("This needs ffmpeg, which was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE.");
+  if (err.name === "AbortError") return new CutError("stopped by you");
+  // killed at its time limit: said as such (as video.ts does), never as a file it could not read
+  if (err.killed || err.signal) return new CutError(`ffmpeg took more than ${Math.round(timeout / 1000)} s on this file and was stopped`);
+  const last = String(stderr ?? "").trim().split(/\r?\n/).pop() ?? "";
+  return new CutError(`ffmpeg could not read or write the file${last ? `: ${last.slice(0, 300)}` : ""}`);
+}
+
 function must(tool: string, args: string[], opts: { timeout?: number; signal?: AbortSignal } = {}): Promise<string> {
+  const timeout = opts.timeout ?? 120_000;
   return new Promise((done, fail) => {
-    execFile(tool, localInputs(args), { encoding: "utf8", timeout: opts.timeout ?? 120_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true, signal: opts.signal }, (err, stdout, stderr) => {
+    execFile(tool, localInputs(args), { encoding: "utf8", timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true, signal: opts.signal }, (err, stdout, stderr) => {
       if (!err) return done(stdout);
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        return fail(new FfmpegMissing("This needs ffmpeg, which was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE."));
-      }
-      if (err.name === "AbortError") return fail(new CutError("stopped by you"));
-      const last = String(stderr).trim().split(/\r?\n/).pop() ?? "";
-      fail(new CutError(`ffmpeg could not read or write the file${last ? `: ${last.slice(0, 300)}` : ""}`));
+      fail(failureOf(err, stderr, timeout));
     });
   });
 }
@@ -284,6 +297,8 @@ export async function rangeKeep(
   const parts = keep.map(([a, b]) => [Math.max(0, Math.min(a, b)), Math.min(facts.durationMs, Math.max(a, b))] as [number, number]).filter(([a, b]) => b - a >= 20);
   if (!parts.length) throw new CutError("That range is too short to keep: nothing would be left.");
   const crf = Math.max(0, Math.min(40, Math.round(opts.crf ?? 10)));
+  // every run reads the source from its start: its time limit grows with the source's length, and the job's Stop still ends it
+  const run = { timeout: forLength(facts.durationMs), signal: opts.signal };
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const sec = (ms: number) => (ms / 1000).toFixed(3);
@@ -292,7 +307,7 @@ export async function rangeKeep(
       const wav = join(dir, "kept.wav");
       const chains = parts.map(([a, b], i) => `[0:a]atrim=start=${sec(a)}:end=${sec(b)},asetpts=PTS-STARTPTS[a${i}]`);
       const joined = `${parts.map((_, i) => `[a${i}]`).join("")}concat=n=${parts.length}:v=0:a=1${opts.even ? ",loudnorm=I=-16:TP=-1.5:LRA=11" : ""}[a]`;
-      await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, "-filter_complex", [...chains, joined].join(";"), "-map", "[a]", "-ar", "48000", "-c:a", "pcm_s16le", wav], { signal: opts.signal });
+      await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, "-filter_complex", [...chains, joined].join(";"), "-map", "[a]", "-ar", "48000", "-c:a", "pcm_s16le", wav], run);
       return new Uint8Array(await readFile(wav));
     }
     const out = join(dir, "kept.mp4");
@@ -302,7 +317,7 @@ export async function rangeKeep(
       const keys = await keyframesOf(input);
       const onKey = (ms: number) => keys.some((k) => Math.abs(k - ms) <= 2);
       if ((a === 0 || onKey(a)) && (b >= facts.durationMs - 2 || onKey(b)) && /^(mp4|mov|m4v)$/i.test(ext)) {
-        await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-ss", sec(a), "-to", sec(b), "-i", input, "-c", "copy", "-movflags", "+faststart", out], { signal: opts.signal });
+        await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-ss", sec(a), "-to", sec(b), "-i", input, "-c", "copy", "-movflags", "+faststart", out], run);
         return new Uint8Array(await readFile(out));
       }
     }
@@ -314,7 +329,7 @@ export async function rangeKeep(
       "-filter_complex", [...chains, concat].join(";"),
       "-map", "[v]", ...(facts.hasSound ? ["-map", "[a]", "-c:a", "aac", "-b:a", "192k"] : ["-an"]),
       "-c:v", "libx264", "-preset", "veryfast", "-crf", String(crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", out,
-    ], { signal: opts.signal });
+    ], run);
     return new Uint8Array(await readFile(out));
   });
 }
@@ -1238,12 +1253,14 @@ export function parseSceneTimes(log: string): number[] {
 export async function scenesOf(source: Media, ext: string, threshold = 0.3): Promise<number[]> {
   return ffmpegPool(() => inTemp(async (dir) => {
     const file = await onDisk(dir, `in.${ext}`, source);
-    const log = await new Promise<string>((done) => {
+    // only a run that went to the end is an answer: what one killed, cut short or failed printed is kept for good by
+    // the caller (TimelineMedia.scenes), and read as "no scene cuts" it hid the video's cuts until the file changed
+    const log = await new Promise<string>((done, fail) => {
       execFile(
         tools.ffmpeg,
         localInputs(["-hide_banner", "-i", file, "-vf", `select='gt(scene,${threshold})',showinfo`, "-an", "-f", "null", "-"]),
         { encoding: "utf8", timeout: 600_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true },
-        (_err, _stdout, stderr) => done(String(stderr ?? "")),
+        (err, _stdout, stderr) => (err ? fail(failureOf(err, stderr, 600_000)) : done(String(stderr ?? ""))),
       );
     });
     return parseSceneTimes(log);
@@ -1440,22 +1457,37 @@ export async function slowSoundOnto(slowed: Uint8Array, range: Media, factor: nu
   });
 }
 
-/** The sound of a video as a sound file of its own (AAC in an .m4a). */
-export async function soundOf(source: Media, ext: string): Promise<Uint8Array> {
+/** The sound of a video as a sound file of its own (AAC in an .m4a). `durationMs`: the video's length, for its time limit. */
+export async function soundOf(source: Media, ext: string, durationMs?: number | null): Promise<Uint8Array> {
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "sound.m4a");
-    await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, "-vn", "-c:a", "aac", "-b:a", "192k", out]);
+    await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, "-vn", "-c:a", "aac", "-b:a", "192k", out], { timeout: forLength(durationMs) });
     return new Uint8Array(await readFile(out));
   });
 }
 
-/** The same video without its sound: the picture copied as it is, nothing encoded again. */
-export async function silentOf(source: Media, ext: string): Promise<Uint8Array> {
+/** The codecs the WebM muxer takes: anything else in a file filed as video/webm is a matroska of another kind (an imported .mkv). */
+const WEBM_CODECS = new Set(["vp8", "vp9", "av1", "opus", "vorbis", "webvtt"]);
+
+/**
+ * The container a stream copy of a "webm" file is written in. The library files every matroska as video/webm, and the
+ * WebM muxer refuses what WebM does not hold (an H.264 .mkv's picture, its AAC): such a copy is written as matroska,
+ * the kind of file it came from, under the same name and type. `streams`: the streams the copy keeps ("v" or all).
+ */
+async function webmCopyFormat(input: string, streams?: "v"): Promise<string[]> {
+  const said = await must(tools.ffprobe, ["-v", "error", ...(streams ? ["-select_streams", streams] : []), "-show_entries", "stream=codec_name", "-of", "csv=p=0", input]).catch(() => "");
+  const codecs = said.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  return codecs.every((c) => WEBM_CODECS.has(c)) ? ["-f", "webm"] : ["-f", "matroska"];
+}
+
+/** The same video without its sound: the picture copied as it is, nothing encoded again. `durationMs`: its length, for the time limit. */
+export async function silentOf(source: Media, ext: string, durationMs?: number | null): Promise<Uint8Array> {
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, `silent.${ext}`);
-    await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, "-map", "0:v", "-c", "copy", "-an", "-movflags", "+faststart", out]);
+    const format = ext === "webm" ? await webmCopyFormat(input, "v") : ["-movflags", "+faststart"];
+    await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, "-map", "0:v", "-c", "copy", "-an", ...format, out], { timeout: forLength(durationMs) });
     return new Uint8Array(await readFile(out));
   });
 }
@@ -1474,7 +1506,8 @@ export async function markedVideoFile(source: Media, ext: string): Promise<{ fil
   try {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, `marked.${ext}`);
-    await ffmpegPool(() => must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, "-map", "0", "-c", "copy", "-map_metadata", "0", ...aiVideoArgs, ...(ext === "webm" ? [] : ["-movflags", "+faststart"]), out], { timeout: 10 * 60_000 }));
+    const format = ext === "webm" ? await webmCopyFormat(input) : ["-movflags", "+faststart"];
+    await ffmpegPool(() => must(tools.ffmpeg, ["-y", "-loglevel", "error", "-i", input, "-map", "0", "-c", "copy", "-map_metadata", "0", ...aiVideoArgs, ...format, out], { timeout: 10 * 60_000 }));
     // the bytes handed in (a file not on this machine's disk) are let go of: only the marked copy is read from here on
     if (input !== source) await rm(input, { force: true }).catch(() => {});
     return { file: out, size: (await stat(out)).size, done };

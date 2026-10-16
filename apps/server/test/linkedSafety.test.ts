@@ -293,7 +293,7 @@ describe("what a draft or a job still to run names", () => {
     return id;
   }
 
-  it("is not taken to the bin: a picture pinned in a draft's form, its look, the item it edits, a job's resume", async () => {
+  it("is not taken to the bin: a picture pinned in a draft's form, its look, a job's resume; an old draft's target pins nothing", async () => {
     const inForm = await unkept();
     const inLook = await unkept();
     const edited = await unkept();
@@ -308,10 +308,10 @@ describe("what a draft or a job still to run names", () => {
       resume: JSON.stringify({ neighbour: { asset: resumed } }), error: null, generation_id: null, clip_id: null, timeline_id: null, clip_fit: 0, finished_from: null, draft_id: null, folder_id: null, created_at: at, started_at: at, finished_at: null, updated_at: at,
     } as never).execute();
     const used = await inUse(t.db);
-    expect([inForm, inLook, edited, resumed].map((id) => used.get(id))).toEqual(["a draft", "a draft", "a draft", "a job still to run"]);
+    expect([inForm, inLook, edited, resumed].map((id) => used.get(id))).toEqual(["a draft", "a draft", undefined, "a job still to run"]);
     await sweep(t.db, t.services.storage);
     const binned = (await t.db.selectFrom("assets").select("id").where("deleted_at", "is not", null).execute()).map((r) => r.id);
-    expect(binned).toEqual([free]);
+    expect(binned.sort()).toEqual([edited, free].sort());
   });
 });
 

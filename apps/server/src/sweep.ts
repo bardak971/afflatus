@@ -26,7 +26,7 @@ const ID_IN_JSON = /"([0-9a-f]{32})"/g;
  * The assets something still needs, each with what needs it (for saying so): the take that plays in a clip,
  * a take another take was finished from or carries on from, a clip's still, its sound and the pictures its
  * form names, a timeline's music, the pictures and voices of people, places, styles and presets, the pictures
- * a draft's forms and look name and the item it edits, and the inputs of a job that is still to run (and what
+ * a draft's forms and look name, and the inputs of a job that is still to run (and what
  * it was sent with: the neighbour video or the opening frame picked when it was submitted). Unkept, binned or
  * erased, any of these would leave a clip, a person, a draft or a job pointing at nothing: the sweep, the bin
  * and the library leave them alone. `takes: false`: all of it but the takes, for what works out on its own which
@@ -57,9 +57,8 @@ export async function inUse(db: Kysely<Tables>, opts: { takes?: boolean; jobs?: 
   scan(clips.map((c) => c.inputs), "a timeline");
   add((await db.selectFrom("timelines").select("music_asset_id").execute()).map((t) => t.music_asset_id), "a timeline");
   scan((await db.selectFrom("entities").select("def").execute()).map((e) => e.def), "a person, a place, a style or a preset");
-  const drafts = await db.selectFrom("drafts").select(["forms", "look", "target"]).execute();
+  const drafts = await db.selectFrom("drafts").select(["forms", "look"]).execute();
   scan(drafts.flatMap((d) => [d.forms, d.look]), "a draft");
-  add(drafts.map((d) => /^asset:([0-9a-f]{32})$/.exec(d.target)?.[1] ?? null), "a draft");
   if (opts.jobs !== false) {
     const jobs = await db.selectFrom("jobs").select(["inputs", "resume"]).where("status", "in", ["queued", "running"]).execute();
     scan(jobs.flatMap((j) => [j.inputs, j.resume]), "a job still to run");

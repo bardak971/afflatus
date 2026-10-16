@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "kysely";
@@ -62,6 +62,30 @@ describe("a migration that fails half way", () => {
       // the cause taken away, the next start goes through
       await sql`drop index jobs_by_timeline`.execute(db);
       expect(await migrate(db)).toContain("0039_wide_sizes");
+      await db.destroy();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("the copy taken before an update", () => {
+  it("is written aside and put in place whole: the copy before the previous update goes only once the new one is there", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "afflatus-migrate-"));
+    const file = join(dir, "afflatus.db");
+    try {
+      const db = openSqlite(file);
+      await migrate(db, "0031_take_lead");
+      // the copy from the update before; and what stops the new copy from being put in place (as a full disk stops its write)
+      writeFileSync(join(dir, "afflatus.db.pre-0001_older"), "the copy before the previous update");
+      mkdirSync(join(dir, "afflatus.db.pre-0032_job_timeline"));
+      await expect(migrate(db)).rejects.toThrow();
+      expect(readFileSync(join(dir, "afflatus.db.pre-0001_older"), "utf8")).toBe("the copy before the previous update");
+      expect(readdirSync(dir).filter((f) => f.includes(".copying-"))).toEqual([]);
+      // the cause taken away, the next start makes its copy, and only then lets the older one go
+      rmSync(join(dir, "afflatus.db.pre-0032_job_timeline"), { recursive: true });
+      expect(await migrate(db)).toContain("0032_job_timeline");
+      expect(readdirSync(dir).filter((f) => f.startsWith("afflatus.db.pre-") || f.includes(".copying-"))).toEqual(["afflatus.db.pre-0032_job_timeline"]);
       await db.destroy();
     } finally {
       rmSync(dir, { recursive: true, force: true });

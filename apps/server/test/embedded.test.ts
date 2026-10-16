@@ -50,6 +50,37 @@ describe("what a picture says about how it was made", () => {
     expect(s.loras).toEqual([{ name: "soft_light-v2", weight: 0.8 }, { name: "not_here", weight: 1, civitai: 42 }]);
   });
 
+  it("reads A1111's text from a JPEG's UNICODE UserComment, even one of an odd count of bytes", async () => {
+    // EXIF as A1111 writes it for a JPEG: IFD0 pointing at the Exif IFD, whose UserComment (0x9286) is "UNICODE\0" and UTF-16
+    const jpegWith = (body: Buffer) => {
+      const comment = Buffer.concat([Buffer.from("UNICODE\0", "latin1"), body]);
+      const tiff = Buffer.alloc(44);
+      tiff.write("II", 0, "latin1");
+      tiff.writeUInt16LE(42, 2);
+      tiff.writeUInt32LE(8, 4);
+      tiff.writeUInt16LE(1, 8);
+      tiff.writeUInt16LE(0x8769, 10);
+      tiff.writeUInt16LE(4, 12);
+      tiff.writeUInt32LE(1, 14);
+      tiff.writeUInt32LE(26, 18);
+      tiff.writeUInt16LE(1, 26);
+      tiff.writeUInt16LE(0x9286, 28);
+      tiff.writeUInt16LE(7, 30);
+      tiff.writeUInt32LE(comment.length, 32);
+      tiff.writeUInt32LE(44, 36);
+      const exif = Buffer.concat([Buffer.from("Exif\0\0", "latin1"), tiff, comment]);
+      const app1 = Buffer.alloc(4);
+      app1.writeUInt16BE(0xffe1, 0);
+      app1.writeUInt16BE(exif.length + 2, 2);
+      return new Uint8Array(Buffer.concat([Buffer.from([0xff, 0xd8]), app1, exif, Buffer.from([0xff, 0xd9])]));
+    };
+    const text = Buffer.from(A1111, "utf16le");
+    expect((await readEmbedded(jpegWith(text))).settings).toMatchObject({ source: "a1111", steps: 30 });
+    // one byte too many: read all the same, never a server error
+    const odd = jpegWith(Buffer.concat([text, Buffer.from([0])]));
+    expect((await readEmbedded(odd)).settings).toMatchObject({ source: "a1111", steps: 30 });
+  });
+
   it("reads a ComfyUI graph and keeps the workflow beside it", async () => {
     const found = await readEmbedded(pngWith({ prompt: JSON.stringify(GRAPH), workflow: JSON.stringify({ nodes: [], links: [] }) }));
     expect(found.settings).toMatchObject({ source: "comfyui", prompt: "a harbour at dusk", negative: "blurry", checkpoint: "Illustrious", steps: 24, sampler: "euler_ancestral", width: 1216, height: 832, seed: 99 });

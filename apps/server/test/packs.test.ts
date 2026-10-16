@@ -84,6 +84,16 @@ describe("missing node packs", () => {
     expect(after.json().missingNodes).toEqual([]);
   });
 
+  it("restarts no other ComfyUI for a machine that is gone: an unknown machine is a 404, the first one left alone", async () => {
+    await start({ manager: true });
+    const res = await t.app.inject({ method: "POST", url: "/api/comfy/restart", payload: { machine: "m9" } });
+    expect(res.statusCode).toBe(404);
+    expect(fake.reboots).toBe(0);
+    // named, the machine there is restarted
+    expect((await t.app.inject({ method: "POST", url: "/api/comfy/restart", payload: { machine: "m1" } })).statusCode).toBe(200);
+    expect(fake.reboots).toBe(1);
+  });
+
   it("will not restart ComfyUI without Manager", async () => {
     await start({ manager: false });
     const res = await t.app.inject({ method: "POST", url: "/api/comfy/restart" });

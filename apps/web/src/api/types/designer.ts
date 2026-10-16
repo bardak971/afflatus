@@ -7,7 +7,6 @@ export interface DraftBrief {
   title: string;
   /** The name it was given, when it was given one. */
   name: string | null;
-  target: string;
   createdAt?: string;
   updatedAt: string;
   /** Nothing was done in it yet. */
