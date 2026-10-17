@@ -129,8 +129,9 @@ export function windowRunUp(recipe: Recipe<any> | undefined, inputs: Record<stri
   const { fps } = shape;
   // the frames the part holds now, as the job takes them: on the grid
   const now = gridAtOrBefore(Math.floor((inputs[seconds] as number) * fps + 0.01), grid);
-  // the grid's steps within the carried frames: what a cut takes off its start, and carrying on again puts back
-  const steps = grid.step * Math.max(1, Math.floor(shape.carried / grid.step));
+  // the fewest grid steps after which at most one carried frame plays again: what a cut takes off its start, and carrying
+  // on again puts back (SCAIL-2's 5 on a 4-frame grid: 4, one frame again; H3's 22 on its 17: 34, none, where 17 played 5 twice)
+  const steps = grid.step * Math.max(1, Math.ceil((shape.carried - 1) / grid.step));
   const frames = joined === "cut" ? now - steps : Math.min(now + steps, gridAtOrBefore(shape.most, grid));
   const at = round4((inputs[start] as number) + (now - frames) / fps);
   if (at < 0 || frames < shape.least) return null;
