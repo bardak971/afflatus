@@ -44,7 +44,7 @@ describe("a window of a source made a cut", () => {
     }
   });
 
-  it("on H3's grid, coarser than the 5 frames carried: made a cut, starts past them (not playing them again) and ends where the window ends", () => {
+  it("on H3's grid, its steps covering the frames carried: made a cut, starts past them (not playing them again) and ends where the window ends", () => {
     const swap = recipeById("h3.swap")!;
     const { fps, carried } = windowsOf(swap)!;
     for (const windowMs of [4250, 5000, 5800]) {
