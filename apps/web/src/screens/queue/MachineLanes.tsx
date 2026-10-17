@@ -39,7 +39,7 @@ function Dot({ state }: { state: State }) {
 function StatePill({ state, word }: { state: State; word: MachineWord }) {
   return (
     <span data-tip={state === "outside" ? OUTSIDE_TIP : undefined} className={cx(
-      "max-w-full self-start truncate rounded-full px-2 py-px text-[11.5px] font-semibold",
+      "self-start rounded-full px-2 py-px text-[11.5px] font-semibold whitespace-nowrap",
       state === "rendering" ? "bg-accent-wash text-accent" : state === "outside" ? "border border-accent/40 bg-accent-wash text-accent" : state === "getting" ? "border border-accent/40 text-accent" : state === "idle" ? "border border-good/40 text-good" : state === "starting" ? "border border-good/40 text-ink-2" : state === "paused" ? "bg-hover text-ink-2" : "bg-warn-wash text-warn-ink",
     )}>
       {word}
@@ -230,10 +230,11 @@ function MachineRow({ m, onStop, onPin }: { m: MachineState; onStop(id: string):
         state === "paused" && "opacity-75",
       )}
     >
-      <div className="grid h-[66px] grid-cols-[40px_minmax(4.5rem,8rem)_minmax(0,1fr)_auto] items-center gap-3 px-2.5">
+      {/* its name column as wide as its state needs ("busy outside Afflatus" was cut at 1440, two to a line), the name capped */}
+      <div className="grid h-[66px] grid-cols-[40px_auto_minmax(0,1fr)_auto] items-center gap-3 px-2.5">
       <Thumb run={m.running} state={state} anchor={thumb} onLarge={() => setLarge(!large)} />
       <span className="flex min-w-0 flex-col gap-1">
-        <span className="truncate text-[14px] font-semibold" data-tip={m.rented ? `${name} · rented on RunPod` : name}>{name}</span>
+        <span className="max-w-[11rem] truncate text-[14px] font-semibold" data-tip={m.rented ? `${name} · rented on RunPod` : name}>{name}</span>
         <StatePill state={state} word={word} />
       </span>
       {m.running ? <JobCell run={m.running} figures={figures} /> : files && state === "getting" ? (
