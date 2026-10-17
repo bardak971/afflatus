@@ -59,6 +59,20 @@ describe("an opened family, each file once", () => {
   });
 });
 
+describe("a file there, its picker", () => {
+  it("is a picker with one file too, its last entry Another file… opening where to get one", async () => {
+    const slots = [slot("unet", "UNET", { file: "unet.safetensors", choices: ["unet.safetensors"], get: { file: "flux1-dev.safetensors", url: "https://example.test/flux1-dev.safetensors" } })];
+    serve(slots, [status("flux.t2i", { ready: true })]);
+    const { user } = draw(<FamilyBody family="flux" name="FLUX.1" recipes={[recipe("flux.t2i", "txt2img")]} />);
+    const files = within(await screen.findByRole("region", { name: "Files" }));
+    await user.click(files.getByRole("button", { name: /File used for UNET/ }));
+    await user.click(await screen.findByRole("option", { name: /Another file…/ }));
+    expect(files.getByText(/Another UNET: put its file in ComfyUI's diffusion_models folder/)).toBeTruthy();
+    // the file Afflatus knows for it, not the one there, offered to download
+    expect(files.getByRole("button", { name: /Download into ComfyUI/ })).toBeTruthy();
+  });
+});
+
 describe("Download all", () => {
   it("starts the needed files it lacks that have a download, not the optional ones nor one already coming", async () => {
     const slots = [...BASE.map((id) => slot(id, id.toUpperCase())), slot("lora", "Turbo LoRA", { optional: true })];

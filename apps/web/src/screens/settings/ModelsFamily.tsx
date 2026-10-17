@@ -127,8 +127,15 @@ export function DownloadAll({ family, recipes, machine }: { family: string; reci
   );
 }
 
-/** Its picker, when more than one file fits (two SeedVR2 models, a fine-tune beside the base): which one is used, by hand or left to the patterns. */
-function SlotPicker({ family, slot }: { family: string; slot: Slot }) {
+/** The picker's last entry: not a file, the way to another one (FileLine's search and download). */
+const ANOTHER = "\u0000another";
+
+/**
+ * Its picker, on every file there: which one is used (several fit: two SeedVR2 models, a fine-tune beside the base), by hand
+ * or left to the patterns, and "Another file…" to get one more. With one file, a plain name hid that it can be changed (the
+ * owner, 2026-10-17: "those are things the user could change").
+ */
+function SlotPicker({ family, slot, onAnother }: { family: string; slot: Slot; onAnother(): void }) {
   const settings = useSettings();
   const client = useQueryClient();
   const save = useMutation({
@@ -143,21 +150,29 @@ function SlotPicker({ family, slot }: { family: string; slot: Slot }) {
     },
     onSuccess: () => Promise.all([client.invalidateQueries({ queryKey: queryKeys.settings() }), client.invalidateQueries({ queryKey: queryKeys.setup() })]),
   });
+  // one file there and none picked by hand: that file, no "Automatic" beside the only one it could be
+  const one = slot.choices.length <= 1 && !slot.chosen;
+  const files = one
+    ? [{ value: "", label: fileLabel(slot.file ?? slot.auto ?? ""), note: "the only one here" }]
+    : [{ value: "", label: slot.auto ? `Automatic: ${fileLabel(slot.auto)}` : "Automatic", note: "the first its patterns name" }, ...slot.choices.map((f) => ({ value: f, label: fileLabel(f) }))];
   return (
     <Select
       size="sm"
       label={`File used for ${slot.label}`}
       value={slot.chosen ? (slot.file ?? "") : ""}
-      onChange={(file) => save.mutate(file)}
-      options={[{ value: "", label: slot.auto ? `Automatic: ${fileLabel(slot.auto)}` : "Automatic", note: "the first its patterns name" }, ...slot.choices.map((f) => ({ value: f, label: fileLabel(f) }))]}
+      onChange={(file) => (file === ANOTHER ? onAnother() : save.mutate(file))}
+      options={[...files, { value: ANOTHER, label: "Another file…", note: "download or search one" }]}
     />
   );
 }
 
 /** A file's line: there (its file, or its picker), or missing (where to put it, and its download and search, or its bar while it comes). */
 function FileLine({ row, family, name, imported }: { row: FileRow; family: string; name: string; imported?: boolean }) {
-  const picker = row.slot && row.file && (row.slot.choices.length > 1 || row.slot.chosen);
+  const picker = row.slot && row.file;
+  const [another, setAnother] = useState(false);
   const find = encodeURIComponent(row.label);
+  // another file for it: the one Afflatus knows to download when it is not the one there, else a search by its name
+  const known = row.slot?.get && row.slot.get.file !== row.file ? row.slot.get : null;
   return (
     <div className="grid grid-cols-[14px_minmax(0,1fr)_7.5rem_minmax(0,18rem)] items-start gap-3 border-t border-line py-2 first:border-t-0">
       {row.file
@@ -173,7 +188,7 @@ function FileLine({ row, family, name, imported }: { row: FileRow; family: strin
       </span>
       <span className="truncate pt-0.5 font-mono text-[11.5px] text-ink-3">{row.folder ?? ""}</span>
       <span className="flex min-w-0 flex-col">
-        {picker ? <SlotPicker family={family} slot={row.slot!} />
+        {picker ? <SlotPicker family={family} slot={row.slot!} onAnother={() => setAnother(true)} />
           : row.file ? <span className="truncate pt-0.5 text-xs text-ink-2" data-tip={row.file}>{fileLabel(row.file)}</span>
           : (
             <>
@@ -189,6 +204,16 @@ function FileLine({ row, family, name, imported }: { row: FileRow; family: strin
             </>
           )}
       </span>
+      {another && (
+        <div className="col-span-full ml-[26px] flex flex-col gap-1 rounded-lg border border-line bg-panel px-3 py-2 text-xs text-ink-2">
+          <span className="flex items-center gap-2">
+            <span className="grow">Another {row.label}: put its file in ComfyUI's {row.folder} folder, or get one here. It then shows in the list above.</span>
+            <button type="button" className="shrink-0 font-semibold text-accent hover:underline" onClick={() => setAnother(false)}>Close</button>
+          </span>
+          {/* auto: looked up at once when Afflatus knows no other file to offer */}
+          <GetFile file={known?.file ?? row.file!} folder={row.folder} url={known?.url} hints={[name]} auto={!known} />
+        </div>
+      )}
     </div>
   );
 }
