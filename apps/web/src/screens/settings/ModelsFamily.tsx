@@ -194,21 +194,19 @@ function FileLine({ row, family, name, imported }: { row: FileRow; family: strin
 }
 
 /**
- * An opened family: what it makes, its files once each (the needed ones folded into a line while they are all there,
- * then the optional ones, a picker on each where more than one fits), its operations a line each saying ready or what they
+ * An opened family: what it makes, its files once each (the needed ones always in sight, then the optional ones to add,
+ * those there folded behind one line; a picker on each where more than one fits), its operations a line each saying ready or what they
  * wait for, and once, the custom nodes some of their options need. What was said under each operation, and the Optional
  * and Files in use sections apart (the owner's pick, mock "Models view", A).
  */
 export function FamilyBody({ family, name, help, recipes, machine, imported }: { family: string; name: string; help?: string; recipes: RecipeInfo[]; machine?: string; imported?: boolean }) {
   const setup = useSetup(machine);
-  const [unfolded, setUnfolded] = useState(false);
   const [optionalOpen, setOptionalOpen] = useState(false);
   const scanned = setup.data?.families ?? [];
   const slots = scanned.find((f) => f.id === family)?.slots ?? [];
   const statuses = setup.data?.recipes ?? [];
   const { needed, optional } = familyFiles(slots, recipes, statuses, lentSlots(family, recipes, scanned));
   const allThere = needed.every((r) => r.file);
-  const folded = allThere && needed.length > 0 && !unfolded;
   // the custom nodes some options need: once, with the operations they are off in
   const limited = new Map<string, string[]>();
   for (const r of recipes) for (const node of statuses.find((x) => x.id === r.id)?.limitedBy ?? []) limited.set(node, [...(limited.get(node) ?? []), r.title]);
@@ -223,22 +221,13 @@ export function FamilyBody({ family, name, help, recipes, machine, imported }: {
           {needed.length > 0 && (
             <>
               <span className="flex items-center gap-2 pb-1">
-                {/* all there, nothing to do: its head alone, a disclosure as a family's own row, the files (their pickers) a click away */}
-                {allThere ? (
-                  <button type="button" aria-expanded={!folded} onClick={() => setUnfolded(!unfolded)} className="flex items-center gap-2 text-left hover:text-ink">
-                    <ChevronDown size={13} className={cx("shrink-0 text-ink-3 transition-transform", folded && "-rotate-90")} />
-                    {/* nothing said of them being there (the owner: what misses is worth saying, that all is fine is too much) */}
-                    <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Files · {needed.length} needed</span>
-                  </button>
-                ) : (
-                  <>
-                    <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Files · {needed.length} needed</span>
-                    <span className="text-xs text-warn-ink">{plural(needed.filter((r) => !r.file).length, "missing", "missing")}</span>
-                  </>
-                )}
+                <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Files · {needed.length} needed</span>
+                {/* what misses is said; nothing of them all being there (the owner: that all is fine is too much) */}
+                {!allThere && <span className="text-xs text-warn-ink">{plural(needed.filter((r) => !r.file).length, "missing", "missing")}</span>}
                 <Help title="Files" text="Each file the family needs, once, whatever needs it: an operation that lacks one says so in its line below. Where more than one file fits, its picker says which is used: left to itself, the first its patterns name." />
               </span>
-              {!folded && needed.map(line)}
+              {/* always in sight once the family is opened: what it runs with, and their pickers, are what one opens it for (the owner; they were folded) */}
+              {needed.map(line)}
             </>
           )}
           {optional.length > 0 && (
