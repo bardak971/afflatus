@@ -200,9 +200,10 @@ export const History = memo(function History() {
     });
 
   return (
-    // the history takes the room left under the queue (basis 0), and its list the room left in it: sized by their content,
-    // each step of a running render had the browser measure the whole list again, thousands of rows, to place the queue over it
-    <section className="flex min-h-[70vh] grow flex-col gap-3 lg:min-h-0 lg:basis-0">
+    // the page scrolls down to it, and there it is a window's height, its list scrolling inside under its filters (which so
+    // stay in sight): sized by their content, each step of a running render had the browser measure the whole list again,
+    // thousands of rows, to place the queue over it
+    <section className="flex h-[calc(100dvh-7rem)] min-h-[24rem] shrink-0 flex-col gap-3">
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         <div className="w-[380px] max-w-full">
           <Segmented<Status>

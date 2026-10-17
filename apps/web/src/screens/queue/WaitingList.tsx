@@ -129,6 +129,8 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
   };
   const shown = all ? waiting : waiting.slice(0, SHOWN);
   const more = waiting.length - shown.length;
+  /** The files a shown pinned job waits for, said once (pinnedFiles): a chip in its row in place of their list under it. */
+  const filesOf = (w: Job, i: number) => pinnedFiles(w, shown.slice(0, i), machines);
 
   if (!waiting.length) return null;
   return (
@@ -186,7 +188,7 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
               </span>
             )}
             {heldOutside(w) && <span className="min-w-0 truncate text-xs text-ink-2" data-tip={`${machineLabel(heldOutside(w)!)}: ${OUTSIDE_TIP}`}>· {machineLabel(heldOutside(w)!)} busy outside Afflatus</span>}
-            <FetchNote w={w} machines={machines} />
+            {filesOf(w, i) ? <FilesChip of={filesOf(w, i)!} /> : <FetchNote w={w} machines={machines} />}
             {machines.length > 0 && !w.pinned && w.runsOn?.length === 0 && (
               <Link href={settingHref("models.families")} className="shrink-0">
                 <Chip tone="warn" tip="No machine has its files, or its family is off on every one. Settings › Models says what each machine has; or pin it to one (Run on) to download what it lacks there.">no machine can run it</Chip>
@@ -217,7 +219,7 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
               <X size={14} />
             </button>
           </div>
-          {w.pinned && w.lacks?.[w.pinned] && <PinnedLacks machine={machineLabel(machines.find((m) => m.id === w.pinned) ?? { name: w.pinned, url: "" })} id={w.pinned} lack={w.lacks[w.pinned]!} />}
+          {w.pinned && w.lacks?.[w.pinned] && !filesOf(w, i) && <PinnedLacks machine={machineLabel(machines.find((m) => m.id === w.pinned) ?? { name: w.pinned, url: "" })} id={w.pinned} lack={w.lacks[w.pinned]!} />}
         </Fragment>
       ))}
       <div className="flex items-center gap-1 px-3 pt-1 text-xs text-ink-3">
@@ -256,6 +258,48 @@ function FetchNote({ w, machines }: { w: Job; machines: MachineState[] }) {
     <span className="shrink-0 text-xs text-ink-3" data-tip={`${m ? machineLabel(m) : id} could take it once sent its ${plural(f.files.length, "file")} (${est(f.ms) || "a while"}): it ends sooner here. The files are sent to the pod ahead, for the next one.`}>
       · sooner than on {m ? machineLabel(m) : id}
     </span>
+  );
+}
+
+/** Its lack is files and only files: no balance, no failure, its family on. */
+const onlyFiles = (lack: MachineLack | undefined): lack is MachineLack => Boolean(lack && !lack.balance && !lack.failed && !lack.off && lack.files.length);
+const filesKey = (lack: MachineLack) => lack.files.map((f) => `${f.folder}/${f.file}`).sort().join("|");
+
+/**
+ * A pinned job's files, said once rather than under every job that waits for them (the owner, 2026-10-17: two clips listed
+ * the same three files each, with their downloads, and pushed the history away): its machine getting them already (a pod
+ * they were sent to, a download into a ComfyUI of one's own under way), its row says how far, and the job only that it
+ * waits for them; the same files as a job shown before it, that one's list stands for both. Null: its list goes under it,
+ * each file with its download, nothing else saying them.
+ */
+function pinnedFiles(w: Job, before: readonly Job[], machines: readonly MachineState[]): { machine: MachineState | null; count: number; same?: number } | null {
+  const lack = w.pinned ? w.lacks?.[w.pinned] : undefined;
+  if (!w.pinned || !onlyFiles(lack)) return null;
+  const m = machines.find((x) => x.id === w.pinned) ?? null;
+  const coming = new Set((m?.rented?.files ?? m?.files ?? []).filter((f) => f.state !== "failed").map((f) => f.file));
+  if (lack.files.every((f) => coming.has(f.file))) return { machine: m, count: lack.files.length };
+  const key = filesKey(lack);
+  const first = before.findIndex((b) => b.pinned === w.pinned && onlyFiles(b.lacks?.[w.pinned!]) && filesKey(b.lacks![w.pinned!]!) === key);
+  return first < 0 ? null : { machine: m, count: lack.files.length, same: first };
+}
+
+/**
+ * "Waits for 3 files on RTX 4090": a click scrolls to that machine's row, which says how far they are (or, for the same
+ * files as a job above, points at it).
+ */
+function FilesChip({ of }: { of: NonNullable<ReturnType<typeof pinnedFiles>> }) {
+  const name = of.machine ? machineLabel(of.machine) : "its machine";
+  if (of.same !== undefined) return <span className="shrink-0 text-xs text-ink-2" data-tip={`The files job ${of.same + 1} waits for, listed under it`}>· waits for the same {plural(of.count, "file")} as {of.same + 1}</span>;
+  const show = () => {
+    const row = of.machine && document.querySelector<HTMLElement>(`[data-machine="${CSS.escape(of.machine.id)}"]`);
+    if (!row) return;
+    row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    row.animate?.([{ boxShadow: "0 0 0 2px var(--color-accent)" }, { boxShadow: "0 0 0 0 transparent" }], { duration: 1400, easing: "ease-out" });
+  };
+  return (
+    <button type="button" onClick={(e) => { e.stopPropagation(); show(); }} data-tip={`${name} is getting them: its row says how far`} className="shrink-0 rounded-[7px] border border-accent/45 bg-accent-wash px-2 py-px text-xs font-semibold whitespace-nowrap text-accent hover:brightness-125">
+      waits for {plural(of.count, "file")} on {name} ↑
+    </button>
   );
 }
 

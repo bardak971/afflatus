@@ -1,29 +1,27 @@
-import { lazy, Suspense, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, MoreHorizontal, Pause, Play } from "lucide-react";
-import { Progress } from "../../progress/Progress";
-import { previewUrl, type MachineState, type PodDisk, type QueueStatus, type RunningJob, type SystemLoad } from "../../api";
+import { lazy, Suspense, useRef, useState } from "react";
+import { Link } from "wouter";
+import { MoreHorizontal, Pause, Play, Square } from "lucide-react";
+import type { MachineState, PodDisk, QueueStatus, RunningJob, SystemLoad } from "../../api";
 import { useMenu } from "../../ContextMenu";
 import { gb, phaseLabel, plural, timeLeft } from "../../format";
+import { LivePreview, StageStrip } from "../../LivePreview";
 import { machineLabel, machineState, OUTSIDE_TIP, outsideSaid, rentedSaid, type MachineWord } from "../../machines";
 import { useQueueOps } from "../../queueOps";
 import { useSystem } from "../../store";
-import { cx } from "../../ui";
-import { diskNearlyFull, diskSaid, FilesLine, filesSaid, gettingFiles, STARTING_DOT } from "../../machineBits";
+import { Bar, Button, cx } from "../../ui";
+import { diskSaid, FilesLine, filesSaid, filesTip, gettingFiles, STARTING_DOT } from "../../machineBits";
+import { Popover } from "../../Popover";
+import { settingHref } from "../settings/settingsIndex";
+import { useModelName } from "./modelName";
 import { RunningCard } from "./RunningCard";
 
 const MachineMenuBody = lazy(() => import("../../MachineMenu").then((m) => ({ default: m.MachineMenuBody })));
 
-/** What a waiting row carries when it is dragged (WaitingList): dropped on a lane, the job is pinned to that machine. */
+/** What a waiting row carries when it is dragged (WaitingList): dropped on a machine's row, the job is pinned to that machine. */
 export const JOB_DRAG = "application/x-afflatus-job";
 
-/** Past this many machines the lanes are one row each, a row opening on a click: four cards are already a full width. */
-const COMPACT_PAST = 4;
-
-/** The columns of a machine's row, the same in every row and in an opened lane's head, so that they line up and nothing jumps. */
-const ROW = "grid grid-cols-[16px_minmax(120px,180px)_88px_minmax(0,1fr)_minmax(0,170px)_316px_64px] items-center gap-3.5";
-
 /**
- * How a lane looks in its state (machineState): a stopped pod as a paused machine, a locked one as one away, a starting one
+ * How a row looks in its state (machineState): a stopped pod as a paused machine, a locked one as one away, a starting one
  * as on its way up (the pill's dot), a pod whose start failed as one away.
  */
 type State = "rendering" | "outside" | "getting" | "idle" | "paused" | "offline" | "starting";
@@ -41,7 +39,7 @@ function Dot({ state }: { state: State }) {
 function StatePill({ state, word }: { state: State; word: MachineWord }) {
   return (
     <span data-tip={state === "outside" ? OUTSIDE_TIP : undefined} className={cx(
-      "justify-self-start rounded-full px-2 py-px text-[11.5px] font-semibold",
+      "max-w-full self-start truncate rounded-full px-2 py-px text-[11.5px] font-semibold",
       state === "rendering" ? "bg-accent-wash text-accent" : state === "outside" ? "border border-accent/40 bg-accent-wash text-accent" : state === "getting" ? "border border-accent/40 text-accent" : state === "idle" ? "border border-good/40 text-good" : state === "starting" ? "border border-good/40 text-ink-2" : state === "paused" ? "bg-hover text-ink-2" : "bg-warn-wash text-warn-ink",
     )}>
       {word}
@@ -50,83 +48,98 @@ function StatePill({ state, word }: { state: State; word: MachineWord }) {
 }
 
 /**
- * The model it holds, as a chip on one line (cut short when long); a dashed one when it holds none, or when its ComfyUI runs
- * work from outside Afflatus: that work loads what it wants, and what Afflatus last loaded there may be gone.
+ * Its GPU and VRAM as words, the rest of its figures in the tip: the Queue no longer draws a machine's meters as tiles, the
+ * machines pill's popover has them for each machine, and the status bar the one ComfyUI's.
  */
-function ModelChip({ model, outside }: { model: string | null; outside?: boolean }) {
-  if (outside) return <span className="shrink-0 justify-self-start rounded-[7px] border border-dashed border-line-strong px-2 py-0.5 text-xs whitespace-nowrap text-ink-3" data-tip="Work queued from outside Afflatus runs there: it loads its own models">model unknown</span>;
-  return model
-    ? <span className="min-w-0 max-w-full justify-self-start truncate rounded-[7px] border border-line bg-raised px-2 py-0.5 text-xs whitespace-nowrap text-ink-2" data-tip={`Holds ${model}: a render with it starts at once here`}>{model}</span>
-    : <span className="shrink-0 justify-self-start rounded-[7px] border border-dashed border-line-strong px-2 py-0.5 text-xs whitespace-nowrap text-ink-3">no model</span>;
-}
-
-/** A small bar and its figure, as the status bar's meters. */
-function Mini({ label, value, fill }: { label: string; value: number | undefined; fill: string }) {
-  if (value === undefined) return null;
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-ink-2">
-      {label}
-      <Progress meter value={value / 100} className="h-1 w-[26px]" radius="rounded-[2px]" tone={fill} />
-      <span className="w-8 font-mono text-ink">{Math.round(value)}%</span>
-    </span>
-  );
-}
-
-/** A machine's three meters in a row: GPU (in the accent colour while it renders), VRAM, RAM. Its full figures in the tip. */
-function MiniMeters({ load, rendering }: { load: SystemLoad | null | undefined; rendering: boolean }) {
+function Figures({ load, disk }: { load: SystemLoad | null | undefined; disk: PodDisk | null }) {
   const gpu = load?.gpus[0];
   if (!load || !gpu) return <span className="text-xs text-ink-3">no figures</span>;
-  const tip = [gpu.name, `VRAM ${gb(gpu.vramUsed)} of ${gb(gpu.vramTotal)}`, load.cpu !== undefined && `CPU ${Math.round(load.cpu)} %`, gpu.temperature !== undefined && `${Math.round(gpu.temperature)}°`].filter(Boolean).join(" · ");
+  const tip = [
+    gpu.name,
+    `VRAM ${gb(gpu.vramUsed)} of ${gb(gpu.vramTotal)}`,
+    load.ram && `RAM ${Math.round(load.ram.percent)} %`,
+    load.cpu !== undefined && `CPU ${Math.round(load.cpu)} %`,
+    gpu.temperature !== undefined && `${Math.round(gpu.temperature)}°`,
+    disk && `disk ${diskSaid(disk)}`,
+  ].filter(Boolean).join(" · ");
   return (
-    <span className="inline-flex min-w-0 items-center gap-3 overflow-hidden" data-tip={tip}>
-      <Mini label="GPU" value={gpu.load} fill={rendering ? "bg-accent" : "bg-ink-2"} />
-      <Mini label="VRAM" value={gpu.vramPercent} fill="bg-ink" />
-      <Mini label="RAM" value={load.ram?.percent} fill="bg-ink-3" />
+    <span className="font-mono text-[11.5px] whitespace-nowrap text-ink-2" data-tip={tip}>
+      {gpu.load !== undefined && `GPU ${Math.round(gpu.load)} · `}VRAM {gb(gpu.vramUsed).replace(" GB", "")}/{gb(gpu.vramTotal).replace(" GB", "")}
     </span>
   );
-}
-
-/** The live preview small, while there is one; a quiet square before. */
-function Thumb({ run, size }: { run: RunningJob; size: "sm" | "md" }) {
-  const box = size === "sm" ? "h-[26px] w-10" : "h-9 w-14";
-  const still = run.previewSeq > 0 && (!run.previewMime || run.previewMime.startsWith("image/"));
-  return still
-    ? <img src={previewUrl(run.id, run.previewSeq)} alt="" className={cx("shrink-0 rounded-[5px] object-cover", box)} />
-    : <span className={cx("shrink-0 rounded-[5px] bg-raised", box)} />;
 }
 
 /**
- * What it runs: the preview small, the job's name, its phase and what is left; in a line, or beside the larger preview
- * (`md`, a lane) the name over the phase: on one line, "sampling 18/20 · 0:27 left" left the name "zz-t…".
+ * The live preview small, a button: a click shows it large over the page (with its sound, and the workflow's own Preview
+ * nodes under it), to judge a render by. Before a first preview, and on a machine that renders nothing, its dot in its place.
  */
-function JobLine({ run, size = "sm" }: { run: RunningJob; size?: "sm" | "md" }) {
-  const steps = run.steps ? ` ${run.step}/${run.steps}` : "";
-  const phase = <span className="shrink-0 truncate font-mono text-xs text-ink-2">{phaseLabel(run.phase).toLowerCase()}{steps}{run.eta ? ` · ${timeLeft(run.eta)}` : ""}</span>;
+function Thumb({ run, state, onLarge, anchor }: { run: RunningJob | null; state: State; onLarge(): void; anchor: React.RefObject<HTMLButtonElement | null> }) {
+  const seen = Boolean(run && run.previewSeq > 0);
+  if (!run || !seen) return <span className="grid h-[52px] w-10 shrink-0 place-items-center rounded-md bg-raised"><Dot state={state} /></span>;
   return (
-    <span className="flex min-w-0 items-center gap-2.5">
-      <Thumb run={run} size={size} />
-      {size === "md" ? (
-        <span className="flex min-w-0 flex-col gap-0.5">
-          <span className="min-w-0 truncate font-semibold" data-tip={run.label}>{run.label}</span>
-          {phase}
-        </span>
-      ) : (
-        <>
-          <span className="min-w-0 truncate font-semibold">{run.label}</span>
-          {phase}
-        </>
-      )}
+    <button ref={anchor} type="button" data-stage aria-label="Show the live preview large" data-tip="Show it large, with its sound" onClick={(e) => { e.stopPropagation(); onLarge(); }} className="h-[52px] w-10 shrink-0 overflow-hidden rounded-md bg-raised hover:ring-2 hover:ring-accent/50">
+      <LivePreview job={run} className="h-full w-full object-cover" />
+    </button>
+  );
+}
+
+/** A render's phase, its step and what is left, in a few characters. */
+const stepSaid = (run: RunningJob) => `${phaseLabel(run.phase).toLowerCase()}${run.steps ? ` ${run.step}/${run.steps}` : ""}${run.eta > 0 ? ` · ${timeLeft(run.eta)}` : ""}`;
+
+/** What a running render says in its row: its name and model, its progress, its phase and step and what is left, and (`figures`) its machine's GPU and VRAM at the end of that line. */
+function JobCell({ run, figures }: { run: RunningJob; figures: React.ReactNode }) {
+  const modelOf = useModelName();
+  const model = run.kind === "load" ? `loading ${modelOf(run)}` : modelOf(run);
+  return (
+    <span className="flex min-w-0 flex-col gap-1">
+      <span className="flex min-w-0 items-baseline gap-2">
+        <span className="min-w-0 shrink truncate font-semibold" data-tip={run.label}>{run.label}</span>
+        <span className="min-w-0 shrink-[2] truncate text-xs text-ink-3">{model}</span>
+      </span>
+      <Bar value={run.progress * 100} steps={run.steps} loading={!run.progress} />
+      <span className="flex min-w-0 items-center gap-2 font-mono text-[11.5px] text-ink-2">
+        {/* what is left before its figures, which give way first (whole in their tip) */}
+        <span className="shrink-0">{stepSaid(run)}</span>
+        {run.spilling && <span className="shrink-0 font-sans font-semibold text-warn-ink" data-tip="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory.">spilling out of VRAM</span>}
+        <span className="grow" />
+        {figures}
+      </span>
     </span>
   );
 }
 
-/** Pause or Resume (Resume in the accent colour, since that is what a paused machine is waiting for), and the menu. */
-function Actions({ m, onMenu }: { m: MachineState; onMenu(e: React.MouseEvent): void }) {
+/** What its row says in the middle when it renders nothing. */
+const quiet = (m: MachineState, word: MachineWord) =>
+  word === "busy outside Afflatus" ? `${outsideSaid(m)} · the others take the line`
+  // paused, its files still come (sent ahead for Resume): said, not hidden behind the pause
+  : word === "paused" ? (gettingFiles(m) ? `takes nothing new · getting ${plural(gettingFiles(m)!.left.length, "file")} · ${filesSaid(gettingFiles(m)!)}` : "takes nothing new until it resumes")
+  : word === "stopped" && m.rented ? `${rentedSaid(m.rented)} · the others take the line`
+  : word === "checking" ? "reading its state from RunPod · the others take the line"
+  // a deployed pod's first start: its phase line, as the pill and its card say it
+  : word === "starting" && m.rented?.boot ? `${rentedSaid(m.rented)} · the others take the line`
+  : word === "starting" ? "starting: its image is pulled, then ComfyUI comes up · the others take the line"
+  : word === "locked" ? "locked: its token is wrong · the others take the line"
+  : word === "offline" ? "not answering · the others take the line"
+  : m.model ? `ready · holds ${m.model} · drop a job here to pin it` : "ready for the next job · drop one here to pin it";
+
+/**
+ * Where a machine's files are listed one by one, each with its bar: a pod's card in Settings › Rented GPUs, a ComfyUI of
+ * one's own's downloads in Settings › Models. Its row says only how many and how far.
+ */
+const filesHref = (m: MachineState) => settingHref(m.rented ? "rented.pods" : "models.families");
+
+/** Stop (while it renders), Pause or Resume (Resume in the accent colour, since that is what a paused machine is waiting for), and the menu. */
+function Actions({ m, onStop, onMenu }: { m: MachineState; onStop(id: string): void; onMenu(e: React.MouseEvent): void }) {
   const ops = useQueueOps();
   const name = machineLabel(m);
   const icon = "grid size-7 place-items-center rounded-[7px]";
   return (
-    <span className="flex justify-end gap-1">
+    <span className="flex shrink-0 justify-end gap-1">
+      {m.running && (
+        <button type="button" aria-label={`Stop ${m.running.label}`} data-tip="Stop this render" className={cx(icon, "border border-line-strong bg-raised text-ink-2 hover:bg-hover hover:text-ink")} onClick={(e) => { e.stopPropagation(); onStop(m.running!.id); }}>
+          <Square size={11} fill="currentColor" />
+        </button>
+      )}
       {m.paused ? (
         <button type="button" aria-label={`Resume ${name}`} data-tip={`Resume ${name}`} className={cx(icon, "bg-accent-wash text-accent hover:brightness-125")} onClick={(e) => { e.stopPropagation(); ops.resume.mutate(m.id); }}>
           <Play size={12} fill="currentColor" />
@@ -143,13 +156,7 @@ function Actions({ m, onMenu }: { m: MachineState; onMenu(e: React.MouseEvent): 
   );
 }
 
-/** The thin accent line along the bottom edge: a render's progress, as the status bar's running pill draws it (pulsing before a step count). */
-function ProgressEdge({ run }: { run: RunningJob | null }) {
-  if (!run) return null;
-  return <Progress shape="edge" value={run.progress} steps={run.steps} loading={!run.progress} />;
-}
-
-/** A lane's drop: a waiting job dropped on it is pinned to its machine. */
+/** A row's drop: a waiting job dropped on it is pinned to its machine. */
 function useDrop(m: MachineState, onPin: (job: string, machine: string) => void) {
   const [over, setOver] = useState(false);
   return {
@@ -173,220 +180,101 @@ function useDrop(m: MachineState, onPin: (job: string, machine: string) => void)
   };
 }
 
-/** What a lane's parts share: its state, its figures, its menu and its drop. */
-function useLane(m: MachineState, onPin: (job: string, machine: string) => void) {
+/** A running render shown large, over the page, from its row's preview: the preview with its sound, its stages, its step, Stop. */
+function LargePreview({ run, machine, anchor, onStop, onClose }: { run: RunningJob; machine: string; anchor: React.RefObject<HTMLButtonElement | null>; onStop(id: string): void; onClose(): void }) {
+  return (
+    <Popover anchor={anchor} onClose={onClose} label={`${machine}'s live preview`} width={380} height={600} className="gap-2.5 p-3">
+      <span className="truncate font-semibold" data-tip={run.label}>{machine} · {run.label}</span>
+      <div data-stage className="flex h-[440px] items-center justify-center overflow-hidden rounded-lg bg-stage">
+        <LivePreview job={run} sound className="h-full w-auto max-w-full object-contain" />
+      </div>
+      <StageStrip job={run} />
+      <Bar value={run.progress * 100} steps={run.steps} loading={!run.progress} />
+      <span className="flex items-center gap-2">
+        <span className="min-w-0 grow truncate font-mono text-xs text-ink-2">{stepSaid(run)}</span>
+        <Button size="sm" onClick={() => { onStop(run.id); onClose(); }}>Stop this render</Button>
+      </span>
+    </Popover>
+  );
+}
+
+/**
+ * A machine in one row, whatever it does, always the same height: its preview or its dot, its name and state, what it
+ * renders (or the files it gets, or why it takes nothing), its GPU and VRAM, its actions. Nothing opens: what a machine's
+ * card held is elsewhere already (its meters in the machines pill's popover, a pod's files on its card in Settings ›
+ * Rented GPUs), and its cut-off cards were what broke the page (2026-10-17). A waiting job dropped on it is pinned there.
+ */
+function MachineRow({ m, onStop, onPin }: { m: MachineState; onStop(id: string): void; onPin(job: string, machine: string): void }) {
   const menu = useMenu<true>();
   const load = useSystem((s) => s.loads[m.id]);
   const drop = useDrop(m, onPin);
   const word = machineState(m);
   const state = lookOf(word, Boolean(m.rented?.boot?.failed));
-  const menuNode = menu.menu && <Suspense fallback={null}><MachineMenuBody at={menu.menu.at} machine={m.id} onClose={menu.close} /></Suspense>;
-  return { menu, load, drop, state, word, menuNode };
-}
-
-/** What its row says in the middle when it renders nothing. */
-const quiet = (m: MachineState, word: MachineWord) =>
-  word === "busy outside Afflatus" ? `${outsideSaid(m)} · the others take the line`
-  : word === "getting files" ? filesShort(gettingFiles(m)!)
-  // paused, its files still come (sent ahead for Resume): said, not hidden behind the pause
-  : word === "paused" ? (gettingFiles(m) ? `takes nothing new · getting ${filesShort(gettingFiles(m)!)}` : "takes nothing new until it resumes")
-  : word === "stopped" && m.rented ? `${rentedSaid(m.rented)} · the others take the line`
-  : word === "checking" ? "reading its state from RunPod · the others take the line"
-  // a deployed pod's first start: its phase line, as the pill and its card say it
-  : word === "starting" && m.rented?.boot ? `${rentedSaid(m.rented)} · the others take the line`
-  : word === "starting" ? "starting: its image is pulled, then ComfyUI comes up · the others take the line"
-  : word === "locked" ? "locked: its token is wrong · the others take the line"
-  : word === "offline" ? "not answering · the others take the line"
-  : "";
-
-/** Its files in a row's few words: how many, how far, the one under way. */
-const filesShort = (g: NonNullable<ReturnType<typeof gettingFiles>>) => `${plural(g.left.length, "file")} · ${filesSaid(g)} · ${g.now.state === "fetching" ? "now" : "next"}: ${g.now.file}`;
-
-/** A machine in one row: its state, what it renders, what it holds, its meters, its actions, and its progress along the bottom. A click opens it. */
-function MachineRow({ m, onPin, onOpen, open }: { m: MachineState; onPin(job: string, machine: string): void; onOpen(): void; open?: boolean }) {
-  const { menu, load, drop, state, word, menuNode } = useLane(m, onPin);
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-expanded={Boolean(open)}
-      aria-label={`${machineLabel(m)}: ${open ? "fold" : "open"} its lane`}
-      {...drop.props}
-      onClick={onOpen}
-      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && e.target === e.currentTarget && (e.preventDefault(), onOpen())}
-      onContextMenu={(e) => menu.open(e, true)}
-      className={cx(
-        ROW, "relative h-11 cursor-pointer overflow-hidden px-3 text-[13px] transition-colors hover:bg-hover",
-        open ? "border-b border-line/60" : "rounded-[10px] border",
-        !open && (drop.over ? "border-accent ring-1 ring-accent" : state === "offline" ? "border-warn/30 bg-panel" : "border-line bg-panel"),
-        state === "paused" && !open && "opacity-70",
-      )}
-    >
-      {open ? <ChevronDown size={13} className="text-ink-2" /> : <ChevronRight size={13} className="text-ink-3" />}
-      <span className="flex min-w-0 items-center gap-2"><Dot state={state} /><span className="truncate text-[14px] font-semibold">{machineLabel(m)}</span></span>
-      <StatePill state={state} word={word} />
-      {m.running && !open ? <JobLine run={m.running} /> : <span className={cx("truncate text-xs", state === "offline" ? "text-warn-ink" : "text-ink-3")}>{open ? load?.gpus[0]?.name ?? "" : quiet(m, word)}</span>}
-      <ModelChip model={m.model} outside={Boolean(m.outside?.running)} />
-      {open ? <span /> : <MiniMeters load={load} rendering={state === "rendering"} />}
-      <Actions m={m} onMenu={(e) => menu.open(e, true)} />
-      {!open && <ProgressEdge run={m.running} />}
-      {menuNode}
-    </div>
-  );
-}
-
-/** One meter as a tile: its name, its figure, its bar. */
-function Tile({ label, value, bar, fill, note }: { label: string; value: string; bar?: number; fill?: string; note?: string }) {
-  return (
-    <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-raised px-2.5 py-2">
-      <span className="flex items-baseline justify-between gap-2 text-[11px] whitespace-nowrap text-ink-2">{label}<span className="font-mono text-[11.5px] text-ink">{value}</span></span>
-      {bar !== undefined ? <Progress meter value={bar / 100} className="h-1" radius="rounded-[2px]" tone={fill} /> : <span className="text-[11px] text-ink-3">{note}</span>}
-    </div>
-  );
-}
-
-/** A machine's meters as tiles: GPU, VRAM (in use of all of it), RAM, CPU, the GPU's temperature, a pod's disk, and its learned pace against the fastest. */
-function MeterTiles({ load, rendering, pace, fastest, disk }: { load: SystemLoad | null | undefined; rendering: boolean; pace: number | null; fastest: number | null; disk: PodDisk | null }) {
-  const gpu = load?.gpus[0];
-  const tiles: ReactNode[] = [];
-  if (gpu?.load !== undefined) tiles.push(<Tile key="gpu" label="GPU" value={`${Math.round(gpu.load)}%`} bar={gpu.load} fill={rendering ? "bg-accent" : "bg-ink-2"} />);
-  if (gpu) tiles.push(<Tile key="vram" label="VRAM" value={`${gb(gpu.vramUsed).replace(" GB", "")} / ${gb(gpu.vramTotal)}`} bar={gpu.vramPercent} fill="bg-ink" />);
-  if (load?.ram) tiles.push(<Tile key="ram" label="RAM" value={`${Math.round(load.ram.percent)}%`} bar={load.ram.percent} fill="bg-ink-3" />);
-  if (load?.cpu !== undefined) tiles.push(<Tile key="cpu" label="CPU" value={`${Math.round(load.cpu)}%`} bar={load.cpu} fill="bg-ink-3" />);
-  if (gpu?.temperature !== undefined) tiles.push(<Tile key="temp" label="GPU temp" value={`${Math.round(gpu.temperature)}°`} bar={gpu.temperature} fill={gpu.temperature >= 80 ? "bg-warn" : "bg-ink-3"} />);
-  if (disk) tiles.push(<Tile key="disk" label="Disk" value={diskSaid(disk)} bar={disk.total ? ((disk.total - disk.free) / disk.total) * 100 : 0} fill={diskNearlyFull(disk) ? "bg-warn" : "bg-ink-3"} />);
-  const relative = pace !== null && fastest ? pace / fastest : null;
-  tiles.push(<Tile key="pace" label="Pace" value={relative === null ? "—" : `×${relative.toFixed(1)}`} note={relative === null ? "nothing to compare yet" : relative < 1.05 ? "the fastest here" : "vs the fastest"} />);
-  return <div className="grid content-start grid-cols-3 gap-1.5">{tiles}</div>;
-}
-
-/** A machine opened: the same head as its row (nothing jumps), then its running card or a calm idle state, and its meters as tiles. */
-function OpenLane({ m, fastest, onStop, onPin, onFold }: { m: MachineState; fastest: number | null; onStop(id: string): void; onPin(job: string, machine: string): void; onFold(): void }) {
-  const { menu, load, drop, state, word, menuNode } = useLane(m, onPin);
   const name = machineLabel(m);
   const files = gettingFiles(m);
+  const thumb = useRef<HTMLButtonElement>(null);
+  const [large, setLarge] = useState(false);
+  // on a narrow row (a phone) they go: its name and what it does keep the room
+  const figures = <span className="hidden min-w-0 truncate @min-[520px]/row:inline"><Figures load={load} disk={m.rented?.disk ?? null} /></span>;
   return (
     <section
       aria-label={name}
+      // a waiting job's "waits for 3 files on …" scrolls here (WaitingList)
+      data-machine={m.id}
       {...drop.props}
-      className={cx("relative overflow-hidden rounded-xl border bg-panel", drop.over ? "border-accent ring-1 ring-accent" : state === "rendering" ? "border-accent/30" : state === "offline" ? "border-warn/30" : "border-line", state === "paused" && "opacity-80")}
-    >
-      <MachineRow m={m} onPin={onPin} onOpen={onFold} open />
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(300px,420px)] gap-4 p-3.5">
-        {m.running ? <RunningCard running={m.running} onStop={onStop} /> : files ? <Getting files={files} /> : (
-          <div className="flex items-center gap-3.5 rounded-[10px] border border-dashed border-line-strong px-4 py-3 text-ink-2">
-            <span className="grid size-[34px] shrink-0 place-items-center rounded-full border-[1.5px] border-line-strong"><Dot state={state} /></span>
-            <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="font-semibold text-ink">{quiet(m, word).replace(/^./, (c) => c.toUpperCase()) || "Idle · ready for the next job"}</span>
-              {/* busy outside Afflatus: why nothing is sent there, rather than a model it may no longer hold */}
-              <span className="text-xs">{state === "outside" ? `${OUTSIDE_TIP} ` : m.model ? `Holds ${m.model}: a render with it starts at once here. ` : ""}Drop a waiting job on this machine to run it here{state === "outside" ? " once it is done" : ""}.</span>
-            </span>
-            <span className="grow" />
-            {state === "idle" && (
-              <button type="button" className="shrink-0 rounded-[7px] border border-line-strong bg-raised px-3 py-1.5 text-xs font-semibold whitespace-nowrap text-ink hover:bg-hover" onClick={(e) => menu.open(e, true)}>
-                Load on {name} ▸
-              </button>
-            )}
-          </div>
-        )}
-        <MeterTiles load={load} rendering={state === "rendering"} pace={m.pace} fastest={fastest} disk={m.rented?.disk ?? null} />
-      </div>
-      {menuNode}
-    </section>
-  );
-}
-
-/** Four machines or fewer: a card each, side by side, the same parts as a row. A click opens it across the width. */
-function MachineCard({ m, onPin, onOpen }: { m: MachineState; onPin(job: string, machine: string): void; onOpen(): void }) {
-  const { menu, load, drop, state, word, menuNode } = useLane(m, onPin);
-  const gpu = load?.gpus[0];
-  return (
-    <section
-      aria-label={machineLabel(m)}
-      {...drop.props}
-      onClick={onOpen}
       onContextMenu={(e) => menu.open(e, true)}
+      // the container its grid asks for its width (a narrow row, on a phone, leaves its figures out): an element is not its own
       className={cx(
-        "@container/card relative flex min-w-0 cursor-pointer flex-col gap-2.5 overflow-hidden rounded-xl border bg-panel p-3 transition-colors hover:bg-hover",
-        drop.over ? "border-accent ring-1 ring-accent" : state === "rendering" ? "border-accent/30" : state === "offline" ? "border-warn/30" : "border-line",
-        state === "paused" && "opacity-70",
+        "@container/row min-w-0 rounded-[11px] border bg-panel text-[13px]",
+        drop.over ? "border-accent ring-1 ring-accent" : state === "rendering" || state === "getting" ? "border-accent/30" : state === "offline" ? "border-warn/30" : "border-line",
+        state === "paused" && "opacity-75",
       )}
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <Dot state={state} />
-        <span className="truncate text-[14px] font-semibold">{machineLabel(m)}</span>
+      <div className="grid h-[66px] grid-cols-[40px_minmax(4.5rem,8rem)_minmax(0,1fr)_auto] items-center gap-3 px-2.5">
+      <Thumb run={m.running} state={state} anchor={thumb} onLarge={() => setLarge(!large)} />
+      <span className="flex min-w-0 flex-col gap-1">
+        <span className="truncate text-[14px] font-semibold" data-tip={m.rented ? `${name} · rented on RunPod` : name}>{name}</span>
         <StatePill state={state} word={word} />
-        <span className="grow" />
-        <Actions m={m} onMenu={(e) => menu.open(e, true)} />
-      </div>
-      <div className="flex h-9 min-w-0 items-center">
-        {m.running ? <JobLine run={m.running} size="md" /> : <span className={cx("truncate text-xs", state === "offline" ? "text-warn-ink" : "text-ink-3")}>{quiet(m, word) || "Ready for the next job · drop one here to pin it"}</span>}
-      </div>
-      <div className="flex min-w-0 items-center gap-3 text-xs text-ink-2">
-        {gpu ? (
-          <span className="flex shrink-0 gap-3 whitespace-nowrap" data-tip={[gpu.name, load?.ram && `RAM ${Math.round(load.ram.percent)}%`].filter(Boolean).join(" · ")}>
-            {gpu.load !== undefined && <span>GPU {Math.round(gpu.load)}%</span>}
-            <span>VRAM {gb(gpu.vramUsed).replace(" GB", "")}/{gb(gpu.vramTotal)}</span>
-            {/* on a narrow card the RAM goes (it is in the tip): it was cut to "RA" beside the model */}
-            {load?.ram && <span className="@max-[400px]/card:hidden">RAM {Math.round(load.ram.percent)}%</span>}
+      </span>
+      {m.running ? <JobCell run={m.running} figures={figures} /> : files && state === "getting" ? (
+        <span className="flex min-w-0 flex-col gap-1">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate font-semibold" data-tip={filesTip(name, files)}>{plural(files.left.length, "file")}{files.ahead ? " for later jobs" : " for its jobs"}</span>
+            <span className="grow" />
+            <Link href={filesHref(m)} className="shrink-0 text-xs font-semibold text-accent hover:underline" data-tip={filesTip(name, files)}>Files ›</Link>
           </span>
-        ) : <span className="text-ink-3">no figures</span>}
-        <span className="grow" />
-        <ModelChip model={m.model} outside={Boolean(m.outside?.running)} />
+          <FilesLine g={files} />
+        </span>
+      ) : (
+        <span className="flex min-w-0 items-center gap-3">
+          <span className={cx("min-w-0 truncate text-xs", state === "offline" ? "text-warn-ink" : "text-ink-3")} data-tip={state === "outside" ? OUTSIDE_TIP : undefined}>{quiet(m, word)}</span>
+          <span className="grow" />
+          {figures}
+        </span>
+      )}
+      <Actions m={m} onStop={onStop} onMenu={(e) => menu.open(e, true)} />
       </div>
-      <ProgressEdge run={m.running} />
-      {menuNode}
+      {large && m.running && <LargePreview run={m.running} machine={name} anchor={thumb} onStop={onStop} onClose={() => setLarge(false)} />}
+      {menu.menu && <Suspense fallback={null}><MachineMenuBody at={menu.menu.at} machine={m.id} onClose={menu.close} /></Suspense>}
     </section>
   );
 }
 
 /**
- * With several ComfyUIs, the machines at the top of the queue, in place of the one running card: up to four as cards side
- * by side, more as one row each. A click opens a machine across the width: its running card (or what it is ready for) and
- * its meters as tiles. A waiting job dropped on a machine is pinned to it.
+ * The machines at the top of the queue, one row each, two to a line from two machines on a wide window (one machine: the
+ * whole width). Every row is as tall as the others and nothing opens, so the page never grows, clips or overlaps with what a
+ * machine does. A job that needs no ComfyUI (an export, a cut by ffmpeg) runs beside them: its card shows under them.
  */
 export function MachineLanes({ q, onStop, onPin }: { q: QueueStatus; onStop(id: string): void; onPin(job: string, machine: string): void }) {
-  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
-  const toggle = (id: string) => setOpen((was) => {
-    const next = new Set(was);
-    if (!next.delete(id)) next.add(id);
-    return next;
-  });
-  const paces = q.machines.map((m) => m.pace).filter((p): p is number => p !== null);
-  const fastest = paces.length ? Math.min(...paces) : null;
-  const opened = (m: MachineState) => <OpenLane key={m.id} m={m} fastest={fastest} onStop={onStop} onPin={onPin} onFold={() => toggle(m.id)} />;
-  // a job that needs no ComfyUI (an export, a cut by ffmpeg) runs beside the machines: its card shows apart
-  const tool = q.tool;
-  const compact = q.machines.length > COMPACT_PAST;
+  const machines = q.machines ?? [];
   return (
     <div className="flex flex-col gap-2">
-      {compact ? (
-        <div className="flex flex-col gap-1">
-          {q.machines.map((m) => (open.has(m.id) ? opened(m) : <MachineRow key={m.id} m={m} onPin={onPin} onOpen={() => toggle(m.id)} />))}
+      {machines.length > 0 && (
+        <div className={cx("grid gap-2", machines.length > 1 && "min-[1200px]:grid-cols-2")}>
+          {machines.map((m) => <MachineRow key={m.id} m={m} onStop={onStop} onPin={onPin} />)}
         </div>
-      ) : (
-        <>
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-2.5">
-            {q.machines.filter((m) => !open.has(m.id)).map((m) => <MachineCard key={m.id} m={m} onPin={onPin} onOpen={() => toggle(m.id)} />)}
-          </div>
-          {q.machines.filter((m) => open.has(m.id)).map(opened)}
-        </>
       )}
-      {tool && <RunningCard running={tool} onStop={onStop} />}
-    </div>
-  );
-}
-
-/**
- * A machine getting files (a pod's for its waiting jobs, or for later; a download into a ComfyUI of one's own), in place of
- * "Idle": it is not idle, and minutes of downloads said nothing on the Queue page (the owner: "no download visual cue for a
- * rented pod"). How many, how far, and the file under way.
- */
-function Getting({ files }: { files: NonNullable<ReturnType<typeof gettingFiles>> }) {
-  return (
-    <div className="flex flex-col justify-center gap-2 rounded-[10px] border border-line-strong px-4 py-3 text-ink-2">
-      <span className="font-semibold text-ink">Getting {plural(files.left.length, "file")}{files.ahead ? "" : " for its jobs"}</span>
-      <FilesLine g={files} />
+      {q.tool && <RunningCard running={q.tool} onStop={onStop} />}
     </div>
   );
 }

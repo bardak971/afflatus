@@ -12,9 +12,8 @@ import { History } from "./queue/History";
 import { RenderTimes } from "./queue/Times";
 import { Costs } from "./queue/Costs";
 import { ComfyLog } from "./queue/Log";
-import { MachineMeters } from "./queue/MachineMeters";
 import { MachineLanes } from "./queue/MachineLanes";
-import { machineLabel, machineUnloadBlock, onlineSaid, outsideSaid, severalMachines } from "../machines";
+import { machineLabel, machineUnloadBlock, onlineSaid, severalMachines } from "../machines";
 import { RunningCard } from "./queue/RunningCard";
 import { WaitingList } from "./queue/WaitingList";
 import { queryKeys } from "../queryKeys";
@@ -51,9 +50,8 @@ function QueueControls({ q, free, pause, resume }: { q: QueueStatus | undefined;
 }
 
 /**
- * The queue: what runs now and the next few, in one block at the top; under it what was done and what
- * failed, as a list (History). The notify switch and the machine's meters sit in a side column, small:
- * the footer has the meters that matter at every moment.
+ * The queue: the machines, a row each, and the next few at the top; under them what was done and what failed, as a list
+ * (History). The notify switch sits in the header; a machine's meters are in the machines pill's popover and the footer.
  */
 /** A rented pod running or on its way up: its log tab reads its boot log while its ComfyUI does not answer. */
 const podUp = (m: MachineState | undefined) => Boolean(m?.rented && (m.rented.status === "RUNNING" || m.rented.status === "STARTING" || m.rented.status === "PROVISIONING"));
@@ -93,14 +91,17 @@ export function Queue() {
   }, [loaded, resetFree]);
 
   return (
-    // on a narrow window (a phone) the page scrolls as one, its parts at their own height; wide, each part scrolls in its place
-    <div className="flex min-h-0 grow flex-col overflow-y-auto px-4 pb-6 sm:px-8 lg:overflow-hidden">
-      <header className="flex min-h-20 shrink-0 flex-wrap items-center gap-x-5 gap-y-2 py-3 lg:h-20 lg:py-0">
+    // the queue scrolls as one page, each part at its own height: wide, its parts once scrolled each in a box of a fixed
+    // share, and the waiting list was drawn over the history, a rendering machine's card cut off, a gap left under one
+    // waiting job (2026-10-17). The other views keep a box of their own under the header.
+    <div className={cx("flex min-h-0 grow flex-col overflow-y-auto px-4 pb-6 sm:px-8", tab !== "queue" && "lg:overflow-hidden")}>
+      <header className="flex min-h-20 shrink-0 flex-wrap items-center gap-x-5 gap-y-2 py-3 lg:py-0">
         <h1 className="text-xl font-semibold">Queue</h1>
         <div className="w-[460px] max-w-full">
           <Segmented<Tab> label="View" value={tab} options={[{ value: "queue", label: "Queue" }, { value: "times", label: "Render times" }, { value: "costs", label: "Costs" }, { value: "log", label: "ComfyUI log" }]} onChange={setTab} />
         </div>
-        <div className="flex min-w-0 grow items-center gap-3 text-xs text-ink-2">
+        {/* wide, what ComfyUI holds gives way (cut short) before the buttons wrap under the title */}
+        <div className="flex min-w-0 grow items-center gap-3 text-xs text-ink-2 lg:basis-0">
           <span className="flex shrink-0 items-center gap-1.5">
             {/* not read yet, or could not be: nothing is said about ComfyUI */}
             <span className={cx("h-2 w-2 rounded-full", !q ? "bg-ink-3" : q.online ? "bg-good" : "bg-warn")} />
@@ -108,6 +109,14 @@ export function Queue() {
           </span>
           {q?.model && !several.length && <span className="truncate font-mono">{q.model} loaded</span>}
         </div>
+        {/* in the header, by the queue's other switches: a column of its own, the page's height, held one switch */}
+        {tab === "queue" && (
+          <span className="flex shrink-0 items-center gap-2 text-sm">
+            <NotifyToggle kind="queueEmpty" onRefused={setRefused} />
+            <Help text={NOTIFY_HELP} />
+            {refused && <span className="flex items-center gap-1.5 text-xs text-warn-ink">{NOTIFY_REFUSED.said} <Help text={NOTIFY_REFUSED.help} /></span>}
+          </span>
+        )}
         <QueueControls q={q} free={free} pause={pause} resume={resume} />
       </header>
 
@@ -124,52 +133,22 @@ export function Queue() {
 
       {tab === "queue" && !q && !queue.error && <p className="text-sm text-ink-3">…</p>}
       {tab === "queue" && q && (
-        // below 1024 px the Notify column goes over the queue, which then has the whole width (at 960 px its 280 px left
-        // the history no room for the jobs' names)
-        <div className="grid grow grid-cols-1 gap-5 lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-8">
-          <div className="flex flex-col gap-5 lg:min-h-0">
-            {q.paused && (
-              <div className="flex shrink-0 items-center gap-2 rounded-[10px] bg-accent-wash px-3.5 py-2.5 text-sm font-semibold text-accent">
-                Paused · nothing new goes to ComfyUI
-                <Help text="The running render finishes, then nothing new goes to ComfyUI until you resume. Exports go on: they need no GPU." />
-              </div>
-            )}
-            {/* the machines and the waiting list each scroll in their own part, each kept at least a few rows high: four
-                machine cards left the waiting list a row and a half at 1440 × 900 */}
-            <section aria-label="Now" className="flex shrink-0 flex-col gap-1.5 lg:max-h-[60%]">
-              <SectionTitle>{several.length ? "Machines" : q.running?.kind === "export" ? "Exporting" : q.running?.kind === "load" ? "Loading model" : "Running"}</SectionTitle>
-              <div className="shrink lg:min-h-[5.5rem] lg:overflow-y-auto">
-                {several.length
-                  ? <MachineLanes q={q} onStop={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} />
-                  : <RunningCard running={q.running} onStop={(id) => cancel.mutate(id)} outside={q.machines?.[0] ? outsideSaid(q.machines[0]) : null} />}
-              </div>
-              {/* its head says what they come to: how many, how long, the model switches, and the bulk actions */}
-              {q.waiting.length > 0 && (
-                <div className="shrink-[0.25] lg:min-h-[9.5rem] lg:overflow-y-auto">
-                  <WaitingList waiting={q.waiting} whole={q.whole} endsInMs={q.waitingEndsInMs} running={q.running} machines={several} onOrder={(ids) => order.mutate(ids)} onRemove={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} />
-                </div>
-              )}
-            </section>
-            <History />
-          </div>
-
-          <div className="-order-1 flex flex-col gap-1.5 lg:order-none lg:min-h-0 lg:overflow-y-auto lg:pb-4">
-            {/* a title as the left column has, so that the two start level */}
-            <SectionTitle>Notify</SectionTitle>
-            <div className="mb-3.5 flex flex-col gap-1 rounded-[10px] border border-line px-3 py-2">
-              <div className="flex items-center gap-2">
-                <NotifyToggle kind="queueEmpty" onRefused={setRefused} />
-                <Help text={NOTIFY_HELP} />
-              </div>
-              {refused && (
-                <span className="flex items-center gap-1.5 text-xs text-warn-ink">
-                  {NOTIFY_REFUSED.said} <Help text={NOTIFY_REFUSED.help} />
-                </span>
-              )}
+        <div className="flex shrink-0 flex-col gap-5">
+          {q.paused && (
+            <div className="flex items-center gap-2 rounded-[10px] bg-accent-wash px-3.5 py-2.5 text-sm font-semibold text-accent">
+              Paused · nothing new goes to ComfyUI
+              <Help text="The running render finishes, then nothing new goes to ComfyUI until you resume. Exports go on: they need no GPU." />
             </div>
-            {/* with several, each lane has its machine's figures */}
-            {!several.length && <MachineMeters />}
-          </div>
+          )}
+          <section aria-label="Machines" className="flex flex-col gap-1.5">
+            <SectionTitle>{(q.machines?.length ?? 0) > 1 ? `Machines · ${q.machines!.length}` : "Machine"}</SectionTitle>
+            {q.machines?.length
+              ? <MachineLanes q={q} onStop={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} />
+              : <RunningCard running={q.running} onStop={(id) => cancel.mutate(id)} />}
+          </section>
+          {/* its head says what they come to: how many, how long, the model switches, and the bulk actions */}
+          {q.waiting.length > 0 && <WaitingList waiting={q.waiting} whole={q.whole} endsInMs={q.waitingEndsInMs} running={q.running} machines={several} onOrder={(ids) => order.mutate(ids)} onRemove={(id) => cancel.mutate(id)} onPin={(job, machine) => pin.mutate({ job, machine })} />}
+          <History />
         </div>
       )}
     </div>
