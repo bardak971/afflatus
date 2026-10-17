@@ -153,10 +153,12 @@ const MASK_NODES = ["CheckpointLoaderSimple", "CLIPTextEncode", "SAM3_VideoTrack
 /**
  * The masked swap (see the note at the top): the part's frames at the clip's size are tracked by SAM 3.1 ("person", as
  * the most prominent is taken), encoded as the latent the clip is sampled from with the Swap Mask's noise mask, H3's own
- * audio latent beside them; the decoded frames are pasted onto the part's outside the person. `node` is the Swap Mask's
- * id once the graph has it: its note (no one found) is said on the job.
+ * audio latent beside them; the decoded frames are pasted onto the part's outside the person. The Swap Mask sees the
+ * part's frames (their faces pick the person) and, on a window carrying on from the one before, that window's handed-over
+ * frames (`before`): where they differ from the part's first frames is the person it replaced, followed here. `node` is the
+ * Swap Mask's id once the graph has it: its notes (no one found, the person before lost) are said on the job.
  */
-function masked(file: string, sam: string): { extra: Pick<H3Extra, "latent" | "frames">; node: () => string | null } {
+function masked(file: string, sam: string, before?: string): { extra: Pick<H3Extra, "latent" | "frames">; node: () => string | null } {
   let part: Ref | null = null;
   let masks: string | null = null;
   return {
@@ -170,7 +172,10 @@ function masked(file: string, sam: string): { extra: Pick<H3Extra, "latent" | "f
         // SAM's own words missed the man in a crowd test; "man" with 8 tracks found him, the largest (§9.9)
         const people = g.out("CLIPTextEncode", { clip: [model, 1], text: "person" });
         const track = g.out("SAM3_VideoTrack", { images: part, model: [model, 0], detection_threshold: 0.3, max_objects: 8, detect_interval: 1, conditioning: people });
-        masks = g.add("AfflatusSwapMask", { track_data: track, frames: at.frames, width: at.width, height: at.height, grow: 100, paste_grow: 10, paste_blur: 5 });
+        const previous = before
+          ? { previous: g.out("ImageScale", { image: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: before }) }), 0], upscale_method: "lanczos", width: at.width, height: at.height, crop: "disabled" }) }
+          : {};
+        masks = g.add("AfflatusSwapMask", { track_data: track, frames: at.frames, width: at.width, height: at.height, grow: 100, paste_grow: 10, paste_blur: 5, images: part, ...previous });
         const video = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: part, vae: at.vae }), mask: [masks, 0] });
         return g.out("LTXVConcatAVLatent", { video_latent: video, audio_latent: [g.add("LTXVSeparateAVLatent", { av_latent: at.latent }), 1] });
       },
@@ -215,7 +220,7 @@ export const h3Swap = defineRecipe<H3Swap>({
     const asRef = { ...ctx, has: (cls: string) => cls !== "ModelPatchTorchSettings" && ctx.has(cls), uploads: { ...ctx.uploads, "refVideos.0": ctx.uploads.source }, media: { ...ctx.media, "refVideos.0": { ...(source ?? { width: 0, height: 0 }), hasSound: Boolean(source?.hasSound) && !keep } } };
     const size = source?.width && source.height ? { width: source.width, height: source.height } : undefined;
     const sam = ctx.slots.swapSam;
-    const mask = sam && MASK_NODES.every((n) => ctx.has(n)) ? masked(ctx.uploads.source, sam) : null;
+    const mask = sam && MASK_NODES.every((n) => ctx.has(n)) ? masked(ctx.uploads.source, sam, carried ? ctx.uploads.previous : undefined) : null;
     const built = buildH3(asClip(input, swapLora, frames, carried, unet, size), asRef, {
       prompt: (pictures) => swapCaption(whoOf(input), pictures),
       // the file's sound: the source's own over the window, cut to the clip's length
