@@ -13,10 +13,17 @@ into the two masks that takes:
 - the paste-back mask, in pixels: the person grown by `paste_grow` px and blurred by `paste_blur`, where the render is
   kept over the source frames (roycho's "Repair Video").
 
-The person is the most prominent one tracked: the largest share of the frame over the clip (a crowd test picked the
-right man at 16 % of the frame against 9 % for the next). When SAM tracked no one, both masks are whole: the whole frame
-is redrawn and kept, as a swap without a mask, and the node's note says so. The whole person is redrawn, not the head
-alone: with only the head open H3 rebuilt the source's own person from its reference video (§9.9, the clothes test).
+Who is replaced, in this order:
+1. A window carrying on from the window before: the same person. The window before's last frames (handed over) and this
+   window's first source frames are the same moment, and they differ only where the window before redrew its person;
+   the track that lies most over that difference is theirs. Each window choosing anew swapped the meme's man in the
+   second window but someone else in the first, and the man changed at the join (§9.9, the app test of 2026-10-17).
+2. Else the one whose faces are the largest over the clip (the face detector on every few frames): a swap is about the
+   face, and over a window that opens on someone's back three people came out level by their share of the frame.
+3. Else (no face anywhere, or no InsightFace) the largest share of the frame.
+When SAM tracked no one, both masks are whole: the whole frame is redrawn and kept, as a swap without a mask, and the
+node's note says so. The whole person is redrawn, not the head alone: with only the head open H3 rebuilt the source's
+own person from its reference video (§9.9, the clothes test).
 
 The cell arithmetic is numpy (the tests run it without torch); torch is only for the pixel-size paste mask.
 """
@@ -83,6 +90,82 @@ def most_prominent(tracks: list[np.ndarray]) -> np.ndarray | None:
     if not areas or max(areas) <= 0:
         return None
     return tracks[int(np.argmax(areas))]
+
+
+# A track follows the window before when at least this share of what the window before redrew lies in it.
+FOLLOW_SHARE = 0.2
+
+
+def followed(tracks: list[np.ndarray], changed: np.ndarray) -> int | None:
+    """The track lying most over `changed` ([k, H, W] bool: the first frames where the window before differs from the
+    source, its redrawn person), when it holds at least FOLLOW_SHARE of it; None otherwise."""
+    total = int(changed.sum())
+    if not tracks or total == 0:
+        return None
+    k = changed.shape[0]
+    over = [int((t[:k] & changed[: t[:k].shape[0]]).sum()) for t in tracks]
+    best = int(np.argmax(over))
+    return best if over[best] >= FOLLOW_SHARE * total else None
+
+
+def by_faces(tracks: list[np.ndarray], faces: dict[int, list[tuple[float, float, float, float]]]) -> int | None:
+    """The track whose faces are the largest over the clip: each face (x0, y0, x1, y1, on the frame it was found in)
+    counts its width for the track its centre lies in. None when no face lies in any track."""
+    if not tracks:
+        return None
+    score = [0.0] * len(tracks)
+    for frame, boxes in faces.items():
+        for x0, y0, x1, y1 in boxes:
+            cx, cy = int((x0 + x1) / 2), int((y0 + y1) / 2)
+            for i, t in enumerate(tracks):
+                if frame < t.shape[0] and 0 <= cy < t.shape[1] and 0 <= cx < t.shape[2] and t[frame, cy, cx]:
+                    score[i] += x1 - x0
+    best = int(np.argmax(score))
+    return best if score[best] > 0 else None
+
+
+def pick(tracks: list[np.ndarray], faces: dict | None, changed: np.ndarray | None) -> tuple[np.ndarray | None, str]:
+    """Who is replaced, and how they were found: "followed", "face", "area" or "none" (see the module's note)."""
+    if changed is not None:
+        i = followed(tracks, changed)
+        if i is not None:
+            return tracks[i], "followed"
+    if faces:
+        i = by_faces(tracks, faces)
+        if i is not None:
+            return tracks[i], "face"
+    person = most_prominent(tracks)
+    return person, "area" if person is not None else "none"
+
+
+# Faces looked for on one frame in this many: the person's face over the clip, not each frame's.
+FACE_EVERY = 3
+
+
+def face_boxes(images, every: int = FACE_EVERY) -> dict[int, list[tuple[float, float, float, float]]]:
+    """The faces of every `every`th frame ([N, H, W, 3] ComfyUI image), boxes only (detection, no recognition), on the CPU;
+    empty without InsightFace."""
+    from . import face_match
+
+    if not face_match.available():
+        return {}
+    det = face_match._face_app().det_model
+    found = {}
+    for i in range(0, images.shape[0], every):
+        boxes, _ = det.detect(face_match._bgr(images, i), input_size=(face_match.PHOTO_DET, face_match.PHOTO_DET), max_num=0, metric="max")
+        found[i] = [tuple(float(v) for v in b[:4]) for b in boxes if b[4] >= 0.5 and b[2] - b[0] >= 24]
+    return found
+
+
+def changed_from(previous, images, threshold: float = 0.1) -> np.ndarray:
+    """[k, H, W] bool: where the window before's handed-over frames differ from this window's first source frames (its
+    redrawn person; the rest was pasted back from the same source, so it differs by the encoding only)."""
+    k = min(previous.shape[0], images.shape[0])
+    a = previous[:k, :, :, :3].detach().cpu().float().numpy()
+    b = images[:k, :, :, :3].detach().cpu().float().numpy()
+    if a.shape != b.shape:
+        return np.zeros((0, *b.shape[1:3]), bool)
+    return np.abs(a - b).max(axis=-1) > threshold
 
 
 def fit_frames(mask: np.ndarray, frames: int) -> np.ndarray:
@@ -154,7 +237,7 @@ class AfflatusSwapMask(io.ComfyNode):
             node_id="AfflatusSwapMask",
             display_name="Afflatus: Swap Mask (H3)",
             category="Afflatus",
-            description="The most prominent person of a SAM 3.1 video track as a MiniMax H3 noise mask (on the latent grid, 0 or 1 per cell) and a paste-back mask (pixels): the swap redraws only them and keeps the rest of the source.",
+            description="The person a swap replaces, from a SAM 3.1 video track (the one the window before replaced, else the largest face, else the largest), as a MiniMax H3 noise mask (on the latent grid, 0 or 1 per cell) and a paste-back mask (pixels): the swap redraws only them and keeps the rest of the source.",
             inputs=[
                 SAM3TrackData.Input("track_data", tooltip="SAM3 Video Track of the source's frames, at the swap's size."),
                 io.Int.Input("frames", default=141, min=5, max=100000, tooltip="The clip's frames (17k + 5)."),
@@ -164,16 +247,26 @@ class AfflatusSwapMask(io.ComfyNode):
                 io.Int.Input("grow", default=100, min=0, max=1024, tooltip="Pixels the redrawn region reaches past the person, in whole 16 px cells."),
                 io.Int.Input("paste_grow", default=10, min=0, max=256, tooltip="Pixels the kept render reaches past the person."),
                 io.Float.Input("paste_blur", default=5.0, min=0.0, max=64.0, tooltip="The paste-back edge's blur, in pixels."),
+                io.Image.Input("images", optional=True, tooltip="The frames SAM tracked: their faces pick the person."),
+                io.Image.Input("previous", optional=True, tooltip="The window before's last frames, handed over at this window's start: the person it replaced is followed."),
             ],
             outputs=[io.Mask.Output(display_name="noise_mask"), io.Mask.Output(display_name="paste_mask")],
             is_output_node=True,
         )
 
     @classmethod
-    def execute(cls, track_data, frames: int = 141, width: int = 576, height: int = 1024, grow: int = 100, paste_grow: int = 10, paste_blur: float = 5.0) -> io.NodeOutput:
+    def execute(cls, track_data, frames: int = 141, width: int = 576, height: int = 1024, grow: int = 100, paste_grow: int = 10, paste_blur: float = 5.0, images=None, previous=None) -> io.NodeOutput:
         import torch
 
-        person = most_prominent(person_tracks(track_data, width, height))
-        note = [] if person is not None else ["No one was found in the source video: the whole frame was redrawn, as a swap without a mask."]
+        tracks = person_tracks(track_data, width, height)
+        changed = changed_from(previous, images) if previous is not None and images is not None else None
+        faces = face_boxes(images) if images is not None and tracks else None
+        person, how = pick(tracks, faces, changed)
+        print(f"[afflatus] Swap Mask: {len(tracks)} people tracked, the one replaced found by {how}")
+        note = []
+        if person is None:
+            note.append("No one was found in the source video: the whole frame was redrawn, as a swap without a mask.")
+        elif changed is not None and how != "followed":
+            note.append("The person the window before replaced was not found in this one: the one with the largest face was taken, which may be someone else.")
         noise = torch.from_numpy(noise_mask(person, frames, width, height, grow))
         return io.NodeOutput(noise, paste_mask(person, frames, width, height, paste_grow, paste_blur), ui={"afflatus_note": note})

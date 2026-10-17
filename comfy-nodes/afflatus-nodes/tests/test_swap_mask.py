@@ -74,3 +74,39 @@ def test_a_short_track_holds_its_last_frame():
     person = box(3, 32, 32, 0, 16, 0, 16)
     held = swap_mask.fit_frames(person, 5)
     assert held.shape[0] == 5 and held[4].sum() == person[2].sum()
+
+
+def test_a_window_follows_the_person_the_window_before_replaced():
+    # two people; the window before redrew the one on the right (where its frames differ from the source)
+    left = box(10, 64, 64, 0, 64, 0, 30)
+    right = box(10, 64, 64, 10, 60, 40, 60)
+    changed = np.zeros((5, 64, 64), bool)
+    changed[:, 12:58, 42:58] = True
+    person, how = swap_mask.pick([left, right], faces={0: [(2, 2, 28, 30)]}, changed=changed)
+    assert how == "followed" and person is right
+
+
+def test_too_little_of_the_change_in_any_track_is_not_followed():
+    person = box(10, 64, 64, 0, 10, 0, 10)
+    changed = np.zeros((5, 64, 64), bool)
+    changed[:, 30:60, 30:60] = True
+    assert swap_mask.followed([person], changed) is None
+    assert swap_mask.followed([person], np.zeros((5, 64, 64), bool)) is None
+
+
+def test_the_largest_faces_pick_the_person_over_the_largest_share_of_the_frame():
+    # the back of a man filling the frame early on, no face; the rapper smaller, his face found
+    back = box(30, 100, 100, 0, 100, 0, 60, on=range(0, 12))
+    rapper = box(30, 100, 100, 20, 100, 60, 100, on=range(10, 30))
+    assert swap_mask.most_prominent([back, rapper]) is back
+    faces = {i: [(70.0, 22.0, 90.0, 44.0)] for i in range(12, 30, 3)}
+    person, how = swap_mask.pick([back, rapper], faces=faces, changed=None)
+    assert how == "face" and person is rapper
+
+
+def test_without_faces_or_a_window_before_the_largest_share_is_taken():
+    big, small = box(5, 32, 32, 0, 32, 0, 20), box(5, 32, 32, 0, 10, 25, 32)
+    assert swap_mask.pick([small, big], faces={}, changed=None) == (big, "area")
+    # a face outside every track counts for no one
+    assert swap_mask.pick([small, big], faces={0: [(30.0, 25.0, 31.0, 30.0)]}, changed=None)[1] == "area"
+    assert swap_mask.pick([], faces=None, changed=None) == (None, "none")

@@ -172,6 +172,27 @@ describe("MiniMax H3 · Swap character", () => {
       expect(noSam.built.warnings).toEqual([expect.stringMatching(/SAM 3\.1 is not on this ComfyUI/)]);
     });
 
+    it("shows the Swap Mask the part's frames, whose faces pick the person; a first window has no window before to follow", () => {
+      const { graph } = build();
+      const mask = of(graph, "AfflatusSwapMask")[0]!;
+      expect(from(graph, mask.inputs.images).class_type).toBe("ImageScale");
+      expect(mask.inputs.previous).toBeUndefined();
+    });
+
+    it("follows the person the window before replaced: its handed-over frames go to the Swap Mask, at the clip's size", () => {
+      const input = parseInput(h3Swap, { who: "the man", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: false });
+      const built = h3Swap.build(input, dryContext({
+        slots, uploads: { source: "src.mp4", previous: "w.mp4", "references.0": "r1.png" },
+        media: { source: part({ frames: 124 }), previous: { width: 1024, height: 576, frames: 5, fps: H3_FPS, hasSound: true } },
+      }));
+      const graph = built.graph as Graph;
+      const mask = of(graph, "AfflatusSwapMask")[0]!;
+      const before = from(graph, mask.inputs.previous);
+      expect(before).toMatchObject({ class_type: "ImageScale", inputs: { width: 1024, height: 576 } });
+      const frames = from(graph, before.inputs.image);
+      expect(from(graph, frames.inputs.video)).toMatchObject({ class_type: "LoadVideo", inputs: { file: "w.mp4" } });
+    });
+
     it("asks SAM 3.1 of a machine, as the LoRA and the reference model", () => {
       expect(h3Swap.needs).toEqual(["swapLora", "swapUnet", "swapSam"]);
     });
