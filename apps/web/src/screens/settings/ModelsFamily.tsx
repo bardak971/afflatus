@@ -267,7 +267,8 @@ export function FamilyBody({ family, name, help, recipes, machine, imported }: {
                 <>
                   <button type="button" aria-expanded={optionalOpen} onClick={() => setOptionalOpen(!optionalOpen)} className="flex items-center gap-2 border-t border-line py-2 text-left text-xs text-ink-2 first:border-t-0 hover:text-ink">
                     <ChevronDown size={13} className={cx("shrink-0 text-ink-3 transition-transform", !optionalOpen && "-rotate-90")} />
-                    <span className="font-semibold text-good">{optional.filter((r) => r.file).length} there</span>
+                    {/* neutral: nothing said of them being there, as of the needed ones (the owner) */}
+                    <span className="font-semibold">{optional.filter((r) => r.file).length} more</span>
                   </button>
                   {optionalOpen && optional.filter((r) => r.file).map(line)}
                 </>

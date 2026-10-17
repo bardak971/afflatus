@@ -53,7 +53,7 @@ describe("an opened family, each file once", () => {
     expect(files.getByText("UNET")).toBeTruthy();
     expect(files.getByText("Kontext model")).toBeTruthy();
     expect(files.queryByRole("button", { name: /File used for SeedVR2 model/ })).toBeNull();
-    await user.click(files.getByRole("button", { name: "1 there" }));
+    await user.click(files.getByRole("button", { name: "1 more" }));
     expect(files.getByRole("button", { name: /File used for SeedVR2 model/ })).toBeTruthy();
     expect(within(screen.getByRole("region", { name: "Operations" })).getAllByText("Ready")).toHaveLength(3);
   });
