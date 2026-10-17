@@ -21,9 +21,11 @@ interface GraphOutput {
    * result = what the user asked for; poster / tail = side files a video recipe also saves; raw = the
    * video as the model made it, before any upscale, interpolation or colour pass: kept beside the result,
    * never shown, and handed to the model when another clip carries on from this one; latent = the clip's
-   * own latent (MiniMax H3, with the Afflatus node pack), kept beside it for the clips that continue it.
+   * own latent (MiniMax H3, with the Afflatus node pack), kept beside it for the clips that continue it; score = a node's
+   * figures about the result (the face's likeness); note = a node's sentences about how the render went (a swap that found no
+   * one to mask), said on the job.
    */
-  role: "result" | "poster" | "tail" | "raw" | "latent" | "fine" | "score";
+  role: "result" | "poster" | "tail" | "raw" | "latent" | "fine" | "score" | "note";
 }
 
 export interface BuiltGraph {
@@ -79,6 +81,8 @@ export interface BuiltGraph {
     /** With `latent`: decoded as one piece with the clip before (its own last tokens before the new ones): the join is a plain cut. */
     seam?: boolean;
   };
+  /** What went less well than asked, known when the graph is built (a node this ComfyUI lacks, done without): said on the job. */
+  warnings?: string[];
 }
 
 /**

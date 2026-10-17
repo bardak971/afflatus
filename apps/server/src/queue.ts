@@ -1382,6 +1382,8 @@ export class Queue {
       const filing = { at: performance.now(), parts: {} };
       const filed = await gathering(filing.parts, () => storing.store(core, comfy, recipe, resume!.input ?? input, resume!, outputs, row));
       observeAdded(lane.id, "filing", performance.now() - filing.at, filing.parts);
+      const notes = storing.notesOf(resume!, outputs);
+      if (notes.length) await this.warn(row.id, notes.join(" "));
       const generationId = filed.id;
       made = generationId;
       // measured while the machine takes its next job: /metrics' "measuring", and the editor told once its take has its figures

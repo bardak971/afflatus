@@ -1,7 +1,7 @@
-import { defineRecipe, gridAtOrBefore, type BuildContext, type ClipValue, type InputSpec, type Variant } from "@afflatus/core";
+import { defineRecipe, gridAtOrBefore, type BuildContext, type ClipValue, type InputSpec, type Ref, type Variant } from "@afflatus/core";
 import { H3_FPS, H3_GRID } from "./family";
 import { h3Inputs, type H3Video } from "./inputs";
-import { buildH3, h3Video } from "./video";
+import { buildH3, h3Video, type H3Extra } from "./video";
 import { partBounds } from "../motion/driving";
 
 /**
@@ -13,6 +13,13 @@ import { partBounds } from "../motion/driving";
  * 4-5 s windows the safest. A longer video goes on a timeline's source lane, window by window, each window's swap pinned
  * on the last 5 frames of the window before (its own last frames and their sound, a guide at frame 0): the joins came out
  * at 1.2 to 1.6 that way against 3.1 cut (HANDOVER-swap-lipsync-report.md §8, 2026-10-13).
+ *
+ * Masked (HANDOVER-swap-lipsync-plan.md §9.9, 2026-10-16): SAM 3.1 tracks the people of the part, the Afflatus node
+ * pack's Swap Mask takes the most prominent one, and the clip is sampled from the source's own latent with only that
+ * person's tokens redrawn; the source's pixels are pasted back outside them. On the Bulin 47 meme the room changed by
+ * 1.6 out of 255 against 15 unmasked, the swap as often, the face the same. The whole person is redrawn: with the head
+ * alone open, H3 rebuilt the source's own person. Without the pack's node (an older pack) the swap runs unmasked, and the
+ * job says so.
  */
 export interface H3Swap extends H3Video {
   source?: ClipValue;
@@ -52,7 +59,8 @@ const swapInputs: InputSpec[] = [
   {
     id: "who", type: "prompt", weights: false, label: "Who to replace", style: "sentences", noCast: true,
     placeholder: "the man in the grey t-shirt",
-    note: "a few words that pick the person out of the video. The prompt is the swap LoRA's own short caption built from them: a longer prompt broke the swap",
+    // SAM's own words missed the man in a crowd ("man in black t-shirt"); the most prominent person tracked found him (§9.9)
+    note: "a few words that say who is replaced. The person redrawn is the most prominent one in the video (SAM 3.1 tracks them, the rest of the video is kept); the words go into the swap LoRA's own short caption, the whole prompt: a longer prompt broke the swap",
   },
   {
     id: "source", type: "clip", role: "source", label: "Source video", frames: [SWAP_FRAMES], fps: H3_FPS, whole: true,
@@ -139,6 +147,39 @@ function asClip(input: H3Swap, swapLora: string, frames: number, carried: number
   };
 }
 
+/** What the masked swap adds to H3's graph: core's SAM 3 track, noise mask and AV latent nodes, the node pack's Swap Mask. */
+const MASK_NODES = ["CheckpointLoaderSimple", "CLIPTextEncode", "SAM3_VideoTrack", "AfflatusSwapMask", "ImageFromBatch", "ImageScale", "VAEEncode", "SetLatentNoiseMask", "LTXVSeparateAVLatent", "LTXVConcatAVLatent", "ImageCompositeMasked"];
+
+/**
+ * The masked swap (see the note at the top): the part's frames at the clip's size are tracked by SAM 3.1 ("person", as
+ * the most prominent is taken), encoded as the latent the clip is sampled from with the Swap Mask's noise mask, H3's own
+ * audio latent beside them; the decoded frames are pasted onto the part's outside the person. `node` is the Swap Mask's
+ * id once the graph has it: its note (no one found) is said on the job.
+ */
+function masked(file: string, sam: string): { extra: Pick<H3Extra, "latent" | "frames">; node: () => string | null } {
+  let part: Ref | null = null;
+  let masks: string | null = null;
+  return {
+    extra: {
+      latent: (g, at) => {
+        part = g.out("ImageScale", {
+          image: g.out("ImageFromBatch", { image: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file }) }), 0], batch_index: 0, length: at.frames }),
+          upscale_method: "lanczos", width: at.width, height: at.height, crop: "disabled",
+        });
+        const model = g.add("CheckpointLoaderSimple", { ckpt_name: sam });
+        // SAM's own words missed the man in a crowd test; "man" with 8 tracks found him, the largest (§9.9)
+        const people = g.out("CLIPTextEncode", { clip: [model, 1], text: "person" });
+        const track = g.out("SAM3_VideoTrack", { images: part, model: [model, 0], detection_threshold: 0.3, max_objects: 8, detect_interval: 1, conditioning: people });
+        masks = g.add("AfflatusSwapMask", { track_data: track, frames: at.frames, width: at.width, height: at.height, grow: 100, paste_grow: 10, paste_blur: 5 });
+        const video = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: part, vae: at.vae }), mask: [masks, 0] });
+        return g.out("LTXVConcatAVLatent", { video_latent: video, audio_latent: [g.add("LTXVSeparateAVLatent", { av_latent: at.latent }), 1] });
+      },
+      frames: (g, images) => (part && masks ? g.out("ImageCompositeMasked", { destination: part, source: images, x: 0, y: 0, resize_source: false, mask: [masks, 1] }) : images),
+    },
+    node: () => masks,
+  };
+}
+
 export const h3Swap = defineRecipe<H3Swap>({
   id: "h3.swap",
   family: "h3",
@@ -153,9 +194,10 @@ export const h3Swap = defineRecipe<H3Swap>({
   traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED } },
   inputs: swapInputs,
   presets: h3Video.presets,
-  needs: ["swapLora", "swapUnet"],
+  needs: ["swapLora", "swapUnet", "swapSam"],
   nodes: (input) => [...new Set([...h3Video.nodes(asClip(input, "swap.safetensors", SWAP_FRAMES, 0, "minimax_h3_ref2va.safetensors")), "LoraLoaderModelOnly", ...(input.keepSound ? ["TrimAudioDuration"] : [])])],
-  optionalNodes: h3Video.optionalNodes,
+  // the mask's nodes are not asked of a machine: one without them (an older node pack) swaps unmasked, and the job says so
+  optionalNodes: [...(h3Video.optionalNodes ?? []), ...MASK_NODES],
   finishing: (input) => h3Video.finishing!(asClip(input, "swap.safetensors", SWAP_FRAMES, 0, "minimax_h3_ref2va.safetensors")),
 
   build(input, ctx) {
@@ -172,20 +214,27 @@ export const h3Swap = defineRecipe<H3Swap>({
     // as the research graph that swapped 3 times of 3 (S1): without H3's fp16 accumulation patch, which trades precision for speed
     const asRef = { ...ctx, has: (cls: string) => cls !== "ModelPatchTorchSettings" && ctx.has(cls), uploads: { ...ctx.uploads, "refVideos.0": ctx.uploads.source }, media: { ...ctx.media, "refVideos.0": { ...(source ?? { width: 0, height: 0 }), hasSound: Boolean(source?.hasSound) && !keep } } };
     const size = source?.width && source.height ? { width: source.width, height: source.height } : undefined;
-    return buildH3(asClip(input, swapLora, frames, carried, unet, size), asRef, {
+    const sam = ctx.slots.swapSam;
+    const mask = sam && MASK_NODES.every((n) => ctx.has(n)) ? masked(ctx.uploads.source, sam) : null;
+    const built = buildH3(asClip(input, swapLora, frames, carried, unet, size), asRef, {
       prompt: (pictures) => swapCaption(whoOf(input), pictures),
       // the file's sound: the source's own over the window, cut to the clip's length
       ...(keep ? {
         sound: (g, _decoded, at) => g.out("TrimAudioDuration", { audio: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.source }) }), 1], start_index: 0, duration: at.frames / H3_FPS }),
       } : {}),
+      ...(mask?.extra ?? {}),
     });
+    const said = mask?.node();
+    if (said) return { ...built, outputs: [...built.outputs, { node: said, kind: "image", role: "note" }] };
+    const why = sam ? "this ComfyUI's Afflatus node pack has no Swap Mask yet (0.22.0 on; ComfyUI loads a newer pack when it restarts)" : "SAM 3.1 is not on this ComfyUI (Settings › Models has it)";
+    return { ...built, warnings: [...(built.warnings ?? []), `Swapped without a mask, the whole frame redrawn: ${why}.`] };
   },
 
   variants: ((): Variant<H3Swap>[] => {
     const all = {
       unet: "minimax_h3_fl2va.safetensors", clip: "qwen3vl_minimax_h3.safetensors", videoVae: "minimax_h3_video_vae.safetensors", audioVae: "minimax_h3_audio_vae.safetensors",
       turbo: "minimax_h3_turbo.safetensors", rife: "rife49.pth", refUnet: "minimax_h3_ref2va.safetensors", refTurbo: "minimax_h3_ref2v_turbo.safetensors",
-      swapLora: "h3_character_swap_pro4500_1000.safetensors", swapUnet: "minimax_h3_ref2va_pruned.safetensors",
+      swapLora: "h3_character_swap_pro4500_1000.safetensors", swapUnet: "minimax_h3_ref2va_pruned.safetensors", swapSam: "sam3.1_multiplex_fp16.safetensors",
     };
     const part = { width: 864, height: 480, frames: 141, fps: H3_FPS, hasSound: true };
     return [
@@ -203,6 +252,11 @@ export const h3Swap = defineRecipe<H3Swap>({
         name: "a short part, Turbo, the sound H3 makes",
         input: { who: "the woman on the left.", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], keepSound: false, fast: true },
         slots: all, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: { ...part, frames: 90, hasSound: false } },
+      },
+      {
+        name: "an older node pack, with no Swap Mask: swapped unmasked",
+        input: { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false },
+        slots: all, uploads: { source: "v.mp4", "references.0": "r1.png" }, media: { source: part }, has: (cls) => cls !== "AfflatusSwapMask",
       },
     ];
   })(),
