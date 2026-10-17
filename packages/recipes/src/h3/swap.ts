@@ -39,9 +39,8 @@ export const SWAP_FRAMES = 141;
 /** The shortest: 90 frames, 3.75 s. H3 was trained on clips of 124 frames and more; the LoRA's author found 4-5 s safest. */
 const SWAP_LEAST = 90;
 /**
- * Frames of the window before a window carries on from: pinned at its start (a moving clip, not a still), dropped from what
- * it shows. 22, not 5: with 5 the masked swap's second window drew the person softer and darker than the first, which showed
- * at the join (his face's sharpness 123 to 73, its brightness 95 to 87 over three frames; the meme, 2026-10-17).
+ * Frames of the window before a window carries on from: its last 22, H3's own run-up for a clip continued in its latent
+ * (the window before's exact tokens, decoded as one piece with it), dropped from what it shows.
  */
 const SWAP_CARRIED = 22;
 /** What the Source: length field takes, in seconds. */
@@ -82,7 +81,7 @@ const swapInputs: InputSpec[] = [
     if (spec.id === "shiftVideo" && spec.type === "number") return [{ ...spec, default: 12, note: "12, the model's own, as the swaps were tested. Higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail)" }];
     if (spec.id === "shiftAudio" && spec.type === "number") return [{ ...spec, default: 3, note: "3, the model's own, as the swaps were tested" }];
     if (spec.id === "fast" && spec.type === "toggle") return [{ ...spec, note: "8 steps with the turbo LoRA: not tested with the swap LoRA, whose author ran full steps" }];
-    // the window before, on a timeline's source lane: its last 5 frames pinned at the start (the measured join), not its latent
+    // the window before, on a timeline's source lane: continued in its latent, its last 22 frames the run-up
     if (spec.id === "previous" && spec.type === "clip") {
       return [{ ...spec, frames: [SWAP_CARRIED], advanced: true, note: "on a timeline's source lane, the window before: its last frames and their sound start this one, so that the person does not jump at the join" }];
     }
@@ -141,8 +140,10 @@ function asClip(input: H3Swap, swapLora: string, frames: number, carried: number
     short: shortOf(input.swapSize, size),
     description: "", soundscape: "", music: "", subject: "", midAt: 0,
     start: undefined, end: undefined, mid: undefined, next: undefined, voice: undefined,
-    // the window before's frames are pinned as frames (the measured join), never continued in its latent
-    colourMatch: false, handover: false, context: String(SWAP_CARRIED), joinFrom: "Frames", landing: "22", voiceStart: 0, voiceSeconds: 15, voiceEven: false,
+    // the window before continued in its latent, as H3's own clips, decoded as one piece with it: carried on by its frames,
+    // each window drew the person in its own way and the join showed (softer, darker; the meme, 2026-10-17). Its frames
+    // when its latent was not kept or this ComfyUI lacks the continuation nodes
+    colourMatch: false, handover: false, context: String(SWAP_CARRIED), joinFrom: "Latent", landing: "22", voiceStart: 0, voiceSeconds: 15, voiceEven: false,
     refVideos: input.source ? [{ asset: input.source.asset, role: "person" }] : [],
     loras: [{ file: swapLora, weight: input.swapStrength }, ...input.loras],
     // the clip's own part: the window less the frames it shares with the window before (buildH3 adds them back)
