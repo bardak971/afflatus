@@ -222,7 +222,7 @@ function MachineRow({ m, onStop, onPin }: { m: MachineState; onStop(id: string):
       // a waiting job's "waits for 3 files on …" scrolls here (WaitingList)
       data-machine={m.id}
       {...drop.props}
-      onContextMenu={(e) => menu.open(e, true)}
+      // no menu on a right-click: its ⋯ has it (the owner, 2026-10-17)
       // the container its grid asks for its width (a narrow row, on a phone, leaves its figures out): an element is not its own
       className={cx(
         "@container/row min-w-0 rounded-[11px] border bg-panel text-[13px]",
