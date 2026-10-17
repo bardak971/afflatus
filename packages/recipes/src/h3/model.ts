@@ -75,14 +75,15 @@ export type H3Uses = ReturnType<typeof uses>;
  * the attention and precision patches, the turbo LoRA and the user's LoRAs, the sigma shift, and the
  * live preview. With it, what the chain is (turbo or not, with which LoRA) and how many steps it takes.
  */
-export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, picked: H3Model, how: H3Uses, audioVae: Ref, veda?: string): { model: Ref; turbo: boolean; steps: number; lora: string | undefined; distilled: boolean; unet: string | undefined } {
+export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, picked: H3Model, how: H3Uses, audioVae: Ref, veda?: string, turboPick?: string): { model: Ref; turbo: boolean; steps: number; lora: string | undefined; distilled: boolean; unet: string | undefined } {
   const { slots } = ctx;
   // references: a hybrid model follows them itself, any other hands those clips to MiniMax's reference model
   const own = !how.reference || picked.hybrid;
   const unet = own ? picked.file : slots.refUnet;
   // the reference model has a turbo LoRA of its own when one is installed; without it the usual one is
   // used, as the model author's own H3 workflow does (one turbo LoRA after whichever model the clip needs)
-  const turboFile = how.reference && !picked.hybrid ? slots.refTurbo ?? slots.turbo : slots.turbo;
+  // (a recipe that knows better names its own: the swap's reference model, run as the clip's own file, takes the reference one)
+  const turboFile = turboPick ?? (how.reference && !picked.hybrid ? slots.refTurbo ?? slots.turbo : slots.turbo);
   // a turbo model is made for few steps as it is: the LoRA on top of it would be the same thing twice
   const distilled = own ? picked.turbo : namedFor.turbo.test(unet?.split(/[\\/]/).pop() ?? "");
   const lora = input.fast && !distilled ? turboFile : undefined;
@@ -101,7 +102,7 @@ export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, 
   model = g.out("MiniMaxH3SigmaShift", { model, shift_video: input.shiftVideo, shift_audio: input.shiftAudio });
   // Veda's sparse attention, last on the model before the sampler as its makers ask: after the LoRAs, and after Comfy Kitchen's
   // attention, which it runs on top of for the layers it leaves full. 32 key tiles kept of each query tile, its default and
-  // Hakase's (a count, not a share: it holds on small first passes)
+  // the tested character-swap workflow's (a count, not a share: it holds on small first passes)
   if (veda && ctx.has("VedaSparseAttention")) {
     model = g.out("VedaSparseAttention", { model, predictor: veda, generated_sparsity: "32", reference_sparsity: "32", full_attention_layers: "", full_attention_steps: "", verbose: false });
   }

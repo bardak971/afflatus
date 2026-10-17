@@ -20,6 +20,7 @@ import { sourcesFor } from "./sources";
 const packsBody = z.strictObject({
   classes: z.array(z.string().min(1).max(120)).max(200),
   packs: z.record(z.string(), z.string().min(1).max(200)).default({}),
+  machine: z.string().max(40).optional(),
 });
 
 const saveBody = z.strictObject({
@@ -146,6 +147,14 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
 
   app.get("/api/workflows", async () => ({ items: s.registry.workflows().map((d) => brief(d, s.registry.problem(d.id))) }));
 
+  /** The ComfyUI a pack install goes to: the one named (Settings › Models, a machine's tab), else the first. A machine named and gone is not the first one. */
+  const comfyOf = async (machine?: string) => {
+    if (machine === undefined) return s.comfy();
+    const on = (await s.machines()).find((m) => m.machine.id === machine);
+    if (!on) throw httpError("there is no ComfyUI with that id", 404);
+    return on.comfy;
+  };
+
   /**
    * Install, through ComfyUI-Manager, the node packs the missing node types of a workflow come from.
    * `packs` is what the workflow itself says (its author's ComfyUI wrote each node's pack); the rest is
@@ -153,11 +162,11 @@ export function registerWorkflows(app: FastifyInstance, s: Services): void {
    */
   app.post("/api/workflows/packs", async (req) => {
     const body = packsBody.parse(req.body);
-    return installPacks(await s.comfy(), body.classes, body.packs);
+    return installPacks(await comfyOf(body.machine), body.classes, body.packs);
   });
-  app.get<{ Querystring: { ids?: string } }>("/api/workflows/packs", async (req) => {
+  app.get<{ Querystring: { ids?: string; machine?: string } }>("/api/workflows/packs", async (req) => {
     const ids = (req.query.ids ?? "").split(",").map((x) => x.trim()).filter((x) => /^[\w-]{1,64}$/.test(x)).slice(0, 50);
-    return packStatus(await s.comfy(), ids);
+    return packStatus(await comfyOf(req.query.machine), ids);
   });
 
   /** The whole thing: for editing, and for sharing as a file. */

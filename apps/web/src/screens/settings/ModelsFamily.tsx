@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ChevronDown, Download as DownloadIcon } from "lucide-react";
-import { folderOfFileInput } from "@afflatus/core";
+import { folderOfFileInput, packOfNode } from "@afflatus/core";
 import { api, type RecipeInfo, type RecipeStatus, type Scan } from "../../api";
 import { useSettings, useSetup } from "../../data";
 import { fileLabel, plural, problemSaid } from "../../format";
@@ -12,6 +12,7 @@ import { Select } from "../../Select";
 import { useSayFailed } from "../../sayFailed";
 import { Button, cx, Help } from "../../ui";
 import { queryKeys } from "../../queryKeys";
+import { PackInstallActions, PackStateLine, usePackInstall } from "../PackInstall";
 
 /** One of a family's files, as ComfyUI has it (the setup scan's slot). */
 export type Slot = Scan["families"][number]["slots"][number];
@@ -219,6 +220,38 @@ function FileLine({ row, family, name, imported }: { row: FileRow; family: strin
 }
 
 /**
+ * A node pack some options of the family use, missing: an optional line like the files', installed through ComfyUI-Manager
+ * and ComfyUI restarted as a workflow's missing packs are (the owner: Veda's pack was nowhere to be seen before a render failed).
+ */
+function PackLine({ pack, nodes, users, machine }: { pack: string; nodes: string[]; users: string[]; machine?: string }) {
+  const install = usePackInstall({
+    missing: nodes,
+    packs: Object.fromEntries(nodes.map((n) => [n, pack])),
+    machine,
+    // ComfyUI asked afresh: the line goes once the pack's nodes are there
+    readAgain: async () => {
+      const scan = await api.rescanSetup(machine);
+      if (!scan.comfy.online) throw new Error("ComfyUI is not answering yet");
+    },
+    again: { what: "the models list", reopen: "open Settings › Models again" },
+  });
+  return (
+    <div className="grid grid-cols-[14px_minmax(0,1fr)_7.5rem_minmax(0,18rem)] items-start gap-3 border-t border-line py-2 first:border-t-0">
+      <span aria-label="not there, optional" className="mt-1 size-2.5 rounded-full border-[1.5px] border-dashed border-ink-3" />
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="font-semibold">Node pack {pack}</span>
+        <span className="text-xs text-ink-2">Brings {nodes.join(", ")}, which some options of {users.join(", ")} use. Installed by ComfyUI-Manager, then ComfyUI restarts.</span>
+      </span>
+      <span className="truncate pt-0.5 font-mono text-[11.5px] text-ink-3">custom_nodes</span>
+      <span className="flex min-w-0 flex-col gap-1 text-xs">
+        <PackStateLine s={install.stateOf(pack)} />
+        <PackInstallActions install={install} named={1} missingLeft={false} />
+      </span>
+    </div>
+  );
+}
+
+/**
  * An opened family: what it makes, its files once each (the needed ones always in sight, then the optional ones to add,
  * those there folded behind one line; a picker on each where more than one fits), its operations a line each saying ready or what they
  * wait for, and once, the custom nodes some of their options need. What was said under each operation, and the Optional
@@ -235,13 +268,28 @@ export function FamilyBody({ family, name, help, recipes, machine, imported }: {
   // the custom nodes some options need: once, with the operations they are off in
   const limited = new Map<string, string[]>();
   for (const r of recipes) for (const node of statuses.find((x) => x.id === r.id)?.limitedBy ?? []) limited.set(node, [...(limited.get(node) ?? []), r.title]);
-  const offIn = [...new Set([...limited.values()].flat())];
+  // the ones of a known pack get a line of their own with the optional files, to install from there; the rest are only said
+  const packsOff = new Map<string, { nodes: string[]; users: Set<string> }>();
+  const loose = new Map<string, string[]>();
+  for (const [node, users] of limited) {
+    const pack = packOfNode(node);
+    if (!pack || pack.own) {
+      loose.set(node, users);
+      continue;
+    }
+    const p = packsOff.get(pack.name) ?? { nodes: [], users: new Set<string>() };
+    p.nodes.push(node);
+    for (const u of users) p.users.add(u);
+    packsOff.set(pack.name, p);
+  }
+  const offIn = [...new Set([...loose.values()].flat())];
+  const packLines = [...packsOff].map(([pack, p]) => <PackLine key={`pack:${pack}`} pack={pack} nodes={p.nodes} users={[...p.users]} machine={machine} />);
   const line = (row: FileRow) => <FileLine key={row.key} row={row} family={family} name={name} imported={imported} />;
   return (
     <div className="flex flex-col gap-4">
       {help && <span className="text-xs text-ink-2">{help}</span>}
 
-      {(needed.length > 0 || optional.length > 0) && (
+      {(needed.length > 0 || optional.length > 0 || packLines.length > 0) && (
         <section aria-label="Files" data-setting="models.files" className="flex flex-col">
           {needed.length > 0 && (
             <>
@@ -255,14 +303,15 @@ export function FamilyBody({ family, name, help, recipes, machine, imported }: {
               {needed.map(line)}
             </>
           )}
-          {optional.length > 0 && (
+          {(optional.length > 0 || packLines.length > 0) && (
             <>
               <span className={cx("flex items-center gap-1.5 pb-1", needed.length > 0 && "pt-3.5")}>
-                <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Optional · {plural(optional.length, "file")}</span>
+                <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Optional · {[...(optional.length ? [plural(optional.length, "file")] : []), ...(packLines.length ? [plural(packLines.length, "node pack")] : [])].join(" · ")}</span>
                 <Help text="Everything runs without these: each brings an option or a speed-up, said on its line." />
               </span>
               {/* what can be added stays in sight; the ones there (their pickers) fold behind one line */}
               {optional.filter((r) => !r.file).map(line)}
+              {packLines}
               {optional.some((r) => r.file) && (
                 <>
                   <button type="button" aria-expanded={optionalOpen} onClick={() => setOptionalOpen(!optionalOpen)} className="flex items-center gap-2 border-t border-line py-2 text-left text-xs text-ink-2 first:border-t-0 hover:text-ink">
@@ -307,9 +356,9 @@ export function FamilyBody({ family, name, help, recipes, machine, imported }: {
         })}
       </section>
 
-      {limited.size > 0 && (
+      {loose.size > 0 && (
         <span className="rounded-lg border border-dashed border-line-strong px-3 py-2 text-xs text-ink-2">
-          Some options are off in {offIn.join(", ")}: missing custom nodes {[...limited.keys()].join(", ")}.
+          Some options are off in {offIn.join(", ")}: missing custom nodes {[...loose.keys()].join(", ")}.
         </span>
       )}
     </div>

@@ -4,7 +4,7 @@ import { SEEDVR_SLOTS } from "../video/upscale";
 
 /** Where ComfyUI's own templates fetch MiniMax H3's files from. */
 const HF = "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main";
-/** H3's reference model and what is made from it, by name: ref2va (MiniMax's), r2v, or a merge with its reference delta (Hakase's fused turbo). */
+/** H3's reference model and what is made from it, by name: ref2va (MiniMax's), r2v, or a merge with its reference delta (a fused turbo). */
 export const SWAP_MODELS = "minimax.?h3.*(ref2va|r2va|r2v|refdelta)";
 /** H3's hybrid fine-tunes (DaSiWa's), which follow references themselves: a swap can run on them, never picked for it by itself. */
 export const H3_HYBRIDS = "minimax.?h3.*hybrid";

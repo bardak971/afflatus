@@ -510,11 +510,11 @@ export const api = {
   createWorkflow: (body: WorkflowBody) => call<WorkflowBrief>("POST", "/workflows", body),
   saveWorkflow: (id: string, body: WorkflowBody) => call<WorkflowBrief>("PUT", `/workflows/${id}`, body),
   /** Have ComfyUI-Manager install the packs the missing node types come from; `packs` is what the workflow says about them. */
-  installPacks: (body: { classes: string[]; packs: Record<string, string> }) => call<PacksStarted>("POST", "/workflows/packs", body),
+  installPacks: (body: { classes: string[]; packs: Record<string, string>; machine?: string }) => call<PacksStarted>("POST", "/workflows/packs", body),
   /** Have ComfyUI-Manager restart ComfyUI (after a pack install); refused while a render runs. */
   restartComfy: (machine?: string) => call<{ ok: true }>("POST", "/comfy/restart", machine ? { machine } : {}),
   /** Where the queued installs stand. */
-  packsStatus: (ids: string[]) => call<{ items: PackState[]; installed: number }>("GET", `/workflows/packs?ids=${encodeURIComponent(ids.join(","))}`),
+  packsStatus: (ids: string[], machine?: string) => call<{ items: PackState[]; installed: number }>("GET", `/workflows/packs?ids=${encodeURIComponent(ids.join(","))}${machine ? `&machine=${encodeURIComponent(machine)}` : ""}`),
   deleteWorkflow: (id: string) => call<{ ok: true }>("DELETE", `/workflows/${id}`),
   /** The timelines of the project the app looks at. */
   timelines: (o?: Asked) => call<{ items: TimelineBrief[] }>("GET", `/timelines${projectParam() ? `?project=${encodeURIComponent(projectParam()!)}` : ""}`, undefined, o?.signal),

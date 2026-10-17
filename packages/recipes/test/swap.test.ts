@@ -117,9 +117,9 @@ describe("MiniMax H3 · Swap character", () => {
     const offered = (file: string) => field.type === "model" && field.match!.some((m) => new RegExp(m, "i").test(file));
     expect([fused, dasiwa, "DasiwaMinimaxH3_dasiwaHybridV3_int8.safetensors", "minimax_h3_ref2va_pruned_int8_convrot.safetensors"].every(offered)).toBe(true);
     expect(offered("minimax_h3_fl2va_pruned_int8_convrot.safetensors")).toBe(false);
-    // Turbo asks for the turbo LoRA only where the model is not distilled
+    // Turbo asks for a turbo LoRA only where the model is not distilled: the reference model's own
     const asked = (over: Record<string, unknown>) => h3Swap.needsWith!(parseInput(h3Swap, { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], ...over }), slots);
-    expect(asked({ fast: true })).toEqual(["turbo"]);
+    expect(asked({ fast: true })).toEqual(["refTurbo"]);
     expect(asked({ fast: true, swapModel: dasiwa })).toEqual([]);
     expect(asked({ fast: false })).toEqual([]);
   });
@@ -152,6 +152,24 @@ describe("MiniMax H3 · Swap character", () => {
     expect(() => parseInput(h3Swap, { who: "x", source: { asset: "v1", pick: { x: 2, y: 0.5 } }, references: [] })).toThrow();
   });
 
+  it("starts a fused reference turbo on its own 4 steps, er_sde / beta; a distilled H3 file on 8; MiniMax's reference model on the reference turbo LoRA", () => {
+    const presets = h3Swap.presets ?? [];
+    const first = (file: string) => presets.find((p) => new RegExp(p.match, "i").test(file))?.values;
+    expect(first("minimax_h3_fused_refdelta_r1024_turbo8_mystic07_int8_convrot.safetensors")).toMatchObject({ fast: true, turboSteps: 4, sampler: "er_sde", scheduler: "beta", shiftVideo: 12, shiftAudio: 3 });
+    expect(first("DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors")).toMatchObject({ fast: true, turboSteps: 8 });
+    // MiniMax's reference model with Turbo: the reference model's own turbo LoRA, else the usual one
+    const lora = (extra: Record<string, string>) => of(build({ fast: true }, part(), { slots: { ...slots, ...extra } }).graph, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name);
+    expect(lora({ turbo: "minimax_h3_fl2v_turbo_8step.safetensors", refTurbo: "minimax_h3_ref2v_turbo_4step.safetensors" })).toEqual(["minimax_h3_ref2v_turbo_4step.safetensors", "swap.safetensors"]);
+    expect(lora({ turbo: "minimax_h3_fl2v_turbo_8step.safetensors" })).toEqual(["minimax_h3_fl2v_turbo_8step.safetensors", "swap.safetensors"]);
+    // with no turbo LoRA at all, the reference one is asked for
+    const ask = (over: Record<string, unknown>, have: Record<string, string>) => h3Swap.needsWith!(parseInput(h3Swap, { who: "the man", source: { asset: "v1" }, references: [], ...over }), { ...slots, ...have });
+    expect(ask({ fast: true }, {})).toEqual(["refTurbo"]);
+    expect(ask({ fast: true }, { turbo: "t.safetensors" })).toEqual([]);
+    expect(ask({ fast: true, swapModel: "DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors" }, {})).toEqual([]);
+    // the form's start on the reference LoRA's 4 steps at 6 / 3
+    expect(h3Swap.starts?.[0]?.values).toEqual({ turboSteps: 4, shiftVideo: 6, shiftAudio: 3 });
+  });
+
   describe("Veda sparse attention", () => {
     const vedaSlots = { ...slots, veda: "minimax_h3_r2va_veda_preview_fp8.safetensors" };
 
@@ -174,10 +192,10 @@ describe("MiniMax H3 · Swap character", () => {
       expect(noPredictor.built.warnings).toContainEqual(expect.stringContaining("predictor"));
     });
 
-    it("asks for its node pack and its predictor as any other file and node, only when it is on", () => {
+    it("asks for its predictor only when it is on, and takes its node pack as an optional one", () => {
       const parsed = (over: Record<string, unknown>) => parseInput(h3Swap, { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, ...over });
-      expect(h3Swap.nodes(parsed({ veda: true }))).toContain("VedaSparseAttention");
-      expect(h3Swap.nodes(parsed({}))).not.toContain("VedaSparseAttention");
+      expect(h3Swap.nodes(parsed({ veda: true }))).not.toContain("VedaSparseAttention");
+      expect(h3Swap.optionalNodes).toContain("VedaSparseAttention");
       expect(h3Swap.needsWith!(parsed({ veda: true }), slots)).toEqual(["veda"]);
       expect(h3Swap.needsWith!(parsed({}), slots)).toEqual([]);
     });

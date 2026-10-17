@@ -1,6 +1,6 @@
-import { defineRecipe, gridAtOrBefore, type BuildContext, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type Variant } from "@afflatus/core";
+import { defineRecipe, gridAtOrBefore, type BuildContext, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type StartRule, type Variant } from "@afflatus/core";
 import { H3_FPS, H3_GRID, H3_HYBRIDS, SWAP_MODELS } from "./family";
-import { turboNeeds } from "./model";
+import { modelOf, namedFor } from "./model";
 import { h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video, type H3Extra } from "./video";
 import { partBounds } from "../motion/driving";
@@ -66,7 +66,7 @@ const NOT_TAKEN = new Set([
 
 const swapInputs: InputSpec[] = [
   {
-    // MiniMax's reference model and what is made from it: a fine-tune, or a distilled merge such as Hakase's fused turbo
+    // MiniMax's reference model and what is made from it: a fine-tune, or a distilled merge such as the fused reference turbo
     // (4 steps er_sde / beta in her workflow, 3.5 times quicker than ref2va's 20 steps, a little less like the person: §9.10).
     // A hybrid fine-tune too (DaSiWa's): unmasked, one redrew the room 3 times of 3 (2026-10-13); the mask now keeps the room
     id: "swapModel", type: "model", label: "Model", folder: "diffusion_models", slot: "swapUnet", match: [SWAP_MODELS, H3_HYBRIDS],
@@ -119,9 +119,9 @@ const swapInputs: InputSpec[] = [
     note: "the source's own sound given to H3 as a guide, as Lip sync gives its recording, so that the mouth is drawn to the words heard",
   },
   {
-    // Hakase's swap runs it at 32 / 32 (2026-10-13); its makers trained it at 768p on 8-step turbo, other sizes and steps work
+    // the tested character-swap workflow runs it at 32 / 32; its makers trained it at 768p on 8-step turbo, other sizes and steps work
     id: "veda", type: "toggle", label: "Veda sparse attention", default: false, advanced: true, section: "speed",
-    note: "faster on long windows: a small predictor picks the attention that matters and the rest is skipped, the steps unchanged. Needs the veda-sparse-attention node pack and its predictor for the reference model, fetched as any other file",
+    note: "faster on long windows: a small predictor picks the attention that matters and the rest is skipped, the steps unchanged. Needs the veda-sparse-attention node pack and its predictor for the reference model, both in Settings › Models; without them the full attention runs",
   },
 ];
 
@@ -177,6 +177,31 @@ function asClip(input: H3Swap, swapLora: string, frames: number, carried: number
     shape: size ?? { width: 1024, height: 576 },
   };
 }
+
+/**
+ * The turbo the swap's model takes, by its file (the form starts on it, Recipe.presets): the fused reference turbo (…refdelta…) as
+ * its character-swap workflow runs it (4 steps, er_sde / beta, the model's own shifts 12 / 3: it swapped at 3.5 times
+ * ref2va's speed, §9.10), then H3's own (DaSiWa's distilled files: Turbo, 8 steps without a LoRA).
+ */
+const SWAP_PRESETS = [
+  { match: "refdelta", values: { fast: true, turboSteps: 4, sampler: "er_sde", scheduler: "beta", shiftVideo: 12, shiftAudio: 3 }, note: "a fused reference turbo: Turbo, 4 steps, er_sde / beta, as its swap workflow runs it" },
+  ...(h3Video.presets ?? []),
+];
+
+/**
+ * MiniMax's reference model with Turbo on takes MiniMax's 4-step reference turbo LoRA when it is there (the one made for
+ * it, not the frames model's 8-step one): Turbo starts on its 4 steps at 6 / 3. A distilled model takes no LoRA.
+ */
+const SWAP_STARTS: StartRule[] = [{
+  when: {
+    all: [
+      { input: "fast", is: true },
+      { not: { name: { input: "swapModel", slot: "swapUnet" }, match: namedFor.turbo.source } },
+      { name: { slot: "refTurbo" }, match: "(^|[^0-9])4[ _-]?steps?([^a-z]|$)" },
+    ],
+  },
+  values: { turboSteps: 4, shiftVideo: 6, shiftAudio: 3 },
+}];
 
 /** What the masked swap adds to H3's graph: core's SAM 3 track, noise mask and AV latent nodes, the node pack's Swap Mask. */
 const MASK_NODES = ["CheckpointLoaderSimple", "CLIPTextEncode", "SAM3_VideoTrack", "AfflatusSwapMask", "ImageFromBatch", "ImageScale", "VAEEncode", "SetLatentNoiseMask", "LTXVSeparateAVLatent", "LTXVConcatAVLatent", "ImageCompositeMasked", "ColorTransfer"];
@@ -240,16 +265,20 @@ export const h3Swap = defineRecipe<H3Swap>({
   // before (its last 5 frames pinned at the start), otherwise no join with the clips around it
   traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED } },
   inputs: swapInputs,
-  presets: h3Video.presets,
+  presets: SWAP_PRESETS,
+  starts: SWAP_STARTS,
   needs: ["swapLora", "swapUnet", "swapSam"],
-  // as every other file and node: Veda's predictor when it is on, and the turbo LoRA when Turbo is on a model that is not distilled
+  // as every other file and node: Veda's predictor when it is on, and a turbo LoRA when Turbo is on a model that is not
+  // distilled (the reference one asked for, either taken)
   needsWith: (input, slots = {}) => [
     ...(input.veda ? ["veda"] : []),
-    ...turboNeeds(asClip(input, "swap.safetensors", SWAP_FRAMES, 0, input.swapModel ?? slots.swapUnet), slots),
+    ...(input.fast && !modelOf({ ...input, model: input.swapModel ?? slots.swapUnet, turboIn: "From the name" }, slots).turbo && !slots.refTurbo && !slots.turbo ? ["refTurbo"] : []),
   ],
-  nodes: (input) => [...new Set([...h3Video.nodes(asClip(input, "swap.safetensors", SWAP_FRAMES, 0, "minimax_h3_ref2va.safetensors")), "LoraLoaderModelOnly", ...(input.keepSound ? ["TrimAudioDuration"] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : []), ...(input.veda ? ["VedaSparseAttention"] : [])])],
+  nodes: (input) => [...new Set([...h3Video.nodes(asClip(input, "swap.safetensors", SWAP_FRAMES, 0, "minimax_h3_ref2va.safetensors")), "LoraLoaderModelOnly", ...(input.keepSound ? ["TrimAudioDuration"] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : [])])],
   // the mask's nodes are not asked of a machine: one without them (an older node pack) swaps unmasked, and the job says so
-  optionalNodes: [...(h3Video.optionalNodes ?? []), ...MASK_NODES],
+  // Veda's node only serves its toggle, and without its pack the swap runs the full attention and says so on the job: an
+  // optional node, so that it never stops a render and Settings › Models offers its pack among the optional ones
+  optionalNodes: [...(h3Video.optionalNodes ?? []), ...MASK_NODES, "VedaSparseAttention"],
   finishing: (input) => h3Video.finishing!(asClip(input, "swap.safetensors", SWAP_FRAMES, 0, "minimax_h3_ref2va.safetensors")),
 
   build(input, ctx) {
@@ -282,6 +311,8 @@ export const h3Swap = defineRecipe<H3Swap>({
       } : {}),
       ...(mask?.extra ?? {}),
       ...(input.veda && ctx.slots.veda ? { veda: ctx.slots.veda } : {}),
+      // the reference model's own turbo LoRA, else the usual one (a distilled model takes neither)
+      ...(ctx.slots.refTurbo ?? ctx.slots.turbo ? { turbo: ctx.slots.refTurbo ?? ctx.slots.turbo } : {}),
     });
     // Veda asked for and not there: the clip is made with the full attention, and the job says why
     const veda = input.veda && !ctx.has("VedaSparseAttention")
