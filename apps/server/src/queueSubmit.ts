@@ -193,6 +193,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const loaders = bare ? warmGraph({ ...whole, passes: [] }) : null;
   if (bare && !loaders) throw new Error("this loads no model: there is nothing to preload");
   const built: BuiltGraph = loaders ? { ...whole, graph: loaders.graph, phases: loaders.phases, passes: [], outputs: [] } : whole;
+  if (!loaders && whole.warnings?.length) warnings.push(...whole.warnings);
   // a model kept in another sub-folder than the one the graph names is used from where it is
   relocateFiles(built.graph, catalog);
   const imported = Boolean(recipe.imported);

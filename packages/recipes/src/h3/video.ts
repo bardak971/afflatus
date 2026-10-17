@@ -152,6 +152,10 @@ export interface H3Extra {
   prompt?(pictures: number): string;
   guide?(g: GraphBuilder, at: { positive: Ref; latent: Ref; vae: Ref; audioVae: Ref; head: number; frames: number }): Ref;
   sound?(g: GraphBuilder, decoded: Ref, at: { head: number; frames: number }): Ref;
+  /** What the clip is sampled from, in place of the empty latent (a swap's: the source's own, the person masked to be redrawn). */
+  latent?(g: GraphBuilder, at: { latent: Ref; vae: Ref; width: number; height: number; frames: number }): Ref;
+  /** The decoded frames as the clip keeps them (a swap's: the source's own pixels pasted back outside the person). */
+  frames?(g: GraphBuilder, images: Ref): Ref;
 }
 
 /** The H3 clip's graph, shared by the recipes made on it. */
@@ -184,7 +188,7 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
         guider: g.out("BasicGuider", { model, conditioning: guided }),
         sampler: g.out("KSamplerSelect", { sampler_name: input.sampler !== AUTO_SAMPLER ? input.sampler : turbo ? "euler" : "res_multistep" }),
         sigmas: g.out("BasicScheduler", { model, scheduler: input.scheduler, steps, denoise: 1 }),
-        latent_image: latent,
+        latent_image: extra.latent ? extra.latent(g, { latent, vae, width, height, frames: join.frames }) : latent,
       });
   // continued in the latent: decoded as one piece with the clip before (its own last tokens, then the new ones), so that
   // the join is the whole chain's decoded at once and plays as a plain cut. The latent saved for the clips after stays the sampled window
@@ -212,7 +216,8 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
     }
   }
   const sound = extra.sound ? (decoded: Ref) => extra.sound!(g, decoded, { head: join.head, frames: join.frames }) : undefined;
-  const made = finish(g, ctx, input, { finished, sampled, fine, vae, audioVae, width, height, sound });
+  const frames = extra.frames ? (images: Ref) => extra.frames!(g, images) : undefined;
+  const made = finish(g, ctx, input, { finished, sampled, fine, vae, audioVae, width, height, sound, frames });
 
   const { head, tail, latentJoin } = join;
   const ms = (n: number) => Math.round((n / H3_FPS) * 1000);

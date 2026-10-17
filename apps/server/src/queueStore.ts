@@ -214,6 +214,15 @@ function faceFigures(resume: Resume, outputs: Outputs): { face: number; low: num
   return null;
 }
 
+/** What the note nodes said about how the render went (a swap that found no one to mask), to be said on the job. */
+export function notesOf(resume: Resume, outputs: Outputs): string[] {
+  return resume.outputs.flatMap((out) => {
+    if (out.role !== "note") return [];
+    const said = (outputs[out.node] as { afflatus_note?: unknown[] } | undefined)?.afflatus_note ?? [];
+    return said.filter((t): t is string => typeof t === "string" && t.trim() !== "");
+  });
+}
+
 /** The files the result nodes handed back, each with the kind the recipe asked of it. */
 function collectOutputs(resume: Resume, outputs: Outputs): Array<{ file: OutputFile; kind: "image" | "video" | "audio" }> {
   const files: Array<{ file: OutputFile; kind: "image" | "video" | "audio" }> = [];

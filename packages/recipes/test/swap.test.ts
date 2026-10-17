@@ -7,12 +7,12 @@ import { recipeById } from "../src/index";
 type Node = { class_type: string; inputs: Record<string, unknown> };
 type Graph = Record<string, Node>;
 const of = (graph: Graph, type: string) => Object.values(graph).filter((n) => n.class_type === type);
-const slots = { unet: "u.safetensors", clip: "c.safetensors", videoVae: "v.safetensors", audioVae: "a.safetensors", refUnet: "hybrid_turbo.safetensors", swapLora: "swap.safetensors", swapUnet: "minimax_h3_ref2va.safetensors" };
+const slots = { unet: "u.safetensors", clip: "c.safetensors", videoVae: "v.safetensors", audioVae: "a.safetensors", refUnet: "hybrid_turbo.safetensors", swapLora: "swap.safetensors", swapUnet: "minimax_h3_ref2va.safetensors", swapSam: "sam3.1.safetensors" };
 const part = (over: Partial<MediaFacts> = {}): MediaFacts => ({ width: 864, height: 480, frames: 141, fps: H3_FPS, hasSound: true, ...over });
 
-const build = (over: Record<string, unknown> = {}, source: MediaFacts = part()) => {
+const build = (over: Record<string, unknown> = {}, source: MediaFacts = part(), ctx: { slots?: Record<string, string>; has?: (cls: string) => boolean } = {}) => {
   const input = parseInput(h3Swap, { who: "the man in the grey t-shirt.", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, ...over });
-  const built = h3Swap.build(input, dryContext({ slots, uploads: { source: "src.mp4", "references.0": "r1.png", "references.1": "r2.png" }, media: { source } }));
+  const built = h3Swap.build(input, dryContext({ slots: ctx.slots ?? slots, uploads: { source: "src.mp4", "references.0": "r1.png", "references.1": "r2.png" }, media: { source }, ...(ctx.has ? { has: ctx.has } : {}) }));
   return { built, graph: built.graph as Graph };
 };
 
@@ -111,5 +111,69 @@ describe("MiniMax H3 · Swap character", () => {
   it("refuses without the swap LoRA, and says where it is had", () => {
     const input = parseInput(h3Swap, { who: "x", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }] });
     expect(() => h3Swap.build(input, dryContext({ slots: { ...slots, swapLora: "" }, uploads: { source: "src.mp4", "references.0": "r1.png" }, media: { source: part() } }))).toThrow(/Character-Swap LoRA/);
+  });
+
+  describe("masked: only the person redrawn, the rest of the source kept (§9.9)", () => {
+    const from = (graph: Graph, ref: unknown) => graph[(ref as [string, number])[0]]!;
+
+    it("is sampled from the source's own frames, encoded, with the Swap Mask's noise mask, and H3's own audio beside them", () => {
+      const { graph } = build();
+      const sampler = of(graph, "SamplerCustomAdvanced")[0]!;
+      const av = from(graph, sampler.inputs.latent_image);
+      expect(av.class_type).toBe("LTXVConcatAVLatent");
+      const noised = from(graph, av.inputs.video_latent);
+      expect(noised.class_type).toBe("SetLatentNoiseMask");
+      expect(noised.inputs.mask).toEqual([expect.any(String), 0]);
+      expect(from(graph, noised.inputs.mask).class_type).toBe("AfflatusSwapMask");
+      expect(from(graph, noised.inputs.samples).class_type).toBe("VAEEncode");
+      // the audio is the reference node's own empty latent's, not the source's
+      const audio = from(graph, av.inputs.audio_latent);
+      expect(audio.class_type).toBe("LTXVSeparateAVLatent");
+      expect(from(graph, audio.inputs.av_latent).class_type).toBe("MiniMaxH3ReferenceToVideo");
+    });
+
+    it("tracks the people of the part at the clip's size and its length, and takes the most prominent", () => {
+      const { graph } = build();
+      const mask = of(graph, "AfflatusSwapMask")[0]!;
+      expect(mask.inputs).toMatchObject({ frames: 141, width: 1024, height: 576, grow: 100 });
+      const track = from(graph, mask.inputs.track_data);
+      expect(track.class_type).toBe("SAM3_VideoTrack");
+      expect(from(graph, track.inputs.conditioning).inputs.text).toBe("person");
+      expect(of(graph, "CheckpointLoaderSimple").map((n) => n.inputs.ckpt_name)).toEqual(["sam3.1.safetensors"]);
+      const scaled = from(graph, track.inputs.images);
+      expect(scaled).toMatchObject({ class_type: "ImageScale", inputs: { width: 1024, height: 576 } });
+      expect(from(graph, scaled.inputs.image)).toMatchObject({ class_type: "ImageFromBatch", inputs: { batch_index: 0, length: 141 } });
+      // the same frames are encoded and pasted onto: one scale of the part
+      expect(of(graph, "ImageScale")).toHaveLength(1);
+    });
+
+    it("files the source's pixels outside the person: the frames the clip keeps are the render pasted onto the part", () => {
+      const { built, graph } = build();
+      const saved = graph[built.outputs.find((o) => o.role === "result")!.node]!;
+      const pasted = from(graph, saved.inputs.images);
+      expect(pasted.class_type).toBe("ImageCompositeMasked");
+      expect(from(graph, pasted.inputs.source).class_type).toBe("VAEDecode");
+      expect(from(graph, pasted.inputs.destination).class_type).toBe("ImageScale");
+      // the paste-back mask is the Swap Mask's second output
+      expect(pasted.inputs.mask).toEqual([expect.any(String), 1]);
+      expect(from(graph, pasted.inputs.mask).class_type).toBe("AfflatusSwapMask");
+      // the Swap Mask's note (no one found) is said on the job
+      expect(built.outputs.filter((o) => o.role === "note").map((o) => graph[o.node]!.class_type)).toEqual(["AfflatusSwapMask"]);
+      expect(built.warnings).toBeUndefined();
+    });
+
+    it("swaps unmasked where the node pack has no Swap Mask, or SAM is not there, and says so on the job", () => {
+      const older = build({}, part(), { has: (cls) => cls !== "AfflatusSwapMask" });
+      expect(of(older.graph, "SetLatentNoiseMask")).toEqual([]);
+      expect(of(older.graph, "SAM3_VideoTrack")).toEqual([]);
+      expect(older.built.warnings).toEqual([expect.stringMatching(/without a mask.*node pack has no Swap Mask/)]);
+      const noSam = build({}, part(), { slots: { ...slots, swapSam: "" } });
+      expect(of(noSam.graph, "SetLatentNoiseMask")).toEqual([]);
+      expect(noSam.built.warnings).toEqual([expect.stringMatching(/SAM 3\.1 is not on this ComfyUI/)]);
+    });
+
+    it("asks SAM 3.1 of a machine, as the LoRA and the reference model", () => {
+      expect(h3Swap.needs).toEqual(["swapLora", "swapUnet", "swapSam"]);
+    });
   });
 });

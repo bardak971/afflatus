@@ -14,14 +14,16 @@ export const H3_SAVE_LATENT = ["AfflatusNormalizeH3Latent", "AfflatusSaveH3Laten
  * interpolation, the result saved (and the model's own frames beside it when they differ), and the sampled
  * latent kept for the clips that continue this one.
  */
-export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made: { finished: Ref; sampled: string; fine?: Ref | null; vae: Ref; audioVae: Ref; width: number; height: number; sound?: (decoded: Ref) => Ref }): { outputs: BuiltGraph["outputs"]; loads: string[] } {
+export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made: { finished: Ref; sampled: string; fine?: Ref | null; vae: Ref; audioVae: Ref; width: number; height: number; sound?: (decoded: Ref) => Ref; frames?: (images: Ref) => Ref }): { outputs: BuiltGraph["outputs"]; loads: string[] } {
   const { finished, sampled, fine, vae, audioVae, width, height } = made;
   const upscaling = input.upscale === UPSCALE.latent;
   g.phase("decoding");
   // the enlarged latent is decoded in tiles and stretches: whole, a doubled 7-second clip asks for tens of GB and falls back to the processor
+  // a swap's paste-back works on the frames at the size they were sampled: after the latent re-sample (larger, every pixel
+  // redrawn again) there is nothing of the source left to paste, and its mask would not fit
   const images = input.upscale === UPSCALE.latent
     ? g.out("VAEDecodeTiled", { samples: finished, vae, tile_size: 512, overlap: 64, temporal_size: 64, temporal_overlap: 8 })
-    : g.out("VAEDecode", { samples: finished, vae });
+    : (made.frames ?? ((decodedFrames: Ref) => decodedFrames))(g.out("VAEDecode", { samples: finished, vae }));
   const decoded = g.out("VAEDecodeAudio", { samples: finished, vae: audioVae });
   // a lip sync's files carry the recording itself, not the model's decoding of it (the latent kept for the clips after stays the model's)
   const audio = made.sound ? made.sound(decoded) : decoded;

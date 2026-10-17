@@ -145,10 +145,10 @@ describe("every recipe, its inputs as parsed", () => {
     expect(checked).toBeGreaterThan(2);
   });
 
-  it("a slot used by one recipe alone names it, and Swap's two files are only Swap's (review K-9)", () => {
+  it("a slot used by one recipe alone names it, and Swap's three files are only Swap's (review K-9)", () => {
     for (const f of families) for (const slot of f.slots) for (const id of slot.onlyFor ?? []) expect(recipeById(id), `${f.id}.${slot.id} → ${id}`).toBeDefined();
     const h3Slots = families.find((f) => f.id === "h3")!.slots;
-    expect(h3Slots.filter((x) => x.onlyFor?.includes("h3.swap")).map((x) => x.id)).toEqual(["swapUnet", "swapLora"]);
+    expect(h3Slots.filter((x) => x.onlyFor?.includes("h3.swap")).map((x) => x.id)).toEqual(["swapUnet", "swapLora", "swapSam"]);
   });
 
   it("Colour match leaves out a First frame the clip does not use, carrying on from a Previous clip (review K-6)", () => {
