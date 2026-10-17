@@ -47,6 +47,7 @@ function rig() {
         timeline={timeline} place={null} recipes={[model]} clock={{} as never}
         onEdit={() => {}} onType={(inputs) => edits.typeSource(timeline.id, inputs)} typed={() => edits.sourceTyped(timeline.id)}
         onLook={() => {}} onMake={() => {}} making={false} made={{ left: 0, queued: 0 }} onRender={() => {}} rendering={false} onClose={close}
+        picking={false} onPicking={() => {}}
       />
     ) : null;
   }

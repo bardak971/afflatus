@@ -238,6 +238,13 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
       {source && (
         <div className="flex shrink-0 flex-col gap-2 border-t border-line px-3.5 py-3">
           {waitsFor && <span className="text-xs text-warn-ink">{waitsFor}</span>}
+          {/* the pick asked for where Make waits for it: the Source card holding it may be scrolled away */}
+          {takesPick && !source.pick && !place?.made && !picking && (
+            <Button className="h-10 justify-center gap-2 text-sm" onClick={() => onPicking(true)}>
+              <Crosshair size={16} aria-hidden />
+              Pick on the stage
+            </Button>
+          )}
           {/* once made, it follows the clips: those with nothing to play are rendered from here, with the timeline's machine
               slice (a "Made" with nothing to press left renders that failed or were cancelled to Render all at the top) */}
           {place?.made ? (
