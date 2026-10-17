@@ -25,6 +25,8 @@ export interface RecipeInfo {
   presets?: Array<{ match: string; values: Record<string, unknown>; note?: string }>;
   /** Settings whose start depends on the family's files as well as on the form (core's StartRule). */
   starts?: StartRule[];
+  /** The family's optional files (slot ids) it cannot run without, as Edit needs FLUX.1's Kontext model. */
+  needs?: string[];
 }
 export interface FamilyInfo {
   id: string;

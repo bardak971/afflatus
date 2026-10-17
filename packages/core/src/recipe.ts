@@ -245,6 +245,8 @@ export function describeRecipe(r: Recipe<any>) {
     id: r.id, family: r.family, ...(r.imported ? { imported: true as const } : {}), ...(r.hidden ? { hidden: true as const } : {}), version: r.version, title: r.title, summary: r.summary, output: r.output,
     inputs: r.inputs, traits: r.traits ?? null, presets: r.presets ?? [], starts: r.starts ?? [],
     ...(r.chapters?.length ? { chapters: r.chapters } : {}),
+    // the family's optional files it cannot run without (Edit's Kontext model): Settings › Models says which operations use each file
+    ...(r.needs?.length ? { needs: r.needs } : {}),
     // the model files it names itself (an imported workflow's): what its LoRAs are sorted for
     models: (r.files ?? []).filter((f) => ["checkpoints", "diffusion_models"].includes(folderOfFileInput(f.classType, f.input) ?? "")).map((f) => f.file),
   };
