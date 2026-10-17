@@ -22,24 +22,40 @@ describe("MiniMax H3 · Swap character", () => {
     expect(recipeById("h3.swap")).toBe(h3Swap);
   });
 
-  it("carries on from the window before on a source lane: its last 22 frames and their sound pinned at the start, as frames, the window's count kept", () => {
+  it("carries on from the window before on a source lane in its latent, as H3's own clips: its last 22 frames the run-up, the join decoded as one piece with it", () => {
     const input = parseInput(h3Swap, { who: "the man", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: false });
     const built = h3Swap.build(input, dryContext({
       slots, uploads: { source: "src.mp4", previous: "w.mp4", "previous.latent": "w.safetensors", "references.0": "r1.png" },
-      media: { source: part({ frames: 124 }), previous: { width: 864, height: 480, frames: 22, fps: H3_FPS, hasSound: true, latentFrames: 124 } },
+      media: { source: part({ frames: 141 }), previous: { width: 1024, height: 576, frames: 22, fps: H3_FPS, hasSound: true, latentFrames: 141 } },
     }));
     const graph = built.graph as Graph;
-    // the pin: a guide at frame 0 from the window before's frames, with their sound (the source's own)
+    // the window before's exact tokens: loaded, pinned at the start of the window, and decoded with the new ones
+    expect(of(graph, "AfflatusLoadH3Latent").map((n) => n.inputs.latent)).toEqual(["w.safetensors"]);
+    expect(of(graph, "MiniMaxH3GuidedContinuationWindow")[0]!.inputs).toMatchObject({ overlap_frames: 22, extension_frames: 141 - 22 });
+    expect(of(graph, "MiniMaxH3LatentTailGuide")).toHaveLength(1);
+    expect(of(graph, "AfflatusH3SeamLatent")[0]!.inputs.overlap_frames).toBe(22);
+    // no frames pinned in its place
+    expect(of(graph, "MiniMaxH3AddGuide")).toEqual([]);
+    // still masked: the sampler starts from the source's own latent, the person's tokens to redraw
+    const sampler = of(graph, "SamplerCustomAdvanced")[0]!;
+    expect(graph[(sampler.inputs.latent_image as [string, number])[0]]!.class_type).toBe("LTXVConcatAVLatent");
+    expect(built.overlap).toMatchObject({ headMs: 917, latent: true, seam: true });
+    expect(h3Swap.traits?.windows).toEqual({ most: 141, least: 90, carried: 22 });
+  });
+
+  it("carries on by the window before's frames when its latent was not kept: pinned at the start with their sound", () => {
+    const input = parseInput(h3Swap, { who: "the man", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: false });
+    const built = h3Swap.build(input, dryContext({
+      slots, uploads: { source: "src.mp4", previous: "w.mp4", "references.0": "r1.png" },
+      media: { source: part({ frames: 124 }), previous: { width: 864, height: 480, frames: 22, fps: H3_FPS, hasSound: true } },
+    }));
+    const graph = built.graph as Graph;
     const pin = of(graph, "MiniMaxH3AddGuide")[0]!;
     expect(pin.inputs.frame_idx).toBe(0);
     expect(pin.inputs.audio).toBeDefined();
-    // never its latent, even when it was kept: the measured join is on frames
     expect(of(graph, "MiniMaxH3GuidedContinuationWindow")).toEqual([]);
-    expect(of(graph, "AfflatusLoadH3Latent")).toEqual([]);
-    // the window is the part's 124 frames, the 22 shared among them: hidden on the timeline as the overlap
     expect(of(graph, "MiniMaxH3ReferenceToVideo")[0]!.inputs.length).toBe(124);
     expect(built.overlap).toEqual({ headMs: 917, tailMs: 0 });
-    expect(h3Swap.traits?.windows).toEqual({ most: 141, least: 90, carried: 22 });
   });
 
   it("takes the LoRA's short trained caption as its whole prompt, built from who to replace", () => {
