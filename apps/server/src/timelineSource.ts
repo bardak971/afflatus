@@ -22,6 +22,11 @@ export interface SourcePlan {
   /** Windows end at the source's scene cuts, the next one a new shot. */
   snap: boolean;
   clip: string | null;
+  /**
+   * Who a swap replaces: the point clicked on the stretch's first frame (at `fromMs`), as shares of its width and height.
+   * The first window takes it; the windows after it follow the person it replaced. Gone when the stretch's start moves.
+   */
+  pick?: { x: number; y: number } | null;
 }
 
 /** What a timeline's PATCH takes of it: a new source (its video), or changes to the one there; null takes it away. */
@@ -37,6 +42,7 @@ export const sourcePatch = z
     inputs: z.record(z.string().max(64), z.unknown()).refine((x) => JSON.stringify(x).length < 64_000, "too large").optional(),
     snap: z.boolean().optional(),
     clip: z.string().nullable().optional(),
+    pick: z.strictObject({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) }).nullable().optional(),
   })
   .nullable();
 export type SourcePatch = z.infer<typeof sourcePatch>;
@@ -52,6 +58,7 @@ export function sourceOfRow(raw: string | null | undefined): SourcePlan | null {
     return {
       asset: x.asset, atMs: Number(x.atMs) || 0, fromMs: Number(x.fromMs) || 0, toMs: Number(x.toMs) || 0, recipe: x.recipe ?? null,
       windowMs: Number(x.windowMs) || 5000, inputs: { ...older, ...(x.inputs && typeof x.inputs === "object" ? x.inputs : {}) }, snap: Boolean(x.snap), clip: x.clip ?? null,
+      ...(x.pick && typeof x.pick.x === "number" && typeof x.pick.y === "number" ? { pick: { x: x.pick.x, y: x.pick.y } } : {}),
     };
   } catch {
     return null;
@@ -76,6 +83,8 @@ export function patchedSource(before: SourcePlan | null, patch: NonNullable<Sour
     next.fromMs = Math.max(0, Math.min(next.toMs - 1000, Math.round(next.fromMs)));
   }
   next.atMs = Math.round(next.atMs);
+  // a click is on the frame it was made on: another video, or another first frame, is someone else's to pick
+  if (!next.pick || (!("pick" in patch) && (fresh || next.fromMs !== before?.fromMs))) delete next.pick;
   return next;
 }
 

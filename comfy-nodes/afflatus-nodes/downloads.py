@@ -108,13 +108,39 @@ def _inside(root, path):
         return False
 
 
+# the name a model folder ComfyUI does not know yet may have: one plain folder, as node packs name theirs ("veda")
+NEW_FOLDER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+# what such a folder lists, until its pack says otherwise: ComfyUI's own model file types
+MODEL_EXTS = {".safetensors", ".ckpt", ".pt", ".pt2", ".pth", ".bin", ".pkl", ".sft", ".gguf", ".onnx"}
+
+
+def known(folder, folder_paths):
+    """
+    Whether `folder` is a model folder downloads may go into. One ComfyUI does not know yet is made known as
+    models/<folder>, the way a node pack registers its own when it loads (the Veda pack's models/veda): a file fetched
+    before its pack is installed, or before ComfyUI restarts with it, then lands where the pack reads it, and is listed.
+    Only a plain folder name, in ComfyUI's models directory; never a folder of code or settings.
+    """
+    if not isinstance(folder, str) or folder in NOT_MODELS:
+        return False
+    if folder in folder_paths.folder_names_and_paths:
+        return True
+    base = getattr(folder_paths, "models_dir", None)
+    if not NEW_FOLDER.match(folder) or not base or not os.path.isdir(base):
+        return False
+    exts = set(getattr(folder_paths, "supported_pt_extensions", None) or MODEL_EXTS)
+    folder_paths.folder_names_and_paths[folder] = ([os.path.join(base, folder)], exts)
+    return True
+
+
 def model_dir(folder, folder_paths):
     """
     The directory a model folder's downloads go into: the first of ComfyUI's paths for it that exists and can be written,
     as its real path. When none exists yet (a fresh network volume holds an empty models folder: ComfyUI started on it
-    with --base-directory has made none of its folders), the first is made, where its parent can be written.
+    with --base-directory has made none of its folders), the first is made, where its parent can be written. A folder
+    ComfyUI does not know yet is made known first (known).
     """
-    if not isinstance(folder, str) or folder in NOT_MODELS or folder not in folder_paths.folder_names_and_paths:
+    if not known(folder, folder_paths):
         return None
     code = _code_dirs(folder_paths)
     paths = list(folder_paths.get_folder_paths(folder))

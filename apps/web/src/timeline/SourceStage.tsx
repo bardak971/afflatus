@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { fileUrl, type Asset } from "../api";
 import { clock } from "../format";
 import type { PlayerHandle } from "./Player";
@@ -7,6 +7,8 @@ import type { PlayerHandle } from "./Player";
  * The source lane in the stage: its video shown where the playhead stands on it (the track's own time; `atMs` is where the
  * video's start sits), played and scrubbed with the timeline's own transport, as a clip is. Before its start and past its end:
  * its first or last frame. A badge says where in the video it stands, and whether that is inside the stretch made into clips.
+ * Picking (a swap's who is replaced): the stretch's first frame is shown and a click on it is the person; the person picked
+ * is marked on that frame whenever it shows.
  */
 export const SourceStage = forwardRef<PlayerHandle, {
   video: Asset;
@@ -24,7 +26,13 @@ export const SourceStage = forwardRef<PlayerHandle, {
   master?: number;
   /** A moment of the video to show while the source is dragged on its lane (its new start or end); null otherwise. */
   peekMs?: number | null;
-}>(function SourceStage({ video, atMs, fromMs, toMs, frame, playing, onPlaying, onTime, startAt, master = 1, peekMs = null }, ref) {
+  /** The person a swap replaces, clicked on the stretch's first frame (shares of the picture); marked there. */
+  pick?: { x: number; y: number } | null;
+  /** Waiting for that click: the first frame shown, a click on it is the person, Esc gives up. */
+  picking?: boolean;
+  onPick?(point: { x: number; y: number }): void;
+  onPickEnd?(): void;
+}>(function SourceStage({ video, atMs, fromMs, toMs, frame, playing, onPlaying, onTime, startAt, master = 1, peekMs = null, pick = null, picking = false, onPick, onPickEnd }, ref) {
   const el = useRef<HTMLVideoElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const [local, setLocal] = useState(Math.max(0, startAt - atMs));
@@ -87,6 +95,20 @@ export const SourceStage = forwardRef<PlayerHandle, {
   useEffect(() => {
     if (el.current) el.current.volume = Math.max(0, Math.min(1, master));
   }, [master]);
+  // picking: the stretch's first frame, still, where the swap's first window starts; Esc gives up before the editor's own keys
+  useEffect(() => {
+    if (!picking) return;
+    onPlaying(false);
+    put(atMs + fromMs);
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      onPickEnd?.();
+    };
+    window.addEventListener("keydown", esc, true);
+    return () => window.removeEventListener("keydown", esc, true);
+  }, [picking, fromMs]); // eslint-disable-line react-hooks/exhaustive-deps -- once as picking starts, again if the stretch's start moves
 
   const [room, setRoom] = useState({ w: 0, h: 0 });
   useLayoutEffect(() => {
@@ -102,9 +124,24 @@ export const SourceStage = forwardRef<PlayerHandle, {
   const ratio = shape.width / shape.height;
   const w = Math.min(room.w, room.h * ratio);
   const inside = local >= fromMs && local <= toMs;
+  // the video's own picture within the frame (object-contain): the click and the mark are shares of it, not of the frame
+  const vr = video.width && video.height ? video.width / video.height : ratio;
+  const fh = ratio ? w / ratio : 0;
+  const pw = vr >= ratio ? w : fh * vr;
+  const ph = vr >= ratio ? w / vr : fh;
+  const at = { left: (w - pw) / 2, top: (fh - ph) / 2 };
+  const onFirst = Math.abs(local - fromMs) < 60;
+  const clicked = (e: MouseEvent<HTMLDivElement>) => {
+    const box = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - box.left - at.left) / pw;
+    const y = (e.clientY - box.top - at.top) / ph;
+    // outside the picture (its bars): nobody there
+    if (x < 0 || x > 1 || y < 0 || y > 1) return;
+    onPick?.({ x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 });
+  };
   return (
     <div ref={box} data-stage className="relative flex min-h-0 grow items-center justify-center bg-stage">
-      <div className="relative overflow-hidden bg-black" style={{ width: w, height: ratio ? w / ratio : 0 }}>
+      <div className="relative overflow-hidden bg-black" style={{ width: w, height: fh }}>
         <video
           key={video.id}
           ref={el}
@@ -115,11 +152,29 @@ export const SourceStage = forwardRef<PlayerHandle, {
           onClick={() => onPlaying(!playing)}
           className="absolute inset-0 h-full w-full object-contain"
         />
+        {pick && onFirst && !picking && (
+          <span
+            className="pointer-events-none absolute flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5"
+            style={{ left: at.left + pick.x * pw, top: at.top + pick.y * ph }}
+          >
+            <span className="flex size-6 items-center justify-center rounded-full bg-accent text-xs font-bold text-accent-ink ring-4 ring-accent/30">1</span>
+            <span className="rounded-md bg-ground/85 px-1.5 py-0.5 text-xs font-semibold">Replaced</span>
+          </span>
+        )}
+        {picking && <div aria-label="Click the person to replace" className="absolute inset-0 cursor-crosshair" onClick={clicked} />}
       </div>
-      <span className="absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-ground/85 px-3 py-1 text-xs font-semibold whitespace-nowrap">
-        Source · {clock(local, { decimals: 1 })} of {clock(length)}
-        <span className={inside ? "text-accent" : "text-ink-3"}>{inside ? "· in the stretch" : local < fromMs ? "· before the stretch" : "· past the stretch"}</span>
-      </span>
+      {picking ? (
+        <span className="absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-accent bg-ground/90 px-3 py-1 text-xs whitespace-nowrap">
+          <span className="font-semibold">Click the person to replace</span>
+          <span className="text-ink-2">on the stretch's first frame, {clock(fromMs, { decimals: 1 })}</span>
+          <kbd className="rounded border border-line px-1.5 font-mono text-[11px] text-ink-2">Esc</kbd>
+        </span>
+      ) : (
+        <span className="absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-ground/85 px-3 py-1 text-xs font-semibold whitespace-nowrap">
+          Source · {clock(local, { decimals: 1 })} of {clock(length)}
+          <span className={inside ? "text-accent" : "text-ink-3"}>{inside ? "· in the stretch" : local < fromMs ? "· before the stretch" : "· past the stretch"}</span>
+        </span>
+      )}
     </div>
   );
 });

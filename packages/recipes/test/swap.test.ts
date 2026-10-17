@@ -17,8 +17,8 @@ const build = (over: Record<string, unknown> = {}, source: MediaFacts = part(), 
 };
 
 describe("MiniMax H3 · Swap character", () => {
-  it("is hidden for now: the screens that offer recipes leave it out, what was made with it still opens", () => {
-    expect(describeRecipe(h3Swap).hidden).toBe(true);
+  it("is offered again (the owner, 2026-10-17: to test its speed options on a source lane)", () => {
+    expect(describeRecipe(h3Swap).hidden).toBeUndefined();
     expect(recipeById("h3.swap")).toBe(h3Swap);
   });
 
@@ -34,8 +34,8 @@ describe("MiniMax H3 · Swap character", () => {
     expect(of(graph, "MiniMaxH3GuidedContinuationWindow")[0]!.inputs).toMatchObject({ overlap_frames: 22, extension_frames: 141 - 22 });
     expect(of(graph, "MiniMaxH3LatentTailGuide")).toHaveLength(1);
     expect(of(graph, "AfflatusH3SeamLatent")[0]!.inputs.overlap_frames).toBe(22);
-    // no frames pinned in its place
-    expect(of(graph, "MiniMaxH3AddGuide")).toEqual([]);
+    // no frames pinned in its place: the one guide is the source's sound, for the lips
+    expect(of(graph, "MiniMaxH3AddGuide").map((n) => [n.inputs.image === undefined, n.inputs.audio !== undefined])).toEqual([[true, true]]);
     // still masked: the sampler starts from the source's own latent, the person's tokens to redraw
     const sampler = of(graph, "SamplerCustomAdvanced")[0]!;
     expect(graph[(sampler.inputs.latent_image as [string, number])[0]]!.class_type).toBe("LTXVConcatAVLatent");
@@ -50,7 +50,7 @@ describe("MiniMax H3 · Swap character", () => {
       media: { source: part({ frames: 124 }), previous: { width: 864, height: 480, frames: 22, fps: H3_FPS, hasSound: true } },
     }));
     const graph = built.graph as Graph;
-    const pin = of(graph, "MiniMaxH3AddGuide")[0]!;
+    const pin = of(graph, "MiniMaxH3AddGuide").find((n) => n.inputs.image !== undefined)!;
     expect(pin.inputs.frame_idx).toBe(0);
     expect(pin.inputs.audio).toBeDefined();
     expect(of(graph, "MiniMaxH3GuidedContinuationWindow")).toEqual([]);
@@ -93,6 +93,94 @@ describe("MiniMax H3 · Swap character", () => {
     expect(phone.inputs.height as number).toBeGreaterThan(1000);
     // at its own size, a source smaller than H3 takes is brought to its smallest (384)
     expect(of(build({ swapSize: "Source" }, part({ width: 352, height: 640 })).graph, "MiniMaxH3ReferenceToVideo")[0]!.inputs.width).toBe(384);
+  });
+
+  it("runs on the reference model picked, and a distilled one takes its few steps with no turbo LoRA on top", () => {
+    const fused = "minimax_h3_fused_refdelta_r1024_turbo8_mystic07_int8_convrot.safetensors";
+    const turbo = { ...slots, turbo: "minimax_h3_fl2v_turbo_8step.safetensors" };
+    const sampled = (over: Record<string, unknown>) => {
+      const { graph } = build(over, part(), { slots: turbo });
+      return {
+        unet: of(graph, "UNETLoader").map((n) => n.inputs.unet_name),
+        loras: of(graph, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name),
+        steps: of(graph, "BasicScheduler")[0]!.inputs.steps,
+      };
+    };
+    expect(sampled({ swapModel: fused, fast: true, turboSteps: 4 })).toEqual({ unet: [fused], loras: ["swap.safetensors"], steps: 4 });
+    // MiniMax's own with Turbo: the turbo LoRA, then the swap LoRA, its 8 steps
+    expect(sampled({ fast: true })).toEqual({ unet: ["minimax_h3_ref2va.safetensors"], loras: ["minimax_h3_fl2v_turbo_8step.safetensors", "swap.safetensors"], steps: 8 });
+    // a hybrid fine-tune named turbo (DaSiWa's) is distilled as well: its own steps, no LoRA
+    const dasiwa = "DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors";
+    expect(sampled({ swapModel: dasiwa, fast: true })).toEqual({ unet: [dasiwa], loras: ["swap.safetensors"], steps: 8 });
+    // the form offers H3's reference models, what is made from them (the fused merge) and the hybrids; not the frames model
+    const field = describeRecipe(h3Swap).inputs.find((i) => i.id === "swapModel")!;
+    const offered = (file: string) => field.type === "model" && field.match!.some((m) => new RegExp(m, "i").test(file));
+    expect([fused, dasiwa, "DasiwaMinimaxH3_dasiwaHybridV3_int8.safetensors", "minimax_h3_ref2va_pruned_int8_convrot.safetensors"].every(offered)).toBe(true);
+    expect(offered("minimax_h3_fl2va_pruned_int8_convrot.safetensors")).toBe(false);
+    // Turbo asks for the turbo LoRA only where the model is not distilled
+    const asked = (over: Record<string, unknown>) => h3Swap.needsWith!(parseInput(h3Swap, { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], ...over }), slots);
+    expect(asked({ fast: true })).toEqual(["turbo"]);
+    expect(asked({ fast: true, swapModel: dasiwa })).toEqual([]);
+    expect(asked({ fast: false })).toEqual([]);
+  });
+
+  it("draws the lips to the source's own sound, by default: the sound the file carries, anchored from the first frame", () => {
+    const { graph } = build();
+    const [guide] = of(graph, "MiniMaxH3AddGuide");
+    expect(guide!.inputs.frame_idx).toBe(0);
+    const [trim] = Object.entries(graph).filter(([, n]) => n.class_type === "TrimAudioDuration");
+    expect(guide!.inputs.audio).toEqual([trim![0], 0]);
+    // the one cut of the source's sound, for the guide and the file
+    expect(of(graph, "TrimAudioDuration")).toHaveLength(1);
+    expect(of(build({ soundGuide: false }).graph, "MiniMaxH3AddGuide")).toHaveLength(0);
+    // with H3's own sound in the file there is no source sound to follow
+    expect(of(build({ soundGuide: true, keepSound: false }).graph, "MiniMaxH3AddGuide")).toHaveLength(0);
+  });
+
+  it("replaces the person clicked on the first frame: the click goes to the Swap Mask, on a first window only", () => {
+    const { graph } = build({ source: { asset: "v1", pick: { x: 0.38, y: 0.46 } } });
+    expect(of(graph, "AfflatusSwapMask")[0]!.inputs).toMatchObject({ pick_x: 0.38, pick_y: 0.46 });
+    expect(of(build().graph, "AfflatusSwapMask")[0]!.inputs.pick_x).toBeUndefined();
+    // a window carrying on follows the person the window before replaced, whatever was clicked
+    const input = parseInput(h3Swap, { who: "the man", source: { asset: "v1", at: 5, pick: { x: 0.38, y: 0.46 } }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }], fast: false });
+    const carried = h3Swap.build(input, dryContext({
+      slots, uploads: { source: "src.mp4", previous: "w.mp4", "references.0": "r1.png" },
+      media: { source: part({ frames: 124 }), previous: { width: 864, height: 480, frames: 22, fps: H3_FPS, hasSound: true } },
+    })).graph as Graph;
+    expect(of(carried, "AfflatusSwapMask")[0]!.inputs.pick_x).toBeUndefined();
+    // a click is a point on the frame, nothing else
+    expect(() => parseInput(h3Swap, { who: "x", source: { asset: "v1", pick: { x: 2, y: 0.5 } }, references: [] })).toThrow();
+  });
+
+  describe("Veda sparse attention", () => {
+    const vedaSlots = { ...slots, veda: "minimax_h3_r2va_veda_preview_fp8.safetensors" };
+
+    it("goes on the model last before the sampler, after the LoRAs and the shifts, with its predictor", () => {
+      const { built, graph } = build({ veda: true }, part(), { slots: vedaSlots });
+      const [veda] = of(graph, "VedaSparseAttention");
+      expect(veda!.inputs).toMatchObject({ predictor: "minimax_h3_r2va_veda_preview_fp8.safetensors", generated_sparsity: "32", reference_sparsity: "32" });
+      const [shift] = Object.entries(graph).find(([, n]) => n.class_type === "MiniMaxH3SigmaShift")!;
+      expect(veda!.inputs.model).toEqual([shift, 0]);
+      expect(built.warnings ?? []).not.toContainEqual(expect.stringContaining("Veda"));
+      expect(of(build({}, part(), { slots: vedaSlots }).graph, "VedaSparseAttention")).toHaveLength(0);
+    });
+
+    it("runs the full attention without its node pack or its predictor, and says so on the job", () => {
+      const noPack = build({ veda: true }, part(), { slots: vedaSlots, has: (cls) => cls !== "VedaSparseAttention" });
+      expect(of(noPack.graph, "VedaSparseAttention")).toHaveLength(0);
+      expect(noPack.built.warnings).toContainEqual(expect.stringContaining("veda-sparse-attention node pack"));
+      const noPredictor = build({ veda: true });
+      expect(of(noPredictor.graph, "VedaSparseAttention")).toHaveLength(0);
+      expect(noPredictor.built.warnings).toContainEqual(expect.stringContaining("predictor"));
+    });
+
+    it("asks for its node pack and its predictor as any other file and node, only when it is on", () => {
+      const parsed = (over: Record<string, unknown>) => parseInput(h3Swap, { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, ...over });
+      expect(h3Swap.nodes(parsed({ veda: true }))).toContain("VedaSparseAttention");
+      expect(h3Swap.nodes(parsed({}))).not.toContain("VedaSparseAttention");
+      expect(h3Swap.needsWith!(parsed({ veda: true }), slots)).toEqual(["veda"]);
+      expect(h3Swap.needsWith!(parsed({}), slots)).toEqual([]);
+    });
   });
 
   it("samples as the research graph did: the model's own shifts (12 / 3), no fp16 accumulation patch", () => {

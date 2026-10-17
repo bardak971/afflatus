@@ -382,6 +382,24 @@ def test_a_missing_model_folder_is_made_where_its_parent_can_be_written(tmp_path
     assert not (tmp_path / "nowhere").exists()
 
 
+def test_a_folder_comfyui_does_not_know_yet_is_made_in_models_and_known(tmp_path):
+    """A pack's own folder (Veda's models/veda) before the pack is there: the file goes where the pack will read it."""
+    fp = _FolderPaths(str(tmp_path))
+    fp.models_dir = str(tmp_path / "models")
+    (tmp_path / "models").mkdir()
+    root, path = target("veda", "minimax_h3_r2va_veda_preview_fp8.safetensors", fp)
+    assert root == os.path.realpath(tmp_path / "models" / "veda")
+    assert path == os.path.join(root, "minimax_h3_r2va_veda_preview_fp8.safetensors")
+    # ComfyUI lists it from now on, as it would once the pack registers it
+    assert fp.folder_names_and_paths["veda"][0] == [str(tmp_path / "models" / "veda")]
+    assert ".safetensors" in fp.folder_names_and_paths["veda"][1]
+    # only a plain folder name, and never a folder of code or settings
+    for folder in ("../veda", "a/b", ".hidden", "", "custom_nodes", "configs"):
+        with pytest.raises(Refused):
+            target(folder, "x.safetensors", fp)
+    assert not (tmp_path / "hidden").exists() and not (tmp_path / "a").exists()
+
+
 def test_a_full_disk_is_said_at_once_and_not_tried_again(tmp_path, site, monkeypatch):
     # no room for what is left of the file: refused before a byte of it is written, one request only
     s = site()

@@ -144,6 +144,8 @@ export interface TimelineSource {
   inputs: Record<string, unknown>;
   snap: boolean;
   clip: string | null;
+  /** Who a swap replaces: the point clicked on the stretch's first frame, as shares of its width and height; gone when the start moves. */
+  pick?: { x: number; y: number } | null;
 }
 /** A change to the source lane: a new video, or its settings. */
 export type SourcePatch = Partial<Omit<TimelineSource, "video">>;

@@ -634,7 +634,8 @@ export class Timelines {
         for (const [k, w] of windows.entries()) {
           const clip: NewClip = {
             kind: "video", recipeId: recipe.id, joined: w.opens ? "cut" : "continue", still: null, take: null, asset: undefined, look: null,
-            inputs: { ...form, [driving.id]: { asset: plan.asset }, [driving.window!.start]: w.start, [driving.window!.seconds]: w.seconds, ...(seed !== null ? { seed } : {}) },
+            // the first window replaces the person clicked on its first frame, the ones after follow it (h3.swap's pick)
+            inputs: { ...form, [driving.id]: { asset: plan.asset, ...(k === 0 && plan.pick && driving.pick ? { pick: plan.pick } : {}) }, [driving.window!.start]: w.start, [driving.window!.seconds]: w.seconds, ...(seed !== null ? { seed } : {}) },
           };
           const id = await this.planner.insertClip(timelineId, order, index + k, clip, tx);
           order.splice(index + k, 0, { clip: { id } });

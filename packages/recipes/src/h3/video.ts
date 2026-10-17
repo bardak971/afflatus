@@ -156,6 +156,8 @@ export interface H3Extra {
   latent?(g: GraphBuilder, at: { latent: Ref; vae: Ref; width: number; height: number; frames: number }): Ref;
   /** The decoded frames as the clip keeps them (a swap's: the source's own pixels pasted back outside the person). */
   frames?(g: GraphBuilder, images: Ref): Ref;
+  /** Veda's predictor, when the clip is made with its sparse attention (a swap's option; H3's own forms do not offer it yet). */
+  veda?: string;
 }
 
 /** The H3 clip's graph, shared by the recipes made on it. */
@@ -172,7 +174,7 @@ export function buildH3(input: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   const g = new GraphBuilder();
   const audioVae = g.out("VAELoader", { vae_name: slots.audioVae });
   const vae = g.out("VAELoader", { vae_name: slots.videoVae });
-  const { model, turbo, steps, lora, unet } = loadH3Model(g, ctx, input, picked, how, audioVae);
+  const { model, turbo, steps, lora, unet } = loadH3Model(g, ctx, input, picked, how, audioVae, extra.veda);
   const { positive, latent, previous, plain } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae }, extra.prompt);
 
   // a finish by the latent re-sample starts from the draft's own sampled latent (uploaded as "self.latent"): rendered again, even

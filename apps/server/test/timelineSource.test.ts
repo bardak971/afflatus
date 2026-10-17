@@ -99,6 +99,30 @@ describe("a timeline's source lane", () => {
     expect(v.clips[1].inputs.sourceSeconds).toBeCloseTo(141.5 / 24, 3);
   });
 
+  it("gives a swap's first window the person clicked on the stretch's first frame; a new start or video forgets the click", async () => {
+    const tl = await call("POST", "/api/timelines", { name: "zz-test swap pick" });
+    const meme = await asset("video");
+    const photo = await asset("image");
+    await call("PATCH", `/api/timelines/${tl.id}`, { source: { asset: meme.id } });
+    let v = await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 3000, recipe: "h3.swap", pick: { x: 0.4, y: 0.45 }, inputs: { who: "the man", references: [{ asset: photo.id, role: "person" }] } } });
+    expect(v.source.pick).toEqual({ x: 0.4, y: 0.45 });
+    // kept through other changes
+    v = await call("PATCH", `/api/timelines/${tl.id}`, { source: { inputs: { who: "the man in pink" } } });
+    expect(v.source.pick).toEqual({ x: 0.4, y: 0.45 });
+    await call("POST", `/api/timelines/${tl.id}/source/make`);
+    const clips = (await view(tl.id)).clips;
+    expect(clips[0].inputs.source).toEqual({ asset: meme.id, pick: { x: 0.4, y: 0.45 } });
+    // the windows after follow the person the first replaced
+    for (const c of clips.slice(1)) expect(c.inputs.source).toEqual({ asset: meme.id });
+    // another first frame: someone else's to pick
+    v = await call("PATCH", `/api/timelines/${tl.id}`, { source: { fromMs: 4000 } });
+    expect(v.source.pick).toBeUndefined();
+    v = await call("PATCH", `/api/timelines/${tl.id}`, { source: { pick: { x: 0.5, y: 0.5 } } });
+    v = await call("PATCH", `/api/timelines/${tl.id}`, { source: { pick: null } });
+    expect(v.source.pick).toBeUndefined();
+    await expect(call("PATCH", `/api/timelines/${tl.id}`, { source: { pick: { x: 1.5, y: 0.5 } } })).rejects.toThrow(/400/);
+  });
+
   it("takes the place of the clip its stretch was taken from", async () => {
     const tl = await call("POST", "/api/timelines", { name: "zz-test source" });
     const meme = await asset("video");

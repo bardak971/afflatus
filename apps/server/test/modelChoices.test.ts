@@ -1,0 +1,40 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+import { scan, type ComfyClient } from "@afflatus/comfy";
+import type { NodeCatalog } from "@afflatus/core";
+import { families, h3Video, recipeById } from "@afflatus/recipes";
+
+/**
+ * What a recipe's Model field offers: a file that fills another slot of the family is not a choice for H3's own clips (it
+ * is used by itself when a clip needs it), but Swap's model, a slot of its own, may be any of the family's files. The
+ * owner's hybrid turbo fine-tune, set as H3's video model, was missing from the swap's list (2026-10-17).
+ */
+
+const catalog = JSON.parse(readFileSync(fileURLToPath(new URL("../../../reference/comfy-object-info.json", import.meta.url)), "utf-8")) as NodeCatalog;
+const files: Record<string, string[]> = {
+  diffusion_models: [
+    "DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors",
+    "DasiwaMinimaxH3_dasiwaHybridV3_int8.safetensors",
+    "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+    "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+  ],
+};
+const client = {
+  baseUrl: "http://comfy.test",
+  status: async () => ({ version: "0.41.2", device: "test", vramTotal: 0, vramFree: 0 }),
+  catalog: async () => catalog,
+  models: async (folder: string) => files[folder] ?? [],
+} as unknown as ComfyClient;
+
+describe("a Model field's files", () => {
+  it("leaves out another slot's file for H3's clips, and offers every file of the family to Swap's own", async () => {
+    const s = await scan(client, families, [h3Video, recipeById("h3.swap")!], { h3: { unet: "DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors" } });
+    const options = (id: string, input: string) => s.recipes.find((r) => r.id === id)!.options[input] ?? [];
+    // the reference model is H3's clips' own when they follow references: not a choice for the video model
+    expect(options("h3.video", "model")).not.toContain("minimax_h3_ref2va_pruned_int8_convrot.safetensors");
+    // the swap starts on its reference model and offers the hybrid turbo fine-tune that is H3's video model
+    expect(options("h3.swap", "swapModel")[0]).toBe("minimax_h3_ref2va_pruned_int8_convrot.safetensors");
+    expect(options("h3.swap", "swapModel")).toContain("DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors");
+  });
+});

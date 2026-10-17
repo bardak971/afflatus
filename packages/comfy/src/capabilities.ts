@@ -133,8 +133,10 @@ async function recipeChoices(
       const foreign = family ? all.filter((f) => { const b = infoOf(input.folder, f)?.base; return Boolean(b) && !named.includes(f) && !byWeights.includes(f) && !sameBase(b, family.name); }) : [];
       const fits = [...named, ...byWeights];
       // a file that fills another slot of the family (H3's reference model) is used on its own when a clip
-      // needs it: it is not a choice for this one
-      const taken = input.slot ? slots.filter((s) => s.id !== input.slot && s.folder === input.folder && s.file && s.file !== usual).map((s) => s.file) : [];
+      // needs it: it is not a choice for this one. A slot of one recipe's own (Swap's model) is that recipe's choice
+      // among all of them: the family's video model included (a hybrid turbo fine-tune, 2026-10-17)
+      const own = family?.slots.find((s) => s.id === input.slot);
+      const taken = input.slot && !own?.onlyFor ? slots.filter((s) => s.id !== input.slot && s.folder === input.folder && s.file && s.file !== usual).map((s) => s.file) : [];
       options[input.id] = [...new Set([...(usual ? [usual] : []), ...fits, ...all.filter((f) => !foreign.includes(f)), ...foreign])].filter((f) => !taken.includes(f));
       // with a slot, a missing file is the slot's to report; with a file of its own (an imported workflow's), the list is not needed
       if (!options[input.id]!.length && !input.slot && !input.default) emptyInputs.push(input.id);

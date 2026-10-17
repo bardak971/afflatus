@@ -64,6 +64,12 @@ export function useTimelineEditor(id: string) {
   const player = useRef<PlayerHandle>(null);
   /** The moment of the source a drag on its lane stands on: the stage shows it meanwhile. */
   const [sourcePeek, setSourcePeek] = useState<number | null>(null);
+  /** The stage waits for a click on the person a swap replaces, on the stretch's first frame (the source panel's Pick). */
+  const [whoPicking, setWhoPicking] = useState(false);
+  // the source panel closed: nothing left to pick for
+  useEffect(() => {
+    if (!sourceOpen) setWhoPicking(false);
+  }, [sourceOpen]);
 
   const t = timeline.data;
   const clips = useMemo(() => t?.clips ?? [], [t]);
@@ -260,7 +266,7 @@ export function useTimelineEditor(id: string) {
 
   return {
     id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, current,
-    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, removeSource, makeSource, splitSource, place, sourcePeek, setSourcePeek, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
+    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, removeSource, makeSource, splitSource, place, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, typeSource, sourceTyped, inputsOf, editInputs, formOf, ready, sayOf, say, m, range, setRange, loopRange, snapQuiet,

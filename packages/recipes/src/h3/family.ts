@@ -4,6 +4,10 @@ import { SEEDVR_SLOTS } from "../video/upscale";
 
 /** Where ComfyUI's own templates fetch MiniMax H3's files from. */
 const HF = "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main";
+/** H3's reference model and what is made from it, by name: ref2va (MiniMax's), r2v, or a merge with its reference delta (Hakase's fused turbo). */
+export const SWAP_MODELS = "minimax.?h3.*(ref2va|r2va|r2v|refdelta)";
+/** H3's hybrid fine-tunes (DaSiWa's), which follow references themselves: a swap can run on them, never picked for it by itself. */
+export const H3_HYBRIDS = "minimax.?h3.*hybrid";
 
 /**
  * MiniMax H3: video with sound, from text, from a first and a last picture, or carrying on from another
@@ -58,7 +62,7 @@ export const h3 = defineFamily({
       get: { file: "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors", url: `${HF}/loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors` },
     },
     {
-      id: "swapUnet", label: "Reference model for Swap (ref2va)", folder: "diffusion_models", detect: ["minimax_h3.*ref2va"], optional: true, onlyFor: ["h3.swap"],
+      id: "swapUnet", label: "Reference model for Swap (ref2va)", folder: "diffusion_models", detect: ["minimax_h3.*ref2va", SWAP_MODELS], optional: true, onlyFor: ["h3.swap"],
       hint: "For Swap character: MiniMax's own reference model, the one the Character-Swap LoRA was trained on (a hybrid fine-tune redrew the room), in ComfyUI's models/diffusion_models folder.",
       get: { file: "minimax_h3_ref2va_pruned_int8_convrot.safetensors", url: `${HF}/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors` },
     },
@@ -71,6 +75,12 @@ export const h3 = defineFamily({
       id: "swapSam", label: "SAM 3 for Swap (finds the person)", folder: "checkpoints", detect: ["sam3"], optional: true, onlyFor: ["h3.swap"],
       hint: "For Swap character: SAM 3.1 tracks the person to replace, so that only they are redrawn and the rest of the video is kept. Put sam3.1_multiplex_fp16.safetensors in ComfyUI's models/checkpoints folder.",
       get: { file: "sam3.1_multiplex_fp16.safetensors", url: "https://huggingface.co/Comfy-Org/sam3.1/resolve/main/checkpoints/sam3.1_multiplex_fp16.safetensors" },
+    },
+    {
+      // models/veda is the Veda node pack's own folder: ComfyUI knows it once the pack is loaded
+      id: "veda", label: "Veda predictor (reference model)", folder: "veda", detect: ["r2va.*veda", "veda.*r2va"], optional: true, onlyFor: ["h3.swap"],
+      hint: "Optional, for Swap character's Veda sparse attention: the predictor made for H3's reference model, in ComfyUI's models/veda folder (the veda-sparse-attention node pack makes it).",
+      get: { file: "minimax_h3_r2va_veda_preview_fp8.safetensors", url: "https://huggingface.co/Veda-Sparse/Minimax-H3-R2VA-Veda-Preview/resolve/main/minimax_h3_r2va_veda_preview_fp8.safetensors" },
     },
     {
       id: "latentUpscaler", label: "Latent upscaler (upscale pass)", folder: "latent_upscale_models", detect: ["minimax.?h3.?latent.?upscaler"], optional: true,

@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Crosshair } from "lucide-react";
 import { windowBounds } from "@afflatus/core";
 import type { DesignerSession, Look, RecipeInfo, SourcePatch, Timeline } from "../../api";
 import type { DesignerTurn } from "../../designer/types";
@@ -39,7 +40,7 @@ export function windowsSaid(windows: ReadonlyArray<{ fromMs: number; toMs: numbe
  * first (the stretch, the window, scene cuts); and Make N clips at the foot. The stage plays the source meanwhile, and a
  * picture is made from the frame the playhead stands on. Each made clip keeps its own form afterwards.
  */
-export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, typed, onLook, onMake, making, made, onRender, rendering, onClose }: {
+export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, typed, onLook, onMake, making, made, onRender, rendering, onClose, picking, onPicking }: {
   timeline: Timeline;
   place: SourcePlace | null;
   /** The video models of this timeline: those that make a source window by window are offered. */
@@ -60,6 +61,9 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
   onRender(): void;
   rendering: boolean;
   onClose(): void;
+  /** The stage waits for a click on the person a swap replaces (SourceStage's picking). */
+  picking: boolean;
+  onPicking(on: boolean): void;
 }) {
   const panelWidth = useColumnWidth();
   const several = severalMachines(useQueue().data).length > 0;
@@ -114,8 +118,13 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
   const windowMs = source ? Math.min(Math.max(source.windowMs, leastMs), mostMs) : mostMs;
   const main = form ? mainTextOf(form) : undefined;
   const written = main ? String(inputs[main.id] ?? "") : "";
-  // what Make waits for: the Picture of a model that takes one (Motion transfer), the words a model needs (a swap's who to replace)
-  const waitsFor = pictureSpec && !picture ? `Choose the ${pictureSpec.label.toLowerCase()} first.` : main && main.type === "prompt" && !main.optional && !written.trim() ? `Write ${main.label.toLowerCase()} first.` : null;
+  // a model whose driving video takes a click on its first frame (a swap): who is replaced, picked on the stage
+  const drivingSpec = recipe?.inputs.find((i) => i.id === w?.driving);
+  const takesPick = drivingSpec?.type === "clip" && Boolean(drivingSpec.pick);
+  // what Make waits for: the person a swap replaces, the Picture of a model that takes one (Motion transfer), the words a model
+  // needs (a swap's who to replace)
+  const waitsFor = takesPick && !source?.pick && !place?.made ? "Pick who is replaced first: click him or her on the stage."
+    : pictureSpec && !picture ? `Choose the ${pictureSpec.label.toLowerCase()} first.` : main && main.type === "prompt" && !main.optional && !written.trim() ? `Write ${main.label.toLowerCase()} first.` : null;
 
   return (
     <aside data-designer-stays style={{ width: panelWidth }} className="relative flex shrink-0 flex-col border-l border-line bg-panel">
@@ -175,6 +184,31 @@ export function SourcePanel({ timeline, place, recipes, clock, onEdit, onType, t
                 summary: `${mmss(source.fromMs, { decimals: 1 })}–${mmss(source.toMs, { decimals: 1 })} · ${windowsSaid(windows, windowMs)}`,
                 node: (
                   <div className="flex flex-col gap-3">
+                    {takesPick && (
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-xs font-semibold">Who is replaced</span>
+                        {picking ? (
+                          <Button tone="plain" className="h-11 justify-start gap-2 border-accent! px-3" onClick={() => onPicking(false)}>
+                            <Crosshair size={16} className="text-accent" aria-hidden />
+                            <span className="grow text-left"><span className="font-semibold">Picking</span><span className="text-ink-2"> · click the person on the stage</span></span>
+                            <kbd className="font-mono text-[11px] text-ink-3">Esc</kbd>
+                          </Button>
+                        ) : source.pick ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="grow text-xs text-ink-2">
+                              Picked on the first frame ({mmss(source.fromMs, { decimals: 1 })}), marked on the stage; the clips after it follow the same person
+                            </span>
+                            <Button size="sm" onClick={() => onPicking(true)}>Pick again</Button>
+                            <Button size="sm" tone="quiet" onClick={() => onEdit({ pick: null })}>Clear</Button>
+                          </div>
+                        ) : (
+                          <Button className="h-11 justify-start gap-2 px-3" onClick={() => onPicking(true)}>
+                            <Crosshair size={16} aria-hidden />
+                            Pick on the stage
+                          </Button>
+                        )}
+                      </div>
+                    )}
                     <Slide label="Window" value={windowMs} min={leastMs} max={mostMs} step={100} show={(ms) => `${(ms / 1000).toFixed(1)} s`} onCommit={(windowMs) => onEdit({ windowMs })} />
                     <Toggle on={source.snap} onChange={(snap) => onEdit({ snap })} label="Cut at scene changes" note={source.snap ? "a window ends at a cut in the source; the next one opens a new shot" : "windows of the same length, end to end"} />
                     <span className="text-xs text-ink-2">

@@ -209,6 +209,8 @@ interface ClipInput extends Base {
    * handed over are the model's own when they were kept, which do not show how the clip looked (Motion transfer's colour match).
    */
   look?: boolean;
+  /** "source": a person in it can be clicked on its first frame (a swap's who is replaced), kept as the value's `pick`. */
+  pick?: boolean;
 }
 
 /** What a reference picture shows. */
@@ -290,6 +292,8 @@ export interface ClipValue {
   asset: string;
   /** The moment in it, in milliseconds. Left out: its end for "previous", its start for "next". */
   at?: number;
+  /** A point clicked on the first frame of the part worked on, as shares of its width and height (a swap's person). */
+  pick?: { x: number; y: number };
 }
 
 export interface LoraValue {
@@ -346,7 +350,10 @@ function schemaOf(spec: InputSpec): z.ZodType {
     case "image":
       return spec.optional ? z.string().min(1).optional() : z.string().min(1);
     case "clip": {
-      const clip = z.strictObject({ asset: z.string().min(1), at: z.number().min(0).optional() });
+      const clip = z.strictObject({
+        asset: z.string().min(1), at: z.number().min(0).optional(),
+        pick: z.strictObject({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) }).optional(),
+      });
       return spec.optional ? clip.optional() : clip;
     }
     case "references":

@@ -110,3 +110,46 @@ def test_without_faces_or_a_window_before_the_largest_share_is_taken():
     # a face outside every track counts for no one
     assert swap_mask.pick([small, big], faces={0: [(30.0, 25.0, 31.0, 30.0)]}, changed=None)[1] == "area"
     assert swap_mask.pick([], faces=None, changed=None) == (None, "none")
+
+
+def test_the_paste_back_keeps_a_limb_lost_for_a_few_frames():
+    """SAM lost his arm for a frame of a fast gesture: the render's arm is kept there, not the source's pasted back over it."""
+    # the tests' stand-in torch has no nn: this one runs where ComfyUI's own torch is
+    pytest.importorskip("torch.nn")
+    person = np.zeros((9, 64, 64), bool)
+    person[:, 20:40, 20:40] = True
+    # the arm, in frames 0-3 and 5-8 only
+    person[[0, 1, 2, 3, 5, 6, 7, 8], 30:34, 40:60] = True
+    m = swap_mask.paste_mask(person, 9, 64, 64, 0, 0.0).numpy()
+    assert m[4, 32, 50] == 1
+    # far from any frame's person, the source stays
+    assert m[4, 5, 5] == 0
+    # with no reach, frame by frame as before
+    assert swap_mask.paste_mask(person, 9, 64, 64, 0, 0.0, reach=0).numpy()[4, 32, 50] == 0
+    # an arm seen in one frame only is kept 3 frames either side, no further
+    lone = np.zeros((12, 64, 64), bool)
+    lone[6, 30:34, 40:60] = True
+    kept = swap_mask.paste_mask(lone, 12, 64, 64, 0, 0.0).numpy()[:, 32, 50]
+    assert kept.tolist() == [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0]
+
+
+def test_a_click_picks_the_person_under_it_over_the_largest_face():
+    """The user's click on the first frame wins: the person under it, though another has the larger face."""
+    a = np.zeros((6, 64, 64), bool)
+    a[:, 10:50, 5:25] = True
+    b = np.zeros((6, 64, 64), bool)
+    b[:, 10:50, 35:60] = True
+    faces = {0: [(36.0, 10.0, 58.0, 30.0)]}
+    person, how = swap_mask.pick([a, b], faces, None, (15.0, 30.0))
+    assert how == "clicked" and person is a
+    # a click just beside someone (within 40 px) is still theirs
+    assert swap_mask.clicked([a, b], (30.0, 30.0)) in (0, 1)
+    # a click on no one, far from everyone: the usual order (here the largest face)
+    far = np.zeros((6, 200, 200), bool)
+    far[:, 10:40, 10:30] = True
+    person, how = swap_mask.pick([far], {0: [(10.0, 10.0, 30.0, 30.0)]}, None, (190.0, 190.0))
+    assert how == "face" and person is far
+    # someone SAM finds only from frame 3 on, clicked where they stand
+    late = np.zeros((6, 64, 64), bool)
+    late[3:, 10:50, 5:25] = True
+    assert swap_mask.clicked([b, late], (15.0, 30.0)) == 1

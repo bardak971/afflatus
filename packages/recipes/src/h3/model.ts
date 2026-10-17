@@ -75,7 +75,7 @@ export type H3Uses = ReturnType<typeof uses>;
  * the attention and precision patches, the turbo LoRA and the user's LoRAs, the sigma shift, and the
  * live preview. With it, what the chain is (turbo or not, with which LoRA) and how many steps it takes.
  */
-export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, picked: H3Model, how: H3Uses, audioVae: Ref): { model: Ref; turbo: boolean; steps: number; lora: string | undefined; distilled: boolean; unet: string | undefined } {
+export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, picked: H3Model, how: H3Uses, audioVae: Ref, veda?: string): { model: Ref; turbo: boolean; steps: number; lora: string | undefined; distilled: boolean; unet: string | undefined } {
   const { slots } = ctx;
   // references: a hybrid model follows them itself, any other hands those clips to MiniMax's reference model
   const own = !how.reference || picked.hybrid;
@@ -99,6 +99,12 @@ export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, 
   if (lora) model = g.out("LoraLoaderModelOnly", { model, lora_name: lora, strength_model: 1 });
   model = applyLoras(g, model, input.loras);
   model = g.out("MiniMaxH3SigmaShift", { model, shift_video: input.shiftVideo, shift_audio: input.shiftAudio });
+  // Veda's sparse attention, last on the model before the sampler as its makers ask: after the LoRAs, and after Comfy Kitchen's
+  // attention, which it runs on top of for the layers it leaves full. 32 key tiles kept of each query tile, its default and
+  // Hakase's (a count, not a share: it holds on small first passes)
+  if (veda && ctx.has("VedaSparseAttention")) {
+    model = g.out("VedaSparseAttention", { model, predictor: veda, generated_sparsity: "32", reference_sparsity: "32", full_attention_layers: "", full_attention_steps: "", verbose: false });
+  }
   // the live preview, with the sound so far, sent to whoever queued the prompt: what ComfyUI itself shows
   model = livePreview(g, ctx, model, input.livePreview, audioVae);
   // a turbo model with Fast off takes the steps typed (4 to 8 are what it is made for)

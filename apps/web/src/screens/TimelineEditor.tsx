@@ -81,6 +81,13 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
                 })()}
                 master={e.muted ? 0 : e.volume}
                 peekMs={e.sourcePeek}
+                pick={t.source.pick ?? null}
+                picking={e.whoPicking}
+                onPick={(pick) => {
+                  e.edit.mutate({ source: { pick } });
+                  e.setWhoPicking(false);
+                }}
+                onPickEnd={() => e.setWhoPicking(false)}
               />
             ) : (
               <Player ref={e.player} {...playerProps(e)} />
@@ -117,6 +124,8 @@ export function TimelineEditor({ params }: { params: { id: string } }) {
             onRender={() => e.render.mutate({ clips: sourceLeft })}
             rendering={e.render.isPending}
             onClose={() => e.setSourceOpen(false)}
+            picking={e.whoPicking}
+            onPicking={e.setWhoPicking}
           />
         ) : musicOpen && t.music ? (
           <MusicPanel timeline={t} onEdit={(p) => e.edit.mutate(p)} onClose={() => e.setMusicOpen(false)} />

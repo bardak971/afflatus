@@ -14,6 +14,9 @@ into the two masks that takes:
   kept over the source frames (roycho's "Repair Video").
 
 Who is replaced, in this order:
+0. The one the user clicked on the window's first frame (pick_x, pick_y): the track under the click on its first frames,
+   else the nearest within 40 px. Only a first window has a click: the windows after it follow it (1). Starting SAM's
+   track from a mask of the person instead lost his head mid-clip; "person" found on every frame kept him (§9.11).
 1. A window carrying on from the window before: the same person. The window before's last frames (handed over) and this
    window's first source frames are the same moment, and they differ only where the window before redrew its person;
    the track that lies most over that difference is theirs. Each window choosing anew swapped the meme's man in the
@@ -124,8 +127,35 @@ def by_faces(tracks: list[np.ndarray], faces: dict[int, list[tuple[float, float,
     return best if score[best] > 0 else None
 
 
-def pick(tracks: list[np.ndarray], faces: dict | None, changed: np.ndarray | None) -> tuple[np.ndarray | None, str]:
-    """Who is replaced, and how they were found: "followed", "face", "area" or "none" (see the module's note)."""
+# A click finds the track under it on the first frames of the window; within this many pixels when on no one's mask.
+CLICK_FRAMES = 5
+CLICK_NEAR = 40
+
+
+def clicked(tracks: list[np.ndarray], point: tuple[float, float]) -> int | None:
+    """The track under `point` (x, y in pixels) on the window's first frames, else the nearest within CLICK_NEAR pixels
+    on its first frame; None when no one is there (the user clicked on the room, or SAM did not find that person)."""
+    x, y = int(round(point[0])), int(round(point[1]))
+    for f in range(CLICK_FRAMES):
+        for i, t in enumerate(tracks):
+            if f < t.shape[0] and 0 <= y < t.shape[1] and 0 <= x < t.shape[2] and t[f, y, x]:
+                return i
+    best, near = None, CLICK_NEAR + 1.0
+    for i, t in enumerate(tracks):
+        ys, xs = np.nonzero(t[0]) if t.shape[0] else (np.array([]), np.array([]))
+        if len(xs):
+            d = float(np.min(np.hypot(xs - x, ys - y)))
+            if d < near:
+                best, near = i, d
+    return best
+
+
+def pick(tracks: list[np.ndarray], faces: dict | None, changed: np.ndarray | None, point: tuple[float, float] | None = None) -> tuple[np.ndarray | None, str]:
+    """Who is replaced, and how they were found: "clicked", "followed", "face", "area" or "none" (see the module's note)."""
+    if point is not None:
+        i = clicked(tracks, point)
+        if i is not None:
+            return tracks[i], "clicked"
     if changed is not None:
         i = followed(tracks, changed)
         if i is not None:
@@ -168,6 +198,10 @@ def changed_from(previous, images, threshold: float = 0.1) -> np.ndarray:
     return np.abs(a - b).max(axis=-1) > threshold
 
 
+# frames either side of each whose person the paste-back keeps too
+PASTE_REACH = 3
+
+
 def fit_frames(mask: np.ndarray, frames: int) -> np.ndarray:
     """The first `frames` of [N, ...], the last one held when the track is shorter."""
     if mask.shape[0] >= frames:
@@ -192,14 +226,20 @@ def noise_mask(person: np.ndarray | None, frames: int, width: int, height: int, 
     return near.astype(np.float32)
 
 
-def paste_mask(person, frames: int, width: int, height: int, grow: int, sigma: float):
-    """[frames, height, width] torch float: the person grown about `grow` px (3 x 3 steps, square and cross in turn) and blurred."""
+def paste_mask(person, frames: int, width: int, height: int, grow: int, sigma: float, reach: int = PASTE_REACH):
+    """
+    [frames, height, width] torch float: the person over the `reach` frames either side of each (an arm SAM loses for a few
+    frames of a fast gesture stays the render's, not the source's pasted back over it: the owner's Bulin 47 take,
+    2026-10-17), grown about `grow` px (3 x 3 steps, square and cross in turn) and blurred.
+    """
     import torch
     import torch.nn.functional as F
 
     if person is None:
         return torch.ones(frames, height, width)
     m = torch.from_numpy(fit_frames(person, frames)).float()[:, None]
+    if reach > 0:
+        m = F.max_pool3d(m.permute(1, 0, 2, 3)[None], (2 * reach + 1, 1, 1), 1, (reach, 0, 0))[0].permute(1, 0, 2, 3)
     cross = torch.tensor([[0.0, 1.0, 0.0], [1.0, 1.0, 1.0], [0.0, 1.0, 0.0]])[None, None]
     for i in range(grow):
         m = F.max_pool2d(m, 3, 1, 1) if i % 2 == 0 else (F.conv2d(m, cross, padding=1) > 0).float()
@@ -249,23 +289,29 @@ class AfflatusSwapMask(io.ComfyNode):
                 io.Float.Input("paste_blur", default=5.0, min=0.0, max=64.0, tooltip="The paste-back edge's blur, in pixels."),
                 io.Image.Input("images", optional=True, tooltip="The frames SAM tracked: their faces pick the person."),
                 io.Image.Input("previous", optional=True, tooltip="The window before's last frames, handed over at this window's start: the person it replaced is followed."),
+                # the user's click on the window's first frame, as shares of its width and height; below 0: none
+                io.Float.Input("pick_x", default=-1.0, min=-1.0, max=1.0, optional=True, tooltip="Where the person replaced was clicked on the first frame, as a share of the width (below 0: no click)."),
+                io.Float.Input("pick_y", default=-1.0, min=-1.0, max=1.0, optional=True, tooltip="The same, as a share of the height."),
             ],
             outputs=[io.Mask.Output(display_name="noise_mask"), io.Mask.Output(display_name="paste_mask")],
             is_output_node=True,
         )
 
     @classmethod
-    def execute(cls, track_data, frames: int = 141, width: int = 576, height: int = 1024, grow: int = 100, paste_grow: int = 10, paste_blur: float = 5.0, images=None, previous=None) -> io.NodeOutput:
+    def execute(cls, track_data, frames: int = 141, width: int = 576, height: int = 1024, grow: int = 100, paste_grow: int = 10, paste_blur: float = 5.0, images=None, previous=None, pick_x: float = -1.0, pick_y: float = -1.0) -> io.NodeOutput:
         import torch
 
         tracks = person_tracks(track_data, width, height)
         changed = changed_from(previous, images) if previous is not None and images is not None else None
         faces = face_boxes(images) if images is not None and tracks else None
-        person, how = pick(tracks, faces, changed)
+        point = (pick_x * width, pick_y * height) if pick_x is not None and pick_y is not None and pick_x >= 0 and pick_y >= 0 else None
+        person, how = pick(tracks, faces, changed, point)
         print(f"[afflatus] Swap Mask: {len(tracks)} people tracked, the one replaced found by {how}")
         note = []
         if person is None:
             note.append("No one was found in the source video: the whole frame was redrawn, as a swap without a mask.")
+        elif point is not None and how != "clicked":
+            note.append("No one was found where the person to replace was clicked: the one with the largest face was taken, which may be someone else.")
         elif changed is not None and how != "followed":
             note.append("The person the window before replaced was not found in this one: the one with the largest face was taken, which may be someone else.")
         noise = torch.from_numpy(noise_mask(person, frames, width, height, grow))
