@@ -39,7 +39,7 @@ describe("an opened family, each file once", () => {
     expect(screen.queryByText(/^Optional ·/)).toBeNull();
   });
 
-  it("folds the needed files into their head while they are all there, and the optional ones there behind one line", async () => {
+  it("shows the needed files once opened, saying nothing of them all being there, and folds the optional ones there behind one line", async () => {
     const slots = [
       ...BASE.map((id) => slot(id, id.toUpperCase(), { file: `${id}.safetensors` })),
       slot("kontext", "Kontext model", { optional: true, file: "kontext.safetensors" }),
@@ -49,13 +49,12 @@ describe("an opened family, each file once", () => {
     const { user } = draw(<FamilyBody family="flux" name="FLUX.1" recipes={recipes} />);
     const files = within(await screen.findByRole("region", { name: "Files" }));
     expect(files.queryByText("all there")).toBeNull();
-    expect(files.queryByText("UNET")).toBeNull();
+    // the four shared files and Edit's Kontext model, in sight without a click
+    expect(files.getByText("UNET")).toBeTruthy();
+    expect(files.getByText("Kontext model")).toBeTruthy();
     expect(files.queryByRole("button", { name: /File used for SeedVR2 model/ })).toBeNull();
     await user.click(files.getByRole("button", { name: "1 there" }));
     expect(files.getByRole("button", { name: /File used for SeedVR2 model/ })).toBeTruthy();
-    // the four shared files and Edit's Kontext model
-    await user.click(files.getByRole("button", { name: /5 needed/ }));
-    expect(files.getByText("UNET")).toBeTruthy();
     expect(within(screen.getByRole("region", { name: "Operations" })).getAllByText("Ready")).toHaveLength(3);
   });
 });
