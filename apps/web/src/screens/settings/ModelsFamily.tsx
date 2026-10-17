@@ -1,0 +1,302 @@
+import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link } from "wouter";
+import { ChevronDown, Download as DownloadIcon } from "lucide-react";
+import { folderOfFileInput } from "@afflatus/core";
+import { api, type RecipeInfo, type RecipeStatus, type Scan } from "../../api";
+import { useSettings, useSetup } from "../../data";
+import { fileLabel, plural, problemSaid } from "../../format";
+import { GetFile } from "../../GetFile";
+import { useDownloads } from "../../useGetFile";
+import { Select } from "../../Select";
+import { useSayFailed } from "../../sayFailed";
+import { Button, cx, Help } from "../../ui";
+import { queryKeys } from "../../queryKeys";
+
+/** One of a family's files, as ComfyUI has it (the setup scan's slot). */
+export type Slot = Scan["families"][number]["slots"][number];
+
+/**
+ * A file of a family, said once whatever needs it: one of its slots (a diffusion model, a text encoder, Edit's Kontext
+ * model) or a file an operation names itself (an imported workflow's), with the operations that use it.
+ */
+export interface FileRow {
+  key: string;
+  label: string;
+  folder: string | null;
+  /** The file ComfyUI has for it; null while it is missing. */
+  file: string | null;
+  /** Where to put it and what fits (a missing one), or what it brings (an optional one). */
+  hint: string;
+  /** Where it can be downloaded from, when that is known. */
+  get?: { file: string; url?: string };
+  /** The titles of the operations that cannot run without it. */
+  users: string[];
+  /** Every operation of the family needs it. */
+  every: boolean;
+  /** Everything runs without it: an option or a speed-up. */
+  optional: boolean;
+  /** Its slot, for its picker when more than one file fits. */
+  slot?: Slot;
+}
+
+/** An optional file's hint was written for a line that said "optional" in front of it: its section says so. */
+const broughtSaid = (hint: string) => hint.replace(/^optional[:,]\s*/i, "").replace(/^./, (c) => c.toUpperCase());
+
+/**
+ * A family's files, each once: the ones its operations cannot run without (its slots that are not optional, and the
+ * optional ones an operation needs, as Edit needs FLUX.1's Kontext model; then the files an operation names itself), and
+ * its optional ones (here or to add), with the image tools' detectors it would use (`lent`). Each operation listed every
+ * file it lacked, with its download: FLUX.1 said its four files under each of its seven operations (the owner, 2026-10-17).
+ */
+export function familyFiles(slots: readonly Slot[], recipes: readonly RecipeInfo[], statuses: readonly RecipeStatus[], lent: readonly Slot[] = []): { needed: FileRow[]; optional: FileRow[] } {
+  const titles = recipes.map((r) => r.title);
+  const needers = (s: Slot) => (s.optional ? recipes.filter((r) => r.needs?.includes(s.id)).map((r) => r.title) : titles);
+  const ofSlot = (s: Slot, optional: boolean): FileRow => {
+    const users = optional ? [] : needers(s);
+    return { key: `slot:${s.id}`, label: s.label, folder: s.folder, file: s.file, hint: optional ? broughtSaid(s.hint) : s.hint, get: s.get, users, every: !optional && users.length === recipes.length, optional, slot: s };
+  };
+  const needed = slots.filter((s) => needers(s).length > 0).map((s) => ofSlot(s, false));
+  // the files an operation names itself, missing: once each, with every operation that names it
+  const named = new Map<string, FileRow>();
+  for (const r of recipes) {
+    for (const m of statuses.find((x) => x.id === r.id)?.missing ?? []) {
+      const key = `file:${m.folder ?? ""}/${m.file}`;
+      const row = named.get(key) ?? { key, label: fileLabel(m.file), folder: m.folder, file: null, hint: "", get: m.url ? { file: m.file, url: m.url } : { file: m.file }, users: [], every: false, optional: false };
+      if (!row.users.includes(r.title)) row.users.push(r.title);
+      row.every = row.users.length === recipes.length;
+      named.set(key, row);
+    }
+  }
+  const own = new Set(slots.map((s) => s.id));
+  const optional = [
+    ...slots.filter((s) => s.optional && !needers(s).length && (s.file || s.get)),
+    ...lent.filter((s, i) => !own.has(s.id) && lent.findIndex((x) => x.id === s.id) === i),
+  ].map((s) => ofSlot(s, true));
+  return { needed: [...needed, ...named.values()], optional };
+}
+
+/** The image tools' detectors an operation of the family picks from (a face detailer's detection model), missing: offered with its optional files. */
+function lentSlots(family: string, recipes: readonly RecipeInfo[], families: Scan["families"]): Slot[] {
+  const folders = new Set<string>(recipes.flatMap((r) => r.inputs.flatMap((i) => (i.type === "choice" && i.options && !Array.isArray(i.options) ? [folderOfFileInput(i.options.node, i.options.input)] : []))).filter((f) => f === "ultralytics"));
+  // detectors only: a model folder (diffusion_models) would bring in every other family's optional models
+  return families.filter((f) => f.id !== family).flatMap((f) => f.slots).filter((x) => folders.has(x.folder) && x.optional && !x.file && x.get);
+}
+
+/** What an operation that is not ready waits for, in a few words: the files above it points to, its custom nodes. */
+export function needsSaid(s: RecipeStatus, rows: readonly FileRow[], extra: number): string {
+  const missing = rows.filter((r) => r.slot && s.missingSlots.includes(r.slot.id));
+  const shared = missing.filter((r) => r.every);
+  const parts = [
+    ...(shared.length > 1 ? [`the ${shared.length} files above`] : shared.map((r) => `${r.label} ↑`)),
+    ...missing.filter((r) => !r.every).map((r) => `${r.label} ↑`),
+    ...(extra ? [`${plural(extra, "file")} above`] : []),
+    ...(s.missingNodes.length ? [`custom nodes: ${s.missingNodes.join(", ")}`] : []),
+  ];
+  return parts.length ? `needs ${parts.join(" + ")}` : "not ready";
+}
+
+/** Which of the family's missing needed files can be downloaded now, and starting them all: "Download all" in its head. */
+export function useDownloadAll(family: string, recipes: readonly RecipeInfo[], machine?: string) {
+  const setup = useSetup(machine);
+  const settings = useSettings();
+  const downloads = useDownloads(machine);
+  const client = useQueryClient();
+  const failed = useSayFailed({ id: "models", href: "/settings/models", go: "Open Models" });
+  const slots = setup.data?.families.find((f) => f.id === family)?.slots ?? [];
+  const { needed } = familyFiles(slots, recipes, setup.data?.recipes ?? []);
+  const coming = (r: FileRow) => (downloads.data?.items ?? []).some((d) => d.file === r.get?.file && d.folder === r.folder && (!machine || d.machine === machine) && d.status !== "error" && d.status !== "stopped");
+  const can = Boolean(settings.data?.downloadModels) && downloads.data?.via !== "none";
+  const files = can ? needed.filter((r) => !r.file && r.get?.url && r.folder && !coming(r)) : [];
+  const start = useMutation({
+    mutationFn: () => Promise.all(files.map((r) => api.startDownload({ file: r.get!.file, folder: r.folder!, url: r.get!.url!, ...(machine ? { machine } : {}) }))),
+    onSettled: () => client.invalidateQueries({ queryKey: queryKeys.downloads() }),
+    onError: failed("Could not start the downloads"),
+  });
+  return { files, start };
+}
+
+/** "Download all · 3 files" in a family's head: the needed files it lacks that have a download, each then with its own bar below. */
+export function DownloadAll({ family, recipes, machine }: { family: string; recipes: readonly RecipeInfo[]; machine?: string }) {
+  const { files, start } = useDownloadAll(family, recipes, machine);
+  if (!files.length) return null;
+  return (
+    <Button size="sm" tone="primary" className="h-7 shrink-0 gap-1.5" disabled={start.isPending} data-tip={files.map((r) => r.get!.file).join("\n")} onClick={() => start.mutate()}>
+      <DownloadIcon size={13} /> Download all · {plural(files.length, "file")}
+    </Button>
+  );
+}
+
+/** Its picker, when more than one file fits (two SeedVR2 models, a fine-tune beside the base): which one is used, by hand or left to the patterns. */
+function SlotPicker({ family, slot }: { family: string; slot: Slot }) {
+  const settings = useSettings();
+  const client = useQueryClient();
+  const save = useMutation({
+    mutationFn: (file: string) => {
+      const all = { ...(settings.data?.slotFiles ?? {}) };
+      const mine = { ...(all[family] ?? {}) };
+      if (file) mine[slot.id] = file;
+      else delete mine[slot.id];
+      if (Object.keys(mine).length) all[family] = mine;
+      else delete all[family];
+      return api.saveSettings({ slotFiles: all });
+    },
+    onSuccess: () => Promise.all([client.invalidateQueries({ queryKey: queryKeys.settings() }), client.invalidateQueries({ queryKey: queryKeys.setup() })]),
+  });
+  return (
+    <Select
+      size="sm"
+      label={`File used for ${slot.label}`}
+      value={slot.chosen ? (slot.file ?? "") : ""}
+      onChange={(file) => save.mutate(file)}
+      options={[{ value: "", label: slot.auto ? `Automatic: ${fileLabel(slot.auto)}` : "Automatic", note: "the first its patterns name" }, ...slot.choices.map((f) => ({ value: f, label: fileLabel(f) }))]}
+    />
+  );
+}
+
+/** A file's line: there (its file, or its picker), or missing (where to put it, and its download and search, or its bar while it comes). */
+function FileLine({ row, family, name, imported }: { row: FileRow; family: string; name: string; imported?: boolean }) {
+  const picker = row.slot && row.file && (row.slot.choices.length > 1 || row.slot.chosen);
+  const find = encodeURIComponent(row.label);
+  return (
+    <div className="grid grid-cols-[14px_minmax(0,1fr)_7.5rem_minmax(0,18rem)] items-start gap-3 border-t border-line py-2 first:border-t-0">
+      {row.file
+        ? <span aria-label="there" className="mt-1 size-2.5 rounded-full bg-good" />
+        : <span aria-label={row.optional ? "not there, optional" : "missing"} className={cx("mt-1 size-2.5 rounded-full border-[1.5px]", row.optional ? "border-dashed border-ink-3" : "border-warn-ink")} />}
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+          <span className={cx("font-semibold", !row.file && !row.optional && "text-warn-ink")}>{row.label}</span>
+          {!row.optional && !row.every && row.users.length > 0 && <span className="rounded-md bg-accent-wash px-1.5 text-[11px] font-semibold text-accent" data-tip={`Only ${row.users.join(", ")} cannot run without it`}>{row.users.join(", ")} only</span>}
+        </span>
+        {/* where to put a missing one, what an optional one brings */}
+        {(!row.file || row.optional) && row.hint && <span className="text-xs text-ink-2">{row.hint}</span>}
+      </span>
+      <span className="truncate pt-0.5 font-mono text-[11.5px] text-ink-3">{row.folder ?? ""}</span>
+      <span className="flex min-w-0 flex-col">
+        {picker ? <SlotPicker family={family} slot={row.slot!} />
+          : row.file ? <span className="truncate pt-0.5 text-xs text-ink-2" data-tip={row.file}>{fileLabel(row.file)}</span>
+          : (
+            <>
+              {/* a file an operation names itself (an imported workflow's) has no slot's hint: where to look for it */}
+              {!row.slot && (
+                <span className="flex flex-wrap items-center gap-x-2 text-xs">
+                  <a className="font-semibold text-accent underline" href={`https://civitai.com/search/models?query=${find}`} target="_blank" rel="noreferrer">Civitai</a>
+                  <a className="font-semibold text-accent underline" href={`https://huggingface.co/models?search=${find}`} target="_blank" rel="noreferrer">Hugging Face</a>
+                  {imported && <Link href="/workflows" className="font-semibold text-accent underline">Workflows</Link>}
+                </span>
+              )}
+              {row.get && <GetFile file={row.get.file} folder={row.folder} url={row.get.url} hints={[name]} />}
+            </>
+          )}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * An opened family: what it makes, its files once each (the needed ones folded into a line while they are all there,
+ * then the optional ones, a picker on each where more than one fits), its operations a line each saying ready or what they
+ * wait for, and once, the custom nodes some of their options need. What was said under each operation, and the Optional
+ * and Files in use sections apart (the owner's pick, mock "Models view", A).
+ */
+export function FamilyBody({ family, name, help, recipes, machine, imported }: { family: string; name: string; help?: string; recipes: RecipeInfo[]; machine?: string; imported?: boolean }) {
+  const setup = useSetup(machine);
+  const [unfolded, setUnfolded] = useState(false);
+  const [optionalOpen, setOptionalOpen] = useState(false);
+  const scanned = setup.data?.families ?? [];
+  const slots = scanned.find((f) => f.id === family)?.slots ?? [];
+  const statuses = setup.data?.recipes ?? [];
+  const { needed, optional } = familyFiles(slots, recipes, statuses, lentSlots(family, recipes, scanned));
+  const allThere = needed.every((r) => r.file);
+  const folded = allThere && needed.length > 0 && !unfolded;
+  // the custom nodes some options need: once, with the operations they are off in
+  const limited = new Map<string, string[]>();
+  for (const r of recipes) for (const node of statuses.find((x) => x.id === r.id)?.limitedBy ?? []) limited.set(node, [...(limited.get(node) ?? []), r.title]);
+  const offIn = [...new Set([...limited.values()].flat())];
+  const line = (row: FileRow) => <FileLine key={row.key} row={row} family={family} name={name} imported={imported} />;
+  return (
+    <div className="flex flex-col gap-4">
+      {help && <span className="text-xs text-ink-2">{help}</span>}
+
+      {(needed.length > 0 || optional.length > 0) && (
+        <section aria-label="Files" data-setting="models.files" className="flex flex-col">
+          {needed.length > 0 && (
+            <>
+              <span className="flex items-center gap-2 pb-1">
+                {/* all there, nothing to do: its head alone, a disclosure as a family's own row, the files (their pickers) a click away */}
+                {allThere ? (
+                  <button type="button" aria-expanded={!folded} onClick={() => setUnfolded(!unfolded)} className="flex items-center gap-2 text-left hover:text-ink">
+                    <ChevronDown size={13} className={cx("shrink-0 text-ink-3 transition-transform", folded && "-rotate-90")} />
+                    {/* nothing said of them being there (the owner: what misses is worth saying, that all is fine is too much) */}
+                    <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Files · {needed.length} needed</span>
+                  </button>
+                ) : (
+                  <>
+                    <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Files · {needed.length} needed</span>
+                    <span className="text-xs text-warn-ink">{plural(needed.filter((r) => !r.file).length, "missing", "missing")}</span>
+                  </>
+                )}
+                <Help title="Files" text="Each file the family needs, once, whatever needs it: an operation that lacks one says so in its line below. Where more than one file fits, its picker says which is used: left to itself, the first its patterns name." />
+              </span>
+              {!folded && needed.map(line)}
+            </>
+          )}
+          {optional.length > 0 && (
+            <>
+              <span className={cx("flex items-center gap-1.5 pb-1", needed.length > 0 && "pt-3.5")}>
+                <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Optional · {plural(optional.length, "file")}</span>
+                <Help text="Everything runs without these: each brings an option or a speed-up, said on its line." />
+              </span>
+              {/* what can be added stays in sight; the ones there (their pickers) fold behind one line */}
+              {optional.filter((r) => !r.file).map(line)}
+              {optional.some((r) => r.file) && (
+                <>
+                  <button type="button" aria-expanded={optionalOpen} onClick={() => setOptionalOpen(!optionalOpen)} className="flex items-center gap-2 border-t border-line py-2 text-left text-xs text-ink-2 first:border-t-0 hover:text-ink">
+                    <ChevronDown size={13} className={cx("shrink-0 text-ink-3 transition-transform", !optionalOpen && "-rotate-90")} />
+                    <span className="font-semibold text-good">{optional.filter((r) => r.file).length} there</span>
+                  </button>
+                  {optionalOpen && optional.filter((r) => r.file).map(line)}
+                </>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
+      <section aria-label={imported ? "Workflows" : "Operations"} className="flex flex-col">
+        <span className="pb-1 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{imported ? "Workflows" : "Operations"}</span>
+        {recipes.map((r) => {
+          const s = statuses.find((x) => x.id === r.id);
+          const extra = needed.filter((row) => !row.slot && row.users.includes(r.title)).length;
+          const notes = [
+            ...(s?.problems ?? []).map((p) => `${problemSaid(p)}${r.imported ? " Fix it in Workflows, with Edit." : ""}`),
+            ...(s?.emptyInputs ?? []).map((id) => {
+              const input = r.inputs.find((i) => i.id === id);
+              return `ComfyUI has no model file for "${input?.label ?? id}"${input?.note ? ` (${input.note})` : ""}`;
+            }),
+          ];
+          const said = s ? (s.ready ? "Ready" : needsSaid(s, needed, extra)) : "Unknown";
+          return (
+            <div key={r.id} className="flex flex-col gap-0.5 py-1">
+              <div className="flex items-baseline gap-2.5">
+                <span className={cx("h-2 w-2 shrink-0 translate-y-[-1px] rounded-full", s?.ready ? "bg-good" : s ? "bg-warn-ink" : "bg-ink-3")} />
+                <span className="w-36 shrink-0 truncate font-semibold">{r.title}</span>
+                {/* the room left (w-0 grow), cut short: at its whole length, Edit's widened the card past its 860 px */}
+                <span className="w-0 min-w-0 grow truncate text-xs text-ink-2" data-tip={r.summary}>{r.summary}</span>
+                {/* it may be cut short (whole in its tip), never shrink-0: a long one widened the whole card */}
+                <span className={cx("max-w-[45%] truncate text-xs font-semibold", s?.ready ? "text-good" : "text-warn-ink")} data-tip={said}>{said}</span>
+              </div>
+              {notes.map((n) => <div key={n} className="pl-[18px] text-xs text-warn-ink">{n}</div>)}
+            </div>
+          );
+        })}
+      </section>
+
+      {limited.size > 0 && (
+        <span className="rounded-lg border border-dashed border-line-strong px-3 py-2 text-xs text-ink-2">
+          Some options are off in {offIn.join(", ")}: missing custom nodes {[...limited.keys()].join(", ")}.
+        </span>
+      )}
+    </div>
+  );
+}

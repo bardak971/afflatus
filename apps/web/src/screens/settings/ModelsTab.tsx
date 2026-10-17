@@ -1,148 +1,16 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link } from "wouter";
 import { ChevronDown, X } from "lucide-react";
-import { folderOfFileInput } from "@afflatus/core";
-import { api, type Machine, type RecipeInfo } from "../../api";
+import { api, type Machine } from "../../api";
 import { useFamilies, useRecipes, useSettings, useSetup } from "../../data";
-import { fileLabel, plural, problemSaid } from "../../format";
-import { GetFile } from "../../GetFile";
+import { plural } from "../../format";
 import { machineLabel } from "../../machines";
 import { DownloadTo } from "../../useGetFile";
-import { Select } from "../../Select";
 import { Chip, cx, ErrorNote, Help, Toggle } from "../../ui";
 import { Block, Card } from "./Rows";
+import { DownloadAll, FamilyBody } from "./ModelsFamily";
 import { modelHelp } from "../../modelHelp";
 import { queryKeys } from "../../queryKeys";
-
-/**
- * The family's files where more than one fits (two SeedVR2 models, two turbo LoRAs): which one is used,
- * chosen by hand or left to the patterns. Nothing shown for a family whose files are all one of a kind.
- */
-function SlotChoices({ family, machine }: { family: string; machine?: string }) {
-  const setup = useSetup(machine);
-  const settings = useSettings();
-  const client = useQueryClient();
-  const slots = (setup.data?.families.find((f) => f.id === family)?.slots ?? []).filter((s) => s.choices.length > 1 || s.chosen);
-  const save = useMutation({
-    mutationFn: (v: { slot: string; file: string }) => {
-      const all = { ...(settings.data?.slotFiles ?? {}) };
-      const mine = { ...(all[family] ?? {}) };
-      if (v.file) mine[v.slot] = v.file;
-      else delete mine[v.slot];
-      if (Object.keys(mine).length) all[family] = mine;
-      else delete all[family];
-      return api.saveSettings({ slotFiles: all });
-    },
-    onSuccess: () => Promise.all([client.invalidateQueries({ queryKey: queryKeys.settings() }), client.invalidateQueries({ queryKey: queryKeys.setup() })]),
-  });
-  if (!slots.length) return null;
-  return (
-    <div data-setting="models.files" className="flex flex-col gap-2">
-      <span className="flex items-center gap-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">Files in use <Help title="Files in use" text="More than one file fits here. Left to itself, Afflatus takes the first its patterns name; pick another to use it everywhere this family does." /></span>
-      {slots.map((s) => (
-        <div key={s.id} className="flex items-center justify-between gap-3">
-          <span className="flex min-w-0 flex-col"><span className="truncate text-xs font-semibold">{s.label}</span><span className="truncate text-xs text-ink-3">{s.folder}</span></span>
-          <div className="w-80 shrink-0">
-            <Select
-              size="sm"
-              label={`File used for ${s.label}`}
-              value={s.chosen ? (s.file ?? "") : ""}
-              onChange={(file) => save.mutate({ slot: s.id, file })}
-              options={[{ value: "", label: s.auto ? `Automatic: ${fileLabel(s.auto)}` : "Automatic", note: "the first its patterns name" }, ...s.choices.map((f) => ({ value: f, label: fileLabel(f) }))]}
-            />
-          </div>
-        </div>
-      ))}
-      {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
-    </div>
-  );
-}
-
-/** One recipe: ready, or what it lacks and how to get it. */
-function ReadyRow({ r, machine }: { r: RecipeInfo; machine?: string }) {
-  const setup = useSetup(machine);
-  const recipes = useRecipes();
-  const s = setup.data?.recipes.find((x) => x.id === r.id);
-  const family = recipes.data?.families.find((f) => f.id === r.family);
-  const problems = [
-    ...(s?.missingNodes.length ? [`Missing custom nodes: ${s.missingNodes.join(", ")}`] : []),
-    ...(s?.problems ?? []).map((p) => `${problemSaid(p)}${r.imported ? " Fix it in Workflows, with Edit." : ""}`),
-    ...(s?.emptyInputs ?? []).map((id) => {
-      const input = r.inputs.find((i) => i.id === id);
-      return `ComfyUI has no model file for "${input?.label ?? id}"${input?.note ? ` (${input.note})` : ""}`;
-    }),
-  ];
-  const find = (file: string) => encodeURIComponent(fileLabel(file));
-  // the family's own files: the ones it cannot run without, and the ones only some of its options need
-  const slots = setup.data?.families.find((f) => f.id === r.family)?.slots ?? [];
-  const needed = slots.filter((x) => s?.missingSlots.includes(x.id));
-  return (
-    <div className="flex flex-col gap-1 py-1.5">
-      <div className="flex items-baseline gap-2.5">
-        <span className={cx("h-2 w-2 shrink-0 translate-y-[-1px] rounded-full", s?.ready ? "bg-good" : s ? "bg-warn-ink" : "bg-ink-3")} />
-        <span className="w-36 shrink-0 truncate font-semibold">{r.title}</span>
-        <span className="min-w-0 grow truncate text-xs text-ink-2" data-tip={r.summary}>{r.summary}</span>
-        <span className={cx("shrink-0 text-xs font-semibold", s?.ready ? "text-good" : "text-warn-ink")}>{s ? (s.ready ? "Ready" : "Not ready") : "Unknown"}</span>
-      </div>
-      {problems.map((p) => <div key={p} className="text-warn-ink">{p}</div>)}
-      {needed.map((x) => (
-        <div key={x.id} className="text-warn-ink">
-          <span className="font-semibold">{x.label}</span> is missing. {x.hint}
-          {x.get && <GetFile file={x.get.file} folder={x.folder} url={x.get.url} hints={family?.name ? [family.name] : []} />}
-        </div>
-      ))}
-      {(s?.missing ?? []).map(({ file, folder, url }) => (
-        <div key={file} className="text-warn-ink">
-          <span className="flex flex-wrap items-center gap-x-1.5">
-            <span>Missing: <span className="font-semibold break-all">{fileLabel(file)}</span></span>
-            <Help text={`Your ComfyUI does not have this file. Search for it on Civitai or Hugging Face, or download it here${r.imported ? "; or pick another file for it in Workflows, with Edit" : ""}.`} />
-            <span className="text-ink-3">·</span>
-            <a className="font-semibold underline" href={`https://civitai.com/search/models?query=${find(file)}`} target="_blank" rel="noreferrer">Civitai</a>
-            <a className="font-semibold underline" href={`https://huggingface.co/models?search=${find(file)}`} target="_blank" rel="noreferrer">Hugging Face</a>
-            {r.imported && <Link href="/workflows" className="font-semibold underline">Workflows</Link>}
-          </span>
-          <GetFile file={file} folder={folder} url={url} hints={family?.name ? [family.name] : []} />
-        </div>
-      ))}
-      {s?.limitedBy.length ? <div className="text-ink-2">Some options are off, missing custom nodes: {s.limitedBy.join(", ")}</div> : null}
-    </div>
-  );
-}
-
-/**
- * The files a family's operations run without, that some option of theirs would use: once each, for the whole family (a
- * turbo LoRA three operations share was said three times), as a card with what it brings and its download. With them, the
- * image tools' detectors for an operation that picks one (a face detailer's detection model). Detectors only: a model
- * folder (diffusion_models) would bring in every other family's optional models.
- */
-function OptionalFiles({ family, recipes, machine }: { family: string; recipes: RecipeInfo[]; machine?: string }) {
-  const setup = useSetup(machine);
-  const names = useRecipes().data?.families.find((f) => f.id === family)?.name;
-  const slots = setup.data?.families.find((f) => f.id === family)?.slots ?? [];
-  const folders = new Set<string>(recipes.flatMap((r) => r.inputs.flatMap((i) => (i.type === "choice" && i.options && !Array.isArray(i.options) ? [folderOfFileInput(i.options.node, i.options.input)] : []))).filter((f) => f === "ultralytics"));
-  const owned = new Set(slots.map((x) => x.id));
-  const lent = (setup.data?.families ?? []).filter((f) => f.id !== family).flatMap((f) => f.slots).filter((x) => folders.has(x.folder) && x.optional && !x.file && x.get && !owned.has(x.id));
-  const offered = [...slots.filter((x) => x.optional && !x.file && x.get), ...lent.filter((x, i) => lent.findIndex((y) => y.id === x.id) === i)];
-  if (!offered.length) return null;
-  return (
-    <div className="flex flex-col gap-2">
-      <span className="flex items-center gap-1.5 text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">
-        Optional · {plural(offered.length, "file")}
-        <Help text="Everything runs without these: each brings an option or a speed-up, said on its card." />
-      </span>
-      {offered.map((x) => (
-        <div key={x.id} className="flex flex-col gap-1.5 rounded-lg border border-line bg-panel px-3 py-2.5">
-          <span className="font-semibold">{x.label}</span>
-          {/* the hint was written for a line that said "optional" in front of it: the card's section says so */}
-          <span className="text-xs text-ink-2">{x.hint.replace(/^optional[:,]\s*/i, "").replace(/^./, (c) => c.toUpperCase())}</span>
-          {x.get && <GetFile buttons file={x.get.file} folder={x.folder} url={x.get.url} hints={names ? [names] : []} />}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 
 /**
  * The card's head: what it counts, said. A bare "15 of 15 ready" read as "everything is fine" under families that were
@@ -226,6 +94,9 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
               </span>
             ))}
           </button>
+          {/* the needed files it lacks, every one in a click: each then has its bar on its line below. Of a family left off
+              (a choice, not a problem), only once opened: ten orange buttons down the folded list read as ten warnings */}
+          {setup.data && !all && (isOn || open) && <DownloadAll family={f.id} recipes={mine} machine={machine?.id} />}
           {f.id in said && (
             <Chip
               tone="link"
@@ -238,14 +109,8 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
           <Toggle bare on={isOn} onChange={(next) => save.mutate({ ...said, [f.id]: next })} label={where ? `${name} on ${where}` : `${name} in the model lists`} />
         </div>
         {open && (
-          <div className="flex flex-col gap-3.5 border-t border-line bg-raised px-[18px] pt-3 pb-3.5">
-            {f.help && <span className="text-xs text-ink-2">{f.help.what}</span>}
-            <div className="flex flex-col">
-              <span className="text-[11px] font-bold tracking-[0.08em] text-ink-3 uppercase">{imported ? "Workflows" : "Operations"}</span>
-              {mine.map((r) => <ReadyRow key={r.id} r={r} machine={machine?.id} />)}
-            </div>
-            <OptionalFiles family={f.id} recipes={mine} machine={machine?.id} />
-            <SlotChoices family={f.id} machine={machine?.id} />
+          <div className="border-t border-line bg-raised px-[18px] pt-3 pb-3.5">
+            <FamilyBody family={f.id} name={f.name} help={f.help?.what} recipes={mine} machine={machine?.id} imported={imported} />
           </div>
         )}
       </div>
