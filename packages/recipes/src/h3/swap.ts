@@ -366,6 +366,8 @@ export const h3Swap = defineRecipe<H3Swap>({
   traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED } },
   inputs: swapInputs,
   guide: SWAP_GUIDE,
+  // a character swap's form: the model, its takes, who is replaced and how, then the rest as any form (the owner, 2026-10-18)
+  first: ["model", "takes", "mask"],
   // who is replaced and how, apart from the source (the owner, 2026-10-18): the click and Show the mask are the screen's, the
   // rest the nodes' own inputs
   chapters: [{ id: "mask", label: "Mask", help: "Who is replaced and what of the frame H3 redraws: SAM 3 tracks the person clicked on the stage, the Swap Mask grows the zone H3 redraws and the band the render is pasted back over. Show the mask draws them over the source before you render." }],

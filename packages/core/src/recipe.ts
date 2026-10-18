@@ -167,6 +167,8 @@ export interface Recipe<In = Record<string, unknown>> {
   inputs: InputSpec[];
   /** Chapters of the form the recipe arranges itself (an imported workflow's sections), in order; the inputs name theirs with `chapter`. */
   chapters?: Chapter[];
+  /** The form's cards drawn first, in this order, by id (model, takes, a chapter's id); the others follow as the form has them. */
+  first?: string[];
   /**
    * How this form's prompt is written, for the designer's language model, over its family's guide: a form whose prompt
    * follows rules of its own (a swap: the Character-Swap LoRA's sentence, the person named by what is visible).
@@ -250,6 +252,7 @@ export function describeRecipe(r: Recipe<any>) {
     id: r.id, family: r.family, ...(r.imported ? { imported: true as const } : {}), ...(r.hidden ? { hidden: true as const } : {}), version: r.version, title: r.title, summary: r.summary, output: r.output,
     inputs: r.inputs, traits: r.traits ?? null, presets: r.presets ?? [], starts: r.starts ?? [],
     ...(r.chapters?.length ? { chapters: r.chapters } : {}),
+    ...(r.first?.length ? { first: r.first } : {}),
     // the family's optional files it cannot run without (Edit's Kontext model): Settings › Models says which operations use each file
     ...(r.needs?.length ? { needs: r.needs } : {}),
     // the model files it names itself (an imported workflow's): what its LoRAs are sorted for

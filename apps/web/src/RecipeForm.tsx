@@ -35,7 +35,7 @@ export { mainTextOf } from "./form";
 /** A chapter a screen puts before the form's own (a timeline clip's Source, its Takes). */
 export type LeadPart = { id: string; title: string; summary: ReactNode; node: ReactNode; help?: string };
 
-export function Form({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, chapterExtra, keepEmpty, promptInView }: {
+export function Form({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, chapterExtra, first, keepEmpty, promptInView }: {
   recipe: RecipeInfo;
   status: RecipeStatus | undefined;
   /** What the draft holds for this recipe: only what was touched. */
@@ -55,6 +55,8 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   helpers?: ReactNode;
   /** Chapters of the screen's own before every other (a timeline clip's Source and Takes): first in the strip too, in this order. */
   lead?: LeadPart | ReadonlyArray<LeadPart | undefined>;
+  /** The chapters drawn first, in this order, by id; the others follow in the form's own order (a swap clip's Model, Takes, Mask). */
+  first?: readonly string[];
   /** What the screen puts at the top of one of the recipe's own chapters, by its id (a swap clip's Mask: who is replaced, Show the mask). */
   chapterExtra?: Record<string, ReactNode>;
   /** What the screen adds to the Inputs chapter's frames (a timeline clip's pinned frames), with its words for the summary. */
@@ -188,6 +190,10 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
     ...(out.length || encoding.length || upscaling.length ? [{ id: "output", label: "Output" }] : []),
     ...(rare.length && !advancedMoved ? [{ id: "advanced", label: "Advanced" }] : []),
   ];
+  // the chapters asked for first, in that order; the rest keep theirs (a stable sort)
+  const firstIds = first ?? recipe.first;
+  const rank = (id: string) => (firstIds?.includes(id) ? firstIds.indexOf(id) : firstIds?.length ?? 0);
+  const ordered = <T,>(list: T[], idOf: (x: T) => string) => (firstIds?.length ? [...list].sort((a, b) => rank(idOf(a)) - rank(idOf(b))) : list);
   // a few words the recipe builds its own prompt from (a swap's "who to replace"): no Designer or Snippets to write a scene into it
   const ownPrompt = mainText?.type === "prompt" && Boolean(mainText.noCast) && !mainText.designed;
   const promptBlock = mainText && promptHit && (
@@ -209,47 +215,55 @@ export function Form({ recipe, status, stored, given, onChange, onClear, made, m
   return (
     // the parts the search opens and folds change at once, without the fold's motion
     <FormSearching.Provider value={Boolean(q)}>
-      <Strip parts={parts} open={(id) => id !== "prompt" && setPart(id, true, true)} query={query} setQuery={setQuery} found={found} />
+      <Strip parts={ordered(parts, (x) => x.id)} open={(id) => id !== "prompt" && setPart(id, true, true)} query={query} setQuery={setQuery} found={found} />
       {q && found === 0 && <div className="px-1 text-sm text-ink-2">No setting of this form matches “{q}”.</div>}
-      {!q && leads.map((l) => <Part key={l.id} id={l.id} title={l.title} help={l.help} summary={l.summary} startOpen>{l.node}</Part>)}
-      {((made && (!q || madeHit)) || knobs.length > 0 || loras.length > 0) && (
-        <Part id="model" title="Model" summary={said.modelSaid || recipe.title} needs={Boolean(q)}>
-          {(!q || madeHit) && made}
-          {knobs.map(render)}
-          {loras.map(render)}
-        </Part>
-      )}
-      {!promptMoved && promptBlock}
-      <InputsPart
-        frames={frames} refs={refs} framesChosen={said.framesChosen.length} refsCount={said.refsCount} chosen={JSON.stringify([...frames, ...refs].map((i) => values[i.id] ?? null))} summary={inputsSummary} missing={said.missing}
-        look={look} lookHit={lookHit} lookWithFrames={lookWithFrames} frameExtra={frameExtra} q={q} render={render}
-      />
-      {chapters.map((ch) => {
-        if (ch.id === "advanced") return <div key="advanced" className="contents">{advancedPart}</div>;
-        if (ch.id === "prompt") return <div key="prompt" className="contents">{promptBlock}</div>;
-        const items = sought(ch.items);
-        if (q && !items.length) return null;
-        // what the chapter's switches say, for the folded line: "Hires fix on"
-        const switches = items.filter((i) => i.type === "toggle").map((i) => `${i.label} ${values[i.id] ? "on" : "off"}`);
-        return (
-          <Part key={ch.id} id={ch.id} title={ch.label} help={ch.help} needs={Boolean(q)} summary={<>{!ch.items.length ? "empty: drag settings into it" : switches.length ? switches.join(" · ") : plural(items.length, "setting")}{changedMark(items)}</>}>
-            {!q && chapterExtra?.[ch.id]}
-            {items.map(setting)}
-            {!ch.items.length && <span className="text-xs text-ink-2">Nothing in this section yet. Drag settings into it under Sections; an empty section is left out of the form.</span>}
+      {ordered<[string, ReactNode]>([
+        ...(!q ? leads.map((l): [string, ReactNode] => [l.id, <Part key={l.id} id={l.id} title={l.title} help={l.help} summary={l.summary} startOpen>{l.node}</Part>]) : []),
+        ["model", ((made && (!q || madeHit)) || knobs.length > 0 || loras.length > 0) && (
+          <Part key="model" id="model" title="Model" summary={said.modelSaid || recipe.title} needs={Boolean(q)}>
+            {(!q || madeHit) && made}
+            {knobs.map(render)}
+            {loras.map(render)}
           </Part>
-        );
-      })}
-      {sampling.length > 0 && (
-        <Part id="sampling" title="Sampling" summary={<>{said.samplingSaid}{changedMark(sampling)}</>} needs={Boolean(q)}>
-          {!q && <ModelDefaults recipe={recipe} file={file} hasSaved={hasSaved} values={values} defaults={defaults} onClear={onClear} />}
-          {sampling.map(setting)}
-        </Part>
-      )}
-      <OutputPart
-        out={out} upscaling={upscaling} encoding={encoding} estimate={advice.data?.estimate} q={q} render={render} setting={setting}
-        summary={<>{said.outSaid}{changedMark([...upscaling, ...encoding])}</>}
-      />
-      {!advancedMoved && advancedPart}
+        )],
+        ["prompt", !promptMoved && <div key="prompt-block" className="contents">{promptBlock}</div>],
+        ["inputs", (
+          <InputsPart
+            key="inputs"
+            frames={frames} refs={refs} framesChosen={said.framesChosen.length} refsCount={said.refsCount} chosen={JSON.stringify([...frames, ...refs].map((i) => values[i.id] ?? null))} summary={inputsSummary} missing={said.missing}
+            look={look} lookHit={lookHit} lookWithFrames={lookWithFrames} frameExtra={frameExtra} q={q} render={render}
+          />
+        )],
+        ...chapters.map((ch): [string, ReactNode] => {
+          if (ch.id === "advanced") return ["advanced", <div key="advanced" className="contents">{advancedPart}</div>];
+          if (ch.id === "prompt") return ["prompt", <div key="prompt" className="contents">{promptBlock}</div>];
+          const items = sought(ch.items);
+          if (q && !items.length) return [ch.id, null];
+          // what the chapter's switches say, for the folded line: "Hires fix on"
+          const switches = items.filter((i) => i.type === "toggle").map((i) => `${i.label} ${values[i.id] ? "on" : "off"}`);
+          return [ch.id, (
+            <Part key={ch.id} id={ch.id} title={ch.label} help={ch.help} needs={Boolean(q)} summary={<>{!ch.items.length ? "empty: drag settings into it" : switches.length ? switches.join(" · ") : plural(items.length, "setting")}{changedMark(items)}</>}>
+              {!q && chapterExtra?.[ch.id]}
+              {items.map(setting)}
+              {!ch.items.length && <span className="text-xs text-ink-2">Nothing in this section yet. Drag settings into it under Sections; an empty section is left out of the form.</span>}
+            </Part>
+          )];
+        }),
+        ["sampling", sampling.length > 0 && (
+          <Part key="sampling" id="sampling" title="Sampling" summary={<>{said.samplingSaid}{changedMark(sampling)}</>} needs={Boolean(q)}>
+            {!q && <ModelDefaults recipe={recipe} file={file} hasSaved={hasSaved} values={values} defaults={defaults} onClear={onClear} />}
+            {sampling.map(setting)}
+          </Part>
+        )],
+        ["output", (
+          <OutputPart
+            key="output"
+            out={out} upscaling={upscaling} encoding={encoding} estimate={advice.data?.estimate} q={q} render={render} setting={setting}
+            summary={<>{said.outSaid}{changedMark([...upscaling, ...encoding])}</>}
+          />
+        )],
+        ["advanced", !advancedMoved && <div key="advanced-part" className="contents">{advancedPart}</div>],
+      ], ([id]) => id).map(([, node]) => node)}
       {hidden.length > 0 && (
         <section className="flex flex-col gap-1.5 rounded-[10px] border border-line bg-raised px-3 py-2">
           <span className="text-[11px] font-bold tracking-[0.08em] text-ink-2 uppercase">Not shown now</span>

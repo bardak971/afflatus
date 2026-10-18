@@ -17,6 +17,8 @@ export interface RecipeInfo {
   inputs: InputSpec[];
   /** Chapters the recipe arranges itself (an imported workflow's sections), in order. */
   chapters?: Chapter[];
+  /** The form's cards drawn first, in this order, by id. */
+  first?: string[];
   /** Of a video recipe: what it can do on a timeline. */
   traits: VideoTraits | null;
   /** The model files it names itself (an imported workflow's). */
