@@ -9,7 +9,7 @@ import { bootNote, bootSaid, clock, idleEndSaid, machinesByName, machineState, o
 const pod = (over: Partial<RentedState> = {}): RentedState => ({
   provider: "runpod", pod: "p1", status: "EXITED", rate: 0.69, gpuRate: null, gpu: "NVIDIA GeForce RTX 5090", dataCenter: "EU-RO-1",
   since: null, spent: 0, diskPerDay: 0.33, volume: false, otherPorts: [], closedPorts: [], watchdog: "unknown", answers: null, idleAt: null, capped: false, stopping: false,
-  stoppedBy: null, booting: false, error: null, files: [], packs: [], disk: null, ...over,
+  stoppedBy: null, crash: null, booting: false, error: null, files: [], packs: [], disk: null, ...over,
 });
 
 describe("a rented pod's words", () => {
@@ -17,6 +17,8 @@ describe("a rented pod's words", () => {
     const now = 1_800_000_000_000;
     expect(rentedSaid(pod())).toBe("stopped · disk $0.33/day");
     expect(rentedSaid(pod({ status: "STARTING" }))).toBe("starting");
+    // terminated because its ComfyUI died: why, as the pod said it, whatever its card's error line says first (a RunPod refusal)
+    expect(rentedSaid(pod({ status: "GONE", stoppedBy: "crash", crash: "ComfyUI was killed: out of system memory (peak 46.6 of 46.6 GB)", error: "RunPod said 429. Try again." }))).toBe("ComfyUI was killed: out of system memory (peak 46.6 of 46.6 GB)");
     expect(rentedSaid(pod({ status: "PROVISIONING" }))).toBe("deploying · pulling image");
     // a deployed pod's first start is a normal step, said as one
     expect(rentedSaid(pod({ status: "RUNNING", booting: true, answers: false, since: null }))).toBe("deploying");

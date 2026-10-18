@@ -141,4 +141,51 @@ describe("a pod's ComfyUI that dies during a render", () => {
     expect(told.find((x) => x.kind === "podStopped")!.body).toMatch(/^Why: ComfyUI started again on the pod during the render/);
     expect((await jobOf(jobId)).status).toBe("failed");
   });
+
+  it("a pod that merely stops answering mid-render (its proxy out, a stop) is no crash: the render goes again, the pod is kept", async () => {
+    const { id, pod, jobId } = await renderingOnAPod();
+    // the provider's proxy answers for it, saying no container is there: the render's wait ends on ComfyUI gone (ComfyAway)
+    pod.comfy.down = true;
+    await until(async () => (await jobOf(jobId)).status === "queued", 20_000);
+    expect((await jobOf(jobId)).error).toBeNull();
+    pod.comfy.down = false;
+    await t.services.rented.poll();
+    expect(pod.status).toBe("RUNNING");
+    expect((await rowOf(id))!.rented).toMatchObject({ stoppedBy: null, crash: null });
+    expect(told.some((x) => x.kind === "podStopped")).toBe(false);
+  });
+
+  it("a terminate RunPod refuses is asked again at the next read, the render failed once", async () => {
+    const { id, pod, jobId } = await renderingOnAPod();
+    runpod.failAction[pod.id] = 500;
+    pod.comfy.podDied = OOM;
+    await t.services.rented.poll().catch(() => {});
+    await until(async () => (await jobOf(jobId)).status === "failed");
+    // refused: still running, still billed, and not taken for done
+    expect(pod.status).toBe("RUNNING");
+    delete runpod.failAction[pod.id];
+    await t.services.rented.poll().catch(() => {});
+    expect(pod.status).toBe("TERMINATED");
+    expect((await rowOf(id))!.rented).toMatchObject({ stoppedBy: "crash", crash: OOM.error });
+    const stops = told.filter((x) => x.kind === "podStopped");
+    expect(stops).toHaveLength(1);
+    expect(stops[0]!.body).toMatch(/its render failed, not run again/);
+  });
+
+  it("a death is its own render's only: a later job on the same pod, stopped by the user, is cancelled, not failed with it", async () => {
+    const { id, pod, jobId } = await renderingOnAPod();
+    await updateSettings(t.db, (s) => ({ machines: s.machines.map((m) => (m.id === id && m.rented ? { ...m, rented: { ...m.rented, deployed: false } } : m)) }));
+    pod.comfy.podDied = OOM;
+    await t.services.rented.poll();
+    await until(async () => (await jobOf(jobId)).status === "failed");
+    // the user starts its ComfyUI again; a next render runs there, and is stopped by the user
+    pod.comfy.podDied = null;
+    pod.comfy.running = [];
+    pod.comfy.pending = [];
+    const next = (await post(t.app, "/api/jobs", job())).json().ids[0] as string;
+    await until(async () => (await jobOf(next)).status === "running" && Boolean(running(id)?.promptId));
+    await t.app.inject({ method: "POST", url: `/api/jobs/${next}/cancel` });
+    await until(async () => (await jobOf(next)).status !== "running");
+    expect(await jobOf(next)).toMatchObject({ status: "cancelled", error: "stopped by you" });
+  });
 });

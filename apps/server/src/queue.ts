@@ -118,7 +118,7 @@ export class Queue {
    * the container itself: its death restarted it, and said nothing): rentedFollow terminates the pod as a crash, with why.
    */
   podCrashed: ((machine: string, why: string) => void) | null = null;
-  /** The machines whose ComfyUI died (machineDied), until they answer again: their render's end is that death, whatever its wait saw. */
+  /** The render a machine's ComfyUI died under (machineDied), by machine: that render's end is that death, whatever its wait saw. */
   private readonly died = new Map<string, Died>();
 
   constructor(
@@ -1091,29 +1091,46 @@ export class Queue {
 
   /**
    * A machine's ComfyUI died (its pod said so: rentedFollow): the render it ran fails now, with why and the step it was at,
-   * and is not queued again (Died). Kept for the machine until it answers again: the render's own wait, which sees only a
-   * ComfyUI gone, would otherwise queue it again elsewhere. Whether a render was running there.
+   * and is not queued again (Died). Kept for that render (by its job): its own wait, which sees only a ComfyUI gone, would
+   * otherwise queue it again elsewhere; never for a later job on the machine. Whether a render was failed by it: none for a
+   * machine with nothing running, or one already stopped by the user.
    */
   machineDied(machine: string, why: string, trace: string | null): boolean {
     const lane = this.lanes.get(machine);
     const run = lane?.running;
-    const at = run?.promptId && lane?.comfy ? lane.comfy.monitor.progress(run.promptId) : null;
+    if (!run || run.abort.signal.aborted) return false;
+    const at = run.promptId && lane?.comfy ? lane.comfy.monitor.progress(run.promptId) : null;
     const step = at && at.step > 0 && at.steps > 0 ? ` at step ${at.step}/${at.steps}` : "";
     const where = lane?.machine ? machineSaid(lane.machine) : machine;
-    const died = new Died(`${why}${step}, on ${where}. Not run again on its own: it would likely kill ComfyUI again.`, trace);
+    const died = new Died(`${why}${step}, on ${where}. Not run again on its own: it would likely kill ComfyUI again.`, trace, run.id);
     this.died.set(machine, died);
-    if (!run || run.abort.signal.aborted) return Boolean(run);
     run.abort.abort(died);
     return true;
   }
 
   /**
+   * Whether a job's end is its ComfyUI's death: the reason it was aborted with, the death kept for that job (machineDied
+   * landing after its wait had already ended on the ComfyUI gone), or a rented pod's ComfyUI answering without it
+   * (lostOnPod). Null: any other end, which goes as before.
+   */
+  private diedFor(lane: Lane, row: JobRow, err: Error, reason: unknown): Died | null {
+    if (reason instanceof Died) return reason;
+    const kept = this.died.get(lane.id);
+    if (kept?.job === row.id) {
+      this.died.delete(lane.id);
+      return kept;
+    }
+    return this.lostOnPod(lane, err);
+  }
+
+  /**
    * A render lost on a rented pod whose ComfyUI answers without it: started again under it, the death of the one that ran it
    * (an older pod image said nothing of why). A Died, said on the job, and told so that the pod is terminated; null for any
-   * other loss (this PC's ComfyUI started again by hand, a machine merely gone), which goes again as before.
+   * other loss (this PC's ComfyUI started again by hand, a machine merely gone), which goes again as before. Never for one
+   * that stopped answering (ComfyAway, a ComfyLost too): a proxy's outage, or a stop of the user's or a cap's, is no death
    */
   private lostOnPod(lane: Lane, err: Error): Died | null {
-    if (!(err instanceof ComfyLost) || !lane.machine?.rented) return null;
+    if (!(err instanceof ComfyLost) || err instanceof ComfyAway || !lane.machine?.rented) return null;
     const why = "ComfyUI started again on the pod during the render, without it: it likely crashed (this pod's image does not say why; a newer Afflatus pod image does)";
     this.podCrashed?.(lane.id, why);
     return new Died(`${why}, on ${machineSaid(lane.machine)}. Not run again on its own: it would likely kill ComfyUI again.`);
@@ -1255,6 +1272,7 @@ export class Queue {
     // away or stopped): it is sent again here, so the first one is dropped there, now or once that machine answers
     const before = readJson<{ promptId?: unknown }>(row.resume, {}).promptId;
     if (machine && row.machine_id && row.machine_id !== machine && typeof before === "string") this.interruptOn(row.machine_id, before);
+    let died: Died | null;
     try {
       await work(run);
       await this.finish(row.id, "done");
@@ -1263,7 +1281,7 @@ export class Queue {
       // stuck on a rented GPU (a finish or a RIFE pass that hangs): a failure, said as such, not a stop by the user
       else if (run.abort.signal.reason instanceof Stuck) await this.failure(row, run.promptId, new Error(run.abort.signal.reason.message));
       // its ComfyUI died under it: failed with why, never queued again (Died)
-      else if (run.abort.signal.reason instanceof Died) await this.failure(row, run.promptId, new Error(run.abort.signal.reason.message), run.abort.signal.reason.trace);
+      else if ((died = this.diedFor(lane, row, err as Error, run.abort.signal.reason))) await this.failure(row, run.promptId, new Error(died.message), died.trace);
       else if (run.abort.signal.aborted) await this.finish(row.id, "cancelled", { error: "stopped by you" });
       else if (!(await this.toolLost(lane, row, err as Error))) await this.failure(row, run.promptId, err as Error);
     } finally {
@@ -1408,7 +1426,8 @@ export class Queue {
       saving.check();
       // the RAM, which no progress says: ComfyUI's own count (/system_stats, a container's limit on a pod) read every few
       // seconds for the render's peak (render_stats.ram_peak), where a render that dies of memory is learned from
-      const ram = setInterval(() => void comfy.client.status().then((st) => comfy.monitor.peaks(systemLoadFromStatus(st)), () => {}), RAM_EVERY_MS);
+      // the RAM alone: the GPU's memory peak stays the system feed's, as before, not mixed with ComfyUI's own count
+      const ram = setInterval(() => void comfy.client.status().then((st) => comfy.monitor.peaks({ ...systemLoadFromStatus(st), gpus: [] }), () => {}), RAM_EVERY_MS);
       ram.unref?.();
       let outputs;
       try {
@@ -1503,8 +1522,7 @@ export class Queue {
     const onRecord = resume && !made && !row.warm;
     // its ComfyUI died under it (its pod said so, or it answers again without it): whatever the wait saw of that, a failure
     // said with why, never queued again, as a machine merely gone is
-    const reason = at.aborted ? lane.running?.abort.signal.reason : null;
-    const died = this.stopped ? null : reason instanceof Died ? reason : this.died.get(lane.id) ?? this.lostOnPod(lane, err);
+    const died = this.stopped ? null : this.diedFor(lane, row, err, at.aborted ? lane.running?.abort.signal.reason : null);
     if (this.stopped) {
       // shutting down: leave the row as it is, the next start picks it up
     } else if (died) {

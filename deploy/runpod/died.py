@@ -112,6 +112,9 @@ def summary(report):
     if report["cause"] == "oom":
         return "ComfyUI was killed: out of system memory" + (f" (peak {gb(peak)} of {gb(limit)} GB)" if peak and limit else "")
     if report["cause"] == "killed":
+        # the killer's count unread (an old cgroup v1 kernel, no cgroup in sight): not said either way
+        if report.get("oom_kills") is None:
+            return "ComfyUI was killed (SIGKILL); whether by the out-of-memory killer could not be read"
         return "ComfyUI was killed (SIGKILL), not by the out-of-memory killer"
     if report["cause"] == "signal":
         return f"ComfyUI ended on signal {report['signal']}"

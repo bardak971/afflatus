@@ -64,6 +64,10 @@ class Report(unittest.TestCase):
         self.assertEqual(r["said"], "ComfyUI was killed (SIGKILL), not by the out-of-memory killer")
         self.assertEqual(r["ram_peak"], int(49.8 * GB))
 
+    def test_a_kill_whose_cause_cannot_be_read(self):
+        r = died.report_of(137, {}, {"oom_kills": None, "peak": None, "limit": None, "current": None}, (None, None), 0)
+        self.assertEqual((r["cause"], r["said"]), ("killed", "ComfyUI was killed (SIGKILL); whether by the out-of-memory killer could not be read"))
+
     def test_a_crash_and_an_exit(self):
         # the memory's peak said only for a death of memory: on another, the kernel's file cache makes it read near the limit
         self.assertEqual(died.report_of(139, {}, self.mem, (None, None), 0)["said"], "ComfyUI ended on signal 11")

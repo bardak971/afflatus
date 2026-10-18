@@ -78,7 +78,7 @@ class FailurePath(unittest.TestCase):
 
 
 # a stand-in python: records its call, and as ComfyUI does what COMFY_DOES says
-PYTHON = '#!/bin/sh\necho "python $*" >> "$CALLS"\ncase "$1" in /comfyui/main.py) eval "$COMFY_DOES";; esac\n'
+PYTHON = '#!/bin/sh\necho "python $*" >> "$CALLS"\ncase "$1" in /comfyui/main.py) echo "cli-session=${__COMFY_CLI_SESSION__:-}" >> "$CALLS"; eval "$COMFY_DOES";; esac\n'
 # a ComfyUI that runs until it is stopped, and says it was
 RUNS_UNTIL_STOPPED = 'trap \'echo comfy-stopped >> "$CALLS"; exit 0\' TERM; while :; do "$REAL_SLEEP" 0.1; done'
 
@@ -100,7 +100,8 @@ class Run(unittest.TestCase):
         with open(script, "w", encoding="utf-8", newline="\n") as f:
             # its files in this test's folder, not /tmp
             f.write("set -e\nPOD=/opt/afflatus-pod\nBASE=/b\n" + part("run").replace("/tmp/", d + "/") + "\n")
-        env = {**os.environ, "CALLS": calls, "COMFY_DOES": comfy_does, "REAL_SLEEP": shutil.which("sleep") or "/bin/sleep",
+        # set as comfy-cli sets it: ComfyUI-Manager's restart would then exit instead of restarting in place (start.sh unsets it)
+        env = {**os.environ, "CALLS": calls, "COMFY_DOES": comfy_does, "REAL_SLEEP": shutil.which("sleep") or "/bin/sleep", "__COMFY_CLI_SESSION__": "1",
                "PATH": bin_dir + os.pathsep + os.environ.get("PATH", "")}
         return subprocess.Popen([SH, script], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True), calls
 
@@ -121,7 +122,8 @@ class Run(unittest.TestCase):
         # pinned memory off: the weights it pins filled a pod's RAM and got ComfyUI killed (start.sh)
         self.assertIn("--disable-pinned-memory", said[1])
         # never started again: the report, broken.py, and the wait should broken.py not run
-        self.assertEqual(said[2:], [
+        self.assertEqual(said[2], "cli-session=")
+        self.assertEqual(said[3:], [
             f"python -u /opt/afflatus-pod/died.py end 137 {d}/afflatus-comfy.json {d}/afflatus-died.json",
             f"python -u /opt/afflatus-pod/broken.py --died {d}/afflatus-died.json",
             "sleep 1200",

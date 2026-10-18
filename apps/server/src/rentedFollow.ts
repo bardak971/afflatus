@@ -685,19 +685,25 @@ export class RentedFollow extends RentedBilling {
    */
   private async crashed(m: Machine, s: Seen, pod: Pod | null): Promise<void> {
     const died = s.comfyDied!;
-    died.told = true;
-    const log = died.from === "pod" ? await this.readBoot(m, pod, 0).catch(() => null) : null;
-    // ComfyUI's colours (its log's escape codes) left out: the job's trace is read as plain text
-    const tail = log?.lines.slice(-CRASH_LINES).map((l) => `${l.t} ${l.m.replace(/\x1b\[[0-9;]*m/g, "")}`).join("\n") ?? "";
-    const trace = [died.report ? `The pod's report: ${JSON.stringify(died.report)}` : null, tail ? `ComfyUI's last lines:\n${tail}` : null].filter(Boolean).join("\n\n");
-    // one the queue found has failed its render already (and that ComfyUI answers: nothing to hold for it)
-    if (died.from === "pod") died.render = this.queue.machineDied(m.id, died.said, trace ? trace.slice(-CRASH_TRACE) : null);
-    await this.db.updateTable("rent_sessions").set({ crash: JSON.stringify({ said: died.said, report: died.report }) }).where("machine_id", "=", m.id).where("ended_at", "is", null).execute().catch(() => {});
-    console.warn(`[rented] ${m.name || m.id}: ${died.said}${died.render ? " (its render failed)" : ""}`);
+    // its render failed and the death kept, once: a terminate RunPod refused is asked again at the next read, not this
+    if (!died.handled) {
+      died.handled = true;
+      const log = died.from === "pod" ? await this.readBoot(m, pod, 0).catch(() => null) : null;
+      // ComfyUI's colours (its log's escape codes) left out: the job's trace is read as plain text
+      const tail = log?.lines.slice(-CRASH_LINES).map((l) => `${l.t} ${l.m.replace(/\x1b\[[0-9;]*m/g, "")}`).join("\n") ?? "";
+      const trace = [died.report ? `The pod's report: ${JSON.stringify(died.report)}` : null, tail ? `ComfyUI's last lines:\n${tail}` : null].filter(Boolean).join("\n\n");
+      // one the queue found has failed its render already (and that ComfyUI answers: nothing to hold for it)
+      if (died.from === "pod") died.render = this.queue.machineDied(m.id, died.said, trace ? trace.slice(-CRASH_TRACE) : null);
+      await this.db.updateTable("rent_sessions").set({ crash: JSON.stringify({ said: died.said, report: died.report }) }).where("machine_id", "=", m.id).where("ended_at", "is", null).execute().catch(() => {});
+      console.warn(`[rented] ${m.name || m.id}: ${died.said}${died.render ? " (its render failed)" : ""}`);
+    }
     if (m.rented!.deployed) {
+      // done only once RunPod took it: a refusal (a 429, a 5xx) throws, and the next read asks again, the pod billed meanwhile
       await this.act(m, "terminate", "crash");
+      died.told = true;
       return;
     }
+    died.told = true;
     this.events.emit("queue");
     this.tell?.("comfyGone", { title: `${machineSaid(m)}: ComfyUI died`, body: `${died.said}.${died.render ? " Its render failed, not run again." : ""} A pod added by hand is not terminated by Afflatus: it is still billed.`, key: `${m.id}:crash` });
   }
@@ -709,7 +715,7 @@ export class RentedFollow extends RentedBilling {
   podCrashed(machine: string, why: string): void {
     const s = this.seenOf(machine);
     if (s.comfyDied && !s.comfyDied.told) return;
-    s.comfyDied = { said: why, report: null, from: "queue", told: false, render: true };
+    s.comfyDied = { said: why, report: null, from: "queue", handled: false, told: false, render: true };
     this.kick(0);
   }
 
@@ -811,8 +817,8 @@ export class RentedFollow extends RentedBilling {
     // files its jobs wait for asked for. Nothing else tells it when no page is open, and the pod would idle toward its stop
     if (up && s.answers !== true) this.queue.answering(m.id);
     s.answers = up;
-    // up again after a death its pod reported and that was acted on: a new run of its container (a pod added by hand, started again)
-    if (up && s.comfyDied?.from === "pod" && s.comfyDied.told) s.comfyDied = null;
+    // up again after a death that was acted on, the pod not terminated for it: a pod added by hand, its ComfyUI started again
+    if (up && s.comfyDied?.told && s.stoppedBy !== "crash") s.comfyDied = null;
     // its ComfyUI not answering: the pack's watchdog in it is not known to be there either. The Afflatus image on a host whose
     // GPU does not work answers on ComfyUI's port in its place, and says so (deploy/runpod/broken.py)
     if (!up) {
@@ -825,7 +831,7 @@ export class RentedFollow extends RentedBilling {
         if (m.rented!.deployed && said?.afflatus_pod === "gpu_failed") s.gpuFailed = `Terminated: its GPU did not work on that host (${String(said.error ?? "CUDA error").slice(0, 200)}). Nothing billed after; deploy again, RunPod picks another host.`;
         if (said?.afflatus_pod === "comfy_died") {
           const report = said.report && typeof said.report === "object" && !Array.isArray(said.report) ? (said.report as Record<string, unknown>) : null;
-          s.comfyDied = { said: String(said.error || "ComfyUI died").slice(0, 300), report, from: "pod", told: false, render: false };
+          s.comfyDied = { said: String(said.error || "ComfyUI died").slice(0, 300), report, from: "pod", handled: false, told: false, render: false };
         }
       }
       return false;
