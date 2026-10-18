@@ -17,12 +17,14 @@ export function registerDownloads(app: FastifyInstance, s: Services): void {
   /** Model files being fetched into ComfyUI, whether that is turned on, and whether this ComfyUI can do it. */
   app.get("/api/downloads", async (req) => {
     const settings = await readSettings(s.db);
-    if (!settings.downloadModels) return { on: false, items: s.downloads.list().map(withAgain), manager: { found: false }, via: "none" };
     // `machine`: asked of that ComfyUI (Settings › Models, its tab); the first one otherwise
     const { comfy, dir } = await downloadTarget(s, settings, z.object({ machine: z.string().max(40).optional() }).parse(req.query).machine);
+    // whether ComfyUI-Manager is there is said with downloads off too: node packs are installed with it all the same. Said
+    // "not found" then, a pod's Models tab greyed its Install button, the Manager running there (2026-10-18)
+    const manager = await s.downloads.manager(comfy);
+    if (!settings.downloadModels) return { on: false, items: s.downloads.list().map(withAgain), manager, via: "none" };
     // who would download: Afflatus itself (it can write ComfyUI's model folders), the node pack, ComfyUI-Manager, or nobody
-    const [manager, via] = await Promise.all([s.downloads.manager(comfy), s.downloads.route(comfy, dir)]);
-    return { on: true, items: s.downloads.list().map(withAgain), manager, via };
+    return { on: true, items: s.downloads.list().map(withAgain), manager, via: await s.downloads.route(comfy, dir) };
   });
 
   /** Fetch a missing model file into ComfyUI (see fetchFile.ts). Only when the user turned this on in Settings. */

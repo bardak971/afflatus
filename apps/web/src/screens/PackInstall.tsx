@@ -27,7 +27,8 @@ export function usePackInstall({ missing, packs, machine, readAgain, again }: {
   /** What is read again once ComfyUI is back, in a few words ("the workflow"): said while it restarts and when it did not come back. */
   again: { what: string; reopen: string };
 }) {
-  const downloads = useDownloads();
+  // the Manager of the machine the packs go to (a pod's tab), not the first one's
+  const downloads = useDownloads(machine);
   const noManager = downloads.data?.manager.found === false;
   const [started, setStarted] = useState<(PacksStarted & { at: number }) | null>(null);
   const start = useMutation({ mutationFn: () => api.installPacks({ classes: missing, packs, ...(machine ? { machine } : {}) }), onSuccess: (s) => setStarted({ ...s, at: Date.now() }) });
