@@ -161,7 +161,20 @@ trap - EXIT
 # here: a render that killed ComfyUI once would likely kill it again, billed
 COMFY_STATE=/tmp/afflatus-comfy.json
 DIED=/tmp/afflatus-died.json
+# RunPod's stop (TERM) heard from here on, before ComfyUI is even started: PID 1 has no default end on TERM, so a stop
+# that came before the trap would wait out its grace period and end in SIGKILL. Before ComfyUI runs, it only says stop;
+# once it runs, it is passed on to it
+COMFY=
+STOPPING=
+WOKEN=
+stop() {
+  STOPPING=1
+  WOKEN=1
+  [ -z "$COMFY" ] || kill -TERM "$COMFY" 2>/dev/null || true
+}
+trap stop TERM INT
 python -u "$POD/died.py" start "$COMFY_STATE" || echo "[afflatus-pod] died.py did not run: a crash will say less"
+[ -z "$STOPPING" ] || exit 0
 # --disable-pinned-memory: ComfyUI keeps the models' weights in pinned RAM to feed the GPU (31 GB of an A40 pod's 46.6),
 # which the kernel cannot take back; the frames of a long decode on top went past the container's limit and it was
 # killed. Measured on an A40 (2026-10-18, a masked swap of 226 frames): killed at 46.6 GB without it; with it, three
@@ -174,14 +187,8 @@ unset __COMFY_CLI_SESSION__
 python /comfyui/main.py --listen 0.0.0.0 --port 8188 --enable-manager --disable-auto-launch --disable-pinned-memory --base-directory "$BASE" ${COMFYUI_ARGS:-} &
 COMFY=$!
 echo "$COMFY" > /tmp/afflatus-comfy.pid
-STOPPING=
-WOKEN=
-stop() {
-  STOPPING=1
-  WOKEN=1
-  kill -TERM "$COMFY" 2>/dev/null || true
-}
-trap stop TERM INT
+# a stop that came while it was being started: passed on now that there is a ComfyUI to stop
+[ -z "$STOPPING" ] || kill -TERM "$COMFY" 2>/dev/null || true
 # a trap ends `wait` early with ComfyUI still running: wait again, until what `wait` returns is ComfyUI's own end
 set +e
 while :; do
@@ -192,12 +199,19 @@ while :; do
 done
 # no `set -e` from here on: a write to the boot log that fails (its stamper gone, killed with ComfyUI by the out-of-memory
 # killer) must not end this script, which RunPod would start again: what this run is here to prevent
-trap - TERM INT
 if [ -n "$STOPPING" ]; then
   exit 0
 fi
 echo "[afflatus-pod] ComfyUI ended (status $code)"
 python -u "$POD/died.py" end "$code" "$COMFY_STATE" "$DIED" || echo "[afflatus-pod] died.py could not write its report"
-python -u "$POD/broken.py" --died "$DIED" || echo "[afflatus-pod] broken.py did not run: no watchdog"
-sleep 1200
+# broken.py serves until the pod ends, as a child (and the wait after it too): RunPod's stop then ends the script at once,
+# instead of being lost on PID 1 until its SIGKILL
+WAITING=
+trap 'kill $WAITING 2>/dev/null; exit 0' TERM INT
+python -u "$POD/broken.py" --died "$DIED" &
+WAITING=$!
+wait "$WAITING" || echo "[afflatus-pod] broken.py did not run: no watchdog"
+sleep 1200 &
+WAITING=$!
+wait "$WAITING"
 # --- end of the run
