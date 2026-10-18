@@ -62,15 +62,19 @@ async function deployed(r: ReturnType<typeof row>) {
 }
 
 describe("the files a pod is sent for a waiting job", () => {
-  it("are the 5 a swap with the Mask off loads: no family video model, no SAM, one video VAE", async () => {
-    const files = await deployed(await swapRow());
+  it("are the 5 a swap with the Mask off loads: no family video model, no SAM, one video VAE; RIFE too with RIFE ×2 on", async () => {
+    const files = await deployed(await swapRow({ smooth: false }));
     expect(files.map((f) => f.file).sort()).toEqual([FUSED, SWAP_LORA, download("clip"), download("videoVae"), download("audioVae")].sort());
+    // RIFE ×2 on (the form's default): RIFE's download too, which a pod could not get before (2026-10-18)
+    const smooth = await deployed(await swapRow());
+    expect(smooth.map((f) => f.file).sort()).toEqual([FUSED, SWAP_LORA, download("clip"), download("videoVae"), download("audioVae"), download("rife")].sort());
+    expect(smooth.find((f) => f.file === download("rife"))).toMatchObject({ folder: "frame_interpolation", url: slot("rife").get!.url });
     // the family's download, with where to get it
     expect(files.find((f) => f.file === download("videoVae"))).toMatchObject({ folder: "vae", url: slot("videoVae").get!.url });
   });
 
   it("add SAM 3 with the Mask on", async () => {
-    const files = (await deployed(await swapRow({ maskOn: true }))).map((f) => f.file);
+    const files = (await deployed(await swapRow({ maskOn: true, smooth: false }))).map((f) => f.file);
     expect(files).toContain(download("swapSam"));
     expect(files).toHaveLength(6);
   });
@@ -145,6 +149,12 @@ describe("lackOn from what the job's graph loads", () => {
   it("sends the graph's files the machine lacks, with the family's download address", () => {
     const lack = lackOn(recipe, {}, pod(), { families: {} }, machine, () => "h3", { files: [], absent: [file(download("videoVae"), "videoVae"), file(SWAP_LORA)] });
     expect(lack).toEqual({ off: false, sendable: true, files: [{ file: download("videoVae"), folder: "vae", url: slot("videoVae").get!.url }, { file: SWAP_LORA, folder: "loras" }] });
+  });
+
+  it("sends RIFE to a rented pod, and does not keep a job off a machine of the user's own for want of it", () => {
+    const rife = { files: [], absent: [file(download("rife"), "rife")] };
+    expect(lackOn(recipe, {}, pod(), { families: {} }, { ...machine, rented: { provider: "runpod" } as never }, () => "h3", rife)).toMatchObject({ sendable: true, files: [{ file: download("rife"), url: slot("rife").get!.url }] });
+    expect(lackOn(recipe, {}, pod(), { families: {} }, machine, () => "h3", rife)).toBeNull();
   });
 
   it("cannot send a family file the graph reads and nobody has", () => {
@@ -226,7 +236,7 @@ describe("an optional file a job's settings use (H3's latent upscaler, 2026-10-1
   });
 
   it("says so on the job when a render falls back to a plain resize without it", () => {
-    const input = parseInput(h3Video, { description: "a", seconds: 5, upscale: "Latent: re-sampled" });
+    const input = parseInput(h3Video, { description: "a", seconds: 5, upscale: "Latent: re-sampled", smooth: false });
     const slots = Object.fromEntries(h3.slots.filter((s) => !s.optional).map((s) => [s.id, s.get!.file]));
     expect(h3Video.build(input, dryContext({ slots, uploads: { "self.latent": "l.latent" } })).warnings).toEqual([expect.stringMatching(/^Enlarged by a plain resize: H3's latent upscaler is not on this ComfyUI/)]);
     expect(h3Video.build(input, dryContext({ slots: { ...slots, latentUpscaler: download("latentUpscaler") }, uploads: { "self.latent": "l.latent" } })).warnings ?? []).toEqual([]);

@@ -7,7 +7,7 @@ import { recipeById } from "../src/index";
 type Node = { class_type: string; inputs: Record<string, unknown> };
 type Graph = Record<string, Node>;
 const of = (graph: Graph, type: string) => Object.values(graph).filter((n) => n.class_type === type);
-const slots = { unet: "u.safetensors", clip: "c.safetensors", videoVae: "v.safetensors", audioVae: "a.safetensors", refUnet: "hybrid_turbo.safetensors", swapLora: "swap.safetensors", swapUnet: "minimax_h3_ref2va.safetensors", swapSam: "sam3.1.safetensors" };
+const slots = { unet: "u.safetensors", clip: "c.safetensors", videoVae: "v.safetensors", audioVae: "a.safetensors", refUnet: "hybrid_turbo.safetensors", swapLora: "swap.safetensors", swapUnet: "minimax_h3_ref2va.safetensors", swapSam: "sam3.1.safetensors", rife: "rife_v4.26.safetensors" };
 const part = (over: Partial<MediaFacts> = {}): MediaFacts => ({ width: 864, height: 480, frames: 141, fps: H3_FPS, hasSound: true, ...over });
 
 const build = (over: Record<string, unknown> = {}, source: MediaFacts = part(), ctx: { slots?: Record<string, string>; has?: (cls: string) => boolean } = {}) => {
@@ -230,7 +230,7 @@ describe("MiniMax H3 · Swap character", () => {
     expect([fused, dasiwa, "DasiwaMinimaxH3_dasiwaHybridV3_int8.safetensors", "minimax_h3_ref2va_pruned_int8_convrot.safetensors"].every(offered)).toBe(true);
     expect(offered("minimax_h3_fl2va_pruned_int8_convrot.safetensors")).toBe(false);
     // Turbo asks for a turbo LoRA only where the model is not distilled: the reference model's own
-    const asked = (over: Record<string, unknown>) => h3Swap.needsWith!(parseInput(h3Swap, { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], ...over }), slots);
+    const asked = (over: Record<string, unknown>) => h3Swap.needsWith!(parseInput(h3Swap, { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], smooth: false, ...over }), slots);
     expect(asked({ fast: true })).toEqual(["refTurbo"]);
     expect(asked({ fast: true, swapModel: dasiwa })).toEqual([]);
     expect(asked({ fast: false })).toEqual([]);
@@ -274,7 +274,7 @@ describe("MiniMax H3 · Swap character", () => {
     expect(lora({ turbo: "minimax_h3_fl2v_turbo_8step.safetensors", refTurbo: "minimax_h3_ref2v_turbo_4step.safetensors" })).toEqual(["minimax_h3_ref2v_turbo_4step.safetensors", "swap.safetensors"]);
     expect(lora({ turbo: "minimax_h3_fl2v_turbo_8step.safetensors" })).toEqual(["minimax_h3_fl2v_turbo_8step.safetensors", "swap.safetensors"]);
     // with no turbo LoRA at all, the reference one is asked for
-    const ask = (over: Record<string, unknown>, have: Record<string, string>) => h3Swap.needsWith!(parseInput(h3Swap, { who: "the man", source: { asset: "v1" }, references: [], ...over }), { ...slots, ...have });
+    const ask = (over: Record<string, unknown>, have: Record<string, string>) => h3Swap.needsWith!(parseInput(h3Swap, { who: "the man", source: { asset: "v1" }, references: [], smooth: false, ...over }), { ...slots, ...have });
     expect(ask({ fast: true }, {})).toEqual(["refTurbo"]);
     expect(ask({ fast: true }, { turbo: "t.safetensors" })).toEqual([]);
     expect(ask({ fast: true, swapModel: "DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors" }, {})).toEqual([]);
@@ -305,7 +305,7 @@ describe("MiniMax H3 · Swap character", () => {
     });
 
     it("asks for its predictor only when it is on, and takes its node pack as an optional one", () => {
-      const parsed = (over: Record<string, unknown>) => parseInput(h3Swap, { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, ...over });
+      const parsed = (over: Record<string, unknown>) => parseInput(h3Swap, { who: "the man", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], fast: false, smooth: false, ...over });
       expect(h3Swap.nodes(parsed({ veda: true }))).not.toContain("VedaSparseAttention");
       expect(h3Swap.optionalNodes).toContain("VedaSparseAttention");
       expect(h3Swap.needsWith!(parsed({ veda: true }), slots)).toEqual(["veda"]);
@@ -382,7 +382,8 @@ describe("MiniMax H3 · Swap character", () => {
     });
 
     it("files the source's pixels outside the person: the frames the clip keeps are the render pasted onto the part", () => {
-      const { built, graph } = build();
+      // RIFE off: the frames saved are the pasted ones themselves
+      const { built, graph } = build({ smooth: false });
       const saved = graph[built.outputs.find((o) => o.role === "result")!.node]!;
       const pasted = from(graph, saved.inputs.images);
       expect(pasted.class_type).toBe("ImageCompositeMasked");
@@ -445,10 +446,13 @@ describe("MiniMax H3 · Swap character", () => {
       expect(read.has("unet")).toBe(false);
       expect(read.has("refUnet")).toBe(false);
       expect([...read].sort()).toEqual(["clip", "swapLora", "videoVae"]);
-      const asks = (over: Record<string, unknown>) => h3Swap.needsWith!(parseInput(h3Swap, { who: "the man", source: { asset: "v1" }, references: [], fast: false, ...over }), {});
+      const asks = (over: Record<string, unknown>) => h3Swap.needsWith!(parseInput(h3Swap, { who: "the man", source: { asset: "v1" }, references: [], fast: false, smooth: false, ...over }), {});
       expect(asks({})).not.toContain("swapSam");
       expect(asks({ maskOn: true })).toContain("swapSam");
       expect(asks({ maskOn: true, maskPreview: true })).toContain("swapSam");
+      // RIFE with "RIFE ×2" on (the default), never with it off: a pod rendered at half the rate without a word (2026-10-18)
+      expect(asks({ smooth: true })).toContain("rife");
+      expect(asks({})).not.toContain("rife");
     });
   });
 });

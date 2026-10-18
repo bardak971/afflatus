@@ -1,7 +1,7 @@
 import { defineRecipe, GraphBuilder, type BuildContext, type LoraValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
 import { WAN_FORM_PIXELS, WAN_FPS, wanCanvas, wanFrames } from "./family";
 import { UPSCALE_OPTIONAL, upscaleInputs, upscaleNodes } from "../video/upscale";
-import { colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, type ColourMatch } from "../shared/finish";
+import { colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, rifeNeeds, rifeSkippedSaid, type ColourMatch } from "../shared/finish";
 import { applyLoras, livePreview, loraLoads } from "../shared/model";
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
 import { loadUnet, unetNodes } from "../shared/unet";
@@ -203,7 +203,8 @@ const turboNeeds = (input: WanVideo, slots: Record<string, string> = {}): string
 
 export const wanVideo = defineRecipe<WanVideo>({
   id: "wan.video",
-  needsWith: turboNeeds,
+  // the lightx2v LoRAs with Turbo, RIFE with "RIFE ×2" on
+  needsWith: (input, slots) => [...turboNeeds(input, slots), ...rifeNeeds(input.smooth)],
   family: "wan",
   version: 1,
   title: "Video",
@@ -350,7 +351,9 @@ export const wanVideo = defineRecipe<WanVideo>({
     g.phase("decoding");
     const made = finishFrames(g, ctx, colourMatched(g, ctx, g.out("VAEDecode", { samples: [sampled, 0], vae }), input), input, { frame: { width, height }, rife: input.smooth, fps: input.fps });
     const lorasOf = (turboLora: string | undefined, loras: LoraValue[]) => [...(turboLora ? [`loras/${turboLora}`] : []), ...loraLoads(loras)];
+    const unsmoothed = rifeSkippedSaid(input.smooth, ctx);
     return {
+      ...(unsmoothed ? { warnings: [unsmoothed] } : {}),
       graph: g.graph,
       phases: g.phases,
       outputs: [{ node: made.out, kind: "video", role: "result" }],

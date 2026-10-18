@@ -5,6 +5,7 @@ import { latentUpscaleNeeds } from "./latent-upscale";
 import { h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video, type H3Extra } from "./video";
 import { saveVideo } from "../shared/out";
+import { rifeNeeds } from "../shared/finish";
 import { partBounds } from "../motion/driving";
 
 /**
@@ -422,6 +423,7 @@ export const h3Swap = defineRecipe<H3Swap>({
     // H3's latent upscaler for a finish that enlarges with it: the swap is built as a clip (buildH3), and a pod finishing
     // Timeline 19's swaps without it fell back to a plain resize, blurred (2026-10-18)
     ...latentUpscaleNeeds(input),
+    ...rifeNeeds(input.smooth),
     ...(input.fast && !modelOf({ ...input, model: input.swapModel ?? slots.swapUnet, turboIn: "From the name" }, slots).turbo && !slots.refTurbo && !slots.turbo ? ["refTurbo"] : []),
   ],
   // Show the mask runs the tracking and the masks alone (MASK_NODES, the preview node and the video out are optional)

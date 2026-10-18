@@ -1,5 +1,5 @@
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
-import { folderOfFileInput, isMissingSlotFile, isShown, packOfNode, type GraphFile, type LoraValue, type Recipe } from "@afflatus/core";
+import { folderOfFileInput, isMissingSlotFile, isShown, packOfNode, SOFT_SLOTS, type GraphFile, type LoraValue, type Recipe } from "@afflatus/core";
 import type { Loaded } from "./jobFiles";
 import type { Machine, Settings } from "./settings";
 
@@ -147,21 +147,23 @@ export interface Lack {
  */
 export function lackOn(
   recipe: Pick<Recipe<any>, "id" | "family" | "inputs" | "needs" | "needsWith"> & Partial<Pick<Recipe<any>, "files">>, input: Record<string, unknown>, scan: Scan,
-  settings: Pick<Settings, "families">, machine: Pick<Machine, "families">, recipeFamily: (id: string) => string | undefined, loaded?: Loaded | null,
+  settings: Pick<Settings, "families">, machine: Pick<Machine, "families"> & Partial<Pick<Machine, "rented">>, recipeFamily: (id: string) => string | undefined, loaded?: Loaded | null,
 ): Lack | null {
+  // a machine of the user's own renders without a file that only makes the render better (SOFT_SLOTS): it cannot be sent it
+  const soft = (slot: string | undefined) => !machine.rented && slot !== undefined && SOFT_SLOTS.has(slot);
   const status = scan.recipes.find((r) => r.id === recipe.id);
   const on = familyOn(settings, machine, recipe.family, foundIn(scan, recipe.family, recipeFamily));
   // "off" is said only of a family switched off by hand (there, or on every machine): one off because its files are not
   // there is said by the files it lacks
   const off = !on && (machine.families[recipe.family] ?? settings.families[recipe.family]) === false;
-  if (loaded) return lackOfGraph(recipe, input, scan, status, on, off, loaded);
+  if (loaded) return lackOfGraph(recipe, input, scan, status, on, off, { ...loaded, absent: loaded.absent.filter((f) => !soft(f.slot)) });
   const wanted = filesAsked(recipe, input);
   const asked = wanted.filter(({ input: id, file }) => status?.options[id] && !status.options[id]!.includes(file));
   const slots = scan.families.find((f) => f.id === recipe.family)?.slots ?? [];
   // the family's files this input asks for (Turbo's LoRAs): without them it would run, but not as asked. A model left
   // out of the form is the family's file there, as the build loads it (a distilled one asks for no turbo LoRA)
   const asks = recipe.needsWith?.(input, slotFilesOf(slots)) ?? [];
-  const lacking = slots.filter((x) => asks.includes(x.id) && !x.file);
+  const lacking = slots.filter((x) => asks.includes(x.id) && !x.file && !soft(x.id));
   if (status?.ready && on && !asked.length && !lacking.length) return null;
   // a family file the job's own pick fills is not asked for as the family's usual file (a pod would fetch a model it never uses)
   const files = [

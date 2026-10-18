@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeComfy, startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
+import { RIFE_GET } from "@afflatus/recipes";
 import { newId, now, OWNER } from "../src/db";
 import { readSettings, writeSettings } from "../src/settings";
 import { CHECKPOINT, complete, get, job, makeApp, makeFake, post, referenceCatalog, until, type TestApp } from "./helpers";
@@ -219,7 +220,7 @@ describe("a pod's files planned from the waiting jobs", () => {
     ]));
   });
 
-  it("include RIFE for the finish of an interpolated take, sent from this computer, and the finish waits on the pod for it", async () => {
+  it("include RIFE (its download) for the finish of an interpolated take, and the finish waits on the pod for it", async () => {
     // a finish is no recipe: a pod got none of its files, and Timeline 19's finish failed there for want of RIFE (2026-10-18)
     mkdirSync(join(comfyDir, "models", "frame_interpolation"), { recursive: true });
     writeFileSync(join(comfyDir, "models", "frame_interpolation", "rife49.pth"), Buffer.alloc(50_000, 7));
@@ -234,7 +235,7 @@ describe("a pod's files planned from the waiting jobs", () => {
     const a = await t.services.queue.enqueueCut({ asset, action: "finish", route: "model", upscaleModel: "zz-test-upscaler.pth", by: 2, startMs: 0, endMs: 1000 }, "zz-test finish");
     await until(() => t.services.podFiles.view(id).length === 2, 15_000);
     expect(t.services.podFiles.view(id)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ file: "rife49.pth", folder: "frame_interpolation", tier: "need", jobs: [a] }),
+      expect.objectContaining({ file: RIFE_GET.file, folder: "frame_interpolation", tier: "need", jobs: [a] }),
       expect.objectContaining({ file: "zz-test-upscaler.pth", folder: "upscale_models", tier: "need", jobs: [a] }),
     ]));
   });

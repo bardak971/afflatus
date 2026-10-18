@@ -9,6 +9,7 @@ import { newId, now, OWNER } from "../src/db";
 import { waitingFiles } from "../src/deployModels";
 import { loadedOn } from "../src/jobFiles";
 import { toolLackOn } from "../src/machineScans";
+import { RIFE_GET } from "@afflatus/recipes";
 import { CUT_JOB } from "../src/timelineModel";
 import type { QueueCore } from "../src/queueModel";
 import { CHECKPOINT, makeApp, referenceCatalog, type TestApp } from "./helpers";
@@ -78,14 +79,14 @@ describe("the files a pod is sent for a finish", () => {
     expect(await listed({ asset, action: "finish", route: "rtx" })).toEqual([]);
   });
 
-  it("add RIFE (this PC's: no download is known) only for a take that was interpolated", async () => {
-    expect(await listed({ asset: await take(true), action: "finish", route: "rtx" })).toEqual(["rife49.pth"]);
+  it("add RIFE (its download, which a pod fetches itself) only for a take that was interpolated", async () => {
+    expect(await listed({ asset: await take(true), action: "finish", route: "rtx" })).toEqual([RIFE_GET.file]);
     expect(await listed({ asset: await take(false), action: "finish", route: "rtx" })).toEqual([]);
   });
 
   it("are RIFE for a RIFE slow-motion, nothing for an ffmpeg one or a plain cut", async () => {
     const asset = await take(false);
-    expect(await listed({ asset, action: "slow", engine: "rife", factor: 2 })).toEqual(["rife49.pth"]);
+    expect(await listed({ asset, action: "slow", engine: "rife", factor: 2 })).toEqual([RIFE_GET.file]);
     expect(await listed({ asset, action: "slow", engine: "ffmpeg", factor: 2 })).toEqual([]);
     expect(await listed({ asset, action: "copy" })).toEqual([]);
   });
@@ -99,11 +100,11 @@ describe("a finish on a machine", () => {
     expect((await loadedOn(core, cut({ asset: await take(true), action: "finish", route: "model" }), on))?.absent).toEqual([]);
     const seedvr = await loadedOn(core, cut({ asset: await take(true), action: "finish", route: "seedvr" }), on);
     expect(seedvr?.absent.map((f) => f.file).sort()).toEqual([SEEDVR, SEEDVR_VAE].sort());
-    // a machine without RIFE, and none on this PC either: RIFE cannot be sent, and the finish is kept off it
+    // a machine without RIFE: it is sent RIFE's download, whether this PC has a copy or not
     fake.models.frame_interpolation = [];
     const none = { ...on, scan: { ...on.scan, at: "later" } };
     const lack = toolLackOn((await loadedOn(core, cut({ asset: await take(true), action: "finish", route: "rtx" }), none))!, []);
-    expect(lack).toMatchObject({ sendable: false, why: expect.stringMatching(/^no RIFE model to send it/) });
+    expect(lack).toMatchObject({ sendable: true, files: [{ file: RIFE_GET.file, folder: "frame_interpolation" }] });
   });
 });
 

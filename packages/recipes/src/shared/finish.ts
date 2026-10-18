@@ -2,6 +2,24 @@ import type { BuildContext, GraphBuilder, InputSpec, Ref } from "@afflatus/core"
 import { pixelUpscale, sharpened, UPSCALE, type UpscaleValues } from "../video/upscale";
 import { saveVideo } from "./out";
 
+/**
+ * Where RIFE is had: rife_v4.26 repackaged for ComfyUI's own frame interpolation (models/frame_interpolation), byte for byte
+ * the file the owner's ComfyUI runs (SHA-256 1518745…317c94, 2026-10-18), under its originals' MIT and Apache 2.0 licences.
+ * Every video offers "RIFE ×2": a pod had no way to get it, and rendered at half the rate without a word.
+ */
+export const RIFE_GET = { file: "rife_v4.26.safetensors", url: "https://huggingface.co/sisniha/frame_interpolation/resolve/main/frame_interpolation/rife_v4.26.safetensors" };
+
+/** RIFE, for a render that interpolates with it (Recipe.needsWith): a pod is sent it for that job only, never for one with it off. */
+export const rifeNeeds = (wanted: boolean | undefined): string[] => (wanted ? ["rife"] : []);
+
+/** What a render that asked for RIFE and could not run it says on its job (it stays at the model's rate); null otherwise. */
+export function rifeSkippedSaid(wanted: boolean | undefined, ctx: Pick<BuildContext, "slots" | "has">): string | null {
+  if (!wanted) return null;
+  if (!ctx.slots.rife) return "Not interpolated: no RIFE model on this ComfyUI (models/frame_interpolation; Settings › Models has it).";
+  if (!ctx.has("FrameInterpolate") || !ctx.has("FrameInterpolationModelLoader")) return "Not interpolated: this ComfyUI has no frame interpolation nodes (a newer ComfyUI has them).";
+  return null;
+}
+
 /** The colour match to the start picture, on the forms of the families that take one. */
 export interface ColourMatch {
   colourMatch: boolean;

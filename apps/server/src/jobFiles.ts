@@ -3,7 +3,8 @@ import { choicesOf, graphFiles, isMissingSlotFile, missingSlotFile, parseInput, 
 import type { Comfy } from "./comfy";
 import { readJson, type JobRow, type QueueCore } from "./queueModel";
 import { builtOf, withTexts } from "./queueSubmit";
-import { rifeModelIn, toolNeeds } from "./queueTools";
+import { RIFE_GET } from "@afflatus/recipes";
+import { toolNeeds } from "./queueTools";
 import { CUT_JOB } from "./timelineModel";
 
 /**
@@ -154,11 +155,10 @@ async function toolLoadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id
     if (file) add(file, "upscale_models", "UpscaleModelLoader", "model_name", needs.upscaleModel ? undefined : "upscaleModel");
   }
   if (needs.rife) {
-    // a RIFE model as rifeModelIn picks one, from the machine's folder, else from this PC's (sent from here)
+    // a RIFE model as rifeModelIn picks one: the machine's own, else the one RIFE is had as (RIFE_GET), as a slot is named
+    // (podSlotFiles); this PC's only when the download is not wanted: a machine that has nothing yet gets the download
     const rifeIn = (files: string[] | null) => (files ? (files.find((f) => /rife/i.test(f)) ?? files[0] ?? null) : null);
-    const own = rifeIn(await listedOn("frame_interpolation"));
-    const here = own ? null : rifeIn(await mine.client.models("frame_interpolation").catch(() => null)) ?? rifeModelIn(await mine.catalog().catch(() => ({})));
-    add(own ?? here ?? missingSlotFile("rife"), "frame_interpolation", "FrameInterpolationModelLoader", "model_name", "rife");
+    add(rifeIn(await listedOn("frame_interpolation")) ?? RIFE_GET.file, "frame_interpolation", "FrameInterpolationModelLoader", "model_name", "rife");
   }
   if (!on) return { files, absent: files };
   const catalog = await on.comfy.catalog().catch(() => ({}) as NodeCatalog);

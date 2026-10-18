@@ -4,7 +4,7 @@ import { UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNodes } from "../video
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
-import { colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, openingStart, type ColourMatch } from "../shared/finish";
+import { colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, openingStart, rifeNeeds, rifeSkippedSaid, type ColourMatch } from "../shared/finish";
 import { applyLoras, livePreview, loraLoads } from "../shared/model";
 
 /**
@@ -362,6 +362,9 @@ function ltxTemporal(run: LtxRun, made: { video: Ref; audio: Ref }): { video: Re
 export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
   const { fps } = spec;
   return defineRecipe<LtxVideo>({
+    // RIFE when the frames are interpolated with it: asked for, or Auto without LTX's temporal upscaler (or with SeedVR2,
+    // which takes RIFE after it), as the build below picks
+    needsWith: (input, slots = {}) => rifeNeeds(input.smooth && input.smoothWith !== SMOOTH_LTX && (input.smoothWith === SMOOTH_RIFE || !slots.temporal || (input.smoothWith === SMOOTH_AUTO && input.upscale === UPSCALE.seedvr))),
     id: spec.id,
     family: spec.family,
     version: 1,
@@ -563,8 +566,10 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       const images = g.out("VAEDecodeTiled", { samples: made.video, vae: loaded.vae, tile_size: input.tile, overlap: 64, temporal_size: input.tileFrames, temporal_overlap: spec.decode.overlap });
       const heard = g.out("LTXVAudioVAEDecode", { samples: made.audio, audio_vae: loaded.audioVae });
       const done = finishFrames(g, ctx, colourMatched(g, ctx, images, openingStart(input)), input, { frame: { width, height }, rife: input.smooth && !temporal, fps, audio: heard, doubled: temporal });
+      const unsmoothed = rifeSkippedSaid(input.smooth && !temporal, ctx);
 
       return {
+        ...(unsmoothed ? { warnings: [unsmoothed] } : {}),
         graph: g.graph,
         phases: g.phases,
         outputs: [{ node: done.out, kind: "video", role: "result" }],
