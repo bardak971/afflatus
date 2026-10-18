@@ -1,5 +1,5 @@
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
-import { folderOfFileInput, isShown, missingSlotFile, packOfNode, type GraphFile, type LoraValue, type Recipe } from "@afflatus/core";
+import { folderOfFileInput, isMissingSlotFile, isShown, packOfNode, type GraphFile, type LoraValue, type Recipe } from "@afflatus/core";
 import type { Loaded } from "./jobFiles";
 import type { Machine, Settings } from "./settings";
 
@@ -101,7 +101,8 @@ export function filesUsed(
   recipe: Pick<Recipe<any>, "family" | "inputs" | "needs" | "needsWith"> & Partial<Pick<Recipe<any>, "files">>, input: Record<string, unknown>, scan: Scan | null,
   slots: Array<{ id: string; folder: string; optional?: boolean; get?: { file: string; url: string } }>, loaded?: Pick<Loaded, "files"> | null,
 ): Array<{ file: string; folder: string; url?: string }> {
-  if (loaded) return loaded.files.map((f) => withUrl(recipe, slots, f));
+  // a file nobody has (missingSlotFile) is not one to list: the job cannot be sent it
+  if (loaded) return filesOfLoaded(loaded, slots, recipe);
   const out: Array<{ file: string; folder: string; url?: string }> = filesAsked(recipe, input).map(({ file, folder }) => ({ file, folder }));
   const found = scan?.families.find((f) => f.id === recipe.family)?.slots ?? [];
   const asks = recipe.needsWith?.(input, slotFilesOf(found)) ?? [];
@@ -187,6 +188,30 @@ export function lackOn(
 }
 
 /**
+ * What keeps a finish or a RIFE slow-motion off a machine (jobFiles.ts toolLoadedOn): the files it loads that the machine
+ * lacks, each with where to get it when known (SeedVR2's downloads; RIFE and an upscale model come from this PC). One had
+ * nowhere (no RIFE on this PC either) cannot be sent, and says so. Null when the machine has them all.
+ */
+export function toolLackOn(loaded: Loaded, slots: ReadonlyArray<{ id: string; label?: string; get?: { file: string; url: string } }>): Lack | null {
+  const gap = loaded.absent.find((f) => isMissingSlotFile(f.file));
+  const files = loaded.absent.filter((f) => !isMissingSlotFile(f.file)).map((f) => withUrl({}, slots, f));
+  // the node types it lacks there, each of a pack Afflatus knows and can install (as a render's: lackOn)
+  const missing = loaded.missingNodes ?? [];
+  const packs = [...new Set(missing.map((n) => packOfNode(n)))];
+  const knownPacks = packs.every((p) => p && !p.own) ? packs.map((p) => p!.name) : null;
+  if (!gap && !files.length && !missing.length) return null;
+  const unknown = missing.filter((n) => packOfNode(n)?.own !== false);
+  const why = gap
+    ? `no ${gap.slot === "rife" ? "RIFE model" : gap.slot === "upscaleModel" ? "upscale model" : (slots.find((x) => x.id === gap.slot)?.label ?? "model file")} to send it: none in this PC's models/${gap.folder} either`
+    : knownPacks === null ? `its ComfyUI lacks ${unknown.slice(0, 3).join(", ")}${unknown.length > 3 ? "…" : ""}, of no node pack Afflatus can install` : null;
+  return { off: false, files, sendable: !why, ...(knownPacks?.length ? { packs: knownPacks } : {}), ...(why ? { why } : {}) };
+}
+
+/** The files a job loads, with where to get each, as a pod that has none of them needs them (the Deploy dialog, the hunt). */
+export const filesOfLoaded = (loaded: Pick<Loaded, "files">, slots: ReadonlyArray<{ id: string; get?: { file: string; url: string } }>, recipe: Partial<Pick<Recipe<any>, "files">> = {}) =>
+  loaded.files.filter((f) => !isMissingSlotFile(f.file)).map((f) => withUrl(recipe, slots, f));
+
+/**
  * lackOn from what the job's graph loads: the files a machine lacks are the graph's own, under the names its build there
  * gives them (podSlotFiles: the machine's file, else the family's download, else this PC's, sent from here). A family file
  * the graph reads and nobody has (missingSlotFile) cannot be sent.
@@ -197,8 +222,8 @@ function lackOfGraph(
 ): Lack | null {
   const slots = scan.families.find((f) => f.id === recipe.family)?.slots ?? [];
   const filled = new Set(filesAsked(recipe, input).map((w) => w.input));
-  const gap = loaded.absent.find((f) => f.slot && f.file === missingSlotFile(f.slot));
-  const files = loaded.absent.filter((f) => !(f.slot && f.file === missingSlotFile(f.slot))).map((f) => withUrl(recipe, slots, f));
+  const gap = loaded.absent.find((f) => isMissingSlotFile(f.file));
+  const files = loaded.absent.filter((f) => !isMissingSlotFile(f.file)).map((f) => withUrl(recipe, slots, f));
   const packs = [...new Set((status?.missingNodes ?? []).map((n) => packOfNode(n)))];
   const knownPacks = packs.every((p) => p && !p.own) ? packs.map((p) => p!.name) : null;
   // an input with nothing to pick there is filled by a file it asks for, which is then among the graph's files

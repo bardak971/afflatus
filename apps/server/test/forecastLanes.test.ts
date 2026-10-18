@@ -162,6 +162,11 @@ describe("what a batch or a timeline's finish takes in all", () => {
       expected_ms: null, vram_peak: null, heat_peak: null, asset_id: null, work, machine_id: "m1", gpu: null, node_ms: null, energy_wh: null, power_avg_w: null, ram_peak: null, ram_total: null, created_at: now(),
     }))).execute();
     const finish = { recipe: CUT_JOB, input: { asset: video.id, startMs: 0, endMs: 2_000, action: "finish", route: "seedvr", by: 2 } };
+    // every machine has SeedVR2's two files: one without them is not sent a SeedVR2 finish
+    for (const f of fakes) {
+      f.models.diffusion_models = [...(f.models.diffusion_models ?? []), "seedvr2_3b_int8_convrot.safetensors"];
+      f.models.vae = [...(f.models.vae ?? []), "seedvr2_ema_vae_fp16.safetensors"];
+    }
     expect((await t.services.queue.total([finish, finish])).ms).toBe(60_000);
     await post(t.app, "/api/queue/use-only", { machine: "m1" });
     expect((await t.services.queue.total([finish, finish])).ms).toBe(120_000);

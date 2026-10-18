@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ComfyCancelled, detect, waitForOutputs, type Measured, type OutputFile } from "@afflatus/comfy";
 import { choicesOf, GraphBuilder, TOOLS_FAMILY, type BuildContext, type Ref } from "@afflatus/core";
-import { pixelUpscale, saveVideo, sharpened, UPSCALE } from "@afflatus/recipes";
+import { pixelUpscale, RTX_NODES, saveVideo, sharpened, UPSCALE, upscaleNodes } from "@afflatus/recipes";
 import type { Comfy } from "./comfy";
 import { slowSoundOnto } from "./cut";
 import { finishedName, nameOf } from "./autoName";
@@ -138,7 +138,60 @@ async function followed(core: QueueCore, comfy: Comfy, run: Running, row: Pick<J
 }
 
 /** A cut job's options; null for a row whose inputs cannot be read. */
-const cutOptionsOf = (row: Pick<JobRow, "inputs">): CutOptions | null => readJson<CutOptions | null>(row.inputs, null);
+export const cutOptionsOf = (row: Pick<JobRow, "inputs">): CutOptions | null => readJson<CutOptions | null>(row.inputs, null);
+
+/**
+ * Whether a take was interpolated: its render's own frames, kept beside it (raw_key), run at half its rate or less. A finish
+ * of it upscales those frames and runs RIFE again after, so it needs a RIFE model where it runs.
+ */
+export const interpolatedFrom = (video: Pick<AssetRow, "fps">, rawFacts: { width?: number; fps?: number } | null): boolean =>
+  Boolean(rawFacts?.width && rawFacts.fps) && (video.fps ?? 24) > rawFacts!.fps! * 1.5;
+
+/**
+ * The model files a finish or a RIFE slow-motion loads, from its settings and its take, before it runs: what a rented pod is
+ * sent for it, and only for it (jobFiles.ts). `upscaleModel` "": whichever upscale model the machine has. Null for a cut that
+ * loads none, or a take not in the library.
+ */
+export interface ToolNeeds {
+  rife: boolean;
+  seedvr: boolean;
+  upscaleModel: string | null;
+  /** The node classes it cannot run without; `anyNode`: one of these at least (RTX VSR: NVIDIA's pack or DaSiWa's). */
+  nodes: string[];
+  anyNode?: string[];
+}
+
+/** The nodes RIFE runs on, a slow-motion's and an interpolated take's finish's. */
+const RIFE_NODES = ["FrameInterpolationModelLoader", "FrameInterpolate"];
+/** What a RIFE slow-motion runs on: its video in, RIFE, its video out. */
+const SLOW_NODES = ["LoadVideo", "GetVideoComponents", ...RIFE_NODES, "VHS_VideoCombine"];
+export async function toolNeeds(core: Pick<QueueCore, "db" | "storage">, row: Pick<JobRow, "recipe_id" | "inputs">): Promise<ToolNeeds | null> {
+  if (!usesGpu(row)) return null;
+  const opts = cutOptionsOf(row)!;
+  if (opts.action === "slow") return { rife: true, seedvr: false, upscaleModel: null, nodes: SLOW_NODES };
+  const video = await core.db.selectFrom("assets").select(["fps", "mime", "raw_key"]).where("id", "=", opts.asset).executeTakeFirst();
+  if (!video) return null;
+  const route = opts.route ?? "seedvr";
+  const rife = interpolatedFrom(video, await rawFactsOf(core, video));
+  const upscale = route === "rtx" ? UPSCALE.rtx : route === "model" ? UPSCALE.model : UPSCALE.seedvr;
+  return {
+    rife, seedvr: route === "seedvr", upscaleModel: route === "model" ? opts.upscaleModel || "" : null,
+    nodes: ["LoadVideo", "GetVideoComponents", ...upscaleNodes({ upscale }), ...(rife ? RIFE_NODES : [])], ...(route === "rtx" ? { anyNode: RTX_NODES } : {}),
+  };
+}
+
+/** What a take's kept frames are (size, rate), read once per file: a file kept under a key never changes. */
+const rawFactsKept = new Map<string, Promise<{ width?: number; fps?: number } | null>>();
+function rawFactsOf(core: Pick<QueueCore, "storage">, video: Pick<AssetRow, "raw_key" | "mime">): Promise<{ width?: number; fps?: number } | null> {
+  if (!video.raw_key) return Promise.resolve(null);
+  let got = rawFactsKept.get(video.raw_key);
+  if (!got) {
+    got = core.storage.get(video.raw_key).then((raw) => readVideo(raw, extOf(video.mime))).then((v) => v.facts, () => null);
+    rawFactsKept.set(video.raw_key, got);
+    if (rawFactsKept.size > 256) rawFactsKept.delete(rawFactsKept.keys().next().value!);
+  }
+  return got;
+}
 
 /** Whether a tool job runs on ComfyUI's GPU (a finish, a RIFE slow-motion): it waits for ComfyUI and for the end of a pause, as a render does. */
 export function usesGpu(row: Pick<JobRow, "recipe_id" | "inputs">): boolean {
@@ -190,7 +243,7 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
     const raw = video.raw_key ? await core.storage.get(video.raw_key).catch(() => null) : null;
     const rawFacts = raw ? (await readVideo(raw, extOf(video.mime)).catch(() => null))?.facts ?? null : null;
     const fromRaw = Boolean(raw && rawFacts?.width && rawFacts.fps);
-    const doubled = fromRaw && (video.fps ?? 24) > rawFacts!.fps * 1.5;
+    const doubled = fromRaw && interpolatedFrom(video, rawFacts);
     const rife = doubled ? rifeModelIn(catalog) : null;
     if (doubled && !rife) throw new Error("This take was interpolated, and ComfyUI has no RIFE model left to interpolate the finished frames again (models/frame_interpolation).");
     const source = fromRaw ? { width: rawFacts!.width, height: rawFacts!.height } : { width: video.width ?? 0, height: video.height ?? 0 };
@@ -246,7 +299,7 @@ async function runSlowRife(core: QueueCore, row: JobRow, run: Running, clips: Ti
     const comfy = await core.comfy();
     const catalog = await comfy.catalog();
     const rife = rifeModelIn(catalog);
-    const missing = ["LoadVideo", "GetVideoComponents", "FrameInterpolationModelLoader", "FrameInterpolate", "VHS_VideoCombine"].filter((n) => !(n in catalog));
+    const missing = SLOW_NODES.filter((n) => !(n in catalog));
     if (missing.length || !rife) throw new Error(`ComfyUI has no RIFE frame interpolation to run this on${missing.length ? ` (missing nodes: ${missing.join(", ")})` : " (no model in models/frame_interpolation)"}`);
     run.gpu = true;
     const part = await clips.range.rangeSlice(video, opts.startMs, opts.endMs);

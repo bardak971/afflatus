@@ -2,10 +2,9 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { fileKey, firstFree, plural, rankGpus, type HuntMode, type Learned, type PresetFile, type RankedGpu, type RankRender } from "@afflatus/core";
 import { deployOverhead, type DeployOverhead } from "./costs";
-import { deployFiles, deployModels } from "./deployModels";
+import { deployFiles, deployModels, waitingFiles } from "./deployModels";
 import { httpError } from "./errors";
 import { gpuPaces, rentedLoadMs } from "./forecast";
-import { filesUsed } from "./machineScans";
 import { dollars, took, type Say } from "./notifyWords";
 import { readJson, type JobRow } from "./queueModel";
 import { needsComfy } from "./queueOffline";
@@ -263,14 +262,13 @@ export class Hunt {
       return loads.get(family)!;
     };
     return Promise.all(rows.slice(0, RANKED_RENDERS).map(async (r) => {
-      const recipe = this.s.registry.recipe(r.recipe_id);
-      if (!recipe) return { files: [], ms: null };
-      const slots = this.s.registry.family(recipe.family)?.slots ?? [];
-      const used = filesUsed(recipe, readJson<Record<string, unknown>>(r.inputs, {}), scan, slots, await this.s.queue.loadedOnNew(r));
+      const used = await waitingFiles(this.s, r, scan);
       const files = await Promise.all(used.map(async (f) => ({ file: f.file, size: (await this.s.podFiles.about(f).catch(() => null))?.size ?? null })));
-      const f = await this.s.queue.forecastMs(r).catch(() => null);
-      if (!f) return { files, ms: null };
-      return { files, ms: f.ms - f.loadMs, loadMs: (await loadOf(recipe.family)) ?? f.loadMs };
+      // a finish or a RIFE slow-motion: its files count, its time is not ranked (as before)
+      const family = this.s.registry.recipe(r.recipe_id)?.family;
+      const f = family ? await this.s.queue.forecastMs(r).catch(() => null) : null;
+      if (!f || !family) return { files, ms: null };
+      return { files, ms: f.ms - f.loadMs, loadMs: (await loadOf(family)) ?? f.loadMs };
     }));
   }
 

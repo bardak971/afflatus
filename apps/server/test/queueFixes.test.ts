@@ -20,7 +20,8 @@ const FILES = {
   text_encoders: ["qwen3vl_32b_minimax_h3_fp8.safetensors"],
   vae: ["minimax_h3_video_vae_fp16.safetensors", "minimax_h3_audio_vae.safetensors"],
   loras: ["minimax_h3_turbo_lora.safetensors"],
-  upscale_models: [],
+  // the upscale model the finishes below are made with: a machine without it is not sent them
+  upscale_models: ["x2.pth"],
 };
 
 let fake: FakeComfy;

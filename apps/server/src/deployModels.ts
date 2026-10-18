@@ -1,5 +1,7 @@
-import { fileKey, type PresetFile } from "@afflatus/core";
-import { filesUsed } from "./machineScans";
+import type { Scan } from "@afflatus/comfy";
+import { fileKey, TOOLS_FAMILY, type PresetFile } from "@afflatus/core";
+import { filesOfLoaded, filesUsed } from "./machineScans";
+import type { JobRow } from "./queueModel";
 import { filesOf, parseSetDef } from "./modelSets";
 import { measuredRange, type MeasureKind, type Range } from "./podMeasures";
 import { acceptLicences, presetsWithFiles } from "./presetFiles";
@@ -52,6 +54,18 @@ export async function deployFiles(s: Services, ask: Pick<DeployAsk, "set" | "fil
   return files;
 }
 
+/**
+ * The model files a waiting job uses, as a pod that has none of them needs them: what its graph loads, else (its graph could
+ * not be built) its family's slots; a finish or a RIFE slow-motion, the files it loads (jobFiles.ts toolLoadedOn). Read by
+ * the Deploy dialog and the hunt's ranking.
+ */
+export async function waitingFiles(s: Services, r: JobRow, scan: Scan | null): Promise<Array<{ file: string; folder: string; url?: string }>> {
+  const loaded = await s.queue.loadedOnNew(r);
+  const recipe = s.registry.recipe(r.recipe_id);
+  if (!recipe) return loaded ? filesOfLoaded(loaded, s.registry.family(TOOLS_FAMILY)?.slots ?? []) : [];
+  return filesUsed(recipe, readJson<Record<string, unknown>>(r.inputs, {}), scan, s.registry.family(recipe.family)?.slots ?? [], loaded);
+}
+
 export async function deployModels(s: Services, o: { cloud: string; set: string }): Promise<DeployModelsView> {
   const rows = (await s.db.selectFrom("jobs").selectAll().where("status", "=", "queued").orderBy("priority").orderBy("created_at").execute()).filter(needsComfy);
   const settings = await readSettings(s.db);
@@ -61,11 +75,7 @@ export async function deployModels(s: Services, o: { cloud: string; set: string 
   const scan = await (await s.comfy()).scan().catch(() => null);
   const counted = new Map<string, DeployFile & { jobs: number; first: boolean }>();
   for (const [i, r] of may.entries()) {
-    const recipe = s.registry.recipe(r.recipe_id);
-    if (!recipe) continue;
-    const slots = s.registry.family(recipe.family)?.slots ?? [];
-    // what its graph loads, built as a pod with none of its files would build it; the family's slots when it cannot be built
-    for (const f of filesUsed(recipe, readJson<Record<string, unknown>>(r.inputs, {}), scan, slots, await s.queue.loadedOnNew(r))) {
+    for (const f of await waitingFiles(s, r, scan)) {
       const key = `${f.folder}|${f.file.toLowerCase()}`;
       const had = counted.get(key);
       if (had) {
