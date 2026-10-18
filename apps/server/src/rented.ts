@@ -97,6 +97,7 @@ export class Rented extends RentedDeploy {
       capped: s?.stopAfter ?? false,
       stopping: s?.stopping ?? false,
       stoppedBy: s?.stoppedBy ?? null,
+      crash: s?.comfyDied && (s.stoppedBy === "crash" || s.answers === false) ? s.comfyDied.said : null,
       booting,
       boot,
       // a start that stopped on an error says so as its pod says it, before the boot limit's words

@@ -16,11 +16,33 @@ the pod's environment, counted from now, since no "still here" ever comes here.
 
 import importlib.util
 import json
+import os
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PACK = "/opt/afflatus-nodes/watchdog.py"
+# died.py, beside this script in the image: its line made again from the numbers served, never taken from the file as written
+DIED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "died.py")
+
+
+def say(line):
+    """A line to the boot log, whose pipe may be gone (its stamper killed with ComfyUI): never in the way of what follows."""
+    try:
+        print(line, flush=True)
+    except OSError:
+        pass
+
+
+def summary(report):
+    """died.py's line for these numbers; a plain one when died.py cannot be loaded."""
+    try:
+        spec = importlib.util.spec_from_file_location("afflatus_died", DIED)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.summary(report)
+    except Exception:
+        return "ComfyUI died"
 
 
 def watch(pack=PACK, env=None):
@@ -34,7 +56,7 @@ def watch(pack=PACK, env=None):
         threading.Thread(target=dog.loop, name="afflatus-watchdog", daemon=True).start()
         return dog
     except Exception as err:
-        print(f"[afflatus-pod] no watchdog: {err}", flush=True)
+        say(f"[afflatus-pod] no watchdog: {err}")
         return None
 
 
@@ -66,8 +88,7 @@ def died_report(path):
     for key in NUMBERS:
         value = got.get(key)
         report[key] = value if isinstance(value, int) and not isinstance(value, bool) else None
-    said = got.get("said")
-    return (said if isinstance(said, str) and said else "ComfyUI ended")[:300], report
+    return summary(report)[:300], report
 
 
 def what_failed(argv):
@@ -107,11 +128,11 @@ def main(argv, port=8188):
     # the GPU's failure is said here; a start's was said by start.sh already, as the boot log's "failed:" line, and
     # ComfyUI's death by died.py
     if kind == "gpu_failed":
-        print(f"[afflatus-pod] failed: the GPU does not work on this host: {error}", flush=True)
+        say(f"[afflatus-pod] failed: the GPU does not work on this host: {error}")
     elif kind == "comfy_died":
-        print("[afflatus-pod] the pod waits here, its watchdog armed", flush=True)
+        say("[afflatus-pod] the pod waits here, its watchdog armed")
     else:
-        print(f"[afflatus-pod] {error}: the pod waits here, its watchdog armed", flush=True)
+        say(f"[afflatus-pod] {error}: the pod waits here, its watchdog armed")
     watch()
     ThreadingHTTPServer(("0.0.0.0", port), handler(body)).serve_forever()
 

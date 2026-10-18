@@ -53,7 +53,8 @@ export class Stuck {
  * with the job.
  */
 export class Died {
-  constructor(readonly message: string, readonly trace: string | null = null) {}
+  /** `job`: the render it failed (machineDied), so that a later job on the same machine is never taken for it. */
+  constructor(readonly message: string, readonly trace: string | null = null, readonly job: string | null = null) {}
 }
 
 /** The job under way: its abort switch, the prompt ComfyUI knows it by once it has one, and whether it holds the GPU. */

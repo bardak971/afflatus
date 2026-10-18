@@ -48,6 +48,8 @@ export interface RentedView {
    * stopped on an error (the Afflatus image, deployed from here); "crash" when its ComfyUI died on it (Seen.comfyDied).
    */
   stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | "filled" | "cut" | "start" | "crash" | null;
+  /** Its ComfyUI died on it: why, as the pod said it (Seen.comfyDied), while that says what the pod is now; null otherwise. */
+  crash: string | null;
   /** Deployed and on its first start (its image pulled, ComfyUI starting): a normal step, said as one, not as an error. */
   booting: boolean;
   /** While it boots: where it is (podBoot.ts bootOf), from RunPod's data and its boot log. */
@@ -108,10 +110,11 @@ export interface Seen {
   /**
    * Its ComfyUI died after its start: as the pod reported it (broken.py's "comfy_died": died.py's line and numbers), or as the
    * queue found it (a ComfyUI started again without the render it ran: an older image, which says nothing of why; `report`
-   * null). Kept past the pod's end, for its card. `told`: acted on (the render failed, the pod terminated or the death said);
+   * null). Kept past the pod's end, for its card. `handled`: its render failed and the death kept on its run, once; `told`: the
+   * pod terminated (or, added by hand, the death said), done only once that succeeded and asked again at each read until then;
    * `render`: a render of Afflatus's was failed by it.
    */
-  comfyDied: { said: string; report: Record<string, unknown> | null; from: "pod" | "queue"; told: boolean; render: boolean } | null;
+  comfyDied: { said: string; report: Record<string, unknown> | null; from: "pod" | "queue"; handled: boolean; told: boolean; render: boolean } | null;
   /** How many reads in a row found no such pod on RunPod. */
   missing: number;
   /** Read at least once: what a later read finds is a change only when it differs. */

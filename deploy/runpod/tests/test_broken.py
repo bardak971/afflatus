@@ -40,10 +40,11 @@ class WhatFailed(unittest.TestCase):
             path = os.path.join(d, "died.json")
             with open(path, "w", encoding="utf-8") as f:
                 json.dump({"cause": "oom", "signal": 9, "exit": None, "oom_kills": 1, "ram_peak": 53_000_000_000, "ram_limit": 53_687_091_200,
-                           "vram_used": 30, "vram_total": 48, "ran_s": 2100, "said": "ComfyUI was killed: out of system memory",
+                           "vram_used": 30, "vram_total": 48, "ran_s": 2100, "said": "a line someone wrote, /workspace/secret/path",
                            "token": "secret", "ran_s_extra": "x"}, f)
             kind, error, report = broken.what_failed(["broken.py", "--died", path])
-        self.assertEqual((kind, error), ("comfy_died", "ComfyUI was killed: out of system memory"))
+        # its line made again from the numbers served (died.py's), never the file's own: nothing else of it goes out
+        self.assertEqual((kind, error), ("comfy_died", "ComfyUI was killed: out of system memory (peak 49.4 of 50.0 GB)"))
         self.assertEqual(report["cause"], "oom")
         self.assertEqual((report["signal"], report["ram_peak"], report["ran_s"]), (9, 53_000_000_000, 2100))
         self.assertNotIn("token", report)

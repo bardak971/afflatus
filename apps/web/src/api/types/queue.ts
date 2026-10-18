@@ -554,6 +554,8 @@ export interface RentedState {
   stopping: boolean;
   /** Why Afflatus stopped or terminated it last: "boot" when its ComfyUI never answered. */
   stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | "filled" | "cut" | "start" | "crash" | null;
+  /** Its ComfyUI died on it: why, as the pod said it (Seen.comfyDied), while that says what the pod is now; null otherwise. */
+  crash: string | null;
   /** Deployed and on its first start (its image pulled, ComfyUI starting): a normal step. */
   booting: boolean;
   /**

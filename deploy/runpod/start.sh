@@ -165,7 +165,11 @@ python -u "$POD/died.py" start "$COMFY_STATE" || echo "[afflatus-pod] died.py di
 # --disable-pinned-memory: ComfyUI keeps the models' weights in pinned RAM to feed the GPU (31 GB of an A40 pod's 46.6),
 # which the kernel cannot take back; the frames of a long decode on top went past the container's limit and it was
 # killed. Measured on an A40 (2026-10-18, a masked swap of 226 frames): killed at 46.6 GB without it; with it, three
-# renders back to back peaked at 15-20 GB, at the same 92 s a step. COMFYUI_ARGS comes after: the pod's own say
+# renders back to back peaked at 15-20 GB, at the same 92 s a step. COMFYUI_ARGS adds the pod's own flags after it (pinned
+# memory cannot be turned on again there: ComfyUI has no flag for that)
+# ComfyUI-Manager's restart (after it installs a node pack) exits instead of restarting in place when this is set (comfy-cli
+# sets it): this script would take that for a death, and the pod would be terminated. Never set for ComfyUI here
+unset __COMFY_CLI_SESSION__
 # shellcheck disable=SC2086
 python /comfyui/main.py --listen 0.0.0.0 --port 8188 --enable-manager --disable-auto-launch --disable-pinned-memory --base-directory "$BASE" ${COMFYUI_ARGS:-} &
 COMFY=$!
@@ -186,7 +190,8 @@ while :; do
   code=$?
   [ -n "$WOKEN" ] || break
 done
-set -e
+# no `set -e` from here on: a write to the boot log that fails (its stamper gone, killed with ComfyUI by the out-of-memory
+# killer) must not end this script, which RunPod would start again: what this run is here to prevent
 trap - TERM INT
 if [ -n "$STOPPING" ]; then
   exit 0
