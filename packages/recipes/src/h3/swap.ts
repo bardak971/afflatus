@@ -99,10 +99,10 @@ const swapInputs: InputSpec[] = [
     note: "MiniMax's reference model (ref2va), the one the swap LoRA was trained on, a model made from it, or a hybrid fine-tune (DaSiWa's: not tried with the swap LoRA yet). A distilled one (its name says turbo or a step count) takes no turbo LoRA: turn Turbo on for its few steps",
   },
   {
-    // shown, not only a file of Settings › Models (the owner, 2026-10-18: nothing hidden): its author's V1 (pro4500), the one
-    // the swaps were tested with, or the V1.5 its card now recommends for new swaps
+    // shown, not only a file of Settings › Models (the owner, 2026-10-18: nothing hidden): V1.5 by default, as its author recommends
+    // and as it swapped where V1 (pro4500) did not; V1 still a choice
     id: "swapLora", type: "model", label: "Swap LoRA", folder: "loras", slot: "swapLora", match: ["character.?swap"],
-    note: "akatz-ai's Character-Swap LoRA, put first among the LoRAs. Its card recommends V1.5 for new swaps; the swaps here were tested with V1 (pro4500)",
+    note: "akatz-ai's Character-Swap LoRA, put first among the LoRAs: V1.5 by default, as its card recommends for new swaps; V1 (pro4500) is its first version",
   },
   { id: "swapStrength", type: "number", label: "Swap LoRA strength", min: 0, max: 2, step: 0.05, default: 1, note: "its author's 1.0; 2 gave artifacts" },
   {
@@ -374,7 +374,7 @@ export const h3Swap = defineRecipe<H3Swap>({
   build(input, ctx) {
     if (!input.source || !ctx.uploads.source) throw new Error("A swap needs its source video.");
     const swapLora = input.swapLora ?? ctx.slots.swapLora;
-    if (!swapLora) throw new Error("The swap needs the Character-Swap LoRA: h3_character_swap_pro4500_1000.safetensors in ComfyUI's models/loras folder (Settings › Models has it).");
+    if (!swapLora) throw new Error("The swap needs the Character-Swap LoRA: h3_character_swap_v1.5.safetensors in ComfyUI's models/loras folder (Settings › Models has it).");
     const unet = input.swapModel ?? ctx.slots.swapUnet;
     if (!unet) throw new Error("The swap needs MiniMax H3's reference model, the one its LoRA was trained on: minimax_h3_ref2va_*.safetensors in ComfyUI's models/diffusion_models folder (Settings › Models has it).");
     const frames = framesOf(input, ctx);

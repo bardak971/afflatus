@@ -67,9 +67,11 @@ export const h3 = defineFamily({
       get: { file: "minimax_h3_ref2va_pruned_int8_convrot.safetensors", url: `${HF}/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors` },
     },
     {
-      id: "swapLora", label: "Character-Swap LoRA", folder: "loras", detect: ["character.?swap"], optional: true, onlyFor: ["h3.swap"],
-      hint: "For Swap character: akatz-ai's Character-Swap LoRA for the reference model, in ComfyUI's models/loras folder.",
-      get: { file: "h3_character_swap_pro4500_1000.safetensors", url: "https://huggingface.co/akatz-ai/MiniMax-H3-Character-Swap-LoRA/resolve/main/h3_character_swap_pro4500_1000.safetensors" },
+      // V1.5 first, the one its author recommends for new swaps and the one that swapped the owner's Timeline 19 where V1 did
+      // not (2026-10-18); V1 (pro4500) when it is the only one there
+      id: "swapLora", label: "Character-Swap LoRA", folder: "loras", detect: ["character.?swap.?v1\\.5", "character.?swap"], optional: true, onlyFor: ["h3.swap"],
+      hint: "For Swap character: akatz-ai's Character-Swap LoRA for the reference model (V1.5), in ComfyUI's models/loras folder.",
+      get: { file: "h3_character_swap_v1.5.safetensors", url: "https://huggingface.co/akatz-ai/MiniMax-H3-Character-Swap-LoRA/resolve/main/h3_character_swap_v1.5.safetensors" },
     },
     {
       id: "swapSam", label: "SAM 3 for Swap (finds the person)", folder: "checkpoints", detect: ["sam3"], optional: true, onlyFor: ["h3.swap"],

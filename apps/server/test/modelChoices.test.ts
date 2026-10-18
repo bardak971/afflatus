@@ -39,11 +39,12 @@ describe("a Model field's files", () => {
     expect(options("h3.swap", "swapModel")).toContain("DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors");
   });
 
-  it("shows the swap's LoRA as a field of its own, the slot's file first, its other versions beside it (the owner, 2026-10-18)", async () => {
+  it("shows the swap's LoRA as a field of its own, V1.5 first, its other versions beside it (the owner, 2026-10-18)", async () => {
     const s = await scan(client, families, [recipeById("h3.swap")!], {});
     const options = s.recipes.find((r) => r.id === "h3.swap")!.options.swapLora ?? [];
-    expect(options[0]).toBe("h3_character_swap_pro4500_1000.safetensors");
-    expect(options).toContain("h3_character_swap_v1.5.safetensors");
+    // V1.5 first, as its author recommends (the owner, 2026-10-18); V1 a choice beside it
+    expect(options[0]).toBe("h3_character_swap_v1.5.safetensors");
+    expect(options).toContain("h3_character_swap_pro4500_1000.safetensors");
     // the swap's versions first; another LoRA stays a choice after them, as a model's fine-tune can be named anything
     expect(options.indexOf("h3_character_swap_v1.5.safetensors")).toBeLessThan(options.indexOf("someone_style.safetensors"));
   });
